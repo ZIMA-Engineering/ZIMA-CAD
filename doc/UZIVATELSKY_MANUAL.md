@@ -3,7 +3,7 @@
 ## Kompatibilita dokumentů
 
 Každý nativní typ dokumentu má vlastní verzi: C++ Part `.prtz` nyní používá
-`format_version` 16, Assembly `.asmz` verzi 5 a Drawing `.drwz` verzi 2.
+`format_version` 17, Assembly `.asmz` verzi 5 a Drawing `.drwz` verzi 2.
 ZIMA-CAD během vývoje nepoužívá tiché fallbacky pro starší experimentální
 formáty: nepodporovanou verzi odmítne. Budoucí nekompatibilní změna formátu
 musí zvýšit příslušnou verzi a případně nabídnout samostatnou řízenou migraci.
@@ -498,6 +498,16 @@ z kontextové nabídky ve stromu skici.
 U vazby **Rovnoběžná** je pořadí stejné: první vybraná čára je reference,
 druhá se srovná a nese symbol rovnoběžnosti. První čára se nepřepočítává.
 Pokud je druhá čára již směrově zavazbená, ohlásí se konflikt.
+
+Nativní příkaz **Stejné** přijímá buď dvě úsečky, nebo dvě kruhové křivky:
+kružnice a kruhové oblouky lze vzájemně kombinovat. První výběr je reference,
+druhý řízený prvek. U úseček se zachová směr druhé a převezme se referenční
+délka. U kruhových křivek se převezme poloměr; střed řízené křivky zůstane na
+místě, konce oblouku zachovají své úhly a body navázané na konstrukční kružnici
+se přesunou radiálně spolu s ní. Pevný závislý bod, sdílená reference nebo
+rozporná řídicí kóta celou operaci odmítne bez částečné změny. Elipsy ani
+eliptické oblouky se pro shodný poloměr nenabízejí. První klik nic neukládá,
+druhý platný klik vytvoří jednu Part revizi a `Escape` příkaz zruší.
 
 Nativní vazba **Bod ve středu** se zadává výběrem samostatného bodu a potom
 úsečky nebo konstrukční čáry. Bod se asociativně sváže s přesným průměrem obou

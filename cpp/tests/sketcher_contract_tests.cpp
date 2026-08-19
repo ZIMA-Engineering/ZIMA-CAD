@@ -911,6 +911,129 @@ int main() {
         require(fixed_equal_rejected && fixed_equal.points == fixed_equal_before.points &&
                     fixed_equal.constraints == fixed_equal_before.constraints,
                 "Conflicting fixed EqualLength relation partially changed the Sketch");
+        auto equal_radius = zima::sketcher::Sketch::create_default();
+        const auto radius_reference = equal_radius.add_circle(0.0, 0.0, 5.0);
+        const auto radius_driven = equal_radius.add_circle(12.0, 0.0, 2.0);
+        static_cast<void>(equal_radius.add_equal_radius_constraint(
+            radius_reference, radius_driven));
+        require(equal_radius.constraints.size() == 1 &&
+                    equal_radius.constraints.front().kind ==
+                        zima::sketcher::ConstraintKind::EqualRadius &&
+                    std::abs(equal_radius.circles[1].radius - 5.0) < 1.0e-8 &&
+                    std::abs(equal_radius.find_point(
+                        equal_radius.circles[1].center_point_id)->x - 12.0) < 1.0e-8,
+                "EqualRadius moved the driven centre or missed the reference radius");
+        const auto loaded_equal_radius = zima::sketcher::Sketch::from_serialized(
+            equal_radius.serialized());
+        require(loaded_equal_radius.constraints == equal_radius.constraints &&
+                    loaded_equal_radius.circles == equal_radius.circles,
+                "EqualRadius did not survive Sketch serialization");
+        auto equal_radius_after_delete = loaded_equal_radius;
+        equal_radius_after_delete.remove_geometry(radius_driven);
+        require(equal_radius_after_delete.constraints.empty(),
+                "Deleting an EqualRadius owner retained its constraint");
+        bool duplicate_equal_radius_rejected = false;
+        try {
+            static_cast<void>(equal_radius.add_equal_radius_constraint(
+                radius_driven, radius_reference));
+        } catch (const std::invalid_argument&) {
+            duplicate_equal_radius_rejected = true;
+        }
+        require(duplicate_equal_radius_rejected,
+                "Reversed duplicate EqualRadius constraint was accepted");
+        auto equal_arc_radius = zima::sketcher::Sketch::create_default();
+        const auto arc_radius_reference = equal_arc_radius.add_circle(
+            0.0, 0.0, 4.0);
+        const auto arc_radius_driven = equal_arc_radius.add_arc(
+            10.0, 0.0, 12.0, 0.0, 10.0, 2.0);
+        static_cast<void>(equal_arc_radius.add_equal_radius_constraint(
+            arc_radius_reference, arc_radius_driven));
+        require(std::abs(equal_arc_radius.arcs.front().radius - 4.0) < 1.0e-8 &&
+                    std::abs(equal_arc_radius.find_point(
+                        equal_arc_radius.arcs.front().start_point_id)->x - 14.0) <
+                        1.0e-8 &&
+                    std::abs(equal_arc_radius.find_point(
+                        equal_arc_radius.arcs.front().end_point_id)->y - 4.0) <
+                        1.0e-8,
+                "EqualRadius did not resize the driven arc and its endpoints");
+        auto equal_polygon_radius = zima::sketcher::Sketch::create_default();
+        const auto polygon_radius_reference =
+            equal_polygon_radius.add_circle(-10.0, 0.0, 6.0);
+        const auto equal_radius_polygon = equal_polygon_radius.add_regular_polygon(
+            10.0, 0.0, 12.0, 0.0, 6);
+        static_cast<void>(equal_polygon_radius.add_equal_radius_constraint(
+            polygon_radius_reference, equal_radius_polygon.support_circle_id));
+        const auto* equal_polygon_center = equal_polygon_radius.find_point(
+            equal_polygon_radius.circles[1].center_point_id);
+        require(std::all_of(
+                    equal_radius_polygon.vertex_ids.begin(),
+                    equal_radius_polygon.vertex_ids.end(),
+                    [&](const auto& point_id) {
+                        const auto* point = equal_polygon_radius.find_point(point_id);
+                        return std::abs(std::hypot(
+                            point->x - equal_polygon_center->x,
+                            point->y - equal_polygon_center->y) - 6.0) < 1.0e-7;
+                    }) &&
+                    equal_polygon_radius.solve().status !=
+                        zima::sketcher::SolveStatus::Conflicting,
+                "EqualRadius did not resize a PointOnCircle dependency closure");
+        auto fixed_equal_radius = zima::sketcher::Sketch::create_default();
+        const auto fixed_radius_reference =
+            fixed_equal_radius.add_circle(0.0, 0.0, 4.0);
+        const auto fixed_radius_arc = fixed_equal_radius.add_arc(
+            10.0, 0.0, 12.0, 0.0, 10.0, 2.0);
+        fixed_equal_radius.find_point(
+            fixed_equal_radius.arcs.front().start_point_id)->fixed = true;
+        const auto fixed_equal_radius_before = fixed_equal_radius;
+        bool fixed_equal_radius_rejected = false;
+        try {
+            static_cast<void>(fixed_equal_radius.add_equal_radius_constraint(
+                fixed_radius_reference, fixed_radius_arc));
+        } catch (const std::runtime_error&) {
+            fixed_equal_radius_rejected = true;
+        }
+        require(fixed_equal_radius_rejected &&
+                    fixed_equal_radius.points == fixed_equal_radius_before.points &&
+                    fixed_equal_radius.arcs == fixed_equal_radius_before.arcs &&
+                    fixed_equal_radius.constraints ==
+                        fixed_equal_radius_before.constraints,
+                "Blocked EqualRadius relation partially changed the Sketch");
+        auto dimensioned_equal_radius = zima::sketcher::Sketch::create_default();
+        const auto dimensioned_radius_reference =
+            dimensioned_equal_radius.add_circle(0.0, 0.0, 5.0);
+        const auto dimensioned_radius_driven =
+            dimensioned_equal_radius.add_circle(12.0, 0.0, 2.0);
+        dimensioned_equal_radius.apply_dimension(
+            dimensioned_equal_radius.create_circle_radius_dimension(
+                dimensioned_radius_driven));
+        const auto dimensioned_equal_radius_before = dimensioned_equal_radius;
+        bool dimensioned_equal_radius_rejected = false;
+        try {
+            static_cast<void>(dimensioned_equal_radius.add_equal_radius_constraint(
+                dimensioned_radius_reference, dimensioned_radius_driven));
+        } catch (const std::runtime_error&) {
+            dimensioned_equal_radius_rejected = true;
+        }
+        require(dimensioned_equal_radius_rejected &&
+                    dimensioned_equal_radius.circles ==
+                        dimensioned_equal_radius_before.circles &&
+                    dimensioned_equal_radius.constraints ==
+                        dimensioned_equal_radius_before.constraints,
+                "Conflicting radius dimension did not reject EqualRadius transactionally");
+        auto unsupported_equal_radius = zima::sketcher::Sketch::create_default();
+        const auto unsupported_equal_circle =
+            unsupported_equal_radius.add_circle(0.0, 0.0, 3.0);
+        const auto unsupported_equal_ellipse = unsupported_equal_radius.add_ellipse(
+            10.0, 0.0, 14.0, 0.0, 10.0, 2.0);
+        bool unsupported_equal_radius_rejected = false;
+        try {
+            static_cast<void>(unsupported_equal_radius.add_equal_radius_constraint(
+                unsupported_equal_circle, unsupported_equal_ellipse));
+        } catch (const std::invalid_argument&) {
+            unsupported_equal_radius_rejected = true;
+        }
+        require(unsupported_equal_radius_rejected,
+                "EqualRadius accepted an unsupported ellipse");
         const auto before_collapsing_constraint = connected;
         bool collapsing_constraint_rejected = false;
         try {

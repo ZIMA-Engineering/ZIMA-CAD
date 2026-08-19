@@ -582,7 +582,8 @@ void AssemblyWorkspaceWindow::create_actions() {
     sketch_tangent_action_->setObjectName("sketchTangentAction");
     sketch_parallel_action_ = make_action(tr("Rovnoběžnost úseček"));
     sketch_perpendicular_action_ = make_action(tr("Kolmost úseček"));
-    sketch_equal_length_action_ = make_action(tr("Stejná délka úseček"));
+    sketch_equal_length_action_ = make_action(tr("Stejné"));
+    sketch_equal_length_action_->setObjectName("sketchEqualAction");
     sketch_fix_point_action_ = make_action(tr("Fixovat/uvolnit bod"));
     sketch_dimension_action_ = make_action(tr("Kóta délky úsečky…"), "sketch-dimensions");
     sketch_dimension_x_action_ = make_action(tr("Vodorovná kóta úsečky…"));
@@ -3028,7 +3029,8 @@ void AssemblyWorkspaceWindow::cancel_sketch_segment() {
     pending_tangent_geometry_id_.clear();
     pending_tangent_reference_is_segment_ = false;
     pending_tangent_reference_supports_curve_pair_ = false;
-    pending_pair_segment_id_.clear();
+    pending_pair_geometry_id_.clear();
+    pending_pair_reference_is_circular_ = false;
     viewer_->set_transient_edges({});
 }
 
@@ -4299,32 +4301,99 @@ void AssemblyWorkspaceWindow::start_sketch_segment_pair(
     selected_sketch_circle_id_.clear();
     selected_sketch_arc_id_.clear();
     selected_sketch_point_id_.clear();
-    viewer_->set_selection_contract({zima::viewer::CandidateKind::SketchSegment});
+    set_sketch_pair_contract();
     state_->setText(kind == zima::sketcher::ConstraintKind::Parallel
         ? tr("Rovnoběžnost: vyberte referenční úsečku. Escape příkaz zruší.")
         : kind == zima::sketcher::ConstraintKind::Perpendicular
             ? tr("Kolmost: vyberte referenční úsečku. Escape příkaz zruší.")
-            : tr("Stejná délka: vyberte referenční úsečku. Escape příkaz zruší."));
+            : tr("Stejné: vyberte referenční úsečku, kružnici nebo oblouk. "
+                 "Escape příkaz zruší."));
+}
+
+void AssemblyWorkspaceWindow::set_sketch_pair_contract() {
+    const bool equal = pending_pair_kind_ ==
+        zima::sketcher::ConstraintKind::EqualLength;
+    if (!equal || (!pending_pair_geometry_id_.empty() &&
+                   !pending_pair_reference_is_circular_)) {
+        viewer_->set_selection_contract({
+            zima::viewer::CandidateKind::SketchSegment});
+    } else if (!pending_pair_geometry_id_.empty()) {
+        viewer_->set_selection_contract({
+            zima::viewer::CandidateKind::SketchCurve});
+    } else {
+        viewer_->set_selection_contract({
+            zima::viewer::CandidateKind::SketchSegment,
+            zima::viewer::CandidateKind::SketchCurve});
+    }
+    const auto owner_id = active_sketch_id_;
+    const auto pending_geometry_id = pending_pair_geometry_id_;
+    const bool reference_is_circular = pending_pair_reference_is_circular_;
+    viewer_->set_candidate_filter(
+        [owner_id, pending_geometry_id, reference_is_circular, equal](
+            const auto& candidate) {
+            if (candidate.owner_id != owner_id) return false;
+            const bool segment =
+                candidate.kind == zima::viewer::CandidateKind::SketchSegment &&
+                candidate.semantic_key.starts_with("segment:");
+            const bool circular =
+                candidate.kind == zima::viewer::CandidateKind::SketchCurve &&
+                (candidate.semantic_key.starts_with("circle:") ||
+                 candidate.semantic_key.starts_with("arc:"));
+            if ((!equal && !segment) || (equal && !segment && !circular)) {
+                return false;
+            }
+            const auto separator = candidate.semantic_key.find(':');
+            if (separator != std::string::npos &&
+                candidate.semantic_key.substr(separator + 1) ==
+                    pending_geometry_id) {
+                return false;
+            }
+            if (pending_geometry_id.empty()) return true;
+            return reference_is_circular ? circular : segment;
+        });
 }
 
 void AssemblyWorkspaceWindow::accept_sketch_segment_pair(
     const zima::viewer::ViewerCandidate& candidate) {
-    if (!sketch_segment_pair_active_ ||
-        candidate.kind != zima::viewer::CandidateKind::SketchSegment ||
-        candidate.owner_id != active_sketch_id_ ||
-        !candidate.semantic_key.starts_with("segment:")) return;
-    const auto segment_id = candidate.semantic_key.substr(8);
-    if (pending_pair_segment_id_.empty()) {
-        pending_pair_segment_id_ = segment_id;
+    if (!sketch_segment_pair_active_ || candidate.owner_id != active_sketch_id_) {
+        return;
+    }
+    std::string geometry_id;
+    bool is_circular = false;
+    if (candidate.kind == zima::viewer::CandidateKind::SketchSegment &&
+        candidate.semantic_key.starts_with("segment:")) {
+        geometry_id = candidate.semantic_key.substr(8);
+    } else if (pending_pair_kind_ == zima::sketcher::ConstraintKind::EqualLength &&
+               candidate.kind == zima::viewer::CandidateKind::SketchCurve) {
+        for (const std::string_view prefix : {
+                std::string_view{"circle:"}, std::string_view{"arc:"}}) {
+            if (!candidate.semantic_key.starts_with(prefix)) continue;
+            geometry_id = candidate.semantic_key.substr(prefix.size());
+            is_circular = true;
+            break;
+        }
+    }
+    if (geometry_id.empty()) return;
+    if (pending_pair_geometry_id_.empty()) {
+        pending_pair_geometry_id_ = geometry_id;
+        pending_pair_reference_is_circular_ = is_circular;
+        set_sketch_pair_contract();
         state_->setText(pending_pair_kind_ == zima::sketcher::ConstraintKind::Parallel
             ? tr("Rovnoběžnost: vyberte řízenou úsečku.")
             : pending_pair_kind_ == zima::sketcher::ConstraintKind::Perpendicular
                 ? tr("Kolmost: vyberte řízenou úsečku.")
-                : tr("Stejná délka: vyberte řízenou úsečku."));
+                : is_circular
+                    ? tr("Stejné: vyberte řízenou kružnici nebo oblouk.")
+                    : tr("Stejné: vyberte řízenou úsečku."));
         return;
     }
-    if (segment_id == pending_pair_segment_id_) {
-        state_->setText(tr("Vyberte jinou řízenou úsečku."));
+    if (geometry_id == pending_pair_geometry_id_) {
+        state_->setText(tr("Vyberte jinou řízenou geometrii."));
+        return;
+    }
+    if (is_circular != pending_pair_reference_is_circular_) {
+        state_->setText(tr(
+            "Stejné vyžaduje dvě úsečky nebo dvě kružnice či kruhové oblouky."));
         return;
     }
     auto* part = workspace_.open_part(workspace_.active_document_id());
@@ -4334,10 +4403,17 @@ void AssemblyWorkspaceWindow::accept_sketch_segment_pair(
         const auto sketch = std::find_if(next.sketches.begin(), next.sketches.end(),
             [&](const auto& value) { return value.id == active_sketch_id_; });
         if (sketch == next.sketches.end()) return;
-        static_cast<void>(sketch->add_segment_pair_constraint(
-            pending_pair_segment_id_, segment_id, pending_pair_kind_));
+        if (pending_pair_reference_is_circular_) {
+            static_cast<void>(sketch->add_equal_radius_constraint(
+                pending_pair_geometry_id_, geometry_id));
+        } else {
+            static_cast<void>(sketch->add_segment_pair_constraint(
+                pending_pair_geometry_id_, geometry_id, pending_pair_kind_));
+        }
         part->session.commit(std::move(next), part->session.calculated_boundaries());
-        pending_pair_segment_id_.clear();
+        const bool equal_radius = pending_pair_reference_is_circular_;
+        pending_pair_geometry_id_.clear();
+        pending_pair_reference_is_circular_ = false;
         preserve_view_on_refresh_ = true;
         refresh_tabs();
         refresh_scene();
@@ -4345,7 +4421,9 @@ void AssemblyWorkspaceWindow::accept_sketch_segment_pair(
             ? tr("Rovnoběžnost vytvořena. Vyberte další referenční úsečku.")
             : pending_pair_kind_ == zima::sketcher::ConstraintKind::Perpendicular
                 ? tr("Kolmost vytvořena. Vyberte další referenční úsečku.")
-                : tr("Stejná délka vytvořena. Vyberte další referenční úsečku."));
+                : equal_radius
+                    ? tr("Stejný poloměr vytvořen. Vyberte další referenční geometrii.")
+                    : tr("Stejná délka vytvořena. Vyberte další referenční geometrii."));
     } catch (const std::exception& error) {
         state_->setText(QString::fromUtf8(error.what()));
     }
@@ -5668,7 +5746,13 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                                   zima::viewer::CandidateKind::SketchCurve}
                         : std::vector{zima::viewer::CandidateKind::SketchSegment}
             : sketch_segment_pair_active_
-                ? std::vector{zima::viewer::CandidateKind::SketchSegment}
+                ? pending_pair_kind_ == zima::sketcher::ConstraintKind::EqualLength &&
+                        pending_pair_geometry_id_.empty()
+                    ? std::vector{zima::viewer::CandidateKind::SketchSegment,
+                                  zima::viewer::CandidateKind::SketchCurve}
+                    : pending_pair_reference_is_circular_
+                        ? std::vector{zima::viewer::CandidateKind::SketchCurve}
+                        : std::vector{zima::viewer::CandidateKind::SketchSegment}
             : active_sketch_id_.empty()
                 ? [this] {
                     switch (selection_filter_combo_->currentIndex()) {
@@ -5693,6 +5777,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             set_sketch_concentric_contract();
         } else if (sketch_tangent_active_) {
             set_sketch_tangent_contract();
+        } else if (sketch_segment_pair_active_) {
+            set_sketch_pair_contract();
         }
         const auto& calculated = part->session.calculated_boundaries();
         if (part_rollback_ &&

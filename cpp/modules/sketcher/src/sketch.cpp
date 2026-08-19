@@ -51,6 +51,7 @@ const char* constraint_name(ConstraintKind kind) {
     case ConstraintKind::Parallel: return "parallel";
     case ConstraintKind::Perpendicular: return "perpendicular";
     case ConstraintKind::EqualLength: return "equal_length";
+    case ConstraintKind::EqualRadius: return "equal_radius";
     case ConstraintKind::PointOnCircle: return "point_on_circle";
     case ConstraintKind::Symmetric: return "symmetric";
     case ConstraintKind::Midpoint: return "midpoint";
@@ -67,6 +68,7 @@ ConstraintKind constraint_from_name(const std::string& name) {
     if (name == "parallel") return ConstraintKind::Parallel;
     if (name == "perpendicular") return ConstraintKind::Perpendicular;
     if (name == "equal_length") return ConstraintKind::EqualLength;
+    if (name == "equal_radius") return ConstraintKind::EqualRadius;
     if (name == "point_on_circle") return ConstraintKind::PointOnCircle;
     if (name == "symmetric") return ConstraintKind::Symmetric;
     if (name == "midpoint") return ConstraintKind::Midpoint;
@@ -160,11 +162,10 @@ std::optional<std::string> center_curve_point_id(
     return std::nullopt;
 }
 
-std::set<std::string> center_curve_translation_points(
-    const Sketch& sketch, const std::string& geometry_id) {
-    const auto center_id = center_curve_point_id(sketch, geometry_id);
-    if (!center_id) return {};
-    std::set<std::string> result{*center_id};
+std::set<std::string> point_translation_closure(
+    const Sketch& sketch, const std::string& point_id) {
+    if (sketch.find_point(point_id) == nullptr) return {};
+    std::set<std::string> result{point_id};
     bool changed = true;
     while (changed) {
         changed = false;
@@ -200,6 +201,51 @@ std::set<std::string> center_curve_translation_points(
         }
     }
     return result;
+}
+
+std::set<std::string> center_curve_translation_points(
+    const Sketch& sketch, const std::string& geometry_id) {
+    const auto center_id = center_curve_point_id(sketch, geometry_id);
+    return center_id ? point_translation_closure(sketch, *center_id)
+                     : std::set<std::string>{};
+}
+
+std::optional<double> circular_curve_radius(
+    const Sketch& sketch, const std::string& geometry_id) {
+    if (const auto circle = std::find_if(
+            sketch.circles.begin(), sketch.circles.end(),
+            [&](const auto& value) { return value.id == geometry_id; });
+        circle != sketch.circles.end()) return circle->radius;
+    if (const auto arc = std::find_if(
+            sketch.arcs.begin(), sketch.arcs.end(),
+            [&](const auto& value) { return value.id == geometry_id; });
+        arc != sketch.arcs.end()) return arc->radius;
+    return std::nullopt;
+}
+
+std::set<std::string> circular_curve_radial_points(
+    const Sketch& sketch, const std::string& geometry_id) {
+    if (const auto circle = std::find_if(
+            sketch.circles.begin(), sketch.circles.end(),
+            [&](const auto& value) { return value.id == geometry_id; });
+        circle != sketch.circles.end()) {
+        std::set<std::string> result;
+        for (const auto& constraint : sketch.constraints) {
+            if (!constraint.suppressed &&
+                constraint.kind == ConstraintKind::PointOnCircle &&
+                constraint.geometry_id == geometry_id) {
+                result.insert(constraint.first_point_id);
+            }
+        }
+        return result;
+    }
+    if (const auto arc = std::find_if(
+            sketch.arcs.begin(), sketch.arcs.end(),
+            [&](const auto& value) { return value.id == geometry_id; });
+        arc != sketch.arcs.end()) {
+        return {arc->start_point_id, arc->end_point_id};
+    }
+    return {};
 }
 
 struct TangentCurveData {
@@ -672,6 +718,7 @@ void Sketch::validate() const {
         const bool midpoint = constraint.kind == ConstraintKind::Midpoint;
         const bool concentric = constraint.kind == ConstraintKind::Concentric;
         const bool tangent = constraint.kind == ConstraintKind::Tangent;
+        const bool equal_radius = constraint.kind == ConstraintKind::EqualRadius;
         const auto first_curve_center = concentric
             ? center_curve_point_id(*this, constraint.geometry_id) : std::nullopt;
         const auto second_curve_center = concentric
@@ -680,6 +727,10 @@ void Sketch::validate() const {
             ? tangent_curve_data(*this, constraint.geometry_id) : std::nullopt;
         const auto second_tangent_curve = tangent
             ? tangent_curve_data(*this, constraint.second_geometry_id) : std::nullopt;
+        const auto first_equal_radius = equal_radius
+            ? circular_curve_radius(*this, constraint.geometry_id) : std::nullopt;
+        const auto second_equal_radius = equal_radius
+            ? circular_curve_radius(*this, constraint.second_geometry_id) : std::nullopt;
         const bool first_is_segment = owned_segment != segments.end();
         const bool second_is_segment = second_owned_segment != segments.end();
         const bool tangent_line_curve_valid =
@@ -695,7 +746,7 @@ void Sketch::validate() const {
             ? sketch_axis_line(*this, constraint.geometry_id) : std::nullopt;
         const bool symmetry_axis_valid = symmetry_axis &&
             std::hypot(symmetry_axis->second[0], symmetry_axis->second[1]) > 1.0e-12;
-        const bool points_valid = pair_constraint || concentric || tangent
+        const bool points_valid = pair_constraint || concentric || tangent || equal_radius
             ? constraint.first_point_id.empty() && constraint.second_point_id.empty()
             : point_on_circle || midpoint
                 ? find_point(constraint.first_point_id) != nullptr &&
@@ -720,6 +771,8 @@ void Sketch::validate() const {
             (concentric && (!first_curve_center || !second_curve_center ||
              constraint.geometry_id == constraint.second_geometry_id ||
              *first_curve_center == *second_curve_center)) ||
+            (equal_radius && (!first_equal_radius || !second_equal_radius ||
+             constraint.geometry_id == constraint.second_geometry_id)) ||
             (tangent && (
              constraint.geometry_id == constraint.second_geometry_id ||
              (!tangent_line_curve_valid && !tangent_curve_pair_valid) ||
@@ -1324,6 +1377,47 @@ std::string Sketch::add_segment_pair_constraint(
     const auto result = next.solve();
     if (result.status == SolveStatus::Conflicting || result.status == SolveStatus::Invalid) {
         throw std::runtime_error("Segment-pair constraint conflicts with existing geometry");
+    }
+    *this = std::move(next);
+    return id;
+}
+
+std::string Sketch::add_equal_radius_constraint(
+    const std::string& reference_geometry_id,
+    const std::string& driven_geometry_id) {
+    const auto reference_radius = circular_curve_radius(
+        *this, reference_geometry_id);
+    const auto driven_radius = circular_curve_radius(
+        *this, driven_geometry_id);
+    if (reference_geometry_id.empty() || driven_geometry_id.empty() ||
+        reference_geometry_id == driven_geometry_id ||
+        !reference_radius || !driven_radius) {
+        throw std::invalid_argument("Equal-radius constraint input is invalid");
+    }
+    if (std::any_of(constraints.begin(), constraints.end(), [&](const auto& value) {
+            return !value.suppressed &&
+                value.kind == ConstraintKind::EqualRadius &&
+                ((value.geometry_id == reference_geometry_id &&
+                  value.second_geometry_id == driven_geometry_id) ||
+                 (value.geometry_id == driven_geometry_id &&
+                  value.second_geometry_id == reference_geometry_id));
+        })) {
+        throw std::invalid_argument(
+            "Circular curves already own this equal-radius constraint");
+    }
+    auto next = *this;
+    SketchConstraint constraint;
+    constraint.id = make_id();
+    constraint.kind = ConstraintKind::EqualRadius;
+    constraint.geometry_id = reference_geometry_id;
+    constraint.second_geometry_id = driven_geometry_id;
+    const auto id = constraint.id;
+    next.constraints.push_back(std::move(constraint));
+    const auto result = next.solve();
+    if (result.status == SolveStatus::Conflicting ||
+        result.status == SolveStatus::Invalid) {
+        throw std::runtime_error(
+            "Equal-radius constraint conflicts with existing geometry");
     }
     *this = std::move(next);
     return id;
@@ -2734,6 +2828,83 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
         }
         return true;
     };
+    const auto resize_circular_curve = [&](const std::string& geometry_id,
+                                            double target_radius,
+                                            const std::set<std::string>&
+                                                protected_points) {
+        std::unordered_map<std::string, std::array<double, 2>> translations;
+        const auto add_radial_target = [&](const std::string& point_id,
+                                           double target_x,
+                                           double target_y) {
+            const auto* root = find_point(point_id);
+            if (root == nullptr) return false;
+            const std::array delta{target_x - root->x, target_y - root->y};
+            if (std::hypot(delta[0], delta[1]) <= tolerance) return true;
+            const auto closure = point_translation_closure(*this, point_id);
+            if (closure.empty()) return false;
+            for (const auto& dependent_id : closure) {
+                const auto* dependent = find_point(dependent_id);
+                if (dependent == nullptr || dependent->fixed ||
+                    protected_points.contains(dependent_id)) {
+                    return false;
+                }
+                const auto existing = translations.find(dependent_id);
+                if (existing != translations.end() &&
+                    std::hypot(existing->second[0] - delta[0],
+                               existing->second[1] - delta[1]) > tolerance) {
+                    return false;
+                }
+                translations[dependent_id] = delta;
+            }
+            return true;
+        };
+        if (auto circle = std::find_if(
+                circles.begin(), circles.end(),
+                [&](const auto& value) { return value.id == geometry_id; });
+            circle != circles.end()) {
+            const auto* center = find_point(circle->center_point_id);
+            if (center == nullptr) return false;
+            for (const auto& point_id : circular_curve_radial_points(
+                    *this, geometry_id)) {
+                const auto* point = find_point(point_id);
+                if (point == nullptr) return false;
+                const double dx = point->x - center->x;
+                const double dy = point->y - center->y;
+                const double distance = std::hypot(dx, dy);
+                if (distance <= tolerance || !add_radial_target(
+                        point_id,
+                        center->x + dx * target_radius / distance,
+                        center->y + dy * target_radius / distance)) {
+                    return false;
+                }
+            }
+            circle->radius = target_radius;
+        } else if (auto arc = std::find_if(
+                       arcs.begin(), arcs.end(),
+                       [&](const auto& value) { return value.id == geometry_id; });
+                   arc != arcs.end()) {
+            const auto* center = find_point(arc->center_point_id);
+            if (center == nullptr || !add_radial_target(
+                    arc->start_point_id,
+                    center->x + target_radius * std::cos(arc->start_angle),
+                    center->y + target_radius * std::sin(arc->start_angle)) ||
+                !add_radial_target(
+                    arc->end_point_id,
+                    center->x + target_radius * std::cos(arc->end_angle),
+                    center->y + target_radius * std::sin(arc->end_angle))) {
+                return false;
+            }
+            arc->radius = target_radius;
+        } else {
+            return false;
+        }
+        for (const auto& [point_id, delta] : translations) {
+            auto* point = find_point(point_id);
+            point->x += delta[0];
+            point->y += delta[1];
+        }
+        return true;
+    };
     for (std::size_t iteration = 0; iteration < maximum_iterations; ++iteration) {
         maximum_residual = 0.0;
         bool immovable_conflict = false;
@@ -2833,6 +3004,27 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
                         point->x += translation_x;
                         point->y += translation_y;
                     }
+                }
+                continue;
+            }
+            if (constraint.kind == ConstraintKind::EqualRadius) {
+                const auto reference_radius = circular_curve_radius(
+                    *this, constraint.geometry_id);
+                const auto driven_radius = circular_curve_radius(
+                    *this, constraint.second_geometry_id);
+                if (!reference_radius || !driven_radius) {
+                    maximum_residual = std::max(maximum_residual, 1.0);
+                    immovable_conflict = true;
+                    continue;
+                }
+                const double residual = *driven_radius - *reference_radius;
+                maximum_residual = std::max(
+                    maximum_residual, std::abs(residual));
+                if (std::abs(residual) > tolerance && !resize_circular_curve(
+                        constraint.second_geometry_id, *reference_radius,
+                        center_curve_translation_points(
+                            *this, constraint.geometry_id))) {
+                    immovable_conflict = true;
                 }
                 continue;
             }
@@ -3190,6 +3382,16 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
                             std::abs(state->target_distance)
                         : 1.0e12);
                 }
+                continue;
+            }
+            if (constraint.kind == ConstraintKind::EqualRadius) {
+                const auto reference_radius = circular_curve_radius(
+                    *this, constraint.geometry_id);
+                const auto driven_radius = circular_curve_radius(
+                    *this, constraint.second_geometry_id);
+                result.push_back(reference_radius && driven_radius
+                    ? *driven_radius - *reference_radius
+                    : 1.0e12);
                 continue;
             }
             if (constraint.kind == ConstraintKind::Concentric) {
@@ -3786,7 +3988,7 @@ std::string Sketch::serialized() const {
         if (dimension.upper_limit) value["upper_limit"] = *dimension.upper_limit;
         dimension_values.push_back(std::move(value));
     }
-    const nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 13},
+    const nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 14},
         {"id", id}, {"name", name}, {"plane", plane_name(plane)},
         {"plane_offset", plane_offset}, {"points", std::move(point_values)},
         {"segments", std::move(segment_values)},
@@ -3803,7 +4005,7 @@ std::string Sketch::serialized() const {
 
 Sketch Sketch::from_serialized(const std::string& value) {
     const auto root = nlohmann::json::parse(value);
-    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 13) {
+    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 14) {
         throw std::runtime_error("Unsupported sketch format");
     }
     Sketch sketch;

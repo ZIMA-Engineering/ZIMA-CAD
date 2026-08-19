@@ -219,7 +219,8 @@ private:
     bool pending_tangent_reference_is_segment_{};
     bool pending_tangent_reference_supports_curve_pair_{};
     bool sketch_segment_pair_active_{};
-    std::string pending_pair_segment_id_;
+    std::string pending_pair_geometry_id_;
+    bool pending_pair_reference_is_circular_{};
     zima::sketcher::ConstraintKind pending_pair_kind_{
         zima::sketcher::ConstraintKind::Parallel};
     bool preserve_view_on_refresh_{};
@@ -379,6 +380,7 @@ private:
     void accept_sketch_tangent_selection(
         const zima::viewer::ViewerCandidate& candidate);
     void start_sketch_segment_pair(zima::sketcher::ConstraintKind kind);
+    void set_sketch_pair_contract();
     void accept_sketch_segment_pair(
         const zima::viewer::ViewerCandidate& candidate);
     void toggle_selected_sketch_point_fixed();

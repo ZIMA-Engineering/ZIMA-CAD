@@ -78,6 +78,7 @@ int verify_startup_contract(
     auto* sketch_symmetric = window.findChild<QAction*>("sketchSymmetricAction");
     auto* sketch_concentric = window.findChild<QAction*>("sketchConcentricAction");
     auto* sketch_tangent = window.findChild<QAction*>("sketchTangentAction");
+    auto* sketch_equal = window.findChild<QAction*>("sketchEqualAction");
     auto* finish_sketch = window.findChild<QAction*>("finishSketchAction");
     auto* extrusion = window.findChild<QAction*>("extrusionAction");
     auto* about = window.findChild<QAction*>("aboutAction");
@@ -100,6 +101,7 @@ int verify_startup_contract(
                     sketch_symmetric != nullptr &&
                     sketch_concentric != nullptr &&
                     sketch_tangent != nullptr &&
+                    sketch_equal != nullptr &&
                     finish_sketch != nullptr &&
                     extrusion != nullptr && about != nullptr && save_as != nullptr &&
                     working_directory != nullptr && new_document != nullptr,

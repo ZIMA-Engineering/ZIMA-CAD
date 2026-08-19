@@ -842,6 +842,17 @@ dvojice zůstávají záměrně mimo tento řez, protože jejich stabilní tečn
 vyžaduje persistované kontaktní parametry. Výběr ani solve této vazby nevolá
 OCCT a starší formát se bez migrační větve odmítá.
 
+Sketch formát verze 14 a Part formát verze 17 rozšiřují jednotný příkaz
+**Stejné** o persistovanou vazbu `EqualRadius` mezi kružnicemi a kruhovými
+oblouky. První stabilní ID je autoritativní reference a druhé vlastní řízenou
+křivku. Solver převezme pouze poloměr: střed nemění, konce oblouku zachová ve
+stejných úhlech a body `PointOnCircle` včetně navázaných středových uzávěrů
+přesune radiálně. Pevný nebo s referencí sdílený závislý bod a rozporná řídicí
+kóta vrátí celou transakci. Stejný viewerový příkaz po prvním kandidátu filtruje
+druhý na shodnou rodinu — úsečka k úsečce, kružnice či kruhový oblouk ke druhé
+kruhové křivce. Eliptické křivky se nenabízejí. Výběr ani solve nevolá OCCT a
+pro starší formát nevznikla kompatibilní větev.
+
 První nativní řez příkazu **Ořezat** vytváří transientní topologii pouze z
 persistovaného Sketch modelu a jeho viewerových křivek; OCCT se při hoveru,
 kliknutí ani tažení nevolá. Základní osy X/Y a konstrukční čáry vytvářejí meze,
