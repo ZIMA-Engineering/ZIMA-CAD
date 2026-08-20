@@ -101,6 +101,8 @@ target_link_libraries(zima-cad-part-harness PRIVATE
 
 add_executable(zima-cad-cpp
     app/main_workspace.cpp app/assembly_workspace_window.cpp
+    app/application_settings.cpp app/global_settings_dialog.cpp
+    app/document_tools_dialogs.cpp
     app/drawing_window.cpp app/file_dialog.cpp app/resource_icon.cpp
     app/zima_resources.qrc
     app/component_properties_dialog.cpp app/primitive_properties_dialog.cpp
@@ -133,7 +135,8 @@ if(ZIMA_BUILD_TESTS)
         tests/ui_contract_tests.cpp app/primitive_properties_dialog.cpp
         app/construction_properties_dialog.cpp
         app/component_properties_dialog.cpp app/mate_properties_dialog.cpp
-        app/file_dialog.cpp)
+        app/file_dialog.cpp app/application_settings.cpp
+        app/document_tools_dialogs.cpp)
     target_sources(zima_cpp_ui_contract_tests PRIVATE app/sketch_properties_dialog.cpp)
     target_sources(zima_cpp_ui_contract_tests PRIVATE app/sketch_dimension_properties_dialog.cpp)
     target_sources(zima_cpp_ui_contract_tests PRIVATE app/sketch_text_properties_dialog.cpp)

@@ -6,6 +6,7 @@
 #include "sketch_dimension_properties_dialog.hpp"
 #include "sketch_text_properties_dialog.hpp"
 #include "file_dialog.hpp"
+#include "document_tools_dialogs.hpp"
 
 #include <QApplication>
 #include <QAbstractProxyModel>
@@ -22,6 +23,7 @@
 #include <QTimer>
 #include <QTableWidget>
 #include <QWidget>
+#include <QWheelEvent>
 
 #include <chrono>
 #include <filesystem>
@@ -52,6 +54,8 @@ int main(int argc, char* argv[]) {
             &parent);
         cancel_dialog->show();
         application.processEvents();
+        require(cancel_dialog->isSizeGripEnabled(),
+                "Shared internal Properties windows must be mouse-resizable");
         cancel_dialog->buttons()->button(QDialogButtonBox::Cancel)->click();
         application.processEvents();
         require(!cancel_committed, "Cancel committed pending Box changes");
@@ -289,8 +293,11 @@ int main(int argc, char* argv[]) {
             "constructionReferenceTable");
         require(reference_table != nullptr,
                 "Construction Properties has no Python-parity reference table");
-        QMetaObject::invokeMethod(reference_table, "cellClicked",
-            Qt::DirectConnection, Q_ARG(int, 0), Q_ARG(int, 1));
+        auto* reference_button = referenced_axis_dialog->findChild<QPushButton*>(
+            "constructionReferenceButton0");
+        require(reference_button != nullptr,
+                "Construction Properties has no explicit viewer-reference control");
+        reference_button->click();
         require(requested_reference == 0,
                 "Construction Properties did not request viewer reference selection");
         referenced_axis_dialog->set_reference(
@@ -304,6 +311,76 @@ int main(int argc, char* argv[]) {
                     committed_referenced_axis.references[1].owner_id == "point-b" &&
                     construction_previews >= 3,
                 "Construction Properties lost associative datum references");
+
+        auto point_initial = zima::document::PartDocument::create_construction(
+            zima::document::ConstructionKind::Point);
+        zima::document::ConstructionObject committed_point;
+        std::optional<std::size_t> requested_point_reference;
+        auto* construction_point_dialog = new zima::app::ConstructionPropertiesDialog(
+            point_initial, false,
+            [&](zima::document::ConstructionObject value) {
+                committed_point = std::move(value);
+            }, &parent);
+        construction_point_dialog->set_reference_request_callback(
+            [&](std::size_t index) { requested_point_reference = index; });
+        construction_point_dialog->show();
+        application.processEvents();
+        auto* point_reference_button = construction_point_dialog->findChild<QPushButton*>(
+            "constructionReferenceButton0");
+        require(point_reference_button != nullptr,
+                "Point Properties has no explicit viewer-reference control");
+        point_reference_button->click();
+        require(requested_point_reference == 0,
+                "Point Properties did not arm its first viewer reference");
+        construction_point_dialog->set_reference(0,
+            {{}, "part-origin", "origin:plane:xy", 0.0, true}, "XY Plane",
+            zima::document::ConstructionDefinition::PointReference);
+        construction_point_dialog->set_translation_constraint_state(
+            {2, {false, false, true}}, {4.0, 5.0, 17.0});
+        auto* point_x = construction_point_dialog->findChild<QDoubleSpinBox*>(
+            "constructionX");
+        auto* point_y = construction_point_dialog->findChild<QDoubleSpinBox*>(
+            "constructionY");
+        auto* point_z = construction_point_dialog->findChild<QDoubleSpinBox*>(
+            "constructionZ");
+        require(point_x != nullptr && point_y != nullptr && point_z != nullptr &&
+                    point_x->isEnabled() && point_y->isEnabled() &&
+                    !point_z->isEnabled() && point_z->value() == 17.0,
+                "Point Properties did not disable and solve the constrained Z axis");
+        auto* construction_point_offset = qobject_cast<QDoubleSpinBox*>(
+            construction_point_dialog->findChild<QTableWidget*>(
+                "constructionReferenceTable")->cellWidget(0, 2));
+        require(construction_point_offset != nullptr &&
+                    construction_point_offset->isEnabled(),
+                "Point Properties did not enable offset for a planar reference");
+        construction_point_offset->setValue(17.0);
+        construction_point_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
+        require(committed_point.kind == zima::document::ConstructionKind::Point &&
+                    committed_point.definition ==
+                        zima::document::ConstructionDefinition::PointReference &&
+                    committed_point.references.size() == 1 &&
+                    committed_point.references.front().owner_id == "part-origin" &&
+                    committed_point.references.front().semantic_key == "origin:plane:xy" &&
+                    committed_point.references.front().offset == 17.0 &&
+                    committed_point.references.front().supports_offset,
+                "Point Properties did not commit its selected Origin reference");
+
+        int cancelled_point_commits = 0;
+        auto* cancelled_point_dialog = new zima::app::ConstructionPropertiesDialog(
+            committed_point, true,
+            [&](zima::document::ConstructionObject) { ++cancelled_point_commits; },
+            &parent);
+        cancelled_point_dialog->show();
+        application.processEvents();
+        auto* replacement_button = cancelled_point_dialog->findChild<QPushButton*>(
+            "constructionReferenceButton0");
+        require(replacement_button != nullptr,
+                "Edited Point Properties cannot replace its reference");
+        cancelled_point_dialog->set_reference(
+            0, {{}, "other-point", "point"}, "Jiný bod");
+        cancelled_point_dialog->buttons()->button(QDialogButtonBox::Cancel)->click();
+        require(cancelled_point_commits == 0,
+                "Cancel committed a pending Point Properties reference change");
 
         auto extrusion_initial =
             zima::document::PartDocument::create_extrusion_container("sketch-profile");
@@ -637,6 +714,90 @@ int main(int argc, char* argv[]) {
                         zima::document::CombineMode::Subtract &&
                     committed_targets == std::vector<std::string>{"occurrence-b"},
                 "Assembly cut did not commit subtract with exact targets");
+
+        zima::app::ApplicationSettings tool_settings;
+        bool parameters_committed = false;
+        zima::app::UserParameterData parameter_data;
+        parameter_data.flat = {{"name", "Bracket"}};
+        parameter_data.order = {"name"};
+        parameter_data.labels["name"] = {{"cs", "Název"}, {"en", "Name"}};
+        parameter_data.values["name"] = {{"", "Bracket"}};
+        auto* user_parameters_dialog = new zima::app::UserParametersDialog(
+            parameter_data, "cs", [&](zima::app::UserParameterData value) {
+                parameters_committed = value.order == std::vector<std::string>{"name"} &&
+                    value.labels["name"]["cs"] == "Název" &&
+                    value.flat["name"] == "Bracket";
+            }, tool_settings, &parent);
+        require(user_parameters_dialog->findChild<QTableWidget*>(
+                    "documentParametersTable")->columnCount() == 4 &&
+                    user_parameters_dialog->findChild<QComboBox*>(
+                        "parameterLanguage") != nullptr,
+                "User Parameters does not expose the Python language/table contract");
+        user_parameters_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
+        require(parameters_committed,
+                "User Parameters OK did not preserve order, labels and shared values");
+
+        bool file_settings_committed = false;
+        zima::app::DocumentToolData file_data;
+        file_data.units = {{"Length", "mm"}, {"Angle", "deg"}, {"Mass", "kg"},
+            {"Time", "s"}, {"Temperature", "C"}, {"Stress", "MPa"}};
+        file_data.precision = {{"linear_tolerance", "0.001"},
+            {"angular_tolerance", "0.001"}, {"mesh_deflection", "0.1"},
+            {"decimal_places", "3"}};
+        auto* file_settings_dialog = new zima::app::FileSettingsDialog(
+            file_data, [&](zima::app::DocumentToolData value) {
+                file_settings_committed = value.units["Length"] == "cm";
+            }, tool_settings, &parent);
+        file_settings_dialog->findChild<QComboBox*>("fileUnitLength")->setCurrentText("cm");
+        file_settings_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
+        require(file_settings_committed, "File Settings OK did not commit units");
+
+        bool relation_committed = false;
+        auto* relations_dialog = new zima::app::RelationsDialog(
+            {{"x", "2"}}, {{"result", "x * 3"}},
+            [&](auto parameters, auto relations) {
+                relation_committed = parameters["result"] == "6.000" &&
+                    relations.size() == 1;
+            }, tool_settings, &parent);
+        relations_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
+        require(relation_committed, "Relations OK did not evaluate and commit");
+
+        bool family_committed = false;
+        zima::app::DocumentToolData family_data;
+        family_data.family_table = R"({"columns":["length"],"instances":[{"name":"LONG","values":{"length":"20"}}]})";
+        auto* family_dialog = new zima::app::FamilyTableDialog(
+            "GENERIC", family_data, [&](zima::app::DocumentToolData value) {
+                family_committed = value.family_table.find("LONG") != std::string::npos;
+            }, tool_settings, &parent);
+        family_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
+        require(family_committed, "Family Table OK did not commit table data");
+
+        bool material_committed = false;
+        zima::app::DocumentToolData material_data;
+        material_data.physical_parameters = {{"MASS_DENSITY", "7.85e-6"}};
+        material_data.physical_parameter_units = {{"MASS_DENSITY", "kg/mm^3"}};
+        auto* material_dialog = new zima::app::MaterialDialog(
+            material_data, [&](zima::app::DocumentToolData value) {
+                material_committed = value.physical_parameters["MASS_DENSITY"] ==
+                        "7.85e-6" &&
+                    value.physical_parameter_units["MASS_DENSITY"] == "kg/mm^3";
+            }, tool_settings, &parent);
+        material_dialog->show();
+        application.processEvents();
+        require(material_dialog->width() >= 620 &&
+                    material_dialog->height() >= 380 &&
+                    material_dialog->isSizeGripEnabled(),
+                "Material dialog did not preserve its resizable large-window contract");
+        auto* material_unit = material_dialog->findChild<QComboBox*>();
+        require(material_unit != nullptr, "Material unit selector is missing");
+        const int material_unit_index = material_unit->currentIndex();
+        QWheelEvent unit_wheel(QPointF(4, 4), QPointF(4, 4), QPoint(), QPoint(0, 120),
+            Qt::NoButton, Qt::NoModifier, Qt::ScrollUpdate, false);
+        QApplication::sendEvent(material_unit, &unit_wheel);
+        require(material_unit->currentIndex() == material_unit_index,
+                "Mouse wheel changed a Material unit selector");
+        material_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
+        require(material_committed, "Material OK did not commit material data");
 
         const auto file_dialog_directory = std::filesystem::temp_directory_path() /
             ("zima-cad-file-dialog-contract-" + std::to_string(

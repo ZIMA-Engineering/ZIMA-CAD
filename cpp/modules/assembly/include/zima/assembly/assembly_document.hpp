@@ -152,7 +152,21 @@ public:
     std::string document_id;
     std::string name{"Nová sestava"};
     std::map<std::string, std::string> user_parameters;
+    std::vector<std::string> user_parameter_order;
+    std::map<std::string, std::map<std::string, std::string>> user_parameter_labels;
+    std::map<std::string, std::map<std::string, std::string>> user_parameter_values;
     std::vector<zima::document::ModelRelation> relations;
+    std::map<std::string, std::string> document_units{
+        {"Length", "mm"}, {"Angle", "deg"}, {"Mass", "kg"},
+        {"Time", "s"}, {"Temperature", "C"}, {"Stress", "MPa"}};
+    std::map<std::string, std::string> document_precision{
+        {"linear_tolerance", "0.001"}, {"angular_tolerance", "0.001"},
+        {"mesh_deflection", "0.1"}, {"decimal_places", "3"}};
+    std::map<std::string, std::string> physical_parameters;
+    std::map<std::string, std::string> physical_parameter_units;
+    std::map<std::string, std::map<std::string, std::string>>
+        material_parameter_descriptions;
+    std::string family_table{"{\"columns\":[],\"instances\":[]}"};
     std::vector<PartOccurrence> components;
     std::vector<zima::sketcher::Sketch> sketches;
     std::vector<AssemblyCut> cuts;
@@ -182,7 +196,8 @@ public:
         const std::string& id);
     [[nodiscard]] const zima::document::ConstructionObject* find_construction(
         const std::string& id) const;
-    [[nodiscard]] zima::kernel::ViewerMesh construction_viewer_mesh() const;
+    [[nodiscard]] zima::kernel::ViewerMesh construction_viewer_mesh(
+        const std::string& editing_object_id = {}) const;
     [[nodiscard]] zima::kernel::ViewerMesh origin_viewer_mesh() const;
     void resolve_constructions();
     [[nodiscard]] zima::kernel::ViewerMesh build_scene() const;

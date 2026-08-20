@@ -57,11 +57,17 @@ public:
     void set_view_direction(const zima::kernel::Vec3& direction);
     void set_reference_visibility(ReferenceVisibility reference, bool visible);
     [[nodiscard]] bool reference_visible(ReferenceVisibility reference) const;
+    void set_editing_origin_visible(bool visible);
     void set_selection_contract(std::vector<CandidateKind> allowed_kinds);
     void set_candidate_filter(
         std::function<bool(const ViewerCandidate&)> candidate_filter);
     void confirm_container(const std::string& owner_id);
     void confirm_occurrence(const std::string& instance_path);
+    void confirm_origin(const std::string& owner_id,
+        const std::string& instance_path);
+    void confirm_reference(const std::string& owner_id,
+        const std::string& semantic_key, const std::string& instance_path,
+        CandidateKind kind);
     void clear_selection();
     void set_confirmation_callback(
         std::function<void(const ViewerCandidate&)> callback);
@@ -90,6 +96,8 @@ public:
     void set_transient_edges(std::vector<zima::kernel::ViewerEdge> edges);
     [[nodiscard]] std::optional<ViewerCandidate> confirmed_candidate() const;
     [[nodiscard]] std::optional<ViewerCandidate> hovered_candidate() const;
+    [[nodiscard]] std::vector<ViewerCandidate> selection_candidates_at(
+        const QPointF& position) const;
     [[nodiscard]] std::optional<zima::kernel::ViewerEdge> candidate_edge(
         const ViewerCandidate& candidate) const;
     [[nodiscard]] std::optional<zima::kernel::ViewerPoint> candidate_point(

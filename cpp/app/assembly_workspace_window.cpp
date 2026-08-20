@@ -8,7 +8,9 @@
 #include "sketch_text_properties_dialog.hpp"
 #include "sketch_dimension_properties_dialog.hpp"
 #include "drawing_window.hpp"
+#include "document_tools_dialogs.hpp"
 #include "file_dialog.hpp"
+#include "global_settings_dialog.hpp"
 #include "resource_icon.hpp"
 
 #include <zima/viewer/mesh_view.hpp>
@@ -34,7 +36,13 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QMenu>
+#include <QMouseEvent>
 #include <QKeySequence>
+#include <QFileInfo>
+#include <QFile>
+#include <QDir>
+#include <QSettings>
+#include <QTextStream>
 #include <QPixmap>
 #include <QPushButton>
 #include <QRadioButton>
@@ -59,8 +67,125 @@
 #include <unordered_map>
 #include <type_traits>
 
+#include <nlohmann/json.hpp>
+
 namespace zima::app {
 namespace {
+
+class HistoryTreeWidget final : public QTreeWidget {
+public:
+    using QTreeWidget::QTreeWidget;
+
+protected:
+    void mousePressEvent(QMouseEvent* event) override {
+        auto* item = itemAt(event->position().toPoint());
+        if (event->button() == Qt::LeftButton && item == nullptr) {
+            clearSelection();
+            setCurrentItem(nullptr);
+            event->accept();
+            return;
+        }
+        if (event->button() == Qt::RightButton &&
+            property("commandSelectionActive").toBool()) {
+            event->accept();
+            return;
+        }
+        if (event->button() == Qt::RightButton && item != nullptr &&
+            item->isSelected()) {
+            // Preserve Ctrl multi-selection until the custom context menu is
+            // evaluated, matching the Python HistoryTreeWidget contract.
+            event->accept();
+            return;
+        }
+        QTreeWidget::mousePressEvent(event);
+    }
+
+    void mouseDoubleClickEvent(QMouseEvent* event) override {
+        if (event->button() == Qt::LeftButton) {
+            event->accept();
+            return;
+        }
+        QTreeWidget::mouseDoubleClickEvent(event);
+    }
+};
+
+void apply_start_part_template(
+    zima::document::PartDocument& document,
+    const ApplicationSettings& settings) {
+    QString path = settings.part_template;
+    if (!QDir::isAbsolutePath(path)) {
+        path = QDir(settings.resolved_paths.value("Templates")).absoluteFilePath(path);
+    }
+    if (!QFileInfo::exists(path)) return;
+    QSettings source(path, QSettings::IniFormat);
+    const auto copy_group = [&source](const char* group,
+                                      std::map<std::string, std::string>& target) {
+        source.beginGroup(QString::fromLatin1(group));
+        target.clear();
+        for (const auto& key : source.childKeys())
+            target[key.toStdString()] = source.value(key).toString().toStdString();
+        source.endGroup();
+    };
+    copy_group("DocumentUnits", document.document_units);
+    copy_group("DocumentPrecision", document.document_precision);
+    copy_group("MaterialProperties", document.physical_parameters);
+    copy_group("MaterialUnits", document.physical_parameter_units);
+    copy_group("UserParameterValues", document.user_parameters);
+    source.beginGroup("UserParameters");
+    const QStringList parameter_order = source.value("Order").toStringList();
+    source.endGroup();
+    document.user_parameter_order.clear();
+    for (const auto& key : parameter_order)
+        document.user_parameter_order.push_back(key.trimmed().toStdString());
+    source.beginGroup("UserParameterLabels");
+    document.user_parameter_labels.clear();
+    for (const auto& key : source.childGroups()) {
+        source.beginGroup(key);
+        for (const auto& language : source.childKeys()) {
+            document.user_parameter_labels[key.toStdString()][language.toStdString()] =
+                source.value(language).toString().toStdString();
+        }
+        source.endGroup();
+    }
+    source.endGroup();
+    document.user_parameter_values.clear();
+    for (const auto& [key, value] : document.user_parameters)
+        document.user_parameter_values[key][""] = value;
+    source.beginGroup("Material");
+    const QString material_name = source.value("Name").toString();
+    source.endGroup();
+    if (!material_name.isEmpty())
+        document.physical_parameters["MATERIAL_NAME"] = material_name.toStdString();
+    QString relations = QStringLiteral("[]");
+    QFile raw_source(path);
+    if (raw_source.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QTextStream stream(&raw_source);
+        bool in_relations = false;
+        while (!stream.atEnd()) {
+            const QString line = stream.readLine();
+            const QString trimmed = line.trimmed();
+            if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+                in_relations = trimmed.compare(
+                    QStringLiteral("[Relations]"), Qt::CaseInsensitive) == 0;
+                continue;
+            }
+            if (in_relations && trimmed.startsWith(
+                    QStringLiteral("Data"), Qt::CaseInsensitive)) {
+                const int equals = line.indexOf('=');
+                if (equals >= 0) relations = line.mid(equals + 1).trimmed();
+                break;
+            }
+        }
+    }
+    const auto parsed = nlohmann::json::parse(relations.toStdString());
+    if (!parsed.is_array()) throw std::invalid_argument(
+        "Start Part template Relations/Data must be a JSON array");
+    document.relations.clear();
+    for (const auto& relation : parsed) {
+        document.relations.push_back({relation.at("target").get<std::string>(),
+            relation.at("expression").get<std::string>()});
+    }
+}
 
 void append_reference_geometry(
     zima::kernel::ViewerReferenceGeometry& target,
@@ -94,12 +219,15 @@ void append_mesh(zima::kernel::ViewerMesh& target, zima::kernel::ViewerMesh sour
 }
 
 QTreeWidgetItem* add_origin_tree_item(QTreeWidgetItem* parent,
-    const std::string& document_id, bool assembly) {
+    const std::string& document_id, bool assembly,
+    const zima::assembly::InstancePath& instance_path = {}) {
     auto* origin = new QTreeWidgetItem(parent, {
         assembly ? QObject::tr("Počátek sestavy") : QObject::tr("Počátek dílu")});
     origin->setIcon(0, resource_icon("origin"));
     origin->setData(0, Qt::UserRole,
         QString::fromStdString(document_id + ":origin"));
+    origin->setData(0, Qt::UserRole + 1,
+        QString::fromStdString(instance_path.encoded()));
     origin->setData(0, Qt::UserRole + 3, "document-origin");
     const std::array children{
         std::pair{QObject::tr("Point 0,0,0"), "point"},
@@ -115,9 +243,48 @@ QTreeWidgetItem* add_origin_tree_item(QTreeWidgetItem* parent,
             key == std::string_view("point") ? "point" :
             std::string_view(key).starts_with("axis:") ? "axis" : "plane"));
         child->setData(0, Qt::UserRole,
-            QString::fromStdString(document_id + ":origin:" + key));
+            QString::fromStdString(document_id + ":origin"));
+        child->setData(0, Qt::UserRole + 1,
+            QString::fromStdString(instance_path.encoded()));
         child->setData(0, Qt::UserRole + 3, "origin-reference");
+        child->setData(0, Qt::UserRole + 5,
+            QString::fromStdString(std::string("origin:") + key));
     }
+    return origin;
+}
+
+QTreeWidgetItem* add_construction_origin_tree_item(QTreeWidgetItem* parent,
+    const zima::document::ContainerOrigin& container_origin,
+    const std::string& container_name,
+    const zima::assembly::InstancePath& instance_path = {}) {
+    auto* origin = new QTreeWidgetItem(
+        parent, {QObject::tr("Počátek kontejneru")});
+    origin->setIcon(0, resource_icon("origin"));
+    origin->setData(0, Qt::UserRole,
+        QString::fromStdString(container_origin.id));
+    origin->setData(0, Qt::UserRole + 1,
+        QString::fromStdString(instance_path.encoded()));
+    origin->setData(0, Qt::UserRole + 3, "construction-origin");
+    for (const auto& origin_child : container_origin.children) {
+        const auto label = origin_child.kind ==
+                zima::document::OriginChildKind::Point
+            ? QObject::tr("Point (%1)").arg(QString::fromStdString(container_name))
+            : QString::fromStdString(origin_child.name);
+        auto* child = new QTreeWidgetItem(origin, {label});
+        child->setIcon(0, resource_icon(
+            origin_child.kind == zima::document::OriginChildKind::Point ? "point" :
+            origin_child.kind == zima::document::OriginChildKind::Axis ? "axis" : "plane"));
+        child->setData(0, Qt::UserRole,
+            QString::fromStdString(origin_child.id));
+        child->setData(0, Qt::UserRole + 1,
+            QString::fromStdString(instance_path.encoded()));
+        child->setData(0, Qt::UserRole + 3, "origin-reference");
+        child->setData(0, Qt::UserRole + 5,
+            QString::fromStdString(std::string("origin:") + origin_child.key));
+        child->setData(0, Qt::UserRole + 6,
+            QString::fromStdString(container_origin.id));
+    }
+    origin->setExpanded(true);
     return origin;
 }
 
@@ -222,6 +389,15 @@ zima::kernel::ViewerReferenceGeometry sketch_external_reference_source_geometry(
     }
     append_reference_geometry(source,
         document.construction_viewer_mesh().original_references);
+    return source;
+}
+
+zima::kernel::ViewerReferenceGeometry construction_reference_source_geometry(
+    const std::vector<zima::kernel::BodyResult>& calculated_boundaries) {
+    zima::kernel::ViewerReferenceGeometry source;
+    if (!calculated_boundaries.empty()) {
+        source = calculated_boundaries.back().mesh.original_references;
+    }
     return source;
 }
 
@@ -433,15 +609,12 @@ public:
         part_ = add_type(layout, QObject::tr("Díl"), "part", "part", true);
         add_type(layout, QObject::tr("Sestava"), "assembly", "assembly", true);
         add_type(layout, QObject::tr("Výkres"), "drawing", "drawing", true);
-        auto* drawing_format = add_type(
+        add_type(
             layout, QObject::tr("Formát výkresu"), "drawing_format",
-            "drawing-format", false);
-        auto* title_block = add_type(
+            "drawing-format", true);
+        add_type(
             layout, QObject::tr("Razítko výkresu"), "title_block",
-            "title-block", false);
-        const auto pending = QObject::tr("Editor tohoto typu dokumentu ještě není přenesen.");
-        drawing_format->setToolTip(pending);
-        title_block->setToolTip(pending);
+            "title-block", true);
         part_->setChecked(true);
         error_ = new QLabel(content);
         error_->setObjectName("newDocumentError");
@@ -471,8 +644,13 @@ private:
     }
 
     bool submit() override {
-        const QString stem = name_->text().trimmed();
-        if (stem.isEmpty()) return false;
+        const QString stem = QFileInfo(name_->text().trimmed())
+                                 .completeBaseName().trimmed();
+        if (stem.isEmpty()) {
+            error_->setText(QObject::tr("Zadejte název souboru."));
+            error_->show();
+            return false;
+        }
         const auto radios = findChildren<QRadioButton*>();
         const auto selected = std::find_if(radios.begin(), radios.end(),
             [](const auto* radio) { return radio->isChecked(); });
@@ -516,153 +694,10 @@ private:
     bool submit() override { return true; }
 };
 
-class DocumentParametersDialog final : public zima::ui::PropertiesSubWindow {
-public:
-    using Parameters = std::map<std::string, std::string>;
-    using Relations = std::vector<zima::document::ModelRelation>;
-    using Accepted = std::function<void(Parameters, Relations)>;
-
-    DocumentParametersDialog(
-        const Parameters& parameters, const Relations& relations,
-        Accepted accepted, QMainWindow* parent)
-        : PropertiesSubWindow(QObject::tr("Parametry dokumentu"), parent),
-          accepted_(std::move(accepted)) {
-        setObjectName("documentParametersDialog");
-        setMinimumSize(520, 340);
-        table_ = new QTableWidget(0, 2, this);
-        table_->setObjectName("documentParametersTable");
-        table_->setHorizontalHeaderLabels(
-            {QObject::tr("Název"), QObject::tr("Hodnota / výraz")});
-        table_->horizontalHeader()->setStretchLastSection(true);
-        for (const auto& [name, value] : parameters) add_row(name, value);
-        content_layout()->addWidget(table_);
-        auto* controls = new QHBoxLayout;
-        auto* add = new QPushButton(QObject::tr("Přidat"), this);
-        add->setObjectName("addDocumentParameterButton");
-        auto* remove = new QPushButton(QObject::tr("Odstranit"), this);
-        remove->setObjectName("removeDocumentParameterButton");
-        controls->addWidget(add);
-        controls->addWidget(remove);
-        controls->addStretch();
-        content_layout()->addLayout(controls);
-        content_layout()->addWidget(new QLabel(QObject::tr("Vazby parametrů"), this));
-        relations_ = new QTableWidget(0, 2, this);
-        relations_->setObjectName("documentRelationsTable");
-        relations_->setHorizontalHeaderLabels(
-            {QObject::tr("Cílový parametr"), QObject::tr("Výraz")});
-        relations_->horizontalHeader()->setStretchLastSection(true);
-        for (const auto& relation : relations) {
-            add_relation_row(relation.target, relation.expression);
-        }
-        content_layout()->addWidget(relations_);
-        auto* relation_controls = new QHBoxLayout;
-        auto* add_relation = new QPushButton(QObject::tr("Přidat vazbu"), this);
-        add_relation->setObjectName("addDocumentRelationButton");
-        auto* remove_relation = new QPushButton(QObject::tr("Odstranit vazbu"), this);
-        remove_relation->setObjectName("removeDocumentRelationButton");
-        relation_controls->addWidget(add_relation);
-        relation_controls->addWidget(remove_relation);
-        relation_controls->addStretch();
-        content_layout()->addLayout(relation_controls);
-        error_ = new QLabel(this);
-        error_->setStyleSheet(QStringLiteral("color:#F08A85;"));
-        error_->hide();
-        content_layout()->addWidget(error_);
-        connect(add, &QPushButton::clicked, this,
-            [this] { add_row({}, {}); table_->editItem(table_->item(table_->rowCount() - 1, 0)); });
-        connect(remove, &QPushButton::clicked, this, [this] {
-            const int row = table_->currentRow();
-            if (row >= 0) table_->removeRow(row);
-        });
-        connect(add_relation, &QPushButton::clicked, this, [this] {
-            add_relation_row({}, {});
-            relations_->editItem(relations_->item(relations_->rowCount() - 1, 0));
-        });
-        connect(remove_relation, &QPushButton::clicked, this, [this] {
-            const int row = relations_->currentRow();
-            if (row >= 0) relations_->removeRow(row);
-        });
-        setAttribute(Qt::WA_DeleteOnClose);
-    }
-
-private:
-    QTableWidget* table_{};
-    QTableWidget* relations_{};
-    QLabel* error_{};
-    Accepted accepted_;
-
-    void add_row(const std::string& name, const std::string& value) {
-        const int row = table_->rowCount();
-        table_->insertRow(row);
-        table_->setItem(row, 0, new QTableWidgetItem(QString::fromStdString(name)));
-        table_->setItem(row, 1, new QTableWidgetItem(QString::fromStdString(value)));
-    }
-
-    void add_relation_row(const std::string& target, const std::string& expression) {
-        const int row = relations_->rowCount();
-        relations_->insertRow(row);
-        relations_->setItem(
-            row, 0, new QTableWidgetItem(QString::fromStdString(target)));
-        relations_->setItem(
-            row, 1, new QTableWidgetItem(QString::fromStdString(expression)));
-    }
-
-    bool submit() override {
-        Parameters result;
-        for (int row = 0; row < table_->rowCount(); ++row) {
-            const QString name = table_->item(row, 0) == nullptr
-                ? QString{} : table_->item(row, 0)->text().trimmed();
-            const QString value = table_->item(row, 1) == nullptr
-                ? QString{} : table_->item(row, 1)->text().trimmed();
-            if (name.isEmpty() || value.isEmpty()) {
-                error_->setText(QObject::tr("Název ani hodnota nesmí být prázdné."));
-                error_->show();
-                return false;
-            }
-            const auto bytes = name.toStdString();
-            const bool valid = !bytes.empty() &&
-                (std::isalpha(static_cast<unsigned char>(bytes.front())) ||
-                    bytes.front() == '_') &&
-                std::all_of(bytes.begin() + 1, bytes.end(), [](unsigned char character) {
-                    return std::isalnum(character) || character == '_';
-                });
-            if (!valid || !result.emplace(bytes, value.toStdString()).second) {
-                error_->setText(QObject::tr(
-                    "Název musí být jedinečný identifikátor (písmena, číslice, _)."));
-                error_->show();
-                return false;
-            }
-        }
-        Relations relations;
-        for (int row = 0; row < relations_->rowCount(); ++row) {
-            const QString target = relations_->item(row, 0) == nullptr
-                ? QString{} : relations_->item(row, 0)->text().trimmed();
-            const QString expression = relations_->item(row, 1) == nullptr
-                ? QString{} : relations_->item(row, 1)->text().trimmed();
-            if (target.isEmpty() || expression.isEmpty()) {
-                error_->setText(QObject::tr(
-                    "Cílový parametr ani výraz vazby nesmí být prázdný."));
-                error_->show();
-                return false;
-            }
-            relations.push_back({target.toStdString(), expression.toStdString()});
-        }
-        try {
-            static_cast<void>(zima::document::evaluate_relations(
-                result, relations, {}));
-        } catch (const std::exception& failure) {
-            error_->setText(QString::fromUtf8(failure.what()));
-            error_->show();
-            return false;
-        }
-        accepted_(std::move(result), std::move(relations));
-        return true;
-    }
-};
-
 }  // namespace
 
 AssemblyWorkspaceWindow::AssemblyWorkspaceWindow() {
+    application_settings_ = ApplicationSettings::load();
     setWindowTitle(tr("ZIMA-CAD"));
     setWindowIcon(application_icon());
     resize(1200, 800);
@@ -673,59 +708,118 @@ AssemblyWorkspaceWindow::AssemblyWorkspaceWindow() {
 }
 
 void AssemblyWorkspaceWindow::create_actions() {
+    const auto t = [this](const char* key, const char* fallback) {
+        return application_settings_.text(
+            QString::fromLatin1(key), QString::fromUtf8(fallback));
+    };
     const auto make_action = [this](const QString& text, const char* icon = nullptr) {
         auto* action = new QAction(text, this);
         if (icon != nullptr) action->setIcon(resource_icon(QString::fromLatin1(icon)));
         return action;
     };
 
-    auto* file = menuBar()->addMenu(tr("Soubor"));
-    new_document_action_ = make_action(tr("Nový"), "new");
+    auto* file = menuBar()->addMenu(t("menu.file", "Soubor"));
+    new_document_action_ = make_action(t("menu.file.new", "Nový"), "new");
     new_document_action_->setObjectName("newDocumentAction");
     new_document_action_->setShortcut(QKeySequence::New);
     connect(new_document_action_, &QAction::triggered, this,
         [this] { new_document(); });
     file->addAction(new_document_action_);
-    open_document_action_ = make_action(tr("Otevřít..."), "open");
+    open_document_action_ = make_action(t("menu.file.open", "Otevřít..."), "open");
     open_document_action_->setObjectName("openDocumentAction");
     open_document_action_->setShortcut(QKeySequence::Open);
     connect(open_document_action_, &QAction::triggered, this,
         [this] { open_document(); });
     file->addAction(open_document_action_);
-    auto* import_action = make_action(tr("Importovat…"), "open");
+    auto* import_action = make_action(t("menu.file.import", "Importovat…"), "open");
+    import_action->setObjectName("importDocumentAction");
     connect(import_action, &QAction::triggered, this, [this] { import_file(); });
     file->addAction(import_action);
-    auto* export_action = make_action(tr("Exportovat…"), "save");
-    connect(export_action, &QAction::triggered, this, [this] { export_file(); });
-    file->addAction(export_action);
-    close_document_action_ = make_action(tr("Zavřít"));
+    export_action_ = make_action(t("menu.file.export", "Exportovat…"), "save");
+    export_action_->setObjectName("exportDocumentAction");
+    connect(export_action_, &QAction::triggered, this, [this] { export_file(); });
+    file->addAction(export_action_);
+    close_document_action_ = make_action(t("menu.file.close", "Zavřít"));
     close_document_action_->setObjectName("closeDocumentAction");
     close_document_action_->setShortcut(QKeySequence(QStringLiteral("F2")));
     connect(close_document_action_, &QAction::triggered, this,
         [this] { close_document(); });
     file->addAction(close_document_action_);
-    save_action_ = make_action(tr("Uložit"), "save");
+    save_action_ = make_action(t("menu.file.save", "Uložit"), "save");
     save_action_->setObjectName("saveDocumentAction");
-    save_action_->setShortcut(QKeySequence::Save);
+    save_action_->setShortcuts({QKeySequence::Save,
+                                QKeySequence(QStringLiteral("F1"))});
+    save_action_->setShortcutContext(Qt::ApplicationShortcut);
     connect(save_action_, &QAction::triggered, this,
         [this] { save_active_document(); });
     file->addAction(save_action_);
-    save_as_action_ = make_action(tr("Uložit jako..."));
+    save_as_action_ = make_action(t("menu.file.save_as", "Uložit jako..."));
     save_as_action_->setObjectName("saveDocumentAsAction");
     save_as_action_->setShortcut(QKeySequence::SaveAs);
     save_as_action_->setEnabled(false);
     connect(save_as_action_, &QAction::triggered, this,
         [this] { save_active_document_as(); });
     file->addAction(save_as_action_);
+    rename_document_action_ = make_action(
+        t("menu.file.rename", "Přejmenovat…"));
+    rename_document_action_->setObjectName("renameDocumentAction");
+    rename_document_action_->setEnabled(false);
+    file->addAction(rename_document_action_);
+
+    delete_file_menu_ = file->addMenu(
+        t("menu.file.delete", "Odstranit"));
+    delete_file_menu_->setObjectName("deleteFileMenu");
+    delete_current_file_action_ = delete_file_menu_->addAction(
+        resource_icon("delete"),
+        t("menu.file.delete.current_file", "Aktuální soubor"));
+    delete_current_file_action_->setObjectName("deleteCurrentFileAction");
+    delete_all_versions_action_ = delete_file_menu_->addAction(
+        t("menu.file.delete.current_file_and_versions",
+          "Aktuální soubor a všechny verze"));
+    delete_all_versions_action_->setObjectName("deleteAllVersionsAction");
+    delete_file_menu_->addSeparator();
+    delete_old_versions_action_ = delete_file_menu_->addAction(
+        t("menu.file.delete.old_versions", "Staré verze"));
+    delete_old_versions_action_->setObjectName("deleteOldVersionsAction");
+    delete_old_versions_keep_latest_action_ = delete_file_menu_->addAction(
+        t("menu.file.delete.old_versions_keep_latest",
+          "Staré verze kromě nejnovější"));
+    delete_old_versions_keep_latest_action_->setObjectName(
+        "deleteOldVersionsKeepLatestAction");
+    delete_file_menu_->addSeparator();
+    delete_working_directory_menu_ = delete_file_menu_->addMenu(
+        t("menu.file.delete.working_directory", "Pracovní adresář"));
+    delete_working_directory_menu_->setObjectName("deleteWorkingDirectoryMenu");
+    delete_working_directory_old_versions_action_ =
+        delete_working_directory_menu_->addAction(
+            t("menu.file.delete.working_directory_old_versions",
+              "Odstranit staré verze"));
+    delete_working_directory_old_versions_action_->setObjectName(
+        "deleteWorkingDirectoryOldVersionsAction");
+    delete_working_directory_keep_latest_action_ =
+        delete_working_directory_menu_->addAction(
+            t("menu.file.delete.working_directory_keep_latest",
+              "Ponechat nejnovější verzi"));
+    delete_working_directory_keep_latest_action_->setObjectName(
+        "deleteWorkingDirectoryKeepLatestAction");
+    for (auto* action : {delete_current_file_action_, delete_all_versions_action_,
+                         delete_old_versions_action_,
+                         delete_old_versions_keep_latest_action_,
+                         delete_working_directory_old_versions_action_,
+                         delete_working_directory_keep_latest_action_}) {
+        action->setEnabled(false);
+    }
     file->addSeparator();
-    working_directory_action_ = make_action(tr("Nastavit pracovní adresář..."));
+    working_directory_action_ = make_action(
+        t("menu.file.working_directory", "Nastavit pracovní adresář..."));
     working_directory_action_->setObjectName("workingDirectoryAction");
     connect(working_directory_action_, &QAction::triggered, this,
         [this] { set_working_directory(); });
     file->addAction(working_directory_action_);
 
-    auto* edit = menuBar()->addMenu(tr("Upravit"));
-    regenerate_document_action_ = make_action(tr("⟳ Regenerovat model"));
+    auto* edit = menuBar()->addMenu(t("menu.edit", "Upravit"));
+    regenerate_document_action_ = make_action(
+        t("command.regenerate", "⟳ Regenerovat model"));
     regenerate_document_action_->setObjectName("regenerateDocumentAction");
     regenerate_document_action_->setShortcut(QKeySequence(QStringLiteral("F5")));
     regenerate_document_action_->setToolTip(
@@ -822,23 +916,25 @@ void AssemblyWorkspaceWindow::create_actions() {
     show_planes_action_->setObjectName("showPlanesAction");
     show_sketches_action_->setObjectName("showSketchesAction");
 
-    auto* view = menuBar()->addMenu(tr("Zobrazení"));
+    auto* view = menuBar()->addMenu(t("menu.view", "Zobrazení"));
     view->addAction(fit_view_action_);
-    auto* standard_views = view->addMenu(tr("Základní pohledy"));
-    const auto add_standard_view = [this, standard_views](
+    standard_views_menu_ = view->addMenu(
+        t("toolbar.standard_views", "Základní pohledy"));
+    standard_views_menu_->setObjectName("standardViewsMenu");
+    const auto add_standard_view = [this](
         const QString& text, zima::viewer::StandardView standard_view) {
-        auto* action = standard_views->addAction(text);
+        auto* action = standard_views_menu_->addAction(text);
         connect(action, &QAction::triggered, this, [this, standard_view] {
             if (viewer_ != nullptr) viewer_->set_standard_view(standard_view);
         });
     };
-    add_standard_view(tr("Výchozí – izometrický"), zima::viewer::StandardView::Isometric);
-    add_standard_view(tr("Front – XZ"), zima::viewer::StandardView::Front);
-    add_standard_view(tr("Back – XZ opačně"), zima::viewer::StandardView::Back);
-    add_standard_view(tr("Left – YZ"), zima::viewer::StandardView::Left);
-    add_standard_view(tr("Right – YZ opačně"), zima::viewer::StandardView::Right);
-    add_standard_view(tr("Top – XY"), zima::viewer::StandardView::Top);
-    add_standard_view(tr("Bottom – XY opačně"), zima::viewer::StandardView::Bottom);
+    add_standard_view(t("toolbar.view.default", "Výchozí – izometrický"), zima::viewer::StandardView::Isometric);
+    add_standard_view(t("toolbar.view.front", "Front – XZ"), zima::viewer::StandardView::Front);
+    add_standard_view(t("toolbar.view.back", "Back – XZ opačně"), zima::viewer::StandardView::Back);
+    add_standard_view(t("toolbar.view.left", "Left – YZ"), zima::viewer::StandardView::Left);
+    add_standard_view(t("toolbar.view.right", "Right – YZ opačně"), zima::viewer::StandardView::Right);
+    add_standard_view(t("toolbar.view.top", "Top – XY"), zima::viewer::StandardView::Top);
+    add_standard_view(t("toolbar.view.bottom", "Bottom – XY opačně"), zima::viewer::StandardView::Bottom);
     view->addSeparator();
     view->addAction(selection_action_);
     view->addSeparator();
@@ -851,15 +947,47 @@ void AssemblyWorkspaceWindow::create_actions() {
                          show_planes_action_, show_sketches_action_}) {
         view->addAction(action);
     }
+    view->addSeparator();
+    colors_menu_ = view->addMenu(t("menu.view.colors", "Barvy"));
+    colors_menu_->setObjectName("colorsMenu");
+    const std::array<std::pair<const char*, const char*>, 8> color_items{{
+        {"menu.view.colors.white", "Bílá"},
+        {"menu.view.colors.graphite", "Grafitová"},
+        {"menu.view.colors.silver", "Stříbrná"},
+        {"menu.view.colors.blue", "Modrá"},
+        {"menu.view.colors.green", "Zelená"},
+        {"menu.view.colors.violet", "Fialová"},
+        {"menu.view.colors.burgundy", "Vínová"},
+        {"menu.view.colors.sand", "Písková"},
+    }};
+    for (const auto& [key, fallback] : color_items) {
+        auto* action = colors_menu_->addAction(t(key, fallback));
+        action->setEnabled(false);
+    }
+    colors_menu_->addSeparator();
+    auto* custom_body_color = colors_menu_->addAction(
+        t("menu.view.colors.body", "Vlastní barva tělesa…"));
+    custom_body_color->setObjectName("customBodyColorAction");
+    custom_body_color->setEnabled(false);
+    auto* reset_body_color = colors_menu_->addAction(
+        t("menu.view.colors.body_reset", "Obnovit barvu tělesa"));
+    reset_body_color->setObjectName("resetBodyColorAction");
+    reset_body_color->setEnabled(false);
 
-    auto* applications = menuBar()->addMenu(tr("Aplikace"));
+    auto* applications = menuBar()->addMenu(t("menu.applications", "Aplikace"));
     application_group_ = new QActionGroup(this);
     application_group_->setExclusive(true);
     const std::array<QString, 6> application_names{
-        tr("Modelování"), tr("Sestava"), tr("Plech"), tr("Plochy"),
-        tr("Potrubí"), tr("Výkres")};
+        t("application.modeling", "Modelování"),
+        t("application.assembly", "Sestava"),
+        t("application.sheet_metal", "Plech"),
+        t("application.surface", "Plochy"),
+        t("application.piping", "Potrubí"),
+        t("application.drawing", "Výkres")};
     for (std::size_t index = 0; index < application_actions_.size(); ++index) {
         auto* action = applications->addAction(application_names[index]);
+        action->setObjectName(
+            QStringLiteral("applicationModeAction%1").arg(index));
         action->setCheckable(true);
         action->setData(static_cast<int>(index));
         application_group_->addAction(action);
@@ -870,28 +998,45 @@ void AssemblyWorkspaceWindow::create_actions() {
     }
     application_actions_[0]->setChecked(true);
 
-    auto* tools = menuBar()->addMenu(tr("Nástroje"));
-    for (const auto& label : {tr("Materiál..."), tr("Relace..."),
-                              tr("Family Table...")}) {
-        auto* action = tools->addAction(label);
-        action->setEnabled(false);
-    }
-    parameters_action_ = tools->addAction(tr("Parametry..."));
+    auto* tools = menuBar()->addMenu(t("menu.tools", "Nástroje"));
+    material_action_ = tools->addAction(t("menu.tools.material", "Materiál..."));
+    material_action_->setObjectName("materialAction");
+    connect(material_action_, &QAction::triggered, this, &AssemblyWorkspaceWindow::edit_material);
+    parameters_action_ = tools->addAction(
+        t("menu.tools.parameters", "Parametry..."));
     parameters_action_->setObjectName("documentParametersAction");
     connect(parameters_action_, &QAction::triggered,
         this, &AssemblyWorkspaceWindow::edit_document_parameters);
+    relations_action_ = tools->addAction(t("menu.tools.relations", "Relace..."));
+    relations_action_->setObjectName("relationsAction");
+    connect(relations_action_, &QAction::triggered, this, &AssemblyWorkspaceWindow::edit_relations);
+    family_table_action_ = tools->addAction(t("menu.tools.family_table", "Family Table..."));
+    family_table_action_->setObjectName("familyTableAction");
+    connect(family_table_action_, &QAction::triggered, this, &AssemblyWorkspaceWindow::edit_family_table);
     tools->addSeparator();
-    auto* file_settings_action = tools->addAction(tr("Nastavení souboru..."));
-    file_settings_action->setEnabled(false);
-    auto* settings_action = make_action(tr("Globální nastavení..."), "settings");
-    settings_action->setEnabled(false);
-    tools->addAction(settings_action);
-    auto* window_menu = menuBar()->addMenu(tr("Okno"));
+    file_settings_action_ = tools->addAction(
+        t("menu.tools.file_settings", "Nastavení souboru..."));
+    file_settings_action_->setObjectName("fileSettingsAction");
+    connect(file_settings_action_, &QAction::triggered, this, &AssemblyWorkspaceWindow::edit_file_settings);
+    settings_action_ = make_action(
+        t("menu.tools.global_settings", "Globální nastavení..."), "settings");
+    settings_action_->setObjectName("globalSettingsAction");
+    connect(settings_action_, &QAction::triggered,
+        this, &AssemblyWorkspaceWindow::show_global_settings);
+    tools->addAction(settings_action_);
+    auto* window_menu = menuBar()->addMenu(t("menu.window", "Okno"));
     window_menu->setObjectName("windowMenu");
     connect(window_menu, &QMenu::aboutToShow, this, [this, window_menu] {
         window_menu->clear();
+        auto* new_window = window_menu->addAction(application_settings_.text(
+            "menu.window.new_window", tr("Nové okno")));
+        new_window->setObjectName("newWindowAction");
+        connect(new_window, &QAction::triggered,
+            this, &AssemblyWorkspaceWindow::open_new_window);
+        window_menu->addSeparator();
         if (tabs_ == nullptr || tabs_->count() == 0) {
-            auto* empty = window_menu->addAction(tr("Není otevřen žádný dokument"));
+            auto* empty = window_menu->addAction(application_settings_.text(
+                "status.no_open_documents", tr("Není otevřen žádný dokument")));
             empty->setEnabled(false);
             return;
         }
@@ -906,8 +1051,9 @@ void AssemblyWorkspaceWindow::create_actions() {
             });
         }
     });
-    auto* help = menuBar()->addMenu(tr("Nápověda"));
-    auto* about_action = help->addAction(tr("O aplikaci ZIMA-CAD"));
+    auto* help = menuBar()->addMenu(t("menu.help", "Nápověda"));
+    auto* about_action = help->addAction(
+        t("menu.help.about", "O aplikaci ZIMA-CAD"));
     about_action->setObjectName("aboutAction");
     connect(about_action, &QAction::triggered, this, [this] { show_about(); });
 
@@ -1194,7 +1340,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     main_toolbar_->addAction(open_document_action_);
     main_toolbar_->addAction(save_action_);
     main_toolbar_->addSeparator();
-    main_toolbar_->addAction(settings_action);
+    main_toolbar_->addAction(settings_action_);
     auto* toolbar_spacer = new QWidget(main_toolbar_);
     toolbar_spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     main_toolbar_->addWidget(toolbar_spacer);
@@ -1313,7 +1459,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         "QTabBar::tab:hover:!selected { background:rgba(77,216,17,55); }");
     document_splitter_ = new QSplitter(Qt::Horizontal, central);
     document_splitter_->setObjectName("documentSplitter");
-    tree_ = new QTreeWidget(document_splitter_);
+    tree_ = new HistoryTreeWidget(document_splitter_);
     tree_->setObjectName("documentTree");
     auto tree_font = tree_->font();
     tree_font.setPixelSize(11);
@@ -1710,6 +1856,26 @@ void AssemblyWorkspaceWindow::create_layout() {
             if (const auto text_id = sketch_text_id_from_key(candidate.semantic_key)) {
                 show_sketch_text_properties(active_sketch_id_, *text_id);
             }
+        } else if (candidate.kind == zima::viewer::CandidateKind::Vertex) {
+            const auto show_point_dimensions = [&](const auto& document) {
+                const auto found = std::find_if(document.constructions.begin(),
+                    document.constructions.end(), [&](const auto& object) {
+                        return object.kind == zima::document::ConstructionKind::Point &&
+                            object.container_origin.id == candidate.owner_id;
+                    });
+                if (found == document.constructions.end()) return false;
+                construction_dimension_object_id_ = found->id;
+                preserve_view_on_refresh_ = true;
+                refresh_scene();
+                return true;
+            };
+            if (const auto* part = workspace_.open_part(
+                    workspace_.active_document_id())) {
+                static_cast<void>(show_point_dimensions(part->session.document()));
+            } else if (const auto* assembly = workspace_.open_assembly(
+                           workspace_.active_document_id())) {
+                static_cast<void>(show_point_dimensions(assembly->session.document()));
+            }
         }
     });
     viewer_->set_candidate_drag_callbacks(
@@ -1812,6 +1978,14 @@ void AssemblyWorkspaceWindow::create_layout() {
     connect(tree_, &QTreeWidget::itemClicked, this,
         [this](QTreeWidgetItem* item) {
             if (item == nullptr || item->parent() == nullptr) return;
+            if (construction_reference_dialog_ != nullptr &&
+                pending_construction_reference_index_) {
+                if (!accept_construction_tree_reference(item)) {
+                    state_->setText(tr(
+                        "Tato položka stromu není platná reference pro zvolenou konstrukci."));
+                }
+                return;
+            }
             if (item->data(0, Qt::UserRole + 3).toString() == "assembly-mate") return;
             if (item->data(0, Qt::UserRole + 3).toString() ==
                     "part-sketch-dimension" ||
@@ -1874,16 +2048,53 @@ void AssemblyWorkspaceWindow::create_layout() {
             }
             if (item->data(0, Qt::UserRole + 3).toString() == "part-construction" ||
                 item->data(0, Qt::UserRole + 3).toString() == "assembly-construction") {
+                const auto id = item->data(0, Qt::UserRole).toString().toStdString();
                 const auto* part = workspace_.open_part(workspace_.active_document_id());
                 const auto* assembly =
                     workspace_.open_assembly(workspace_.active_document_id());
-                const auto id = item->data(0, Qt::UserRole).toString().toStdString();
                 const auto* object = part != nullptr
                     ? part->session.document().find_construction(id)
                     : assembly != nullptr
                         ? assembly->session.document().find_construction(id) : nullptr;
-                if (object != nullptr) show_construction_properties(
-                    object->kind, object->id);
+                if (object == nullptr) return;
+                const auto path = item->data(0, Qt::UserRole + 1)
+                    .toString().toStdString();
+                viewer_->confirm_reference(
+                    object->kind == zima::document::ConstructionKind::Point
+                        ? object->container_origin.id : object->id,
+                    object->kind == zima::document::ConstructionKind::Point
+                        ? "point"
+                        : object->kind == zima::document::ConstructionKind::Axis
+                            ? "axis" : "plane",
+                    path,
+                    object->kind == zima::document::ConstructionKind::Point
+                        ? zima::viewer::CandidateKind::Vertex
+                        : object->kind == zima::document::ConstructionKind::Axis
+                            ? zima::viewer::CandidateKind::Axis
+                            : zima::viewer::CandidateKind::Face);
+                return;
+            }
+            if (item->data(0, Qt::UserRole + 3).toString() ==
+                    "origin-reference") {
+                const auto semantic = item->data(0, Qt::UserRole + 5)
+                    .toString().toStdString();
+                const auto owner = item->data(0, Qt::UserRole + 6).isValid()
+                    ? item->data(0, Qt::UserRole + 6).toString().toStdString()
+                    : item->data(0, Qt::UserRole).toString().toStdString();
+                viewer_->confirm_reference(owner, semantic,
+                    item->data(0, Qt::UserRole + 1).toString().toStdString(),
+                    semantic == "origin:point"
+                        ? zima::viewer::CandidateKind::Vertex
+                        : semantic.starts_with("origin:axis:")
+                            ? zima::viewer::CandidateKind::Axis
+                            : zima::viewer::CandidateKind::Face);
+                return;
+            }
+            if (item->data(0, Qt::UserRole + 3).toString() == "document-origin" ||
+                item->data(0, Qt::UserRole + 3).toString() == "construction-origin") {
+                viewer_->confirm_origin(
+                    item->data(0, Qt::UserRole).toString().toStdString(),
+                    item->data(0, Qt::UserRole + 1).toString().toStdString());
                 return;
             }
             if (item->data(0, Qt::UserRole + 3).toString() == "part-container") {
@@ -1899,68 +2110,18 @@ void AssemblyWorkspaceWindow::create_layout() {
                     item->data(0, Qt::UserRole + 1).toString().toStdString());
             }
         });
-    connect(tree_, &QTreeWidget::itemDoubleClicked, this,
-        [this](QTreeWidgetItem* item) {
-            if (item == nullptr || item->parent() == nullptr) return;
-            if (item->data(0, Qt::UserRole + 3).toString() == "assembly-mate") {
-                show_mate_properties(
-                    item->data(0, Qt::UserRole + 4).toString().toStdString(),
-                    item->data(0, Qt::UserRole).toString().toStdString());
-                return;
-            }
-            if (item->data(0, Qt::UserRole + 3).toString() == "part-sketch-dimension") {
-                show_sketch_dimension_properties(
-                    item->data(0, Qt::UserRole + 4).toString().toStdString(),
-                    item->data(0, Qt::UserRole).toString().toStdString());
-                return;
-            }
-            if (item->data(0, Qt::UserRole + 3).toString() == "part-sketch" ||
-                item->data(0, Qt::UserRole + 3).toString() == "assembly-sketch") {
-                show_sketch_properties(
-                    item->data(0, Qt::UserRole).toString().toStdString());
-                return;
-            }
-            if (item->data(0, Qt::UserRole + 3).toString() == "part-container") {
-                show_primitive_properties(
-                    workspace_.open_part(workspace_.active_document_id())
-                        ->session.document().find_container(
-                            item->data(0, Qt::UserRole).toString().toStdString())
-                        ->feature_kind,
-                    item->data(0, Qt::UserRole).toString().toStdString());
-                return;
-            }
-            if (item->data(0, Qt::UserRole + 3).toString() == "assembly-cut") {
-                const auto id = item->data(0, Qt::UserRole).toString().toStdString();
-                const auto* assembly =
-                    workspace_.open_assembly(workspace_.active_document_id());
-                const auto* cut = assembly == nullptr
-                    ? nullptr : assembly->session.document().find_cut(id);
-                if (cut != nullptr) {
-                    show_primitive_properties(cut->definition.feature_kind, id);
-                }
-                return;
-            }
-            const std::string source_id =
-                item->data(0, Qt::UserRole + 2).toString().toStdString();
-            if (workspace_.find(source_id) != nullptr) {
-                const std::string path =
-                    item->data(0, Qt::UserRole + 1).toString().toStdString();
-                try {
-                    if (workspace_.activate_occurrence(
-                            workspace_.displayed_document_id(),
-                            zima::assembly::InstancePath::decode(path))) {
-                        active_occurrence_path_ = path;
-                        refresh_tabs();
-                        refresh_scene();
-                    }
-                } catch (const std::invalid_argument&) {
-                    state_->setText(tr("Výskyt už v sestavě neexistuje."));
-                }
-            }
-        });
+    connect(tree_, &QTreeWidget::itemSelectionChanged, this, [this] {
+        if (!tree_->selectedItems().empty()) return;
+        construction_dimension_object_id_.clear();
+        viewer_->clear_selection();
+    });
+    // Python parity: a Tree double-click has no object action. Editing,
+    // activation and Properties remain explicit context-menu commands.
     tree_->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(tree_, &QTreeWidget::customContextMenuRequested, this,
         [this](const QPoint& position) {
+            if (construction_reference_dialog_ != nullptr ||
+                pending_construction_reference_index_) return;
             auto* item = tree_->itemAt(position);
             if (item == nullptr || item->parent() == nullptr) return;
             if (item->data(0, Qt::UserRole + 3).toString() == "assembly-mate") {
@@ -2162,13 +2323,20 @@ QString AssemblyWorkspaceWindow::create_document(
     try {
         if (document_type == QStringLiteral("part")) {
             auto document = zima::document::PartDocument::create_default();
+            apply_start_part_template(document, application_settings_);
             document.name = name;
+            for (auto it = application_settings_.units.cbegin();
+                 it != application_settings_.units.cend(); ++it)
+                document.document_units[it.key().toStdString()] = it.value().toStdString();
             id = document.document_id;
             workspace_.add_part(std::move(document), {}, path);
             active_application_ = ApplicationMode::Modeling;
         } else if (document_type == QStringLiteral("assembly")) {
             auto document = zima::assembly::AssemblyDocument::create_default();
             document.name = name;
+            for (auto it = application_settings_.units.cbegin();
+                 it != application_settings_.units.cend(); ++it)
+                document.document_units[it.key().toStdString()] = it.value().toStdString();
             id = document.document_id;
             workspace_.add_assembly(std::move(document), path);
             active_application_ = ApplicationMode::Assembly;
@@ -2270,6 +2438,17 @@ void AssemblyWorkspaceWindow::update_document_area_visibility() {
     fit_view_action_->setEnabled(has_document);
     selection_action_->setEnabled(has_document);
     selection_filter_combo_->setEnabled(has_document);
+    export_action_->setEnabled(has_document);
+    parameters_action_->setEnabled(has_document);
+    const bool has_editable_model = has_document &&
+        (workspace_.open_part(workspace_.active_document_id()) != nullptr ||
+         workspace_.open_assembly(workspace_.active_document_id()) != nullptr);
+    material_action_->setEnabled(has_editable_model);
+    relations_action_->setEnabled(has_editable_model);
+    family_table_action_->setEnabled(relations_action_->isEnabled());
+    file_settings_action_->setEnabled(has_editable_model);
+    standard_views_menu_->menuAction()->setEnabled(has_document);
+    colors_menu_->menuAction()->setEnabled(has_document);
     for (auto* action : {wire_action_, hidden_edges_action_, no_hidden_edges_action_,
                          shaded_edges_action_, shaded_action_, show_origins_action_,
                          show_points_action_, show_axes_action_, show_planes_action_,
@@ -2511,38 +2690,182 @@ void AssemblyWorkspaceWindow::edit_document_parameters() {
         return;
     }
     const std::string active_id = workspace_.active_document_id();
-    std::map<std::string, std::string> parameters;
-    std::vector<zima::document::ModelRelation> relations;
+    UserParameterData data;
     if (const auto* part = workspace_.open_part(active_id)) {
-        parameters = part->session.document().user_parameters;
-        relations = part->session.document().relations;
+        const auto& document = part->session.document();
+        data = {document.user_parameters, document.user_parameter_order,
+            document.user_parameter_labels, document.user_parameter_values};
     } else if (const auto* assembly = workspace_.open_assembly(active_id)) {
-        parameters = assembly->session.document().user_parameters;
-        relations = assembly->session.document().relations;
+        const auto& document = assembly->session.document();
+        data = {document.user_parameters, document.user_parameter_order,
+            document.user_parameter_labels, document.user_parameter_values};
     } else {
         return;
     }
-    auto* dialog = new DocumentParametersDialog(parameters, relations,
-        [this, active_id](std::map<std::string, std::string> values,
-                          std::vector<zima::document::ModelRelation> relations) {
+    if (data.order.empty()) {
+        for (const auto& [key, value] : data.flat) {
+            data.order.push_back(key); data.values[key][""] = value;
+        }
+    }
+    auto* dialog = new UserParametersDialog(std::move(data),
+        application_settings_.language, [this, active_id](UserParameterData values) {
             if (auto* part = workspace_.open_part(active_id)) {
                 auto next = part->session.document();
-                next.user_parameters = std::move(values);
-                next.relations = std::move(relations);
+                next.user_parameters = std::move(values.flat);
+                next.user_parameter_order = std::move(values.order);
+                next.user_parameter_labels = std::move(values.labels);
+                next.user_parameter_values = std::move(values.values);
                 part->session.commit(
                     std::move(next), part->session.calculated_boundaries());
             } else if (auto* assembly = workspace_.open_assembly(active_id)) {
                 auto next = assembly->session.document();
-                next.user_parameters = std::move(values);
-                next.relations = std::move(relations);
+                next.user_parameters = std::move(values.flat);
+                next.user_parameter_order = std::move(values.order);
+                next.user_parameter_labels = std::move(values.labels);
+                next.user_parameter_values = std::move(values.values);
                 assembly->session.commit(std::move(next));
             }
             refresh_tabs();
-        }, this);
+        }, application_settings_, this);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
     properties_dialog_ = dialog;
     connect(dialog, &QObject::destroyed, this, [this, dialog] {
         if (properties_dialog_ == dialog) properties_dialog_ = nullptr;
     });
+    dialog->show();
+}
+
+void AssemblyWorkspaceWindow::edit_material() {
+    if (properties_dialog_ != nullptr) { properties_dialog_->raise(); return; }
+    const auto id = workspace_.active_document_id();
+    DocumentToolData data;
+    if (const auto* part = workspace_.open_part(id)) {
+        const auto& document = part->session.document();
+        data = {document.document_units, document.document_precision,
+            document.physical_parameters, document.physical_parameter_units,
+            document.material_parameter_descriptions, document.family_table};
+    } else if (const auto* assembly = workspace_.open_assembly(id)) {
+        const auto& document = assembly->session.document();
+        data = {document.document_units, document.document_precision,
+            document.physical_parameters, document.physical_parameter_units,
+            document.material_parameter_descriptions, document.family_table};
+    } else return;
+    auto accepted = [this, id](DocumentToolData values) {
+        if (auto* part = workspace_.open_part(id)) {
+            auto next = part->session.document();
+            next.physical_parameters = std::move(values.physical_parameters);
+            next.physical_parameter_units = std::move(values.physical_parameter_units);
+            next.material_parameter_descriptions = std::move(values.descriptions);
+            part->session.commit(std::move(next), part->session.calculated_boundaries());
+        } else if (auto* assembly = workspace_.open_assembly(id)) {
+            auto next = assembly->session.document();
+            next.physical_parameters = std::move(values.physical_parameters);
+            next.physical_parameter_units = std::move(values.physical_parameter_units);
+            next.material_parameter_descriptions = std::move(values.descriptions);
+            assembly->session.commit(std::move(next));
+        }
+        refresh_tabs();
+    };
+    auto* dialog = new MaterialDialog(std::move(data), std::move(accepted), application_settings_, this);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    properties_dialog_ = dialog;
+    connect(dialog, &QObject::destroyed, this, [this, dialog] { if (properties_dialog_ == dialog) properties_dialog_ = nullptr; });
+    dialog->show();
+}
+
+void AssemblyWorkspaceWindow::edit_relations() {
+    if (properties_dialog_ != nullptr) { properties_dialog_->raise(); return; }
+    const auto id = workspace_.active_document_id();
+    std::map<std::string, std::string> parameters;
+    std::vector<zima::document::ModelRelation> relations;
+    std::map<std::string, double> model_values;
+    int decimal_places = 3;
+    if (const auto* part = workspace_.open_part(id)) {
+        const auto& document = part->session.document();
+        parameters = document.user_parameters; relations = document.relations;
+        try { decimal_places = std::stoi(document.document_precision.at("decimal_places")); } catch (...) {}
+        double density{};
+        try {
+            density = std::stod(document.physical_parameters.at("MASS_DENSITY"));
+            const auto unit = document.physical_parameter_units.at("MASS_DENSITY");
+            if (unit == "kg/m^3") density *= 1.0e-9;
+            else if (unit == "g/cm^3") density *= 1.0e-6;
+            else if (unit == "lb/in^3") density *= 0.45359237 / std::pow(25.4, 3);
+        } catch (...) { density = 0.0; }
+        const auto& boundaries = part->session.calculated_boundaries();
+        const double volume = boundaries.empty() ? 0.0 : std::abs(boundaries.back().volume);
+        const double area = boundaries.empty() ? 0.0 : std::abs(boundaries.back().surface_area);
+        model_values = {{"model.volume", volume}, {"model.area", area},
+            {"model.mass", volume * density}, {"material.density", density}};
+    } else if (const auto* assembly = workspace_.open_assembly(id)) {
+        const auto& document = assembly->session.document();
+        parameters = document.user_parameters; relations = document.relations;
+        try { decimal_places = std::stoi(document.document_precision.at("decimal_places")); } catch (...) {}
+        double volume{}; double area{};
+        for (const auto& component : document.components) {
+            volume += std::abs(component.calculated_source.volume);
+            area += std::abs(component.calculated_source.surface_area);
+        }
+        model_values = {{"model.volume", volume}, {"model.area", area},
+            {"model.mass", 0.0}, {"material.density", 0.0}};
+    }
+    else return;
+    auto* dialog = new RelationsDialog(std::move(parameters), std::move(relations),
+        [this, id](auto values, auto next_relations) {
+            const auto sync_relation_targets = [](auto& document, const auto& parameters,
+                                                   const auto& relations) {
+                for (const auto& relation : relations) {
+                    const auto value = parameters.find(relation.target);
+                    if (value == parameters.end()) continue;
+                    document.user_parameter_values[relation.target][""] = value->second;
+                    if (std::find(document.user_parameter_order.begin(),
+                            document.user_parameter_order.end(), relation.target) ==
+                        document.user_parameter_order.end()) {
+                        document.user_parameter_order.push_back(relation.target);
+                    }
+                }
+            };
+            if (auto* part = workspace_.open_part(id)) { auto next = part->session.document(); sync_relation_targets(next, values, next_relations); next.user_parameters = std::move(values); next.relations = std::move(next_relations); part->session.commit(std::move(next), part->session.calculated_boundaries()); }
+            else if (auto* assembly = workspace_.open_assembly(id)) { auto next = assembly->session.document(); sync_relation_targets(next, values, next_relations); next.user_parameters = std::move(values); next.relations = std::move(next_relations); assembly->session.commit(std::move(next)); }
+            refresh_tabs();
+        }, application_settings_, this, std::move(model_values), decimal_places);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    properties_dialog_ = dialog;
+    connect(dialog, &QObject::destroyed, this, [this, dialog] { if (properties_dialog_ == dialog) properties_dialog_ = nullptr; });
+    dialog->show();
+}
+
+void AssemblyWorkspaceWindow::edit_family_table() {
+    if (properties_dialog_ != nullptr) { properties_dialog_->raise(); return; }
+    const auto id = workspace_.active_document_id(); DocumentToolData data; QString name;
+    if (const auto* part = workspace_.open_part(id)) { const auto& d = part->session.document(); name = QString::fromStdString(d.name); data.family_table = d.family_table; }
+    else if (const auto* assembly = workspace_.open_assembly(id)) { const auto& d = assembly->session.document(); name = QString::fromStdString(d.name); data.family_table = d.family_table; }
+    else return;
+    auto* dialog = new FamilyTableDialog(name, std::move(data), [this, id](DocumentToolData values) {
+        if (auto* part = workspace_.open_part(id)) { auto next = part->session.document(); next.family_table = std::move(values.family_table); part->session.commit(std::move(next), part->session.calculated_boundaries()); }
+        else if (auto* assembly = workspace_.open_assembly(id)) { auto next = assembly->session.document(); next.family_table = std::move(values.family_table); assembly->session.commit(std::move(next)); }
+        refresh_tabs();
+    }, application_settings_, this);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    properties_dialog_ = dialog;
+    connect(dialog, &QObject::destroyed, this, [this, dialog] { if (properties_dialog_ == dialog) properties_dialog_ = nullptr; });
+    dialog->show();
+}
+
+void AssemblyWorkspaceWindow::edit_file_settings() {
+    if (properties_dialog_ != nullptr) { properties_dialog_->raise(); return; }
+    const auto id = workspace_.active_document_id(); DocumentToolData data;
+    if (const auto* part = workspace_.open_part(id)) { const auto& d = part->session.document(); data.units = d.document_units; data.precision = d.document_precision; }
+    else if (const auto* assembly = workspace_.open_assembly(id)) { const auto& d = assembly->session.document(); data.units = d.document_units; data.precision = d.document_precision; }
+    else return;
+    auto* dialog = new FileSettingsDialog(std::move(data), [this, id](DocumentToolData values) {
+        if (auto* part = workspace_.open_part(id)) { auto next = part->session.document(); next.document_units = std::move(values.units); next.document_precision = std::move(values.precision); part->session.commit(std::move(next), part->session.calculated_boundaries()); }
+        else if (auto* assembly = workspace_.open_assembly(id)) { auto next = assembly->session.document(); next.document_units = std::move(values.units); next.document_precision = std::move(values.precision); assembly->session.commit(std::move(next)); }
+        refresh_tabs();
+    }, application_settings_, this);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    properties_dialog_ = dialog;
+    connect(dialog, &QObject::destroyed, this, [this, dialog] { if (properties_dialog_ == dialog) properties_dialog_ = nullptr; });
     dialog->show();
 }
 
@@ -2561,17 +2884,23 @@ void AssemblyWorkspaceWindow::new_drawing() {
 }
 
 void AssemblyWorkspaceWindow::open_document() {
-    const QString path = open_file(this, tr("Otevřít dokument"),
+    const QString path = open_file(this,
+        application_settings_.text("file.open_document", tr("Otevřít dokument")),
         QString::fromStdString(working_directory_.string()),
-        tr("Dokument ZIMA-CAD (*.prtz *.asmz *.drwz)"));
+        application_settings_.text("file.filter.document",
+            tr("Dokumenty ZIMA-CAD (*.prtz *.asmz *.drwz *.frmz *.tblz)")),
+        application_settings_.translations);
     if (path.isEmpty()) return;
     static_cast<void>(open_document_path(path));
 }
 
 bool AssemblyWorkspaceWindow::open_document_path(const QString& path) {
+    const std::filesystem::path opened_path = path.toStdString();
     try {
         std::string id;
-        if (path.endsWith(".prtz", Qt::CaseInsensitive)) {
+        if (const auto already_open = workspace_.document_id_for_path(opened_path)) {
+            id = *already_open;
+        } else if (path.endsWith(".prtz", Qt::CaseInsensitive)) {
             std::vector<zima::kernel::BodyResult> calculated;
             auto document = zima::document::PartDocument::load(
                 path.toStdString(), &calculated);
@@ -2595,7 +2924,6 @@ bool AssemblyWorkspaceWindow::open_document_path(const QString& path) {
         QMessageBox::critical(this, tr("Otevření dokumentu selhalo"), error.what());
         return false;
     }
-    const std::filesystem::path opened_path = path.toStdString();
     if (!opened_path.parent_path().empty()) {
         working_directory_ = opened_path.parent_path();
     }
@@ -3218,11 +3546,17 @@ void AssemblyWorkspaceWindow::save_active_assembly() {
     if (assembly == nullptr) return;
     QString path = QString::fromStdString(assembly->path.string());
     if (path.isEmpty()) path = save_file(
-        this, tr("Uložit sestavu"),
+        this, application_settings_.text("file.save_assembly", tr("Uložit sestavu ZIMA-CAD")),
         QString::fromStdString((working_directory_ / "assembly.asmz").string()),
-        tr("ZIMA-CAD sestava (*.asmz)"), "asmz");
+        application_settings_.text("file.filter.assembly",
+            tr("Sestava ZIMA-CAD (*.asmz)")), "asmz",
+        application_settings_.translations);
     if (path.isEmpty()) return;
-    if (!path.endsWith(".asmz", Qt::CaseInsensitive)) path += ".asmz";
+    if (!path.endsWith(".asmz", Qt::CaseInsensitive)) {
+        auto normalized = std::filesystem::path(path.toStdString());
+        normalized.replace_extension(".asmz");
+        path = QString::fromStdString(normalized.string());
+    }
     try {
         assembly->session.document().save(path.toStdString());
         assembly->path = path.toStdString();
@@ -3230,7 +3564,9 @@ void AssemblyWorkspaceWindow::save_active_assembly() {
         assembly->session.mark_saved();
         refresh_tabs();
     } catch (const std::exception& error) {
-        QMessageBox::critical(this, tr("Uložení sestavy selhalo"), error.what());
+        QMessageBox::critical(this,
+            application_settings_.text("message.save_failed", tr("Uložení se nezdařilo")),
+            error.what());
     }
 }
 
@@ -3238,17 +3574,25 @@ void AssemblyWorkspaceWindow::save_active_document() {
     if(auto* drawing=workspace_.open_drawing(workspace_.active_document_id())) {
         QString path=QString::fromStdString(drawing->path.string());
         if(path.isEmpty()) path=save_file(
-            this,tr("Uložit výkres"),
+            this, application_settings_.text("file.save_drawing", tr("Uložit výkres")),
             QString::fromStdString((working_directory_ / "drawing.drwz").string()),
-            tr("ZIMA-CAD Výkres (*.drwz)"),"drwz");
+            application_settings_.text("file.filter.drawing",
+                tr("Výkres ZIMA-CAD (*.drwz)")), "drwz",
+            application_settings_.translations);
         if(path.isEmpty()) return;
-        if(!path.endsWith(".drwz", Qt::CaseInsensitive)) path += ".drwz";
+        if(!path.endsWith(".drwz", Qt::CaseInsensitive)) {
+            auto normalized = std::filesystem::path(path.toStdString());
+            normalized.replace_extension(".drwz");
+            path = QString::fromStdString(normalized.string());
+        }
         try { drawing->document.save(path.toStdString()); drawing->path=path.toStdString();
             working_directory_ = drawing->path.parent_path();
             drawing_workspace_->edit_workspace_document(drawing->document.document_id);
             refresh_tabs(); }
         catch(const std::exception& error) {
-            QMessageBox::critical(this,tr("Uložení výkresu selhalo"),error.what()); }
+            QMessageBox::critical(this,
+                application_settings_.text("message.save_failed", tr("Uložení se nezdařilo")),
+                error.what()); }
         return;
     }
     if (workspace_.open_assembly(workspace_.active_document_id()) != nullptr) {
@@ -3259,11 +3603,17 @@ void AssemblyWorkspaceWindow::save_active_document() {
     if (part == nullptr) return;
     QString path = QString::fromStdString(part->path.string());
     if (path.isEmpty()) path = save_file(
-        this, tr("Uložit díl"),
+        this, application_settings_.text("file.save_part", tr("Uložit díl ZIMA-CAD")),
         QString::fromStdString((working_directory_ / "part.prtz").string()),
-        tr("ZIMA-CAD díl (*.prtz)"), "prtz");
+        application_settings_.text("file.filter.part",
+            tr("Díl ZIMA-CAD (*.prtz)")), "prtz",
+        application_settings_.translations);
     if (path.isEmpty()) return;
-    if (!path.endsWith(".prtz", Qt::CaseInsensitive)) path += ".prtz";
+    if (!path.endsWith(".prtz", Qt::CaseInsensitive)) {
+        auto normalized = std::filesystem::path(path.toStdString());
+        normalized.replace_extension(".prtz");
+        path = QString::fromStdString(normalized.string());
+    }
     try {
         part->session.document().save(path.toStdString(),
                                       part->session.calculated_boundaries());
@@ -3273,50 +3623,57 @@ void AssemblyWorkspaceWindow::save_active_document() {
         refresh_tabs();
         refresh_scene();
     } catch (const std::exception& error) {
-        QMessageBox::critical(this, tr("Uložení Partu selhalo"), error.what());
+        QMessageBox::critical(this,
+            application_settings_.text("message.save_failed", tr("Uložení se nezdařilo")),
+            error.what());
     }
 }
 
 void AssemblyWorkspaceWindow::save_active_document_as() {
     const std::string document_id = workspace_.active_document_id();
     if (document_id.empty()) return;
-    std::filesystem::path current_path;
     QString caption;
     QString fallback_name;
     QString filter;
     QString suffix;
     if (const auto* drawing = workspace_.open_drawing(document_id)) {
-        current_path = drawing->path;
-        caption = tr("Uložit výkres jako");
-        fallback_name = QString::fromStdString(drawing->document.name) + ".drwz";
-        filter = tr("ZIMA-CAD výkres (*.drwz)");
+        static_cast<void>(drawing);
+        caption = application_settings_.text("file.save_drawing", tr("Uložit výkres"));
+        fallback_name = QStringLiteral("drawing.drwz");
+        filter = application_settings_.text("file.filter.drawing",
+            tr("Výkres ZIMA-CAD (*.drwz)"));
         suffix = "drwz";
     } else if (const auto* assembly = workspace_.open_assembly(document_id)) {
-        current_path = assembly->path;
-        caption = tr("Uložit sestavu jako");
-        fallback_name = QString::fromStdString(assembly->session.document().name) + ".asmz";
-        filter = tr("ZIMA-CAD sestava (*.asmz)");
+        static_cast<void>(assembly);
+        caption = application_settings_.text("file.save_assembly",
+            tr("Uložit sestavu ZIMA-CAD"));
+        fallback_name = QStringLiteral("assembly.asmz");
+        filter = application_settings_.text("file.filter.assembly",
+            tr("Sestava ZIMA-CAD (*.asmz)"));
         suffix = "asmz";
     } else if (const auto* part = workspace_.open_part(document_id)) {
-        current_path = part->path;
-        caption = tr("Uložit díl jako");
-        fallback_name = QString::fromStdString(part->session.document().name) + ".prtz";
-        filter = tr("ZIMA-CAD díl (*.prtz)");
+        static_cast<void>(part);
+        caption = application_settings_.text("file.save_part",
+            tr("Uložit díl ZIMA-CAD"));
+        fallback_name = QStringLiteral("part.prtz");
+        filter = application_settings_.text("file.filter.part",
+            tr("Díl ZIMA-CAD (*.prtz)"));
         suffix = "prtz";
     } else {
         return;
     }
-    const QString initial = current_path.empty()
-        ? QString::fromStdString((working_directory_ /
-              fallback_name.toStdString()).string())
-        : QString::fromStdString(current_path.string());
-    QString selected = save_file(this, caption, initial, filter, suffix);
+    const QString initial = QString::fromStdString((working_directory_ /
+        fallback_name.toStdString()).string());
+    QString selected = save_file(this, caption, initial, filter, suffix,
+                                 application_settings_.translations);
     if (selected.isEmpty()) return;
     const QString dotted_suffix = QStringLiteral(".") + suffix;
-    if (!selected.endsWith(dotted_suffix, Qt::CaseInsensitive)) {
-        selected += dotted_suffix;
+    std::filesystem::path target = selected.toStdString();
+    if (QString::fromStdString(target.extension().string()).compare(
+            dotted_suffix, Qt::CaseInsensitive) != 0) {
+        target.replace_extension(dotted_suffix.toStdString());
+        selected = QString::fromStdString(target.string());
     }
-    const std::filesystem::path target = selected.toStdString();
     if (const auto owner = workspace_.document_id_for_path(target);
         owner && *owner != document_id) {
         QMessageBox::warning(
@@ -3344,14 +3701,18 @@ void AssemblyWorkspaceWindow::save_active_document_as() {
         refresh_scene();
         state_->setText(tr("Dokument uložen jako %1").arg(selected));
     } catch (const std::exception& error) {
-        QMessageBox::critical(this, tr("Uložení jako selhalo"), error.what());
+        QMessageBox::critical(this,
+            application_settings_.text("message.save_failed", tr("Uložení se nezdařilo")),
+            error.what());
     }
 }
 
 void AssemblyWorkspaceWindow::set_working_directory() {
     const QString selected = choose_directory(
-        this, tr("Nastavit pracovní adresář"),
-        QString::fromStdString(working_directory_.string()));
+        this, application_settings_.text("file.set_working_directory",
+            tr("Nastavit pracovní adresář")),
+        QString::fromStdString(working_directory_.string()),
+        application_settings_.translations);
     if (selected.isEmpty()) return;
     const std::filesystem::path target = selected.toStdString();
     if (!std::filesystem::is_directory(target)) {
@@ -3361,6 +3722,30 @@ void AssemblyWorkspaceWindow::set_working_directory() {
     }
     working_directory_ = target;
     state_->setText(tr("Pracovní adresář: %1").arg(selected));
+}
+
+void AssemblyWorkspaceWindow::open_new_window() {
+    auto* window = new AssemblyWorkspaceWindow;
+    window->setAttribute(Qt::WA_DeleteOnClose);
+    window->showNormal();
+}
+
+void AssemblyWorkspaceWindow::show_global_settings() {
+    if (global_settings_dialog_ != nullptr) {
+        global_settings_dialog_->raise();
+        global_settings_dialog_->activateWindow();
+        return;
+    }
+    auto* dialog = new GlobalSettingsDialog(application_settings_, this);
+    global_settings_dialog_ = dialog;
+    connect(dialog, &QDialog::accepted, this, [this] {
+        application_settings_ = ApplicationSettings::load();
+    });
+    connect(dialog, &QObject::destroyed, this, [this] {
+        global_settings_dialog_ = nullptr;
+    });
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->show();
 }
 
 void AssemblyWorkspaceWindow::show_about() {
@@ -3377,9 +3762,12 @@ void AssemblyWorkspaceWindow::show_about() {
 }
 
 void AssemblyWorkspaceWindow::import_file() {
-    const QString path = open_file(this, tr("Importovat"),
+    const QString path = open_file(this,
+        application_settings_.text("menu.file.import", tr("Importovat")),
         QString::fromStdString(working_directory_.string()),
-        tr("Podporované soubory (*.dxf *.step *.stp);;DXF (*.dxf);;STEP (*.step *.stp)"));
+        application_settings_.text("file.filter.import",
+            tr("Podporované importní formáty (*.step *.stp);;STEP (*.step *.stp)")),
+        application_settings_.translations);
     if (path.isEmpty()) return;
     const auto context = !active_sketch_id_.empty()
         ? zima::interchange::Context::Sketch
@@ -4030,9 +4418,8 @@ void AssemblyWorkspaceWindow::show_construction_properties(
                     next.constructions.push_back(std::move(committed));
                 }
                 auto calculated = target_part->session.calculated_boundaries();
-                next.resolve_constructions(calculated.empty()
-                    ? zima::kernel::ViewerReferenceGeometry{}
-                    : calculated.back().mesh.original_references);
+                next.resolve_constructions(
+                    construction_reference_source_geometry(calculated));
                 if (const auto* resolved = next.find_construction(committed_id);
                     resolved == nullptr || !resolved->reference_valid) {
                     throw std::runtime_error(
@@ -4066,9 +4453,12 @@ void AssemblyWorkspaceWindow::show_construction_properties(
         }, this);
     dialog->set_reference_request_callback(
         [this](std::size_t index) { start_construction_reference_selection(index); });
+    construction_reference_dialog_ = dialog;
     dialog->set_preview_callback(
         [this, document_id, edit_mode](zima::document::ConstructionObject preview) {
             zima::kernel::ViewerMesh mesh;
+            zima::kernel::ViewerReferenceGeometry reference_geometry;
+            zima::kernel::Vec3 resolved_origin = preview.origin;
             if (const auto* source = workspace_.open_part(document_id)) {
                 auto next = source->session.document();
                 if (edit_mode) {
@@ -4079,10 +4469,17 @@ void AssemblyWorkspaceWindow::show_construction_properties(
                     next.constructions.push_back(preview);
                 }
                 const auto& calculated = source->session.calculated_boundaries();
-                next.resolve_constructions(calculated.empty()
-                    ? zima::kernel::ViewerReferenceGeometry{}
-                    : calculated.back().mesh.original_references);
-                mesh = next.construction_viewer_mesh();
+                reference_geometry =
+                    construction_reference_source_geometry(calculated);
+                next.resolve_constructions(reference_geometry);
+                if (const auto* resolved = next.find_construction(preview.id)) {
+                    resolved_origin = resolved->origin;
+                }
+                mesh = next.construction_viewer_mesh(preview.id);
+                append_reference_geometry(reference_geometry,
+                    next.origin_viewer_mesh().original_references);
+                append_reference_geometry(reference_geometry,
+                    next.construction_viewer_mesh().original_references);
             } else if (const auto* source = workspace_.open_assembly(document_id)) {
                 auto next = source->session.document();
                 if (edit_mode) {
@@ -4093,59 +4490,74 @@ void AssemblyWorkspaceWindow::show_construction_properties(
                     next.constructions.push_back(preview);
                 }
                 next.resolve_constructions();
-                mesh = next.construction_viewer_mesh();
+                if (const auto* resolved = next.find_construction(preview.id)) {
+                    resolved_origin = resolved->origin;
+                }
+                mesh = next.construction_viewer_mesh(preview.id);
+                reference_geometry = next.build_scene().original_references;
             }
-            std::vector<zima::kernel::ViewerEdge> edges;
-            for (auto edge : mesh.edges) {
-                if (edge.reference.owner_id == preview.id) edges.push_back(std::move(edge));
+            if (preview.kind == zima::document::ConstructionKind::Point &&
+                construction_reference_dialog_ != nullptr) {
+                const auto constraint_state =
+                    zima::document::point_constraint_state(
+                        preview.references, reference_geometry);
+                construction_translation_dof_ = constraint_state.remaining_dof;
+                construction_reference_dialog_->set_translation_constraint_state(
+                    constraint_state, resolved_origin);
             }
-            for (const auto& axis : mesh.axes) {
-                if (axis.reference.owner_id != preview.id) continue;
-                const double half = axis.display_length * 0.5;
-                edges.push_back({{{axis.point.x - axis.direction.x * half,
-                                    axis.point.y - axis.direction.y * half,
-                                    axis.point.z - axis.direction.z * half},
-                                   {axis.point.x + axis.direction.x * half,
-                                    axis.point.y + axis.direction.y * half,
-                                    axis.point.z + axis.direction.z * half}},
-                    {preview.id, "preview", {}}, true, true});
-            }
-            for (const auto& point : mesh.points) {
-                if (point.reference.owner_id != preview.id) continue;
-                constexpr double half = 4.0;
-                edges.push_back({{{point.position.x - half, point.position.y,
-                                    point.position.z},
-                                   {point.position.x + half, point.position.y,
-                                    point.position.z}},
-                    {preview.id, "preview", {}}, true, true});
-                edges.push_back({{{point.position.x, point.position.y - half,
-                                    point.position.z},
-                                   {point.position.x, point.position.y + half,
-                                    point.position.z}},
-                    {preview.id, "preview", {}}, true, true});
-            }
-            viewer_->set_transient_edges(std::move(edges));
+            construction_preview_mesh_ = std::move(mesh);
+            viewer_->set_transient_edges({});
+            preserve_view_on_refresh_ = true;
+            refresh_scene();
         });
-    construction_reference_dialog_ = dialog;
+    viewer_->set_editing_origin_visible(
+        kind == zima::document::ConstructionKind::Point);
+    if (kind != zima::document::ConstructionKind::Point) {
+        construction_translation_dof_ = 0;
+        dialog->set_remaining_translation_dof(0);
+    }
     properties_dialog_ = dialog;
     connect(dialog, &QObject::destroyed, this, [this] {
         properties_dialog_ = nullptr;
         construction_reference_dialog_ = nullptr;
+        construction_preview_mesh_.reset();
         pending_construction_reference_index_.reset();
+        tree_->setProperty("commandSelectionActive", false);
+        construction_translation_dof_ = 3;
         viewer_->set_transient_edges({});
+        viewer_->set_editing_origin_visible(false);
+        // A construction command installs its own persisted-reference filter.
+        // Returning to ordinary Part selection must also remove that filter;
+        // restoring only CandidateKind::Container leaves every basic history
+        // container unpickable in the View.
+        viewer_->set_candidate_filter({});
+        viewer_->clear_selection();
         refresh_tabs();
         refresh_scene();
     });
     dialog->show();
+    // Construction commands own their viewer selection contract.  Match the
+    // Python workflow: opening Point/Axis/Plane immediately arms the first
+    // reference row; the user must not have to discover and press a separate
+    // "pick" button before orange hover and RMB cycling become available.
+    start_construction_reference_selection(0);
 }
 
 void AssemblyWorkspaceWindow::start_construction_reference_selection(
     std::size_t index) {
     if (construction_reference_dialog_ == nullptr) return;
     pending_construction_reference_index_ = index;
+    tree_->setProperty("commandSelectionActive", true);
     const auto kind = construction_reference_dialog_->construction_kind();
     if (kind == zima::document::ConstructionKind::Point) {
-        viewer_->set_selection_contract({zima::viewer::CandidateKind::Vertex});
+        // A constrained Point uses the same persisted reference candidates as
+        // the Python implementation.  The dialog/solver decides how much a
+        // point, axis, edge, plane, or face constrains the result; the viewer
+        // must not discard those candidates before hover and confirmation.
+        viewer_->set_selection_contract({zima::viewer::CandidateKind::Vertex,
+            zima::viewer::CandidateKind::Axis,
+            zima::viewer::CandidateKind::Edge,
+            zima::viewer::CandidateKind::Face});
     } else if (kind == zima::document::ConstructionKind::Axis) {
         viewer_->set_selection_contract({zima::viewer::CandidateKind::Axis,
             zima::viewer::CandidateKind::Edge,
@@ -4159,9 +4571,11 @@ void AssemblyWorkspaceWindow::start_construction_reference_selection(
         : zima::assembly::InstancePath::decode(active_occurrence_path_);
     const bool active_part =
         workspace_.open_part(workspace_.active_document_id()) != nullptr;
-    viewer_->set_candidate_filter([prefix, active_part](const auto& candidate) {
+    const auto edited_id = construction_reference_dialog_->construction_id();
+    viewer_->set_candidate_filter([prefix, active_part, edited_id](const auto& candidate) {
         if (candidate.geometry !=
                 zima::viewer::CandidateGeometry::OriginalReference) return false;
+        if (candidate.owner_id == edited_id) return false;
         try {
             const auto path = zima::assembly::InstancePath::decode(
                 candidate.instance_path);
@@ -4206,14 +4620,129 @@ void AssemblyWorkspaceWindow::accept_construction_reference(
             : candidate.kind == zima::viewer::CandidateKind::Vertex
                 ? zima::document::ConstructionDefinition::ThreePointPlane
                 : zima::document::ConstructionDefinition::PlaneReference;
-    construction_reference_dialog_->set_reference(
-        *pending_construction_reference_index_,
-        {std::move(local_path), candidate.owner_id, candidate.semantic_key},
+    const std::size_t selected_index = *pending_construction_reference_index_;
+    if (!construction_reference_dialog_->set_reference(
+        selected_index,
+        {std::move(local_path), candidate.owner_id, candidate.semantic_key, 0.0,
+            candidate.kind == zima::viewer::CandidateKind::Face},
         QString::fromStdString(candidate.owner_id + " / " +
-            candidate.semantic_key), definition);
+            candidate.semantic_key), definition)) {
+        state_->setText(tr("Stejná reference už je pro tento objekt zadaná."));
+        viewer_->clear_selection();
+        return;
+    }
+    const bool constrained_point = object_kind ==
+        zima::document::ConstructionKind::Point;
     pending_construction_reference_index_.reset();
     viewer_->clear_selection();
     refresh_scene();
+    if (constrained_point && construction_translation_dof_ > 0 &&
+        selected_index + 1 < 3) {
+        start_construction_reference_selection(selected_index + 1);
+    }
+}
+
+bool AssemblyWorkspaceWindow::accept_construction_tree_reference(
+    const QTreeWidgetItem* item) {
+    if (item == nullptr || construction_reference_dialog_ == nullptr ||
+        !pending_construction_reference_index_) return false;
+    const auto item_kind = item->data(0, Qt::UserRole + 3).toString();
+    if ((item_kind == QStringLiteral("document-origin") ||
+         item_kind == QStringLiteral("construction-origin")) &&
+        construction_reference_dialog_->construction_kind() ==
+            zima::document::ConstructionKind::Point) {
+        const auto origin_id =
+            item->data(0, Qt::UserRole).toString().toStdString();
+        if (origin_id == construction_reference_dialog_->construction_id() +
+                ":origin") return false;
+        const auto instance_path = item->data(0, Qt::UserRole + 1)
+            .toString().toStdString();
+        constexpr std::array<const char*, 3> planes{
+            "origin:plane:xy", "origin:plane:yz", "origin:plane:xz"};
+        for (std::size_t index = 0; index < planes.size(); ++index) {
+            pending_construction_reference_index_ = index;
+            accept_construction_reference({
+                zima::viewer::CandidateKind::Face, 0.0, 0,
+                origin_id, planes[index], instance_path,
+                zima::viewer::CandidateGeometry::OriginalReference});
+        }
+        return true;
+    }
+    zima::viewer::ViewerCandidate candidate;
+    candidate.geometry = zima::viewer::CandidateGeometry::OriginalReference;
+    candidate.instance_path =
+        item->data(0, Qt::UserRole + 1).toString().toStdString();
+    try {
+        const auto path = zima::assembly::InstancePath::decode(
+            candidate.instance_path);
+        const auto prefix = active_occurrence_path_.empty()
+            ? zima::assembly::InstancePath{}
+            : zima::assembly::InstancePath::decode(active_occurrence_path_);
+        const bool active_part =
+            workspace_.open_part(workspace_.active_document_id()) != nullptr;
+        const bool in_scope = active_part ? path == prefix
+            : path == prefix ||
+                (path.occurrence_ids.size() == prefix.occurrence_ids.size() + 1 &&
+                 std::equal(prefix.occurrence_ids.begin(), prefix.occurrence_ids.end(),
+                     path.occurrence_ids.begin()));
+        if (!in_scope) return false;
+    } catch (const std::invalid_argument&) {
+        return false;
+    }
+    if (item_kind == QStringLiteral("origin-reference")) {
+        candidate.owner_id = item->data(0, Qt::UserRole + 6).isValid()
+            ? item->data(0, Qt::UserRole + 6).toString().toStdString()
+            : item->data(0, Qt::UserRole).toString().toStdString();
+        candidate.semantic_key =
+            item->data(0, Qt::UserRole + 5).toString().toStdString();
+        candidate.kind = candidate.semantic_key == "origin:point"
+            ? zima::viewer::CandidateKind::Vertex
+            : candidate.semantic_key.starts_with("origin:axis:")
+                ? zima::viewer::CandidateKind::Axis
+                : zima::viewer::CandidateKind::Face;
+    } else if (item_kind == QStringLiteral("part-construction") ||
+               item_kind == QStringLiteral("assembly-construction")) {
+        const auto id = item->data(0, Qt::UserRole).toString().toStdString();
+        const auto* part = workspace_.open_part(workspace_.active_document_id());
+        const auto* assembly =
+            workspace_.open_assembly(workspace_.active_document_id());
+        const auto* object = part != nullptr
+            ? part->session.document().find_construction(id)
+            : assembly != nullptr
+                ? assembly->session.document().find_construction(id) : nullptr;
+        if (object == nullptr) return false;
+        if (object->id == construction_reference_dialog_->construction_id()) {
+            return false;
+        }
+        candidate.owner_id = object->kind ==
+                zima::document::ConstructionKind::Point
+            ? object->container_origin.id : object->id;
+        candidate.kind = object->kind == zima::document::ConstructionKind::Point
+            ? zima::viewer::CandidateKind::Vertex
+            : object->kind == zima::document::ConstructionKind::Axis
+                ? zima::viewer::CandidateKind::Axis
+                : zima::viewer::CandidateKind::Face;
+        candidate.semantic_key = object->kind ==
+                zima::document::ConstructionKind::Point ? "point"
+            : object->kind == zima::document::ConstructionKind::Axis ? "axis"
+            : "plane";
+    } else {
+        return false;
+    }
+    const auto target_kind = construction_reference_dialog_->construction_kind();
+    const bool accepted = target_kind == zima::document::ConstructionKind::Point
+        ? candidate.kind == zima::viewer::CandidateKind::Vertex ||
+            candidate.kind == zima::viewer::CandidateKind::Axis ||
+            candidate.kind == zima::viewer::CandidateKind::Edge ||
+            candidate.kind == zima::viewer::CandidateKind::Face
+        : target_kind == zima::document::ConstructionKind::Axis
+            ? candidate.kind == zima::viewer::CandidateKind::Vertex ||
+                candidate.kind == zima::viewer::CandidateKind::Axis
+            : candidate.kind == zima::viewer::CandidateKind::Vertex ||
+                candidate.kind == zima::viewer::CandidateKind::Face;
+    if (!accepted) return false;
+    accept_construction_reference(candidate);
+    return true;
 }
 
 void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_id) {
@@ -7569,8 +8098,37 @@ void AssemblyWorkspaceWindow::refresh_tabs() {
 
 void AssemblyWorkspaceWindow::refresh_scene() {
     update_document_area_visibility();
+    tree_->setRootIndex(QModelIndex{});
     tree_->clear();
     viewer_->set_transient_point_transform({});
+    const auto construction_mesh = [this](const auto& document) {
+        auto mesh = construction_preview_mesh_.has_value()
+            ? *construction_preview_mesh_
+            : document.construction_viewer_mesh();
+        const auto* point = document.find_construction(
+            construction_dimension_object_id_);
+        if (point == nullptr || point->kind !=
+                zima::document::ConstructionKind::Point) return mesh;
+        const auto append_dimension = [&](const char* key, const char* label,
+                zima::kernel::Vec3 witness_first,
+                zima::kernel::Vec3 witness_second,
+                zima::kernel::Vec3 offset, double value) {
+            mesh.dimensions.push_back({witness_first, witness_second,
+                {witness_first.x + offset.x, witness_first.y + offset.y,
+                    witness_first.z + offset.z},
+                {witness_second.x + offset.x, witness_second.y + offset.y,
+                    witness_second.z + offset.z}, value,
+                {point->id, std::string("placement:") + key, {}}, label});
+        };
+        append_dimension("x", "X = ", {0, 0, 0}, {point->origin.x, 0, 0},
+            {0, -8, 0}, point->origin.x);
+        append_dimension("y", "Y = ", {point->origin.x, 0, 0},
+            {point->origin.x, point->origin.y, 0}, {8, 0, 0}, point->origin.y);
+        append_dimension("z", "Z = ",
+            {point->origin.x, point->origin.y, 0}, point->origin,
+            {8, 8, 0}, point->origin.z);
+        return mesh;
+    };
     if (workspace_.size() == 0) {
         workspace_stack_->setCurrentWidget(model_workspace_);
         tree_->setHeaderLabels({tr("DÍL")});
@@ -7592,8 +8150,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             workspace_.open_drawing(workspace_.displayed_document_id())) {
         workspace_stack_->setCurrentWidget(drawing_workspace_);
         drawing_workspace_->edit_workspace_document(drawing->document.document_id);
-        tree_->setHeaderLabels({tr("VÝKRES-%1").arg(
-            QString::fromStdString(drawing->document.name))});
+        tree_->setHeaderLabels({tr("VÝKRES")});
         auto* root = new QTreeWidgetItem(
             tree_, {QString::fromStdString(drawing->document.name)});
         for (const auto& sheet : drawing->document.sheets) {
@@ -7654,8 +8211,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             return;
         }
         const auto& document = part->session.document();
-        tree_->setHeaderLabels({tr("DÍL-%1").arg(
-            QString::fromStdString(document.name))});
+        tree_->setHeaderLabels({tr("DÍL")});
         if (!active_sketch_id_.empty() && std::none_of(
                 document.sketches.begin(), document.sketches.end(),
                 [&](const auto& sketch) { return sketch.id == active_sketch_id_; })) {
@@ -7678,6 +8234,9 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                 tree_, {QString::fromStdString(document.name)});
             add_part_tree_children(root, document);
             root->setExpanded(true);
+            // Keep the document object as the internal owner, but present its
+            // contents as the visible root exactly like the Python history tree.
+            tree_->setRootIndex(tree_->indexFromItem(root));
         }
         viewer_->set_selection_contract(!selection_action_->isChecked()
             ? std::vector<zima::viewer::CandidateKind>{}
@@ -7794,7 +8353,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             auto display = part_rollback_->input_body
                 ? part_rollback_->input_body->mesh : zima::kernel::ViewerMesh{};
             append_mesh(display, document.origin_viewer_mesh());
-            append_mesh(display, document.construction_viewer_mesh());
+            append_mesh(display, construction_mesh(document));
             viewer_->set_mesh(std::move(display));
         } else {
             const auto& calculated = part->session.calculated_boundaries();
@@ -7846,7 +8405,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                 append_mesh(display, std::move(sketch_mesh));
             }
             append_mesh(display, document.origin_viewer_mesh());
-            append_mesh(display, document.construction_viewer_mesh());
+            append_mesh(display, construction_mesh(document));
             if (sketch_external_reference_active_) {
                 const auto source_owners = sketch_external_reference_source_owners(
                     document, active_sketch_id_);
@@ -8024,8 +8583,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     if (editing_sketch != nullptr) {
         populate_sketch_tree(*editing_sketch);
     } else {
-        tree_->setHeaderLabels({tr("SESTAVA-%1").arg(
-            QString::fromStdString(document.name))});
+        tree_->setHeaderLabels({tr("SESTAVA")});
         auto* root = new QTreeWidgetItem(
             tree_, {QString::fromStdString(document.name)});
         add_assembly_tree_children(root, document.document_id, {});
@@ -8204,7 +8762,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             append_mesh(live_source.mesh,
                 active_part->session.document().origin_viewer_mesh());
             append_mesh(live_source.mesh,
-                active_part->session.document().construction_viewer_mesh());
+                construction_mesh(active_part->session.document()));
             viewer_->set_mesh(workspace_.build_scene_with_part_override(
                 document.document_id,
                 zima::assembly::InstancePath::decode(*active_part_occurrence),
@@ -8462,7 +9020,10 @@ void AssemblyWorkspaceWindow::populate_sketch_tree(
 void AssemblyWorkspaceWindow::add_part_tree_children(
     QTreeWidgetItem* parent,
     const zima::document::PartDocument& document) {
-    add_origin_tree_item(parent, document.document_id, false);
+    const auto construction_path = active_occurrence_path_.empty()
+        ? zima::assembly::InstancePath{}
+        : zima::assembly::InstancePath::decode(active_occurrence_path_);
+    add_origin_tree_item(parent, document.document_id, false, construction_path);
     for (std::size_t index = 0; index < document.history.size(); ++index) {
         const auto& container = document.history[index];
         auto* item = new QTreeWidgetItem(parent,
@@ -8531,13 +9092,20 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
         auto* item = new QTreeWidgetItem(
             parent, {QString::fromStdString(object.name)});
         item->setData(0, Qt::UserRole, QString::fromStdString(object.id));
+        item->setData(0, Qt::UserRole + 1,
+            QString::fromStdString(construction_path.encoded()));
         item->setData(0, Qt::UserRole + 3, "part-construction");
+        if (object.kind == zima::document::ConstructionKind::Point) {
+            add_construction_origin_tree_item(
+                item, object.container_origin, object.name, construction_path);
+            item->setExpanded(true);
+        }
     }
     auto* body = new QTreeWidgetItem(parent, {tr("Těleso")});
     body->setIcon(0, resource_icon("result-body"));
     body->setData(0, Qt::UserRole, QString::fromStdString(document.document_id));
     body->setData(0, Qt::UserRole + 3, "part-result-body");
-    auto* insert_here = new QTreeWidgetItem(parent, {tr("Vložit zde")});
+    auto* insert_here = new QTreeWidgetItem(parent, {tr("← Vložit zde")});
     insert_here->setData(0, Qt::UserRole + 3, "part-insert-here");
     auto font = insert_here->font(0);
     font.setBold(true);
@@ -8553,7 +9121,7 @@ void AssemblyWorkspaceWindow::add_assembly_tree_children(
     const auto* assembly = workspace_.open_assembly(assembly_document_id);
     if (assembly == nullptr) return;
     if (assembly_document_id == workspace_.active_document_id()) {
-        add_origin_tree_item(parent, assembly_document_id, true);
+        add_origin_tree_item(parent, assembly_document_id, true, parent_path);
         for (const auto& sketch : assembly->session.document().sketches) {
             auto* item = new QTreeWidgetItem(
                 parent, {QString::fromStdString(sketch.name)});
@@ -8586,7 +9154,14 @@ void AssemblyWorkspaceWindow::add_assembly_tree_children(
             auto* item = new QTreeWidgetItem(
                 parent, {QString::fromStdString(object.name)});
             item->setData(0, Qt::UserRole, QString::fromStdString(object.id));
+            item->setData(0, Qt::UserRole + 1,
+                QString::fromStdString(parent_path.encoded()));
             item->setData(0, Qt::UserRole + 3, "assembly-construction");
+            if (object.kind == zima::document::ConstructionKind::Point) {
+                add_construction_origin_tree_item(
+                    item, object.container_origin, object.name, parent_path);
+                item->setExpanded(true);
+            }
         }
     }
     add_snapshot_tree_children(
@@ -8645,7 +9220,7 @@ void AssemblyWorkspaceWindow::add_snapshot_tree_children(
             item->setForeground(0, QBrush(QColor(125, 125, 125)));
         }
         if (component.source_kind == zima::assembly::ComponentSourceKind::Assembly) {
-            add_origin_tree_item(item, component.source_document_id, true);
+            add_origin_tree_item(item, component.source_document_id, true, path);
             const auto* active_source = active_occurrence
                 ? workspace_.open_assembly(component.source_document_id) : nullptr;
             if (active_source != nullptr) {
@@ -8655,6 +9230,8 @@ void AssemblyWorkspaceWindow::add_snapshot_tree_children(
                         item, {QString::fromStdString(object.name)});
                     construction_item->setData(0, Qt::UserRole,
                         QString::fromStdString(object.id));
+                    construction_item->setData(0, Qt::UserRole + 1,
+                        QString::fromStdString(path.encoded()));
                     construction_item->setData(
                         0, Qt::UserRole + 3, "assembly-construction");
                 }
@@ -8676,7 +9253,7 @@ void AssemblyWorkspaceWindow::add_snapshot_tree_children(
                 item->setExpanded(true);
             }
         } else {
-            add_origin_tree_item(item, component.source_document_id, false);
+            add_origin_tree_item(item, component.source_document_id, false, path);
         }
     }
 }
@@ -8784,6 +9361,46 @@ void AssemblyWorkspaceWindow::show_component_properties(
         refresh_scene();
     });
     dialog->show();
+}
+
+void AssemblyWorkspaceWindow::show_tree_item_properties(QTreeWidgetItem* item) {
+    if (item == nullptr) return;
+    const auto kind = item->data(0, Qt::UserRole + 3).toString();
+    const auto id = item->data(0, Qt::UserRole).toString().toStdString();
+    if (kind == QStringLiteral("part-container")) {
+        const auto* part = workspace_.open_part(workspace_.active_document_id());
+        const auto* container = part == nullptr
+            ? nullptr : part->session.document().find_container(id);
+        if (container != nullptr) show_primitive_properties(container->feature_kind, id);
+    } else if (kind == QStringLiteral("assembly-cut")) {
+        const auto* assembly =
+            workspace_.open_assembly(workspace_.active_document_id());
+        const auto* cut = assembly == nullptr
+            ? nullptr : assembly->session.document().find_cut(id);
+        if (cut != nullptr) show_primitive_properties(cut->definition.feature_kind, id);
+    } else if (kind == QStringLiteral("part-construction") ||
+               kind == QStringLiteral("assembly-construction")) {
+        const auto* part = workspace_.open_part(workspace_.active_document_id());
+        const auto* assembly =
+            workspace_.open_assembly(workspace_.active_document_id());
+        const auto* object = part != nullptr
+            ? part->session.document().find_construction(id)
+            : assembly != nullptr
+                ? assembly->session.document().find_construction(id) : nullptr;
+        if (object != nullptr) show_construction_properties(object->kind, id);
+    } else if (kind == QStringLiteral("part-sketch") ||
+               kind == QStringLiteral("assembly-sketch")) {
+        show_sketch_properties(id);
+    } else if (kind == QStringLiteral("assembly-mate")) {
+        show_mate_properties(
+            item->data(0, Qt::UserRole + 4).toString().toStdString(), id);
+    } else if (kind == QStringLiteral("part-sketch-dimension")) {
+        show_sketch_dimension_properties(
+            item->data(0, Qt::UserRole + 4).toString().toStdString(), id);
+    } else if (!item->data(0, Qt::UserRole + 1).toString().isEmpty()) {
+        show_component_properties(
+            item->data(0, Qt::UserRole + 1).toString().toStdString());
+    }
 }
 
 void AssemblyWorkspaceWindow::show_component_context_menu(

@@ -4,6 +4,7 @@
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/sketcher/sketch_trim.hpp>
 #include <zima/viewer/picking.hpp>
+#include "application_settings.hpp"
 
 #include <QMainWindow>
 
@@ -43,6 +44,7 @@ class AssemblyWorkspaceWindow final : public QMainWindow {
 public:
     AssemblyWorkspaceWindow();
     [[nodiscard]] bool open_document_path(const QString& path);
+    void show_tree_item_properties(QTreeWidgetItem* item);
 
 private:
     enum class ApplicationMode {
@@ -56,6 +58,7 @@ private:
 
     zima::workspace::Workspace workspace_;
     zima::kernel::OcctKernel kernel_;
+    ApplicationSettings application_settings_;
     std::filesystem::path working_directory_{std::filesystem::current_path()};
     QTabBar* tabs_{};
     QTreeWidget* tree_{};
@@ -79,6 +82,15 @@ private:
     QAction* regenerate_action_{};
     QAction* save_action_{};
     QAction* save_as_action_{};
+    QAction* rename_document_action_{};
+    QMenu* delete_file_menu_{};
+    QAction* delete_current_file_action_{};
+    QAction* delete_all_versions_action_{};
+    QAction* delete_old_versions_action_{};
+    QAction* delete_old_versions_keep_latest_action_{};
+    QMenu* delete_working_directory_menu_{};
+    QAction* delete_working_directory_old_versions_action_{};
+    QAction* delete_working_directory_keep_latest_action_{};
     QAction* working_directory_action_{};
     QAction* undo_action_{};
     QAction* redo_action_{};
@@ -94,6 +106,7 @@ private:
     QAction* show_axes_action_{};
     QAction* show_planes_action_{};
     QAction* show_sketches_action_{};
+    QMenu* colors_menu_{};
     QActionGroup* display_mode_group_{};
     QActionGroup* application_group_{};
     std::array<QAction*, 6> application_actions_{};
@@ -161,7 +174,15 @@ private:
     QAction* angle_mate_action_{};
     QAction* plane_angle_mate_action_{};
     QAction* parameters_action_{};
+    QAction* material_action_{};
+    QAction* relations_action_{};
+    QAction* family_table_action_{};
+    QAction* file_settings_action_{};
+    QAction* export_action_{};
+    QAction* settings_action_{};
+    QMenu* standard_views_menu_{};
     QDialog* properties_dialog_{};
+    QDialog* global_settings_dialog_{};
     struct PartRollbackContext {
         std::string part_document_id;
         std::string instance_path;
@@ -183,7 +204,10 @@ private:
     std::vector<zima::kernel::EdgeReference> pending_edge_treatment_edges_;
     PrimitivePropertiesDialog* extrusion_target_dialog_{};
     ConstructionPropertiesDialog* construction_reference_dialog_{};
+    std::optional<zima::kernel::ViewerMesh> construction_preview_mesh_;
+    std::string construction_dimension_object_id_;
     std::optional<std::size_t> pending_construction_reference_index_;
+    int construction_translation_dof_{3};
     std::string active_sketch_id_;
     std::string selected_sketch_id_;
     std::string selected_sketch_segment_id_;
@@ -294,6 +318,10 @@ private:
     bool mutate_active_sketch(
         const std::function<void(zima::sketcher::Sketch&)>& mutation);
     void edit_document_parameters();
+    void edit_material();
+    void edit_relations();
+    void edit_family_table();
+    void edit_file_settings();
     void regenerate_assembly();
     void start_plane_mate();
     void start_axis_mate();
@@ -312,6 +340,8 @@ private:
     void save_active_document();
     void save_active_document_as();
     void set_working_directory();
+    void open_new_window();
+    void show_global_settings();
     void show_about();
     void import_file();
     void import_step_into_assembly(const std::filesystem::path& path);
@@ -324,6 +354,8 @@ private:
     void start_construction_reference_selection(std::size_t index);
     void accept_construction_reference(
         const zima::viewer::ViewerCandidate& candidate);
+    [[nodiscard]] bool accept_construction_tree_reference(
+        const QTreeWidgetItem* item);
     void show_sketch_properties(const std::string& sketch_id = {});
     void show_sketch_bspline_properties(
         const std::string& sketch_id, const std::string& bspline_id);

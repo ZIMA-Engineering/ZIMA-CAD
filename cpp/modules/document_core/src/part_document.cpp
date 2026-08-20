@@ -1422,9 +1422,33 @@ ConstructionObject PartDocument::create_construction(ConstructionKind kind) {
     ConstructionObject object;
     object.id = make_id();
     object.kind = kind;
+    object.container_origin = create_container_origin(object.id);
     object.name = kind == ConstructionKind::Point ? "Bod001"
         : kind == ConstructionKind::Axis ? "Osa001" : "Rovina001";
     return object;
+}
+
+ContainerOrigin create_container_origin(const std::string& parent_id) {
+    if (parent_id.empty()) {
+        throw std::invalid_argument("Container Origin parent ID is required");
+    }
+    ContainerOrigin origin;
+    origin.id = parent_id + ":origin";
+    origin.parent_id = parent_id;
+    const auto child = [&](const char* suffix, const char* name,
+                           OriginChildKind kind, const char* key) {
+        return OriginChild{origin.id + suffix, origin.id, name, kind, key, true};
+    };
+    origin.children = {
+        child(":point", "Point 0,0,0", OriginChildKind::Point, "point"),
+        child(":axis:x", "X Axis", OriginChildKind::Axis, "axis:x"),
+        child(":axis:y", "Y Axis", OriginChildKind::Axis, "axis:y"),
+        child(":axis:z", "Z Axis", OriginChildKind::Axis, "axis:z"),
+        child(":plane:xy", "XY Plane", OriginChildKind::Plane, "plane:xy"),
+        child(":plane:yz", "YZ Plane", OriginChildKind::Plane, "plane:yz"),
+        child(":plane:xz", "XZ Plane", OriginChildKind::Plane, "plane:xz"),
+    };
+    return origin;
 }
 
 bool resolve_construction(ConstructionObject& object,
@@ -1499,10 +1523,107 @@ bool resolve_construction(ConstructionObject& object,
         return true;
     }
     if (object.definition == ConstructionDefinition::PointReference &&
-        object.references.size() == 1) {
-        if (const auto resolved = point(object.references[0])) {
-            object.origin = *resolved;
-            object.reference_valid = true;
+        !object.references.empty()) {
+        // Point placement is a set of geometric constraints, not merely an
+        // alias of another vertex.  Preserve the entered origin as the
+        // under-constrained fallback and project it onto all selected stable
+        // points, straight edges/axes and planar faces/planes.
+        std::vector<std::pair<zima::kernel::Vec3, double>> equations;
+        const auto add_axis_equations = [&](const zima::kernel::ViewerAxis& value) {
+            const auto& d = value.direction;
+            const zima::kernel::Vec3 seed = std::abs(d.x) < 0.8
+                ? zima::kernel::Vec3{1.0, 0.0, 0.0}
+                : zima::kernel::Vec3{0.0, 1.0, 0.0};
+            zima::kernel::Vec3 first{
+                d.y * seed.z - d.z * seed.y,
+                d.z * seed.x - d.x * seed.z,
+                d.x * seed.y - d.y * seed.x};
+            const double first_length = std::sqrt(first.x * first.x +
+                first.y * first.y + first.z * first.z);
+            first = {first.x / first_length, first.y / first_length,
+                first.z / first_length};
+            const zima::kernel::Vec3 second{
+                d.y * first.z - d.z * first.y,
+                d.z * first.x - d.x * first.z,
+                d.x * first.y - d.y * first.x};
+            equations.push_back({first, first.x * value.point.x +
+                first.y * value.point.y + first.z * value.point.z});
+            equations.push_back({second, second.x * value.point.x +
+                second.y * value.point.y + second.z * value.point.z});
+        };
+        bool supported = true;
+        for (const auto& reference : object.references) {
+            if (const auto resolved = point(reference)) {
+                equations.push_back({{1.0, 0.0, 0.0}, resolved->x});
+                equations.push_back({{0.0, 1.0, 0.0}, resolved->y});
+                equations.push_back({{0.0, 0.0, 1.0}, resolved->z});
+            } else if (const auto resolved = axis(reference)) {
+                add_axis_equations(*resolved);
+            } else if (const auto resolved = plane(reference)) {
+                const auto& [plane_point, normal] = *resolved;
+                equations.push_back({normal, normal.x * plane_point.x +
+                    normal.y * plane_point.y + normal.z * plane_point.z +
+                    reference.offset});
+            } else {
+                supported = false;
+                break;
+            }
+        }
+        if (supported && !equations.empty()) {
+            constexpr double weight = 1.0e10;
+            double matrix[3][4]{{1.0, 0.0, 0.0, object.origin.x},
+                                {0.0, 1.0, 0.0, object.origin.y},
+                                {0.0, 0.0, 1.0, object.origin.z}};
+            for (const auto& [normal, rhs] : equations) {
+                const double values[3]{normal.x, normal.y, normal.z};
+                for (int row = 0; row < 3; ++row) {
+                    for (int column = 0; column < 3; ++column) {
+                        matrix[row][column] +=
+                            weight * values[row] * values[column];
+                    }
+                    matrix[row][3] += weight * values[row] * rhs;
+                }
+            }
+            bool solvable = true;
+            for (int column = 0; column < 3; ++column) {
+                int pivot = column;
+                for (int row = column + 1; row < 3; ++row) {
+                    if (std::abs(matrix[row][column]) >
+                        std::abs(matrix[pivot][column])) pivot = row;
+                }
+                if (std::abs(matrix[pivot][column]) <= 1.0e-12) {
+                    solvable = false;
+                    break;
+                }
+                if (pivot != column) {
+                    for (int item = column; item < 4; ++item) {
+                        std::swap(matrix[pivot][item], matrix[column][item]);
+                    }
+                }
+                const double divisor = matrix[column][column];
+                for (int item = column; item < 4; ++item) matrix[column][item] /= divisor;
+                for (int row = 0; row < 3; ++row) {
+                    if (row == column) continue;
+                    const double factor = matrix[row][column];
+                    for (int item = column; item < 4; ++item) {
+                        matrix[row][item] -= factor * matrix[column][item];
+                    }
+                }
+            }
+            if (solvable) {
+                const zima::kernel::Vec3 solved{
+                    matrix[0][3], matrix[1][3], matrix[2][3]};
+                const bool consistent = std::all_of(equations.begin(), equations.end(),
+                    [&](const auto& equation) {
+                        const auto& [normal, rhs] = equation;
+                        return std::abs(normal.x * solved.x + normal.y * solved.y +
+                            normal.z * solved.z - rhs) <= 1.0e-5;
+                    });
+                if (consistent) {
+                    object.origin = solved;
+                    object.reference_valid = true;
+                }
+            }
         }
     } else if (object.definition == ConstructionDefinition::TwoPointAxis &&
                object.references.size() == 2) {
@@ -1558,6 +1679,113 @@ bool resolve_construction(ConstructionObject& object,
         }
     }
     return object.reference_valid;
+}
+
+PointConstraintState point_constraint_state(
+    const std::vector<ConstructionReference>& references,
+    const zima::kernel::ViewerReferenceGeometry& geometry) {
+    const auto matches = [](const auto& actual, const auto& expected) {
+        return actual.instance_path == expected.instance_path &&
+            actual.owner_id == expected.owner_id &&
+            actual.semantic_key == expected.semantic_key;
+    };
+    std::vector<zima::kernel::Vec3> rows;
+    const auto append_axis_rows = [&](zima::kernel::Vec3 direction) {
+        const double magnitude = std::hypot(
+            std::hypot(direction.x, direction.y), direction.z);
+        if (magnitude <= 1.0e-12) return;
+        direction = {direction.x / magnitude, direction.y / magnitude,
+            direction.z / magnitude};
+        const auto seed = std::abs(direction.x) < 0.8
+            ? zima::kernel::Vec3{1.0, 0.0, 0.0}
+            : zima::kernel::Vec3{0.0, 1.0, 0.0};
+        zima::kernel::Vec3 first{
+            direction.y * seed.z - direction.z * seed.y,
+            direction.z * seed.x - direction.x * seed.z,
+            direction.x * seed.y - direction.y * seed.x};
+        const double length = std::hypot(std::hypot(first.x, first.y), first.z);
+        first = {first.x / length, first.y / length, first.z / length};
+        rows.push_back(first);
+        rows.push_back({direction.y * first.z - direction.z * first.y,
+            direction.z * first.x - direction.x * first.z,
+            direction.x * first.y - direction.y * first.x});
+    };
+    for (const auto& reference : references) {
+        if (std::any_of(geometry.points.begin(), geometry.points.end(),
+                [&](const auto& item) { return matches(item.reference, reference); })) {
+            rows.insert(rows.end(), {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}});
+            continue;
+        }
+        const auto axis = std::find_if(geometry.axes.begin(), geometry.axes.end(),
+            [&](const auto& item) { return matches(item.reference, reference); });
+        if (axis != geometry.axes.end()) {
+            append_axis_rows(axis->direction);
+            continue;
+        }
+        const auto edge = std::find_if(geometry.edges.begin(), geometry.edges.end(),
+            [&](const auto& item) { return matches(item.reference, reference); });
+        if (edge != geometry.edges.end() && edge->points.size() >= 2) {
+            const auto& first = edge->points.front();
+            const auto& last = edge->points.back();
+            append_axis_rows({last.x - first.x, last.y - first.y, last.z - first.z});
+            continue;
+        }
+        for (std::size_t index = 0;
+             index < geometry.triangle_references.size(); ++index) {
+            if (!matches(geometry.triangle_references[index], reference) ||
+                index * 3 + 2 >= geometry.triangles.size()) continue;
+            const auto& a = geometry.vertices[geometry.triangles[index * 3]];
+            const auto& b = geometry.vertices[geometry.triangles[index * 3 + 1]];
+            const auto& c = geometry.vertices[geometry.triangles[index * 3 + 2]];
+            rows.push_back({(b.y-a.y)*(c.z-a.z)-(b.z-a.z)*(c.y-a.y),
+                (b.z-a.z)*(c.x-a.x)-(b.x-a.x)*(c.z-a.z),
+                (b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x)});
+            break;
+        }
+    }
+    int rank = 0;
+    std::array<bool, 3> pivot_columns{};
+    for (int column = 0; column < 3 && rank < static_cast<int>(rows.size()); ++column) {
+        int pivot = rank;
+        for (int row = rank + 1; row < static_cast<int>(rows.size()); ++row) {
+            const double value = column == 0 ? rows[row].x
+                : column == 1 ? rows[row].y : rows[row].z;
+            const double pivot_value = column == 0 ? rows[pivot].x
+                : column == 1 ? rows[pivot].y : rows[pivot].z;
+            if (std::abs(value) > std::abs(pivot_value)) pivot = row;
+        }
+        double divisor = column == 0 ? rows[pivot].x
+            : column == 1 ? rows[pivot].y : rows[pivot].z;
+        if (std::abs(divisor) <= 1.0e-9) continue;
+        std::swap(rows[rank], rows[pivot]);
+        divisor = column == 0 ? rows[rank].x
+            : column == 1 ? rows[rank].y : rows[rank].z;
+        rows[rank] = {rows[rank].x/divisor, rows[rank].y/divisor,
+            rows[rank].z/divisor};
+        for (int row = 0; row < static_cast<int>(rows.size()); ++row) {
+            if (row == rank) continue;
+            const double factor = column == 0 ? rows[row].x
+                : column == 1 ? rows[row].y : rows[row].z;
+            rows[row] = {rows[row].x-factor*rows[rank].x,
+                rows[row].y-factor*rows[rank].y,
+                rows[row].z-factor*rows[rank].z};
+        }
+        pivot_columns[static_cast<std::size_t>(column)] = true;
+        ++rank;
+    }
+    PointConstraintState state;
+    state.remaining_dof = 3 - std::min(rank, 3);
+    // Python exposes the pivot columns of its reduced equation matrix as the
+    // constrained X/Y/Z controls. Keep the UI contract identical, including
+    // oblique planes where one pivot coordinate is solved from free fallbacks.
+    state.constrained_axes = pivot_columns;
+    return state;
+}
+
+int point_constraint_remaining_dof(
+    const std::vector<ConstructionReference>& references,
+    const zima::kernel::ViewerReferenceGeometry& geometry) {
+    return point_constraint_state(references, geometry).remaining_dof;
 }
 
 ConstructionObject* PartDocument::find_construction(const std::string& id) {
@@ -1639,7 +1867,8 @@ zima::kernel::ViewerMesh PartDocument::origin_viewer_mesh() const {
     return mesh;
 }
 
-zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh() const {
+zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
+    const std::string& editing_object_id) const {
     zima::kernel::ViewerMesh mesh;
     const auto normalized = [](zima::kernel::Vec3 value) {
         const double length = std::sqrt(value.x * value.x + value.y * value.y +
@@ -1652,12 +1881,82 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh() const {
                                   a.z * b.x - a.x * b.z,
                                   a.x * b.y - a.y * b.x};
     };
+    const auto rotated = [](zima::kernel::Vec3 value,
+                            const zima::kernel::Vec3& rotation) {
+        constexpr double radians = std::numbers::pi / 180.0;
+        const double cx = std::cos(rotation.x * radians);
+        const double sx = std::sin(rotation.x * radians);
+        const double cy = std::cos(rotation.y * radians);
+        const double sy = std::sin(rotation.y * radians);
+        const double cz = std::cos(rotation.z * radians);
+        const double sz = std::sin(rotation.z * radians);
+        value = {value.x, cx * value.y - sx * value.z,
+            sx * value.y + cx * value.z};
+        value = {cy * value.x + sy * value.z, value.y,
+            -sy * value.x + cy * value.z};
+        return zima::kernel::Vec3{cz * value.x - sz * value.y,
+            sz * value.x + cz * value.y, value.z};
+    };
     for (const auto& object : constructions) {
         if (!object.reference_valid) continue;
         if (object.kind == ConstructionKind::Point) {
-            mesh.points.push_back({object.origin, {object.id, "point", {}}});
+            const std::string& origin_id = object.container_origin.id;
+            const bool editing = editing_object_id == object.id;
+            const std::string point_semantic = editing ? "origin:point" : "point";
+            mesh.points.push_back(
+                {object.origin, {origin_id, point_semantic, {}}, object.name});
             mesh.original_references.points.push_back(
-                {object.origin, {object.id, "point", {}}});
+                {object.origin, {origin_id, point_semantic, {}}});
+            if (!editing) continue;
+            // Every container Origin is half the linear size of the document
+            // Origin. Arrowheads remain screen-space renderer geometry.
+            constexpr double extent = 2.0;
+            for (const auto& [key, local_direction] : std::array{
+                     std::pair{"x", zima::kernel::Vec3{1.0, 0.0, 0.0}},
+                     std::pair{"y", zima::kernel::Vec3{0.0, 1.0, 0.0}},
+                     std::pair{"z", zima::kernel::Vec3{0.0, 0.0, 1.0}}}) {
+                zima::kernel::ViewerAxis axis{object.origin,
+                    rotated(local_direction, object.rotation), extent,
+                    {origin_id, std::string("origin:axis:") + key, {}}};
+                axis.label = key;
+                mesh.axes.push_back(axis);
+                mesh.original_references.axes.push_back(std::move(axis));
+            }
+            const auto append_plane = [&](const char* key,
+                    zima::kernel::Vec3 local_first,
+                    zima::kernel::Vec3 local_second) {
+                const auto first = rotated(local_first, object.rotation);
+                const auto second = rotated(local_second, object.rotation);
+                const std::array corners{
+                    zima::kernel::Vec3{object.origin.x - extent * first.x - extent * second.x,
+                        object.origin.y - extent * first.y - extent * second.y,
+                        object.origin.z - extent * first.z - extent * second.z},
+                    zima::kernel::Vec3{object.origin.x + extent * first.x - extent * second.x,
+                        object.origin.y + extent * first.y - extent * second.y,
+                        object.origin.z + extent * first.z - extent * second.z},
+                    zima::kernel::Vec3{object.origin.x + extent * first.x + extent * second.x,
+                        object.origin.y + extent * first.y + extent * second.y,
+                        object.origin.z + extent * first.z + extent * second.z},
+                    zima::kernel::Vec3{object.origin.x - extent * first.x + extent * second.x,
+                        object.origin.y - extent * first.y + extent * second.y,
+                        object.origin.z - extent * first.z + extent * second.z}};
+                const std::string semantic = std::string("origin:plane:") + key;
+                mesh.edges.push_back({{corners[0], corners[1], corners[2], corners[3],
+                    corners[0]}, {origin_id, semantic, {}}, false, true});
+                auto& references = mesh.original_references;
+                const auto offset = static_cast<std::uint32_t>(references.vertices.size());
+                references.vertices.insert(
+                    references.vertices.end(), corners.begin(), corners.end());
+                references.triangles.insert(references.triangles.end(),
+                    {offset, offset + 1, offset + 2,
+                     offset, offset + 2, offset + 3});
+                references.triangle_references.insert(
+                    references.triangle_references.end(), 2,
+                    {origin_id, semantic, {}});
+            };
+            append_plane("xy", {1.0, 0.0, 0.0}, {0.0, 1.0, 0.0});
+            append_plane("yz", {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0});
+            append_plane("xz", {1.0, 0.0, 0.0}, {0.0, 0.0, 1.0});
             continue;
         }
         const auto normal = normalized(object.direction);
@@ -1711,6 +2010,7 @@ void PartDocument::resolve_constructions(
         target.points.insert(target.points.end(), source.points.begin(), source.points.end());
         target.axes.insert(target.axes.end(), source.axes.begin(), source.axes.end());
     };
+    append(source_geometry, origin_viewer_mesh().original_references);
     for (auto& object : constructions) {
         static_cast<void>(resolve_construction(object, source_geometry));
         if (!object.reference_valid) continue;
@@ -2219,7 +2519,7 @@ PartDocument PartDocument::load(
     nlohmann::json root;
     input >> root;
     if (root.at("format").get<std::string>() != "zima-cad-cpp" ||
-        root.at("format_version").get<int>() != 29) {
+        root.at("format_version").get<int>() != 32) {
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
     PartDocument document;
@@ -2227,10 +2527,22 @@ PartDocument PartDocument::load(
     document.name = root.at("name").get<std::string>();
     document.user_parameters =
         root.at("user_parameters").get<std::map<std::string, std::string>>();
+    document.user_parameter_order =
+        root.at("user_parameter_order").get<std::vector<std::string>>();
+    document.user_parameter_labels = root.at("user_parameter_labels").get<
+        decltype(document.user_parameter_labels)>();
+    document.user_parameter_values = root.at("user_parameter_values").get<
+        decltype(document.user_parameter_values)>();
     for (const auto& relation : root.at("relations")) {
         document.relations.push_back({relation.at("target").get<std::string>(),
             relation.at("expression").get<std::string>()});
     }
+    document.document_units = root.at("document_units").get<decltype(document.document_units)>();
+    document.document_precision = root.at("document_precision").get<decltype(document.document_precision)>();
+    document.physical_parameters = root.at("physical_parameters").get<decltype(document.physical_parameters)>();
+    document.physical_parameter_units = root.at("physical_parameter_units").get<decltype(document.physical_parameter_units)>();
+    document.material_parameter_descriptions = root.at("material_parameter_descriptions").get<decltype(document.material_parameter_descriptions)>();
+    document.family_table = root.at("family_table").get<std::string>();
     const auto& source_history = root.at("history");
     if (!source_history.is_array()) {
         throw std::runtime_error("Document history must be an array");
@@ -2575,6 +2887,28 @@ PartDocument PartDocument::load(
             : type == "axis" ? ConstructionKind::Axis
             : type == "plane" ? ConstructionKind::Plane
                                : throw std::runtime_error("Invalid construction type");
+        const auto& serialized_origin = source.at("container_origin");
+        object.container_origin.id = serialized_origin.at("id").get<std::string>();
+        object.container_origin.parent_id =
+            serialized_origin.at("parent_id").get<std::string>();
+        object.container_origin.name = serialized_origin.at("name").get<std::string>();
+        object.container_origin.locked = serialized_origin.at("locked").get<bool>();
+        for (const auto& serialized_child : serialized_origin.at("children")) {
+            const auto kind = serialized_child.at("kind").get<std::string>();
+            object.container_origin.children.push_back({
+                serialized_child.at("id").get<std::string>(),
+                serialized_child.at("parent_id").get<std::string>(),
+                serialized_child.at("name").get<std::string>(),
+                kind == "point" ? OriginChildKind::Point
+                    : kind == "axis" ? OriginChildKind::Axis
+                    : kind == "plane" ? OriginChildKind::Plane
+                    : throw std::runtime_error("Invalid Container Origin child kind"),
+                serialized_child.at("key").get<std::string>(),
+                serialized_child.at("locked").get<bool>()});
+        }
+        if (object.container_origin != create_container_origin(object.id)) {
+            throw std::runtime_error("Invalid construction Container Origin");
+        }
         object.origin = {source.at("x").get<double>(),
                          source.at("y").get<double>(),
                          source.at("z").get<double>()};
@@ -2600,7 +2934,8 @@ PartDocument PartDocument::load(
                 serialized.at("instance_path").get<std::string>(),
                 serialized.at("owner_id").get<std::string>(),
                 serialized.at("semantic_key").get<std::string>(),
-                serialized.at("offset").get<double>()});
+                serialized.at("offset").get<double>(),
+                serialized.at("supports_offset").get<bool>()});
         }
         const double direction_length = std::sqrt(
             object.direction.x * object.direction.x +
@@ -3054,6 +3389,18 @@ void PartDocument::save(
             !std::isfinite(object.display_size) || object.display_size <= 0.0) {
             throw std::runtime_error("Invalid construction object");
         }
+        if (object.container_origin != create_container_origin(object.id)) {
+            throw std::runtime_error("Invalid construction Container Origin");
+        }
+        nlohmann::json origin_children = nlohmann::json::array();
+        for (const auto& child : object.container_origin.children) {
+            origin_children.push_back({
+                {"id", child.id}, {"parent_id", child.parent_id},
+                {"name", child.name},
+                {"kind", child.kind == OriginChildKind::Point ? "point"
+                    : child.kind == OriginChildKind::Axis ? "axis" : "plane"},
+                {"key", child.key}, {"locked", child.locked}});
+        }
         nlohmann::json references = nlohmann::json::array();
         for (const auto& reference : object.references) {
             if (reference.owner_id.empty() || reference.semantic_key.empty()) {
@@ -3062,7 +3409,8 @@ void PartDocument::save(
             references.push_back({{"instance_path", reference.instance_path},
                 {"owner_id", reference.owner_id},
                 {"semantic_key", reference.semantic_key},
-                {"offset", reference.offset}});
+                {"offset", reference.offset},
+                {"supports_offset", reference.supports_offset}});
         }
         const auto definition = object.definition == ConstructionDefinition::Absolute
             ? "absolute"
@@ -3078,6 +3426,12 @@ void PartDocument::save(
             {"id", object.id}, {"name", object.name},
             {"type", object.kind == ConstructionKind::Point ? "point"
                 : object.kind == ConstructionKind::Axis ? "axis" : "plane"},
+            {"container_origin", {
+                {"id", object.container_origin.id},
+                {"parent_id", object.container_origin.parent_id},
+                {"name", object.container_origin.name},
+                {"locked", object.container_origin.locked},
+                {"children", std::move(origin_children)}}},
             {"x", object.origin.x}, {"y", object.origin.y}, {"z", object.origin.z},
             {"rotation_x", object.rotation.x},
             {"rotation_y", object.rotation.y},
@@ -3094,12 +3448,21 @@ void PartDocument::save(
         {{"target", relation.target}, {"expression", relation.expression}});
     const nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 29},
+        {"format_version", 32},
         {"document_id", document_id},
         {"type", "part"},
         {"name", name},
         {"user_parameters", user_parameters},
+        {"user_parameter_order", user_parameter_order},
+        {"user_parameter_labels", user_parameter_labels},
+        {"user_parameter_values", user_parameter_values},
         {"relations", std::move(serialized_relations)},
+        {"document_units", document_units},
+        {"document_precision", document_precision},
+        {"physical_parameters", physical_parameters},
+        {"physical_parameter_units", physical_parameter_units},
+        {"material_parameter_descriptions", material_parameter_descriptions},
+        {"family_table", family_table},
         {"history", std::move(serialized_history)},
         {"sketches", std::move(serialized_sketches)},
         {"constructions", std::move(serialized_constructions)},

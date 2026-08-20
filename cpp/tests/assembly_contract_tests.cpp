@@ -116,7 +116,14 @@ int main() {
         const auto assembly_path = std::filesystem::temp_directory_path() /
             "zima-cad-cpp-assembly-contract.asmz";
         assembly.user_parameters = {{"clearance", "0.15 mm"}};
+        assembly.user_parameter_order = {"clearance"};
+        assembly.user_parameter_labels["clearance"]["en"] = "Clearance";
+        assembly.user_parameter_values["clearance"][""] = "0.15 mm";
         assembly.relations = {{"double_clearance", "clearance * 2"}};
+        assembly.document_units["Length"] = "in";
+        assembly.document_precision["mesh_deflection"] = "0.05";
+        assembly.physical_parameters["MATERIAL_NAME"] = "Steel";
+        assembly.family_table = R"({"columns":[],"instances":[]})";
         auto assembly_sketch = zima::sketcher::Sketch::create_default();
         assembly.sketches.push_back(assembly_sketch);
         auto cut_definition = zima::document::PartDocument::create_extrusion_container(
@@ -140,7 +147,14 @@ int main() {
                         zima::assembly::ComponentSourceKind::Part &&
                     loaded.components.back().placement.z == 30.0 &&
                     loaded.user_parameters == assembly.user_parameters &&
+                    loaded.user_parameter_order == assembly.user_parameter_order &&
+                    loaded.user_parameter_labels == assembly.user_parameter_labels &&
+                    loaded.user_parameter_values == assembly.user_parameter_values &&
                     loaded.relations == assembly.relations &&
+                    loaded.document_units == assembly.document_units &&
+                    loaded.document_precision == assembly.document_precision &&
+                    loaded.physical_parameters == assembly.physical_parameters &&
+                    loaded.family_table == assembly.family_table &&
                     loaded.sketches.size() == 1 &&
                     loaded.sketches.front().serialized() ==
                         assembly.sketches.front().serialized() &&
@@ -871,7 +885,8 @@ int main() {
                         datum_scene.original_references.points.end(),
                         [&](const auto& point) {
                             return point.reference.instance_path.empty() &&
-                                point.reference.owner_id == datum_point_id;
+                                point.reference.owner_id ==
+                                    datum_point_id + ":origin";
                         }) &&
                     std::any_of(datum_scene.original_references.axes.begin(),
                         datum_scene.original_references.axes.end(),
@@ -900,6 +915,8 @@ int main() {
         associative_assembly.constructions.push_back(referenced_plane);
         auto second_referenced_plane = referenced_plane;
         second_referenced_plane.id += "-second-occurrence";
+        second_referenced_plane.container_origin =
+            zima::document::create_container_origin(second_referenced_plane.id);
         second_referenced_plane.references.front().instance_path =
             zima::assembly::InstancePath{{second_id}}.encoded();
         associative_assembly.constructions.push_back(second_referenced_plane);

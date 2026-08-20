@@ -174,7 +174,8 @@ int main() {
                     std::any_of(nested_scene.original_references.points.begin(),
                         nested_scene.original_references.points.end(),
                         [&](const auto& point) {
-                            return point.reference.owner_id == subassembly_datum_id &&
+                            return point.reference.owner_id ==
+                                    subassembly_datum_id + ":origin" &&
                                 point.reference.instance_path ==
                                     expected_subassembly_datum_path;
                         }),

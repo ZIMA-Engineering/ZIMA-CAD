@@ -38,13 +38,39 @@ struct ConstructionReference {
     std::string owner_id;
     std::string semantic_key;
     double offset{};
+    bool supports_offset{};
     bool operator==(const ConstructionReference&) const = default;
 };
+
+enum class OriginChildKind { Point, Axis, Plane };
+
+struct OriginChild {
+    std::string id;
+    std::string parent_id;
+    std::string name;
+    OriginChildKind kind{OriginChildKind::Point};
+    std::string key;
+    bool locked{true};
+    bool operator==(const OriginChild&) const = default;
+};
+
+struct ContainerOrigin {
+    std::string id;
+    std::string parent_id;
+    std::string name{"Container Origin"};
+    std::vector<OriginChild> children;
+    bool locked{true};
+    bool operator==(const ContainerOrigin&) const = default;
+};
+
+[[nodiscard]] ContainerOrigin create_container_origin(
+    const std::string& parent_id);
 
 struct ConstructionObject {
     std::string id;
     std::string name;
     ConstructionKind kind{ConstructionKind::Point};
+    ContainerOrigin container_origin;
     zima::kernel::Vec3 origin;
     zima::kernel::Vec3 rotation;
     zima::kernel::Vec3 direction{0.0, 0.0, 1.0};
@@ -59,6 +85,16 @@ struct ConstructionObject {
 [[nodiscard]] bool resolve_construction(
     ConstructionObject& object,
     const zima::kernel::ViewerReferenceGeometry& references);
+[[nodiscard]] int point_constraint_remaining_dof(
+    const std::vector<ConstructionReference>& references,
+    const zima::kernel::ViewerReferenceGeometry& geometry);
+struct PointConstraintState {
+    int remaining_dof{3};
+    std::array<bool, 3> constrained_axes{};
+};
+[[nodiscard]] PointConstraintState point_constraint_state(
+    const std::vector<ConstructionReference>& references,
+    const zima::kernel::ViewerReferenceGeometry& geometry);
 
 struct BoxParameters {
     double length{100.0};
@@ -187,7 +223,21 @@ public:
     std::string document_id;
     std::string name{"Nový díl"};
     std::map<std::string, std::string> user_parameters;
+    std::vector<std::string> user_parameter_order;
+    std::map<std::string, std::map<std::string, std::string>> user_parameter_labels;
+    std::map<std::string, std::map<std::string, std::string>> user_parameter_values;
     std::vector<ModelRelation> relations;
+    std::map<std::string, std::string> document_units{
+        {"Length", "mm"}, {"Angle", "deg"}, {"Mass", "kg"},
+        {"Time", "s"}, {"Temperature", "C"}, {"Stress", "MPa"}};
+    std::map<std::string, std::string> document_precision{
+        {"linear_tolerance", "0.001"}, {"angular_tolerance", "0.001"},
+        {"mesh_deflection", "0.1"}, {"decimal_places", "3"}};
+    std::map<std::string, std::string> physical_parameters;
+    std::map<std::string, std::string> physical_parameter_units;
+    std::map<std::string, std::map<std::string, std::string>>
+        material_parameter_descriptions;
+    std::string family_table{"{\"columns\":[],\"instances\":[]}"};
     std::vector<HistoryContainer> history;
     std::vector<zima::sketcher::Sketch> sketches;
     std::vector<ConstructionObject> constructions;
@@ -205,7 +255,8 @@ public:
     [[nodiscard]] const ConstructionObject* find_construction(
         const std::string& id) const;
     [[nodiscard]] zima::kernel::ViewerMesh origin_viewer_mesh() const;
-    [[nodiscard]] zima::kernel::ViewerMesh construction_viewer_mesh() const;
+    [[nodiscard]] zima::kernel::ViewerMesh construction_viewer_mesh(
+        const std::string& editing_object_id = {}) const;
     void resolve_constructions(
         zima::kernel::ViewerReferenceGeometry source_geometry = {});
     [[nodiscard]] std::vector<zima::kernel::ViewerEdge> extrusion_preview_edges(

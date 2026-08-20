@@ -96,6 +96,12 @@ struct ViewerCandidate {
     const zima::kernel::Vec3& ray_origin,
     const zima::kernel::Vec3& ray_direction,
     double world_tolerance);
+[[nodiscard]] std::vector<ViewerCandidate> ordered_viewer_candidates(
+    const zima::kernel::ViewerMesh& mesh,
+    const zima::kernel::ViewerMesh& persisted_references,
+    const zima::kernel::Vec3& ray_origin,
+    const zima::kernel::Vec3& ray_direction,
+    double world_tolerance);
 
 [[nodiscard]] std::vector<ViewerCandidate> filter_candidates(
     const std::vector<ViewerCandidate>& candidates,

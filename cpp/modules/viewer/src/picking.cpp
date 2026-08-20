@@ -226,7 +226,6 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
     const Vec3& ray_origin,
     const Vec3& ray_direction,
     double world_tolerance) {
-    std::vector<ViewerCandidate> result;
     zima::kernel::ViewerMesh references;
     references.vertices = mesh.original_references.vertices;
     references.triangles = mesh.original_references.triangles;
@@ -234,6 +233,17 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
     references.edges = mesh.original_references.edges;
     references.points = mesh.original_references.points;
     references.axes = mesh.original_references.axes;
+    return ordered_viewer_candidates(
+        mesh, references, ray_origin, ray_direction, world_tolerance);
+}
+
+std::vector<ViewerCandidate> ordered_viewer_candidates(
+    const zima::kernel::ViewerMesh& mesh,
+    const zima::kernel::ViewerMesh& references,
+    const Vec3& ray_origin,
+    const Vec3& ray_direction,
+    double world_tolerance) {
+    std::vector<ViewerCandidate> result;
     const auto persisted_face_hits = ordered_ray_candidates(
         references, ray_origin, ray_direction);
     const auto append_geometry = [&](const zima::kernel::ViewerMesh& source,

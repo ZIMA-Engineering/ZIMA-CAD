@@ -555,12 +555,13 @@ const zima::document::ConstructionObject* AssemblyDocument::find_construction(
     return found == constructions.end() ? nullptr : &*found;
 }
 
-zima::kernel::ViewerMesh AssemblyDocument::construction_viewer_mesh() const {
+zima::kernel::ViewerMesh AssemblyDocument::construction_viewer_mesh(
+    const std::string& editing_object_id) const {
     auto carrier = zima::document::PartDocument::create_default();
     carrier.document_id = document_id;
     carrier.name = name;
     carrier.constructions = constructions;
-    return carrier.construction_viewer_mesh();
+    return carrier.construction_viewer_mesh(editing_object_id);
 }
 
 zima::kernel::ViewerMesh AssemblyDocument::origin_viewer_mesh() const {
@@ -1739,7 +1740,7 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
     nlohmann::json root;
     input >> root;
     if (root.at("format").get<std::string>() != "zima-cad-cpp" ||
-        root.at("format_version").get<int>() != 14 ||
+        root.at("format_version").get<int>() != 17 ||
         root.at("type").get<std::string>() != "assembly") {
         throw std::runtime_error("Unsupported ZIMA-CAD Assembly document format");
     }
@@ -1748,10 +1749,22 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
     document.name = root.at("name").get<std::string>();
     document.user_parameters =
         root.at("user_parameters").get<std::map<std::string, std::string>>();
+    document.user_parameter_order =
+        root.at("user_parameter_order").get<std::vector<std::string>>();
+    document.user_parameter_labels = root.at("user_parameter_labels").get<
+        decltype(document.user_parameter_labels)>();
+    document.user_parameter_values = root.at("user_parameter_values").get<
+        decltype(document.user_parameter_values)>();
     for (const auto& relation : root.at("relations")) {
         document.relations.push_back({relation.at("target").get<std::string>(),
             relation.at("expression").get<std::string>()});
     }
+    document.document_units = root.at("document_units").get<decltype(document.document_units)>();
+    document.document_precision = root.at("document_precision").get<decltype(document.document_precision)>();
+    document.physical_parameters = root.at("physical_parameters").get<decltype(document.physical_parameters)>();
+    document.physical_parameter_units = root.at("physical_parameter_units").get<decltype(document.physical_parameter_units)>();
+    document.material_parameter_descriptions = root.at("material_parameter_descriptions").get<decltype(document.material_parameter_descriptions)>();
+    document.family_table = root.at("family_table").get<std::string>();
     for (const auto& value : root.at("sketches")) {
         document.sketches.push_back(zima::sketcher::Sketch::from_serialized(
             value.get<std::string>()));
@@ -1820,6 +1833,29 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
             : throw std::runtime_error("Assembly construction type is invalid");
         const auto& origin = source.at("origin");
         const auto& direction = source.at("direction");
+        const auto& serialized_origin = source.at("container_origin");
+        object.container_origin.id = serialized_origin.at("id").get<std::string>();
+        object.container_origin.parent_id =
+            serialized_origin.at("parent_id").get<std::string>();
+        object.container_origin.name = serialized_origin.at("name").get<std::string>();
+        object.container_origin.locked = serialized_origin.at("locked").get<bool>();
+        for (const auto& serialized_child : serialized_origin.at("children")) {
+            const auto child_kind = serialized_child.at("kind").get<std::string>();
+            object.container_origin.children.push_back({
+                serialized_child.at("id").get<std::string>(),
+                serialized_child.at("parent_id").get<std::string>(),
+                serialized_child.at("name").get<std::string>(),
+                child_kind == "point" ? zima::document::OriginChildKind::Point
+                    : child_kind == "axis" ? zima::document::OriginChildKind::Axis
+                    : child_kind == "plane" ? zima::document::OriginChildKind::Plane
+                    : throw std::runtime_error("Assembly Container Origin child kind is invalid"),
+                serialized_child.at("key").get<std::string>(),
+                serialized_child.at("locked").get<bool>()});
+        }
+        if (object.container_origin !=
+            zima::document::create_container_origin(object.id)) {
+            throw std::runtime_error("Assembly construction Container Origin is invalid");
+        }
         object.origin = {origin.at("x").get<double>(), origin.at("y").get<double>(),
                          origin.at("z").get<double>()};
         const auto& rotation = source.at("rotation");
@@ -1851,7 +1887,8 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
                 serialized.at("instance_path").get<std::string>(),
                 serialized.at("owner_id").get<std::string>(),
                 serialized.at("semantic_key").get<std::string>(),
-                serialized.at("offset").get<double>()});
+                serialized.at("offset").get<double>(),
+                serialized.at("supports_offset").get<bool>()});
         }
         const double direction_length = length(object.direction);
         if (object.id.empty() || object.name.empty() ||
@@ -1990,6 +2027,19 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
              direction_length <= 1.0e-12)) {
             throw std::runtime_error("Assembly construction object is invalid");
         }
+        if (object.container_origin !=
+            zima::document::create_container_origin(object.id)) {
+            throw std::runtime_error("Assembly construction Container Origin is invalid");
+        }
+        nlohmann::json origin_children = nlohmann::json::array();
+        for (const auto& child : object.container_origin.children) {
+            origin_children.push_back({
+                {"id", child.id}, {"parent_id", child.parent_id},
+                {"name", child.name},
+                {"kind", child.kind == zima::document::OriginChildKind::Point ? "point"
+                    : child.kind == zima::document::OriginChildKind::Axis ? "axis" : "plane"},
+                {"key", child.key}, {"locked", child.locked}});
+        }
         nlohmann::json references = nlohmann::json::array();
         for (const auto& reference : object.references) {
             if (reference.owner_id.empty() || reference.semantic_key.empty()) {
@@ -1998,7 +2048,8 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
             references.push_back({{"instance_path", reference.instance_path},
                 {"owner_id", reference.owner_id},
                 {"semantic_key", reference.semantic_key},
-                {"offset", reference.offset}});
+                {"offset", reference.offset},
+                {"supports_offset", reference.supports_offset}});
         }
         const auto definition = object.definition ==
                 zima::document::ConstructionDefinition::Absolute ? "absolute"
@@ -2015,6 +2066,12 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
             {"type", object.kind == zima::document::ConstructionKind::Point
                 ? "point" : object.kind == zima::document::ConstructionKind::Axis
                     ? "axis" : "plane"},
+            {"container_origin", {
+                {"id", object.container_origin.id},
+                {"parent_id", object.container_origin.parent_id},
+                {"name", object.container_origin.name},
+                {"locked", object.container_origin.locked},
+                {"children", std::move(origin_children)}}},
             {"origin", {{"x", object.origin.x}, {"y", object.origin.y},
                         {"z", object.origin.z}}},
             {"rotation", {{"x", object.rotation.x}, {"y", object.rotation.y},
@@ -2134,10 +2191,19 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
             {"input_component_bodies", std::move(input_bodies)}});
     }
     const nlohmann::json root = {
-        {"format", "zima-cad-cpp"}, {"format_version", 14},
+        {"format", "zima-cad-cpp"}, {"format_version", 17},
         {"type", "assembly"}, {"document_id", document_id}, {"name", name},
         {"user_parameters", user_parameters},
+        {"user_parameter_order", user_parameter_order},
+        {"user_parameter_labels", user_parameter_labels},
+        {"user_parameter_values", user_parameter_values},
         {"relations", std::move(relations_json)},
+        {"document_units", document_units},
+        {"document_precision", document_precision},
+        {"physical_parameters", physical_parameters},
+        {"physical_parameter_units", physical_parameter_units},
+        {"material_parameter_descriptions", material_parameter_descriptions},
+        {"family_table", family_table},
         {"sketches", std::move(sketches_json)},
         {"cuts", std::move(cuts_json)},
         {"constructions", std::move(constructions_json)},

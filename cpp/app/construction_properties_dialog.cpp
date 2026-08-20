@@ -7,6 +7,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QSignalBlocker>
 #include <QTableWidget>
 
 #include <algorithm>
@@ -19,9 +20,9 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
     CommitCallback commit, QWidget* parent)
     : PropertiesSubWindow(
           initial.kind == zima::document::ConstructionKind::Point
-              ? tr("Vlastnosti bodu")
+              ? tr("Bod")
               : initial.kind == zima::document::ConstructionKind::Axis
-                  ? tr("Vlastnosti osy") : tr("Vlastnosti roviny"), parent),
+                  ? tr("Osa") : tr("Rovina"), parent),
       initial_(initial), commit_(std::move(commit)) {
     setAttribute(Qt::WA_DeleteOnClose, true);
     setMinimumWidth(460);
@@ -30,9 +31,9 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
     setFont(compact_font);
     auto* form = new QFormLayout;
     name_ = new QLineEdit(QString::fromStdString(initial.name), this);
-    set_internal_title(tr("Vlastnosti – %1").arg(name_->text()));
+    set_internal_title(name_->text());
     connect(name_, &QLineEdit::textChanged, this, [this](const QString& name) {
-        set_internal_title(tr("Vlastnosti – %1").arg(name.trimmed()));
+        set_internal_title(name.trimmed());
     });
     form->addRow(tr("Název"), name_);
     definition_ = new QComboBox(this);
@@ -121,12 +122,6 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
         reference_table_->frameWidth() * 2);
     reference_table_->setStyleSheet(
         "QTableWidget::item:selected{background:#00d1ff;color:#102027}");
-    connect(reference_table_, &QTableWidget::cellClicked, this,
-        [this](int row, int column) {
-            if (column == 1 && row >= 0 && row < 3 && reference_request_) {
-                reference_request_(static_cast<std::size_t>(row));
-            }
-        });
     content_layout()->addWidget(reference_table_);
     refresh_reference_table();
     auto* coordinates = new QFormLayout;
@@ -193,10 +188,22 @@ void ConstructionPropertiesDialog::set_preview_callback(PreviewCallback callback
     notify_preview();
 }
 
-void ConstructionPropertiesDialog::set_reference(std::size_t index,
+bool ConstructionPropertiesDialog::set_reference(std::size_t index,
     zima::document::ConstructionReference reference, const QString& label,
     zima::document::ConstructionDefinition definition) {
-    if (index >= 3) return;
+    if (index >= 3) return false;
+    for (std::size_t existing_index = 0;
+         existing_index < references_.size(); ++existing_index) {
+        const auto& existing = references_[existing_index];
+        if (existing_index != index &&
+            existing.instance_path == reference.instance_path &&
+            existing.owner_id == reference.owner_id &&
+            existing.semantic_key == reference.semantic_key) {
+            error_->setText(tr("Stejnou referenci nelze zadat vícekrát."));
+            return false;
+        }
+    }
+    error_->clear();
     if (references_.size() <= index) references_.resize(index + 1);
     references_[index] = std::move(reference);
     definition_->setCurrentIndex(definition_->findData(static_cast<int>(definition)));
@@ -205,11 +212,12 @@ void ConstructionPropertiesDialog::set_reference(std::size_t index,
     }
     refresh_reference_table();
     notify_preview();
+    return true;
 }
 
-void ConstructionPropertiesDialog::set_reference(std::size_t index,
+bool ConstructionPropertiesDialog::set_reference(std::size_t index,
     zima::document::ConstructionReference reference, const QString& label) {
-    set_reference(index, std::move(reference), label, current_definition());
+    return set_reference(index, std::move(reference), label, current_definition());
 }
 
 zima::document::ConstructionDefinition
@@ -221,6 +229,35 @@ ConstructionPropertiesDialog::current_definition() const {
 zima::document::ConstructionKind
 ConstructionPropertiesDialog::construction_kind() const {
     return initial_.kind;
+}
+
+const std::string& ConstructionPropertiesDialog::construction_id() const {
+    return initial_.id;
+}
+
+void ConstructionPropertiesDialog::set_remaining_translation_dof(int dof) {
+    remaining_translation_dof_ = std::clamp(dof, 0, 3);
+    if (dof_label_ != nullptr) {
+        dof_label_->setText(tr("Zbývající stupně volnosti: %1")
+            .arg(remaining_translation_dof_));
+        reference_status_->setText(remaining_translation_dof_ == 0
+            ? tr("Plně určené") : QString());
+    }
+}
+
+void ConstructionPropertiesDialog::set_translation_constraint_state(
+    const zima::document::PointConstraintState& state,
+    const zima::kernel::Vec3& solution) {
+    set_remaining_translation_dof(state.remaining_dof);
+    const std::array values{solution.x, solution.y, solution.z};
+    for (std::size_t index = 0; index < origin_.size(); ++index) {
+        if (origin_[index] == nullptr) continue;
+        origin_[index]->setEnabled(!state.constrained_axes[index]);
+        if (state.constrained_axes[index]) {
+            const QSignalBlocker blocker(origin_[index]);
+            origin_[index]->setValue(values[index]);
+        }
+    }
 }
 
 void ConstructionPropertiesDialog::refresh_definition_fields() {
@@ -240,6 +277,7 @@ void ConstructionPropertiesDialog::refresh_definition_fields() {
 
 void ConstructionPropertiesDialog::refresh_reference_table() {
     if (reference_table_ == nullptr) return;
+    reference_buttons_.fill(nullptr);
     reference_table_->setRowCount(0);
     const std::size_t visible = std::min<std::size_t>(3, references_.size() + 1);
     for (std::size_t index = 0; index < visible; ++index) {
@@ -255,18 +293,26 @@ void ConstructionPropertiesDialog::refresh_reference_table() {
             connect(remove, &QPushButton::clicked, this,
                 [this, index] { remove_reference(index); });
             reference_table_->setCellWidget(static_cast<int>(index), 0, remove);
-            reference_table_->setItem(static_cast<int>(index), 1,
-                new QTableWidgetItem(QStringLiteral("%1. %2 / %3")
+            auto* reference = new QPushButton(
+                QStringLiteral("%1. %2 / %3")
                     .arg(index + 1)
                     .arg(QString::fromStdString(references_[index].owner_id))
-                    .arg(QString::fromStdString(references_[index].semantic_key))));
+                    .arg(QString::fromStdString(references_[index].semantic_key)),
+                reference_table_);
+            reference->setObjectName(
+                QStringLiteral("constructionReferenceButton%1").arg(index));
+            reference->setToolTip(tr("Vybrat nebo nahradit referenci ve 3D pohledu"));
+            connect(reference, &QPushButton::clicked, this, [this, index] {
+                if (reference_request_) reference_request_(index);
+            });
+            reference_buttons_[index] = reference;
+            reference_table_->setCellWidget(static_cast<int>(index), 1, reference);
             auto* offset = new QDoubleSpinBox(reference_table_);
             offset->setRange(-1'000'000'000.0, 1'000'000'000.0);
             offset->setDecimals(3);
             offset->setSuffix(QStringLiteral(" mm"));
             offset->setValue(references_[index].offset);
-            offset->setEnabled(current_definition() ==
-                zima::document::ConstructionDefinition::PlaneReference);
+            offset->setEnabled(references_[index].supports_offset);
             connect(offset, &QDoubleSpinBox::valueChanged, this,
                 [this, index](double value) {
                     if (index < references_.size()) {
@@ -276,10 +322,17 @@ void ConstructionPropertiesDialog::refresh_reference_table() {
                 });
             reference_table_->setCellWidget(static_cast<int>(index), 2, offset);
         } else {
-            auto* item = new QTableWidgetItem(
-                QStringLiteral("%1. %2").arg(index + 1).arg(tr("Reference")));
-            item->setForeground(palette().brush(QPalette::Mid));
-            reference_table_->setItem(static_cast<int>(index), 1, item);
+            auto* reference = new QPushButton(
+                QStringLiteral("%1. %2").arg(index + 1).arg(tr("Vybrat referenci")),
+                reference_table_);
+            reference->setObjectName(
+                QStringLiteral("constructionReferenceButton%1").arg(index));
+            reference->setToolTip(tr("Vybrat referenci ve 3D pohledu"));
+            connect(reference, &QPushButton::clicked, this, [this, index] {
+                if (reference_request_) reference_request_(index);
+            });
+            reference_buttons_[index] = reference;
+            reference_table_->setCellWidget(static_cast<int>(index), 1, reference);
             auto* offset = new QDoubleSpinBox(reference_table_);
             offset->setEnabled(false);
             offset->setSuffix(QStringLiteral(" mm"));
@@ -294,7 +347,7 @@ void ConstructionPropertiesDialog::refresh_reference_table() {
             : current_definition() == zima::document::ConstructionDefinition::Absolute
                 ? 0 : 1;
         const int dof = initial_.kind == zima::document::ConstructionKind::Point
-            ? std::max(0, 3 - static_cast<int>(references_.size())) + 3
+            ? remaining_translation_dof_
             : static_cast<int>(required > references_.size()
                 ? required - references_.size() : 0);
         dof_label_->setText(tr("Zbývající stupně volnosti: %1").arg(dof));
@@ -328,7 +381,10 @@ zima::document::ConstructionObject ConstructionPropertiesDialog::current_value()
     }
     if (display_size_ != nullptr) value.display_size = display_size_->value();
     value.definition = current_definition();
-    const std::size_t required = value.definition ==
+    const std::size_t required = value.kind == zima::document::ConstructionKind::Point &&
+            value.definition == zima::document::ConstructionDefinition::PointReference
+        ? references_.size()
+        : value.definition ==
             zima::document::ConstructionDefinition::TwoPointAxis ? 2
         : value.definition == zima::document::ConstructionDefinition::ThreePointPlane ? 3
         : value.definition == zima::document::ConstructionDefinition::Absolute ? 0 : 1;
@@ -357,7 +413,10 @@ bool ConstructionPropertiesDialog::submit() {
         }
     }
     if (display_size_ != nullptr) value.display_size = display_size_->value();
-    const std::size_t required = value.definition ==
+    const std::size_t required = value.kind == zima::document::ConstructionKind::Point &&
+            value.definition == zima::document::ConstructionDefinition::PointReference
+        ? std::max<std::size_t>(1, references_.size())
+        : value.definition ==
             zima::document::ConstructionDefinition::TwoPointAxis ? 2
         : value.definition == zima::document::ConstructionDefinition::ThreePointPlane ? 3
         : value.definition == zima::document::ConstructionDefinition::Absolute ? 0 : 1;

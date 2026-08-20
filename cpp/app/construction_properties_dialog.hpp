@@ -26,15 +26,20 @@ public:
     using PreviewCallback = std::function<void(zima::document::ConstructionObject)>;
     void set_reference_request_callback(ReferenceRequestCallback callback);
     void set_preview_callback(PreviewCallback callback);
-    void set_reference(std::size_t index,
+    bool set_reference(std::size_t index,
         zima::document::ConstructionReference reference,
         const QString& label,
         zima::document::ConstructionDefinition definition);
-    void set_reference(std::size_t index,
+    bool set_reference(std::size_t index,
         zima::document::ConstructionReference reference,
         const QString& label);
     [[nodiscard]] zima::document::ConstructionDefinition current_definition() const;
     [[nodiscard]] zima::document::ConstructionKind construction_kind() const;
+    [[nodiscard]] const std::string& construction_id() const;
+    void set_remaining_translation_dof(int dof);
+    void set_translation_constraint_state(
+        const zima::document::PointConstraintState& state,
+        const zima::kernel::Vec3& solution);
 
 protected:
     bool submit() override;
@@ -57,6 +62,7 @@ private:
     ReferenceRequestCallback reference_request_;
     PreviewCallback preview_;
     QLabel* error_{};
+    int remaining_translation_dof_{3};
     void refresh_definition_fields();
     void refresh_reference_table();
     void remove_reference(std::size_t index);

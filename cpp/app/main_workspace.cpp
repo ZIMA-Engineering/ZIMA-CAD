@@ -1,8 +1,11 @@
 #include "assembly_workspace_window.hpp"
 
+#include <zima/viewer/mesh_view.hpp>
+
 #include <QAction>
 #include <QApplication>
 #include <QColor>
+#include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
@@ -102,6 +105,10 @@ int verify_startup_contract(
     auto* extrusion = window.findChild<QAction*>("extrusionAction");
     auto* about = window.findChild<QAction*>("aboutAction");
     auto* save_as = window.findChild<QAction*>("saveDocumentAsAction");
+    auto* rename_document = window.findChild<QAction*>("renameDocumentAction");
+    auto* delete_file_menu = window.findChild<QMenu*>("deleteFileMenu");
+    auto* delete_working_directory_menu =
+        window.findChild<QMenu*>("deleteWorkingDirectoryMenu");
     auto* working_directory = window.findChild<QAction*>("workingDirectoryAction");
     auto* new_document = window.findChild<QAction*>("newDocumentAction");
     auto* undo = window.findChild<QAction*>("undoAction");
@@ -109,6 +116,18 @@ int verify_startup_contract(
     auto* save = window.findChild<QAction*>("saveDocumentAction");
     auto* close = window.findChild<QAction*>("closeDocumentAction");
     auto* parameters = window.findChild<QAction*>("documentParametersAction");
+    auto* export_document = window.findChild<QAction*>("exportDocumentAction");
+    auto* global_settings = window.findChild<QAction*>("globalSettingsAction");
+    auto* standard_views = window.findChild<QMenu*>("standardViewsMenu");
+    auto* colors_menu = window.findChild<QMenu*>("colorsMenu");
+    auto* fit_view = window.findChild<QAction*>("fitViewAction");
+    auto* view_selection = window.findChild<QAction*>("viewSelectionAction");
+    auto* import_document = window.findChild<QAction*>("importDocumentAction");
+    auto* material = window.findChild<QAction*>("materialAction");
+    auto* relations = window.findChild<QAction*>("relationsAction");
+    auto* family_table = window.findChild<QAction*>("familyTableAction");
+    auto* file_settings = window.findChild<QAction*>("fileSettingsAction");
+    auto* window_menu = window.findChild<QMenu*>("windowMenu");
     if (!verify(tabs != nullptr && tree != nullptr, "document navigation is missing") ||
         !verify(splitter != nullptr && main_toolbar != nullptr &&
                     view_toolbar != nullptr && tools_toolbar != nullptr,
@@ -138,6 +157,8 @@ int verify_startup_contract(
                     sketch_dimensions->menu()->actions().size() == 9 &&
                     finish_sketch != nullptr &&
                     extrusion != nullptr && about != nullptr && save_as != nullptr &&
+                    rename_document != nullptr && delete_file_menu != nullptr &&
+                    delete_working_directory_menu != nullptr &&
                     working_directory != nullptr && new_document != nullptr &&
                     undo != nullptr && redo != nullptr &&
                     save != nullptr && close != nullptr && parameters != nullptr,
@@ -150,7 +171,74 @@ int verify_startup_contract(
                 "startup file-command state is invalid")) {
         return 1;
     }
+    if (!verify(export_document != nullptr && !export_document->isEnabled() &&
+                    parameters != nullptr && !parameters->isEnabled(),
+                "document-only commands must be disabled without a document") ||
+        !verify(import_document != nullptr && import_document->isEnabled() &&
+                    working_directory->isEnabled() && about->isEnabled(),
+                "document-independent commands must remain available") ||
+        !verify(standard_views != nullptr &&
+                    !standard_views->menuAction()->isEnabled() &&
+                    colors_menu != nullptr &&
+                    !colors_menu->menuAction()->isEnabled() &&
+                    fit_view != nullptr && !fit_view->isEnabled() &&
+                    view_selection != nullptr && !view_selection->isEnabled(),
+                "viewer commands must be disabled without a visible document") ||
+        !verify(global_settings != nullptr && global_settings->isEnabled(),
+                "Global Settings must remain functional without a document")) {
+        return 1;
+    }
+    if (!verify(material != nullptr && !material->isEnabled() &&
+                    relations != nullptr && !relations->isEnabled() &&
+                    family_table != nullptr && !family_table->isEnabled() &&
+                    file_settings != nullptr && !file_settings->isEnabled(),
+                "unavailable document tools must remain visibly disabled")) {
+        return 1;
+    }
+    for (int index = 0; index < 6; ++index) {
+        auto* action = window.findChild<QAction*>(
+            QStringLiteral("applicationModeAction%1").arg(index));
+        if (!verify(action != nullptr && !action->isEnabled(),
+                    "application modes must be disabled without a document")) {
+            return 1;
+        }
+    }
+    if (!verify(window_menu != nullptr &&
+                    QMetaObject::invokeMethod(window_menu, "aboutToShow",
+                                              Qt::DirectConnection),
+                "Window menu cannot be refreshed")) {
+        return 1;
+    }
+    auto* new_window = window.findChild<QAction*>("newWindowAction");
+    if (!verify(new_window != nullptr && new_window->isEnabled(),
+                "New Window must remain functional without a document")) {
+        return 1;
+    }
+    global_settings->trigger();
+    application.processEvents();
+    auto* global_dialog = window.findChild<QDialog*>("globalSettingsDialog");
+    auto* global_language = global_dialog == nullptr
+        ? nullptr : global_dialog->findChild<QComboBox*>("globalSettingsLanguage");
+    auto* global_buttons = global_dialog == nullptr
+        ? nullptr : global_dialog->findChild<QDialogButtonBox*>();
+    if (!verify(global_dialog != nullptr &&
+                    global_dialog->windowFlags().testFlag(Qt::SubWindow) &&
+                    global_language != nullptr && global_language->count() == 4 &&
+                    global_language->findText("cs") >= 0 &&
+                    global_language->findText("de") >= 0 &&
+                    global_language->findText("en") >= 0 &&
+                    global_language->findText("fr") >= 0 &&
+                    global_dialog->findChildren<QLineEdit*>().size() == 4 &&
+                    global_buttons != nullptr &&
+                    global_buttons->buttons().size() == 2,
+                "Global Settings must implement the Python startup contract")) {
+        return 1;
+    }
+    global_buttons->button(QDialogButtonBox::Cancel)->click();
+    application.processEvents();
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
 
+    bool new_dialog_validation_checked = false;
     const auto create_document = [&](const QString& type, const QString& name) {
         new_document->trigger();
         application.processEvents();
@@ -159,11 +247,30 @@ int verify_startup_contract(
             ? nullptr : dialog->findChild<QLineEdit*>("newDocumentFileName");
         auto* buttons = dialog == nullptr
             ? nullptr : dialog->findChild<QDialogButtonBox*>();
+        const auto type_radios = dialog == nullptr
+            ? QList<QRadioButton*>{} : dialog->findChildren<QRadioButton*>();
         if (!verify(dialog != nullptr && name_field != nullptr && buttons != nullptr,
                     "New must open the shared in-application document dialog") ||
             !verify(dialog->windowFlags().testFlag(Qt::SubWindow),
-                    "new document dialog must be an internal SubWindow")) {
+                    "new document dialog must be an internal SubWindow") ||
+            !verify(type_radios.size() == 5 &&
+                        std::all_of(type_radios.begin(), type_radios.end(),
+                            [](const auto* radio) { return radio->isEnabled(); }),
+                    "New must expose all five Python document types")) {
             return false;
+        }
+        if (!new_dialog_validation_checked) {
+            name_field->clear();
+            buttons->button(QDialogButtonBox::Ok)->click();
+            application.processEvents();
+            auto* validation_error = dialog->findChild<QLabel*>("newDocumentError");
+            if (!verify(dialog->isVisible() && validation_error != nullptr &&
+                            validation_error->isVisible() &&
+                            !validation_error->text().isEmpty(),
+                        "New must reject an empty file name inside the dialog")) {
+                return false;
+            }
+            new_dialog_validation_checked = true;
         }
         name_field->setText(name);
         for (auto* radio : dialog->findChildren<QRadioButton*>()) {
@@ -180,7 +287,8 @@ int verify_startup_contract(
     const QString part_name = QStringLiteral("DIL-STARTUP-") + identity;
     const QString assembly_name = QStringLiteral("SESTAVA-STARTUP-") + identity;
     const QString drawing_name = QStringLiteral("VYKRES-STARTUP-") + identity;
-    if (!create_document(QStringLiteral("part"), part_name) ||
+    if (!create_document(QStringLiteral("part"),
+                         part_name + QStringLiteral(".prtz")) ||
         !verify(tabs->count() == 1 &&
                     tabs->tabText(0) == part_name + QStringLiteral(".prtz"),
                 "new Part must open in the common document tabs") ||
@@ -194,21 +302,47 @@ int verify_startup_contract(
     application.processEvents();
     auto* parameters_dialog =
         window.findChild<QDialog*>("documentParametersDialog");
+    auto* parameters_table = parameters_dialog == nullptr ? nullptr :
+        parameters_dialog->findChild<QTableWidget*>("documentParametersTable");
+    auto* parameter_language = parameters_dialog == nullptr ? nullptr :
+        parameters_dialog->findChild<QComboBox*>("parameterLanguage");
     if (!verify(parameters->isEnabled() && parameters_dialog != nullptr &&
                     parameters_dialog->windowFlags().testFlag(Qt::SubWindow) &&
+                    parameters_table != nullptr && parameters_table->rowCount() >= 12 &&
+                    parameters_table->columnCount() == 4 &&
+                    parameter_language != nullptr && parameter_language->count() >= 4 &&
                     parameters_dialog->findChild<QTableWidget*>(
-                        "documentParametersTable") != nullptr &&
-                    parameters_dialog->findChild<QTableWidget*>(
-                        "documentRelationsTable") != nullptr &&
-                    parameters_dialog->findChild<QPushButton*>(
-                        "addDocumentRelationButton") != nullptr,
-                "document parameters and Relations must use the shared internal dialog")) {
+                        "documentRelationsTable") == nullptr,
+                "Parameters must match the localized Python table contract")) {
         return 1;
     }
     parameters_dialog->reject();
     application.processEvents();
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     application.processEvents();
+
+    const std::array tool_dialogs{
+        std::pair{material, QStringLiteral("materialDialog")},
+        std::pair{relations, QStringLiteral("relationsDialog")},
+        std::pair{family_table, QStringLiteral("familyTableDialog")},
+        std::pair{file_settings, QStringLiteral("fileSettingsDialog")}};
+    for (const auto& [action, object_name] : tool_dialogs) {
+        if (!verify(action != nullptr && action->isEnabled(),
+                    "document tool must be enabled for an open Part")) return 1;
+        action->trigger(); application.processEvents();
+        auto* tool_dialog = window.findChild<QDialog*>(object_name);
+        auto* tool_buttons = tool_dialog == nullptr
+            ? nullptr : tool_dialog->findChild<QDialogButtonBox*>();
+        if (!verify(tool_dialog != nullptr &&
+                        tool_dialog->windowFlags().testFlag(Qt::SubWindow) &&
+                        tool_buttons != nullptr && tool_buttons->buttons().size() == 2,
+                    "document tool must use the shared OK/Cancel SubWindow")) {
+            return 1;
+        }
+        tool_buttons->button(QDialogButtonBox::Cancel)->click();
+        application.processEvents();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    }
 
     new_document->trigger();
     application.processEvents();
@@ -264,6 +398,53 @@ int verify_startup_contract(
                 "confirming Box must create the first Part history item")) {
         return 1;
     }
+    construction_point->trigger();
+    application.processEvents();
+    auto* point_dialog = window.findChild<QDialog*>("zimaPropertiesSubWindow");
+    auto* point_references = point_dialog == nullptr
+        ? nullptr : point_dialog->findChild<QTableWidget*>(
+            "constructionReferenceTable");
+    auto* point_viewer = dynamic_cast<zima::viewer::MeshView*>(
+        window.findChild<QOpenGLWidget*>("modelWorkspace"));
+    std::optional<zima::viewer::ViewerCandidate> point_hover;
+    QPointF point_hover_position;
+    if (point_viewer != nullptr) {
+        for (int y = 8; y < point_viewer->height() - 8 && !point_hover; y += 8) {
+            for (int x = 8; x < point_viewer->width() - 8 && !point_hover; x += 8) {
+                const QPointF local{static_cast<qreal>(x), static_cast<qreal>(y)};
+                QMouseEvent move(QEvent::MouseMove, local,
+                    point_viewer->mapToGlobal(local.toPoint()), Qt::NoButton,
+                    Qt::NoButton, Qt::NoModifier);
+                QApplication::sendEvent(point_viewer, &move);
+                point_hover = point_viewer->hovered_candidate();
+                if (point_hover) point_hover_position = local;
+            }
+        }
+    }
+    if (!verify(point_dialog != nullptr && point_references != nullptr &&
+                    point_viewer != nullptr && point_hover.has_value() &&
+                    point_hover->geometry ==
+                        zima::viewer::CandidateGeometry::OriginalReference,
+                "Point command did not offer a persisted viewer candidate on hover")) {
+        return 1;
+    }
+    QMouseEvent point_press(QEvent::MouseButtonPress, point_hover_position,
+        point_viewer->mapToGlobal(point_hover_position.toPoint()), Qt::LeftButton,
+        Qt::LeftButton, Qt::NoModifier);
+    QApplication::sendEvent(point_viewer, &point_press);
+    application.processEvents();
+    auto* selected_reference = point_references->cellWidget(0, 1);
+    if (!verify(selected_reference != nullptr &&
+                    selected_reference->property("text").toString().contains('/'),
+                "Point command did not pass the confirmed viewer candidate to its dialog")) {
+        return 1;
+    }
+    if (auto* point_buttons = point_dialog->findChild<QDialogButtonBox*>()) {
+        point_buttons->button(QDialogButtonBox::Cancel)->click();
+    }
+    application.processEvents();
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    application.processEvents();
     if (!part_capture_path.isEmpty() &&
         !verify(window.grab().save(part_capture_path),
                 "native Qt window capture failed")) {
@@ -441,7 +622,7 @@ int verify_startup_contract(
                 }
             }
         }
-        if (item != nullptr) tree->itemDoubleClicked(item, 0);
+        if (item != nullptr) window.show_tree_item_properties(item);
         application.processEvents();
         auto* dialog = window.findChild<QDialog*>("zimaPropertiesSubWindow");
         return std::pair{dialog, dialog == nullptr
@@ -574,6 +755,12 @@ int verify_startup_contract(
     }
     if (!verify(reopened && tabs->count() == 1 && reopened_history_items == 3,
                 "saved Part did not close and reopen through the application")) {
+        return 1;
+    }
+    const bool reopened_existing = window.open_document_path(
+        QString::fromStdString(saved_part_path.string()));
+    if (!verify(reopened_existing && tabs->count() == 1,
+                "opening an already open path created a duplicate document tab")) {
         return 1;
     }
     std::tie(edit_dialog, edit_height) = open_extrusion_properties();
@@ -724,7 +911,7 @@ int verify_startup_contract(
     }
     if (!verify(assembly_cut_item != nullptr,
                 "Calculated Assembly cut is missing from the tree")) return 1;
-    tree->itemDoubleClicked(assembly_cut_item, 0);
+    window.show_tree_item_properties(assembly_cut_item);
     application.processEvents();
     auto* rollback_dialog = window.findChild<QDialog*>("zimaPropertiesSubWindow");
     QTreeWidgetItem* rollback_cut_item{};

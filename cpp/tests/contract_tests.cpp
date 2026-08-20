@@ -325,12 +325,34 @@ int main() {
 
         auto document = zima::document::PartDocument::create_default();
         require(document.history.empty(), "New Part must have empty history");
+        document.document_units["Length"] = "cm";
+        document.user_parameters = {{"name", "Bracket"}};
+        document.user_parameter_order = {"name"};
+        document.user_parameter_labels["name"] = {{"cs", "Název"}, {"en", "Name"}};
+        document.user_parameter_values["name"] = {{"", "Bracket"}};
+        document.document_precision["decimal_places"] = "5";
+        document.physical_parameters["MASS_DENSITY"] = "7.85e-6";
+        document.physical_parameter_units["MASS_DENSITY"] = "kg/mm^3";
+        document.material_parameter_descriptions["MASS_DENSITY"]["cs"] = "Hustota";
+        document.family_table = R"({"columns":["length"],"instances":[]})";
         const auto empty_path = std::filesystem::temp_directory_path() /
             "zima-cad-cpp-empty-contract.prtz";
         document.save(empty_path);
         const auto empty_loaded = zima::document::PartDocument::load(empty_path);
         std::filesystem::remove(empty_path);
         require(empty_loaded.history.empty(), "Empty history was not preserved");
+        require(empty_loaded.document_units == document.document_units &&
+                    empty_loaded.user_parameters == document.user_parameters &&
+                    empty_loaded.user_parameter_order == document.user_parameter_order &&
+                    empty_loaded.user_parameter_labels == document.user_parameter_labels &&
+                    empty_loaded.user_parameter_values == document.user_parameter_values &&
+                    empty_loaded.document_precision == document.document_precision &&
+                    empty_loaded.physical_parameters == document.physical_parameters &&
+                    empty_loaded.physical_parameter_units == document.physical_parameter_units &&
+                    empty_loaded.material_parameter_descriptions ==
+                        document.material_parameter_descriptions &&
+                    empty_loaded.family_table == document.family_table,
+                "Part document tools data did not round-trip");
         auto first = zima::document::PartDocument::create_box_container();
         first.box.length = 123.5;
         document.history.push_back(first);
@@ -522,6 +544,69 @@ int main() {
         require(loaded_suppression.relations == suppression_document.relations,
                 "Part relations did not survive save/load");
         auto constructions = zima::document::PartDocument::create_default();
+        auto origin_point = zima::document::PartDocument::create_construction(
+            zima::document::ConstructionKind::Point);
+        require(origin_point.container_origin.parent_id == origin_point.id &&
+                    origin_point.container_origin.id == origin_point.id + ":origin" &&
+                    origin_point.container_origin.children.size() == 7 &&
+                    origin_point.container_origin.children.front().id ==
+                        origin_point.container_origin.id + ":point" &&
+                    origin_point.container_origin.children.back().id ==
+                        origin_point.container_origin.id + ":plane:xz",
+                "Construction container did not own the complete persisted Origin");
+        origin_point.definition =
+            zima::document::ConstructionDefinition::PointReference;
+        origin_point.references = {{{}, constructions.document_id + ":origin",
+                                     "origin:point"}};
+        constructions.constructions.push_back(origin_point);
+        constructions.resolve_constructions();
+        require(constructions.constructions.front().reference_valid &&
+                    constructions.constructions.front().origin ==
+                        zima::kernel::Vec3{},
+                "Construction Point did not resolve the persisted document Origin");
+        auto plane_constrained_point =
+            zima::document::PartDocument::create_construction(
+                zima::document::ConstructionKind::Point);
+        plane_constrained_point.origin = {7.0, 8.0, 9.0};
+        plane_constrained_point.definition =
+            zima::document::ConstructionDefinition::PointReference;
+        plane_constrained_point.references = {
+            {{}, constructions.document_id + ":origin", "origin:plane:yz"},
+            {{}, constructions.document_id + ":origin", "origin:plane:xz"},
+            {{}, constructions.document_id + ":origin", "origin:plane:xy"}};
+        constructions.constructions = {plane_constrained_point};
+        const auto document_origin_geometry =
+            constructions.origin_viewer_mesh().original_references;
+        const auto xy_state = zima::document::point_constraint_state({
+                    {{}, constructions.document_id + ":origin", "origin:plane:xy"}},
+                    document_origin_geometry);
+        require(xy_state.remaining_dof == 2 &&
+                    xy_state.constrained_axes == std::array<bool, 3>{false, false, true} &&
+                zima::document::point_constraint_remaining_dof({
+                    {{}, constructions.document_id + ":origin", "origin:plane:xy"},
+                    {{}, constructions.document_id + ":origin", "origin:plane:xy"}},
+                    document_origin_geometry) == 2 &&
+                zima::document::point_constraint_remaining_dof({
+                    {{}, constructions.document_id + ":origin", "origin:plane:xy"},
+                    {{}, constructions.document_id + ":origin", "origin:plane:yz"}},
+                    document_origin_geometry) == 1 &&
+                zima::document::point_constraint_remaining_dof({
+                    {{}, constructions.document_id + ":origin", "origin:point"}},
+                    document_origin_geometry) == 0,
+                "Point placement DOF did not use geometric matrix rank");
+        constructions.resolve_constructions();
+        require(constructions.constructions.front().reference_valid &&
+                    std::abs(constructions.constructions.front().origin.x) < 1.0e-5 &&
+                    std::abs(constructions.constructions.front().origin.y) < 1.0e-5 &&
+                    std::abs(constructions.constructions.front().origin.z) < 1.0e-5,
+                "Construction Point did not solve three selected planar references");
+        constructions.constructions.front().references.front().offset = 12.0;
+        constructions.resolve_constructions();
+        require(constructions.constructions.front().reference_valid &&
+                    std::abs(constructions.constructions.front().origin.x - 12.0) <
+                        1.0e-5,
+                "Construction Point ignored its planar reference offset");
+        constructions.constructions.clear();
         auto point = zima::document::PartDocument::create_construction(
             zima::document::ConstructionKind::Point);
         point.origin = {1.0, 2.0, 3.0};
@@ -538,12 +623,32 @@ int main() {
                     construction_mesh.edges.size() == 1 &&
                     construction_mesh.original_references.points.size() == 1 &&
                     construction_mesh.original_references.points.front().reference.owner_id ==
-                        point.id &&
+                        point.id + ":origin" &&
+                    construction_mesh.original_references.points.front()
+                            .reference.semantic_key == "point" &&
                     construction_mesh.original_references.axes.size() == 1 &&
                     construction_mesh.original_references.axes.front().reference.owner_id ==
                         axis.id &&
                     construction_mesh.original_references.triangle_references.size() == 2,
                 "Construction objects did not produce persisted ZIMA references");
+        const auto edited_point_mesh =
+            constructions.construction_viewer_mesh(point.id);
+        require(edited_point_mesh.points.size() == 1 &&
+                    edited_point_mesh.points.front().reference.semantic_key ==
+                        "origin:point" &&
+                    edited_point_mesh.axes.size() == 4 &&
+                    edited_point_mesh.edges.size() == 4 &&
+                    std::all_of(edited_point_mesh.original_references.axes.begin(),
+                        edited_point_mesh.original_references.axes.begin() + 3,
+                        [&](const auto& value) {
+                            return value.reference.owner_id == point.id + ":origin";
+                        }) &&
+                    std::all_of(edited_point_mesh.axes.begin(),
+                        edited_point_mesh.axes.begin() + 3,
+                        [](const auto& value) {
+                            return std::abs(value.display_length - 2.0) < 1.0e-12;
+                        }),
+                "Edited Point did not expose its distinct Container Origin");
         auto second_point = zima::document::PartDocument::create_construction(
             zima::document::ConstructionKind::Point);
         second_point.origin = {11.0, 2.0, 3.0};
@@ -552,7 +657,8 @@ int main() {
         referenced_axis.definition =
             zima::document::ConstructionDefinition::TwoPointAxis;
         referenced_axis.references = {
-            {{}, point.id, "point"}, {{}, second_point.id, "point"}};
+            {{}, point.id + ":origin", "point"},
+            {{}, second_point.id + ":origin", "point"}};
         constructions.constructions.push_back(second_point);
         constructions.constructions.push_back(referenced_axis);
         constructions.resolve_constructions();
@@ -567,7 +673,7 @@ int main() {
             zima::document::ConstructionKind::Point);
         cyclic_point.definition =
             zima::document::ConstructionDefinition::PointReference;
-        cyclic_point.references = {{{}, cyclic_point.id, "point"}};
+        cyclic_point.references = {{{}, cyclic_point.id + ":origin", "point"}};
         constructions.constructions.push_back(cyclic_point);
         constructions.resolve_constructions();
         require(!constructions.constructions.back().reference_valid,
@@ -577,7 +683,7 @@ int main() {
         auto point_reference = zima::sketcher::Sketch::create_external_reference(
             zima::sketcher::ExternalReferenceKind::Point);
         point_reference.source_document_id = constructions.document_id;
-        point_reference.source_owner_id = point.id;
+        point_reference.source_owner_id = point.id + ":origin";
         point_reference.source_semantic_key = "point";
         point_reference.cached_points = {{0.0, 0.0}};
         construction_reference_sketch.add_external_reference(point_reference);
@@ -617,7 +723,9 @@ int main() {
                     loaded_constructions.constructions.back().definition ==
                         zima::document::ConstructionDefinition::TwoPointAxis &&
                     loaded_constructions.constructions.back().references[0].owner_id ==
-                        point.id,
+                        point.id + ":origin" &&
+                    loaded_constructions.constructions.front().container_origin ==
+                        point.container_origin,
                 "Construction objects did not survive save/load");
         auto extrusion_document = zima::document::PartDocument::create_default();
         auto extrusion_sketch = zima::sketcher::Sketch::create_default();

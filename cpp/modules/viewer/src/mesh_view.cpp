@@ -23,8 +23,31 @@
 
 namespace zima::viewer {
 
+namespace {
+
+void draw_circular_marker(QPainter& painter, const QPointF& center,
+    const QColor& color, double radius = 4.5) {
+    QPolygonF polygon;
+    constexpr int segments = 32;
+    polygon.reserve(segments);
+    for (int segment = 0; segment < segments; ++segment) {
+        const double angle = 2.0 * std::numbers::pi * segment / segments;
+        polygon.push_back(center + QPointF(
+            std::cos(angle) * radius, std::sin(angle) * radius));
+    }
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(color);
+    painter.drawPolygon(polygon);
+}
+
+}  // namespace
+
 struct MeshView::Impl {
     zima::kernel::ViewerMesh mesh;
+    // Picking traverses this compact view on every pointer move. Build it once
+    // when the scene changes instead of copying all persisted geometry for
+    // every hover sample.
+    zima::kernel::ViewerMesh persisted_reference_mesh;
     QOpenGLShaderProgram program;
     QOpenGLBuffer vertices{QOpenGLBuffer::VertexBuffer};
     QOpenGLBuffer triangles{QOpenGLBuffer::IndexBuffer};
@@ -79,7 +102,69 @@ struct MeshView::Impl {
     bool show_axes{true};
     bool show_planes{true};
     bool show_sketches{true};
+    bool editing_origin_visible{};
     bool gpu_dirty{true};
+
+    void rebuild_persisted_reference_mesh() {
+        auto& target = persisted_reference_mesh;
+        target = {};
+        target.edges = mesh.original_references.edges;
+        target.points = mesh.original_references.points;
+        target.axes = mesh.original_references.axes;
+        const double scale = view_scale /
+            std::max(reference_view_scale, 1.0e-6F);
+        for (auto& axis : target.axes) {
+            if (axis.reference.semantic_key.starts_with("origin:axis:")) {
+                axis.display_length *= scale;
+            }
+        }
+        // Keep persisted solid faces unchanged. Origin planes are screen-size
+        // overlays; rebuild their pick triangles from the exact scaled border
+        // which paintGL displays, so hover and click cannot be spatially offset.
+        for (std::size_t triangle = 0;
+             triangle < mesh.original_references.triangle_references.size();
+             ++triangle) {
+            const auto& reference =
+                mesh.original_references.triangle_references[triangle];
+            if (reference.semantic_key.starts_with("origin:plane:")) continue;
+            if (triangle * 3 + 2 >= mesh.original_references.triangles.size()) continue;
+            const auto base = static_cast<std::uint32_t>(target.vertices.size());
+            for (std::size_t corner = 0; corner < 3; ++corner) {
+                target.vertices.push_back(mesh.original_references.vertices[
+                    mesh.original_references.triangles[triangle * 3 + corner]]);
+                target.triangles.push_back(base + static_cast<std::uint32_t>(corner));
+            }
+            target.triangle_references.push_back(reference);
+        }
+        for (const auto& edge : mesh.edges) {
+            if (!edge.reference.semantic_key.starts_with("origin:plane:") ||
+                edge.points.size() < 4) continue;
+            zima::kernel::Vec3 center;
+            const std::size_t count = edge.points.size() > 4
+                ? edge.points.size() - 1 : edge.points.size();
+            for (std::size_t index = 0; index < count; ++index) {
+                center.x += edge.points[index].x;
+                center.y += edge.points[index].y;
+                center.z += edge.points[index].z;
+            }
+            center = {center.x / count, center.y / count, center.z / count};
+            const auto base = static_cast<std::uint32_t>(target.vertices.size());
+            for (std::size_t index = 0; index < 4; ++index) {
+                const auto& point = edge.points[index];
+                target.vertices.push_back({
+                    center.x + (point.x - center.x) * scale,
+                    center.y + (point.y - center.y) * scale,
+                    center.z + (point.z - center.z) * scale});
+            }
+            target.triangles.insert(target.triangles.end(),
+                {base, base + 1, base + 2, base, base + 2, base + 3});
+            const zima::kernel::FaceReference reference{
+                edge.reference.owner_id, edge.reference.semantic_key,
+                edge.reference.instance_path};
+            target.triangle_references.push_back(reference);
+            target.triangle_references.push_back(reference);
+        }
+    }
 
     [[nodiscard]] QMatrix4x4 view() const {
         QMatrix4x4 result;
@@ -129,6 +214,7 @@ void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
     impl_->confirmed_candidate.reset();
     impl_->gpu_dirty = true;
     if (fit_view) fit_all();
+    impl_->rebuild_persisted_reference_mesh();
     update();
 }
 
@@ -147,6 +233,7 @@ void MeshView::set_camera_state(const std::array<float, 7>& state) {
     impl_->view_scale = state[4];
     impl_->pan_pixels = QPointF(state[5], state[6]);
     impl_->candidates.clear();
+    impl_->rebuild_persisted_reference_mesh();
     update();
 }
 
@@ -176,6 +263,20 @@ std::optional<ViewerCandidate> MeshView::hovered_candidate() const {
     if (impl_->confirmed_candidate || impl_->candidates.empty() ||
         impl_->active_candidate >= impl_->candidates.size()) return std::nullopt;
     return impl_->candidates[impl_->active_candidate];
+}
+
+std::vector<ViewerCandidate> MeshView::selection_candidates_at(
+    const QPointF& position) const {
+    if (width() <= 0 || height() <= 0) return {};
+    const auto ray = ray_at(position);
+    if (!ray) return {};
+    const auto& [ray_origin, ray_direction] = *ray;
+    const double world_tolerance =
+        8.0 * impl_->view_scale / std::max(height(), 1);
+    return filter_candidates(ordered_viewer_candidates(
+        impl_->mesh, impl_->persisted_reference_mesh,
+        ray_origin, ray_direction, world_tolerance),
+        impl_->allowed_kinds, impl_->candidate_filter);
 }
 
 std::optional<zima::kernel::ViewerEdge> MeshView::candidate_edge(
@@ -239,6 +340,60 @@ void MeshView::confirm_occurrence(const std::string& instance_path) {
     }
     impl_->confirmed_candidate = std::move(candidate);
     impl_->candidates.clear();
+    update();
+}
+
+void MeshView::confirm_origin(const std::string& owner_id,
+    const std::string& instance_path) {
+    impl_->confirmed_candidate = ViewerCandidate{CandidateKind::Container, 0.0, 0,
+        owner_id, "origin", instance_path, CandidateGeometry::Display};
+    impl_->candidates.clear();
+    update();
+}
+
+void MeshView::confirm_reference(const std::string& owner_id,
+    const std::string& semantic_key, const std::string& instance_path,
+    CandidateKind kind) {
+    ViewerCandidate candidate{kind, 0.0, 0, owner_id, semantic_key,
+        instance_path, CandidateGeometry::Display};
+    if (kind == CandidateKind::Vertex) {
+        const auto found = std::find_if(impl_->mesh.points.begin(),
+            impl_->mesh.points.end(), [&](const auto& value) {
+                return value.reference.owner_id == owner_id &&
+                    value.reference.semantic_key == semantic_key &&
+                    value.reference.instance_path == instance_path;
+            });
+        if (found == impl_->mesh.points.end()) return clear_selection();
+        candidate.geometry_index = static_cast<std::size_t>(
+            std::distance(impl_->mesh.points.begin(), found));
+    } else if (kind == CandidateKind::Axis) {
+        const auto found = std::find_if(impl_->mesh.axes.begin(),
+            impl_->mesh.axes.end(), [&](const auto& value) {
+                return value.reference.owner_id == owner_id &&
+                    value.reference.semantic_key == semantic_key &&
+                    value.reference.instance_path == instance_path;
+            });
+        if (found == impl_->mesh.axes.end()) return clear_selection();
+        candidate.geometry_index = static_cast<std::size_t>(
+            std::distance(impl_->mesh.axes.begin(), found));
+    } else if (kind == CandidateKind::Face) {
+        const auto& references = impl_->mesh.original_references.triangle_references;
+        const auto found = std::find_if(references.begin(), references.end(),
+            [&](const auto& value) {
+                return value.owner_id == owner_id &&
+                    value.semantic_key == semantic_key &&
+                    value.instance_path == instance_path;
+            });
+        if (found == references.end()) return clear_selection();
+        candidate.geometry = CandidateGeometry::OriginalReference;
+        candidate.geometry_index = static_cast<std::size_t>(
+            std::distance(references.begin(), found));
+    } else {
+        return clear_selection();
+    }
+    impl_->confirmed_candidate = std::move(candidate);
+    impl_->candidates.clear();
+    impl_->active_candidate = 0;
     update();
 }
 
@@ -332,12 +487,45 @@ void MeshView::notify_confirmation() {
 
 void MeshView::fit_all() {
     std::vector<zima::kernel::Vec3> bounds = impl_->mesh.vertices;
+    std::vector<zima::kernel::Vec3> reference_centers;
+    double reference_extent = 0.5;
     for (const auto& edge : impl_->mesh.edges) {
+        if (edge.reference.semantic_key.starts_with("origin:plane:")) {
+            const std::size_t count = edge.points.size() > 1
+                ? edge.points.size() - 1 : edge.points.size();
+            if (count == 0) continue;
+            zima::kernel::Vec3 center;
+            for (std::size_t index = 0; index < count; ++index) {
+                center.x += edge.points[index].x;
+                center.y += edge.points[index].y;
+                center.z += edge.points[index].z;
+            }
+            center = {center.x / count, center.y / count, center.z / count};
+            reference_centers.push_back(center);
+            for (std::size_t index = 0; index < count; ++index) {
+                reference_extent = std::max(reference_extent,
+                    std::hypot(std::hypot(edge.points[index].x - center.x,
+                                         edge.points[index].y - center.y),
+                               edge.points[index].z - center.z));
+            }
+            continue;
+        }
         bounds.insert(bounds.end(), edge.points.begin(), edge.points.end());
     }
-    for (const auto& point : impl_->mesh.points) bounds.push_back(point.position);
+    for (const auto& point : impl_->mesh.points) {
+        if (point.reference.semantic_key == "origin:point") {
+            reference_centers.push_back(point.position);
+        } else {
+            bounds.push_back(point.position);
+        }
+    }
     for (const auto& axis : impl_->mesh.axes) {
         const bool origin = axis.reference.semantic_key.starts_with("origin:axis:");
+        if (origin) {
+            reference_centers.push_back(axis.point);
+            reference_extent = std::max(reference_extent, axis.display_length);
+            continue;
+        }
         const double first = origin ? 0.0 : -axis.display_length * 0.5;
         const double second = origin ? axis.display_length : axis.display_length * 0.5;
         bounds.push_back({axis.point.x + axis.direction.x * first,
@@ -353,14 +541,16 @@ void MeshView::fit_all() {
         bounds.push_back(dimension.line_first);
         bounds.push_back(dimension.line_second);
     }
-    if (bounds.empty()) {
+    impl_->reference_view_scale = static_cast<float>(reference_extent);
+    if (bounds.empty() && reference_centers.empty()) {
         impl_->center = {};
         impl_->radius = 1.0F;
         impl_->view_scale = 1.4F;
-        impl_->reference_view_scale = impl_->view_scale;
+        impl_->reference_view_scale = 1.4F;
         impl_->pan_pixels = {};
         return;
     }
+    if (bounds.empty()) bounds = reference_centers;
     zima::kernel::Vec3 minimum{
         std::numeric_limits<double>::max(), std::numeric_limits<double>::max(),
         std::numeric_limits<double>::max()};
@@ -384,8 +574,8 @@ void MeshView::fit_all() {
         static_cast<float>(maximum.y - minimum.y),
         static_cast<float>(maximum.z - minimum.z));
     impl_->radius = std::max(diagonal.length() / 2.0F, 0.5F);
-    impl_->view_scale = impl_->radius;
-    impl_->reference_view_scale = impl_->view_scale;
+    impl_->view_scale = bounds.size() == 1
+        ? impl_->reference_view_scale : impl_->radius;
     impl_->pan_pixels = {};
     update();
 }
@@ -474,6 +664,12 @@ bool MeshView::reference_visible(ReferenceVisibility reference) const {
         case ReferenceVisibility::Sketches: return impl_->show_sketches;
     }
     return false;
+}
+
+void MeshView::set_editing_origin_visible(bool visible) {
+    if (impl_->editing_origin_visible == visible) return;
+    impl_->editing_origin_visible = visible;
+    update();
 }
 
 void MeshView::initializeGL() {
@@ -690,12 +886,12 @@ void MeshView::paintGL() {
             }
         }
         if (impl_->show_origins) {
-            painter.setPen(QPen(QColor(20, 20, 20), 1.5));
-            painter.setBrush(QColor(20, 20, 20));
+                painter.setPen(QPen(QColor(0, 0, 0), 1.0));
+                painter.setBrush(QColor(0, 0, 0));
             for (const auto& point : impl_->mesh.points) {
                 if (point.reference.semantic_key != "origin:point") continue;
                 const QPointF center = project(point.position);
-                painter.drawEllipse(center, 4.5, 4.5);
+                draw_circular_marker(painter, center, QColor(0, 0, 0));
                 if (!point.label.empty()) {
                     painter.drawText(center + QPointF(8.0, -6.0),
                                      QString::fromStdString(point.label));
@@ -797,7 +993,8 @@ void MeshView::paintGL() {
             CandidateKind::Axis) != impl_->allowed_kinds.end() ||
         std::find(impl_->allowed_kinds.begin(), impl_->allowed_kinds.end(),
             CandidateKind::SketchAxis) != impl_->allowed_kinds.end();
-    const bool axes_visible = impl_->show_axes || impl_->show_origins || axes_selectable;
+    const bool axes_visible = impl_->show_axes || impl_->show_origins ||
+        impl_->editing_origin_visible || axes_selectable;
     const bool sketch_geometry_visible = impl_->show_sketches && std::any_of(
         impl_->mesh.edges.begin(), impl_->mesh.edges.end(), [](const auto& edge) {
             return edge.reference.semantic_key.starts_with("segment:") ||
@@ -823,11 +1020,13 @@ void MeshView::paintGL() {
             CandidateKind::SketchPoint) != impl_->allowed_kinds.end();
     const bool points_visible =
         ((impl_->show_points || points_selectable) && !impl_->mesh.points.empty()) ||
-        external_points_visible || impl_->show_origins;
+        external_points_visible || impl_->show_origins ||
+        impl_->editing_origin_visible;
     const bool planes_selectable = std::find(
         impl_->allowed_kinds.begin(), impl_->allowed_kinds.end(),
         CandidateKind::Face) != impl_->allowed_kinds.end();
-    const bool planes_visible = (impl_->show_planes || planes_selectable) && std::any_of(
+    const bool planes_visible = (impl_->show_planes || planes_selectable ||
+        impl_->editing_origin_visible) && std::any_of(
         impl_->mesh.edges.begin(), impl_->mesh.edges.end(), [](const auto& edge) {
             return edge.reference.semantic_key == "border" ||
                 edge.reference.semantic_key.starts_with("origin:plane:");
@@ -916,7 +1115,8 @@ void MeshView::paintGL() {
                 const bool origin = edge.reference.semantic_key.starts_with(
                     "origin:plane:");
                 if (edge.reference.semantic_key != "border" && !origin) continue;
-                if ((origin && !impl_->show_planes && !planes_selectable) ||
+                if ((origin && !impl_->show_planes && !planes_selectable &&
+                        !impl_->editing_origin_visible) ||
                     (!origin && !impl_->show_planes && !planes_selectable)) continue;
                 zima::kernel::Vec3 center;
                 const std::size_t corner_count = origin && edge.points.size() > 1
@@ -970,12 +1170,12 @@ void MeshView::paintGL() {
                     painter.drawLine(center + QPointF(-4.0, 4.0),
                                      center + QPointF(4.0, -4.0));
                 } else {
-                    painter.setPen(QPen(QColor(245, 205, 80), 1.5));
-                    painter.setBrush(QColor(245, 205, 80));
+                    painter.setPen(QPen(QColor(0, 0, 0), 1.0));
+                    painter.setBrush(QColor(0, 0, 0));
                     const QPointF center = project(point.position);
-                    painter.drawEllipse(center, 3.5, 3.5);
+                    draw_circular_marker(painter, center, QColor(0, 0, 0));
                     if (!point.label.empty()) {
-                        painter.setPen(QPen(QColor(20, 20, 20), 1.2));
+                        painter.setPen(QPen(QColor(0, 0, 0), 1.0));
                         painter.drawText(center + QPointF(8.0, -6.0),
                                          QString::fromStdString(point.label));
                     }
@@ -1016,7 +1216,8 @@ void MeshView::paintGL() {
             for (const auto& axis : impl_->mesh.axes) {
                 const bool origin = axis.reference.semantic_key.starts_with(
                     "origin:axis:");
-                if ((origin && !impl_->show_origins && !axes_selectable) ||
+                if ((origin && !impl_->show_origins && !axes_selectable &&
+                        !impl_->editing_origin_visible) ||
                     (!origin && !impl_->show_axes && !axes_selectable)) continue;
                 const QColor color = axis.reference.semantic_key == "origin:axis:x"
                     ? QColor(232, 76, 61)
@@ -1061,13 +1262,14 @@ void MeshView::paintGL() {
                 }
             }
         }
-        if (impl_->show_origins) {
+        if (impl_->show_origins || points_selectable ||
+            impl_->editing_origin_visible) {
             for (const auto& point : impl_->mesh.points) {
                 if (point.reference.semantic_key != "origin:point") continue;
                 const QPointF center = project(point.position);
                 painter.setPen(QPen(QColor(0, 0, 0), 1.0));
                 painter.setBrush(QColor(0, 0, 0));
-                painter.drawEllipse(center, 4.5, 4.5);
+                draw_circular_marker(painter, center, QColor(0, 0, 0));
                 if (!point.label.empty()) {
                     painter.drawText(center + QPointF(8.5, -6.5),
                                      QString::fromStdString(point.label));
@@ -1077,6 +1279,8 @@ void MeshView::paintGL() {
         if (highlighted) {
             const QColor color = impl_->confirmed_candidate
                 ? QColor(30, 220, 240) : QColor(255, 140, 12);
+            const bool origin_group = highlighted->kind == CandidateKind::Container &&
+                highlighted->semantic_key == "origin";
             const bool origin_plane = highlighted->kind == CandidateKind::Face &&
                 highlighted->semantic_key.starts_with("origin:plane:");
             if (origin_plane) {
@@ -1109,7 +1313,7 @@ void MeshView::paintGL() {
                 }
             }
             if ((highlighted->kind == CandidateKind::Occurrence ||
-                 highlighted->kind == CandidateKind::Container ||
+                 (highlighted->kind == CandidateKind::Container && !origin_group) ||
                  (highlighted->kind == CandidateKind::Face && !origin_plane))) {
                 painter.setPen(QPen(color, 1.5));
                 painter.setBrush(Qt::NoBrush);
@@ -1205,20 +1409,76 @@ void MeshView::paintGL() {
                     project({axis.point.x + half.x, axis.point.y + half.y,
                              axis.point.z + half.z}));
             }
+            if (origin_group) {
+                for (const auto& edge : impl_->mesh.edges) {
+                    if (edge.reference.owner_id != highlighted->owner_id ||
+                        edge.reference.instance_path != highlighted->instance_path ||
+                        !edge.reference.semantic_key.starts_with("origin:plane:") ||
+                        edge.points.size() < 2) continue;
+                    const std::size_t corner_count = edge.points.size() - 1;
+                    zima::kernel::Vec3 center;
+                    for (std::size_t index = 0; index < corner_count; ++index) {
+                        center.x += edge.points[index].x;
+                        center.y += edge.points[index].y;
+                        center.z += edge.points[index].z;
+                    }
+                    center.x /= corner_count; center.y /= corner_count;
+                    center.z /= corner_count;
+                    const auto display_point = [&](const auto& point) {
+                        return zima::kernel::Vec3{
+                            center.x + (point.x - center.x) * reference_scale,
+                            center.y + (point.y - center.y) * reference_scale,
+                            center.z + (point.z - center.z) * reference_scale};
+                    };
+                    for (std::size_t index = 1; index < edge.points.size(); ++index) {
+                        draw_reference_segment(project(display_point(edge.points[index - 1])),
+                            project(display_point(edge.points[index])), color, 2.5);
+                    }
+                }
+                for (const auto& axis : impl_->mesh.axes) {
+                    if (axis.reference.owner_id != highlighted->owner_id ||
+                        axis.reference.instance_path != highlighted->instance_path ||
+                        !axis.reference.semantic_key.starts_with("origin:axis:")) continue;
+                    painter.setPen(QPen(color, 3.0, Qt::SolidLine, Qt::RoundCap));
+                    painter.drawLine(project(axis.point), project({
+                        axis.point.x + axis.direction.x * axis.display_length * reference_scale,
+                        axis.point.y + axis.direction.y * axis.display_length * reference_scale,
+                        axis.point.z + axis.direction.z * axis.display_length * reference_scale}));
+                }
+            }
+        }
+        // Point markers are the final reference layer.  Python recolours the
+        // marker itself on hover/selection; drawing a later highlight on top
+        // made the black Origin centre disappear at the axis intersection.
+        if (impl_->show_origins || points_selectable ||
+            impl_->editing_origin_visible) {
+            for (const auto& point : impl_->mesh.points) {
+                if (point.reference.semantic_key != "origin:point") continue;
+                QColor marker_color(0, 0, 0);
+                if (highlighted && highlighted->owner_id == point.reference.owner_id &&
+                    highlighted->instance_path == point.reference.instance_path &&
+                    ((highlighted->kind == CandidateKind::Vertex &&
+                      highlighted->semantic_key == point.reference.semantic_key) ||
+                     (highlighted->kind == CandidateKind::Container &&
+                      highlighted->semantic_key == "origin"))) {
+                    marker_color = impl_->confirmed_candidate
+                        ? QColor(30, 220, 240) : QColor(255, 122, 0);
+                }
+                const QPointF center = project(point.position);
+                draw_circular_marker(painter, center, marker_color);
+                if (!point.label.empty()) {
+                    painter.setPen(QPen(marker_color, 1.0));
+                    painter.drawText(center + QPointF(8.5, -6.5),
+                        QString::fromStdString(point.label));
+                }
+            }
         }
     }
 }
 
 void MeshView::update_candidates(const QPointF& position) {
     if (width() <= 0 || height() <= 0) return;
-    const auto ray = ray_at(position);
-    if (!ray) return;
-    const auto& [ray_origin, ray_direction] = *ray;
-    const double world_tolerance =
-        8.0 * impl_->view_scale / std::max(height(), 1);
-    auto next = filter_candidates(ordered_viewer_candidates(
-        impl_->mesh, ray_origin, ray_direction, world_tolerance),
-        impl_->allowed_kinds, impl_->candidate_filter);
+    auto next = selection_candidates_at(position);
     const bool same_order = next.size() == impl_->candidates.size() &&
         std::equal(next.begin(), next.end(), impl_->candidates.begin(),
             [](const ViewerCandidate& left, const ViewerCandidate& right) {
@@ -1262,6 +1522,13 @@ void MeshView::mousePressEvent(QMouseEvent* event) {
     if (event->button() == Qt::MiddleButton) {
         impl_->middle_dragged = false;
         impl_->middle_press_position = event->position().toPoint();
+    }
+    // RMB cycles the exact same ordered list used by hover and LMB.  Refresh
+    // it at the click position so cycling also works immediately after a
+    // command changes its selection contract, without requiring a preceding
+    // mouse-move event.
+    if (event->button() == Qt::RightButton && !impl_->confirmed_candidate) {
+        update_candidates(event->position());
     }
     if (event->button() == Qt::LeftButton &&
         impl_->command_gesture_begin_callback) {
@@ -1411,6 +1678,7 @@ void MeshView::wheelEvent(QWheelEvent* event) {
             (cursor - center - impl_->pan_pixels) * zoom_ratio;
     }
     impl_->candidates.clear();
+    impl_->rebuild_persisted_reference_mesh();
     update();
     event->accept();
 }
