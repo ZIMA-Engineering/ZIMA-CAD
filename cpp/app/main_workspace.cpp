@@ -462,6 +462,55 @@ int verify_startup_contract(
                 "Point OK did not create a normally displayed Tree item")) {
         return 1;
     }
+    const std::string point_container_id =
+        point_item->data(0, Qt::UserRole).toString().toStdString();
+    std::optional<QPointF> normal_point_position;
+    for (int y = 4; y < point_viewer->height() && !normal_point_position; y += 4) {
+        for (int x = 4; x < point_viewer->width(); x += 4) {
+            const QPointF position{
+                static_cast<qreal>(x), static_cast<qreal>(y)};
+            const auto candidates = point_viewer->selection_candidates_at(position);
+            if (std::any_of(candidates.begin(), candidates.end(),
+                    [&](const auto& candidate) {
+                        return candidate.kind ==
+                                zima::viewer::CandidateKind::Container &&
+                            candidate.owner_id == point_container_id &&
+                            candidate.semantic_key == "point";
+                    })) {
+                normal_point_position = position;
+                break;
+            }
+        }
+    }
+    if (!verify(normal_point_position.has_value(),
+                "Normal View did not offer the created Point Container marker")) {
+        return 1;
+    }
+    QMouseEvent normal_point_move(QEvent::MouseMove, *normal_point_position,
+        point_viewer->mapToGlobal(normal_point_position->toPoint()),
+        Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+    QApplication::sendEvent(point_viewer, &normal_point_move);
+    application.processEvents();
+    const auto hovered_point = point_viewer->hovered_candidate();
+    if (!verify(hovered_point && hovered_point->kind ==
+                    zima::viewer::CandidateKind::Container &&
+                    hovered_point->owner_id == point_container_id,
+                "Normal Point hover did not offer the owning Container")) {
+        return 1;
+    }
+    QMouseEvent normal_point_click(QEvent::MouseButtonPress,
+        *normal_point_position,
+        point_viewer->mapToGlobal(normal_point_position->toPoint()),
+        Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+    QApplication::sendEvent(point_viewer, &normal_point_click);
+    application.processEvents();
+    if (!verify(point_viewer->confirmed_candidate() &&
+                    point_viewer->confirmed_candidate()->owner_id ==
+                        point_container_id && tree->currentItem() == point_item,
+                "Normal Point LMB did not synchronize View and Tree selection")) {
+        return 1;
+    }
+    point_viewer->clear_selection();
     const QRect point_rect = tree->visualItemRect(point_item);
     const QPoint point_position = point_rect.center();
     QMouseEvent point_tree_click(QEvent::MouseButtonPress,

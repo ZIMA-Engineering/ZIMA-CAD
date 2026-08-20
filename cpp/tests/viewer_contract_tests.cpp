@@ -182,6 +182,22 @@ int main() {
                                     CandidateGeometry::OriginalReference;
                         }),
                 "Point Container exception removed its precise command reference");
+        zima::kernel::ViewerMesh occluded_point_mesh = point_container_mesh;
+        occluded_point_mesh.vertices = {
+            {-2.0, -2.0, 2.0}, {2.0, -2.0, 2.0}, {0.0, 2.0, 2.0}};
+        occluded_point_mesh.triangles = {0, 1, 2};
+        occluded_point_mesh.triangle_references = {
+            {"body-container", "front", {}}};
+        const auto occluded_point_candidates = zima::viewer::filter_candidates(
+            zima::viewer::ordered_viewer_candidates(occluded_point_mesh,
+                {0.0, 0.0, 0.0}, {0.0, 0.0, 1.0}, 0.01),
+            {zima::viewer::CandidateKind::Container});
+        require(occluded_point_candidates.size() == 2 &&
+                    occluded_point_candidates.front().owner_id ==
+                        "point-container" &&
+                    occluded_point_candidates.back().owner_id ==
+                        "body-container",
+                "Screen-space Point marker did not precede geometry behind it");
         zima::kernel::ViewerMesh separated;
         separated.vertices = {
             {-1.0, -1.0, 5.0}, {1.0, -1.0, 5.0}, {0.0, 1.0, 5.0}};

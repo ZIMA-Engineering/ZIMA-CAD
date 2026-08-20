@@ -376,6 +376,14 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
         return 5;
     };
     std::stable_sort(result.begin(), result.end(), [&](const auto& left, const auto& right) {
+        const auto screen_leaf_priority = [](const ViewerCandidate& candidate) {
+            return candidate.kind == CandidateKind::Container &&
+                    candidate.semantic_key == "point"
+                ? 0 : 1;
+        };
+        const int left_leaf = screen_leaf_priority(left);
+        const int right_leaf = screen_leaf_priority(right);
+        if (left_leaf != right_leaf) return left_leaf < right_leaf;
         if (std::abs(left.distance - right.distance) > 1.0e-9) {
             return left.distance < right.distance;
         }
