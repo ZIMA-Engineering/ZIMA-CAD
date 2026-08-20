@@ -296,6 +296,20 @@ bool ConstructionPropertiesDialog::set_reference(std::size_t index,
     references_[index] = std::move(reference);
     reference_labels_[index] = label.trimmed().isEmpty()
         ? readable_reference_kind(references_[index].semantic_key) : label;
+    if (initial_.kind == zima::document::ConstructionKind::Plane && index == 0) {
+        auto oriented = references_[index];
+        oriented.orientation_drives_rotation = true;
+        oriented.orientation_role = "front";
+        if (orientation_references_.empty()) {
+            orientation_references_.push_back(std::move(oriented));
+            orientation_labels_.push_back(reference_labels_[index]);
+        } else {
+            orientation_references_[0] = std::move(oriented);
+            if (orientation_labels_.empty()) orientation_labels_.resize(1);
+            orientation_labels_[0] = reference_labels_[index];
+        }
+        refresh_orientation_table();
+    }
     definition_->setCurrentIndex(definition_->findData(static_cast<int>(definition)));
     if (auto* item = reference_table_->item(static_cast<int>(index), 1)) {
         item->setText(QStringLiteral("%1. %2").arg(index + 1).arg(label));
@@ -307,7 +321,11 @@ bool ConstructionPropertiesDialog::set_reference(std::size_t index,
 
 bool ConstructionPropertiesDialog::set_reference(std::size_t index,
     zima::document::ConstructionReference reference, const QString& label) {
-    return set_reference(index, std::move(reference), label, current_definition());
+    const auto definition = current_definition() ==
+            zima::document::ConstructionDefinition::Absolute && index < 3
+        ? zima::document::ConstructionDefinition::PointReference
+        : current_definition();
+    return set_reference(index, std::move(reference), label, definition);
 }
 
 zima::document::ConstructionDefinition
@@ -515,6 +533,7 @@ void ConstructionPropertiesDialog::refresh_orientation_table() {
 
 void ConstructionPropertiesDialog::remove_reference(std::size_t index) {
     if (index >= references_.size()) return;
+    const auto removed = references_[index];
     references_.erase(references_.begin() + static_cast<std::ptrdiff_t>(index));
     if (index < reference_labels_.size()) {
         reference_labels_.erase(reference_labels_.begin() +
@@ -523,6 +542,18 @@ void ConstructionPropertiesDialog::remove_reference(std::size_t index) {
     if (references_.empty()) {
         definition_->setCurrentIndex(definition_->findData(static_cast<int>(
             zima::document::ConstructionDefinition::Absolute)));
+    }
+    if (initial_.kind == zima::document::ConstructionKind::Plane && index == 0 &&
+        !orientation_references_.empty() &&
+        orientation_references_.front().owner_id == removed.owner_id &&
+        orientation_references_.front().semantic_key == removed.semantic_key &&
+        orientation_references_.front().instance_path == removed.instance_path) {
+        orientation_references_.erase(orientation_references_.begin());
+        if (!orientation_labels_.empty())
+            orientation_labels_.erase(orientation_labels_.begin());
+        if (!orientation_references_.empty())
+            orientation_references_.front().orientation_role = "front";
+        refresh_orientation_table();
     }
     refresh_reference_table();
     notify_preview();
