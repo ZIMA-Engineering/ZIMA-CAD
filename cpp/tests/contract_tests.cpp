@@ -635,7 +635,7 @@ int main() {
             constructions.construction_viewer_mesh(point.id);
         require(edited_point_mesh.points.size() == 1 &&
                     edited_point_mesh.points.front().reference.semantic_key ==
-                        "origin:point" &&
+                        "point" &&
                     edited_point_mesh.axes.size() == 4 &&
                     edited_point_mesh.edges.size() == 4 &&
                     std::all_of(edited_point_mesh.original_references.axes.begin(),

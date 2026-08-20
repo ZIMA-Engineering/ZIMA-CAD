@@ -1902,11 +1902,15 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
         if (object.kind == ConstructionKind::Point) {
             const std::string& origin_id = object.container_origin.id;
             const bool editing = editing_object_id == object.id;
-            const std::string point_semantic = editing ? "origin:point" : "point";
+            // Point is the intentional container/geometry exception: its one
+            // visible marker always represents the Point container itself.
+            // Editing may expose the container's auxiliary Origin axes and
+            // planes, but must not rename the marker to a nested origin point.
+            constexpr std::string_view point_semantic{"point"};
             mesh.points.push_back(
-                {object.origin, {origin_id, point_semantic, {}}, object.name});
+                {object.origin, {origin_id, std::string(point_semantic), {}}, object.name});
             mesh.original_references.points.push_back(
-                {object.origin, {origin_id, point_semantic, {}}});
+                {object.origin, {origin_id, std::string(point_semantic), {}}});
             if (!editing) continue;
             // Every container Origin is half the linear size of the document
             // Origin. Arrowheads remain screen-space renderer geometry.
