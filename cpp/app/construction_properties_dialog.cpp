@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <numbers>
 
 namespace zima::app {
 
@@ -80,11 +81,6 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
     origin_ = {field(initial.origin.x, "constructionX", " mm"),
                field(initial.origin.y, "constructionY", " mm"),
                field(initial.origin.z, "constructionZ", " mm")};
-    if (initial.kind != zima::document::ConstructionKind::Point) {
-        direction_ = {field(initial.direction.x, "constructionDirectionX", {}),
-                      field(initial.direction.y, "constructionDirectionY", {}),
-                      field(initial.direction.z, "constructionDirectionZ", {})};
-    }
     offset_ = field(initial.offset, "constructionOffset", " mm");
     offset_->hide();
     references_ = initial.references;
@@ -128,26 +124,40 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
     coordinates->addRow(tr("X"), origin_[0]);
     coordinates->addRow(tr("Y"), origin_[1]);
     coordinates->addRow(tr("Z"), origin_[2]);
-    if (initial.kind == zima::document::ConstructionKind::Point) {
-        auto* orientation_heading = new QLabel(tr("Orientace objektu"), this);
-        auto orientation_font = orientation_heading->font();
-        orientation_font.setBold(true);
-        orientation_heading->setFont(orientation_font);
-        coordinates->addRow(orientation_heading);
-        rotation_ = {field(initial.rotation.x, "constructionRotationX", " deg"),
-                     field(initial.rotation.y, "constructionRotationY", " deg"),
-                     field(initial.rotation.z, "constructionRotationZ", " deg")};
-        for (auto* input : rotation_) {
-            input->setRange(-360'000.0, 360'000.0);
-            input->setSingleStep(5.0);
+    auto* orientation_heading = new QLabel(tr("Orientace objektu"), this);
+    auto orientation_font = orientation_heading->font();
+    orientation_font.setBold(true);
+    orientation_heading->setFont(orientation_font);
+    coordinates->addRow(orientation_heading);
+    rotation_ = {field(initial.rotation.x, "constructionRotationX", " deg"),
+                 field(initial.rotation.y, "constructionRotationY", " deg"),
+                 field(initial.rotation.z, "constructionRotationZ", " deg")};
+    for (auto* input : rotation_) {
+        input->setRange(-360'000.0, 360'000.0);
+        input->setSingleStep(5.0);
+    }
+    coordinates->addRow(tr("RX"), rotation_[0]);
+    coordinates->addRow(tr("RY"), rotation_[1]);
+    coordinates->addRow(tr("RZ"), rotation_[2]);
+    if (initial.kind != zima::document::ConstructionKind::Point) {
+        direction_combo_ = new QComboBox(this);
+        direction_combo_->setObjectName("constructionDirection");
+        if (initial.kind == zima::document::ConstructionKind::Axis) {
+            direction_combo_->addItem(QStringLiteral("X"), QStringLiteral("x"));
+            direction_combo_->addItem(QStringLiteral("Y"), QStringLiteral("y"));
+            direction_combo_->addItem(QStringLiteral("Z"), QStringLiteral("z"));
+            const std::array components{std::abs(initial.direction.x),
+                std::abs(initial.direction.y), std::abs(initial.direction.z)};
+            const auto dominant = static_cast<int>(std::distance(components.begin(),
+                std::max_element(components.begin(), components.end())));
+            direction_combo_->setCurrentIndex(dominant);
+            coordinates->addRow(tr("Směr"), direction_combo_);
+        } else {
+            direction_combo_->addItem(QStringLiteral("XY"), QStringLiteral("xy"));
+            direction_combo_->addItem(QStringLiteral("YZ"), QStringLiteral("yz"));
+            direction_combo_->addItem(QStringLiteral("XZ"), QStringLiteral("xz"));
+            direction_combo_->hide();
         }
-        coordinates->addRow(tr("RX"), rotation_[0]);
-        coordinates->addRow(tr("RY"), rotation_[1]);
-        coordinates->addRow(tr("RZ"), rotation_[2]);
-    } else {
-        coordinates->addRow(tr("Směr X"), direction_[0]);
-        coordinates->addRow(tr("Směr Y"), direction_[1]);
-        coordinates->addRow(tr("Směr Z"), direction_[2]);
         coordinates->addRow(initial.kind == zima::document::ConstructionKind::Axis
                 ? tr("Délka zobrazení") : tr("Velikost zobrazení"),
             display_size_);
@@ -164,16 +174,14 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
         connect(input, &QDoubleSpinBox::valueChanged, this,
             [this] { notify_preview(); });
     }
-    for (auto* input : direction_) {
-        if (input != nullptr) connect(input, &QDoubleSpinBox::valueChanged,
-            this, [this] { notify_preview(); });
-    }
     for (auto* input : rotation_) {
         if (input != nullptr) connect(input, &QDoubleSpinBox::valueChanged,
             this, [this] { notify_preview(); });
     }
     if (display_size_ != nullptr) connect(display_size_,
         &QDoubleSpinBox::valueChanged, this, [this] { notify_preview(); });
+    if (direction_combo_ != nullptr) connect(direction_combo_,
+        &QComboBox::currentIndexChanged, this, [this] { notify_preview(); });
     connect(offset_, &QDoubleSpinBox::valueChanged,
         this, [this] { notify_preview(); });
 }
@@ -238,9 +246,22 @@ const std::string& ConstructionPropertiesDialog::construction_id() const {
 void ConstructionPropertiesDialog::set_remaining_translation_dof(int dof) {
     remaining_translation_dof_ = std::clamp(dof, 0, 3);
     if (dof_label_ != nullptr) {
+        int rotation_dof = 0;
+        if (initial_.kind != zima::document::ConstructionKind::Point) {
+            const auto orientation_references = std::count_if(references_.begin(),
+                references_.end(), [](const auto& reference) {
+                    return reference.semantic_key.find("axis") != std::string::npos ||
+                        reference.semantic_key.find("edge") != std::string::npos ||
+                        reference.semantic_key.find("plane") != std::string::npos ||
+                        reference.semantic_key.find("face") != std::string::npos;
+                });
+            rotation_dof = orientation_references == 0 ? 3
+                : orientation_references == 1 ? 1 : 0;
+        }
+        const int total_dof = remaining_translation_dof_ + rotation_dof;
         dof_label_->setText(tr("Zbývající stupně volnosti: %1")
-            .arg(remaining_translation_dof_));
-        reference_status_->setText(remaining_translation_dof_ == 0
+            .arg(total_dof));
+        reference_status_->setText(total_dof == 0
             ? tr("Plně určené") : QString());
     }
 }
@@ -346,13 +367,7 @@ void ConstructionPropertiesDialog::refresh_reference_table() {
                 zima::document::ConstructionDefinition::ThreePointPlane ? 3
             : current_definition() == zima::document::ConstructionDefinition::Absolute
                 ? 0 : 1;
-        const int dof = initial_.kind == zima::document::ConstructionKind::Point
-            ? remaining_translation_dof_
-            : static_cast<int>(required > references_.size()
-                ? required - references_.size() : 0);
-        dof_label_->setText(tr("Zbývající stupně volnosti: %1").arg(dof));
-        reference_status_->setText(dof == 0 && required != 0
-            ? tr("Plně určené") : QString());
+        set_remaining_translation_dof(remaining_translation_dof_);
     }
 }
 
@@ -375,9 +390,27 @@ zima::document::ConstructionObject ConstructionPropertiesDialog::current_value()
         value.rotation = {rotation_[0]->value(), rotation_[1]->value(),
                           rotation_[2]->value()};
     }
-    if (direction_[0] != nullptr) {
-        value.direction = {direction_[0]->value(), direction_[1]->value(),
-                           direction_[2]->value()};
+    if (direction_combo_ != nullptr) {
+        const auto key = direction_combo_->currentData().toString();
+        zima::kernel::Vec3 local = key == QStringLiteral("x") ||
+                key == QStringLiteral("yz")
+            ? zima::kernel::Vec3{1.0, 0.0, 0.0}
+            : key == QStringLiteral("y") || key == QStringLiteral("xz")
+                ? zima::kernel::Vec3{0.0, 1.0, 0.0}
+                : zima::kernel::Vec3{0.0, 0.0, 1.0};
+        constexpr double radians = std::numbers::pi / 180.0;
+        const double cx = std::cos(value.rotation.x * radians);
+        const double sx = std::sin(value.rotation.x * radians);
+        const double cy = std::cos(value.rotation.y * radians);
+        const double sy = std::sin(value.rotation.y * radians);
+        const double cz = std::cos(value.rotation.z * radians);
+        const double sz = std::sin(value.rotation.z * radians);
+        local = {local.x, cx * local.y - sx * local.z,
+            sx * local.y + cx * local.z};
+        local = {cy * local.x + sy * local.z, local.y,
+            -sy * local.x + cy * local.z};
+        value.direction = {cz * local.x - sz * local.y,
+            sz * local.x + cz * local.y, local.z};
     }
     if (display_size_ != nullptr) value.display_size = display_size_->value();
     value.definition = current_definition();
@@ -401,9 +434,7 @@ void ConstructionPropertiesDialog::notify_preview() {
 
 bool ConstructionPropertiesDialog::submit() {
     auto value = current_value();
-    if (direction_[0] != nullptr) {
-        value.direction = {direction_[0]->value(), direction_[1]->value(),
-                           direction_[2]->value()};
+    if (direction_combo_ != nullptr) {
         const double length = std::sqrt(value.direction.x * value.direction.x +
                                         value.direction.y * value.direction.y +
                                         value.direction.z * value.direction.z);

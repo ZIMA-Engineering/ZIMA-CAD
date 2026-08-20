@@ -50,7 +50,7 @@ private:
     QLineEdit* name_{};
     std::array<QDoubleSpinBox*, 3> origin_{};
     std::array<QDoubleSpinBox*, 3> rotation_{};
-    std::array<QDoubleSpinBox*, 3> direction_{};
+    QComboBox* direction_combo_{};
     QDoubleSpinBox* display_size_{};
     QDoubleSpinBox* offset_{};
     QComboBox* definition_{};

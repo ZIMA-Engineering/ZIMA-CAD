@@ -259,8 +259,12 @@ int main(int argc, char* argv[]) {
         construction_axis_dialog->show();
         application.processEvents();
         construction_axis_dialog->findChild<QDoubleSpinBox*>("constructionX")->setValue(12.0);
-        construction_axis_dialog->findChild<QDoubleSpinBox*>("constructionDirectionX")->setValue(1.0);
-        construction_axis_dialog->findChild<QDoubleSpinBox*>("constructionDirectionZ")->setValue(0.0);
+        auto* construction_axis_direction =
+            construction_axis_dialog->findChild<QComboBox*>("constructionDirection");
+        require(construction_axis_direction != nullptr,
+                "Axis Properties does not expose the Python direction selector");
+        construction_axis_direction->setCurrentIndex(
+            construction_axis_direction->findData("x"));
         construction_axis_dialog->findChild<QDoubleSpinBox*>("constructionDisplaySize")->setValue(80.0);
         construction_axis_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
         require(committed_axis.kind == zima::document::ConstructionKind::Axis &&
