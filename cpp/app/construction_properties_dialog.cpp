@@ -41,10 +41,9 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
     definition_->setObjectName("constructionDefinition");
     definition_->addItem(tr("Absolutní souřadnice"),
         static_cast<int>(zima::document::ConstructionDefinition::Absolute));
-    if (initial.kind == zima::document::ConstructionKind::Point) {
-        definition_->addItem(tr("Podle bodu / vrcholu"),
-            static_cast<int>(zima::document::ConstructionDefinition::PointReference));
-    } else if (initial.kind == zima::document::ConstructionKind::Axis) {
+    definition_->addItem(tr("Geometrické reference"),
+        static_cast<int>(zima::document::ConstructionDefinition::PointReference));
+    if (initial.kind == zima::document::ConstructionKind::Axis) {
         definition_->addItem(tr("Podle dvou bodů"),
             static_cast<int>(zima::document::ConstructionDefinition::TwoPointAxis));
         definition_->addItem(tr("Podle osy nebo lineární hrany"),
@@ -414,7 +413,7 @@ zima::document::ConstructionObject ConstructionPropertiesDialog::current_value()
     }
     if (display_size_ != nullptr) value.display_size = display_size_->value();
     value.definition = current_definition();
-    const std::size_t required = value.kind == zima::document::ConstructionKind::Point &&
+    const std::size_t required =
             value.definition == zima::document::ConstructionDefinition::PointReference
         ? references_.size()
         : value.definition ==
@@ -444,7 +443,7 @@ bool ConstructionPropertiesDialog::submit() {
         }
     }
     if (display_size_ != nullptr) value.display_size = display_size_->value();
-    const std::size_t required = value.kind == zima::document::ConstructionKind::Point &&
+    const std::size_t required =
             value.definition == zima::document::ConstructionDefinition::PointReference
         ? std::max<std::size_t>(1, references_.size())
         : value.definition ==

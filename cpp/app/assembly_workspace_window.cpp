@@ -4719,24 +4719,13 @@ void AssemblyWorkspaceWindow::start_construction_reference_selection(
     if (construction_reference_dialog_ == nullptr) return;
     pending_construction_reference_index_ = index;
     tree_->setProperty("commandSelectionActive", true);
-    const auto kind = construction_reference_dialog_->construction_kind();
-    if (kind == zima::document::ConstructionKind::Point) {
-        // A constrained Point uses the same persisted reference candidates as
-        // the Python implementation.  The dialog/solver decides how much a
-        // point, axis, edge, plane, or face constrains the result; the viewer
-        // must not discard those candidates before hover and confirmation.
-        viewer_->set_selection_contract({zima::viewer::CandidateKind::Vertex,
-            zima::viewer::CandidateKind::Axis,
-            zima::viewer::CandidateKind::Edge,
-            zima::viewer::CandidateKind::Face});
-    } else if (kind == zima::document::ConstructionKind::Axis) {
-        viewer_->set_selection_contract({zima::viewer::CandidateKind::Axis,
-            zima::viewer::CandidateKind::Edge,
-            zima::viewer::CandidateKind::Vertex});
-    } else {
-        viewer_->set_selection_contract({zima::viewer::CandidateKind::Face,
-            zima::viewer::CandidateKind::Vertex});
-    }
+    // Every container consumes the same complete persisted candidate universe.
+    // The active container contract interprets a candidate after hover/RMB
+    // cycling instead of prematurely hiding valid placement references here.
+    viewer_->set_selection_contract({zima::viewer::CandidateKind::Vertex,
+        zima::viewer::CandidateKind::Axis,
+        zima::viewer::CandidateKind::Edge,
+        zima::viewer::CandidateKind::Face});
     const auto prefix = active_occurrence_path_.empty()
         ? zima::assembly::InstancePath{}
         : zima::assembly::InstancePath::decode(active_occurrence_path_);
@@ -4781,16 +4770,8 @@ void AssemblyWorkspaceWindow::accept_construction_reference(
                 static_cast<std::ptrdiff_t>(prefix.occurrence_ids.size()));
         local_path = path.encoded();
     }
-    const auto object_kind = construction_reference_dialog_->construction_kind();
-    const auto definition = object_kind == zima::document::ConstructionKind::Point
-        ? zima::document::ConstructionDefinition::PointReference
-        : object_kind == zima::document::ConstructionKind::Axis
-            ? candidate.kind == zima::viewer::CandidateKind::Vertex
-                ? zima::document::ConstructionDefinition::TwoPointAxis
-                : zima::document::ConstructionDefinition::AxisReference
-            : candidate.kind == zima::viewer::CandidateKind::Vertex
-                ? zima::document::ConstructionDefinition::ThreePointPlane
-                : zima::document::ConstructionDefinition::PlaneReference;
+    const auto definition =
+        zima::document::ConstructionDefinition::PointReference;
     const std::size_t selected_index = *pending_construction_reference_index_;
     if (!construction_reference_dialog_->set_reference(
         selected_index,
@@ -4817,9 +4798,7 @@ bool AssemblyWorkspaceWindow::accept_construction_tree_reference(
         !pending_construction_reference_index_) return false;
     const auto item_kind = item->data(0, Qt::UserRole + 3).toString();
     if ((item_kind == QStringLiteral("document-origin") ||
-         item_kind == QStringLiteral("construction-origin")) &&
-        construction_reference_dialog_->construction_kind() ==
-            zima::document::ConstructionKind::Point) {
+         item_kind == QStringLiteral("construction-origin"))) {
         const auto origin_id =
             item->data(0, Qt::UserRole).toString().toStdString();
         if (origin_id == construction_reference_dialog_->construction_id() +
@@ -4898,17 +4877,10 @@ bool AssemblyWorkspaceWindow::accept_construction_tree_reference(
     } else {
         return false;
     }
-    const auto target_kind = construction_reference_dialog_->construction_kind();
-    const bool accepted = target_kind == zima::document::ConstructionKind::Point
-        ? candidate.kind == zima::viewer::CandidateKind::Vertex ||
-            candidate.kind == zima::viewer::CandidateKind::Axis ||
-            candidate.kind == zima::viewer::CandidateKind::Edge ||
-            candidate.kind == zima::viewer::CandidateKind::Face
-        : target_kind == zima::document::ConstructionKind::Axis
-            ? candidate.kind == zima::viewer::CandidateKind::Vertex ||
-                candidate.kind == zima::viewer::CandidateKind::Axis
-            : candidate.kind == zima::viewer::CandidateKind::Vertex ||
-                candidate.kind == zima::viewer::CandidateKind::Face;
+    const bool accepted = candidate.kind == zima::viewer::CandidateKind::Vertex ||
+        candidate.kind == zima::viewer::CandidateKind::Axis ||
+        candidate.kind == zima::viewer::CandidateKind::Edge ||
+        candidate.kind == zima::viewer::CandidateKind::Face;
     if (!accepted) return false;
     accept_construction_reference(candidate);
     return true;
