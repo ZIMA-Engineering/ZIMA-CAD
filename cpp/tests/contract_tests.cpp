@@ -2121,6 +2121,31 @@ int main() {
         require(!incomplete_rollback.rollback_boundary(
                     long_history.history[12].id),
                 "History rollback reconstructed a missing calculated input implicitly");
+
+        auto cursor_document = zima::document::PartDocument::create_default();
+        auto cursor_box = zima::document::PartDocument::create_box_container();
+        const auto cursor_box_id = cursor_box.id;
+        cursor_document.history.push_back(std::move(cursor_box));
+        cursor_document.insert_history_entry(
+            zima::document::PartHistoryKind::Feature, cursor_box_id);
+        auto cursor_point = zima::document::PartDocument::create_construction(
+            zima::document::ConstructionKind::Point);
+        const auto cursor_point_id = cursor_point.id;
+        cursor_document.constructions.push_back(std::move(cursor_point));
+        cursor_document.insert_history_entry(
+            zima::document::PartHistoryKind::Construction, cursor_point_id);
+        cursor_document.set_history_cursor(1);
+        auto cursor_sphere = zima::document::PartDocument::create_sphere_container();
+        const auto cursor_sphere_id = cursor_sphere.id;
+        cursor_document.history.push_back(std::move(cursor_sphere));
+        cursor_document.insert_history_entry(
+            zima::document::PartHistoryKind::Feature, cursor_sphere_id);
+        require(cursor_document.effective_history_cursor() == 2 &&
+                    cursor_document.history_order.size() == 3 &&
+                    cursor_document.history_order[0].id == cursor_box_id &&
+                    cursor_document.history_order[1].id == cursor_sphere_id &&
+                    cursor_document.history_order[2].id == cursor_point_id,
+                "Insert Here cursor did not control unified history insertion");
         std::cout << "C++ document and OCCT contracts passed\n";
         return 0;
     } catch (const std::exception& error) {

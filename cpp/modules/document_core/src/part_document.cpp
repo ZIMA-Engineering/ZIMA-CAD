@@ -2355,6 +2355,21 @@ HistoryContainer* PartDocument::find_container(const std::string& id) {
     return found == history.end() ? nullptr : &*found;
 }
 
+std::size_t PartDocument::effective_history_cursor() const {
+    return std::min(history_cursor, history_order.size());
+}
+
+void PartDocument::set_history_cursor(std::size_t cursor) {
+    history_cursor = std::min(cursor, history_order.size());
+}
+
+void PartDocument::insert_history_entry(PartHistoryKind kind, std::string id) {
+    const auto cursor = effective_history_cursor();
+    history_order.insert(history_order.begin() + static_cast<std::ptrdiff_t>(cursor),
+        PartHistoryEntry{kind, std::move(id)});
+    history_cursor = cursor + 1;
+}
+
 const HistoryContainer* PartDocument::find_container(const std::string& id) const {
     const auto found = std::find_if(history.begin(), history.end(),
         [&](const HistoryContainer& container) { return container.id == id; });
@@ -2560,7 +2575,7 @@ PartDocument PartDocument::load(
     nlohmann::json root;
     input >> root;
     if (root.at("format").get<std::string>() != "zima-cad-cpp" ||
-        root.at("format_version").get<int>() != 34) {
+        root.at("format_version").get<int>() != 35) {
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
     PartDocument document;
@@ -3066,6 +3081,10 @@ PartDocument PartDocument::load(
     if (ordered_ids.size() != document.history.size() + document.sketches.size() +
             document.constructions.size()) {
         throw std::runtime_error("Part history order does not cover every container");
+    }
+    document.history_cursor = root.at("history_cursor").get<std::size_t>();
+    if (document.history_cursor > document.history_order.size()) {
+        throw std::runtime_error("Part history cursor is outside history");
     }
     for (const auto& container : document.history) {
         if (container.feature_kind == FeatureKind::Extrusion &&
@@ -3616,7 +3635,7 @@ void PartDocument::save(
     }
     const nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 34},
+        {"format_version", 35},
         {"document_id", document_id},
         {"type", "part"},
         {"name", name},
@@ -3635,6 +3654,7 @@ void PartDocument::save(
         {"sketches", std::move(serialized_sketches)},
         {"constructions", std::move(serialized_constructions)},
         {"history_order", std::move(serialized_order)},
+        {"history_cursor", std::min(history_cursor, effective_order.size())},
         {"calculated_boundaries", std::move(serialized_boundaries)},
     };
     const auto temporary = path.string() + ".tmp";

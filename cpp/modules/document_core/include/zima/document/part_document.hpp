@@ -5,6 +5,7 @@
 #include <zima/document/relations.hpp>
 
 #include <filesystem>
+#include <limits>
 #include <map>
 #include <optional>
 #include <string>
@@ -254,6 +255,11 @@ public:
     std::vector<zima::sketcher::Sketch> sketches;
     std::vector<ConstructionObject> constructions;
     std::vector<PartHistoryEntry> history_order;
+    std::size_t history_cursor{std::numeric_limits<std::size_t>::max()};
+
+    [[nodiscard]] std::size_t effective_history_cursor() const;
+    void set_history_cursor(std::size_t cursor);
+    void insert_history_entry(PartHistoryKind kind, std::string id);
 
     [[nodiscard]] static PartDocument create_default();
     [[nodiscard]] static HistoryContainer create_box_container();

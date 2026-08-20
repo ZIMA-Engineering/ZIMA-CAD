@@ -21,6 +21,7 @@
 
 #include <QAction>
 #include <QActionGroup>
+#include <QApplication>
 #include <QAbstractItemView>
 #include <QBrush>
 #include <QComboBox>
@@ -44,6 +45,7 @@
 #include <QSettings>
 #include <QTextStream>
 #include <QPixmap>
+#include <QPainter>
 #include <QPushButton>
 #include <QRadioButton>
 #include <QSignalBlocker>
@@ -75,6 +77,7 @@ namespace {
 class HistoryTreeWidget final : public QTreeWidget {
 public:
     using QTreeWidget::QTreeWidget;
+    std::function<void(std::size_t)> history_cursor_moved;
 
 protected:
     void mousePressEvent(QMouseEvent* event) override {
@@ -97,7 +100,64 @@ protected:
             event->accept();
             return;
         }
+        if (event->button() == Qt::LeftButton && item != nullptr &&
+            item->data(0, Qt::UserRole + 3).toString() == "part-insert-here") {
+            dragging_cursor_ = true;
+            drag_started_ = false;
+            drag_origin_ = event->position().toPoint();
+            setCurrentItem(item);
+            event->accept();
+            return;
+        }
         QTreeWidget::mousePressEvent(event);
+    }
+
+    void mouseMoveEvent(QMouseEvent* event) override {
+        if (!dragging_cursor_) return QTreeWidget::mouseMoveEvent(event);
+        if (!drag_started_ &&
+            (event->position().toPoint() - drag_origin_).manhattanLength() >=
+                QApplication::startDragDistance()) {
+            drag_started_ = true;
+            viewport()->setCursor(Qt::ClosedHandCursor);
+        }
+        if (drag_started_) {
+            insertion_y_ = event->position().toPoint().y();
+            viewport()->update();
+        }
+        event->accept();
+    }
+
+    void mouseReleaseEvent(QMouseEvent* event) override {
+        if (!dragging_cursor_) return QTreeWidget::mouseReleaseEvent(event);
+        dragging_cursor_ = false;
+        viewport()->unsetCursor();
+        if (drag_started_ && history_cursor_moved) {
+            std::size_t cursor = 0;
+            auto* root = topLevelItemCount() == 1 ? topLevelItem(0) : nullptr;
+            if (root != nullptr) {
+                for (int index = 0; index < root->childCount(); ++index) {
+                    auto* child = root->child(index);
+                    const auto role = child->data(0, Qt::UserRole + 3).toString();
+                    if (role != "part-container" && role != "part-sketch" &&
+                        role != "part-construction") continue;
+                    if (visualItemRect(child).center().y() <
+                        event->position().toPoint().y()) ++cursor;
+                }
+            }
+            history_cursor_moved(cursor);
+        }
+        drag_started_ = false;
+        insertion_y_.reset();
+        viewport()->update();
+        event->accept();
+    }
+
+    void paintEvent(QPaintEvent* event) override {
+        QTreeWidget::paintEvent(event);
+        if (!insertion_y_) return;
+        QPainter painter(viewport());
+        painter.setPen(QPen(QColor("#4DD811"), 2));
+        painter.drawLine(4, *insertion_y_, viewport()->width() - 4, *insertion_y_);
     }
 
     void mouseDoubleClickEvent(QMouseEvent* event) override {
@@ -107,6 +167,12 @@ protected:
         }
         QTreeWidget::mouseDoubleClickEvent(event);
     }
+
+private:
+    bool dragging_cursor_{};
+    bool drag_started_{};
+    QPoint drag_origin_;
+    std::optional<int> insertion_y_;
 };
 
 void apply_start_part_template(
@@ -216,6 +282,21 @@ void append_mesh(zima::kernel::ViewerMesh& target, zima::kernel::ViewerMesh sour
         source.dimensions.begin(), source.dimensions.end());
     append_reference_geometry(
         target.original_references, std::move(source.original_references));
+}
+
+const zima::kernel::BodyResult* body_at_history_cursor(
+    const zima::document::PartDocument& document,
+    const std::vector<zima::kernel::BodyResult>& boundaries) {
+    if (boundaries.empty()) return nullptr;
+    if (document.history_order.empty()) return &boundaries.back();
+    const auto cursor = document.effective_history_cursor();
+    std::size_t feature_count = 0;
+    for (std::size_t index = 0; index < cursor; ++index) {
+        if (document.history_order[index].kind ==
+            zima::document::PartHistoryKind::Feature) ++feature_count;
+    }
+    if (feature_count == 0) return nullptr;
+    return &boundaries[std::min(feature_count, boundaries.size()) - 1];
 }
 
 QTreeWidgetItem* add_origin_tree_item(QTreeWidgetItem* parent,
@@ -1511,7 +1592,20 @@ void AssemblyWorkspaceWindow::create_layout() {
         "QTabBar::tab:hover:!selected { background:rgba(77,216,17,55); }");
     document_splitter_ = new QSplitter(Qt::Horizontal, central);
     document_splitter_->setObjectName("documentSplitter");
-    tree_ = new HistoryTreeWidget(document_splitter_);
+    auto* history_tree = new HistoryTreeWidget(document_splitter_);
+    tree_ = history_tree;
+    history_tree->history_cursor_moved = [this](std::size_t cursor) {
+        auto* part = workspace_.open_part(workspace_.active_document_id());
+        if (part == nullptr) return;
+        auto next = part->session.document();
+        if (next.effective_history_cursor() ==
+            std::min(cursor, next.history_order.size())) return;
+        next.set_history_cursor(cursor);
+        part->session.commit(std::move(next), part->session.calculated_boundaries());
+        preserve_view_on_refresh_ = true;
+        refresh_tabs();
+        refresh_scene();
+    };
     tree_->setObjectName("documentTree");
     auto tree_font = tree_->font();
     tree_font.setPixelSize(11);
@@ -3364,8 +3458,8 @@ bool AssemblyWorkspaceWindow::finish_edge_treatment_selection() {
             auto* target = workspace_.open_part(part_id);
             if (target == nullptr) throw std::runtime_error("Part is no longer open");
             auto next = target->session.document();
-            next.history_order.push_back(
-                {zima::document::PartHistoryKind::Feature, committed.id});
+            next.insert_history_entry(
+                zima::document::PartHistoryKind::Feature, committed.id);
             next.history.push_back(std::move(committed));
             auto calculated = calculate_part(next);
             static_cast<void>(refresh_sketch_external_references(next, calculated));
@@ -3902,8 +3996,8 @@ void AssemblyWorkspaceWindow::import_file() {
                 container.placement = {imported.global_x, imported.global_y,
                     imported.global_z, imported.global_rotation_x,
                     imported.global_rotation_y, imported.global_rotation_z};
-                next.history_order.push_back(
-                    {zima::document::PartHistoryKind::Feature, container.id});
+                next.insert_history_entry(
+                    zima::document::PartHistoryKind::Feature, container.id);
                 next.history.push_back(std::move(container));
                 ++part_count;
             }
@@ -3969,8 +4063,8 @@ void AssemblyWorkspaceWindow::import_step_into_assembly(
         container.feature_parent_id = container.id;
         container.container_origin =
             zima::document::create_container_origin(container.id);
-        document.history_order.push_back(
-            {zima::document::PartHistoryKind::Feature, container.id});
+        document.insert_history_entry(
+            zima::document::PartHistoryKind::Feature, container.id);
         document.history.push_back(std::move(container));
         const auto path = output_directory /
             (safe_name(node->name) + "_" + std::to_string(index + 1) + ".prtz");
@@ -4331,9 +4425,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             if (target_part == nullptr) throw std::runtime_error("Part is no longer open");
             auto next = target_part->session.document();
             if (pending_owned_sketch && !edit_mode) {
-                next.history_order.push_back(
-                    {zima::document::PartHistoryKind::Sketch,
-                     pending_owned_sketch->id});
+                next.insert_history_entry(zima::document::PartHistoryKind::Sketch,
+                    pending_owned_sketch->id);
                 next.sketches.push_back(*pending_owned_sketch);
             }
             if (edit_mode) {
@@ -4342,8 +4435,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 if (*target == committed) return;
                 *target = std::move(committed);
             } else {
-                next.history_order.push_back(
-                    {zima::document::PartHistoryKind::Feature, committed.id});
+                next.insert_history_entry(
+                    zima::document::PartHistoryKind::Feature, committed.id);
                 next.history.push_back(std::move(committed));
             }
             auto calculated = calculate_part(next);
@@ -4496,9 +4589,9 @@ void AssemblyWorkspaceWindow::show_construction_properties(
                     }
                     *target = std::move(committed);
                 } else {
-                    next.history_order.push_back(
-                        {zima::document::PartHistoryKind::Construction,
-                         committed.id});
+                    next.insert_history_entry(
+                        zima::document::PartHistoryKind::Construction,
+                        committed.id);
                     next.constructions.push_back(std::move(committed));
                 }
                 auto calculated = target_part->session.calculated_boundaries();
@@ -4849,10 +4942,11 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                     *target = committed;
                 } else {
                     next.sketches.push_back(committed);
-                    if constexpr (requires { next.history_order; }) {
-                        next.history_order.push_back(
-                            {zima::document::PartHistoryKind::Sketch,
-                             committed.id});
+                    if constexpr (requires { next.insert_history_entry(
+                            zima::document::PartHistoryKind::Sketch,
+                            committed.id); }) {
+                        next.insert_history_entry(
+                            zima::document::PartHistoryKind::Sketch, committed.id);
                     }
                 }
             };
@@ -7239,8 +7333,18 @@ void AssemblyWorkspaceWindow::delete_part_object(
                 std::erase_if(next.history,
                     [&](const auto& container) { return container.id == object_id; });
             }
+            const auto deleted_order = std::find_if(next.history_order.begin(),
+                next.history_order.end(),
+                [&](const auto& entry) { return entry.id == object_id; });
+            const auto deleted_index = deleted_order == next.history_order.end()
+                ? next.history_order.size()
+                : static_cast<std::size_t>(std::distance(
+                    next.history_order.begin(), deleted_order));
+            const auto cursor_before_delete = next.effective_history_cursor();
             std::erase_if(next.history_order,
                 [&](const auto& entry) { return entry.id == object_id; });
+            next.set_history_cursor(cursor_before_delete -
+                (deleted_index < cursor_before_delete ? 1U : 0U));
             auto calculated = calculate_part(next);
             next.resolve_constructions(calculated.empty()
                 ? zima::kernel::ViewerReferenceGeometry{}
@@ -8462,8 +8566,9 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             viewer_->set_mesh(std::move(display));
         } else {
             const auto& calculated = part->session.calculated_boundaries();
-            zima::kernel::ViewerMesh display = calculated.empty()
-                ? zima::kernel::ViewerMesh{} : calculated.back().mesh;
+            const auto* cursor_body = body_at_history_cursor(document, calculated);
+            zima::kernel::ViewerMesh display = cursor_body == nullptr
+                ? zima::kernel::ViewerMesh{} : cursor_body->mesh;
             for (const auto& sketch : document.sketches) {
                 if (!active_sketch_id_.empty() && sketch.id != active_sketch_id_) {
                     continue;
@@ -9255,16 +9360,21 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
             parent->insertChild(insertion++, item);
         }
     }
-    auto* body = new QTreeWidgetItem(parent, {tr("Těleso")});
+    const int cursor_position = 1 + static_cast<int>(
+        document.effective_history_cursor());
+    auto* body = new QTreeWidgetItem({tr("Těleso")});
     body->setIcon(0, resource_icon("result-body"));
     body->setData(0, Qt::UserRole, QString::fromStdString(document.document_id));
     body->setData(0, Qt::UserRole + 3, "part-result-body");
-    auto* insert_here = new QTreeWidgetItem(parent, {tr("← Vložit zde")});
+    auto* insert_here = new QTreeWidgetItem({tr("← Vložit zde")});
     insert_here->setData(0, Qt::UserRole + 3, "part-insert-here");
     auto font = insert_here->font(0);
     font.setBold(true);
     insert_here->setFont(0, font);
     insert_here->setForeground(0, QBrush(QColor("#4DD811")));
+    parent->insertChild(std::min(cursor_position, parent->childCount()), body);
+    parent->insertChild(std::min(cursor_position + 1, parent->childCount()),
+        insert_here);
 }
 
 void AssemblyWorkspaceWindow::add_assembly_tree_children(
