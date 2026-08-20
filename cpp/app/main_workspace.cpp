@@ -61,6 +61,17 @@ bool contains_rendered_geometry(const QImage& image) {
     return sampled != 0 && changed * 20 > sampled;
 }
 
+bool contains_orange_hover(const QImage& image) {
+    for (int y = 0; y < image.height(); ++y) {
+        for (int x = 0; x < image.width(); ++x) {
+            const QColor pixel = image.pixelColor(x, y);
+            if (pixel.red() >= 225 && pixel.green() >= 80 &&
+                pixel.green() <= 175 && pixel.blue() <= 55) return true;
+        }
+    }
+    return false;
+}
+
 int verify_startup_contract(
     QApplication& application, zima::app::AssemblyWorkspaceWindow& window,
     const QString& part_capture_path = {}, const QString& drawing_capture_path = {}) {
@@ -484,22 +495,41 @@ int verify_startup_contract(
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     application.processEvents();
     QTreeWidgetItem* point_tree_item{};
+    box_tree_item = nullptr;
     if (tree->topLevelItemCount() == 1) {
         auto* root = tree->topLevelItem(0);
         for (int index = 0; index < root->childCount(); ++index) {
             auto* child = root->child(index);
-            if (child->data(0, Qt::UserRole + 3).toString() ==
+            const auto item_kind = child->data(0, Qt::UserRole + 3).toString();
+            if (item_kind == QStringLiteral("part-container") &&
+                child->text(0) == QStringLiteral("Kvádr")) {
+                box_tree_item = child;
+            } else if (item_kind ==
                     QStringLiteral("part-construction")) {
                 point_tree_item = child;
-                break;
             }
         }
     }
-    if (!verify(point_tree_item != nullptr,
-                "confirming Point did not create its history container")) {
+    if (!verify(box_tree_item != nullptr && point_tree_item != nullptr,
+                "Point refresh did not preserve the Box and Point history items")) {
         return 1;
     }
-    tree->setCurrentItem(point_tree_item);
+    const auto click_tree_item = [&](QTreeWidgetItem* item) {
+        tree->scrollToItem(item);
+        application.processEvents();
+        const QPoint position = tree->visualItemRect(item).center();
+        QMouseEvent press(QEvent::MouseButtonPress, position,
+            tree->viewport()->mapToGlobal(position), Qt::LeftButton,
+            Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(tree->viewport(), &press);
+        QMouseEvent release(QEvent::MouseButtonRelease, position,
+            tree->viewport()->mapToGlobal(position), Qt::LeftButton,
+            Qt::NoButton, Qt::NoModifier);
+        QApplication::sendEvent(tree->viewport(), &release);
+        application.processEvents();
+    };
+    click_tree_item(box_tree_item);
+    click_tree_item(point_tree_item);
     application.processEvents();
     const auto confirmed_point_container = point_viewer->confirmed_candidate();
     if (!verify(confirmed_point_container &&
@@ -562,16 +592,18 @@ int verify_startup_contract(
             return 1;
         }
         const QImage framebuffer = model_viewer->grabFramebuffer();
-        if (!verify(!framebuffer.isNull(),
-                    "Wayland OpenGL viewer framebuffer is null") ||
-            !verify(contains_rendered_geometry(framebuffer),
-                    "Wayland OpenGL viewer framebuffer contains no body geometry")) {
-            return 1;
-        }
         if (!part_capture_path.isEmpty() &&
             !verify(framebuffer.save(
                         part_capture_path + QStringLiteral(".viewer.png")),
                     "native Qt viewer framebuffer save failed")) return 1;
+        if (!verify(!framebuffer.isNull(),
+                    "Wayland OpenGL viewer framebuffer is null") ||
+            !verify(contains_rendered_geometry(framebuffer),
+                    "Wayland OpenGL viewer framebuffer contains no body geometry") ||
+            !verify(contains_orange_hover(framebuffer),
+                    "Wayland OpenGL framebuffer contains no orange Point hover")) {
+            return 1;
+        }
     }
 
     sketch->trigger();

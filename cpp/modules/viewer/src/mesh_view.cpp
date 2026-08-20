@@ -1023,8 +1023,16 @@ void MeshView::paintGL() {
             CandidateKind::Vertex) != impl_->allowed_kinds.end() ||
         std::find(impl_->allowed_kinds.begin(), impl_->allowed_kinds.end(),
             CandidateKind::SketchPoint) != impl_->allowed_kinds.end();
+    const bool point_containers_selectable = std::find(
+            impl_->allowed_kinds.begin(), impl_->allowed_kinds.end(),
+            CandidateKind::Container) != impl_->allowed_kinds.end() &&
+        std::any_of(impl_->mesh.points.begin(), impl_->mesh.points.end(),
+            [](const auto& point) {
+                return point.reference.semantic_key == "point";
+            });
     const bool points_visible =
-        ((impl_->show_points || points_selectable) && !impl_->mesh.points.empty()) ||
+        ((impl_->show_points || points_selectable || point_containers_selectable) &&
+         !impl_->mesh.points.empty()) ||
         external_points_visible || impl_->show_origins ||
         impl_->editing_origin_visible;
     const bool planes_selectable = std::find(
@@ -1163,7 +1171,8 @@ void MeshView::paintGL() {
                 const bool origin = point.reference.semantic_key == "origin:point";
                 if (origin) continue;
                 if ((origin && !impl_->show_origins && !points_selectable) ||
-                    (!origin && !external && !impl_->show_points && !points_selectable) ||
+                    (!origin && !external && !impl_->show_points &&
+                     !points_selectable && !point_containers_selectable) ||
                     (external && !impl_->show_sketches)) continue;
                 if (external) {
                     const QColor color = point.reference.semantic_key.ends_with(
@@ -1462,12 +1471,27 @@ void MeshView::paintGL() {
             for (const auto& point : impl_->mesh.points) {
                 if (point.reference.semantic_key != "origin:point") continue;
                 QColor marker_color(0, 0, 0);
-                if (highlighted && highlighted->owner_id == point.reference.owner_id &&
+                bool exact_highlight = highlighted &&
+                    highlighted->owner_id == point.reference.owner_id &&
                     highlighted->instance_path == point.reference.instance_path &&
                     ((highlighted->kind == CandidateKind::Vertex &&
                       highlighted->semantic_key == point.reference.semantic_key) ||
                      (highlighted->kind == CandidateKind::Container &&
-                      highlighted->semantic_key == "origin"))) {
+                      highlighted->semantic_key == "origin"));
+                if (!exact_highlight && highlighted &&
+                    highlighted->kind == CandidateKind::Container &&
+                    highlighted->semantic_key == "point") {
+                    const auto& highlighted_points = highlighted->geometry ==
+                            CandidateGeometry::OriginalReference
+                        ? impl_->mesh.original_references.points
+                        : impl_->mesh.points;
+                    if (highlighted->geometry_index < highlighted_points.size()) {
+                        exact_highlight = QLineF(project(point.position), project(
+                            highlighted_points[highlighted->geometry_index].position))
+                                .length() <= 1.0;
+                    }
+                }
+                if (exact_highlight) {
                     marker_color = impl_->confirmed_candidate
                         ? QColor(30, 220, 240) : QColor(255, 122, 0);
                 }
