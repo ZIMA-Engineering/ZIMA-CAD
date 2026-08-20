@@ -59,6 +59,7 @@ struct MeshView::Impl {
     std::vector<ViewerCandidate> candidates;
     std::size_t active_candidate{};
     std::optional<ViewerCandidate> confirmed_candidate;
+    std::string selected_container_origin_id;
     std::function<void(const ViewerCandidate&)> confirmation_callback;
     std::function<void()> empty_confirmation_callback;
     std::function<void(const ViewerCandidate&)> double_confirmation_callback;
@@ -213,6 +214,7 @@ void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
     impl_->mesh = std::move(mesh);
     impl_->candidates.clear();
     impl_->confirmed_candidate.reset();
+    impl_->selected_container_origin_id.clear();
     impl_->gpu_dirty = true;
     if (fit_view) fit_all();
     impl_->rebuild_persisted_reference_mesh();
@@ -244,6 +246,7 @@ void MeshView::set_selection_contract(std::vector<CandidateKind> allowed_kinds) 
     impl_->candidates.clear();
     impl_->active_candidate = 0;
     impl_->confirmed_candidate.reset();
+    impl_->selected_container_origin_id.clear();
     update();
 }
 
@@ -253,6 +256,7 @@ void MeshView::set_candidate_filter(
     impl_->candidates.clear();
     impl_->active_candidate = 0;
     impl_->confirmed_candidate.reset();
+    impl_->selected_container_origin_id.clear();
     update();
 }
 
@@ -333,6 +337,9 @@ void MeshView::confirm_container(const std::string& owner_id) {
         return;
     }
     impl_->confirmed_candidate = std::move(candidate);
+    impl_->selected_container_origin_id =
+        impl_->confirmed_candidate->semantic_key == "point"
+        ? owner_id + ":origin" : std::string{};
     impl_->candidates.clear();
     update();
 }
@@ -344,6 +351,7 @@ void MeshView::confirm_occurrence(const std::string& instance_path) {
         return;
     }
     impl_->confirmed_candidate = std::move(candidate);
+    impl_->selected_container_origin_id.clear();
     impl_->candidates.clear();
     update();
 }
@@ -352,6 +360,7 @@ void MeshView::confirm_origin(const std::string& owner_id,
     const std::string& instance_path) {
     impl_->confirmed_candidate = ViewerCandidate{CandidateKind::Container, 0.0, 0,
         owner_id, "origin", instance_path, CandidateGeometry::Display};
+    impl_->selected_container_origin_id = owner_id;
     impl_->candidates.clear();
     update();
 }
@@ -397,6 +406,7 @@ void MeshView::confirm_reference(const std::string& owner_id,
         return clear_selection();
     }
     impl_->confirmed_candidate = std::move(candidate);
+    impl_->selected_container_origin_id.clear();
     impl_->candidates.clear();
     impl_->active_candidate = 0;
     update();
@@ -404,6 +414,7 @@ void MeshView::confirm_reference(const std::string& owner_id,
 
 void MeshView::clear_selection() {
     impl_->confirmed_candidate.reset();
+    impl_->selected_container_origin_id.clear();
     impl_->candidates.clear();
     impl_->active_candidate = 0;
     update();
@@ -1188,12 +1199,16 @@ void MeshView::paintGL() {
                     painter.drawLine(center + QPointF(-4.0, 4.0),
                                      center + QPointF(4.0, -4.0));
                 } else {
-                    painter.setPen(QPen(QColor(0, 0, 0), 1.0));
-                    painter.setBrush(QColor(0, 0, 0));
+                    const QColor marker_color =
+                        point.reference.owner_id ==
+                                impl_->selected_container_origin_id
+                        ? QColor(30, 220, 240) : QColor(0, 0, 0);
+                    painter.setPen(QPen(marker_color, 1.0));
+                    painter.setBrush(marker_color);
                     const QPointF center = project(point.position);
-                    draw_circular_marker(painter, center, QColor(0, 0, 0));
+                    draw_circular_marker(painter, center, marker_color);
                     if (!point.label.empty()) {
-                        painter.setPen(QPen(QColor(0, 0, 0), 1.0));
+                        painter.setPen(QPen(marker_color, 1.0));
                         painter.drawText(center + QPointF(8.0, -6.0),
                                          QString::fromStdString(point.label));
                     }
@@ -1597,6 +1612,11 @@ void MeshView::mousePressEvent(QMouseEvent* event) {
     }
     if (event->button() == Qt::LeftButton && !impl_->candidates.empty()) {
         impl_->confirmed_candidate = impl_->candidates[impl_->active_candidate];
+        impl_->selected_container_origin_id =
+            impl_->confirmed_candidate->kind == CandidateKind::Container &&
+                impl_->confirmed_candidate->semantic_key == "point"
+            ? impl_->confirmed_candidate->owner_id + ":origin"
+            : std::string{};
         notify_confirmation();
         if (impl_->confirmed_candidate && impl_->drag_begin_callback) {
             impl_->drag_active = impl_->drag_begin_callback(*impl_->confirmed_candidate);

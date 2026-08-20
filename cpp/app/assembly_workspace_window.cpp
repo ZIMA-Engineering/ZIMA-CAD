@@ -253,41 +253,6 @@ QTreeWidgetItem* add_origin_tree_item(QTreeWidgetItem* parent,
     return origin;
 }
 
-QTreeWidgetItem* add_construction_origin_tree_item(QTreeWidgetItem* parent,
-    const zima::document::ContainerOrigin& container_origin,
-    const std::string& container_name,
-    const zima::assembly::InstancePath& instance_path = {}) {
-    auto* origin = new QTreeWidgetItem(
-        parent, {QObject::tr("Počátek kontejneru")});
-    origin->setIcon(0, resource_icon("origin"));
-    origin->setData(0, Qt::UserRole,
-        QString::fromStdString(container_origin.id));
-    origin->setData(0, Qt::UserRole + 1,
-        QString::fromStdString(instance_path.encoded()));
-    origin->setData(0, Qt::UserRole + 3, "construction-origin");
-    for (const auto& origin_child : container_origin.children) {
-        const auto label = origin_child.kind ==
-                zima::document::OriginChildKind::Point
-            ? QObject::tr("Point (%1)").arg(QString::fromStdString(container_name))
-            : QString::fromStdString(origin_child.name);
-        auto* child = new QTreeWidgetItem(origin, {label});
-        child->setIcon(0, resource_icon(
-            origin_child.kind == zima::document::OriginChildKind::Point ? "point" :
-            origin_child.kind == zima::document::OriginChildKind::Axis ? "axis" : "plane"));
-        child->setData(0, Qt::UserRole,
-            QString::fromStdString(origin_child.id));
-        child->setData(0, Qt::UserRole + 1,
-            QString::fromStdString(instance_path.encoded()));
-        child->setData(0, Qt::UserRole + 3, "origin-reference");
-        child->setData(0, Qt::UserRole + 5,
-            QString::fromStdString(std::string("origin:") + origin_child.key));
-        child->setData(0, Qt::UserRole + 6,
-            QString::fromStdString(container_origin.id));
-    }
-    origin->setExpanded(true);
-    return origin;
-}
-
 using SketchPosition = std::array<double, 2>;
 
 std::optional<std::string> sketch_text_id_from_key(const std::string& key) {
@@ -9069,11 +9034,6 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
         item->setData(0, Qt::UserRole + 1,
             QString::fromStdString(construction_path.encoded()));
         item->setData(0, Qt::UserRole + 3, "part-construction");
-        if (object.kind == zima::document::ConstructionKind::Point) {
-            add_construction_origin_tree_item(
-                item, object.container_origin, object.name, construction_path);
-            item->setExpanded(true);
-        }
     }
     auto* body = new QTreeWidgetItem(parent, {tr("Těleso")});
     body->setIcon(0, resource_icon("result-body"));
@@ -9131,11 +9091,6 @@ void AssemblyWorkspaceWindow::add_assembly_tree_children(
             item->setData(0, Qt::UserRole + 1,
                 QString::fromStdString(parent_path.encoded()));
             item->setData(0, Qt::UserRole + 3, "assembly-construction");
-            if (object.kind == zima::document::ConstructionKind::Point) {
-                add_construction_origin_tree_item(
-                    item, object.container_origin, object.name, parent_path);
-                item->setExpanded(true);
-            }
         }
     }
     add_snapshot_tree_children(

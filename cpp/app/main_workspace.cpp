@@ -72,6 +72,17 @@ bool contains_orange_hover(const QImage& image) {
     return false;
 }
 
+bool contains_cyan_selection(const QImage& image) {
+    for (int y = 0; y < image.height(); ++y) {
+        for (int x = 0; x < image.width(); ++x) {
+            const QColor pixel = image.pixelColor(x, y);
+            if (pixel.red() <= 80 && pixel.green() >= 175 &&
+                pixel.blue() >= 190) return true;
+        }
+    }
+    return false;
+}
+
 int verify_startup_contract(
     QApplication& application, zima::app::AssemblyWorkspaceWindow& window,
     const QString& part_capture_path = {}, const QString& drawing_capture_path = {}) {
@@ -587,6 +598,22 @@ int verify_startup_contract(
                 "Point marker did not become the orange View hover candidate")) {
         return 1;
     }
+    application.processEvents();
+    if (!verify(contains_orange_hover(point_viewer->grabFramebuffer()),
+                "Point hover candidate was not rendered orange")) return 1;
+    QMouseEvent point_container_press(QEvent::MouseButtonPress,
+        *point_offer_position,
+        point_viewer->mapToGlobal(point_offer_position->toPoint()),
+        Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+    QApplication::sendEvent(point_viewer, &point_container_press);
+    application.processEvents();
+    if (!verify(contains_cyan_selection(point_viewer->grabFramebuffer()),
+                "Point LMB confirmation was not rendered cyan")) return 1;
+    point_viewer->clear_selection();
+    tree->clearSelection();
+    tree->setCurrentItem(nullptr);
+    QApplication::sendEvent(point_viewer, &point_container_move);
+    application.processEvents();
     if (!part_capture_path.isEmpty() &&
         !verify(window.grab().save(part_capture_path),
                 "native Qt window capture failed")) {
