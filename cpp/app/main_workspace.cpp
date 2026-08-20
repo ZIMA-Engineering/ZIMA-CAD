@@ -513,7 +513,7 @@ int verify_startup_contract(
             auto* child = root->child(index);
             const auto item_kind = child->data(0, Qt::UserRole + 3).toString();
             if (item_kind == QStringLiteral("part-container") &&
-                child->text(0) == QStringLiteral("Kvádr")) {
+                child->text(0) == QStringLiteral("+ Kvádr")) {
                 box_tree_item = child;
             } else if (item_kind ==
                     QStringLiteral("part-construction")) {
@@ -539,6 +539,49 @@ int verify_startup_contract(
         QApplication::sendEvent(tree->viewport(), &release);
         application.processEvents();
     };
+    auto* document_origin = tree->topLevelItem(0)->child(0);
+    auto* document_x_axis = document_origin == nullptr ||
+            document_origin->childCount() < 2
+        ? nullptr : document_origin->child(1);
+    if (!verify(document_x_axis != nullptr &&
+                    document_origin->child(0)->text(0) == QStringLiteral("Point"),
+                "Part Origin tree does not use the Python Point/axis structure")) {
+        return 1;
+    }
+    tree->expandItem(document_origin);
+    application.processEvents();
+    click_tree_item(document_x_axis);
+    const auto selected_origin_axis = point_viewer->confirmed_candidate();
+    if (!verify(selected_origin_axis &&
+                    selected_origin_axis->kind ==
+                        zima::viewer::CandidateKind::Axis &&
+                    selected_origin_axis->semantic_key == "origin:axis:x" &&
+                    contains_cyan_selection(point_viewer->grabFramebuffer()),
+                "Tree Origin axis did not select its complete View presentation")) {
+        return 1;
+    }
+    if (!part_capture_path.isEmpty() &&
+        !verify(point_viewer->grabFramebuffer().save(
+                    part_capture_path + QStringLiteral(".origin-axis.png")),
+                "Origin axis selection framebuffer save failed")) return 1;
+    auto* container_origin_point = point_tree_item->child(0)->child(0);
+    tree->expandItem(point_tree_item);
+    tree->expandItem(point_tree_item->child(0));
+    application.processEvents();
+    click_tree_item(container_origin_point);
+    const auto selected_container_origin_point = point_viewer->confirmed_candidate();
+    if (!part_capture_path.isEmpty()) {
+        point_viewer->grabFramebuffer().save(
+            part_capture_path + QStringLiteral(".container-origin-point.png"));
+    }
+    if (!verify(selected_container_origin_point &&
+                    selected_container_origin_point->kind ==
+                        zima::viewer::CandidateKind::Vertex &&
+                    selected_container_origin_point->semantic_key == "point" &&
+                    contains_cyan_selection(point_viewer->grabFramebuffer()),
+                "Point container Origin Point did not select its View marker")) {
+        return 1;
+    }
     click_tree_item(box_tree_item);
     click_tree_item(point_tree_item);
     application.processEvents();
@@ -599,6 +642,12 @@ int verify_startup_contract(
         return 1;
     }
     application.processEvents();
+    point_viewer->repaint();
+    application.processEvents();
+    if (!part_capture_path.isEmpty()) {
+        point_viewer->grabFramebuffer().save(
+            part_capture_path + QStringLiteral(".point-hover.png"));
+    }
     if (!verify(contains_orange_hover(point_viewer->grabFramebuffer()),
                 "Point hover candidate was not rendered orange")) return 1;
     QMouseEvent point_container_press(QEvent::MouseButtonPress,
@@ -821,7 +870,7 @@ int verify_startup_contract(
             const auto* child = root->child(index);
             if (child->data(0, Qt::UserRole + 3).toString() ==
                     QStringLiteral("part-container") &&
-                child->text(0) == QStringLiteral("Vytažení")) {
+                child->text(0).endsWith(QStringLiteral("Vytažení"))) {
                 extrusion_in_tree = true;
                 break;
             }
@@ -839,7 +888,7 @@ int verify_startup_contract(
                 auto* candidate = root->child(index);
                 if (candidate->data(0, Qt::UserRole + 3).toString() ==
                         QStringLiteral("part-container") &&
-                    candidate->text(0) == QStringLiteral("Vytažení")) {
+                    candidate->text(0).endsWith(QStringLiteral("Vytažení"))) {
                     item = candidate;
                     break;
                 }
@@ -933,7 +982,7 @@ int verify_startup_contract(
     if (rollback_root != nullptr) {
         for (int index = 0; index < rollback_root->childCount(); ++index) {
             auto* item = rollback_root->child(index);
-            if (item->text(0) == QStringLiteral("Vytažení")) {
+            if (item->text(0).endsWith(QStringLiteral("Vytažení"))) {
                 rollback_extrusion = item;
             } else if (rollback_extrusion != nullptr &&
                        item->data(0, Qt::UserRole + 3).toString() ==

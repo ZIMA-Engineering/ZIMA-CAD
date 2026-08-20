@@ -24,6 +24,12 @@ enum class EndCondition { Length, UpTo, ThroughAll };
 enum class EndTargetKind { Point, Plane, Face };
 enum class RevolutionAxis { SketchX, SketchY };
 enum class ConstructionKind { Point, Axis, Plane };
+enum class PartHistoryKind { Feature, Sketch, Construction };
+struct PartHistoryEntry {
+    PartHistoryKind kind{PartHistoryKind::Feature};
+    std::string id;
+    bool operator==(const PartHistoryEntry&) const = default;
+};
 enum class ConstructionDefinition {
     Absolute,
     PointReference,
@@ -68,6 +74,8 @@ struct ContainerOrigin {
 
 struct ConstructionObject {
     std::string id;
+    std::string entity_id;
+    std::string entity_parent_id;
     std::string name;
     ConstructionKind kind{ConstructionKind::Point};
     ContainerOrigin container_origin;
@@ -79,6 +87,7 @@ struct ConstructionObject {
     std::vector<ConstructionReference> references;
     double offset{};
     bool reference_valid{true};
+    bool suppressed{};
     bool operator==(const ConstructionObject&) const = default;
 };
 
@@ -201,6 +210,7 @@ struct Placement {
 struct HistoryContainer {
     std::string id;
     std::string feature_id;
+    std::string feature_parent_id;
     std::string name{"Kvádr"};
     FeatureKind feature_kind{FeatureKind::Box};
     ContainerOrigin container_origin;
@@ -243,6 +253,7 @@ public:
     std::vector<HistoryContainer> history;
     std::vector<zima::sketcher::Sketch> sketches;
     std::vector<ConstructionObject> constructions;
+    std::vector<PartHistoryEntry> history_order;
 
     [[nodiscard]] static PartDocument create_default();
     [[nodiscard]] static HistoryContainer create_box_container();

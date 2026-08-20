@@ -628,7 +628,7 @@ int main() {
                             .reference.semantic_key == "point" &&
                     construction_mesh.original_references.axes.size() == 1 &&
                     construction_mesh.original_references.axes.front().reference.owner_id ==
-                        axis.id &&
+                        axis.entity_id &&
                     construction_mesh.original_references.triangle_references.size() == 2,
                 "Construction objects did not produce persisted ZIMA references");
         const auto edited_point_mesh =
@@ -690,14 +690,14 @@ int main() {
         auto axis_reference = zima::sketcher::Sketch::create_external_reference(
             zima::sketcher::ExternalReferenceKind::Axis);
         axis_reference.source_document_id = constructions.document_id;
-        axis_reference.source_owner_id = axis.id;
+        axis_reference.source_owner_id = axis.entity_id;
         axis_reference.source_semantic_key = "axis";
         axis_reference.cached_points = {{-1.0, 0.0}, {1.0, 0.0}};
         construction_reference_sketch.add_external_reference(axis_reference);
         auto plane_reference = zima::sketcher::Sketch::create_external_reference(
             zima::sketcher::ExternalReferenceKind::Face);
         plane_reference.source_document_id = constructions.document_id;
-        plane_reference.source_owner_id = plane.id;
+        plane_reference.source_owner_id = plane.entity_id;
         plane_reference.source_semantic_key = "plane";
         plane_reference.cached_paths = {{{-1.0, -1.0}, {1.0, -1.0},
             {1.0, 1.0}, {-1.0, 1.0}, {-1.0, -1.0}}};

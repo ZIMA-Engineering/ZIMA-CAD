@@ -371,12 +371,23 @@ void MeshView::confirm_reference(const std::string& owner_id,
     ViewerCandidate candidate{kind, 0.0, 0, owner_id, semantic_key,
         instance_path, CandidateGeometry::Display};
     if (kind == CandidateKind::Vertex) {
-        const auto found = std::find_if(impl_->mesh.points.begin(),
+        auto found = std::find_if(impl_->mesh.points.begin(),
             impl_->mesh.points.end(), [&](const auto& value) {
                 return value.reference.owner_id == owner_id &&
                     value.reference.semantic_key == semantic_key &&
                     value.reference.instance_path == instance_path;
             });
+        if (found == impl_->mesh.points.end() && semantic_key == "origin:point") {
+            found = std::find_if(impl_->mesh.points.begin(),
+                impl_->mesh.points.end(), [&](const auto& value) {
+                    return value.reference.owner_id == owner_id &&
+                        value.reference.semantic_key == "point" &&
+                        value.reference.instance_path == instance_path;
+                });
+            if (found != impl_->mesh.points.end()) {
+                candidate.semantic_key = "point";
+            }
+        }
         if (found == impl_->mesh.points.end()) return clear_selection();
         candidate.geometry_index = static_cast<std::size_t>(
             std::distance(impl_->mesh.points.begin(), found));
@@ -1146,6 +1157,19 @@ void MeshView::paintGL() {
                 if ((origin && !impl_->show_planes && !planes_selectable &&
                         !impl_->editing_origin_visible) ||
                     (!origin && !impl_->show_planes && !planes_selectable)) continue;
+                const bool exact_highlight = highlighted &&
+                    ((highlighted->kind == CandidateKind::Face &&
+                      highlighted->owner_id == edge.reference.owner_id &&
+                      highlighted->semantic_key == edge.reference.semantic_key) ||
+                     (highlighted->kind == CandidateKind::Container &&
+                      highlighted->semantic_key == "plane" &&
+                      highlighted->owner_id + ":entity" ==
+                          edge.reference.owner_id)) &&
+                    highlighted->instance_path == edge.reference.instance_path;
+                const QColor plane_color = exact_highlight
+                    ? (impl_->confirmed_candidate ? QColor(30, 220, 240)
+                                                  : QColor(255, 140, 12))
+                    : origin ? QColor(173, 110, 46) : QColor(90, 180, 225);
                 zima::kernel::Vec3 center;
                 const std::size_t corner_count = origin && edge.points.size() > 1
                     ? edge.points.size() - 1 : edge.points.size();
@@ -1167,10 +1191,11 @@ void MeshView::paintGL() {
                 for (std::size_t index = 1; index < edge.points.size(); ++index) {
                     draw_reference_segment(project(plane_point(edge.points[index - 1])),
                         project(plane_point(edge.points[index])),
-                        origin ? QColor(173, 110, 46) : QColor(90, 180, 225),
+                        plane_color,
                         origin ? 1.5 : 1.4);
                 }
                 if (origin && !edge.points.empty()) {
+                    painter.setPen(QPen(plane_color, 1.5));
                     const auto key = QString::fromStdString(
                         edge.reference.semantic_key.substr(
                             std::string("origin:plane:").size())).toUpper();
@@ -1200,12 +1225,23 @@ void MeshView::paintGL() {
                                      center + QPointF(4.0, -4.0));
                 } else {
                     const bool selected = point.reference.owner_id ==
-                        impl_->selected_container_origin_id;
+                            impl_->selected_container_origin_id ||
+                        (impl_->confirmed_candidate &&
+                         impl_->confirmed_candidate->kind == CandidateKind::Vertex &&
+                         impl_->confirmed_candidate->owner_id ==
+                            point.reference.owner_id &&
+                         impl_->confirmed_candidate->semantic_key ==
+                            point.reference.semantic_key &&
+                         impl_->confirmed_candidate->instance_path ==
+                            point.reference.instance_path);
                     const bool hovered = !impl_->confirmed_candidate && highlighted &&
-                        highlighted->kind == CandidateKind::Container &&
-                        highlighted->semantic_key == "point" &&
-                        point.reference.owner_id ==
-                            highlighted->owner_id + ":origin" &&
+                        ((highlighted->kind == CandidateKind::Container &&
+                          highlighted->semantic_key == "point" &&
+                          point.reference.owner_id ==
+                            highlighted->owner_id + ":origin") ||
+                         (highlighted->kind == CandidateKind::Vertex &&
+                          highlighted->semantic_key == point.reference.semantic_key &&
+                          highlighted->owner_id == point.reference.owner_id)) &&
                         point.reference.instance_path == highlighted->instance_path;
                     const QColor marker_color = selected
                         ? QColor(30, 220, 240)
@@ -1259,8 +1295,20 @@ void MeshView::paintGL() {
                 if ((origin && !impl_->show_origins && !axes_selectable &&
                         !impl_->editing_origin_visible) ||
                     (!origin && !impl_->show_axes && !axes_selectable)) continue;
-                const QColor color = axis.reference.semantic_key == "origin:axis:x"
-                    ? QColor(232, 76, 61)
+                const bool exact_highlight = highlighted &&
+                    ((highlighted->kind == CandidateKind::Axis &&
+                      highlighted->owner_id == axis.reference.owner_id &&
+                      highlighted->semantic_key == axis.reference.semantic_key) ||
+                     (highlighted->kind == CandidateKind::Container &&
+                      highlighted->semantic_key == "axis" &&
+                      highlighted->owner_id + ":entity" ==
+                          axis.reference.owner_id)) &&
+                    highlighted->instance_path == axis.reference.instance_path;
+                const QColor color = exact_highlight
+                    ? (impl_->confirmed_candidate ? QColor(30, 220, 240)
+                                                  : QColor(255, 140, 12))
+                    : axis.reference.semantic_key == "origin:axis:x"
+                        ? QColor(232, 76, 61)
                     : axis.reference.semantic_key == "origin:axis:y"
                         ? QColor(46, 204, 112)
                     : axis.reference.semantic_key == "origin:axis:z"
@@ -1372,7 +1420,11 @@ void MeshView::paintGL() {
                     const bool matches = highlighted->kind == CandidateKind::Occurrence
                         ? reference.instance_path == highlighted->instance_path
                         : highlighted->kind == CandidateKind::Container
-                            ? reference.owner_id == highlighted->owner_id
+                            ? reference.owner_id == highlighted->owner_id ||
+                                ((highlighted->semantic_key == "plane" ||
+                                  highlighted->semantic_key == "axis") &&
+                                 reference.owner_id ==
+                                    highlighted->owner_id + ":entity")
                             : reference.owner_id == highlighted->owner_id &&
                               reference.semantic_key == highlighted->semantic_key;
                     if (!matches || reference.instance_path != highlighted->instance_path ||
@@ -1436,7 +1488,8 @@ void MeshView::paintGL() {
                     selectable_points[highlighted->geometry_index].position), 5.0, 5.0);
             } else if ((highlighted->kind == CandidateKind::Axis ||
                         highlighted->kind == CandidateKind::SketchAxis) &&
-                       highlighted->geometry_index < selectable_axes.size()) {
+                       highlighted->geometry_index < selectable_axes.size() &&
+                       !highlighted->semantic_key.starts_with("origin:axis:")) {
                 painter.setPen(QPen(color, 4.0, Qt::SolidLine, Qt::RoundCap));
                 const auto& axis = selectable_axes[highlighted->geometry_index];
                 const zima::kernel::Vec3 half{

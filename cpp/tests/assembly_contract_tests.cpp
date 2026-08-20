@@ -865,12 +865,14 @@ int main() {
         datum_plane.direction = {0.0, 0.0, 1.0};
         datum_plane.display_size = 80.0;
         const auto datum_id = datum_plane.id;
+        const auto datum_plane_entity_id = datum_plane.entity_id;
         auto datum_point = zima::assembly::AssemblyDocument::create_construction(
             zima::document::ConstructionKind::Point);
         auto datum_axis = zima::assembly::AssemblyDocument::create_construction(
             zima::document::ConstructionKind::Axis);
         const auto datum_point_id = datum_point.id;
         const auto datum_axis_id = datum_axis.id;
+        const auto datum_axis_entity_id = datum_axis.entity_id;
         datum_assembly.constructions = {datum_point, datum_axis, datum_plane};
         const auto datum_scene = datum_assembly.build_scene();
         require(datum_assembly.find_construction(datum_id) != nullptr &&
@@ -878,7 +880,7 @@ int main() {
                         datum_scene.original_references.triangle_references.end(),
                         [&](const auto& reference) {
                             return reference.instance_path.empty() &&
-                                reference.owner_id == datum_id &&
+                                reference.owner_id == datum_plane_entity_id &&
                                 reference.semantic_key == "plane";
                         }) &&
                     std::any_of(datum_scene.original_references.points.begin(),
@@ -892,7 +894,7 @@ int main() {
                         datum_scene.original_references.axes.end(),
                         [&](const auto& axis) {
                             return axis.reference.instance_path.empty() &&
-                                axis.reference.owner_id == datum_axis_id;
+                                axis.reference.owner_id == datum_axis_entity_id;
                         }),
                 "Assembly-owned point, axis or plane lost viewer identity");
         const auto dependent_face = *std::find_if(
@@ -915,6 +917,9 @@ int main() {
         associative_assembly.constructions.push_back(referenced_plane);
         auto second_referenced_plane = referenced_plane;
         second_referenced_plane.id += "-second-occurrence";
+        second_referenced_plane.entity_id =
+            second_referenced_plane.id + ":entity";
+        second_referenced_plane.entity_parent_id = second_referenced_plane.id;
         second_referenced_plane.container_origin =
             zima::document::create_container_origin(second_referenced_plane.id);
         second_referenced_plane.references.front().instance_path =
@@ -947,7 +952,8 @@ int main() {
             {zima::assembly::MateReferenceKind::Face,
              zima::assembly::InstancePath{{first_id}}, dependent_face.owner_id,
              dependent_face.semantic_key},
-            {zima::assembly::MateReferenceKind::Face, {}, datum_id, "plane"});
+            {zima::assembly::MateReferenceKind::Face, {},
+             datum_plane_entity_id, "plane"});
         datum_assembly.add_mate(std::move(datum_mate));
         datum_assembly.calculate_mates();
         require(datum_assembly.mates.back().status ==

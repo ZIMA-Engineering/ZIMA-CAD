@@ -191,6 +191,7 @@ class Sketch {
 public:
     std::string id;
     std::string name{"Skica"};
+    bool suppressed{};
     SketchPlane plane{SketchPlane::XY};
     double plane_offset{};
     std::vector<SketchPoint> points;

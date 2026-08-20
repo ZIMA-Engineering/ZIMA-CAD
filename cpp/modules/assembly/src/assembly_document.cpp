@@ -1740,7 +1740,7 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
     nlohmann::json root;
     input >> root;
     if (root.at("format").get<std::string>() != "zima-cad-cpp" ||
-        root.at("format_version").get<int>() != 18 ||
+        root.at("format_version").get<int>() != 20 ||
         root.at("type").get<std::string>() != "assembly") {
         throw std::runtime_error("Unsupported ZIMA-CAD Assembly document format");
     }
@@ -1774,8 +1774,13 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
         auto& feature = cut.definition;
         feature.id = value.at("id").get<std::string>();
         feature.feature_id = value.at("feature_id").get<std::string>();
+        feature.feature_parent_id =
+            value.at("feature_parent_id").get<std::string>();
         feature.container_origin =
             zima::document::create_container_origin(feature.id);
+        if (feature.feature_parent_id != feature.id) {
+            throw std::runtime_error("Assembly cut feature parent is invalid");
+        }
         feature.name = value.at("name").get<std::string>();
         const auto kind = value.at("kind").get<std::string>();
         feature.feature_kind = kind == "extrusion"
@@ -1828,6 +1833,9 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
     for (const auto& source : root.at("constructions")) {
         zima::document::ConstructionObject object;
         object.id = source.at("id").get<std::string>();
+        object.entity_id = source.at("entity_id").get<std::string>();
+        object.entity_parent_id =
+            source.at("entity_parent_id").get<std::string>();
         object.name = source.at("name").get<std::string>();
         const auto type = source.at("type").get<std::string>();
         object.kind = type == "point" ? zima::document::ConstructionKind::Point
@@ -1856,7 +1864,14 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
                 serialized_child.at("locked").get<bool>()});
         }
         if (object.container_origin !=
-            zima::document::create_container_origin(object.id)) {
+                zima::document::create_container_origin(object.id) ||
+            object.entity_id.empty() || object.entity_id == object.id ||
+            object.entity_parent_id != (object.kind == zima::document::ConstructionKind::Point
+                    ? object.container_origin.id : object.id) ||
+            (object.kind == zima::document::ConstructionKind::Point &&
+             object.entity_id != object.container_origin.id + ":point") ||
+            (object.kind != zima::document::ConstructionKind::Point &&
+             object.entity_id != object.id + ":entity")) {
             throw std::runtime_error("Assembly construction Container Origin is invalid");
         }
         object.origin = {origin.at("x").get<double>(), origin.at("y").get<double>(),
@@ -1885,6 +1900,7 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
             : throw std::runtime_error("Assembly construction definition is invalid");
         object.offset = source.at("offset").get<double>();
         object.reference_valid = source.at("reference_valid").get<bool>();
+        object.suppressed = source.at("suppressed").get<bool>();
         for (const auto& serialized : source.at("references")) {
             object.references.push_back({
                 serialized.at("instance_path").get<std::string>(),
@@ -1898,6 +1914,7 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
             !construction_ids.insert(object.id).second ||
             !std::isfinite(object.origin.x) || !std::isfinite(object.origin.y) ||
             !std::isfinite(object.origin.z) ||
+            object.entity_id.empty() || object.entity_id == object.id ||
             !std::isfinite(object.rotation.x) ||
             !std::isfinite(object.rotation.y) ||
             !std::isfinite(object.rotation.z) ||
@@ -2031,7 +2048,13 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
             throw std::runtime_error("Assembly construction object is invalid");
         }
         if (object.container_origin !=
-            zima::document::create_container_origin(object.id)) {
+                zima::document::create_container_origin(object.id) ||
+            object.entity_parent_id != (object.kind == zima::document::ConstructionKind::Point
+                    ? object.container_origin.id : object.id) ||
+            (object.kind == zima::document::ConstructionKind::Point &&
+             object.entity_id != object.container_origin.id + ":point") ||
+            (object.kind != zima::document::ConstructionKind::Point &&
+             object.entity_id != object.id + ":entity")) {
             throw std::runtime_error("Assembly construction Container Origin is invalid");
         }
         nlohmann::json origin_children = nlohmann::json::array();
@@ -2065,7 +2088,9 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
             : object.definition == zima::document::ConstructionDefinition::ThreePointPlane
                 ? "three_point_plane" : "plane_reference";
         constructions_json.push_back({
-            {"id", object.id}, {"name", object.name},
+            {"id", object.id}, {"entity_id", object.entity_id},
+            {"entity_parent_id", object.entity_parent_id},
+            {"name", object.name},
             {"type", object.kind == zima::document::ConstructionKind::Point
                 ? "point" : object.kind == zima::document::ConstructionKind::Axis
                     ? "axis" : "plane"},
@@ -2084,6 +2109,7 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
             {"display_size", object.display_size}, {"definition", definition},
             {"references", std::move(references)}, {"offset", object.offset},
             {"reference_valid", object.reference_valid},
+            {"suppressed", object.suppressed},
         });
     }
     nlohmann::json components_json = nlohmann::json::array();
@@ -2167,8 +2193,12 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
             input_bodies[occurrence_id] =
                 zima::document::serialize_body_result(body);
         }
+        if (feature.feature_parent_id != feature.id) {
+            throw std::runtime_error("Assembly cut feature parent is invalid");
+        }
         cuts_json.push_back({{"id", feature.id},
-            {"feature_id", feature.feature_id}, {"name", feature.name},
+            {"feature_id", feature.feature_id},
+            {"feature_parent_id", feature.feature_parent_id}, {"name", feature.name},
             {"kind", feature.feature_kind == zima::document::FeatureKind::Extrusion
                 ? "extrusion" : "revolution"}, {"suppressed", feature.suppressed},
             {"x", feature.placement.x}, {"y", feature.placement.y},
@@ -2195,7 +2225,7 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
             {"input_component_bodies", std::move(input_bodies)}});
     }
     const nlohmann::json root = {
-        {"format", "zima-cad-cpp"}, {"format_version", 18},
+        {"format", "zima-cad-cpp"}, {"format_version", 20},
         {"type", "assembly"}, {"document_id", document_id}, {"name", name},
         {"user_parameters", user_parameters},
         {"user_parameter_order", user_parameter_order},

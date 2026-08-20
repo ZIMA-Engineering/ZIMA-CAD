@@ -273,14 +273,21 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
                                   face.reference.instance_path, geometry});
             }
             const bool persisted_container = persisted_occurrence;
+            constexpr std::string_view entity_suffix{":entity"};
+            const bool datum_entity = face.reference.owner_id.ends_with(entity_suffix) &&
+                face.reference.semantic_key == "plane";
+            const std::string container_owner = datum_entity
+                ? face.reference.owner_id.substr(0,
+                    face.reference.owner_id.size() - entity_suffix.size())
+                : face.reference.owner_id;
             if (!origin_reference && !persisted_container &&
                 std::none_of(result.begin(), result.end(), [&](const ViewerCandidate& item) {
                     return item.kind == CandidateKind::Container &&
-                        item.owner_id == face.reference.owner_id &&
+                        item.owner_id == container_owner &&
                         item.instance_path == face.reference.instance_path;
                 })) {
                 result.push_back({CandidateKind::Container, face.distance, face.triangle,
-                                  face.reference.owner_id, {},
+                                  container_owner, datum_entity ? "plane" : "",
                                   face.reference.instance_path, geometry});
             }
         }
@@ -347,6 +354,14 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
             result.push_back({kind, axis.distance, axis.axis,
                               axis.reference.owner_id, axis.reference.semantic_key,
                               axis.reference.instance_path, geometry});
+            constexpr std::string_view entity_suffix{":entity"};
+            if (axis.reference.semantic_key == "axis" &&
+                axis.reference.owner_id.ends_with(entity_suffix)) {
+                result.push_back({CandidateKind::Container, axis.distance, axis.axis,
+                    axis.reference.owner_id.substr(0,
+                        axis.reference.owner_id.size() - entity_suffix.size()),
+                    "axis", axis.reference.instance_path, geometry});
+            }
         }
     };
     append_geometry(mesh, CandidateGeometry::Display);
@@ -482,7 +497,42 @@ std::optional<ViewerCandidate> container_candidate(
     if (auto original_point = find_point(
             mesh.original_references.points,
             CandidateGeometry::OriginalReference)) return original_point;
-    return find_point(mesh.points, CandidateGeometry::Display);
+    if (auto display_point = find_point(
+            mesh.points, CandidateGeometry::Display)) return display_point;
+    const std::string entity_id = owner_id + ":entity";
+    const auto find_axis = [&](const auto& axes, CandidateGeometry geometry)
+        -> std::optional<ViewerCandidate> {
+        const auto axis = std::find_if(axes.begin(), axes.end(), [&](const auto& value) {
+            return value.reference.owner_id == entity_id &&
+                value.reference.semantic_key == "axis" &&
+                value.reference.instance_path == instance_path;
+        });
+        if (axis == axes.end()) return std::nullopt;
+        return ViewerCandidate{CandidateKind::Container, 0.0,
+            static_cast<std::size_t>(std::distance(axes.begin(), axis)),
+            owner_id, "axis", instance_path, geometry};
+    };
+    if (auto original_axis = find_axis(mesh.original_references.axes,
+            CandidateGeometry::OriginalReference)) return original_axis;
+    if (auto display_axis = find_axis(mesh.axes,
+            CandidateGeometry::Display)) return display_axis;
+    const auto find_plane = [&](const auto& references, CandidateGeometry geometry)
+        -> std::optional<ViewerCandidate> {
+        const auto plane = std::find_if(references.begin(), references.end(),
+            [&](const auto& value) {
+                return value.owner_id == entity_id &&
+                    value.semantic_key == "plane" &&
+                    value.instance_path == instance_path;
+            });
+        if (plane == references.end()) return std::nullopt;
+        return ViewerCandidate{CandidateKind::Container, 0.0,
+            static_cast<std::size_t>(std::distance(references.begin(), plane)),
+            owner_id, "plane", instance_path, geometry};
+    };
+    if (auto original_plane = find_plane(
+            mesh.original_references.triangle_references,
+            CandidateGeometry::OriginalReference)) return original_plane;
+    return find_plane(mesh.triangle_references, CandidateGeometry::Display);
 }
 
 }  // namespace zima::viewer

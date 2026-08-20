@@ -1376,6 +1376,7 @@ HistoryContainer PartDocument::create_box_container() {
     HistoryContainer container;
     container.id = make_id();
     container.feature_id = make_id();
+    container.feature_parent_id = container.id;
     container.container_origin = create_container_origin(container.id);
     return container;
 }
@@ -1384,6 +1385,7 @@ HistoryContainer PartDocument::create_cylinder_container() {
     HistoryContainer container;
     container.id = make_id();
     container.feature_id = make_id();
+    container.feature_parent_id = container.id;
     container.container_origin = create_container_origin(container.id);
     container.name = "Válec";
     container.feature_kind = FeatureKind::Cylinder;
@@ -1394,6 +1396,7 @@ HistoryContainer PartDocument::create_sphere_container() {
     HistoryContainer container;
     container.id = make_id();
     container.feature_id = make_id();
+    container.feature_parent_id = container.id;
     container.container_origin = create_container_origin(container.id);
     container.name = "Koule";
     container.feature_kind = FeatureKind::Sphere;
@@ -1404,6 +1407,7 @@ HistoryContainer PartDocument::create_cone_container() {
     HistoryContainer container;
     container.id = make_id();
     container.feature_id = make_id();
+    container.feature_parent_id = container.id;
     container.container_origin = create_container_origin(container.id);
     container.name = "Kužel";
     container.feature_kind = FeatureKind::Cone;
@@ -1414,6 +1418,7 @@ HistoryContainer PartDocument::create_pyramid_container() {
     HistoryContainer container;
     container.id = make_id();
     container.feature_id = make_id();
+    container.feature_parent_id = container.id;
     container.container_origin = create_container_origin(container.id);
     container.name = "Jehlan";
     container.feature_kind = FeatureKind::Pyramid;
@@ -1424,6 +1429,7 @@ HistoryContainer PartDocument::create_wedge_container() {
     HistoryContainer container;
     container.id = make_id();
     container.feature_id = make_id();
+    container.feature_parent_id = container.id;
     container.container_origin = create_container_origin(container.id);
     container.name = "Klín";
     container.feature_kind = FeatureKind::Wedge;
@@ -1435,6 +1441,10 @@ ConstructionObject PartDocument::create_construction(ConstructionKind kind) {
     object.id = make_id();
     object.kind = kind;
     object.container_origin = create_container_origin(object.id);
+    object.entity_id = kind == ConstructionKind::Point
+        ? object.container_origin.id + ":point" : object.id + ":entity";
+    object.entity_parent_id = kind == ConstructionKind::Point
+        ? object.container_origin.id : object.id;
     object.name = kind == ConstructionKind::Point ? "Bod001"
         : kind == ConstructionKind::Axis ? "Osa001" : "Rovina001";
     return object;
@@ -1910,7 +1920,7 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
             sz * value.x + cz * value.y, value.z};
     };
     for (const auto& object : constructions) {
-        if (!object.reference_valid) continue;
+        if (!object.reference_valid || object.suppressed) continue;
         if (object.kind == ConstructionKind::Point) {
             const std::string& origin_id = object.container_origin.id;
             const bool editing = editing_object_id == object.id;
@@ -1978,10 +1988,10 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
         const auto normal = normalized(object.direction);
         if (object.kind == ConstructionKind::Axis) {
             mesh.axes.push_back({object.origin, normal, object.display_size,
-                                 {object.id, "axis", {}}});
+                                 {object.entity_id, "axis", {}}});
             mesh.original_references.axes.push_back(
                 {object.origin, normal, object.display_size,
-                 {object.id, "axis", {}}});
+                 {object.entity_id, "axis", {}}});
             continue;
         }
         const auto helper = std::abs(normal.z) < 0.9
@@ -1999,14 +2009,14 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
                               object.origin.z + a * first.z + b * second.z};
         }
         mesh.edges.push_back({{corners[0], corners[1], corners[2], corners[3],
-                               corners[0]}, {object.id, "border", {}}, false, true});
+                               corners[0]}, {object.entity_id, "border", {}}, false, true});
         auto& references = mesh.original_references;
         const auto offset = static_cast<std::uint32_t>(references.vertices.size());
         references.vertices.insert(references.vertices.end(), corners.begin(), corners.end());
         references.triangles.insert(references.triangles.end(),
             {offset, offset + 1, offset + 2, offset, offset + 2, offset + 3});
         references.triangle_references.insert(references.triangle_references.end(),
-            2, {object.id, "plane", {}});
+            2, {object.entity_id, "plane", {}});
     }
     return mesh;
 }
@@ -2265,6 +2275,7 @@ HistoryContainer PartDocument::create_extrusion_container(std::string sketch_id)
     HistoryContainer container;
     container.id = make_id();
     container.feature_id = make_id();
+    container.feature_parent_id = container.id;
     container.container_origin = create_container_origin(container.id);
     container.name = "Vytažení";
     container.feature_kind = FeatureKind::Extrusion;
@@ -2277,6 +2288,7 @@ HistoryContainer PartDocument::create_revolution_container(std::string sketch_id
     HistoryContainer container;
     container.id = make_id();
     container.feature_id = make_id();
+    container.feature_parent_id = container.id;
     container.container_origin = create_container_origin(container.id);
     container.name = "Rotace";
     container.feature_kind = FeatureKind::Revolution;
@@ -2294,6 +2306,7 @@ HistoryContainer PartDocument::create_fillet_container(
     HistoryContainer container;
     container.id = make_id();
     container.feature_id = make_id();
+    container.feature_parent_id = container.id;
     container.container_origin = create_container_origin(container.id);
     container.name = "Zaoblení";
     container.feature_kind = FeatureKind::Fillet;
@@ -2311,6 +2324,7 @@ HistoryContainer PartDocument::create_chamfer_container(
     HistoryContainer container;
     container.id = make_id();
     container.feature_id = make_id();
+    container.feature_parent_id = container.id;
     container.container_origin = create_container_origin(container.id);
     container.name = "Sražení";
     container.feature_kind = FeatureKind::Chamfer;
@@ -2325,6 +2339,7 @@ HistoryContainer PartDocument::create_imported_step_container(
     HistoryContainer container;
     container.id = make_id();
     container.feature_id = make_id();
+    container.feature_parent_id = container.id;
     container.container_origin = create_container_origin(container.id);
     container.name = component_name.empty() ? source_path.stem().string()
                                             : std::move(component_name);
@@ -2545,7 +2560,7 @@ PartDocument PartDocument::load(
     nlohmann::json root;
     input >> root;
     if (root.at("format").get<std::string>() != "zima-cad-cpp" ||
-        root.at("format_version").get<int>() != 33) {
+        root.at("format_version").get<int>() != 34) {
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
     PartDocument document;
@@ -2596,6 +2611,8 @@ PartDocument PartDocument::load(
             : type == "chamfer" ? FeatureKind::Chamfer : FeatureKind::Box;
         container.id = source.at("id").get<std::string>();
         container.feature_id = source.at("feature_id").get<std::string>();
+        container.feature_parent_id =
+            source.at("feature_parent_id").get<std::string>();
         container.name = source.at("name").get<std::string>();
         if (container.id.empty() || !container_ids.insert(container.id).second) {
             throw std::runtime_error("History container IDs must be non-empty and unique");
@@ -2603,7 +2620,8 @@ PartDocument PartDocument::load(
         if (container.name.empty()) {
             throw std::runtime_error("History container name must not be empty");
         }
-        if (container.feature_id.empty() || container.feature_id == container.id) {
+        if (container.feature_id.empty() || container.feature_id == container.id ||
+            container.feature_parent_id != container.id) {
             throw std::runtime_error("History feature ID must be distinct and non-empty");
         }
         const auto& serialized_origin = source.at("container_origin");
@@ -2936,6 +2954,9 @@ PartDocument PartDocument::load(
     for (const auto& source : root.at("constructions")) {
         ConstructionObject object;
         object.id = source.at("id").get<std::string>();
+        object.entity_id = source.at("entity_id").get<std::string>();
+        object.entity_parent_id =
+            source.at("entity_parent_id").get<std::string>();
         object.name = source.at("name").get<std::string>();
         const auto type = source.at("type").get<std::string>();
         object.kind = type == "point" ? ConstructionKind::Point
@@ -2961,7 +2982,14 @@ PartDocument PartDocument::load(
                 serialized_child.at("key").get<std::string>(),
                 serialized_child.at("locked").get<bool>()});
         }
-        if (object.container_origin != create_container_origin(object.id)) {
+        if (object.container_origin != create_container_origin(object.id) ||
+            object.entity_id.empty() || object.entity_id == object.id ||
+            (object.kind == ConstructionKind::Point &&
+             object.entity_id != object.container_origin.id + ":point") ||
+            (object.kind != ConstructionKind::Point &&
+             object.entity_id != object.id + ":entity") ||
+            object.entity_parent_id != (object.kind == ConstructionKind::Point
+                ? object.container_origin.id : object.id)) {
             throw std::runtime_error("Invalid construction Container Origin");
         }
         object.origin = {source.at("x").get<double>(),
@@ -2984,6 +3012,7 @@ PartDocument PartDocument::load(
             : throw std::runtime_error("Invalid construction definition");
         object.offset = source.at("offset").get<double>();
         object.reference_valid = source.at("reference_valid").get<bool>();
+        object.suppressed = source.at("suppressed").get<bool>();
         for (const auto& serialized : source.at("references")) {
             object.references.push_back({
                 serialized.at("instance_path").get<std::string>(),
@@ -2996,7 +3025,8 @@ PartDocument PartDocument::load(
             object.direction.x * object.direction.x +
             object.direction.y * object.direction.y +
             object.direction.z * object.direction.z);
-        if (object.id.empty() || object.name.empty() ||
+        if (object.id.empty() || object.entity_id.empty() ||
+            object.entity_id == object.id || object.name.empty() ||
             !construction_ids.insert(object.id).second ||
             !std::isfinite(object.origin.x) || !std::isfinite(object.origin.y) ||
             !std::isfinite(object.origin.z) ||
@@ -3009,6 +3039,33 @@ PartDocument PartDocument::load(
             throw std::runtime_error("Invalid construction object");
         }
         document.constructions.push_back(std::move(object));
+    }
+    std::unordered_set<std::string> ordered_ids;
+    for (const auto& serialized : root.at("history_order")) {
+        const std::string kind = serialized.at("kind").get<std::string>();
+        PartHistoryEntry entry{
+            kind == "feature" ? PartHistoryKind::Feature
+                : kind == "sketch" ? PartHistoryKind::Sketch
+                : kind == "construction" ? PartHistoryKind::Construction
+                : throw std::runtime_error("Invalid Part history entry kind"),
+            serialized.at("id").get<std::string>()};
+        const bool exists = entry.kind == PartHistoryKind::Feature
+            ? std::any_of(document.history.begin(), document.history.end(),
+                [&](const auto& value) { return value.id == entry.id; })
+            : entry.kind == PartHistoryKind::Sketch
+                ? std::any_of(document.sketches.begin(), document.sketches.end(),
+                    [&](const auto& value) { return value.id == entry.id; })
+                : std::any_of(document.constructions.begin(),
+                    document.constructions.end(),
+                    [&](const auto& value) { return value.id == entry.id; });
+        if (!exists || !ordered_ids.insert(entry.id).second) {
+            throw std::runtime_error("Invalid or duplicate Part history entry");
+        }
+        document.history_order.push_back(std::move(entry));
+    }
+    if (ordered_ids.size() != document.history.size() + document.sketches.size() +
+            document.constructions.size()) {
+        throw std::runtime_error("Part history order does not cover every container");
     }
     for (const auto& container : document.history) {
         if (container.feature_kind == FeatureKind::Extrusion &&
@@ -3125,6 +3182,7 @@ void PartDocument::save(
             throw std::runtime_error("History container name must not be empty");
         }
         if (container.feature_id.empty() || container.feature_id == container.id ||
+            container.feature_parent_id != container.id ||
             container.container_origin != create_container_origin(container.id)) {
             throw std::runtime_error("History container hierarchy is invalid");
         }
@@ -3230,6 +3288,7 @@ void PartDocument::save(
         nlohmann::json serialized = {
             {"id", container.id},
             {"feature_id", container.feature_id},
+            {"feature_parent_id", container.feature_parent_id},
             {"type", container.feature_kind == FeatureKind::Box ? "box"
                 : container.feature_kind == FeatureKind::Cylinder
                     ? "cylinder"
@@ -3453,7 +3512,7 @@ void PartDocument::save(
             object.direction.x * object.direction.x +
             object.direction.y * object.direction.y +
             object.direction.z * object.direction.z);
-        if (object.id.empty() || object.name.empty() ||
+        if (object.id.empty() || object.entity_id.empty() || object.name.empty() ||
             !construction_ids.insert(object.id).second ||
             !std::isfinite(object.origin.x) || !std::isfinite(object.origin.y) ||
             !std::isfinite(object.origin.z) ||
@@ -3465,7 +3524,13 @@ void PartDocument::save(
             !std::isfinite(object.display_size) || object.display_size <= 0.0) {
             throw std::runtime_error("Invalid construction object");
         }
-        if (object.container_origin != create_container_origin(object.id)) {
+        if (object.container_origin != create_container_origin(object.id) ||
+            (object.kind == ConstructionKind::Point &&
+             object.entity_id != object.container_origin.id + ":point") ||
+            (object.kind != ConstructionKind::Point &&
+             object.entity_id != object.id + ":entity") ||
+            object.entity_parent_id != (object.kind == ConstructionKind::Point
+                ? object.container_origin.id : object.id)) {
             throw std::runtime_error("Invalid construction Container Origin");
         }
         nlohmann::json origin_children = nlohmann::json::array();
@@ -3499,7 +3564,9 @@ void PartDocument::save(
             : object.definition == ConstructionDefinition::ThreePointPlane
                 ? "three_point_plane" : "plane_reference";
         serialized_constructions.push_back({
-            {"id", object.id}, {"name", object.name},
+            {"id", object.id}, {"entity_id", object.entity_id},
+            {"entity_parent_id", object.entity_parent_id},
+            {"name", object.name},
             {"type", object.kind == ConstructionKind::Point ? "point"
                 : object.kind == ConstructionKind::Axis ? "axis" : "plane"},
             {"container_origin", {
@@ -3517,14 +3584,39 @@ void PartDocument::save(
             {"direction_z", object.direction.z},
             {"display_size", object.display_size}, {"definition", definition},
             {"references", std::move(references)}, {"offset", object.offset},
-            {"reference_valid", object.reference_valid}});
+            {"reference_valid", object.reference_valid},
+            {"suppressed", object.suppressed}});
     }
     nlohmann::json serialized_relations = nlohmann::json::array();
     for (const auto& relation : relations) serialized_relations.push_back(
         {{"target", relation.target}, {"expression", relation.expression}});
+    std::vector<PartHistoryEntry> effective_order = history_order;
+    if (effective_order.empty()) {
+        for (const auto& value : history) effective_order.push_back(
+            {PartHistoryKind::Feature, value.id});
+        for (const auto& value : sketches) effective_order.push_back(
+            {PartHistoryKind::Sketch, value.id});
+        for (const auto& value : constructions) effective_order.push_back(
+            {PartHistoryKind::Construction, value.id});
+    }
+    nlohmann::json serialized_order = nlohmann::json::array();
+    std::unordered_set<std::string> ordered_ids;
+    for (const auto& entry : effective_order) {
+        if (entry.id.empty() || !ordered_ids.insert(entry.id).second) {
+            throw std::runtime_error("Part history order contains an invalid entry");
+        }
+        serialized_order.push_back({
+            {"kind", entry.kind == PartHistoryKind::Feature ? "feature"
+                : entry.kind == PartHistoryKind::Sketch ? "sketch"
+                : "construction"}, {"id", entry.id}});
+    }
+    if (ordered_ids.size() != history.size() + sketches.size() +
+            constructions.size()) {
+        throw std::runtime_error("Part history order does not cover every container");
+    }
     const nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 33},
+        {"format_version", 34},
         {"document_id", document_id},
         {"type", "part"},
         {"name", name},
@@ -3542,6 +3634,7 @@ void PartDocument::save(
         {"history", std::move(serialized_history)},
         {"sketches", std::move(serialized_sketches)},
         {"constructions", std::move(serialized_constructions)},
+        {"history_order", std::move(serialized_order)},
         {"calculated_boundaries", std::move(serialized_boundaries)},
     };
     const auto temporary = path.string() + ".tmp";
