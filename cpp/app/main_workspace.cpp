@@ -541,6 +541,18 @@ int verify_startup_contract(
                 "Tree Point selection did not confirm its container marker in View")) {
         return 1;
     }
+    point_viewer->clear_selection();
+    click_tree_item(point_tree_item);
+    const auto repeated_point_confirmation = point_viewer->confirmed_candidate();
+    if (!verify(repeated_point_confirmation &&
+                    repeated_point_confirmation->kind ==
+                        zima::viewer::CandidateKind::Container &&
+                    repeated_point_confirmation->owner_id ==
+                        point_tree_item->data(0, Qt::UserRole)
+                            .toString().toStdString(),
+                "repeated LMB on the current Tree Point did not confirm it in View")) {
+        return 1;
+    }
     const auto point_container_id =
         point_tree_item->data(0, Qt::UserRole).toString().toStdString();
     point_viewer->clear_selection();

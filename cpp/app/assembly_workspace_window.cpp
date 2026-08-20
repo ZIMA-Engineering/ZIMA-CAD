@@ -1944,8 +1944,7 @@ void AssemblyWorkspaceWindow::create_layout() {
             viewer_->set_camera_state(camera->second);
         }
     });
-    connect(tree_, &QTreeWidget::itemSelectionChanged, this,
-        [this] {
+    const auto synchronize_tree_selection = [this] {
             const auto selected_items = tree_->selectedItems();
             if (selected_items.empty()) {
                 construction_dimension_object_id_.clear();
@@ -2039,6 +2038,21 @@ void AssemblyWorkspaceWindow::create_layout() {
                 viewer_->confirm_occurrence(
                     item->data(0, Qt::UserRole + 1).toString().toStdString());
             }
+        };
+    connect(tree_, &QTreeWidget::itemSelectionChanged, this,
+        synchronize_tree_selection);
+    connect(tree_, &QTreeWidget::itemClicked, this,
+        [this, synchronize_tree_selection](QTreeWidgetItem*, int) {
+            if (construction_reference_dialog_ != nullptr ||
+                pending_construction_reference_index_ ||
+                extrusion_target_dialog_ != nullptr ||
+                edge_treatment_selection_ || mate_selection_active_ ||
+                sketch_external_reference_active_ || sketch_trim_active_ ||
+                sketch_mirror_active_ || sketch_coincident_active_ ||
+                sketch_midpoint_active_ || sketch_symmetric_active_ ||
+                sketch_concentric_active_ || sketch_tangent_active_ ||
+                sketch_segment_pair_active_ || sketch_point_dimension_active_) return;
+            synchronize_tree_selection();
         });
     // Python parity: a Tree double-click has no object action. Editing,
     // activation and Properties remain explicit context-menu commands.
