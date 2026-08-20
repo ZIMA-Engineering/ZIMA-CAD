@@ -75,6 +75,10 @@ namespace {
 class HistoryTreeWidget final : public QTreeWidget {
 public:
     using QTreeWidget::QTreeWidget;
+    void set_double_click_callback(
+        std::function<void(QTreeWidgetItem*)> callback) {
+        double_click_callback_ = std::move(callback);
+    }
 
 protected:
     void mousePressEvent(QMouseEvent* event) override {
@@ -102,11 +106,18 @@ protected:
 
     void mouseDoubleClickEvent(QMouseEvent* event) override {
         if (event->button() == Qt::LeftButton) {
+            if (auto* item = itemAt(event->position().toPoint());
+                item != nullptr && double_click_callback_) {
+                double_click_callback_(item);
+            }
             event->accept();
             return;
         }
         QTreeWidget::mouseDoubleClickEvent(event);
     }
+
+private:
+    std::function<void(QTreeWidgetItem*)> double_click_callback_;
 };
 
 void apply_start_part_template(
@@ -1473,6 +1484,27 @@ void AssemblyWorkspaceWindow::create_layout() {
         "QTreeWidget::item:selected, QTreeWidget::item:selected:active,"
         " QTreeWidget::item:selected:!active { background-color:#356E22;"
         " color:#fff; } QTreeWidget::item:hover { background-color:transparent; }");
+    static_cast<HistoryTreeWidget*>(tree_)->set_double_click_callback(
+        [this](QTreeWidgetItem* item) {
+            if (item == nullptr || properties_dialog_ != nullptr ||
+                construction_reference_dialog_ != nullptr) return;
+            const auto kind = item->data(0, Qt::UserRole + 3).toString();
+            if (kind != QStringLiteral("part-construction") &&
+                kind != QStringLiteral("assembly-construction")) return;
+            const auto id = item->data(0, Qt::UserRole).toString().toStdString();
+            const auto* part = workspace_.open_part(workspace_.active_document_id());
+            const auto* assembly =
+                workspace_.open_assembly(workspace_.active_document_id());
+            const auto* object = part != nullptr
+                ? part->session.document().find_construction(id)
+                : assembly != nullptr
+                    ? assembly->session.document().find_construction(id) : nullptr;
+            if (object == nullptr || object->kind !=
+                    zima::document::ConstructionKind::Point) return;
+            construction_dimension_object_id_ = object->id;
+            preserve_view_on_refresh_ = true;
+            refresh_scene();
+        });
     viewer_ = new zima::viewer::MeshView;
     viewer_->setObjectName("modelViewer");
     viewer_->set_selection_contract({zima::viewer::CandidateKind::Dimension,
@@ -8127,6 +8159,61 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         append_dimension("z", "Z = ",
             {point->origin.x, point->origin.y, 0}, point->origin,
             {8, 8, 0}, point->origin.z);
+        const auto& geometry = mesh.original_references;
+        for (std::size_t reference_index = 0;
+             reference_index < point->references.size(); ++reference_index) {
+            const auto& reference = point->references[reference_index];
+            if (!reference.supports_offset) continue;
+            const auto matches = [&](const auto& candidate) {
+                return candidate.instance_path == reference.instance_path &&
+                    candidate.owner_id == reference.owner_id &&
+                    candidate.semantic_key == reference.semantic_key;
+            };
+            for (std::size_t triangle_index = 0;
+                 triangle_index < geometry.triangle_references.size();
+                 ++triangle_index) {
+                if (!matches(geometry.triangle_references[triangle_index]) ||
+                    triangle_index * 3 + 2 >= geometry.triangles.size()) continue;
+                const auto& a = geometry.vertices[
+                    geometry.triangles[triangle_index * 3]];
+                const auto& b = geometry.vertices[
+                    geometry.triangles[triangle_index * 3 + 1]];
+                const auto& c = geometry.vertices[
+                    geometry.triangles[triangle_index * 3 + 2]];
+                zima::kernel::Vec3 normal{
+                    (b.y-a.y)*(c.z-a.z)-(b.z-a.z)*(c.y-a.y),
+                    (b.z-a.z)*(c.x-a.x)-(b.x-a.x)*(c.z-a.z),
+                    (b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x)};
+                const double length = std::hypot(
+                    std::hypot(normal.x, normal.y), normal.z);
+                if (length <= 1.0e-12) break;
+                normal = {normal.x / length, normal.y / length, normal.z / length};
+                const zima::kernel::Vec3 offset_point{
+                    a.x + normal.x * reference.offset,
+                    a.y + normal.y * reference.offset,
+                    a.z + normal.z * reference.offset};
+                const zima::kernel::Vec3 helper = std::abs(normal.x) < 0.9
+                    ? zima::kernel::Vec3{1, 0, 0}
+                    : zima::kernel::Vec3{0, 1, 0};
+                zima::kernel::Vec3 tangent{
+                    normal.y*helper.z-normal.z*helper.y,
+                    normal.z*helper.x-normal.x*helper.z,
+                    normal.x*helper.y-normal.y*helper.x};
+                const double tangent_length = std::hypot(
+                    std::hypot(tangent.x, tangent.y), tangent.z);
+                tangent = {8.0*tangent.x/tangent_length,
+                    8.0*tangent.y/tangent_length,
+                    8.0*tangent.z/tangent_length};
+                mesh.dimensions.push_back({a, offset_point,
+                    {a.x+tangent.x, a.y+tangent.y, a.z+tangent.z},
+                    {offset_point.x+tangent.x, offset_point.y+tangent.y,
+                        offset_point.z+tangent.z},
+                    reference.offset,
+                    {point->id, "reference_offset:" +
+                        std::to_string(reference_index), {}}, "Offset = "});
+                break;
+            }
+        }
         return mesh;
     };
     if (workspace_.size() == 0) {

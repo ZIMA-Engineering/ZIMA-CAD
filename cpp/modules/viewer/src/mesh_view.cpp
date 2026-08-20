@@ -479,6 +479,10 @@ double MeshView::world_tolerance_for_pixels(double pixels) const {
         static_cast<double>(height());
 }
 
+std::size_t MeshView::displayed_dimension_count() const {
+    return impl_->mesh.dimensions.size();
+}
+
 void MeshView::notify_confirmation() {
     if (impl_->confirmed_candidate && impl_->confirmation_callback) {
         impl_->confirmation_callback(*impl_->confirmed_candidate);

@@ -470,7 +470,7 @@ rows, a real framebuffer capture or deterministic renderer-image test.
 | Single Tree click does not open Properties | yes | yes | no | n/a | incomplete |
 | Context Properties uses shared Point dialog | yes | partial | partial | n/a | incomplete |
 | View double click opens placement dimensions | yes | partial | no | no | incomplete |
-| Tree double click follows inspection/edit contract | yes | no | no | no | missing |
+| Tree double click follows inspection/edit contract | yes | yes | startup contract | no | incomplete |
 | Stable shared hover/LMB/RMB candidates | yes | partial | startup smoke only | no | incomplete |
 | Hit geometry equals screen-constant display | yes | yes | no | no | incomplete |
 | Tree and View create identical typed references | yes | no | no | n/a | missing |

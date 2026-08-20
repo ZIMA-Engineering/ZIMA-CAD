@@ -440,11 +440,40 @@ int verify_startup_contract(
         return 1;
     }
     if (auto* point_buttons = point_dialog->findChild<QDialogButtonBox*>()) {
-        point_buttons->button(QDialogButtonBox::Cancel)->click();
+        point_buttons->button(QDialogButtonBox::Ok)->click();
     }
     application.processEvents();
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     application.processEvents();
+    QTreeWidgetItem* point_item{};
+    if (tree->topLevelItemCount() == 1) {
+        const auto* root = tree->topLevelItem(0);
+        for (int index = 0; index < root->childCount(); ++index) {
+            auto* child = root->child(index);
+            if (child->data(0, Qt::UserRole + 3).toString() ==
+                    QStringLiteral("part-construction")) {
+                point_item = child;
+                break;
+            }
+        }
+    }
+    if (!verify(point_item != nullptr &&
+                    point_viewer->displayed_dimension_count() == 0,
+                "Point OK did not create a normally displayed Tree item")) {
+        return 1;
+    }
+    const QRect point_rect = tree->visualItemRect(point_item);
+    const QPoint point_position = point_rect.center();
+    QMouseEvent point_tree_double_click(QEvent::MouseButtonDblClick,
+        QPointF(point_position), QPointF(tree->viewport()->mapToGlobal(point_position)),
+        Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+    QApplication::sendEvent(tree->viewport(), &point_tree_double_click);
+    application.processEvents();
+    if (!verify(point_viewer->displayed_dimension_count() >= 3 &&
+                    window.findChild<QDialog*>("zimaPropertiesSubWindow") == nullptr,
+                "Tree Point double-click did not open dimension inspection only")) {
+        return 1;
+    }
     if (!part_capture_path.isEmpty() &&
         !verify(window.grab().save(part_capture_path),
                 "native Qt window capture failed")) {

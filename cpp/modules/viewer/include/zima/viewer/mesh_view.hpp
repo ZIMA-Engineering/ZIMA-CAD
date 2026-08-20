@@ -105,6 +105,7 @@ public:
     [[nodiscard]] std::optional<zima::kernel::ViewerAxis> candidate_axis(
         const ViewerCandidate& candidate) const;
     [[nodiscard]] double world_tolerance_for_pixels(double pixels) const;
+    [[nodiscard]] std::size_t displayed_dimension_count() const;
 
 protected:
     void initializeGL() override;
