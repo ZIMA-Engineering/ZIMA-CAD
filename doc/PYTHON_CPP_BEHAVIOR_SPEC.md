@@ -433,17 +433,7 @@ Python source: viewer selection policy and candidate-cycle handlers in
 ### Normal selection, double click and dimensions
 
 - Normal Point display is a black marker controlled by Points visibility.
-- Point is the ordinary-selection exception to the visible "point inside a
-  Point Container" hierarchy: its marker offers and confirms the owning Point
-  Container. An active reference command still receives the exact persisted
-  Point child through the same viewer candidate source.
 - A single Tree click does not open Properties.
-- Ordinary LMB selection follows one global rule: clicking a valid offered
-  candidate confirms exactly that candidate and synchronizes Tree; clicking
-  empty View space clears the confirmed View and Tree selection together and
-  removes selection and inspection overlays. An active command may define a
-  different explicit command-local meaning for an empty click, but must not
-  retain an unrelated stale confirmed selection.
 - A View or Tree double click activates dimension inspection for the Point
   Container.
 - Inspection exposes placement dimensions and every supported planar
@@ -480,8 +470,8 @@ rows, a real framebuffer capture or deterministic renderer-image test.
 | Single Tree click does not open Properties | yes | yes | no | n/a | incomplete |
 | Context Properties uses shared Point dialog | yes | partial | partial | n/a | incomplete |
 | View double click opens placement dimensions | yes | partial | no | no | incomplete |
-| Tree double click follows inspection/edit contract | yes | yes | startup contract | no | incomplete |
-| Stable shared hover/LMB/RMB candidates | yes | partial | viewer + Tree startup | no | incomplete |
+| Tree double click follows inspection/edit contract | yes | no | no | no | missing |
+| Stable shared hover/LMB/RMB candidates | yes | partial | startup smoke only | no | incomplete |
 | Hit geometry equals screen-constant display | yes | yes | no | no | incomplete |
 | Tree and View create identical typed references | yes | no | no | n/a | missing |
 | Origin reference expansion | yes | yes | no | n/a | incomplete |

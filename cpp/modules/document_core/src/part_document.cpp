@@ -1904,9 +1904,7 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
             const bool editing = editing_object_id == object.id;
             const std::string point_semantic = editing ? "origin:point" : "point";
             mesh.points.push_back(
-                {object.origin,
-                 {editing ? origin_id : object.id, point_semantic, {}},
-                 object.name});
+                {object.origin, {origin_id, point_semantic, {}}, object.name});
             mesh.original_references.points.push_back(
                 {object.origin, {origin_id, point_semantic, {}}});
             if (!editing) continue;

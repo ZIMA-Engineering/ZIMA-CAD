@@ -60,7 +60,6 @@ struct MeshView::Impl {
     std::size_t active_candidate{};
     std::optional<ViewerCandidate> confirmed_candidate;
     std::function<void(const ViewerCandidate&)> confirmation_callback;
-    std::function<void()> empty_click_callback;
     std::function<void(const ViewerCandidate&)> double_confirmation_callback;
     std::function<bool(const ViewerCandidate&)> drag_begin_callback;
     std::function<void(const zima::kernel::Vec3&, const zima::kernel::Vec3&)>
@@ -410,10 +409,6 @@ void MeshView::set_confirmation_callback(
     impl_->confirmation_callback = std::move(callback);
 }
 
-void MeshView::set_empty_click_callback(std::function<void()> callback) {
-    impl_->empty_click_callback = std::move(callback);
-}
-
 void MeshView::set_context_menu_callback(
     std::function<void(const ViewerCandidate&, const QPoint&)> callback) {
     impl_->context_menu_callback = std::move(callback);
@@ -482,10 +477,6 @@ double MeshView::world_tolerance_for_pixels(double pixels) const {
     if (!std::isfinite(pixels) || pixels < 0.0 || height() <= 0) return 0.0;
     return 2.0 * static_cast<double>(impl_->view_scale) * pixels /
         static_cast<double>(height());
-}
-
-std::size_t MeshView::displayed_dimension_count() const {
-    return impl_->mesh.dimensions.size();
 }
 
 void MeshView::notify_confirmation() {
@@ -1290,9 +1281,6 @@ void MeshView::paintGL() {
                 ? QColor(30, 220, 240) : QColor(255, 140, 12);
             const bool origin_group = highlighted->kind == CandidateKind::Container &&
                 highlighted->semantic_key == "origin";
-            const bool point_container = highlighted->kind ==
-                    CandidateKind::Container &&
-                highlighted->semantic_key == "point";
             const bool origin_plane = highlighted->kind == CandidateKind::Face &&
                 highlighted->semantic_key.starts_with("origin:plane:");
             if (origin_plane) {
@@ -1325,8 +1313,7 @@ void MeshView::paintGL() {
                 }
             }
             if ((highlighted->kind == CandidateKind::Occurrence ||
-                 (highlighted->kind == CandidateKind::Container && !origin_group &&
-                  !point_container) ||
+                 (highlighted->kind == CandidateKind::Container && !origin_group) ||
                  (highlighted->kind == CandidateKind::Face && !origin_plane))) {
                 painter.setPen(QPen(color, 1.5));
                 painter.setBrush(Qt::NoBrush);
@@ -1400,7 +1387,6 @@ void MeshView::paintGL() {
                 }
             } else if ((highlighted->kind == CandidateKind::Vertex ||
                         highlighted->kind == CandidateKind::SketchPoint ||
-                        point_container ||
                         (highlighted->kind == CandidateKind::SketchExternalReference &&
                          highlighted->semantic_key.starts_with("external_point:"))) &&
                        highlighted->geometry_index < selectable_points.size()) {
@@ -1576,9 +1562,6 @@ void MeshView::mousePressEvent(QMouseEvent* event) {
             impl_->drag_active = impl_->drag_begin_callback(*impl_->confirmed_candidate);
         }
         update();
-    } else if (event->button() == Qt::LeftButton) {
-        clear_selection();
-        if (impl_->empty_click_callback) impl_->empty_click_callback();
     } else if (event->button() == Qt::RightButton) {
         if (impl_->confirmed_candidate) {
             if (impl_->context_menu_callback) {

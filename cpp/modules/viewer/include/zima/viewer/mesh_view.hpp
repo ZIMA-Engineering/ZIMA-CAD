@@ -71,7 +71,6 @@ public:
     void clear_selection();
     void set_confirmation_callback(
         std::function<void(const ViewerCandidate&)> callback);
-    void set_empty_click_callback(std::function<void()> callback);
     void set_context_menu_callback(
         std::function<void(const ViewerCandidate&, const QPoint&)> callback);
     void set_world_click_callback(std::function<bool(
@@ -106,7 +105,6 @@ public:
     [[nodiscard]] std::optional<zima::kernel::ViewerAxis> candidate_axis(
         const ViewerCandidate& candidate) const;
     [[nodiscard]] double world_tolerance_for_pixels(double pixels) const;
-    [[nodiscard]] std::size_t displayed_dimension_count() const;
 
 protected:
     void initializeGL() override;

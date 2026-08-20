@@ -75,10 +75,6 @@ namespace {
 class HistoryTreeWidget final : public QTreeWidget {
 public:
     using QTreeWidget::QTreeWidget;
-    void set_double_click_callback(
-        std::function<void(QTreeWidgetItem*)> callback) {
-        double_click_callback_ = std::move(callback);
-    }
 
 protected:
     void mousePressEvent(QMouseEvent* event) override {
@@ -106,18 +102,11 @@ protected:
 
     void mouseDoubleClickEvent(QMouseEvent* event) override {
         if (event->button() == Qt::LeftButton) {
-            if (auto* item = itemAt(event->position().toPoint());
-                item != nullptr && double_click_callback_) {
-                double_click_callback_(item);
-            }
             event->accept();
             return;
         }
         QTreeWidget::mouseDoubleClickEvent(event);
     }
-
-private:
-    std::function<void(QTreeWidgetItem*)> double_click_callback_;
 };
 
 void apply_start_part_template(
@@ -1484,32 +1473,6 @@ void AssemblyWorkspaceWindow::create_layout() {
         "QTreeWidget::item:selected, QTreeWidget::item:selected:active,"
         " QTreeWidget::item:selected:!active { background-color:#356E22;"
         " color:#fff; } QTreeWidget::item:hover { background-color:transparent; }");
-    static_cast<HistoryTreeWidget*>(tree_)->set_double_click_callback(
-        [this](QTreeWidgetItem* item) {
-            if (item == nullptr || properties_dialog_ != nullptr ||
-                construction_reference_dialog_ != nullptr) return;
-            const auto kind = item->data(0, Qt::UserRole + 3).toString();
-            if (kind != QStringLiteral("part-construction") &&
-                kind != QStringLiteral("assembly-construction")) return;
-            const auto id = item->data(0, Qt::UserRole).toString().toStdString();
-            const auto* part = workspace_.open_part(workspace_.active_document_id());
-            const auto* assembly =
-                workspace_.open_assembly(workspace_.active_document_id());
-            const auto* object = part != nullptr
-                ? part->session.document().find_construction(id)
-                : assembly != nullptr
-                    ? assembly->session.document().find_construction(id) : nullptr;
-            if (object == nullptr || object->kind !=
-                    zima::document::ConstructionKind::Point) return;
-            // Clear the selected row before arming inspection. refresh_scene()
-            // rebuilds the Tree; otherwise that rebuild emits an empty
-            // selection transition which immediately clears the newly armed
-            // dimension owner.
-            tree_->clearSelection();
-            construction_dimension_object_id_ = object->id;
-            preserve_view_on_refresh_ = true;
-            refresh_scene();
-        });
     viewer_ = new zima::viewer::MeshView;
     viewer_->setObjectName("modelViewer");
     viewer_->set_selection_contract({zima::viewer::CandidateKind::Dimension,
@@ -1778,22 +1741,6 @@ void AssemblyWorkspaceWindow::create_layout() {
         sketch_mirror_action_->setEnabled(
             !active_sketch_id_.empty() && !sketch_mirror_active_ &&
             !sketch_trim_active_);
-    });
-    viewer_->set_empty_click_callback([this] {
-        if (construction_reference_dialog_ != nullptr ||
-            pending_construction_reference_index_ ||
-            extrusion_target_dialog_ != nullptr || edge_treatment_selection_ ||
-            mate_selection_active_ || sketch_external_reference_active_ ||
-            sketch_trim_active_ || sketch_mirror_active_ ||
-            sketch_coincident_active_ || sketch_midpoint_active_ ||
-            sketch_symmetric_active_ || sketch_concentric_active_ ||
-            sketch_tangent_active_ || sketch_segment_pair_active_ ||
-            sketch_point_dimension_active_) return;
-        construction_dimension_object_id_.clear();
-        tree_->clearSelection();
-        tree_->setCurrentItem(nullptr);
-        preserve_view_on_refresh_ = true;
-        refresh_scene();
     });
     viewer_->set_context_menu_callback(
         [this](const auto& candidate, const QPoint& global_position) {
@@ -2110,18 +2057,19 @@ void AssemblyWorkspaceWindow::create_layout() {
                     : assembly != nullptr
                         ? assembly->session.document().find_construction(id) : nullptr;
                 if (object == nullptr) return;
-                if (object->kind == zima::document::ConstructionKind::Point) {
-                    viewer_->confirm_container(object->id);
-                    return;
-                }
                 const auto path = item->data(0, Qt::UserRole + 1)
                     .toString().toStdString();
                 viewer_->confirm_reference(
-                    object->id,
-                    object->kind == zima::document::ConstructionKind::Axis
+                    object->kind == zima::document::ConstructionKind::Point
+                        ? object->container_origin.id : object->id,
+                    object->kind == zima::document::ConstructionKind::Point
+                        ? "point"
+                        : object->kind == zima::document::ConstructionKind::Axis
                             ? "axis" : "plane",
                     path,
-                    object->kind == zima::document::ConstructionKind::Axis
+                    object->kind == zima::document::ConstructionKind::Point
+                        ? zima::viewer::CandidateKind::Vertex
+                        : object->kind == zima::document::ConstructionKind::Axis
                             ? zima::viewer::CandidateKind::Axis
                             : zima::viewer::CandidateKind::Face);
                 return;
@@ -2130,23 +2078,6 @@ void AssemblyWorkspaceWindow::create_layout() {
                     "origin-reference") {
                 const auto semantic = item->data(0, Qt::UserRole + 5)
                     .toString().toStdString();
-                // Point is the deliberate ordinary-selection exception: the
-                // leaf below a Point Container's Origin selects the owning
-                // Container, so the Tree never exposes a confusing
-                // "point-inside-point" selection. Document Origin points and
-                // active reference commands retain their exact point identity.
-                auto* origin_item = item->parent();
-                auto* construction_item = origin_item == nullptr
-                    ? nullptr : origin_item->parent();
-                if (semantic == "origin:point" && construction_item != nullptr &&
-                    (construction_item->data(0, Qt::UserRole + 3).toString() ==
-                            "part-construction" ||
-                     construction_item->data(0, Qt::UserRole + 3).toString() ==
-                            "assembly-construction")) {
-                    viewer_->confirm_container(construction_item->data(
-                        0, Qt::UserRole).toString().toStdString());
-                    return;
-                }
                 const auto owner = item->data(0, Qt::UserRole + 6).isValid()
                     ? item->data(0, Qt::UserRole + 6).toString().toStdString()
                     : item->data(0, Qt::UserRole).toString().toStdString();
@@ -8196,61 +8127,6 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         append_dimension("z", "Z = ",
             {point->origin.x, point->origin.y, 0}, point->origin,
             {8, 8, 0}, point->origin.z);
-        const auto& geometry = mesh.original_references;
-        for (std::size_t reference_index = 0;
-             reference_index < point->references.size(); ++reference_index) {
-            const auto& reference = point->references[reference_index];
-            if (!reference.supports_offset) continue;
-            const auto matches = [&](const auto& candidate) {
-                return candidate.instance_path == reference.instance_path &&
-                    candidate.owner_id == reference.owner_id &&
-                    candidate.semantic_key == reference.semantic_key;
-            };
-            for (std::size_t triangle_index = 0;
-                 triangle_index < geometry.triangle_references.size();
-                 ++triangle_index) {
-                if (!matches(geometry.triangle_references[triangle_index]) ||
-                    triangle_index * 3 + 2 >= geometry.triangles.size()) continue;
-                const auto& a = geometry.vertices[
-                    geometry.triangles[triangle_index * 3]];
-                const auto& b = geometry.vertices[
-                    geometry.triangles[triangle_index * 3 + 1]];
-                const auto& c = geometry.vertices[
-                    geometry.triangles[triangle_index * 3 + 2]];
-                zima::kernel::Vec3 normal{
-                    (b.y-a.y)*(c.z-a.z)-(b.z-a.z)*(c.y-a.y),
-                    (b.z-a.z)*(c.x-a.x)-(b.x-a.x)*(c.z-a.z),
-                    (b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x)};
-                const double length = std::hypot(
-                    std::hypot(normal.x, normal.y), normal.z);
-                if (length <= 1.0e-12) break;
-                normal = {normal.x / length, normal.y / length, normal.z / length};
-                const zima::kernel::Vec3 offset_point{
-                    a.x + normal.x * reference.offset,
-                    a.y + normal.y * reference.offset,
-                    a.z + normal.z * reference.offset};
-                const zima::kernel::Vec3 helper = std::abs(normal.x) < 0.9
-                    ? zima::kernel::Vec3{1, 0, 0}
-                    : zima::kernel::Vec3{0, 1, 0};
-                zima::kernel::Vec3 tangent{
-                    normal.y*helper.z-normal.z*helper.y,
-                    normal.z*helper.x-normal.x*helper.z,
-                    normal.x*helper.y-normal.y*helper.x};
-                const double tangent_length = std::hypot(
-                    std::hypot(tangent.x, tangent.y), tangent.z);
-                tangent = {8.0*tangent.x/tangent_length,
-                    8.0*tangent.y/tangent_length,
-                    8.0*tangent.z/tangent_length};
-                mesh.dimensions.push_back({a, offset_point,
-                    {a.x+tangent.x, a.y+tangent.y, a.z+tangent.z},
-                    {offset_point.x+tangent.x, offset_point.y+tangent.y,
-                        offset_point.z+tangent.z},
-                    reference.offset,
-                    {point->id, "reference_offset:" +
-                        std::to_string(reference_index), {}}, "Offset = "});
-                break;
-            }
-        }
         return mesh;
     };
     if (workspace_.size() == 0) {
@@ -9419,16 +9295,11 @@ void AssemblyWorkspaceWindow::add_mate_tree_children(
 void AssemblyWorkspaceWindow::select_container(const std::string& container_id) {
     auto* root = tree_->topLevelItem(0);
     if (root == nullptr) return;
-    std::vector<QTreeWidgetItem*> pending{root};
-    while (!pending.empty()) {
-        auto* item = pending.back();
-        pending.pop_back();
+    for (int index = 0; index < root->childCount(); ++index) {
+        auto* item = root->child(index);
         if (item->data(0, Qt::UserRole).toString().toStdString() == container_id) {
             tree_->setCurrentItem(item);
             return;
-        }
-        for (int index = item->childCount() - 1; index >= 0; --index) {
-            pending.push_back(item->child(index));
         }
     }
 }
