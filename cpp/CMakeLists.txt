@@ -166,7 +166,7 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_workspace_startup_contract
         COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_workspace_startup_contract PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+        ENVIRONMENT "QT_QPA_PLATFORM=wayland")
     add_executable(zima_cpp_drawing_contract_tests tests/drawing_contract_tests.cpp)
     target_link_libraries(zima_cpp_drawing_contract_tests PRIVATE zima_drawing)
     add_test(NAME zima_cpp_drawing_contract_tests COMMAND zima_cpp_drawing_contract_tests)

@@ -325,6 +325,20 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
             result.push_back({kind, vertex.distance, vertex.point,
                               vertex.reference.owner_id, vertex.reference.semantic_key,
                               vertex.reference.instance_path, geometry});
+            // A construction Point is deliberately both a history container
+            // and a persisted point reference. Ordinary selection offers the
+            // container; point-taking commands filter the same ordered list
+            // to the Vertex candidate. This avoids a synthetic "point in a
+            // point" UI object while preserving the real Origin child ID.
+            constexpr std::string_view origin_suffix{":origin"};
+            if (vertex.reference.semantic_key == "point" &&
+                vertex.reference.owner_id.ends_with(origin_suffix)) {
+                result.push_back({CandidateKind::Container, vertex.distance,
+                    vertex.point,
+                    vertex.reference.owner_id.substr(0,
+                        vertex.reference.owner_id.size() - origin_suffix.size()),
+                    "point", vertex.reference.instance_path, geometry});
+            }
         }
         for (const auto& axis : ordered_axis_candidates(
                 source, ray_origin, ray_direction, world_tolerance)) {
@@ -364,6 +378,13 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
         return 5;
     };
     std::stable_sort(result.begin(), result.end(), [&](const auto& left, const auto& right) {
+        const auto point_container = [](const ViewerCandidate& candidate) {
+            return candidate.kind == CandidateKind::Container &&
+                candidate.semantic_key == "point";
+        };
+        if (point_container(left) != point_container(right)) {
+            return point_container(left);
+        }
         if (std::abs(left.distance - right.distance) > 1.0e-9) {
             return left.distance < right.distance;
         }
@@ -441,7 +462,27 @@ std::optional<ViewerCandidate> container_candidate(
     if (auto original = find_in(
             mesh.original_references.triangle_references,
             CandidateGeometry::OriginalReference)) return original;
-    return find_in(mesh.triangle_references, CandidateGeometry::Display);
+    if (auto display = find_in(
+            mesh.triangle_references, CandidateGeometry::Display)) return display;
+    const auto find_point = [&](const auto& points, CandidateGeometry geometry)
+        -> std::optional<ViewerCandidate> {
+        constexpr std::string_view origin_suffix{":origin"};
+        const std::string point_origin_id = owner_id + std::string(origin_suffix);
+        const auto point = std::find_if(points.begin(), points.end(),
+            [&](const zima::kernel::ViewerPoint& value) {
+                return value.reference.semantic_key == "point" &&
+                    value.reference.owner_id == point_origin_id &&
+                    value.reference.instance_path == instance_path;
+            });
+        if (point == points.end()) return std::nullopt;
+        return ViewerCandidate{CandidateKind::Container, 0.0,
+            static_cast<std::size_t>(std::distance(points.begin(), point)),
+            owner_id, "point", point->reference.instance_path, geometry};
+    };
+    if (auto original_point = find_point(
+            mesh.original_references.points,
+            CandidateGeometry::OriginalReference)) return original_point;
+    return find_point(mesh.points, CandidateGeometry::Display);
 }
 
 }  // namespace zima::viewer

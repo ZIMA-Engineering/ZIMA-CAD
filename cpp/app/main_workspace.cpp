@@ -478,17 +478,79 @@ int verify_startup_contract(
         return 1;
     }
     if (auto* point_buttons = point_dialog->findChild<QDialogButtonBox*>()) {
-        point_buttons->button(QDialogButtonBox::Cancel)->click();
+        point_buttons->button(QDialogButtonBox::Ok)->click();
     }
     application.processEvents();
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     application.processEvents();
+    QTreeWidgetItem* point_tree_item{};
+    if (tree->topLevelItemCount() == 1) {
+        auto* root = tree->topLevelItem(0);
+        for (int index = 0; index < root->childCount(); ++index) {
+            auto* child = root->child(index);
+            if (child->data(0, Qt::UserRole + 3).toString() ==
+                    QStringLiteral("part-construction")) {
+                point_tree_item = child;
+                break;
+            }
+        }
+    }
+    if (!verify(point_tree_item != nullptr,
+                "confirming Point did not create its history container")) {
+        return 1;
+    }
+    tree->setCurrentItem(point_tree_item);
+    application.processEvents();
+    const auto confirmed_point_container = point_viewer->confirmed_candidate();
+    if (!verify(confirmed_point_container &&
+                    confirmed_point_container->kind ==
+                        zima::viewer::CandidateKind::Container &&
+                    confirmed_point_container->owner_id ==
+                        point_tree_item->data(0, Qt::UserRole)
+                            .toString().toStdString(),
+                "Tree Point selection did not confirm its container marker in View")) {
+        return 1;
+    }
+    const auto point_container_id =
+        point_tree_item->data(0, Qt::UserRole).toString().toStdString();
+    point_viewer->clear_selection();
+    tree->clearSelection();
+    tree->setCurrentItem(nullptr);
+    std::optional<QPointF> point_offer_position;
+    for (int y = 2; y < point_viewer->height() && !point_offer_position; y += 4) {
+        for (int x = 2; x < point_viewer->width(); x += 4) {
+            const QPointF position{static_cast<qreal>(x), static_cast<qreal>(y)};
+            const auto candidates = point_viewer->selection_candidates_at(position);
+            if (!candidates.empty() &&
+                candidates.front().kind == zima::viewer::CandidateKind::Container &&
+                candidates.front().owner_id == point_container_id) {
+                point_offer_position = position;
+                break;
+            }
+        }
+    }
+    if (!verify(point_offer_position.has_value(),
+                "ordinary View hover did not offer the Point container")) {
+        return 1;
+    }
+    QMouseEvent point_container_move(QEvent::MouseMove, *point_offer_position,
+        point_viewer->mapToGlobal(point_offer_position->toPoint()),
+        Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+    QApplication::sendEvent(point_viewer, &point_container_move);
+    const auto hovered_point_container = point_viewer->hovered_candidate();
+    if (!verify(hovered_point_container &&
+                    hovered_point_container->kind ==
+                        zima::viewer::CandidateKind::Container &&
+                    hovered_point_container->owner_id == point_container_id,
+                "Point marker did not become the orange View hover candidate")) {
+        return 1;
+    }
     if (!part_capture_path.isEmpty() &&
         !verify(window.grab().save(part_capture_path),
                 "native Qt window capture failed")) {
         return 1;
     }
-    if (!part_capture_path.isEmpty()) {
+    {
         QOpenGLWidget* model_viewer{};
         for (auto* child : window.findChildren<QObject*>()) {
             if (child->objectName() == QStringLiteral("modelWorkspace")) {
@@ -500,14 +562,16 @@ int verify_startup_contract(
             return 1;
         }
         const QImage framebuffer = model_viewer->grabFramebuffer();
-        if (!verify(!framebuffer.isNull(), "native Qt viewer framebuffer is null") ||
+        if (!verify(!framebuffer.isNull(),
+                    "Wayland OpenGL viewer framebuffer is null") ||
             !verify(contains_rendered_geometry(framebuffer),
-                    "native Qt viewer framebuffer contains no body geometry") ||
-            !verify(framebuffer.save(
-                        part_capture_path + QStringLiteral(".viewer.png")),
-                    "native Qt viewer framebuffer save failed")) {
+                    "Wayland OpenGL viewer framebuffer contains no body geometry")) {
             return 1;
         }
+        if (!part_capture_path.isEmpty() &&
+            !verify(framebuffer.save(
+                        part_capture_path + QStringLiteral(".viewer.png")),
+                    "native Qt viewer framebuffer save failed")) return 1;
     }
 
     sketch->trigger();

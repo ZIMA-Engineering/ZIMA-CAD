@@ -59,6 +59,32 @@ int main() {
         require(points.size() == 2 && points[0].reference.semantic_key == "vertex-a" &&
                     points[1].reference.semantic_key == "vertex-b",
                 "Vertex candidates do not use stable references in depth order");
+        zima::kernel::ViewerMesh construction_point_mesh;
+        construction_point_mesh.points.push_back({
+            {0.0, 0.0, 5.0}, {"point-container:origin", "point"}, "Bod001"});
+        const auto construction_point_candidates =
+            zima::viewer::ordered_viewer_candidates(construction_point_mesh,
+                {0.0, 0.0, 0.0}, {0.0, 0.0, 1.0}, 0.01);
+        const auto construction_point_containers = zima::viewer::filter_candidates(
+            construction_point_candidates,
+            {zima::viewer::CandidateKind::Container});
+        const auto construction_point_vertices = zima::viewer::filter_candidates(
+            construction_point_candidates,
+            {zima::viewer::CandidateKind::Vertex});
+        require(construction_point_containers.size() == 1 &&
+                    construction_point_containers.front().owner_id ==
+                        "point-container" &&
+                    construction_point_vertices.size() == 1 &&
+                    construction_point_vertices.front().owner_id ==
+                        "point-container:origin",
+                "Point marker did not expose its container and persisted point roles");
+        const auto tree_point_confirmation = zima::viewer::container_candidate(
+            construction_point_mesh, "point-container");
+        require(tree_point_confirmation &&
+                    tree_point_confirmation->kind ==
+                        zima::viewer::CandidateKind::Container &&
+                    tree_point_confirmation->owner_id == "point-container",
+                "Tree could not confirm the Point container marker");
         const auto all_candidates = zima::viewer::ordered_viewer_candidates(
             mesh, {0.0, 0.0, 0.0}, {0.0, 0.0, 1.0}, 0.01);
         const auto edge_contract = zima::viewer::filter_candidates(

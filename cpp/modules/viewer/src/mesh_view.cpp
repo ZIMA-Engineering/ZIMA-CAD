@@ -1392,6 +1392,8 @@ void MeshView::paintGL() {
                 }
             } else if ((highlighted->kind == CandidateKind::Vertex ||
                         highlighted->kind == CandidateKind::SketchPoint ||
+                        (highlighted->kind == CandidateKind::Container &&
+                         highlighted->semantic_key == "point") ||
                         (highlighted->kind == CandidateKind::SketchExternalReference &&
                          highlighted->semantic_key.starts_with("external_point:"))) &&
                        highlighted->geometry_index < selectable_points.size()) {

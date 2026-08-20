@@ -2025,17 +2025,16 @@ void AssemblyWorkspaceWindow::create_layout() {
                 if (object == nullptr) return;
                 const auto path = item->data(0, Qt::UserRole + 1)
                     .toString().toStdString();
+                if (object->kind == zima::document::ConstructionKind::Point) {
+                    viewer_->confirm_container(object->id);
+                    return;
+                }
                 viewer_->confirm_reference(
-                    object->kind == zima::document::ConstructionKind::Point
-                        ? object->container_origin.id : object->id,
-                    object->kind == zima::document::ConstructionKind::Point
-                        ? "point"
-                        : object->kind == zima::document::ConstructionKind::Axis
+                    object->id,
+                    object->kind == zima::document::ConstructionKind::Axis
                             ? "axis" : "plane",
                     path,
-                    object->kind == zima::document::ConstructionKind::Point
-                        ? zima::viewer::CandidateKind::Vertex
-                        : object->kind == zima::document::ConstructionKind::Axis
+                    object->kind == zima::document::ConstructionKind::Axis
                             ? zima::viewer::CandidateKind::Axis
                             : zima::viewer::CandidateKind::Face);
                 return;
