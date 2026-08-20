@@ -492,6 +492,32 @@ int verify_startup_contract(
                 "Tree Point double-click did not open dimension inspection only")) {
         return 1;
     }
+    std::optional<QPointF> empty_view_position;
+    for (int y = 4; y < point_viewer->height() && !empty_view_position; y += 12) {
+        for (int x = 4; x < point_viewer->width(); x += 12) {
+            const QPointF position{
+                static_cast<qreal>(x), static_cast<qreal>(y)};
+            if (point_viewer->selection_candidates_at(position).empty()) {
+                empty_view_position = position;
+                break;
+            }
+        }
+    }
+    if (!verify(empty_view_position.has_value(),
+                "Startup scene did not expose empty View space for selection testing")) {
+        return 1;
+    }
+    QMouseEvent empty_view_click(QEvent::MouseButtonPress, *empty_view_position,
+        point_viewer->mapToGlobal(empty_view_position->toPoint()),
+        Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+    QApplication::sendEvent(point_viewer, &empty_view_click);
+    application.processEvents();
+    if (!verify(!point_viewer->confirmed_candidate() &&
+                    tree->selectedItems().empty() &&
+                    point_viewer->displayed_dimension_count() == 0,
+                "Empty View click did not clear View, Tree, and inspection overlays")) {
+        return 1;
+    }
     if (!part_capture_path.isEmpty() &&
         !verify(window.grab().save(part_capture_path),
                 "native Qt window capture failed")) {

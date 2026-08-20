@@ -71,6 +71,7 @@ public:
     void clear_selection();
     void set_confirmation_callback(
         std::function<void(const ViewerCandidate&)> callback);
+    void set_empty_click_callback(std::function<void()> callback);
     void set_context_menu_callback(
         std::function<void(const ViewerCandidate&, const QPoint&)> callback);
     void set_world_click_callback(std::function<bool(

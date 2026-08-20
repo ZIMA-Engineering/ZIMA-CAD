@@ -619,6 +619,8 @@ int main() {
         constructions.constructions = {point, axis, plane};
         const auto construction_mesh = constructions.construction_viewer_mesh();
         require(construction_mesh.points.size() == 1 &&
+                    construction_mesh.points.front().reference.owner_id == point.id &&
+                    construction_mesh.points.front().reference.semantic_key == "point" &&
                     construction_mesh.axes.size() == 1 &&
                     construction_mesh.edges.size() == 1 &&
                     construction_mesh.original_references.points.size() == 1 &&

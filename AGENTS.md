@@ -140,6 +140,12 @@
 
 ## Viewer selection contracts
 
+- Ordinary LMB selection follows one general rule in every workspace: clicking
+  a valid offered candidate confirms exactly that candidate and synchronizes
+  the Tree; clicking empty View space clears the confirmed View and Tree
+  selection together and removes selection/inspection overlays. An active
+  command may give an empty click another explicit command-local meaning, but
+  must never leave an unrelated stale confirmed selection behind.
 - Hover, left-click confirmation, and pre-confirmation right-click cycling must
   consume one common ordered candidate list produced by the viewer. An active
   command may filter that list through its selection contract, but must not run

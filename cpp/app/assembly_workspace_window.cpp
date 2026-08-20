@@ -1779,6 +1779,22 @@ void AssemblyWorkspaceWindow::create_layout() {
             !active_sketch_id_.empty() && !sketch_mirror_active_ &&
             !sketch_trim_active_);
     });
+    viewer_->set_empty_click_callback([this] {
+        if (construction_reference_dialog_ != nullptr ||
+            pending_construction_reference_index_ ||
+            extrusion_target_dialog_ != nullptr || edge_treatment_selection_ ||
+            mate_selection_active_ || sketch_external_reference_active_ ||
+            sketch_trim_active_ || sketch_mirror_active_ ||
+            sketch_coincident_active_ || sketch_midpoint_active_ ||
+            sketch_symmetric_active_ || sketch_concentric_active_ ||
+            sketch_tangent_active_ || sketch_segment_pair_active_ ||
+            sketch_point_dimension_active_) return;
+        construction_dimension_object_id_.clear();
+        tree_->clearSelection();
+        tree_->setCurrentItem(nullptr);
+        preserve_view_on_refresh_ = true;
+        refresh_scene();
+    });
     viewer_->set_context_menu_callback(
         [this](const auto& candidate, const QPoint& global_position) {
             if (mate_selection_active_ || edge_treatment_selection_ ||
@@ -2114,6 +2130,23 @@ void AssemblyWorkspaceWindow::create_layout() {
                     "origin-reference") {
                 const auto semantic = item->data(0, Qt::UserRole + 5)
                     .toString().toStdString();
+                // Point is the deliberate ordinary-selection exception: the
+                // leaf below a Point Container's Origin selects the owning
+                // Container, so the Tree never exposes a confusing
+                // "point-inside-point" selection. Document Origin points and
+                // active reference commands retain their exact point identity.
+                auto* origin_item = item->parent();
+                auto* construction_item = origin_item == nullptr
+                    ? nullptr : origin_item->parent();
+                if (semantic == "origin:point" && construction_item != nullptr &&
+                    (construction_item->data(0, Qt::UserRole + 3).toString() ==
+                            "part-construction" ||
+                     construction_item->data(0, Qt::UserRole + 3).toString() ==
+                            "assembly-construction")) {
+                    viewer_->confirm_container(construction_item->data(
+                        0, Qt::UserRole).toString().toStdString());
+                    return;
+                }
                 const auto owner = item->data(0, Qt::UserRole + 6).isValid()
                     ? item->data(0, Qt::UserRole + 6).toString().toStdString()
                     : item->data(0, Qt::UserRole).toString().toStdString();
@@ -9386,11 +9419,16 @@ void AssemblyWorkspaceWindow::add_mate_tree_children(
 void AssemblyWorkspaceWindow::select_container(const std::string& container_id) {
     auto* root = tree_->topLevelItem(0);
     if (root == nullptr) return;
-    for (int index = 0; index < root->childCount(); ++index) {
-        auto* item = root->child(index);
+    std::vector<QTreeWidgetItem*> pending{root};
+    while (!pending.empty()) {
+        auto* item = pending.back();
+        pending.pop_back();
         if (item->data(0, Qt::UserRole).toString().toStdString() == container_id) {
             tree_->setCurrentItem(item);
             return;
+        }
+        for (int index = item->childCount() - 1; index >= 0; --index) {
+            pending.push_back(item->child(index));
         }
     }
 }

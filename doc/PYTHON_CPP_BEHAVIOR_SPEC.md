@@ -438,6 +438,12 @@ Python source: viewer selection policy and candidate-cycle handlers in
   Container. An active reference command still receives the exact persisted
   Point child through the same viewer candidate source.
 - A single Tree click does not open Properties.
+- Ordinary LMB selection follows one global rule: clicking a valid offered
+  candidate confirms exactly that candidate and synchronizes Tree; clicking
+  empty View space clears the confirmed View and Tree selection together and
+  removes selection and inspection overlays. An active command may define a
+  different explicit command-local meaning for an empty click, but must not
+  retain an unrelated stale confirmed selection.
 - A View or Tree double click activates dimension inspection for the Point
   Container.
 - Inspection exposes placement dimensions and every supported planar
