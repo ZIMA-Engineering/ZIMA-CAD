@@ -272,8 +272,12 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
     const auto ray = ray_at(position);
     if (!ray) return {};
     const auto& [ray_origin, ray_direction] = *ray;
+    // Python parity: point/topology picking uses a 9 px radius scaled by the
+    // Wayland device pixel ratio. Keep this expressed through the camera's
+    // world-per-pixel conversion so the visible marker and its hit area stay
+    // consistent at every zoom and DPI.
     const double world_tolerance =
-        8.0 * impl_->view_scale / std::max(height(), 1);
+        world_tolerance_for_pixels(9.0 * devicePixelRatioF());
     return filter_candidates(ordered_viewer_candidates(
         impl_->mesh, impl_->persisted_reference_mesh,
         ray_origin, ray_direction, world_tolerance),
