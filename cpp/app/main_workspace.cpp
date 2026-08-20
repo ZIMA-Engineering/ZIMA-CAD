@@ -383,19 +383,57 @@ int verify_startup_contract(
     application.processEvents();
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     application.processEvents();
-    bool box_in_tree = false;
+    QTreeWidgetItem* box_tree_item{};
     if (tree->topLevelItemCount() == 1) {
-        const auto* root = tree->topLevelItem(0);
+        auto* root = tree->topLevelItem(0);
         for (int index = 0; index < root->childCount(); ++index) {
             if (root->child(index)->data(0, Qt::UserRole + 3).toString() ==
                     QStringLiteral("part-container")) {
-                box_in_tree = true;
+                box_tree_item = root->child(index);
                 break;
             }
         }
     }
-    if (!verify(box_in_tree,
+    if (!verify(box_tree_item != nullptr,
                 "confirming Box must create the first Part history item")) {
+        return 1;
+    }
+    auto* selection_viewer = dynamic_cast<zima::viewer::MeshView*>(
+        window.findChild<QOpenGLWidget*>("modelWorkspace"));
+    tree->setCurrentItem(box_tree_item);
+    application.processEvents();
+    const auto tree_confirmed = selection_viewer == nullptr
+        ? std::optional<zima::viewer::ViewerCandidate>{}
+        : selection_viewer->confirmed_candidate();
+    if (!verify(tree_confirmed && tree_confirmed->kind ==
+                    zima::viewer::CandidateKind::Container &&
+                    tree_confirmed->owner_id ==
+                        box_tree_item->data(0, Qt::UserRole).toString().toStdString(),
+                "Tree selectionChanged did not synchronize the View candidate")) {
+        return 1;
+    }
+    std::optional<QPointF> empty_view_position;
+    for (int y = 4; y < selection_viewer->height() && !empty_view_position; y += 8) {
+        for (int x = 4; x < selection_viewer->width(); x += 8) {
+            const QPointF position{static_cast<qreal>(x), static_cast<qreal>(y)};
+            if (selection_viewer->selection_candidates_at(position).empty()) {
+                empty_view_position = position;
+                break;
+            }
+        }
+    }
+    if (!verify(empty_view_position.has_value(),
+                "Viewer selection contract exposed no empty click position")) {
+        return 1;
+    }
+    QMouseEvent empty_view_press(QEvent::MouseButtonPress, *empty_view_position,
+        selection_viewer->mapToGlobal(empty_view_position->toPoint()),
+        Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+    QApplication::sendEvent(selection_viewer, &empty_view_press);
+    application.processEvents();
+    if (!verify(!selection_viewer->confirmed_candidate() &&
+                    tree->selectedItems().empty() && tree->currentItem() == nullptr,
+                "Empty View click did not clear the shared View and Tree selection")) {
         return 1;
     }
     construction_point->trigger();

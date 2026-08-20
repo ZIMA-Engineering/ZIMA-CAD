@@ -1742,6 +1742,10 @@ void AssemblyWorkspaceWindow::create_layout() {
             !active_sketch_id_.empty() && !sketch_mirror_active_ &&
             !sketch_trim_active_);
     });
+    viewer_->set_empty_confirmation_callback([this] {
+        tree_->clearSelection();
+        tree_->setCurrentItem(nullptr);
+    });
     viewer_->set_context_menu_callback(
         [this](const auto& candidate, const QPoint& global_position) {
             if (mate_selection_active_ || edge_treatment_selection_ ||
@@ -1975,9 +1979,19 @@ void AssemblyWorkspaceWindow::create_layout() {
             viewer_->set_camera_state(camera->second);
         }
     });
-    connect(tree_, &QTreeWidget::itemClicked, this,
-        [this](QTreeWidgetItem* item) {
-            if (item == nullptr || item->parent() == nullptr) return;
+    connect(tree_, &QTreeWidget::itemSelectionChanged, this,
+        [this] {
+            const auto selected_items = tree_->selectedItems();
+            if (selected_items.empty()) {
+                construction_dimension_object_id_.clear();
+                viewer_->clear_selection();
+                return;
+            }
+            auto* item = tree_->currentItem();
+            if (item == nullptr || !selected_items.contains(item)) {
+                item = selected_items.front();
+            }
+            if (item->parent() == nullptr) return;
             if (construction_reference_dialog_ != nullptr &&
                 pending_construction_reference_index_) {
                 if (!accept_construction_tree_reference(item)) {
@@ -1993,57 +2007,9 @@ void AssemblyWorkspaceWindow::create_layout() {
                     "part-sketch-constraint") return;
             if (item->data(0, Qt::UserRole + 3).toString() == "part-sketch" ||
                 item->data(0, Qt::UserRole + 3).toString() == "assembly-sketch") {
-                active_sketch_id_ = item->data(0, Qt::UserRole).toString().toStdString();
-                selected_sketch_id_ = active_sketch_id_;
-                selected_sketch_segment_id_.clear();
-                selected_sketch_point_id_.clear();
-                selected_sketch_circle_id_.clear();
-                selected_sketch_arc_id_.clear();
-                selected_sketch_ellipse_id_.clear();
-                selected_sketch_elliptical_arc_id_.clear();
-                selected_sketch_bspline_id_.clear();
-                selected_sketch_text_id_.clear();
-                cancel_sketch_segment();
-                sketch_normal_view_action_->setEnabled(true);
-                sketch_external_reference_action_->setEnabled(true);
-                sketch_point_action_->setEnabled(true);
-                sketch_construction_action_->setEnabled(true);
-                sketch_segment_action_->setEnabled(true);
-                sketch_polyline_action_->setEnabled(true);
-                sketch_rectangle_action_->setEnabled(true);
-                sketch_polygon_action_->setEnabled(true);
-                sketch_trim_action_->setEnabled(true);
-                sketch_mirror_action_->setEnabled(true);
-                sketch_circle_action_->setEnabled(true);
-                sketch_arc_action_->setEnabled(true);
-                sketch_ellipse_action_->setEnabled(true);
-                sketch_elliptical_arc_action_->setEnabled(true);
-                sketch_bspline_action_->setEnabled(true);
-                sketch_text_action_->setEnabled(true);
-                sketch_constraints_action_->setEnabled(true);
-                sketch_dimensions_action_->setEnabled(true);
-                sketch_coincident_action_->setEnabled(true);
-                sketch_midpoint_action_->setEnabled(true);
-                sketch_symmetric_action_->setEnabled(true);
-                sketch_concentric_action_->setEnabled(true);
-                sketch_tangent_action_->setEnabled(true);
-                sketch_parallel_action_->setEnabled(true);
-                sketch_perpendicular_action_->setEnabled(true);
-                sketch_equal_length_action_->setEnabled(true);
-                extrusion_action_->setEnabled(true);
-                revolution_action_->setEnabled(true);
-                sketch_horizontal_action_->setEnabled(false);
-                sketch_vertical_action_->setEnabled(false);
-                sketch_dimension_action_->setEnabled(false);
-                sketch_dimension_x_action_->setEnabled(false);
-                sketch_dimension_y_action_->setEnabled(false);
-                sketch_angle_dimension_action_->setEnabled(false);
-                sketch_radius_dimension_action_->setEnabled(false);
-                sketch_diameter_dimension_action_->setEnabled(false);
-                sketch_fix_point_action_->setEnabled(false);
-                finish_sketch_action_->setEnabled(true);
-                rebuild_application_toolbar();
-                align_active_sketch_view();
+                selected_sketch_id_ =
+                    item->data(0, Qt::UserRole).toString().toStdString();
+                viewer_->confirm_container(selected_sketch_id_);
                 return;
             }
             if (item->data(0, Qt::UserRole + 3).toString() == "part-construction" ||
@@ -2110,11 +2076,6 @@ void AssemblyWorkspaceWindow::create_layout() {
                     item->data(0, Qt::UserRole + 1).toString().toStdString());
             }
         });
-    connect(tree_, &QTreeWidget::itemSelectionChanged, this, [this] {
-        if (!tree_->selectedItems().empty()) return;
-        construction_dimension_object_id_.clear();
-        viewer_->clear_selection();
-    });
     // Python parity: a Tree double-click has no object action. Editing,
     // activation and Properties remain explicit context-menu commands.
     tree_->setContextMenuPolicy(Qt::CustomContextMenu);

@@ -60,6 +60,7 @@ struct MeshView::Impl {
     std::size_t active_candidate{};
     std::optional<ViewerCandidate> confirmed_candidate;
     std::function<void(const ViewerCandidate&)> confirmation_callback;
+    std::function<void()> empty_confirmation_callback;
     std::function<void(const ViewerCandidate&)> double_confirmation_callback;
     std::function<bool(const ViewerCandidate&)> drag_begin_callback;
     std::function<void(const zima::kernel::Vec3&, const zima::kernel::Vec3&)>
@@ -407,6 +408,10 @@ void MeshView::clear_selection() {
 void MeshView::set_confirmation_callback(
     std::function<void(const ViewerCandidate&)> callback) {
     impl_->confirmation_callback = std::move(callback);
+}
+
+void MeshView::set_empty_confirmation_callback(std::function<void()> callback) {
+    impl_->empty_confirmation_callback = std::move(callback);
 }
 
 void MeshView::set_context_menu_callback(
@@ -1523,6 +1528,12 @@ void MeshView::mousePressEvent(QMouseEvent* event) {
         impl_->middle_dragged = false;
         impl_->middle_press_position = event->position().toPoint();
     }
+    // Hover, RMB cycling and LMB confirmation always consume the candidate
+    // list produced for the click position. A preceding mouse move is not a
+    // precondition for selecting or clearing a selection.
+    if (event->button() == Qt::LeftButton) {
+        update_candidates(event->position());
+    }
     // RMB cycles the exact same ordered list used by hover and LMB.  Refresh
     // it at the click position so cycling also works immediately after a
     // command changes its selection contract, without requiring a preceding
@@ -1532,7 +1543,6 @@ void MeshView::mousePressEvent(QMouseEvent* event) {
     }
     if (event->button() == Qt::LeftButton &&
         impl_->command_gesture_begin_callback) {
-        update_candidates(event->position());
         const auto ray = ray_at(event->position());
         const std::optional<ViewerCandidate> candidate = impl_->candidates.empty()
             ? std::nullopt
@@ -1562,6 +1572,12 @@ void MeshView::mousePressEvent(QMouseEvent* event) {
             impl_->drag_active = impl_->drag_begin_callback(*impl_->confirmed_candidate);
         }
         update();
+    } else if (event->button() == Qt::LeftButton) {
+        clear_selection();
+        if (impl_->empty_confirmation_callback) {
+            impl_->empty_confirmation_callback();
+        }
+        event->accept();
     } else if (event->button() == Qt::RightButton) {
         if (impl_->confirmed_candidate) {
             if (impl_->context_menu_callback) {

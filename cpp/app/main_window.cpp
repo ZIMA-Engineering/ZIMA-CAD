@@ -83,6 +83,11 @@ void MainWindow::create_layout() {
             select_tree_container(candidate.owner_id);
         }
     });
+    viewer_->set_empty_confirmation_callback([this] {
+        selected_container_id_.clear();
+        tree_->clearSelection();
+        tree_->setCurrentItem(nullptr);
+    });
     viewer_->set_context_menu_callback(
         [this](const auto& candidate, const QPoint& global_position) {
             if (candidate.kind == zima::viewer::CandidateKind::Container) {
