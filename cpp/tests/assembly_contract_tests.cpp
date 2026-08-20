@@ -47,6 +47,7 @@ int main() {
         const auto scene = assembly.build_scene();
         std::set<std::string> instance_paths;
         for (const auto& reference : scene.original_references.triangle_references) {
+            if (reference.owner_id == assembly.document_id + ":origin") continue;
             require(reference.owner_id == "same-source-container" &&
                         !reference.instance_path.empty(),
                     "Assembly changed source ownership or lost occurrence identity");
@@ -56,14 +57,16 @@ int main() {
                 "Repeated source Part occurrences collapsed into one identity");
         std::set<std::string> assembly_axis_paths;
         for (const auto& axis : scene.original_references.axes) {
+            if (axis.reference.owner_id == assembly.document_id + ":origin") continue;
             assembly_axis_paths.insert(axis.reference.instance_path);
         }
-        require(scene.original_references.axes.size() == 6 && assembly_axis_paths == instance_paths,
+        require(assembly_axis_paths == instance_paths,
                 "Assembly did not transform and distinguish occurrence axes");
         const auto rollback_scene = assembly.build_scene_with_part_override(
             first_id, zima::kernel::BodyResult{});
         std::set<std::string> rollback_paths;
         for (const auto& reference : rollback_scene.original_references.triangle_references) {
+            if (reference.owner_id == assembly.document_id + ":origin") continue;
             rollback_paths.insert(reference.instance_path);
         }
         require(rollback_paths.size() == 1 && rollback_paths.contains(
@@ -121,6 +124,10 @@ int main() {
         cut_definition.combine_mode = zima::document::CombineMode::Subtract;
         cut_definition.extrusion.extent = zima::document::ExtrusionExtent::ThroughAll;
         assembly.cuts.push_back({cut_definition, {first_id, second_id}});
+        assembly.cuts.back().input_component_bodies.emplace(
+            first_id, assembly.components.front().calculated_source);
+        assembly.cuts.back().input_component_bodies.emplace(
+            second_id, assembly.components.back().calculated_source);
         assembly.save(assembly_path);
         const auto loaded = zima::assembly::AssemblyDocument::load(assembly_path);
         std::filesystem::remove(assembly_path);
@@ -138,15 +145,33 @@ int main() {
                     loaded.sketches.front().serialized() ==
                         assembly.sketches.front().serialized() &&
                     loaded.cuts == assembly.cuts &&
+                    loaded.cuts.front().input_component_bodies.size() == 2 &&
+                    loaded.cuts.front().input_component_bodies.at(first_id).volume ==
+                        assembly.components.front().calculated_source.volume &&
                     loaded.find_cut(cut_definition.id) != nullptr,
                 "Assembly identity and placement did not survive save/load");
         const auto loaded_scene = loaded.build_scene();
         std::set<std::string> loaded_paths;
         for (const auto& reference : loaded_scene.original_references.triangle_references) {
+            if (reference.semantic_key.starts_with("origin:")) continue;
             loaded_paths.insert(reference.instance_path);
         }
         require(loaded_paths == instance_paths,
                 "Assembly save/load changed stable occurrence paths");
+        auto broken_cut_target = loaded;
+        broken_cut_target.cuts.front().definition.extrusion.extent =
+            zima::document::ExtrusionExtent::UpToPlane;
+        broken_cut_target.cuts.front().definition.extrusion.target_face = {
+            "missing-owner", "missing-face",
+            zima::assembly::InstancePath{}.child(first_id).encoded()};
+        bool broken_cut_target_rejected = false;
+        try {
+            static_cast<void>(broken_cut_target.build_scene());
+        } catch (const std::runtime_error&) {
+            broken_cut_target_rejected = true;
+        }
+        require(broken_cut_target_rejected,
+                "Assembly accepted a cut with a missing persisted target face");
         const auto point_for_path = [&](const std::string& path) {
             const auto found = std::find_if(
                 loaded_scene.original_references.points.begin(),

@@ -20,6 +20,7 @@
 #include <QPushButton>
 #include <QPlainTextEdit>
 #include <QTimer>
+#include <QTableWidget>
 #include <QWidget>
 
 #include <chrono>
@@ -284,8 +285,12 @@ int main(int argc, char* argv[]) {
             "constructionDefinition");
         definition->setCurrentIndex(definition->findData(static_cast<int>(
             zima::document::ConstructionDefinition::TwoPointAxis)));
-        referenced_axis_dialog->findChild<QPushButton*>(
-            "constructionReference1")->click();
+        auto* reference_table = referenced_axis_dialog->findChild<QTableWidget*>(
+            "constructionReferenceTable");
+        require(reference_table != nullptr,
+                "Construction Properties has no Python-parity reference table");
+        QMetaObject::invokeMethod(reference_table, "cellClicked",
+            Qt::DirectConnection, Q_ARG(int, 0), Q_ARG(int, 1));
         require(requested_reference == 0,
                 "Construction Properties did not request viewer reference selection");
         referenced_axis_dialog->set_reference(
@@ -317,24 +322,25 @@ int main(int argc, char* argv[]) {
         auto* extrusion_direction =
             extrusion_dialog->findChild<QComboBox*>("extrusionDirection");
         auto* extrusion_extent =
-            extrusion_dialog->findChild<QComboBox*>("extrusionExtent");
+            extrusion_dialog->findChild<QComboBox*>("extrusionExtentMode");
+        auto* forward_end = extrusion_dialog->findChild<QComboBox*>(
+            "extrusionForwardEndCondition");
         require(extrusion_height != nullptr,
                 "Extrusion dialog does not expose its height");
         require(extrusion_direction != nullptr,
                 "Extrusion dialog does not expose its direction");
-        require(extrusion_extent != nullptr,
+        require(extrusion_extent != nullptr && forward_end != nullptr,
                 "Extrusion dialog does not expose its extent");
         require(extrusion_dialog->findChildren<QDoubleSpinBox*>(
                     "primitiveTranslation").empty(),
                 "Extrusion dialog exposes an ignored placement");
         extrusion_height->setValue(48.0);
-        extrusion_direction->setCurrentIndex(
-            extrusion_direction->findData("symmetric"));
+        extrusion_extent->setCurrentIndex(
+            extrusion_extent->findData("symmetric"));
         int preview_updates = 0;
         extrusion_dialog->set_preview_callback(
             [&](const auto&) { ++preview_updates; });
-        extrusion_extent->setCurrentIndex(
-            extrusion_extent->findData("up_to"));
+        forward_end->setCurrentIndex(forward_end->findData("up_to"));
         extrusion_dialog->set_extrusion_target(
             {"datum-plane", "plane", {}}, {0.0, 0.0, 30.0}, {0.0, 0.0, 1.0});
         extrusion_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
@@ -343,13 +349,16 @@ int main(int argc, char* argv[]) {
                     committed_extrusion.feature_kind ==
                         zima::document::FeatureKind::Extrusion &&
                     committed_extrusion.extrusion.sketch_id == "sketch-profile" &&
-                    committed_extrusion.extrusion.height == 48.0 &&
-                    committed_extrusion.extrusion.direction ==
-                        zima::document::ExtrusionDirection::Forward &&
-                    committed_extrusion.extrusion.extent ==
-                        zima::document::ExtrusionExtent::UpToPlane &&
-                    committed_extrusion.extrusion.target_face.owner_id ==
-                        "datum-plane" && preview_updates >= 2,
+                    committed_extrusion.extrusion.length_forward == 48.0 &&
+                    committed_extrusion.extrusion.length_reverse == 48.0 &&
+                    committed_extrusion.extrusion.extent_mode ==
+                        zima::document::ProfileExtentMode::Symmetric &&
+                    committed_extrusion.extrusion.end_condition_forward ==
+                        zima::document::EndCondition::UpTo &&
+                    !committed_extrusion.extrusion.end_targets_forward.empty() &&
+                    committed_extrusion.extrusion.end_targets_forward.front()
+                        .reference.owner_id == "datum-plane" &&
+                    preview_updates >= 2,
                 "Extrusion Properties did not preserve its Sketch or height");
 
         auto revolution_initial =

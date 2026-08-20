@@ -70,7 +70,13 @@ struct PartOccurrence {
 struct AssemblyCut {
     zima::document::HistoryContainer definition;
     std::vector<std::string> target_occurrence_ids;
-    bool operator==(const AssemblyCut&) const = default;
+    // Persisted full component boundary immediately before this cut. It is
+    // consumed by Properties rollback without recalculating through OCCT.
+    std::map<std::string, zima::kernel::BodyResult> input_component_bodies;
+    bool operator==(const AssemblyCut& other) const {
+        return definition == other.definition &&
+            target_occurrence_ids == other.target_occurrence_ids;
+    }
 };
 
 enum class ComponentDependencyKind {
@@ -177,6 +183,7 @@ public:
     [[nodiscard]] const zima::document::ConstructionObject* find_construction(
         const std::string& id) const;
     [[nodiscard]] zima::kernel::ViewerMesh construction_viewer_mesh() const;
+    [[nodiscard]] zima::kernel::ViewerMesh origin_viewer_mesh() const;
     void resolve_constructions();
     [[nodiscard]] zima::kernel::ViewerMesh build_scene() const;
     [[nodiscard]] std::vector<OccurrenceSnapshot> occurrence_snapshot() const;

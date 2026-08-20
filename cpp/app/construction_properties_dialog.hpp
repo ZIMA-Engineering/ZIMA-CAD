@@ -11,6 +11,7 @@ class QComboBox;
 class QLabel;
 class QLineEdit;
 class QPushButton;
+class QTableWidget;
 
 namespace zima::app {
 
@@ -27,8 +28,13 @@ public:
     void set_preview_callback(PreviewCallback callback);
     void set_reference(std::size_t index,
         zima::document::ConstructionReference reference,
+        const QString& label,
+        zima::document::ConstructionDefinition definition);
+    void set_reference(std::size_t index,
+        zima::document::ConstructionReference reference,
         const QString& label);
     [[nodiscard]] zima::document::ConstructionDefinition current_definition() const;
+    [[nodiscard]] zima::document::ConstructionKind construction_kind() const;
 
 protected:
     bool submit() override;
@@ -38,16 +44,22 @@ private:
     CommitCallback commit_;
     QLineEdit* name_{};
     std::array<QDoubleSpinBox*, 3> origin_{};
+    std::array<QDoubleSpinBox*, 3> rotation_{};
     std::array<QDoubleSpinBox*, 3> direction_{};
     QDoubleSpinBox* display_size_{};
     QDoubleSpinBox* offset_{};
     QComboBox* definition_{};
     std::array<QPushButton*, 3> reference_buttons_{};
+    QTableWidget* reference_table_{};
+    QLabel* reference_status_{};
+    QLabel* dof_label_{};
     std::vector<zima::document::ConstructionReference> references_;
     ReferenceRequestCallback reference_request_;
     PreviewCallback preview_;
     QLabel* error_{};
     void refresh_definition_fields();
+    void refresh_reference_table();
+    void remove_reference(std::size_t index);
     [[nodiscard]] zima::document::ConstructionObject current_value() const;
     void notify_preview();
 };

@@ -16,6 +16,12 @@ enum class CombineMode { Add, Subtract };
 enum class FeatureKind { Box, Cylinder, Sphere, Cone, Pyramid, Wedge, Extrusion, Revolution, ImportedStep, Fillet, Chamfer };
 enum class ExtrusionDirection { Forward, Reverse, Symmetric };
 enum class ExtrusionExtent { Blind, UpToPlane, UpToSurface, ThroughAll };
+enum class ProfileSource { Internal, External };
+enum class ProfileResultType { Solid, Thin };
+enum class ProfileExtentMode { OneSide, TwoSides, Symmetric };
+enum class ThinMode { OneSide, OtherSide, Symmetric };
+enum class EndCondition { Length, UpTo, ThroughAll };
+enum class EndTargetKind { Point, Plane, Face };
 enum class RevolutionAxis { SketchX, SketchY };
 enum class ConstructionKind { Point, Axis, Plane };
 enum class ConstructionDefinition {
@@ -31,6 +37,7 @@ struct ConstructionReference {
     std::string instance_path;
     std::string owner_id;
     std::string semantic_key;
+    double offset{};
     bool operator==(const ConstructionReference&) const = default;
 };
 
@@ -39,6 +46,7 @@ struct ConstructionObject {
     std::string name;
     ConstructionKind kind{ConstructionKind::Point};
     zima::kernel::Vec3 origin;
+    zima::kernel::Vec3 rotation;
     zima::kernel::Vec3 direction{0.0, 0.0, 1.0};
     double display_size{100.0};
     ConstructionDefinition definition{ConstructionDefinition::Absolute};
@@ -86,6 +94,26 @@ struct WedgeParameters {
 
 struct ExtrusionParameters {
     std::string sketch_id;
+    ProfileSource profile_source{ProfileSource::Internal};
+    ProfileResultType result_type{ProfileResultType::Solid};
+    double thin_thickness{1.0};
+    ThinMode thin_mode{ThinMode::OneSide};
+    ProfileExtentMode extent_mode{ProfileExtentMode::OneSide};
+    double length_forward{10.0};
+    double length_reverse{60.0};
+    EndCondition end_condition_forward{EndCondition::Length};
+    EndCondition end_condition_reverse{EndCondition::Length};
+    struct EndTarget {
+        EndTargetKind kind{EndTargetKind::Face};
+        zima::kernel::FaceReference reference;
+        std::string label;
+        zima::kernel::Vec3 fallback_origin;
+        zima::kernel::Vec3 fallback_normal{0.0, 0.0, 1.0};
+        std::vector<zima::kernel::Vec3> fallback_triangles;
+        bool operator==(const EndTarget&) const = default;
+    };
+    std::vector<EndTarget> end_targets_forward;
+    std::vector<EndTarget> end_targets_reverse;
     double height{10.0};
     ExtrusionDirection direction{ExtrusionDirection::Forward};
     ExtrusionExtent extent{ExtrusionExtent::Blind};
@@ -98,6 +126,13 @@ struct ExtrusionParameters {
 
 struct RevolutionParameters {
     std::string sketch_id;
+    ProfileSource profile_source{ProfileSource::Internal};
+    ProfileResultType result_type{ProfileResultType::Solid};
+    double thin_thickness{1.0};
+    ThinMode thin_mode{ThinMode::OneSide};
+    ProfileExtentMode extent_mode{ProfileExtentMode::OneSide};
+    ExtrusionDirection direction{ExtrusionDirection::Forward};
+    double angle_reverse{360.0};
     RevolutionAxis axis{RevolutionAxis::SketchX};
     double angle_degrees{360.0};
     bool operator==(const RevolutionParameters&) const = default;
@@ -169,11 +204,14 @@ public:
     [[nodiscard]] ConstructionObject* find_construction(const std::string& id);
     [[nodiscard]] const ConstructionObject* find_construction(
         const std::string& id) const;
+    [[nodiscard]] zima::kernel::ViewerMesh origin_viewer_mesh() const;
     [[nodiscard]] zima::kernel::ViewerMesh construction_viewer_mesh() const;
     void resolve_constructions(
         zima::kernel::ViewerReferenceGeometry source_geometry = {});
     [[nodiscard]] std::vector<zima::kernel::ViewerEdge> extrusion_preview_edges(
         const HistoryContainer& container, double through_all_span = 1000.0) const;
+    [[nodiscard]] std::vector<zima::kernel::ViewerEdge> revolution_preview_edges(
+        const HistoryContainer& container) const;
     [[nodiscard]] static HistoryContainer create_extrusion_container(
         std::string sketch_id);
     [[nodiscard]] static HistoryContainer create_revolution_container(

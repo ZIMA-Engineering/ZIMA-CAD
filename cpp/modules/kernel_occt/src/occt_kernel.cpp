@@ -27,6 +27,8 @@
 #include <BRep_Builder.hxx>
 #include <BRepTools.hxx>
 #include <STEPControl_Reader.hxx>
+#include <STEPControl_Writer.hxx>
+#include <StlAPI_Writer.hxx>
 #include <STEPCAFControl_Reader.hxx>
 #include <TDocStd_Document.hxx>
 #include <XCAFApp_Application.hxx>
@@ -53,6 +55,7 @@
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Vertex.hxx>
 #include <TopoDS_Wire.hxx>
+#include <TopoDS_Compound.hxx>
 #include <TopLoc_Location.hxx>
 #include <gp_Ax1.hxx>
 #include <gp_Ax2.hxx>
@@ -77,6 +80,40 @@
 
 namespace zima::kernel {
 namespace {
+
+gp_Trsf primitive_transform(const Vec3& translation, const Vec3& rotation_degrees);
+
+TopoDS_Shape read_kernel_shape(const BodyResult& body) {
+    if (body.kernel_shape.empty()) {
+        throw std::invalid_argument("Calculated solid snapshot is missing");
+    }
+    BRep_Builder builder;
+    TopoDS_Shape shape;
+    std::istringstream stream(body.kernel_shape);
+    BRepTools::Read(shape, stream, builder);
+    if (shape.IsNull()) {
+        throw std::runtime_error("Calculated solid snapshot is invalid");
+    }
+    return shape;
+}
+
+TopoDS_Compound placed_compound(const std::vector<PlacedBody>& bodies) {
+    if (bodies.empty()) throw std::invalid_argument("Export has no visible bodies");
+    BRep_Builder builder;
+    TopoDS_Compound compound;
+    builder.MakeCompound(compound);
+    for (const auto& placed : bodies) {
+        const auto shape = read_kernel_shape(placed.body);
+        BRepBuilderAPI_Transform transformed(shape,
+            primitive_transform(placed.translation, placed.rotation_degrees), true);
+        transformed.Build();
+        if (!transformed.IsDone() || transformed.Shape().IsNull()) {
+            throw std::runtime_error("Export body placement failed");
+        }
+        builder.Add(compound, transformed.Shape());
+    }
+    return compound;
+}
 
 void validate_box(const BoxRequest& request) {
     if (!std::isfinite(request.length) || !std::isfinite(request.width) ||
@@ -954,6 +991,23 @@ PrimitiveData make_extrusion_data(
     const Vec3 unit{request.direction.x / direction_length,
                     request.direction.y / direction_length,
                     request.direction.z / direction_length};
+    if (std::abs(request.start_offset) > 1.0e-12) {
+        gp_Trsf shift;
+        shift.SetTranslation(gp_Vec(unit.x * request.start_offset,
+                                    unit.y * request.start_offset,
+                                    unit.z * request.start_offset));
+        for (auto& wire : wires) {
+            wire = TopoDS::Wire(BRepBuilderAPI_Transform(wire, shift, true).Shape());
+        }
+        BRepBuilderAPI_MakeFace shifted_face(wires.front(), true);
+        for (std::size_t index = 1; index < wires.size(); ++index) {
+            shifted_face.Add(wires[index]);
+        }
+        if (!shifted_face.IsDone()) {
+            throw std::runtime_error("OCCT extrusion start shift failed");
+        }
+        face = shifted_face.Face();
+    }
     Vec3 prism_direction = request.direction;
     if (request.extent == ExtrusionRequest::Extent::UpToPlane) {
         const auto& normal = request.target_plane_normal;
@@ -1284,7 +1338,8 @@ void validate_revolution(const RevolutionRequest& request) {
     if (!std::isfinite(request.axis_point.x) ||
         !std::isfinite(request.axis_point.y) ||
         !std::isfinite(request.axis_point.z) || !std::isfinite(axis_length) ||
-        axis_length <= 1.0e-12 || !std::isfinite(request.angle_degrees) ||
+        axis_length <= 1.0e-12 || !std::isfinite(request.start_angle_degrees) ||
+        !std::isfinite(request.angle_degrees) ||
         request.angle_degrees <= 0.0 || request.angle_degrees > 360.0) {
         throw std::invalid_argument("Revolution axis or angle is invalid");
     }
@@ -1304,12 +1359,30 @@ PrimitiveData make_revolution_data(
     if (!face_builder.IsDone() || !BRepCheck_Analyzer(face_builder.Face()).IsValid()) {
         throw std::runtime_error("OCCT Revolution profile face is invalid");
     }
+    const gp_Ax1 axis(gp_Pnt(request.axis_point.x, request.axis_point.y,
+                            request.axis_point.z),
+                      gp_Dir(request.axis_direction.x, request.axis_direction.y,
+                             request.axis_direction.z));
+    TopoDS_Face face = face_builder.Face();
+    if (std::abs(request.start_angle_degrees) > 1.0e-12) {
+        gp_Trsf rotation;
+        rotation.SetRotation(axis,
+            request.start_angle_degrees * std::numbers::pi / 180.0);
+        for (auto& wire : wires) {
+            wire = TopoDS::Wire(
+                BRepBuilderAPI_Transform(wire, rotation, true).Shape());
+        }
+        BRepBuilderAPI_MakeFace rotated_face(wires.front(), true);
+        for (std::size_t index = 1; index < wires.size(); ++index) {
+            rotated_face.Add(wires[index]);
+        }
+        if (!rotated_face.IsDone()) {
+            throw std::runtime_error("OCCT Revolution start rotation failed");
+        }
+        face = rotated_face.Face();
+    }
     BRepPrimAPI_MakeRevol revolution(
-        face_builder.Face(),
-        gp_Ax1(gp_Pnt(request.axis_point.x, request.axis_point.y,
-                      request.axis_point.z),
-               gp_Dir(request.axis_direction.x, request.axis_direction.y,
-                      request.axis_direction.z)),
+        face, axis,
         request.angle_degrees * std::numbers::pi / 180.0, true);
     revolution.Build();
     if (!revolution.IsDone() ||
@@ -1685,6 +1758,31 @@ BodyResult OcctKernel::subtract_bodies(
     result.source_fingerprint = target.source_fingerprint + ":cut:" +
         cutter.source_fingerprint;
     return result;
+}
+
+void OcctKernel::export_step(
+    const std::vector<PlacedBody>& bodies, const std::string& path) const {
+    STEPControl_Writer writer;
+    if (writer.Transfer(placed_compound(bodies), STEPControl_AsIs) !=
+            IFSelect_RetDone ||
+        writer.Write(path.c_str()) != IFSelect_RetDone) {
+        throw std::runtime_error("STEP export failed");
+    }
+}
+
+void OcctKernel::export_stl(
+    const std::vector<PlacedBody>& bodies, const std::string& path) const {
+    auto shape = placed_compound(bodies);
+    BRepMesh_IncrementalMesh mesher(shape, 0.1, false, 0.5, true);
+    mesher.Perform();
+    if (!mesher.IsDone()) {
+        throw std::runtime_error("STL triangulation failed");
+    }
+    StlAPI_Writer writer;
+    writer.ASCIIMode() = false;
+    if (!writer.Write(shape, path.c_str())) {
+        throw std::runtime_error("STL export failed");
+    }
 }
 
 std::vector<BodyResult> OcctKernel::evaluate_history(

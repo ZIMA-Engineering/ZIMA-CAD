@@ -21,6 +21,10 @@ public:
         const BodyResult& cutter,
         Vec3 target_translation,
         Vec3 target_rotation_degrees) const;
+    void export_step(
+        const std::vector<PlacedBody>& bodies, const std::string& path) const;
+    void export_stl(
+        const std::vector<PlacedBody>& bodies, const std::string& path) const;
 };
 
 }  // namespace zima::kernel

@@ -9,6 +9,7 @@
 
 #include <filesystem>
 #include <functional>
+#include <map>
 #include <optional>
 #include <array>
 #include <utility>
@@ -168,6 +169,13 @@ private:
         std::optional<zima::kernel::BodyResult> input_body;
     };
     std::optional<PartRollbackContext> part_rollback_;
+    struct AssemblyCutRollbackContext {
+        std::string assembly_document_id;
+        std::string cut_id;
+        std::size_t cut_index{};
+        std::map<std::string, zima::kernel::BodyResult> input_component_bodies;
+    };
+    std::optional<AssemblyCutRollbackContext> assembly_cut_rollback_;
     std::string active_occurrence_path_;
     std::optional<zima::assembly::MateReference> pending_mate_reference_;
     bool mate_selection_active_{};
@@ -249,6 +257,7 @@ private:
     zima::sketcher::DimensionKind pending_point_dimension_kind_{
         zima::sketcher::DimensionKind::Distance};
     bool preserve_view_on_refresh_{};
+    std::map<std::string, std::array<float, 7>> document_camera_states_;
     std::optional<zima::document::PartDocument> sketch_drag_document_;
     std::optional<zima::assembly::AssemblyDocument> assembly_sketch_drag_document_;
     std::string sketch_drag_point_id_;
@@ -462,11 +471,14 @@ private:
     void redo();
     [[nodiscard]] std::vector<zima::kernel::BodyResult> calculate_part(
         const zima::document::PartDocument& document) const;
+    void calculate_assembly_cuts(
+        zima::assembly::AssemblyDocument& document) const;
     void refresh_tabs();
     void refresh_scene();
     void add_part_tree_children(
         QTreeWidgetItem* parent,
         const zima::document::PartDocument& document);
+    void populate_sketch_tree(const zima::sketcher::Sketch& sketch);
     [[nodiscard]] std::pair<zima::kernel::Vec3, zima::kernel::Vec3>
     active_part_local_ray(
         const zima::kernel::Vec3& origin,

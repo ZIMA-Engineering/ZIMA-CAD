@@ -7,6 +7,7 @@
 #include <QOpenGLWidget>
 
 #include <memory>
+#include <array>
 #include <optional>
 #include <functional>
 #include <vector>
@@ -47,6 +48,8 @@ public:
     explicit MeshView(QWidget* parent = nullptr);
     ~MeshView() override;
     void set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view = true);
+    [[nodiscard]] std::array<float, 7> camera_state() const;
+    void set_camera_state(const std::array<float, 7>& state);
     void fit_all();
     void set_display_mode(DisplayMode mode);
     [[nodiscard]] DisplayMode display_mode() const;

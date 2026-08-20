@@ -1,4 +1,5 @@
 #include <zima/drawing/drawing_document.hpp>
+#include <zima/document/versioned_file.hpp>
 
 #include <nlohmann/json.hpp>
 
@@ -567,6 +568,7 @@ void DrawingDocument::save(const std::filesystem::path& path) const {
         }
         root["sheets"].push_back(std::move(serialized));
     }
+    zima::document::archive_existing_file(path);
     std::ofstream stream(path);
     if (!stream) throw std::runtime_error("Cannot write Drawing document");
     stream << root.dump(2) << '\n';

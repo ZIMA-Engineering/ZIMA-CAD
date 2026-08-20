@@ -1,4 +1,5 @@
 #include <zima/document/part_document.hpp>
+#include <zima/document/versioned_file.hpp>
 #include <zima/document/viewer_packet_json.hpp>
 
 #include <nlohmann/json.hpp>
@@ -1421,9 +1422,8 @@ ConstructionObject PartDocument::create_construction(ConstructionKind kind) {
     ConstructionObject object;
     object.id = make_id();
     object.kind = kind;
-    object.name = kind == ConstructionKind::Point ? "Konstrukční bod"
-        : kind == ConstructionKind::Axis ? "Konstrukční osa"
-                                         : "Konstrukční rovina";
+    object.name = kind == ConstructionKind::Point ? "Bod001"
+        : kind == ConstructionKind::Axis ? "Osa001" : "Rovina001";
     return object;
 }
 
@@ -1531,9 +1531,10 @@ bool resolve_construction(ConstructionObject& object,
                object.references.size() == 1) {
         if (const auto resolved = plane(object.references[0])) {
             object.direction = resolved->second;
-            object.origin = {resolved->first.x + object.offset * object.direction.x,
-                resolved->first.y + object.offset * object.direction.y,
-                resolved->first.z + object.offset * object.direction.z};
+            const double offset = object.references[0].offset;
+            object.origin = {resolved->first.x + offset * object.direction.x,
+                resolved->first.y + offset * object.direction.y,
+                resolved->first.z + offset * object.direction.z};
             object.reference_valid = true;
         }
     } else if (object.definition == ConstructionDefinition::ThreePointPlane &&
@@ -1570,6 +1571,72 @@ const ConstructionObject* PartDocument::find_construction(
     const auto found = std::find_if(constructions.begin(), constructions.end(),
         [&](const auto& object) { return object.id == id; });
     return found == constructions.end() ? nullptr : &*found;
+}
+
+zima::kernel::ViewerMesh PartDocument::origin_viewer_mesh() const {
+    zima::kernel::ViewerMesh mesh;
+    const auto normalized = [](zima::kernel::Vec3 value) {
+        const double length = std::sqrt(value.x * value.x + value.y * value.y +
+                                        value.z * value.z);
+        return zima::kernel::Vec3{value.x / length, value.y / length,
+                                  value.z / length};
+    };
+    const auto cross = [](const auto& a, const auto& b) {
+        return zima::kernel::Vec3{a.y * b.z - a.z * b.y,
+                                  a.z * b.x - a.x * b.z,
+                                  a.x * b.y - a.y * b.x};
+    };
+    const std::string origin_id = document_id + ":origin";
+    const zima::kernel::Vec3 zero{};
+    mesh.points.push_back({zero, {origin_id, "origin:point", {}},
+                           name + " · Origin"});
+    mesh.original_references.points.push_back(
+        {zero, {origin_id, "origin:point", {}}});
+    constexpr double origin_axis_length = 4.0;
+    for (const auto& [key, direction] : std::array{
+             std::pair{"x", zima::kernel::Vec3{1.0, 0.0, 0.0}},
+             std::pair{"y", zima::kernel::Vec3{0.0, 1.0, 0.0}},
+             std::pair{"z", zima::kernel::Vec3{0.0, 0.0, 1.0}}}) {
+        zima::kernel::ViewerAxis axis{
+            zero, direction, origin_axis_length,
+            {origin_id, std::string("origin:axis:") + key, {}}};
+        axis.label = key;
+        mesh.axes.push_back(axis);
+        mesh.original_references.axes.push_back(std::move(axis));
+    }
+    const auto append_origin_plane = [&](const char* key,
+            zima::kernel::Vec3 first, zima::kernel::Vec3 second) {
+        constexpr double half = 4.0;
+        const std::array corners{
+            zima::kernel::Vec3{-half * first.x - half * second.x,
+                               -half * first.y - half * second.y,
+                               -half * first.z - half * second.z},
+            zima::kernel::Vec3{ half * first.x - half * second.x,
+                                half * first.y - half * second.y,
+                                half * first.z - half * second.z},
+            zima::kernel::Vec3{ half * first.x + half * second.x,
+                                half * first.y + half * second.y,
+                                half * first.z + half * second.z},
+            zima::kernel::Vec3{-half * first.x + half * second.x,
+                               -half * first.y + half * second.y,
+                               -half * first.z + half * second.z}};
+        const std::string semantic = std::string("origin:plane:") + key;
+        mesh.edges.push_back({{corners[0], corners[1], corners[2], corners[3],
+                               corners[0]}, {origin_id, semantic, {}}, false, true});
+        auto& references = mesh.original_references;
+        const auto offset = static_cast<std::uint32_t>(references.vertices.size());
+        references.vertices.insert(
+            references.vertices.end(), corners.begin(), corners.end());
+        references.triangles.insert(references.triangles.end(),
+            {offset, offset + 1, offset + 2, offset, offset + 2, offset + 3});
+        references.triangle_references.insert(
+            references.triangle_references.end(), 2,
+            {origin_id, semantic, {}});
+    };
+    append_origin_plane("xy", {1.0, 0.0, 0.0}, {0.0, 1.0, 0.0});
+    append_origin_plane("yz", {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0});
+    append_origin_plane("xz", {1.0, 0.0, 0.0}, {0.0, 0.0, 1.0});
+    return mesh;
 }
 
 zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh() const {
@@ -1660,8 +1727,21 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
     const auto sketch = std::find_if(sketches.begin(), sketches.end(),
         [&](const auto& value) { return value.id == container.extrusion.sketch_id; });
     if (sketch == sketches.end()) return {};
-    auto request = extrusion_request(
-        *sketch, container.extrusion.height, container.extrusion.direction);
+    const auto& parameters = container.extrusion;
+    const bool legacy_definition = parameters.extent != ExtrusionExtent::Blind ||
+        (parameters.height != 10.0 && parameters.length_forward == 10.0 &&
+         parameters.extent_mode == ProfileExtentMode::OneSide &&
+         parameters.end_condition_forward == EndCondition::Length &&
+         parameters.end_targets_forward.empty());
+    const double forward = legacy_definition ? parameters.height
+                                              : parameters.length_forward;
+    const double reverse = legacy_definition ? 0.0
+        : parameters.extent_mode == ProfileExtentMode::OneSide
+        ? 0.0
+        : parameters.extent_mode == ProfileExtentMode::Symmetric
+            ? forward : parameters.length_reverse;
+    auto request = extrusion_request(*sketch,
+        forward + reverse, parameters.direction);
     const double length = std::sqrt(request.direction.x * request.direction.x +
                                     request.direction.y * request.direction.y +
                                     request.direction.z * request.direction.z);
@@ -1669,7 +1749,9 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
                                   request.direction.y / length,
                                   request.direction.z / length};
     const auto surface_distance = [&](const zima::kernel::Vec3& point) {
-        const auto& triangles = container.extrusion.target_surface_triangles;
+        const auto& triangles = legacy_definition
+            ? parameters.target_surface_triangles
+            : parameters.end_targets_forward.front().fallback_triangles;
         double nearest = std::numeric_limits<double>::infinity();
         for (std::size_t index = 0; index < triangles.size(); index += 3) {
             const auto& v0 = triangles[index];
@@ -1704,17 +1786,30 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
         return nearest;
     };
     const auto endpoint = [&](const zima::kernel::Vec3& point) {
-        if (container.extrusion.extent == ExtrusionExtent::UpToPlane) {
-            const auto& normal = container.extrusion.target_plane_normal;
+        const auto condition = legacy_definition
+            ? parameters.extent == ExtrusionExtent::ThroughAll
+                ? EndCondition::ThroughAll
+                : parameters.extent == ExtrusionExtent::Blind
+                    ? EndCondition::Length : EndCondition::UpTo
+            : parameters.end_condition_forward;
+        const auto* target = parameters.end_targets_forward.empty()
+            ? nullptr : &parameters.end_targets_forward.front();
+        if (condition == EndCondition::UpTo &&
+            ((target && target->kind == EndTargetKind::Plane) ||
+             (legacy_definition && parameters.extent == ExtrusionExtent::UpToPlane))) {
+            const auto& normal = legacy_definition ? parameters.target_plane_normal
+                                                   : target->fallback_normal;
+            const auto& origin = legacy_definition ? parameters.target_plane_origin
+                                                   : target->fallback_origin;
             const double denominator = unit.x * normal.x + unit.y * normal.y +
                                        unit.z * normal.z;
             if (std::abs(denominator) <= 1e-12) {
                 throw std::runtime_error("Extrusion direction is parallel to target plane");
             }
             const double distance =
-                ((container.extrusion.target_plane_origin.x - point.x) * normal.x +
-                 (container.extrusion.target_plane_origin.y - point.y) * normal.y +
-                 (container.extrusion.target_plane_origin.z - point.z) * normal.z) /
+                ((origin.x - point.x) * normal.x +
+                 (origin.y - point.y) * normal.y +
+                 (origin.z - point.z) * normal.z) /
                 denominator;
             if (!std::isfinite(distance) || distance <= 1e-9) {
                 throw std::runtime_error("Extrusion profile crosses target plane");
@@ -1723,7 +1818,9 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
                                       point.y + unit.y * distance,
                                       point.z + unit.z * distance};
         }
-        if (container.extrusion.extent == ExtrusionExtent::UpToSurface) {
+        if (condition == EndCondition::UpTo &&
+            (target || (legacy_definition &&
+                parameters.extent == ExtrusionExtent::UpToSurface))) {
             const double distance = surface_distance(point);
             return zima::kernel::Vec3{point.x + unit.x * distance,
                                       point.y + unit.y * distance,
@@ -1738,17 +1835,17 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
         if (source.points.size() < 2) continue;
         zima::kernel::ViewerEdge start = source;
         start.reference = {container.id, "preview:start", {}};
-        if (container.extrusion.direction == ExtrusionDirection::Symmetric) {
-            for (auto& point : start.points) {
-                point.x -= 0.5 * request.direction.x;
-                point.y -= 0.5 * request.direction.y;
-                point.z -= 0.5 * request.direction.z;
-            }
+        for (auto& point : start.points) {
+            point.x -= unit.x * reverse;
+            point.y -= unit.y * reverse;
+            point.z -= unit.z * reverse;
         }
         zima::kernel::ViewerEdge end;
         end.reference = {container.id, "preview:end", {}};
         end.points.reserve(source.points.size());
-        if (container.extrusion.extent == ExtrusionExtent::ThroughAll) {
+        if ((legacy_definition && parameters.extent == ExtrusionExtent::ThroughAll) ||
+            (!legacy_definition &&
+             parameters.end_condition_forward == EndCondition::ThroughAll)) {
             start.points = source.points;
             for (auto& point : start.points) {
                 point.x -= unit.x * through_all_span;
@@ -1767,6 +1864,81 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
         for (const auto index : samples) {
             result.push_back({{start.points[index], end.points[index]},
                               {container.id, "preview:side", {}}});
+        }
+    }
+    return result;
+}
+
+std::vector<zima::kernel::ViewerEdge> PartDocument::revolution_preview_edges(
+    const HistoryContainer& container) const {
+    if (container.feature_kind != FeatureKind::Revolution) return {};
+    const auto sketch = std::find_if(sketches.begin(), sketches.end(),
+        [&](const auto& value) { return value.id == container.revolution.sketch_id; });
+    if (sketch == sketches.end()) return {};
+    const auto& parameters = container.revolution;
+    const double reverse = parameters.extent_mode == ProfileExtentMode::OneSide
+        ? 0.0 : parameters.extent_mode == ProfileExtentMode::Symmetric
+            ? parameters.angle_degrees : parameters.angle_reverse;
+    auto request = revolution_request(
+        *sketch, parameters.axis, parameters.angle_degrees + reverse);
+    if (parameters.direction == ExtrusionDirection::Reverse) {
+        request.axis_direction.x = -request.axis_direction.x;
+        request.axis_direction.y = -request.axis_direction.y;
+        request.axis_direction.z = -request.axis_direction.z;
+    }
+    const double length = std::sqrt(
+        request.axis_direction.x * request.axis_direction.x +
+        request.axis_direction.y * request.axis_direction.y +
+        request.axis_direction.z * request.axis_direction.z);
+    const zima::kernel::Vec3 axis{request.axis_direction.x / length,
+                                  request.axis_direction.y / length,
+                                  request.axis_direction.z / length};
+    const auto rotate = [&](const zima::kernel::Vec3& point, double degrees) {
+        const double angle = degrees * std::numbers::pi / 180.0;
+        const zima::kernel::Vec3 relative{point.x - request.axis_point.x,
+                                          point.y - request.axis_point.y,
+                                          point.z - request.axis_point.z};
+        const double dot = relative.x * axis.x + relative.y * axis.y +
+                           relative.z * axis.z;
+        const zima::kernel::Vec3 cross{
+            axis.y * relative.z - axis.z * relative.y,
+            axis.z * relative.x - axis.x * relative.z,
+            axis.x * relative.y - axis.y * relative.x};
+        const double cosine = std::cos(angle);
+        const double sine = std::sin(angle);
+        return zima::kernel::Vec3{
+            request.axis_point.x + relative.x * cosine + cross.x * sine +
+                axis.x * dot * (1.0 - cosine),
+            request.axis_point.y + relative.y * cosine + cross.y * sine +
+                axis.y * dot * (1.0 - cosine),
+            request.axis_point.z + relative.z * cosine + cross.z * sine +
+                axis.z * dot * (1.0 - cosine)};
+    };
+    const double start_angle = -reverse;
+    const double end_angle = parameters.angle_degrees;
+    std::vector<zima::kernel::ViewerEdge> result;
+    for (const auto& source : sketch->viewer_mesh().edges) {
+        if (source.points.size() < 2) continue;
+        zima::kernel::ViewerEdge start;
+        zima::kernel::ViewerEdge end;
+        start.reference = {container.id, "preview:start", {}};
+        end.reference = {container.id, "preview:end", {}};
+        for (const auto& point : source.points) {
+            start.points.push_back(rotate(point, start_angle));
+            end.points.push_back(rotate(point, end_angle));
+        }
+        result.push_back(std::move(start));
+        result.push_back(std::move(end));
+        for (const auto endpoint : {source.points.front(), source.points.back()}) {
+            zima::kernel::ViewerEdge sweep;
+            sweep.reference = {container.id, "preview:sweep", {}};
+            constexpr int samples = 32;
+            for (int sample = 0; sample <= samples; ++sample) {
+                const double fraction = static_cast<double>(sample) / samples;
+                sweep.points.push_back(rotate(endpoint,
+                    start_angle + (end_angle - start_angle) * fraction));
+            }
+            result.push_back(std::move(sweep));
         }
     }
     return result;
@@ -1920,39 +2092,68 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             if (sketch == sketches.end()) {
                 throw std::runtime_error("Extrusion references a missing Sketch");
             }
+            const auto& parameters = container.extrusion;
+            const bool legacy_definition = parameters.extent != ExtrusionExtent::Blind ||
+                (parameters.height != 10.0 && parameters.length_forward == 10.0 &&
+                 parameters.extent_mode == ProfileExtentMode::OneSide &&
+                 parameters.end_condition_forward == EndCondition::Length &&
+                 parameters.end_targets_forward.empty());
+            const double forward = legacy_definition ? parameters.height
+                                                      : parameters.length_forward;
+            const double reverse = legacy_definition ? 0.0
+                : parameters.extent_mode == ProfileExtentMode::OneSide
+                ? 0.0
+                : parameters.extent_mode == ProfileExtentMode::Symmetric
+                    ? forward
+                    : parameters.length_reverse;
             auto extrusion = extrusion_request(
-                *sketch, container.extrusion.height,
-                container.extrusion.direction);
-            extrusion.extent = container.extrusion.extent == ExtrusionExtent::UpToPlane
+                *sketch, forward + reverse, parameters.direction);
+            extrusion.start_offset = -reverse;
+            const auto condition = legacy_definition
+                ? parameters.extent == ExtrusionExtent::ThroughAll
+                    ? EndCondition::ThroughAll
+                    : parameters.extent == ExtrusionExtent::Blind
+                        ? EndCondition::Length : EndCondition::UpTo
+                : parameters.end_condition_forward;
+            const bool legacy_plane = legacy_definition &&
+                parameters.extent == ExtrusionExtent::UpToPlane;
+            extrusion.extent = condition == EndCondition::UpTo &&
+                    (legacy_plane || (!parameters.end_targets_forward.empty() &&
+                     parameters.end_targets_forward.front().kind == EndTargetKind::Plane))
                 ? zima::kernel::ExtrusionRequest::Extent::UpToPlane
-                : container.extrusion.extent == ExtrusionExtent::UpToSurface
+                : condition == EndCondition::UpTo
                     ? zima::kernel::ExtrusionRequest::Extent::UpToSurface
-                : container.extrusion.extent == ExtrusionExtent::ThroughAll
+                : condition == EndCondition::ThroughAll
                     ? zima::kernel::ExtrusionRequest::Extent::ThroughAll
                     : zima::kernel::ExtrusionRequest::Extent::Blind;
-            extrusion.target_face = container.extrusion.target_face;
+            const ExtrusionParameters::EndTarget* target =
+                parameters.end_targets_forward.empty()
+                    ? nullptr : &parameters.end_targets_forward.front();
+            extrusion.target_face = legacy_definition ? parameters.target_face
+                : target ? target->reference : zima::kernel::FaceReference{};
             if (allow_persisted_external_target) {
                 extrusion.target_face.instance_path.clear();
             }
-            extrusion.target_is_datum = std::any_of(
-                constructions.begin(), constructions.end(), [&](const auto& object) {
-                    return object.id == container.extrusion.target_face.owner_id &&
-                           object.kind == ConstructionKind::Plane;
-                });
-            if ((container.extrusion.extent == ExtrusionExtent::UpToPlane ||
-                 container.extrusion.extent == ExtrusionExtent::UpToSurface) &&
+            extrusion.target_is_datum = legacy_plane ||
+                (target && target->kind == EndTargetKind::Plane);
+            if (condition == EndCondition::UpTo && (target || legacy_definition) &&
                 !extrusion.target_is_datum &&
                 !allow_persisted_external_target &&
                 std::none_of(operations.begin(), operations.end(), [&](const auto& prior) {
-                    return prior.owner_id == container.extrusion.target_face.owner_id;
+                    return prior.owner_id == extrusion.target_face.owner_id;
                 })) {
                 throw std::runtime_error(
                     "Extrusion target must belong to prior history or a datum plane");
             }
-            extrusion.target_plane_origin = container.extrusion.target_plane_origin;
-            extrusion.target_plane_normal = container.extrusion.target_plane_normal;
-            extrusion.target_surface_triangles =
-                container.extrusion.target_surface_triangles;
+            if (legacy_definition) {
+                extrusion.target_plane_origin = parameters.target_plane_origin;
+                extrusion.target_plane_normal = parameters.target_plane_normal;
+                extrusion.target_surface_triangles = parameters.target_surface_triangles;
+            } else if (target) {
+                extrusion.target_plane_origin = target->fallback_origin;
+                extrusion.target_plane_normal = target->fallback_normal;
+                extrusion.target_surface_triangles = target->fallback_triangles;
+            }
             primitive = std::move(extrusion);
         } else if (container.feature_kind == FeatureKind::Revolution) {
             require_default_sketch_feature_placement(container.placement);
@@ -1963,9 +2164,21 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             if (sketch == sketches.end()) {
                 throw std::runtime_error("Revolution references a missing Sketch");
             }
-            primitive = revolution_request(
-                *sketch, container.revolution.axis,
-                container.revolution.angle_degrees);
+            const auto& parameters = container.revolution;
+            const double reverse = parameters.extent_mode ==
+                    ProfileExtentMode::OneSide
+                ? 0.0
+                : parameters.extent_mode == ProfileExtentMode::Symmetric
+                    ? parameters.angle_degrees : parameters.angle_reverse;
+            auto revolution = revolution_request(
+                *sketch, parameters.axis, parameters.angle_degrees + reverse);
+            revolution.start_angle_degrees = -reverse;
+            if (parameters.direction == ExtrusionDirection::Reverse) {
+                revolution.axis_direction.x = -revolution.axis_direction.x;
+                revolution.axis_direction.y = -revolution.axis_direction.y;
+                revolution.axis_direction.z = -revolution.axis_direction.z;
+            }
+            primitive = std::move(revolution);
         } else if (container.feature_kind == FeatureKind::ImportedStep) {
             zima::kernel::StepRequest step{
                 container.imported_step.source_path,
@@ -2006,7 +2219,7 @@ PartDocument PartDocument::load(
     nlohmann::json root;
     input >> root;
     if (root.at("format").get<std::string>() != "zima-cad-cpp" ||
-        root.at("format_version").get<int>() != 26) {
+        root.at("format_version").get<int>() != 29) {
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
     PartDocument document;
@@ -2104,6 +2317,70 @@ PartDocument PartDocument::load(
             }
         } else if (container.feature_kind == FeatureKind::Extrusion) {
             container.extrusion.sketch_id = source.at("sketch_id").get<std::string>();
+            container.extrusion.profile_source = source.at("profile_source") == "internal"
+                ? ProfileSource::Internal : source.at("profile_source") == "external"
+                    ? ProfileSource::External
+                    : throw std::runtime_error("Invalid profile source");
+            container.extrusion.result_type = source.at("result_type") == "solid"
+                ? ProfileResultType::Solid : source.at("result_type") == "thin"
+                    ? ProfileResultType::Thin
+                    : throw std::runtime_error("Invalid profile result type");
+            container.extrusion.thin_thickness = source.at("thin_thickness");
+            container.extrusion.thin_mode = source.at("thin_mode") == "one_side"
+                ? ThinMode::OneSide : source.at("thin_mode") == "other_side"
+                    ? ThinMode::OtherSide : source.at("thin_mode") == "symmetric"
+                        ? ThinMode::Symmetric
+                        : throw std::runtime_error("Invalid thin mode");
+            container.extrusion.extent_mode = source.at("extent_mode") == "one_side"
+                ? ProfileExtentMode::OneSide : source.at("extent_mode") == "two_sides"
+                    ? ProfileExtentMode::TwoSides : source.at("extent_mode") == "symmetric"
+                        ? ProfileExtentMode::Symmetric
+                        : throw std::runtime_error("Invalid profile extent mode");
+            container.extrusion.length_forward = source.at("length_forward");
+            container.extrusion.length_reverse = source.at("length_reverse");
+            const auto parse_condition = [](const nlohmann::json& value) {
+                return value == "length" ? EndCondition::Length
+                    : value == "up_to" ? EndCondition::UpTo
+                    : value == "through_all" ? EndCondition::ThroughAll
+                    : throw std::runtime_error("Invalid profile end condition");
+            };
+            container.extrusion.end_condition_forward =
+                parse_condition(source.at("end_condition_forward"));
+            container.extrusion.end_condition_reverse =
+                parse_condition(source.at("end_condition_reverse"));
+            const auto parse_targets = [](const nlohmann::json& values) {
+                std::vector<ExtrusionParameters::EndTarget> result;
+                for (const auto& value : values) {
+                    ExtrusionParameters::EndTarget target;
+                    target.kind = value.at("kind") == "point" ? EndTargetKind::Point
+                        : value.at("kind") == "plane" ? EndTargetKind::Plane
+                        : value.at("kind") == "face" ? EndTargetKind::Face
+                        : throw std::runtime_error("Invalid extrusion end target kind");
+                    target.reference = {value.at("owner"), value.at("key"),
+                                        value.at("instance_path")};
+                    target.label = value.at("label");
+                    target.fallback_origin = {value.at("origin").at(0),
+                        value.at("origin").at(1), value.at("origin").at(2)};
+                    target.fallback_normal = {value.at("normal").at(0),
+                        value.at("normal").at(1), value.at("normal").at(2)};
+                    for (const auto& point : value.at("triangles")) {
+                        target.fallback_triangles.push_back(
+                            {point.at(0), point.at(1), point.at(2)});
+                    }
+                    if (!target.reference.valid()) {
+                        throw std::runtime_error("Invalid extrusion end target reference");
+                    }
+                    result.push_back(std::move(target));
+                }
+                return result;
+            };
+            container.extrusion.end_targets_forward =
+                parse_targets(source.at("end_targets_forward"));
+            container.extrusion.end_targets_reverse =
+                parse_targets(source.at("end_targets_reverse"));
+            require_positive(container.extrusion.thin_thickness, "thin thickness");
+            require_positive(container.extrusion.length_forward, "forward length");
+            require_positive(container.extrusion.length_reverse, "reverse length");
             container.extrusion.height = source.at("height").get<double>();
             const std::string direction =
                 source.at("direction").get<std::string>();
@@ -2175,6 +2452,35 @@ PartDocument PartDocument::load(
         } else if (container.feature_kind == FeatureKind::Revolution) {
             container.revolution.sketch_id =
                 source.at("sketch_id").get<std::string>();
+            container.revolution.profile_source = source.at("profile_source") == "internal"
+                ? ProfileSource::Internal : source.at("profile_source") == "external"
+                    ? ProfileSource::External
+                    : throw std::runtime_error("Invalid Revolution profile source");
+            container.revolution.result_type = source.at("result_type") == "solid"
+                ? ProfileResultType::Solid : source.at("result_type") == "thin"
+                    ? ProfileResultType::Thin
+                    : throw std::runtime_error("Invalid Revolution result type");
+            container.revolution.thin_thickness = source.at("thin_thickness");
+            const std::string thin_mode = source.at("thin_mode");
+            container.revolution.thin_mode = thin_mode == "one_side"
+                ? ThinMode::OneSide : thin_mode == "other_side"
+                    ? ThinMode::OtherSide : thin_mode == "symmetric"
+                        ? ThinMode::Symmetric
+                        : throw std::runtime_error("Invalid Revolution thin mode");
+            const std::string extent_mode = source.at("extent_mode");
+            container.revolution.extent_mode = extent_mode == "one_side"
+                ? ProfileExtentMode::OneSide : extent_mode == "two_sides"
+                    ? ProfileExtentMode::TwoSides : extent_mode == "symmetric"
+                        ? ProfileExtentMode::Symmetric
+                        : throw std::runtime_error("Invalid Revolution extent mode");
+            const std::string direction = source.at("direction");
+            container.revolution.direction = direction == "forward"
+                ? ExtrusionDirection::Forward : direction == "reverse"
+                    ? ExtrusionDirection::Reverse
+                    : throw std::runtime_error("Invalid Revolution direction");
+            container.revolution.angle_reverse = source.at("angle_reverse");
+            require_positive(container.revolution.thin_thickness, "Revolution thin thickness");
+            require_positive(container.revolution.angle_reverse, "reverse angle");
             container.revolution.angle_degrees =
                 source.at("angle_degrees").get<double>();
             const std::string axis = source.at("axis").get<std::string>();
@@ -2188,7 +2494,13 @@ PartDocument PartDocument::load(
             if (container.revolution.sketch_id.empty() ||
                 !std::isfinite(container.revolution.angle_degrees) ||
                 container.revolution.angle_degrees <= 0.0 ||
-                container.revolution.angle_degrees > 360.0) {
+                container.revolution.angle_degrees > 360.0 ||
+                container.revolution.angle_degrees +
+                    (container.revolution.extent_mode == ProfileExtentMode::OneSide
+                        ? 0.0
+                        : container.revolution.extent_mode == ProfileExtentMode::Symmetric
+                            ? container.revolution.angle_degrees
+                            : container.revolution.angle_reverse) > 360.0) {
                 throw std::runtime_error("Invalid Revolution parameters");
             }
         } else if (container.feature_kind == FeatureKind::ImportedStep) {
@@ -2266,6 +2578,9 @@ PartDocument PartDocument::load(
         object.origin = {source.at("x").get<double>(),
                          source.at("y").get<double>(),
                          source.at("z").get<double>()};
+        object.rotation = {source.at("rotation_x").get<double>(),
+                           source.at("rotation_y").get<double>(),
+                           source.at("rotation_z").get<double>()};
         object.direction = {source.at("direction_x").get<double>(),
                             source.at("direction_y").get<double>(),
                             source.at("direction_z").get<double>()};
@@ -2284,7 +2599,8 @@ PartDocument PartDocument::load(
             object.references.push_back({
                 serialized.at("instance_path").get<std::string>(),
                 serialized.at("owner_id").get<std::string>(),
-                serialized.at("semantic_key").get<std::string>()});
+                serialized.at("semantic_key").get<std::string>(),
+                serialized.at("offset").get<double>()});
         }
         const double direction_length = std::sqrt(
             object.direction.x * object.direction.x +
@@ -2293,7 +2609,11 @@ PartDocument PartDocument::load(
         if (object.id.empty() || object.name.empty() ||
             !construction_ids.insert(object.id).second ||
             !std::isfinite(object.origin.x) || !std::isfinite(object.origin.y) ||
-            !std::isfinite(object.origin.z) || !std::isfinite(direction_length) ||
+            !std::isfinite(object.origin.z) ||
+            !std::isfinite(object.rotation.x) ||
+            !std::isfinite(object.rotation.y) ||
+            !std::isfinite(object.rotation.z) ||
+            !std::isfinite(direction_length) ||
             (object.kind != ConstructionKind::Point && direction_length <= 0.0) ||
             !std::isfinite(object.display_size) || object.display_size <= 0.0) {
             throw std::runtime_error("Invalid construction object");
@@ -2480,7 +2800,15 @@ void PartDocument::save(
                        container.revolution.axis != RevolutionAxis::SketchY) ||
                 !std::isfinite(container.revolution.angle_degrees) ||
                 container.revolution.angle_degrees <= 0.0 ||
-                container.revolution.angle_degrees > 360.0) {
+                container.revolution.angle_degrees > 360.0 ||
+                !std::isfinite(container.revolution.angle_reverse) ||
+                container.revolution.angle_reverse <= 0.0 ||
+                container.revolution.angle_degrees +
+                    (container.revolution.extent_mode == ProfileExtentMode::OneSide
+                        ? 0.0
+                        : container.revolution.extent_mode == ProfileExtentMode::Symmetric
+                            ? container.revolution.angle_degrees
+                            : container.revolution.angle_reverse) > 360.0) {
                 throw std::runtime_error("Invalid Revolution parameters");
             }
         } else if (container.feature_kind == FeatureKind::ImportedStep) {
@@ -2567,6 +2895,54 @@ void PartDocument::save(
             serialized["top_offset"] = container.wedge.top_offset;
         } else if (container.feature_kind == FeatureKind::Extrusion) {
             serialized["sketch_id"] = container.extrusion.sketch_id;
+            serialized["profile_source"] = container.extrusion.profile_source ==
+                    ProfileSource::Internal ? "internal" : "external";
+            serialized["result_type"] = container.extrusion.result_type ==
+                    ProfileResultType::Solid ? "solid" : "thin";
+            serialized["thin_thickness"] = container.extrusion.thin_thickness;
+            serialized["thin_mode"] = container.extrusion.thin_mode == ThinMode::OneSide
+                ? "one_side" : container.extrusion.thin_mode == ThinMode::OtherSide
+                    ? "other_side" : "symmetric";
+            serialized["extent_mode"] = container.extrusion.extent_mode ==
+                    ProfileExtentMode::OneSide ? "one_side"
+                : container.extrusion.extent_mode == ProfileExtentMode::TwoSides
+                    ? "two_sides" : "symmetric";
+            serialized["length_forward"] = container.extrusion.length_forward;
+            serialized["length_reverse"] = container.extrusion.length_reverse;
+            const auto condition_name = [](EndCondition condition) {
+                return condition == EndCondition::Length ? "length"
+                    : condition == EndCondition::UpTo ? "up_to" : "through_all";
+            };
+            serialized["end_condition_forward"] =
+                condition_name(container.extrusion.end_condition_forward);
+            serialized["end_condition_reverse"] =
+                condition_name(container.extrusion.end_condition_reverse);
+            const auto target_json = [](const auto& targets) {
+                nlohmann::json result = nlohmann::json::array();
+                for (const auto& target : targets) {
+                    nlohmann::json triangles = nlohmann::json::array();
+                    for (const auto& point : target.fallback_triangles) {
+                        triangles.push_back({point.x, point.y, point.z});
+                    }
+                    result.push_back({{"kind", target.kind == EndTargetKind::Point
+                            ? "point" : target.kind == EndTargetKind::Plane
+                                ? "plane" : "face"},
+                        {"owner", target.reference.owner_id},
+                        {"key", target.reference.semantic_key},
+                        {"instance_path", target.reference.instance_path},
+                        {"label", target.label},
+                        {"origin", {target.fallback_origin.x,
+                            target.fallback_origin.y, target.fallback_origin.z}},
+                        {"normal", {target.fallback_normal.x,
+                            target.fallback_normal.y, target.fallback_normal.z}},
+                        {"triangles", std::move(triangles)}});
+                }
+                return result;
+            };
+            serialized["end_targets_forward"] =
+                target_json(container.extrusion.end_targets_forward);
+            serialized["end_targets_reverse"] =
+                target_json(container.extrusion.end_targets_reverse);
             serialized["height"] = container.extrusion.height;
             serialized["direction"] =
                 container.extrusion.direction == ExtrusionDirection::Forward
@@ -2594,6 +2970,21 @@ void PartDocument::save(
             }
         } else if (container.feature_kind == FeatureKind::Revolution) {
             serialized["sketch_id"] = container.revolution.sketch_id;
+            serialized["profile_source"] = container.revolution.profile_source ==
+                    ProfileSource::Internal ? "internal" : "external";
+            serialized["result_type"] = container.revolution.result_type ==
+                    ProfileResultType::Solid ? "solid" : "thin";
+            serialized["thin_thickness"] = container.revolution.thin_thickness;
+            serialized["thin_mode"] = container.revolution.thin_mode == ThinMode::OneSide
+                ? "one_side" : container.revolution.thin_mode == ThinMode::OtherSide
+                    ? "other_side" : "symmetric";
+            serialized["extent_mode"] = container.revolution.extent_mode ==
+                    ProfileExtentMode::OneSide ? "one_side"
+                : container.revolution.extent_mode == ProfileExtentMode::TwoSides
+                    ? "two_sides" : "symmetric";
+            serialized["direction"] = container.revolution.direction ==
+                    ExtrusionDirection::Forward ? "forward" : "reverse";
+            serialized["angle_reverse"] = container.revolution.angle_reverse;
             serialized["axis"] = container.revolution.axis == RevolutionAxis::SketchX
                 ? "sketch_x" : "sketch_y";
             serialized["angle_degrees"] = container.revolution.angle_degrees;
@@ -2654,7 +3045,11 @@ void PartDocument::save(
         if (object.id.empty() || object.name.empty() ||
             !construction_ids.insert(object.id).second ||
             !std::isfinite(object.origin.x) || !std::isfinite(object.origin.y) ||
-            !std::isfinite(object.origin.z) || !std::isfinite(direction_length) ||
+            !std::isfinite(object.origin.z) ||
+            !std::isfinite(object.rotation.x) ||
+            !std::isfinite(object.rotation.y) ||
+            !std::isfinite(object.rotation.z) ||
+            !std::isfinite(direction_length) ||
             (object.kind != ConstructionKind::Point && direction_length <= 0.0) ||
             !std::isfinite(object.display_size) || object.display_size <= 0.0) {
             throw std::runtime_error("Invalid construction object");
@@ -2666,7 +3061,8 @@ void PartDocument::save(
             }
             references.push_back({{"instance_path", reference.instance_path},
                 {"owner_id", reference.owner_id},
-                {"semantic_key", reference.semantic_key}});
+                {"semantic_key", reference.semantic_key},
+                {"offset", reference.offset}});
         }
         const auto definition = object.definition == ConstructionDefinition::Absolute
             ? "absolute"
@@ -2683,6 +3079,9 @@ void PartDocument::save(
             {"type", object.kind == ConstructionKind::Point ? "point"
                 : object.kind == ConstructionKind::Axis ? "axis" : "plane"},
             {"x", object.origin.x}, {"y", object.origin.y}, {"z", object.origin.z},
+            {"rotation_x", object.rotation.x},
+            {"rotation_y", object.rotation.y},
+            {"rotation_z", object.rotation.z},
             {"direction_x", object.direction.x},
             {"direction_y", object.direction.y},
             {"direction_z", object.direction.z},
@@ -2695,7 +3094,7 @@ void PartDocument::save(
         {{"target", relation.target}, {"expression", relation.expression}});
     const nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 26},
+        {"format_version", 29},
         {"document_id", document_id},
         {"type", "part"},
         {"name", name},
@@ -2717,6 +3116,7 @@ void PartDocument::save(
             throw std::runtime_error("Document write failed: " + path.string());
         }
     }
+    archive_existing_file(path);
     std::filesystem::rename(temporary, path);
 }
 

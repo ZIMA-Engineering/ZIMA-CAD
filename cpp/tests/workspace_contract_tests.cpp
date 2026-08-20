@@ -166,9 +166,11 @@ int main() {
                 .child(nested_part_occurrence).encoded();
         const std::string expected_subassembly_datum_path =
             zima::assembly::InstancePath{}.child(subassembly_occurrence).encoded();
-        require(!nested_scene.original_references.triangle_references.empty() &&
-                    nested_scene.original_references.triangle_references.front().instance_path ==
-                        expected_nested_path &&
+        require(std::any_of(nested_scene.original_references.triangle_references.begin(),
+                    nested_scene.original_references.triangle_references.end(),
+                    [&](const auto& reference) {
+                        return reference.instance_path == expected_nested_path;
+                    }) &&
                     std::any_of(nested_scene.original_references.points.begin(),
                         nested_scene.original_references.points.end(),
                         [&](const auto& point) {
@@ -456,7 +458,8 @@ int main() {
                     std::all_of(rollback_scene.original_references.triangle_references.begin(),
                         rollback_scene.original_references.triangle_references.end(),
                         [&](const auto& reference) {
-                            return reference.instance_path == direct_part_path ||
+                            return reference.semantic_key.starts_with("origin:") ||
+                                reference.instance_path == direct_part_path ||
                                 reference.instance_path == reference_part_path;
                         }),
                 "Nested rollback changed passive sibling context or kept target body");
@@ -561,8 +564,12 @@ int main() {
         const auto regenerated_nested_scene = workspace.open_assembly(topassembly_id)
             ->session.document().build_scene();
         require(maximum_y(regenerated_nested_scene) > old_nested_maximum_y &&
-                    regenerated_nested_scene.original_references.triangle_references.front().instance_path ==
-                        expected_nested_path,
+                    std::any_of(regenerated_nested_scene.original_references
+                        .triangle_references.begin(), regenerated_nested_scene
+                        .original_references.triangle_references.end(),
+                        [&](const auto& reference) {
+                            return reference.instance_path == expected_nested_path;
+                        }),
                 "Top-level Regenerate did not pull nested geometry or preserve identity");
         require(workspace.open_assembly(topassembly_id)->session.document()
                     .find_occurrence(subassembly_occurrence)

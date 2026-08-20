@@ -10,6 +10,7 @@
 #include <QImage>
 #include <QLabel>
 #include <QLineEdit>
+#include <QListWidget>
 #include <QMenu>
 #include <QMouseEvent>
 #include <QPalette>
@@ -25,6 +26,7 @@
 #include <QTableWidget>
 #include <QToolBar>
 #include <QTreeWidget>
+#include <QUuid>
 #include <QWidget>
 
 #include <iostream>
@@ -174,7 +176,7 @@ int verify_startup_contract(
         return true;
     };
 
-    const QString identity = QString::number(QCoreApplication::applicationPid());
+    const QString identity = QUuid::createUuid().toString(QUuid::Id128);
     const QString part_name = QStringLiteral("DIL-STARTUP-") + identity;
     const QString assembly_name = QStringLiteral("SESTAVA-STARTUP-") + identity;
     const QString drawing_name = QStringLiteral("VYKRES-STARTUP-") + identity;
@@ -195,8 +197,12 @@ int verify_startup_contract(
     if (!verify(parameters->isEnabled() && parameters_dialog != nullptr &&
                     parameters_dialog->windowFlags().testFlag(Qt::SubWindow) &&
                     parameters_dialog->findChild<QTableWidget*>(
-                        "documentParametersTable") != nullptr,
-                "document parameters must use the shared internal dialog")) {
+                        "documentParametersTable") != nullptr &&
+                    parameters_dialog->findChild<QTableWidget*>(
+                        "documentRelationsTable") != nullptr &&
+                    parameters_dialog->findChild<QPushButton*>(
+                        "addDocumentRelationButton") != nullptr,
+                "document parameters and Relations must use the shared internal dialog")) {
         return 1;
     }
     parameters_dialog->reject();
@@ -243,8 +249,18 @@ int verify_startup_contract(
     application.processEvents();
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     application.processEvents();
-    if (!verify(tree->topLevelItemCount() == 1 &&
-                    tree->topLevelItem(0)->childCount() == 1,
+    bool box_in_tree = false;
+    if (tree->topLevelItemCount() == 1) {
+        const auto* root = tree->topLevelItem(0);
+        for (int index = 0; index < root->childCount(); ++index) {
+            if (root->child(index)->data(0, Qt::UserRole + 3).toString() ==
+                    QStringLiteral("part-container")) {
+                box_in_tree = true;
+                break;
+            }
+        }
+    }
+    if (!verify(box_in_tree,
                 "confirming Box must create the first Part history item")) {
         return 1;
     }
@@ -288,7 +304,8 @@ int verify_startup_contract(
     application.processEvents();
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     application.processEvents();
-    if (!verify(tree->topLevelItem(0)->childCount() == 2,
+    if (!verify(tree->headerItem()->text(0).startsWith("SKETCHER") &&
+                    tree->topLevelItemCount() >= 4,
                 "confirming Sketch must add it to the Part tree") ||
         !verify(sketch_normal->isEnabled() && sketch_point->isEnabled() &&
                     sketch_construction->isEnabled() && sketch_segment->isEnabled() &&
@@ -393,7 +410,20 @@ int verify_startup_contract(
     application.processEvents();
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     application.processEvents();
-    if (!verify(tree->topLevelItem(0)->childCount() == 3,
+    bool extrusion_in_tree = false;
+    if (tree->topLevelItemCount() == 1) {
+        const auto* root = tree->topLevelItem(0);
+        for (int index = 0; index < root->childCount(); ++index) {
+            const auto* child = root->child(index);
+            if (child->data(0, Qt::UserRole + 3).toString() ==
+                    QStringLiteral("part-container") &&
+                child->text(0) == QStringLiteral("Vytažení")) {
+                extrusion_in_tree = true;
+                break;
+            }
+        }
+    }
+    if (!verify(extrusion_in_tree,
                 "Sketch rectangle must produce a committed Extrusion history item")) {
         return 1;
     }
@@ -456,7 +486,15 @@ int verify_startup_contract(
     application.processEvents();
     undo->trigger();
     application.processEvents();
-    if (!verify(tree->topLevelItem(0)->childCount() == 2,
+    int remaining_history_items = 0;
+    if (tree->topLevelItemCount() == 1) {
+        const auto* root = tree->topLevelItem(0);
+        for (int index = 0; index < root->childCount(); ++index) {
+            if (root->child(index)->data(0, Qt::UserRole + 3).toString() ==
+                    QStringLiteral("part-container")) ++remaining_history_items;
+        }
+    }
+    if (!verify(remaining_history_items == 1,
                 "unchanged Extrusion OK created an extra Undo revision")) {
         return 1;
     }
@@ -524,10 +562,17 @@ int verify_startup_contract(
     }
     close->trigger();
     application.processEvents();
-    if (!verify(tabs->count() == 0 &&
-                    window.open_document_path(
-                        QString::fromStdString(saved_part_path.string())) &&
-                    tabs->count() == 1 && tree->topLevelItem(0)->childCount() == 4,
+    const bool reopened = tabs->count() == 0 && window.open_document_path(
+        QString::fromStdString(saved_part_path.string()));
+    int reopened_history_items = 0;
+    if (reopened && tree->topLevelItemCount() == 1) {
+        const auto* root = tree->topLevelItem(0);
+        for (int index = 0; index < root->childCount(); ++index) {
+            if (root->child(index)->data(0, Qt::UserRole + 3).toString() ==
+                    QStringLiteral("part-container")) ++reopened_history_items;
+        }
+    }
+    if (!verify(reopened && tabs->count() == 1 && reopened_history_items == 3,
                 "saved Part did not close and reopen through the application")) {
         return 1;
     }
@@ -583,9 +628,24 @@ int verify_startup_contract(
         ->button(QDialogButtonBox::Ok)->click();
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     application.processEvents();
+    sketch_rectangle->trigger();
+    application.processEvents();
+    sketch_click(0.44, 0.44);
+    sketch_click(0.58, 0.58);
     finish_sketch->trigger();
     application.processEvents();
-    if (!verify(tree->topLevelItem(0)->childCount() == 1,
+    bool assembly_sketch_in_tree = false;
+    if (tree->topLevelItemCount() == 1) {
+        const auto* root = tree->topLevelItem(0);
+        for (int index = 0; index < root->childCount(); ++index) {
+            if (root->child(index)->data(0, Qt::UserRole + 3).toString() ==
+                    QStringLiteral("assembly-sketch")) {
+                assembly_sketch_in_tree = true;
+                break;
+            }
+        }
+    }
+    if (!verify(assembly_sketch_in_tree,
                 "confirming Assembly Sketch must create an Assembly-owned sketch")) {
         return 1;
     }
@@ -602,11 +662,92 @@ int verify_startup_contract(
     }
     source_action->trigger();
     application.processEvents();
-    if (!verify(tree->topLevelItemCount() == 1 &&
-                    tree->topLevelItem(0)->childCount() == 2,
+    bool inserted_occurrence_in_tree = false;
+    if (tree->topLevelItemCount() == 1) {
+        const auto* root = tree->topLevelItem(0);
+        for (int index = 0; index < root->childCount(); ++index) {
+            if (root->child(index)->data(0, Qt::UserRole + 3).toString() ==
+                    QStringLiteral("part-occurrence")) {
+                inserted_occurrence_in_tree = true;
+                break;
+            }
+        }
+    }
+    if (!verify(inserted_occurrence_in_tree,
                 "inserting the open Part must create an Assembly occurrence")) {
         return 1;
     }
+    if (!verify(extrusion->isEnabled(),
+                "Assembly Sketch must enable the shared Extrusion command")) {
+        return 1;
+    }
+    extrusion->trigger();
+    application.processEvents();
+    auto* assembly_cut_dialog = window.findChild<QDialog*>(
+        "zimaPropertiesSubWindow");
+    auto* assembly_cut_targets = assembly_cut_dialog == nullptr
+        ? nullptr : assembly_cut_dialog->findChild<QListWidget*>(
+            "assemblyCutTargets");
+    auto* assembly_cut_buttons = assembly_cut_dialog == nullptr
+        ? nullptr : assembly_cut_dialog->findChild<QDialogButtonBox*>();
+    if (!verify(assembly_cut_targets != nullptr &&
+                    assembly_cut_targets->count() == 1 &&
+                    assembly_cut_targets->item(0)->checkState() == Qt::Checked &&
+                    assembly_cut_buttons != nullptr,
+                "Assembly Extrusion must use the shared dialog with one exact target")) {
+        return 1;
+    }
+    assembly_cut_buttons->button(QDialogButtonBox::Ok)->click();
+    application.processEvents();
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    application.processEvents();
+    bool cut_in_tree = false;
+    for (int index = 0; index < tree->topLevelItem(0)->childCount(); ++index) {
+        if (tree->topLevelItem(0)->child(index)->data(
+                0, Qt::UserRole + 3).toString() == QStringLiteral("assembly-cut")) {
+            cut_in_tree = true;
+            break;
+        }
+    }
+    if (!verify(cut_in_tree,
+                "Assembly Extrusion OK must calculate and create one cut")) {
+        return 1;
+    }
+    QTreeWidgetItem* assembly_cut_item{};
+    for (int index = 0; index < tree->topLevelItem(0)->childCount(); ++index) {
+        auto* candidate = tree->topLevelItem(0)->child(index);
+        if (candidate->data(0, Qt::UserRole + 3).toString() ==
+                QStringLiteral("assembly-cut")) {
+            assembly_cut_item = candidate;
+            break;
+        }
+    }
+    if (!verify(assembly_cut_item != nullptr,
+                "Calculated Assembly cut is missing from the tree")) return 1;
+    tree->itemDoubleClicked(assembly_cut_item, 0);
+    application.processEvents();
+    auto* rollback_dialog = window.findChild<QDialog*>("zimaPropertiesSubWindow");
+    QTreeWidgetItem* rollback_cut_item{};
+    for (int index = 0; index < tree->topLevelItem(0)->childCount(); ++index) {
+        auto* candidate = tree->topLevelItem(0)->child(index);
+        if (candidate->data(0, Qt::UserRole + 3).toString() ==
+                QStringLiteral("assembly-cut")) {
+            rollback_cut_item = candidate;
+            break;
+        }
+    }
+    if (!verify(rollback_dialog != nullptr &&
+                    rollback_dialog->findChild<QListWidget*>(
+                        "assemblyCutTargets") != nullptr &&
+                    rollback_cut_item != nullptr &&
+                    rollback_cut_item->foreground(0).color() == QColor(70, 190, 95),
+                "Assembly cut Properties did not enter persisted rollback")) {
+        return 1;
+    }
+    rollback_dialog->findChild<QDialogButtonBox*>()->button(
+        QDialogButtonBox::Cancel)->click();
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    application.processEvents();
 
     if (!create_document(QStringLiteral("drawing"), drawing_name)) {
         return 1;
@@ -693,6 +834,6 @@ int main(int argc, char* argv[]) {
             if (!window.open_document_path(argument)) return 1;
         }
     }
-    window.show();
+    window.showMaximized();
     return application.exec();
 }

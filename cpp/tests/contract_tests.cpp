@@ -74,6 +74,18 @@ int main() {
                     assembly_cut.mesh.original_references.edges.size() ==
                         body.mesh.original_references.edges.size(),
                 "Assembly boolean did not cut the placed body or preserve original references");
+        const auto exported_step = std::filesystem::temp_directory_path() /
+            "zima-cad-kernel-export-contract.step";
+        const auto exported_stl = std::filesystem::temp_directory_path() /
+            "zima-cad-kernel-export-contract.stl";
+        kernel.export_step({{assembly_cut, {25.0, 0.0, 0.0}, {}}},
+            exported_step.string());
+        kernel.export_stl({{assembly_cut, {}, {}}}, exported_stl.string());
+        require(std::filesystem::file_size(exported_step) > 100 &&
+                    std::filesystem::file_size(exported_stl) > 100,
+                "STEP/STL export did not write calculated solid data");
+        std::filesystem::remove(exported_step);
+        std::filesystem::remove(exported_stl);
         require(body.mesh.triangles.size() % 3 == 0, "Invalid triangle indices");
         require(body.mesh.original_references.triangle_references.size() ==
                     body.mesh.original_references.triangles.size() / 3,
@@ -1688,6 +1700,24 @@ int main() {
         require(partial_revolution_faces.contains("start") &&
                     partial_revolution_faces.contains("end"),
                 "Partial Revolution lost its start or end profile face");
+        auto two_sided_revolution = revolution_document;
+        auto& two_sided_parameters =
+            two_sided_revolution.history.front().revolution;
+        two_sided_parameters.extent_mode =
+            zima::document::ProfileExtentMode::TwoSides;
+        two_sided_parameters.angle_degrees = 90.0;
+        two_sided_parameters.angle_reverse = 45.0;
+        two_sided_parameters.direction =
+            zima::document::ExtrusionDirection::Reverse;
+        const auto two_sided_results = kernel.evaluate_history(
+            two_sided_revolution.kernel_operations());
+        const auto two_sided_preview =
+            two_sided_revolution.revolution_preview_edges(
+                two_sided_revolution.history.front());
+        require(std::abs(two_sided_results.front().volume -
+                    146.25 * std::numbers::pi) < 1.0e-6 &&
+                    two_sided_preview.size() >= 4,
+                "Two-sided reversed Revolution has an incorrect body or cyan wire");
         std::set<std::string> partial_revolution_edges;
         for (const auto& edge : half_revolution_results.front().mesh
                  .original_references.edges) {

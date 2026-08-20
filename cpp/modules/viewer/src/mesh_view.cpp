@@ -7,6 +7,7 @@
 #include <QOpenGLShaderProgram>
 #include <QOpenGLVertexArrayObject>
 #include <QPainter>
+#include <QQuaternion>
 #include <QVector3D>
 #include <QVector4D>
 #include <QWheelEvent>
@@ -15,6 +16,7 @@
 #include <cmath>
 #include <limits>
 #include <optional>
+#include <numbers>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -62,11 +64,15 @@ struct MeshView::Impl {
         transient_point_transform;
     QPoint last_pointer;
     QVector3D center;
-    QVector3D pan;
+    QPointF pan_pixels;
     float radius{1.0F};
     float view_scale{1.4F};
-    float yaw{-0.7F};
-    float pitch{0.5F};
+    float reference_view_scale{1.4F};
+    QQuaternion orientation = [] {
+        return QQuaternion::fromAxisAndAngle(0.0F, 0.0F, 1.0F, 0.0F) *
+            QQuaternion::fromAxisAndAngle(1.0F, 0.0F, 0.0F, -45.0F) *
+            QQuaternion::fromAxisAndAngle(0.0F, 0.0F, 1.0F, 215.264F);
+    }();
     DisplayMode display_mode{DisplayMode::ShadedWithEdges};
     bool show_origins{true};
     bool show_points{true};
@@ -75,20 +81,18 @@ struct MeshView::Impl {
     bool show_sketches{true};
     bool gpu_dirty{true};
 
-    [[nodiscard]] QVector3D direction() const {
-        const float cp = std::cos(pitch);
-        return QVector3D(cp * std::cos(yaw), cp * std::sin(yaw), std::sin(pitch));
-    }
-
     [[nodiscard]] QMatrix4x4 view() const {
-        const QVector3D target = center + pan;
-        const QVector3D eye = target + direction() * std::max(radius * 4.0F, 4.0F);
-        const QVector3D up = std::abs(direction().z()) > 0.99F
-            ? QVector3D(0.0F, 1.0F, 0.0F) : QVector3D(0.0F, 0.0F, 1.0F);
         QMatrix4x4 result;
-        result.lookAt(eye, target, up);
+        const float units_per_pixel = 2.0F * view_scale /
+            std::max(1, viewport_height);
+        result.translate(static_cast<float>(pan_pixels.x()) * units_per_pixel,
+                         static_cast<float>(-pan_pixels.y()) * units_per_pixel, 0.0F);
+        result.rotate(orientation);
+        result.translate(-center);
         return result;
     }
+
+    int viewport_height{1};
 
     [[nodiscard]] QMatrix4x4 projection(int width, int height) const {
         const float aspect = height > 0 ? static_cast<float>(width) / height : 1.0F;
@@ -125,6 +129,24 @@ void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
     impl_->confirmed_candidate.reset();
     impl_->gpu_dirty = true;
     if (fit_view) fit_all();
+    update();
+}
+
+std::array<float, 7> MeshView::camera_state() const {
+    return {impl_->orientation.scalar(), impl_->orientation.x(),
+            impl_->orientation.y(), impl_->orientation.z(), impl_->view_scale,
+            static_cast<float>(impl_->pan_pixels.x()),
+            static_cast<float>(impl_->pan_pixels.y())};
+}
+
+void MeshView::set_camera_state(const std::array<float, 7>& state) {
+    if (!std::all_of(state.begin(), state.end(), [](float value) {
+            return std::isfinite(value);
+        }) || state[4] <= 0.0F) return;
+    impl_->orientation = QQuaternion(state[0], state[1], state[2], state[3]).normalized();
+    impl_->view_scale = state[4];
+    impl_->pan_pixels = QPointF(state[5], state[6]);
+    impl_->candidates.clear();
     update();
 }
 
@@ -314,6 +336,17 @@ void MeshView::fit_all() {
         bounds.insert(bounds.end(), edge.points.begin(), edge.points.end());
     }
     for (const auto& point : impl_->mesh.points) bounds.push_back(point.position);
+    for (const auto& axis : impl_->mesh.axes) {
+        const bool origin = axis.reference.semantic_key.starts_with("origin:axis:");
+        const double first = origin ? 0.0 : -axis.display_length * 0.5;
+        const double second = origin ? axis.display_length : axis.display_length * 0.5;
+        bounds.push_back({axis.point.x + axis.direction.x * first,
+                          axis.point.y + axis.direction.y * first,
+                          axis.point.z + axis.direction.z * first});
+        bounds.push_back({axis.point.x + axis.direction.x * second,
+                          axis.point.y + axis.direction.y * second,
+                          axis.point.z + axis.direction.z * second});
+    }
     for (const auto& dimension : impl_->mesh.dimensions) {
         bounds.push_back(dimension.witness_first);
         bounds.push_back(dimension.witness_second);
@@ -324,7 +357,8 @@ void MeshView::fit_all() {
         impl_->center = {};
         impl_->radius = 1.0F;
         impl_->view_scale = 1.4F;
-        impl_->pan = {};
+        impl_->reference_view_scale = impl_->view_scale;
+        impl_->pan_pixels = {};
         return;
     }
     zima::kernel::Vec3 minimum{
@@ -350,8 +384,9 @@ void MeshView::fit_all() {
         static_cast<float>(maximum.y - minimum.y),
         static_cast<float>(maximum.z - minimum.z));
     impl_->radius = std::max(diagonal.length() / 2.0F, 0.5F);
-    impl_->view_scale = impl_->radius * 1.25F;
-    impl_->pan = {};
+    impl_->view_scale = impl_->radius;
+    impl_->reference_view_scale = impl_->view_scale;
+    impl_->pan_pixels = {};
     update();
 }
 
@@ -363,38 +398,35 @@ void MeshView::set_display_mode(DisplayMode mode) {
 DisplayMode MeshView::display_mode() const { return impl_->display_mode; }
 
 void MeshView::set_standard_view(StandardView view) {
-    constexpr float pi = 3.14159265358979323846F;
+    float yaw{};
+    float pitch{};
     switch (view) {
         case StandardView::Isometric:
-            impl_->yaw = -0.7F;
-            impl_->pitch = 0.5F;
+            yaw = 215.264F; pitch = -45.0F;
             break;
         case StandardView::Front:
-            impl_->yaw = -pi / 2.0F;
-            impl_->pitch = 0.0F;
+            yaw = 180.0F; pitch = -90.0F;
             break;
         case StandardView::Back:
-            impl_->yaw = pi / 2.0F;
-            impl_->pitch = 0.0F;
+            yaw = 0.0F; pitch = -90.0F;
             break;
         case StandardView::Left:
-            impl_->yaw = pi;
-            impl_->pitch = 0.0F;
+            yaw = -90.0F; pitch = -90.0F;
             break;
         case StandardView::Right:
-            impl_->yaw = 0.0F;
-            impl_->pitch = 0.0F;
+            yaw = 90.0F; pitch = -90.0F;
             break;
         case StandardView::Top:
-            impl_->yaw = 0.0F;
-            impl_->pitch = pi / 2.0F;
+            yaw = 180.0F; pitch = 0.0F;
             break;
         case StandardView::Bottom:
-            impl_->yaw = 0.0F;
-            impl_->pitch = -pi / 2.0F;
+            yaw = 180.0F; pitch = 180.0F;
             break;
     }
-    impl_->pan = {};
+    impl_->orientation =
+        QQuaternion::fromAxisAndAngle(1.0F, 0.0F, 0.0F, pitch) *
+        QQuaternion::fromAxisAndAngle(0.0F, 0.0F, 1.0F, yaw);
+    impl_->pan_pixels = {};
     impl_->candidates.clear();
     update();
 }
@@ -407,10 +439,16 @@ void MeshView::set_view_direction(const zima::kernel::Vec3& direction) {
     }
     const double x = direction.x / length;
     const double y = direction.y / length;
-    const double z = std::clamp(direction.z / length, -1.0, 1.0);
-    impl_->yaw = static_cast<float>(std::atan2(y, x));
-    impl_->pitch = static_cast<float>(std::asin(z));
-    impl_->pan = {};
+    const double z = direction.z / length;
+    const double horizontal = std::hypot(x, y);
+    const float yaw = horizontal > 1.0e-12
+        ? static_cast<float>(std::atan2(x, y) * 180.0 / std::numbers::pi) : 0.0F;
+    const float pitch = static_cast<float>(
+        std::atan2(-horizontal, -z) * 180.0 / std::numbers::pi);
+    impl_->orientation =
+        QQuaternion::fromAxisAndAngle(1.0F, 0.0F, 0.0F, pitch) *
+        QQuaternion::fromAxisAndAngle(0.0F, 0.0F, 1.0F, yaw);
+    impl_->pan_pixels = {};
     impl_->candidates.clear();
     update();
 }
@@ -471,7 +509,9 @@ void MeshView::initializeGL() {
     impl_->vertex_array.release();
 }
 
-void MeshView::resizeGL(int, int) {}
+void MeshView::resizeGL(int, int height) {
+    impl_->viewport_height = std::max(1, height);
+}
 
 void MeshView::upload_mesh() {
     if (!isValid() || !impl_->gpu_dirty) return;
@@ -531,11 +571,137 @@ void MeshView::upload_mesh() {
 }
 
 void MeshView::paintGL() {
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glClear(GL_DEPTH_BUFFER_BIT);
+    glEnable(GL_SCISSOR_TEST);
+    constexpr int background_bands = 64;
+    const qreal pixel_ratio = devicePixelRatioF();
+    const int framebuffer_width = std::max(
+        1, static_cast<int>(std::lround(width() * pixel_ratio)));
+    const int framebuffer_height = std::max(
+        1, static_cast<int>(std::lround(height() * pixel_ratio)));
+    for (int band = 0; band < background_bands; ++band) {
+        const float factor = (static_cast<float>(band) + 0.5F) /
+            static_cast<float>(background_bands);
+        const auto channel = [factor](int bottom, int top) {
+            return (bottom + (top - bottom) * factor) / 255.0F;
+        };
+        const int first_y = framebuffer_height * band / background_bands;
+        const int last_y = framebuffer_height * (band + 1) / background_bands;
+        glScissor(0, first_y, framebuffer_width, std::max(1, last_y - first_y));
+        glClearColor(channel(23, 59), channel(27, 70), channel(33, 84), 1.0F);
+        glClear(GL_COLOR_BUFFER_BIT);
+    }
+    glDisable(GL_SCISSOR_TEST);
     impl_->vertex_array.bind();
     if (impl_->gpu_dirty) upload_mesh();
     if (!impl_->program.isLinked()) {
         impl_->vertex_array.release();
+        // Reference geometry is viewer-owned 2D overlay data and must remain
+        // usable even when the solid-body OpenGL shader is unavailable.  In
+        // particular, a newly created empty Part has no body at all, but its
+        // persisted Origin must still be visible.
+        const QMatrix4x4 mvp = impl_->projection(width(), height()) * impl_->view();
+        const auto project = [&](const zima::kernel::Vec3& point) {
+            QVector4D clip = mvp * QVector4D(point.x, point.y, point.z, 1.0F);
+            if (std::abs(clip.w()) > 1.0e-9F) clip /= clip.w();
+            return QPointF((clip.x() + 1.0F) * width() / 2.0F,
+                           (1.0F - clip.y()) * height() / 2.0F);
+        };
+        const double reference_scale = impl_->view_scale /
+            std::max(impl_->reference_view_scale, 1.0e-6F);
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+        const auto draw_reference_segment = [&](const QPointF& first,
+                const QPointF& second, const QColor& color, double width) {
+            const QLineF line(first, second);
+            if (line.length() <= 1.0e-6) return;
+            const QPointF normal{-line.dy() / line.length() * width * 0.5,
+                                 line.dx() / line.length() * width * 0.5};
+            painter.save();
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(color);
+            painter.drawPolygon(QPolygonF{first + normal, second + normal,
+                                          second - normal, first - normal});
+            painter.restore();
+        };
+        if (impl_->show_planes) {
+            painter.setPen(QPen(QColor(173, 110, 46), 1.5));
+            for (const auto& edge : impl_->mesh.edges) {
+                const bool origin = edge.reference.semantic_key.starts_with(
+                    "origin:plane:");
+                if (!origin) continue;
+                zima::kernel::Vec3 center;
+                const std::size_t corner_count = edge.points.size() > 1
+                    ? edge.points.size() - 1 : edge.points.size();
+                for (std::size_t index = 0; index < corner_count; ++index) {
+                    const auto& point = edge.points[index];
+                    center.x += point.x; center.y += point.y; center.z += point.z;
+                }
+                if (corner_count != 0) {
+                    center.x /= corner_count; center.y /= corner_count;
+                    center.z /= corner_count;
+                }
+                const auto plane_point = [&](const auto& point) {
+                    return zima::kernel::Vec3{
+                        center.x + (point.x - center.x) * reference_scale,
+                        center.y + (point.y - center.y) * reference_scale,
+                        center.z + (point.z - center.z) * reference_scale};
+                };
+                for (std::size_t index = 1; index < edge.points.size(); ++index) {
+                    draw_reference_segment(project(plane_point(edge.points[index - 1])),
+                        project(plane_point(edge.points[index])), QColor(173, 110, 46), 1.5);
+                }
+                if (!edge.points.empty()) {
+                    painter.drawText(project(plane_point(edge.points.front())) + QPointF(6.0, -5.0),
+                        QString::fromStdString(edge.reference.semantic_key.substr(
+                            std::string("origin:plane:").size())).toUpper());
+                }
+            }
+        }
+        if (impl_->show_origins || impl_->show_axes) {
+            for (const auto& axis : impl_->mesh.axes) {
+                if (!axis.reference.semantic_key.starts_with("origin:axis:")) continue;
+                const QColor color = axis.reference.semantic_key == "origin:axis:x"
+                    ? QColor(232, 76, 61)
+                    : axis.reference.semantic_key == "origin:axis:y"
+                        ? QColor(46, 204, 112) : QColor(51, 153, 219);
+                painter.setPen(QPen(color, 1.5));
+                const QPointF start = project(axis.point);
+                const QPointF end = project({
+                    axis.point.x + axis.direction.x * axis.display_length * reference_scale,
+                    axis.point.y + axis.direction.y * axis.display_length * reference_scale,
+                    axis.point.z + axis.direction.z * axis.display_length * reference_scale});
+                draw_reference_segment(start, end, color, 1.5);
+                const QLineF line(start, end);
+                if (line.length() > 1.0) {
+                    const QPointF unit = (line.p2() - line.p1()) / line.length();
+                    const QPointF normal{-unit.y(), unit.x()};
+                    painter.setPen(Qt::NoPen);
+                    painter.setBrush(color);
+                    painter.drawPolygon(QPolygonF{end, end - unit * 20.0 + normal * 3.526,
+                                                  end - unit * 20.0 - normal * 3.526});
+                }
+                painter.setPen(QPen(color, 1.5));
+                painter.drawText(end + QPointF(5.0, -4.0),
+                    axis.label.empty() ? QString::fromStdString(
+                        axis.reference.semantic_key.substr(
+                            std::string("origin:axis:").size())).toUpper()
+                    : QString::fromStdString(axis.label).toUpper());
+            }
+        }
+        if (impl_->show_origins) {
+            painter.setPen(QPen(QColor(20, 20, 20), 1.5));
+            painter.setBrush(QColor(20, 20, 20));
+            for (const auto& point : impl_->mesh.points) {
+                if (point.reference.semantic_key != "origin:point") continue;
+                const QPointF center = project(point.position);
+                painter.drawEllipse(center, 4.5, 4.5);
+                if (!point.label.empty()) {
+                    painter.drawText(center + QPointF(8.0, -6.0),
+                                     QString::fromStdString(point.label));
+                }
+            }
+        }
         return;
     }
     impl_->program.bind();
@@ -631,7 +797,7 @@ void MeshView::paintGL() {
             CandidateKind::Axis) != impl_->allowed_kinds.end() ||
         std::find(impl_->allowed_kinds.begin(), impl_->allowed_kinds.end(),
             CandidateKind::SketchAxis) != impl_->allowed_kinds.end();
-    const bool axes_visible = impl_->show_axes || axes_selectable;
+    const bool axes_visible = impl_->show_axes || impl_->show_origins || axes_selectable;
     const bool sketch_geometry_visible = impl_->show_sketches && std::any_of(
         impl_->mesh.edges.begin(), impl_->mesh.edges.end(), [](const auto& edge) {
             return edge.reference.semantic_key.starts_with("segment:") ||
@@ -657,13 +823,14 @@ void MeshView::paintGL() {
             CandidateKind::SketchPoint) != impl_->allowed_kinds.end();
     const bool points_visible =
         ((impl_->show_points || points_selectable) && !impl_->mesh.points.empty()) ||
-        external_points_visible;
+        external_points_visible || impl_->show_origins;
     const bool planes_selectable = std::find(
         impl_->allowed_kinds.begin(), impl_->allowed_kinds.end(),
         CandidateKind::Face) != impl_->allowed_kinds.end();
     const bool planes_visible = (impl_->show_planes || planes_selectable) && std::any_of(
         impl_->mesh.edges.begin(), impl_->mesh.edges.end(), [](const auto& edge) {
-            return edge.reference.semantic_key == "border";
+            return edge.reference.semantic_key == "border" ||
+                edge.reference.semantic_key.starts_with("origin:plane:");
         });
     const bool dimensions_visible = !impl_->mesh.dimensions.empty();
     if (axes_visible || points_visible || planes_visible ||
@@ -689,8 +856,23 @@ void MeshView::paintGL() {
             return QPointF((clip.x() + 1.0F) * width() / 2.0F,
                            (1.0F - clip.y()) * height() / 2.0F);
         };
+        const double reference_scale = impl_->view_scale /
+            std::max(impl_->reference_view_scale, 1.0e-6F);
         QPainter painter(this);
         painter.setRenderHint(QPainter::Antialiasing);
+        const auto draw_reference_segment = [&](const QPointF& first,
+                const QPointF& second, const QColor& color, double width) {
+            const QLineF line(first, second);
+            if (line.length() <= 1.0e-6) return;
+            const QPointF normal{-line.dy() / line.length() * width * 0.5,
+                                 line.dx() / line.length() * width * 0.5};
+            painter.save();
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(color);
+            painter.drawPolygon(QPolygonF{first + normal, second + normal,
+                                          second - normal, first - normal});
+            painter.restore();
+        };
         if (sketch_geometry_visible) {
             for (const auto& edge : impl_->mesh.edges) {
                 if (!edge.reference.semantic_key.starts_with("segment:") &&
@@ -723,16 +905,49 @@ void MeshView::paintGL() {
                         ? QPen(QColor(105, 175, 240), 1.5, Qt::DashLine)
                         : QPen(QColor(220, 220, 220), 1.8));
                 for (std::size_t index = 1; index < edge.points.size(); ++index) {
-                    painter.drawLine(project(edge.points[index - 1]), project(edge.points[index]));
+                    painter.drawLine(project(edge.points[index - 1]),
+                                     project(edge.points[index]));
                 }
             }
         }
         if (planes_visible) {
-            painter.setPen(QPen(QColor(90, 180, 225, 180), 1.4, Qt::DashLine));
+            painter.setPen(QPen(QColor(173, 110, 46), 1.5));
             for (const auto& edge : impl_->mesh.edges) {
-                if (edge.reference.semantic_key != "border") continue;
+                const bool origin = edge.reference.semantic_key.starts_with(
+                    "origin:plane:");
+                if (edge.reference.semantic_key != "border" && !origin) continue;
+                if ((origin && !impl_->show_planes && !planes_selectable) ||
+                    (!origin && !impl_->show_planes && !planes_selectable)) continue;
+                zima::kernel::Vec3 center;
+                const std::size_t corner_count = origin && edge.points.size() > 1
+                    ? edge.points.size() - 1 : edge.points.size();
+                for (std::size_t index = 0; index < corner_count; ++index) {
+                    const auto& point = edge.points[index];
+                    center.x += point.x; center.y += point.y; center.z += point.z;
+                }
+                if (corner_count != 0) {
+                    center.x /= corner_count; center.y /= corner_count;
+                    center.z /= corner_count;
+                }
+                const auto plane_point = [&](const auto& point) {
+                    if (!origin) return point;
+                    return zima::kernel::Vec3{
+                        center.x + (point.x - center.x) * reference_scale,
+                        center.y + (point.y - center.y) * reference_scale,
+                        center.z + (point.z - center.z) * reference_scale};
+                };
                 for (std::size_t index = 1; index < edge.points.size(); ++index) {
-                    painter.drawLine(project(edge.points[index - 1]), project(edge.points[index]));
+                    draw_reference_segment(project(plane_point(edge.points[index - 1])),
+                        project(plane_point(edge.points[index])),
+                        origin ? QColor(173, 110, 46) : QColor(90, 180, 225),
+                        origin ? 1.5 : 1.4);
+                }
+                if (origin && !edge.points.empty()) {
+                    const auto key = QString::fromStdString(
+                        edge.reference.semantic_key.substr(
+                            std::string("origin:plane:").size())).toUpper();
+                    painter.drawText(project(plane_point(edge.points.front())) +
+                        QPointF(6.0, -5.0), key);
                 }
             }
         }
@@ -740,7 +955,10 @@ void MeshView::paintGL() {
             for (const auto& point : impl_->mesh.points) {
                 const bool external = point.reference.semantic_key.starts_with(
                     "external_point:");
-                if ((!external && !impl_->show_points && !points_selectable) ||
+                const bool origin = point.reference.semantic_key == "origin:point";
+                if (origin) continue;
+                if ((origin && !impl_->show_origins && !points_selectable) ||
+                    (!origin && !external && !impl_->show_points && !points_selectable) ||
                     (external && !impl_->show_sketches)) continue;
                 if (external) {
                     const QColor color = point.reference.semantic_key.ends_with(
@@ -754,7 +972,13 @@ void MeshView::paintGL() {
                 } else {
                     painter.setPen(QPen(QColor(245, 205, 80), 1.5));
                     painter.setBrush(QColor(245, 205, 80));
-                    painter.drawEllipse(project(point.position), 3.5, 3.5);
+                    const QPointF center = project(point.position);
+                    painter.drawEllipse(center, 3.5, 3.5);
+                    if (!point.label.empty()) {
+                        painter.setPen(QPen(QColor(20, 20, 20), 1.2));
+                        painter.drawText(center + QPointF(8.0, -6.0),
+                                         QString::fromStdString(point.label));
+                    }
                 }
             }
         }
@@ -789,25 +1013,104 @@ void MeshView::paintGL() {
             }
         }
         if (axes_visible) {
-            painter.setPen(QPen(QColor(125, 125, 125), 1.5, Qt::DashLine));
             for (const auto& axis : impl_->mesh.axes) {
-                const zima::kernel::Vec3 half{
-                    axis.direction.x * axis.display_length * 0.5,
-                    axis.direction.y * axis.display_length * 0.5,
-                    axis.direction.z * axis.display_length * 0.5};
-                painter.drawLine(
-                    project({axis.point.x - half.x, axis.point.y - half.y,
-                             axis.point.z - half.z}),
-                    project({axis.point.x + half.x, axis.point.y + half.y,
-                             axis.point.z + half.z}));
+                const bool origin = axis.reference.semantic_key.starts_with(
+                    "origin:axis:");
+                if ((origin && !impl_->show_origins && !axes_selectable) ||
+                    (!origin && !impl_->show_axes && !axes_selectable)) continue;
+                const QColor color = axis.reference.semantic_key == "origin:axis:x"
+                    ? QColor(232, 76, 61)
+                    : axis.reference.semantic_key == "origin:axis:y"
+                        ? QColor(46, 204, 112)
+                    : axis.reference.semantic_key == "origin:axis:z"
+                        ? QColor(51, 153, 219) : QColor(150, 150, 150);
+                painter.setPen(QPen(color, origin ? 2.0 : 1.5,
+                                    origin ? Qt::SolidLine : Qt::DashLine));
+                const double first = origin ? 0.0 : -axis.display_length * 0.5;
+                const double second = origin
+                    ? axis.display_length * reference_scale
+                    : axis.display_length * 0.5;
+                const QPointF start = project({axis.point.x + axis.direction.x * first,
+                                                axis.point.y + axis.direction.y * first,
+                                                axis.point.z + axis.direction.z * first});
+                const QPointF end = project({axis.point.x + axis.direction.x * second,
+                                              axis.point.y + axis.direction.y * second,
+                                              axis.point.z + axis.direction.z * second});
+                draw_reference_segment(start, end, color, origin ? 2.0 : 1.5);
+                if (origin) {
+                    const QLineF line(start, end);
+                    if (line.length() > 1.0) {
+                        const QPointF unit = (line.p2() - line.p1()) / line.length();
+                        const QPointF normal{-unit.y(), unit.x()};
+                        painter.setPen(Qt::NoPen);
+                        painter.setBrush(color);
+                        painter.drawPolygon(QPolygonF{
+                            end, end - unit * 20.0 + normal * 3.526,
+                            end - unit * 20.0 - normal * 3.526});
+                    }
+                    auto axis_font = painter.font();
+                    axis_font.setBold(true);
+                    axis_font.setPointSizeF(std::max(9.0, axis_font.pointSizeF()));
+                    painter.setFont(axis_font);
+                    painter.setPen(QPen(color, 1.5));
+                    painter.drawText(end + QPointF(5.0, -4.0),
+                        axis.label.empty()
+                            ? QString::fromStdString(axis.reference.semantic_key.substr(
+                                  std::string("origin:axis:").size())).toUpper()
+                            : QString::fromStdString(axis.label).toUpper());
+                }
+            }
+        }
+        if (impl_->show_origins) {
+            for (const auto& point : impl_->mesh.points) {
+                if (point.reference.semantic_key != "origin:point") continue;
+                const QPointF center = project(point.position);
+                painter.setPen(QPen(QColor(0, 0, 0), 1.0));
+                painter.setBrush(QColor(0, 0, 0));
+                painter.drawEllipse(center, 4.5, 4.5);
+                if (!point.label.empty()) {
+                    painter.drawText(center + QPointF(8.5, -6.5),
+                                     QString::fromStdString(point.label));
+                }
             }
         }
         if (highlighted) {
             const QColor color = impl_->confirmed_candidate
                 ? QColor(30, 220, 240) : QColor(255, 140, 12);
+            const bool origin_plane = highlighted->kind == CandidateKind::Face &&
+                highlighted->semantic_key.starts_with("origin:plane:");
+            if (origin_plane) {
+                const auto edge = std::find_if(impl_->mesh.edges.begin(),
+                    impl_->mesh.edges.end(), [&](const auto& candidate) {
+                        return candidate.reference.owner_id == highlighted->owner_id &&
+                            candidate.reference.semantic_key == highlighted->semantic_key &&
+                            candidate.reference.instance_path == highlighted->instance_path;
+                    });
+                if (edge != impl_->mesh.edges.end() && edge->points.size() > 1) {
+                    const std::size_t corner_count = edge->points.size() - 1;
+                    zima::kernel::Vec3 center;
+                    for (std::size_t index = 0; index < corner_count; ++index) {
+                        center.x += edge->points[index].x;
+                        center.y += edge->points[index].y;
+                        center.z += edge->points[index].z;
+                    }
+                    center.x /= corner_count; center.y /= corner_count;
+                    center.z /= corner_count;
+                    const auto display_point = [&](const auto& point) {
+                        return zima::kernel::Vec3{
+                            center.x + (point.x - center.x) * reference_scale,
+                            center.y + (point.y - center.y) * reference_scale,
+                            center.z + (point.z - center.z) * reference_scale};
+                    };
+                    for (std::size_t index = 1; index < edge->points.size(); ++index) {
+                        draw_reference_segment(project(display_point(edge->points[index - 1])),
+                            project(display_point(edge->points[index])), color, 1.5);
+                    }
+                }
+            }
             if ((highlighted->kind == CandidateKind::Occurrence ||
                  highlighted->kind == CandidateKind::Container ||
-                 highlighted->kind == CandidateKind::Face)) {
+                 (highlighted->kind == CandidateKind::Face && !origin_plane))) {
                 painter.setPen(QPen(color, 1.5));
                 painter.setBrush(Qt::NoBrush);
                 const bool original = highlighted->geometry ==
@@ -951,6 +1254,11 @@ MeshView::ray_at(const QPointF& position) const {
 
 void MeshView::mousePressEvent(QMouseEvent* event) {
     impl_->last_pointer = event->position().toPoint();
+    if (event->button() == Qt::RightButton &&
+        event->buttons().testFlag(Qt::MiddleButton)) {
+        event->accept();
+        return;
+    }
     if (event->button() == Qt::MiddleButton) {
         impl_->middle_dragged = false;
         impl_->middle_press_position = event->position().toPoint();
@@ -1032,16 +1340,15 @@ void MeshView::mouseMoveEvent(QMouseEvent* event) {
         if ((current - impl_->middle_press_position).manhattanLength() > 2) {
             impl_->middle_dragged = true;
         }
-        if (event->modifiers() & Qt::ShiftModifier) {
-            const QVector3D forward = -impl_->direction();
-            const QVector3D right = QVector3D::crossProduct(forward, QVector3D(0, 0, 1)).normalized();
-            const QVector3D up = QVector3D::crossProduct(right, forward).normalized();
-            const float factor = 2.0F * impl_->view_scale / std::max(height(), 1);
-            impl_->pan += right * (-movement.x() * factor) + up * (movement.y() * factor);
+        if (event->buttons().testFlag(Qt::RightButton)) {
+            impl_->pan_pixels += QPointF(movement.x(), movement.y());
         } else {
-            impl_->yaw += movement.x() * 0.01F;
-            impl_->pitch = std::clamp(
-                impl_->pitch + movement.y() * 0.01F, -1.5F, 1.5F);
+            constexpr float degrees_per_pixel = 0.22F;
+            const auto horizontal = QQuaternion::fromAxisAndAngle(
+                0.0F, 1.0F, 0.0F, movement.x() * degrees_per_pixel);
+            const auto vertical = QQuaternion::fromAxisAndAngle(
+                1.0F, 0.0F, 0.0F, movement.y() * degrees_per_pixel);
+            impl_->orientation = (vertical * horizontal * impl_->orientation).normalized();
         }
         impl_->candidates.clear();
         update();
@@ -1092,9 +1399,17 @@ void MeshView::mouseReleaseEvent(QMouseEvent* event) {
 
 void MeshView::wheelEvent(QWheelEvent* event) {
     const float steps = event->angleDelta().y() / 120.0F;
-    impl_->view_scale *= std::pow(0.82F, steps);
+    const float old_scale = impl_->view_scale;
+    impl_->view_scale *= std::pow(1.15F, steps);
     impl_->view_scale = std::clamp(
         impl_->view_scale, impl_->radius * 0.001F, impl_->radius * 1000.0F);
+    if (old_scale > 0.0F) {
+        const float zoom_ratio = old_scale / impl_->view_scale;
+        const QPointF cursor = event->position();
+        const QPointF center(width() * 0.5, height() * 0.5);
+        impl_->pan_pixels = cursor - center -
+            (cursor - center - impl_->pan_pixels) * zoom_ratio;
+    }
     impl_->candidates.clear();
     update();
     event->accept();

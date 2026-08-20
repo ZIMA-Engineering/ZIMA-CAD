@@ -1,4 +1,5 @@
 #include <zima/assembly/assembly_document.hpp>
+#include <zima/document/versioned_file.hpp>
 #include <zima/document/viewer_packet_json.hpp>
 
 #include <nlohmann/json.hpp>
@@ -18,6 +19,37 @@
 
 namespace zima::assembly {
 namespace {
+
+void append_viewer_mesh(zima::kernel::ViewerMesh& target,
+                        zima::kernel::ViewerMesh source) {
+    const auto offset = static_cast<std::uint32_t>(target.vertices.size());
+    target.vertices.insert(target.vertices.end(),
+        source.vertices.begin(), source.vertices.end());
+    for (const auto index : source.triangles) target.triangles.push_back(offset + index);
+    target.triangle_references.insert(target.triangle_references.end(),
+        source.triangle_references.begin(), source.triangle_references.end());
+    target.edges.insert(target.edges.end(), source.edges.begin(), source.edges.end());
+    target.points.insert(target.points.end(), source.points.begin(), source.points.end());
+    target.axes.insert(target.axes.end(), source.axes.begin(), source.axes.end());
+    target.dimensions.insert(target.dimensions.end(),
+        source.dimensions.begin(), source.dimensions.end());
+    auto& references = target.original_references;
+    auto& incoming = source.original_references;
+    const auto reference_offset = static_cast<std::uint32_t>(references.vertices.size());
+    references.vertices.insert(references.vertices.end(),
+        incoming.vertices.begin(), incoming.vertices.end());
+    for (const auto index : incoming.triangles) {
+        references.triangles.push_back(reference_offset + index);
+    }
+    references.triangle_references.insert(references.triangle_references.end(),
+        incoming.triangle_references.begin(), incoming.triangle_references.end());
+    references.edges.insert(references.edges.end(),
+        incoming.edges.begin(), incoming.edges.end());
+    references.points.insert(references.points.end(),
+        incoming.points.begin(), incoming.points.end());
+    references.axes.insert(references.axes.end(),
+        incoming.axes.begin(), incoming.axes.end());
+}
 
 std::string make_id() {
     std::mt19937_64 generator(static_cast<std::mt19937_64::result_type>(
@@ -525,8 +557,16 @@ const zima::document::ConstructionObject* AssemblyDocument::find_construction(
 
 zima::kernel::ViewerMesh AssemblyDocument::construction_viewer_mesh() const {
     auto carrier = zima::document::PartDocument::create_default();
+    carrier.document_id = document_id;
+    carrier.name = name;
     carrier.constructions = constructions;
     return carrier.construction_viewer_mesh();
+}
+
+zima::kernel::ViewerMesh AssemblyDocument::origin_viewer_mesh() const {
+    auto carrier = zima::document::PartDocument::create_default();
+    carrier.document_id = document_id;
+    return carrier.origin_viewer_mesh();
 }
 
 void AssemblyDocument::resolve_constructions() {
@@ -1409,7 +1449,8 @@ AssemblyDocument::effectively_suppressed_occurrences() const {
 }
 
 zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
-    zima::kernel::ViewerMesh scene = construction_viewer_mesh();
+    zima::kernel::ViewerMesh scene = origin_viewer_mesh();
+    append_viewer_mesh(scene, construction_viewer_mesh());
     std::unordered_set<std::string> occurrence_ids;
     std::unordered_set<std::string> dependency_ids;
     std::unordered_set<std::string> cut_ids;
@@ -1426,7 +1467,7 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
             feature.combine_mode != zima::document::CombineMode::Subtract ||
             std::none_of(sketches.begin(), sketches.end(), [&](const auto& sketch) {
                 return sketch.id == sketch_id;
-            }) || cut.target_occurrence_ids.empty()) {
+            })) {
             throw std::runtime_error("Assembly cut definition is invalid");
         }
         std::unordered_set<std::string> target_ids;
@@ -1640,6 +1681,32 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
         }
         scene.dimensions.push_back(std::move(dimension));
     }
+    for (const auto& cut : cuts) {
+        const auto& feature = cut.definition;
+        if (feature.feature_kind != zima::document::FeatureKind::Extrusion ||
+            (feature.extrusion.extent !=
+                 zima::document::ExtrusionExtent::UpToPlane &&
+             feature.extrusion.extent !=
+                 zima::document::ExtrusionExtent::UpToSurface)) continue;
+        const auto& target = feature.extrusion.target_face;
+        const bool datum = target.instance_path.empty() &&
+            std::any_of(constructions.begin(), constructions.end(),
+                [&](const auto& construction) {
+                    return construction.id == target.owner_id &&
+                        construction.kind ==
+                            zima::document::ConstructionKind::Plane;
+                });
+        const bool persisted_face = std::any_of(
+            scene.original_references.triangle_references.begin(),
+            scene.original_references.triangle_references.end(),
+            [&](const auto& reference) {
+                return reference == target;
+            });
+        if (!datum && !persisted_face) {
+            throw std::runtime_error(
+                "Assembly cut target face reference is missing");
+        }
+    }
     if (scene.triangle_references.size() != scene.triangles.size() / 3) {
         throw std::runtime_error("Assembly triangle references are not aligned");
     }
@@ -1672,7 +1739,7 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
     nlohmann::json root;
     input >> root;
     if (root.at("format").get<std::string>() != "zima-cad-cpp" ||
-        root.at("format_version").get<int>() != 11 ||
+        root.at("format_version").get<int>() != 14 ||
         root.at("type").get<std::string>() != "assembly") {
         throw std::runtime_error("Unsupported ZIMA-CAD Assembly document format");
     }
@@ -1732,7 +1799,11 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
             value.at("axis").get<int>());
         feature.revolution.angle_degrees = value.at("angle").get<double>();
         cut.target_occurrence_ids = value.at("targets").get<std::vector<std::string>>();
-        if (feature.id.empty() || cut.target_occurrence_ids.empty()) {
+        for (const auto& [occurrence_id, body] : value.at("input_component_bodies").items()) {
+            cut.input_component_bodies.emplace(
+                occurrence_id, zima::document::load_body_result(body));
+        }
+        if (feature.id.empty()) {
             throw std::runtime_error("Invalid Assembly cut definition");
         }
         document.cuts.push_back(std::move(cut));
@@ -1751,6 +1822,10 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
         const auto& direction = source.at("direction");
         object.origin = {origin.at("x").get<double>(), origin.at("y").get<double>(),
                          origin.at("z").get<double>()};
+        const auto& rotation = source.at("rotation");
+        object.rotation = {rotation.at("x").get<double>(),
+                           rotation.at("y").get<double>(),
+                           rotation.at("z").get<double>()};
         object.direction = {direction.at("x").get<double>(),
                             direction.at("y").get<double>(),
                             direction.at("z").get<double>()};
@@ -1775,13 +1850,18 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
             object.references.push_back({
                 serialized.at("instance_path").get<std::string>(),
                 serialized.at("owner_id").get<std::string>(),
-                serialized.at("semantic_key").get<std::string>()});
+                serialized.at("semantic_key").get<std::string>(),
+                serialized.at("offset").get<double>()});
         }
         const double direction_length = length(object.direction);
         if (object.id.empty() || object.name.empty() ||
             !construction_ids.insert(object.id).second ||
             !std::isfinite(object.origin.x) || !std::isfinite(object.origin.y) ||
-            !std::isfinite(object.origin.z) || !std::isfinite(object.direction.x) ||
+            !std::isfinite(object.origin.z) ||
+            !std::isfinite(object.rotation.x) ||
+            !std::isfinite(object.rotation.y) ||
+            !std::isfinite(object.rotation.z) ||
+            !std::isfinite(object.direction.x) ||
             !std::isfinite(object.direction.y) || !std::isfinite(object.direction.z) ||
             !std::isfinite(object.display_size) || object.display_size <= 0.0 ||
             (object.kind != zima::document::ConstructionKind::Point &&
@@ -1899,7 +1979,11 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
         if (object.id.empty() || object.name.empty() ||
             !construction_ids.insert(object.id).second ||
             !std::isfinite(object.origin.x) || !std::isfinite(object.origin.y) ||
-            !std::isfinite(object.origin.z) || !std::isfinite(object.direction.x) ||
+            !std::isfinite(object.origin.z) ||
+            !std::isfinite(object.rotation.x) ||
+            !std::isfinite(object.rotation.y) ||
+            !std::isfinite(object.rotation.z) ||
+            !std::isfinite(object.direction.x) ||
             !std::isfinite(object.direction.y) || !std::isfinite(object.direction.z) ||
             !std::isfinite(object.display_size) || object.display_size <= 0.0 ||
             (object.kind != zima::document::ConstructionKind::Point &&
@@ -1913,7 +1997,8 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
             }
             references.push_back({{"instance_path", reference.instance_path},
                 {"owner_id", reference.owner_id},
-                {"semantic_key", reference.semantic_key}});
+                {"semantic_key", reference.semantic_key},
+                {"offset", reference.offset}});
         }
         const auto definition = object.definition ==
                 zima::document::ConstructionDefinition::Absolute ? "absolute"
@@ -1932,6 +2017,8 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
                     ? "axis" : "plane"},
             {"origin", {{"x", object.origin.x}, {"y", object.origin.y},
                         {"z", object.origin.z}}},
+            {"rotation", {{"x", object.rotation.x}, {"y", object.rotation.y},
+                          {"z", object.rotation.z}}},
             {"direction", {{"x", object.direction.x}, {"y", object.direction.y},
                            {"z", object.direction.z}}},
             {"display_size", object.display_size}, {"definition", definition},
@@ -2015,6 +2102,11 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
         for (const auto& point : feature.extrusion.target_surface_triangles) {
             triangles.push_back({point.x, point.y, point.z});
         }
+        nlohmann::json input_bodies = nlohmann::json::object();
+        for (const auto& [occurrence_id, body] : cut.input_component_bodies) {
+            input_bodies[occurrence_id] =
+                zima::document::serialize_body_result(body);
+        }
         cuts_json.push_back({{"id", feature.id}, {"name", feature.name},
             {"kind", feature.feature_kind == zima::document::FeatureKind::Extrusion
                 ? "extrusion" : "revolution"}, {"suppressed", feature.suppressed},
@@ -2038,10 +2130,11 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
             {"target_triangles", std::move(triangles)},
             {"axis", static_cast<int>(feature.revolution.axis)},
             {"angle", feature.revolution.angle_degrees},
-            {"targets", cut.target_occurrence_ids}});
+            {"targets", cut.target_occurrence_ids},
+            {"input_component_bodies", std::move(input_bodies)}});
     }
     const nlohmann::json root = {
-        {"format", "zima-cad-cpp"}, {"format_version", 11},
+        {"format", "zima-cad-cpp"}, {"format_version", 14},
         {"type", "assembly"}, {"document_id", document_id}, {"name", name},
         {"user_parameters", user_parameters},
         {"relations", std::move(relations_json)},
@@ -2059,6 +2152,7 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
         output << std::setw(2) << root << '\n';
         if (!output) throw std::runtime_error("Assembly write failed: " + path.string());
     }
+    zima::document::archive_existing_file(path);
     std::filesystem::rename(temporary, path);
 }
 

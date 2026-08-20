@@ -53,7 +53,7 @@ target_link_libraries(zima_assembly
 add_library(zima_drawing modules/drawing/src/drawing_document.cpp)
 target_include_directories(zima_drawing PUBLIC modules/drawing/include)
 target_link_libraries(zima_drawing
-    PUBLIC zima_kernel_api
+    PUBLIC zima_kernel_api zima_document_core
     PRIVATE nlohmann_json::nlohmann_json)
 
 add_library(zima_workspace modules/workspace/src/workspace.cpp)
@@ -71,7 +71,7 @@ target_link_libraries(zima_kernel_occt
 target_link_libraries(zima_kernel_occt PRIVATE TKOffset)
 target_link_libraries(zima_kernel_occt PRIVATE TKFillet)
 target_link_libraries(zima_kernel_occt PRIVATE
-    TKDESTEP TKXSBase TKXCAF TKCAF TKLCAF TKCDF)
+    TKDESTEP TKDESTL TKXSBase TKXCAF TKCAF TKLCAF TKCDF)
 
 add_library(zima_viewer
     modules/viewer/src/mesh_view.cpp

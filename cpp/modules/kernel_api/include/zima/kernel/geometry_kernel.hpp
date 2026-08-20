@@ -70,6 +70,7 @@ struct ViewerEdge {
 struct ViewerPoint {
     Vec3 position;
     VertexReference reference;
+    std::string label;
 };
 
 struct ViewerAxis {
@@ -77,6 +78,7 @@ struct ViewerAxis {
     Vec3 direction{0.0, 0.0, 1.0};
     double display_length{100.0};
     AxisReference reference;
+    std::string label;
 };
 
 struct ViewerDimension {
@@ -236,6 +238,7 @@ struct ExtrusionRequest {
     std::vector<ProfileRegion> additional_profile_regions;
     bool first_cap_is_start{true};
     Vec3 direction{0.0, 0.0, 10.0};
+    double start_offset{};
     Extent extent{Extent::Blind};
     FaceReference target_face;
     bool target_is_datum{};
@@ -259,6 +262,7 @@ struct RevolutionRequest {
     Vec3 profile_normal{0.0, 0.0, 1.0};
     Vec3 axis_point;
     Vec3 axis_direction{1.0, 0.0, 0.0};
+    double start_angle_degrees{};
     double angle_degrees{360.0};
 };
 
@@ -309,6 +313,12 @@ struct BodyResult {
     // Opaque calculation snapshot. Only the solid kernel may consume it
     // during an explicit body calculation; viewer/reference code uses mesh.
     std::string kernel_shape;
+};
+
+struct PlacedBody {
+    BodyResult body;
+    Vec3 translation;
+    Vec3 rotation_degrees;
 };
 
 [[nodiscard]] inline std::string box_history_fingerprint(
@@ -551,7 +561,7 @@ struct BodyResult {
                 }
                 for (const double value : {
                         primitive.direction.x, primitive.direction.y,
-                        primitive.direction.z}) {
+                        primitive.direction.z, primitive.start_offset}) {
                     u64(std::bit_cast<std::uint64_t>(value));
                 }
                 byte(static_cast<std::uint8_t>(primitive.extent));
@@ -705,6 +715,7 @@ struct BodyResult {
                         primitive.axis_point.x, primitive.axis_point.y,
                         primitive.axis_point.z, primitive.axis_direction.x,
                         primitive.axis_direction.y, primitive.axis_direction.z,
+                        primitive.start_angle_degrees,
                         primitive.angle_degrees}) {
                     u64(std::bit_cast<std::uint64_t>(value));
                 }

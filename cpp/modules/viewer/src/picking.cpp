@@ -240,13 +240,16 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
                                      CandidateGeometry geometry) {
         const auto faces = ordered_ray_candidates(source, ray_origin, ray_direction);
         for (const auto& face : faces) {
+            const bool origin_reference =
+                face.reference.semantic_key.starts_with("origin:");
             const bool persisted_occurrence = geometry == CandidateGeometry::Display &&
                 std::any_of(persisted_face_hits.begin(), persisted_face_hits.end(),
                     [&](const auto& persisted) {
                         return persisted.reference.instance_path ==
                             face.reference.instance_path;
                     });
-            if (!face.reference.instance_path.empty() && !persisted_occurrence &&
+            if (!origin_reference && !face.reference.instance_path.empty() &&
+                !persisted_occurrence &&
                 std::none_of(result.begin(), result.end(), [&](const ViewerCandidate& item) {
                     return item.kind == CandidateKind::Occurrence &&
                         item.instance_path == face.reference.instance_path;
@@ -260,7 +263,7 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
                                   face.reference.instance_path, geometry});
             }
             const bool persisted_container = persisted_occurrence;
-            if (!persisted_container &&
+            if (!origin_reference && !persisted_container &&
                 std::none_of(result.begin(), result.end(), [&](const ViewerCandidate& item) {
                     return item.kind == CandidateKind::Container &&
                         item.owner_id == face.reference.owner_id &&
