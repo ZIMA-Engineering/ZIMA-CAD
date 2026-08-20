@@ -15,6 +15,26 @@
 #include <numbers>
 
 namespace zima::app {
+namespace {
+
+QString readable_reference_kind(const std::string& semantic) {
+    const auto key = QString::fromStdString(semantic);
+    if (key == QStringLiteral("point") || key.contains(QStringLiteral("point")))
+        return QObject::tr("Bod");
+    if (key.startsWith(QStringLiteral("origin:axis:")))
+        return QObject::tr("Osa %1").arg(key.sliced(12).toUpper());
+    if (key == QStringLiteral("axis") || key.contains(QStringLiteral("axis")))
+        return QObject::tr("Osa");
+    if (key.startsWith(QStringLiteral("origin:plane:")))
+        return QObject::tr("Rovina %1").arg(key.sliced(13).toUpper());
+    if (key == QStringLiteral("plane") || key.contains(QStringLiteral("plane")))
+        return QObject::tr("Rovina");
+    if (key.contains(QStringLiteral("edge"))) return QObject::tr("Hrana");
+    if (key.contains(QStringLiteral("face"))) return QObject::tr("Plocha");
+    return QObject::tr("Geometrická reference");
+}
+
+}  // namespace
 
 ConstructionPropertiesDialog::ConstructionPropertiesDialog(
     const zima::document::ConstructionObject& initial, bool edit_mode,
@@ -83,6 +103,9 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
     offset_ = field(initial.offset, "constructionOffset", " mm");
     offset_->hide();
     references_ = initial.references;
+    for (const auto& reference : references_) {
+        reference_labels_.push_back(readable_reference_kind(reference.semantic_key));
+    }
     connect(definition_, &QComboBox::currentIndexChanged,
         this, [this] { refresh_definition_fields(); });
     refresh_definition_fields();
@@ -212,7 +235,10 @@ bool ConstructionPropertiesDialog::set_reference(std::size_t index,
     }
     error_->clear();
     if (references_.size() <= index) references_.resize(index + 1);
+    if (reference_labels_.size() <= index) reference_labels_.resize(index + 1);
     references_[index] = std::move(reference);
+    reference_labels_[index] = label.trimmed().isEmpty()
+        ? readable_reference_kind(references_[index].semantic_key) : label;
     definition_->setCurrentIndex(definition_->findData(static_cast<int>(definition)));
     if (auto* item = reference_table_->item(static_cast<int>(index), 1)) {
         item->setText(QStringLiteral("%1. %2").arg(index + 1).arg(label));
@@ -314,10 +340,11 @@ void ConstructionPropertiesDialog::refresh_reference_table() {
                 [this, index] { remove_reference(index); });
             reference_table_->setCellWidget(static_cast<int>(index), 0, remove);
             auto* reference = new QPushButton(
-                QStringLiteral("%1. %2 / %3")
-                    .arg(index + 1)
-                    .arg(QString::fromStdString(references_[index].owner_id))
-                    .arg(QString::fromStdString(references_[index].semantic_key)),
+                QStringLiteral("%1. %2").arg(index + 1).arg(
+                    index < reference_labels_.size()
+                        ? reference_labels_[index]
+                        : readable_reference_kind(
+                            references_[index].semantic_key)),
                 reference_table_);
             reference->setObjectName(
                 QStringLiteral("constructionReferenceButton%1").arg(index));
@@ -373,6 +400,10 @@ void ConstructionPropertiesDialog::refresh_reference_table() {
 void ConstructionPropertiesDialog::remove_reference(std::size_t index) {
     if (index >= references_.size()) return;
     references_.erase(references_.begin() + static_cast<std::ptrdiff_t>(index));
+    if (index < reference_labels_.size()) {
+        reference_labels_.erase(reference_labels_.begin() +
+            static_cast<std::ptrdiff_t>(index));
+    }
     if (references_.empty()) {
         definition_->setCurrentIndex(definition_->findData(static_cast<int>(
             zima::document::ConstructionDefinition::Absolute)));

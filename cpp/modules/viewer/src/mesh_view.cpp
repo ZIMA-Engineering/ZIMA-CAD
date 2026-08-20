@@ -1313,8 +1313,10 @@ void MeshView::paintGL() {
                         ? QColor(46, 204, 112)
                     : axis.reference.semantic_key == "origin:axis:z"
                         ? QColor(51, 153, 219) : QColor(150, 150, 150);
-                painter.setPen(QPen(color, origin ? 2.0 : 1.5,
-                                    origin ? Qt::SolidLine : Qt::DashLine));
+                const QColor presentation_color = !origin && !exact_highlight
+                    ? QColor(90, 180, 225) : color;
+                painter.setPen(QPen(presentation_color, origin ? 2.0 : 1.5,
+                    origin ? Qt::SolidLine : Qt::DashDotLine));
                 const double first = origin ? 0.0 : -axis.display_length * 0.5;
                 const double second = origin
                     ? axis.display_length * reference_scale
@@ -1325,7 +1327,11 @@ void MeshView::paintGL() {
                 const QPointF end = project({axis.point.x + axis.direction.x * second,
                                               axis.point.y + axis.direction.y * second,
                                               axis.point.z + axis.direction.z * second});
-                draw_reference_segment(start, end, color, origin ? 2.0 : 1.5);
+                if (origin) {
+                    draw_reference_segment(start, end, presentation_color, 2.0);
+                } else {
+                    painter.drawLine(start, end);
+                }
                 if (origin) {
                     const QLineF line(start, end);
                     if (line.length() > 1.0) {
@@ -1486,21 +1492,6 @@ void MeshView::paintGL() {
                 painter.setBrush(color);
                 painter.drawEllipse(project(
                     selectable_points[highlighted->geometry_index].position), 5.0, 5.0);
-            } else if ((highlighted->kind == CandidateKind::Axis ||
-                        highlighted->kind == CandidateKind::SketchAxis) &&
-                       highlighted->geometry_index < selectable_axes.size() &&
-                       !highlighted->semantic_key.starts_with("origin:axis:")) {
-                painter.setPen(QPen(color, 4.0, Qt::SolidLine, Qt::RoundCap));
-                const auto& axis = selectable_axes[highlighted->geometry_index];
-                const zima::kernel::Vec3 half{
-                    axis.direction.x * axis.display_length * 0.5,
-                    axis.direction.y * axis.display_length * 0.5,
-                    axis.direction.z * axis.display_length * 0.5};
-                painter.drawLine(
-                    project({axis.point.x - half.x, axis.point.y - half.y,
-                             axis.point.z - half.z}),
-                    project({axis.point.x + half.x, axis.point.y + half.y,
-                             axis.point.z + half.z}));
             }
             if (origin_group) {
                 for (const auto& edge : impl_->mesh.edges) {

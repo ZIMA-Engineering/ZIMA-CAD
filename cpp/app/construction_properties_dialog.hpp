@@ -5,6 +5,7 @@
 
 #include <array>
 #include <functional>
+#include <QString>
 
 class QDoubleSpinBox;
 class QComboBox;
@@ -59,6 +60,7 @@ private:
     QLabel* reference_status_{};
     QLabel* dof_label_{};
     std::vector<zima::document::ConstructionReference> references_;
+    std::vector<QString> reference_labels_;
     ReferenceRequestCallback reference_request_;
     PreviewCallback preview_;
     QLabel* error_{};

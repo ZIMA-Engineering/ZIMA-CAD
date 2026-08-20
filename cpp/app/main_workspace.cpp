@@ -466,6 +466,34 @@ int verify_startup_contract(
             "constructionReferenceTable");
     auto* point_viewer = dynamic_cast<zima::viewer::MeshView*>(
         window.findChild<QOpenGLWidget*>("modelWorkspace"));
+    std::optional<QPointF> origin_axis_hover_position;
+    if (point_viewer != nullptr) {
+        for (int y = 2; y < point_viewer->height() && !origin_axis_hover_position; y += 4) {
+            for (int x = 2; x < point_viewer->width(); x += 4) {
+                const QPointF local{static_cast<qreal>(x), static_cast<qreal>(y)};
+                const auto candidates = point_viewer->selection_candidates_at(local);
+                if (!candidates.empty() &&
+                    candidates.front().kind == zima::viewer::CandidateKind::Axis &&
+                    candidates.front().semantic_key.starts_with("origin:axis:")) {
+                    origin_axis_hover_position = local;
+                    break;
+                }
+            }
+        }
+    }
+    if (!verify(origin_axis_hover_position.has_value(),
+                "Point placement did not offer an Origin axis in View")) return 1;
+    QMouseEvent origin_axis_move(QEvent::MouseMove, *origin_axis_hover_position,
+        point_viewer->mapToGlobal(origin_axis_hover_position->toPoint()),
+        Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+    QApplication::sendEvent(point_viewer, &origin_axis_move);
+    application.processEvents();
+    point_viewer->repaint();
+    if (!verify(point_viewer->hovered_candidate() &&
+                    point_viewer->hovered_candidate()->semantic_key.starts_with(
+                        "origin:axis:") &&
+                    contains_orange_hover(point_viewer->grabFramebuffer()),
+                "Origin axis hover was not rendered orange during placement")) return 1;
     std::optional<zima::viewer::ViewerCandidate> point_hover;
     QPointF point_hover_position;
     if (point_viewer != nullptr) {
@@ -483,8 +511,9 @@ int verify_startup_contract(
     }
     if (!verify(point_dialog != nullptr && point_references != nullptr &&
                     point_viewer != nullptr && point_hover.has_value() &&
-                    point_hover->geometry ==
-                        zima::viewer::CandidateGeometry::OriginalReference,
+                    (point_hover->geometry ==
+                         zima::viewer::CandidateGeometry::OriginalReference ||
+                     point_hover->semantic_key.starts_with("origin:")),
                 "Point command did not offer a persisted viewer candidate on hover")) {
         return 1;
     }
@@ -495,7 +524,8 @@ int verify_startup_contract(
     application.processEvents();
     auto* selected_reference = point_references->cellWidget(0, 1);
     if (!verify(selected_reference != nullptr &&
-                    selected_reference->property("text").toString().contains('/'),
+                    !selected_reference->property("text").toString().contains(
+                        QString::fromStdString(point_hover->owner_id)),
                 "Point command did not pass the confirmed viewer candidate to its dialog")) {
         return 1;
     }

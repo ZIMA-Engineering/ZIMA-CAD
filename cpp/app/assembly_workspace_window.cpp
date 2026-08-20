@@ -4733,8 +4733,12 @@ void AssemblyWorkspaceWindow::start_construction_reference_selection(
         workspace_.open_part(workspace_.active_document_id()) != nullptr;
     const auto edited_id = construction_reference_dialog_->construction_id();
     viewer_->set_candidate_filter([prefix, active_part, edited_id](const auto& candidate) {
+        const bool persisted_origin_display =
+            candidate.geometry == zima::viewer::CandidateGeometry::Display &&
+            candidate.semantic_key.starts_with("origin:");
         if (candidate.geometry !=
-                zima::viewer::CandidateGeometry::OriginalReference) return false;
+                zima::viewer::CandidateGeometry::OriginalReference &&
+            !persisted_origin_display) return false;
         if (candidate.owner_id == edited_id) return false;
         try {
             const auto path = zima::assembly::InstancePath::decode(
@@ -4755,8 +4759,10 @@ void AssemblyWorkspaceWindow::accept_construction_reference(
     const zima::viewer::ViewerCandidate& candidate) {
     if (construction_reference_dialog_ == nullptr ||
         !pending_construction_reference_index_ || candidate.owner_id.empty() ||
-        candidate.semantic_key.empty() || candidate.geometry !=
-            zima::viewer::CandidateGeometry::OriginalReference) return;
+        candidate.semantic_key.empty() ||
+        (candidate.geometry != zima::viewer::CandidateGeometry::OriginalReference &&
+         !(candidate.geometry == zima::viewer::CandidateGeometry::Display &&
+           candidate.semantic_key.starts_with("origin:")))) return;
     auto local_path = candidate.instance_path;
     if (!active_occurrence_path_.empty()) {
         auto path = zima::assembly::InstancePath::decode(candidate.instance_path);
@@ -4773,12 +4779,47 @@ void AssemblyWorkspaceWindow::accept_construction_reference(
     const auto definition =
         zima::document::ConstructionDefinition::PointReference;
     const std::size_t selected_index = *pending_construction_reference_index_;
+    QString reference_label;
+    const auto active_document_id = workspace_.active_document_id();
+    const auto label_from_constructions = [&](const auto& document) {
+        const auto found = std::find_if(document.constructions.begin(),
+            document.constructions.end(), [&](const auto& object) {
+                return candidate.owner_id == object.id ||
+                    candidate.owner_id == object.entity_id ||
+                    candidate.owner_id == object.container_origin.id;
+            });
+        if (found != document.constructions.end()) {
+            reference_label = QString::fromStdString(found->name);
+        }
+    };
+    if (const auto* part = workspace_.open_part(active_document_id)) {
+        label_from_constructions(part->session.document());
+        if (candidate.owner_id == part->session.document().document_id + ":origin") {
+            reference_label = tr("Počátek dílu");
+        }
+    } else if (const auto* assembly = workspace_.open_assembly(active_document_id)) {
+        label_from_constructions(assembly->session.document());
+        if (candidate.owner_id == assembly->session.document().document_id + ":origin") {
+            reference_label = tr("Počátek sestavy");
+        }
+    }
+    const auto semantic_label = candidate.semantic_key.starts_with("origin:axis:")
+        ? tr("Osa %1").arg(QString::fromStdString(
+            candidate.semantic_key.substr(12)).toUpper())
+        : candidate.semantic_key.starts_with("origin:plane:")
+            ? tr("Rovina %1").arg(QString::fromStdString(
+                candidate.semantic_key.substr(13)).toUpper())
+        : candidate.kind == zima::viewer::CandidateKind::Vertex ? tr("Bod")
+        : candidate.kind == zima::viewer::CandidateKind::Axis ? tr("Osa")
+        : candidate.kind == zima::viewer::CandidateKind::Edge ? tr("Hrana")
+        : tr("Plocha");
+    reference_label = reference_label.isEmpty()
+        ? semantic_label : reference_label + QStringLiteral(" — ") + semantic_label;
     if (!construction_reference_dialog_->set_reference(
         selected_index,
         {std::move(local_path), candidate.owner_id, candidate.semantic_key, 0.0,
             candidate.kind == zima::viewer::CandidateKind::Face},
-        QString::fromStdString(candidate.owner_id + " / " +
-            candidate.semantic_key), definition)) {
+        reference_label, definition)) {
         state_->setText(tr("Stejná reference už je pro tento objekt zadaná."));
         viewer_->clear_selection();
         return;

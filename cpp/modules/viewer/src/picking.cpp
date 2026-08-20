@@ -400,10 +400,13 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
         if (point_container(left) != point_container(right)) {
             return point_container(left);
         }
+        if (priority(left.kind) != priority(right.kind)) {
+            return priority(left.kind) < priority(right.kind);
+        }
         if (std::abs(left.distance - right.distance) > 1.0e-9) {
             return left.distance < right.distance;
         }
-        return priority(left.kind) < priority(right.kind);
+        return false;
     });
     return result;
 }
