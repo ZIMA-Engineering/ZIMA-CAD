@@ -148,6 +148,40 @@ int main() {
                 "Tree selection did not resolve the same stable container candidate");
         require(!zima::viewer::container_candidate(mesh, "missing-container"),
                 "Tree selection accepted a container absent from viewer data");
+        zima::kernel::ViewerMesh point_container_mesh;
+        point_container_mesh.points.push_back(
+            {{0.0, 0.0, 5.0}, {"point-container", "point", {}}});
+        point_container_mesh.original_references.points.push_back(
+            {{0.0, 0.0, 5.0}, {"point-container:origin", "point", {}}});
+        const auto point_candidates = zima::viewer::ordered_viewer_candidates(
+            point_container_mesh, {0.0, 0.0, 0.0}, {0.0, 0.0, 1.0}, 0.01);
+        const auto normal_point_contract = zima::viewer::filter_candidates(
+            point_candidates, {zima::viewer::CandidateKind::Container});
+        const auto reference_point_contract = zima::viewer::filter_candidates(
+            point_candidates, {zima::viewer::CandidateKind::Vertex});
+        const auto point_tree_confirmation = zima::viewer::container_candidate(
+            point_container_mesh, "point-container");
+        require(normal_point_contract.size() == 1 &&
+                    normal_point_contract.front().owner_id == "point-container" &&
+                    normal_point_contract.front().semantic_key == "point" &&
+                    point_tree_confirmation &&
+                    point_tree_confirmation->kind ==
+                        normal_point_contract.front().kind &&
+                    point_tree_confirmation->owner_id ==
+                        normal_point_contract.front().owner_id &&
+                    point_tree_confirmation->semantic_key ==
+                        normal_point_contract.front().semantic_key &&
+                    point_tree_confirmation->geometry_index ==
+                        normal_point_contract.front().geometry_index,
+                "Point marker did not map View hover and Tree confirmation to its Container");
+        require(reference_point_contract.size() == 2 &&
+                    std::any_of(reference_point_contract.begin(),
+                        reference_point_contract.end(), [](const auto& candidate) {
+                            return candidate.owner_id == "point-container:origin" &&
+                                candidate.geometry == zima::viewer::
+                                    CandidateGeometry::OriginalReference;
+                        }),
+                "Point Container exception removed its precise command reference");
         zima::kernel::ViewerMesh separated;
         separated.vertices = {
             {-1.0, -1.0, 5.0}, {1.0, -1.0, 5.0}, {0.0, 1.0, 5.0}};

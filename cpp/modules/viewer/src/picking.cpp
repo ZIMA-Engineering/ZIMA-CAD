@@ -317,6 +317,18 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
         }
         for (const auto& vertex : ordered_vertex_candidates(
                 source, ray_origin, ray_direction, world_tolerance)) {
+            if (geometry == CandidateGeometry::Display &&
+                vertex.reference.semantic_key == "point" &&
+                std::none_of(result.begin(), result.end(),
+                    [&](const ViewerCandidate& item) {
+                        return item.kind == CandidateKind::Container &&
+                            item.owner_id == vertex.reference.owner_id &&
+                            item.instance_path == vertex.reference.instance_path;
+                    })) {
+                result.push_back({CandidateKind::Container, vertex.distance,
+                    vertex.point, vertex.reference.owner_id, "point",
+                    vertex.reference.instance_path, geometry});
+            }
             const auto kind = vertex.reference.semantic_key.starts_with(
                     "external_point:")
                 ? CandidateKind::SketchExternalReference
@@ -441,7 +453,20 @@ std::optional<ViewerCandidate> container_candidate(
     if (auto original = find_in(
             mesh.original_references.triangle_references,
             CandidateGeometry::OriginalReference)) return original;
-    return find_in(mesh.triangle_references, CandidateGeometry::Display);
+    if (auto display = find_in(
+            mesh.triangle_references, CandidateGeometry::Display)) return display;
+    const auto point = std::find_if(mesh.points.begin(), mesh.points.end(),
+        [&](const zima::kernel::ViewerPoint& candidate) {
+            return candidate.reference.valid() &&
+                candidate.reference.owner_id == owner_id &&
+                candidate.reference.instance_path == instance_path &&
+                candidate.reference.semantic_key == "point";
+        });
+    if (point == mesh.points.end()) return std::nullopt;
+    return ViewerCandidate{CandidateKind::Container, 0.0,
+        static_cast<std::size_t>(std::distance(mesh.points.begin(), point)),
+        owner_id, "point", point->reference.instance_path,
+        CandidateGeometry::Display};
 }
 
 }  // namespace zima::viewer

@@ -1501,6 +1501,11 @@ void AssemblyWorkspaceWindow::create_layout() {
                     ? assembly->session.document().find_construction(id) : nullptr;
             if (object == nullptr || object->kind !=
                     zima::document::ConstructionKind::Point) return;
+            // Clear the selected row before arming inspection. refresh_scene()
+            // rebuilds the Tree; otherwise that rebuild emits an empty
+            // selection transition which immediately clears the newly armed
+            // dimension owner.
+            tree_->clearSelection();
             construction_dimension_object_id_ = object->id;
             preserve_view_on_refresh_ = true;
             refresh_scene();
@@ -2089,19 +2094,18 @@ void AssemblyWorkspaceWindow::create_layout() {
                     : assembly != nullptr
                         ? assembly->session.document().find_construction(id) : nullptr;
                 if (object == nullptr) return;
+                if (object->kind == zima::document::ConstructionKind::Point) {
+                    viewer_->confirm_container(object->id);
+                    return;
+                }
                 const auto path = item->data(0, Qt::UserRole + 1)
                     .toString().toStdString();
                 viewer_->confirm_reference(
-                    object->kind == zima::document::ConstructionKind::Point
-                        ? object->container_origin.id : object->id,
-                    object->kind == zima::document::ConstructionKind::Point
-                        ? "point"
-                        : object->kind == zima::document::ConstructionKind::Axis
+                    object->id,
+                    object->kind == zima::document::ConstructionKind::Axis
                             ? "axis" : "plane",
                     path,
-                    object->kind == zima::document::ConstructionKind::Point
-                        ? zima::viewer::CandidateKind::Vertex
-                        : object->kind == zima::document::ConstructionKind::Axis
+                    object->kind == zima::document::ConstructionKind::Axis
                             ? zima::viewer::CandidateKind::Axis
                             : zima::viewer::CandidateKind::Face);
                 return;

@@ -1285,6 +1285,9 @@ void MeshView::paintGL() {
                 ? QColor(30, 220, 240) : QColor(255, 140, 12);
             const bool origin_group = highlighted->kind == CandidateKind::Container &&
                 highlighted->semantic_key == "origin";
+            const bool point_container = highlighted->kind ==
+                    CandidateKind::Container &&
+                highlighted->semantic_key == "point";
             const bool origin_plane = highlighted->kind == CandidateKind::Face &&
                 highlighted->semantic_key.starts_with("origin:plane:");
             if (origin_plane) {
@@ -1317,7 +1320,8 @@ void MeshView::paintGL() {
                 }
             }
             if ((highlighted->kind == CandidateKind::Occurrence ||
-                 (highlighted->kind == CandidateKind::Container && !origin_group) ||
+                 (highlighted->kind == CandidateKind::Container && !origin_group &&
+                  !point_container) ||
                  (highlighted->kind == CandidateKind::Face && !origin_plane))) {
                 painter.setPen(QPen(color, 1.5));
                 painter.setBrush(Qt::NoBrush);
@@ -1391,6 +1395,7 @@ void MeshView::paintGL() {
                 }
             } else if ((highlighted->kind == CandidateKind::Vertex ||
                         highlighted->kind == CandidateKind::SketchPoint ||
+                        point_container ||
                         (highlighted->kind == CandidateKind::SketchExternalReference &&
                          highlighted->semantic_key.starts_with("external_point:"))) &&
                        highlighted->geometry_index < selectable_points.size()) {

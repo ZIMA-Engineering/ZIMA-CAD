@@ -464,6 +464,24 @@ int verify_startup_contract(
     }
     const QRect point_rect = tree->visualItemRect(point_item);
     const QPoint point_position = point_rect.center();
+    QMouseEvent point_tree_click(QEvent::MouseButtonPress,
+        QPointF(point_position), QPointF(tree->viewport()->mapToGlobal(point_position)),
+        Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+    QApplication::sendEvent(tree->viewport(), &point_tree_click);
+    QMouseEvent point_tree_release(QEvent::MouseButtonRelease,
+        QPointF(point_position), QPointF(tree->viewport()->mapToGlobal(point_position)),
+        Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+    QApplication::sendEvent(tree->viewport(), &point_tree_release);
+    application.processEvents();
+    const auto confirmed_point = point_viewer->confirmed_candidate();
+    if (!verify(confirmed_point && confirmed_point->kind ==
+                    zima::viewer::CandidateKind::Container &&
+                    confirmed_point->owner_id ==
+                        point_item->data(0, Qt::UserRole).toString().toStdString() &&
+                    confirmed_point->semantic_key == "point",
+                "Tree Point click did not confirm the exact Point Container marker")) {
+        return 1;
+    }
     QMouseEvent point_tree_double_click(QEvent::MouseButtonDblClick,
         QPointF(point_position), QPointF(tree->viewport()->mapToGlobal(point_position)),
         Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
