@@ -4680,6 +4680,11 @@ void AssemblyWorkspaceWindow::show_construction_properties(
                 construction_translation_dof_ = constraint_state.remaining_dof;
                 construction_reference_dialog_->set_translation_constraint_state(
                     constraint_state, resolved_origin);
+                construction_reference_dialog_->set_remaining_rotation_dof(
+                    preview.kind == zima::document::ConstructionKind::Point ? 0
+                    : zima::document::orientation_constraint_remaining_dof(
+                        preview.references, reference_geometry,
+                        preview.kind == zima::document::ConstructionKind::Plane));
             }
             construction_preview_mesh_ = std::move(mesh);
             viewer_->set_transient_edges({});

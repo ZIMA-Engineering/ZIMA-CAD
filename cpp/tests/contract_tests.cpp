@@ -2146,6 +2146,29 @@ int main() {
                     cursor_document.history_order[1].id == cursor_sphere_id &&
                     cursor_document.history_order[2].id == cursor_point_id,
                 "Insert Here cursor did not control unified history insertion");
+
+        zima::kernel::ViewerReferenceGeometry orientation_geometry;
+        orientation_geometry.axes.push_back({{}, {1.0, 0.0, 0.0}, 10.0,
+            {"axis-x", "axis", {}}});
+        orientation_geometry.axes.push_back({{}, {2.0, 0.0, 0.0}, 10.0,
+            {"axis-x-parallel", "axis", {}}});
+        orientation_geometry.axes.push_back({{}, {0.0, 1.0, 0.0}, 10.0,
+            {"axis-y", "axis", {}}});
+        std::vector<zima::document::ConstructionReference> orientation_refs{
+            {{}, "axis-x", "axis", 0.0, false, "front", true}};
+        require(zima::document::orientation_constraint_remaining_dof(
+                    orientation_refs, orientation_geometry, true) == 1,
+                "One direction reference did not leave one rotational DOF");
+        orientation_refs.push_back(
+            {{}, "axis-x-parallel", "axis", 0.0, false, "top", true});
+        require(zima::document::orientation_constraint_remaining_dof(
+                    orientation_refs, orientation_geometry, true) == 1,
+                "Parallel second direction incorrectly removed rotational DOF");
+        orientation_refs.back() =
+            {{}, "axis-y", "axis", 0.0, false, "top", true};
+        require(zima::document::orientation_constraint_remaining_dof(
+                    orientation_refs, orientation_geometry, true) == 0,
+                "Independent second direction did not fully constrain orientation");
         std::cout << "C++ document and OCCT contracts passed\n";
         return 0;
     } catch (const std::exception& error) {

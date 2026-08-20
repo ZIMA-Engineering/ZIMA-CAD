@@ -45,6 +45,8 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
               : initial.kind == zima::document::ConstructionKind::Axis
                   ? tr("Osa") : tr("Rovina"), parent),
       initial_(initial), commit_(std::move(commit)) {
+    if (initial.kind == zima::document::ConstructionKind::Point)
+        remaining_rotation_dof_ = 0;
     setAttribute(Qt::WA_DeleteOnClose, true);
     setMinimumWidth(460);
     auto compact_font = font();
@@ -296,18 +298,16 @@ bool ConstructionPropertiesDialog::set_reference(std::size_t index,
     references_[index] = std::move(reference);
     reference_labels_[index] = label.trimmed().isEmpty()
         ? readable_reference_kind(references_[index].semantic_key) : label;
-    if (initial_.kind == zima::document::ConstructionKind::Plane && index == 0) {
+    if (initial_.kind == zima::document::ConstructionKind::Plane && index < 2) {
         auto oriented = references_[index];
         oriented.orientation_drives_rotation = true;
-        oriented.orientation_role = "front";
-        if (orientation_references_.empty()) {
-            orientation_references_.push_back(std::move(oriented));
-            orientation_labels_.push_back(reference_labels_[index]);
-        } else {
-            orientation_references_[0] = std::move(oriented);
-            if (orientation_labels_.empty()) orientation_labels_.resize(1);
-            orientation_labels_[0] = reference_labels_[index];
-        }
+        oriented.orientation_role = index == 0 ? "front" : "top";
+        if (orientation_references_.size() <= index)
+            orientation_references_.resize(index + 1);
+        if (orientation_labels_.size() <= index)
+            orientation_labels_.resize(index + 1);
+        orientation_references_[index] = std::move(oriented);
+        orientation_labels_[index] = reference_labels_[index];
         refresh_orientation_table();
     }
     definition_->setCurrentIndex(definition_->findData(static_cast<int>(definition)));
@@ -346,27 +346,18 @@ const std::string& ConstructionPropertiesDialog::construction_id() const {
 void ConstructionPropertiesDialog::set_remaining_translation_dof(int dof) {
     remaining_translation_dof_ = std::clamp(dof, 0, 3);
     if (dof_label_ != nullptr) {
-        int rotation_dof = 0;
-        if (initial_.kind != zima::document::ConstructionKind::Point) {
-            const auto orientation_references = initial_.kind ==
-                    zima::document::ConstructionKind::Plane
-                ? orientation_references_.size()
-                : static_cast<std::size_t>(std::count_if(references_.begin(),
-                    references_.end(), [](const auto& reference) {
-                        return reference.semantic_key.find("axis") != std::string::npos ||
-                            reference.semantic_key.find("edge") != std::string::npos ||
-                            reference.semantic_key.find("plane") != std::string::npos ||
-                            reference.semantic_key.find("face") != std::string::npos;
-                    }));
-            rotation_dof = orientation_references == 0 ? 3
-                : orientation_references == 1 ? 1 : 0;
-        }
-        const int total_dof = remaining_translation_dof_ + rotation_dof;
+        const int total_dof = remaining_translation_dof_ +
+            remaining_rotation_dof_;
         dof_label_->setText(tr("Zbývající stupně volnosti: %1")
             .arg(total_dof));
         reference_status_->setText(total_dof == 0
             ? tr("Plně určené") : QString());
     }
+}
+
+void ConstructionPropertiesDialog::set_remaining_rotation_dof(int dof) {
+    remaining_rotation_dof_ = std::clamp(dof, 0, 3);
+    set_remaining_translation_dof(remaining_translation_dof_);
 }
 
 void ConstructionPropertiesDialog::set_translation_constraint_state(
@@ -543,16 +534,23 @@ void ConstructionPropertiesDialog::remove_reference(std::size_t index) {
         definition_->setCurrentIndex(definition_->findData(static_cast<int>(
             zima::document::ConstructionDefinition::Absolute)));
     }
-    if (initial_.kind == zima::document::ConstructionKind::Plane && index == 0 &&
-        !orientation_references_.empty() &&
-        orientation_references_.front().owner_id == removed.owner_id &&
-        orientation_references_.front().semantic_key == removed.semantic_key &&
-        orientation_references_.front().instance_path == removed.instance_path) {
-        orientation_references_.erase(orientation_references_.begin());
-        if (!orientation_labels_.empty())
-            orientation_labels_.erase(orientation_labels_.begin());
-        if (!orientation_references_.empty())
-            orientation_references_.front().orientation_role = "front";
+    const auto matching_orientation = std::find_if(orientation_references_.begin(),
+        orientation_references_.end(), [&](const auto& reference) {
+            return reference.owner_id == removed.owner_id &&
+                reference.semantic_key == removed.semantic_key &&
+                reference.instance_path == removed.instance_path;
+        });
+    if (initial_.kind == zima::document::ConstructionKind::Plane &&
+        matching_orientation != orientation_references_.end()) {
+        const auto orientation_index = static_cast<std::size_t>(std::distance(
+            orientation_references_.begin(), matching_orientation));
+        orientation_references_.erase(matching_orientation);
+        if (orientation_index < orientation_labels_.size())
+            orientation_labels_.erase(orientation_labels_.begin() +
+                static_cast<std::ptrdiff_t>(orientation_index));
+        for (std::size_t role = 0; role < orientation_references_.size(); ++role)
+            orientation_references_[role].orientation_role =
+                role == 0 ? "front" : "top";
         refresh_orientation_table();
     }
     refresh_reference_table();

@@ -1853,6 +1853,67 @@ int point_constraint_remaining_dof(
     return point_constraint_state(references, geometry).remaining_dof;
 }
 
+int orientation_constraint_remaining_dof(
+    const std::vector<ConstructionReference>& references,
+    const zima::kernel::ViewerReferenceGeometry& geometry,
+    bool marked_only) {
+    const auto matches = [](const auto& actual, const auto& expected) {
+        return actual.instance_path == expected.instance_path &&
+            actual.owner_id == expected.owner_id &&
+            actual.semantic_key == expected.semantic_key;
+    };
+    std::vector<zima::kernel::Vec3> directions;
+    for (const auto& reference : references) {
+        if (marked_only && !reference.orientation_drives_rotation) continue;
+        std::optional<zima::kernel::Vec3> direction;
+        const auto axis = std::find_if(geometry.axes.begin(), geometry.axes.end(),
+            [&](const auto& item) { return matches(item.reference, reference); });
+        if (axis != geometry.axes.end()) direction = axis->direction;
+        if (!direction) {
+            const auto edge = std::find_if(geometry.edges.begin(), geometry.edges.end(),
+                [&](const auto& item) { return matches(item.reference, reference); });
+            if (edge != geometry.edges.end() && edge->points.size() >= 2) {
+                const auto& first = edge->points.front();
+                const auto& last = edge->points.back();
+                direction = zima::kernel::Vec3{last.x - first.x,
+                    last.y - first.y, last.z - first.z};
+            }
+        }
+        if (!direction) {
+            for (std::size_t index = 0;
+                 index < geometry.triangle_references.size(); ++index) {
+                if (!matches(geometry.triangle_references[index], reference) ||
+                    index * 3 + 2 >= geometry.triangles.size()) continue;
+                const auto& a = geometry.vertices[geometry.triangles[index * 3]];
+                const auto& b = geometry.vertices[geometry.triangles[index * 3 + 1]];
+                const auto& c = geometry.vertices[geometry.triangles[index * 3 + 2]];
+                direction = zima::kernel::Vec3{
+                    (b.y-a.y)*(c.z-a.z)-(b.z-a.z)*(c.y-a.y),
+                    (b.z-a.z)*(c.x-a.x)-(b.x-a.x)*(c.z-a.z),
+                    (b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x)};
+                break;
+            }
+        }
+        if (!direction) continue;
+        const double magnitude = std::hypot(
+            std::hypot(direction->x, direction->y), direction->z);
+        if (magnitude <= 1.0e-9) continue;
+        directions.push_back({direction->x / magnitude,
+            direction->y / magnitude, direction->z / magnitude});
+    }
+    if (directions.empty()) return 3;
+    const auto& first = directions.front();
+    const bool independent = std::any_of(directions.begin() + 1,
+        directions.end(), [&](const auto& direction) {
+            const zima::kernel::Vec3 cross{
+                first.y * direction.z - first.z * direction.y,
+                first.z * direction.x - first.x * direction.z,
+                first.x * direction.y - first.y * direction.x};
+            return std::hypot(std::hypot(cross.x, cross.y), cross.z) > 1.0e-6;
+        });
+    return independent ? 0 : 1;
+}
+
 ConstructionObject* PartDocument::find_construction(const std::string& id) {
     const auto found = std::find_if(constructions.begin(), constructions.end(),
         [&](const auto& object) { return object.id == id; });

@@ -107,6 +107,10 @@ struct PointConstraintState {
 [[nodiscard]] PointConstraintState point_constraint_state(
     const std::vector<ConstructionReference>& references,
     const zima::kernel::ViewerReferenceGeometry& geometry);
+[[nodiscard]] int orientation_constraint_remaining_dof(
+    const std::vector<ConstructionReference>& references,
+    const zima::kernel::ViewerReferenceGeometry& geometry,
+    bool marked_only);
 
 struct BoxParameters {
     double length{100.0};

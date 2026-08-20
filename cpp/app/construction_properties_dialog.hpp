@@ -38,6 +38,7 @@ public:
     [[nodiscard]] zima::document::ConstructionKind construction_kind() const;
     [[nodiscard]] const std::string& construction_id() const;
     void set_remaining_translation_dof(int dof);
+    void set_remaining_rotation_dof(int dof);
     void set_translation_constraint_state(
         const zima::document::PointConstraintState& state,
         const zima::kernel::Vec3& solution);
@@ -69,6 +70,7 @@ private:
     PreviewCallback preview_;
     QLabel* error_{};
     int remaining_translation_dof_{3};
+    int remaining_rotation_dof_{3};
     void refresh_definition_fields();
     void refresh_reference_table();
     void refresh_orientation_table();
