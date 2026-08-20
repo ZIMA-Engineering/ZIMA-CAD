@@ -1542,9 +1542,7 @@ bool resolve_construction(ConstructionObject& object,
     object.reference_valid = false;
     if (object.definition == ConstructionDefinition::Absolute) {
         object.reference_valid = true;
-        return true;
-    }
-    if (object.definition == ConstructionDefinition::PointReference &&
+    } else if (object.definition == ConstructionDefinition::PointReference &&
         !object.references.empty()) {
         // Point placement is a set of geometric constraints, not merely an
         // alias of another vertex.  Preserve the entered origin as the
@@ -1575,6 +1573,7 @@ bool resolve_construction(ConstructionObject& object,
         };
         bool supported = true;
         for (const auto& reference : object.references) {
+            if (reference.orientation_drives_rotation) continue;
             if (const auto resolved = point(reference)) {
                 equations.push_back({{1.0, 0.0, 0.0}, resolved->x});
                 equations.push_back({{0.0, 1.0, 0.0}, resolved->y});
@@ -1700,6 +1699,49 @@ bool resolve_construction(ConstructionObject& object,
             }
         }
     }
+    if (object.reference_valid && object.kind == ConstructionKind::Plane) {
+        std::optional<zima::kernel::Vec3> front;
+        std::optional<zima::kernel::Vec3> top;
+        for (const auto& reference : object.references) {
+            if (!reference.orientation_drives_rotation) continue;
+            std::optional<zima::kernel::Vec3> direction;
+            if (const auto resolved = axis(reference)) direction = resolved->direction;
+            else if (const auto resolved = plane(reference)) direction = resolved->second;
+            if (!direction) continue;
+            const double magnitude = std::hypot(
+                std::hypot(direction->x, direction->y), direction->z);
+            if (magnitude <= 1.0e-12) continue;
+            *direction = {direction->x / magnitude, direction->y / magnitude,
+                direction->z / magnitude};
+            if (reference.orientation_role == "top") top = *direction;
+            else front = *direction;
+        }
+        const auto perpendicular = [](const zima::kernel::Vec3& value) {
+            const auto seed = std::abs(value.z) < 0.8
+                ? zima::kernel::Vec3{0.0, 0.0, 1.0}
+                : zima::kernel::Vec3{0.0, 1.0, 0.0};
+            zima::kernel::Vec3 result{seed.y * value.z - seed.z * value.y,
+                seed.z * value.x - seed.x * value.z,
+                seed.x * value.y - seed.y * value.x};
+            const double magnitude = std::hypot(
+                std::hypot(result.x, result.y), result.z);
+            return zima::kernel::Vec3{result.x / magnitude,
+                result.y / magnitude, result.z / magnitude};
+        };
+        if (front || top) {
+            if (!front) front = perpendicular(*top);
+            if (!top) top = perpendicular(*front);
+            zima::kernel::Vec3 normal{front->y * top->z - front->z * top->y,
+                front->z * top->x - front->x * top->z,
+                front->x * top->y - front->y * top->x};
+            const double magnitude = std::hypot(
+                std::hypot(normal.x, normal.y), normal.z);
+            if (magnitude > 1.0e-9) {
+                object.direction = {normal.x / magnitude, normal.y / magnitude,
+                    normal.z / magnitude};
+            }
+        }
+    }
     return object.reference_valid;
 }
 
@@ -1733,6 +1775,7 @@ PointConstraintState point_constraint_state(
             direction.x * first.y - direction.y * first.x});
     };
     for (const auto& reference : references) {
+        if (reference.orientation_drives_rotation) continue;
         if (std::any_of(geometry.points.begin(), geometry.points.end(),
                 [&](const auto& item) { return matches(item.reference, reference); })) {
             rows.insert(rows.end(), {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}});
@@ -2575,7 +2618,7 @@ PartDocument PartDocument::load(
     nlohmann::json root;
     input >> root;
     if (root.at("format").get<std::string>() != "zima-cad-cpp" ||
-        root.at("format_version").get<int>() != 35) {
+        root.at("format_version").get<int>() != 36) {
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
     PartDocument document;
@@ -3034,7 +3077,9 @@ PartDocument PartDocument::load(
                 serialized.at("owner_id").get<std::string>(),
                 serialized.at("semantic_key").get<std::string>(),
                 serialized.at("offset").get<double>(),
-                serialized.at("supports_offset").get<bool>()});
+                serialized.at("supports_offset").get<bool>(),
+                serialized.at("orientation_role").get<std::string>(),
+                serialized.at("orientation_drives_rotation").get<bool>()});
         }
         const double direction_length = std::sqrt(
             object.direction.x * object.direction.x +
@@ -3570,7 +3615,10 @@ void PartDocument::save(
                 {"owner_id", reference.owner_id},
                 {"semantic_key", reference.semantic_key},
                 {"offset", reference.offset},
-                {"supports_offset", reference.supports_offset}});
+                {"supports_offset", reference.supports_offset},
+                {"orientation_role", reference.orientation_role},
+                {"orientation_drives_rotation",
+                    reference.orientation_drives_rotation}});
         }
         const auto definition = object.definition == ConstructionDefinition::Absolute
             ? "absolute"
@@ -3635,7 +3683,7 @@ void PartDocument::save(
     }
     const nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 35},
+        {"format_version", 36},
         {"document_id", document_id},
         {"type", "part"},
         {"name", name},

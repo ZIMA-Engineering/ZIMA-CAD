@@ -57,6 +57,10 @@ private:
     QComboBox* definition_{};
     std::array<QPushButton*, 3> reference_buttons_{};
     QTableWidget* reference_table_{};
+    QTableWidget* orientation_table_{};
+    std::array<QComboBox*, 2> orientation_roles_{};
+    std::vector<zima::document::ConstructionReference> orientation_references_;
+    std::vector<QString> orientation_labels_;
     QLabel* reference_status_{};
     QLabel* dof_label_{};
     std::vector<zima::document::ConstructionReference> references_;
@@ -67,6 +71,7 @@ private:
     int remaining_translation_dof_{3};
     void refresh_definition_fields();
     void refresh_reference_table();
+    void refresh_orientation_table();
     void remove_reference(std::size_t index);
     [[nodiscard]] zima::document::ConstructionObject current_value() const;
     void notify_preview();

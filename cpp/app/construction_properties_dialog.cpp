@@ -102,9 +102,16 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
                field(initial.origin.z, "constructionZ", " mm")};
     offset_ = field(initial.offset, "constructionOffset", " mm");
     offset_->hide();
-    references_ = initial.references;
-    for (const auto& reference : references_) {
-        reference_labels_.push_back(readable_reference_kind(reference.semantic_key));
+    for (const auto& reference : initial.references) {
+        if (reference.orientation_drives_rotation) {
+            orientation_references_.push_back(reference);
+            orientation_labels_.push_back(
+                readable_reference_kind(reference.semantic_key));
+        } else {
+            references_.push_back(reference);
+            reference_labels_.push_back(
+                readable_reference_kind(reference.semantic_key));
+        }
     }
     connect(definition_, &QComboBox::currentIndexChanged,
         this, [this] { refresh_definition_fields(); });
@@ -142,6 +149,29 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
         "QTableWidget::item:selected{background:#00d1ff;color:#102027}");
     content_layout()->addWidget(reference_table_);
     refresh_reference_table();
+    if (initial.kind == zima::document::ConstructionKind::Plane) {
+        auto* orientation_heading = new QLabel(tr("Orientace roviny"), this);
+        auto orientation_heading_font = orientation_heading->font();
+        orientation_heading_font.setBold(true);
+        orientation_heading->setFont(orientation_heading_font);
+        content_layout()->addWidget(orientation_heading);
+        orientation_table_ = new QTableWidget(2, 3, this);
+        orientation_table_->setObjectName("constructionOrientationTable");
+        orientation_table_->setHorizontalHeaderLabels(
+            {QString(), tr("Reference"), tr("FRONT / TOP")});
+        orientation_table_->horizontalHeader()->setSectionResizeMode(
+            0, QHeaderView::ResizeToContents);
+        orientation_table_->horizontalHeader()->setSectionResizeMode(
+            1, QHeaderView::Stretch);
+        orientation_table_->horizontalHeader()->setSectionResizeMode(
+            2, QHeaderView::ResizeToContents);
+        orientation_table_->verticalHeader()->setDefaultSectionSize(34);
+        orientation_table_->setFixedHeight(
+            orientation_table_->horizontalHeader()->sizeHint().height() + 2 * 34 +
+            orientation_table_->frameWidth() * 2);
+        content_layout()->addWidget(orientation_table_);
+        refresh_orientation_table();
+    }
     auto* coordinates = new QFormLayout;
     coordinates->addRow(tr("X"), origin_[0]);
     coordinates->addRow(tr("Y"), origin_[1]);
@@ -221,7 +251,34 @@ void ConstructionPropertiesDialog::set_preview_callback(PreviewCallback callback
 bool ConstructionPropertiesDialog::set_reference(std::size_t index,
     zima::document::ConstructionReference reference, const QString& label,
     zima::document::ConstructionDefinition definition) {
-    if (index >= 3) return false;
+    if (index >= 3) {
+        const auto orientation_index = index - 3;
+        if (initial_.kind != zima::document::ConstructionKind::Plane ||
+            orientation_index >= 2) return false;
+        const auto duplicate = [&](const auto& existing) {
+            return existing.instance_path == reference.instance_path &&
+                existing.owner_id == reference.owner_id &&
+                existing.semantic_key == reference.semantic_key;
+        };
+        if (std::any_of(references_.begin(), references_.end(), duplicate) ||
+            std::any_of(orientation_references_.begin(),
+                orientation_references_.end(), duplicate)) {
+            error_->setText(tr("Stejnou referenci nelze zadat vícekrát."));
+            return false;
+        }
+        reference.orientation_drives_rotation = true;
+        reference.orientation_role = orientation_index == 0 ? "front" : "top";
+        if (orientation_references_.size() <= orientation_index)
+            orientation_references_.resize(orientation_index + 1);
+        if (orientation_labels_.size() <= orientation_index)
+            orientation_labels_.resize(orientation_index + 1);
+        orientation_references_[orientation_index] = std::move(reference);
+        orientation_labels_[orientation_index] = label;
+        error_->clear();
+        refresh_orientation_table();
+        notify_preview();
+        return true;
+    }
     for (std::size_t existing_index = 0;
          existing_index < references_.size(); ++existing_index) {
         const auto& existing = references_[existing_index];
@@ -273,13 +330,16 @@ void ConstructionPropertiesDialog::set_remaining_translation_dof(int dof) {
     if (dof_label_ != nullptr) {
         int rotation_dof = 0;
         if (initial_.kind != zima::document::ConstructionKind::Point) {
-            const auto orientation_references = std::count_if(references_.begin(),
-                references_.end(), [](const auto& reference) {
-                    return reference.semantic_key.find("axis") != std::string::npos ||
-                        reference.semantic_key.find("edge") != std::string::npos ||
-                        reference.semantic_key.find("plane") != std::string::npos ||
-                        reference.semantic_key.find("face") != std::string::npos;
-                });
+            const auto orientation_references = initial_.kind ==
+                    zima::document::ConstructionKind::Plane
+                ? orientation_references_.size()
+                : static_cast<std::size_t>(std::count_if(references_.begin(),
+                    references_.end(), [](const auto& reference) {
+                        return reference.semantic_key.find("axis") != std::string::npos ||
+                            reference.semantic_key.find("edge") != std::string::npos ||
+                            reference.semantic_key.find("plane") != std::string::npos ||
+                            reference.semantic_key.find("face") != std::string::npos;
+                    }));
             rotation_dof = orientation_references == 0 ? 3
                 : orientation_references == 1 ? 1 : 0;
         }
@@ -397,6 +457,62 @@ void ConstructionPropertiesDialog::refresh_reference_table() {
     }
 }
 
+void ConstructionPropertiesDialog::refresh_orientation_table() {
+    if (orientation_table_ == nullptr) return;
+    for (std::size_t index = 0; index < 2; ++index) {
+        if (index < orientation_references_.size() &&
+            !orientation_references_[index].owner_id.empty()) {
+            auto* remove = new QPushButton(QStringLiteral("×"), orientation_table_);
+            remove->setFixedSize(30, 30);
+            remove->setStyleSheet(
+                "QPushButton{color:white;background:#8b2424;border:1px solid #b94a4a;"
+                "border-radius:4px;font-weight:700}");
+            connect(remove, &QPushButton::clicked, this, [this, index] {
+                orientation_references_.erase(orientation_references_.begin() +
+                    static_cast<std::ptrdiff_t>(index));
+                if (index < orientation_labels_.size())
+                    orientation_labels_.erase(orientation_labels_.begin() +
+                        static_cast<std::ptrdiff_t>(index));
+                for (std::size_t role = 0; role < orientation_references_.size(); ++role)
+                    orientation_references_[role].orientation_role =
+                        role == 0 ? "front" : "top";
+                refresh_orientation_table();
+                notify_preview();
+            });
+            orientation_table_->setCellWidget(static_cast<int>(index), 0, remove);
+        } else {
+            orientation_table_->setCellWidget(static_cast<int>(index), 0, nullptr);
+        }
+        auto* select = new QPushButton(
+            index < orientation_labels_.size() && !orientation_labels_[index].isEmpty()
+                ? orientation_labels_[index] : tr("Vybrat orientační referenci"),
+            orientation_table_);
+        select->setObjectName(
+            QStringLiteral("constructionOrientationReference%1").arg(index));
+        connect(select, &QPushButton::clicked, this, [this, index] {
+            if (reference_request_) reference_request_(index + 3);
+        });
+        orientation_table_->setCellWidget(static_cast<int>(index), 1, select);
+        auto* role = new QComboBox(orientation_table_);
+        role->addItem(QStringLiteral("FRONT"), QStringLiteral("front"));
+        role->addItem(QStringLiteral("TOP"), QStringLiteral("top"));
+        const auto stored_role = index < orientation_references_.size()
+            ? QString::fromStdString(orientation_references_[index].orientation_role)
+            : (index == 0 ? QStringLiteral("front") : QStringLiteral("top"));
+        role->setCurrentIndex(std::max(0, role->findData(stored_role)));
+        connect(role, &QComboBox::currentIndexChanged, this, [this, index, role] {
+            if (index < orientation_references_.size()) {
+                orientation_references_[index].orientation_role =
+                    role->currentData().toString().toStdString();
+                notify_preview();
+            }
+        });
+        orientation_roles_[index] = role;
+        orientation_table_->setCellWidget(static_cast<int>(index), 2, role);
+    }
+    set_remaining_translation_dof(remaining_translation_dof_);
+}
+
 void ConstructionPropertiesDialog::remove_reference(std::size_t index) {
     if (index >= references_.size()) return;
     references_.erase(references_.begin() + static_cast<std::ptrdiff_t>(index));
@@ -454,6 +570,8 @@ zima::document::ConstructionObject ConstructionPropertiesDialog::current_value()
     value.references.assign(references_.begin(),
         references_.begin() + static_cast<std::ptrdiff_t>(
             std::min(required, references_.size())));
+    value.references.insert(value.references.end(),
+        orientation_references_.begin(), orientation_references_.end());
     value.offset = offset_->value();
     return value;
 }
@@ -491,6 +609,8 @@ bool ConstructionPropertiesDialog::submit() {
     }
     value.references.assign(references_.begin(), references_.begin() +
         static_cast<std::ptrdiff_t>(required));
+    value.references.insert(value.references.end(),
+        orientation_references_.begin(), orientation_references_.end());
     value.offset = offset_->value();
     if (value.name.empty()) {
         error_->setText(tr("Název nesmí být prázdný."));

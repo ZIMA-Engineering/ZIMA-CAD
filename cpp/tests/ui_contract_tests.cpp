@@ -316,6 +316,40 @@ int main(int argc, char* argv[]) {
                     construction_previews >= 3,
                 "Construction Properties lost associative datum references");
 
+        auto plane_initial = zima::document::PartDocument::create_construction(
+            zima::document::ConstructionKind::Plane);
+        zima::document::ConstructionObject committed_plane;
+        std::optional<std::size_t> requested_orientation_reference;
+        auto* plane_dialog = new zima::app::ConstructionPropertiesDialog(
+            plane_initial, false,
+            [&](zima::document::ConstructionObject value) {
+                committed_plane = std::move(value);
+            }, &parent);
+        plane_dialog->set_reference_request_callback(
+            [&](std::size_t index) { requested_orientation_reference = index; });
+        plane_dialog->show();
+        application.processEvents();
+        auto* orientation_table = plane_dialog->findChild<QTableWidget*>(
+            "constructionOrientationTable");
+        auto* first_orientation = plane_dialog->findChild<QPushButton*>(
+            "constructionOrientationReference0");
+        require(orientation_table != nullptr && orientation_table->rowCount() == 2 &&
+                    first_orientation != nullptr,
+                "Plane Properties does not expose the Python FRONT/TOP table");
+        first_orientation->click();
+        require(requested_orientation_reference == 3,
+                "Plane orientation row did not arm the common viewer picker");
+        plane_dialog->set_reference(3,
+            {{}, "axis-front", "axis"}, "Osa FRONT");
+        plane_dialog->set_reference(4,
+            {{}, "axis-top", "axis"}, "Osa TOP");
+        plane_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
+        require(committed_plane.references.size() == 2 &&
+                    committed_plane.references[0].orientation_drives_rotation &&
+                    committed_plane.references[0].orientation_role == "front" &&
+                    committed_plane.references[1].orientation_role == "top",
+                "Plane Properties lost ordered FRONT/TOP orientation references");
+
         auto point_initial = zima::document::PartDocument::create_construction(
             zima::document::ConstructionKind::Point);
         zima::document::ConstructionObject committed_point;

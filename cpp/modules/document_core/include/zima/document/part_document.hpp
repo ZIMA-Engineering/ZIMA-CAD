@@ -46,6 +46,8 @@ struct ConstructionReference {
     std::string semantic_key;
     double offset{};
     bool supports_offset{};
+    std::string orientation_role{"none"};
+    bool orientation_drives_rotation{};
     bool operator==(const ConstructionReference&) const = default;
 };
 

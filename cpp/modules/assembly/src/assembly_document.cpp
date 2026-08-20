@@ -1740,7 +1740,7 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
     nlohmann::json root;
     input >> root;
     if (root.at("format").get<std::string>() != "zima-cad-cpp" ||
-        root.at("format_version").get<int>() != 20 ||
+        root.at("format_version").get<int>() != 21 ||
         root.at("type").get<std::string>() != "assembly") {
         throw std::runtime_error("Unsupported ZIMA-CAD Assembly document format");
     }
@@ -1907,7 +1907,9 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
                 serialized.at("owner_id").get<std::string>(),
                 serialized.at("semantic_key").get<std::string>(),
                 serialized.at("offset").get<double>(),
-                serialized.at("supports_offset").get<bool>()});
+                serialized.at("supports_offset").get<bool>(),
+                serialized.at("orientation_role").get<std::string>(),
+                serialized.at("orientation_drives_rotation").get<bool>()});
         }
         const double direction_length = length(object.direction);
         if (object.id.empty() || object.name.empty() ||
@@ -2075,7 +2077,10 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
                 {"owner_id", reference.owner_id},
                 {"semantic_key", reference.semantic_key},
                 {"offset", reference.offset},
-                {"supports_offset", reference.supports_offset}});
+                {"supports_offset", reference.supports_offset},
+                {"orientation_role", reference.orientation_role},
+                {"orientation_drives_rotation",
+                    reference.orientation_drives_rotation}});
         }
         const auto definition = object.definition ==
                 zima::document::ConstructionDefinition::Absolute ? "absolute"
@@ -2225,7 +2230,7 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
             {"input_component_bodies", std::move(input_bodies)}});
     }
     const nlohmann::json root = {
-        {"format", "zima-cad-cpp"}, {"format_version", 20},
+        {"format", "zima-cad-cpp"}, {"format_version", 21},
         {"type", "assembly"}, {"document_id", document_id}, {"name", name},
         {"user_parameters", user_parameters},
         {"user_parameter_order", user_parameter_order},
