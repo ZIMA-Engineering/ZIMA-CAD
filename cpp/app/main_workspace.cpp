@@ -609,6 +609,56 @@ int verify_startup_contract(
     application.processEvents();
     if (!verify(contains_cyan_selection(point_viewer->grabFramebuffer()),
                 "Point LMB confirmation was not rendered cyan")) return 1;
+    const auto valid_origin_branch = [](QTreeWidgetItem* container) {
+        if (container == nullptr || container->childCount() < 1) return false;
+        auto* origin = container->child(0);
+        return origin->data(0, Qt::UserRole + 3).toString() ==
+                    QStringLiteral("construction-origin") &&
+            origin->childCount() == 7;
+    };
+    if (!verify(valid_origin_branch(box_tree_item) &&
+                    box_tree_item->childCount() == 2 &&
+                    box_tree_item->child(1)->data(0, Qt::UserRole + 3).toString() ==
+                        QStringLiteral("part-container-entity") &&
+                    valid_origin_branch(point_tree_item) &&
+                    point_tree_item->childCount() == 1,
+                "Box and Point do not expose the Python container hierarchy")) {
+        return 1;
+    }
+    const auto create_construction = [&](QAction* action) {
+        action->trigger();
+        application.processEvents();
+        auto* dialog = window.findChild<QDialog*>("zimaPropertiesSubWindow");
+        auto* dialog_buttons = dialog == nullptr
+            ? nullptr : dialog->findChild<QDialogButtonBox*>();
+        if (dialog_buttons == nullptr) return false;
+        dialog_buttons->button(QDialogButtonBox::Ok)->click();
+        application.processEvents();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        application.processEvents();
+        return true;
+    };
+    if (!verify(create_construction(construction_axis) &&
+                    create_construction(construction_plane),
+                "Axis or Plane container creation failed")) return 1;
+    int datum_container_count = 0;
+    if (tree->topLevelItemCount() == 1) {
+        auto* root = tree->topLevelItem(0);
+        for (int index = 0; index < root->childCount(); ++index) {
+            auto* child = root->child(index);
+            if (child->data(0, Qt::UserRole + 3).toString() !=
+                    QStringLiteral("part-construction")) continue;
+            if (valid_origin_branch(child) && child->childCount() == 2 &&
+                child->child(1)->data(0, Qt::UserRole + 3).toString() ==
+                    QStringLiteral("construction-entity")) {
+                ++datum_container_count;
+            }
+        }
+    }
+    if (!verify(datum_container_count == 2,
+                "Axis and Plane do not expose Origin plus their datum entity")) {
+        return 1;
+    }
     point_viewer->clear_selection();
     tree->clearSelection();
     tree->setCurrentItem(nullptr);

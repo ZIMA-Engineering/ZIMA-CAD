@@ -1375,12 +1375,16 @@ PartDocument PartDocument::create_default() {
 HistoryContainer PartDocument::create_box_container() {
     HistoryContainer container;
     container.id = make_id();
+    container.feature_id = make_id();
+    container.container_origin = create_container_origin(container.id);
     return container;
 }
 
 HistoryContainer PartDocument::create_cylinder_container() {
     HistoryContainer container;
     container.id = make_id();
+    container.feature_id = make_id();
+    container.container_origin = create_container_origin(container.id);
     container.name = "Válec";
     container.feature_kind = FeatureKind::Cylinder;
     return container;
@@ -1389,6 +1393,8 @@ HistoryContainer PartDocument::create_cylinder_container() {
 HistoryContainer PartDocument::create_sphere_container() {
     HistoryContainer container;
     container.id = make_id();
+    container.feature_id = make_id();
+    container.container_origin = create_container_origin(container.id);
     container.name = "Koule";
     container.feature_kind = FeatureKind::Sphere;
     return container;
@@ -1397,6 +1403,8 @@ HistoryContainer PartDocument::create_sphere_container() {
 HistoryContainer PartDocument::create_cone_container() {
     HistoryContainer container;
     container.id = make_id();
+    container.feature_id = make_id();
+    container.container_origin = create_container_origin(container.id);
     container.name = "Kužel";
     container.feature_kind = FeatureKind::Cone;
     return container;
@@ -1405,6 +1413,8 @@ HistoryContainer PartDocument::create_cone_container() {
 HistoryContainer PartDocument::create_pyramid_container() {
     HistoryContainer container;
     container.id = make_id();
+    container.feature_id = make_id();
+    container.container_origin = create_container_origin(container.id);
     container.name = "Jehlan";
     container.feature_kind = FeatureKind::Pyramid;
     return container;
@@ -1413,6 +1423,8 @@ HistoryContainer PartDocument::create_pyramid_container() {
 HistoryContainer PartDocument::create_wedge_container() {
     HistoryContainer container;
     container.id = make_id();
+    container.feature_id = make_id();
+    container.container_origin = create_container_origin(container.id);
     container.name = "Klín";
     container.feature_kind = FeatureKind::Wedge;
     return container;
@@ -2252,6 +2264,8 @@ HistoryContainer PartDocument::create_extrusion_container(std::string sketch_id)
     if (sketch_id.empty()) throw std::invalid_argument("Extrusion Sketch ID is required");
     HistoryContainer container;
     container.id = make_id();
+    container.feature_id = make_id();
+    container.container_origin = create_container_origin(container.id);
     container.name = "Vytažení";
     container.feature_kind = FeatureKind::Extrusion;
     container.extrusion.sketch_id = std::move(sketch_id);
@@ -2262,6 +2276,8 @@ HistoryContainer PartDocument::create_revolution_container(std::string sketch_id
     if (sketch_id.empty()) throw std::invalid_argument("Revolution Sketch ID is required");
     HistoryContainer container;
     container.id = make_id();
+    container.feature_id = make_id();
+    container.container_origin = create_container_origin(container.id);
     container.name = "Rotace";
     container.feature_kind = FeatureKind::Revolution;
     container.revolution.sketch_id = std::move(sketch_id);
@@ -2277,6 +2293,8 @@ HistoryContainer PartDocument::create_fillet_container(
     }
     HistoryContainer container;
     container.id = make_id();
+    container.feature_id = make_id();
+    container.container_origin = create_container_origin(container.id);
     container.name = "Zaoblení";
     container.feature_kind = FeatureKind::Fillet;
     container.edge_treatment.edges = std::move(edges);
@@ -2292,6 +2310,8 @@ HistoryContainer PartDocument::create_chamfer_container(
     }
     HistoryContainer container;
     container.id = make_id();
+    container.feature_id = make_id();
+    container.container_origin = create_container_origin(container.id);
     container.name = "Sražení";
     container.feature_kind = FeatureKind::Chamfer;
     container.edge_treatment.edges = std::move(edges);
@@ -2304,6 +2324,8 @@ HistoryContainer PartDocument::create_imported_step_container(
     if (source_path.empty()) throw std::invalid_argument("STEP source path is empty");
     HistoryContainer container;
     container.id = make_id();
+    container.feature_id = make_id();
+    container.container_origin = create_container_origin(container.id);
     container.name = component_name.empty() ? source_path.stem().string()
                                             : std::move(component_name);
     container.feature_kind = FeatureKind::ImportedStep;
@@ -2523,7 +2545,7 @@ PartDocument PartDocument::load(
     nlohmann::json root;
     input >> root;
     if (root.at("format").get<std::string>() != "zima-cad-cpp" ||
-        root.at("format_version").get<int>() != 32) {
+        root.at("format_version").get<int>() != 33) {
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
     PartDocument document;
@@ -2573,12 +2595,41 @@ PartDocument PartDocument::load(
             : type == "fillet" ? FeatureKind::Fillet
             : type == "chamfer" ? FeatureKind::Chamfer : FeatureKind::Box;
         container.id = source.at("id").get<std::string>();
+        container.feature_id = source.at("feature_id").get<std::string>();
         container.name = source.at("name").get<std::string>();
         if (container.id.empty() || !container_ids.insert(container.id).second) {
             throw std::runtime_error("History container IDs must be non-empty and unique");
         }
         if (container.name.empty()) {
             throw std::runtime_error("History container name must not be empty");
+        }
+        if (container.feature_id.empty() || container.feature_id == container.id) {
+            throw std::runtime_error("History feature ID must be distinct and non-empty");
+        }
+        const auto& serialized_origin = source.at("container_origin");
+        container.container_origin.id =
+            serialized_origin.at("id").get<std::string>();
+        container.container_origin.parent_id =
+            serialized_origin.at("parent_id").get<std::string>();
+        container.container_origin.name =
+            serialized_origin.at("name").get<std::string>();
+        container.container_origin.locked =
+            serialized_origin.at("locked").get<bool>();
+        for (const auto& child : serialized_origin.at("children")) {
+            const std::string kind = child.at("kind").get<std::string>();
+            container.container_origin.children.push_back({
+                child.at("id").get<std::string>(),
+                child.at("parent_id").get<std::string>(),
+                child.at("name").get<std::string>(),
+                kind == "point" ? OriginChildKind::Point
+                    : kind == "axis" ? OriginChildKind::Axis
+                    : kind == "plane" ? OriginChildKind::Plane
+                    : throw std::runtime_error("Invalid history Container Origin child kind"),
+                child.at("key").get<std::string>(),
+                child.at("locked").get<bool>()});
+        }
+        if (container.container_origin != create_container_origin(container.id)) {
+            throw std::runtime_error("Invalid history Container Origin");
         }
         const std::string combine = source.value("combine", "add");
         if (combine != "add" && combine != "subtract") {
@@ -3073,6 +3124,10 @@ void PartDocument::save(
         if (container.name.empty()) {
             throw std::runtime_error("History container name must not be empty");
         }
+        if (container.feature_id.empty() || container.feature_id == container.id ||
+            container.container_origin != create_container_origin(container.id)) {
+            throw std::runtime_error("History container hierarchy is invalid");
+        }
         if (container.feature_kind == FeatureKind::Box) {
             require_positive(container.box.length, "length");
             require_positive(container.box.width, "width");
@@ -3174,6 +3229,7 @@ void PartDocument::save(
         }
         nlohmann::json serialized = {
             {"id", container.id},
+            {"feature_id", container.feature_id},
             {"type", container.feature_kind == FeatureKind::Box ? "box"
                 : container.feature_kind == FeatureKind::Cylinder
                     ? "cylinder"
@@ -3196,7 +3252,23 @@ void PartDocument::save(
             {"name", container.name},
             {"combine", container.combine_mode == CombineMode::Subtract
                 ? "subtract" : "add"}, {"suppressed", container.suppressed},
+            {"container_origin", {
+                {"id", container.container_origin.id},
+                {"parent_id", container.container_origin.parent_id},
+                {"name", container.container_origin.name},
+                {"locked", container.container_origin.locked},
+                {"children", nlohmann::json::array()},
+            }},
         };
+        for (const auto& child : container.container_origin.children) {
+            serialized["container_origin"]["children"].push_back({
+                {"id", child.id}, {"parent_id", child.parent_id},
+                {"name", child.name},
+                {"kind", child.kind == OriginChildKind::Point ? "point"
+                    : child.kind == OriginChildKind::Axis ? "axis" : "plane"},
+                {"key", child.key}, {"locked", child.locked},
+            });
+        }
         if (container.feature_kind != FeatureKind::Extrusion &&
             container.feature_kind != FeatureKind::Revolution &&
             container.feature_kind != FeatureKind::Fillet &&
@@ -3452,7 +3524,7 @@ void PartDocument::save(
         {{"target", relation.target}, {"expression", relation.expression}});
     const nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 32},
+        {"format_version", 33},
         {"document_id", document_id},
         {"type", "part"},
         {"name", name},

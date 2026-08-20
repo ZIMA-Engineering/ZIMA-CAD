@@ -1199,10 +1199,17 @@ void MeshView::paintGL() {
                     painter.drawLine(center + QPointF(-4.0, 4.0),
                                      center + QPointF(4.0, -4.0));
                 } else {
-                    const QColor marker_color =
+                    const bool selected = point.reference.owner_id ==
+                        impl_->selected_container_origin_id;
+                    const bool hovered = !impl_->confirmed_candidate && highlighted &&
+                        highlighted->kind == CandidateKind::Container &&
+                        highlighted->semantic_key == "point" &&
                         point.reference.owner_id ==
-                                impl_->selected_container_origin_id
-                        ? QColor(30, 220, 240) : QColor(0, 0, 0);
+                            highlighted->owner_id + ":origin" &&
+                        point.reference.instance_path == highlighted->instance_path;
+                    const QColor marker_color = selected
+                        ? QColor(30, 220, 240)
+                        : hovered ? QColor(255, 122, 0) : QColor(0, 0, 0);
                     painter.setPen(QPen(marker_color, 1.0));
                     painter.setBrush(marker_color);
                     const QPointF center = project(point.position);
@@ -1420,8 +1427,6 @@ void MeshView::paintGL() {
                 }
             } else if ((highlighted->kind == CandidateKind::Vertex ||
                         highlighted->kind == CandidateKind::SketchPoint ||
-                        (highlighted->kind == CandidateKind::Container &&
-                         highlighted->semantic_key == "point") ||
                         (highlighted->kind == CandidateKind::SketchExternalReference &&
                          highlighted->semantic_key.starts_with("external_point:"))) &&
                        highlighted->geometry_index < selectable_points.size()) {

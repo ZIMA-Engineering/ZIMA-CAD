@@ -1740,7 +1740,7 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
     nlohmann::json root;
     input >> root;
     if (root.at("format").get<std::string>() != "zima-cad-cpp" ||
-        root.at("format_version").get<int>() != 17 ||
+        root.at("format_version").get<int>() != 18 ||
         root.at("type").get<std::string>() != "assembly") {
         throw std::runtime_error("Unsupported ZIMA-CAD Assembly document format");
     }
@@ -1773,6 +1773,9 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
         AssemblyCut cut;
         auto& feature = cut.definition;
         feature.id = value.at("id").get<std::string>();
+        feature.feature_id = value.at("feature_id").get<std::string>();
+        feature.container_origin =
+            zima::document::create_container_origin(feature.id);
         feature.name = value.at("name").get<std::string>();
         const auto kind = value.at("kind").get<std::string>();
         feature.feature_kind = kind == "extrusion"
@@ -2164,7 +2167,8 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
             input_bodies[occurrence_id] =
                 zima::document::serialize_body_result(body);
         }
-        cuts_json.push_back({{"id", feature.id}, {"name", feature.name},
+        cuts_json.push_back({{"id", feature.id},
+            {"feature_id", feature.feature_id}, {"name", feature.name},
             {"kind", feature.feature_kind == zima::document::FeatureKind::Extrusion
                 ? "extrusion" : "revolution"}, {"suppressed", feature.suppressed},
             {"x", feature.placement.x}, {"y", feature.placement.y},
@@ -2191,7 +2195,7 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
             {"input_component_bodies", std::move(input_bodies)}});
     }
     const nlohmann::json root = {
-        {"format", "zima-cad-cpp"}, {"format_version", 17},
+        {"format", "zima-cad-cpp"}, {"format_version", 18},
         {"type", "assembly"}, {"document_id", document_id}, {"name", name},
         {"user_parameters", user_parameters},
         {"user_parameter_order", user_parameter_order},

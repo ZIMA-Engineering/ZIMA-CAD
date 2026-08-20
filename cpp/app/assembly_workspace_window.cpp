@@ -253,6 +253,94 @@ QTreeWidgetItem* add_origin_tree_item(QTreeWidgetItem* parent,
     return origin;
 }
 
+QTreeWidgetItem* add_construction_origin_tree_item(QTreeWidgetItem* parent,
+    const zima::document::ContainerOrigin& container_origin,
+    const std::string& container_name,
+    const zima::assembly::InstancePath& instance_path = {}) {
+    auto* origin = new QTreeWidgetItem(parent, {QObject::tr("Počátek kontejneru")});
+    origin->setIcon(0, resource_icon("origin"));
+    origin->setData(0, Qt::UserRole, QString::fromStdString(container_origin.id));
+    origin->setData(0, Qt::UserRole + 1,
+        QString::fromStdString(instance_path.encoded()));
+    origin->setData(0, Qt::UserRole + 3, "construction-origin");
+    for (const auto& origin_child : container_origin.children) {
+        const auto label = origin_child.kind == zima::document::OriginChildKind::Point
+            ? QObject::tr("Point (%1)").arg(QString::fromStdString(container_name))
+            : QString::fromStdString(origin_child.name);
+        auto* child = new QTreeWidgetItem(origin, {label});
+        child->setIcon(0, resource_icon(
+            origin_child.kind == zima::document::OriginChildKind::Point ? "point" :
+            origin_child.kind == zima::document::OriginChildKind::Axis ? "axis" : "plane"));
+        child->setData(0, Qt::UserRole, QString::fromStdString(origin_child.id));
+        child->setData(0, Qt::UserRole + 1,
+            QString::fromStdString(instance_path.encoded()));
+        child->setData(0, Qt::UserRole + 3, "origin-reference");
+        child->setData(0, Qt::UserRole + 5,
+            QString::fromStdString(std::string("origin:") + origin_child.key));
+        child->setData(0, Qt::UserRole + 6,
+            QString::fromStdString(container_origin.id));
+    }
+    origin->setExpanded(true);
+    return origin;
+}
+
+QString feature_icon_name(zima::document::FeatureKind kind) {
+    using zima::document::FeatureKind;
+    switch (kind) {
+        case FeatureKind::Box: return QStringLiteral("box");
+        case FeatureKind::Cylinder: return QStringLiteral("cylinder");
+        case FeatureKind::Sphere: return QStringLiteral("sphere");
+        case FeatureKind::Cone: return QStringLiteral("cone");
+        case FeatureKind::Pyramid: return QStringLiteral("pyramid");
+        case FeatureKind::Wedge: return QStringLiteral("wedge");
+        case FeatureKind::Extrusion: return QStringLiteral("protrusion");
+        case FeatureKind::Revolution: return QStringLiteral("revolve");
+        case FeatureKind::ImportedStep: return QStringLiteral("import-step");
+        case FeatureKind::Fillet: return QStringLiteral("fillet");
+        case FeatureKind::Chamfer: return QStringLiteral("chamfer");
+    }
+    return {};
+}
+
+void add_history_container_tree_children(QTreeWidgetItem* parent,
+    const zima::document::HistoryContainer& container,
+    const zima::assembly::InstancePath& instance_path = {}) {
+    add_construction_origin_tree_item(
+        parent, container.container_origin, container.name, instance_path);
+    auto* feature = new QTreeWidgetItem(
+        parent, {QString::fromStdString(container.name)});
+    feature->setIcon(0, resource_icon(feature_icon_name(container.feature_kind)));
+    feature->setData(0, Qt::UserRole,
+        QString::fromStdString(container.feature_id));
+    feature->setData(0, Qt::UserRole + 1,
+        QString::fromStdString(instance_path.encoded()));
+    feature->setData(0, Qt::UserRole + 3, "part-container-entity");
+    feature->setData(0, Qt::UserRole + 6,
+        QString::fromStdString(container.id));
+    parent->setExpanded(true);
+}
+
+void add_construction_tree_children(QTreeWidgetItem* parent,
+    const zima::document::ConstructionObject& object,
+    const zima::assembly::InstancePath& instance_path = {}) {
+    add_construction_origin_tree_item(
+        parent, object.container_origin, object.name, instance_path);
+    if (object.kind == zima::document::ConstructionKind::Point) {
+        parent->setExpanded(true);
+        return;
+    }
+    const bool axis = object.kind == zima::document::ConstructionKind::Axis;
+    auto* entity = new QTreeWidgetItem(
+        parent, {QString::fromStdString(object.name)});
+    entity->setIcon(0, resource_icon(axis ? "axis" : "plane"));
+    entity->setData(0, Qt::UserRole, QString::fromStdString(object.id));
+    entity->setData(0, Qt::UserRole + 1,
+        QString::fromStdString(instance_path.encoded()));
+    entity->setData(0, Qt::UserRole + 3, "construction-entity");
+    entity->setData(0, Qt::UserRole + 5, axis ? "axis" : "plane");
+    parent->setExpanded(true);
+}
+
 using SketchPosition = std::array<double, 2>;
 
 std::optional<std::string> sketch_text_id_from_key(const std::string& key) {
@@ -2029,6 +2117,19 @@ void AssemblyWorkspaceWindow::create_layout() {
             if (item->data(0, Qt::UserRole + 3).toString() == "part-container") {
                 viewer_->confirm_container(
                     item->data(0, Qt::UserRole).toString().toStdString());
+            } else if (item->data(0, Qt::UserRole + 3).toString() ==
+                           "part-container-entity") {
+                viewer_->confirm_container(
+                    item->data(0, Qt::UserRole + 6).toString().toStdString());
+            } else if (item->data(0, Qt::UserRole + 3).toString() ==
+                           "construction-entity") {
+                const auto semantic = item->data(0, Qt::UserRole + 5)
+                    .toString().toStdString();
+                viewer_->confirm_reference(
+                    item->data(0, Qt::UserRole).toString().toStdString(), semantic,
+                    item->data(0, Qt::UserRole + 1).toString().toStdString(),
+                    semantic == "axis" ? zima::viewer::CandidateKind::Axis
+                                       : zima::viewer::CandidateKind::Face);
             } else if (item->data(0, Qt::UserRole + 3).toString() ==
                            "part-construction" ||
                        item->data(0, Qt::UserRole + 3).toString() ==
@@ -8970,6 +9071,8 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
              (container.suppressed ? tr(" [potlačeno]") : QString{})});
         item->setData(0, Qt::UserRole, QString::fromStdString(container.id));
         item->setData(0, Qt::UserRole + 3, "part-container");
+        item->setIcon(0, resource_icon(feature_icon_name(container.feature_kind)));
+        add_history_container_tree_children(item, container, construction_path);
         if (container.suppressed) {
             item->setForeground(0, QBrush(QColor(125, 125, 125)));
         }
@@ -9034,6 +9137,11 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
         item->setData(0, Qt::UserRole + 1,
             QString::fromStdString(construction_path.encoded()));
         item->setData(0, Qt::UserRole + 3, "part-construction");
+        item->setIcon(0, resource_icon(
+            object.kind == zima::document::ConstructionKind::Point ? "point"
+                : object.kind == zima::document::ConstructionKind::Axis
+                    ? "axis" : "plane"));
+        add_construction_tree_children(item, object, construction_path);
     }
     auto* body = new QTreeWidgetItem(parent, {tr("Těleso")});
     body->setIcon(0, resource_icon("result-body"));
@@ -9091,6 +9199,11 @@ void AssemblyWorkspaceWindow::add_assembly_tree_children(
             item->setData(0, Qt::UserRole + 1,
                 QString::fromStdString(parent_path.encoded()));
             item->setData(0, Qt::UserRole + 3, "assembly-construction");
+            item->setIcon(0, resource_icon(
+                object.kind == zima::document::ConstructionKind::Point ? "point"
+                    : object.kind == zima::document::ConstructionKind::Axis
+                        ? "axis" : "plane"));
+            add_construction_tree_children(item, object, parent_path);
         }
     }
     add_snapshot_tree_children(

@@ -200,8 +200,10 @@ struct Placement {
 
 struct HistoryContainer {
     std::string id;
+    std::string feature_id;
     std::string name{"Kvádr"};
     FeatureKind feature_kind{FeatureKind::Box};
+    ContainerOrigin container_origin;
     CombineMode combine_mode{CombineMode::Add};
     Placement placement;
     BoxParameters box;
