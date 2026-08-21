@@ -66,6 +66,46 @@ int main() {
                         zima::document::FeatureKind::ImportedStep &&
                     loaded_step_boundaries.size() == 1,
                 "Imported STEP container did not survive Part save/load");
+
+        // Edit/regenerate/reopen: the Python-produced fixture starts with an
+        // empty history. Append a native feature, calculate it, save and
+        // reload the edited document to prove the open/load fixture also
+        // survives an explicit edit-regenerate-reopen cycle, not merely an
+        // initial load.
+        auto edited_fixture_part = fixture_part;
+        auto fixture_box = zima::document::PartDocument::create_box_container();
+        fixture_box.id = "fixture-edit-box-001";
+        fixture_box.feature_id = "fixture-edit-box-001:feature";
+        fixture_box.feature_parent_id = fixture_box.id;
+        fixture_box.container_origin =
+            zima::document::create_container_origin(fixture_box.id);
+        fixture_box.name = "Fixture Edit Box";
+        fixture_box.box = {30.0, 15.0, 8.0};
+        edited_fixture_part.history.push_back(fixture_box);
+        edited_fixture_part.insert_history_entry(
+            zima::document::PartHistoryKind::Feature, fixture_box.id);
+        const auto fixture_edit_boundaries = kernel.evaluate_history(
+            edited_fixture_part.kernel_operations());
+        require(fixture_edit_boundaries.size() == 1 &&
+                    std::abs(fixture_edit_boundaries.back().volume - 3600.0) < 1.0e-6,
+                "Editing the Python fixture history did not calculate the expected box");
+        const auto fixture_edit_path = std::filesystem::temp_directory_path() /
+            "zima-cad-fixture-edit-regenerate-reopen-contract.prtz";
+        edited_fixture_part.save(fixture_edit_path, fixture_edit_boundaries);
+        std::vector<zima::kernel::BodyResult> reopened_fixture_boundaries;
+        const auto reopened_fixture_part = zima::document::PartDocument::load(
+            fixture_edit_path, &reopened_fixture_boundaries);
+        std::filesystem::remove(fixture_edit_path);
+        require(reopened_fixture_part.document_id == "part-fixture-001" &&
+                    reopened_fixture_part.history.size() == 1 &&
+                    reopened_fixture_part.history.front().id == "fixture-edit-box-001" &&
+                    reopened_fixture_part.history.front().box.length == 30.0 &&
+                    reopened_fixture_part.history.front().box.width == 15.0 &&
+                    reopened_fixture_part.history.front().box.height == 8.0 &&
+                    reopened_fixture_boundaries.size() == 1 &&
+                    std::abs(reopened_fixture_boundaries.back().volume - 3600.0) < 1.0e-6,
+                "Edited Python fixture did not survive regenerate/save/reopen");
+
         const auto body = kernel.make_box({100.0, 80.0, 50.0});
         require(std::abs(body.volume - 400000.0) < 1e-6, "Incorrect box volume");
         require(std::abs(body.surface_area - 34000.0) < 1e-6,

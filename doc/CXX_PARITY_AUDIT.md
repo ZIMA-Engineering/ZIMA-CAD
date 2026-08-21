@@ -20,6 +20,21 @@ Sketch, Assembly occurrence/mate/cut, and Drawing sheet/view payloads. These
 adapters are tested in isolation; they do not yet prove complete semantic
 round-trips for every advanced Assembly and Drawing operation.
 
+A cross-language persistence contract now also runs in the other direction:
+a native `cross_language_persistence_emitter` writes C++-produced Part,
+nested Assembly, and Drawing documents that the bundled Python runtime loads
+and validates (`tests/test_cpp_python_persistence.py`). This closed two real
+defects in the C++ INI writer — `combine_mode` was serialized as
+`"add"/"subtract"` instead of Python's `CombineMode` enum values, and Sketch
+and Construction entities reused their owning Container's id for their own
+Entity section, which made Python's tree loader recurse into itself
+(`RecursionError`) instead of terminating at the leaf entity. The C++ Part
+contract test (`zima_cpp_contract_tests`) also now edits a Python-produced
+Part fixture (appends a native Box feature), regenerates it through OCCT,
+saves, and reopens it, proving Part-level edit/regenerate/reopen survives a
+cross-language round trip. Equivalent edit/regenerate/reopen coverage for
+nested Assembly and Drawing documents remains outstanding.
+
 ## Verified native vertical slices
 
 | Area | C++ state | Evidence |
@@ -38,7 +53,7 @@ round-trips for every advanced Assembly and Drawing operation.
 
 | Priority | Missing parity | Acceptance gate |
 |---|---|---|
-| P0 | End-to-end project fixtures | Open, edit, regenerate, save, close and reopen representative Part, nested Assembly and Drawing projects in C++; compare persisted model and measured geometry with the Python reference. Deterministic open/load fixtures are complete; edit/regenerate/reopen evidence remains |
+| P0 | End-to-end project fixtures | Open, edit, regenerate, save, close and reopen representative Part, nested Assembly and Drawing projects in C++; compare persisted model and measured geometry with the Python reference. Deterministic open/load fixtures are complete in both directions (Python-produced fixtures load in C++; C++-produced fixtures load in bundled Python). Part-level edit/regenerate/reopen is now verified against a Python-produced fixture; nested Assembly and Drawing edit/regenerate/reopen evidence remains |
 | P0 | Windows packaged-runtime verification | Build from committed Git data and pass the repository OpenBLAS DLL, archive, SHA-256 and packaged smoke validators described in `WINDOWS_RUNTIME_AND_BUILD.md` |
 | P0 | Full integrated GUI regression | Exercise creation/edit/cancel/undo/redo, middle-button double-click OK, nested activation, selection cycling and explicit dependency regeneration through `zima-cad-cpp` |
 | P1 | Advanced Drawing parity | Verify all Python projection-layout, annotation, BOM, template and title-block editing scenarios against C++ output |
