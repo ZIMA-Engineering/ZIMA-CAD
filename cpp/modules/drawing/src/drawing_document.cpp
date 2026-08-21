@@ -504,7 +504,11 @@ void DrawingDocument::save(const std::filesystem::path& path) const {
         serialized["title_block_fields"]=nlohmann::json::array();
         for(const auto& field:sheet.title_block_fields) serialized["title_block_fields"].push_back({
             {"id",field.id},{"expression",field.expression},{"value",field.value},
-            {"position",{field.position.x,field.position.y}},{"height",field.height},{"editable",field.editable}});
+            {"position",{field.position.x,field.position.y}},{"height",field.height},
+            {"editable",field.editable},{"pen",static_cast<int>(field.pen)},
+            {"alignment",field.alignment},{"vertical_alignment",field.vertical_alignment},
+            {"box_width",field.box_width},{"box_height",field.box_height},
+            {"format",field.format},{"write_back",field.write_back}});
         serialized["bom_rows"]=nlohmann::json::array();
         for(const auto& row:sheet.bom_rows) serialized["bom_rows"].push_back({
             {"item_number",row.item_number},{"quantity",row.quantity},{"name",row.name},
@@ -634,7 +638,11 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
         sheet.title_block_texts=parse_texts(serialized.at("title_block_texts"));
         for(const auto& item:serialized.at("title_block_fields")) sheet.title_block_fields.push_back({
             item.at("id"),item.at("expression"),item.at("value"),
-            {item.at("position").at(0),item.at("position").at(1)},item.at("height"),item.at("editable")});
+            {item.at("position").at(0),item.at("position").at(1)},item.at("height"),item.at("editable"),
+            static_cast<DrawingPen>(item.value("pen", static_cast<int>(DrawingPen::Green))),
+            item.value("alignment", "left"), item.value("vertical_alignment", "middle"),
+            item.value("box_width", 0.0), item.value("box_height", 0.0),
+            item.value("format", ""), item.value("write_back", false)});
         for(const auto& item:serialized.at("bom_rows")) sheet.bom_rows.push_back({
             item.at("item_number"),item.at("quantity"),item.at("name"),item.at("designation"),item.at("material")});
         for (const auto& item : serialized.at("views")) {
@@ -729,7 +737,15 @@ void load_title_block_template(DrawingSheet& sheet, const std::filesystem::path&
         TitleBlockField field; field.id=section.substr(6);
         field.expression=get("Text",get("Default","-")); field.value=get("Default","-");
         field.position=transform(std::stod(get("X","0")),std::stod(get("Y","0")));
-        field.height=std::stod(get("Height","2.5")); field.editable=get("Editable","no")=="yes";
+        field.height=std::stod(get("Height","2.5"));
+        field.editable=get("Editable","no")=="yes";
+        field.pen=parse_pen(get("Pen","GREEN"));
+        field.alignment=get("Align","left");
+        field.vertical_alignment=get("VerticalAlign","middle");
+        field.box_width=std::stod(get("BoxWidth","0"));
+        field.box_height=std::stod(get("BoxHeight","0"));
+        field.format=get("Format");
+        field.write_back=get("WriteBack","no")=="yes";
         sheet.title_block_fields.push_back(std::move(field));
     }
 }

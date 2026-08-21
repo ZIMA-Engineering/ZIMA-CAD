@@ -20,6 +20,7 @@ Current documentation:
 - [Stable topology naming](doc/STABLE_TOPOLOGY_NAMING.md)
 - [Numerical precision and model tolerance](doc/NUMERICAL_PRECISION.md)
 - [Future modular C++ migration](doc/CXX_MIGRATION.md)
+- [C++ performance measurements](doc/CXX_PERFORMANCE.md)
 - [Dimension ranges and constrained motion](doc/DIMENSION_RANGES.md)
 
 ## License

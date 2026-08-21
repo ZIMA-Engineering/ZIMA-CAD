@@ -1,5 +1,6 @@
 #include <zima/drawing/drawing_document.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -61,14 +62,30 @@ int main() {
         dimension.first_point = {-5, 0}; dimension.second_point = {-5, 10};
         dimension.label_position = {-5, 5}; dimension.measured_value = 10;
         drawing.sheets.front().dimensions.push_back(dimension);
+        drawing.sheets.front().bom_rows = {
+            {1, 2, "Bracket", "BR-001", "S235JR"},
+            {2, 4, "Washer", "WS-002", "A2"},
+        };
         zima::drawing::load_frame_template(
             drawing.sheets.front(), "config/formats/ZE-A4.frmz");
         zima::drawing::load_title_block_template(
             drawing.sheets.front(), "config/formats/ZE-TITLE-BLOCK.tblz");
         require(!drawing.sheets.front().frame_lines.empty() &&
                     !drawing.sheets.front().title_block_lines.empty() &&
-                    !drawing.sheets.front().title_block_fields.empty(),
+                    !drawing.sheets.front().title_block_fields.empty() &&
+                    drawing.sheets.front().bom_rows.size() == 2 &&
+                    drawing.sheets.front().bom_rows.front().designation == "BR-001",
                 "C++ Drawing did not embed frame/title-block template geometry");
+        auto& title_fields = drawing.sheets.front().title_block_fields;
+        const auto drawn_by = std::find_if(title_fields.begin(), title_fields.end(),
+            [](const auto& field) { return field.id == "DRAWN_BY"; });
+        require(drawn_by != title_fields.end() && drawn_by->editable &&
+                    drawn_by->expression == "&Drew" &&
+                    drawn_by->alignment == "right" &&
+                    drawn_by->vertical_alignment == "middle" &&
+                    drawn_by->write_back,
+                "Drawing title-block fields lost expression or editability");
+        title_fields.front().value = "Ada";
         auto changed_mesh = mesh;
         changed_mesh.edges[1].points = {{0, 0, 20}, {10, 0, 20}};
         drawing.refresh_view(view_id, changed_mesh);
@@ -78,6 +95,14 @@ int main() {
         auto child = zima::drawing::DrawingDocument::create_view(
             "part-1", "part.prtz", mesh, zima::drawing::ViewOrientation::Right);
         child.parent_view_id = view_id;
+        child.projection_direction = zima::drawing::ProjectionDirection::Right;
+        child.display_style = zima::drawing::DisplayStyle::HiddenEdges;
+        child.camera = zima::drawing::projected_camera(
+            drawing.find_view(view_id)->camera, child.projection_direction,
+            drawing.sheets.front().projection_method);
+        child.x = drawing.find_view(view_id)->x + 70.0;
+        child.y = drawing.find_view(view_id)->y;
+        child.scale = 0.5;
         const std::string child_id = child.id;
         drawing.sheets.front().views.push_back(std::move(child));
         const auto path = std::filesystem::current_path() /
@@ -99,8 +124,17 @@ int main() {
                     loaded.sheets.size() == 1 && loaded.find_view(view_id) != nullptr &&
                     loaded.find_view(child_id) != nullptr &&
                     loaded.find_view(child_id)->parent_view_id == view_id &&
+                    loaded.find_view(child_id)->projection_direction ==
+                        zima::drawing::ProjectionDirection::Right &&
+                    loaded.find_view(child_id)->display_style ==
+                        zima::drawing::DisplayStyle::HiddenEdges &&
+                    std::abs(loaded.find_view(child_id)->scale - 0.5) < 1e-9 &&
                     !loaded.sheets.front().frame_lines.empty() &&
                     !loaded.sheets.front().title_block_fields.empty() &&
+                    loaded.sheets.front().bom_rows.size() == 2 &&
+                    loaded.sheets.front().bom_rows[1].material == "A2" &&
+                    loaded.sheets.front().title_block_fields.front().value == "Ada" &&
+                    loaded.sheets.front().title_block_fields.front().write_back &&
                     std::abs(loaded.sheets.front().dimensions.front().measured_value - 20.0) < 1e-9 &&
                     loaded.find_view(view_id)->projected_edges.front().source.semantic_key == "edge:x",
                 "Drawing save/load lost source identity or projected geometry");

@@ -81,6 +81,13 @@ struct TemplateText {
 struct TitleBlockField {
     std::string id; std::string expression; std::string value;
     Point2 position; double height{2.5}; bool editable{};
+    DrawingPen pen{DrawingPen::Green};
+    std::string alignment{"left"};
+    std::string vertical_alignment{"middle"};
+    double box_width{};
+    double box_height{};
+    std::string format;
+    bool write_back{};
 };
 struct BomRow {
     int item_number{}; int quantity{1}; std::string name;

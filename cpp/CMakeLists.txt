@@ -126,6 +126,11 @@ target_link_libraries(zima-cad-drawing-harness PRIVATE
     zima_workspace zima_drawing zima_document_core zima_assembly zima_ui
     Qt6::Core Qt6::Gui Qt6::Widgets)
 
+add_executable(zima_cpp_performance_benchmark
+    tests/performance_benchmark.cpp)
+target_link_libraries(zima_cpp_performance_benchmark PRIVATE
+    zima_workspace zima_assembly zima_document_core zima_kernel_occt zima_viewer)
+
 if(ZIMA_BUILD_TESTS)
     enable_testing()
     add_executable(zima_cpp_contract_tests tests/contract_tests.cpp)
