@@ -1028,6 +1028,35 @@ int verify_startup_contract(
                 "Redo did not restore the edited Extrusion value")) {
         return 1;
     }
+    {
+        // A middle-button double-click over the owning document view must
+        // commit the open Properties dialog exactly like clicking OK,
+        // whether or not the pointer is over the dialog itself.
+        auto* model_workspace = window.findChild<QOpenGLWidget*>("modelWorkspace");
+        if (!verify(model_workspace != nullptr,
+                    "the real workspace has no modelWorkspace view")) {
+            return 1;
+        }
+        const QPoint middle = model_workspace->rect().center();
+        QMouseEvent middle_double_click(
+            QEvent::MouseButtonDblClick, middle, middle,
+            model_workspace->mapToGlobal(middle),
+            Qt::MiddleButton, Qt::MiddleButton, Qt::NoModifier);
+        QApplication::sendEvent(model_workspace, &middle_double_click);
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        application.processEvents();
+        if (!verify(window.findChild<QDialog*>("zimaPropertiesSubWindow") == nullptr,
+                    "middle-button double-click over the view did not commit "
+                    "and close the open Extrusion Properties dialog")) {
+            return 1;
+        }
+        std::tie(edit_dialog, edit_height) = open_extrusion_properties();
+        if (!verify(edit_height != nullptr && edit_height->value() == 18.0,
+                    "middle-button double-click OK changed the committed "
+                    "Extrusion value")) {
+            return 1;
+        }
+    }
     edit_dialog->findChild<QDialogButtonBox*>()
         ->button(QDialogButtonBox::Cancel)->click();
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
