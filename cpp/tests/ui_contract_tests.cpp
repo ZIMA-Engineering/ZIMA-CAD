@@ -8,6 +8,8 @@
 #include "file_dialog.hpp"
 #include "document_tools_dialogs.hpp"
 
+#include <zima/viewer/mesh_view.hpp>
+
 #include <QApplication>
 #include <QAbstractProxyModel>
 #include <QDialogButtonBox>
@@ -101,6 +103,27 @@ int main(int argc, char* argv[]) {
         auto* operation = middle_dialog->findChild<QComboBox*>();
         require(operation != nullptr, "Box dialog has no operation selector");
         operation->setCurrentIndex(operation->findData("subtract"));
+        QMouseEvent middle_press(
+            QEvent::MouseButtonPress,
+            QPointF(50.0, 50.0),
+            QPointF(50.0, 50.0),
+            QPointF(50.0, 50.0),
+            Qt::MiddleButton,
+            Qt::MiddleButton,
+            Qt::NoModifier);
+        QApplication::sendEvent(&parent, &middle_press);
+        QMouseEvent middle_release(
+            QEvent::MouseButtonRelease,
+            QPointF(50.0, 50.0),
+            QPointF(50.0, 50.0),
+            QPointF(50.0, 50.0),
+            Qt::MiddleButton,
+            Qt::NoButton,
+            Qt::NoModifier);
+        QApplication::sendEvent(&parent, &middle_release);
+        application.processEvents();
+        require(middle_commits == 0,
+                "A short middle-button click confirmed Properties");
         QMouseEvent middle_double_click(
             QEvent::MouseButtonDblClick,
             QPointF(50.0, 50.0),
@@ -115,6 +138,61 @@ int main(int argc, char* argv[]) {
                 "Middle-button double-click outside dialog did not invoke OK");
         require(middle_operation == zima::document::CombineMode::Subtract,
                 "Properties dialog did not commit subtract mode");
+
+        int view_middle_commits = 0;
+        auto* view_middle_dialog = new zima::app::PrimitivePropertiesDialog(
+            initial, false, false,
+            [&](zima::document::HistoryContainer) { ++view_middle_commits; },
+            &parent);
+        zima::viewer::MeshView view(&parent);
+        view.setGeometry(0, 0, 500, 360);
+        view.show();
+        view_middle_dialog->show();
+        application.processEvents();
+        QMouseEvent view_middle_double_click(
+            QEvent::MouseButtonDblClick,
+            QPointF(250.0, 180.0),
+            QPointF(250.0, 180.0),
+            QPointF(250.0, 180.0),
+            Qt::MiddleButton,
+            Qt::MiddleButton,
+            Qt::NoModifier);
+        QApplication::sendEvent(&view, &view_middle_double_click);
+        application.processEvents();
+        require(view_middle_commits == 1,
+                "Middle-button double-click over the owning view did not invoke OK");
+
+        zima::kernel::ViewerMesh selection_mesh;
+        selection_mesh.vertices = {
+            {-0.5, -0.5, 0.0}, {0.5, -0.5, 0.0}, {0.0, 0.5, 0.0}};
+        selection_mesh.triangles = {0, 1, 2};
+        selection_mesh.triangle_references.push_back(
+            {"selection-owner", "face", {}});
+        zima::viewer::MeshView selection_view(&parent);
+        selection_view.setGeometry(0, 0, 500, 360);
+        selection_view.set_mesh(std::move(selection_mesh));
+        selection_view.show();
+        application.processEvents();
+        selection_view.confirm_container("selection-owner");
+        require(selection_view.confirmed_candidate().has_value(),
+                "Selection fixture did not confirm its candidate");
+        int empty_selection_callbacks = 0;
+        selection_view.set_empty_confirmation_callback(
+            [&] { ++empty_selection_callbacks; });
+        QMouseEvent empty_left_click(
+            QEvent::MouseButtonPress,
+            QPointF(5.0, 5.0),
+            QPointF(5.0, 5.0),
+            QPointF(5.0, 5.0),
+            Qt::LeftButton,
+            Qt::LeftButton,
+            Qt::NoModifier);
+        QApplication::sendEvent(&selection_view, &empty_left_click);
+        application.processEvents();
+        require(!selection_view.confirmed_candidate().has_value(),
+                "Empty LMB click left stale view selection confirmed");
+        require(empty_selection_callbacks == 1,
+                "Empty LMB click did not notify tree/view selection clearing");
 
         auto cylinder_initial =
             zima::document::PartDocument::create_cylinder_container();

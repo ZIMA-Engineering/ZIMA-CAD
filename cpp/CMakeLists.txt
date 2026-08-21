@@ -144,7 +144,7 @@ if(ZIMA_BUILD_TESTS)
     target_sources(zima_cpp_ui_contract_tests PRIVATE app/sketch_text_properties_dialog.cpp)
     target_include_directories(zima_cpp_ui_contract_tests PRIVATE app)
     target_link_libraries(zima_cpp_ui_contract_tests PRIVATE
-        zima_document_core zima_assembly zima_ui Qt6::Widgets)
+        zima_document_core zima_assembly zima_ui zima_viewer Qt6::Widgets)
     add_test(NAME zima_cpp_ui_contract_tests COMMAND zima_cpp_ui_contract_tests)
     set_tests_properties(zima_cpp_ui_contract_tests PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
