@@ -240,6 +240,145 @@ int main() {
                     loaded_nested.components.front().nested_snapshot.front()
                             .source_document_id == "nested-part-document",
                 "Nested Assembly occurrence did not survive INI save/load");
+        auto repeated_inner = zima::assembly::AssemblyDocument::create_default();
+        auto inner_part_a = zima::assembly::AssemblyDocument::create_part_occurrence(
+            "Repeated inner part A", "repeated-part-document", "repeated.prtz",
+            source.back());
+        auto inner_part_b = zima::assembly::AssemblyDocument::create_part_occurrence(
+            "Repeated inner part B", "repeated-part-document", "repeated.prtz",
+            source.back());
+        inner_part_a.placement.x = 10.0;
+        inner_part_b.placement.x = 30.0;
+        repeated_inner.components.push_back(std::move(inner_part_a));
+        repeated_inner.components.push_back(std::move(inner_part_b));
+
+        auto repeated_middle = zima::assembly::AssemblyDocument::create_default();
+        auto middle_inner_a =
+            zima::assembly::AssemblyDocument::create_assembly_occurrence(
+                "Repeated inner assembly A", "repeated-inner-document",
+                "repeated-inner.asmz", repeated_inner);
+        auto middle_inner_b =
+            zima::assembly::AssemblyDocument::create_assembly_occurrence(
+                "Repeated inner assembly B", "repeated-inner-document",
+                "repeated-inner.asmz", repeated_inner);
+        middle_inner_a.placement.y = 20.0;
+        middle_inner_b.placement.y = 40.0;
+        const auto middle_inner_a_id = middle_inner_a.occurrence_id;
+        const auto middle_inner_b_id = middle_inner_b.occurrence_id;
+        repeated_middle.components.push_back(std::move(middle_inner_a));
+        repeated_middle.components.push_back(std::move(middle_inner_b));
+
+        auto repeated_top = zima::assembly::AssemblyDocument::create_default();
+        auto top_middle_a =
+            zima::assembly::AssemblyDocument::create_assembly_occurrence(
+                "Repeated middle assembly A", "repeated-middle-document",
+                "repeated-middle.asmz", repeated_middle);
+        auto top_middle_b =
+            zima::assembly::AssemblyDocument::create_assembly_occurrence(
+                "Repeated middle assembly B", "repeated-middle-document",
+                "repeated-middle.asmz", repeated_middle);
+        top_middle_a.placement.x = 100.0;
+        top_middle_b.placement.x = 200.0;
+        const auto top_middle_a_id = top_middle_a.occurrence_id;
+        const auto top_middle_b_id = top_middle_b.occurrence_id;
+        repeated_top.components.push_back(std::move(top_middle_a));
+        repeated_top.components.push_back(std::move(top_middle_b));
+
+        auto cut_target_a = zima::assembly::AssemblyDocument::create_part_occurrence(
+            "Cut target A", "repeated-part-document", "repeated.prtz", source.back());
+        auto cut_target_b = zima::assembly::AssemblyDocument::create_part_occurrence(
+            "Cut target B", "repeated-part-document", "repeated.prtz", source.back());
+        auto cut_excluded = zima::assembly::AssemblyDocument::create_part_occurrence(
+            "Excluded target", "repeated-part-document", "repeated.prtz", source.back());
+        cut_target_a.placement.x = 0.0;
+        cut_target_b.placement.x = 30.0;
+        cut_excluded.placement.x = 60.0;
+        const auto cut_target_a_id = cut_target_a.occurrence_id;
+        const auto cut_target_b_id = cut_target_b.occurrence_id;
+        const auto cut_excluded_id = cut_excluded.occurrence_id;
+        repeated_top.components.push_back(std::move(cut_target_a));
+        repeated_top.components.push_back(std::move(cut_target_b));
+        repeated_top.components.push_back(std::move(cut_excluded));
+
+        const auto repeated_scene = repeated_top.build_scene();
+        std::set<std::string> repeated_paths;
+        for (const auto& reference :
+             repeated_scene.original_references.triangle_references) {
+            if (reference.owner_id == "same-source-container") {
+                repeated_paths.insert(reference.instance_path);
+            }
+        }
+        require(repeated_paths.size() == 11,
+                "Nested repeated sources did not retain distinct occurrence paths");
+        for (const auto& path : repeated_paths) {
+            require(zima::assembly::InstancePath::decode(path).occurrence_ids.size() ==
+                        3 ||
+                    zima::assembly::InstancePath::decode(path).occurrence_ids.size() ==
+                        1,
+                "Nested occurrence path did not preserve its hierarchy");
+        }
+        const auto& middle_snapshot =
+            repeated_top.components.front().nested_snapshot;
+        require(middle_snapshot.size() == 2 &&
+                    middle_snapshot.front().placement.x == 0.0 &&
+                    middle_snapshot.back().placement.x == 0.0 &&
+                    middle_snapshot.front().children.size() == 2 &&
+                    middle_snapshot.front().children.front().placement.x == 10.0 &&
+                    middle_snapshot.front().children.back().placement.x == 30.0 &&
+                    repeated_top.find_occurrence(top_middle_a_id)->placement.x == 100.0 &&
+                    repeated_top.find_occurrence(top_middle_b_id)->placement.x == 200.0,
+                "Parent Assembly took ownership of nested internal placement");
+        auto cut_sketch = zima::sketcher::Sketch::create_default();
+        repeated_top.sketches.push_back(cut_sketch);
+        auto repeated_cut =
+            zima::document::PartDocument::create_extrusion_container(cut_sketch.id);
+        repeated_cut.combine_mode = zima::document::CombineMode::Subtract;
+        repeated_cut.extrusion.extent = zima::document::ExtrusionExtent::ThroughAll;
+        repeated_top.cuts.push_back({
+            std::move(repeated_cut), {cut_target_a_id, cut_target_b_id}, {}});
+        repeated_top.cuts.back().input_component_bodies.emplace(
+            cut_target_a_id, repeated_top.find_occurrence(cut_target_a_id)
+                ->calculated_source);
+        repeated_top.cuts.back().input_component_bodies.emplace(
+            cut_target_b_id, repeated_top.find_occurrence(cut_target_b_id)
+                ->calculated_source);
+        static_cast<void>(repeated_top.build_scene());
+
+        const auto cutter = kernel.make_box({50.0, 20.0, 5.0});
+        std::map<std::string, zima::kernel::BodyResult> cut_results;
+        for (const auto& target_id : repeated_top.cuts.back().target_occurrence_ids) {
+            const auto* target = repeated_top.find_occurrence(target_id);
+            require(target != nullptr && target_id != cut_excluded_id,
+                    "Assembly cut target list did not exclude the exception occurrence");
+            cut_results.emplace(target_id, kernel.subtract_bodies(
+                target->calculated_source, cutter,
+                {target->placement.x, target->placement.y, target->placement.z},
+                {target->placement.rotation_x, target->placement.rotation_y,
+                 target->placement.rotation_z}));
+        }
+        require(cut_results.size() == 2 &&
+                    cut_results.at(cut_target_a_id).volume <
+                        repeated_top.find_occurrence(cut_target_a_id)
+                            ->calculated_source.volume &&
+                    cut_results.at(cut_target_b_id).volume <
+                        repeated_top.find_occurrence(cut_target_b_id)
+                            ->calculated_source.volume &&
+                    repeated_top.find_occurrence(cut_excluded_id)
+                            ->calculated_source.volume == source.back().volume,
+                "Assembly cut changed a non-target occurrence");
+        bool nested_cut_rejected = false;
+        repeated_top.cuts.back().target_occurrence_ids.push_back(top_middle_a_id);
+        try {
+            static_cast<void>(repeated_top.build_scene());
+        } catch (const std::runtime_error&) {
+            nested_cut_rejected = true;
+        }
+        require(nested_cut_rejected,
+                "Assembly cut accepted a nested Assembly instead of an immediate Part");
+        repeated_top.cuts.back().target_occurrence_ids.pop_back();
+        require(middle_inner_a_id != middle_inner_b_id &&
+                    top_middle_a_id != top_middle_b_id,
+                "Repeated Assembly sources reused occurrence identity");
         auto broken_cut_target = loaded;
         broken_cut_target.cuts.front().definition.extrusion.extent =
             zima::document::ExtrusionExtent::UpToPlane;
