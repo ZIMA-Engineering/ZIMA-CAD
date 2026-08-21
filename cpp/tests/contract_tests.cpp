@@ -9,10 +9,12 @@
 #include <algorithm>
 #include <array>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <limits>
 #include <numbers>
 #include <set>
+#include <string>
 
 namespace {
 
@@ -24,6 +26,15 @@ void require(bool condition, const char* message) {
 
 int main() {
     try {
+        const auto fixture_dir = std::filesystem::current_path() /
+            "tests/fixtures/cross_language";
+        std::vector<zima::kernel::BodyResult> fixture_boundaries;
+        const auto fixture_part = zima::document::PartDocument::load(
+            fixture_dir / "part.prtz", &fixture_boundaries);
+        require(fixture_part.document_id == "part-fixture-001" &&
+                    fixture_part.name == "Fixture Part" &&
+                    fixture_boundaries.empty(),
+                "Python Part fixture identity or cache boundary is invalid");
         zima::kernel::OcctKernel kernel;
         const auto step_path = std::filesystem::temp_directory_path() /
             "zima-cad-imported-step-contract.step";
@@ -338,6 +349,15 @@ int main() {
         const auto empty_path = std::filesystem::temp_directory_path() /
             "zima-cad-cpp-empty-contract.prtz";
         document.save(empty_path);
+        std::ifstream empty_serialized(empty_path);
+        const std::string empty_text(
+            (std::istreambuf_iterator<char>(empty_serialized)),
+            std::istreambuf_iterator<char>());
+        require(empty_text.find("[Document]\n") != std::string::npos &&
+                    empty_text.find("format_version=11\n") != std::string::npos &&
+                    empty_text.find("[DocumentUnits]\n") != std::string::npos &&
+                    empty_text.find("[UserParameterValues]\n") != std::string::npos,
+                "Part persistence did not write the Python-compatible INI sections");
         const auto empty_loaded = zima::document::PartDocument::load(empty_path);
         std::filesystem::remove(empty_path);
         require(empty_loaded.history.empty(), "Empty history was not preserved");
@@ -594,6 +614,22 @@ int main() {
                     {{}, constructions.document_id + ":origin", "origin:point"}},
                     document_origin_geometry) == 0,
                 "Point placement DOF did not use geometric matrix rank");
+        auto rank_geometry = document_origin_geometry;
+        rank_geometry.axes.push_back({{0.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, 10.0,
+            {"parallel-a", "axis", {}}});
+        rank_geometry.axes.push_back({{0.0, 5.0, 0.0}, {1.0, 0.0, 0.0}, 10.0,
+            {"parallel-b", "axis", {}}});
+        rank_geometry.edges.push_back({
+            {{0.0, 0.0, 0.0}, {1.0, 1.0, 0.0}, {2.0, 0.0, 0.0}},
+            {"curved-edge", "edge", {}}, false, false});
+        require(zima::document::point_constraint_remaining_dof({
+                    {{}, "parallel-a", "axis"}}, rank_geometry) == 1 &&
+                zima::document::point_constraint_remaining_dof({
+                    {{}, "parallel-a", "axis"},
+                    {{}, "parallel-b", "axis"}}, rank_geometry) == 1 &&
+                zima::document::point_constraint_remaining_dof({
+                    {{}, "curved-edge", "edge"}}, rank_geometry) == 3,
+                "Point placement counted redundant or curved references as new DOF");
         constructions.resolve_constructions();
         require(constructions.constructions.front().reference_valid &&
                     std::abs(constructions.constructions.front().origin.x) < 1.0e-5 &&

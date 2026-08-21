@@ -1,0 +1,22 @@
+[Document]
+document_id=part-fixture-001
+type=part
+format_version=11
+name=Fixture Part
+
+[DocumentUnits]
+Length=mm
+
+[DocumentPrecision]
+mesh_deflection=0.1
+
+[Material]
+Name=Steel
+
+[Containers]
+items=
+
+[CachedBodies]
+document_signature=
+encoding=zima-history-bodies-json-gzip-base64
+data=

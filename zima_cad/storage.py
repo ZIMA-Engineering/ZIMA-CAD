@@ -34,6 +34,116 @@ from zima_cad.versioned_io import write_text_versioned
 ASSEMBLY_BODY_CACHE_REVISION = "5"
 
 
+def create_cross_language_fixtures(directory: Path) -> None:
+    """Write deterministic INI fixtures consumed by the C++ contract tests."""
+    directory.mkdir(parents=True, exist_ok=True)
+    body = {
+        "volume": 1.0, "surface_area": 6.0, "source_fingerprint": "",
+        "kernel_shape": "", "vertices": [], "triangles": [],
+        "triangle_references": [], "edges": [], "points": [], "axes": [],
+        "dimensions": [],
+        "original_references": {
+            "vertices": [], "triangles": [], "triangle_references": [],
+            "edges": [], "points": [], "axes": [],
+        },
+    }
+    part = configparser.ConfigParser(interpolation=None)
+    part.optionxform = str
+    part["Document"] = {
+        "document_id": "part-fixture-001", "type": "part",
+        "format_version": DOCUMENT_FORMAT_VERSION, "name": "Fixture Part",
+    }
+    part["DocumentUnits"] = {"Length": "mm"}
+    part["DocumentPrecision"] = {"mesh_deflection": "0.1"}
+    part["Material"] = {"Name": "Steel"}
+    part["Containers"] = {"items": ""}
+    part["CachedBodies"] = {
+        "document_signature": "", "encoding": "zima-history-bodies-json-gzip-base64",
+        "data": "",
+    }
+    _write_fixture_ini(directory / "part.prtz", part)
+
+    assembly_payload = {
+        "format": "zima-cad-cpp", "type": "assembly",
+        "document_id": "assembly-fixture-001", "name": "Fixture Assembly",
+        "user_parameters": {"clearance": "0.15 mm"},
+        "user_parameter_order": ["clearance"],
+        "user_parameter_labels": {"clearance": {"en": "Clearance"}},
+        "user_parameter_values": {"clearance": {"": "0.15 mm"}},
+        "relations": [], "document_units": {"Length": "mm"},
+        "document_precision": {"mesh_deflection": "0.1"},
+        "physical_parameters": {}, "physical_parameter_units": {},
+        "material_parameter_descriptions": {}, "family_table": "{\"columns\":[],\"instances\":[]}",
+        "sketches": [], "cuts": [], "constructions": [], "dependencies": [], "mates": [],
+        "components": [{
+            "occurrence_id": "subassembly-occurrence", "name": "Nested Assembly",
+            "source_document_id": "nested-assembly-fixture", "source_path": "nested.asmz",
+            "source_kind": "assembly", "suppressed": False, "visible": True,
+            "grounded": False, "placement": {"x": 0, "y": 0, "z": 0,
+                "rotation_x": 0, "rotation_y": 0, "rotation_z": 0},
+            "calculated_source": body,
+            "nested_snapshot": [{
+                "occurrence_id": "part-occurrence", "name": "Nested Part",
+                "source_document_id": "part-fixture-001", "source_kind": "part",
+                "manually_suppressed": False, "dependency_suppressed": False,
+                "visible": True, "grounded": False,
+                "placement": {"x": 2, "y": 0, "z": 0,
+                    "rotation_x": 0, "rotation_y": 0, "rotation_z": 0},
+                "children": [],
+            }],
+        }],
+    }
+    assembly = configparser.ConfigParser(interpolation=None)
+    assembly.optionxform = str
+    assembly["Document"] = {
+        "document_id": "assembly-fixture-001", "type": "assembly",
+        "format_version": DOCUMENT_FORMAT_VERSION,
+    }
+    assembly["DocumentUnits"] = {"Length": "mm"}
+    assembly["DocumentPrecision"] = {"mesh_deflection": "0.1"}
+    assembly["Containers"] = {"items": "assembly-fixture-001"}
+    assembly["Container.assembly-fixture-001"] = {
+        "param.cpp_assembly": json.dumps(assembly_payload, ensure_ascii=True,
+                                          separators=(",", ":")),
+    }
+    _write_fixture_ini(directory / "nested.asmz", assembly)
+
+    drawing_payload = {
+        "format": "zima-cad-drawing", "version": 2,
+        "document_id": "drawing-fixture-001", "name": "Fixture Drawing",
+        "sheets": [{
+            "id": "sheet-fixture-001", "name": "Sheet 1", "format": "A4",
+            "projection_method": "first_angle", "default_scale": 1.0,
+            "frame_lines": [], "frame_texts": [], "title_block_lines": [],
+            "title_block_texts": [], "title_block_fields": [], "bom_rows": [],
+            "dimensions": [], "views": [{
+                "id": "view-fixture-001", "name": "Front",
+                "source_document_id": "part-fixture-001", "source_path": "part.prtz",
+                "parent_view_id": "", "orientation": "front",
+                "projection_direction": "none",
+                "camera": {"horizontal": [1, 0, 0], "vertical": [0, 0, 1],
+                           "depth": [0, -1, 0]},
+                "display_style": "visible_edges", "x": 0, "y": 0, "scale": 1,
+                "projected_edges": [], "projected_triangles": [],
+            }],
+        }],
+    }
+    drawing = configparser.ConfigParser(interpolation=None)
+    drawing.optionxform = str
+    drawing["Document"] = {
+        "document_id": "drawing-fixture-001", "type": "drawing",
+        "format_version": DOCUMENT_FORMAT_VERSION,
+        "param.cpp_drawing": json.dumps(drawing_payload, ensure_ascii=True,
+                                         separators=(",", ":")),
+    }
+    _write_fixture_ini(directory / "drawing.drwz", drawing)
+
+
+def _write_fixture_ini(path: Path, config: configparser.ConfigParser) -> None:
+    with path.open("w", encoding="utf-8", newline="\n") as stream:
+        config.write(stream, space_around_delimiters=False)
+
+
 class ContainerEntityLimitError(ValueError):
     def __init__(self, container_name: str, entity_names: list[str]) -> None:
         self.container_name = container_name
@@ -41,6 +151,111 @@ class ContainerEntityLimitError(ValueError):
         super().__init__(
             f"Container {container_name!r} contains an invalid entity combination: "
             + ", ".join(entity_names)
+        )
+
+
+def _canonical_json(value) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _parse_cpp_object(raw: str, label: str) -> dict:
+    try:
+        value = json.loads(str(raw))
+    except (TypeError, ValueError, json.JSONDecodeError) as error:
+        raise ValueError(f"Invalid {label} payload") from error
+    if not isinstance(value, dict):
+        raise ValueError(f"Invalid {label} payload: expected an object")
+    return value
+
+
+def _require_cpp_keys(value: dict, keys, label: str) -> None:
+    missing = [key for key in keys if key not in value]
+    if missing:
+        raise ValueError(f"Invalid {label} payload: missing {', '.join(missing)}")
+
+
+def _load_cpp_assembly_parameters(document: PartDocument, raw: str) -> None:
+    payload = _parse_cpp_object(raw, "C++ Assembly")
+    if payload.get("format") != "zima-cad-cpp" or payload.get("type") != "assembly":
+        raise ValueError("Invalid C++ Assembly payload")
+    _require_cpp_keys(payload, ("components", "mates", "cuts"), "C++ Assembly")
+    for key in ("components", "mates", "cuts"):
+        if not isinstance(payload[key], list):
+            raise ValueError(f"Invalid C++ Assembly payload: {key} must be a list")
+    for index, mate in enumerate(payload["mates"]):
+        if not isinstance(mate, dict):
+            raise ValueError(f"Invalid C++ Assembly mate at index {index}")
+        _require_cpp_keys(
+            mate,
+            ("mate_id", "name", "kind", "dependent", "prerequisite", "offset",
+             "angle_degrees", "flipped", "status", "suppressed"),
+            "C++ Assembly mate",
+        )
+        for reference_name in ("dependent", "prerequisite"):
+            reference = mate[reference_name]
+            if not isinstance(reference, dict):
+                raise ValueError(
+                    f"Invalid C++ Assembly mate: {reference_name} must be an object"
+                )
+            _require_cpp_keys(
+                reference, ("kind", "instance_path", "owner_id", "semantic_key"),
+                "C++ Assembly mate reference",
+            )
+    for index, cut in enumerate(payload["cuts"]):
+        if not isinstance(cut, dict):
+            raise ValueError(f"Invalid C++ Assembly cut at index {index}")
+        _require_cpp_keys(
+            cut,
+            ("id", "feature_id", "feature_parent_id", "name", "kind",
+             "suppressed", "targets"),
+            "C++ Assembly cut",
+        )
+        if not isinstance(cut["targets"], list):
+            raise ValueError("Invalid C++ Assembly cut payload: targets must be a list")
+    document.document_settings["assembly_mates"] = _canonical_json(payload["mates"])
+    document.document_settings["assembly_cuts"] = _canonical_json(payload["cuts"])
+    document.document_settings["cpp_assembly"] = _canonical_json(payload)
+
+
+def _attach_cpp_assembly_mates(document: PartDocument) -> None:
+    raw = document.document_settings.get("assembly_mates")
+    if not raw:
+        return
+    mates = json.loads(str(raw))
+    components = {
+        str(obj.parameters.get("occurrence_id", obj.entity_id)): obj
+        for obj in document.history_objects()
+        if obj.container_type == ContainerType.COMPONENT
+    }
+    rows: dict[str, list[dict]] = {}
+    for mate in mates:
+        dependent = mate["dependent"]
+        occurrence_id = str(dependent["instance_path"])
+        if occurrence_id not in components:
+            continue
+        row = {
+            "mate_id": mate["mate_id"],
+            "name": mate["name"],
+            "type": mate["kind"],
+            "source": dependent["semantic_key"],
+            "target": mate["prerequisite"]["semantic_key"],
+            "dependent": dependent,
+            "prerequisite": mate["prerequisite"],
+            "dependent_occurrence_id": dependent["instance_path"],
+            "target_occurrence_id": mate["prerequisite"]["instance_path"],
+            "offset": mate["offset"],
+            "angle_degrees": mate["angle_degrees"],
+            "flipped": mate["flipped"],
+            "status": mate["status"],
+            "suppressed": mate["suppressed"],
+        }
+        for key in ("lower_limit", "upper_limit"):
+            if key in mate:
+                row[key] = mate[key]
+        rows.setdefault(occurrence_id, []).append(row)
+    for occurrence_id, component in components.items():
+        component.parameters["assembly_mates"] = _canonical_json(
+            rows.get(occurrence_id, [])
         )
 
 
@@ -151,6 +366,28 @@ def load_part_document(file_path: Path) -> PartDocument:
     document.source_file_path = file_path.resolve()
     if config.has_section("Document"):
         document.document_settings.update(dict(config["Document"]))
+    if document_type == "assembly":
+        root_id = document.document_settings.get("document_id", "")
+        root_section = f"Container.{root_id}"
+        root_cpp = config.get(root_section, "param.cpp_assembly", fallback="")
+        if root_cpp:
+            document.document_settings["param.cpp_assembly"] = root_cpp
+    cpp_assembly = document.document_settings.get("param.cpp_assembly", "")
+    if document_type == "assembly" and cpp_assembly:
+        _load_cpp_assembly_parameters(document, cpp_assembly)
+    if document_type == "drawing":
+        cpp_drawing = document.document_settings.get("param.cpp_drawing", "")
+        if cpp_drawing:
+            try:
+                drawing_payload = json.loads(cpp_drawing)
+                sheets = drawing_payload.get("sheets")
+                if not isinstance(sheets, list):
+                    raise ValueError("C++ Drawing payload has no sheet list")
+                document.document_settings["drawing_sheets"] = json.dumps(
+                    sheets, ensure_ascii=False, separators=(",", ":")
+                )
+            except (TypeError, ValueError, json.JSONDecodeError) as error:
+                raise ValueError("Invalid C++ Drawing payload") from error
     if config.has_section("DocumentUnits"):
         document.document_units.update(dict(config["DocumentUnits"]))
     if config.has_section("DocumentPrecision"):
@@ -197,9 +434,16 @@ def load_part_document(file_path: Path) -> PartDocument:
         section = f"Container.{container_id}"
         if not config.has_section(section):
             continue
+        if document_type == "assembly" and container_id == document.document_settings.get(
+            "document_id", ""
+        ):
+            continue
 
         obj = read_entity(config, section, container_id)
         document.root.add_child(obj)
+
+    if document_type == "assembly":
+        _attach_cpp_assembly_mates(document)
 
     # Format 6 uses one automatic internal solid result. Explicit format-5 Body
     # snapshots are redundant because their source objects remain in the history.
@@ -573,13 +817,110 @@ def read_entity(
         if key.startswith("param."):
             obj.parameters[key.removeprefix("param.")] = value
     if kind == EntityKind.CONTAINER:
-        obj.parameters["container_type"] = config.get(
+        container_type = config.get(
             section,
             "TYPE",
             fallback=obj.parameters.get("container_type", ContainerType.EMPTY.value),
         )
+        if container_type == "OCCURRENCE":
+            container_type = ContainerType.COMPONENT.value
+        elif container_type in {"ASSEMBLY", "FEATURE"}:
+            container_type = ContainerType.EMPTY.value
+        obj.parameters["container_type"] = container_type
+        cpp_data = obj.parameters.get("cpp_data")
+        if cpp_data and container_type == ContainerType.COMPONENT.value:
+            try:
+                occurrence = _parse_cpp_object(cpp_data, "Assembly occurrence")
+                _require_cpp_keys(
+                    occurrence,
+                    ("occurrence_id", "name", "source_document_id", "source_path",
+                     "source_kind", "suppressed", "visible", "grounded",
+                     "placement"),
+                    "Assembly occurrence",
+                )
+                obj.parameters["source_path"] = str(
+                    occurrence["source_path"]
+                )
+                obj.parameters["source_document_id"] = str(
+                    occurrence["source_document_id"]
+                )
+                obj.parameters["source_kind"] = str(
+                    occurrence["source_kind"]
+                )
+                obj.parameters["instance_path"] = str(
+                    occurrence["occurrence_id"]
+                )
+                obj.parameters["occurrence_id"] = str(occurrence["occurrence_id"])
+                obj.parameters["suppressed"] = str(
+                    bool(occurrence["suppressed"])
+                ).lower()
+                obj.parameters["visible"] = str(bool(occurrence["visible"])).lower()
+                obj.parameters["grounded"] = str(bool(occurrence["grounded"])).lower()
+                obj.suppressed = bool(occurrence["suppressed"])
+                obj.user_visible = bool(occurrence["visible"])
+                obj.parameters["assembly_occurrence"] = _canonical_json(occurrence)
+            except (TypeError, ValueError, KeyError) as error:
+                raise ValueError(f"Invalid C++ Assembly occurrence {obj.name!r}") from error
+        elif cpp_data and container_type == ContainerType.EMPTY.value:
+            # C++ assembly cut containers are represented by normal Python
+            # feature containers.  Keep their complete native definition in
+            # the feature parameters instead of reducing it to a generic
+            # container.
+            cpp_kind = str(obj.parameters.get("cpp_kind", "")).lower()
+            if cpp_kind == "feature":
+                try:
+                    cut = _parse_cpp_object(cpp_data, "Assembly cut")
+                    _require_cpp_keys(
+                        cut,
+                        ("id", "feature_id", "feature_parent_id", "name", "kind",
+                         "suppressed", "targets"),
+                        "Assembly cut",
+                    )
+                    obj.parameters["assembly_cut"] = _canonical_json(cut)
+                    obj.parameters["assembly_cut_targets"] = _canonical_json(
+                        cut["targets"]
+                    )
+                except (TypeError, ValueError, KeyError) as error:
+                    raise ValueError(f"Invalid C++ Assembly cut {obj.name!r}") from error
+    if kind in (EntityKind.PROTRUSION, EntityKind.REVOLVE):
+        cpp_data = obj.parameters.get("cpp_data")
+        if cpp_data:
+            try:
+                cut = _parse_cpp_object(cpp_data, "Assembly cut feature")
+                _require_cpp_keys(
+                    cut, ("id", "feature_id", "feature_parent_id", "targets"),
+                    "Assembly cut feature",
+                )
+                obj.parameters["assembly_cut"] = _canonical_json(cut)
+                obj.parameters["assembly_cut_targets"] = _canonical_json(
+                    cut["targets"]
+                )
+            except (TypeError, ValueError, KeyError) as error:
+                raise ValueError(
+                    f"Invalid C++ Assembly cut feature {obj.name!r}"
+                ) from error
     if kind == EntityKind.SKETCH and "role" not in obj.parameters:
         obj.parameters["role"] = "PROFILE"
+    # C++ PartDocument exports its native sketch beside the INI entity.  Fold
+    # it into the Python sketch_data contract during load so subsequent edits
+    # and saves remain entirely Python-side and kernel-free.
+    if kind == EntityKind.SKETCH:
+        cpp_sketch = obj.parameters.get("cpp_sketch")
+        if cpp_sketch:
+            try:
+                sketch_data = SketchModel.from_dict(json.loads(str(cpp_sketch))).to_dict()
+                obj.parameters["sketch_data"] = json.dumps(
+                    sketch_data, ensure_ascii=False, separators=(",", ":")
+                )
+                obj.parameters["plane"] = sketch_data.get(
+                    "plane", obj.parameters.get("plane", "xy")
+                )
+                if "plane_offset" in sketch_data:
+                    obj.parameters["plane_offset"] = str(sketch_data["plane_offset"])
+            except (TypeError, ValueError, json.JSONDecodeError, SketchModelError) as error:
+                raise SketchModelError(
+                    f"sketch {obj.name!r} contains invalid native data"
+                ) from error
 
     if config.get(section, "attachment.type", fallback="") == "plane_on_face":
         obj.attachment = PlaneOnFaceAttachment(

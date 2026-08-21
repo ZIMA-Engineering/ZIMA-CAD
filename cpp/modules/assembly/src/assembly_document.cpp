@@ -20,6 +20,66 @@
 namespace zima::assembly {
 namespace {
 
+using IniSections = std::map<std::string, std::map<std::string, std::string>>;
+
+std::string trim_ini(std::string value) {
+    const auto first = value.find_first_not_of(" \t\r");
+    if (first == std::string::npos) return {};
+    const auto last = value.find_last_not_of(" \t\r");
+    return value.substr(first, last - first + 1);
+}
+
+IniSections read_ini(const std::filesystem::path& path) {
+    std::ifstream input(path);
+    if (!input) throw std::runtime_error("Cannot open assembly: " + path.string());
+    IniSections result;
+    std::string line;
+    std::string section;
+    while (std::getline(input, line)) {
+        line = trim_ini(std::move(line));
+        if (line.empty() || line.front() == '#' || line.front() == ';') continue;
+        if (line.front() == '[' && line.back() == ']') {
+            section = trim_ini(line.substr(1, line.size() - 2));
+            if (section.empty()) throw std::runtime_error("Invalid INI section");
+            result.try_emplace(section);
+            continue;
+        }
+        const auto separator = line.find('=');
+        if (section.empty() || separator == std::string::npos) {
+            throw std::runtime_error("Invalid INI document line");
+        }
+        result[section][trim_ini(line.substr(0, separator))] =
+            trim_ini(line.substr(separator + 1));
+    }
+    if (!input.eof()) throw std::runtime_error("Cannot read assembly: " + path.string());
+    return result;
+}
+
+std::string ini_value(
+    const IniSections& ini, const std::string& section, const std::string& key,
+    std::string fallback = {}) {
+    const auto found_section = ini.find(section);
+    if (found_section == ini.end()) return fallback;
+    const auto found = found_section->second.find(key);
+    return found == found_section->second.end() ? fallback : found->second;
+}
+
+void write_ini(const std::filesystem::path& path, const IniSections& ini) {
+    const auto temporary = path.string() + ".tmp";
+    {
+        std::ofstream output(temporary, std::ios::trunc);
+        if (!output) throw std::runtime_error("Cannot write assembly: " + path.string());
+        for (const auto& [section, values] : ini) {
+            output << "[" << section << "]\n";
+            for (const auto& [key, value] : values) output << key << "=" << value << "\n";
+            output << "\n";
+        }
+        if (!output) throw std::runtime_error("Assembly write failed: " + path.string());
+    }
+    zima::document::archive_existing_file(path);
+    std::filesystem::rename(temporary, path);
+}
+
 void append_viewer_mesh(zima::kernel::ViewerMesh& target,
                         zima::kernel::ViewerMesh source) {
     const auto offset = static_cast<std::uint32_t>(target.vertices.size());
@@ -1735,14 +1795,26 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene_with_part_override(
 }
 
 AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
-    std::ifstream input(path);
-    if (!input) throw std::runtime_error("Cannot open assembly: " + path.string());
-    nlohmann::json root;
-    input >> root;
-    if (root.at("format").get<std::string>() != "zima-cad-cpp" ||
-        root.at("format_version").get<int>() != 21 ||
-        root.at("type").get<std::string>() != "assembly") {
+    const auto ini = read_ini(path);
+    if (ini_value(ini, "Document", "format_version") != "11" ||
+        ini_value(ini, "Document", "type") != "assembly") {
         throw std::runtime_error("Unsupported ZIMA-CAD Assembly document format");
+    }
+    const auto root_section = "Container." +
+        ini_value(ini, "Document", "document_id");
+    const auto assembly_json = ini_value(ini, root_section, "param.cpp_assembly");
+    if (assembly_json.empty()) {
+        throw std::runtime_error("Assembly INI is missing its root Container data");
+    }
+    nlohmann::json root;
+    try {
+        root = nlohmann::json::parse(assembly_json);
+    } catch (const nlohmann::json::exception&) {
+        throw std::runtime_error("Assembly INI contains invalid Container data");
+    }
+    if (root.value("format", "") != "zima-cad-cpp" ||
+        root.value("type", "") != "assembly") {
+        throw std::runtime_error("Invalid Assembly Container data");
     }
     AssemblyDocument document;
     document.document_id = root.at("document_id").get<std::string>();
@@ -2250,15 +2322,123 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
         {"dependencies", std::move(dependencies_json)},
         {"mates", std::move(mates_json)},
     };
-    const auto temporary = path.string() + ".tmp";
-    {
-        std::ofstream output(temporary, std::ios::trunc);
-        if (!output) throw std::runtime_error("Cannot write assembly: " + path.string());
-        output << std::setw(2) << root << '\n';
-        if (!output) throw std::runtime_error("Assembly write failed: " + path.string());
+    IniSections ini;
+    ini["Document"] = {
+        {"format_version", "11"},
+        {"type", "assembly"},
+        {"document_id", document_id},
+        {"name", name},
+        {"family_table", family_table},
+    };
+    ini["DocumentUnits"] = document_units;
+    ini["DocumentPrecision"] = document_precision;
+    ini["Material"]["Name"] = physical_parameters.contains("MATERIAL_NAME")
+        ? physical_parameters.at("MATERIAL_NAME") : "";
+    for (const auto& [key, value] : physical_parameters) {
+        if (key != "MATERIAL_NAME") ini["MaterialProperties"][key] = value;
     }
-    zima::document::archive_existing_file(path);
-    std::filesystem::rename(temporary, path);
+    ini["MaterialUnits"] = physical_parameter_units;
+    for (const auto& [key, languages] : material_parameter_descriptions) {
+        for (const auto& [language, value] : languages) {
+            ini["MaterialDescriptions"][key + (language.empty() ? "" : "\\" + language)] =
+                value;
+        }
+    }
+    std::string order;
+    for (const auto& value : user_parameter_order) {
+        if (!order.empty()) order += ", ";
+        order += value;
+    }
+    ini["UserParameters"]["Order"] = order;
+    for (const auto& [key, languages] : user_parameter_labels) {
+        for (const auto& [language, value] : languages) {
+            ini["UserParameterLabels"][key + (language.empty() ? "" : "\\" + language)] =
+                value;
+        }
+    }
+    for (const auto& [key, languages] : user_parameter_values) {
+        for (const auto& [language, value] : languages) {
+            ini["UserParameterValues"][key + (language.empty() ? "" : "\\" + language)] =
+                value;
+        }
+    }
+    for (const auto& [key, value] : user_parameters) {
+        if (!ini["UserParameterValues"].contains(key)) {
+            ini["UserParameterValues"][key] = value;
+        }
+    }
+    if (!relations.empty()) ini["Relations"]["Data"] = root.at("relations").dump();
+
+    std::string container_items = document_id;
+    const auto add_container = [&](const std::string& id, const std::string& name,
+                                   const std::string& kind, const nlohmann::json& data) {
+        if (!id.empty()) {
+            container_items += "," + id;
+            auto& section = ini["Container." + id];
+            section["id"] = id;
+            section["name"] = name;
+            section["kind"] = "container";
+            section["TYPE"] = kind;
+            section["param.cpp_kind"] = kind;
+            section["param.cpp_data"] = data.dump();
+        }
+    };
+    auto& root_container = ini["Container." + document_id];
+    root_container = {
+        {"id", document_id}, {"name", name}, {"kind", "container"},
+        {"TYPE", "ASSEMBLY"}, {"param.cpp_kind", "assembly"},
+        {"param.cpp_assembly", root.dump()},
+    };
+    for (const auto& component : components) {
+        const auto component_json = std::find_if(
+            root.at("components").begin(), root.at("components").end(),
+            [&](const nlohmann::json& value) {
+                return value.at("occurrence_id").get<std::string>() ==
+                    component.occurrence_id;
+            });
+        add_container(component.occurrence_id, component.name, "OCCURRENCE",
+                      *component_json);
+    }
+    for (const auto& cut : cuts) {
+        const auto cut_json = std::find_if(
+            root.at("cuts").begin(), root.at("cuts").end(),
+            [&](const nlohmann::json& value) {
+                return value.at("id").get<std::string>() == cut.definition.id;
+            });
+        add_container(cut.definition.id, cut.definition.name, "FEATURE", *cut_json);
+        ini["Children." + cut.definition.id]["items"] = cut.definition.feature_id;
+        ini["Entity." + cut.definition.feature_id] = {
+            {"id", cut.definition.feature_id}, {"name", cut.definition.name},
+            {"kind", cut.definition.feature_kind ==
+                zima::document::FeatureKind::Extrusion ? "protrusion" : "revolve"},
+            {"tree_exposure", "internal"},
+            {"param.cpp_data", cut_json->dump()},
+        };
+    }
+    for (const auto& construction : constructions) {
+        const auto construction_json = std::find_if(
+            root.at("constructions").begin(), root.at("constructions").end(),
+            [&](const nlohmann::json& value) {
+                return value.at("id").get<std::string>() == construction.id;
+            });
+        add_container(construction.id, construction.name, "CONSTRUCTION",
+                      *construction_json);
+        ini["Children." + construction.id]["items"] = construction.entity_id;
+        ini["Entity." + construction.entity_id] = {
+            {"id", construction.entity_id}, {"name", construction.name},
+            {"kind", construction.kind == zima::document::ConstructionKind::Point
+                ? "point" : construction.kind == zima::document::ConstructionKind::Axis
+                    ? "axis" : "plane"},
+            {"tree_exposure", "internal"},
+            {"param.cpp_data", construction_json->dump()},
+        };
+    }
+    ini["Containers"]["items"] = container_items;
+    ini["CachedBodies"] = {
+        {"encoding", "zima-cpp-assembly-data"},
+        {"data", "{}"},
+    };
+    write_ini(path, ini);
 }
 
 bool DependencyGraph::reaches(

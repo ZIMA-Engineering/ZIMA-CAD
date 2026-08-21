@@ -4,6 +4,8 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QFile>
+#include <QSaveFile>
+#include <QTemporaryFile>
 #include <QTextStream>
 #include <QSettings>
 
@@ -54,12 +56,25 @@ QString layered_value(const QSettings& base, const QSettings* local,
     return base.value(key, fallback).toString();
 }
 
+QString next_archive_path(const QString& target) {
+    int version = 1;
+    QString archive;
+    do {
+        archive = QStringLiteral("%1.%2").arg(target).arg(version++);
+    } while (QFileInfo::exists(archive));
+    return archive;
+}
+
 }  // namespace
 
-ApplicationSettings ApplicationSettings::load() {
+ApplicationSettings ApplicationSettings::load(const QString& working_directory) {
     ApplicationSettings result;
     result.base_config_path = locate_base_config_path();
-    const QString local_candidate = QDir::current().absoluteFilePath("config.ini");
+    const QDir startup_directory(
+        working_directory.trimmed().isEmpty()
+            ? QDir::currentPath()
+            : QFileInfo(working_directory).absoluteFilePath());
+    const QString local_candidate = startup_directory.absoluteFilePath("config.ini");
     if (QFileInfo::exists(local_candidate) &&
         QFileInfo(local_candidate).canonicalFilePath() != result.base_config_path) {
         result.local_config_path = QFileInfo(local_candidate).canonicalFilePath();
@@ -112,21 +127,36 @@ QString ApplicationSettings::text(
 }
 
 bool ApplicationSettings::save(QString* error) const {
-    QString archive_path;
-    if (QFileInfo::exists(config_path)) {
-        int version = 1;
-        do {
-            archive_path = QStringLiteral("%1.%2").arg(config_path).arg(version++);
-        } while (QFileInfo::exists(archive_path));
-        if (!QFile::copy(config_path, archive_path)) {
-            if (error != nullptr) {
-                *error = QStringLiteral("Nelze vytvořit zálohu konfigurace: %1")
-                             .arg(archive_path);
-            }
-            return false;
+    const QFileInfo target_info(config_path);
+    if (!target_info.absoluteDir().exists() &&
+        !QDir().mkpath(target_info.absolutePath())) {
+        if (error != nullptr) {
+            *error = QStringLiteral("Konfigurační adresář nelze vytvořit: %1")
+                         .arg(target_info.absolutePath());
         }
+        return false;
     }
-    QSettings output(config_path, QSettings::IniFormat);
+
+    QTemporaryFile temporary(
+        target_info.absolutePath() + QStringLiteral("/.") +
+        target_info.fileName() + QStringLiteral(".XXXXXX.tmp"));
+    temporary.setAutoRemove(true);
+    if (!temporary.open()) {
+        if (error != nullptr) {
+            *error = QStringLiteral("Dočasný konfigurační soubor nelze vytvořit: %1")
+                         .arg(config_path);
+        }
+        return false;
+    }
+    const QString temporary_path = temporary.fileName();
+    temporary.close();
+
+    QSettings output(temporary_path, QSettings::IniFormat);
+    if (QFileInfo::exists(config_path)) {
+        QSettings source(config_path, QSettings::IniFormat);
+        for (const auto& key : source.allKeys())
+            output.setValue(key, source.value(key));
+    }
     output.setValue("Application/Language", language);
     for (auto it = configured_paths.cbegin(); it != configured_paths.cend(); ++it) {
         output.setValue(QStringLiteral("Paths/") + it.key(),
@@ -137,16 +167,62 @@ bool ApplicationSettings::save(QString* error) const {
         output.setValue(QStringLiteral("Units/") + it.key(), it.value());
     }
     output.sync();
-    if (output.status() == QSettings::NoError) return true;
-    if (!archive_path.isEmpty()) {
-        QFile::remove(config_path);
-        QFile::copy(archive_path, config_path);
-        QFile::remove(archive_path);
+    if (output.status() != QSettings::NoError) {
+        if (error != nullptr) {
+            *error = QStringLiteral("Konfiguraci nelze připravit: %1")
+                         .arg(config_path);
+        }
+        QFile::remove(temporary_path);
+        return false;
     }
-    if (error != nullptr) {
-        *error = QStringLiteral("Konfiguraci nelze uložit: %1").arg(config_path);
+
+    QFile temporary_file(temporary_path);
+    if (!temporary_file.open(QIODevice::ReadOnly)) {
+        if (error != nullptr) {
+            *error = QStringLiteral("Konfiguraci nelze ověřit: %1")
+                         .arg(config_path);
+        }
+        QFile::remove(temporary_path);
+        return false;
     }
-    return false;
+    const QByteArray contents = temporary_file.readAll();
+    temporary_file.close();
+    QSettings validator(temporary_path, QSettings::IniFormat);
+    if (validator.status() != QSettings::NoError) {
+        if (error != nullptr) {
+            *error = QStringLiteral("Konfigurace není platný INI soubor: %1")
+                         .arg(config_path);
+        }
+        QFile::remove(temporary_path);
+        return false;
+    }
+
+    QString archive_path;
+    if (QFileInfo::exists(config_path)) {
+        archive_path = next_archive_path(config_path);
+        if (!QFile::copy(config_path, archive_path)) {
+            if (error != nullptr) {
+                *error = QStringLiteral("Nelze vytvořit zálohu konfigurace: %1")
+                             .arg(archive_path);
+            }
+            QFile::remove(temporary_path);
+            return false;
+        }
+    }
+
+    QSaveFile replacement(config_path);
+    if (!replacement.open(QIODevice::WriteOnly) ||
+        replacement.write(contents) != contents.size() ||
+        !replacement.commit()) {
+        if (!archive_path.isEmpty()) QFile::remove(archive_path);
+        QFile::remove(temporary_path);
+        if (error != nullptr) {
+            *error = QStringLiteral("Konfiguraci nelze atomicky uložit: %1")
+                         .arg(config_path);
+        }
+        return false;
+    }
+    return true;
 }
 
 }  // namespace zima::app

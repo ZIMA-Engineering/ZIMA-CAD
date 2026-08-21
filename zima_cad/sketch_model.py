@@ -62,6 +62,8 @@ _CONSTRAINT_POINT_COUNTS = {
     # Line start/end, circle centre and the explicit contact point.
     # Line endpoints, curve definition points and explicit contact point.
     "tangent": None,
+    "equal_radius": 2,
+    "point_on_circle": 1,
 }
 
 
@@ -148,12 +150,23 @@ class SketchModel:
     constraints: dict[str, SketchConstraint] = field(default_factory=dict)
     dimensions: dict[str, SketchDimension] = field(default_factory=dict)
     schema_version: int = SKETCH_SCHEMA_VERSION
+    # Optional document-level state emitted by the native sketcher.  Keeping
+    # this here makes the INI ``param.sketch_data`` boundary lossless without
+    # involving the geometry kernel.
+    sketch_id: str = ""
+    name: str = ""
+    plane: str = "xy"
+    plane_offset: float = 0.0
+    suppressed: bool = False
+    external_references: list[dict[str, Any]] = field(default_factory=list)
+    import_blocks: list[dict[str, Any]] = field(default_factory=list)
+    texts: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         """Return the canonical, JSON-serializable schema."""
 
         self.validate()
-        return {
+        result = {
             "version": self.schema_version,
             "points": {
                 point_id: {
@@ -209,15 +222,40 @@ class SketchModel:
                 for dimension_id, dimension in self.dimensions.items()
             },
         }
+        for key, value in (
+            ("id", self.sketch_id),
+            ("name", self.name),
+            ("plane", self.plane),
+            ("plane_offset", self.plane_offset),
+            ("suppressed", self.suppressed),
+            ("external_references", self.external_references),
+            ("import_blocks", self.import_blocks),
+            ("texts", self.texts),
+        ):
+            if value not in ("", False, 0.0, [], None):
+                result[key] = copy.deepcopy(value)
+        return result
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "SketchModel":
+        if data.get("format") == "zima-cad-cpp-sketch":
+            return cls.from_cpp_dict(data)
         version = int(data.get("version", 0))
         if version not in (2, SKETCH_SCHEMA_VERSION):
             raise SketchModelError(
                 f"unsupported sketch schema version {version}"
             )
-        model = cls(schema_version=SKETCH_SCHEMA_VERSION)
+        model = cls(
+            schema_version=SKETCH_SCHEMA_VERSION,
+            sketch_id=str(data.get("id", "")),
+            name=str(data.get("name", "")),
+            plane=str(data.get("plane", "xy")),
+            plane_offset=float(data.get("plane_offset", 0.0)),
+            suppressed=bool(data.get("suppressed", False)),
+            external_references=copy.deepcopy(list(data.get("external_references", ()))),
+            import_blocks=copy.deepcopy(list(data.get("import_blocks", ()))),
+            texts=copy.deepcopy(list(data.get("texts", ()))),
+        )
         legacy_circle_rim_ids: set[str] = set()
         raw_points = cls._mapping(data.get("points"), "points")
         for point_id, value in raw_points.items():
@@ -301,6 +339,91 @@ class SketchModel:
         for point_id in legacy_circle_rim_ids:
             if point_id in model.points and not model.point_users(point_id):
                 model.remove_point(point_id)
+        model.validate()
+        return model
+
+    @classmethod
+    def from_cpp_dict(cls, data: Mapping[str, Any]) -> "SketchModel":
+        """Adapt the native Sketch v20 JSON to the point-based model.
+
+        This is intentionally a pure data conversion.  It is used while
+        loading documents and never calls OCCT or the native solver.
+        """
+        if data.get("format") != "zima-cad-cpp-sketch" or int(data.get("version", 0)) != 20:
+            raise SketchModelError("unsupported C++ sketch schema")
+        model = cls(
+            sketch_id=str(data.get("id", "")),
+            name=str(data.get("name", "")),
+            plane=str(data.get("plane", "xy")),
+            plane_offset=float(data.get("plane_offset", 0.0)),
+            suppressed=bool(data.get("suppressed", False)),
+            external_references=copy.deepcopy(list(data.get("external_references", ()))),
+            import_blocks=copy.deepcopy(list(data.get("import_blocks", ()))),
+            texts=copy.deepcopy(list(data.get("texts", ()))),
+        )
+        for raw in data.get("points", ()):
+            raw = cls._mapping(raw, "C++ point")
+            model.add_point(SketchPoint(
+                str(raw["id"]), float(raw["x"]), float(raw["y"]),
+                bool(raw.get("construction", False)), None,
+                {"fixed": bool(raw.get("fixed", False))},
+            ))
+
+        def add_geometry(raw: Mapping[str, Any], kind: GeometryType, points: tuple[str, ...], attrs: dict[str, Any]) -> None:
+            attrs["construction"] = bool(raw.get("construction", False))
+            model.add_geometry(SketchGeometry(str(raw["id"]), kind, points, attrs))
+
+        for raw in data.get("segments", ()):
+            add_geometry(raw, GeometryType.SEGMENT,
+                         (str(raw["first"]), str(raw["second"])), {})
+        for raw in data.get("circles", ()):
+            add_geometry(raw, GeometryType.CIRCLE, (str(raw["center"]),),
+                         {"radius": float(raw["radius"])})
+        for raw in data.get("arcs", ()):
+            add_geometry(raw, GeometryType.ARC,
+                         (str(raw["center"]), str(raw["start"]), str(raw["end"])),
+                         {key: raw[key] for key in ("radius", "start_angle", "end_angle")})
+        for raw in data.get("ellipses", ()):
+            add_geometry(raw, GeometryType.ELLIPSE,
+                         tuple(str(raw[key]) for key in ("center", "major_point", "minor_point")),
+                         {key: raw[key] for key in ("major_radius", "minor_radius", "rotation", "reversed")})
+        for raw in data.get("elliptical_arcs", ()):
+            add_geometry(raw, GeometryType.ELLIPTICAL_ARC,
+                         tuple(str(raw[key]) for key in ("center", "major_point", "minor_point", "start", "end")),
+                         {key: raw[key] for key in ("major_radius", "minor_radius", "rotation", "start_parameter", "end_parameter", "reversed")})
+        for raw in data.get("bsplines", ()):
+            add_geometry(raw, GeometryType.SPLINE,
+                         tuple(map(str, raw["control_points"])),
+                         {"degree": int(raw["degree"]), "closed": bool(raw["closed"])})
+
+        geometry_points = {key: value.point_ids for key, value in model.geometry.items()}
+        for raw in data.get("constraints", ()):
+            geometry_ids = tuple(
+                str(raw[key]) for key in ("geometry", "second_geometry")
+                if raw.get(key)
+            )
+            points = tuple(str(raw[key]) for key in ("first", "second") if raw.get(key))
+            if str(raw["kind"]) != "point_on_circle":
+                for geometry_id in geometry_ids:
+                    points += tuple(geometry_points.get(geometry_id, ()))
+            # Native constraints identify curves separately; the generic
+            # model needs their defining points for validation and editing.
+            points = tuple(dict.fromkeys(points))
+            model.add_constraint(SketchConstraint(
+                str(raw["id"]), str(raw["kind"]), points, geometry_ids,
+                {key: raw[key] for key in ("suppressed", "tangent_internal")
+                 if key in raw},
+            ))
+        for raw in data.get("dimensions", ()):
+            geometry_id = str(raw.get("geometry", ""))
+            points = tuple(str(raw[key]) for key in ("first", "second") if raw.get(key))
+            points += tuple(geometry_points.get(geometry_id, ()))
+            model.add_dimension(SketchDimension(
+                str(raw["id"]), str(raw["kind"]), float(raw["value"]),
+                tuple(dict.fromkeys(points)), bool(raw.get("driving", True)),
+                {key: raw[key] for key in ("suppressed", "lower_limit", "upper_limit", "geometry")
+                 if key in raw},
+            ))
         model.validate()
         return model
 

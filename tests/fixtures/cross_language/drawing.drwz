@@ -1,0 +1,5 @@
+[Document]
+document_id=drawing-fixture-001
+type=drawing
+format_version=11
+param.cpp_drawing={"format":"zima-cad-drawing","version":2,"document_id":"drawing-fixture-001","name":"Fixture Drawing","sheets":[{"id":"sheet-fixture-001","name":"Sheet 1","format":"A4","projection_method":"first_angle","default_scale":1.0,"frame_lines":[],"frame_texts":[],"title_block_lines":[],"title_block_texts":[],"title_block_fields":[],"bom_rows":[],"dimensions":[],"views":[{"id":"view-fixture-001","name":"Front","source_document_id":"part-fixture-001","source_path":"part.prtz","parent_view_id":"","orientation":"front","projection_direction":"none","camera":{"horizontal":[1,0,0],"vertical":[0,0,1],"depth":[0,-1,0]},"display_style":"visible_edges","x":0,"y":0,"scale":1,"projected_edges":[],"projected_triangles":[]}]}]}

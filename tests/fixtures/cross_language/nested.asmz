@@ -1,0 +1,16 @@
+[Document]
+document_id=assembly-fixture-001
+type=assembly
+format_version=11
+
+[DocumentUnits]
+Length=mm
+
+[DocumentPrecision]
+mesh_deflection=0.1
+
+[Containers]
+items=assembly-fixture-001
+
+[Container.assembly-fixture-001]
+param.cpp_assembly={"format":"zima-cad-cpp","type":"assembly","document_id":"assembly-fixture-001","name":"Fixture Assembly","user_parameters":{"clearance":"0.15 mm"},"user_parameter_order":["clearance"],"user_parameter_labels":{"clearance":{"en":"Clearance"}},"user_parameter_values":{"clearance":{"":"0.15 mm"}},"relations":[],"document_units":{"Length":"mm"},"document_precision":{"mesh_deflection":"0.1"},"physical_parameters":{},"physical_parameter_units":{},"material_parameter_descriptions":{},"family_table":"{\"columns\":[],\"instances\":[]}","sketches":[],"cuts":[],"constructions":[],"dependencies":[],"mates":[],"components":[{"occurrence_id":"subassembly-occurrence","name":"Nested Assembly","source_document_id":"nested-assembly-fixture","source_path":"nested.asmz","source_kind":"assembly","suppressed":false,"visible":true,"grounded":false,"placement":{"x":0,"y":0,"z":0,"rotation_x":0,"rotation_y":0,"rotation_z":0},"calculated_source":{"volume":1.0,"surface_area":6.0,"source_fingerprint":"","kernel_shape":"","vertices":[],"triangles":[],"triangle_references":[],"edges":[],"points":[],"axes":[],"dimensions":[],"original_references":{"vertices":[],"triangles":[],"triangle_references":[],"edges":[],"points":[],"axes":[]}},"nested_snapshot":[{"occurrence_id":"part-occurrence","name":"Nested Part","source_document_id":"part-fixture-001","source_kind":"part","manually_suppressed":false,"dependency_suppressed":false,"visible":true,"grounded":false,"placement":{"x":2,"y":0,"z":0,"rotation_x":0,"rotation_y":0,"rotation_z":0},"children":[]}]}]}

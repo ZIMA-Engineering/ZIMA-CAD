@@ -343,7 +343,35 @@ const std::string& ConstructionPropertiesDialog::construction_id() const {
     return initial_.id;
 }
 
+bool ConstructionPropertiesDialog::owns_reference_owner(
+    const std::string& owner_id) const {
+    return owner_id == initial_.id || owner_id == initial_.entity_id ||
+        owner_id == initial_.container_origin.id;
+}
+
+std::vector<zima::document::ConstructionReference>
+ConstructionPropertiesDialog::references_without(std::size_t index) const {
+    auto result = references_;
+    if (index < 3 && index < result.size()) {
+        result.erase(result.begin() + static_cast<std::ptrdiff_t>(index));
+    }
+    if (index >= 3) {
+        const auto orientation_index = index - 3;
+        if (orientation_index < orientation_references_.size()) {
+            auto orientations = orientation_references_;
+            orientations.erase(orientations.begin() +
+                static_cast<std::ptrdiff_t>(orientation_index));
+            result.insert(result.end(), orientations.begin(), orientations.end());
+            return result;
+        }
+    }
+    result.insert(result.end(), orientation_references_.begin(),
+        orientation_references_.end());
+    return result;
+}
+
 void ConstructionPropertiesDialog::set_remaining_translation_dof(int dof) {
+    const int previous = remaining_translation_dof_;
     remaining_translation_dof_ = std::clamp(dof, 0, 3);
     if (dof_label_ != nullptr) {
         const int total_dof = remaining_translation_dof_ +
@@ -353,6 +381,8 @@ void ConstructionPropertiesDialog::set_remaining_translation_dof(int dof) {
         reference_status_->setText(total_dof == 0
             ? tr("Plně určené") : QString());
     }
+    if (previous != remaining_translation_dof_ && reference_table_ != nullptr)
+        refresh_reference_table();
 }
 
 void ConstructionPropertiesDialog::set_remaining_rotation_dof(int dof) {
@@ -394,7 +424,8 @@ void ConstructionPropertiesDialog::refresh_reference_table() {
     if (reference_table_ == nullptr) return;
     reference_buttons_.fill(nullptr);
     reference_table_->setRowCount(0);
-    const std::size_t visible = std::min<std::size_t>(3, references_.size() + 1);
+    const std::size_t visible = std::min<std::size_t>(3, references_.size() +
+        (remaining_translation_dof_ > 0 ? 1 : 0));
     for (std::size_t index = 0; index < visible; ++index) {
         reference_table_->insertRow(static_cast<int>(index));
         if (index < references_.size()) {
@@ -454,15 +485,6 @@ void ConstructionPropertiesDialog::refresh_reference_table() {
             offset->setSuffix(QStringLiteral(" mm"));
             reference_table_->setCellWidget(static_cast<int>(index), 2, offset);
         }
-    }
-    if (dof_label_ != nullptr) {
-        const std::size_t required = current_definition() ==
-                zima::document::ConstructionDefinition::TwoPointAxis ? 2
-            : current_definition() ==
-                zima::document::ConstructionDefinition::ThreePointPlane ? 3
-            : current_definition() == zima::document::ConstructionDefinition::Absolute
-                ? 0 : 1;
-        set_remaining_translation_dof(remaining_translation_dof_);
     }
 }
 

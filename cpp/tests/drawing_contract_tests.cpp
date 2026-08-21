@@ -2,8 +2,11 @@
 
 #include <cmath>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <iterator>
 #include <stdexcept>
+#include <string>
 
 namespace {
 void require(bool condition, const char* message) {
@@ -13,6 +16,14 @@ void require(bool condition, const char* message) {
 
 int main() {
     try {
+        const auto fixture = zima::drawing::DrawingDocument::load(
+            std::filesystem::current_path() / "tests/fixtures/cross_language/drawing.drwz");
+        require(fixture.document_id == "drawing-fixture-001" &&
+                    fixture.sheets.size() == 1 &&
+                    fixture.sheets.front().views.size() == 1 &&
+                    fixture.sheets.front().views.front().source_document_id ==
+                        "part-fixture-001",
+                "Python Drawing fixture lost sheet or view identity");
         zima::kernel::ViewerMesh mesh;
         mesh.edges.push_back({{{0, 0, 0}, {10, 0, 0}}, {"box", "edge:x", ""}});
         mesh.edges.push_back({{{0, 0, 10}, {10, 0, 10}}, {"box", "edge:x-top", ""}});
@@ -69,9 +80,19 @@ int main() {
         child.parent_view_id = view_id;
         const std::string child_id = child.id;
         drawing.sheets.front().views.push_back(std::move(child));
-        const auto path = std::filesystem::temp_directory_path() /
+        const auto path = std::filesystem::current_path() /
             "zima-cad-cpp-drawing-contract.drwz";
         drawing.save(path);
+        std::ifstream persisted(path);
+        require(static_cast<bool>(persisted), "Drawing contract file was not written");
+        const std::string ini((std::istreambuf_iterator<char>(persisted)), {});
+        require(ini.find("[Document]\n") != std::string::npos &&
+                    ini.find("format_version=11\n") != std::string::npos &&
+                    ini.find("type=drawing\n") != std::string::npos &&
+                    ini.find("param.cpp_drawing={") != std::string::npos &&
+                    ini.find("[Containers]\n") != std::string::npos &&
+                    ini.find("items=\n") != std::string::npos,
+                "Drawing persistence is not Python-compatible INI");
         const auto loaded = zima::drawing::DrawingDocument::load(path);
         std::filesystem::remove(path);
         require(loaded.document_id == drawing.document_id &&
@@ -86,6 +107,14 @@ int main() {
         require(loaded.sheets.front().width_mm() == 210.0 &&
                     loaded.sheets.front().height_mm() == 297.0,
                 "A4 Drawing orientation is not portrait");
+        require(loaded.name == drawing.name &&
+                    loaded.sheets.front().name == drawing.sheets.front().name &&
+                    loaded.sheets.front().projection_method ==
+                        drawing.sheets.front().projection_method &&
+                    loaded.find_view(view_id)->name == drawing.find_view(view_id)->name &&
+                    loaded.find_view(view_id)->source_path ==
+                        drawing.find_view(view_id)->source_path,
+                "Drawing metadata, views, or sheets did not round-trip");
         std::cout << "C++ Drawing contracts passed\n";
         return 0;
     } catch (const std::exception& error) {

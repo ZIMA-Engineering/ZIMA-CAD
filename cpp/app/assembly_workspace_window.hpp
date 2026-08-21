@@ -42,7 +42,8 @@ class SketchTextPropertiesDialog;
 
 class AssemblyWorkspaceWindow final : public QMainWindow {
 public:
-    AssemblyWorkspaceWindow();
+    explicit AssemblyWorkspaceWindow(
+        const QString& working_directory = {});
     [[nodiscard]] bool open_document_path(const QString& path);
     void show_tree_item_properties(QTreeWidgetItem* item);
 
@@ -205,6 +206,7 @@ private:
     PrimitivePropertiesDialog* extrusion_target_dialog_{};
     ConstructionPropertiesDialog* construction_reference_dialog_{};
     std::optional<zima::kernel::ViewerMesh> construction_preview_mesh_;
+    zima::kernel::ViewerReferenceGeometry construction_reference_geometry_;
     std::string construction_dimension_object_id_;
     std::optional<std::size_t> pending_construction_reference_index_;
     int construction_translation_dof_{3};

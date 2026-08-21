@@ -37,6 +37,9 @@ public:
     [[nodiscard]] zima::document::ConstructionDefinition current_definition() const;
     [[nodiscard]] zima::document::ConstructionKind construction_kind() const;
     [[nodiscard]] const std::string& construction_id() const;
+    [[nodiscard]] bool owns_reference_owner(const std::string& owner_id) const;
+    [[nodiscard]] std::vector<zima::document::ConstructionReference>
+        references_without(std::size_t index) const;
     void set_remaining_translation_dof(int dof);
     void set_remaining_rotation_dof(int dof);
     void set_translation_constraint_state(

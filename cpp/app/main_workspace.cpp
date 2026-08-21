@@ -1,4 +1,5 @@
 #include "assembly_workspace_window.hpp"
+#include "construction_properties_dialog.hpp"
 
 #include <zima/viewer/mesh_view.hpp>
 
@@ -9,7 +10,9 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
+#include <QDir>
 #include <QEvent>
+#include <QFileInfo>
 #include <QImage>
 #include <QLabel>
 #include <QLineEdit>
@@ -466,6 +469,33 @@ int verify_startup_contract(
             "constructionReferenceTable");
     auto* point_viewer = dynamic_cast<zima::viewer::MeshView*>(
         window.findChild<QOpenGLWidget*>("modelWorkspace"));
+    auto* point_properties =
+        dynamic_cast<zima::app::ConstructionPropertiesDialog*>(point_dialog);
+    std::optional<zima::viewer::ViewerCandidate> own_point_candidate;
+    if (point_viewer != nullptr && point_properties != nullptr) {
+        for (int y = 2; y < point_viewer->height() && !own_point_candidate; y += 2) {
+            for (int x = 2; x < point_viewer->width(); x += 2) {
+                for (const auto& candidate : point_viewer->selection_candidates_at(
+                         {static_cast<qreal>(x), static_cast<qreal>(y)})) {
+                    if (point_properties->owns_reference_owner(candidate.owner_id)) {
+                        own_point_candidate = candidate;
+                        break;
+                    }
+                }
+                if (own_point_candidate) break;
+            }
+        }
+    }
+    if (!verify(point_properties != nullptr && !own_point_candidate,
+                "Point placement offered its own Container Origin geometry")) {
+        if (own_point_candidate) {
+            std::cerr << "  owner='" << own_point_candidate->owner_id
+                      << "' key='" << own_point_candidate->semantic_key
+                      << "' geometry=" << static_cast<int>(
+                             own_point_candidate->geometry) << '\n';
+        }
+        return 1;
+    }
     std::optional<QPointF> origin_axis_hover_position;
     if (point_viewer != nullptr) {
         for (int y = 2; y < point_viewer->height() && !origin_axis_hover_position; y += 4) {
@@ -483,6 +513,15 @@ int verify_startup_contract(
     }
     if (!verify(origin_axis_hover_position.has_value(),
                 "Point placement did not offer an Origin axis in View")) return 1;
+    const auto origin_axis_candidates =
+        point_viewer->selection_candidates_at(*origin_axis_hover_position);
+    if (!verify(!origin_axis_candidates.empty() &&
+                    !point_properties->owns_reference_owner(
+                        origin_axis_candidates.front().owner_id) &&
+                    origin_axis_candidates.front().owner_id.ends_with(":origin"),
+                "Overlapped Point placement axis was not owned by the document Origin")) {
+        return 1;
+    }
     QMouseEvent origin_axis_move(QEvent::MouseMove, *origin_axis_hover_position,
         point_viewer->mapToGlobal(origin_axis_hover_position->toPoint()),
         Qt::NoButton, Qt::NoButton, Qt::NoModifier);
@@ -1298,7 +1337,37 @@ int main(int argc, char* argv[]) {
     QSurfaceFormat::setDefaultFormat(format);
     QApplication application(argc, argv);
     application.setApplicationName("ZIMA-CAD");
-    zima::app::AssemblyWorkspaceWindow window;
+    QString startup_directory = QDir::currentPath();
+    const auto arguments = application.arguments();
+    for (int index = 1; index < arguments.size(); ++index) {
+        const QString argument = arguments.at(index);
+        if (argument == QStringLiteral("--working-directory") ||
+            argument == QStringLiteral("-w")) {
+            if (index + 1 < arguments.size()) {
+                startup_directory = QFileInfo(arguments.at(++index))
+                    .absoluteFilePath();
+            }
+            continue;
+        }
+        if (argument.startsWith(QStringLiteral("--working-directory="))) {
+            startup_directory = QFileInfo(
+                argument.section('=', 1)).absoluteFilePath();
+            continue;
+        }
+        if (argument.startsWith('-')) continue;
+        const QFileInfo candidate(argument);
+        if (candidate.isDir()) {
+            startup_directory = candidate.absoluteFilePath();
+            continue;
+        }
+        if (argument.endsWith(".prtz", Qt::CaseInsensitive) ||
+            argument.endsWith(".asmz", Qt::CaseInsensitive) ||
+            argument.endsWith(".drwz", Qt::CaseInsensitive)) {
+            startup_directory = candidate.absolutePath();
+            break;
+        }
+    }
+    zima::app::AssemblyWorkspaceWindow window(startup_directory);
     QString part_capture_path;
     QString drawing_capture_path;
     const QString part_capture_prefix = QStringLiteral("--capture-part=");

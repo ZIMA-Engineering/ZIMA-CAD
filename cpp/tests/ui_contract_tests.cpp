@@ -403,6 +403,13 @@ int main(int argc, char* argv[]) {
             zima::document::ConstructionDefinition::PointReference);
         construction_point_dialog->set_translation_constraint_state(
             {2, {false, false, true}}, {4.0, 5.0, 17.0});
+        require(construction_point_dialog->owns_reference_owner(point_initial.id) &&
+                    construction_point_dialog->owns_reference_owner(
+                        point_initial.entity_id) &&
+                    construction_point_dialog->owns_reference_owner(
+                        point_initial.container_origin.id) &&
+                    !construction_point_dialog->owns_reference_owner("part-origin"),
+                "Point Properties does not recognize every identity of its own Container");
         auto* point_x = construction_point_dialog->findChild<QDoubleSpinBox*>(
             "constructionX");
         auto* point_y = construction_point_dialog->findChild<QDoubleSpinBox*>(
@@ -420,6 +427,17 @@ int main(int argc, char* argv[]) {
                     construction_point_offset->isEnabled(),
                 "Point Properties did not enable offset for a planar reference");
         construction_point_offset->setValue(17.0);
+        require(construction_point_dialog->findChild<QTableWidget*>(
+                    "constructionReferenceTable")->rowCount() == 2,
+                "Under-constrained Point Properties did not offer the next reference");
+        construction_point_dialog->set_translation_constraint_state(
+            {0, {true, true, true}}, {4.0, 5.0, 17.0});
+        const auto* fully_constrained_table =
+            construction_point_dialog->findChild<QTableWidget*>(
+                "constructionReferenceTable");
+        require(fully_constrained_table->rowCount() == 1 &&
+                    fully_constrained_table->cellWidget(0, 1) != nullptr,
+                "Fully constrained Point Properties still offered another reference");
         construction_point_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
         require(committed_point.kind == zima::document::ConstructionKind::Point &&
                     committed_point.definition ==

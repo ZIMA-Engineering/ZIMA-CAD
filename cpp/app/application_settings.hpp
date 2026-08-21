@@ -5,6 +5,12 @@
 
 namespace zima::app {
 
+struct StartupContext {
+    QString working_directory;
+    QString document_path;
+    QString local_config_path;
+};
+
 struct ApplicationSettings {
     QString language{QStringLiteral("cs")};
     QString config_path;
@@ -16,7 +22,8 @@ struct ApplicationSettings {
     QMap<QString, QString> translations;
     QString part_template{QStringLiteral("start_part.prtz")};
 
-    [[nodiscard]] static ApplicationSettings load();
+    [[nodiscard]] static ApplicationSettings load(
+        const QString& working_directory = {});
     [[nodiscard]] bool save(QString* error = nullptr) const;
     [[nodiscard]] QString text(const QString& key, const QString& fallback) const;
 };

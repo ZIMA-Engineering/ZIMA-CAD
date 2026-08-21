@@ -6,6 +6,7 @@
 #include <iostream>
 #include <cmath>
 #include <filesystem>
+#include <fstream>
 #include <limits>
 #include <set>
 #include <stdexcept>
@@ -18,6 +19,17 @@ void require(bool condition, const char* message) {
 
 int main() {
     try {
+        const auto fixture_dir = std::filesystem::current_path() /
+            "tests/fixtures/cross_language";
+        const auto fixture_assembly = zima::assembly::AssemblyDocument::load(
+            fixture_dir / "nested.asmz");
+        require(fixture_assembly.document_id == "assembly-fixture-001" &&
+                    fixture_assembly.name == "Fixture Assembly" &&
+                    fixture_assembly.components.size() == 1 &&
+                    fixture_assembly.components.front().nested_snapshot.size() == 1 &&
+                    fixture_assembly.components.front().nested_snapshot.front()
+                        .source_document_id == "part-fixture-001",
+                "Python nested Assembly fixture lost occurrence identity");
         const zima::assembly::InstancePath nested_path{{"top", "sub", "part"}};
         const auto parent_path = nested_path.parent();
         require(parent_path &&
@@ -136,6 +148,32 @@ int main() {
         assembly.cuts.back().input_component_bodies.emplace(
             second_id, assembly.components.back().calculated_source);
         assembly.save(assembly_path);
+        std::ifstream assembly_file(assembly_path);
+        const std::string assembly_text(
+            std::istreambuf_iterator<char>(assembly_file), {});
+        require(assembly_text.find("[Document]\n") != std::string::npos &&
+                    assembly_text.find("format_version=11\n") != std::string::npos &&
+                    assembly_text.find("[DocumentUnits]\n") != std::string::npos &&
+                    assembly_text.find("[DocumentPrecision]\n") != std::string::npos &&
+                    assembly_text.find("[Material]\n") != std::string::npos &&
+                    assembly_text.find("[UserParameters]\n") != std::string::npos &&
+                    assembly_text.find("[UserParameterLabels]\n") != std::string::npos &&
+                    assembly_text.find("[UserParameterValues]\n") != std::string::npos &&
+                    assembly_text.find("[Relations]\n") != std::string::npos &&
+                    assembly_text.find("[Containers]\n") != std::string::npos &&
+                    assembly_text.find("[CachedBodies]\n") != std::string::npos &&
+                    assembly_text.find("[Container." + assembly.document_id + "]\n") !=
+                        std::string::npos &&
+                    assembly_text.find("[Container." + first_id + "]\n") !=
+                        std::string::npos &&
+                    assembly_text.find("[Container." + second_id + "]\n") !=
+                        std::string::npos &&
+                    assembly_text.find("[Entity." + cut_definition.feature_id + "]\n") !=
+                        std::string::npos &&
+                    assembly_text.find("[Children." + cut_definition.id + "]\n") !=
+                        std::string::npos &&
+                    !assembly_text.empty() && assembly_text.front() == '[',
+                "Assembly save did not produce Python-compatible INI sections");
         const auto loaded = zima::assembly::AssemblyDocument::load(assembly_path);
         std::filesystem::remove(assembly_path);
         require(loaded.document_id == assembly.document_id &&
@@ -172,6 +210,36 @@ int main() {
         }
         require(loaded_paths == instance_paths,
                 "Assembly save/load changed stable occurrence paths");
+        auto nested_source = zima::assembly::AssemblyDocument::create_default();
+        nested_source.components.push_back(
+            zima::assembly::AssemblyDocument::create_part_occurrence(
+                "Vnořený díl", "nested-part-document", "nested.prtz",
+                source.back()));
+        auto nested_parent = zima::assembly::AssemblyDocument::create_default();
+        auto nested_occurrence =
+            zima::assembly::AssemblyDocument::create_assembly_occurrence(
+                "Vnořená sestava", "nested-assembly-document", "nested.asmz",
+                nested_source);
+        const auto nested_occurrence_id = nested_occurrence.occurrence_id;
+        nested_parent.components.push_back(std::move(nested_occurrence));
+        const auto nested_file_path = std::filesystem::current_path() /
+            "zima-cad-cpp-nested-assembly-contract.asmz";
+        nested_parent.save(nested_file_path);
+        std::ifstream nested_file(nested_file_path);
+        const std::string nested_text(
+            std::istreambuf_iterator<char>(nested_file), {});
+        const auto loaded_nested =
+            zima::assembly::AssemblyDocument::load(nested_file_path);
+        std::filesystem::remove(nested_file_path);
+        require(nested_text.find("[Container." + nested_occurrence_id + "]\n") !=
+                    std::string::npos &&
+                    loaded_nested.components.size() == 1 &&
+                    loaded_nested.components.front().source_kind ==
+                        zima::assembly::ComponentSourceKind::Assembly &&
+                    loaded_nested.components.front().nested_snapshot.size() == 1 &&
+                    loaded_nested.components.front().nested_snapshot.front()
+                            .source_document_id == "nested-part-document",
+                "Nested Assembly occurrence did not survive INI save/load");
         auto broken_cut_target = loaded;
         broken_cut_target.cuts.front().definition.extrusion.extent =
             zima::document::ExtrusionExtent::UpToPlane;

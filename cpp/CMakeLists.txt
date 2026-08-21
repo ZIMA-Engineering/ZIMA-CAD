@@ -131,6 +131,8 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_contract_tests PRIVATE
         zima_document_core zima_kernel_occt TKPrim TKDESTEP)
     add_test(NAME zima_cpp_contract_tests COMMAND zima_cpp_contract_tests)
+    set_tests_properties(zima_cpp_contract_tests PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_executable(zima_cpp_ui_contract_tests
         tests/ui_contract_tests.cpp app/primitive_properties_dialog.cpp
         app/construction_properties_dialog.cpp
@@ -153,6 +155,8 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_assembly_contract_tests PRIVATE
         zima_assembly zima_kernel_occt zima_viewer)
     add_test(NAME zima_cpp_assembly_contract_tests COMMAND zima_cpp_assembly_contract_tests)
+    set_tests_properties(zima_cpp_assembly_contract_tests PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_executable(zima_cpp_workspace_contract_tests tests/workspace_contract_tests.cpp)
     target_link_libraries(zima_cpp_workspace_contract_tests PRIVATE
         zima_workspace zima_kernel_occt)
@@ -170,6 +174,8 @@ if(ZIMA_BUILD_TESTS)
     add_executable(zima_cpp_drawing_contract_tests tests/drawing_contract_tests.cpp)
     target_link_libraries(zima_cpp_drawing_contract_tests PRIVATE zima_drawing)
     add_test(NAME zima_cpp_drawing_contract_tests COMMAND zima_cpp_drawing_contract_tests)
+    set_tests_properties(zima_cpp_drawing_contract_tests PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     set_tests_properties(zima_cpp_drawing_contract_tests PROPERTIES
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
 endif()

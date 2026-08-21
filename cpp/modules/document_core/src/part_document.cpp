@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cctype>
 #include <cmath>
 #include <fstream>
 #include <iomanip>
@@ -15,6 +16,8 @@
 #include <numbers>
 #include <random>
 #include <stdexcept>
+#include <sstream>
+#include <string_view>
 #include <unordered_set>
 #include <unordered_map>
 
@@ -30,6 +33,441 @@ std::string make_id() {
     stream << std::hex << std::setfill('0') << std::setw(16)
            << distribution(generator) << std::setw(16) << distribution(generator);
     return stream.str();
+}
+
+using IniSections = std::map<std::string, std::map<std::string, std::string>>;
+
+std::string trim_ini(std::string value) {
+    const auto first = value.find_first_not_of(" \t\r");
+    if (first == std::string::npos) return {};
+    const auto last = value.find_last_not_of(" \t\r");
+    return value.substr(first, last - first + 1);
+}
+
+IniSections read_ini(const std::filesystem::path& path) {
+    std::ifstream input(path);
+    if (!input) {
+        throw std::runtime_error("Cannot open document: " + path.string());
+    }
+    IniSections result;
+    std::string line;
+    std::string section;
+    while (std::getline(input, line)) {
+        line = trim_ini(std::move(line));
+        if (line.empty() || line.front() == '#' || line.front() == ';') continue;
+        if (line.front() == '[' && line.back() == ']') {
+            section = trim_ini(line.substr(1, line.size() - 2));
+            if (section.empty()) throw std::runtime_error("Invalid INI section");
+            result.try_emplace(section);
+            continue;
+        }
+        const auto separator = line.find('=');
+        if (section.empty() || separator == std::string::npos) {
+            throw std::runtime_error("Invalid INI document line");
+        }
+        result[section][trim_ini(line.substr(0, separator))] =
+            trim_ini(line.substr(separator + 1));
+    }
+    if (!input.eof()) throw std::runtime_error("Cannot read document: " + path.string());
+    return result;
+}
+
+const std::string& ini_required(
+    const IniSections& ini, const std::string& section, const std::string& key) {
+    const auto found_section = ini.find(section);
+    if (found_section == ini.end()) {
+        throw std::runtime_error("Missing INI section [" + section + "]");
+    }
+    const auto found = found_section->second.find(key);
+    if (found == found_section->second.end()) {
+        throw std::runtime_error("Missing INI key " + section + "." + key);
+    }
+    return found->second;
+}
+
+std::string ini_value(
+    const IniSections& ini, const std::string& section, const std::string& key,
+    std::string fallback = {}) {
+    const auto found_section = ini.find(section);
+    if (found_section == ini.end()) return fallback;
+    const auto found = found_section->second.find(key);
+    return found == found_section->second.end() ? fallback : found->second;
+}
+
+std::string json_text(const nlohmann::json& value) {
+    return value.is_string() ? value.get<std::string>() :
+        value.is_boolean() ? (value.get<bool>() ? "true" : "false") :
+        value.dump();
+}
+
+std::string feature_entity_kind(const std::string& type) {
+    if (type == "box" || type == "cylinder" || type == "sphere" ||
+        type == "cone" || type == "pyramid" || type == "wedge") return type;
+    if (type == "extrusion") return "protrusion";
+    if (type == "revolution") return "revolve";
+    return type;
+}
+
+std::string feature_container_type(const std::string& type) {
+    const auto kind = feature_entity_kind(type);
+    std::string result;
+    result.reserve(kind.size());
+    for (const auto character : kind) {
+        result.push_back(static_cast<char>(std::toupper(
+            static_cast<unsigned char>(character))));
+    }
+    return result;
+}
+
+void add_common_entity_fields(
+    std::map<std::string, std::string>& section,
+    const std::string& id, const std::string& name, const std::string& kind,
+    const std::string& combine, bool suppressed,
+    const Placement& placement = {}) {
+    section["id"] = id;
+    section["name"] = name;
+    section["kind"] = kind;
+    section["combine_mode"] = combine;
+    section["x"] = std::to_string(placement.x);
+    section["y"] = std::to_string(placement.y);
+    section["z"] = std::to_string(placement.z);
+    section["rx"] = std::to_string(placement.rotation_x);
+    section["ry"] = std::to_string(placement.rotation_y);
+    section["rz"] = std::to_string(placement.rotation_z);
+    section["user_visible"] = "true";
+    section["suppressed"] = suppressed ? "true" : "false";
+    section["tree_exposure"] = "public";
+    section["show_auxiliary_geometry"] = "false";
+}
+
+void add_json_parameters(
+    std::map<std::string, std::string>& section, const nlohmann::json& value) {
+    for (auto it = value.begin(); it != value.end(); ++it) {
+        if (it.key() == "id" || it.key() == "name" || it.key() == "type" ||
+            it.key() == "combine" || it.key() == "suppressed" ||
+            it.key() == "container_origin" || it.key() == "placement") {
+            continue;
+        }
+        section["param." + it.key()] = json_text(it.value());
+    }
+}
+
+nlohmann::json read_part_ini(const std::filesystem::path& path) {
+    const auto ini = read_ini(path);
+    if (ini_value(ini, "Document", "format_version") != "11") {
+        throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
+    }
+    nlohmann::json root = {
+        {"format", "zima-cad-cpp"},
+        {"format_version", 36},
+        {"document_id", ini_required(ini, "Document", "document_id")},
+        {"type", ini_value(ini, "Document", "type", "part")},
+        {"name", ini_value(ini, "Document", "name", "Nový díl")},
+        {"family_table", ini_value(ini, "Document", "family_table",
+            "{\"columns\":[],\"instances\":[]}")},
+        {"user_parameters", nlohmann::json::object()},
+        {"user_parameter_order", nlohmann::json::array()},
+        {"user_parameter_labels", nlohmann::json::object()},
+        {"user_parameter_values", nlohmann::json::object()},
+        {"relations", nlohmann::json::array()},
+        {"document_units", nlohmann::json::object()},
+        {"document_precision", nlohmann::json::object()},
+        {"physical_parameters", nlohmann::json::object()},
+        {"physical_parameter_units", nlohmann::json::object()},
+        {"material_parameter_descriptions", nlohmann::json::object()},
+        {"history", nlohmann::json::array()},
+        {"sketches", nlohmann::json::array()},
+        {"constructions", nlohmann::json::array()},
+        {"history_order", nlohmann::json::array()},
+        {"history_cursor", 0},
+        {"calculated_boundaries", nlohmann::json::array()},
+    };
+    const auto copy_section = [&](const char* section_name, const char* root_name) {
+        const auto found = ini.find(section_name);
+        if (found == ini.end()) return;
+        for (const auto& [key, value] : found->second) root[root_name][key] = value;
+    };
+    copy_section("DocumentUnits", "document_units");
+    copy_section("DocumentPrecision", "document_precision");
+    copy_section("MaterialProperties", "physical_parameters");
+    if (ini.contains("Material")) {
+        const auto material_name = ini_value(ini, "Material", "Name");
+        if (!material_name.empty()) {
+            root["physical_parameters"]["MATERIAL_NAME"] = material_name;
+        }
+    }
+    copy_section("MaterialUnits", "physical_parameter_units");
+    if (const auto found = ini.find("Relations"); found != ini.end() &&
+        found->second.contains("Data")) {
+        root["relations"] = nlohmann::json::parse(found->second.at("Data"));
+    }
+    if (const auto found = ini.find("UserParameters"); found != ini.end()) {
+        if (const auto order = found->second.find("Order");
+            order != found->second.end()) {
+            std::stringstream values(order->second);
+            std::string value;
+            while (std::getline(values, value, ',')) {
+                value = trim_ini(std::move(value));
+                if (!value.empty()) root["user_parameter_order"].push_back(value);
+            }
+        }
+    }
+    const auto read_language_map = [&](const char* section_name, const char* root_name) {
+        const auto found = ini.find(section_name);
+        if (found == ini.end()) return;
+        for (const auto& [key, value] : found->second) {
+            const auto separator = key.rfind('\\');
+            const auto parameter = separator == std::string::npos
+                ? key : key.substr(0, separator);
+            const auto language = separator == std::string::npos
+                ? std::string{} : key.substr(separator + 1);
+            root[root_name][parameter][language] = value;
+            if (std::string_view(root_name) == "user_parameter_values" &&
+                language.empty()) {
+                root["user_parameters"][parameter] = value;
+            }
+        }
+    };
+    read_language_map("UserParameterLabels", "user_parameter_labels");
+    read_language_map("UserParameterValues", "user_parameter_values");
+    read_language_map("MaterialDescriptions", "material_parameter_descriptions");
+
+    const auto containers = ini_value(ini, "Containers", "items");
+    std::stringstream ids(containers);
+    std::string id;
+    while (std::getline(ids, id, ',')) {
+        id = trim_ini(std::move(id));
+        if (id.empty()) continue;
+        const auto section = "Container." + id;
+        const auto role = ini_value(ini, section, "param.cpp_kind");
+        if (role == "history") {
+            root["history"].push_back(nlohmann::json::parse(
+                ini_required(ini, section, "param.cpp_history")));
+            root["history_order"].push_back({
+                {"kind", "feature"}, {"id", id}});
+        } else if (role == "sketch") {
+            root["sketches"].push_back(nlohmann::json::parse(
+                ini_required(ini, section, "param.cpp_sketch")));
+            root["history_order"].push_back({
+                {"kind", "sketch"}, {"id", id}});
+        } else if (role == "construction") {
+            root["constructions"].push_back(nlohmann::json::parse(
+                ini_required(ini, section, "param.cpp_construction")));
+            root["history_order"].push_back({
+                {"kind", "construction"}, {"id", id}});
+        }
+    }
+    if (const auto cursor = ini_value(ini, "Document", "history_cursor");
+        !cursor.empty()) {
+        root["history_cursor"] = std::stoull(cursor);
+    }
+    if (const auto found = ini.find("CachedBodies"); found != ini.end() &&
+        ini_value(ini, "CachedBodies", "encoding") ==
+            "zima-cpp-body-results-json") {
+        const auto data = ini_value(ini, "CachedBodies", "data");
+        if (!data.empty()) root["calculated_boundaries"] = nlohmann::json::parse(data);
+    }
+    return root;
+}
+
+void write_part_ini(
+    const nlohmann::json& root, const std::filesystem::path& path) {
+    IniSections ini;
+    ini["Document"] = {
+        {"format_version", "11"},
+        {"type", "part"},
+        {"document_id", root.at("document_id").get<std::string>()},
+        {"name", root.at("name").get<std::string>()},
+        {"family_table", root.at("family_table").get<std::string>()},
+        {"history_cursor", std::to_string(root.at("history_cursor").get<std::size_t>())},
+    };
+    const auto copy_object = [&](const char* section_name, const char* root_name) {
+        for (auto it = root.at(root_name).begin(); it != root.at(root_name).end(); ++it) {
+            ini[section_name][it.key()] = json_text(it.value());
+        }
+    };
+    copy_object("DocumentUnits", "document_units");
+    copy_object("DocumentPrecision", "document_precision");
+    copy_object("MaterialProperties", "physical_parameters");
+    ini["Material"]["Name"] = root.at("physical_parameters").value("MATERIAL_NAME", "");
+    ini.erase("MaterialProperties");
+    for (auto it = root.at("physical_parameters").begin();
+         it != root.at("physical_parameters").end(); ++it) {
+        if (it.key() != "MATERIAL_NAME") ini["MaterialProperties"][it.key()] =
+            json_text(it.value());
+    }
+    copy_object("MaterialUnits", "physical_parameter_units");
+    for (auto it = root.at("material_parameter_descriptions").begin();
+         it != root.at("material_parameter_descriptions").end(); ++it) {
+        for (auto language = it.value().begin(); language != it.value().end(); ++language) {
+            ini["MaterialDescriptions"][it.key() +
+                (language.key().empty() ? "" : "\\" + language.key())] =
+                json_text(language.value());
+        }
+    }
+    if (!root.at("relations").empty()) ini["Relations"]["Data"] =
+        root.at("relations").dump();
+    std::string order;
+    for (const auto& value : root.at("user_parameter_order")) {
+        if (!order.empty()) order += ", ";
+        order += value.get<std::string>();
+    }
+    ini["UserParameters"]["Order"] = order;
+    for (auto it = root.at("user_parameter_labels").begin();
+         it != root.at("user_parameter_labels").end(); ++it) {
+        for (auto language = it.value().begin(); language != it.value().end(); ++language) {
+            ini["UserParameterLabels"][it.key() +
+                (language.key().empty() ? "" : "\\" + language.key())] =
+                json_text(language.value());
+        }
+    }
+    for (auto it = root.at("user_parameter_values").begin();
+         it != root.at("user_parameter_values").end(); ++it) {
+        for (auto language = it.value().begin(); language != it.value().end(); ++language) {
+            ini["UserParameterValues"][it.key() +
+                (language.key().empty() ? "" : "\\" + language.key())] =
+                json_text(language.value());
+        }
+    }
+    for (auto it = root.at("user_parameters").begin();
+         it != root.at("user_parameters").end(); ++it) {
+        const auto key = it.key();
+        if (!ini["UserParameterValues"].contains(key)) {
+            ini["UserParameterValues"][key] = json_text(it.value());
+        }
+    }
+    std::vector<std::string> container_ids;
+    std::vector<PartHistoryEntry> order_entries;
+    for (const auto& entry : root.at("history_order")) {
+        order_entries.push_back({
+            entry.at("kind") == "feature" ? PartHistoryKind::Feature
+                : entry.at("kind") == "sketch" ? PartHistoryKind::Sketch
+                : PartHistoryKind::Construction,
+            entry.at("id").get<std::string>()});
+    }
+    for (const auto& entry : order_entries) {
+        container_ids.push_back(entry.id);
+        if (entry.kind == PartHistoryKind::Feature) {
+            const auto& value = *std::find_if(root.at("history").begin(),
+                root.at("history").end(), [&](const auto& item) {
+                    return item.at("id") == entry.id;
+                });
+            const auto type = value.at("type").get<std::string>();
+            auto& container = ini["Container." + entry.id];
+            add_common_entity_fields(container, entry.id, value.at("name"),
+                "container", value.at("combine").get<std::string>(),
+                value.at("suppressed").get<bool>(), value.value("placement", nlohmann::json::object()).is_object()
+                    ? Placement{value.value("placement", nlohmann::json::object()).value("x", 0.0),
+                        value.value("placement", nlohmann::json::object()).value("y", 0.0),
+                        value.value("placement", nlohmann::json::object()).value("z", 0.0),
+                        value.value("placement", nlohmann::json::object()).value("rotation_x", 0.0),
+                        value.value("placement", nlohmann::json::object()).value("rotation_y", 0.0),
+                        value.value("placement", nlohmann::json::object()).value("rotation_z", 0.0)}
+                    : Placement{});
+            container["TYPE"] = feature_container_type(type);
+            container["param.cpp_kind"] = "history";
+            container["param.cpp_history"] = value.dump();
+            const auto feature_id = value.at("feature_id").get<std::string>();
+            auto& feature = ini["Entity." + feature_id];
+            add_common_entity_fields(feature, feature_id, value.at("name"),
+                feature_entity_kind(type), value.at("combine").get<std::string>(),
+                value.at("suppressed").get<bool>());
+            feature["tree_exposure"] = "internal";
+            feature["param.cpp_feature_id"] = feature_id;
+            add_json_parameters(feature, value);
+            feature["param.unit"] = "mm";
+            feature["param.operation"] = value.at("combine").get<std::string>();
+            if (type == "sphere" || type == "cylinder") {
+                feature["param.diameter"] = std::to_string(
+                    2.0 * value.at("radius").get<double>());
+            } else if (type == "cone") {
+                feature["param.bottom_diameter"] = std::to_string(
+                    2.0 * value.at("bottom_radius").get<double>());
+                feature["param.top_diameter"] = std::to_string(
+                    2.0 * value.at("top_radius").get<double>());
+            } else if (type == "revolution") {
+                feature["param.angle"] = std::to_string(
+                    value.at("angle_degrees").get<double>());
+            } else if (type == "fillet") {
+                feature["param.radius"] = std::to_string(
+                    value.at("size").get<double>());
+            } else if (type == "chamfer") {
+                feature["param.distance"] = std::to_string(
+                    value.at("size").get<double>());
+            }
+            ini["Children." + entry.id]["items"] = feature_id;
+        } else if (entry.kind == PartHistoryKind::Sketch) {
+            const auto& value = *std::find_if(root.at("sketches").begin(),
+                root.at("sketches").end(), [&](const auto& item) {
+                    return item.at("id") == entry.id;
+                });
+            auto& container = ini["Container." + entry.id];
+            add_common_entity_fields(container, entry.id, value.at("name"),
+                "container", "0", value.at("suppressed").get<bool>());
+            container["TYPE"] = "SKETCH";
+            container["param.cpp_kind"] = "sketch";
+            container["param.cpp_sketch"] = value.dump();
+            auto& sketch = ini["Entity." + entry.id];
+            add_common_entity_fields(sketch, entry.id, value.at("name"), "sketch",
+                "0", value.at("suppressed").get<bool>());
+            sketch["tree_exposure"] = "internal";
+            sketch["param.plane"] = value.value("plane", "xy");
+            sketch["param.role"] = "PROFILE";
+            sketch["param.sketch_data"] =
+                "{\"version\":3,\"points\":{},\"geometry\":{},\"constraints\":{},\"dimensions\":{}}";
+            ini["Children." + entry.id]["items"] = entry.id;
+        } else {
+            const auto& value = *std::find_if(root.at("constructions").begin(),
+                root.at("constructions").end(), [&](const auto& item) {
+                    return item.at("id") == entry.id;
+                });
+            const auto kind = value.at("type").get<std::string>();
+            auto& container = ini["Container." + entry.id];
+            add_common_entity_fields(container, entry.id, value.at("name"),
+                "container", "0", value.at("suppressed").get<bool>());
+            container["TYPE"] = kind == "point" ? "POINT" : kind == "axis" ? "AXIS" : "PLANE";
+            container["param.cpp_kind"] = "construction";
+            container["param.cpp_construction"] = value.dump();
+            auto& construction = ini["Entity." + entry.id];
+            add_common_entity_fields(construction, entry.id, value.at("name"), kind,
+                "0", value.at("suppressed").get<bool>());
+            construction["tree_exposure"] = "internal";
+            add_json_parameters(construction, value);
+            ini["Children." + entry.id]["items"] = entry.id;
+        }
+    }
+    std::string items;
+    for (const auto& id : container_ids) {
+        if (!items.empty()) items += ",";
+        items += id;
+    }
+    ini["Containers"]["items"] = items;
+    if (!root.at("calculated_boundaries").empty()) {
+        ini["CachedBodies"] = {
+            {"encoding", "zima-cpp-body-results-json"},
+            {"data", root.at("calculated_boundaries").dump()},
+        };
+    }
+    const auto temporary = path.string() + ".tmp";
+    {
+        std::ofstream output(temporary, std::ios::trunc);
+        if (!output) throw std::runtime_error("Cannot write document: " + path.string());
+        for (const auto& [section, values] : ini) {
+            output << "[" << section << "]\n";
+            for (const auto& [key, value] : values) output << key << "=" << value << "\n";
+            output << "\n";
+        }
+        if (!output) throw std::runtime_error("Document write failed: " + path.string());
+    }
+    try {
+        static_cast<void>(PartDocument::load(temporary));
+    } catch (...) {
+        std::error_code error;
+        std::filesystem::remove(temporary, error);
+        throw;
+    }
+    archive_existing_file(path);
+    std::filesystem::rename(temporary, path);
 }
 
 void require_positive(double value, const char* field) {
@@ -1792,7 +2230,26 @@ PointConstraintState point_constraint_state(
         if (edge != geometry.edges.end() && edge->points.size() >= 2) {
             const auto& first = edge->points.front();
             const auto& last = edge->points.back();
-            append_axis_rows({last.x - first.x, last.y - first.y, last.z - first.z});
+            zima::kernel::Vec3 direction{
+                last.x - first.x, last.y - first.y, last.z - first.z};
+            const double length = std::hypot(
+                std::hypot(direction.x, direction.y), direction.z);
+            if (length <= 1.0e-12) continue;
+            direction = {direction.x / length, direction.y / length,
+                direction.z / length};
+            const bool straight = std::all_of(edge->points.begin(), edge->points.end(),
+                [&](const auto& point) {
+                    const zima::kernel::Vec3 delta{point.x - first.x,
+                        point.y - first.y, point.z - first.z};
+                    const zima::kernel::Vec3 deviation{
+                        delta.y * direction.z - delta.z * direction.y,
+                        delta.z * direction.x - delta.x * direction.z,
+                        delta.x * direction.y - delta.y * direction.x};
+                    return std::hypot(std::hypot(deviation.x, deviation.y),
+                        deviation.z) <= 1.0e-7;
+                });
+            if (!straight) continue;
+            append_axis_rows(direction);
             continue;
         }
         for (std::size_t index = 0;
@@ -2672,16 +3129,7 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
 PartDocument PartDocument::load(
     const std::filesystem::path& path,
     std::vector<zima::kernel::BodyResult>* calculated_boundaries) {
-    std::ifstream input(path);
-    if (!input) {
-        throw std::runtime_error("Cannot open document: " + path.string());
-    }
-    nlohmann::json root;
-    input >> root;
-    if (root.at("format").get<std::string>() != "zima-cad-cpp" ||
-        root.at("format_version").get<int>() != 36) {
-        throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
-    }
+    const nlohmann::json root = read_part_ini(path);
     PartDocument document;
     document.document_id = root.at("document_id").get<std::string>();
     document.name = root.at("name").get<std::string>();
@@ -3766,19 +4214,7 @@ void PartDocument::save(
         {"history_cursor", std::min(history_cursor, effective_order.size())},
         {"calculated_boundaries", std::move(serialized_boundaries)},
     };
-    const auto temporary = path.string() + ".tmp";
-    {
-        std::ofstream output(temporary, std::ios::trunc);
-        if (!output) {
-            throw std::runtime_error("Cannot write document: " + path.string());
-        }
-        output << std::setw(2) << root << '\n';
-        if (!output) {
-            throw std::runtime_error("Document write failed: " + path.string());
-        }
-    }
-    archive_existing_file(path);
-    std::filesystem::rename(temporary, path);
+    write_part_ini(root, path);
 }
 
 }  // namespace zima::document

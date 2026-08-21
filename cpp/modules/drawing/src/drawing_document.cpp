@@ -173,7 +173,7 @@ std::vector<std::string> comma_values(const std::string& value) {
 using IniData = std::map<std::string, std::map<std::string, std::string>>;
 IniData read_ini(const std::filesystem::path& path) {
     std::ifstream stream(path);
-    if (!stream) throw std::runtime_error("Cannot read Drawing template");
+    if (!stream) throw std::runtime_error("Cannot read Drawing INI document");
     IniData result; std::string section; std::string line;
     while (std::getline(stream, line)) {
         line = trim(line);
@@ -571,16 +571,40 @@ void DrawingDocument::save(const std::filesystem::path& path) const {
     zima::document::archive_existing_file(path);
     std::ofstream stream(path);
     if (!stream) throw std::runtime_error("Cannot write Drawing document");
-    stream << root.dump(2) << '\n';
+    // Keep the document envelope compatible with zima_cad/storage.py.  The
+    // C++ drawing model has no Python entity fields, so its complete payload
+    // lives in the ordinary param.* namespace.
+    stream << "[Document]\n"
+           << "format_version=11\n"
+           << "type=drawing\n"
+           << "document_id=" << document_id << "\n"
+           << "name=" << name << "\n"
+           << "param.cpp_drawing=" << root.dump() << "\n\n"
+           << "[Containers]\n"
+           << "items=\n";
 }
 
 DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
-    std::ifstream stream(path);
-    if (!stream) throw std::runtime_error("Cannot read Drawing document");
-    nlohmann::json root;
-    stream >> root;
-    if (root.value("format", "") != "zima-cad-drawing" || root.value("version", 0) != 2)
+    const auto ini = read_ini(path);
+    const auto document_section = ini.find("Document");
+    if (document_section == ini.end() ||
+        document_section->second.find("format_version") == document_section->second.end() ||
+        document_section->second.at("format_version") != "11" ||
+        document_section->second.find("type") == document_section->second.end() ||
+        document_section->second.at("type") != "drawing")
         throw std::runtime_error("Unsupported Drawing document format");
+    const auto payload = document_section->second.find("param.cpp_drawing");
+    if (payload == document_section->second.end())
+        throw std::runtime_error("Drawing document has no C++ payload");
+    nlohmann::json root;
+    try {
+        root = nlohmann::json::parse(payload->second);
+    } catch (const nlohmann::json::exception& error) {
+        throw std::runtime_error(
+            std::string("Invalid C++ Drawing payload: ") + error.what());
+    }
+    if (root.value("format", "") != "zima-cad-drawing" || root.value("version", 0) != 2)
+        throw std::runtime_error("Unsupported C++ Drawing payload");
     DrawingDocument document;
     document.document_id = root.at("document_id").get<std::string>();
     document.name = root.at("name").get<std::string>();
