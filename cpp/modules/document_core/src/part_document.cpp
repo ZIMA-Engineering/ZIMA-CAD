@@ -10,6 +10,7 @@
 #include <cctype>
 #include <cmath>
 #include <fstream>
+#include <functional>
 #include <iomanip>
 #include <iterator>
 #include <limits>
@@ -1978,10 +1979,20 @@ bool resolve_construction(ConstructionObject& object,
         return std::nullopt;
     };
     object.reference_valid = false;
+    // Plane orientation references are persisted alongside placement
+    // references, but they do not participate in the definition's required
+    // placement count.  Keep the two contracts separate when resolving.
+    const auto placement_references = [&] {
+        std::vector<std::reference_wrapper<const ConstructionReference>> result;
+        for (const auto& reference : object.references) {
+            if (!reference.orientation_drives_rotation) result.push_back(reference);
+        }
+        return result;
+    }();
     if (object.definition == ConstructionDefinition::Absolute) {
         object.reference_valid = true;
     } else if (object.definition == ConstructionDefinition::PointReference &&
-        !object.references.empty()) {
+        !placement_references.empty()) {
         // Point placement is a set of geometric constraints, not merely an
         // alias of another vertex.  Preserve the entered origin as the
         // under-constrained fallback and project it onto all selected stable
@@ -2010,8 +2021,8 @@ bool resolve_construction(ConstructionObject& object,
                 second.y * value.point.y + second.z * value.point.z});
         };
         bool supported = true;
-        for (const auto& reference : object.references) {
-            if (reference.orientation_drives_rotation) continue;
+        for (const auto& wrapped_reference : placement_references) {
+            const auto& reference = wrapped_reference.get();
             if (const auto resolved = point(reference)) {
                 equations.push_back({{1.0, 0.0, 0.0}, resolved->x});
                 equations.push_back({{0.0, 1.0, 0.0}, resolved->y});
@@ -2085,9 +2096,9 @@ bool resolve_construction(ConstructionObject& object,
             }
         }
     } else if (object.definition == ConstructionDefinition::TwoPointAxis &&
-               object.references.size() == 2) {
-        const auto first = point(object.references[0]);
-        const auto second = point(object.references[1]);
+               placement_references.size() == 2) {
+        const auto first = point(placement_references[0].get());
+        const auto second = point(placement_references[1].get());
         if (first && second) {
             const zima::kernel::Vec3 direction{second->x - first->x,
                 second->y - first->y, second->z - first->z};
@@ -2101,27 +2112,27 @@ bool resolve_construction(ConstructionObject& object,
             }
         }
     } else if (object.definition == ConstructionDefinition::AxisReference &&
-               object.references.size() == 1) {
-        if (const auto resolved = axis(object.references[0])) {
+               placement_references.size() == 1) {
+        if (const auto resolved = axis(placement_references[0].get())) {
             object.origin = resolved->point;
             object.direction = resolved->direction;
             object.reference_valid = true;
         }
     } else if (object.definition == ConstructionDefinition::PlaneReference &&
-               object.references.size() == 1) {
-        if (const auto resolved = plane(object.references[0])) {
+               placement_references.size() == 1) {
+        if (const auto resolved = plane(placement_references[0].get())) {
             object.direction = resolved->second;
-            const double offset = object.references[0].offset;
+            const double offset = placement_references[0].get().offset;
             object.origin = {resolved->first.x + offset * object.direction.x,
                 resolved->first.y + offset * object.direction.y,
                 resolved->first.z + offset * object.direction.z};
             object.reference_valid = true;
         }
     } else if (object.definition == ConstructionDefinition::ThreePointPlane &&
-               object.references.size() == 3) {
-        const auto a = point(object.references[0]);
-        const auto b = point(object.references[1]);
-        const auto c = point(object.references[2]);
+               placement_references.size() == 3) {
+        const auto a = point(placement_references[0].get());
+        const auto b = point(placement_references[1].get());
+        const auto c = point(placement_references[2].get());
         if (a && b && c) {
             const zima::kernel::Vec3 ab{b->x - a->x, b->y - a->y, b->z - a->z};
             const zima::kernel::Vec3 ac{c->x - a->x, c->y - a->y, c->z - a->z};

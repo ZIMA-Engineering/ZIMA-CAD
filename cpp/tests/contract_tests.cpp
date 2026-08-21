@@ -705,6 +705,21 @@ int main() {
                     constructions.constructions.back().direction.x == 1.0 &&
                     constructions.constructions.back().direction.y == 0.0,
                 "Two-point datum axis did not resolve from stable point identities");
+        auto referenced_plane = zima::document::PartDocument::create_construction(
+            zima::document::ConstructionKind::Plane);
+        referenced_plane.definition =
+            zima::document::ConstructionDefinition::PlaneReference;
+        referenced_plane.references = {
+            {{}, constructions.document_id + ":origin", "origin:plane:xy", 8.0, true},
+            {{}, constructions.document_id + ":origin", "origin:axis:x", 0.0, false,
+                "front", true}};
+        constructions.constructions.push_back(referenced_plane);
+        constructions.resolve_constructions();
+        require(constructions.constructions.back().reference_valid &&
+                    std::abs(constructions.constructions.back().origin.z - 8.0) <
+                        1.0e-6 &&
+                    constructions.constructions.back().references.size() == 2,
+                "Plane reference resolution ignored its placement/orientation split");
         auto cyclic_point = zima::document::PartDocument::create_construction(
             zima::document::ConstructionKind::Point);
         cyclic_point.definition =
@@ -753,13 +768,15 @@ int main() {
         const auto loaded_constructions =
             zima::document::PartDocument::load(construction_path);
         std::filesystem::remove(construction_path);
-        require(loaded_constructions.constructions.size() == 5 &&
+        require(loaded_constructions.constructions.size() == 6 &&
                     loaded_constructions.constructions[0].origin.z == 3.0 &&
                     loaded_constructions.constructions[2].display_size == 75.0 &&
-                    loaded_constructions.constructions.back().definition ==
+                    loaded_constructions.constructions[4].definition ==
                         zima::document::ConstructionDefinition::TwoPointAxis &&
-                    loaded_constructions.constructions.back().references[0].owner_id ==
+                    loaded_constructions.constructions[4].references[0].owner_id ==
                         point.id + ":origin" &&
+                    loaded_constructions.constructions[5].definition ==
+                        zima::document::ConstructionDefinition::PlaneReference &&
                     loaded_constructions.constructions.front().container_origin ==
                         point.container_origin,
                 "Construction objects did not survive save/load");
