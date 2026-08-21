@@ -168,7 +168,8 @@ if(ZIMA_BUILD_TESTS)
         zima_workspace zima_kernel_occt)
     add_test(NAME zima_cpp_workspace_contract_tests COMMAND zima_cpp_workspace_contract_tests)
     add_executable(zima_cpp_sketcher_contract_tests tests/sketcher_contract_tests.cpp)
-    target_link_libraries(zima_cpp_sketcher_contract_tests PRIVATE zima_sketcher zima_viewer)
+    target_link_libraries(zima_cpp_sketcher_contract_tests PRIVATE
+        zima_sketcher zima_viewer zima_document_core)
     add_test(NAME zima_cpp_sketcher_contract_tests COMMAND zima_cpp_sketcher_contract_tests)
     add_executable(zima_cpp_interchange_contract_tests tests/interchange_contract_tests.cpp)
     target_link_libraries(zima_cpp_interchange_contract_tests PRIVATE zima_interchange)
@@ -184,4 +185,8 @@ if(ZIMA_BUILD_TESTS)
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     set_tests_properties(zima_cpp_drawing_contract_tests PROPERTIES
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    add_executable(zima_cpp_cross_language_persistence_emitter
+        tests/cross_language_persistence_emitter.cpp)
+    target_link_libraries(zima_cpp_cross_language_persistence_emitter PRIVATE
+        zima_document_core zima_assembly zima_drawing)
 endif()

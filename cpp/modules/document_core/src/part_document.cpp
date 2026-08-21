@@ -109,6 +109,15 @@ std::string feature_entity_kind(const std::string& type) {
     return type;
 }
 
+// The persisted `combine_mode` field must match Python's `CombineMode` enum
+// values ("0", "+", "-"), while the JSON `combine` field keeps the readable
+// "add"/"subtract" spelling used elsewhere in this file.
+std::string combine_mode_value(const std::string& combine) {
+    if (combine == "subtract") return "-";
+    if (combine == "add") return "+";
+    return "0";
+}
+
 std::string feature_container_type(const std::string& type) {
     const auto kind = feature_entity_kind(type);
     std::string result;
@@ -247,8 +256,14 @@ nlohmann::json read_part_ini(const std::filesystem::path& path) {
             root["history_order"].push_back({
                 {"kind", "feature"}, {"id", id}});
         } else if (role == "sketch") {
-            root["sketches"].push_back(nlohmann::json::parse(
-                ini_required(ini, section, "param.cpp_sketch")));
+            auto native_sketch = ini_value(ini, "Entity." + id + ":sketch", "param.cpp_sketch");
+            if (native_sketch.empty()) {
+                native_sketch = ini_value(ini, "Entity." + id, "param.cpp_sketch");
+            }
+            if (native_sketch.empty()) {
+                native_sketch = ini_required(ini, section, "param.cpp_sketch");
+            }
+            root["sketches"].push_back(nlohmann::json::parse(native_sketch));
             root["history_order"].push_back({
                 {"kind", "sketch"}, {"id", id}});
         } else if (role == "construction") {
@@ -356,7 +371,7 @@ void write_part_ini(
             const auto type = value.at("type").get<std::string>();
             auto& container = ini["Container." + entry.id];
             add_common_entity_fields(container, entry.id, value.at("name"),
-                "container", value.at("combine").get<std::string>(),
+                "container", combine_mode_value(value.at("combine").get<std::string>()),
                 value.at("suppressed").get<bool>(), value.value("placement", nlohmann::json::object()).is_object()
                     ? Placement{value.value("placement", nlohmann::json::object()).value("x", 0.0),
                         value.value("placement", nlohmann::json::object()).value("y", 0.0),
@@ -371,7 +386,7 @@ void write_part_ini(
             const auto feature_id = value.at("feature_id").get<std::string>();
             auto& feature = ini["Entity." + feature_id];
             add_common_entity_fields(feature, feature_id, value.at("name"),
-                feature_entity_kind(type), value.at("combine").get<std::string>(),
+                feature_entity_kind(type), combine_mode_value(value.at("combine").get<std::string>()),
                 value.at("suppressed").get<bool>());
             feature["tree_exposure"] = "internal";
             feature["param.cpp_feature_id"] = feature_id;
@@ -407,16 +422,17 @@ void write_part_ini(
                 "container", "0", value.at("suppressed").get<bool>());
             container["TYPE"] = "SKETCH";
             container["param.cpp_kind"] = "sketch";
-            container["param.cpp_sketch"] = value.dump();
-            auto& sketch = ini["Entity." + entry.id];
-            add_common_entity_fields(sketch, entry.id, value.at("name"), "sketch",
+            const auto sketch_entity_id = entry.id + ":sketch";
+            auto& sketch = ini["Entity." + sketch_entity_id];
+            add_common_entity_fields(sketch, sketch_entity_id, value.at("name"), "sketch",
                 "0", value.at("suppressed").get<bool>());
             sketch["tree_exposure"] = "internal";
             sketch["param.plane"] = value.value("plane", "xy");
             sketch["param.role"] = "PROFILE";
+            sketch["param.cpp_sketch"] = value.dump();
             sketch["param.sketch_data"] =
                 "{\"version\":3,\"points\":{},\"geometry\":{},\"constraints\":{},\"dimensions\":{}}";
-            ini["Children." + entry.id]["items"] = entry.id;
+            ini["Children." + entry.id]["items"] = sketch_entity_id;
         } else {
             const auto& value = *std::find_if(root.at("constructions").begin(),
                 root.at("constructions").end(), [&](const auto& item) {
@@ -429,12 +445,13 @@ void write_part_ini(
             container["TYPE"] = kind == "point" ? "POINT" : kind == "axis" ? "AXIS" : "PLANE";
             container["param.cpp_kind"] = "construction";
             container["param.cpp_construction"] = value.dump();
-            auto& construction = ini["Entity." + entry.id];
-            add_common_entity_fields(construction, entry.id, value.at("name"), kind,
+            const auto construction_entity_id = entry.id + ":construction";
+            auto& construction = ini["Entity." + construction_entity_id];
+            add_common_entity_fields(construction, construction_entity_id, value.at("name"), kind,
                 "0", value.at("suppressed").get<bool>());
             construction["tree_exposure"] = "internal";
             add_json_parameters(construction, value);
-            ini["Children." + entry.id]["items"] = entry.id;
+            ini["Children." + entry.id]["items"] = construction_entity_id;
         }
     }
     std::string items;

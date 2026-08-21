@@ -1,6 +1,7 @@
 #include <zima/sketcher/sketch.hpp>
 #include <zima/sketcher/sketch_trim.hpp>
 #include <zima/viewer/picking.hpp>
+#include <zima/document/part_document.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -2395,6 +2396,93 @@ int main() {
         }
         require(stale_rejected && stale_trim.serialized() == stale_before,
                 "Invalid or stale trim piece partially changed the Sketch");
+
+        // Keep the complete create/edit/commit/reload path covered without
+        // reconstructing the model through OCCT while loading.
+        auto document = zima::document::PartDocument::create_default();
+        auto committed_sketch = zima::sketcher::Sketch::create_default();
+        committed_sketch.name = "Slice profile";
+        committed_sketch.plane = zima::sketcher::SketchPlane::XZ;
+        const auto bottom = committed_sketch.add_segment(
+            0.0, 0.0, 20.0, 0.0);
+        const auto right = committed_sketch.add_segment(
+            20.0, 0.0, 20.0, 10.0);
+        const auto top = committed_sketch.add_segment(
+            20.0, 10.0, 0.0, 10.0);
+        const auto left = committed_sketch.add_segment(
+            0.0, 10.0, 0.0, 0.0);
+        const auto construction = committed_sketch.add_segment(
+            0.0, 5.0, 20.0, 5.0, 1.0e-6, true);
+        const auto circle = committed_sketch.add_circle(
+            10.0, 5.0, 2.0, true);
+        const auto arc = committed_sketch.add_arc(
+            10.0, 5.0, 12.0, 5.0, 10.0, 7.0, true);
+        require(committed_sketch.segments.size() == 5 &&
+                    committed_sketch.circles.size() == 1 &&
+                    committed_sketch.arcs.size() == 1 &&
+                    committed_sketch.segments.back().id == construction &&
+                    committed_sketch.circles.front().id == circle &&
+                    committed_sketch.arcs.front().id == arc &&
+                    committed_sketch.segments.front().id == bottom &&
+                    committed_sketch.segments[1].id == right &&
+                    committed_sketch.segments[2].id == top &&
+                    committed_sketch.segments[3].id == left &&
+                    committed_sketch.segments.back().construction &&
+                    committed_sketch.circles.front().construction &&
+                    committed_sketch.arcs.front().construction,
+                "Sketch slice geometry did not preserve stable IDs and construction state");
+        static_cast<void>(committed_sketch.add_segment_constraint(
+            bottom, zima::sketcher::ConstraintKind::Horizontal));
+        auto profile_dimension = committed_sketch.create_segment_dimension(bottom);
+        profile_dimension.driving = false;
+        committed_sketch.apply_dimension(profile_dimension);
+        auto external = zima::sketcher::Sketch::create_external_reference(
+            zima::sketcher::ExternalReferenceKind::Edge);
+        external.source_document_id = "source-part";
+        external.source_owner_id = "source-feature";
+        external.source_semantic_key = "edge:stable-profile";
+        external.cached_points = {{0.0, 0.0}, {20.0, 0.0}};
+        const auto external_id = external.id;
+        committed_sketch.add_external_reference(external);
+        committed_sketch.validate();
+
+        const auto before_cancel = committed_sketch.serialized();
+        auto cancelled_edit = committed_sketch;
+        static_cast<void>(cancelled_edit.add_point(100.0, 100.0));
+        require(committed_sketch.serialized() == before_cancel &&
+                    cancelled_edit.serialized() != before_cancel,
+                "Sketch Cancel path changed persisted input");
+        const auto sketch_id = committed_sketch.id;
+        document.sketches.push_back(committed_sketch);
+        document.insert_history_entry(
+            zima::document::PartHistoryKind::Sketch, sketch_id);
+        auto extrusion = zima::document::PartDocument::create_extrusion_container(
+            sketch_id);
+        extrusion.extrusion.height = 12.0;
+        document.history.push_back(extrusion);
+        document.insert_history_entry(
+            zima::document::PartHistoryKind::Feature, extrusion.id);
+        const auto feature_ops = document.kernel_operations();
+        require(std::any_of(feature_ops.begin(), feature_ops.end(),
+                    [&](const auto& operation) {
+                        return operation.owner_id == extrusion.id;
+                    }),
+                "Extrusion did not consume the committed Sketch profile");
+
+        const auto document_path =
+            std::filesystem::path{"zima-cad-cpp-sketch-slice-contract.prt"};
+        document.save(document_path);
+        const auto reloaded_document =
+            zima::document::PartDocument::load(document_path);
+        std::filesystem::remove(document_path);
+        require(reloaded_document.sketches.size() == 1 &&
+                    reloaded_document.sketches.front().id == sketch_id &&
+                    reloaded_document.sketches.front().external_references.front().id ==
+                        external_id &&
+                    reloaded_document.history.size() == 1 &&
+                    reloaded_document.history.front().extrusion.sketch_id == sketch_id,
+                "Committed Sketch and Extrusion did not round-trip without OCCT");
+
         std::cout << "C++ Sketcher contracts passed\n";
         return 0;
     } catch (const std::exception& error) {
