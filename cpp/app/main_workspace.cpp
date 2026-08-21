@@ -311,6 +311,7 @@ int verify_startup_contract(
     const QString identity = QUuid::createUuid().toString(QUuid::Id128);
     const QString part_name = QStringLiteral("DIL-STARTUP-") + identity;
     const QString assembly_name = QStringLiteral("SESTAVA-STARTUP-") + identity;
+    const QString nested_assembly_name = QStringLiteral("NADSESTAVA-STARTUP-") + identity;
     const QString drawing_name = QStringLiteral("VYKRES-STARTUP-") + identity;
     if (!create_document(QStringLiteral("part"),
                          part_name + QStringLiteral(".prtz")) ||
@@ -1469,6 +1470,101 @@ int verify_startup_contract(
         }
     }
 
+    {
+        // Multi-level (nested-within-nested) occurrence activation must also
+        // be reachable through the real window: create a second, outer
+        // Assembly, insert the already-populated Assembly above as one of
+        // its own components (a subassembly occurrence), then activate the
+        // leaf Part occurrence two levels deep through the exact same
+        // public entry point the context menu uses.
+        if (!create_document(QStringLiteral("assembly"), nested_assembly_name)) {
+            return 1;
+        }
+        if (!verify(tabs->count() == 3 &&
+                        tabs->tabText(tabs->currentIndex()) ==
+                            nested_assembly_name + QStringLiteral(".asmz"),
+                    "New outer Assembly must become a visible third document")) {
+            return 1;
+        }
+        QAction* subassembly_source_action{};
+        for (auto* action : insert_menu->actions()) {
+            if (action->objectName() == QStringLiteral("insertSourceAction") &&
+                action->isEnabled() &&
+                action->text().startsWith(assembly_name)) {
+                subassembly_source_action = action;
+                break;
+            }
+        }
+        if (!verify(subassembly_source_action != nullptr,
+                    "outer Assembly insertion has no inner Assembly source")) {
+            return 1;
+        }
+        subassembly_source_action->trigger();
+        application.processEvents();
+        QTreeWidgetItem* subassembly_item{};
+        if (tree->topLevelItemCount() == 1) {
+            const auto* root = tree->topLevelItem(0);
+            for (int index = 0; index < root->childCount(); ++index) {
+                auto* candidate = root->child(index);
+                if (candidate->data(0, Qt::UserRole + 3).toString() ==
+                        QStringLiteral("assembly-occurrence")) {
+                    subassembly_item = candidate;
+                    break;
+                }
+            }
+        }
+        if (!verify(subassembly_item != nullptr,
+                    "inserting the inner Assembly must create a subassembly occurrence")) {
+            return 1;
+        }
+        subassembly_item->setExpanded(true);
+        application.processEvents();
+        QTreeWidgetItem* nested_leaf_item{};
+        for (int index = 0; index < subassembly_item->childCount(); ++index) {
+            auto* candidate = subassembly_item->child(index);
+            if (candidate->data(0, Qt::UserRole + 3).toString() ==
+                    QStringLiteral("part-occurrence")) {
+                nested_leaf_item = candidate;
+                break;
+            }
+        }
+        if (!verify(nested_leaf_item != nullptr,
+                    "outer Assembly did not expose the inner Assembly's leaf Part occurrence")) {
+            return 1;
+        }
+        const std::string nested_instance_path =
+            nested_leaf_item->data(0, Qt::UserRole + 1).toString().toStdString();
+        if (!verify(!nested_instance_path.empty() &&
+                        nested_instance_path.find(':') != std::string::npos,
+                    "multi-level occurrence tree item has no composed instance path")) {
+            return 1;
+        }
+        if (!verify(window.activate_occurrence_for_test(nested_instance_path),
+                    "activating a two-level-deep Assembly occurrence through the real window failed")) {
+            return 1;
+        }
+        if (!verify(window.active_occurrence_path_for_test() == nested_instance_path,
+                    "multi-level activation did not record the exact composed instance path")) {
+            return 1;
+        }
+        bool has_nested_return_to_assembly = false;
+        for (auto* action : window.findChildren<QAction*>()) {
+            if (action->text() == QStringLiteral("Zpět do sestavy")) {
+                has_nested_return_to_assembly = true;
+                break;
+            }
+        }
+        if (!verify(has_nested_return_to_assembly,
+                    "activated two-level-deep occurrence did not expose the Zpět do sestavy toolbar action")) {
+            return 1;
+        }
+        window.deactivate_active_occurrence_for_test();
+        if (!verify(window.active_occurrence_path_for_test().empty(),
+                    "returning from a two-level-deep occurrence did not clear the active occurrence path")) {
+            return 1;
+        }
+    }
+
     if (!create_document(QStringLiteral("drawing"), drawing_name)) {
         return 1;
     }
@@ -1476,7 +1572,7 @@ int verify_startup_contract(
     auto* drawing_canvas = window.findChild<QWidget*>("drawingCanvas");
     auto* drawing_toolbar = window.findChild<QToolBar*>("drawingToolbar");
     auto* insert_view = window.findChild<QAction*>("insertDrawingViewAction");
-    if (!verify(tabs->count() == 3 && stack != nullptr &&
+    if (!verify(tabs->count() == 4 && stack != nullptr &&
                     stack->currentWidget()->objectName() == QStringLiteral("drawingWorkspace"),
                 "New Drawing must open inside the common workspace") ||
         !verify(drawing_toolbar != nullptr && drawing_toolbar->isHidden() &&
