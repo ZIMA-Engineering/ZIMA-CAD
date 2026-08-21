@@ -32,6 +32,16 @@ MainWindow::MainWindow()
     rebuild();
 }
 
+MainWindow::~MainWindow() {
+    // Same reasoning as AssemblyWorkspaceWindow's destructor: Qt only
+    // destroys QObject children (an open Properties dialog) from inside
+    // the QWidget base-class destructor, which runs after this derived
+    // class's own members (session_, tree_, viewer_, ...) are destroyed.
+    // The dialog's destroyed handler above reads/assigns those members, so
+    // it must run before member destruction begins.
+    delete properties_dialog_;
+}
+
 void MainWindow::create_actions() {
     auto* file = menuBar()->addMenu(tr("Soubor"));
     file->addAction(tr("Nový"), this, [this] { new_document(); });

@@ -26,6 +26,7 @@ namespace zima::app {
 class MainWindow final : public QMainWindow {
 public:
     MainWindow();
+    ~MainWindow() override;
 
 private:
     void create_actions();
