@@ -25,6 +25,41 @@ int main() {
                     fixture.sheets.front().views.front().source_document_id ==
                         "part-fixture-001",
                 "Python Drawing fixture lost sheet or view identity");
+
+        // Edit/regenerate/reopen: append a second View to the sole sheet of
+        // the Python-produced Drawing fixture, save it, and reopen it to
+        // prove the fixture also survives an explicit edit-regenerate-reopen
+        // cycle, matching the Part/Assembly coverage in the other contract
+        // tests.
+        auto edited_fixture_drawing = fixture;
+        zima::kernel::ViewerMesh fixture_edit_mesh;
+        fixture_edit_mesh.edges.push_back(
+            {{{0, 0, 0}, {5, 0, 0}}, {"box", "edge:fixture-edit", ""}});
+        auto fixture_edit_view = zima::drawing::DrawingDocument::create_view(
+            "part-fixture-001", "part.prtz", fixture_edit_mesh,
+            zima::drawing::ViewOrientation::Top);
+        const std::string fixture_edit_view_id = fixture_edit_view.id;
+        edited_fixture_drawing.sheets.front().views.push_back(
+            std::move(fixture_edit_view));
+        const auto fixture_edit_drawing_path =
+            std::filesystem::temp_directory_path() /
+            "zima-cad-fixture-drawing-edit-regenerate-reopen-contract.drwz";
+        edited_fixture_drawing.save(fixture_edit_drawing_path);
+        const auto reopened_fixture_drawing =
+            zima::drawing::DrawingDocument::load(fixture_edit_drawing_path);
+        std::filesystem::remove(fixture_edit_drawing_path);
+        require(reopened_fixture_drawing.document_id == "drawing-fixture-001" &&
+                    reopened_fixture_drawing.sheets.size() == 1 &&
+                    reopened_fixture_drawing.sheets.front().views.size() == 2 &&
+                    reopened_fixture_drawing.sheets.front().views.back().id ==
+                        fixture_edit_view_id &&
+                    reopened_fixture_drawing.sheets.front().views.back()
+                        .source_document_id == "part-fixture-001" &&
+                    reopened_fixture_drawing.sheets.front().views.back()
+                        .projected_edges.size() == 1,
+                "Edited Python Drawing fixture did not survive "
+                "regenerate/save/reopen");
+
         zima::kernel::ViewerMesh mesh;
         mesh.edges.push_back({{{0, 0, 0}, {10, 0, 0}}, {"box", "edge:x", ""}});
         mesh.edges.push_back({{{0, 0, 10}, {10, 0, 10}}, {"box", "edge:x-top", ""}});

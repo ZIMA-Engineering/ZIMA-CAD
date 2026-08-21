@@ -41,6 +41,45 @@ int main() {
                     !parent_path->parent()->parent(),
                 "Select Parent did not move exactly one instance-path level");
         zima::kernel::OcctKernel kernel;
+
+        // Edit/regenerate/reopen: append a new Part occurrence to the
+        // Python-produced nested Assembly fixture, save it, and reopen it to
+        // prove the fixture also survives an explicit edit-regenerate-reopen
+        // cycle, matching the Part-level coverage in contract_tests.cpp.
+        auto edited_fixture_assembly = fixture_assembly;
+        const auto fixture_edit_source = kernel.evaluate_history({
+            {"fixture-edit-source-container",
+             zima::kernel::BoxRequest{6.0, 6.0, 6.0},
+             zima::kernel::BooleanOperation::Add},
+        });
+        auto fixture_edit_occurrence =
+            zima::assembly::AssemblyDocument::create_part_occurrence(
+                "Fixture Edit Part", "part-fixture-001", "part.prtz",
+                fixture_edit_source.back());
+        fixture_edit_occurrence.placement.x = 12.0;
+        const auto fixture_edit_occurrence_id =
+            fixture_edit_occurrence.occurrence_id;
+        edited_fixture_assembly.components.push_back(
+            std::move(fixture_edit_occurrence));
+        const auto fixture_edit_assembly_path =
+            std::filesystem::temp_directory_path() /
+            "zima-cad-fixture-assembly-edit-regenerate-reopen-contract.asmz";
+        edited_fixture_assembly.save(fixture_edit_assembly_path);
+        const auto reopened_fixture_assembly =
+            zima::assembly::AssemblyDocument::load(fixture_edit_assembly_path);
+        std::filesystem::remove(fixture_edit_assembly_path);
+        require(reopened_fixture_assembly.document_id == "assembly-fixture-001" &&
+                    reopened_fixture_assembly.components.size() == 2 &&
+                    reopened_fixture_assembly.components.back().occurrence_id ==
+                        fixture_edit_occurrence_id &&
+                    reopened_fixture_assembly.components.back()
+                        .source_document_id == "part-fixture-001" &&
+                    reopened_fixture_assembly.components.back().placement.x == 12.0 &&
+                    std::abs(reopened_fixture_assembly.components.back()
+                        .calculated_source.volume - 216.0) < 1.0e-6,
+                "Edited Python Assembly fixture did not survive "
+                "regenerate/save/reopen");
+
         const auto source = kernel.evaluate_history({
             {"same-source-container", zima::kernel::BoxRequest{10.0, 10.0, 10.0},
              zima::kernel::BooleanOperation::Add},
