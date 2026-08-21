@@ -121,6 +121,7 @@ public:
         const std::string& owner_assembly_document_id,
         const std::string& source_assembly_document_id,
         std::string occurrence_name);
+    void calculate_assembly_cuts(zima::assembly::AssemblyDocument& document) const;
     void regenerate_assembly_from_open_dependencies(
         const std::string& assembly_document_id);
 

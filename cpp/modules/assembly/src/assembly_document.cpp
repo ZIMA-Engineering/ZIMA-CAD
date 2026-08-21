@@ -1534,10 +1534,9 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
         std::unordered_set<std::string> target_ids;
         for (const auto& target_id : cut.target_occurrence_ids) {
             const auto* target = find_occurrence(target_id);
-            if (!target_ids.insert(target_id).second || target == nullptr ||
-                target->source_kind != ComponentSourceKind::Part) {
+            if (!target_ids.insert(target_id).second || target == nullptr) {
                 throw std::runtime_error(
-                    "Assembly cut target must be a unique immediate Part occurrence");
+                    "Assembly cut target must be a unique immediate component occurrence");
             }
         }
     }

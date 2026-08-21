@@ -4272,10 +4272,9 @@ void AssemblyWorkspaceWindow::calculate_assembly_cuts(
         }
         for (const auto& target_id : cut.target_occurrence_ids) {
             auto* target = document.find_occurrence(target_id);
-            if (target == nullptr || target->source_kind !=
-                    zima::assembly::ComponentSourceKind::Part) {
+            if (target == nullptr) {
                 throw std::runtime_error(
-                    "Assembly cut target must be an immediate Part occurrence");
+                    "Assembly cut target must be an immediate component occurrence");
             }
             if (target->suppressed) continue;
             target->calculated_source = kernel_.subtract_bodies(

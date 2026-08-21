@@ -373,8 +373,8 @@ int main() {
         } catch (const std::runtime_error&) {
             nested_cut_rejected = true;
         }
-        require(nested_cut_rejected,
-                "Assembly cut accepted a nested Assembly instead of an immediate Part");
+        require(!nested_cut_rejected,
+                "Assembly cut rejected a nested Assembly component occurrence");
         repeated_top.cuts.back().target_occurrence_ids.pop_back();
         require(middle_inner_a_id != middle_inner_b_id &&
                     top_middle_a_id != top_middle_b_id,

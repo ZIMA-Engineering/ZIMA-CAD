@@ -1714,6 +1714,17 @@ std::vector<BodyResult> OcctKernel::import_step_components(
     return results;
 }
 
+BodyResult OcctKernel::compound_bodies(
+    const std::vector<PlacedBody>& bodies) const {
+    const auto shape = placed_compound(bodies);
+    auto result = make_result(shape, {}, {}, {});
+    result.source_fingerprint = "compound";
+    for (const auto& body : bodies) {
+        result.source_fingerprint += ":" + body.body.source_fingerprint;
+    }
+    return result;
+}
+
 BodyResult OcctKernel::subtract_bodies(
     const BodyResult& target,
     const BodyResult& cutter,

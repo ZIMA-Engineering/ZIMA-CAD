@@ -58,7 +58,8 @@ target_link_libraries(zima_drawing
 
 add_library(zima_workspace modules/workspace/src/workspace.cpp)
 target_include_directories(zima_workspace PUBLIC modules/workspace/include)
-target_link_libraries(zima_workspace PUBLIC zima_document_core zima_assembly zima_drawing)
+target_link_libraries(zima_workspace PUBLIC
+    zima_document_core zima_assembly zima_drawing zima_kernel_occt)
 
 add_library(zima_kernel_occt
     modules/kernel_occt/src/occt_kernel.cpp)

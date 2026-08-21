@@ -1,4 +1,5 @@
 #include <zima/workspace/workspace.hpp>
+#include <zima/kernel/occt_kernel.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -876,9 +877,29 @@ std::string Workspace::insert_open_assembly(
         throw std::invalid_argument("Assembly insertion would create a dependency cycle");
     }
     auto next = owner->session.document();
+    std::vector<std::string> recursion_stack;
+    auto calculated_source = refreshed_assembly(
+        source_assembly_document_id, recursion_stack);
+    calculate_assembly_cuts(calculated_source);
     auto occurrence = zima::assembly::AssemblyDocument::create_assembly_occurrence(
         std::move(occurrence_name), source_assembly_document_id, source->path,
-        source->session.document());
+        calculated_source);
+    std::vector<zima::kernel::PlacedBody> nested_bodies;
+    for (const auto& component : calculated_source.components) {
+        if (component.suppressed || !component.visible) continue;
+        nested_bodies.push_back({
+            component.calculated_source,
+            {component.placement.x, component.placement.y, component.placement.z},
+            {component.placement.rotation_x, component.placement.rotation_y,
+             component.placement.rotation_z}});
+    }
+    if (nested_bodies.empty()) {
+        throw std::runtime_error(
+            "Nested Assembly has no visible calculated components");
+    }
+    zima::kernel::OcctKernel kernel;
+    occurrence.calculated_source = kernel.compound_bodies(nested_bodies);
+    occurrence.calculated_source.mesh = calculated_source.build_scene();
     const std::string occurrence_id = occurrence.occurrence_id;
     next.components.push_back(std::move(occurrence));
     static_cast<void>(next.build_scene());
@@ -904,7 +925,26 @@ zima::assembly::AssemblyDocument Workspace::refreshed_assembly(
             if (open_assembly(occurrence.source_document_id) != nullptr) {
                 auto nested = refreshed_assembly(
                     occurrence.source_document_id, recursion_stack);
+                calculate_assembly_cuts(nested);
+                std::vector<zima::kernel::PlacedBody> nested_bodies;
+                for (const auto& component : nested.components) {
+                    if (component.suppressed || !component.visible) continue;
+                    nested_bodies.push_back({
+                        component.calculated_source,
+                        {component.placement.x, component.placement.y,
+                         component.placement.z},
+                        {component.placement.rotation_x,
+                         component.placement.rotation_y,
+                         component.placement.rotation_z}});
+                }
+
+                if (nested_bodies.empty()) {
+                    throw std::runtime_error(
+                        "Nested Assembly has no visible calculated components");
+                }
+                zima::kernel::OcctKernel kernel;
                 occurrence.calculated_source = {};
+                occurrence.calculated_source = kernel.compound_bodies(nested_bodies);
                 occurrence.calculated_source.mesh = nested.build_scene();
                 occurrence.nested_snapshot = nested.occurrence_snapshot();
                 occurrence.source_path = open_assembly(
@@ -927,6 +967,45 @@ zima::assembly::AssemblyDocument Workspace::refreshed_assembly(
     refreshed.calculate_mates();
     static_cast<void>(refreshed.build_scene());
     return refreshed;
+}
+
+void Workspace::calculate_assembly_cuts(
+    zima::assembly::AssemblyDocument& document) const {
+    zima::kernel::OcctKernel kernel;
+    for (auto& cut : document.cuts) {
+        cut.input_component_bodies.clear();
+        for (const auto& component : document.components) {
+            cut.input_component_bodies.emplace(
+                component.occurrence_id, component.calculated_source);
+        }
+        if (cut.definition.suppressed || cut.target_occurrence_ids.empty()) continue;
+        zima::document::PartDocument cutter;
+        cutter.user_parameters = document.user_parameters;
+        cutter.relations = document.relations;
+        cutter.sketches = document.sketches;
+        cutter.constructions = document.constructions;
+        cutter.history = {cut.definition};
+        auto operations = cutter.kernel_operations(true);
+        if (operations.size() != 1) {
+            throw std::runtime_error("Assembly cut did not produce one cutter operation");
+        }
+        operations.front().operation = zima::kernel::BooleanOperation::Add;
+        const auto boundaries = kernel.evaluate_history(operations);
+        if (boundaries.empty()) throw std::runtime_error("Assembly cut body is empty");
+        for (const auto& target_id : cut.target_occurrence_ids) {
+            auto* target = document.find_occurrence(target_id);
+            if (target == nullptr) {
+                throw std::runtime_error(
+                    "Assembly cut target must be an immediate component occurrence");
+            }
+            if (target->suppressed) continue;
+            target->calculated_source = kernel.subtract_bodies(
+                target->calculated_source, boundaries.back(),
+                {target->placement.x, target->placement.y, target->placement.z},
+                {target->placement.rotation_x, target->placement.rotation_y,
+                 target->placement.rotation_z});
+        }
+    }
 }
 
 void Workspace::regenerate_assembly_from_open_dependencies(
