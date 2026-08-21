@@ -4,6 +4,7 @@
 #include <iostream>
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <tuple>
 #include <set>
 #include <stdexcept>
@@ -662,6 +663,162 @@ int main() {
         }
         require(assembly_cycle_rejected,
                 "Workspace accepted an indirect nested Assembly cycle");
+
+        // Exercise the complete headless document lifecycle using the same
+        // Workspace APIs as the application open/save/close paths.
+        const auto lifecycle_part_path = std::filesystem::current_path() /
+            "zima-cpp-workspace-lifecycle.prtz";
+        const auto lifecycle_subassembly_path = std::filesystem::current_path() /
+            "zima-cpp-workspace-lifecycle-sub.asmz";
+        const auto lifecycle_topassembly_path = std::filesystem::current_path() /
+            "zima-cpp-workspace-lifecycle-top.asmz";
+        const auto lifecycle_drawing_path = std::filesystem::current_path() /
+            "zima-cpp-workspace-lifecycle.drwz";
+        std::filesystem::remove(lifecycle_part_path);
+        std::filesystem::remove(lifecycle_subassembly_path);
+        std::filesystem::remove(lifecycle_topassembly_path);
+        std::filesystem::remove(lifecycle_drawing_path);
+
+        zima::workspace::Workspace lifecycle_workspace;
+        auto lifecycle_part = zima::document::PartDocument::create_default();
+        lifecycle_part.history.push_back(
+            zima::document::PartDocument::create_box_container());
+        lifecycle_part.history.front().box.length = 2.0;
+        const auto lifecycle_part_id = lifecycle_part.document_id;
+        auto lifecycle_calculation =
+            kernel.evaluate_history(lifecycle_part.kernel_operations());
+        lifecycle_workspace.add_part(
+            std::move(lifecycle_part), lifecycle_calculation, lifecycle_part_path);
+
+        auto lifecycle_subassembly =
+            zima::assembly::AssemblyDocument::create_default();
+        const auto lifecycle_subassembly_id = lifecycle_subassembly.document_id;
+        lifecycle_workspace.add_assembly(
+            std::move(lifecycle_subassembly), lifecycle_subassembly_path);
+        static_cast<void>(lifecycle_workspace.insert_open_part(
+            lifecycle_subassembly_id, lifecycle_part_id, "Lifecycle Part"));
+
+        auto lifecycle_topassembly =
+            zima::assembly::AssemblyDocument::create_default();
+        const auto lifecycle_topassembly_id = lifecycle_topassembly.document_id;
+        lifecycle_workspace.add_assembly(
+            std::move(lifecycle_topassembly), lifecycle_topassembly_path);
+        const auto lifecycle_subassembly_occurrence =
+            lifecycle_workspace.insert_open_assembly(
+                lifecycle_topassembly_id, lifecycle_subassembly_id,
+                "Lifecycle Subassembly");
+        const auto lifecycle_mesh_extent = [](const auto& occurrence) {
+            return std::max_element(
+                occurrence.calculated_source.mesh.vertices.begin(),
+                occurrence.calculated_source.mesh.vertices.end(),
+                [](const auto& left, const auto& right) {
+                    return left.x < right.x;
+                })->x;
+        };
+        const auto lifecycle_initial_extent = lifecycle_mesh_extent(
+            *lifecycle_workspace.open_assembly(lifecycle_topassembly_id)
+                ->session.document().find_occurrence(
+                    lifecycle_subassembly_occurrence));
+
+        auto lifecycle_drawing = zima::drawing::DrawingDocument::create_default();
+        const auto lifecycle_drawing_id = lifecycle_drawing.document_id;
+        lifecycle_workspace.add_drawing(
+            std::move(lifecycle_drawing), lifecycle_drawing_path);
+
+        auto lifecycle_edited_part =
+            lifecycle_workspace.open_part(lifecycle_part_id)->session.document();
+        lifecycle_edited_part.history.front().box.length = 7.0;
+        auto lifecycle_edited_calculation =
+            kernel.evaluate_history(lifecycle_edited_part.kernel_operations());
+        lifecycle_workspace.open_part(lifecycle_part_id)->session.commit(
+            std::move(lifecycle_edited_part),
+            lifecycle_edited_calculation);
+        lifecycle_workspace.activate(lifecycle_part_id);
+        lifecycle_workspace.display_top_level(lifecycle_topassembly_id);
+        lifecycle_workspace.activate(lifecycle_topassembly_id);
+        require(lifecycle_workspace.open_assembly(lifecycle_topassembly_id)
+                    ->session.document().find_occurrence(
+                        lifecycle_subassembly_occurrence)->calculated_source.mesh
+                        .vertices.size() > 0 &&
+                    lifecycle_mesh_extent(*lifecycle_workspace.open_assembly(
+                        lifecycle_topassembly_id)->session.document()
+                        .find_occurrence(lifecycle_subassembly_occurrence)) ==
+                        lifecycle_initial_extent,
+                "Tab switching implicitly regenerated a nested Assembly");
+
+        lifecycle_workspace.regenerate_assembly_from_open_dependencies(
+            lifecycle_topassembly_id);
+        const auto* regenerated_subassembly =
+            lifecycle_workspace.open_assembly(lifecycle_topassembly_id)
+                ->session.document().find_occurrence(
+                    lifecycle_subassembly_occurrence);
+        require(regenerated_subassembly != nullptr &&
+                    lifecycle_mesh_extent(*regenerated_subassembly) >
+                        lifecycle_initial_extent,
+                "Explicit Regenerate did not use the current in-memory Part");
+
+        lifecycle_workspace.open_part(lifecycle_part_id)->session.document().save(
+            lifecycle_part_path,
+            lifecycle_workspace.open_part(lifecycle_part_id)
+                ->session.calculated_boundaries());
+        lifecycle_workspace.open_assembly(lifecycle_subassembly_id)
+            ->session.document().save(lifecycle_subassembly_path);
+        lifecycle_workspace.open_assembly(lifecycle_topassembly_id)
+            ->session.document().save(lifecycle_topassembly_path);
+        lifecycle_workspace.open_drawing(lifecycle_drawing_id)
+            ->document.save(lifecycle_drawing_path);
+        lifecycle_workspace.open_part(lifecycle_part_id)->session.mark_saved();
+        lifecycle_workspace.open_assembly(lifecycle_subassembly_id)
+            ->session.mark_saved();
+        lifecycle_workspace.open_assembly(lifecycle_topassembly_id)
+            ->session.mark_saved();
+        require(!lifecycle_workspace.open_part(lifecycle_part_id)->session.is_dirty() &&
+                    !lifecycle_workspace.open_assembly(lifecycle_topassembly_id)
+                        ->session.is_dirty(),
+                "Saved lifecycle documents remained dirty");
+        require(lifecycle_workspace.remove(lifecycle_topassembly_id) &&
+                    lifecycle_workspace.remove(lifecycle_subassembly_id) &&
+                    lifecycle_workspace.remove(lifecycle_part_id) &&
+                    lifecycle_workspace.remove(lifecycle_drawing_id) &&
+                    lifecycle_workspace.size() == 0,
+                "Lifecycle close did not remove all open documents");
+
+        std::vector<zima::kernel::BodyResult> reopened_boundaries;
+        auto reopened_part = zima::document::PartDocument::load(
+            lifecycle_part_path, &reopened_boundaries);
+        auto reopened_subassembly =
+            zima::assembly::AssemblyDocument::load(lifecycle_subassembly_path);
+        auto reopened_topassembly =
+            zima::assembly::AssemblyDocument::load(lifecycle_topassembly_path);
+        auto reopened_drawing =
+            zima::drawing::DrawingDocument::load(lifecycle_drawing_path);
+        require(reopened_part.document_id == lifecycle_part_id &&
+                    !reopened_boundaries.empty() &&
+                    reopened_subassembly.document_id == lifecycle_subassembly_id &&
+                    reopened_topassembly.document_id == lifecycle_topassembly_id &&
+                    reopened_drawing.document_id == lifecycle_drawing_id &&
+                    lifecycle_mesh_extent(*reopened_topassembly.find_occurrence(
+                        lifecycle_subassembly_occurrence)) >
+                        lifecycle_initial_extent,
+                "Part, nested Assembly, or Drawing did not survive close/reopen");
+        lifecycle_workspace.add_part(
+            std::move(reopened_part), std::move(reopened_boundaries),
+            lifecycle_part_path);
+        lifecycle_workspace.add_assembly(
+            std::move(reopened_subassembly), lifecycle_subassembly_path);
+        lifecycle_workspace.add_assembly(
+            std::move(reopened_topassembly), lifecycle_topassembly_path);
+        lifecycle_workspace.add_drawing(
+            std::move(reopened_drawing), lifecycle_drawing_path);
+        require(lifecycle_workspace.document_id_for_path(lifecycle_topassembly_path) ==
+                    lifecycle_topassembly_id &&
+                    lifecycle_workspace.open_drawing(lifecycle_drawing_id) != nullptr,
+                "Reopened documents were not restored to the Workspace");
+        std::filesystem::remove(lifecycle_part_path);
+        std::filesystem::remove(lifecycle_subassembly_path);
+        std::filesystem::remove(lifecycle_topassembly_path);
+        std::filesystem::remove(lifecycle_drawing_path);
+
         workspace.display_top_level(topassembly_id);
         workspace.activate(part_id);
         require(workspace.remove(topassembly_id) &&
