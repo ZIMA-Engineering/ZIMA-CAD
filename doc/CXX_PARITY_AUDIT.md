@@ -14,6 +14,12 @@ Part, Sketch, Assembly occurrence, mate, Drawing, viewer-selection and explicit
 regeneration contracts are native and testable, but the Python application
 still owns material user workflows and release/runtime coverage listed below.
 
+The persistence parity slice now has deterministic Python-produced Part,
+nested Assembly, and Drawing fixtures, plus Python adapters for C++-produced
+Sketch, Assembly occurrence/mate/cut, and Drawing sheet/view payloads. These
+adapters are tested in isolation; they do not yet prove complete semantic
+round-trips for every advanced Assembly and Drawing operation.
+
 ## Verified native vertical slices
 
 | Area | C++ state | Evidence |
@@ -32,7 +38,7 @@ still owns material user workflows and release/runtime coverage listed below.
 
 | Priority | Missing parity | Acceptance gate |
 |---|---|---|
-| P0 | End-to-end project fixtures | Open, edit, regenerate, save, close and reopen representative Part, nested Assembly and Drawing projects in C++; compare persisted model and measured geometry with the Python reference |
+| P0 | End-to-end project fixtures | Open, edit, regenerate, save, close and reopen representative Part, nested Assembly and Drawing projects in C++; compare persisted model and measured geometry with the Python reference. Deterministic open/load fixtures are complete; edit/regenerate/reopen evidence remains |
 | P0 | Windows packaged-runtime verification | Build from committed Git data and pass the repository OpenBLAS DLL, archive, SHA-256 and packaged smoke validators described in `WINDOWS_RUNTIME_AND_BUILD.md` |
 | P0 | Full integrated GUI regression | Exercise creation/edit/cancel/undo/redo, middle-button double-click OK, nested activation, selection cycling and explicit dependency regeneration through `zima-cad-cpp` |
 | P1 | Advanced Drawing parity | Verify all Python projection-layout, annotation, BOM, template and title-block editing scenarios against C++ output |
