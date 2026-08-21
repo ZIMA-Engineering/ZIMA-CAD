@@ -461,6 +461,119 @@ int verify_startup_contract(
                 "Empty View click did not clear the shared View and Tree selection")) {
         return 1;
     }
+    {
+        // RMB cycling must consume the exact same ordered candidate list as
+        // hover/LMB and remain active only until an LMB confirms one of the
+        // offered candidates. The default (Container-only) selection filter
+        // offers exactly one whole-body candidate per Box, so switch to the
+        // Face filter to expose genuinely overlapping Face candidates near
+        // a shared edge, matching real multi-candidate cycling.
+        auto* selection_filter_combo =
+            window.findChild<QComboBox*>("selectionFilterCombo");
+        if (!verify(selection_filter_combo != nullptr,
+                    "the real workspace has no selectionFilterCombo")) {
+            return 1;
+        }
+        selection_filter_combo->setCurrentIndex(1);
+        application.processEvents();
+        std::optional<QPointF> multi_candidate_position;
+        std::vector<zima::viewer::ViewerCandidate> multi_candidates;
+        for (int y = 4; y < selection_viewer->height() && !multi_candidate_position;
+             y += 4) {
+            for (int x = 4; x < selection_viewer->width(); x += 4) {
+                const QPointF position{static_cast<qreal>(x), static_cast<qreal>(y)};
+                auto candidates = selection_viewer->selection_candidates_at(position);
+                if (candidates.size() > 1) {
+                    multi_candidate_position = position;
+                    multi_candidates = std::move(candidates);
+                    break;
+                }
+            }
+        }
+        if (!verify(multi_candidate_position.has_value(),
+                    "Box scene offered no overlapping candidates for RMB cycling")) {
+            return 1;
+        }
+        QMouseEvent hover_move(QEvent::MouseMove, *multi_candidate_position,
+            selection_viewer->mapToGlobal(multi_candidate_position->toPoint()),
+            Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+        QApplication::sendEvent(selection_viewer, &hover_move);
+        application.processEvents();
+        const auto initial_hover = selection_viewer->hovered_candidate();
+        if (!verify(initial_hover.has_value(),
+                    "Overlapping position did not offer an initial hover candidate")) {
+            return 1;
+        }
+        const auto send_rmb_press = [&] {
+            QMouseEvent press(QEvent::MouseButtonPress, *multi_candidate_position,
+                selection_viewer->mapToGlobal(multi_candidate_position->toPoint()),
+                Qt::RightButton, Qt::RightButton, Qt::NoModifier);
+            QApplication::sendEvent(selection_viewer, &press);
+            application.processEvents();
+        };
+        send_rmb_press();
+        const auto after_first_cycle = selection_viewer->hovered_candidate();
+        if (!verify(after_first_cycle.has_value() &&
+                        !selection_viewer->confirmed_candidate() &&
+                        (after_first_cycle->kind != initial_hover->kind ||
+                            after_first_cycle->semantic_key !=
+                                initial_hover->semantic_key ||
+                            after_first_cycle->owner_id != initial_hover->owner_id),
+                    "RMB before LMB confirmation did not cycle to the next "
+                    "candidate in the shared ordered list")) {
+            return 1;
+        }
+        // Cycling all the way back to the original candidate (once per
+        // remaining entry) must reproduce the exact same candidate, proving
+        // RMB consumes one fixed ordered list rather than recomputing a
+        // different candidate on each press.
+        for (std::size_t step = 1; step < multi_candidates.size(); ++step) {
+            send_rmb_press();
+        }
+        const auto cycled_back = selection_viewer->hovered_candidate();
+        if (!verify(cycled_back.has_value() &&
+                        cycled_back->kind == initial_hover->kind &&
+                        cycled_back->semantic_key == initial_hover->semantic_key &&
+                        cycled_back->owner_id == initial_hover->owner_id,
+                    "RMB cycling did not return to the original candidate after "
+                    "visiting the complete ordered list")) {
+            return 1;
+        }
+        QMouseEvent lmb_press(QEvent::MouseButtonPress, *multi_candidate_position,
+            selection_viewer->mapToGlobal(multi_candidate_position->toPoint()),
+            Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(selection_viewer, &lmb_press);
+        application.processEvents();
+        const auto confirmed_after_cycle = selection_viewer->confirmed_candidate();
+        if (!verify(confirmed_after_cycle.has_value() &&
+                        confirmed_after_cycle->kind == initial_hover->kind &&
+                        confirmed_after_cycle->semantic_key ==
+                            initial_hover->semantic_key &&
+                        confirmed_after_cycle->owner_id == initial_hover->owner_id,
+                    "LMB did not confirm the exact RMB-cycled candidate")) {
+            return 1;
+        }
+        QMouseEvent clear_press(QEvent::MouseButtonPress, *empty_view_position,
+            selection_viewer->mapToGlobal(empty_view_position->toPoint()),
+            Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(selection_viewer, &clear_press);
+        application.processEvents();
+        selection_filter_combo->setCurrentIndex(0);
+        application.processEvents();
+        if (!verify(!selection_viewer->confirmed_candidate(),
+                    "Clearing selection after RMB cycling left a stale candidate")) {
+            return 1;
+        }
+        // Leave the pointer over empty space so no stale hover candidate
+        // carries into the next scenario's own hover search.
+        QMouseEvent settle_move(QEvent::MouseMove, *empty_view_position,
+            selection_viewer->mapToGlobal(empty_view_position->toPoint()),
+            Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+        QApplication::sendEvent(selection_viewer, &settle_move);
+        application.processEvents();
+        selection_viewer->repaint();
+        application.processEvents();
+    }
     construction_point->trigger();
     application.processEvents();
     auto* point_dialog = window.findChild<QDialog*>("zimaPropertiesSubWindow");
