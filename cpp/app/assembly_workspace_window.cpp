@@ -845,6 +845,21 @@ AssemblyWorkspaceWindow::AssemblyWorkspaceWindow(const QString& working_director
     refresh_scene();
 }
 
+AssemblyWorkspaceWindow::~AssemblyWorkspaceWindow() {
+    // Qt only destroys QObject children (including any open Properties
+    // dialog) from inside the QWidget base-class destructor, which runs
+    // after every data member of this derived class has already been
+    // destroyed. Several dialogs connect to `destroyed` with a lambda that
+    // reads or assigns members such as viewer_, tree_, or
+    // construction_reference_geometry_ (see e.g.
+    // show_construction_properties). Left to Qt's automatic child deletion,
+    // that lambda would run against already-freed members and corrupt the
+    // heap (observed as a double free on exit). Deleting the dialog here,
+    // while the destructor body is still executing and every member is
+    // still valid, guarantees its `destroyed` handler runs safely.
+    delete properties_dialog_;
+}
+
 void AssemblyWorkspaceWindow::create_actions() {
     const auto t = [this](const char* key, const char* fallback) {
         return application_settings_.text(

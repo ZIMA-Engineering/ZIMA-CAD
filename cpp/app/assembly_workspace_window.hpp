@@ -44,6 +44,7 @@ class AssemblyWorkspaceWindow final : public QMainWindow {
 public:
     explicit AssemblyWorkspaceWindow(
         const QString& working_directory = {});
+    ~AssemblyWorkspaceWindow() override;
     [[nodiscard]] bool open_document_path(const QString& path);
     void show_tree_item_properties(QTreeWidgetItem* item);
 
