@@ -1563,6 +1563,51 @@ int verify_startup_contract(
                     "returning from a two-level-deep occurrence did not clear the active occurrence path")) {
             return 1;
         }
+
+        // Save/close/reopen must preserve the outer Assembly's nested
+        // subassembly structure through the real window, matching the
+        // existing Part save/reopen coverage above.
+        const auto saved_nested_assembly_path = std::filesystem::current_path() /
+            (nested_assembly_name.toStdString() + ".asmz");
+        save->trigger();
+        application.processEvents();
+        if (!verify(std::filesystem::exists(saved_nested_assembly_path),
+                    "Save did not persist the outer Assembly")) {
+            return 1;
+        }
+        close->trigger();
+        application.processEvents();
+        const bool reopened_nested_assembly = window.open_document_path(
+            QString::fromStdString(saved_nested_assembly_path.string()));
+        bool reopened_subassembly_in_tree = false;
+        bool reopened_nested_leaf_in_tree = false;
+        if (reopened_nested_assembly && tree->topLevelItemCount() == 1) {
+            const auto* root = tree->topLevelItem(0);
+            for (int index = 0; index < root->childCount(); ++index) {
+                auto* candidate = root->child(index);
+                if (candidate->data(0, Qt::UserRole + 3).toString() ==
+                        QStringLiteral("assembly-occurrence")) {
+                    reopened_subassembly_in_tree = true;
+                    candidate->setExpanded(true);
+                    application.processEvents();
+                    for (int nested_index = 0;
+                         nested_index < candidate->childCount(); ++nested_index) {
+                        if (candidate->child(nested_index)->data(
+                                0, Qt::UserRole + 3).toString() ==
+                                QStringLiteral("part-occurrence")) {
+                            reopened_nested_leaf_in_tree = true;
+                            break;
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+        if (!verify(reopened_nested_assembly && reopened_subassembly_in_tree &&
+                        reopened_nested_leaf_in_tree,
+                    "saved outer Assembly did not close and reopen its nested subassembly structure")) {
+            return 1;
+        }
     }
 
     if (!create_document(QStringLiteral("drawing"), drawing_name)) {
@@ -1598,6 +1643,33 @@ int verify_startup_contract(
                 "native Qt Drawing capture failed")) {
         return 1;
     }
+
+    // Save/close/reopen must preserve the Drawing's sheet structure through
+    // the real window, matching the existing Part/Assembly save/reopen
+    // coverage above.
+    const int sheet_count_before_reopen = tree->topLevelItemCount() == 1
+        ? tree->topLevelItem(0)->childCount() : -1;
+    const auto saved_drawing_path = std::filesystem::current_path() /
+        (drawing_name.toStdString() + ".drwz");
+    save->trigger();
+    application.processEvents();
+    if (!verify(std::filesystem::exists(saved_drawing_path),
+                "Save did not persist the Drawing")) {
+        return 1;
+    }
+    close->trigger();
+    application.processEvents();
+    const bool reopened_drawing = tabs->count() == 3 && window.open_document_path(
+        QString::fromStdString(saved_drawing_path.string()));
+    if (!verify(reopened_drawing && tabs->count() == 4 &&
+                    tree->topLevelItemCount() == 1 &&
+                    tree->topLevelItem(0)->childCount() ==
+                        sheet_count_before_reopen &&
+                    sheet_count_before_reopen > 0,
+                "saved Drawing did not close and reopen its sheet structure")) {
+        return 1;
+    }
+
     about->trigger();
     application.processEvents();
     auto* about_dialog = window.findChild<QDialog*>("zimaPropertiesSubWindow");

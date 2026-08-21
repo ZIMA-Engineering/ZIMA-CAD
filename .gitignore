@@ -34,3 +34,8 @@ Desktop.ini
 .DS_Store
 .cpp-python-manual-fixtures/
 screenshots/
+
+# Working artifacts left behind by --verify-startup when run from the repo root
+/*-STARTUP-*.prtz
+/*-STARTUP-*.asmz
+/*-STARTUP-*.drwz
