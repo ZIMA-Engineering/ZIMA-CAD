@@ -9821,6 +9821,60 @@ void AssemblyWorkspaceWindow::show_tree_item_properties(QTreeWidgetItem* item) {
     }
 }
 
+bool AssemblyWorkspaceWindow::activate_occurrence_for_test(
+    const std::string& instance_path) {
+    const std::string top_assembly_id = workspace_.displayed_document_id();
+    std::optional<zima::workspace::OccurrenceAddress> address;
+    try {
+        address = workspace_.resolve_occurrence(
+            top_assembly_id, zima::assembly::InstancePath::decode(instance_path));
+    } catch (const std::invalid_argument&) {
+        return false;
+    }
+    if (!address) return false;
+    auto* assembly = workspace_.open_assembly(address->owner_assembly_document_id);
+    if (assembly == nullptr) return false;
+    const auto* occurrence = assembly->session.document().find_occurrence(
+        address->occurrence_id);
+    if (occurrence == nullptr) return false;
+    const bool source_is_assembly =
+        address->source_kind == zima::assembly::ComponentSourceKind::Assembly;
+    try {
+        if (workspace_.find(address->source_document_id) == nullptr) {
+            if (occurrence->source_path.empty() ||
+                !open_document_path(QString::fromStdString(
+                    occurrence->source_path.string()))) {
+                return false;
+            }
+        }
+        const auto activated = workspace_.activate_occurrence(
+            top_assembly_id, zima::assembly::InstancePath::decode(instance_path));
+        if (!activated) return false;
+        active_occurrence_path_ = instance_path;
+        active_sketch_id_.clear();
+        selected_sketch_id_.clear();
+        active_application_ = source_is_assembly
+            ? ApplicationMode::Assembly : ApplicationMode::Modeling;
+        refresh_tabs();
+        refresh_scene();
+        return true;
+    } catch (const std::invalid_argument&) {
+        return false;
+    }
+}
+
+void AssemblyWorkspaceWindow::deactivate_active_occurrence_for_test() {
+    const std::string displayed = workspace_.displayed_document_id();
+    if (workspace_.open_assembly(displayed) == nullptr) return;
+    workspace_.activate(displayed);
+    active_occurrence_path_.clear();
+    active_sketch_id_.clear();
+    selected_sketch_id_.clear();
+    active_application_ = ApplicationMode::Assembly;
+    refresh_tabs();
+    refresh_scene();
+}
+
 void AssemblyWorkspaceWindow::show_component_context_menu(
     const std::string& instance_path, const QPoint& global_position) {
     std::optional<zima::workspace::OccurrenceAddress> address;
@@ -9837,11 +9891,20 @@ void AssemblyWorkspaceWindow::show_component_context_menu(
     const auto* occurrence = assembly->session.document().find_occurrence(
         address->occurrence_id);
     if (occurrence == nullptr) return;
+    const bool is_active_occurrence =
+        workspace_.active_document_id() == address->source_document_id &&
+        active_occurrence_path_ == instance_path;
+    const bool source_is_assembly =
+        address->source_kind == zima::assembly::ComponentSourceKind::Assembly;
     QMenu menu(this);
     const auto parent_path =
         zima::assembly::InstancePath::decode(instance_path).parent();
     auto* select_parent = parent_path
         ? menu.addAction(tr("Vybrat rodiče")) : nullptr;
+    auto* activate_or_deactivate = is_active_occurrence
+        ? menu.addAction(tr("Zpět do sestavy"))
+        : menu.addAction(source_is_assembly
+            ? tr("Aktivovat podsestavu") : tr("Aktivovat komponentu"));
     auto* properties = menu.addAction(tr("Vlastnosti"));
     auto* visibility = menu.addAction(
         occurrence->visible ? tr("Skrýt") : tr("Zobrazit"));
@@ -9855,6 +9918,15 @@ void AssemblyWorkspaceWindow::show_component_context_menu(
         const std::string encoded = parent_path->encoded();
         viewer_->confirm_occurrence(encoded);
         select_occurrence(encoded);
+        return;
+    }
+    if (selected == activate_or_deactivate) {
+        if (is_active_occurrence) {
+            deactivate_active_occurrence_for_test();
+        } else if (!activate_occurrence_for_test(instance_path)) {
+            QMessageBox::critical(this, tr("Aktivace selhala"),
+                tr("Zdrojový dokument komponenty se nepodařilo otevřít nebo aktivovat."));
+        }
         return;
     }
     if (selected == properties) {

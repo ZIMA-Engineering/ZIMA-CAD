@@ -47,6 +47,13 @@ public:
     ~AssemblyWorkspaceWindow() override;
     [[nodiscard]] bool open_document_path(const QString& path);
     void show_tree_item_properties(QTreeWidgetItem* item);
+    // Exposed for regression coverage of nested Assembly occurrence
+    // activation through the real window (no context-menu interaction).
+    [[nodiscard]] bool activate_occurrence_for_test(const std::string& instance_path);
+    void deactivate_active_occurrence_for_test();
+    [[nodiscard]] const std::string& active_occurrence_path_for_test() const {
+        return active_occurrence_path_;
+    }
 
 private:
     enum class ApplicationMode {

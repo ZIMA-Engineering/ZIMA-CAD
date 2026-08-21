@@ -1306,6 +1306,56 @@ int verify_startup_contract(
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     application.processEvents();
 
+    {
+        // Nested Assembly occurrence activation must be reachable through the
+        // real window (context-menu "Aktivovat komponentu"/"Aktivovat
+        // podsestavu"), not only through the underlying Workspace unit
+        // tests. Exercise the same public entry point the context menu uses.
+        QTreeWidgetItem* occurrence_item{};
+        for (int index = 0; index < tree->topLevelItem(0)->childCount(); ++index) {
+            auto* candidate = tree->topLevelItem(0)->child(index);
+            if (candidate->data(0, Qt::UserRole + 3).toString() ==
+                    QStringLiteral("part-occurrence")) {
+                occurrence_item = candidate;
+                break;
+            }
+        }
+        if (!verify(occurrence_item != nullptr,
+                    "Assembly tree lost its inserted Part occurrence")) {
+            return 1;
+        }
+        const std::string instance_path =
+            occurrence_item->data(0, Qt::UserRole + 1).toString().toStdString();
+        if (!verify(!instance_path.empty(),
+                    "Assembly occurrence tree item has no instance path")) {
+            return 1;
+        }
+        if (!verify(window.activate_occurrence_for_test(instance_path),
+                    "activating an Assembly occurrence through the real window failed")) {
+            return 1;
+        }
+        if (!verify(window.active_occurrence_path_for_test() == instance_path,
+                    "activation did not record the exact activated instance path")) {
+            return 1;
+        }
+        bool has_return_to_assembly = false;
+        for (auto* action : window.findChildren<QAction*>()) {
+            if (action->text() == QStringLiteral("Zpět do sestavy")) {
+                has_return_to_assembly = true;
+                break;
+            }
+        }
+        if (!verify(has_return_to_assembly,
+                    "activated occurrence did not expose the Zpět do sestavy toolbar action")) {
+            return 1;
+        }
+        window.deactivate_active_occurrence_for_test();
+        if (!verify(window.active_occurrence_path_for_test().empty(),
+                    "returning to the Assembly did not clear the active occurrence path")) {
+            return 1;
+        }
+    }
+
     if (!create_document(QStringLiteral("drawing"), drawing_name)) {
         return 1;
     }
