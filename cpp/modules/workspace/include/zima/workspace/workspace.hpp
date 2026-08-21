@@ -71,6 +71,7 @@ public:
     [[nodiscard]] zima::kernel::ViewerMesh authoritative_viewer_mesh(
         const std::string& document_id) const;
     [[nodiscard]] const std::vector<DocumentState>& documents() const;
+    [[nodiscard]] std::vector<DocumentState>& documents();
     [[nodiscard]] std::optional<OccurrenceAddress> resolve_occurrence(
         const std::string& top_assembly_document_id,
         const zima::assembly::InstancePath& instance_path) const;

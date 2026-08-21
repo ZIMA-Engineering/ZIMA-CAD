@@ -191,6 +191,7 @@ private:
     QAction* settings_action_{};
     QMenu* standard_views_menu_{};
     QDialog* properties_dialog_{};
+    QDialog* rename_document_dialog_{};
     QDialog* global_settings_dialog_{};
     struct PartRollbackContext {
         std::string part_document_id;
@@ -349,6 +350,19 @@ private:
     void save_active_assembly();
     void save_active_document();
     void save_active_document_as();
+    void rename_document_file();
+    void delete_current_document_file();
+    void delete_all_file_versions();
+    void delete_old_file_versions();
+    void delete_old_file_versions_keep_latest();
+    void delete_working_directory_old_versions();
+    void delete_working_directory_old_versions_keep_latest();
+    void refresh_delete_file_actions();
+    [[nodiscard]] std::optional<std::filesystem::path> active_document_file_path() const;
+    [[nodiscard]] static std::vector<std::filesystem::path> document_archive_paths(
+        const std::filesystem::path& file_path);
+    [[nodiscard]] static std::map<std::filesystem::path, std::vector<std::filesystem::path>>
+        working_directory_archive_groups(const std::filesystem::path& directory);
     void set_working_directory();
     void open_new_window();
     void show_global_settings();

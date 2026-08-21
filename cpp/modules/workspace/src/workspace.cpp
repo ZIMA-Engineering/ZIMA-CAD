@@ -298,6 +298,7 @@ zima::kernel::ViewerMesh Workspace::authoritative_viewer_mesh(
 }
 
 const std::vector<DocumentState>& Workspace::documents() const { return documents_; }
+std::vector<DocumentState>& Workspace::documents() { return documents_; }
 
 std::optional<OccurrenceAddress> Workspace::resolve_occurrence(
     const std::string& top_assembly_document_id,

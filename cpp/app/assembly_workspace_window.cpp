@@ -67,6 +67,7 @@
 #include <set>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <type_traits>
 
 #include <nlohmann/json.hpp>
@@ -799,6 +800,47 @@ private:
     }
 };
 
+class RenameDocumentDialog final : public zima::ui::PropertiesSubWindow {
+public:
+    RenameDocumentDialog(const QString& initial_name,
+                         std::function<QString(QString)> accepted,
+                         const ApplicationSettings& settings, QMainWindow* parent)
+        : PropertiesSubWindow(settings.text("dialog.rename.title", tr("Přejmenovat")),
+                              parent),
+          accepted_(std::move(accepted)) {
+        setObjectName("renameDocumentDialog");
+        set_centered_on_show();
+        setMinimumWidth(360);
+        auto* form = new QFormLayout;
+        name_ = new QLineEdit(initial_name, this);
+        name_->setObjectName("renameDocumentName");
+        form->addRow(settings.text("dialog.rename.label", tr("Nový název:")), name_);
+        content_layout()->addLayout(form);
+        error_ = new QLabel(this);
+        error_->setObjectName("renameDocumentError");
+        error_->setWordWrap(true);
+        error_->setStyleSheet(QStringLiteral("color:#F08A85;"));
+        error_->hide();
+        content_layout()->addWidget(error_);
+        setAttribute(Qt::WA_DeleteOnClose);
+    }
+
+private:
+    QLineEdit* name_{};
+    QLabel* error_{};
+    std::function<QString(QString)> accepted_;
+
+    bool submit() override {
+        const QString error = accepted_(name_->text().trimmed());
+        if (!error.isEmpty()) {
+            error_->setText(error);
+            error_->show();
+            return false;
+        }
+        return true;
+    }
+};
+
 class AboutSubWindow final : public zima::ui::PropertiesSubWindow {
 public:
     explicit AboutSubWindow(QMainWindow* parent)
@@ -858,6 +900,7 @@ AssemblyWorkspaceWindow::~AssemblyWorkspaceWindow() {
     // while the destructor body is still executing and every member is
     // still valid, guarantees its `destroyed` handler runs safely.
     delete properties_dialog_;
+    delete rename_document_dialog_;
 }
 
 void AssemblyWorkspaceWindow::create_actions() {
@@ -917,6 +960,8 @@ void AssemblyWorkspaceWindow::create_actions() {
         t("menu.file.rename", "Přejmenovat…"));
     rename_document_action_->setObjectName("renameDocumentAction");
     rename_document_action_->setEnabled(false);
+    connect(rename_document_action_, &QAction::triggered, this,
+        [this] { rename_document_file(); });
     file->addAction(rename_document_action_);
 
     delete_file_menu_ = file->addMenu(
@@ -926,19 +971,27 @@ void AssemblyWorkspaceWindow::create_actions() {
         resource_icon("delete"),
         t("menu.file.delete.current_file", "Aktuální soubor"));
     delete_current_file_action_->setObjectName("deleteCurrentFileAction");
+    connect(delete_current_file_action_, &QAction::triggered, this,
+        [this] { delete_current_document_file(); });
     delete_all_versions_action_ = delete_file_menu_->addAction(
         t("menu.file.delete.current_file_and_versions",
           "Aktuální soubor a všechny verze"));
     delete_all_versions_action_->setObjectName("deleteAllVersionsAction");
+    connect(delete_all_versions_action_, &QAction::triggered, this,
+        [this] { delete_all_file_versions(); });
     delete_file_menu_->addSeparator();
     delete_old_versions_action_ = delete_file_menu_->addAction(
         t("menu.file.delete.old_versions", "Staré verze"));
     delete_old_versions_action_->setObjectName("deleteOldVersionsAction");
+    connect(delete_old_versions_action_, &QAction::triggered, this,
+        [this] { delete_old_file_versions(); });
     delete_old_versions_keep_latest_action_ = delete_file_menu_->addAction(
         t("menu.file.delete.old_versions_keep_latest",
           "Staré verze kromě nejnovější"));
     delete_old_versions_keep_latest_action_->setObjectName(
         "deleteOldVersionsKeepLatestAction");
+    connect(delete_old_versions_keep_latest_action_, &QAction::triggered, this,
+        [this] { delete_old_file_versions_keep_latest(); });
     delete_file_menu_->addSeparator();
     delete_working_directory_menu_ = delete_file_menu_->addMenu(
         t("menu.file.delete.working_directory", "Pracovní adresář"));
@@ -949,12 +1002,16 @@ void AssemblyWorkspaceWindow::create_actions() {
               "Odstranit staré verze"));
     delete_working_directory_old_versions_action_->setObjectName(
         "deleteWorkingDirectoryOldVersionsAction");
+    connect(delete_working_directory_old_versions_action_, &QAction::triggered,
+        this, [this] { delete_working_directory_old_versions(); });
     delete_working_directory_keep_latest_action_ =
         delete_working_directory_menu_->addAction(
             t("menu.file.delete.working_directory_keep_latest",
               "Ponechat nejnovější verzi"));
     delete_working_directory_keep_latest_action_->setObjectName(
         "deleteWorkingDirectoryKeepLatestAction");
+    connect(delete_working_directory_keep_latest_action_, &QAction::triggered,
+        this, [this] { delete_working_directory_old_versions_keep_latest(); });
     for (auto* action : {delete_current_file_action_, delete_all_versions_action_,
                          delete_old_versions_action_,
                          delete_old_versions_keep_latest_action_,
@@ -2637,6 +2694,7 @@ void AssemblyWorkspaceWindow::update_document_area_visibility() {
         action->setEnabled(has_document);
     }
     update_application_actions();
+    refresh_delete_file_actions();
     if (!has_document && state_ != nullptr) state_->setText(tr("Připraveno."));
 }
 
@@ -3905,6 +3963,430 @@ void AssemblyWorkspaceWindow::set_working_directory() {
     }
     working_directory_ = target;
     state_->setText(tr("Pracovní adresář: %1").arg(selected));
+}
+
+std::optional<std::filesystem::path>
+AssemblyWorkspaceWindow::active_document_file_path() const {
+    const std::string id = workspace_.active_document_id();
+    if (id.empty()) return std::nullopt;
+    if (const auto* part = workspace_.open_part(id);
+        part != nullptr && !part->path.empty()) return part->path;
+    if (const auto* assembly = workspace_.open_assembly(id);
+        assembly != nullptr && !assembly->path.empty()) return assembly->path;
+    if (const auto* drawing = workspace_.open_drawing(id);
+        drawing != nullptr && !drawing->path.empty()) return drawing->path;
+    return std::nullopt;
+}
+
+std::vector<std::filesystem::path> AssemblyWorkspaceWindow::document_archive_paths(
+    const std::filesystem::path& file_path) {
+    std::vector<std::pair<int, std::filesystem::path>> archives;
+    const auto target = std::filesystem::absolute(file_path).lexically_normal();
+    const auto parent = target.parent_path();
+    if (std::filesystem::is_directory(parent)) {
+        const std::string prefix = target.filename().string() + ".";
+        for (const auto& entry : std::filesystem::directory_iterator(parent)) {
+            if (!entry.is_regular_file()) continue;
+            const std::string name = entry.path().filename().string();
+            if (name.rfind(prefix, 0) != 0) continue;
+            const std::string suffix = name.substr(prefix.size());
+            if (suffix.empty() || !std::all_of(suffix.begin(), suffix.end(),
+                    [](unsigned char ch) { return std::isdigit(ch) != 0; })) continue;
+            archives.emplace_back(std::stoi(suffix), entry.path());
+        }
+    }
+    std::sort(archives.begin(), archives.end(),
+        [](const auto& lhs, const auto& rhs) { return lhs.first < rhs.first; });
+    std::vector<std::filesystem::path> result;
+    result.reserve(archives.size());
+    for (auto& [version, path] : archives) result.push_back(std::move(path));
+    return result;
+}
+
+std::map<std::filesystem::path, std::vector<std::filesystem::path>>
+AssemblyWorkspaceWindow::working_directory_archive_groups(
+    const std::filesystem::path& directory) {
+    std::map<std::filesystem::path, std::vector<std::pair<int, std::filesystem::path>>>
+        groups;
+    if (!std::filesystem::is_directory(directory)) return {};
+    static const std::array<std::string, 5> document_extensions = {
+        ".prtz", ".asmz", ".drwz", ".frmz", ".tblz"};
+    for (const auto& entry : std::filesystem::directory_iterator(directory)) {
+        if (!entry.is_regular_file()) continue;
+        const auto& path = entry.path();
+        const std::string numeric_suffix = path.extension().string().empty() ? "" :
+            path.extension().string().substr(1);
+        if (numeric_suffix.empty() || !std::all_of(numeric_suffix.begin(),
+                numeric_suffix.end(),
+                [](unsigned char ch) { return std::isdigit(ch) != 0; })) continue;
+        const auto document_path = path.stem().empty() ? path :
+            path.parent_path() / path.stem();
+        const auto document_extension = document_path.extension().string();
+        std::string lowered = document_extension;
+        std::transform(lowered.begin(), lowered.end(), lowered.begin(),
+            [](unsigned char ch) { return std::tolower(ch); });
+        if (std::find(document_extensions.begin(), document_extensions.end(), lowered) ==
+                document_extensions.end()) continue;
+        groups[document_path].emplace_back(std::stoi(numeric_suffix), path);
+    }
+    std::map<std::filesystem::path, std::vector<std::filesystem::path>> result;
+    for (auto& [document_path, archives] : groups) {
+        std::sort(archives.begin(), archives.end(),
+            [](const auto& lhs, const auto& rhs) { return lhs.first < rhs.first; });
+        std::vector<std::filesystem::path> paths;
+        paths.reserve(archives.size());
+        for (auto& [version, path] : archives) paths.push_back(std::move(path));
+        result.emplace(document_path, std::move(paths));
+    }
+    return result;
+}
+
+void AssemblyWorkspaceWindow::refresh_delete_file_actions() {
+    const auto target = active_document_file_path();
+    const bool has_saved_document = target.has_value() && std::filesystem::is_regular_file(*target);
+    const auto archives = has_saved_document
+        ? document_archive_paths(*target) : std::vector<std::filesystem::path>{};
+    rename_document_action_->setEnabled(has_saved_document);
+    delete_old_versions_action_->setEnabled(!archives.empty());
+    delete_old_versions_keep_latest_action_->setEnabled(archives.size() > 1);
+    delete_current_file_action_->setEnabled(has_saved_document);
+    delete_all_versions_action_->setEnabled(has_saved_document);
+    const bool has_working_directory = std::filesystem::is_directory(working_directory_);
+    delete_working_directory_old_versions_action_->setEnabled(has_working_directory);
+    delete_working_directory_keep_latest_action_->setEnabled(has_working_directory);
+}
+
+namespace {
+QString format_file_size(std::uintmax_t size) {
+    double value = static_cast<double>(size);
+    for (const char* unit : {"B", "kB", "MB"}) {
+        if (value < 1000.0) {
+            return QStringLiteral("%1 %2").arg(
+                QString::number(value, 'f', std::string(unit) == "B" ? 0 : 1), unit);
+        }
+        value /= 1000.0;
+    }
+    return QStringLiteral("%1 GB").arg(QString::number(value, 'f', 1));
+}
+
+std::uintmax_t paths_total_size(const std::vector<std::filesystem::path>& paths) {
+    std::uintmax_t total = 0;
+    for (const auto& path : paths) {
+        std::error_code error;
+        const auto size = std::filesystem::file_size(path, error);
+        if (!error) total += size;
+    }
+    return total;
+}
+}  // namespace
+
+void AssemblyWorkspaceWindow::rename_document_file() {
+    const auto target = active_document_file_path();
+    if (!target.has_value()) return;
+    if (rename_document_dialog_ != nullptr) {
+        rename_document_dialog_->raise();
+        rename_document_dialog_->activateWindow();
+        return;
+    }
+    const std::filesystem::path old_path = std::filesystem::absolute(*target).lexically_normal();
+    auto* dialog = new RenameDocumentDialog(
+        QString::fromStdString(old_path.filename().string()),
+        [this, old_path](QString new_name) -> QString {
+            std::filesystem::path candidate(new_name.toStdString());
+            candidate = candidate.filename();
+            if (candidate.empty())
+                return tr("Zadejte platný název souboru.");
+            std::string requested_extension = candidate.extension().string();
+            std::string current_extension = old_path.extension().string();
+            std::transform(requested_extension.begin(), requested_extension.end(),
+                requested_extension.begin(),
+                [](unsigned char ch) { return std::tolower(ch); });
+            std::string current_extension_lower = current_extension;
+            std::transform(current_extension_lower.begin(), current_extension_lower.end(),
+                current_extension_lower.begin(),
+                [](unsigned char ch) { return std::tolower(ch); });
+            if (requested_extension != current_extension_lower) {
+                candidate = candidate.stem();
+                candidate += current_extension;
+            }
+            const std::filesystem::path new_path = old_path.parent_path() / candidate;
+            if (new_path == old_path) return QString();
+            if (std::filesystem::exists(new_path)) {
+                return tr("Soubor %1 již existuje.")
+                    .arg(QString::fromStdString(new_path.filename().string()));
+            }
+            const bool is_source_document =
+                old_path.extension() == ".prtz" || old_path.extension() == ".asmz";
+            const std::filesystem::path old_drawing_path = is_source_document
+                ? std::filesystem::path(old_path).replace_extension(".drwz")
+                : std::filesystem::path{};
+            const std::filesystem::path new_drawing_path = is_source_document
+                ? std::filesystem::path(new_path).replace_extension(".drwz")
+                : std::filesystem::path{};
+            const bool rename_companion_drawing = is_source_document &&
+                std::filesystem::is_regular_file(old_drawing_path);
+            if (rename_companion_drawing && std::filesystem::exists(new_drawing_path)) {
+                return tr("Soubor %1 již existuje.")
+                    .arg(QString::fromStdString(new_drawing_path.filename().string()));
+            }
+
+            // Rewrite in-memory Assembly component references and Drawing
+            // source references that point at the file being renamed, both
+            // for currently open documents and for documents saved on disk
+            // in the same directory or the working directory.
+            std::unordered_set<std::string> updated_ids;
+            const auto rewrite_open_assembly_paths = [&](zima::workspace::AssemblyState& state) {
+                bool changed = false;
+                auto document = state.session.document();
+                for (auto& component : document.components) {
+                    if (std::filesystem::absolute(component.source_path).lexically_normal() ==
+                            old_path) {
+                        component.source_path = new_path;
+                        changed = true;
+                    }
+                }
+                if (changed) state.session.replace(std::move(document));
+                return changed;
+            };
+            for (auto& state : workspace_.documents()) {
+                if (auto* assembly = std::get_if<zima::workspace::AssemblyState>(&state)) {
+                    if (rewrite_open_assembly_paths(*assembly)) {
+                        updated_ids.insert(assembly->session.document().document_id);
+                    }
+                } else if (auto* drawing = std::get_if<zima::workspace::DrawingState>(&state)) {
+                    for (auto& sheet : drawing->document.sheets) {
+                        for (auto& view : sheet.views) {
+                            if (!view.source_path.empty() &&
+                                std::filesystem::absolute(view.source_path).lexically_normal() ==
+                                    old_path) {
+                                view.source_path = new_path;
+                                updated_ids.insert(drawing->document.document_id);
+                            }
+                        }
+                    }
+                }
+            }
+
+            try {
+                std::filesystem::rename(old_path, new_path);
+                if (rename_companion_drawing) {
+                    std::filesystem::rename(old_drawing_path, new_drawing_path);
+                }
+            } catch (const std::exception& error) {
+                return QString::fromStdString(error.what());
+            }
+
+            for (auto& state : workspace_.documents()) {
+                if (auto* part = std::get_if<zima::workspace::PartState>(&state)) {
+                    if (std::filesystem::absolute(part->path).lexically_normal() == old_path)
+                        part->path = new_path;
+                } else if (auto* assembly = std::get_if<zima::workspace::AssemblyState>(&state)) {
+                    if (std::filesystem::absolute(assembly->path).lexically_normal() == old_path)
+                        assembly->path = new_path;
+                    if (rename_companion_drawing) continue;
+                } else if (auto* drawing = std::get_if<zima::workspace::DrawingState>(&state)) {
+                    if (std::filesystem::absolute(drawing->path).lexically_normal() == old_path)
+                        drawing->path = new_path;
+                    else if (rename_companion_drawing &&
+                             std::filesystem::absolute(drawing->path).lexically_normal() ==
+                                 std::filesystem::absolute(old_drawing_path).lexically_normal())
+                        drawing->path = new_drawing_path;
+                }
+            }
+            refresh_tabs();
+            refresh_scene();
+            state_->setText(tr("Soubor přejmenován na %1")
+                .arg(QString::fromStdString(new_path.filename().string())));
+            return QString();
+        }, application_settings_, this);
+    rename_document_dialog_ = dialog;
+    connect(dialog, &QObject::destroyed, this, [this, dialog] {
+        if (rename_document_dialog_ == dialog) rename_document_dialog_ = nullptr;
+    });
+    dialog->show();
+}
+
+void AssemblyWorkspaceWindow::delete_current_document_file() {
+    const auto target = active_document_file_path();
+    if (!target.has_value() || !std::filesystem::is_regular_file(*target)) return;
+    const auto answer = QMessageBox::warning(
+        this, tr("Odstranit aktuální soubor"),
+        tr("Opravdu chcete odstranit soubor %1?")
+            .arg(QString::fromStdString(target->filename().string())),
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (answer != QMessageBox::Yes) return;
+    std::error_code error;
+    std::filesystem::remove(*target, error);
+    if (error) {
+        QMessageBox::critical(this, tr("Odstranění selhalo"),
+            QString::fromStdString(error.message()));
+        return;
+    }
+    const QString deleted_name = QString::fromStdString(target->filename().string());
+    close_document(-1);
+    state_->setText(tr("Soubor %1 odstraněn.").arg(deleted_name));
+}
+
+void AssemblyWorkspaceWindow::delete_old_file_versions_keep_latest() {
+    const auto target = active_document_file_path();
+    if (!target.has_value()) return;
+    const auto archives = document_archive_paths(*target);
+    if (archives.size() < 2) {
+        QMessageBox::information(this, tr("Staré verze kromě nejnovější"),
+            tr("Žádné starší verze souboru %1 nebyly nalezeny.")
+                .arg(QString::fromStdString(target->filename().string())));
+        return;
+    }
+    const std::vector<std::filesystem::path> to_delete(
+        archives.begin(), archives.end() - 1);
+    const auto answer = QMessageBox::question(
+        this, tr("Staré verze kromě nejnovější"),
+        tr("Odstranit %1 starších verzí souboru %2?")
+            .arg(to_delete.size())
+            .arg(QString::fromStdString(target->filename().string())),
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (answer != QMessageBox::Yes) return;
+    for (const auto& path : to_delete) {
+        std::error_code error;
+        std::filesystem::remove(path, error);
+        if (error) {
+            QMessageBox::critical(this, tr("Odstranění selhalo"),
+                QString::fromStdString(error.message()));
+            return;
+        }
+    }
+    refresh_delete_file_actions();
+    state_->setText(tr("Odstraněno %1 starších verzí.").arg(to_delete.size()));
+}
+
+void AssemblyWorkspaceWindow::delete_old_file_versions() {
+    const auto target = active_document_file_path();
+    if (!target.has_value()) return;
+    const auto archives = document_archive_paths(*target);
+    if (archives.empty()) {
+        QMessageBox::information(this, tr("Staré verze"),
+            tr("Žádné starší verze souboru %1 nebyly nalezeny.")
+                .arg(QString::fromStdString(target->filename().string())));
+        return;
+    }
+    const auto answer = QMessageBox::question(
+        this, tr("Staré verze"),
+        tr("Odstranit %1 starších verzí souboru %2?")
+            .arg(archives.size())
+            .arg(QString::fromStdString(target->filename().string())),
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (answer != QMessageBox::Yes) return;
+    for (const auto& path : archives) {
+        std::error_code error;
+        std::filesystem::remove(path, error);
+        if (error) {
+            QMessageBox::critical(this, tr("Odstranění selhalo"),
+                QString::fromStdString(error.message()));
+            return;
+        }
+    }
+    refresh_delete_file_actions();
+    state_->setText(tr("Odstraněno %1 starších verzí.").arg(archives.size()));
+}
+
+void AssemblyWorkspaceWindow::delete_all_file_versions() {
+    const auto target = active_document_file_path();
+    if (!target.has_value()) return;
+    auto archives = document_archive_paths(*target);
+    std::vector<std::filesystem::path> existing_paths;
+    for (auto& path : archives) {
+        if (std::filesystem::is_regular_file(path)) existing_paths.push_back(std::move(path));
+    }
+    if (std::filesystem::is_regular_file(*target)) existing_paths.push_back(*target);
+    const auto answer = QMessageBox::warning(
+        this, tr("Aktuální soubor a všechny verze"),
+        tr("Odstranit soubor %1 a všech %2 souvisejících souborů?")
+            .arg(QString::fromStdString(target->filename().string()))
+            .arg(existing_paths.size()),
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (answer != QMessageBox::Yes) return;
+    for (const auto& path : existing_paths) {
+        std::error_code error;
+        std::filesystem::remove(path, error);
+        if (error) {
+            QMessageBox::critical(this, tr("Odstranění selhalo"),
+                QString::fromStdString(error.message()));
+            return;
+        }
+    }
+    const QString deleted_name = QString::fromStdString(target->filename().string());
+    close_document(-1);
+    state_->setText(tr("Soubor %1 a všechny verze odstraněny.").arg(deleted_name));
+}
+
+void AssemblyWorkspaceWindow::delete_working_directory_old_versions() {
+    const auto directory = std::filesystem::absolute(working_directory_).lexically_normal();
+    const auto groups = working_directory_archive_groups(directory);
+    std::vector<std::filesystem::path> paths;
+    for (const auto& [document_path, archives] : groups) {
+        for (const auto& path : archives) paths.push_back(path);
+    }
+    if (paths.empty()) {
+        QMessageBox::information(this, tr("Pracovní adresář"),
+            tr("V pracovním adresáři %1 nebyly nalezeny žádné starší verze.")
+                .arg(QString::fromStdString(directory.string())));
+        return;
+    }
+    const QString size_text = format_file_size(paths_total_size(paths));
+    const auto answer = QMessageBox::warning(
+        this, tr("Pracovní adresář"),
+        tr("Odstranit %1 souborů starších verzí (%2) z pracovního adresáře %3?")
+            .arg(paths.size()).arg(size_text)
+            .arg(QString::fromStdString(directory.string())),
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (answer != QMessageBox::Yes) return;
+    for (const auto& path : paths) {
+        std::error_code error;
+        std::filesystem::remove(path, error);
+        if (error) {
+            QMessageBox::critical(this, tr("Odstranění selhalo"),
+                QString::fromStdString(error.message()));
+            return;
+        }
+    }
+    refresh_delete_file_actions();
+    state_->setText(tr("Odstraněno %1 souborů starších verzí.").arg(paths.size()));
+}
+
+void AssemblyWorkspaceWindow::delete_working_directory_old_versions_keep_latest() {
+    const auto directory = std::filesystem::absolute(working_directory_).lexically_normal();
+    const auto groups = working_directory_archive_groups(directory);
+    std::vector<std::filesystem::path> paths;
+    for (const auto& [document_path, archives] : groups) {
+        if (archives.size() < 2) continue;
+        paths.insert(paths.end(), archives.begin(), archives.end() - 1);
+    }
+    if (paths.empty()) {
+        QMessageBox::information(this, tr("Pracovní adresář"),
+            tr("V pracovním adresáři %1 nebyly nalezeny žádné starší verze.")
+                .arg(QString::fromStdString(directory.string())));
+        return;
+    }
+    const QString size_text = format_file_size(paths_total_size(paths));
+    const auto answer = QMessageBox::warning(
+        this, tr("Pracovní adresář"),
+        tr("Odstranit %1 souborů starších verzí (%2) z pracovního adresáře %3? "
+           "Nejnovější verze každého dokumentu zůstane zachována.")
+            .arg(paths.size()).arg(size_text)
+            .arg(QString::fromStdString(directory.string())),
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (answer != QMessageBox::Yes) return;
+    for (const auto& path : paths) {
+        std::error_code error;
+        std::filesystem::remove(path, error);
+        if (error) {
+            QMessageBox::critical(this, tr("Odstranění selhalo"),
+                QString::fromStdString(error.message()));
+            return;
+        }
+    }
+    refresh_delete_file_actions();
+    state_->setText(tr("Odstraněno %1 souborů starších verzí.").arg(paths.size()));
 }
 
 void AssemblyWorkspaceWindow::open_new_window() {

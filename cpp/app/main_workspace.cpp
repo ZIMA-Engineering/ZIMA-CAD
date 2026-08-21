@@ -18,6 +18,7 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMenu>
+#include <QMessageBox>
 #include <QMouseEvent>
 #include <QPalette>
 #include <QOpenGLWidget>
@@ -30,6 +31,7 @@
 #include <QSurfaceFormat>
 #include <QTabBar>
 #include <QTableWidget>
+#include <QTimer>
 #include <QToolBar>
 #include <QTreeWidget>
 #include <QUuid>
@@ -132,8 +134,17 @@ int verify_startup_contract(
     auto* save_as = window.findChild<QAction*>("saveDocumentAsAction");
     auto* rename_document = window.findChild<QAction*>("renameDocumentAction");
     auto* delete_file_menu = window.findChild<QMenu*>("deleteFileMenu");
+    auto* delete_current_file = window.findChild<QAction*>("deleteCurrentFileAction");
+    auto* delete_all_versions = window.findChild<QAction*>("deleteAllVersionsAction");
+    auto* delete_old_versions = window.findChild<QAction*>("deleteOldVersionsAction");
+    auto* delete_old_versions_keep_latest =
+        window.findChild<QAction*>("deleteOldVersionsKeepLatestAction");
     auto* delete_working_directory_menu =
         window.findChild<QMenu*>("deleteWorkingDirectoryMenu");
+    auto* delete_working_directory_old_versions =
+        window.findChild<QAction*>("deleteWorkingDirectoryOldVersionsAction");
+    auto* delete_working_directory_keep_latest =
+        window.findChild<QAction*>("deleteWorkingDirectoryKeepLatestAction");
     auto* working_directory = window.findChild<QAction*>("workingDirectoryAction");
     auto* new_document = window.findChild<QAction*>("newDocumentAction");
     auto* undo = window.findChild<QAction*>("undoAction");
@@ -1668,6 +1679,165 @@ int verify_startup_contract(
                     sheet_count_before_reopen > 0,
                 "saved Drawing did not close and reopen its sheet structure")) {
         return 1;
+    }
+
+    // File-management parity: rename, delete-current-file, delete old
+    // versions (with and without keep-latest), and the working-directory
+    // wide equivalents must all be wired to real handlers operating on the
+    // reopened Drawing document, mirroring the Python reference workflow.
+    {
+        if (!verify(rename_document != nullptr && rename_document->isEnabled() &&
+                        delete_current_file != nullptr && delete_current_file->isEnabled() &&
+                        delete_all_versions != nullptr && delete_all_versions->isEnabled() &&
+                        delete_working_directory_old_versions != nullptr &&
+                        delete_working_directory_old_versions->isEnabled() &&
+                        delete_working_directory_keep_latest != nullptr &&
+                        delete_working_directory_keep_latest->isEnabled(),
+                    "file-management actions must enable once a saved Drawing is active")) {
+            return 1;
+        }
+        if (!verify(!delete_old_versions->isEnabled() &&
+                        !delete_old_versions_keep_latest->isEnabled(),
+                    "delete-old-versions actions must stay disabled without archive files")) {
+            return 1;
+        }
+
+        // Create two versioned archive files ("<name>.1", "<name>.2") next
+        // to the saved Drawing, as ZIMA-CAD's save/version rotation would.
+        const auto archive_one = std::filesystem::path(
+            saved_drawing_path.string() + ".1");
+        const auto archive_two = std::filesystem::path(
+            saved_drawing_path.string() + ".2");
+        std::filesystem::copy_file(saved_drawing_path, archive_one,
+            std::filesystem::copy_options::overwrite_existing);
+        std::filesystem::copy_file(saved_drawing_path, archive_two,
+            std::filesystem::copy_options::overwrite_existing);
+        // Re-trigger any refresh path that recomputes action enablement
+        // (closing and reopening is the simplest reliable trigger already
+        // exercised above).
+        close->trigger();
+        application.processEvents();
+        const bool reopened_for_versions = window.open_document_path(
+            QString::fromStdString(saved_drawing_path.string()));
+        application.processEvents();
+        if (!verify(reopened_for_versions && delete_old_versions->isEnabled() &&
+                        delete_old_versions_keep_latest->isEnabled(),
+                    "delete-old-versions actions must enable once archive files exist")) {
+            return 1;
+        }
+
+        // "Staré verze kromě nejnovější" must remove only the older archive
+        // and keep the newest one (archive_two).
+        QTimer::singleShot(0, &window, [] {
+            if (auto* box = qobject_cast<QMessageBox*>(
+                    QApplication::activeModalWidget())) {
+                if (auto* yes_button = box->button(QMessageBox::Yes)) {
+                    yes_button->click();
+                } else {
+                    box->accept();
+                }
+            }
+        });
+        delete_old_versions_keep_latest->trigger();
+        application.processEvents();
+        if (!verify(!std::filesystem::exists(archive_one) &&
+                        std::filesystem::exists(archive_two),
+                    "delete-old-versions-keep-latest must remove only older archives")) {
+            return 1;
+        }
+
+        // "Staré verze" must remove every remaining archive but keep the
+        // primary saved Drawing file itself.
+        QTimer::singleShot(0, &window, [] {
+            if (auto* box = qobject_cast<QMessageBox*>(
+                    QApplication::activeModalWidget())) {
+                if (auto* yes_button = box->button(QMessageBox::Yes)) {
+                    yes_button->click();
+                } else {
+                    box->accept();
+                }
+            }
+        });
+        delete_old_versions->trigger();
+        application.processEvents();
+        if (!verify(!std::filesystem::exists(archive_two) &&
+                        std::filesystem::exists(saved_drawing_path),
+                    "delete-old-versions must remove all archives but keep the current file")) {
+            return 1;
+        }
+
+        // Rename must move the file on disk and keep the document open
+        // under its new name/path.
+        const auto renamed_path = saved_drawing_path.parent_path() /
+            (drawing_name.toStdString() + "-renamed.drwz");
+        rename_document->trigger();
+        application.processEvents();
+        auto* rename_dialog = window.findChild<QDialog*>("renameDocumentDialog");
+        if (!verify(rename_dialog != nullptr,
+                    "rename must open the shared in-application dialog")) {
+            return 1;
+        }
+        auto* rename_field = rename_dialog->findChild<QLineEdit*>("renameDocumentName");
+        rename_field->setText(QString::fromStdString(renamed_path.filename().string()));
+        auto* rename_buttons = rename_dialog->findChild<QDialogButtonBox*>();
+        rename_buttons->button(QDialogButtonBox::Ok)->click();
+        application.processEvents();
+        if (!verify(!std::filesystem::exists(saved_drawing_path) &&
+                        std::filesystem::exists(renamed_path),
+                    "rename must move the document file on disk")) {
+            return 1;
+        }
+
+        // Working-directory wide deletion: create archives for both the
+        // renamed Drawing and an unrelated saved Part, then verify
+        // "keep latest" removes only the older ones across all documents.
+        const auto renamed_archive_one = std::filesystem::path(
+            renamed_path.string() + ".1");
+        const auto renamed_archive_two = std::filesystem::path(
+            renamed_path.string() + ".2");
+        std::filesystem::copy_file(renamed_path, renamed_archive_one,
+            std::filesystem::copy_options::overwrite_existing);
+        std::filesystem::copy_file(renamed_path, renamed_archive_two,
+            std::filesystem::copy_options::overwrite_existing);
+        const auto part_saved_path = std::filesystem::current_path() /
+            (part_name.toStdString() + ".prtz");
+        std::filesystem::path part_archive_one;
+        std::filesystem::path part_archive_two;
+        const bool part_saved_exists = std::filesystem::exists(part_saved_path);
+        if (part_saved_exists) {
+            part_archive_one = std::filesystem::path(part_saved_path.string() + ".1");
+            part_archive_two = std::filesystem::path(part_saved_path.string() + ".2");
+            std::filesystem::copy_file(part_saved_path, part_archive_one,
+                std::filesystem::copy_options::overwrite_existing);
+            std::filesystem::copy_file(part_saved_path, part_archive_two,
+                std::filesystem::copy_options::overwrite_existing);
+        }
+        QTimer::singleShot(0, &window, [] {
+            if (auto* box = qobject_cast<QMessageBox*>(
+                    QApplication::activeModalWidget())) {
+                if (auto* yes_button = box->button(QMessageBox::Yes)) {
+                    yes_button->click();
+                } else {
+                    box->accept();
+                }
+            }
+        });
+        delete_working_directory_keep_latest->trigger();
+        application.processEvents();
+        const bool working_directory_keep_latest_ok =
+            !std::filesystem::exists(renamed_archive_one) &&
+            std::filesystem::exists(renamed_archive_two) &&
+            (!part_saved_exists ||
+             (!std::filesystem::exists(part_archive_one) &&
+              std::filesystem::exists(part_archive_two)));
+        if (!verify(working_directory_keep_latest_ok,
+                    "working-directory keep-latest delete must remove only older "
+                    "archives across every document")) {
+            return 1;
+        }
+        if (part_saved_exists && std::filesystem::exists(part_archive_two)) {
+            std::filesystem::remove(part_archive_two);
+        }
     }
 
     about->trigger();
