@@ -4167,6 +4167,103 @@ void AssemblyWorkspaceWindow::rename_document_file() {
                 }
             }
 
+            // Also rewrite Assembly/Drawing documents saved on disk but not
+            // currently open, matching Python's _rename_document_file_to
+            // (which loads every candidate document in the file's directory
+            // and the working directory, rewrites any reference to the
+            // renamed file, and re-saves it). Only Assembly (.asmz) and
+            // Drawing (.drwz) documents can hold such references; Part
+            // (.prtz) documents cannot reference other documents.
+            std::unordered_set<std::string> open_document_paths;
+            for (auto& state : workspace_.documents()) {
+                if (auto* part = std::get_if<zima::workspace::PartState>(&state)) {
+                    open_document_paths.insert(
+                        std::filesystem::absolute(part->path).lexically_normal().string());
+                } else if (auto* assembly = std::get_if<zima::workspace::AssemblyState>(&state)) {
+                    open_document_paths.insert(
+                        std::filesystem::absolute(assembly->path).lexically_normal().string());
+                } else if (auto* drawing = std::get_if<zima::workspace::DrawingState>(&state)) {
+                    open_document_paths.insert(
+                        std::filesystem::absolute(drawing->path).lexically_normal().string());
+                }
+            }
+            std::unordered_set<std::string> scanned_paths;
+            const auto scan_directory_for_references = [&](const std::filesystem::path& directory) {
+                if (!std::filesystem::is_directory(directory)) return;
+                for (const auto& entry : std::filesystem::directory_iterator(directory)) {
+                    if (!entry.is_regular_file()) continue;
+                    const auto candidate =
+                        std::filesystem::absolute(entry.path()).lexically_normal();
+                    const std::string extension_lower = [&] {
+                        std::string ext = candidate.extension().string();
+                        std::transform(ext.begin(), ext.end(), ext.begin(),
+                            [](unsigned char ch) { return std::tolower(ch); });
+                        return ext;
+                    }();
+                    if (extension_lower != ".asmz" && extension_lower != ".drwz") continue;
+                    const std::string key = candidate.string();
+                    if (open_document_paths.count(key) != 0) continue;
+                    if (!scanned_paths.insert(key).second) continue;
+                    if (extension_lower == ".asmz") {
+                        zima::assembly::AssemblyDocument document;
+                        try {
+                            document = zima::assembly::AssemblyDocument::load(candidate);
+                        } catch (const std::exception&) {
+                            continue;
+                        }
+                        bool changed = false;
+                        for (auto& component : document.components) {
+                            if (std::filesystem::absolute(component.source_path)
+                                    .lexically_normal() == old_path) {
+                                component.source_path = new_path;
+                                changed = true;
+                            }
+                        }
+                        if (changed) {
+                            try {
+                                document.save(candidate);
+                            } catch (const std::exception&) {
+                            }
+                        }
+                    } else {
+                        zima::drawing::DrawingDocument document;
+                        try {
+                            document = zima::drawing::DrawingDocument::load(candidate);
+                        } catch (const std::exception&) {
+                            continue;
+                        }
+                        bool changed = false;
+                        for (auto& sheet : document.sheets) {
+                            for (auto& view : sheet.views) {
+                                if (!view.source_path.empty() &&
+                                    std::filesystem::absolute(view.source_path)
+                                            .lexically_normal() == old_path) {
+                                    view.source_path = new_path;
+                                    changed = true;
+                                }
+                            }
+                        }
+                        if (changed) {
+                            try {
+                                document.save(candidate);
+                            } catch (const std::exception&) {
+                            }
+                        }
+                    }
+                }
+            };
+            scan_directory_for_references(old_path.parent_path());
+            if (!working_directory_.empty() &&
+                std::filesystem::is_directory(working_directory_)) {
+                scan_directory_for_references(working_directory_);
+                for (const auto& entry :
+                        std::filesystem::recursive_directory_iterator(working_directory_)) {
+                    if (entry.is_directory()) {
+                        scan_directory_for_references(entry.path());
+                    }
+                }
+            }
+
             try {
                 std::filesystem::rename(old_path, new_path);
                 if (rename_companion_drawing) {

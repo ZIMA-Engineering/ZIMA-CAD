@@ -2284,6 +2284,7 @@ int verify_startup_contract(
         rename_field->setText(QString::fromStdString(renamed_path.filename().string()));
         auto* rename_buttons = rename_dialog->findChild<QDialogButtonBox*>();
         rename_buttons->button(QDialogButtonBox::Ok)->click();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
         application.processEvents();
         if (!verify(!std::filesystem::exists(saved_drawing_path) &&
                         std::filesystem::exists(renamed_path),
@@ -2291,16 +2292,69 @@ int verify_startup_contract(
             return 1;
         }
 
+        // The rename must also rewrite references in documents saved on
+        // disk but not currently open, matching Python's
+        // _rename_document_file_to (which scans the file's directory and
+        // the working directory for other documents referencing the
+        // renamed path). Build a throwaway closed Assembly fixture whose
+        // component references the Drawing's current (already-renamed-once)
+        // path (an artificial but sufficient stand-in, since AssemblyDocument
+        // components reference any source_path uniformly) and confirm the
+        // rename rewrote it even though it was never opened in the workspace.
+        const auto closed_reference_assembly_path = saved_drawing_path.parent_path() /
+            (QStringLiteral("REFERENCE-STARTUP-") + identity).toStdString().append(".asmz");
+        {
+            auto reference_document = zima::assembly::AssemblyDocument::create_default();
+            reference_document.components.push_back(
+                zima::assembly::AssemblyDocument::create_part_occurrence(
+                    "closed-reference", "unused-source-id", renamed_path, {}));
+            reference_document.save(closed_reference_assembly_path);
+        }
+        const auto renamed_again_path = renamed_path.parent_path() /
+            (drawing_name.toStdString() + "-renamed-again.drwz");
+        rename_document->trigger();
+        application.processEvents();
+        auto* second_rename_dialog = window.findChild<QDialog*>("renameDocumentDialog");
+        if (!verify(second_rename_dialog != nullptr,
+                    "rename must open the shared in-application dialog a second time")) {
+            return 1;
+        }
+        second_rename_dialog->findChild<QLineEdit*>("renameDocumentName")
+            ->setText(QString::fromStdString(renamed_again_path.filename().string()));
+        second_rename_dialog->findChild<QDialogButtonBox*>()
+            ->button(QDialogButtonBox::Ok)->click();
+        application.processEvents();
+        bool closed_reference_rewritten = false;
+        try {
+            const auto reloaded_reference_document =
+                zima::assembly::AssemblyDocument::load(closed_reference_assembly_path);
+            for (const auto& component : reloaded_reference_document.components) {
+                if (std::filesystem::absolute(component.source_path).lexically_normal() ==
+                        std::filesystem::absolute(renamed_again_path).lexically_normal()) {
+                    closed_reference_rewritten = true;
+                    break;
+                }
+            }
+        } catch (const std::exception&) {
+        }
+        if (!verify(std::filesystem::exists(renamed_again_path) &&
+                        closed_reference_rewritten,
+                    "rename must rewrite references in Assembly documents saved on disk "
+                    "but not currently open")) {
+            return 1;
+        }
+        std::filesystem::remove(closed_reference_assembly_path);
+
         // Working-directory wide deletion: create archives for both the
         // renamed Drawing and an unrelated saved Part, then verify
         // "keep latest" removes only the older ones across all documents.
         const auto renamed_archive_one = std::filesystem::path(
-            renamed_path.string() + ".1");
+            renamed_again_path.string() + ".1");
         const auto renamed_archive_two = std::filesystem::path(
-            renamed_path.string() + ".2");
-        std::filesystem::copy_file(renamed_path, renamed_archive_one,
+            renamed_again_path.string() + ".2");
+        std::filesystem::copy_file(renamed_again_path, renamed_archive_one,
             std::filesystem::copy_options::overwrite_existing);
-        std::filesystem::copy_file(renamed_path, renamed_archive_two,
+        std::filesystem::copy_file(renamed_again_path, renamed_archive_two,
             std::filesystem::copy_options::overwrite_existing);
         const auto part_saved_path = std::filesystem::current_path() /
             (part_name.toStdString() + ".prtz");
