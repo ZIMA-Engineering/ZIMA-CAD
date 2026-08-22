@@ -34,3 +34,24 @@ assembly_scene components=256 triangles=9216 mean_ms=23.015
 assembly_picking components=256 candidates=25 mean_ms=4.834
 nested_regeneration levels=3 mean_ms=38.082
 ```
+
+## Build and startup measurements
+
+These complement the model-level benchmark above with the remaining
+acceptance-gate observations: build time and full-application startup
+behavior. Same caveats apply — these are observations on one machine and
+build configuration, not pass/fail thresholds.
+
+Measured on the same Linux Debug/Ninja build directory (`build/cpp-debug`,
+24 logical CPUs, `-j$(nproc)`):
+
+* Clean build (`ninja -t clean` then full `ninja`, 86 build steps): ~37 s.
+* Incremental build after touching one already-compiled `.cpp` (`main_workspace.cpp`,
+  recompile + relink only that translation unit and its executable): ~5.2 s.
+* Full `--verify-startup` run (headless `QT_QPA_PLATFORM=wayland`, exercises
+  every scripted GUI regression scenario end-to-end — Part/Assembly/Drawing
+  creation, edit/cancel/undo/redo, nested and multi-level Assembly occurrence
+  activation, RMB selection cycling, file-management rename/cleanup dialogs,
+  and Deep Assembly mate creation/DOF/drag): ~7.6 s average over 3 runs
+  (7.61-7.69 s), i.e. real end-to-end regression coverage completes well
+  under 10 seconds, not just a bare window open.
