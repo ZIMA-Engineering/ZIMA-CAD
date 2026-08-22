@@ -5,6 +5,7 @@
 
 #include <array>
 #include <functional>
+#include <string>
 
 class QDoubleSpinBox;
 class QLabel;
@@ -20,6 +21,18 @@ public:
         const zima::assembly::PartOccurrence& initial,
         CommitCallback commit,
         QWidget* parent);
+
+    // Identity of the occurrence this dialog edits, used by the viewer to
+    // gate free-component drag to the occurrence currently open for editing
+    // (matching Python's `assembly_component_dialog`/`dialog.component`
+    // guard in `_on_insertion_origin_dragged`).
+    [[nodiscard]] const std::string& occurrence_id() const {
+        return initial_.occurrence_id;
+    }
+
+    // Live-updates the translation spinboxes while a free-component drag is
+    // in progress, without touching rotation fields or emitting a commit.
+    void set_live_translation(double x, double y, double z);
 
 protected:
     bool submit() override;

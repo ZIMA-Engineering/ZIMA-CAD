@@ -2108,6 +2108,7 @@ void AssemblyWorkspaceWindow::create_layout() {
     viewer_->set_candidate_drag_callbacks(
         [this](const auto& candidate) {
             return begin_assembly_mate_drag(candidate) ||
+                   begin_component_drag(candidate) ||
                    begin_sketch_point_drag(candidate);
         },
         [this](const auto& origin, const auto& direction) {
@@ -2115,6 +2116,8 @@ void AssemblyWorkspaceWindow::create_layout() {
                 const auto [local_origin, local_direction] =
                     active_assembly_local_ray(origin, direction);
                 update_assembly_mate_drag(local_origin, local_direction);
+            } else if (component_drag_document_) {
+                update_component_drag(origin, direction);
             } else {
                 const auto [local_origin, local_direction] =
                     active_part_local_ray(origin, direction);
@@ -2123,6 +2126,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         },
         [this] {
             if (assembly_drag_document_) end_assembly_mate_drag();
+            else if (component_drag_document_) end_component_drag();
             else end_sketch_point_drag();
         });
     model_workspace_ = viewer_;
@@ -7793,6 +7797,105 @@ void AssemblyWorkspaceWindow::end_assembly_mate_drag() {
     refresh_scene();
 }
 
+bool AssemblyWorkspaceWindow::begin_component_drag(
+    const zima::viewer::ViewerCandidate& candidate) {
+    // Mirrors Python's `_on_insertion_origin_dragged` guard: free-component
+    // drag is only offered while the ComponentPropertiesDialog for exactly
+    // this occurrence is open (`dialog is None or not dialog.isVisible()`).
+    if (properties_dialog_ == nullptr ||
+        candidate.kind != zima::viewer::CandidateKind::Occurrence ||
+        candidate.instance_path != properties_dialog_instance_path_ ||
+        assembly_drag_document_ || sketch_drag_document_ ||
+        assembly_sketch_drag_document_) return false;
+    zima::assembly::InstancePath path;
+    try {
+        path = zima::assembly::InstancePath::decode(candidate.instance_path);
+    } catch (const std::invalid_argument&) {
+        return false;
+    }
+    const auto address = workspace_.resolve_occurrence(
+        workspace_.displayed_document_id(), path);
+    // Free-drag currently supports occurrences owned directly by the
+    // displayed top-level Assembly, where scene-space translation equals the
+    // occurrence's own placement delta without an intermediate parent
+    // transform.
+    if (!address || address->owner_assembly_document_id !=
+            workspace_.displayed_document_id()) return false;
+    auto* assembly = workspace_.open_assembly(address->owner_assembly_document_id);
+    if (assembly == nullptr) return false;
+    const auto* occurrence =
+        assembly->session.document().find_occurrence(address->occurrence_id);
+    if (occurrence == nullptr || occurrence->grounded) return false;
+    component_drag_document_ = assembly->session.document();
+    component_drag_document_id_ = address->owner_assembly_document_id;
+    component_drag_occurrence_id_ = address->occurrence_id;
+    component_drag_start_local_origin_ =
+        {occurrence->placement.x, occurrence->placement.y, occurrence->placement.z};
+    component_drag_plane_point_ = component_drag_start_local_origin_;
+    component_drag_changed_ = false;
+    state_->setText(tr("Tažením přesouváte komponentu; polohu potvrdí dialog Vlastnosti."));
+    return true;
+}
+
+void AssemblyWorkspaceWindow::update_component_drag(
+    const zima::kernel::Vec3& ray_origin,
+    const zima::kernel::Vec3& ray_direction) {
+    if (!component_drag_document_) return;
+    const double direction_length = std::sqrt(
+        ray_direction.x * ray_direction.x + ray_direction.y * ray_direction.y +
+        ray_direction.z * ray_direction.z);
+    if (direction_length <= 1.0e-12) return;
+    const zima::kernel::Vec3 direction{ray_direction.x / direction_length,
+        ray_direction.y / direction_length, ray_direction.z / direction_length};
+    // Intersects the drag ray with the camera-facing plane through the
+    // component's starting position, matching Python's screen-delta ->
+    // world-delta translation for an orthographic camera.
+    const zima::kernel::Vec3 to_plane{
+        component_drag_plane_point_.x - ray_origin.x,
+        component_drag_plane_point_.y - ray_origin.y,
+        component_drag_plane_point_.z - ray_origin.z};
+    const double t = to_plane.x * direction.x + to_plane.y * direction.y +
+        to_plane.z * direction.z;
+    const zima::kernel::Vec3 hit{ray_origin.x + t * direction.x,
+        ray_origin.y + t * direction.y, ray_origin.z + t * direction.z};
+    const zima::kernel::Vec3 new_origin{
+        component_drag_start_local_origin_.x + (hit.x - component_drag_plane_point_.x),
+        component_drag_start_local_origin_.y + (hit.y - component_drag_plane_point_.y),
+        component_drag_start_local_origin_.z + (hit.z - component_drag_plane_point_.z)};
+    auto* occurrence = component_drag_document_->find_occurrence(component_drag_occurrence_id_);
+    if (occurrence == nullptr) return;
+    occurrence->placement.x = new_origin.x;
+    occurrence->placement.y = new_origin.y;
+    occurrence->placement.z = new_origin.z;
+    component_drag_changed_ = true;
+    viewer_->set_mesh(component_drag_document_->build_scene(), false);
+    if (auto* dialog = dynamic_cast<ComponentPropertiesDialog*>(properties_dialog_);
+        dialog != nullptr && dialog->occurrence_id() == component_drag_occurrence_id_) {
+        dialog->set_live_translation(new_origin.x, new_origin.y, new_origin.z);
+    }
+    state_->setText(tr("Poloha komponenty: X %1  Y %2  Z %3 mm")
+        .arg(new_origin.x, 0, 'f', 3).arg(new_origin.y, 0, 'f', 3)
+        .arg(new_origin.z, 0, 'f', 3));
+}
+
+void AssemblyWorkspaceWindow::end_component_drag() {
+    if (!component_drag_document_) return;
+    const std::string document_id = component_drag_document_id_;
+    auto result = std::move(*component_drag_document_);
+    const bool changed = component_drag_changed_;
+    component_drag_document_.reset();
+    component_drag_document_id_.clear();
+    component_drag_occurrence_id_.clear();
+    component_drag_changed_ = false;
+    if (changed) {
+        if (auto* assembly = workspace_.open_assembly(document_id)) {
+            assembly->session.commit(std::move(result));
+        }
+    }
+    refresh_tabs();
+    refresh_scene();
+}
+
 bool AssemblyWorkspaceWindow::delete_selected_sketch_geometry() {
     if (properties_dialog_ != nullptr || active_sketch_id_.empty() ||
         sketch_point_active_ || sketch_segment_active_ ||
@@ -8819,6 +8922,17 @@ void AssemblyWorkspaceWindow::keyPressEvent(QKeyEvent* event) {
         preserve_view_on_refresh_ = true;
         refresh_scene();
         state_->setText(tr("Tažení Assembly vazby bylo zrušeno beze změny."));
+        event->accept();
+        return;
+    }
+    if (event->key() == Qt::Key_Escape && component_drag_document_) {
+        component_drag_document_.reset();
+        component_drag_document_id_.clear();
+        component_drag_occurrence_id_.clear();
+        component_drag_changed_ = false;
+        preserve_view_on_refresh_ = true;
+        refresh_scene();
+        state_->setText(tr("Tažení komponenty bylo zrušeno beze změny."));
         event->accept();
         return;
     }
@@ -10353,8 +10467,10 @@ void AssemblyWorkspaceWindow::show_component_properties(
             assembly->session.commit(std::move(next));
         }, this);
     properties_dialog_ = dialog;
+    properties_dialog_instance_path_ = instance_path;
     connect(dialog, &QObject::destroyed, this, [this] {
         properties_dialog_ = nullptr;
+        properties_dialog_instance_path_.clear();
         refresh_scene();
     });
     dialog->show();

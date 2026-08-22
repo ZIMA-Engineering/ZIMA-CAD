@@ -64,6 +64,18 @@ ComponentPropertiesDialog::ComponentPropertiesDialog(
     });
 }
 
+void ComponentPropertiesDialog::set_live_translation(double x, double y, double z) {
+    translation_[0]->blockSignals(true);
+    translation_[1]->blockSignals(true);
+    translation_[2]->blockSignals(true);
+    translation_[0]->setValue(x);
+    translation_[1]->setValue(y);
+    translation_[2]->setValue(z);
+    translation_[0]->blockSignals(false);
+    translation_[1]->blockSignals(false);
+    translation_[2]->blockSignals(false);
+}
+
 bool ComponentPropertiesDialog::submit() {
     const QString name = name_->text().trimmed();
     if (name.isEmpty()) {

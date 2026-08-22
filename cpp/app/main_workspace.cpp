@@ -16,6 +16,7 @@
 #include <QEvent>
 #include <QFileInfo>
 #include <QImage>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
@@ -1950,6 +1951,201 @@ int verify_startup_contract(
         if (auto* dragged_buttons =
                 dragged_dialog->findChild<QDialogButtonBox*>()) {
             dragged_buttons->button(QDialogButtonBox::Cancel)->click();
+        }
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        application.processEvents();
+    }
+
+    {
+        // Free-component drag: while an occurrence's own Properties dialog
+        // is open, dragging that occurrence in the viewer must translate it
+        // and live-update the dialog's fields (mirrors Python's
+        // `_on_insertion_origin_dragged`). Escape must cancel the gesture
+        // without persisting any change; releasing the mouse must commit it.
+        int drag_assembly_tab_index = -1;
+        for (int index = 0; index < tabs->count(); ++index) {
+            if (tabs->tabText(index).startsWith(
+                    assembly_name + QStringLiteral(".asmz"))) {
+                drag_assembly_tab_index = index;
+                break;
+            }
+        }
+        if (!verify(drag_assembly_tab_index >= 0,
+                    "inner Assembly tab is no longer open for free-drag coverage")) {
+            return 1;
+        }
+        tabs->setCurrentIndex(drag_assembly_tab_index);
+        application.processEvents();
+        // Each Properties confirm/cancel triggers a refresh_scene()/
+        // refresh_tabs() that rebuilds the tree, invalidating any previously
+        // located QTreeWidgetItem* (matches the mate-drag coverage above),
+        // so re-locate the occurrence's own tree item fresh every time.
+        std::string drag_instance_path;
+        const auto find_drag_occurrence_item = [&]() -> QTreeWidgetItem* {
+            auto* current_tree = window.findChild<QTreeWidget*>("documentTree");
+            if (current_tree == nullptr || current_tree->topLevelItemCount() != 1) {
+                return nullptr;
+            }
+            auto* root = current_tree->topLevelItem(0);
+            for (int index = 0; index < root->childCount(); ++index) {
+                auto* child = root->child(index);
+                if (child->data(0, Qt::UserRole + 3).toString() !=
+                        QStringLiteral("part-occurrence")) {
+                    continue;
+                }
+                if (drag_instance_path.empty()) return child;
+                if (child->data(0, Qt::UserRole + 1).toString().toStdString() ==
+                        drag_instance_path) {
+                    return child;
+                }
+            }
+            return nullptr;
+        };
+        auto* drag_occurrence_item = find_drag_occurrence_item();
+        if (!verify(drag_occurrence_item != nullptr,
+                    "inner Assembly is missing a Part occurrence for free-drag coverage")) {
+            return 1;
+        }
+        drag_instance_path =
+            drag_occurrence_item->data(0, Qt::UserRole + 1).toString().toStdString();
+        if (!verify(!drag_instance_path.empty(),
+                    "free-drag coverage's occurrence tree item has no instance path")) {
+            return 1;
+        }
+        window.show_tree_item_properties(drag_occurrence_item);
+        application.processEvents();
+        auto* drag_dialog = window.findChild<QDialog*>("zimaPropertiesSubWindow");
+        const auto drag_translation_fields = drag_dialog == nullptr
+            ? QList<QDoubleSpinBox*>{}
+            : drag_dialog->findChildren<QDoubleSpinBox*>("componentTranslation");
+        if (!verify(drag_dialog != nullptr && drag_translation_fields.size() == 3,
+                    "free-drag coverage requires the real ComponentPropertiesDialog")) {
+            return 1;
+        }
+        const double drag_start_x = drag_translation_fields[0]->value();
+        const double drag_start_y = drag_translation_fields[1]->value();
+        auto* drag_viewer = dynamic_cast<zima::viewer::MeshView*>(
+            window.findChild<QOpenGLWidget*>("modelWorkspace"));
+        auto* drag_filter_combo = window.findChild<QComboBox*>("selectionFilterCombo");
+        if (!verify(drag_viewer != nullptr && drag_filter_combo != nullptr,
+                    "free-drag coverage requires the shared viewer and selection filter")) {
+            return 1;
+        }
+        drag_filter_combo->setCurrentIndex(0);  // Vše (offers Occurrence candidates)
+        application.processEvents();
+        const auto find_occurrence_position = [&]() -> std::optional<QPointF> {
+            for (int y = 4; y < drag_viewer->height(); y += 4) {
+                for (int x = 4; x < drag_viewer->width(); x += 4) {
+                    const QPointF position{static_cast<qreal>(x), static_cast<qreal>(y)};
+                    for (const auto& candidate :
+                             drag_viewer->selection_candidates_at(position)) {
+                        if (candidate.kind == zima::viewer::CandidateKind::Occurrence &&
+                            candidate.instance_path == drag_instance_path) {
+                            return position;
+                        }
+                    }
+                }
+            }
+            return std::nullopt;
+        };
+        const auto drag_occurrence_position = find_occurrence_position();
+        if (!verify(drag_occurrence_position.has_value(),
+                    "viewer did not offer the dialog's own occurrence as a draggable candidate")) {
+            return 1;
+        }
+        QMouseEvent cancel_gesture_press(QEvent::MouseButtonPress, *drag_occurrence_position,
+            drag_viewer->mapToGlobal(drag_occurrence_position->toPoint()), Qt::LeftButton,
+            Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(drag_viewer, &cancel_gesture_press);
+        application.processEvents();
+        const QPointF cancel_gesture_target{
+            drag_occurrence_position->x() + 30.0, drag_occurrence_position->y() + 18.0};
+        QMouseEvent cancel_gesture_move(QEvent::MouseMove, cancel_gesture_target,
+            drag_viewer->mapToGlobal(cancel_gesture_target.toPoint()), Qt::LeftButton,
+            Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(drag_viewer, &cancel_gesture_move);
+        application.processEvents();
+        if (!verify(drag_translation_fields[0]->value() != drag_start_x ||
+                        drag_translation_fields[1]->value() != drag_start_y,
+                    "dragging the occurrence did not live-update the open Properties dialog")) {
+            return 1;
+        }
+        QKeyEvent cancel_gesture_escape(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+        QApplication::sendEvent(&window, &cancel_gesture_escape);
+        application.processEvents();
+        if (auto* cancel_gesture_buttons = drag_dialog->findChild<QDialogButtonBox*>()) {
+            cancel_gesture_buttons->button(QDialogButtonBox::Cancel)->click();
+        }
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        application.processEvents();
+        auto* reopened_drag_occurrence_item = find_drag_occurrence_item();
+        if (!verify(reopened_drag_occurrence_item != nullptr,
+                    "occurrence tree item vanished after cancelling the free drag")) {
+            return 1;
+        }
+        window.show_tree_item_properties(reopened_drag_occurrence_item);
+        application.processEvents();
+        auto* reopened_drag_dialog = window.findChild<QDialog*>("zimaPropertiesSubWindow");
+        const auto reopened_translation_fields = reopened_drag_dialog == nullptr
+            ? QList<QDoubleSpinBox*>{}
+            : reopened_drag_dialog->findChildren<QDoubleSpinBox*>("componentTranslation");
+        if (!verify(reopened_drag_dialog != nullptr &&
+                        reopened_translation_fields.size() == 3 &&
+                        reopened_translation_fields[0]->value() == drag_start_x &&
+                        reopened_translation_fields[1]->value() == drag_start_y,
+                    "Escape during a free drag must not persist the occurrence's placement")) {
+            return 1;
+        }
+        const auto committed_occurrence_position = find_occurrence_position();
+        if (!verify(committed_occurrence_position.has_value(),
+                    "cancelled drag did not restore the occurrence's draggable candidate")) {
+            return 1;
+        }
+        QMouseEvent commit_gesture_press(QEvent::MouseButtonPress, *committed_occurrence_position,
+            drag_viewer->mapToGlobal(committed_occurrence_position->toPoint()), Qt::LeftButton,
+            Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(drag_viewer, &commit_gesture_press);
+        application.processEvents();
+        const QPointF commit_gesture_target{
+            committed_occurrence_position->x() - 24.0,
+            committed_occurrence_position->y() + 16.0};
+        QMouseEvent commit_gesture_move(QEvent::MouseMove, commit_gesture_target,
+            drag_viewer->mapToGlobal(commit_gesture_target.toPoint()), Qt::LeftButton,
+            Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(drag_viewer, &commit_gesture_move);
+        application.processEvents();
+        QMouseEvent commit_gesture_release(QEvent::MouseButtonRelease, commit_gesture_target,
+            drag_viewer->mapToGlobal(commit_gesture_target.toPoint()), Qt::LeftButton,
+            Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(drag_viewer, &commit_gesture_release);
+        application.processEvents();
+        if (auto* reopened_drag_buttons =
+                reopened_drag_dialog->findChild<QDialogButtonBox*>()) {
+            reopened_drag_buttons->button(QDialogButtonBox::Cancel)->click();
+        }
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        application.processEvents();
+        auto* committed_drag_occurrence_item = find_drag_occurrence_item();
+        if (!verify(committed_drag_occurrence_item != nullptr,
+                    "occurrence tree item vanished after committing the free drag")) {
+            return 1;
+        }
+        window.show_tree_item_properties(committed_drag_occurrence_item);
+        application.processEvents();
+        auto* committed_drag_dialog = window.findChild<QDialog*>("zimaPropertiesSubWindow");
+        const auto committed_translation_fields = committed_drag_dialog == nullptr
+            ? QList<QDoubleSpinBox*>{}
+            : committed_drag_dialog->findChildren<QDoubleSpinBox*>("componentTranslation");
+        if (!verify(committed_drag_dialog != nullptr &&
+                        committed_translation_fields.size() == 3 &&
+                        (committed_translation_fields[0]->value() != drag_start_x ||
+                         committed_translation_fields[1]->value() != drag_start_y),
+                    "releasing a free drag did not persist the occurrence's new placement")) {
+            return 1;
+        }
+        if (auto* committed_drag_buttons =
+                committed_drag_dialog->findChild<QDialogButtonBox*>()) {
+            committed_drag_buttons->button(QDialogButtonBox::Cancel)->click();
         }
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
         application.processEvents();

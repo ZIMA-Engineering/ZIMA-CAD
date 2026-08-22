@@ -191,6 +191,7 @@ private:
     QAction* settings_action_{};
     QMenu* standard_views_menu_{};
     QDialog* properties_dialog_{};
+    std::string properties_dialog_instance_path_;
     QDialog* rename_document_dialog_{};
     QDialog* global_settings_dialog_{};
     struct PartRollbackContext {
@@ -306,6 +307,16 @@ private:
     bool assembly_drag_changed_{};
     zima::assembly::MateKind pending_mate_kind_{
         zima::assembly::MateKind::PlaneCoincident};
+    // Free-component drag (matches Python's `_on_insertion_origin_dragged`):
+    // active only while `properties_dialog_` is a ComponentPropertiesDialog
+    // editing the dragged occurrence. Translates the occurrence's
+    // coordinate-system origin along the camera view plane.
+    std::optional<zima::assembly::AssemblyDocument> component_drag_document_;
+    std::string component_drag_document_id_;
+    std::string component_drag_occurrence_id_;
+    zima::kernel::Vec3 component_drag_plane_point_;
+    zima::kernel::Vec3 component_drag_start_local_origin_;
+    bool component_drag_changed_{};
 
     void create_layout();
     void create_actions();
@@ -509,6 +520,12 @@ private:
         const zima::kernel::Vec3& ray_origin,
         const zima::kernel::Vec3& ray_direction);
     void end_assembly_mate_drag();
+    [[nodiscard]] bool begin_component_drag(
+        const zima::viewer::ViewerCandidate& candidate);
+    void update_component_drag(
+        const zima::kernel::Vec3& ray_origin,
+        const zima::kernel::Vec3& ray_direction);
+    void end_component_drag();
     [[nodiscard]] bool delete_selected_sketch_geometry();
     void remove_sketch_relation(
         const std::string& sketch_id, const std::string& relation_id,
