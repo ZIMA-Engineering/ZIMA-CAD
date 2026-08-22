@@ -42,6 +42,7 @@
 
 #include <iostream>
 #include <filesystem>
+#include <set>
 #include <tuple>
 
 namespace {
@@ -2151,6 +2152,324 @@ int verify_startup_contract(
         application.processEvents();
     }
 
+    {
+        // Angular mate (AxisAngle) GUI coverage: mate/DOF math and mate-handle
+        // drag are already native and covered by module-level contract tests,
+        // but had zero --verify-startup coverage. Insert a third, fresh
+        // occurrence of the same Part (unconstrained by the plane-coincident
+        // mate created above, avoiding any rank conflict), mate its Y axis to
+        // the first occurrence's X axis (perpendicular by construction, since
+        // no occurrence carries any rotation), set an angle and limits, then
+        // drag the mate's angle dimension handle and verify it stays within
+        // its configured limits.
+        int angle_assembly_tab_index = -1;
+        for (int index = 0; index < tabs->count(); ++index) {
+            if (tabs->tabText(index).startsWith(
+                    assembly_name + QStringLiteral(".asmz"))) {
+                angle_assembly_tab_index = index;
+                break;
+            }
+        }
+        if (!verify(angle_assembly_tab_index >= 0,
+                    "inner Assembly tab is no longer open for angular-mate coverage")) {
+            return 1;
+        }
+        tabs->setCurrentIndex(angle_assembly_tab_index);
+        application.processEvents();
+        auto* angle_tree = window.findChild<QTreeWidget*>("documentTree");
+        std::string angle_first_occurrence_instance_path;
+        int angle_occurrence_count_before = 0;
+        if (angle_tree != nullptr && angle_tree->topLevelItemCount() == 1) {
+            const auto* root = angle_tree->topLevelItem(0);
+            for (int index = 0; index < root->childCount(); ++index) {
+                auto* child = root->child(index);
+                if (child->data(0, Qt::UserRole + 3).toString() ==
+                        QStringLiteral("part-occurrence")) {
+                    ++angle_occurrence_count_before;
+                    if (angle_first_occurrence_instance_path.empty()) {
+                        angle_first_occurrence_instance_path =
+                            child->data(0, Qt::UserRole + 1).toString().toStdString();
+                    }
+                }
+            }
+        }
+        if (!verify(angle_occurrence_count_before >= 1 &&
+                        !angle_first_occurrence_instance_path.empty(),
+                    "inner Assembly is missing an occurrence for angular-mate coverage")) {
+            return 1;
+        }
+        auto* angle_insert_menu = window.findChild<QMenu*>("insertComponentMenu");
+        auto* angle_insert = window.findChild<QAction*>("insertComponentAction");
+        if (!verify(angle_insert != nullptr && angle_insert->isEnabled() &&
+                        angle_insert_menu != nullptr,
+                    "inner Assembly cannot insert a third Part occurrence for angular-mate coverage")) {
+            return 1;
+        }
+        QAction* angle_source_action{};
+        for (auto* action : angle_insert_menu->actions()) {
+            if (action->objectName() == QStringLiteral("insertSourceAction") &&
+                action->isEnabled()) {
+                angle_source_action = action;
+                break;
+            }
+        }
+        if (!verify(angle_source_action != nullptr,
+                    "inner Assembly has no Part source for a third occurrence")) {
+            return 1;
+        }
+        angle_source_action->trigger();
+        application.processEvents();
+        std::string angle_third_occurrence_instance_path;
+        if (angle_tree->topLevelItemCount() == 1) {
+            const auto* root = angle_tree->topLevelItem(0);
+            for (int index = 0; index < root->childCount(); ++index) {
+                auto* child = root->child(index);
+                if (child->data(0, Qt::UserRole + 3).toString() ==
+                        QStringLiteral("part-occurrence") &&
+                    child->data(0, Qt::UserRole + 1).toString().toStdString() !=
+                        angle_first_occurrence_instance_path) {
+                    angle_third_occurrence_instance_path =
+                        child->data(0, Qt::UserRole + 1).toString().toStdString();
+                }
+            }
+        }
+        if (!verify(!angle_third_occurrence_instance_path.empty(),
+                    "inserting a third Part occurrence for angular-mate coverage failed")) {
+            return 1;
+        }
+        // Reposition the new occurrence away from the existing two so its
+        // own candidates are separately pickable from theirs.
+        QTreeWidgetItem* angle_third_occurrence_item{};
+        if (angle_tree->topLevelItemCount() == 1) {
+            const auto* root = angle_tree->topLevelItem(0);
+            for (int index = 0; index < root->childCount(); ++index) {
+                auto* child = root->child(index);
+                if (child->data(0, Qt::UserRole + 3).toString() ==
+                        QStringLiteral("part-occurrence") &&
+                    child->data(0, Qt::UserRole + 1).toString().toStdString() ==
+                        angle_third_occurrence_instance_path) {
+                    angle_third_occurrence_item = child;
+                    break;
+                }
+            }
+        }
+        if (!verify(angle_third_occurrence_item != nullptr,
+                    "could not locate the third occurrence's tree item to reposition it")) {
+            return 1;
+        }
+        window.show_tree_item_properties(angle_third_occurrence_item);
+        application.processEvents();
+        auto* angle_reposition_dialog = window.findChild<QDialog*>("zimaPropertiesSubWindow");
+        auto* angle_reposition_translation_x = angle_reposition_dialog == nullptr
+            ? nullptr : angle_reposition_dialog->findChild<QDoubleSpinBox*>("componentTranslation");
+        const auto angle_reposition_rotations = angle_reposition_dialog == nullptr
+            ? QList<QDoubleSpinBox*>{}
+            : angle_reposition_dialog->findChildren<QDoubleSpinBox*>("componentRotation");
+        if (!verify(angle_reposition_dialog != nullptr &&
+                        angle_reposition_translation_x != nullptr &&
+                        angle_reposition_rotations.size() == 3,
+                    "third occurrence's Properties dialog is missing its "
+                    "translation or rotation fields")) {
+            return 1;
+        }
+        angle_reposition_translation_x->setValue(-100.0);
+        // Rotate the third occurrence 90 degrees about Y so its horizontal
+        // faces become vertical: a real, non-parallel plane pair with the
+        // first (unrotated) occurrence's horizontal faces, giving the
+        // PlaneAngle mate a genuine, non-degenerate angle to measure.
+        angle_reposition_rotations[1]->setValue(90.0);
+        angle_reposition_dialog->findChild<QDialogButtonBox*>()
+            ->button(QDialogButtonBox::Ok)->click();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        application.processEvents();
+        auto* angle_viewer = dynamic_cast<zima::viewer::MeshView*>(
+            window.findChild<QOpenGLWidget*>("modelWorkspace"));
+        auto* angle_mate_action = window.findChild<QAction*>("planeAngleMateAction");
+        auto* angle_filter_combo = window.findChild<QComboBox*>("selectionFilterCombo");
+        if (!verify(angle_viewer != nullptr && angle_mate_action != nullptr &&
+                        angle_mate_action->isEnabled() && angle_filter_combo != nullptr,
+                    "inner Assembly is missing the viewer or the plane-angle mate action")) {
+            return 1;
+        }
+        angle_filter_combo->setCurrentIndex(1);  // Plochy (Faces)
+        application.processEvents();
+        const auto find_angle_face_candidate = [&](
+            const std::string& semantic_key,
+            const std::string& required_instance_path) -> std::optional<QPointF> {
+            for (int y = 4; y < angle_viewer->height(); y += 4) {
+                for (int x = 4; x < angle_viewer->width(); x += 4) {
+                    const QPointF position{static_cast<qreal>(x), static_cast<qreal>(y)};
+                    for (const auto& candidate :
+                             angle_viewer->selection_candidates_at(position)) {
+                        if (candidate.kind == zima::viewer::CandidateKind::Face &&
+                            candidate.geometry ==
+                                zima::viewer::CandidateGeometry::OriginalReference &&
+                            candidate.semantic_key == semantic_key &&
+                            candidate.instance_path == required_instance_path) {
+                            return position;
+                        }
+                    }
+                }
+            }
+            return std::nullopt;
+        };
+        const auto angle_click_at = [&](const QPointF& position) {
+            QMouseEvent press(QEvent::MouseButtonPress, position,
+                angle_viewer->mapToGlobal(position.toPoint()), Qt::LeftButton,
+                Qt::LeftButton, Qt::NoModifier);
+            QApplication::sendEvent(angle_viewer, &press);
+            application.processEvents();
+        };
+        angle_mate_action->trigger();
+        application.processEvents();
+        // Rotating the third occurrence 90 degrees about Y remaps its
+        // horizontal z_min/z_max faces to vertical x_min/x_max faces (the
+        // semantic key tracks body-local orientation, not world position).
+        const auto angle_dependent_face_position =
+            find_angle_face_candidate("x_min", angle_third_occurrence_instance_path);
+        if (!verify(angle_dependent_face_position.has_value(),
+                    "plane-angle mate selection did not offer an x_min Face candidate "
+                    "on the rotated third occurrence")) {
+            return 1;
+        }
+        angle_click_at(*angle_dependent_face_position);
+        const auto angle_prerequisite_face_position =
+            find_angle_face_candidate("z_max", angle_first_occurrence_instance_path);
+        if (!verify(angle_prerequisite_face_position.has_value(),
+                    "plane-angle mate selection did not offer a z_max Face candidate "
+                    "on the first occurrence")) {
+            return 1;
+        }
+        angle_click_at(*angle_prerequisite_face_position);
+        auto* angle_mate_dialog = window.findChild<QDialog*>("zimaPropertiesSubWindow");
+        auto* angle_mate_angle = angle_mate_dialog == nullptr
+            ? nullptr : angle_mate_dialog->findChild<QDoubleSpinBox*>("mateAngle");
+        auto* angle_mate_lower_enabled = angle_mate_dialog == nullptr
+            ? nullptr : angle_mate_dialog->findChild<QCheckBox*>("mateLowerEnabled");
+        auto* angle_mate_lower_limit = angle_mate_dialog == nullptr
+            ? nullptr : angle_mate_dialog->findChild<QDoubleSpinBox*>("mateLowerLimit");
+        auto* angle_mate_upper_enabled = angle_mate_dialog == nullptr
+            ? nullptr : angle_mate_dialog->findChild<QCheckBox*>("mateUpperEnabled");
+        auto* angle_mate_upper_limit = angle_mate_dialog == nullptr
+            ? nullptr : angle_mate_dialog->findChild<QDoubleSpinBox*>("mateUpperLimit");
+        if (!verify(angle_mate_dialog != nullptr &&
+                        angle_mate_dialog->windowFlags().testFlag(Qt::SubWindow) &&
+                        angle_mate_angle != nullptr && angle_mate_angle->isEnabled() &&
+                        angle_mate_lower_enabled != nullptr && angle_mate_lower_limit != nullptr &&
+                        angle_mate_upper_enabled != nullptr && angle_mate_upper_limit != nullptr,
+                    "real plane-angle picks did not open the shared Mate Properties dialog "
+                    "with an editable angle")) {
+            return 1;
+        }
+        angle_mate_angle->setValue(90.0);
+        angle_mate_lower_enabled->setChecked(true);
+        angle_mate_lower_limit->setValue(60.0);
+        angle_mate_upper_enabled->setChecked(true);
+        angle_mate_upper_limit->setValue(120.0);
+        angle_mate_dialog->findChild<QDialogButtonBox*>()
+            ->button(QDialogButtonBox::Ok)->click();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        application.processEvents();
+        int angle_mate_count_in_tree = 0;
+        if (angle_tree->topLevelItemCount() == 1) {
+            const auto* root = angle_tree->topLevelItem(0);
+            for (int index = 0; index < root->childCount(); ++index) {
+                auto* child = root->child(index);
+                if (child->text(0) == QStringLiteral("Vazby")) {
+                    for (int mate_index = 0; mate_index < child->childCount();
+                         ++mate_index) {
+                        if (child->child(mate_index)->data(0, Qt::UserRole + 3)
+                                .toString() == QStringLiteral("assembly-mate")) {
+                            ++angle_mate_count_in_tree;
+                        }
+                    }
+                }
+            }
+        }
+        if (!verify(angle_mate_count_in_tree >= 2,
+                    "confirming the plane-angle Properties dialog did not add a second mate")) {
+            return 1;
+        }
+        std::optional<QPointF> angle_mate_handle_position;
+        angle_filter_combo->setCurrentIndex(0);
+        application.processEvents();
+        for (int y = 4; y < angle_viewer->height() && !angle_mate_handle_position; y += 2) {
+            for (int x = 4; x < angle_viewer->width() && !angle_mate_handle_position; x += 2) {
+                const QPointF position{static_cast<qreal>(x), static_cast<qreal>(y)};
+                for (const auto& candidate :
+                         angle_viewer->selection_candidates_at(position)) {
+                    if (candidate.kind == zima::viewer::CandidateKind::Dimension &&
+                        candidate.semantic_key.starts_with("mate:")) {
+                        angle_mate_handle_position = position;
+                        break;
+                    }
+                }
+            }
+        }
+        if (!verify(angle_mate_handle_position.has_value(),
+                    "no mate offered a draggable Dimension handle after the plane-angle mate")) {
+            return 1;
+        }
+        angle_click_at(*angle_mate_handle_position);
+        const QPointF angle_drag_target{
+            angle_mate_handle_position->x() + 12.0, angle_mate_handle_position->y() + 12.0};
+        QMouseEvent angle_drag_press(QEvent::MouseButtonPress, *angle_mate_handle_position,
+            angle_viewer->mapToGlobal(angle_mate_handle_position->toPoint()),
+            Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(angle_viewer, &angle_drag_press);
+        application.processEvents();
+        QMouseEvent angle_drag_move(QEvent::MouseMove, angle_drag_target,
+            angle_viewer->mapToGlobal(angle_drag_target.toPoint()), Qt::LeftButton,
+            Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(angle_viewer, &angle_drag_move);
+        application.processEvents();
+        QMouseEvent angle_drag_release(QEvent::MouseButtonRelease, angle_drag_target,
+            angle_viewer->mapToGlobal(angle_drag_target.toPoint()), Qt::LeftButton,
+            Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(angle_viewer, &angle_drag_release);
+        application.processEvents();
+        QTreeWidgetItem* angle_dragged_mate_item{};
+        if (angle_tree->topLevelItemCount() == 1) {
+            const auto* root = angle_tree->topLevelItem(0);
+            for (int index = 0; index < root->childCount() && !angle_dragged_mate_item;
+                 ++index) {
+                auto* child = root->child(index);
+                if (child->text(0) == QStringLiteral("Vazby")) {
+                    for (int mate_index = 0; mate_index < child->childCount();
+                         ++mate_index) {
+                        auto* mate_item = child->child(mate_index);
+                        if (mate_item->data(0, Qt::UserRole + 3).toString() ==
+                                QStringLiteral("assembly-mate")) {
+                            angle_dragged_mate_item = mate_item;
+                        }
+                    }
+                }
+            }
+        }
+        if (!verify(angle_dragged_mate_item != nullptr,
+                    "no mate tree item remained after dragging the angular mate's handle")) {
+            return 1;
+        }
+        window.show_tree_item_properties(angle_dragged_mate_item);
+        application.processEvents();
+        auto* angle_dragged_dialog = window.findChild<QDialog*>("zimaPropertiesSubWindow");
+        auto* angle_dragged_angle = angle_dragged_dialog == nullptr
+            ? nullptr : angle_dragged_dialog->findChild<QDoubleSpinBox*>("mateAngle");
+        if (!verify(angle_dragged_angle != nullptr &&
+                        angle_dragged_angle->value() >= 60.0 &&
+                        angle_dragged_angle->value() <= 120.0,
+                    "dragging a mate's dimension handle did not keep every mate's angle "
+                    "within its persisted limits")) {
+            return 1;
+        }
+        if (auto* angle_dragged_buttons =
+                angle_dragged_dialog->findChild<QDialogButtonBox*>()) {
+            angle_dragged_buttons->button(QDialogButtonBox::Cancel)->click();
+        }
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        application.processEvents();
+    }
+
     if (!create_document(QStringLiteral("drawing"), drawing_name)) {
         return 1;
     }
@@ -2263,7 +2582,7 @@ int verify_startup_contract(
                 ? 0
                 : drawing_window->document_for_test()
                       .sheets.front().bom_rows.front().quantity;
-        if (!verify(bom_quantity_after_insertion == 2,
+        if (!verify(bom_quantity_after_insertion == 3,
                     "inserting an Assembly view did not seed the BOM from its two Part occurrences")) {
             return 1;
         }
@@ -2335,7 +2654,7 @@ int verify_startup_contract(
                 ? 0
                 : drawing_window->document_for_test()
                       .sheets.front().bom_rows.front().quantity;
-        if (!verify(bom_quantity_after_regeneration == 3,
+        if (!verify(bom_quantity_after_regeneration == 4,
                     "regenerating the Drawing view did not re-derive the BOM from the "
                     "Assembly's updated component list")) {
             return 1;
