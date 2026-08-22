@@ -205,14 +205,43 @@ struct ImportedStepParameters {
 };
 
 struct Placement {
+    // Resolved container origin, either entered directly (no references) or
+    // solved from `references` below, exactly as ConstructionObject does for
+    // a standalone Point.
     double x{};
     double y{};
     double z{};
+    // Resolved final orientation actually applied to the container's local
+    // frame: the FRONT/TOP reference frame (when present) composed with the
+    // manual rotation_offset_* correction below. When no orientation
+    // reference is set this equals the manual offset unchanged.
     double rotation_x{};
     double rotation_y{};
     double rotation_z{};
+    // Manual RX/RY/RZ correction the user edits directly; combined on top of
+    // any FRONT/TOP reference frame during resolve_placement().
+    double rotation_offset_x{};
+    double rotation_offset_y{};
+    double rotation_offset_z{};
+    // Universal container placement references: entries with
+    // orientation_drives_rotation == false position the origin (same
+    // point/axis/plane equation solve as ConstructionDefinition::PointReference);
+    // entries with orientation_drives_rotation == true and orientation_role
+    // "front"/"top" orient the container's local frame.
+    std::vector<ConstructionReference> references;
+    bool reference_valid{true};
     bool operator==(const Placement&) const = default;
 };
+
+// Resolves a container's origin (from position references, falling back to
+// the entered x/y/z when none are set) and orientation (FRONT/TOP reference
+// frame composed with the manual rotation_offset_* correction) the same way
+// for every container kind (primitive solids, Extrusion, Revolution, ...).
+// Returns whether every reference in `placement.references` could be found
+// in `geometry`; on failure the previous x/y/z/rotation_* fields are kept as
+// the under-constrained fallback.
+[[nodiscard]] bool resolve_placement(
+    Placement& placement, const zima::kernel::ViewerReferenceGeometry& geometry);
 
 struct HistoryContainer {
     std::string id;

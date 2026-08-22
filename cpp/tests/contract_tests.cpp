@@ -760,6 +760,74 @@ int main() {
                         1.0e-6 &&
                     constructions.constructions.back().references.size() == 2,
                 "Plane reference resolution ignored its placement/orientation split");
+        // Universal container placement: any HistoryContainer (not only a
+        // standalone Point/Axis/Plane) can be positioned by a reference and
+        // oriented by a FRONT/TOP reference pair, mirroring the Python
+        // reference implementation's `_plane_reference_rotation` /
+        // `_rotation_with_local_offset` frame math bit-for-bit.
+        {
+            zima::document::Placement identity_placement;
+            identity_placement.references = {
+                {{}, constructions.document_id + ":origin", "origin:point"},
+                {{}, constructions.document_id + ":origin", "origin:axis:y", 0.0,
+                    false, "front", true},
+                {{}, constructions.document_id + ":origin", "origin:axis:z", 0.0,
+                    false, "top", true}};
+            require(zima::document::resolve_placement(
+                        identity_placement, document_origin_geometry) &&
+                        std::abs(identity_placement.x) < 1.0e-9 &&
+                        std::abs(identity_placement.y) < 1.0e-9 &&
+                        std::abs(identity_placement.z) < 1.0e-9 &&
+                        std::abs(identity_placement.rotation_x) < 1.0e-6 &&
+                        std::abs(identity_placement.rotation_y) < 1.0e-6 &&
+                        std::abs(identity_placement.rotation_z) < 1.0e-6,
+                    "Container placement did not resolve the identity FRONT=Y/TOP=Z frame");
+
+            zima::document::Placement rotated_placement;
+            rotated_placement.references = {
+                {{}, constructions.document_id + ":origin", "origin:axis:x", 0.0,
+                    false, "front", true},
+                {{}, constructions.document_id + ":origin", "origin:axis:z", 0.0,
+                    false, "top", true}};
+            require(zima::document::resolve_placement(
+                        rotated_placement, document_origin_geometry) &&
+                        std::abs(rotated_placement.rotation_x) < 1.0e-6 &&
+                        std::abs(rotated_placement.rotation_y) < 1.0e-6 &&
+                        std::abs(rotated_placement.rotation_z - (-90.0)) < 1.0e-4,
+                    "Container placement did not derive RZ from a FRONT=X reference");
+
+            zima::document::Placement offset_placement;
+            offset_placement.rotation_offset_x = 12.5;
+            offset_placement.rotation_offset_y = -4.0;
+            offset_placement.rotation_offset_z = 30.0;
+            require(zima::document::resolve_placement(
+                        offset_placement, document_origin_geometry) &&
+                        std::abs(offset_placement.rotation_x - 12.5) < 1.0e-9 &&
+                        std::abs(offset_placement.rotation_y - (-4.0)) < 1.0e-9 &&
+                        std::abs(offset_placement.rotation_z - 30.0) < 1.0e-9,
+                    "Container placement without a FRONT/TOP reference did not pass "
+                    "the manual RX/RY/RZ correction through unchanged");
+
+            zima::document::Placement composed_placement;
+            composed_placement.rotation_offset_z = 15.0;
+            composed_placement.references = {
+                {{}, constructions.document_id + ":origin", "origin:axis:x", 0.0,
+                    false, "front", true},
+                {{}, constructions.document_id + ":origin", "origin:axis:z", 0.0,
+                    false, "top", true}};
+            require(zima::document::resolve_placement(
+                        composed_placement, document_origin_geometry) &&
+                        std::abs(composed_placement.rotation_z - (-75.0)) < 1.0e-4,
+                    "Container placement did not compose the manual RZ correction "
+                    "on top of the FRONT/TOP reference frame");
+
+            zima::document::Placement missing_placement;
+            missing_placement.references = {
+                {{}, "does-not-exist", "origin:point"}};
+            require(!zima::document::resolve_placement(
+                        missing_placement, document_origin_geometry),
+                    "Container placement accepted an unresolved position reference");
+        }
         auto cyclic_point = zima::document::PartDocument::create_construction(
             zima::document::ConstructionKind::Point);
         cyclic_point.definition =
@@ -1310,16 +1378,45 @@ int main() {
         require(through_results.size() == 2 &&
                     std::abs(through_results.back().volume - 3750.0) < 1e-6,
                 "Through-all subtractive Extrusion did not cross the complete body");
-        auto misplaced_extrusion = extrusion_document;
-        misplaced_extrusion.history.front().placement.x = 5.0;
-        bool misplaced_extrusion_rejected = false;
-        try {
-            static_cast<void>(misplaced_extrusion.kernel_operations());
-        } catch (const std::runtime_error&) {
-            misplaced_extrusion_rejected = true;
-        }
-        require(misplaced_extrusion_rejected,
-                "Extrusion silently accepted a second placement");
+        auto placed_extrusion = extrusion_document;
+        placed_extrusion.history.front().placement.x = 5.0;
+        const auto placed_extrusion_results =
+            kernel.evaluate_history(placed_extrusion.kernel_operations());
+        require(placed_extrusion_results.size() == 1 &&
+                    std::abs(placed_extrusion_results.front().volume - 6000.0) < 1.0e-6,
+                "Extrusion container placement changed the extruded solid's volume");
+        const auto min_x = [](const auto& results) {
+            double value = std::numeric_limits<double>::infinity();
+            for (const auto& vertex : results.front().mesh.vertices) {
+                value = std::min(value, vertex.x);
+            }
+            return value;
+        };
+        require(std::abs(min_x(placed_extrusion_results) -
+                    (min_x(extrusion_results) + 5.0)) < 1.0e-6,
+                "Extrusion container placement did not translate the extruded profile");
+        auto rotated_extrusion = extrusion_document;
+        rotated_extrusion.history.front().placement.rotation_z = 90.0;
+        const auto rotated_extrusion_results =
+            kernel.evaluate_history(rotated_extrusion.kernel_operations());
+        require(rotated_extrusion_results.size() == 1 &&
+                    std::abs(rotated_extrusion_results.front().volume - 6000.0) < 1.0e-6,
+                "Extrusion container orientation changed the extruded solid's volume");
+        const auto bounding_extent = [](const auto& results, char axis) {
+            double lo = std::numeric_limits<double>::infinity();
+            double hi = -std::numeric_limits<double>::infinity();
+            for (const auto& vertex : results.front().mesh.vertices) {
+                const double value = axis == 'x' ? vertex.x : vertex.y;
+                lo = std::min(lo, value);
+                hi = std::max(hi, value);
+            }
+            return hi - lo;
+        };
+        require(std::abs(bounding_extent(rotated_extrusion_results, 'x') -
+                    bounding_extent(extrusion_results, 'y')) < 1.0e-6 &&
+                    std::abs(bounding_extent(rotated_extrusion_results, 'y') -
+                        bounding_extent(extrusion_results, 'x')) < 1.0e-6,
+                "Extrusion container orientation did not rotate the extruded profile");
         auto open_profile_document = zima::document::PartDocument::create_default();
         auto open_profile = zima::sketcher::Sketch::create_default();
         static_cast<void>(open_profile.add_segment(0.0, 0.0, 10.0, 0.0));
