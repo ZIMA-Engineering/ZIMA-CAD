@@ -24,6 +24,10 @@ public:
         zima::workspace::Workspace* workspace = nullptr,
         bool create_initial_document = true);
     void edit_workspace_document(const std::string& document_id);
+    [[nodiscard]] const zima::drawing::DrawingDocument& document_for_test() const {
+        return document_;
+    }
+    void select_view_for_test(const std::string& view_id);
 
 private:
     zima::drawing::DrawingDocument document_;

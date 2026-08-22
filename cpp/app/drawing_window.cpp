@@ -246,6 +246,31 @@ std::pair<std::string, zima::kernel::ViewerMesh> load_drawing_source(
     throw std::runtime_error("Nepodporovaný zdroj výkresového pohledu.");
 }
 
+// Builds BOM rows from the current state of an Assembly source (by open
+// workspace document if available, otherwise by loading the .asmz file),
+// so both initial view insertion and later view regeneration can rebuild
+// the BOM from the assembly's up-to-date component list.
+std::vector<zima::drawing::BomRow> build_bom_rows_for_source(
+    const std::string& source_id, const std::filesystem::path& source_path,
+    zima::workspace::Workspace* workspace) {
+    std::vector<zima::drawing::BomRow> bom;
+    const zima::assembly::AssemblyDocument* assembly{};
+    std::optional<zima::assembly::AssemblyDocument> loaded;
+    if (workspace != nullptr) if (const auto* open = workspace->open_assembly(source_id))
+        assembly = &open->session.document();
+    if (assembly == nullptr && !source_path.empty() && source_path.extension() == ".asmz") {
+        loaded = zima::assembly::AssemblyDocument::load(source_path); assembly = &*loaded;
+    }
+    if (assembly != nullptr) for (const auto& component : assembly->components) {
+        const auto existing = std::find_if(bom.begin(), bom.end(), [&](const auto& row) {
+            return row.designation == component.source_document_id; });
+        if (existing == bom.end()) bom.push_back({static_cast<int>(bom.size() + 1), 1,
+            component.name, component.source_document_id, {}});
+        else ++existing->quantity;
+    }
+    return bom;
+}
+
 }  // namespace
 
 class DrawingCanvas final : public QWidget {
@@ -268,6 +293,11 @@ public:
         update();
     }
     [[nodiscard]] const std::string& selected_view_id() const { return selected_; }
+    void select_view_for_test(const std::string& view_id) {
+        selected_ = view_id; selected_dimension_id_.clear();
+        if (selection_changed_) selection_changed_();
+        update();
+    }
     void set_changed_callback(std::function<void()> callback) { changed_=std::move(callback); }
     void set_selection_changed_callback(std::function<void()> callback) {
         selection_changed_ = std::move(callback);
@@ -706,6 +736,9 @@ void DrawingWindow::edit_workspace_document(const std::string& document_id) {
     auto* state=workspace_->open_drawing(document_id); if(state==nullptr) return;
     workspace_document_id_=document_id; document_=state->document; path_=state->path; refresh();
 }
+void DrawingWindow::select_view_for_test(const std::string& view_id) {
+    canvas_->select_view_for_test(view_id);
+}
 void DrawingWindow::open_document() {
     const auto path = open_file(this, tr("Otevřít výkres"), {}, tr("Výkres ZIMA-CAD (*.drwz)"));
     if (path.isEmpty()) return;
@@ -815,22 +848,7 @@ void DrawingWindow::insert_view_from_file() {
 
 void DrawingWindow::begin_view_insertion(
     std::string source_id,std::filesystem::path source_path,zima::kernel::ViewerMesh mesh) {
-    std::vector<zima::drawing::BomRow> bom;
-    const zima::assembly::AssemblyDocument* assembly{};
-    std::optional<zima::assembly::AssemblyDocument> loaded;
-    if(workspace_!=nullptr) if(const auto* open=workspace_->open_assembly(source_id))
-        assembly=&open->session.document();
-    if(assembly==nullptr && (!source_path.empty()) &&
-       source_path.extension()==".asmz") {
-        loaded=zima::assembly::AssemblyDocument::load(source_path); assembly=&*loaded;
-    }
-    if(assembly!=nullptr) for(const auto& component:assembly->components) {
-        const auto existing=std::find_if(bom.begin(),bom.end(),[&](const auto& row) {
-            return row.designation==component.source_document_id; });
-        if(existing==bom.end()) bom.push_back({static_cast<int>(bom.size()+1),1,
-            component.name,component.source_document_id,{}});
-        else ++existing->quantity;
-    }
+    auto bom = build_bom_rows_for_source(source_id, source_path, workspace_);
     auto view=zima::drawing::DrawingDocument::create_view(source_id,source_path,mesh);
         auto* dialog = new ViewPropertiesDialog(this, view,
             [this, mesh = std::move(mesh), bom = std::move(bom)](auto accepted) mutable {
@@ -882,7 +900,17 @@ void DrawingWindow::regenerate_selected_view() {
             view->source_path,workspace_,view->source_document_id);
         if (source_id != view->source_document_id)
             throw std::runtime_error("Zdrojový soubor patří jinému dokumentu.");
-        document_.refresh_view(view->id, mesh); refresh(); state_->setText(tr("Pohled regenerován."));
+        document_.refresh_view(view->id, mesh);
+        // Keep the sheet's BOM in sync with the source Assembly's current
+        // component list: regenerating a view is the explicit user action
+        // that pulls in the latest source state, so it also re-derives the
+        // BOM instead of leaving it frozen at first-insertion time.
+        auto refreshed_bom = build_bom_rows_for_source(
+            source_id, view->source_path, workspace_);
+        if (!refreshed_bom.empty()) {
+            if (auto* sheet = active_sheet()) sheet->bom_rows = std::move(refreshed_bom);
+        }
+        refresh(); state_->setText(tr("Pohled regenerován."));
     } catch (const std::exception& error) {
         QMessageBox::warning(this, tr("Nelze regenerovat pohled"), error.what());
     }

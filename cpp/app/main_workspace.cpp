@@ -1,5 +1,6 @@
 #include "assembly_workspace_window.hpp"
 #include "construction_properties_dialog.hpp"
+#include "drawing_window.hpp"
 
 #include <zima/viewer/mesh_view.hpp>
 
@@ -2012,6 +2013,137 @@ int verify_startup_contract(
                     sheet_count_before_reopen > 0,
                 "saved Drawing did not close and reopen its sheet structure")) {
         return 1;
+    }
+
+    {
+        // Advanced Drawing parity: a Drawing view inserted from an
+        // Assembly source must seed the sheet's BOM from that Assembly's
+        // components, and later regenerating the view (an explicit user
+        // action) must re-derive the BOM from the Assembly's *current*
+        // component list rather than leaving it frozen at insertion time.
+        auto* drawing_window = static_cast<zima::app::DrawingWindow*>(
+            window.findChild<QWidget*>("drawingWorkspace"));
+        if (!verify(drawing_window != nullptr,
+                    "Drawing document has no embedded DrawingWindow for BOM coverage")) {
+            return 1;
+        }
+        insert_view->trigger();
+        application.processEvents();
+        auto* source_dialog = window.findChild<QDialog*>("zimaPropertiesSubWindow");
+        auto* source_combo = source_dialog == nullptr
+            ? nullptr : source_dialog->findChild<QComboBox*>();
+        if (!verify(source_dialog != nullptr && source_combo != nullptr,
+                    "inserting a Drawing view did not open the source-selection dialog")) {
+            return 1;
+        }
+        int assembly_source_index = -1;
+        for (int index = 0; index < source_combo->count(); ++index) {
+            if (source_combo->itemText(index).startsWith(assembly_name)) {
+                assembly_source_index = index;
+                break;
+            }
+        }
+        if (!verify(assembly_source_index >= 0,
+                    "Drawing view source dialog did not offer the inner Assembly")) {
+            return 1;
+        }
+        source_combo->setCurrentIndex(assembly_source_index);
+        source_dialog->findChild<QDialogButtonBox*>()
+            ->button(QDialogButtonBox::Ok)->click();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        application.processEvents();
+        auto* view_dialog = window.findChild<QDialog*>("zimaPropertiesSubWindow");
+        if (!verify(view_dialog != nullptr,
+                    "selecting the Assembly source did not open the view Properties dialog")) {
+            return 1;
+        }
+        view_dialog->findChild<QDialogButtonBox*>()
+            ->button(QDialogButtonBox::Ok)->click();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        application.processEvents();
+        const int bom_quantity_after_insertion =
+            drawing_window->document_for_test().sheets.empty() ||
+                    drawing_window->document_for_test().sheets.front().bom_rows.empty()
+                ? 0
+                : drawing_window->document_for_test()
+                      .sheets.front().bom_rows.front().quantity;
+        if (!verify(bom_quantity_after_insertion == 2,
+                    "inserting an Assembly view did not seed the BOM from its two Part occurrences")) {
+            return 1;
+        }
+        // Insert a third occurrence into the Assembly directly through the
+        // workspace model (not the GUI, since the Assembly tab is not the
+                // Insert a third occurrence into the Assembly through the real GUI
+        // insertion flow (switch to its tab, trigger Insert, switch back
+        // to the Drawing tab), so the source Assembly's component list
+        // genuinely changes between view insertion and regeneration.
+        const std::string bom_assembly_document_id =
+            drawing_window->document_for_test().sheets.front()
+                .views.front().source_document_id;
+        int bom_assembly_tab_index = -1;
+        for (int index = 0; index < tabs->count(); ++index) {
+            if (tabs->tabText(index).startsWith(
+                    assembly_name + QStringLiteral(".asmz"))) {
+                bom_assembly_tab_index = index;
+                break;
+            }
+        }
+        const int drawing_tab_index = tabs->currentIndex();
+        if (!verify(bom_assembly_tab_index >= 0,
+                    "inner Assembly tab is no longer open for BOM regeneration coverage")) {
+            return 1;
+        }
+        tabs->setCurrentIndex(bom_assembly_tab_index);
+        application.processEvents();
+        auto* bom_insert_menu = window.findChild<QMenu*>("insertComponentMenu");
+        QAction* bom_source_action{};
+        if (bom_insert_menu != nullptr) {
+            for (auto* action : bom_insert_menu->actions()) {
+                if (action->objectName() == QStringLiteral("insertSourceAction") &&
+                    action->isEnabled()) {
+                    bom_source_action = action;
+                    break;
+                }
+            }
+        }
+        if (!verify(bom_source_action != nullptr,
+                    "inner Assembly has no Part source for a third occurrence")) {
+            return 1;
+        }
+        bom_source_action->trigger();
+        application.processEvents();
+        tabs->setCurrentIndex(drawing_tab_index);
+        application.processEvents();
+        auto* regenerate_view = window.findChild<QAction*>("regenerateDrawingViewAction");
+        if (!verify(regenerate_view != nullptr,
+                    "Drawing regeneration coverage requires its action")) {
+            return 1;
+        }
+        // Select the sole inserted view directly (production code exposes
+        // this only through the canvas' internal hit-testing, which the
+        // GUI test drives via a dedicated test-only accessor instead of
+        // guessing pixel coordinates).
+        const auto& inserted_view_id = drawing_window->document_for_test()
+            .sheets.front().views.front().id;
+        drawing_window->select_view_for_test(inserted_view_id);
+        application.processEvents();
+        if (!verify(regenerate_view->isEnabled(),
+                    "selecting the inserted Drawing view did not enable regeneration")) {
+            return 1;
+        }
+        regenerate_view->trigger();
+        application.processEvents();
+        const int bom_quantity_after_regeneration =
+            drawing_window->document_for_test().sheets.empty() ||
+                    drawing_window->document_for_test().sheets.front().bom_rows.empty()
+                ? 0
+                : drawing_window->document_for_test()
+                      .sheets.front().bom_rows.front().quantity;
+        if (!verify(bom_quantity_after_regeneration == 3,
+                    "regenerating the Drawing view did not re-derive the BOM from the "
+                    "Assembly's updated component list")) {
+            return 1;
+        }
     }
 
     // File-management parity: rename, delete-current-file, delete old
