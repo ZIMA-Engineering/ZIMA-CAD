@@ -5,6 +5,7 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QCheckBox>
 #include <QColor>
 #include <QComboBox>
 #include <QDialog>
@@ -1619,6 +1620,338 @@ int verify_startup_contract(
                     "saved outer Assembly did not close and reopen its nested subassembly structure")) {
             return 1;
         }
+    }
+
+    {
+        // Deep Assembly mechanisms: mate creation, DOF display and mate
+        // dimension drag must all be reachable through the real window and
+        // the real viewer selection contract, not only through the module
+        // unit tests. Switch back to the inner Assembly document (already
+        // open in its own tab), which already contains one Part occurrence
+        // with a calculated Box, insert a second occurrence of the same
+        // Part (a repeated-occurrence fixture), mate their opposing planar
+        // faces, then drag the mate's dimension handle to change its offset
+        // within its limits.
+        int inner_assembly_tab_index = -1;
+        for (int index = 0; index < tabs->count(); ++index) {
+            if (tabs->tabText(index).startsWith(
+                    assembly_name + QStringLiteral(".asmz"))) {
+                inner_assembly_tab_index = index;
+                break;
+            }
+        }
+        if (!verify(inner_assembly_tab_index >= 0,
+                    "inner Assembly tab is no longer open for mate coverage")) {
+            return 1;
+        }
+        tabs->setCurrentIndex(inner_assembly_tab_index);
+        application.processEvents();
+        auto* local_mate_tree = window.findChild<QTreeWidget*>("documentTree");
+        if (!verify(local_mate_tree != nullptr && local_mate_tree->topLevelItemCount() == 1,
+                    "reopened inner Assembly is missing its tree root")) {
+            return 1;
+        }
+        int part_occurrence_count_before = 0;
+        std::string first_occurrence_instance_path;
+        for (int index = 0; index < local_mate_tree->topLevelItem(0)->childCount(); ++index) {
+            auto* candidate_child = local_mate_tree->topLevelItem(0)->child(index);
+            if (candidate_child->data(0, Qt::UserRole + 3).toString() ==
+                    QStringLiteral("part-occurrence")) {
+                ++part_occurrence_count_before;
+                first_occurrence_instance_path =
+                    candidate_child->data(0, Qt::UserRole + 1).toString().toStdString();
+            }
+        }
+        if (!verify(part_occurrence_count_before == 1 && !first_occurrence_instance_path.empty(),
+                    "reopened inner Assembly did not have exactly one Part occurrence")) {
+            return 1;
+        }
+        auto* mate_insert_menu = window.findChild<QMenu*>("insertComponentMenu");
+        auto* mate_insert = window.findChild<QAction*>("insertComponentAction");
+        if (!verify(mate_insert != nullptr && mate_insert->isEnabled() &&
+                        mate_insert_menu != nullptr,
+                    "reopened inner Assembly cannot insert a second Part occurrence")) {
+            return 1;
+        }
+        QAction* second_source_action{};
+        for (auto* action : mate_insert_menu->actions()) {
+            if (action->objectName() == QStringLiteral("insertSourceAction") &&
+                action->isEnabled()) {
+                second_source_action = action;
+                break;
+            }
+        }
+        if (!verify(second_source_action != nullptr,
+                    "reopened inner Assembly has no Part source for a second occurrence")) {
+            return 1;
+        }
+        second_source_action->trigger();
+        application.processEvents();
+        int part_occurrence_count_after = 0;
+        std::string second_occurrence_instance_path;
+        if (local_mate_tree->topLevelItemCount() == 1) {
+            const auto* root = local_mate_tree->topLevelItem(0);
+            for (int index = 0; index < root->childCount(); ++index) {
+                auto* child = root->child(index);
+                if (child->data(0, Qt::UserRole + 3).toString() ==
+                        QStringLiteral("part-occurrence")) {
+                    ++part_occurrence_count_after;
+                    second_occurrence_instance_path =
+                        child->data(0, Qt::UserRole + 1).toString().toStdString();
+                }
+            }
+        }
+        if (!verify(part_occurrence_count_after == 2 &&
+                        !second_occurrence_instance_path.empty(),
+                    "inserting the same Part again did not create a second repeated occurrence")) {
+            return 1;
+        }
+        // Both copies currently share the exact same placement (fully
+        // coincident), which makes their opposing faces indistinguishable
+        // to the pixel-scan picker (only the frontmost occurrence's faces
+        // are ever hit). Move the second occurrence 100 mm along X through
+        // its real Properties dialog so its own z_min/z_max faces become
+        // separately pickable, matching the intended repeated-occurrence
+        // mate scenario.
+        QTreeWidgetItem* second_occurrence_item{};
+        for (int index = 0; index < local_mate_tree->topLevelItem(0)->childCount();
+             ++index) {
+            auto* child = local_mate_tree->topLevelItem(0)->child(index);
+            if (child->data(0, Qt::UserRole + 3).toString() ==
+                    QStringLiteral("part-occurrence") &&
+                child->data(0, Qt::UserRole + 1).toString().toStdString() ==
+                    second_occurrence_instance_path) {
+                second_occurrence_item = child;
+                break;
+            }
+        }
+        if (!verify(second_occurrence_item != nullptr,
+                    "could not locate the second occurrence's tree item to reposition it")) {
+            return 1;
+        }
+        window.show_tree_item_properties(second_occurrence_item);
+        application.processEvents();
+        auto* reposition_dialog = window.findChild<QDialog*>("zimaPropertiesSubWindow");
+        auto* reposition_translation_x = reposition_dialog == nullptr
+            ? nullptr : reposition_dialog->findChild<QDoubleSpinBox*>("componentTranslation");
+        if (!verify(reposition_dialog != nullptr && reposition_translation_x != nullptr,
+                    "second occurrence's Properties dialog is missing its translation field")) {
+            return 1;
+        }
+        reposition_translation_x->setValue(100.0);
+        reposition_dialog->findChild<QDialogButtonBox*>()
+            ->button(QDialogButtonBox::Ok)->click();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        application.processEvents();
+        auto* mate_viewer = dynamic_cast<zima::viewer::MeshView*>(
+            window.findChild<QOpenGLWidget*>("modelWorkspace"));
+        auto* plane_mate_action = window.findChild<QAction*>("planeMateAction");
+        if (!verify(mate_viewer != nullptr && plane_mate_action != nullptr &&
+                        plane_mate_action->isEnabled(),
+                    "reopened inner Assembly is missing the viewer or plane-mate action")) {
+            return 1;
+        }
+        // The second occurrence was moved 100 mm along X above, so its
+        // z_min/z_max faces are now distinct real Face candidates from the
+        // first occurrence's, matching a real plane-plane mate pick.
+        auto* mate_filter_combo =
+            window.findChild<QComboBox*>("selectionFilterCombo");
+        if (!verify(mate_filter_combo != nullptr,
+                    "mate coverage requires the shared selectionFilterCombo")) {
+            return 1;
+        }
+        mate_filter_combo->setCurrentIndex(1);  // Plochy (Faces)
+        application.processEvents();
+        const auto find_face_candidate = [&](
+            const std::string& semantic_key,
+            const std::string& required_instance_path) -> std::optional<QPointF> {
+            for (int y = 4; y < mate_viewer->height(); y += 4) {
+                for (int x = 4; x < mate_viewer->width(); x += 4) {
+                    const QPointF position{
+                        static_cast<qreal>(x), static_cast<qreal>(y)};
+                    for (const auto& candidate :
+                             mate_viewer->selection_candidates_at(position)) {
+                        if (candidate.kind == zima::viewer::CandidateKind::Face &&
+                            candidate.geometry ==
+                                zima::viewer::CandidateGeometry::OriginalReference &&
+                            candidate.semantic_key == semantic_key &&
+                            candidate.instance_path == required_instance_path) {
+                            return position;
+                        }
+                    }
+                }
+            }
+            return std::nullopt;
+        };
+        const auto click_at = [&](const QPointF& position) {
+            QMouseEvent press(QEvent::MouseButtonPress, position,
+                mate_viewer->mapToGlobal(position.toPoint()), Qt::LeftButton,
+                Qt::LeftButton, Qt::NoModifier);
+            QApplication::sendEvent(mate_viewer, &press);
+            application.processEvents();
+        };
+        plane_mate_action->trigger();
+        application.processEvents();
+        const auto dependent_face_position =
+            find_face_candidate("z_min", second_occurrence_instance_path);
+        if (!verify(dependent_face_position.has_value(),
+                    "plane-mate selection did not offer a z_min Face candidate on the moved occurrence")) {
+            return 1;
+        }
+        click_at(*dependent_face_position);
+        const auto prerequisite_face_position =
+            find_face_candidate("z_max", first_occurrence_instance_path);
+        if (!verify(prerequisite_face_position.has_value(),
+                    "plane-mate selection did not offer a z_max Face candidate on the original occurrence")) {
+            return 1;
+        }
+        click_at(*prerequisite_face_position);
+        auto* mate_properties_dialog =
+            window.findChild<QDialog*>("zimaPropertiesSubWindow");
+        auto* mate_offset = mate_properties_dialog == nullptr
+            ? nullptr : mate_properties_dialog->findChild<QDoubleSpinBox*>("mateOffset");
+        auto* mate_lower_enabled = mate_properties_dialog == nullptr
+            ? nullptr : mate_properties_dialog->findChild<QCheckBox*>("mateLowerEnabled");
+        auto* mate_lower_limit = mate_properties_dialog == nullptr
+            ? nullptr : mate_properties_dialog->findChild<QDoubleSpinBox*>("mateLowerLimit");
+        auto* mate_upper_enabled = mate_properties_dialog == nullptr
+            ? nullptr : mate_properties_dialog->findChild<QCheckBox*>("mateUpperEnabled");
+        auto* mate_upper_limit = mate_properties_dialog == nullptr
+            ? nullptr : mate_properties_dialog->findChild<QDoubleSpinBox*>("mateUpperLimit");
+        if (!verify(mate_properties_dialog != nullptr &&
+                        mate_properties_dialog->windowFlags().testFlag(Qt::SubWindow) &&
+                        mate_offset != nullptr && mate_offset->isEnabled() &&
+                        mate_lower_enabled != nullptr && mate_lower_limit != nullptr &&
+                        mate_upper_enabled != nullptr && mate_upper_limit != nullptr,
+                    "real plane-plane Face picks did not open the shared Mate Properties dialog")) {
+            return 1;
+        }
+        mate_offset->setValue(5.0);
+        mate_lower_enabled->setChecked(true);
+        mate_lower_limit->setValue(0.0);
+        mate_upper_enabled->setChecked(true);
+        mate_upper_limit->setValue(20.0);
+        mate_properties_dialog->findChild<QDialogButtonBox*>()
+            ->button(QDialogButtonBox::Ok)->click();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        application.processEvents();
+        bool mate_in_tree = false;
+        QTreeWidgetItem* local_mate_tree_item{};
+        if (local_mate_tree->topLevelItemCount() == 1) {
+            const auto* root = local_mate_tree->topLevelItem(0);
+            for (int index = 0; index < root->childCount() && !mate_in_tree; ++index) {
+                auto* child = root->child(index);
+                if (child->text(0) == QStringLiteral("Vazby")) {
+                    for (int mate_index = 0; mate_index < child->childCount();
+                         ++mate_index) {
+                        if (child->child(mate_index)->data(0, Qt::UserRole + 3)
+                                .toString() == QStringLiteral("assembly-mate")) {
+                            mate_in_tree = true;
+                            local_mate_tree_item = child->child(mate_index);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        if (!verify(mate_in_tree && local_mate_tree_item != nullptr,
+                    "confirming the plane-mate Properties dialog did not create a mate")) {
+            return 1;
+        }
+        bool second_occurrence_shows_dof = false;
+        for (int index = 0; index < local_mate_tree->topLevelItem(0)->childCount(); ++index) {
+            auto* child = local_mate_tree->topLevelItem(0)->child(index);
+            if (child->data(0, Qt::UserRole + 3).toString() ==
+                    QStringLiteral("part-occurrence") &&
+                child->data(0, Qt::UserRole + 1).toString().toStdString() ==
+                    second_occurrence_instance_path &&
+                child->text(0).contains(QStringLiteral("[3 DOF]"))) {
+                second_occurrence_shows_dof = true;
+                break;
+            }
+        }
+        if (!verify(second_occurrence_shows_dof,
+                    "mated occurrence did not display its remaining 3 DOF in the tree")) {
+            return 1;
+        }
+        std::optional<QPointF> mate_handle_position;
+        mate_filter_combo->setCurrentIndex(0);
+        application.processEvents();
+        for (int y = 4; y < mate_viewer->height() && !mate_handle_position; y += 2) {
+            for (int x = 4; x < mate_viewer->width() && !mate_handle_position; x += 2) {
+                const QPointF position{static_cast<qreal>(x), static_cast<qreal>(y)};
+                for (const auto& candidate :
+                         mate_viewer->selection_candidates_at(position)) {
+                    if (candidate.kind == zima::viewer::CandidateKind::Dimension &&
+                        candidate.semantic_key.starts_with("mate:")) {
+                        mate_handle_position = position;
+                        break;
+                    }
+                }
+            }
+        }
+        if (!verify(mate_handle_position.has_value(),
+                    "plane mate did not offer a draggable Dimension handle in the viewer")) {
+            return 1;
+        }
+        click_at(*mate_handle_position);
+        const QPointF drag_target{
+            mate_handle_position->x() + 12.0, mate_handle_position->y() + 12.0};
+        QMouseEvent drag_press(QEvent::MouseButtonPress, *mate_handle_position,
+            mate_viewer->mapToGlobal(mate_handle_position->toPoint()),
+            Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(mate_viewer, &drag_press);
+        application.processEvents();
+        QMouseEvent drag_move(QEvent::MouseMove, drag_target,
+            mate_viewer->mapToGlobal(drag_target.toPoint()), Qt::LeftButton,
+            Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(mate_viewer, &drag_move);
+        application.processEvents();
+        QMouseEvent drag_release(QEvent::MouseButtonRelease, drag_target,
+            mate_viewer->mapToGlobal(drag_target.toPoint()), Qt::LeftButton,
+            Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(mate_viewer, &drag_release);
+        application.processEvents();
+        QTreeWidgetItem* refreshed_mate_item{};
+        if (local_mate_tree->topLevelItemCount() == 1) {
+            const auto* root = local_mate_tree->topLevelItem(0);
+            for (int index = 0; index < root->childCount() && !refreshed_mate_item;
+                 ++index) {
+                auto* child = root->child(index);
+                if (child->text(0) == QStringLiteral("Vazby")) {
+                    for (int mate_index = 0; mate_index < child->childCount();
+                         ++mate_index) {
+                        if (child->child(mate_index)->data(0, Qt::UserRole + 3)
+                                .toString() == QStringLiteral("assembly-mate")) {
+                            refreshed_mate_item = child->child(mate_index);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        if (!verify(refreshed_mate_item != nullptr,
+                    "mate tree item no longer present in the tree after the drag")) {
+            return 1;
+        }
+        window.show_tree_item_properties(refreshed_mate_item);
+        application.processEvents();
+        auto* dragged_dialog = window.findChild<QDialog*>("zimaPropertiesSubWindow");
+        auto* dragged_offset = dragged_dialog == nullptr
+            ? nullptr : dragged_dialog->findChild<QDoubleSpinBox*>("mateOffset");
+        if (!verify(dragged_offset != nullptr &&
+                        dragged_offset->value() >= 0.0 &&
+                        dragged_offset->value() <= 20.0,
+                    "dragging the mate dimension handle did not keep the offset "
+                    "within its persisted limits")) {
+            return 1;
+        }
+        if (auto* dragged_buttons =
+                dragged_dialog->findChild<QDialogButtonBox*>()) {
+            dragged_buttons->button(QDialogButtonBox::Cancel)->click();
+        }
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        application.processEvents();
     }
 
     if (!create_document(QStringLiteral("drawing"), drawing_name)) {
