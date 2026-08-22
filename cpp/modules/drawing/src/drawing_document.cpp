@@ -750,4 +750,146 @@ void load_title_block_template(DrawingSheet& sheet, const std::filesystem::path&
     }
 }
 
+namespace {
+// Mirrors title_block.py's TITLE_BLOCK_TOKEN_PATTERN: an "&" followed by a
+// dotted identifier chain, e.g. "&model.verze" or "&Číslo_položky". Unicode
+// letters are treated as identifier characters (matching Python's \w with
+// the re.UNICODE default), since Czech title-block templates commonly use
+// accented parameter labels as tokens.
+bool is_identifier_char(unsigned char byte) { return std::isalnum(byte) || byte == '_' || byte >= 0x80; }
+
+std::string field_template_text(const TitleBlockField& field) {
+    if (!field.expression.empty()) return field.expression;
+    return field.value;
+}
+}  // namespace
+
+std::vector<std::string> title_block_tokens(const std::string& text) {
+    std::vector<std::string> tokens;
+    for (std::size_t index = 0; index < text.size();) {
+        if (text[index] != '&') { ++index; continue; }
+        std::size_t start = index + 1;
+        std::size_t end = start;
+        while (end < text.size() && is_identifier_char(static_cast<unsigned char>(text[end])))
+            ++end;
+        // A "." only continues the dotted chain when followed by another
+        // identifier segment (matching Python's (?:\.(?:[^\W\d]|_)\w*)*);
+        // a trailing "." before something else (e.g. another "&token") is
+        // not part of this token.
+        while (end < text.size() && text[end] == '.' && end + 1 < text.size() &&
+               is_identifier_char(static_cast<unsigned char>(text[end + 1]))) {
+            const std::size_t segment_start = end + 1;
+            std::size_t segment_end = segment_start;
+            while (segment_end < text.size() &&
+                   is_identifier_char(static_cast<unsigned char>(text[segment_end])))
+                ++segment_end;
+            end = segment_end;
+        }
+        if (end > start) {
+            std::string token = text.substr(start, end - start);
+            if (std::find(tokens.begin(), tokens.end(), token) == tokens.end())
+                tokens.push_back(token);
+        }
+        index = end > start ? end : index + 1;
+    }
+    return tokens;
+}
+
+std::string title_block_token_scope(const std::string& token) {
+    const auto starts_with = [&](const char* prefix) { return token.starts_with(prefix); };
+    if (starts_with("drawing.") || starts_with("local.")) return "drawing";
+    if (starts_with("document.") || starts_with("sheet.") || starts_with("bom.")) return "system";
+    return "model";
+}
+
+namespace {
+std::string title_block_parameter_key(
+    const std::string& token, const TitleBlockContext& context) {
+    std::string key = token;
+    if (key.starts_with("model.")) key = key.substr(6);
+    else if (key.starts_with("user_parameter.")) key = key.substr(15);
+    const auto found = context.parameter_aliases.find(key);
+    return found == context.parameter_aliases.end() ? key : found->second;
+}
+}  // namespace
+
+std::string resolve_title_block_text(
+    const TitleBlockField& field, const TitleBlockContext& context,
+    const DrawingSheet& sheet) {
+    const std::string tokens_source = field_template_text(field);
+    std::ostringstream resolved;
+    for (std::size_t index = 0; index < tokens_source.size();) {
+        if (tokens_source[index] != '&') { resolved << tokens_source[index]; ++index; continue; }
+        std::size_t start = index + 1;
+        std::size_t end = start;
+        while (end < tokens_source.size() &&
+               is_identifier_char(static_cast<unsigned char>(tokens_source[end])))
+            ++end;
+        while (end < tokens_source.size() && tokens_source[end] == '.' && end + 1 < tokens_source.size() &&
+               is_identifier_char(static_cast<unsigned char>(tokens_source[end + 1]))) {
+            const std::size_t segment_start = end + 1;
+            std::size_t segment_end = segment_start;
+            while (segment_end < tokens_source.size() &&
+                   is_identifier_char(static_cast<unsigned char>(tokens_source[segment_end])))
+                ++segment_end;
+            end = segment_end;
+        }
+        if (end == start) { resolved << tokens_source[index]; ++index; continue; }
+        const std::string token = tokens_source.substr(start, end - start);
+        index = end;
+        if (token == "bom.item_number") {
+            if (context.has_bom_row) resolved << context.bom_item_number;
+            continue;
+        }
+        if (token == "bom.quantity") {
+            if (context.has_bom_row) resolved << context.bom_quantity;
+            continue;
+        }
+        if (token == "document.file_stem") { resolved << context.file_stem; continue; }
+        if (token == "sheet.format") {
+            resolved << (sheet.format == SheetFormat::A4 ? "A4"
+                : sheet.format == SheetFormat::A3 ? "A3"
+                : sheet.format == SheetFormat::A2 ? "A2"
+                : sheet.format == SheetFormat::A1 ? "A1" : "A0");
+            continue;
+        }
+        if (token == "sheet.position") {
+            resolved << (context.sheet_index + 1) << "/" << std::max(1, context.sheet_count);
+            continue;
+        }
+        if (token == "sheet.scale") {
+            const int denominator = static_cast<int>(std::lround(1.0 / sheet.default_scale));
+            resolved << "1:" << denominator;
+            continue;
+        }
+        if (token.starts_with("drawing.") || token.starts_with("local.")) {
+            const std::string key = token.substr(token.find('.') + 1);
+            const auto found = context.local_parameters.find(key);
+            if (found != context.local_parameters.end()) resolved << found->second;
+            continue;
+        }
+        const std::string key = title_block_parameter_key(token, context);
+        const auto localized = context.parameter_values.find(key);
+        bool wrote = false;
+        if (localized != context.parameter_values.end()) {
+            const auto plain = localized->second.find("");
+            if (plain != localized->second.end()) { resolved << plain->second; wrote = true; }
+            else {
+                const auto locale_value = localized->second.find("cs");
+                if (locale_value != localized->second.end()) {
+                    resolved << locale_value->second; wrote = true;
+                }
+            }
+        }
+        if (!wrote) {
+            const auto found = context.parameters.find(key);
+            if (found != context.parameters.end()) resolved << found->second;
+        }
+    }
+    std::string text = resolved.str();
+    const bool blank = std::all_of(text.begin(), text.end(),
+        [](unsigned char character) { return std::isspace(character); });
+    return blank ? field.value : text;
+}
+
 }  // namespace zima::drawing

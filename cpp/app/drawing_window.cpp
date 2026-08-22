@@ -271,6 +271,38 @@ std::vector<zima::drawing::BomRow> build_bom_rows_for_source(
     return bom;
 }
 
+// Builds the token-resolution context for a view's source document,
+// matching Python's App._refresh_drawing_title_block_context: user
+// parameters (and their per-locale labels/values/aliases) belong to the
+// document the pohled (view) was inserted from, plus the document's file
+// stem for "&document.file_stem". Assemblies do not carry their own
+// user-editable parameters distinct from their components in this model, so
+// (matching the current C++ user_parameters ownership) only a Part source
+// contributes model-level tokens; an Assembly source still resolves the
+// system-level tokens (document/sheet/bom).
+zima::drawing::TitleBlockContext build_title_block_context_for_source(
+    const std::string& source_id, const std::filesystem::path& source_path,
+    zima::workspace::Workspace* workspace) {
+    zima::drawing::TitleBlockContext context;
+    context.file_stem = source_path.stem().string();
+    const zima::document::PartDocument* part{};
+    std::optional<zima::document::PartDocument> loaded_part;
+    if (workspace != nullptr) if (const auto* open = workspace->open_part(source_id))
+        part = &open->session.document();
+    if (part == nullptr && !source_path.empty() && source_path.extension() == ".prtz") {
+        try { loaded_part = zima::document::PartDocument::load(source_path); part = &*loaded_part; }
+        catch (const std::exception&) { part = nullptr; }
+    }
+    if (part != nullptr) {
+        context.parameters = part->user_parameters;
+        context.parameter_values = part->user_parameter_values;
+        for (const auto& [key, labels] : part->user_parameter_labels)
+            for (const auto& [locale, label] : labels)
+                if (!label.empty()) context.parameter_aliases[label] = key;
+    }
+    return context;
+}
+
 }  // namespace
 
 class DrawingCanvas final : public QWidget {
@@ -296,6 +328,10 @@ public:
     void select_view_for_test(const std::string& view_id) {
         selected_ = view_id; selected_dimension_id_.clear();
         if (selection_changed_) selection_changed_();
+        update();
+    }
+    void set_title_block_context(std::optional<zima::drawing::TitleBlockContext> context) {
+        title_block_context_ = std::move(context);
         update();
     }
     void set_changed_callback(std::function<void()> callback) { changed_=std::move(callback); }
@@ -343,11 +379,14 @@ protected:
         for(const auto& field:sheet_->title_block_fields) {
             painter.setPen(QColor("#FFFFFF")); QFont font=painter.font();
             font.setPixelSize(std::max(1,static_cast<int>(field.height*zoom))); painter.setFont(font);
-            QString value=QString::fromStdString(field.value);
-            if(field.expression=="&sheet.format") value=QString::fromStdString(
+            QString value;
+            if (title_block_context_) value = QString::fromStdString(
+                zima::drawing::resolve_title_block_text(field, *title_block_context_, *sheet_));
+            else if(field.expression=="&sheet.format") value=QString::fromStdString(
                 sheet_->format==zima::drawing::SheetFormat::A4?"A4":sheet_->format==zima::drawing::SheetFormat::A3?"A3":
                 sheet_->format==zima::drawing::SheetFormat::A2?"A2":sheet_->format==zima::drawing::SheetFormat::A1?"A1":"A0");
             else if(field.expression=="&sheet.scale") value=tr("M1:%1").arg(1.0/sheet_->default_scale,0,'g',4);
+            else value=QString::fromStdString(field.value);
             painter.drawText(screen(field.position),value);
         }
         for(std::size_t index=0;index<sheet_->bom_rows.size();++index) {
@@ -634,6 +673,7 @@ private:
     std::string dragged_dimension_id_;
     QPointF dimension_drag_start_;
     zima::drawing::Point2 dimension_label_start_;
+    std::optional<zima::drawing::TitleBlockContext> title_block_context_;
 };
 
 DrawingWindow::DrawingWindow(
@@ -997,6 +1037,21 @@ void DrawingWindow::refresh() {
             .arg(document_.sheets.size()).arg(view_count));
     update_action_states();
     sync_workspace_document();
+    refresh_title_block_context();
+}
+
+void DrawingWindow::refresh_title_block_context() {
+    // Matches Python's App._refresh_drawing_title_block_context: the
+    // title-block tokens resolve against the currently displayed sheet's
+    // primary (first-inserted) view's source document.
+    const auto* sheet = active_sheet();
+    if (sheet == nullptr || sheet->views.empty()) {
+        canvas_->set_title_block_context(std::nullopt);
+        return;
+    }
+    const auto& view = sheet->views.front();
+    canvas_->set_title_block_context(build_title_block_context_for_source(
+        view.source_document_id, view.source_path, workspace_));
 }
 
 void DrawingWindow::sync_workspace_document() {

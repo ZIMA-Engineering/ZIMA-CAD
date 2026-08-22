@@ -4,6 +4,7 @@
 
 #include <filesystem>
 #include <array>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -133,6 +134,31 @@ public:
     [[nodiscard]] static DrawingDocument load(const std::filesystem::path& path);
     void save(const std::filesystem::path& path) const;
 };
+
+// Mirrors Python's zima_cad.title_block context: the model-level values a
+// title-block text field's "&token" expressions may resolve against.
+// scope() classifies a token exactly as Python's title_block_token_scope()
+// does: "drawing"/"local" prefixes are per-sheet local values, "document"/
+// "sheet"/"bom" prefixes are system-computed values, everything else is a
+// model (user) parameter.
+struct TitleBlockContext {
+    std::string file_stem;
+    std::map<std::string, std::string> parameters;
+    std::map<std::string, std::map<std::string, std::string>> parameter_values;
+    std::map<std::string, std::string> parameter_aliases;
+    std::map<std::string, std::string> local_parameters;
+    int bom_item_number{};
+    int bom_quantity{};
+    bool has_bom_row{};
+    int sheet_index{};
+    int sheet_count{1};
+};
+
+[[nodiscard]] std::vector<std::string> title_block_tokens(const std::string& text);
+[[nodiscard]] std::string title_block_token_scope(const std::string& token);
+[[nodiscard]] std::string resolve_title_block_text(
+    const TitleBlockField& field, const TitleBlockContext& context,
+    const DrawingSheet& sheet);
 
 [[nodiscard]] std::vector<ProjectedEdge> project_edges(
     const zima::kernel::ViewerMesh& mesh, ViewOrientation orientation);

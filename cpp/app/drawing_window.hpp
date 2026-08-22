@@ -74,6 +74,7 @@ private:
     void update_action_states();
     void refresh();
     void sync_workspace_document();
+    void refresh_title_block_context();
     [[nodiscard]] zima::drawing::DrawingSheet* active_sheet();
 };
 

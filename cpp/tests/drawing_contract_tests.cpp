@@ -184,6 +184,51 @@ int main() {
                     loaded.find_view(view_id)->source_path ==
                         drawing.find_view(view_id)->source_path,
                 "Drawing metadata, views, or sheets did not round-trip");
+
+        // Title-block token resolution: mirrors Python's title_block.py
+        // resolve_title_block_text() unit tests (model/system/local token
+        // scopes, Czech-labelled parameter aliases, and BOM row tokens).
+        require(zima::drawing::title_block_tokens(
+                    "Číslo &document.file_stem.&model.verze / &drawing.edice") ==
+                std::vector<std::string>{
+                    "document.file_stem", "model.verze", "drawing.edice"},
+                "title_block_tokens did not extract tokens in written order");
+        require(zima::drawing::title_block_token_scope("model.verze") == "model" &&
+                    zima::drawing::title_block_token_scope("drawing.edice") == "drawing" &&
+                    zima::drawing::title_block_token_scope("sheet.scale") == "system",
+                "title_block_token_scope misclassified a token");
+        {
+            zima::drawing::TitleBlockField field;
+            field.expression = "Číslo &document.file_stem.&model.verze / &drawing.edice";
+            zima::drawing::TitleBlockContext context;
+            context.file_stem = "ZE0019-0200-0001";
+            context.parameters = {{"verze", "03"}};
+            context.local_parameters = {{"edice", "A"}};
+            zima::drawing::DrawingSheet sheet;
+            require(zima::drawing::resolve_title_block_text(field, context, sheet) ==
+                        "Číslo ZE0019-0200-0001.03 / A",
+                    "resolve_title_block_text did not resolve model/system/local tokens");
+        }
+        {
+            zima::drawing::TitleBlockField field;
+            field.expression = "&Název / &Materiál";
+            zima::drawing::TitleBlockContext context;
+            context.parameters = {{"nazev", "OBJÍMKA"}, {"material", "S235JR"}};
+            context.parameter_aliases = {{"Název", "nazev"}, {"Materiál", "material"}};
+            zima::drawing::DrawingSheet sheet;
+            require(zima::drawing::resolve_title_block_text(field, context, sheet) ==
+                        "OBJÍMKA / S235JR",
+                    "resolve_title_block_text did not resolve a localized parameter alias");
+        }
+        {
+            zima::drawing::TitleBlockField field;
+            field.expression = "&bom.item_number / &bom.quantity";
+            zima::drawing::TitleBlockContext context;
+            context.has_bom_row = true; context.bom_item_number = 3; context.bom_quantity = 7;
+            zima::drawing::DrawingSheet sheet;
+            require(zima::drawing::resolve_title_block_text(field, context, sheet) == "3 / 7",
+                    "resolve_title_block_text did not resolve BOM row tokens");
+        }
         std::cout << "C++ Drawing contracts passed\n";
         return 0;
     } catch (const std::exception& error) {
