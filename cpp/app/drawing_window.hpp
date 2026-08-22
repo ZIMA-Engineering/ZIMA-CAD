@@ -28,6 +28,8 @@ public:
         return document_;
     }
     void select_view_for_test(const std::string& view_id);
+    void load_frame_for_test(const std::filesystem::path& path);
+    void load_title_block_for_test(const std::filesystem::path& path);
 
 private:
     zima::drawing::DrawingDocument document_;
@@ -59,7 +61,9 @@ private:
     void remove_sheet();
     void edit_sheet();
     void load_frame();
+    void remove_frame();
     void load_title_block();
+    void remove_title_block();
     void edit_title_block();
     void insert_view();
     void insert_view_from_file();

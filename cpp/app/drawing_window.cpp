@@ -702,7 +702,13 @@ void DrawingWindow::create_actions() {
         [this] { edit_sheet(); });
     edit_sheet_action_->setObjectName("editDrawingSheetAction");
     drawing->addAction(tr("Načíst formát…"), this, [this] { load_frame(); });
+    auto* remove_frame_action = drawing->addAction(
+        tr("Odstranit formát"), this, [this] { remove_frame(); });
+    remove_frame_action->setObjectName("removeDrawingFrameAction");
     drawing->addAction(tr("Načíst razítko…"), this, [this] { load_title_block(); });
+    auto* remove_title_block_action = drawing->addAction(
+        tr("Odstranit razítko"), this, [this] { remove_title_block(); });
+    remove_title_block_action->setObjectName("removeDrawingTitleBlockAction");
     edit_title_block_action_ = drawing->addAction(tr("Hodnoty razítka…"), this,
         [this] { edit_title_block(); });
     edit_title_block_action_->setObjectName("editDrawingTitleBlockAction");
@@ -779,6 +785,14 @@ void DrawingWindow::edit_workspace_document(const std::string& document_id) {
 void DrawingWindow::select_view_for_test(const std::string& view_id) {
     canvas_->select_view_for_test(view_id);
 }
+void DrawingWindow::load_frame_for_test(const std::filesystem::path& path) {
+    auto* sheet = active_sheet(); if (sheet == nullptr) return;
+    zima::drawing::load_frame_template(*sheet, path); refresh();
+}
+void DrawingWindow::load_title_block_for_test(const std::filesystem::path& path) {
+    auto* sheet = active_sheet(); if (sheet == nullptr) return;
+    zima::drawing::load_title_block_template(*sheet, path); refresh();
+}
 void DrawingWindow::open_document() {
     const auto path = open_file(this, tr("Otevřít výkres"), {}, tr("Výkres ZIMA-CAD (*.drwz)"));
     if (path.isEmpty()) return;
@@ -830,6 +844,15 @@ void DrawingWindow::load_frame() {
     if(path.isEmpty()) return;
     try { zima::drawing::load_frame_template(*sheet,path.toStdString()); refresh(); }
     catch(const std::exception& error) { QMessageBox::warning(this,tr("Nelze načíst formát"),error.what()); }
+}
+void DrawingWindow::remove_frame() {
+    auto* sheet=active_sheet(); if(sheet==nullptr) return;
+    sheet->frame_lines.clear(); sheet->frame_texts.clear(); refresh();
+}
+void DrawingWindow::remove_title_block() {
+    auto* sheet=active_sheet(); if(sheet==nullptr) return;
+    sheet->title_block_lines.clear(); sheet->title_block_texts.clear();
+    sheet->title_block_fields.clear(); refresh();
 }
 void DrawingWindow::load_title_block() {
     auto* sheet=active_sheet(); if(sheet==nullptr) return;

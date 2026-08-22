@@ -2146,6 +2146,44 @@ int verify_startup_contract(
         }
     }
 
+    {
+        // Frame/title-block template load and remove actions (Python's
+        // remove_format/remove_title_block, previously missing in C++).
+        auto* drawing_window_for_template = static_cast<zima::app::DrawingWindow*>(
+            window.findChild<QWidget*>("drawingWorkspace"));
+        auto* remove_frame_action = window.findChild<QAction*>("removeDrawingFrameAction");
+        auto* remove_title_block_action =
+            window.findChild<QAction*>("removeDrawingTitleBlockAction");
+        if (!verify(drawing_window_for_template != nullptr &&
+                        remove_frame_action != nullptr &&
+                        remove_title_block_action != nullptr,
+                    "Drawing template removal coverage requires the window and actions")) {
+            return 1;
+        }
+        drawing_window_for_template->load_frame_for_test("config/formats/ZE-A4.frmz");
+        drawing_window_for_template->load_title_block_for_test(
+            "config/formats/ZE-TITLE-BLOCK.tblz");
+        application.processEvents();
+        if (!verify(!drawing_window_for_template->document_for_test()
+                            .sheets.front().frame_lines.empty() &&
+                        !drawing_window_for_template->document_for_test()
+                             .sheets.front().title_block_fields.empty(),
+                    "loading a frame/title-block template did not populate the sheet")) {
+            return 1;
+        }
+        remove_frame_action->trigger();
+        application.processEvents();
+        remove_title_block_action->trigger();
+        application.processEvents();
+        if (!verify(drawing_window_for_template->document_for_test()
+                            .sheets.front().frame_lines.empty() &&
+                        drawing_window_for_template->document_for_test()
+                            .sheets.front().title_block_fields.empty(),
+                    "removing the frame/title-block did not clear the sheet's template geometry")) {
+            return 1;
+        }
+    }
+
     // File-management parity: rename, delete-current-file, delete old
     // versions (with and without keep-latest), and the working-directory
     // wide equivalents must all be wired to real handlers operating on the
