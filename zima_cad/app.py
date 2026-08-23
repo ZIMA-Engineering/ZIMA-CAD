@@ -5939,8 +5939,6 @@ class DrawingViewPropertiesDialog(QDialog):
         self.setFont(compact_font)
         self._baseline = copy.deepcopy(view)
         self._derived_orientation = str(view.get("view_type", "general")) != "general"
-        self._middle_click_origin: QPointF | None = None
-        self._middle_click_moved = False
         if isinstance(parent, QWidget):
             self.setWindowFlags(
                 Qt.WindowType.SubWindow
@@ -6101,9 +6099,6 @@ class DrawingViewPropertiesDialog(QDialog):
         self._orientation_mode_changed()
         self._display_style_changed()
         self.adjustSize()
-        application = QApplication.instance()
-        if application is not None:
-            application.installEventFilter(self)
 
     def _orientation_mode_changed(self, _index: int = -1) -> None:
         manual = self.orientation_mode_combo.currentData() == "manual"
@@ -6177,25 +6172,11 @@ class DrawingViewPropertiesDialog(QDialog):
                 self._title_drag_origin = None
                 self._title_drag_window_origin = None
                 return True
-        if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.MiddleButton:
-            self._middle_click_origin = event.globalPosition()
-            self._middle_click_moved = False
-        elif event.type() == QEvent.Type.MouseMove and self._middle_click_origin is not None and event.buttons() & Qt.MouseButton.MiddleButton:
-            delta = event.globalPosition() - self._middle_click_origin
-            self._middle_click_moved = abs(delta.x()) + abs(delta.y()) > 3.0
-        elif event.type() == QEvent.Type.MouseButtonRelease and event.button() == Qt.MouseButton.MiddleButton and self._middle_click_origin is not None:
-            self._middle_click_origin = None
         if event.type() == QEvent.Type.MouseButtonDblClick and event.button() == Qt.MouseButton.MiddleButton:
             self.accept()
             event.accept()
             return True
         return super().eventFilter(watched, event)
-
-    def done(self, result: int) -> None:
-        application = QApplication.instance()
-        if application is not None:
-            application.removeEventFilter(self)
-        super().done(result)
 
 
 class PlaneAttachmentDialog(DocumentSubWindowDialog):
