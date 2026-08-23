@@ -6291,9 +6291,6 @@ class OrientationDialog(QDialog):
         self.active_row = 0
         self.selection_paused = False
         self._updating_rows = False
-        self._middle_click_origin: QPointF | None = None
-        self._middle_click_moved = False
-        self._middle_click_chord = False
         for row in range(2):
             remove = QPushButton("×")
             remove.setFixedSize(30, 30)
@@ -6380,69 +6377,6 @@ class OrientationDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
         self.activate_row(0)
-        application = QApplication.instance()
-        if application is not None:
-            application.installEventFilter(self)
-
-    def eventFilter(self, watched, event) -> bool:
-        if (
-            event.type() == QEvent.Type.MouseButtonPress
-            and event.button() == Qt.MouseButton.MiddleButton
-        ):
-            self._middle_click_origin = event.globalPosition()
-            self._middle_click_moved = False
-            self._middle_click_chord = bool(
-                event.buttons() & Qt.MouseButton.RightButton
-            )
-        elif (
-            event.type() == QEvent.Type.MouseButtonPress
-            and event.button() == Qt.MouseButton.RightButton
-            and self._middle_click_origin is not None
-        ):
-            self._middle_click_chord = True
-        elif (
-            event.type() == QEvent.Type.MouseMove
-            and self._middle_click_origin is not None
-            and event.buttons() & Qt.MouseButton.MiddleButton
-        ):
-            delta = event.globalPosition() - self._middle_click_origin
-            if abs(delta.x()) + abs(delta.y()) > 3.0:
-                self._middle_click_moved = True
-            if event.buttons() & Qt.MouseButton.RightButton:
-                self._middle_click_chord = True
-        elif (
-            event.type() == QEvent.Type.MouseButtonRelease
-            and event.button() == Qt.MouseButton.MiddleButton
-            and self._middle_click_origin is not None
-        ):
-            self._middle_click_origin = None
-            self._middle_click_moved = False
-            self._middle_click_chord = False
-        if (
-            event.type() == QEvent.Type.MouseButtonDblClick
-            and event.button() == Qt.MouseButton.MiddleButton
-            and isinstance(watched, QWidget)
-            and watched.window()
-            in (
-                self,
-                self.parent().window()
-                if isinstance(self.parent(), QWidget)
-                else None,
-            )
-        ):
-            self._middle_click_origin = None
-            self._middle_click_moved = False
-            self._middle_click_chord = False
-            self.accept()
-            event.accept()
-            return True
-        return super().eventFilter(watched, event)
-
-    def done(self, result: int) -> None:
-        application = QApplication.instance()
-        if application is not None:
-            application.removeEventFilter(self)
-        super().done(result)
 
     def _delete_selected_view(self) -> None:
         item = self.view_list.currentItem()
