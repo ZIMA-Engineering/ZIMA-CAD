@@ -3318,6 +3318,99 @@ class AxisConstraintDialog(PointConstraintDialog):
         return True
 
 
+    def _add_reference(self, reference: dict[str, Any]) -> None:
+        if getattr(self, "_pending_container_orientation_row", None) is not None:
+            return
+        if getattr(self, "_active_container_orientation_row", None) is not None:
+            self._assign_container_orientation_reference(reference)
+            return
+        replacement_row = self._replacement_reference_row
+        replaced_reference = None
+        if (
+            replacement_row is not None
+            and 0 <= replacement_row < len(self.references)
+        ):
+            replaced_reference = self.references.pop(replacement_row)
+            self.highlighted_reference_keys.discard(
+                str(replaced_reference.get("key", ""))
+            )
+            self.reference_list.removeRow(replacement_row)
+        before = len(self.references)
+        signals_were_blocked = self.blockSignals(True)
+        try:
+            super()._add_reference(reference)
+            if len(self.references) > before:
+                self._replacement_reference_row = None
+                added = next(
+                    (
+                        item
+                        for item in self.references
+                        if str(item.get("key", ""))
+                        == str(reference.get("key", ""))
+                    ),
+                    reference,
+                )
+                orientation_references = getattr(
+                    self, "_container_orientation_references", None
+                )
+                if replaced_reference is not None and orientation_references is not None:
+                    replaced_key = str(replaced_reference.get("key", ""))
+                    for index, orientation_reference in enumerate(
+                        orientation_references
+                    ):
+                        if orientation_reference is None:
+                            continue
+                        orientation_key = str(
+                            orientation_reference.get("key", "")
+                        )
+                        same_reference = (
+                            bool(replaced_key)
+                            and orientation_key == replaced_key
+                        ) or (
+                            not replaced_key
+                            and not orientation_key
+                            and all(
+                                orientation_reference.get(field)
+                                == replaced_reference.get(field)
+                                for field in (
+                                    "type",
+                                    "entity_id",
+                                    "topology_key",
+                                    "vertex_index",
+                                )
+                            )
+                        )
+                        if same_reference:
+                            orientation_references[index] = None
+                record_automatic = getattr(
+                    self, "_record_automatic_container_orientation", None
+                )
+                if callable(record_automatic):
+                    record_automatic(added)
+                ensure_roles = getattr(
+                    self, "_ensure_automatic_orientation_roles", None
+                )
+                if callable(ensure_roles):
+                    ensure_roles()
+                refresh_combos = getattr(
+                    self, "_refresh_reference_orientation_combos", None
+                )
+                if callable(refresh_combos):
+                    refresh_combos()
+                self._update_solution()
+            elif replaced_reference is not None:
+                self.references.insert(replacement_row, replaced_reference)
+                self.reference_list.setRowCount(0)
+                for existing in self.references:
+                    self._append_reference_row(existing)
+                self._refresh_reference_item_warnings()
+        finally:
+            self.blockSignals(signals_were_blocked)
+        if len(self.references) > before and not signals_were_blocked:
+            self.definitionChanged.emit()
+        if len(self.references) > before:
+            self.referenceHighlightsChanged.emit()
+
 class PlaneConstraintDialog(AxisConstraintDialog):
     createPlaneRequested = Signal(
         list, tuple, str, bool, bool, tuple, str, float
@@ -3813,84 +3906,6 @@ class PlaneConstraintDialog(AxisConstraintDialog):
         self._normalize_reference_orientation_roles()
         if hasattr(self, "reference_list"):
             self._refresh_reference_orientation_combos()
-
-    def _add_reference(self, reference: dict[str, Any]) -> None:
-        if self._pending_container_orientation_row is not None:
-            return
-        if self._active_container_orientation_row is not None:
-            self._assign_container_orientation_reference(reference)
-            return
-        replacement_row = self._replacement_reference_row
-        replaced_reference = None
-        if (
-            replacement_row is not None
-            and 0 <= replacement_row < len(self.references)
-        ):
-            replaced_reference = self.references.pop(replacement_row)
-            self.highlighted_reference_keys.discard(
-                str(replaced_reference.get("key", ""))
-            )
-            self.reference_list.removeRow(replacement_row)
-        before = len(self.references)
-        signals_were_blocked = self.blockSignals(True)
-        try:
-            super()._add_reference(reference)
-            if len(self.references) > before:
-                self._replacement_reference_row = None
-                added = next(
-                    (
-                        item
-                        for item in self.references
-                        if str(item.get("key", ""))
-                        == str(reference.get("key", ""))
-                    ),
-                    reference,
-                )
-                if replaced_reference is not None:
-                    replaced_key = str(replaced_reference.get("key", ""))
-                    for index, orientation_reference in enumerate(
-                        self._container_orientation_references
-                    ):
-                        if orientation_reference is None:
-                            continue
-                        orientation_key = str(
-                            orientation_reference.get("key", "")
-                        )
-                        same_reference = (
-                            bool(replaced_key)
-                            and orientation_key == replaced_key
-                        ) or (
-                            not replaced_key
-                            and not orientation_key
-                            and all(
-                                orientation_reference.get(field)
-                                == replaced_reference.get(field)
-                                for field in (
-                                    "type",
-                                    "entity_id",
-                                    "topology_key",
-                                    "vertex_index",
-                                )
-                            )
-                        )
-                        if same_reference:
-                            self._container_orientation_references[index] = None
-                self._record_automatic_container_orientation(added)
-                self._ensure_automatic_orientation_roles()
-                self._refresh_reference_orientation_combos()
-                self._update_solution()
-            elif replaced_reference is not None:
-                self.references.insert(replacement_row, replaced_reference)
-                self.reference_list.setRowCount(0)
-                for existing in self.references:
-                    self._append_reference_row(existing)
-                self._refresh_reference_item_warnings()
-        finally:
-            self.blockSignals(signals_were_blocked)
-        if len(self.references) > before and not signals_were_blocked:
-            self.definitionChanged.emit()
-        if len(self.references) > before:
-            self.referenceHighlightsChanged.emit()
 
     def _remove_reference_at(self, row: int) -> None:
         removed_reference = (
@@ -15630,11 +15645,6 @@ class MainWindow(QMainWindow):
             # instead of falling back to a depth-tested face fill.
             self.native_viewer.set_outline_face_highlights(True)
             self._sync_constraint_reference_highlights()
-            # A highlighted reference to another container's basic plane or
-            # axis is only drawn at all once that container's Origin is
-            # forced visible; that requires rebuilding the scene, not just
-            # repainting the existing meshes.
-            self.rebuild_view(fit=False, rebuild_geometry=False)
 
         dialog.referenceHighlightsChanged.connect(
             sync_property_reference_highlights
@@ -55106,14 +55116,17 @@ class MainWindow(QMainWindow):
         )
 
     def _active_reference_owner_ids(self) -> frozenset[str]:
-        """Containers whose datum origin a highlighted reference needs shown.
+        """Containers whose datum origin an open dialog's references need shown.
 
         A container placement reference to another object's basic plane or
         axis renders nothing unless that other container's own datum Origin
         is drawn, which normally depends on its own auxiliary-geometry
-        toggle.  Force that Origin (and its planes) visible while one of
-        its entities is the highlighted reference, so the referenced datum
-        is visible cyan in the view, matching its cyan reference-list row.
+        toggle.  Force that Origin (and its planes) visible for every
+        object referenced by the currently open properties dialog -- not
+        only the momentarily highlighted one -- so a referenced datum is
+        available to render cyan as soon as its row is highlighted, without
+        requiring a scene rebuild on every highlight toggle (which would
+        interrupt an in-progress reference pick/replace gesture).
         """
         dialog = self.point_constraint_dialog
         if (
@@ -55123,12 +55136,7 @@ class MainWindow(QMainWindow):
         ):
             return frozenset()
         references = [
-            *[
-                reference
-                for reference in dialog.references
-                if str(reference.get("key", ""))
-                in dialog.highlighted_reference_keys
-            ],
+            *dialog.references,
             *[
                 reference
                 for reference in getattr(
@@ -55137,12 +55145,6 @@ class MainWindow(QMainWindow):
                     (),
                 )
                 if reference is not None
-                and str(reference.get("key", ""))
-                in getattr(
-                    dialog,
-                    "_orientation_highlighted_reference_keys",
-                    set(),
-                )
             ],
         ]
         owner_ids: set[str] = set()
