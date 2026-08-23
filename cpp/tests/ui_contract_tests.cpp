@@ -326,6 +326,56 @@ int main(int argc, char* argv[]) {
                     committed_wedge.wedge.top_offset == 18.0,
                 "Wedge Properties did not commit exact parameters");
 
+        // Universal container placement PoC: Box exposes the same
+        // reference/orientation table contract as ConstructionPropertiesDialog,
+        // and a manual RZ correction becomes rotation_offset_z once a
+        // reference is present (never overwriting the resolved rotation_z).
+        zima::document::HistoryContainer committed_placed_box;
+        std::optional<std::size_t> requested_box_reference;
+        auto* box_reference_dialog = new zima::app::PrimitivePropertiesDialog(
+            initial, false, false,
+            [&](zima::document::HistoryContainer value) {
+                committed_placed_box = std::move(value);
+            }, &parent);
+        box_reference_dialog->set_reference_request_callback(
+            [&](std::size_t index) { requested_box_reference = index; });
+        box_reference_dialog->show();
+        application.processEvents();
+        auto* box_reference_table = box_reference_dialog->findChild<QTableWidget*>(
+            "primitiveReferenceTable");
+        auto* box_orientation_table = box_reference_dialog->findChild<QTableWidget*>(
+            "primitiveOrientationTable");
+        require(box_reference_table != nullptr && box_orientation_table != nullptr &&
+                    box_orientation_table->rowCount() == 2,
+                "Box Properties does not expose the universal placement tables");
+        auto* box_reference_button = box_reference_dialog->findChild<QPushButton*>(
+            "primitiveReferenceButton0");
+        require(box_reference_button != nullptr,
+                "Box Properties has no explicit viewer-reference control");
+        box_reference_button->click();
+        require(requested_box_reference == 0,
+                "Box Properties did not request viewer reference selection");
+        require(box_reference_dialog->set_reference(
+                    0, {{}, "part-origin", "origin:point"}, "Počátek dílu"),
+                "Box Properties rejected its first placement reference");
+        box_reference_dialog->set_translation_constraint_state(
+            {0, {true, true, true}}, {10.0, 20.0, 30.0});
+        require(box_reference_dialog->owns_reference_owner(initial.id) &&
+                    box_reference_dialog->owns_reference_owner(
+                        initial.container_origin.id) &&
+                    !box_reference_dialog->owns_reference_owner("part-origin"),
+                "Box Properties does not recognize every identity of its own Container");
+        auto* box_rotation_z = box_reference_dialog->findChildren<QDoubleSpinBox*>(
+            "primitiveRotation").at(2);
+        box_rotation_z->setValue(30.0);
+        box_reference_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
+        require(committed_placed_box.placement.references.size() == 1 &&
+                    committed_placed_box.placement.references[0].owner_id ==
+                        "part-origin" &&
+                    committed_placed_box.placement.rotation_offset_z == 30.0,
+                "Box Properties lost its universal placement reference or manual "
+                "rotation correction");
+
         auto axis_initial = zima::document::PartDocument::create_construction(
             zima::document::ConstructionKind::Axis);
         zima::document::ConstructionObject committed_axis;

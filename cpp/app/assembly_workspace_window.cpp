@@ -1706,6 +1706,11 @@ void AssemblyWorkspaceWindow::create_layout() {
             accept_construction_reference(candidate);
             return;
         }
+        if (primitive_reference_dialog_ != nullptr &&
+            pending_primitive_reference_index_) {
+            accept_primitive_reference(candidate);
+            return;
+        }
         if (extrusion_target_dialog_ != nullptr) {
             accept_extrusion_target(candidate);
             return;
@@ -2226,6 +2231,8 @@ void AssemblyWorkspaceWindow::create_layout() {
                 }
                 return;
             }
+            if (primitive_reference_dialog_ != nullptr &&
+                pending_primitive_reference_index_) return;
             if (item->data(0, Qt::UserRole + 3).toString() == "assembly-mate") return;
             if (item->data(0, Qt::UserRole + 3).toString() ==
                     "part-sketch-dimension" ||
@@ -2309,6 +2316,8 @@ void AssemblyWorkspaceWindow::create_layout() {
         [this, synchronize_tree_selection](QTreeWidgetItem*, int) {
             if (construction_reference_dialog_ != nullptr ||
                 pending_construction_reference_index_ ||
+                primitive_reference_dialog_ != nullptr ||
+                pending_primitive_reference_index_ ||
                 extrusion_target_dialog_ != nullptr ||
                 edge_treatment_selection_ || mate_selection_active_ ||
                 sketch_external_reference_active_ || sketch_trim_active_ ||
@@ -2324,7 +2333,9 @@ void AssemblyWorkspaceWindow::create_layout() {
     connect(tree_, &QTreeWidget::customContextMenuRequested, this,
         [this](const QPoint& position) {
             if (construction_reference_dialog_ != nullptr ||
-                pending_construction_reference_index_) return;
+                pending_construction_reference_index_ ||
+                primitive_reference_dialog_ != nullptr ||
+                pending_primitive_reference_index_) return;
             auto* item = tree_->itemAt(position);
             if (item == nullptr || item->parent() == nullptr) return;
             if (item->data(0, Qt::UserRole + 3).toString() == "assembly-mate") {
@@ -5041,11 +5052,54 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                     zima::document::PartHistoryKind::Feature, committed.id);
                 next.history.push_back(std::move(committed));
             }
+            // Universal container placement: resolve any HistoryContainer
+            // placement references against the geometry that existed before
+            // this edit, exactly like ConstructionObject editing does, before
+            // the kernel evaluates the (possibly placement-dependent) history.
+            const auto calculated_before = target_part->session.calculated_boundaries();
+            auto reference_geometry =
+                construction_reference_source_geometry(calculated_before);
+            append_reference_geometry(reference_geometry,
+                next.origin_viewer_mesh().original_references);
+            append_reference_geometry(reference_geometry,
+                next.construction_viewer_mesh().original_references);
+            next.resolve_constructions(reference_geometry);
             auto calculated = calculate_part(next);
             static_cast<void>(refresh_sketch_external_references(next, calculated));
             target_part->session.commit(std::move(next), std::move(calculated));
         }, this, std::move(assembly_targets), std::move(selected_targets),
         assembly_cut);
+    if (feature_kind == zima::document::FeatureKind::Box) {
+        // Universal container placement PoC: position/orientation reference
+        // picking, reusing the exact same DOF math ConstructionObject uses.
+        const auto calculated = part->session.calculated_boundaries();
+        auto reference_geometry = construction_reference_source_geometry(calculated);
+        const auto& document = part->session.document();
+        append_reference_geometry(reference_geometry,
+            document.origin_viewer_mesh().original_references);
+        append_reference_geometry(reference_geometry,
+            document.construction_viewer_mesh().original_references);
+        primitive_reference_geometry_ = reference_geometry;
+        dialog->set_reference_request_callback(
+            [this](std::size_t index) { start_primitive_reference_selection(index); });
+        primitive_reference_dialog_ = dialog;
+        dialog->set_preview_callback(
+            [this](const zima::document::HistoryContainer& preview) {
+                if (primitive_reference_dialog_ == nullptr) return;
+                auto placement = preview.placement;
+                static_cast<void>(zima::document::resolve_placement(
+                    placement, primitive_reference_geometry_));
+                const auto constraint_state = zima::document::point_constraint_state(
+                    placement.references, primitive_reference_geometry_);
+                primitive_translation_dof_ = constraint_state.remaining_dof;
+                primitive_reference_dialog_->set_translation_constraint_state(
+                    constraint_state,
+                    {placement.x, placement.y, placement.z});
+                primitive_reference_dialog_->set_remaining_rotation_dof(
+                    zima::document::orientation_constraint_remaining_dof(
+                        placement.references, primitive_reference_geometry_, false));
+            });
+    }
     if (feature_kind == zima::document::FeatureKind::Extrusion) {
         dialog->set_extrusion_target_request([this, dialog, assembly_cut] {
             extrusion_target_dialog_ = dialog;
@@ -5155,7 +5209,13 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     connect(dialog, &QObject::destroyed, this, [this] {
         properties_dialog_ = nullptr;
         extrusion_target_dialog_ = nullptr;
+        primitive_reference_dialog_ = nullptr;
+        pending_primitive_reference_index_.reset();
+        primitive_reference_geometry_ = {};
+        primitive_translation_dof_ = 3;
+        tree_->setProperty("commandSelectionActive", false);
         viewer_->set_transient_edges({});
+        viewer_->set_candidate_filter({});
         part_rollback_.reset();
         assembly_cut_rollback_.reset();
         refresh_tabs();
@@ -5550,6 +5610,187 @@ void AssemblyWorkspaceWindow::accept_construction_reference(
         // predicate alive: it would keep painting orange offers although no
         // reference input is armed. Clicking an existing row installs a fresh
         // replacement contract with that row removed from the rank baseline.
+        tree_->setProperty("commandSelectionActive", false);
+        viewer_->set_selection_contract({});
+        viewer_->set_candidate_filter([](const auto&) { return false; });
+        viewer_->clear_selection();
+    }
+}
+
+void AssemblyWorkspaceWindow::start_primitive_reference_selection(
+    std::size_t index) {
+    if (primitive_reference_dialog_ == nullptr) return;
+    const bool orientation_reference = index >= 3;
+    const auto baseline_references =
+        primitive_reference_dialog_->references_without(index);
+    const int baseline_dof = orientation_reference
+        ? zima::document::orientation_constraint_remaining_dof(
+            baseline_references, primitive_reference_geometry_, false)
+        : zima::document::point_constraint_remaining_dof(
+            baseline_references, primitive_reference_geometry_);
+    if (baseline_dof == 0) {
+        pending_primitive_reference_index_.reset();
+        tree_->setProperty("commandSelectionActive", false);
+        viewer_->set_candidate_filter({});
+        viewer_->clear_selection();
+        state_->setText(tr("Umístění kontejneru je již plně určené."));
+        return;
+    }
+    pending_primitive_reference_index_ = index;
+    tree_->setProperty("commandSelectionActive", true);
+    viewer_->set_selection_contract({zima::viewer::CandidateKind::Vertex,
+        zima::viewer::CandidateKind::Axis,
+        zima::viewer::CandidateKind::Edge,
+        zima::viewer::CandidateKind::Face});
+    const auto prefix = active_occurrence_path_.empty()
+        ? zima::assembly::InstancePath{}
+        : zima::assembly::InstancePath::decode(active_occurrence_path_);
+    const bool active_part =
+        workspace_.open_part(workspace_.active_document_id()) != nullptr;
+    viewer_->set_candidate_filter([this, prefix, active_part, index,
+            orientation_reference, baseline_references, baseline_dof](
+                const auto& candidate) {
+        const bool persisted_origin_display =
+            candidate.geometry == zima::viewer::CandidateGeometry::Display &&
+            candidate.semantic_key.starts_with("origin:");
+        if (candidate.geometry !=
+                zima::viewer::CandidateGeometry::OriginalReference &&
+            !persisted_origin_display) return false;
+        if (primitive_reference_dialog_ == nullptr ||
+            primitive_reference_dialog_->owns_reference_owner(candidate.owner_id))
+            return false;
+        auto local_path = candidate.instance_path;
+        try {
+            auto path = zima::assembly::InstancePath::decode(
+                candidate.instance_path);
+            const bool allowed_path = active_part ? path == prefix : path == prefix ||
+                (path.occurrence_ids.size() == prefix.occurrence_ids.size() + 1 &&
+                 std::equal(prefix.occurrence_ids.begin(), prefix.occurrence_ids.end(),
+                     path.occurrence_ids.begin()));
+            if (!allowed_path) return false;
+            if (!prefix.occurrence_ids.empty()) {
+                path.occurrence_ids.erase(path.occurrence_ids.begin(),
+                    path.occurrence_ids.begin() + static_cast<std::ptrdiff_t>(
+                        prefix.occurrence_ids.size()));
+                local_path = path.encoded();
+            }
+        } catch (const std::invalid_argument&) {
+            return false;
+        }
+        auto candidate_reference = zima::document::ConstructionReference{
+            std::move(local_path), candidate.owner_id, candidate.semantic_key, 0.0,
+            candidate.kind == zima::viewer::CandidateKind::Face};
+        if (orientation_reference) {
+            candidate_reference.orientation_drives_rotation = true;
+            candidate_reference.orientation_role = index == 3 ? "front" : "top";
+        }
+        auto proposed = baseline_references;
+        proposed.push_back(std::move(candidate_reference));
+        const int proposed_dof = orientation_reference
+            ? zima::document::orientation_constraint_remaining_dof(
+                proposed, primitive_reference_geometry_, false)
+            : zima::document::point_constraint_remaining_dof(
+                proposed, primitive_reference_geometry_);
+        return proposed_dof < baseline_dof;
+    });
+    state_->setText(tr("Vyberte stabilní geometrii pro umístění kontejneru."));
+}
+
+void AssemblyWorkspaceWindow::accept_primitive_reference(
+    const zima::viewer::ViewerCandidate& candidate) {
+    if (primitive_reference_dialog_ == nullptr ||
+        !pending_primitive_reference_index_ || candidate.owner_id.empty() ||
+        candidate.semantic_key.empty() ||
+        primitive_reference_dialog_->owns_reference_owner(candidate.owner_id) ||
+        (candidate.geometry != zima::viewer::CandidateGeometry::OriginalReference &&
+         !(candidate.geometry == zima::viewer::CandidateGeometry::Display &&
+           candidate.semantic_key.starts_with("origin:")))) return;
+    auto local_path = candidate.instance_path;
+    if (!active_occurrence_path_.empty()) {
+        auto path = zima::assembly::InstancePath::decode(candidate.instance_path);
+        const auto prefix =
+            zima::assembly::InstancePath::decode(active_occurrence_path_);
+        if (path.occurrence_ids.size() < prefix.occurrence_ids.size() ||
+            !std::equal(prefix.occurrence_ids.begin(), prefix.occurrence_ids.end(),
+                path.occurrence_ids.begin())) return;
+        path.occurrence_ids.erase(path.occurrence_ids.begin(),
+            path.occurrence_ids.begin() +
+                static_cast<std::ptrdiff_t>(prefix.occurrence_ids.size()));
+        local_path = path.encoded();
+    }
+    const std::size_t selected_index = *pending_primitive_reference_index_;
+    const bool orientation_reference = selected_index >= 3;
+    auto baseline_references =
+        primitive_reference_dialog_->references_without(selected_index);
+    const int baseline_dof = orientation_reference
+        ? zima::document::orientation_constraint_remaining_dof(
+            baseline_references, primitive_reference_geometry_, false)
+        : zima::document::point_constraint_remaining_dof(
+            baseline_references, primitive_reference_geometry_);
+    auto proposed_reference = zima::document::ConstructionReference{
+        local_path, candidate.owner_id, candidate.semantic_key, 0.0,
+        candidate.kind == zima::viewer::CandidateKind::Face};
+    if (orientation_reference) {
+        proposed_reference.orientation_drives_rotation = true;
+        proposed_reference.orientation_role = selected_index == 3 ? "front" : "top";
+    }
+    baseline_references.push_back(proposed_reference);
+    const int proposed_dof = orientation_reference
+        ? zima::document::orientation_constraint_remaining_dof(
+            baseline_references, primitive_reference_geometry_, false)
+        : zima::document::point_constraint_remaining_dof(
+            baseline_references, primitive_reference_geometry_);
+    if (proposed_dof >= baseline_dof) {
+        state_->setText(tr("Tato reference nepřidává žádnou nezávislou vazbu."));
+        viewer_->clear_selection();
+        return;
+    }
+    QString reference_label;
+    const auto label_from_constructions = [&](const auto& document) {
+        const auto found = std::find_if(document.constructions.begin(),
+            document.constructions.end(), [&](const auto& object) {
+                return candidate.owner_id == object.id ||
+                    candidate.owner_id == object.entity_id ||
+                    candidate.owner_id == object.container_origin.id;
+            });
+        if (found != document.constructions.end()) {
+            reference_label = QString::fromStdString(found->name);
+        }
+    };
+    const auto active_document_id = workspace_.active_document_id();
+    if (const auto* part = workspace_.open_part(active_document_id)) {
+        label_from_constructions(part->session.document());
+        if (candidate.owner_id == part->session.document().document_id + ":origin") {
+            reference_label = tr("Počátek dílu");
+        }
+    }
+    const auto semantic_label = candidate.semantic_key.starts_with("origin:axis:")
+        ? tr("Osa %1").arg(QString::fromStdString(
+            candidate.semantic_key.substr(12)).toUpper())
+        : candidate.semantic_key.starts_with("origin:plane:")
+            ? tr("Rovina %1").arg(QString::fromStdString(
+                candidate.semantic_key.substr(13)).toUpper())
+        : candidate.kind == zima::viewer::CandidateKind::Vertex ? tr("Bod")
+        : candidate.kind == zima::viewer::CandidateKind::Axis ? tr("Osa")
+        : candidate.kind == zima::viewer::CandidateKind::Edge ? tr("Hrana")
+        : tr("Plocha");
+    reference_label = reference_label.isEmpty()
+        ? semantic_label : reference_label + QStringLiteral(" — ") + semantic_label;
+    if (!primitive_reference_dialog_->set_reference(
+        selected_index,
+        {std::move(local_path), candidate.owner_id, candidate.semantic_key, 0.0,
+            candidate.kind == zima::viewer::CandidateKind::Face},
+        reference_label)) {
+        state_->setText(tr("Stejná reference už je pro toto umístění zadaná."));
+        viewer_->clear_selection();
+        return;
+    }
+    pending_primitive_reference_index_.reset();
+    viewer_->clear_selection();
+    refresh_scene();
+    if (primitive_translation_dof_ > 0 && selected_index + 1 < 3) {
+        start_primitive_reference_selection(selected_index + 1);
+    } else {
         tree_->setProperty("commandSelectionActive", false);
         viewer_->set_selection_contract({});
         viewer_->set_candidate_filter([](const auto&) { return false; });

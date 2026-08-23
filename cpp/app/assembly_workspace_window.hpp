@@ -220,6 +220,13 @@ private:
     std::string construction_dimension_object_id_;
     std::optional<std::size_t> pending_construction_reference_index_;
     int construction_translation_dof_{3};
+    // Universal container placement (Box PoC): mirrors the
+    // construction_reference_* state above but for HistoryContainer.placement
+    // reference picking in PrimitivePropertiesDialog.
+    PrimitivePropertiesDialog* primitive_reference_dialog_{};
+    zima::kernel::ViewerReferenceGeometry primitive_reference_geometry_;
+    std::optional<std::size_t> pending_primitive_reference_index_;
+    int primitive_translation_dof_{3};
     std::string active_sketch_id_;
     std::string selected_sketch_id_;
     std::string selected_sketch_segment_id_;
@@ -388,6 +395,9 @@ private:
         zima::document::ConstructionKind kind, const std::string& object_id = {});
     void start_construction_reference_selection(std::size_t index);
     void accept_construction_reference(
+        const zima::viewer::ViewerCandidate& candidate);
+    void start_primitive_reference_selection(std::size_t index);
+    void accept_primitive_reference(
         const zima::viewer::ViewerCandidate& candidate);
     [[nodiscard]] bool accept_construction_tree_reference(
         const QTreeWidgetItem* item);

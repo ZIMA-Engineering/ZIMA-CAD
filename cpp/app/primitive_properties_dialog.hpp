@@ -5,6 +5,7 @@
 
 #include <array>
 #include <functional>
+#include <QString>
 
 class QComboBox;
 class QDoubleSpinBox;
@@ -12,6 +13,7 @@ class QLabel;
 class QLineEdit;
 class QListWidget;
 class QPushButton;
+class QTableWidget;
 class QWidget;
 
 namespace zima::app {
@@ -23,6 +25,7 @@ public:
     using CommitCallback = std::function<void(
         zima::document::HistoryContainer, std::vector<std::string>)>;
     using AssemblyTarget = std::pair<std::string, std::string>;
+    using ReferenceRequestCallback = std::function<void(std::size_t)>;
 
     PrimitivePropertiesDialog(
         const zima::document::HistoryContainer& initial,
@@ -50,6 +53,24 @@ public:
     void set_edit_sketch_callback(std::function<void(std::string)> callback);
     void set_preview_callback(
         std::function<void(const zima::document::HistoryContainer&)> callback);
+
+    // Universal container placement (position + FRONT/TOP orientation
+    // references), reusing the same reference/DOF contract as
+    // ConstructionPropertiesDialog: index < 3 selects a position reference
+    // row, index >= 3 selects the FRONT (3) / TOP (4) orientation reference.
+    void set_reference_request_callback(ReferenceRequestCallback callback);
+    bool set_reference(std::size_t index,
+        zima::document::ConstructionReference reference,
+        const QString& label);
+    [[nodiscard]] const std::string& container_id() const;
+    [[nodiscard]] bool owns_reference_owner(const std::string& owner_id) const;
+    [[nodiscard]] std::vector<zima::document::ConstructionReference>
+        references_without(std::size_t index) const;
+    void set_remaining_translation_dof(int dof);
+    void set_remaining_rotation_dof(int dof);
+    void set_translation_constraint_state(
+        const zima::document::PointConstraintState& state,
+        const zima::kernel::Vec3& solution);
 
 protected:
     bool submit() override;
@@ -107,10 +128,27 @@ private:
     QDoubleSpinBox* treatment_size_{};
     std::array<QDoubleSpinBox*, 3> translation_{};
     std::array<QDoubleSpinBox*, 3> rotation_{};
+    QTableWidget* reference_table_{};
+    QTableWidget* orientation_table_{};
+    std::vector<QPushButton*> reference_buttons_;
+    std::array<QComboBox*, 2> orientation_roles_{};
+    std::vector<zima::document::ConstructionReference> references_;
+    std::vector<QString> reference_labels_;
+    std::vector<zima::document::ConstructionReference> orientation_references_;
+    std::vector<QString> orientation_labels_;
+    QLabel* reference_status_{};
+    QLabel* dof_label_{};
+    ReferenceRequestCallback reference_request_;
+    int remaining_translation_dof_{3};
+    int remaining_rotation_dof_{3};
     QLabel* error_{};
     QListWidget* assembly_targets_{};
     [[nodiscard]] zima::document::HistoryContainer values() const;
     void notify_preview();
+    void refresh_reference_table();
+    void refresh_orientation_table();
+    void remove_reference(std::size_t index);
 };
 
 }  // namespace zima::app
+
