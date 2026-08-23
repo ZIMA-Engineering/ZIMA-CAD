@@ -70,6 +70,7 @@ from zima_cad.opengl_platform import OPENGL_CONFIG, platform_shader
 from zima_cad.viewer_data import (
     ARROW_HALF_ANGLE_DEGREES,
     Point3,
+    PointMarker,
     SilhouetteEdge,
     ViewerMesh,
     build_silhouette_edges,
@@ -12663,12 +12664,40 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         selected = min(hits)
         return selected[2], selected[3]
 
+    def _draw_point_marker(
+        self, painter: QPainter, marker: PointMarker, color: Point3
+    ) -> None:
+        screen = self._screen_point(self._camera_point(marker.position))
+        marker_color = QColor.fromRgbF(*color, 1.0)
+        painter.setPen(QPen(marker_color, 1.0))
+        painter.setBrush(QBrush(marker_color))
+        # As with solids, selection is expressed by colour rather than
+        # by stacking a larger marker over the original one.
+        radius = 4.5
+        painter.drawEllipse(screen, radius, radius)
+        if marker.label:
+            painter.setPen(QPen(QColor.fromRgbF(*color, 1.0), 1.0))
+            painter.drawText(
+                QPointF(
+                    screen.x() + radius + 4.0,
+                    screen.y() - radius - 2.0,
+                ),
+                marker.label,
+            )
+
     def _paint_points(self) -> None:
         mesh = self._mesh
         if mesh is None:
             return
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        # Several coincident markers can share one world position (e.g. the
+        # document origin and a pending container's own preview origin at
+        # (0, 0, 0)). Painting them in mesh order let a later plain-black
+        # marker redraw directly over an earlier hover/selection highlight,
+        # hiding it. Defer every highlighted marker to a second pass so it
+        # always paints on top regardless of its position in the mesh.
+        deferred: list[tuple] = []
         for marker in mesh.points:
             key = (marker.owner_id, marker.point_index)
             display_owner_id = self._display_object_owner(marker.owner_id)
@@ -12678,45 +12707,38 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             ):
                 continue
             color = marker.base_color
+            highlighted = False
             if (
                 key == self._hovered_point
                 or display_owner_id == self._hovered_object_id
             ):
                 color = (1.0, 0.48, 0.0)
+                highlighted = True
             if (
                 key == self._selected_point
                 or display_owner_id == self._selected_object_id
             ):
                 color = (0.0, 0.82, 1.0)
+                highlighted = True
             if (
                 key in self._constraint_reference_points
                 or marker.owner_id == self._selected_reference_owner_id
                 or marker.owner_id in self._constraint_reference_owner_ids
             ):
                 color = (0.0, 0.82, 1.0)
+                highlighted = True
             if marker.owner_id == self._selected_container_origin_id:
                 color = (0.0, 0.82, 1.0)
+                highlighted = True
             if marker.owner_id in self._selected_container_content_ids:
                 color = (0.0, 0.82, 1.0)
-            screen = self._screen_point(self._camera_point(marker.position))
-            marker_color = QColor.fromRgbF(*color, 1.0)
-            painter.setPen(QPen(marker_color, 1.0))
-            painter.setBrush(QBrush(marker_color))
-            # As with solids, selection is expressed by colour rather than
-            # by stacking a larger marker over the original one.
-            radius = 4.5
-            painter.drawEllipse(screen, radius, radius)
-            if marker.label:
-                painter.setPen(
-                    QPen(QColor.fromRgbF(*color, 1.0), 1.0)
-                )
-                painter.drawText(
-                    QPointF(
-                        screen.x() + radius + 4.0,
-                        screen.y() - radius - 2.0,
-                    ),
-                    marker.label,
-                )
+                highlighted = True
+            if highlighted:
+                deferred.append((marker, color))
+                continue
+            self._draw_point_marker(painter, marker, color)
+        for marker, color in deferred:
+            self._draw_point_marker(painter, marker, color)
         painter.setPen(QPen(QColor.fromRgbF(0.0, 0.82, 1.0), 1.0))
         painter.setBrush(QBrush(QColor.fromRgbF(0.0, 0.82, 1.0)))
         for position in self._constraint_reference_positions:
