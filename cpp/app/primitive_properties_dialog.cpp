@@ -47,7 +47,8 @@ bool supports_placement_reference_table(zima::document::FeatureKind kind) {
     using zima::document::FeatureKind;
     return kind == FeatureKind::Box || kind == FeatureKind::Cylinder ||
         kind == FeatureKind::Sphere || kind == FeatureKind::Cone ||
-        kind == FeatureKind::Pyramid || kind == FeatureKind::Wedge;
+        kind == FeatureKind::Pyramid || kind == FeatureKind::Wedge ||
+        kind == FeatureKind::Extrusion || kind == FeatureKind::Revolution;
 }
 
 QString primitive_label(zima::document::FeatureKind kind) {
@@ -557,6 +558,8 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         initial.feature_kind == zima::document::FeatureKind::Cone ||
         initial.feature_kind == zima::document::FeatureKind::Pyramid ||
         initial.feature_kind == zima::document::FeatureKind::Wedge ||
+        initial.feature_kind == zima::document::FeatureKind::Extrusion ||
+        initial.feature_kind == zima::document::FeatureKind::Revolution ||
         initial.feature_kind == zima::document::FeatureKind::ImportedStep) {
         translation_ = {
             placement(initial.placement.x, false),
@@ -784,6 +787,8 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
         result.feature_kind == zima::document::FeatureKind::Cone ||
         result.feature_kind == zima::document::FeatureKind::Pyramid ||
         result.feature_kind == zima::document::FeatureKind::Wedge ||
+        result.feature_kind == zima::document::FeatureKind::Extrusion ||
+        result.feature_kind == zima::document::FeatureKind::Revolution ||
         result.feature_kind == zima::document::FeatureKind::ImportedStep) {
         result.placement = {
             translation_[0]->value(), translation_[1]->value(), translation_[2]->value(),

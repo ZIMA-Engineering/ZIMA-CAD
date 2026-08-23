@@ -644,9 +644,15 @@ int main(int argc, char* argv[]) {
                 "Extrusion dialog does not expose its direction");
         require(extrusion_extent != nullptr && forward_end != nullptr,
                 "Extrusion dialog does not expose its extent");
-        require(extrusion_dialog->findChildren<QDoubleSpinBox*>(
-                    "primitiveTranslation").empty(),
-                "Extrusion dialog exposes an ignored placement");
+        require(!extrusion_dialog->findChildren<QDoubleSpinBox*>(
+                    "primitiveTranslation").empty() &&
+                    extrusion_dialog->findChild<QTableWidget*>(
+                        "primitiveReferenceTable") != nullptr,
+                "Extrusion dialog does not share the universal container "
+                "placement UI");
+        require(extrusion_dialog->set_reference(
+                    0, {{}, "part-origin", "origin:point"}, "Počátek dílu"),
+                "Extrusion Properties rejected its placement reference");
         extrusion_height->setValue(48.0);
         extrusion_extent->setCurrentIndex(
             extrusion_extent->findData("symmetric"));
@@ -671,6 +677,9 @@ int main(int argc, char* argv[]) {
                     !committed_extrusion.extrusion.end_targets_forward.empty() &&
                     committed_extrusion.extrusion.end_targets_forward.front()
                         .reference.owner_id == "datum-plane" &&
+                    committed_extrusion.placement.references.size() == 1 &&
+                    committed_extrusion.placement.references[0].owner_id ==
+                        "part-origin" &&
                     preview_updates >= 2,
                 "Extrusion Properties did not preserve its Sketch or height");
 
@@ -693,9 +702,15 @@ int main(int argc, char* argv[]) {
             revolution_dialog->findChild<QDoubleSpinBox*>("revolutionAngle");
         require(revolution_axis != nullptr && revolution_angle != nullptr,
                 "Revolution dialog does not expose its axis and angle");
-        require(revolution_dialog->findChildren<QDoubleSpinBox*>(
-                    "primitiveTranslation").empty(),
-                "Revolution dialog exposes an ignored placement");
+        require(!revolution_dialog->findChildren<QDoubleSpinBox*>(
+                    "primitiveTranslation").empty() &&
+                    revolution_dialog->findChild<QTableWidget*>(
+                        "primitiveReferenceTable") != nullptr,
+                "Revolution dialog does not share the universal container "
+                "placement UI");
+        require(revolution_dialog->set_reference(
+                    0, {{}, "part-origin", "origin:point"}, "Počátek dílu"),
+                "Revolution Properties rejected its placement reference");
         revolution_axis->setCurrentIndex(
             revolution_axis->findData("sketch_y"));
         revolution_angle->setValue(225.0);
@@ -708,8 +723,12 @@ int main(int argc, char* argv[]) {
                         "sketch-revolution" &&
                     committed_revolution.revolution.axis ==
                         zima::document::RevolutionAxis::SketchY &&
-                    committed_revolution.revolution.angle_degrees == 225.0,
-                "Revolution Properties did not preserve exact parameters");
+                    committed_revolution.revolution.angle_degrees == 225.0 &&
+                    committed_revolution.placement.references.size() == 1 &&
+                    committed_revolution.placement.references[0].owner_id ==
+                        "part-origin",
+                "Revolution Properties did not preserve exact parameters or "
+                "its universal placement reference");
 
         zima::kernel::BodyResult component_body;
         auto component = zima::assembly::AssemblyDocument::create_part_occurrence(

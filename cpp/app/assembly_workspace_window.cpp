@@ -83,7 +83,8 @@ bool supports_placement_reference_picking(zima::document::FeatureKind kind) {
     using zima::document::FeatureKind;
     return kind == FeatureKind::Box || kind == FeatureKind::Cylinder ||
         kind == FeatureKind::Sphere || kind == FeatureKind::Cone ||
-        kind == FeatureKind::Pyramid || kind == FeatureKind::Wedge;
+        kind == FeatureKind::Pyramid || kind == FeatureKind::Wedge ||
+        kind == FeatureKind::Extrusion || kind == FeatureKind::Revolution;
 }
 
 class HistoryTreeWidget final : public QTreeWidget {
@@ -5080,9 +5081,12 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             target_part->session.commit(std::move(next), std::move(calculated));
         }, this, std::move(assembly_targets), std::move(selected_targets),
         assembly_cut);
-    if (supports_placement_reference_picking(feature_kind)) {
+    std::function<void(const zima::document::HistoryContainer&)> placement_preview;
+    if (!assembly_cut && supports_placement_reference_picking(feature_kind)) {
         // Universal container placement PoC: position/orientation reference
         // picking, reusing the exact same DOF math ConstructionObject uses.
+        // Assembly cuts have no owning Part document/origin of their own yet,
+        // so placement reference picking is scoped to Part-hosted containers.
         const auto calculated = part->session.calculated_boundaries();
         auto reference_geometry = construction_reference_source_geometry(calculated);
         const auto& document = part->session.document();
@@ -5094,22 +5098,28 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         dialog->set_reference_request_callback(
             [this](std::size_t index) { start_primitive_reference_selection(index); });
         primitive_reference_dialog_ = dialog;
-        dialog->set_preview_callback(
-            [this](const zima::document::HistoryContainer& preview) {
-                if (primitive_reference_dialog_ == nullptr) return;
-                auto placement = preview.placement;
-                static_cast<void>(zima::document::resolve_placement(
-                    placement, primitive_reference_geometry_));
-                const auto constraint_state = zima::document::point_constraint_state(
-                    placement.references, primitive_reference_geometry_);
-                primitive_translation_dof_ = constraint_state.remaining_dof;
-                primitive_reference_dialog_->set_translation_constraint_state(
-                    constraint_state,
-                    {placement.x, placement.y, placement.z});
-                primitive_reference_dialog_->set_remaining_rotation_dof(
-                    zima::document::orientation_constraint_remaining_dof(
-                        placement.references, primitive_reference_geometry_, false));
-            });
+        placement_preview = [this](const zima::document::HistoryContainer& preview) {
+            if (primitive_reference_dialog_ == nullptr) return;
+            auto placement = preview.placement;
+            static_cast<void>(zima::document::resolve_placement(
+                placement, primitive_reference_geometry_));
+            const auto constraint_state = zima::document::point_constraint_state(
+                placement.references, primitive_reference_geometry_);
+            primitive_translation_dof_ = constraint_state.remaining_dof;
+            primitive_reference_dialog_->set_translation_constraint_state(
+                constraint_state,
+                {placement.x, placement.y, placement.z});
+            primitive_reference_dialog_->set_remaining_rotation_dof(
+                zima::document::orientation_constraint_remaining_dof(
+                    placement.references, primitive_reference_geometry_, false));
+        };
+        // Box/Cylinder/.../Wedge have no other preview needs: install the
+        // placement-only preview directly. Extrusion/Revolution below merge
+        // this with their own transient-edge preview into one callback.
+        if (feature_kind != zima::document::FeatureKind::Extrusion &&
+            feature_kind != zima::document::FeatureKind::Revolution) {
+            dialog->set_preview_callback(placement_preview);
+        }
     }
     if (feature_kind == zima::document::FeatureKind::Extrusion) {
         dialog->set_extrusion_target_request([this, dialog, assembly_cut] {
@@ -5137,7 +5147,9 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             state_->setText(tr("Vyberte cílovou rovinnou plochu ve view."));
         });
         dialog->set_preview_callback([this, owner_id, assembly_cut,
-                                      pending_owned_sketch](const auto& preview) {
+                                      pending_owned_sketch, placement_preview](
+                                          const auto& preview) {
+            if (placement_preview) placement_preview(preview);
             try {
                 if (assembly_cut) {
                     const auto* owner = workspace_.open_assembly(owner_id);
@@ -5167,7 +5179,9 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         });
     } else if (feature_kind == zima::document::FeatureKind::Revolution) {
         dialog->set_preview_callback([this, owner_id, assembly_cut,
-                                      pending_owned_sketch](const auto& preview) {
+                                      pending_owned_sketch, placement_preview](
+                                          const auto& preview) {
+            if (placement_preview) placement_preview(preview);
             try {
                 if (assembly_cut) {
                     const auto* owner = workspace_.open_assembly(owner_id);
