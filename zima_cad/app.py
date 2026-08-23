@@ -31610,23 +31610,28 @@ class MainWindow(QMainWindow):
             if len(parts) == 3 and parts[1] == "face":
                 scene = self._native_viewer_scene
                 try:
-                    face = scene.resolve_topology(parts[0], "face", int(parts[2])) if scene else None
+                    face_index = int(parts[2])
                 except ValueError:
-                    face = None
-                if face is None:
                     return None
-                adaptor = BRepAdaptor_Surface(face)
-                if adaptor.GetType() != GeomAbs_Plane:
-                    return None
-                direction = adaptor.Plane().Axis().Direction()
-                sign = -1.0 if face.Orientation() == TopAbs_REVERSED else 1.0
-                props = GProp_GProps()
-                brepgprop.SurfaceProperties(face, props)
-                center = props.CentreOfMass()
-                return (
-                    (center.X(), center.Y(), center.Z()),
-                    (sign * direction.X(), sign * direction.Y(), sign * direction.Z()),
+                # The picked owner_id is the history container, not the
+                # displayed root shape whose OCCT topology lives in
+                # shapes_by_owner_id.  surface_reference() already resolves
+                # persisted source-body surfaces the same way the "normal
+                # view" click handler does; resolve_topology() only works for
+                # the root and silently failed for ordinary containers.
+                surface = (
+                    scene.surface_reference(parts[0], face_index)
+                    if scene is not None
+                    else None
                 )
+                if (
+                    surface is None
+                    or surface.kind != "plane"
+                    or surface.normal is None
+                    or surface.origin is None
+                ):
+                    return None
+                return (surface.origin, surface.normal)
             if len(parts) == 3 and parts[1] == "plane":
                 plane = self.document.find_entity(parts[0]) if self.document else None
                 if plane is None:
