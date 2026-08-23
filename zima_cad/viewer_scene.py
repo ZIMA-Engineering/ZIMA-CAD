@@ -247,6 +247,7 @@ def build_document_viewer_scene_data(
     cached_body_shape: Any | None = None,
     cached_body_mesh: ViewerMesh | None = None,
     cached_body_result: BodyResult | None = None,
+    reference_owner_ids: frozenset[str] = frozenset(),
 ) -> DocumentViewerScene:
     """Build a mesh plus the owner map used to resolve picked topology."""
     boundary = (
@@ -1002,6 +1003,7 @@ def build_document_viewer_scene_data(
                 editing_object_id,
                 reference_scene_size,
                 preview_coordinate_system is not None,
+                reference_owner_ids,
             )
 
     for obj in display_objects:
@@ -1454,6 +1456,7 @@ def _append_object_origins(
     editing_object_id: str | None,
     reference_scene_size: float,
     suppress_editing_origin: bool = False,
+    reference_owner_ids: frozenset[str] = frozenset(),
 ) -> None:
     if not document.is_effectively_visible(obj.entity_id):
         return
@@ -1485,6 +1488,11 @@ def _append_object_origins(
         and document.document_settings.get("type") == "assembly"
         and show_component_origins
     )
+    # A container that owns an actively referenced datum (for example the
+    # placement plane of a Point container being edited) must expose that
+    # datum so the reference can be confirmed visually, even when its own
+    # auxiliary-geometry toggle is off and it is not the object being edited.
+    is_active_reference_owner = obj.entity_id in reference_owner_ids
     if origin is not None and (
         show_component_origin
         or (
@@ -1496,6 +1504,7 @@ def _append_object_origins(
             obj.entity_id == editing_object_id
             and not suppress_editing_origin
         )
+        or is_active_reference_owner
     ):
         reference_size = max(reference_scene_size * 0.075, 2.5)
         layers.append(
@@ -1508,7 +1517,11 @@ def _append_object_origins(
                 world_transform,
             )
         )
-        if show_object_planes or obj.entity_id == editing_object_id:
+        if (
+            show_object_planes
+            or obj.entity_id == editing_object_id
+            or is_active_reference_owner
+        ):
             for plane_index, plane_name in enumerate(
                 ("xy", "yz", "xz"),
                 start=1,
@@ -1540,6 +1553,7 @@ def _append_object_origins(
                 editing_object_id,
                 reference_scene_size,
                 suppress_editing_origin,
+                reference_owner_ids,
             )
 
 

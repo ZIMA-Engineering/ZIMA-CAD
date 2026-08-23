@@ -123,6 +123,7 @@ from zima_cad.viewer import (
     camera_angles_for_view_direction,
     preserve_camera_for_scene_bounds,
 )
+from zima_cad.viewer_scene import build_document_viewer_scene_data
 from zima_cad.viewer_mesh import (
     EdgePolyline,
     PointMarker,
@@ -4295,6 +4296,86 @@ class DrawingViewConventionTests(unittest.TestCase):
             viewer._pick_plane(QPointF(0.0, 50.0)),
             ("origin-plane", 1),
         )
+
+    def test_highlighted_container_reference_forces_its_origin_visible(
+        self,
+    ) -> None:
+        # Referencing another container's basic plane from a Point
+        # container's placement dialog must expose that plane in the scene
+        # (and paint it cyan while highlighted) even though the referenced
+        # container is neither being edited nor has its own auxiliary
+        # geometry toggle enabled.
+        application = QApplication.instance() or QApplication([])
+        document = create_empty_part()
+        box = document.create_container("Box", ContainerType.BOX)
+        box_origin = next(
+            child for child in box.children
+            if child.kind == EntityKind.ORIGIN
+        )
+        box_xy_plane = next(
+            child for child in box_origin.children
+            if child.kind == EntityKind.PLANE
+            and child.parameters.get("plane") == "xy"
+        )
+        point_container = document.create_container(
+            "Point", ContainerType.POINT
+        )
+        point_origin = next(
+            child for child in point_container.children
+            if child.kind == EntityKind.ORIGIN
+        )
+        point_entity = next(
+            child for child in point_origin.children
+            if child.kind == EntityKind.POINT
+        )
+
+        window = MainWindow.__new__(MainWindow)
+        window.document = document
+        window.native_viewer = ZimaOpenGLViewer()
+        dialog = PointConstraintDialog(
+            lambda _references, fallback: (
+                fallback, 3, "", (False, False, False)
+            ),
+            point_object=point_container,
+            point_entity=point_entity,
+            reference_exists_callback=(
+                lambda entity_id: document.find_entity(entity_id)
+                is not None
+            ),
+            reference_kind_callback=lambda entity_id: (
+                entity.kind
+                if (entity := document.find_entity(entity_id))
+                is not None
+                else None
+            ),
+        )
+        window.point_constraint_dialog = dialog
+        dialog.add_reference(box_xy_plane)
+        dialog.show()
+        application.processEvents()
+        key = str(dialog.references[0].get("key", ""))
+        dialog.highlighted_reference_keys = {key}
+        window._sync_constraint_reference_highlights()
+
+        owner_ids = window._active_reference_owner_ids()
+        self.assertIn(box.entity_id, owner_ids)
+
+        mesh = build_document_viewer_scene_data(
+            document,
+            show_object_planes=False,
+            show_object_origins=False,
+            reference_owner_ids=owner_ids,
+        ).mesh
+        rendered_planes = {
+            (plane.owner_id, plane.plane_index) for plane in mesh.planes
+        }
+        self.assertIn((box_origin.entity_id, 1), rendered_planes)
+        self.assertIn(
+            (box_origin.entity_id, 1),
+            window.native_viewer._constraint_reference_planes,
+        )
+
+        dialog.close()
 
     def test_stable_reference_hover_picks_non_scene_source_face(self) -> None:
         document = create_empty_part()

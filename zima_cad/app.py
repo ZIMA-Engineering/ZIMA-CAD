@@ -15630,6 +15630,11 @@ class MainWindow(QMainWindow):
             # instead of falling back to a depth-tested face fill.
             self.native_viewer.set_outline_face_highlights(True)
             self._sync_constraint_reference_highlights()
+            # A highlighted reference to another container's basic plane or
+            # axis is only drawn at all once that container's Origin is
+            # forced visible; that requires rebuilding the scene, not just
+            # repainting the existing meshes.
+            self.rebuild_view(fit=False, rebuild_geometry=False)
 
         dialog.referenceHighlightsChanged.connect(
             sync_property_reference_highlights
@@ -54225,6 +54230,7 @@ class MainWindow(QMainWindow):
                 )
                 else None
             ),
+            reference_owner_ids=self._active_reference_owner_ids(),
         )
         if (
             display_document.document_settings.get("type") == "assembly"
@@ -55098,6 +55104,61 @@ class MainWindow(QMainWindow):
             planes=planes,
             positions=positions,
         )
+
+    def _active_reference_owner_ids(self) -> frozenset[str]:
+        """Containers whose datum origin a highlighted reference needs shown.
+
+        A container placement reference to another object's basic plane or
+        axis renders nothing unless that other container's own datum Origin
+        is drawn, which normally depends on its own auxiliary-geometry
+        toggle.  Force that Origin (and its planes) visible while one of
+        its entities is the highlighted reference, so the referenced datum
+        is visible cyan in the view, matching its cyan reference-list row.
+        """
+        dialog = self.point_constraint_dialog
+        if (
+            dialog is None
+            or not dialog.isVisible()
+            or self.document is None
+        ):
+            return frozenset()
+        references = [
+            *[
+                reference
+                for reference in dialog.references
+                if str(reference.get("key", ""))
+                in dialog.highlighted_reference_keys
+            ],
+            *[
+                reference
+                for reference in getattr(
+                    dialog,
+                    "_container_orientation_references",
+                    (),
+                )
+                if reference is not None
+                and str(reference.get("key", ""))
+                in getattr(
+                    dialog,
+                    "_orientation_highlighted_reference_keys",
+                    set(),
+                )
+            ],
+        ]
+        owner_ids: set[str] = set()
+        for descriptor in references:
+            if str(descriptor.get("type", "")) != "entity":
+                continue
+            entity_id = str(descriptor.get("entity_id", "")).strip()
+            if not entity_id:
+                continue
+            origin = self.document.find_parent(entity_id)
+            if origin is None or origin.kind != EntityKind.ORIGIN:
+                continue
+            owner = self.document.find_parent(origin.entity_id)
+            if owner is not None:
+                owner_ids.add(owner.entity_id)
+        return frozenset(owner_ids)
 
     def _native_object_origin(
         self,
