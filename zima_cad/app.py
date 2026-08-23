@@ -26505,6 +26505,7 @@ class MainWindow(QMainWindow):
     def _original_topology_reference_pick_active(self) -> bool:
         controller = getattr(self, "_selection_controller", None)
         request = getattr(controller, "request", None)
+        orientation_dialog = getattr(self, "orientation_dialog", None)
         return bool(
             self._sketch_reference_mode
             or (
@@ -26514,6 +26515,11 @@ class MainWindow(QMainWindow):
             or (
                 self.point_constraint_dialog is not None
                 and self.point_constraint_dialog.isVisible()
+            )
+            or (
+                orientation_dialog is not None
+                and orientation_dialog.isVisible()
+                and not orientation_dialog.selection_paused
             )
         )
 
@@ -30609,6 +30615,11 @@ class MainWindow(QMainWindow):
                     False,
                 )
             )
+            and not (
+                self.orientation_dialog is not None
+                and self.orientation_dialog.isVisible()
+                and not self.orientation_dialog.selection_paused
+            )
         ):
             return
         if self._sketch_reference_mode:
@@ -30744,6 +30755,10 @@ class MainWindow(QMainWindow):
         if (
             self.point_constraint_dialog is not None
             and self.point_constraint_dialog.isVisible()
+        ) or (
+            self.orientation_dialog is not None
+            and self.orientation_dialog.isVisible()
+            and not self.orientation_dialog.selection_paused
         ):
             # Hover, RMB cycling and the following LMB must consume the same
             # ordered persisted-data candidate list.  The former duplicate
