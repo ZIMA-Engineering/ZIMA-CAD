@@ -31603,7 +31603,10 @@ class MainWindow(QMainWindow):
         self.native_viewer.set_interaction_mode("topology")
 
         def reference_frame(descriptor: str):
-            parts = descriptor.split(":")
+            # Entity ids themselves contain colons (e.g. "uuid:origin:plane:xy"),
+            # so only the trailing "<kind>:<value>" suffix may be split off;
+            # a plain split(":") would tear the id itself apart.
+            parts = descriptor.rsplit(":", 2)
             if len(parts) == 3 and parts[1] == "face":
                 scene = self._native_viewer_scene
                 try:
@@ -31745,7 +31748,9 @@ class MainWindow(QMainWindow):
             faces: set[tuple[str, int]] = set()
             planes: set[tuple[str, int]] = set()
             for row in dialog.orientation_rows():
-                parts = row["reference"].split(":")
+                # See reference_frame() above: entity ids contain colons, so
+                # only the trailing "<kind>:<value>" suffix may be split off.
+                parts = row["reference"].rsplit(":", 2)
                 if len(parts) == 3 and parts[1] == "face":
                     try:
                         faces.add((parts[0], int(parts[2])))
