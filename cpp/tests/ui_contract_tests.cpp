@@ -350,6 +350,39 @@ int main(int argc, char* argv[]) {
                     committed_wedge.wedge.top_offset == 18.0,
                 "Wedge Properties did not commit exact parameters");
 
+        auto imported_step_initial =
+            zima::document::PartDocument::create_imported_step_container(
+                "/tmp/example.step");
+        int imported_step_commits = 0;
+        zima::document::HistoryContainer committed_imported_step;
+        auto* imported_step_dialog = new zima::app::PrimitivePropertiesDialog(
+            imported_step_initial, true, false,
+            [&](zima::document::HistoryContainer value) {
+                ++imported_step_commits;
+                committed_imported_step = std::move(value);
+            }, &parent);
+        imported_step_dialog->show();
+        application.processEvents();
+        require(imported_step_dialog->findChild<QTableWidget*>(
+                    "primitiveReferenceTable") != nullptr &&
+                    imported_step_dialog->findChild<QTableWidget*>(
+                        "primitiveOrientationTable") != nullptr,
+                "ImportedStep Properties did not receive the universal "
+                "placement tables");
+        require(imported_step_dialog->set_reference(
+                    0, {{}, "part-origin", "origin:point"}, "Počátek dílu"),
+                "ImportedStep Properties rejected its placement reference");
+        imported_step_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
+        application.processEvents();
+        require(imported_step_commits == 1 &&
+                    committed_imported_step.feature_kind ==
+                        zima::document::FeatureKind::ImportedStep &&
+                    committed_imported_step.placement.references.size() == 1 &&
+                    committed_imported_step.placement.references[0].owner_id ==
+                        "part-origin",
+                "ImportedStep Properties did not commit its universal "
+                "placement reference");
+
         // Universal container placement PoC: Box exposes the same
         // reference/orientation table contract as ConstructionPropertiesDialog,
         // and a manual RZ correction becomes rotation_offset_z once a

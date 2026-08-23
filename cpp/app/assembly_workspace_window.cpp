@@ -77,14 +77,13 @@ namespace {
 
 // Every primitive solid shares the universal container placement UI
 // (position/orientation reference tables) wired in PrimitivePropertiesDialog.
-// Extrusion/Revolution and ImportedStep keep their own dedicated flows for
-// now.
 bool supports_placement_reference_picking(zima::document::FeatureKind kind) {
     using zima::document::FeatureKind;
     return kind == FeatureKind::Box || kind == FeatureKind::Cylinder ||
         kind == FeatureKind::Sphere || kind == FeatureKind::Cone ||
         kind == FeatureKind::Pyramid || kind == FeatureKind::Wedge ||
-        kind == FeatureKind::Extrusion || kind == FeatureKind::Revolution;
+        kind == FeatureKind::Extrusion || kind == FeatureKind::Revolution ||
+        kind == FeatureKind::ImportedStep;
 }
 
 class HistoryTreeWidget final : public QTreeWidget {

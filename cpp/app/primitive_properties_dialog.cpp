@@ -41,14 +41,13 @@ QString readable_placement_reference_kind(const std::string& semantic) {
 
 // Every primitive solid shares one universal placement contract (origin +
 // FRONT/TOP orientation references, manual RX/RY/RZ correction on top).
-// Extrusion/Revolution and ImportedStep opt in separately once their own
-// preview/transform wiring is validated against this same UI.
 bool supports_placement_reference_table(zima::document::FeatureKind kind) {
     using zima::document::FeatureKind;
     return kind == FeatureKind::Box || kind == FeatureKind::Cylinder ||
         kind == FeatureKind::Sphere || kind == FeatureKind::Cone ||
         kind == FeatureKind::Pyramid || kind == FeatureKind::Wedge ||
-        kind == FeatureKind::Extrusion || kind == FeatureKind::Revolution;
+        kind == FeatureKind::Extrusion || kind == FeatureKind::Revolution ||
+        kind == FeatureKind::ImportedStep;
 }
 
 QString primitive_label(zima::document::FeatureKind kind) {
