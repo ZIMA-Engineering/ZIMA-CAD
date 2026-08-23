@@ -75,6 +75,17 @@
 namespace zima::app {
 namespace {
 
+// Every primitive solid shares the universal container placement UI
+// (position/orientation reference tables) wired in PrimitivePropertiesDialog.
+// Extrusion/Revolution and ImportedStep keep their own dedicated flows for
+// now.
+bool supports_placement_reference_picking(zima::document::FeatureKind kind) {
+    using zima::document::FeatureKind;
+    return kind == FeatureKind::Box || kind == FeatureKind::Cylinder ||
+        kind == FeatureKind::Sphere || kind == FeatureKind::Cone ||
+        kind == FeatureKind::Pyramid || kind == FeatureKind::Wedge;
+}
+
 class HistoryTreeWidget final : public QTreeWidget {
 public:
     using QTreeWidget::QTreeWidget;
@@ -5069,7 +5080,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             target_part->session.commit(std::move(next), std::move(calculated));
         }, this, std::move(assembly_targets), std::move(selected_targets),
         assembly_cut);
-    if (feature_kind == zima::document::FeatureKind::Box) {
+    if (supports_placement_reference_picking(feature_kind)) {
         // Universal container placement PoC: position/orientation reference
         // picking, reusing the exact same DOF math ConstructionObject uses.
         const auto calculated = part->session.calculated_boundaries();

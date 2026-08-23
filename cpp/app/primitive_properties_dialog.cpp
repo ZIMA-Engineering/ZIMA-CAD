@@ -39,6 +39,17 @@ QString readable_placement_reference_kind(const std::string& semantic) {
     return QObject::tr("Geometrická reference");
 }
 
+// Every primitive solid shares one universal placement contract (origin +
+// FRONT/TOP orientation references, manual RX/RY/RZ correction on top).
+// Extrusion/Revolution and ImportedStep opt in separately once their own
+// preview/transform wiring is validated against this same UI.
+bool supports_placement_reference_table(zima::document::FeatureKind kind) {
+    using zima::document::FeatureKind;
+    return kind == FeatureKind::Box || kind == FeatureKind::Cylinder ||
+        kind == FeatureKind::Sphere || kind == FeatureKind::Cone ||
+        kind == FeatureKind::Pyramid || kind == FeatureKind::Wedge;
+}
+
 QString primitive_label(zima::document::FeatureKind kind) {
     return kind == zima::document::FeatureKind::Cylinder ? QObject::tr("válce")
         : kind == zima::document::FeatureKind::Sphere ? QObject::tr("koule")
@@ -569,11 +580,10 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
 
     // Universal container placement: an origin resolved from a position
     // reference, an optional FRONT/TOP orientation frame, on top of which
-    // the RX/RY/RZ fields above act as a manual correction. Currently wired
-    // for Box as the first container kind to validate the shared contract;
-    // the remaining primitive/feature kinds reuse the plain manual XYZ
-    // fields above until they are switched over to this same table.
-    if (initial.feature_kind == zima::document::FeatureKind::Box) {
+    // the RX/RY/RZ fields above act as a manual correction. ImportedStep
+    // keeps the plain manual XYZ/rotation fields above (its own external
+    // geometry isn't itself reference-solved yet).
+    if (supports_placement_reference_table(initial.feature_kind)) {
         for (const auto& reference : initial.placement.references) {
             if (reference.orientation_drives_rotation) {
                 orientation_references_.push_back(reference);

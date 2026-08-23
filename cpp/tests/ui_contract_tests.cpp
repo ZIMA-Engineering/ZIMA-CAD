@@ -210,6 +210,14 @@ int main(int argc, char* argv[]) {
         auto* height = cylinder_dialog->findChild<QDoubleSpinBox*>("cylinderHeight");
         require(radius != nullptr && height != nullptr,
                 "Cylinder dialog does not expose its parameters");
+        require(cylinder_dialog->findChild<QTableWidget*>(
+                    "primitiveReferenceTable") != nullptr &&
+                    cylinder_dialog->findChild<QTableWidget*>(
+                        "primitiveOrientationTable") != nullptr,
+                "Cylinder Properties did not receive the universal placement tables");
+        require(cylinder_dialog->set_reference(
+                    0, {{}, "part-origin", "origin:point"}, "Počátek dílu"),
+                "Cylinder Properties rejected its placement reference");
         radius->setValue(17.0);
         height->setValue(63.0);
         cylinder_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
@@ -218,8 +226,12 @@ int main(int argc, char* argv[]) {
                     committed_cylinder.feature_kind ==
                         zima::document::FeatureKind::Cylinder &&
                     committed_cylinder.cylinder.radius == 17.0 &&
-                    committed_cylinder.cylinder.height == 63.0,
-                "Cylinder Properties did not commit exact parameters");
+                    committed_cylinder.cylinder.height == 63.0 &&
+                    committed_cylinder.placement.references.size() == 1 &&
+                    committed_cylinder.placement.references[0].owner_id ==
+                        "part-origin",
+                "Cylinder Properties did not commit exact parameters or its "
+                "universal placement reference");
 
         auto sphere_initial = zima::document::PartDocument::create_sphere_container();
         zima::document::HistoryContainer committed_sphere;
@@ -232,6 +244,9 @@ int main(int argc, char* argv[]) {
         application.processEvents();
         auto* sphere_radius = sphere_dialog->findChild<QDoubleSpinBox*>("sphereRadius");
         require(sphere_radius != nullptr, "Sphere dialog does not expose its radius");
+        require(sphere_dialog->findChild<QTableWidget*>("primitiveReferenceTable") !=
+                    nullptr,
+                "Sphere Properties did not receive the universal placement table");
         sphere_radius->setValue(27.0);
         sphere_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
         application.processEvents();
@@ -276,6 +291,9 @@ int main(int argc, char* argv[]) {
             }, &parent);
         cone_dialog->show();
         application.processEvents();
+        require(cone_dialog->findChild<QTableWidget*>("primitiveReferenceTable") !=
+                    nullptr,
+                "Cone Properties did not receive the universal placement table");
         cone_dialog->findChild<QDoubleSpinBox*>("coneBottomRadius")->setValue(25.0);
         cone_dialog->findChild<QDoubleSpinBox*>("coneTopRadius")->setValue(5.0);
         cone_dialog->findChild<QDoubleSpinBox*>("coneHeight")->setValue(70.0);
@@ -295,6 +313,9 @@ int main(int argc, char* argv[]) {
             }, &parent);
         pyramid_dialog->show();
         application.processEvents();
+        require(pyramid_dialog->findChild<QTableWidget*>("primitiveReferenceTable") !=
+                    nullptr,
+                "Pyramid Properties did not receive the universal placement table");
         pyramid_dialog->findChild<QDoubleSpinBox*>("pyramidLength")->setValue(30.0);
         pyramid_dialog->findChild<QDoubleSpinBox*>("pyramidWidth")->setValue(20.0);
         pyramid_dialog->findChild<QDoubleSpinBox*>("pyramidHeight")->setValue(40.0);
@@ -314,6 +335,9 @@ int main(int argc, char* argv[]) {
             }, &parent);
         wedge_dialog->show();
         application.processEvents();
+        require(wedge_dialog->findChild<QTableWidget*>("primitiveReferenceTable") !=
+                    nullptr,
+                "Wedge Properties did not receive the universal placement table");
         wedge_dialog->findChild<QDoubleSpinBox*>("wedgeLength")->setValue(60.0);
         wedge_dialog->findChild<QDoubleSpinBox*>("wedgeWidth")->setValue(25.0);
         wedge_dialog->findChild<QDoubleSpinBox*>("wedgeHeight")->setValue(35.0);
