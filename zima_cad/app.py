@@ -2368,6 +2368,16 @@ class PointConstraintDialog(QDialog):
         item.setData(Qt.ItemDataRole.UserRole, "empty-reference")
         item.setForeground(self.palette().brush(QPalette.ColorRole.Mid))
         self.reference_list.setItem(row, 1, item)
+        prompt_label = QLabel("\u2192")
+        prompt_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        prompt_label.setToolTip(
+            tr("dialog.point_constraints.enter_reference")
+        )
+        prompt_label.setStyleSheet(
+            "QLabel { color: #3fbf3f; font-size: 16px; font-weight: 700; }"
+        )
+        prompt_label.setFixedSize(30, 30)
+        self.reference_list.setCellWidget(row, 0, prompt_label)
         offset = PrecisionDoubleSpinBox()
         offset.setEnabled(False)
         offset.setSuffix(" mm")
