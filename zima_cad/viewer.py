@@ -12586,6 +12586,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 key == self._selected_plane
                 or display_owner_id == self._selected_object_id
                 or key in self._constraint_reference_planes
+                or plane.owner_id in self._constraint_reference_owner_ids
                 or plane.owner_id == self._selected_reference_owner_id
                 or plane.owner_id in self._selected_container_content_ids
             ):
