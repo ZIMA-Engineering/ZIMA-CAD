@@ -12641,27 +12641,6 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 self._screen_point(point)
                 for point in camera_points
             ]
-            if (
-                self._triangle_weights(
-                    position,
-                    screen_points[0],
-                    screen_points[1],
-                    screen_points[2],
-                ) is not None
-                or self._triangle_weights(
-                    position,
-                    screen_points[0],
-                    screen_points[2],
-                    screen_points[3],
-                ) is not None
-            ):
-                hits.append((
-                    0.0,
-                    -sum(point[2] for point in camera_points) / 4.0,
-                    plane.owner_id,
-                    plane.plane_index,
-                ))
-                continue
             for index in range(4):
                 next_index = (index + 1) % 4
                 distance, fraction = self._point_segment_distance(

@@ -4267,16 +4267,19 @@ class DrawingViewConventionTests(unittest.TestCase):
         self.assertEqual(source_hovers, [(None, None)])
         self.assertEqual(view_hovers, [("edge", "component:axis", 1)])
 
-    def test_plane_picker_accepts_plane_interior(self) -> None:
+    def test_plane_picker_requires_the_plane_rectangle_outline(self) -> None:
+        # A datum plane is offered like an edge, through its rectangle
+        # outline. A click deep inside the filled square must miss, while a
+        # click near a border edge must hit, in every interaction mode.
         viewer = ZimaOpenGLViewer.__new__(ZimaOpenGLViewer)
         plane = SimpleNamespace(
             owner_id="origin-plane",
             plane_index=1,
             corners=(
                 (0.0, 0.0, 0.0),
-                (10.0, 0.0, 0.0),
-                (10.0, 10.0, 0.0),
-                (0.0, 10.0, 0.0),
+                (100.0, 0.0, 0.0),
+                (100.0, 100.0, 0.0),
+                (0.0, 100.0, 0.0),
             ),
         )
         viewer._mesh = SimpleNamespace(planes=(plane,))
@@ -4287,8 +4290,9 @@ class DrawingViewConventionTests(unittest.TestCase):
         viewer._topology_owner_is_selectable = lambda _owner_id: True
         viewer.devicePixelRatioF = lambda: 1.0
 
+        self.assertIsNone(viewer._pick_plane(QPointF(50.0, 50.0)))
         self.assertEqual(
-            viewer._pick_plane(QPointF(5.0, 5.0)),
+            viewer._pick_plane(QPointF(0.0, 50.0)),
             ("origin-plane", 1),
         )
 
