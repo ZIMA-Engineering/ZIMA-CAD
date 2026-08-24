@@ -2146,7 +2146,7 @@ class PointConstraintDialog(QDialog):
         self._updating_rotation_fields = False
         if type(self) is PointConstraintDialog:
             orientation_heading = QLabel(
-                tr("dialog.container_properties.object_orientation_section")
+                tr("dialog.container_properties.orientation_section")
             )
             orientation_font = orientation_heading.font()
             orientation_font.setBold(True)

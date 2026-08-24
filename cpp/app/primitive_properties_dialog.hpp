@@ -1,10 +1,13 @@
 #pragma once
 
 #include <zima/document/part_document.hpp>
+#include <zima/ui/container_placement_section.hpp>
 #include <zima/ui/properties_subwindow.hpp>
 
 #include <array>
 #include <functional>
+#include <memory>
+#include <set>
 #include <QString>
 
 class QComboBox;
@@ -15,6 +18,10 @@ class QListWidget;
 class QPushButton;
 class QTableWidget;
 class QWidget;
+
+namespace zima::ui {
+class ReferenceCellItem;
+}  // namespace zima::ui
 
 namespace zima::app {
 
@@ -72,6 +79,13 @@ public:
         const zima::document::PointConstraintState& state,
         const zima::kernel::Vec3& solution);
 
+    // Toggle-highlight-on-click for populated reference rows, matching
+    // ConstructionPropertiesDialog and Python's `_reference_cell_clicked`.
+    using ReferenceHighlightsChangedCallback = std::function<void()>;
+    void set_reference_highlights_changed_callback(
+        ReferenceHighlightsChangedCallback callback);
+    [[nodiscard]] std::set<std::string> highlighted_reference_owner_ids() const;
+
 protected:
     bool submit() override;
 
@@ -128,14 +142,7 @@ private:
     QDoubleSpinBox* treatment_size_{};
     std::array<QDoubleSpinBox*, 3> translation_{};
     std::array<QDoubleSpinBox*, 3> rotation_{};
-    QTableWidget* reference_table_{};
-    QTableWidget* orientation_table_{};
-    std::vector<QPushButton*> reference_buttons_;
-    std::array<QComboBox*, 2> orientation_roles_{};
-    std::vector<zima::document::ConstructionReference> references_;
-    std::vector<QString> reference_labels_;
-    std::vector<zima::document::ConstructionReference> orientation_references_;
-    std::vector<QString> orientation_labels_;
+    std::unique_ptr<zima::ui::ContainerPlacementSection> placement_;
     QLabel* reference_status_{};
     QLabel* dof_label_{};
     ReferenceRequestCallback reference_request_;
@@ -143,11 +150,9 @@ private:
     int remaining_rotation_dof_{3};
     QLabel* error_{};
     QListWidget* assembly_targets_{};
+    ReferenceHighlightsChangedCallback reference_highlights_changed_;
     [[nodiscard]] zima::document::HistoryContainer values() const;
     void notify_preview();
-    void refresh_reference_table();
-    void refresh_orientation_table();
-    void remove_reference(std::size_t index);
 };
 
 }  // namespace zima::app

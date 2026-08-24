@@ -103,6 +103,14 @@ std::vector<EdgePickCandidate> ordered_edge_candidates(
     for (std::size_t edge_index = 0; edge_index < mesh.edges.size(); ++edge_index) {
         const auto& edge = mesh.edges[edge_index];
         if (!edge.reference.valid() || edge.points.size() < 2) continue;
+        // The origin/construction-plane square outline is a screen-space
+        // overlay drawn purely to visualize the plane border; it is not a
+        // pickable edge entity. Without this exclusion, hovering the plane
+        // border resolves to an Edge candidate (priority 2) instead of the
+        // Face/Container-plane candidate (priority 3-4) derived from the
+        // plane's triangles, so the datum plane could never be offered/
+        // selected as a whole -- only its border segments.
+        if (edge.reference.semantic_key.starts_with("origin:plane:")) continue;
         double nearest_ray_distance = std::numeric_limits<double>::max();
         bool hit = false;
         for (std::size_t segment = 1; segment < edge.points.size(); ++segment) {

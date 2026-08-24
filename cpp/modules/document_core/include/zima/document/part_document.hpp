@@ -83,7 +83,22 @@ struct ConstructionObject {
     ConstructionKind kind{ConstructionKind::Point};
     ContainerOrigin container_origin;
     zima::kernel::Vec3 origin;
+    // Composed rotation: the FRONT/TOP orientation-reference base frame (when
+    // orientation-driving references are present) combined with the manual
+    // rotation_offset_* correction below, matching Placement's
+    // rotation_x/y/z + rotation_offset_x/y/z split (see resolve_placement()).
+    // When no orientation references are present, this equals the manual
+    // rotation entered by the user (rotation_offset_* stays zero in that
+    // case, mirroring Python's `_rotation_with_local_offset`).
     zima::kernel::Vec3 rotation;
+    double rotation_offset_x{};
+    double rotation_offset_y{};
+    double rotation_offset_z{};
+    // Transient (not persisted): the FRONT/TOP base rotation alone, without
+    // the manual correction, for the dialog's read-only "Absolutní" column.
+    // Recomputed by resolve_construction(); zero/unused when there are no
+    // orientation-driving references.
+    zima::kernel::Vec3 rotation_base{};
     zima::kernel::Vec3 direction{0.0, 0.0, 1.0};
     double display_size{100.0};
     ConstructionDefinition definition{ConstructionDefinition::Absolute};
@@ -286,6 +301,10 @@ public:
     std::map<std::string, std::map<std::string, std::string>>
         material_parameter_descriptions;
     std::string family_table{"{\"columns\":[],\"instances\":[]}"};
+    // JSON-encoded array of custom named camera views saved from the
+    // "Pohled kolmo" orientation dialog, mirroring Python's
+    // document.document_settings["named_views"].
+    std::string named_views{"[]"};
     std::vector<HistoryContainer> history;
     std::vector<zima::sketcher::Sketch> sketches;
     std::vector<ConstructionObject> constructions;
@@ -308,9 +327,20 @@ public:
     [[nodiscard]] ConstructionObject* find_construction(const std::string& id);
     [[nodiscard]] const ConstructionObject* find_construction(
         const std::string& id) const;
-    [[nodiscard]] zima::kernel::ViewerMesh origin_viewer_mesh() const;
+    // `reference_scene_size` is the bounding-box diagonal of the geometry
+    // already present in the scene (body + sketches), matching Python's
+    // `_scene_diagonal()`. The origin axis/plane size scales with it so the
+    // origin stays proportionate to the model instead of a fixed size; 0.0
+    // keeps the historical minimum size for an empty document.
+    [[nodiscard]] zima::kernel::ViewerMesh origin_viewer_mesh(
+        double reference_scene_size = 0.0) const;
+    // `reference_scene_size` scales the container's own editing-mode Origin
+    // axes/planes the same way it scales the document's Origin (see
+    // `origin_viewer_mesh`), except a container's Origin is always half the
+    // linear size of the document Origin for both axes and planes.
     [[nodiscard]] zima::kernel::ViewerMesh construction_viewer_mesh(
-        const std::string& editing_object_id = {}) const;
+        const std::string& editing_object_id = {},
+        double reference_scene_size = 0.0) const;
     void resolve_constructions(
         zima::kernel::ViewerReferenceGeometry source_geometry = {});
     [[nodiscard]] std::vector<zima::kernel::ViewerEdge> extrusion_preview_edges(
@@ -341,5 +371,13 @@ public:
         const std::filesystem::path& path,
         const std::vector<zima::kernel::BodyResult>& calculated_boundaries = {}) const;
 };
+
+// Bounding-box diagonal of a mesh's vertices/edges/points, matching Python's
+// `_scene_diagonal()`. Used to scale the Origin axes/planes proportionally
+// to the scene instead of using a fixed size. Origin geometry itself
+// (semantic keys starting with "origin:") is excluded from the bounds, same
+// as Python treats the origin as a "reference" rather than scene content.
+[[nodiscard]] double viewer_mesh_bounds_diagonal(
+    const zima::kernel::ViewerMesh& mesh);
 
 }  // namespace zima::document

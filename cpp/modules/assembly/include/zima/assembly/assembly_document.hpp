@@ -167,6 +167,7 @@ public:
     std::map<std::string, std::map<std::string, std::string>>
         material_parameter_descriptions;
     std::string family_table{"{\"columns\":[],\"instances\":[]}"};
+    std::string named_views{"[]"};
     std::vector<PartOccurrence> components;
     std::vector<zima::sketcher::Sketch> sketches;
     std::vector<AssemblyCut> cuts;
@@ -199,6 +200,11 @@ public:
     [[nodiscard]] zima::kernel::ViewerMesh construction_viewer_mesh(
         const std::string& editing_object_id = {}) const;
     [[nodiscard]] zima::kernel::ViewerMesh origin_viewer_mesh() const;
+    // Same as above, but scaling the origin axis/plane display size to the
+    // supplied scene bounding-box diagonal (matches PartDocument's overload
+    // and Python's max(reference_scene_size * 0.12, 4.0) sizing).
+    [[nodiscard]] zima::kernel::ViewerMesh origin_viewer_mesh(
+        double reference_scene_size) const;
     void resolve_constructions();
     [[nodiscard]] zima::kernel::ViewerMesh build_scene() const;
     [[nodiscard]] std::vector<OccurrenceSnapshot> occurrence_snapshot() const;

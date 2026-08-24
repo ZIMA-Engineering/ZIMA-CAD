@@ -37,6 +37,7 @@ namespace zima::app {
 
 class PrimitivePropertiesDialog;
 class ConstructionPropertiesDialog;
+class OrientationDialog;
 class DrawingWindow;
 class SketchTextPropertiesDialog;
 
@@ -211,6 +212,15 @@ private:
     std::string active_occurrence_path_;
     std::optional<zima::assembly::MateReference> pending_mate_reference_;
     bool mate_selection_active_{};
+    // "Pohled kolmo" (normal_view_action in Python): while active the viewer
+    // is restricted to Face candidates; on selection the camera is rotated
+    // to be perpendicular to the picked face and the mode is exited.
+    bool normal_view_selection_active_{};
+    zima::app::OrientationDialog* orientation_dialog_{};
+    std::array<float, 8> orientation_dialog_original_camera_{};
+    std::map<std::string, zima::viewer::ViewerCandidate>
+        orientation_reference_candidates_;
+    std::size_t pending_orientation_reference_index_{};
     std::optional<zima::document::FeatureKind> edge_treatment_selection_;
     std::vector<zima::kernel::EdgeReference> pending_edge_treatment_edges_;
     PrimitivePropertiesDialog* extrusion_target_dialog_{};
@@ -300,7 +310,7 @@ private:
     zima::sketcher::DimensionKind pending_point_dimension_kind_{
         zima::sketcher::DimensionKind::Distance};
     bool preserve_view_on_refresh_{};
-    std::map<std::string, std::array<float, 7>> document_camera_states_;
+    std::map<std::string, std::array<float, 8>> document_camera_states_;
     std::optional<zima::document::PartDocument> sketch_drag_document_;
     std::optional<zima::assembly::AssemblyDocument> assembly_sketch_drag_document_;
     std::string sketch_drag_point_id_;
@@ -363,6 +373,10 @@ private:
     [[nodiscard]] bool finish_edge_treatment_selection();
     void accept_extrusion_target(const zima::viewer::ViewerCandidate& candidate);
     void accept_mate_reference(const zima::viewer::ViewerCandidate& candidate);
+    void begin_normal_view_selection();
+    void accept_normal_view_reference(const zima::viewer::ViewerCandidate& candidate);
+    void show_orientation_dialog();
+    void accept_orientation_reference(const zima::viewer::ViewerCandidate& candidate);
     [[nodiscard]] std::optional<zima::assembly::MateReference>
         local_mate_reference(const zima::viewer::ViewerCandidate& candidate) const;
     void save_active_assembly();

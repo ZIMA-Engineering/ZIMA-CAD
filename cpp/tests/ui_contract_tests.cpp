@@ -405,11 +405,10 @@ int main(int argc, char* argv[]) {
         require(box_reference_table != nullptr && box_orientation_table != nullptr &&
                     box_orientation_table->rowCount() == 2,
                 "Box Properties does not expose the universal placement tables");
-        auto* box_reference_button = box_reference_dialog->findChild<QPushButton*>(
-            "primitiveReferenceButton0");
-        require(box_reference_button != nullptr,
+        auto* box_reference_item = box_reference_table->item(0, 1);
+        require(box_reference_item != nullptr,
                 "Box Properties has no explicit viewer-reference control");
-        box_reference_button->click();
+        emit box_reference_table->cellClicked(0, 1);
         require(requested_box_reference == 0,
                 "Box Properties did not request viewer reference selection");
         require(box_reference_dialog->set_reference(
@@ -482,11 +481,10 @@ int main(int argc, char* argv[]) {
             "constructionReferenceTable");
         require(reference_table != nullptr,
                 "Construction Properties has no Python-parity reference table");
-        auto* reference_button = referenced_axis_dialog->findChild<QPushButton*>(
-            "constructionReferenceButton0");
-        require(reference_button != nullptr,
+        auto* reference_item = reference_table->item(0, 1);
+        require(reference_item != nullptr,
                 "Construction Properties has no explicit viewer-reference control");
-        reference_button->click();
+        emit reference_table->cellClicked(0, 1);
         require(requested_reference == 0,
                 "Construction Properties did not request viewer reference selection");
         referenced_axis_dialog->set_reference(
@@ -516,19 +514,16 @@ int main(int argc, char* argv[]) {
         application.processEvents();
         auto* orientation_table = plane_dialog->findChild<QTableWidget*>(
             "constructionOrientationTable");
-        auto* first_orientation = plane_dialog->findChild<QPushButton*>(
-            "constructionOrientationReference0");
         require(orientation_table != nullptr && orientation_table->rowCount() == 2 &&
-                    first_orientation != nullptr,
+                    orientation_table->item(0, 1) != nullptr,
                 "Plane Properties does not expose the Python FRONT/TOP table");
         plane_dialog->set_reference(0,
             {{}, "axis-front", "axis"}, "Osa FRONT",
             zima::document::ConstructionDefinition::PointReference);
         application.processEvents();
-        first_orientation = qobject_cast<QPushButton*>(
-            orientation_table->cellWidget(0, 1));
-        require(first_orientation != nullptr &&
-                    first_orientation->text() == QStringLiteral("Osa FRONT"),
+        auto* first_orientation_item = orientation_table->item(0, 1);
+        require(first_orientation_item != nullptr &&
+                    first_orientation_item->text() == QStringLiteral("Osa FRONT"),
                 "Plane first placement reference did not automatically fill FRONT");
         plane_dialog->set_reference(4,
             {{}, "axis-top", "axis"}, "Osa TOP");
@@ -551,13 +546,12 @@ int main(int argc, char* argv[]) {
             "constructionReferenceTable");
         auto* remove_orientation_table = plane_remove_dialog->findChild<QTableWidget*>(
             "constructionOrientationTable");
-        auto* remove_position = qobject_cast<QPushButton*>(
-            remove_position_table->cellWidget(0, 0));
+        auto* remove_position = remove_position_table->cellWidget(0, 0)
+            ->findChild<QPushButton*>();
         require(remove_position != nullptr, "Plane position reference has no remove action");
         remove_position->click();
         application.processEvents();
-        auto* cleared_orientation = qobject_cast<QPushButton*>(
-            remove_orientation_table->cellWidget(0, 1));
+        auto* cleared_orientation = remove_orientation_table->item(0, 1);
         require(cleared_orientation != nullptr &&
                     cleared_orientation->text().contains("Vybrat"),
                 "Removing Plane position did not clear its automatic FRONT reference");
@@ -576,11 +570,12 @@ int main(int argc, char* argv[]) {
             [&](std::size_t index) { requested_point_reference = index; });
         construction_point_dialog->show();
         application.processEvents();
-        auto* point_reference_button = construction_point_dialog->findChild<QPushButton*>(
-            "constructionReferenceButton0");
-        require(point_reference_button != nullptr,
+        auto* point_reference_item = construction_point_dialog->findChild<QTableWidget*>(
+            "constructionReferenceTable")->item(0, 1);
+        require(point_reference_item != nullptr,
                 "Point Properties has no explicit viewer-reference control");
-        point_reference_button->click();
+        emit construction_point_dialog->findChild<QTableWidget*>(
+            "constructionReferenceTable")->cellClicked(0, 1);
         require(requested_point_reference == 0,
                 "Point Properties did not arm its first viewer reference");
         construction_point_dialog->set_reference(0,
@@ -621,7 +616,7 @@ int main(int argc, char* argv[]) {
             construction_point_dialog->findChild<QTableWidget*>(
                 "constructionReferenceTable");
         require(fully_constrained_table->rowCount() == 1 &&
-                    fully_constrained_table->cellWidget(0, 1) != nullptr,
+                    fully_constrained_table->item(0, 1) != nullptr,
                 "Fully constrained Point Properties still offered another reference");
         construction_point_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
         require(committed_point.kind == zima::document::ConstructionKind::Point &&
@@ -641,9 +636,9 @@ int main(int argc, char* argv[]) {
             &parent);
         cancelled_point_dialog->show();
         application.processEvents();
-        auto* replacement_button = cancelled_point_dialog->findChild<QPushButton*>(
-            "constructionReferenceButton0");
-        require(replacement_button != nullptr,
+        auto* replacement_item = cancelled_point_dialog->findChild<QTableWidget*>(
+            "constructionReferenceTable")->item(0, 1);
+        require(replacement_item != nullptr,
                 "Edited Point Properties cannot replace its reference");
         cancelled_point_dialog->set_reference(
             0, {{}, "other-point", "point"}, "Jiný bod");

@@ -630,6 +630,13 @@ zima::kernel::ViewerMesh AssemblyDocument::origin_viewer_mesh() const {
     return carrier.origin_viewer_mesh();
 }
 
+zima::kernel::ViewerMesh AssemblyDocument::origin_viewer_mesh(
+    double reference_scene_size) const {
+    auto carrier = zima::document::PartDocument::create_default();
+    carrier.document_id = document_id;
+    return carrier.origin_viewer_mesh(reference_scene_size);
+}
+
 void AssemblyDocument::resolve_constructions() {
     auto source_document = *this;
     source_document.constructions.clear();
@@ -1510,8 +1517,11 @@ AssemblyDocument::effectively_suppressed_occurrences() const {
 }
 
 zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
-    zima::kernel::ViewerMesh scene = origin_viewer_mesh();
-    append_viewer_mesh(scene, construction_viewer_mesh());
+    // Build the component/construction geometry first so the Origin
+    // axis/plane display size can scale with the assembly's actual extent,
+    // matching Python's reference_scene_size = _scene_diagonal(layers)
+    // (computed over the component bodies before the origin overlay).
+    zima::kernel::ViewerMesh scene;
     std::unordered_set<std::string> occurrence_ids;
     std::unordered_set<std::string> dependency_ids;
     std::unordered_set<std::string> cut_ids;
@@ -1774,7 +1784,11 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
         scene.original_references.triangles.size() / 3) {
         throw std::runtime_error("Assembly reference triangle data are not aligned");
     }
-    return scene;
+    zima::kernel::ViewerMesh result = origin_viewer_mesh(
+        zima::document::viewer_mesh_bounds_diagonal(scene));
+    append_viewer_mesh(result, construction_viewer_mesh());
+    append_viewer_mesh(result, scene);
+    return result;
 }
 
 zima::kernel::ViewerMesh AssemblyDocument::build_scene_with_part_override(
@@ -1836,6 +1850,7 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
     document.physical_parameter_units = root.at("physical_parameter_units").get<decltype(document.physical_parameter_units)>();
     document.material_parameter_descriptions = root.at("material_parameter_descriptions").get<decltype(document.material_parameter_descriptions)>();
     document.family_table = root.at("family_table").get<std::string>();
+    document.named_views = root.value("named_views", std::string("[]"));
     for (const auto& value : root.at("sketches")) {
         document.sketches.push_back(zima::sketcher::Sketch::from_serialized(
             value.get<std::string>()));

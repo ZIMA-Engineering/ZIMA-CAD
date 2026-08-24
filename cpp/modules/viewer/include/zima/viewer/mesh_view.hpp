@@ -3,6 +3,7 @@
 #include <zima/kernel/geometry_kernel.hpp>
 #include <zima/viewer/picking.hpp>
 
+#include <QColor>
 #include <QOpenGLFunctions>
 #include <QOpenGLWidget>
 
@@ -10,12 +11,12 @@
 #include <array>
 #include <optional>
 #include <functional>
+#include <set>
 #include <vector>
 
 class QMouseEvent;
 class QWheelEvent;
-
-namespace zima::viewer {
+class QQuaternion;namespace zima::viewer {
 
 enum class DisplayMode {
     Wire,
@@ -48,13 +49,18 @@ public:
     explicit MeshView(QWidget* parent = nullptr);
     ~MeshView() override;
     void set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view = true);
-    [[nodiscard]] std::array<float, 7> camera_state() const;
-    void set_camera_state(const std::array<float, 7>& state);
+    [[nodiscard]] std::array<float, 8> camera_state() const;
+    void set_camera_state(const std::array<float, 8>& state);
+    // Animates a full camera-state restore (orientation, pan, zoom),
+    // matching Python's animate_camera_state used to restore custom saved
+    // "Pohled kolmo" views.
+    void animate_camera_state(const std::array<float, 8>& state);
     void fit_all();
     void set_display_mode(DisplayMode mode);
     [[nodiscard]] DisplayMode display_mode() const;
     void set_standard_view(StandardView view);
     void set_view_direction(const zima::kernel::Vec3& direction);
+    void set_view_direction(const zima::kernel::Vec3& direction, float roll_degrees);
     void set_reference_visibility(ReferenceVisibility reference, bool visible);
     [[nodiscard]] bool reference_visible(ReferenceVisibility reference) const;
     void set_editing_origin_visible(bool visible);
@@ -95,6 +101,20 @@ public:
     void set_transient_point_transform(
         std::function<zima::kernel::Vec3(const zima::kernel::Vec3&)> transform);
     void set_transient_edges(std::vector<zima::kernel::ViewerEdge> edges);
+    // Per-edge highlight priority state, mirroring the Python widget's
+    // frozenset-based bookkeeping (zima_cad/viewer.py _edge_display_color /
+    // _edge_is_highlighted). Highest priority first: selected > object
+    // overlay > hovered > feature preview > color override > base color.
+    void set_edge_treatment_selection_edges(std::set<EdgeKey> edges);
+    void set_feature_hover_edges(std::set<EdgeKey> edges);
+    void set_feature_selected_edges(std::set<EdgeKey> edges);
+    void set_feature_preview_owners(std::set<std::string> owner_ids);
+    void set_constraint_reference_highlights(
+        std::set<std::string> owner_ids, std::set<EdgeKey> edges);
+    void set_assembly_reference_edges(std::set<EdgeKey> edges);
+    void set_selected_container_contents(std::set<std::string> owner_ids);
+    void set_object_overlay_main_edges(std::set<EdgeKey> edges);
+    void set_edge_color_override(std::optional<QColor> color);
     [[nodiscard]] std::optional<ViewerCandidate> confirmed_candidate() const;
     [[nodiscard]] std::optional<ViewerCandidate> hovered_candidate() const;
     [[nodiscard]] std::vector<ViewerCandidate> selection_candidates_at(
@@ -104,6 +124,11 @@ public:
     [[nodiscard]] std::optional<zima::kernel::ViewerPoint> candidate_point(
         const ViewerCandidate& candidate) const;
     [[nodiscard]] std::optional<zima::kernel::ViewerAxis> candidate_axis(
+        const ViewerCandidate& candidate) const;
+    // Outward unit normal of a Face candidate's triangle, in the same
+    // document-space coordinates as candidate_edge/candidate_point. Used by
+    // the perpendicular-to-face ("Pohled kolmo") view orientation command.
+    [[nodiscard]] std::optional<zima::kernel::Vec3> candidate_face_normal(
         const ViewerCandidate& candidate) const;
     [[nodiscard]] double world_tolerance_for_pixels(double pixels) const;
 
@@ -123,6 +148,11 @@ private:
     void upload_mesh();
     void update_candidates(const QPointF& position);
     void notify_confirmation();
+    void animate_orientation_to(const QQuaternion& target);
+    // Animates a full camera-state restore (orientation, pan, zoom),
+    // matching Python's animate_camera_state used to restore custom saved
+    // "Pohled kolmo" views (as opposed to animate_orientation_to, which only
+    // handles the 7 built-in standard/normal views and eases pan to zero).
     [[nodiscard]] std::optional<std::pair<zima::kernel::Vec3, zima::kernel::Vec3>>
         ray_at(const QPointF& position) const;
 };

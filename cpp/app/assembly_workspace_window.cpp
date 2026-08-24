@@ -3,6 +3,7 @@
 #include "mate_properties_dialog.hpp"
 #include "primitive_properties_dialog.hpp"
 #include "construction_properties_dialog.hpp"
+#include "orientation_dialog.hpp"
 #include "sketch_properties_dialog.hpp"
 #include "sketch_bspline_properties_dialog.hpp"
 #include "sketch_text_properties_dialog.hpp"
@@ -84,6 +85,49 @@ bool supports_placement_reference_picking(zima::document::FeatureKind kind) {
         kind == FeatureKind::Pyramid || kind == FeatureKind::Wedge ||
         kind == FeatureKind::Extrusion || kind == FeatureKind::Revolution ||
         kind == FeatureKind::ImportedStep;
+}
+
+// A picked reference supports an editable offset when it is a planar
+// surface: either a solid/sketch Face, or a construction/origin datum Plane
+// (Container candidate whose semantic_key resolves to "plane"), matching
+// Python's `_reference_supports_offset()` (also true for EntityKind.PLANE).
+bool candidate_supports_offset(const zima::viewer::ViewerCandidate& candidate) {
+    return candidate.kind == zima::viewer::CandidateKind::Face ||
+        (candidate.kind == zima::viewer::CandidateKind::Container &&
+            candidate.semantic_key == "plane");
+}
+
+// A picked reference is a directional (planar/linear) candidate when it is a
+// Face, Edge or Axis -- including the persisted origin plane/axis overlays,
+// whose semantic keys are "origin:plane:*"/"origin:axis:*" -- matching
+// Python's `is_orientation_candidate` test in `_add_reference()`.  Such a
+// reference simultaneously fixes both position AND, unlike a bare vertex,
+// part of the object's orientation.
+bool candidate_drives_rotation(const zima::viewer::ViewerCandidate& candidate) {
+    return candidate.kind == zima::viewer::CandidateKind::Face ||
+        candidate.kind == zima::viewer::CandidateKind::Edge ||
+        candidate.kind == zima::viewer::CandidateKind::Axis ||
+        candidate.semantic_key.starts_with("origin:plane:") ||
+        candidate.semantic_key.starts_with("origin:axis:");
+}
+
+// Assigns the next unused orientation role ("normal" first, then "up") to a
+// newly accepted Point position reference that drives rotation, matching
+// Python's `_default_orientation_role()`/`_ensure_automatic_orientation_roles()`.
+// A Point container has no dedicated orientation-reference table: the same
+// position reference simultaneously participates in placement (equations
+// solved by `resolve_construction`) and, once marked, in the rotation-DOF
+// count via `orientation_constraint_remaining_dof(..., marked_only=true)`.
+void assign_automatic_orientation_role(
+    zima::document::ConstructionReference& reference,
+    const std::vector<zima::document::ConstructionReference>& existing) {
+    std::set<std::string> used_roles;
+    for (const auto& other : existing) {
+        if (other.orientation_drives_rotation) used_roles.insert(other.orientation_role);
+    }
+    reference.orientation_role = !used_roles.contains("front") ? "front"
+        : !used_roles.contains("top") ? "top" : "none";
+    reference.orientation_drives_rotation = reference.orientation_role != "none";
 }
 
 class HistoryTreeWidget final : public QTreeWidget {
@@ -1063,13 +1107,12 @@ void AssemblyWorkspaceWindow::create_actions() {
     connect(fit_view_action_, &QAction::triggered, this, [this] {
         if (viewer_ != nullptr) viewer_->fit_all();
     });
-    auto* normal_view_action = make_action(tr("Orientace"), "view-normal");
-    normal_view_action->setToolTip(tr("Nastavit výchozí izometrickou orientaci"));
-    connect(normal_view_action, &QAction::triggered, this, [this] {
-        if (viewer_ != nullptr) {
-            viewer_->set_standard_view(zima::viewer::StandardView::Isometric);
-        }
-    });
+    auto* normal_view_action = make_action(tr("Pohled kolmo"), "view-normal");
+    normal_view_action->setObjectName("normalViewAction");
+    normal_view_action->setToolTip(
+        tr("Vyberte plochu ve 3D pohledu – natočí pohled kolmo k ní"));
+    connect(normal_view_action, &QAction::triggered, this,
+        [this] { show_orientation_dialog(); });
     selection_action_ = make_action(tr("Výběr"), "select");
     selection_action_->setObjectName("viewSelectionAction");
     selection_action_->setCheckable(true);
@@ -1732,6 +1775,14 @@ void AssemblyWorkspaceWindow::create_layout() {
         }
         if (mate_selection_active_) {
             accept_mate_reference(candidate);
+            return;
+        }
+        if (normal_view_selection_active_) {
+            accept_normal_view_reference(candidate);
+            return;
+        }
+        if (orientation_dialog_ != nullptr) {
+            accept_orientation_reference(candidate);
             return;
         }
         if (sketch_external_reference_active_) {
@@ -3740,6 +3791,311 @@ AssemblyWorkspaceWindow::local_mate_reference(
         candidate.owner_id, candidate.semantic_key};
 }
 
+void AssemblyWorkspaceWindow::begin_normal_view_selection() {
+    if (viewer_ == nullptr || properties_dialog_ != nullptr) return;
+    normal_view_selection_active_ = true;
+    viewer_->clear_selection();
+    viewer_->set_selection_contract({zima::viewer::CandidateKind::Face});
+    state_->setText(tr("Vyberte plochu ve 3D pohledu – pohled se natočí kolmo k ní."));
+}
+
+void AssemblyWorkspaceWindow::accept_normal_view_reference(
+    const zima::viewer::ViewerCandidate& candidate) {
+    normal_view_selection_active_ = false;
+    const auto normal = viewer_->candidate_face_normal(candidate);
+    viewer_->clear_selection();
+    refresh_scene();
+    if (!normal) {
+        state_->setText(tr("Z vybrané plochy nelze určit normálu."));
+        return;
+    }
+    // Python's _set_view_normal looks along the negative face normal so the
+    // face itself faces the camera.
+    viewer_->set_view_direction(
+        zima::kernel::Vec3{-normal->x, -normal->y, -normal->z});
+    viewer_->fit_all();
+    state_->setText(tr("Pohled je kolmý k vybrané ploše."));
+}
+
+namespace {
+
+// Port of Python's camera_angles_for_view_direction() (viewer.py:264):
+// maps a world viewing direction onto (yaw_degrees, pitch_degrees).
+std::pair<double, double> camera_angles_for_view_direction(
+    const zima::kernel::Vec3& direction) {
+    const double length = std::sqrt(direction.x * direction.x +
+        direction.y * direction.y + direction.z * direction.z);
+    if (length <= 1e-12) return {0.0, 0.0};
+    const double x = direction.x / length;
+    const double y = direction.y / length;
+    const double z = direction.z / length;
+    const double horizontal = std::hypot(x, y);
+    const double yaw = horizontal > 1e-12
+        ? std::atan2(x, y) * 180.0 / std::numbers::pi : 0.0;
+    const double pitch = std::atan2(-horizontal, -z) * 180.0 / std::numbers::pi;
+    return {yaw, pitch};
+}
+
+// Port of Python's _camera_roll_for_direction() (app.py:38114): aligns a
+// world direction to a requested screen-space angle (used to roll the
+// camera so the secondary orientation reference points TOP/BOTTOM/LEFT/RIGHT).
+double camera_roll_for_direction(
+    const zima::kernel::Vec3& view_direction,
+    const zima::kernel::Vec3& world_direction,
+    double target_angle_degrees) {
+    const auto [yaw_degrees, pitch_degrees] =
+        camera_angles_for_view_direction(view_direction);
+    const double yaw = yaw_degrees * std::numbers::pi / 180.0;
+    const double pitch = pitch_degrees * std::numbers::pi / 180.0;
+    const double length = std::sqrt(world_direction.x * world_direction.x +
+        world_direction.y * world_direction.y +
+        world_direction.z * world_direction.z);
+    if (length <= 1e-12) return 0.0;
+    const double dx = world_direction.x / length;
+    const double dy = world_direction.y / length;
+    const double dz = world_direction.z / length;
+    const double yaw_x = std::cos(yaw) * dx - std::sin(yaw) * dy;
+    const double yaw_y = std::sin(yaw) * dx + std::cos(yaw) * dy;
+    const double screen_y = std::cos(pitch) * yaw_y - std::sin(pitch) * dz;
+    if (std::hypot(yaw_x, screen_y) <= 1e-9) return 0.0;
+    return target_angle_degrees -
+        std::atan2(screen_y, yaw_x) * 180.0 / std::numbers::pi;
+}
+
+}  // namespace
+
+void AssemblyWorkspaceWindow::show_orientation_dialog() {
+    if (viewer_ == nullptr || properties_dialog_ != nullptr ||
+        orientation_dialog_ != nullptr) return;
+    const auto document_id = workspace_.active_document_id();
+    std::string named_views_json = "[]";
+    if (const auto* part = workspace_.open_part(document_id)) {
+        named_views_json = part->session.document().named_views;
+    } else if (const auto* assembly = workspace_.open_assembly(document_id)) {
+        named_views_json = assembly->session.document().named_views;
+    } else {
+        return;
+    }
+    std::vector<zima::app::OrientationSavedView> custom_views;
+    try {
+        const auto parsed = nlohmann::json::parse(named_views_json);
+        if (parsed.is_array()) {
+            for (const auto& entry : parsed) {
+                if (!entry.is_object() || !entry.contains("name")) continue;
+                zima::app::OrientationSavedView view;
+                view.name = QString::fromStdString(
+                    entry.value("name", std::string()));
+                const auto zoom = static_cast<float>(entry.value("zoom", 1.0));
+                const std::array<float, 8> state{
+                    1.0F, 0.0F, 0.0F, 0.0F, zoom,
+                    static_cast<float>(entry.value("pan_x", 0.0)),
+                    static_cast<float>(entry.value("pan_y", 0.0)),
+                    static_cast<float>(entry.value("reference_scale", zoom))};
+                view.camera_state = state;
+                custom_views.push_back(std::move(view));
+            }
+        }
+    } catch (const nlohmann::json::exception&) {
+        custom_views.clear();
+    }
+    auto* dialog = new zima::app::OrientationDialog(std::move(custom_views), this);
+    orientation_dialog_ = dialog;
+    orientation_dialog_original_camera_ = viewer_->camera_state();
+    orientation_reference_candidates_.clear();
+    viewer_->set_selection_contract({zima::viewer::CandidateKind::Face});
+    dialog->set_reference_request_callback([this](std::size_t index) {
+        pending_orientation_reference_index_ = index;
+        state_->setText(index == 0
+            ? tr("Vyberte plochu nebo rovinu pro první směr pohledu.")
+            : tr("Vyberte plochu nebo rovinu pro orientační referenci."));
+    });
+    // Reject a candidate reference whose direction is (anti-)parallel to a
+    // reference already accepted in the other row -- e.g. picking TOP twice,
+    // or two opposite faces -- mirroring Python's
+    // _orientation_references_are_independent().
+    dialog->set_independence_check_callback(
+        [this](const std::string& existing, const std::string& candidate) {
+            const auto existing_it = orientation_reference_candidates_.find(existing);
+            const auto candidate_it = orientation_reference_candidates_.find(candidate);
+            if (existing_it == orientation_reference_candidates_.end() ||
+                candidate_it == orientation_reference_candidates_.end()) {
+                return true;
+            }
+            const auto existing_normal = viewer_->candidate_face_normal(existing_it->second);
+            const auto candidate_normal = viewer_->candidate_face_normal(candidate_it->second);
+            if (!existing_normal || !candidate_normal) return true;
+            const double dot = existing_normal->x * candidate_normal->x +
+                existing_normal->y * candidate_normal->y +
+                existing_normal->z * candidate_normal->z;
+            return std::abs(dot) < 1.0 - 1.0e-8;
+        });
+    dialog->set_reference_rejected_callback([this] {
+        state_->setText(tr(
+            "Tuto referenci nelze použít, je rovnoběžná s již zadanou "
+            "referencí."));
+    });
+    const auto apply_rows = [this](
+            const std::vector<zima::app::OrientationReferenceRow>& rows) {
+        std::vector<std::pair<zima::app::OrientationReferenceRow,
+            zima::viewer::ViewerCandidate>> resolved;
+        for (const auto& row : rows) {
+            const auto found = orientation_reference_candidates_.find(row.reference);
+            if (found == orientation_reference_candidates_.end()) continue;
+            resolved.emplace_back(row, found->second);
+        }
+        if (resolved.empty()) return;
+        const auto primary_it = std::find_if(resolved.begin(), resolved.end(),
+            [](const auto& entry) {
+                return entry.first.role == "front" || entry.first.role == "back";
+            });
+        const auto& primary = primary_it != resolved.end() ? *primary_it : resolved.front();
+        auto primary_normal = viewer_->candidate_face_normal(primary.second);
+        if (!primary_normal) return;
+        zima::kernel::Vec3 normal = *primary_normal;
+        const bool reverse_role =
+            primary.first.role == "back" || primary.first.role == "bottom" ||
+            primary.first.role == "right";
+        if (primary.first.flip != reverse_role) {
+            normal = {-normal.x, -normal.y, -normal.z};
+        }
+        double roll_degrees = 0.0;
+        const auto secondary_it = std::find_if(resolved.begin(), resolved.end(),
+            [&](const auto& entry) {
+                return &entry != &primary &&
+                    (entry.first.role == "top" || entry.first.role == "bottom" ||
+                     entry.first.role == "left" || entry.first.role == "right");
+            });
+        if (secondary_it != resolved.end()) {
+            auto secondary_normal = viewer_->candidate_face_normal(secondary_it->second);
+            if (secondary_normal) {
+                zima::kernel::Vec3 secondary = *secondary_normal;
+                if (secondary_it->first.flip) {
+                    secondary = {-secondary.x, -secondary.y, -secondary.z};
+                }
+                static const std::map<std::string, double> target_angles{
+                    {"right", 0.0}, {"top", 90.0}, {"left", 180.0}, {"bottom", -90.0}};
+                const auto target = target_angles.find(secondary_it->first.role);
+                if (target != target_angles.end()) {
+                    roll_degrees = camera_roll_for_direction(
+                        {-normal.x, -normal.y, -normal.z}, secondary,
+                        target->second);
+                }
+            }
+        }
+        viewer_->set_view_direction(
+            {-normal.x, -normal.y, -normal.z}, static_cast<float>(roll_degrees));
+    };
+    dialog->set_rows_changed_callback(apply_rows);
+    dialog->set_view_requested_callback(
+        [this](const zima::app::OrientationSavedView& view) {
+            if (viewer_ == nullptr) return;
+            if (!view.standard.empty()) {
+                static const std::map<std::string, zima::viewer::StandardView>
+                    standard_views{
+                        {"default", zima::viewer::StandardView::Isometric},
+                        {"front", zima::viewer::StandardView::Front},
+                        {"back", zima::viewer::StandardView::Back},
+                        {"top", zima::viewer::StandardView::Top},
+                        {"bottom", zima::viewer::StandardView::Bottom},
+                        {"left", zima::viewer::StandardView::Left},
+                        {"right", zima::viewer::StandardView::Right}};
+                const auto found = standard_views.find(view.standard);
+                if (found != standard_views.end())
+                    viewer_->set_standard_view(found->second);
+                return;
+            }
+            viewer_->animate_camera_state(view.camera_state);
+        });
+    const auto persist_named_views =
+        [this, document_id](const nlohmann::json& merged) {
+        if (auto* part = workspace_.open_part(document_id)) {
+            auto next = part->session.document();
+            next.named_views = merged.dump();
+            part->session.commit(std::move(next), part->session.calculated_boundaries());
+        } else if (auto* assembly = workspace_.open_assembly(document_id)) {
+            auto next = assembly->session.document();
+            next.named_views = merged.dump();
+            assembly->session.commit(std::move(next));
+        }
+    };
+    const auto load_named_views = [this, document_id]() -> nlohmann::json {
+        std::string source = "[]";
+        if (const auto* part = workspace_.open_part(document_id)) {
+            source = part->session.document().named_views;
+        } else if (const auto* assembly = workspace_.open_assembly(document_id)) {
+            source = assembly->session.document().named_views;
+        }
+        try {
+            auto parsed = nlohmann::json::parse(source);
+            if (parsed.is_array()) return parsed;
+        } catch (const nlohmann::json::exception&) {
+        }
+        return nlohmann::json::array();
+    };
+    dialog->set_save_view_callback(
+        [this, dialog, load_named_views, persist_named_views](const QString& name) {
+        if (viewer_ == nullptr) return;
+        zima::app::OrientationSavedView view;
+        view.name = name;
+        view.camera_state = viewer_->camera_state();
+        dialog->append_saved_view(view);
+        auto existing = load_named_views();
+        nlohmann::json merged = nlohmann::json::array();
+        for (const auto& entry : existing) {
+            if (entry.is_object() &&
+                entry.value("name", std::string()) != name.toStdString())
+                merged.push_back(entry);
+        }
+        merged.push_back({{"name", name.toStdString()},
+            {"pan_x", view.camera_state[5]}, {"pan_y", view.camera_state[6]},
+            {"zoom", view.camera_state[4]},
+            {"reference_scale", view.camera_state[7]}});
+        persist_named_views(merged);
+    });
+    dialog->set_delete_view_callback(
+        [this, load_named_views, persist_named_views](const QString& name) {
+        auto existing = load_named_views();
+        nlohmann::json merged = nlohmann::json::array();
+        for (const auto& entry : existing) {
+            if (entry.is_object() &&
+                entry.value("name", std::string()) != name.toStdString())
+                merged.push_back(entry);
+        }
+        persist_named_views(merged);
+    });
+    connect(dialog, &QObject::destroyed, this, [this] {
+        orientation_dialog_ = nullptr;
+        orientation_reference_candidates_.clear();
+        pending_orientation_reference_index_ = 0;
+        if (viewer_ != nullptr) {
+            viewer_->set_candidate_filter({});
+            viewer_->clear_selection();
+        }
+    });
+    connect(dialog, &QDialog::finished, this, [this](int result) {
+        if (result != QDialog::Accepted && viewer_ != nullptr) {
+            viewer_->set_camera_state(orientation_dialog_original_camera_);
+        }
+    });
+    dialog->show();
+    state_->setText(tr("Vyberte plochu nebo rovinu pro první směr pohledu."));
+}
+
+void AssemblyWorkspaceWindow::accept_orientation_reference(
+    const zima::viewer::ViewerCandidate& candidate) {
+    if (orientation_dialog_ == nullptr) return;
+    const std::string descriptor =
+        candidate.owner_id + ":face:" + std::to_string(
+            orientation_reference_candidates_.size());
+    orientation_reference_candidates_[descriptor] = candidate;
+    const auto label = candidate.semantic_key.starts_with("origin:plane:")
+        ? tr("Rovina %1").arg(QString::fromStdString(
+            candidate.semantic_key.substr(std::string("origin:plane:").size())).toUpper())
+        : tr("Plocha");
+    orientation_dialog_->accept_reference(descriptor, label);
+    viewer_->clear_selection();
+}
+
 void AssemblyWorkspaceWindow::accept_mate_reference(
     const zima::viewer::ViewerCandidate& candidate) {
     auto reference = local_mate_reference(candidate);
@@ -5096,6 +5452,10 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         primitive_reference_geometry_ = reference_geometry;
         dialog->set_reference_request_callback(
             [this](std::size_t index) { start_primitive_reference_selection(index); });
+        dialog->set_reference_highlights_changed_callback([this, dialog] {
+            viewer_->set_constraint_reference_highlights(
+                dialog->highlighted_reference_owner_ids(), {});
+        });
         primitive_reference_dialog_ = dialog;
         placement_preview = [this](const zima::document::HistoryContainer& preview) {
             if (primitive_reference_dialog_ == nullptr) return;
@@ -5240,6 +5600,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         tree_->setProperty("commandSelectionActive", false);
         viewer_->set_transient_edges({});
         viewer_->set_candidate_filter({});
+        viewer_->set_constraint_reference_highlights({}, {});
         part_rollback_.reset();
         assembly_cut_rollback_.reset();
         refresh_tabs();
@@ -5316,12 +5677,17 @@ void AssemblyWorkspaceWindow::show_construction_properties(
         }, this);
     dialog->set_reference_request_callback(
         [this](std::size_t index) { start_construction_reference_selection(index); });
+    dialog->set_reference_highlights_changed_callback([this, dialog] {
+        viewer_->set_constraint_reference_highlights(
+            dialog->highlighted_reference_owner_ids(), {});
+    });
     construction_reference_dialog_ = dialog;
     dialog->set_preview_callback(
         [this, document_id, edit_mode](zima::document::ConstructionObject preview) {
             zima::kernel::ViewerMesh mesh;
             zima::kernel::ViewerReferenceGeometry reference_geometry;
             zima::kernel::Vec3 resolved_origin = preview.origin;
+            zima::kernel::Vec3 resolved_rotation = preview.rotation_base;
             if (const auto* source = workspace_.open_part(document_id)) {
                 auto next = source->session.document();
                 if (edit_mode) {
@@ -5337,8 +5703,18 @@ void AssemblyWorkspaceWindow::show_construction_properties(
                 next.resolve_constructions(reference_geometry);
                 if (const auto* resolved = next.find_construction(preview.id)) {
                     resolved_origin = resolved->origin;
+                    resolved_rotation = resolved->rotation_base;
                 }
-                mesh = next.construction_viewer_mesh(preview.id);
+                {
+                    zima::kernel::ViewerMesh reference_mesh;
+                    reference_mesh.vertices = reference_geometry.vertices;
+                    reference_mesh.edges = reference_geometry.edges;
+                    reference_mesh.points = reference_geometry.points;
+                    reference_mesh.axes = reference_geometry.axes;
+                    const double scene_size =
+                        zima::document::viewer_mesh_bounds_diagonal(reference_mesh);
+                    mesh = next.construction_viewer_mesh(preview.id, scene_size);
+                }
                 append_reference_geometry(reference_geometry,
                     next.origin_viewer_mesh().original_references);
                 append_reference_geometry(reference_geometry,
@@ -5355,6 +5731,7 @@ void AssemblyWorkspaceWindow::show_construction_properties(
                 next.resolve_constructions();
                 if (const auto* resolved = next.find_construction(preview.id)) {
                     resolved_origin = resolved->origin;
+                    resolved_rotation = resolved->rotation_base;
                 }
                 mesh = next.construction_viewer_mesh(preview.id);
                 reference_geometry = next.build_scene().original_references;
@@ -5368,10 +5745,15 @@ void AssemblyWorkspaceWindow::show_construction_properties(
                 construction_reference_dialog_->set_translation_constraint_state(
                     constraint_state, resolved_origin);
                 construction_reference_dialog_->set_remaining_rotation_dof(
-                    preview.kind == zima::document::ConstructionKind::Point ? 0
-                    : zima::document::orientation_constraint_remaining_dof(
-                        preview.references, reference_geometry,
-                        preview.kind == zima::document::ConstructionKind::Plane));
+                    zima::document::orientation_constraint_remaining_dof(
+                        preview.references, reference_geometry, true));
+                const bool has_orientation_references = std::any_of(
+                    preview.references.begin(), preview.references.end(),
+                    [](const auto& reference) {
+                        return reference.orientation_drives_rotation;
+                    });
+                construction_reference_dialog_->set_orientation_base_rotation(
+                    resolved_rotation, has_orientation_references);
             }
             construction_preview_mesh_ = std::move(mesh);
             viewer_->set_transient_edges({});
@@ -5396,6 +5778,7 @@ void AssemblyWorkspaceWindow::show_construction_properties(
         // container unpickable in the View.
         viewer_->set_candidate_filter({});
         viewer_->clear_selection();
+        viewer_->set_constraint_reference_highlights({}, {});
         refresh_tabs();
         refresh_scene();
     });
@@ -5491,7 +5874,7 @@ void AssemblyWorkspaceWindow::start_construction_reference_selection(
         }
         auto candidate_reference = zima::document::ConstructionReference{
             std::move(local_path), candidate.owner_id, candidate.semantic_key, 0.0,
-            candidate.kind == zima::viewer::CandidateKind::Face};
+            candidate_supports_offset(candidate)};
         if (orientation_reference) {
             candidate_reference.orientation_drives_rotation = true;
             candidate_reference.orientation_role = index == 3 ? "front" : "top";
@@ -5562,7 +5945,7 @@ void AssemblyWorkspaceWindow::accept_construction_reference(
             baseline_references, construction_reference_geometry_);
     auto proposed_reference = zima::document::ConstructionReference{
         local_path, candidate.owner_id, candidate.semantic_key, 0.0,
-        candidate.kind == zima::viewer::CandidateKind::Face};
+        candidate_supports_offset(candidate)};
     if (orientation_reference) {
         proposed_reference.orientation_drives_rotation = true;
         proposed_reference.orientation_role = selected_index == 3 ? "front" : "top";
@@ -5613,11 +5996,21 @@ void AssemblyWorkspaceWindow::accept_construction_reference(
         : tr("Plocha");
     reference_label = reference_label.isEmpty()
         ? semantic_label : reference_label + QStringLiteral(" — ") + semantic_label;
+    auto committed_reference = zima::document::ConstructionReference{
+        std::move(local_path), candidate.owner_id, candidate.semantic_key, 0.0,
+        candidate.kind == zima::viewer::CandidateKind::Face};
+    // A Point container has no dedicated orientation-reference table: a
+    // position-admitted face/edge/axis reference must still drive rotation
+    // like an orientation-only one does, matching Python's
+    // `_ensure_automatic_orientation_roles()` -- the frame follows whatever
+    // planar/linear geometry the point was actually placed against.
+    if (construction_reference_dialog_->construction_kind() ==
+            zima::document::ConstructionKind::Point &&
+        selected_index < 3 && candidate_drives_rotation(candidate)) {
+        assign_automatic_orientation_role(committed_reference, baseline_references);
+    }
     if (!construction_reference_dialog_->set_reference(
-        selected_index,
-        {std::move(local_path), candidate.owner_id, candidate.semantic_key, 0.0,
-            candidate.kind == zima::viewer::CandidateKind::Face},
-        reference_label, definition)) {
+        selected_index, committed_reference, reference_label, definition)) {
         state_->setText(tr("Stejná reference už je pro tento objekt zadaná."));
         viewer_->clear_selection();
         return;
@@ -5703,7 +6096,7 @@ void AssemblyWorkspaceWindow::start_primitive_reference_selection(
         }
         auto candidate_reference = zima::document::ConstructionReference{
             std::move(local_path), candidate.owner_id, candidate.semantic_key, 0.0,
-            candidate.kind == zima::viewer::CandidateKind::Face};
+            candidate_supports_offset(candidate)};
         if (orientation_reference) {
             candidate_reference.orientation_drives_rotation = true;
             candidate_reference.orientation_role = index == 3 ? "front" : "top";
@@ -5753,7 +6146,7 @@ void AssemblyWorkspaceWindow::accept_primitive_reference(
             baseline_references, primitive_reference_geometry_);
     auto proposed_reference = zima::document::ConstructionReference{
         local_path, candidate.owner_id, candidate.semantic_key, 0.0,
-        candidate.kind == zima::viewer::CandidateKind::Face};
+        candidate_supports_offset(candidate)};
     if (orientation_reference) {
         proposed_reference.orientation_drives_rotation = true;
         proposed_reference.orientation_role = selected_index == 3 ? "front" : "top";
@@ -5800,11 +6193,18 @@ void AssemblyWorkspaceWindow::accept_primitive_reference(
         : tr("Plocha");
     reference_label = reference_label.isEmpty()
         ? semantic_label : reference_label + QStringLiteral(" — ") + semantic_label;
+    auto committed_reference = zima::document::ConstructionReference{
+        std::move(local_path), candidate.owner_id, candidate.semantic_key, 0.0,
+        candidate.kind == zima::viewer::CandidateKind::Face};
+    // A primitive container's placement, like a Point, has no dedicated
+    // orientation-reference table: a position-admitted face/edge/axis
+    // reference must still drive rotation, matching Python's
+    // `_ensure_automatic_orientation_roles()`.
+    if (selected_index < 3 && candidate_drives_rotation(candidate)) {
+        assign_automatic_orientation_role(committed_reference, baseline_references);
+    }
     if (!primitive_reference_dialog_->set_reference(
-        selected_index,
-        {std::move(local_path), candidate.owner_id, candidate.semantic_key, 0.0,
-            candidate.kind == zima::viewer::CandidateKind::Face},
-        reference_label)) {
+        selected_index, committed_reference, reference_label)) {
         state_->setText(tr("Stejná reference už je pro toto umístění zadaná."));
         viewer_->clear_selection();
         return;
@@ -9422,10 +9822,10 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     tree_->setRootIndex(QModelIndex{});
     tree_->clear();
     viewer_->set_transient_point_transform({});
-    const auto construction_mesh = [this](const auto& document) {
+    const auto construction_mesh = [this](const auto& document, double scene_size) {
         auto mesh = construction_preview_mesh_.has_value()
             ? *construction_preview_mesh_
-            : document.construction_viewer_mesh();
+            : document.construction_viewer_mesh({}, scene_size);
         const auto* point = document.find_construction(
             construction_dimension_object_id_);
         if (point == nullptr || point->kind !=
@@ -9673,8 +10073,9 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             part_rollback_->part_document_id == document.document_id) {
             auto display = part_rollback_->input_body
                 ? part_rollback_->input_body->mesh : zima::kernel::ViewerMesh{};
-            append_mesh(display, document.origin_viewer_mesh());
-            append_mesh(display, construction_mesh(document));
+            const double scene_size = zima::document::viewer_mesh_bounds_diagonal(display);
+            append_mesh(display, document.origin_viewer_mesh(scene_size));
+            append_mesh(display, construction_mesh(document, scene_size));
             viewer_->set_mesh(std::move(display));
         } else {
             const auto& calculated = part->session.calculated_boundaries();
@@ -9726,8 +10127,10 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                 if (sketch.id != active_sketch_id_) sketch_mesh.axes.clear();
                 append_mesh(display, std::move(sketch_mesh));
             }
-            append_mesh(display, document.origin_viewer_mesh());
-            append_mesh(display, construction_mesh(document));
+            append_mesh(display, document.origin_viewer_mesh(
+                zima::document::viewer_mesh_bounds_diagonal(display)));
+            append_mesh(display, construction_mesh(document,
+                zima::document::viewer_mesh_bounds_diagonal(display)));
             if (sketch_external_reference_active_) {
                 const auto source_owners = sketch_external_reference_source_owners(
                     document, active_sketch_id_);
@@ -10082,9 +10485,13 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                 append_mesh(live_source.mesh, std::move(sketch_mesh));
             }
             append_mesh(live_source.mesh,
-                active_part->session.document().origin_viewer_mesh());
+                active_part->session.document().origin_viewer_mesh(
+                    zima::document::viewer_mesh_bounds_diagonal(
+                        live_source.mesh)));
             append_mesh(live_source.mesh,
-                construction_mesh(active_part->session.document()));
+                construction_mesh(active_part->session.document(),
+                    zima::document::viewer_mesh_bounds_diagonal(
+                        live_source.mesh)));
             viewer_->set_mesh(workspace_.build_scene_with_part_override(
                 document.document_id,
                 zima::assembly::InstancePath::decode(*active_part_occurrence),

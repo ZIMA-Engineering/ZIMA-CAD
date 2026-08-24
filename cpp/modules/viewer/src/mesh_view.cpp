@@ -8,15 +8,20 @@
 #include <QOpenGLVertexArrayObject>
 #include <QPainter>
 #include <QQuaternion>
+#include <QEasingCurve>
+#include <QVariantAnimation>
 #include <QVector3D>
 #include <QVector4D>
 #include <QWheelEvent>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
+#include <map>
 #include <optional>
 #include <numbers>
+#include <set>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -52,8 +57,26 @@ struct MeshView::Impl {
     QOpenGLBuffer vertices{QOpenGLBuffer::VertexBuffer};
     QOpenGLBuffer triangles{QOpenGLBuffer::IndexBuffer};
     QOpenGLBuffer lines{QOpenGLBuffer::VertexBuffer};
+    QOpenGLBuffer silhouette{QOpenGLBuffer::VertexBuffer};
     QOpenGLVertexArrayObject vertex_array;
     std::vector<std::pair<GLint, GLsizei>> line_ranges;
+    // Mesh edges kept in lock-step with line_ranges (same filtering as
+    // upload_mesh's line_data build) purely so paintGL can resolve each
+    // edge's highlight-priority colour before its individual draw call.
+    std::vector<zima::kernel::ViewerEdge> line_edges;
+    // Candidate internal triangulation edges eligible to become silhouettes
+    // (shared by exactly two triangles of the same owning face, not already
+    // a real topological edge). Rebuilt only when the mesh changes; the
+    // actual visible segments are re-selected every frame from the camera
+    // direction. Mirrors Python's build_silhouette_edges()/
+    // silhouette_segments_from_edges() in zima_cad/viewer_data.py.
+    struct SilhouetteCandidate {
+        QVector3D first;
+        QVector3D second;
+        QVector3D normal_a;
+        QVector3D normal_b;
+    };
+    std::vector<SilhouetteCandidate> silhouette_candidates;
     std::vector<CandidateKind> allowed_kinds{CandidateKind::Container};
     std::function<bool(const ViewerCandidate&)> candidate_filter;
     std::vector<ViewerCandidate> candidates;
@@ -94,6 +117,20 @@ struct MeshView::Impl {
     std::vector<zima::kernel::ViewerEdge> transient_edges;
     std::function<zima::kernel::Vec3(const zima::kernel::Vec3&)>
         transient_point_transform;
+    // Per-edge highlight priority state. Mirrors the frozenset bookkeeping in
+    // zima_cad/viewer.py's MeshView (_edge_display_color/_edge_is_highlighted):
+    // selected > object overlay > hovered > feature preview > color override
+    // > base color. Populated via the set_*_edges/owners setters below.
+    std::set<EdgeKey> edge_treatment_selection_edges;
+    std::set<EdgeKey> feature_hover_edges;
+    std::set<EdgeKey> feature_selected_edges;
+    std::set<std::string> feature_preview_owner_ids;
+    std::set<std::string> constraint_reference_owner_ids;
+    std::set<EdgeKey> constraint_reference_edges;
+    std::set<EdgeKey> assembly_reference_edges;
+    std::set<std::string> selected_container_content_ids;
+    std::set<EdgeKey> object_overlay_main_edge_keys;
+    std::optional<QColor> edge_color_override;
     QPoint last_pointer;
     QVector3D center;
     QPointF pan_pixels;
@@ -105,6 +142,11 @@ struct MeshView::Impl {
             QQuaternion::fromAxisAndAngle(1.0F, 0.0F, 0.0F, -45.0F) *
             QQuaternion::fromAxisAndAngle(0.0F, 0.0F, 1.0F, 215.264F);
     }();
+    // Mirrors Python's animate_standard_view/animate_view_normal: a running
+    // QVariantAnimation slerps orientation and lerps pan/zoom back to the
+    // resting state, matching zima_cad/viewer.py's camera transition feel
+    // instead of a hard jump cut.
+    QVariantAnimation* camera_animation{};
     DisplayMode display_mode{DisplayMode::ShadedWithEdges};
     bool show_origins{true};
     bool show_points{true};
@@ -213,6 +255,7 @@ MeshView::~MeshView() {
         impl_->vertices.destroy();
         impl_->triangles.destroy();
         impl_->lines.destroy();
+        impl_->silhouette.destroy();
         doneCurrent();
     }
 }
@@ -228,20 +271,27 @@ void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
     update();
 }
 
-std::array<float, 7> MeshView::camera_state() const {
+std::array<float, 8> MeshView::camera_state() const {
     return {impl_->orientation.scalar(), impl_->orientation.x(),
             impl_->orientation.y(), impl_->orientation.z(), impl_->view_scale,
             static_cast<float>(impl_->pan_pixels.x()),
-            static_cast<float>(impl_->pan_pixels.y())};
+            static_cast<float>(impl_->pan_pixels.y()),
+            impl_->reference_view_scale};
 }
 
-void MeshView::set_camera_state(const std::array<float, 7>& state) {
+void MeshView::set_camera_state(const std::array<float, 8>& state) {
     if (!std::all_of(state.begin(), state.end(), [](float value) {
             return std::isfinite(value);
         }) || state[4] <= 0.0F) return;
     impl_->orientation = QQuaternion(state[0], state[1], state[2], state[3]).normalized();
     impl_->view_scale = state[4];
     impl_->pan_pixels = QPointF(state[5], state[6]);
+    // reference_view_scale must be restored alongside view_scale so the
+    // screen-constant origin axis/plane ratio (view_scale /
+    // reference_view_scale) stays 1.0 across saves/undo/tab switches, not
+    // just right after fit_all(). A missing/zero stored value falls back to
+    // view_scale itself (equivalent to "just fit").
+    impl_->reference_view_scale = state[7] > 0.0F ? state[7] : impl_->view_scale;
     impl_->candidates.clear();
     impl_->rebuild_persisted_reference_mesh();
     update();
@@ -335,6 +385,43 @@ std::optional<zima::kernel::ViewerAxis> MeshView::candidate_axis(
         return std::nullopt;
     }
     return axis;
+}
+
+std::optional<zima::kernel::Vec3> MeshView::candidate_face_normal(
+    const ViewerCandidate& candidate) const {
+    if (candidate.kind != CandidateKind::Face) return std::nullopt;
+    const auto resolve = [&](const auto& mesh) -> std::optional<zima::kernel::Vec3> {
+        const std::size_t triangle = candidate.geometry_index;
+        if (triangle * 3 + 2 >= mesh.triangles.size() ||
+            triangle >= mesh.triangle_references.size()) return std::nullopt;
+        const auto& reference = mesh.triangle_references[triangle];
+        if (reference.owner_id != candidate.owner_id ||
+            reference.semantic_key != candidate.semantic_key ||
+            reference.instance_path != candidate.instance_path) {
+            return std::nullopt;
+        }
+        const auto first = mesh.triangles[triangle * 3];
+        const auto second = mesh.triangles[triangle * 3 + 1];
+        const auto third = mesh.triangles[triangle * 3 + 2];
+        if (first >= mesh.vertices.size() || second >= mesh.vertices.size() ||
+            third >= mesh.vertices.size()) return std::nullopt;
+        const auto& a = mesh.vertices[first];
+        const auto& b = mesh.vertices[second];
+        const auto& c = mesh.vertices[third];
+        const zima::kernel::Vec3 edge_one{b.x - a.x, b.y - a.y, b.z - a.z};
+        const zima::kernel::Vec3 edge_two{c.x - a.x, c.y - a.y, c.z - a.z};
+        zima::kernel::Vec3 normal{
+            edge_one.y * edge_two.z - edge_one.z * edge_two.y,
+            edge_one.z * edge_two.x - edge_one.x * edge_two.z,
+            edge_one.x * edge_two.y - edge_one.y * edge_two.x};
+        const double length = std::sqrt(normal.x * normal.x + normal.y * normal.y +
+            normal.z * normal.z);
+        if (!std::isfinite(length) || length <= 1.0e-12) return std::nullopt;
+        normal.x /= length; normal.y /= length; normal.z /= length;
+        return normal;
+    };
+    return candidate.geometry == CandidateGeometry::OriginalReference
+        ? resolve(impl_->mesh.original_references) : resolve(impl_->mesh);
 }
 
 void MeshView::confirm_container(const std::string& owner_id) {
@@ -504,6 +591,60 @@ void MeshView::set_transient_edges(std::vector<zima::kernel::ViewerEdge> edges) 
     update();
 }
 
+void MeshView::set_edge_treatment_selection_edges(std::set<EdgeKey> edges) {
+    if (edges == impl_->edge_treatment_selection_edges) return;
+    impl_->edge_treatment_selection_edges = std::move(edges);
+    update();
+}
+
+void MeshView::set_feature_hover_edges(std::set<EdgeKey> edges) {
+    if (edges == impl_->feature_hover_edges) return;
+    impl_->feature_hover_edges = std::move(edges);
+    update();
+}
+
+void MeshView::set_feature_selected_edges(std::set<EdgeKey> edges) {
+    if (edges == impl_->feature_selected_edges) return;
+    impl_->feature_selected_edges = std::move(edges);
+    update();
+}
+
+void MeshView::set_feature_preview_owners(std::set<std::string> owner_ids) {
+    if (owner_ids == impl_->feature_preview_owner_ids) return;
+    impl_->feature_preview_owner_ids = std::move(owner_ids);
+    update();
+}
+
+void MeshView::set_constraint_reference_highlights(
+    std::set<std::string> owner_ids, std::set<EdgeKey> edges) {
+    impl_->constraint_reference_owner_ids = std::move(owner_ids);
+    impl_->constraint_reference_edges = std::move(edges);
+    update();
+}
+
+void MeshView::set_assembly_reference_edges(std::set<EdgeKey> edges) {
+    if (edges == impl_->assembly_reference_edges) return;
+    impl_->assembly_reference_edges = std::move(edges);
+    update();
+}
+
+void MeshView::set_selected_container_contents(std::set<std::string> owner_ids) {
+    if (owner_ids == impl_->selected_container_content_ids) return;
+    impl_->selected_container_content_ids = std::move(owner_ids);
+    update();
+}
+
+void MeshView::set_object_overlay_main_edges(std::set<EdgeKey> edges) {
+    if (edges == impl_->object_overlay_main_edge_keys) return;
+    impl_->object_overlay_main_edge_keys = std::move(edges);
+    update();
+}
+
+void MeshView::set_edge_color_override(std::optional<QColor> color) {
+    impl_->edge_color_override = std::move(color);
+    update();
+}
+
 void MeshView::set_transient_point_transform(
     std::function<zima::kernel::Vec3(const zima::kernel::Vec3&)> transform) {
     impl_->transient_point_transform = std::move(transform);
@@ -579,7 +720,6 @@ void MeshView::fit_all() {
         bounds.push_back(dimension.line_first);
         bounds.push_back(dimension.line_second);
     }
-    impl_->reference_view_scale = static_cast<float>(reference_extent);
     if (bounds.empty() && reference_centers.empty()) {
         impl_->center = {};
         impl_->radius = 1.0F;
@@ -588,7 +728,37 @@ void MeshView::fit_all() {
         impl_->pan_pixels = {};
         return;
     }
-    if (bounds.empty()) bounds = reference_centers;
+    if (bounds.empty()) {
+        // No real body/user geometry yet (e.g. a brand-new empty Part): the
+        // scene contains only origin axes/planes/points. Frame the view
+        // around their actual rendered extent (reference_extent, tracking
+        // axis display_length / plane half-diagonal) rather than around the
+        // tiny cluster of near-zero center points in reference_centers,
+        // which would otherwise make the fixed-length origin axes appear
+        // enormous relative to an overly tight fit radius.
+        zima::kernel::Vec3 center{};
+        if (!reference_centers.empty()) {
+            for (const auto& point : reference_centers) {
+                center.x += point.x;
+                center.y += point.y;
+                center.z += point.z;
+            }
+            const double count = static_cast<double>(reference_centers.size());
+            center = {center.x / count, center.y / count, center.z / count};
+        }
+        impl_->center = QVector3D(static_cast<float>(center.x),
+                                   static_cast<float>(center.y),
+                                   static_cast<float>(center.z));
+        // Add headroom around the origin's own extent so the axes/planes
+        // do not fill the entire viewport edge-to-edge (matches the visual
+        // margin a body with real bounds gets from its own surrounding
+        // whitespace once panned/zoomed by the user).
+        impl_->radius = static_cast<float>(std::max(reference_extent, 0.5) * 2.0);
+        impl_->view_scale = impl_->radius;
+        impl_->reference_view_scale = impl_->radius;
+        impl_->pan_pixels = {};
+        return;
+    }
     zima::kernel::Vec3 minimum{
         std::numeric_limits<double>::max(), std::numeric_limits<double>::max(),
         std::numeric_limits<double>::max()};
@@ -614,6 +784,11 @@ void MeshView::fit_all() {
     impl_->radius = std::max(diagonal.length() / 2.0F, 0.5F);
     impl_->view_scale = bounds.size() == 1
         ? impl_->reference_view_scale : impl_->radius;
+    // Matches Python's fit_all() resetting camera.zoom to 1.0: at fit time
+    // the screen-constant reference scale (view_scale / reference_view_scale)
+    // must be exactly 1, so origin axes/planes render at their true stored
+    // size instead of being skewed by an unrelated reference_extent ratio.
+    impl_->reference_view_scale = impl_->view_scale;
     impl_->pan_pixels = {};
     update();
 }
@@ -624,6 +799,91 @@ void MeshView::set_display_mode(DisplayMode mode) {
 }
 
 DisplayMode MeshView::display_mode() const { return impl_->display_mode; }
+
+namespace {
+// Shared camera transition helper for set_standard_view/set_view_direction,
+// matching Python's animate_standard_view/animate_view_normal: slerp the
+// orientation and ease pan back to zero over ANIMATION_DURATION_MS with an
+// InOutCubic curve instead of a hard jump cut.
+constexpr int kAnimationDurationMs = 850;
+}  // namespace
+
+void MeshView::animate_orientation_to(const QQuaternion& target) {
+    if (impl_->camera_animation != nullptr) {
+        impl_->camera_animation->stop();
+        impl_->camera_animation = nullptr;
+    }
+    const QQuaternion start_orientation = impl_->orientation;
+    const QPointF start_pan = impl_->pan_pixels;
+    auto* animation = new QVariantAnimation(this);
+    animation->setStartValue(0.0);
+    animation->setEndValue(1.0);
+    animation->setDuration(kAnimationDurationMs);
+    animation->setEasingCurve(QEasingCurve::InOutCubic);
+    connect(animation, &QVariantAnimation::valueChanged, this,
+        [this, start_orientation, target, start_pan](const QVariant& raw) {
+            const float progress = static_cast<float>(raw.toDouble());
+            impl_->orientation =
+                QQuaternion::slerp(start_orientation, target, progress);
+            impl_->pan_pixels = start_pan * (1.0 - progress);
+            update();
+        });
+    connect(animation, &QVariantAnimation::finished, this, [this, animation] {
+        if (impl_->camera_animation == animation) impl_->camera_animation = nullptr;
+    });
+    impl_->camera_animation = animation;
+    animation->start(QAbstractAnimation::DeleteWhenStopped);
+}
+
+void MeshView::animate_camera_state(const std::array<float, 8>& state) {
+    if (!std::all_of(state.begin(), state.end(), [](float value) {
+            return std::isfinite(value);
+        }) || state[4] <= 0.0F) return;
+    if (impl_->camera_animation != nullptr) {
+        impl_->camera_animation->stop();
+        impl_->camera_animation = nullptr;
+    }
+    const QQuaternion start_orientation = impl_->orientation;
+    const QPointF start_pan = impl_->pan_pixels;
+    const float start_scale = impl_->view_scale;
+    const float start_reference_scale = impl_->reference_view_scale;
+    const QQuaternion target_orientation =
+        QQuaternion(state[0], state[1], state[2], state[3]).normalized();
+    const QPointF target_pan(state[5], state[6]);
+    const float target_scale = state[4];
+    // reference_view_scale must be restored alongside view_scale, otherwise
+    // the screen-constant origin axis/plane ratio drifts to a stale value
+    // after restoring a saved "Pohledy" view.
+    const float target_reference_scale = state[7] > 0.0F ? state[7] : target_scale;
+    auto* animation = new QVariantAnimation(this);
+    animation->setStartValue(0.0);
+    animation->setEndValue(1.0);
+    animation->setDuration(kAnimationDurationMs);
+    animation->setEasingCurve(QEasingCurve::InOutCubic);
+    connect(animation, &QVariantAnimation::valueChanged, this,
+        [this, start_orientation, target_orientation, start_pan, target_pan,
+            start_scale, target_scale, start_reference_scale,
+            target_reference_scale](const QVariant& raw) {
+            const float progress = static_cast<float>(raw.toDouble());
+            impl_->orientation = QQuaternion::slerp(
+                start_orientation, target_orientation, progress);
+            impl_->pan_pixels = start_pan +
+                (target_pan - start_pan) * static_cast<double>(progress);
+            impl_->view_scale = start_scale +
+                (target_scale - start_scale) * progress;
+            impl_->reference_view_scale = start_reference_scale +
+                (target_reference_scale - start_reference_scale) * progress;
+            impl_->candidates.clear();
+            update();
+        });
+    connect(animation, &QVariantAnimation::finished, this, [this, animation] {
+        if (impl_->camera_animation == animation) impl_->camera_animation = nullptr;
+        impl_->rebuild_persisted_reference_mesh();
+    });
+    impl_->camera_animation = animation;
+    animation->start(QAbstractAnimation::DeleteWhenStopped);
+}
+
 
 void MeshView::set_standard_view(StandardView view) {
     float yaw{};
@@ -651,15 +911,19 @@ void MeshView::set_standard_view(StandardView view) {
             yaw = 180.0F; pitch = 180.0F;
             break;
     }
-    impl_->orientation =
+    const QQuaternion target =
         QQuaternion::fromAxisAndAngle(1.0F, 0.0F, 0.0F, pitch) *
         QQuaternion::fromAxisAndAngle(0.0F, 0.0F, 1.0F, yaw);
-    impl_->pan_pixels = {};
     impl_->candidates.clear();
-    update();
+    animate_orientation_to(target);
 }
 
 void MeshView::set_view_direction(const zima::kernel::Vec3& direction) {
+    set_view_direction(direction, 0.0F);
+}
+
+void MeshView::set_view_direction(
+    const zima::kernel::Vec3& direction, float roll_degrees) {
     const double length = std::sqrt(direction.x * direction.x +
         direction.y * direction.y + direction.z * direction.z);
     if (!std::isfinite(length) || length <= 1.0e-12) {
@@ -673,12 +937,12 @@ void MeshView::set_view_direction(const zima::kernel::Vec3& direction) {
         ? static_cast<float>(std::atan2(x, y) * 180.0 / std::numbers::pi) : 0.0F;
     const float pitch = static_cast<float>(
         std::atan2(-horizontal, -z) * 180.0 / std::numbers::pi);
-    impl_->orientation =
+    const QQuaternion target =
+        QQuaternion::fromAxisAndAngle(0.0F, 0.0F, 1.0F, roll_degrees) *
         QQuaternion::fromAxisAndAngle(1.0F, 0.0F, 0.0F, pitch) *
         QQuaternion::fromAxisAndAngle(0.0F, 0.0F, 1.0F, yaw);
-    impl_->pan_pixels = {};
     impl_->candidates.clear();
-    update();
+    animate_orientation_to(target);
 }
 
 void MeshView::set_reference_visibility(
@@ -739,6 +1003,7 @@ void MeshView::initializeGL() {
     impl_->vertices.create();
     impl_->triangles.create();
     impl_->lines.create();
+    impl_->silhouette.create();
     upload_mesh();
     impl_->vertex_array.release();
 }
@@ -787,11 +1052,13 @@ void MeshView::upload_mesh() {
 
     std::vector<float> line_data;
     impl_->line_ranges.clear();
+    impl_->line_edges.clear();
     for (const auto& edge : impl_->mesh.edges) {
         if (edge.overlay || edge.points.size() < 2) continue;
         const auto first = static_cast<GLint>(line_data.size() / 6);
         const auto count = static_cast<GLsizei>(edge.points.size());
         impl_->line_ranges.emplace_back(first, count);
+        impl_->line_edges.push_back(edge);
         for (const auto& point : edge.points) {
             line_data.insert(line_data.end(), {
                 static_cast<float>(point.x), static_cast<float>(point.y),
@@ -801,6 +1068,84 @@ void MeshView::upload_mesh() {
     impl_->lines.bind();
     impl_->lines.allocate(line_data.data(),
         static_cast<int>(line_data.size() * sizeof(float)));
+
+    // Candidate silhouette edges: internal triangulation edges shared by
+    // exactly two triangles of the same owning face (owner_id + semantic_key)
+    // that are not already a persisted topological edge. Mirrors Python's
+    // build_silhouette_edges() in zima_cad/viewer_data.py. Rebuilt only when
+    // the mesh changes (gpu_dirty); the visible subset is re-selected every
+    // frame from the current camera direction in paintGL.
+    {
+        std::set<std::pair<std::string, std::pair<std::array<double, 3>,
+            std::array<double, 3>>>> topology_segments;
+        const auto rounded = [](const zima::kernel::Vec3& point) {
+            constexpr double scale = 1.0e7;
+            return std::array<double, 3>{
+                std::round(point.x * scale) / scale,
+                std::round(point.y * scale) / scale,
+                std::round(point.z * scale) / scale};
+        };
+        for (const auto& edge : impl_->mesh.edges) {
+            if (edge.overlay) continue;
+            for (std::size_t index = 0; index + 1 < edge.points.size(); ++index) {
+                auto first = rounded(edge.points[index]);
+                auto second = rounded(edge.points[index + 1]);
+                if (second < first) std::swap(first, second);
+                topology_segments.insert(
+                    {edge.reference.owner_id, {first, second}});
+            }
+        }
+        struct SharedRecord { QVector3D first, second, normal; };
+        std::map<std::pair<std::string, std::pair<std::array<double, 3>,
+            std::array<double, 3>>>, std::vector<SharedRecord>> shared;
+        const auto triangle_count = impl_->mesh.triangles.size() / 3;
+        for (std::size_t triangle = 0; triangle < triangle_count; ++triangle) {
+            if (triangle >= impl_->mesh.triangle_references.size()) continue;
+            const auto& face_reference = impl_->mesh.triangle_references[triangle];
+            const std::array<std::uint32_t, 3> indices{
+                impl_->mesh.triangles[triangle * 3],
+                impl_->mesh.triangles[triangle * 3 + 1],
+                impl_->mesh.triangles[triangle * 3 + 2]};
+            if (indices[0] >= impl_->mesh.vertices.size() ||
+                indices[1] >= impl_->mesh.vertices.size() ||
+                indices[2] >= impl_->mesh.vertices.size()) continue;
+            const std::array<zima::kernel::Vec3, 3> points{
+                impl_->mesh.vertices[indices[0]],
+                impl_->mesh.vertices[indices[1]],
+                impl_->mesh.vertices[indices[2]]};
+            const QVector3D pa(static_cast<float>(points[0].x),
+                static_cast<float>(points[0].y), static_cast<float>(points[0].z));
+            const QVector3D pb(static_cast<float>(points[1].x),
+                static_cast<float>(points[1].y), static_cast<float>(points[1].z));
+            const QVector3D pc(static_cast<float>(points[2].x),
+                static_cast<float>(points[2].y), static_cast<float>(points[2].z));
+            QVector3D normal = QVector3D::crossProduct(pb - pa, pc - pa);
+            if (normal.lengthSquared() > 1.0e-12F) normal.normalize();
+            const std::pair<QVector3D, QVector3D> triangle_edges[3]{
+                {pa, pb}, {pb, pc}, {pc, pa}};
+            const std::string owner = face_reference.valid()
+                ? face_reference.owner_id : std::string();
+            const std::string face_key = owner + "|" + face_reference.semantic_key;
+            for (std::size_t side = 0; side < 3; ++side) {
+                auto first = rounded(points[side]);
+                auto second = rounded(points[(side + 1) % 3]);
+                if (second < first) std::swap(first, second);
+                shared[{face_key, {first, second}}].push_back(
+                    {triangle_edges[side].first, triangle_edges[side].second,
+                     normal});
+            }
+        }
+        impl_->silhouette_candidates.clear();
+        for (const auto& [key, records] : shared) {
+            if (records.size() != 2) continue;
+            const auto separator = key.first.find('|');
+            const std::string owner = separator == std::string::npos
+                ? key.first : key.first.substr(0, separator);
+            if (topology_segments.contains({owner, key.second})) continue;
+            impl_->silhouette_candidates.push_back({records[0].first,
+                records[0].second, records[0].normal, records[1].normal});
+        }
+    }
     impl_->gpu_dirty = false;
 }
 
@@ -858,12 +1203,23 @@ void MeshView::paintGL() {
                                           second - normal, first - normal});
             painter.restore();
         };
-        if (impl_->show_planes) {
+if (impl_->show_planes) {
             painter.setPen(QPen(QColor(173, 110, 46), 1.5));
             for (const auto& edge : impl_->mesh.edges) {
                 const bool origin = edge.reference.semantic_key.starts_with(
                     "origin:plane:");
                 if (!origin) continue;
+                // Origin planes are painted as a screen-space QPainter overlay
+                // (not the depth-tested GL edge pass), so they must consult the
+                // same constraint-reference highlight state as
+                // edge_is_highlighted()/edge_display_color() above; otherwise
+                // clicking a reference row in a placement dialog never shows a
+                // visible highlight for an Origin-plane reference.
+                const bool referenced =
+                    impl_->constraint_reference_owner_ids.contains(edge.reference.owner_id) ||
+                    impl_->constraint_reference_edges.contains(edge_key(edge.reference));
+                const QColor plane_color = referenced
+                    ? QColor(0, 209, 255) : QColor(173, 110, 46);
                 zima::kernel::Vec3 center;
                 const std::size_t corner_count = edge.points.size() > 1
                     ? edge.points.size() - 1 : edge.points.size();
@@ -883,9 +1239,10 @@ void MeshView::paintGL() {
                 };
                 for (std::size_t index = 1; index < edge.points.size(); ++index) {
                     draw_reference_segment(project(plane_point(edge.points[index - 1])),
-                        project(plane_point(edge.points[index])), QColor(173, 110, 46), 1.5);
+                        project(plane_point(edge.points[index])), plane_color, 1.5);
                 }
                 if (!edge.points.empty()) {
+                    painter.setPen(QPen(plane_color, 1.5));
                     painter.drawText(project(plane_point(edge.points.front())) + QPointF(6.0, -5.0),
                         QString::fromStdString(edge.reference.semantic_key.substr(
                             std::string("origin:plane:").size())).toUpper());
@@ -959,9 +1316,94 @@ void MeshView::paintGL() {
             static_cast<GLsizei>(impl_->mesh.triangles.size()),
             GL_UNSIGNED_INT, nullptr);
     };
-    const auto draw_lines = [&] {
+    // Resolves one final edge colour by priority, mirroring Python's
+    // _edge_display_color() in zima_cad/viewer.py: selected > object overlay
+    // > hovered > feature preview (line-drawing modes only) > colour
+    // override > base colour (white). `hovered`/`selected` here are driven
+    // by the existing single-candidate hover/confirm mechanism rather than
+    // Python's separate _hovered_edge/_selected_edge fields, since C++ has
+    // one shared candidate-cycling model instead of a dedicated edge cursor.
+    const auto edge_is_highlighted = [&](const zima::kernel::ViewerEdge& edge,
+            const std::optional<ViewerCandidate>& highlighted) {
+        const auto key = edge_key(edge.reference);
+        const bool preview = impl_->feature_preview_owner_ids.contains(edge.reference.owner_id) &&
+            (impl_->display_mode == DisplayMode::Wire ||
+             impl_->display_mode == DisplayMode::HiddenEdges ||
+             impl_->display_mode == DisplayMode::NoHiddenEdges);
+        const bool candidate_match = highlighted &&
+            (highlighted->kind == CandidateKind::Edge) &&
+            highlighted->owner_id == edge.reference.owner_id &&
+            highlighted->semantic_key == edge.reference.semantic_key &&
+            highlighted->instance_path == edge.reference.instance_path;
+        return candidate_match ||
+            impl_->edge_treatment_selection_edges.contains(key) ||
+            impl_->feature_selected_edges.contains(key) ||
+            impl_->feature_hover_edges.contains(key) ||
+            impl_->constraint_reference_edges.contains(key) ||
+            impl_->assembly_reference_edges.contains(key) ||
+            impl_->object_overlay_main_edge_keys.contains(key) ||
+            impl_->constraint_reference_owner_ids.contains(edge.reference.owner_id) ||
+            impl_->selected_container_content_ids.contains(edge.reference.owner_id) ||
+            preview;
+    };
+    const auto edge_display_color = [&](const zima::kernel::ViewerEdge& edge,
+            const std::optional<ViewerCandidate>& highlighted,
+            bool candidate_is_confirmed) {
+        const auto key = edge_key(edge.reference);
+        const bool candidate_match = highlighted &&
+            highlighted->kind == CandidateKind::Edge &&
+            highlighted->owner_id == edge.reference.owner_id &&
+            highlighted->semantic_key == edge.reference.semantic_key &&
+            highlighted->instance_path == edge.reference.instance_path;
+        const bool selected = (candidate_match && candidate_is_confirmed) ||
+            impl_->edge_treatment_selection_edges.contains(key) ||
+            impl_->feature_selected_edges.contains(key) ||
+            impl_->constraint_reference_edges.contains(key) ||
+            impl_->assembly_reference_edges.contains(key) ||
+            impl_->selected_container_content_ids.contains(edge.reference.owner_id) ||
+            impl_->constraint_reference_owner_ids.contains(edge.reference.owner_id);
+        if (selected) return QVector4D(0.0F, 0.82F, 1.0F, 1.0F);
+        if (impl_->object_overlay_main_edge_keys.contains(key)) {
+            return QVector4D(1.0F, 0.48F, 0.0F, 1.0F);
+        }
+        const bool hovered = (candidate_match && !candidate_is_confirmed) ||
+            impl_->feature_hover_edges.contains(key);
+        if (hovered) return QVector4D(1.0F, 0.48F, 0.0F, 1.0F);
+        const bool preview = impl_->feature_preview_owner_ids.contains(edge.reference.owner_id) &&
+            (impl_->display_mode == DisplayMode::Wire ||
+             impl_->display_mode == DisplayMode::HiddenEdges ||
+             impl_->display_mode == DisplayMode::NoHiddenEdges);
+        if (preview) return QVector4D(0.0F, 0.82F, 1.0F, 1.0F);
+        if (impl_->edge_color_override) {
+            const auto& color = *impl_->edge_color_override;
+            return QVector4D(static_cast<float>(color.redF()),
+                static_cast<float>(color.greenF()),
+                static_cast<float>(color.blueF()), 1.0F);
+        }
+        return QVector4D(1.0F, 1.0F, 1.0F, 1.0F);
+    };
+    const auto draw_lines = [&](bool force_black_if_not_highlighted = false) {
         bind_attributes(impl_->lines);
-        for (const auto& [first, count] : impl_->line_ranges) {
+        std::optional<ViewerCandidate> highlighted = impl_->confirmed_candidate;
+        const bool confirmed = highlighted.has_value();
+        if (!highlighted && !impl_->candidates.empty()) {
+            highlighted = impl_->candidates[impl_->active_candidate];
+        }
+        for (std::size_t index = 0; index < impl_->line_ranges.size(); ++index) {
+            const auto& [first, count] = impl_->line_ranges[index];
+            const auto& edge = impl_->line_edges[index];
+            if (force_black_if_not_highlighted) {
+                // Matches Python's hidden_edges black underlay pass: only
+                // real body edges not already highlighted are dimmed here,
+                // so the depth-tested colour pass afterwards can cleanly
+                // overwrite their visible portions.
+                if (edge_is_highlighted(edge, highlighted)) continue;
+                impl_->program.setUniformValue(
+                    "color", QVector4D(0.0F, 0.0F, 0.0F, 1.0F));
+            } else {
+                impl_->program.setUniformValue(
+                    "color", edge_display_color(edge, highlighted, confirmed));
+            }
             glDrawArrays(GL_LINE_STRIP, first, count);
         }
     };
@@ -975,44 +1417,83 @@ void MeshView::paintGL() {
         draw_lines();
         glDepthFunc(GL_LESS);
     };
+    // Per-edge colour now comes from edge_display_color() by priority
+    // (selected/overlay/hover/preview/override/base white), matching
+    // zima_cad/viewer.py's _edge_display_color(). Display-mode switch below
+    // only toggles depth handling and the hidden_edges black underlay pass.
     switch (impl_->display_mode) {
         case DisplayMode::Wire:
             glDisable(GL_DEPTH_TEST);
-            impl_->program.setUniformValue(
-                "color", QVector4D(0.72F, 0.78F, 0.80F, 1.0F));
             draw_lines();
             glEnable(GL_DEPTH_TEST);
             break;
         case DisplayMode::HiddenEdges:
             depth_prepass();
             glDisable(GL_DEPTH_TEST);
-            impl_->program.setUniformValue(
-                "color", QVector4D(0.32F, 0.35F, 0.38F, 1.0F));
-            draw_lines();
+            draw_lines(/*force_black_if_not_highlighted=*/true);
             glEnable(GL_DEPTH_TEST);
-            impl_->program.setUniformValue(
-                "color", QVector4D(0.80F, 0.84F, 0.86F, 1.0F));
             draw_visible_lines();
             break;
         case DisplayMode::NoHiddenEdges:
             depth_prepass();
-            impl_->program.setUniformValue(
-                "color", QVector4D(0.80F, 0.84F, 0.86F, 1.0F));
             draw_visible_lines();
             break;
         case DisplayMode::ShadedWithEdges:
+            // Default body fill matches Python's ViewerMesh surface color
+            // #B9C2CC (zima_cad/viewer.py:565), not a hardcoded green.
             impl_->program.setUniformValue(
-                "color", QVector4D(0.25F, 0.47F, 0.33F, 1.0F));
+                "color", QVector4D(0.7255F, 0.7608F, 0.8000F, 1.0F));
             draw_triangles();
-            impl_->program.setUniformValue(
-                "color", QVector4D(0.82F, 0.85F, 0.86F, 1.0F));
             draw_visible_lines();
             break;
         case DisplayMode::Shaded:
             impl_->program.setUniformValue(
-                "color", QVector4D(0.25F, 0.47F, 0.33F, 1.0F));
+                "color", QVector4D(0.7255F, 0.7608F, 0.8000F, 1.0F));
             draw_triangles();
             break;
+    }
+
+    // Boundary/silhouette edges on curved surfaces (cylinders, spheres, ...)
+    // that have no real sharp topology edge there. Gated the same way as
+    // Python's _draw_gpu_silhouette_edges() in zima_cad/viewer.py: only in
+    // the line-drawing display modes, never in plain Shaded.
+    if (impl_->display_mode != DisplayMode::Shaded &&
+        !impl_->silhouette_candidates.empty()) {
+        const QVector3D view_direction =
+            impl_->orientation.inverted().rotatedVector(QVector3D(0.0F, 0.0F, 1.0F));
+        std::vector<float> silhouette_data;
+        silhouette_data.reserve(impl_->silhouette_candidates.size() * 12);
+        for (const auto& candidate : impl_->silhouette_candidates) {
+            const float side_a = QVector3D::dotProduct(candidate.normal_a, view_direction);
+            const float side_b = QVector3D::dotProduct(candidate.normal_b, view_direction);
+            constexpr float epsilon = 1.0e-4F;
+            if ((side_a >= -epsilon) == (side_b >= -epsilon)) continue;
+            silhouette_data.insert(silhouette_data.end(), {
+                candidate.first.x(), candidate.first.y(), candidate.first.z(),
+                0.0F, 0.0F, 1.0F,
+                candidate.second.x(), candidate.second.y(), candidate.second.z(),
+                0.0F, 0.0F, 1.0F});
+        }
+        if (!silhouette_data.empty()) {
+            impl_->silhouette.bind();
+            impl_->silhouette.allocate(silhouette_data.data(),
+                static_cast<int>(silhouette_data.size() * sizeof(float)));
+            bind_attributes(impl_->silhouette);
+            if (impl_->display_mode == DisplayMode::HiddenEdges) {
+                glDisable(GL_DEPTH_TEST);
+                impl_->program.setUniformValue(
+                    "color", QVector4D(0.0F, 0.0F, 0.0F, 1.0F));
+                glDrawArrays(GL_LINES, 0,
+                    static_cast<GLsizei>(silhouette_data.size() / 6));
+                glEnable(GL_DEPTH_TEST);
+            }
+            impl_->program.setUniformValue(
+                "color", QVector4D(1.0F, 1.0F, 1.0F, 1.0F));
+            glDepthFunc(GL_LEQUAL);
+            glDrawArrays(GL_LINES, 0,
+                static_cast<GLsizei>(silhouette_data.size() / 6));
+            glDepthFunc(GL_LESS);
+        }
     }
 
     std::optional<ViewerCandidate> highlighted = impl_->confirmed_candidate;

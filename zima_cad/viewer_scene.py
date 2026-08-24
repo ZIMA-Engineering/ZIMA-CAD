@@ -327,23 +327,6 @@ def build_document_viewer_scene_data(
         dependency_suppressed_ids = (
             document.dependency_suppressed_component_ids()
         )
-        dependency_graph = document.assembly_component_dependencies()
-        component_ids = {
-            obj.entity_id
-            for obj in assembly_objects
-            if obj.container_type == ContainerType.COMPONENT
-        }
-        dependency_error_ids = {
-            obj.entity_id
-            for obj in assembly_objects
-            if obj.container_type == ContainerType.COMPONENT
-            and (
-                dependency_graph.get(obj.entity_id, set()) - component_ids
-                or str(obj.parameters.get(
-                    "assembly_reference_error", "false"
-                )).lower() == "true"
-            )
-        }
 
         def component_is_visible(component: ZimaEntity) -> bool:
             # Preserve history-boundary and active-preview semantics from the
@@ -353,8 +336,9 @@ def build_document_viewer_scene_data(
             return document.is_effectively_visible(component.entity_id)
 
         def component_display_color(component: ZimaEntity) -> str:
-            if component.entity_id in dependency_error_ids:
-                return "#C04020"
+            # A dependency/reference error is surfaced in the Tree (red text)
+            # via assembly_component_dependency_errors(), not by recoloring
+            # the component's body in the 3D view.
             source_document = (component_documents or {}).get(
                 component.entity_id
             )

@@ -61,6 +61,29 @@ struct ViewerCandidate {
     bool operator==(const ViewerCandidate&) const = default;
 };
 
+// Stable identity for one topological edge, mirroring Python's
+// (owner_id, edge_index) TopologyKey used throughout zima_cad/viewer.py for
+// hover/selection/reference-highlight bookkeeping. C++ edges do not carry a
+// numeric index, so owner_id + semantic_key + instance_path (already the
+// full persisted reference identity) plays the same role.
+struct EdgeKey {
+    std::string owner_id;
+    std::string semantic_key;
+    std::string instance_path;
+
+    bool operator==(const EdgeKey&) const = default;
+    bool operator<(const EdgeKey& other) const {
+        if (owner_id != other.owner_id) return owner_id < other.owner_id;
+        if (semantic_key != other.semantic_key)
+            return semantic_key < other.semantic_key;
+        return instance_path < other.instance_path;
+    }
+};
+
+[[nodiscard]] inline EdgeKey edge_key(const zima::kernel::EdgeReference& reference) {
+    return EdgeKey{reference.owner_id, reference.semantic_key, reference.instance_path};
+}
+
 [[nodiscard]] std::vector<PickCandidate> ordered_ray_candidates(
     const zima::kernel::ViewerMesh& mesh,
     const zima::kernel::Vec3& ray_origin,

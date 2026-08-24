@@ -175,6 +175,7 @@ nlohmann::json read_part_ini(const std::filesystem::path& path) {
         {"name", ini_value(ini, "Document", "name", "Nový díl")},
         {"family_table", ini_value(ini, "Document", "family_table",
             "{\"columns\":[],\"instances\":[]}")},
+        {"named_views", ini_value(ini, "Document", "named_views", "[]")},
         {"user_parameters", nlohmann::json::object()},
         {"user_parameter_order", nlohmann::json::array()},
         {"user_parameter_labels", nlohmann::json::object()},
@@ -295,6 +296,7 @@ void write_part_ini(
         {"document_id", root.at("document_id").get<std::string>()},
         {"name", root.at("name").get<std::string>()},
         {"family_table", root.at("family_table").get<std::string>()},
+        {"named_views", root.value("named_views", std::string("[]"))},
         {"history_cursor", std::to_string(root.at("history_cursor").get<std::size_t>())},
     };
     const auto copy_object = [&](const char* section_name, const char* root_name) {
@@ -2644,11 +2646,14 @@ bool resolve_construction(ConstructionObject& object,
                 result.y / magnitude, result.z / magnitude};
         };
         if (front || top) {
-            if (!front) front = perpendicular(*top);
-            if (!top) top = perpendicular(*front);
-            zima::kernel::Vec3 normal{front->y * top->z - front->z * top->y,
-                front->z * top->x - front->x * top->z,
-                front->x * top->y - front->y * top->x};
+            auto normal_front = front;
+            auto normal_top = top;
+            if (!normal_front) normal_front = perpendicular(*normal_top);
+            if (!normal_top) normal_top = perpendicular(*normal_front);
+            zima::kernel::Vec3 normal{
+                normal_front->y * normal_top->z - normal_front->z * normal_top->y,
+                normal_front->z * normal_top->x - normal_front->x * normal_top->z,
+                normal_front->x * normal_top->y - normal_front->y * normal_top->x};
             const double magnitude = std::hypot(
                 std::hypot(normal.x, normal.y), normal.z);
             if (magnitude > 1.0e-9) {
@@ -2656,6 +2661,46 @@ bool resolve_construction(ConstructionObject& object,
                     normal.z / magnitude};
             }
         }
+        // Compose the FRONT/TOP base frame (when present) with the manual
+        // rotation_offset_* correction, matching Placement's equivalent
+        // rotation_x/y/z derivation in resolve_placement().
+        const zima::kernel::Vec3 manual_offset{object.rotation_offset_x,
+            object.rotation_offset_y, object.rotation_offset_z};
+        object.rotation = placement_compose_orientation_degrees(
+            front, top, manual_offset);
+        object.rotation_base = placement_frame_base_rotation_degrees(front, top)
+            .value_or(zima::kernel::Vec3{});
+    } else if (object.reference_valid && object.kind == ConstructionKind::Point) {
+        // A Point has no dedicated orientation-reference table: any position
+        // reference marked orientation_drives_rotation (auto-assigned when a
+        // face/edge/axis is picked, see assign_automatic_orientation_role())
+        // simultaneously defines part of the frame.  Recompute rotation from
+        // whichever such references currently exist -- and fall back to the
+        // manual offset alone when none remain -- every time constructions
+        // are resolved, so deleting a rotation-driving reference restores the
+        // point's base orientation instead of leaving a stale value behind.
+        std::optional<zima::kernel::Vec3> front;
+        std::optional<zima::kernel::Vec3> top;
+        for (const auto& reference : object.references) {
+            if (!reference.orientation_drives_rotation) continue;
+            std::optional<zima::kernel::Vec3> direction;
+            if (const auto resolved = axis(reference)) direction = resolved->direction;
+            else if (const auto resolved = plane(reference)) direction = resolved->second;
+            if (!direction) continue;
+            const double magnitude = std::hypot(
+                std::hypot(direction->x, direction->y), direction->z);
+            if (magnitude <= 1.0e-12) continue;
+            *direction = {direction->x / magnitude, direction->y / magnitude,
+                direction->z / magnitude};
+            if (reference.orientation_role == "top") top = *direction;
+            else front = *direction;
+        }
+        const zima::kernel::Vec3 manual_offset{object.rotation_offset_x,
+            object.rotation_offset_y, object.rotation_offset_z};
+        object.rotation = placement_compose_orientation_degrees(
+            front, top, manual_offset);
+        object.rotation_base = placement_frame_base_rotation_degrees(front, top)
+            .value_or(zima::kernel::Vec3{});
     }
     return object.reference_valid;
 }
@@ -2904,7 +2949,8 @@ const ConstructionObject* PartDocument::find_construction(
     return found == constructions.end() ? nullptr : &*found;
 }
 
-zima::kernel::ViewerMesh PartDocument::origin_viewer_mesh() const {
+zima::kernel::ViewerMesh PartDocument::origin_viewer_mesh(
+    double reference_scene_size) const {
     zima::kernel::ViewerMesh mesh;
     const auto normalized = [](zima::kernel::Vec3 value) {
         const double length = std::sqrt(value.x * value.x + value.y * value.y +
@@ -2923,7 +2969,14 @@ zima::kernel::ViewerMesh PartDocument::origin_viewer_mesh() const {
                            name + " · Origin"});
     mesh.original_references.points.push_back(
         {zero, {origin_id, "origin:point", {}}});
-    constexpr double origin_axis_length = 4.0;
+    // Matches Python's origin_axes_mesh(): length = max(scene * 0.075, 2.5).
+    const double origin_axis_length =
+        std::max(reference_scene_size * 0.075, 2.5);
+    // Matches Python's datum_plane_mesh(): size = max(scene * 0.12, 4.0),
+    // half = size * 0.5. This is a separate constant from the axis length
+    // above -- the two must not be conflated.
+    const double origin_plane_size =
+        std::max(reference_scene_size * 0.12, 4.0);
     for (const auto& [key, direction] : std::array{
              std::pair{"x", zima::kernel::Vec3{1.0, 0.0, 0.0}},
              std::pair{"y", zima::kernel::Vec3{0.0, 1.0, 0.0}},
@@ -2937,7 +2990,8 @@ zima::kernel::ViewerMesh PartDocument::origin_viewer_mesh() const {
     }
     const auto append_origin_plane = [&](const char* key,
             zima::kernel::Vec3 first, zima::kernel::Vec3 second) {
-        constexpr double half = 4.0;
+        // Matches Python's datum_plane_mesh: half = size * 0.5.
+        const double half = origin_plane_size * 0.5;
         const std::array corners{
             zima::kernel::Vec3{-half * first.x - half * second.x,
                                -half * first.y - half * second.y,
@@ -2970,8 +3024,48 @@ zima::kernel::ViewerMesh PartDocument::origin_viewer_mesh() const {
     return mesh;
 }
 
+double viewer_mesh_bounds_diagonal(const zima::kernel::ViewerMesh& mesh) {
+    bool has_bounds = false;
+    zima::kernel::Vec3 min_point{};
+    zima::kernel::Vec3 max_point{};
+    const auto include = [&](const zima::kernel::Vec3& point) {
+        if (!has_bounds) {
+            min_point = max_point = point;
+            has_bounds = true;
+            return;
+        }
+        min_point.x = std::min(min_point.x, point.x);
+        min_point.y = std::min(min_point.y, point.y);
+        min_point.z = std::min(min_point.z, point.z);
+        max_point.x = std::max(max_point.x, point.x);
+        max_point.y = std::max(max_point.y, point.y);
+        max_point.z = std::max(max_point.z, point.z);
+    };
+    for (const auto& vertex : mesh.vertices) include(vertex);
+    for (const auto& edge : mesh.edges) {
+        if (edge.reference.semantic_key.starts_with("origin:")) continue;
+        for (const auto& point : edge.points) include(point);
+    }
+    for (const auto& point : mesh.points) {
+        if (point.reference.semantic_key.starts_with("origin:")) continue;
+        include(point.position);
+    }
+    for (const auto& axis : mesh.axes) {
+        if (axis.reference.semantic_key.starts_with("origin:")) continue;
+        include(axis.point);
+        include({axis.point.x + axis.direction.x * axis.display_length,
+                 axis.point.y + axis.direction.y * axis.display_length,
+                 axis.point.z + axis.direction.z * axis.display_length});
+    }
+    if (!has_bounds) return 0.0;
+    return std::sqrt(
+        (max_point.x - min_point.x) * (max_point.x - min_point.x) +
+        (max_point.y - min_point.y) * (max_point.y - min_point.y) +
+        (max_point.z - min_point.z) * (max_point.z - min_point.z));
+}
+
 zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
-    const std::string& editing_object_id) const {
+    const std::string& editing_object_id, double reference_scene_size) const {
     zima::kernel::ViewerMesh mesh;
     const auto normalized = [](zima::kernel::Vec3 value) {
         const double length = std::sqrt(value.x * value.x + value.y * value.y +
@@ -3001,23 +3095,48 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
             sz * value.x + cz * value.y, value.z};
     };
     for (const auto& object : constructions) {
-        if (!object.reference_valid || object.suppressed) continue;
+        const bool editing = editing_object_id == object.id;
+        // A container that is not yet fully referenced (still being defined)
+        // must keep its editing-mode Origin visible for every reference the
+        // user has already entered, exactly like Python's origin/plane
+        // exposure which is independent of the placement's resolved state.
+        // Only fully-invalid *non-editing* containers, or explicitly
+        // suppressed ones, are skipped entirely.
+        if (object.suppressed) continue;
+        if (!object.reference_valid && !editing) continue;
         if (object.kind == ConstructionKind::Point) {
             const std::string& origin_id = object.container_origin.id;
-            const bool editing = editing_object_id == object.id;
             // Point is the intentional container/geometry exception: its one
             // visible marker always represents the Point container itself.
             // Editing may expose the container's auxiliary Origin axes and
             // planes, but must not rename the marker to a nested origin point.
             constexpr std::string_view point_semantic{"point"};
-            mesh.points.push_back(
-                {object.origin, {origin_id, std::string(point_semantic), {}}, object.name});
-            mesh.original_references.points.push_back(
-                {object.origin, {origin_id, std::string(point_semantic), {}}});
+            if (object.reference_valid) {
+                mesh.points.push_back(
+                    {object.origin, {origin_id, std::string(point_semantic), {}}, object.name});
+                mesh.original_references.points.push_back(
+                    {object.origin, {origin_id, std::string(point_semantic), {}}});
+            }
             if (!editing) continue;
             // Every container Origin is half the linear size of the document
-            // Origin. Arrowheads remain screen-space renderer geometry.
-            constexpr double extent = 2.0;
+            // Origin (matches Python's origin_axes_mesh()/datum_plane_mesh()
+            // constants: axes = max(scene * 0.075, 2.5), i.e. half of the
+            // document's max(scene * 0.15, 5.0)... but to stay consistent
+            // with the document Origin's own halving convention used
+            // elsewhere in this codebase, the container's axis length is
+            // half of `origin_viewer_mesh`'s axis length and its plane size
+            // is half of `origin_viewer_mesh`'s plane size). Arrowheads
+            // remain screen-space renderer geometry.
+            const double extent =
+                std::max(reference_scene_size * 0.075, 2.5) * 0.5;
+            // `datum_plane_mesh()`'s `size` parameter is the FULL edge
+            // length, and callers halve it to get corner half-widths (see
+            // `origin_viewer_mesh`'s `origin_plane_size * 0.5`). To make the
+            // container's plane half the *document's* plane size, halve the
+            // document plane size once for the container's own full size,
+            // then halve again for the corner half-width.
+            const double plane_extent =
+                std::max(reference_scene_size * 0.12, 4.0) * 0.5 * 0.5;
             for (const auto& [key, local_direction] : std::array{
                      std::pair{"x", zima::kernel::Vec3{1.0, 0.0, 0.0}},
                      std::pair{"y", zima::kernel::Vec3{0.0, 1.0, 0.0}},
@@ -3035,18 +3154,18 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
                 const auto first = rotated(local_first, object.rotation);
                 const auto second = rotated(local_second, object.rotation);
                 const std::array corners{
-                    zima::kernel::Vec3{object.origin.x - extent * first.x - extent * second.x,
-                        object.origin.y - extent * first.y - extent * second.y,
-                        object.origin.z - extent * first.z - extent * second.z},
-                    zima::kernel::Vec3{object.origin.x + extent * first.x - extent * second.x,
-                        object.origin.y + extent * first.y - extent * second.y,
-                        object.origin.z + extent * first.z - extent * second.z},
-                    zima::kernel::Vec3{object.origin.x + extent * first.x + extent * second.x,
-                        object.origin.y + extent * first.y + extent * second.y,
-                        object.origin.z + extent * first.z + extent * second.z},
-                    zima::kernel::Vec3{object.origin.x - extent * first.x + extent * second.x,
-                        object.origin.y - extent * first.y + extent * second.y,
-                        object.origin.z - extent * first.z + extent * second.z}};
+                    zima::kernel::Vec3{object.origin.x - plane_extent * first.x - plane_extent * second.x,
+                        object.origin.y - plane_extent * first.y - plane_extent * second.y,
+                        object.origin.z - plane_extent * first.z - plane_extent * second.z},
+                    zima::kernel::Vec3{object.origin.x + plane_extent * first.x - plane_extent * second.x,
+                        object.origin.y + plane_extent * first.y - plane_extent * second.y,
+                        object.origin.z + plane_extent * first.z - plane_extent * second.z},
+                    zima::kernel::Vec3{object.origin.x + plane_extent * first.x + plane_extent * second.x,
+                        object.origin.y + plane_extent * first.y + plane_extent * second.y,
+                        object.origin.z + plane_extent * first.z + plane_extent * second.z},
+                    zima::kernel::Vec3{object.origin.x - plane_extent * first.x + plane_extent * second.x,
+                        object.origin.y - plane_extent * first.y + plane_extent * second.y,
+                        object.origin.z - plane_extent * first.z + plane_extent * second.z}};
                 const std::string semantic = std::string("origin:plane:") + key;
                 mesh.edges.push_back({{corners[0], corners[1], corners[2], corners[3],
                     corners[0]}, {origin_id, semantic, {}}, false, true});
@@ -3068,6 +3187,7 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
         }
         const auto normal = normalized(object.direction);
         if (object.kind == ConstructionKind::Axis) {
+            if (!object.reference_valid) continue;
             mesh.axes.push_back({object.origin, normal, object.display_size,
                                  {object.entity_id, "axis", {}}});
             mesh.original_references.axes.push_back(
@@ -3075,11 +3195,16 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
                  {object.entity_id, "axis", {}}});
             continue;
         }
-        const auto helper = std::abs(normal.z) < 0.9
-            ? zima::kernel::Vec3{0.0, 0.0, 1.0}
-            : zima::kernel::Vec3{0.0, 1.0, 0.0};
-        const auto first = normalized(cross(normal, helper));
-        const auto second = normalized(cross(normal, first));
+        if (!object.reference_valid) continue;
+        // The Plane's local frame maps X to the plane normal, Y to FRONT and
+        // Z to TOP (see placement_frame_base_rotation_degrees), matching the
+        // rotation composed by resolve_constructions(). Deriving the display
+        // quad's in-plane axes from object.rotation via the same `rotated()`
+        // helper used for the Point-kind origin planes above keeps the quad
+        // consistent with that rotation instead of an independent, ad-hoc
+        // normal-derived frame that could drift out of sync with it.
+        const auto first = rotated({0.0, 1.0, 0.0}, object.rotation);
+        const auto second = rotated({0.0, 0.0, 1.0}, object.rotation);
         const double half = object.display_size * 0.5;
         std::array<zima::kernel::Vec3, 4> corners;
         for (std::size_t index = 0; index < corners.size(); ++index) {
@@ -3117,14 +3242,20 @@ void PartDocument::resolve_constructions(
         target.points.insert(target.points.end(), source.points.begin(), source.points.end());
         target.axes.insert(target.axes.end(), source.axes.begin(), source.axes.end());
     };
-    append(source_geometry, origin_viewer_mesh().original_references);
+    zima::kernel::ViewerMesh existing_reference_mesh;
+    existing_reference_mesh.vertices = source_geometry.vertices;
+    existing_reference_mesh.edges = source_geometry.edges;
+    existing_reference_mesh.points = source_geometry.points;
+    existing_reference_mesh.axes = source_geometry.axes;
+    const double scene_size = viewer_mesh_bounds_diagonal(existing_reference_mesh);
+    append(source_geometry, origin_viewer_mesh(scene_size).original_references);
     for (auto& object : constructions) {
         static_cast<void>(resolve_construction(object, source_geometry));
         if (!object.reference_valid) continue;
         PartDocument carrier;
         carrier.constructions.push_back(object);
         append(source_geometry,
-            carrier.construction_viewer_mesh().original_references);
+            carrier.construction_viewer_mesh({}, scene_size).original_references);
     }
     // Every history container shares the same universal placement: an
     // origin resolved from a position reference plus an optional FRONT/TOP
@@ -3684,6 +3815,7 @@ PartDocument PartDocument::load(
     document.physical_parameter_units = root.at("physical_parameter_units").get<decltype(document.physical_parameter_units)>();
     document.material_parameter_descriptions = root.at("material_parameter_descriptions").get<decltype(document.material_parameter_descriptions)>();
     document.family_table = root.at("family_table").get<std::string>();
+    document.named_views = root.value("named_views", std::string("[]"));
     const auto& source_history = root.at("history");
     if (!source_history.is_array()) {
         throw std::runtime_error("Document history must be an array");
@@ -4116,6 +4248,9 @@ PartDocument PartDocument::load(
         object.rotation = {source.at("rotation_x").get<double>(),
                            source.at("rotation_y").get<double>(),
                            source.at("rotation_z").get<double>()};
+        object.rotation_offset_x = source.value("rotation_offset_x", 0.0);
+        object.rotation_offset_y = source.value("rotation_offset_y", 0.0);
+        object.rotation_offset_z = source.value("rotation_offset_z", 0.0);
         object.direction = {source.at("direction_x").get<double>(),
                             source.at("direction_y").get<double>(),
                             source.at("direction_z").get<double>()};
@@ -4722,6 +4857,9 @@ void PartDocument::save(
             {"rotation_x", object.rotation.x},
             {"rotation_y", object.rotation.y},
             {"rotation_z", object.rotation.z},
+            {"rotation_offset_x", object.rotation_offset_x},
+            {"rotation_offset_y", object.rotation_offset_y},
+            {"rotation_offset_z", object.rotation_offset_z},
             {"direction_x", object.direction.x},
             {"direction_y", object.direction.y},
             {"direction_z", object.direction.z},
@@ -4774,6 +4912,7 @@ void PartDocument::save(
         {"physical_parameter_units", physical_parameter_units},
         {"material_parameter_descriptions", material_parameter_descriptions},
         {"family_table", family_table},
+        {"named_views", named_views},
         {"history", std::move(serialized_history)},
         {"sketches", std::move(serialized_sketches)},
         {"constructions", std::move(serialized_constructions)},

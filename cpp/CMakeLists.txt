@@ -81,9 +81,11 @@ target_include_directories(zima_viewer PUBLIC modules/viewer/include)
 target_link_libraries(zima_viewer PUBLIC zima_kernel_api
     Qt6::Widgets Qt6::OpenGL Qt6::OpenGLWidgets)
 
-add_library(zima_ui modules/ui/src/properties_subwindow.cpp)
+add_library(zima_ui modules/ui/src/properties_subwindow.cpp
+    modules/ui/src/reference_cell.cpp
+    modules/ui/src/container_placement_section.cpp)
 target_include_directories(zima_ui PUBLIC modules/ui/include)
-target_link_libraries(zima_ui PUBLIC Qt6::Widgets)
+target_link_libraries(zima_ui PUBLIC Qt6::Widgets zima_document_core)
 
 add_library(zima_interchange modules/interchange/src/interchange.cpp
     modules/interchange/src/dxf.cpp modules/interchange/src/planar_face.cpp
@@ -108,6 +110,7 @@ add_executable(zima-cad-cpp
     app/zima_resources.qrc
     app/component_properties_dialog.cpp app/primitive_properties_dialog.cpp
     app/construction_properties_dialog.cpp
+    app/orientation_dialog.cpp
     app/mate_properties_dialog.cpp app/sketch_properties_dialog.cpp
     app/sketch_bspline_properties_dialog.cpp
     app/sketch_text_properties_dialog.cpp
@@ -142,6 +145,7 @@ if(ZIMA_BUILD_TESTS)
     add_executable(zima_cpp_ui_contract_tests
         tests/ui_contract_tests.cpp app/primitive_properties_dialog.cpp
         app/construction_properties_dialog.cpp
+        app/orientation_dialog.cpp
         app/component_properties_dialog.cpp app/mate_properties_dialog.cpp
         app/file_dialog.cpp app/application_settings.cpp
         app/document_tools_dialogs.cpp)
