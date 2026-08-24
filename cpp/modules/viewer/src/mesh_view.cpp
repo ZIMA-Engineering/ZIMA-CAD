@@ -57,6 +57,13 @@ struct MeshView::Impl {
     std::vector<CandidateKind> allowed_kinds{CandidateKind::Container};
     std::function<bool(const ViewerCandidate&)> candidate_filter;
     std::vector<ViewerCandidate> candidates;
+    // Position at which `candidates` was last (re)computed. RMB cycling
+    // reuses the list as-is instead of forcing a redundant recompute when the
+    // pointer is still within picking tolerance of this position, so the
+    // first RMB press after a stationary hover advances the cycle instead of
+    // merely re-stabilizing an already-correct list.
+    QPointF candidates_position;
+    bool has_candidates_position{};
     std::size_t active_candidate{};
     std::optional<ViewerCandidate> confirmed_candidate;
     std::string selected_container_origin_id;
@@ -1586,6 +1593,8 @@ void MeshView::update_candidates(const QPointF& position) {
                     left.instance_path == right.instance_path;
             });
     impl_->candidates = std::move(next);
+    impl_->candidates_position = position;
+    impl_->has_candidates_position = true;
     if (!same_order || impl_->active_candidate >= impl_->candidates.size()) {
         impl_->active_candidate = 0;
     }
@@ -1631,9 +1640,22 @@ void MeshView::mousePressEvent(QMouseEvent* event) {
     // RMB cycles the exact same ordered list used by hover and LMB.  Refresh
     // it at the click position so cycling also works immediately after a
     // command changes its selection contract, without requiring a preceding
-    // mouse-move event.
+    // mouse-move event. If the pointer is still within picking tolerance of
+    // where the list was last computed (a stationary hover just before the
+    // click), reuse that list unchanged instead of recomputing it: a
+    // redundant recompute can otherwise re-stabilize the same order and
+    // silently reset the active index, making the first RMB press appear to
+    // do nothing before cycling starts working from the second press.
     if (event->button() == Qt::RightButton && !impl_->confirmed_candidate) {
-        update_candidates(event->position());
+        const QPointF click_position = event->position();
+        const QPointF delta = impl_->has_candidates_position
+            ? click_position - impl_->candidates_position : QPointF{};
+        const bool cursor_stationary = impl_->has_candidates_position &&
+            !impl_->candidates.empty() &&
+            std::hypot(delta.x(), delta.y()) <= 9.0 * devicePixelRatioF();
+        if (!cursor_stationary) {
+            update_candidates(click_position);
+        }
     }
     if (event->button() == Qt::LeftButton &&
         impl_->command_gesture_begin_callback) {

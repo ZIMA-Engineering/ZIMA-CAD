@@ -108,6 +108,13 @@ Příkaz lze před výběrem zrušit opětovným kliknutím na tlačítko nebo k
 
 ## Výběr referencí ve Vlastnostech
 
+- Všechny tabulky referencí (Umístění kontejneru, Orientace kontejneru,
+  Nastavit orientaci i Reference dílu/sestavy ve vlastnostech komponenty
+  Assembly) sdílejí jeden vzhled a chování: nevyplněné pole reference je
+  plochý text bez rámečku tlačítka s šedým popiskem a zelenou šipkou vlevo;
+  po přiřazení reference se šipka vlevo změní na červené tlačítko **×** pro
+  její odstranění. Žádné z těchto polí není skutečné tlačítko — kliknutí na
+  vyplněnou referenci pouze přepíná její azurové zvýraznění ve view.
 - Výběrová funkce prochází všechny podporované objekty pod kurzorem, včetně
   objektů uvnitř kontejnerů a zakrytých ploch. Pravým tlačítkem lze mezi
   kandidáty cyklovat; stavový řádek popisuje právě nabízený prvek a view jej
@@ -269,7 +276,7 @@ zobrazí celé výsledné těleso. Natočení a přiblížení kamery se přitom
 
 V horní části Vlastností solidu je výrazný přepínač operace:
 
-- zelené **+ Přičíst** přidává objem,
+- azurové **+ Přičíst** přidává objem,
 - červené **− Odečíst** odebírá objem.
 
 Změna operace se okamžitě projeví ve view. Stejná operace je nadále dostupná

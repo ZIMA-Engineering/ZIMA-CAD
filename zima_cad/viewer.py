@@ -634,6 +634,17 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._assembly_reference_faces: frozenset[TopologyKey] = frozenset()
         self._assembly_reference_edges: frozenset[TopologyKey] = frozenset()
         self._assembly_reference_planes: frozenset[TopologyKey] = frozenset()
+        # Datum-container references (Point/Axis/Plane placement) may point
+        # at an earlier history source object whose faces are not part of
+        # the current merged body mesh (which is owned entirely by the
+        # document root). Callers may populate one small ``ViewerMesh`` per
+        # referenced source owner here purely so this outline lookup has
+        # somewhere to find that face; it is never displayed on its own.
+        self._reference_source_meshes: dict[str, ViewerMesh] = {}
+        self._reference_source_face_ranges: dict[
+            str, tuple[tuple[str, int, int, int], ...]
+        ] = {}
+
         self._hovered_object_id: str | None = None
         self._selected_object_id: str | None = None
         self._interaction_mode = "object"
@@ -1910,6 +1921,31 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         self._selected_reference_owner_id = owner_id
         self.update()
 
+    def set_reference_source_meshes(
+        self,
+        meshes: dict[str, ViewerMesh],
+    ) -> None:
+        """Register per-owner source meshes for reference-face outlining.
+
+        A constraint reference to an earlier history object's face cannot
+        be outlined from the merged display mesh alone: that mesh's
+        triangles are all owned by the document root. Store each source
+        object's own mesh here purely so ``_paint_face_highlight_outlines``
+        can resolve the highlighted face's boundary.
+        """
+        if meshes.keys() == self._reference_source_meshes.keys() and all(
+            mesh is self._reference_source_meshes.get(owner_id)
+            for owner_id, mesh in meshes.items()
+        ):
+            return
+        self._reference_source_meshes = dict(meshes)
+        self._reference_source_face_ranges = {
+            owner_id: self._build_face_ranges(mesh)
+            for owner_id, mesh in meshes.items()
+        }
+        self._face_outline_cache.clear()
+        self.update()
+
     def set_constraint_reference_highlights(
         self,
         *,
@@ -2511,6 +2547,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
             self._paint_centerlines()
             self._paint_reference_highlights()
             self._paint_face_highlight_outlines()
+            self._paint_reference_source_edge_outlines()
             self._paint_planes()
             self._paint_points()
             self._paint_dimensions()
@@ -2624,6 +2661,20 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                 continue
             boundary = self._face_outline_cache.get(highlighted_face)
             if boundary is None:
+                owner_id, face_index = highlighted_face
+                face_ranges = self._face_ranges
+                outline_positions = positions
+                if not any(
+                    owner == owner_id and index == face_index
+                    for owner, index, _first, _count in self._face_ranges
+                ):
+                    source_mesh = self._reference_source_meshes.get(owner_id)
+                    source_ranges = self._reference_source_face_ranges.get(
+                        owner_id
+                    )
+                    if source_mesh is not None and source_ranges:
+                        face_ranges = source_ranges
+                        outline_positions = source_mesh.triangle_positions
                 boundary_counts: dict[
                     tuple[Point3, Point3],
                     tuple[int, Point3, Point3],
@@ -2634,7 +2685,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                         vertex_count // 3,
                     )
                     for owner_id, face_index, first_vertex, vertex_count
-                    in self._face_ranges
+                    in face_ranges
                     if (owner_id, face_index) == highlighted_face
                 )
                 for first_triangle, triangle_count in triangle_ranges:
@@ -2646,7 +2697,7 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                         points = tuple(
                             tuple(
                                 float(
-                                    positions[
+                                    outline_positions[
                                         offset + vertex * 3 + axis
                                     ]
                                 )
@@ -2680,6 +2731,46 @@ class ZimaOpenGLViewer(QOpenGLWidget):
                     self._screen_point(self._camera_point(first)),
                     self._screen_point(self._camera_point(second)),
                 )
+        painter.end()
+
+    def _paint_reference_source_edge_outlines(self) -> None:
+        """Draw constraint-reference edges an earlier source owns.
+
+        The merged display mesh's own edges are all owned by the document
+        root, so a placement reference edge belonging to an individual
+        history source (e.g. a Point's Vysunutí face-pair edge) never draws
+        through the ordinary GPU edge pass. Outline it here from the small
+        per-owner source mesh already kept for face highlighting.
+        """
+        if not self._constraint_reference_edges or not self._reference_source_meshes:
+            return
+        mesh = self._mesh
+        existing_owners = (
+            {edge.owner_id for edge in mesh.edges} if mesh is not None else set()
+        )
+        pending = [
+            key
+            for key in self._constraint_reference_edges
+            if key[0] not in existing_owners
+        ]
+        if not pending:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setPen(QPen(QColor.fromRgbF(0.0, 0.82, 1.0), 1.0))
+        for owner_id, edge_index in pending:
+            source_mesh = self._reference_source_meshes.get(owner_id)
+            if source_mesh is None:
+                continue
+            for edge in source_mesh.edges:
+                if edge.owner_id != owner_id or edge.edge_index != edge_index:
+                    continue
+                points = self._display_edge_points(edge)
+                for first, second in zip(points, points[1:]):
+                    painter.drawLine(
+                        self._screen_point(self._camera_point(first)),
+                        self._screen_point(self._camera_point(second)),
+                    )
         painter.end()
 
     def keyPressEvent(self, event) -> None:

@@ -64,6 +64,18 @@ class PrecisionDoubleSpinBox(QDoubleSpinBox):
         return QDoubleSpinBox.valueFromText(self, text)
 
 
+class NoWheelDoubleSpinBox(PrecisionDoubleSpinBox):
+    """Spinbox that ignores mouse-wheel input.
+
+    Rotation fields sit close together and a stray scroll while the mouse
+    passes over them silently changes the value.  Disabling the wheel here
+    keeps typing/arrow-button editing intact while removing that hazard.
+    """
+
+    def wheelEvent(self, event) -> None:  # noqa: N802 - Qt virtual method
+        event.ignore()
+
+
 class PositiveQuantitySpinBox(PrecisionDoubleSpinBox):
     """Positive quantity editor with practical arrow-button increments.
 

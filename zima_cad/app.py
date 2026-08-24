@@ -93,6 +93,7 @@ from PySide6.QtWidgets import (
     QRadioButton,
     QSpinBox,
     QSplitter,
+    QStackedLayout,
     QSizePolicy,
     QTabBar,
     QTableWidget,
@@ -155,7 +156,11 @@ from zima_cad.dimension_range import (
     dimension_value_in_range,
     validate_dimension_range,
 )
-from zima_cad.widgets import PositiveQuantitySpinBox, PrecisionDoubleSpinBox
+from zima_cad.widgets import (
+    NoWheelDoubleSpinBox,
+    PositiveQuantitySpinBox,
+    PrecisionDoubleSpinBox,
+)
 from zima_cad.topology import (
     AssemblyEdgeRef,
     AssemblyFaceRef,
@@ -1774,6 +1779,132 @@ PRIMITIVE_PARAMETER_DEFINITIONS = {
 }
 
 
+def euler_angles_from_transform(
+    transform: tuple[tuple[float, float, float, float], ...],
+) -> tuple[float, float, float]:
+    ry = math.asin(max(-1.0, min(1.0, -transform[2][0])))
+    if abs(math.cos(ry)) > 1e-10:
+        rx = math.atan2(transform[2][1], transform[2][2])
+        rz = math.atan2(transform[1][0], transform[0][0])
+    else:
+        rx = math.atan2(
+            transform[0][1] * (1.0 if ry >= 0.0 else -1.0),
+            transform[1][1],
+        )
+        rz = 0.0
+    return tuple(math.degrees(value) for value in (rx, ry, rz))
+
+
+def rotation_with_local_offset(
+    base_rotation: tuple[float, float, float],
+    local_offset: tuple[float, float, float],
+) -> tuple[float, float, float]:
+    combined = multiply_transforms(
+        coordinate_system_transform(CoordinateSystem(rotation=base_rotation)),
+        coordinate_system_transform(CoordinateSystem(rotation=local_offset)),
+    )
+    return euler_angles_from_transform(combined)
+
+
+def local_offset_from_total_rotation(
+    base_rotation: tuple[float, float, float],
+    total_rotation: tuple[float, float, float],
+) -> tuple[float, float, float]:
+    """Return the correction that, combined with base, yields total.
+
+    ``total = base * offset`` (see ``rotation_with_local_offset``), so
+    ``offset = base^-1 * total``.  Rotation matrices are orthogonal, so
+    the inverse is simply the transpose.
+    """
+    base_transform = coordinate_system_transform(
+        CoordinateSystem(rotation=base_rotation)
+    )
+    total_transform = coordinate_system_transform(
+        CoordinateSystem(rotation=total_rotation)
+    )
+    base_inverse = tuple(
+        tuple(base_transform[column][row] for column in range(3)) + (0.0,)
+        for row in range(3)
+    )
+    offset_transform = multiply_transforms(base_inverse, total_transform)
+    return euler_angles_from_transform(offset_transform)
+
+
+def _centered_cell_widget(inner: QWidget) -> QWidget:
+    """Center a fixed-size cell widget within its table cell.
+
+    ``QTableWidget.setCellWidget`` stretches its argument to fill the cell
+    exactly; a small fixed-size button/label placed there directly ends up
+    pinned to the cell's top-left corner instead of its middle whenever the
+    resize-to-contents column is a pixel wider or taller than the widget
+    (scrollbar reserve, row-height rounding, etc). Wrapping it in a
+    zero-margin centering container keeps it visually centered regardless
+    of the exact cell geometry. Shared by every placement/reference table
+    (Point/Axis/Plane/Container, Assembly component mates, Orientation) so
+    their "×"/arrow cells line up identically.
+    """
+    container = QWidget()
+    layout = QHBoxLayout(container)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    layout.addWidget(inner)
+    return container
+
+
+def _build_reference_row_indicator(remove_callback) -> QWidget:
+    """Build the leading column widget shared by every reference table.
+
+    "Umístit kontejner" shows a green arrow prompt for an unfilled
+    reference slot and a red "×" remove button once a reference has been
+    assigned. Orientation and Assembly-mate tables keep a fixed row count
+    (rows are shown/hidden instead of inserted/removed), so both states
+    must live in the same cell and be toggled by ``_toggle_reference_row_
+    indicator`` as references are picked or cleared, instead of the single
+    always-present remove button used previously.
+    """
+    container = QWidget()
+    layout = QStackedLayout(container)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setStackingMode(QStackedLayout.StackingMode.StackOne)
+    container.setFixedSize(30, 30)
+    arrow_label = QLabel("\u2192")
+    arrow_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    arrow_label.setToolTip(tr("dialog.point_constraints.enter_reference"))
+    arrow_label.setStyleSheet(
+        "QLabel { color: #3fbf3f; font-size: 16px; font-weight: 700; }"
+    )
+    arrow_label.setFixedSize(30, 30)
+    remove_button = QPushButton("×")
+    remove_button.setFixedSize(30, 30)
+    remove_button.setToolTip(tr("dialog.point_constraints.delete_reference"))
+    remove_button.setStyleSheet(
+        "QPushButton { color: #ffffff; background: #8b2424;"
+        " border: 1px solid #b94a4a; border-radius: 4px;"
+        " font-size: 16px; font-weight: 700; padding: 0; }"
+        "QPushButton:hover { background: #b83232; border-color: #ed7777; }"
+        "QPushButton:pressed { background: #6f1d1d; }"
+    )
+    remove_button.clicked.connect(remove_callback)
+    layout.addWidget(arrow_label)
+    layout.addWidget(remove_button)
+    layout.setCurrentWidget(arrow_label)
+    container.setProperty("_arrow_widget", arrow_label)
+    container.setProperty("_remove_widget", remove_button)
+    return container
+
+
+def _set_reference_row_populated(indicator: QWidget, populated: bool) -> None:
+    """Switch a ``_build_reference_row_indicator`` cell between its states."""
+    layout = indicator.layout()
+    if layout is None:
+        return
+    target = indicator.property(
+        "_remove_widget" if populated else "_arrow_widget"
+    )
+    if target is not None:
+        layout.setCurrentWidget(target)
+
+
 class PointConstraintDialog(QDialog):
     REFERENCE_VISIBLE_ROWS = 3
     createRequested = Signal(list, tuple, str, bool, bool)
@@ -2011,6 +2142,8 @@ class PointConstraintDialog(QDialog):
             edit.setValue(value)
             edit.blockSignals(False)
         self.point_rotation_edits: list[QDoubleSpinBox] = []
+        self.point_rotation_absolute_edits: list[QDoubleSpinBox] = []
+        self._updating_rotation_fields = False
         if type(self) is PointConstraintDialog:
             orientation_heading = QLabel(
                 tr("dialog.container_properties.object_orientation_section")
@@ -2019,36 +2152,73 @@ class PointConstraintDialog(QDialog):
             orientation_font.setBold(True)
             orientation_heading.setFont(orientation_font)
             coordinates.addRow(orientation_heading)
-            has_rotation_offsets = (
-                point_entity is not None
-                and all(
-                    f"rotation_offset_{axis}" in point_entity.parameters
-                    for axis in ("x", "y", "z")
+            correction = tuple(
+                float(
+                    point_entity.parameters.get(f"rotation_offset_{axis}", 0.0)
                 )
-            )
-            rotation = (
-                tuple(
-                    float(point_entity.parameters[f"rotation_offset_{axis}"])
-                    for axis in ("x", "y", "z")
-                )
-                if has_rotation_offsets
+                for axis in ("x", "y", "z")
+            ) if point_entity is not None else (0.0, 0.0, 0.0)
+            has_orientation_references = self._has_orientation_references()
+            base_rotation = (
+                self._compute_reference_base_rotation()
+                if has_orientation_references
                 else (
                     point_object.coordinate_system.rotation
                     if point_object is not None
                     else (0.0, 0.0, 0.0)
                 )
             )
-            for axis, value in zip(("RX", "RY", "RZ"), rotation):
-                edit = PrecisionDoubleSpinBox()
+            rotation_header = QWidget()
+            rotation_header_layout = QHBoxLayout(rotation_header)
+            rotation_header_layout.setContentsMargins(0, 0, 0, 0)
+            rotation_header_layout.addWidget(
+                QLabel(tr("dialog.container_properties.rotation_absolute"))
+            )
+            rotation_header_layout.addWidget(
+                QLabel(tr("dialog.container_properties.rotation_correction"))
+            )
+            coordinates.addRow("", rotation_header)
+            for axis, absolute_value, correction_value in zip(
+                ("RX", "RY", "RZ"), base_rotation, correction
+            ):
+                row_widget = QWidget()
+                row_layout = QHBoxLayout(row_widget)
+                row_layout.setContentsMargins(0, 0, 0, 0)
+                absolute_edit = NoWheelDoubleSpinBox()
+                absolute_edit.setRange(-360_000.0, 360_000.0)
+                absolute_edit.setDecimals(self.decimal_places)
+                absolute_edit.setSingleStep(5.0)
+                absolute_edit.setSuffix(" deg")
+                absolute_edit.setToolTip(
+                    tr(
+                        "dialog.container_properties"
+                        ".rotation_absolute_tooltip"
+                    )
+                )
+                absolute_edit.setValue(float(absolute_value))
+                absolute_edit.setEnabled(not has_orientation_references)
+                absolute_edit.valueChanged.connect(
+                    self._rotation_absolute_edit_changed
+                )
+                row_layout.addWidget(absolute_edit)
+                edit = NoWheelDoubleSpinBox()
                 edit.setRange(-360_000.0, 360_000.0)
                 edit.setDecimals(self.decimal_places)
                 edit.setSingleStep(5.0)
                 edit.setSuffix(" deg")
-                edit.setValue(float(value))
-                edit.valueChanged.connect(
-                    lambda _value: self.definitionChanged.emit()
+                edit.setToolTip(
+                    tr(
+                        "dialog.container_properties"
+                        ".rotation_correction_tooltip"
+                    )
                 )
-                coordinates.addRow(axis, edit)
+                edit.setValue(float(correction_value))
+                edit.valueChanged.connect(
+                    self._rotation_correction_edit_changed
+                )
+                row_layout.addWidget(edit)
+                coordinates.addRow(axis, row_widget)
+                self.point_rotation_absolute_edits.append(absolute_edit)
                 self.point_rotation_edits.append(edit)
         layout.addLayout(coordinates)
         self.dof_label = QLabel()
@@ -2087,6 +2257,85 @@ class PointConstraintDialog(QDialog):
             )
         )
         self.container_type_combo.setEnabled(editable)
+
+    def _build_operation_form(
+        self,
+        current_operation: CombineMode,
+        *,
+        on_changed: Callable[[CombineMode], None] | None = None,
+    ) -> QFormLayout:
+        """Build the shared Add/Subtract (Operace) control row.
+
+        Used by every dialog that lets the user choose whether a container
+        adds to or subtracts from the model (primitives, protrusions,
+        revolutions, ...), so the widgets, styling and behavior stay
+        identical everywhere.
+        """
+
+        operation_widget = QWidget()
+        operation_layout = QHBoxLayout(operation_widget)
+        operation_layout.setContentsMargins(0, 0, 0, 0)
+        operation_layout.setSpacing(8)
+        self.add_operation_button = QPushButton(tr("dialog.operation.add"))
+        self.subtract_operation_button = QPushButton(
+            tr("dialog.operation.subtract")
+        )
+        for button in (
+            self.add_operation_button,
+            self.subtract_operation_button,
+        ):
+            button.setCheckable(True)
+            button.setMinimumHeight(40)
+            button.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+            )
+        self.add_operation_button.setStyleSheet(
+            "QPushButton { border: 2px solid #2d5670; border-radius: 6px;"
+            " font-weight: 700; padding: 7px 14px; }"
+            "QPushButton:checked { background: #00d1ff; color: #101510;"
+            " border-color: #6fe3ff; }"
+        )
+        self.subtract_operation_button.setStyleSheet(
+            "QPushButton { border: 2px solid #713d3d; border-radius: 6px;"
+            " font-weight: 700; padding: 7px 14px; }"
+            "QPushButton:checked { background: #c64b4b; color: #ffffff;"
+            " border-color: #ed7777; }"
+        )
+        operation_layout.addWidget(self.add_operation_button)
+        operation_layout.addWidget(self.subtract_operation_button)
+
+        def apply(operation: CombineMode, *, emit_change: bool = True) -> None:
+            self.add_operation_button.setChecked(operation == CombineMode.ADD)
+            self.subtract_operation_button.setChecked(
+                operation == CombineMode.SUBTRACT
+            )
+            if on_changed is not None:
+                on_changed(operation)
+            elif emit_change:
+                self.definitionChanged.emit()
+
+        self._set_operation = apply
+        apply(current_operation, emit_change=False)
+        self.add_operation_button.clicked.connect(
+            lambda _checked=False: self._set_operation(CombineMode.ADD)
+        )
+        self.subtract_operation_button.clicked.connect(
+            lambda _checked=False: self._set_operation(CombineMode.SUBTRACT)
+        )
+        operation_form = QFormLayout()
+        operation_form.addRow(
+            tr("dialog.properties.operation"), operation_widget
+        )
+        self.operation_widget = operation_widget
+        self.operation_label = operation_form.labelForField(operation_widget)
+        return operation_form
+
+    def operation(self) -> CombineMode:
+        return (
+            CombineMode.SUBTRACT
+            if self.subtract_operation_button.isChecked()
+            else CombineMode.ADD
+        )
 
     def _apply_compact_reference_layout(self, minimum_width: int = 460) -> None:
         """Apply the shared three-row reference-table geometry."""
@@ -2289,6 +2538,7 @@ class PointConstraintDialog(QDialog):
             application.removeEventFilter(self)
         super().done(result)
 
+
     def _append_reference_row(self, reference: dict[str, Any]) -> None:
         self._remove_empty_reference_row()
         row = self.reference_list.rowCount()
@@ -2301,7 +2551,7 @@ class PointConstraintDialog(QDialog):
         remove_button.setStyleSheet(
             "QPushButton { color: #ffffff; background: #8b2424;"
             " border: 1px solid #b94a4a; border-radius: 4px;"
-            " font-size: 10px; font-weight: 700; padding: 0; }"
+            " font-size: 16px; font-weight: 700; padding: 0; }"
             "QPushButton:hover { background: #b83232;"
             " border-color: #ed7777; }"
             "QPushButton:pressed { background: #6f1d1d; }"
@@ -2310,7 +2560,9 @@ class PointConstraintDialog(QDialog):
             lambda _checked=False, descriptor=reference:
                 self._remove_reference_descriptor(descriptor)
         )
-        self.reference_list.setCellWidget(row, 0, remove_button)
+        self.reference_list.setCellWidget(
+            row, 0, _centered_cell_widget(remove_button)
+        )
         label = reference.get("label", reference.get("key", ""))
         self.reference_list.setItem(
             row,
@@ -2367,6 +2619,9 @@ class PointConstraintDialog(QDialog):
         )
         item.setData(Qt.ItemDataRole.UserRole, "empty-reference")
         item.setForeground(self.palette().brush(QPalette.ColorRole.Mid))
+        # This row is only a mode-selector prompt, not a real reference
+        # entry: it must never take the ordinary cyan selection highlight.
+        item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
         self.reference_list.setItem(row, 1, item)
         prompt_label = QLabel("\u2192")
         prompt_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -2377,7 +2632,9 @@ class PointConstraintDialog(QDialog):
             "QLabel { color: #3fbf3f; font-size: 16px; font-weight: 700; }"
         )
         prompt_label.setFixedSize(30, 30)
-        self.reference_list.setCellWidget(row, 0, prompt_label)
+        self.reference_list.setCellWidget(
+            row, 0, _centered_cell_widget(prompt_label)
+        )
         offset = PrecisionDoubleSpinBox()
         offset.setEnabled(False)
         offset.setSuffix(" mm")
@@ -2742,6 +2999,12 @@ class PointConstraintDialog(QDialog):
         }
         self._append_reference_row(reference)
         self._ensure_empty_reference_row()
+        # A position-admitted face/edge/axis reference must still drive the
+        # object's rotation like an orientation-only one does, so a Point's
+        # frame follows the referenced planes exactly as Axis/Container
+        # already do.
+        if self.constraint_capability.accepts_orientation_references:
+            self._ensure_automatic_orientation_roles()
         self._refresh_reference_item_warnings()
         self._update_solution()
         self.referenceHighlightsChanged.emit()
@@ -2827,6 +3090,113 @@ class PointConstraintDialog(QDialog):
             or reference_kind == EntityKind.AXIS
         )
 
+    def _compute_reference_base_rotation(
+        self,
+    ) -> tuple[float, float, float]:
+        """Base rotation implied by orientation references, if any."""
+
+        owner = getattr(self.solve_callback, "__self__", None)
+        solver = getattr(owner, "_plane_reference_rotation", None)
+        if not callable(solver):
+            return (0.0, 0.0, 0.0)
+        references = list(getattr(self, "references", []))
+        container_orientation_references = [
+            reference
+            for reference in getattr(
+                self, "_container_orientation_references", []
+            )
+            if reference is not None
+        ]
+        if container_orientation_references:
+            references = references + container_orientation_references
+        orientation_references = [
+            reference for reference in references
+            if self._reference_drives_rotation(reference)
+            and str(reference.get("orientation_role", "none")) != "none"
+        ]
+        if not orientation_references:
+            return (0.0, 0.0, 0.0)
+        try:
+            return solver(orientation_references)
+        except Exception:
+            return (0.0, 0.0, 0.0)
+
+    def _rotation_field_pairs(self):
+        pairs = []
+        absolute_edits = getattr(self, "rotation_absolute_edits", None)
+        correction_edits = getattr(self, "rotation_edits", None)
+        if absolute_edits and correction_edits:
+            pairs.append((absolute_edits, correction_edits))
+        point_absolute_edits = getattr(
+            self, "point_rotation_absolute_edits", None
+        )
+        point_correction_edits = getattr(self, "point_rotation_edits", None)
+        if point_absolute_edits and point_correction_edits:
+            pairs.append((point_absolute_edits, point_correction_edits))
+        return pairs
+
+    def _has_orientation_references(self) -> bool:
+        references = list(getattr(self, "references", []))
+        container_orientation_references = [
+            reference
+            for reference in getattr(
+                self, "_container_orientation_references", []
+            )
+            if reference is not None
+        ]
+        if container_orientation_references:
+            references = references + container_orientation_references
+        return any(
+            self._reference_drives_rotation(reference)
+            and str(reference.get("orientation_role", "none")) != "none"
+            for reference in references
+        )
+
+    def _sync_rotation_absolute_fields(self) -> None:
+        """Refresh the base-rotation field from references, if any exist.
+
+        The base field is independent of the correction field: it is either
+        the value computed from orientation references (when present, and
+        then read-only) or a manually entered value (when no orientation
+        reference constrains rotation).  It is never combined with the
+        correction for display.
+        """
+
+        if self._updating_rotation_fields:
+            return
+        pairs = self._rotation_field_pairs()
+        if not pairs:
+            return
+        has_orientation_references = self._has_orientation_references()
+        self._updating_rotation_fields = True
+        try:
+            if has_orientation_references:
+                base_rotation = self._compute_reference_base_rotation()
+                for absolute_edits, _correction_edits in pairs:
+                    for edit, value in zip(absolute_edits, base_rotation):
+                        edit.blockSignals(True)
+                        edit.setValue(value)
+                        edit.blockSignals(False)
+                        edit.setEnabled(False)
+            else:
+                for absolute_edits, _correction_edits in pairs:
+                    for edit in absolute_edits:
+                        edit.setEnabled(True)
+        finally:
+            self._updating_rotation_fields = False
+
+    def _rotation_correction_edit_changed(
+        self, _value: float | None = None
+    ) -> None:
+        self.definitionChanged.emit()
+
+    def _rotation_absolute_edit_changed(
+        self, _value: float | None = None
+    ) -> None:
+        if self._updating_rotation_fields:
+            return
+        self.definitionChanged.emit()
+
     def _reference_cell_clicked(self, row: int, column: int) -> None:
         if column != 1:
             return
@@ -2840,6 +3210,12 @@ class PointConstraintDialog(QDialog):
                 self._replacement_reference_row = None
                 activate_position(highlight_references=False)
             return
+        key = str(self.references[row].get("key", ""))
+        # Capture the toggle intent before deactivating orientation-row
+        # picking below: that call unconditionally clears
+        # ``highlighted_reference_keys`` as a side effect, which would make
+        # the comparison always false and defeat the second-click toggle.
+        already_highlighted = key in self.highlighted_reference_keys
         if callable(activate_position):
             activate_position(highlight_references=False)
         # A full three-row table must still be editable directly from the
@@ -2847,12 +3223,17 @@ class PointConstraintDialog(QDialog):
         # face/edge/vertex replaces it instead of being silently rejected by
         # the maximum-reference policy.
         self._replacement_reference_row = row
-        key = str(self.references[row].get("key", ""))
-        self.highlighted_reference_keys = (
-            set()
-            if self.highlighted_reference_keys == {key}
-            else {key}
-        )
+        # Clicking a reference toggles it on/off independently of any other
+        # already-highlighted reference, so multiple rows can be selected
+        # (and viewed highlighted) at the same time.
+        if already_highlighted:
+            self.highlighted_reference_keys = (
+                self.highlighted_reference_keys - {key}
+            )
+        else:
+            self.highlighted_reference_keys = (
+                self.highlighted_reference_keys | {key}
+            )
         self._refresh_reference_item_warnings()
         self.reference_list.clearSelection()
         # Highlighting is viewer-only state. It must never submit the dialog,
@@ -3017,6 +3398,7 @@ class PointConstraintDialog(QDialog):
                 if total_dof == 0
                 else ""
             )
+            self._sync_rotation_absolute_fields()
         self.definitionChanged.emit()
 
     def _commit_pending_numeric_editor(self) -> None:
@@ -3139,39 +3521,70 @@ class AxisConstraintDialog(PointConstraintDialog):
         self._set_container_type(ContainerType.AXIS)
         axis_form = QFormLayout()
         self.rotation_edits: list[QDoubleSpinBox] = []
-        has_rotation_offsets = (
-            axis_entity is not None
-            and all(
-                f"rotation_offset_{axis}" in axis_entity.parameters
-                for axis in ("x", "y", "z")
-            )
-        )
-        rotation = (
-            tuple(
-                float(
-                    axis_entity.parameters[f"rotation_offset_{axis}"]
-                )
-                for axis in ("x", "y", "z")
-            )
-            if has_rotation_offsets
+        self.rotation_absolute_edits: list[QDoubleSpinBox] = []
+        self._updating_rotation_fields = False
+        correction = tuple(
+            float(axis_entity.parameters.get(f"rotation_offset_{axis}", 0.0))
+            for axis in ("x", "y", "z")
+        ) if axis_entity is not None else (0.0, 0.0, 0.0)
+        has_orientation_references = self._has_orientation_references()
+        base_rotation = (
+            self._compute_reference_base_rotation()
+            if has_orientation_references
             else (
                 axis_object.coordinate_system.rotation
                 if axis_object is not None
                 else (0.0, 0.0, 0.0)
             )
         )
-        for label, value in zip(("RX", "RY", "RZ"), rotation):
-            spinbox = PrecisionDoubleSpinBox()
-            spinbox.setRange(-360_000.0, 360_000.0)
-            spinbox.setDecimals(self.decimal_places)
-            spinbox.setSingleStep(5.0)
-            spinbox.setSuffix(" deg")
-            spinbox.setValue(float(value))
-            spinbox.valueChanged.connect(
-                lambda _value: self.definitionChanged.emit()
+        rotation_header = QWidget()
+        rotation_header_layout = QHBoxLayout(rotation_header)
+        rotation_header_layout.setContentsMargins(0, 0, 0, 0)
+        absolute_header_label = QLabel(
+            tr("dialog.container_properties.rotation_absolute")
+        )
+        correction_header_label = QLabel(
+            tr("dialog.container_properties.rotation_correction")
+        )
+        rotation_header_layout.addWidget(absolute_header_label)
+        rotation_header_layout.addWidget(correction_header_label)
+        axis_form.addRow("", rotation_header)
+        for label, absolute_value, correction_value in zip(
+            ("RX", "RY", "RZ"), base_rotation, correction
+        ):
+            row_widget = QWidget()
+            row_layout = QHBoxLayout(row_widget)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            absolute_spinbox = NoWheelDoubleSpinBox()
+            absolute_spinbox.setRange(-360_000.0, 360_000.0)
+            absolute_spinbox.setDecimals(self.decimal_places)
+            absolute_spinbox.setSingleStep(5.0)
+            absolute_spinbox.setSuffix(" deg")
+            absolute_spinbox.setToolTip(
+                tr("dialog.container_properties.rotation_absolute_tooltip")
             )
-            axis_form.addRow(label, spinbox)
-            self.rotation_edits.append(spinbox)
+            absolute_spinbox.setValue(float(absolute_value))
+            absolute_spinbox.setEnabled(not has_orientation_references)
+            absolute_spinbox.valueChanged.connect(
+                self._rotation_absolute_edit_changed
+            )
+            row_layout.addWidget(absolute_spinbox)
+            correction_spinbox = NoWheelDoubleSpinBox()
+            correction_spinbox.setRange(-360_000.0, 360_000.0)
+            correction_spinbox.setDecimals(self.decimal_places)
+            correction_spinbox.setSingleStep(5.0)
+            correction_spinbox.setSuffix(" deg")
+            correction_spinbox.setToolTip(
+                tr("dialog.container_properties.rotation_correction_tooltip")
+            )
+            correction_spinbox.setValue(float(correction_value))
+            correction_spinbox.valueChanged.connect(
+                self._rotation_correction_edit_changed
+            )
+            row_layout.addWidget(correction_spinbox)
+            axis_form.addRow(label, row_widget)
+            self.rotation_absolute_edits.append(absolute_spinbox)
+            self.rotation_edits.append(correction_spinbox)
         self._update_rotation_editability()
         self.direction_combo = QComboBox()
         for direction in ("X", "Y", "Z"):
@@ -3281,6 +3694,7 @@ class AxisConstraintDialog(PointConstraintDialog):
         for axis, edit in zip(("x", "y", "z"), self.rotation_edits):
             edit.setEnabled(axis in editable_axes)
             edit.setStyleSheet(style)
+        self._sync_rotation_absolute_fields()
         total_dof = int(getattr(self, "dof", 3)) + self.rotation_dof
         self.dof_label.setText(
             tr("dialog.point_constraints.dof", count=total_dof)
@@ -3474,6 +3888,7 @@ class PlaneConstraintDialog(AxisConstraintDialog):
             self.direction_label.setVisible(False)
         self.direction_combo.setVisible(False)
         self._install_container_orientation_controls()
+        self._sync_rotation_absolute_fields()
         if self.length_label is not None:
             self.length_label.setText(tr("dialog.plane.size"))
         self.length_spin.setValue(
@@ -3545,28 +3960,21 @@ class PlaneConstraintDialog(AxisConstraintDialog):
             row_height
         )
         for index in range(2):
-            remove_button = QPushButton("×")
-            remove_button.setToolTip(
-                tr("dialog.point_constraints.delete_reference")
-            )
-            remove_button.setFixedSize(30, 30)
-            remove_button.setStyleSheet(
-                "QPushButton { color: #ffffff; background: #8b2424;"
-                " border: 1px solid #b94a4a; border-radius: 4px;"
-                " font-size: 10px; font-weight: 700; padding: 0; }"
-                "QPushButton:hover { background: #b83232;"
-                " border-color: #ed7777; }"
-                "QPushButton:pressed { background: #6f1d1d; }"
-            )
-            remove_button.clicked.connect(
+            indicator = _build_reference_row_indicator(
                 lambda _checked=False, row=index:
                     self._clear_container_orientation_reference(row)
             )
             self.container_orientation_table.setCellWidget(
-                index, 0, remove_button
+                index, 0, _centered_cell_widget(indicator)
+            )
+            empty_item = QTableWidgetItem(
+                tr("dialog.point_constraints.reference")
+            )
+            empty_item.setForeground(
+                self.palette().brush(QPalette.ColorRole.Mid)
             )
             self.container_orientation_table.setItem(
-                index, 1, QTableWidgetItem("—")
+                index, 1, empty_item
             )
             role_combo = QComboBox()
             roles = (
@@ -3694,9 +4102,9 @@ class PlaneConstraintDialog(AxisConstraintDialog):
             if item is None:
                 continue
             item.setText(
-                str(reference.get("label", "—"))
+                str(reference.get("label", ""))
                 if reference is not None
-                else "—"
+                else tr("dialog.point_constraints.reference")
             )
             active = index in (
                 self._active_container_orientation_row,
@@ -3706,8 +4114,24 @@ class PlaneConstraintDialog(AxisConstraintDialog):
                 QBrush(QColor("#00d1ff")) if active else QBrush()
             )
             item.setForeground(
-                QBrush(QColor("#102027")) if active else QBrush()
+                QBrush(QColor("#102027"))
+                if active
+                else (
+                    QBrush()
+                    if reference is not None
+                    else self.palette().brush(QPalette.ColorRole.Mid)
+                )
             )
+            indicator = self.container_orientation_table.cellWidget(index, 0)
+            arrow_widget = (
+                indicator.layout().itemAt(0).widget()
+                if indicator is not None and indicator.layout() is not None
+                else None
+            )
+            if arrow_widget is not None:
+                _set_reference_row_populated(
+                    arrow_widget, reference is not None
+                )
 
     def _container_orientation_cell_clicked(
         self,
@@ -4109,60 +4533,13 @@ class SolidConstraintDialog(AxisConstraintDialog):
         self._set_container_type(
             ContainerType(solid_kind.value.upper())
         )
-        operation_form = QFormLayout()
-        operation_widget = QWidget()
-        operation_layout = QHBoxLayout(operation_widget)
-        operation_layout.setContentsMargins(0, 0, 0, 0)
-        operation_layout.setSpacing(8)
-        self.add_operation_button = QPushButton(
-            tr("dialog.operation.add")
-        )
-        self.subtract_operation_button = QPushButton(
-            tr("dialog.operation.subtract")
-        )
-        for button in (
-            self.add_operation_button,
-            self.subtract_operation_button,
-        ):
-            button.setCheckable(True)
-            button.setMinimumHeight(40)
-            button.setSizePolicy(
-                QSizePolicy.Policy.Expanding,
-                QSizePolicy.Policy.Fixed,
-            )
-        self.add_operation_button.setStyleSheet(
-            "QPushButton { border: 2px solid #54703a; border-radius: 6px;"
-            " font-weight: 700; padding: 7px 14px; }"
-            "QPushButton:checked { background: #80AA1A; color: #101510;"
-            " border-color: #a7d52b; }"
-        )
-        self.subtract_operation_button.setStyleSheet(
-            "QPushButton { border: 2px solid #713d3d; border-radius: 6px;"
-            " font-weight: 700; padding: 7px 14px; }"
-            "QPushButton:checked { background: #c64b4b; color: #ffffff;"
-            " border-color: #ed7777; }"
-        )
-        operation_layout.addWidget(self.add_operation_button)
-        operation_layout.addWidget(self.subtract_operation_button)
-        operation_form.addRow(
-            tr("dialog.properties.operation"),
-            operation_widget,
-        )
         current_operation = (
             solid_entity.combine_mode
             if solid_entity is not None
             else CombineMode.ADD
         )
-        self._set_operation(current_operation, emit_change=False)
-        self.add_operation_button.clicked.connect(
-            lambda _checked: self._set_operation(CombineMode.ADD)
-        )
-        self.subtract_operation_button.clicked.connect(
-            lambda _checked: self._set_operation(CombineMode.SUBTRACT)
-        )
+        operation_form = self._build_operation_form(current_operation)
         dialog_layout = self.layout()
-        if isinstance(dialog_layout, QVBoxLayout):
-            dialog_layout.insertLayout(1, operation_form)
         self.direction_combo.setVisible(False)
         self.length_spin.setVisible(False)
         if self.direction_label is not None:
@@ -4216,28 +4593,15 @@ class SolidConstraintDialog(AxisConstraintDialog):
         layout = self.layout()
         if isinstance(layout, QVBoxLayout):
             layout.insertLayout(layout.count() - 1, parameter_form)
+        # Operace is the last choice made before confirming: keep it on the
+        # row directly above OK/Cancel, below every Placement/Extent/size
+        # control instead of ahead of them.
+        if isinstance(dialog_layout, QVBoxLayout):
+            dialog_layout.insertLayout(
+                dialog_layout.count() - 1, operation_form
+            )
         self._apply_compact_reference_layout()
         self._update_window_title()
-
-    def _set_operation(
-        self,
-        operation: CombineMode,
-        *,
-        emit_change: bool = True,
-    ) -> None:
-        self.add_operation_button.setChecked(operation == CombineMode.ADD)
-        self.subtract_operation_button.setChecked(
-            operation == CombineMode.SUBTRACT
-        )
-        if emit_change:
-            self.definitionChanged.emit()
-
-    def operation(self) -> CombineMode:
-        return (
-            CombineMode.SUBTRACT
-            if self.subtract_operation_button.isChecked()
-            else CombineMode.ADD
-        )
 
     def _update_window_title(self, _name: str | None = None) -> None:
         self.setWindowTitle(
@@ -4933,57 +5297,28 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
         feature_form.addRow(self.build_status_label)
         self.set_build_status(str(feature_parameters.get("build_status", "")))
 
-        operation_widget = QWidget()
-        operation_layout = QHBoxLayout(operation_widget)
-        operation_layout.setContentsMargins(0, 0, 0, 0)
-        self.add_operation_button = QPushButton(tr("dialog.operation.add"))
-        self.subtract_operation_button = QPushButton(
-            tr("dialog.operation.subtract")
-        )
-        for button in (self.add_operation_button, self.subtract_operation_button):
-            button.setCheckable(True)
-            button.setMinimumHeight(40)
-            button.setSizePolicy(
-                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
-            )
-        self.add_operation_button.setStyleSheet(
-            "QPushButton { border: 2px solid #54703a; border-radius: 6px;"
-            " font-weight: 700; padding: 7px 14px; }"
-            "QPushButton:checked { background: #80AA1A; color: #101510;"
-            " border-color: #a7d52b; }"
-        )
-        self.subtract_operation_button.setStyleSheet(
-            "QPushButton { border: 2px solid #713d3d; border-radius: 6px;"
-            " font-weight: 700; padding: 7px 14px; }"
-            "QPushButton:checked { background: #c64b4b; color: #ffffff;"
-            " border-color: #ed7777; }"
-        )
-        operation_layout.addWidget(self.add_operation_button)
-        operation_layout.addWidget(self.subtract_operation_button)
-        operation = str(
+        operation_value = str(
             feature_parameters.get("operation", CombineMode.ADD.value)
         )
-        self.add_operation_button.setChecked(operation != CombineMode.SUBTRACT.value)
-        self.subtract_operation_button.setChecked(
-            operation == CombineMode.SUBTRACT.value
+        current_operation = (
+            CombineMode.SUBTRACT
+            if operation_value == CombineMode.SUBTRACT.value
+            else CombineMode.ADD
         )
-        self.add_operation_button.clicked.connect(
-            lambda _checked=False: self._set_protrusion_operation(CombineMode.ADD)
+
+        def _on_operation_changed(operation: CombineMode) -> None:
+            if self._uses_protrusion_end_conditions:
+                self._update_end_condition_controls()
+            self.definitionChanged.emit()
+
+        operation_form = self._build_operation_form(
+            current_operation, on_changed=_on_operation_changed
         )
-        self.subtract_operation_button.clicked.connect(
-            lambda _checked=False:
-            self._set_protrusion_operation(CombineMode.SUBTRACT)
-        )
-        operation_form = QFormLayout()
-        operation_form.addRow(tr("dialog.properties.operation"), operation_widget)
-        self.operation_widget = operation_widget
-        self.operation_label = operation_form.labelForField(operation_widget)
         if subtract_only:
             self._set_protrusion_operation(CombineMode.SUBTRACT)
         buttons = self.findChild(QDialogButtonBox)
         dialog_layout = self.layout()
         if buttons is not None and isinstance(dialog_layout, QVBoxLayout):
-            dialog_layout.insertLayout(1, operation_form)
             dialog_layout.insertLayout(dialog_layout.indexOf(buttons), feature_form)
         self.extent_mode_combo.currentIndexChanged.connect(
             self._update_extent_controls
@@ -5045,6 +5380,14 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
             dialog_layout.insertWidget(
                 dialog_layout.indexOf(self.own_sketch_button),
                 self.cut_exception_widget,
+            )
+        if buttons is not None and isinstance(dialog_layout, QVBoxLayout):
+            # Operace is the last choice made before confirming: keep it on
+            # the row directly above OK/Cancel instead of at the very top,
+            # where it used to sit ahead of every other Placement/Extent
+            # control the user actually fills in first.
+            dialog_layout.insertLayout(
+                dialog_layout.indexOf(buttons), operation_form
             )
         self._apply_compact_reference_layout()
         if isinstance(dialog_layout, QVBoxLayout):
@@ -5382,7 +5725,7 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
             remove.setStyleSheet(
                 "QPushButton { color: #ffffff; background: #8b2424;"
                 " border: 1px solid #b94a4a; border-radius: 4px;"
-                " font-size: 10px; font-weight: 700; padding: 0; }"
+                " font-size: 16px; font-weight: 700; padding: 0; }"
                 "QPushButton:hover { background: #b83232;"
                 " border-color: #ed7777; }"
                 "QPushButton:pressed { background: #6f1d1d; }"
@@ -5471,11 +5814,7 @@ class ProtrusionConstraintDialog(PlaneConstraintDialog):
             self.protrusion_direction_combo.setCurrentIndex(index)
 
     def _set_protrusion_operation(self, operation: CombineMode) -> None:
-        self.add_operation_button.setChecked(operation == CombineMode.ADD)
-        self.subtract_operation_button.setChecked(operation == CombineMode.SUBTRACT)
-        if self._uses_protrusion_end_conditions:
-            self._update_end_condition_controls()
-        self.definitionChanged.emit()
+        self._set_operation(operation)
 
     def _update_result_controls(self, _index: int = -1) -> None:
         thin = self.result_type_combo.currentData() == "thin"
@@ -6225,6 +6564,34 @@ class PlaneAttachmentDialog(DocumentSubWindowDialog):
         return str(self.secondary_combo.currentData())
 
 
+class _ReferenceCellItem(QTableWidgetItem):
+    """Reference-column cell mirroring the button API used elsewhere.
+
+    Keeping ``property``/``setProperty``/``isChecked``/``setChecked``
+    lets this flat table item slot into the same reference bookkeeping
+    code ("Umístit kontejner" style) without a bespoke button widget.
+    """
+
+    def __init__(self, text: str = "") -> None:
+        super().__init__(text)
+        self._checked = False
+
+    def property(self, name: str):
+        if name == "reference":
+            return self.data(Qt.ItemDataRole.UserRole)
+        return None
+
+    def setProperty(self, name: str, value) -> None:
+        if name == "reference":
+            self.setData(Qt.ItemDataRole.UserRole, value)
+
+    def isChecked(self) -> bool:
+        return self._checked
+
+    def setChecked(self, value: bool) -> None:
+        self._checked = value
+
+
 class OrientationDialog(QDialog):
     """Modeless orientation editor shared by parts and assemblies."""
 
@@ -6239,8 +6606,11 @@ class OrientationDialog(QDialog):
 
     _ROLES = ("FRONT", "BACK", "TOP", "BOTTOM", "LEFT", "RIGHT")
 
+    _ReferenceCellItem = _ReferenceCellItem
+
     def __init__(self, custom_views: list[dict], parent=None):
         super().__init__(parent)
+        self._highlighted_rows: set[int] = set()
         if isinstance(parent, QWidget):
             self.setWindowFlags(
                 Qt.WindowType.SubWindow
@@ -6267,30 +6637,26 @@ class OrientationDialog(QDialog):
             "", tr("orientation.reference"),
             tr("orientation.direction"), tr("orientation.flip"),
         ))
+        self.reference_list.setStyleSheet(
+            "QTableWidget::item:selected {"
+            " background-color: #00d1ff; color: #102027;"
+            "}"
+        )
         self.reference_list.verticalHeader().hide()
-        self.rows: list[tuple[QPushButton, QComboBox, QCheckBox]] = []
+        self.rows: list[tuple[
+            OrientationDialog._ReferenceCellItem, QComboBox, QCheckBox
+        ]] = []
         self.active_row = 0
         self.selection_paused = False
         self._updating_rows = False
         for row in range(2):
-            remove = QPushButton("×")
-            remove.setFixedSize(30, 30)
-            remove.setToolTip(tr("dialog.point_constraints.delete_reference"))
-            remove.setStyleSheet(
-                "QPushButton { color: #ffffff; background: #8b2424;"
-                " border: 1px solid #b94a4a; border-radius: 4px;"
-                " font-size: 10px; font-weight: 700; padding: 0; }"
-                "QPushButton:hover { background: #b83232; border-color: #ed7777; }"
-                "QPushButton:pressed { background: #6f1d1d; }"
-            )
-            remove.clicked.connect(
+            indicator = _build_reference_row_indicator(
                 lambda _checked=False, index=row: self.remove_row(index)
             )
-            reference = QPushButton(tr("orientation.pick_reference"))
-            reference.setCheckable(True)
-            reference.clicked.connect(
-                lambda _checked=False, index=row: self.activate_row(index)
+            reference = OrientationDialog._ReferenceCellItem(
+                tr("orientation.pick_reference")
             )
+            reference.setForeground(self.palette().brush(QPalette.ColorRole.Mid))
             role = QComboBox()
             for value in self._ROLES:
                 role.addItem(value, value.lower())
@@ -6299,8 +6665,10 @@ class OrientationDialog(QDialog):
             flip = QCheckBox()
             role.currentIndexChanged.connect(self._orientation_control_changed)
             flip.toggled.connect(self._orientation_control_changed)
-            self.reference_list.setCellWidget(row, 0, remove)
-            self.reference_list.setCellWidget(row, 1, reference)
+            self.reference_list.setCellWidget(
+                row, 0, _centered_cell_widget(indicator)
+            )
+            self.reference_list.setItem(row, 1, reference)
             self.reference_list.setCellWidget(row, 2, role)
             self.reference_list.setCellWidget(row, 3, flip)
             self.rows.append((reference, role, flip))
@@ -6313,6 +6681,7 @@ class OrientationDialog(QDialog):
         self.reference_list.verticalHeader().setDefaultSectionSize(34)
         for row in range(self.reference_list.rowCount()):
             self.reference_list.setRowHeight(row, 34)
+        self.reference_list.cellClicked.connect(self._reference_cell_clicked)
         layout.addWidget(self.reference_list)
 
         layout.addWidget(QLabel(tr("orientation.views")))
@@ -6380,6 +6749,24 @@ class OrientationDialog(QDialog):
         self._update_highlights()
         self.selectionResumed.emit()
 
+    def _reference_cell_clicked(self, row: int, column: int) -> None:
+        if column != 1 or not 0 <= row < len(self.rows):
+            return
+        reference, _role, _flip = self.rows[row]
+        if reference.property("reference") is None:
+            self.activate_row(row)
+            return
+        # A populated reference is a persistent value, not an on/off
+        # control; clicking it only toggles its viewer highlight, matching
+        # the reference table used by "Umístit kontejner".
+        reference.setChecked(True)
+        if row in self._highlighted_rows:
+            self._highlighted_rows.discard(row)
+        else:
+            self._highlighted_rows.add(row)
+        self._update_highlights()
+        self.reference_list.clearSelection()
+
     def accept_reference(self, descriptor: str, label: str) -> None:
         reference, _role, _flip = self.rows[self.active_row]
         reference.setProperty("reference", descriptor)
@@ -6399,6 +6786,7 @@ class OrientationDialog(QDialog):
         if row < len(values):
             values.pop(row)
         self._updating_rows = True
+        self._highlighted_rows.clear()
         for index, (reference, role, flip) in enumerate(self.rows):
             value = values[index] if index < len(values) else None
             reference.setProperty("reference", value and value["reference"])
@@ -6430,10 +6818,29 @@ class OrientationDialog(QDialog):
 
     def _update_highlights(self) -> None:
         for index, (reference, _role, _flip) in enumerate(self.rows):
-            reference.setStyleSheet(
-                ("background-color: rgba(0, 140, 255, 130);" if reference.isChecked() else "")
-                + ("border: 2px solid #4DD811;" if index == self.active_row else "")
+            highlighted = index in self._highlighted_rows
+            reference.setBackground(
+                QBrush(QColor("#00d1ff")) if highlighted else QBrush()
             )
+            reference.setForeground(
+                QBrush(QColor("#102027"))
+                if highlighted
+                else (
+                    QBrush()
+                    if reference.property("reference") is not None
+                    else self.palette().brush(QPalette.ColorRole.Mid)
+                )
+            )
+            wrapper = self.reference_list.cellWidget(index, 0)
+            indicator = (
+                wrapper.layout().itemAt(0).widget()
+                if wrapper is not None and wrapper.layout() is not None
+                else None
+            )
+            if indicator is not None:
+                _set_reference_row_populated(
+                    indicator, reference.property("reference") is not None
+                )
 
     def accept(self) -> None:
         self.applyRequested.emit(self.orientation_rows())
@@ -6480,6 +6887,18 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
             tr("assembly.properties.flip"),
         ))
         self.reference_list.verticalHeader().hide()
+        self.reference_list.setStyleSheet(
+            "QTableWidget::item:selected {"
+            " background-color: #00d1ff; color: #102027;"
+            "}"
+        )
+        self.reference_list.cellClicked.connect(self._reference_cell_clicked)
+        self.reference_list.setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu
+        )
+        self.reference_list.customContextMenuRequested.connect(
+            self._show_reference_context_menu
+        )
         self.rows = []
         self._derived_flip_row: int | None = None
         self._updating_flip_contract = False
@@ -6500,44 +6919,13 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
             pass
         stored = self._retained_mate_rows(stored)
         for row in range(3):
-            remove_button = QPushButton("×")
-            remove_button.setFixedSize(30, 30)
-            remove_button.setStyleSheet(
-                "QPushButton { color: white; background: #8b2424;"
-                " border: 1px solid #b94a4a; border-radius: 4px;"
-                " font-size: 10px; font-weight: 700; padding: 0; }"
-                "QPushButton:hover { background: #b83232;"
-                " border-color: #ed7777; }"
-                "QPushButton:pressed { background: #6f1d1d; }"
-            )
-            remove_button.clicked.connect(
+            indicator = _build_reference_row_indicator(
                 lambda _checked=False, index=row: self._remove_mate_row(index)
             )
-            source_button = QPushButton(tr("assembly.properties.pick_face"))
-            target_button = QPushButton(tr("assembly.properties.pick_face"))
-            source_button.setCheckable(True)
-            target_button.setCheckable(True)
-            for side, button in (("source", source_button), ("target", target_button)):
-                button.setContextMenuPolicy(
-                    Qt.ContextMenuPolicy.CustomContextMenu
-                )
-                button.customContextMenuRequested.connect(
-                    lambda position, index=row, field=side, reference_button=button:
-                    self._show_reference_context_menu(
-                        index,
-                        field,
-                        reference_button,
-                        position,
-                    )
-                )
-            source_button.clicked.connect(
-                lambda checked=False, index=row:
-                self._reference_button_clicked(index, "source", checked)
-            )
-            target_button.clicked.connect(
-                lambda checked=False, index=row:
-                self._reference_button_clicked(index, "target", checked)
-            )
+            source_button = _ReferenceCellItem(tr("assembly.properties.pick_face"))
+            target_button = _ReferenceCellItem(tr("assembly.properties.pick_face"))
+            for button in (source_button, target_button):
+                button.setForeground(self.palette().brush(QPalette.ColorRole.Mid))
             offset = PrecisionDoubleSpinBox()
             offset.setRange(-1_000_000.0, 1_000_000.0)
             offset.setDecimals(display_decimal_places(parent))
@@ -6599,9 +6987,11 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
                     combo, value, flip_control=flip_control
                 )
             )
-            self.reference_list.setCellWidget(row, 0, remove_button)
-            self.reference_list.setCellWidget(row, 1, source_button)
-            self.reference_list.setCellWidget(row, 2, target_button)
+            self.reference_list.setCellWidget(
+                row, 0, _centered_cell_widget(indicator)
+            )
+            self.reference_list.setItem(row, 1, source_button)
+            self.reference_list.setItem(row, 2, target_button)
             self.reference_list.setCellWidget(row, 3, mate_type)
             self.reference_list.setCellWidget(row, 4, offset)
             self.reference_list.setCellWidget(row, 5, flip)
@@ -6799,7 +7189,7 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
         ]
 
     def _mark_unresolved_reference(
-        self, button: QPushButton, descriptor: str
+        self, button: "_ReferenceCellItem", descriptor: str
     ) -> None:
         state = (
             str(self.reference_state_callback(descriptor)).upper()
@@ -6808,9 +7198,7 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
         )
         button.setText(state)
         button.setToolTip(descriptor)
-        button.setStyleSheet(
-            "QPushButton { color: #FFD08A; border: 1px solid #C47B20; }"
-        )
+        button.setForeground(QBrush(QColor("#FFD08A")))
 
     def _mate_type_changed(
         self,
@@ -6845,14 +7233,18 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
 
     def _update_remove_buttons(self) -> None:
         for row, (source, target, *_rest) in enumerate(self.rows):
-            remove_button = self.reference_list.cellWidget(row, 0)
-            if remove_button is not None:
+            container = self.reference_list.cellWidget(row, 0)
+            indicator = (
+                container.layout().itemAt(0).widget()
+                if container is not None and container.layout() is not None
+                else None
+            )
+            if indicator is not None:
                 populated = (
                     source.property("reference") is not None
                     or target.property("reference") is not None
                 )
-                remove_button.setEnabled(populated)
-                remove_button.setText("×" if populated else "")
+                _set_reference_row_populated(indicator, populated)
 
     def _update_available_mate_types(self, row: int) -> None:
         source, target, combo, value, _flip = self.rows[row]
@@ -7086,19 +7478,16 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
             tr("assembly.properties.instructions")
         )
 
-    def _reference_button_clicked(
-        self,
-        row: int,
-        side: str,
-        _checked: bool,
-    ) -> None:
+    def _reference_cell_clicked(self, row: int, column: int) -> None:
+        if column not in (1, 2):
+            return
+        side = "source" if column == 1 else "target"
         button = self.rows[row][0 if side == "source" else 1]
         if button.property("reference") is None:
             self._activate_pick(row, side)
             return
-        # QPushButton toggles before emitting clicked.  A populated reference
-        # is a persistent value, not an on/off control; clicking it only
-        # selects that value for visual inspection.
+        # A populated reference is a persistent value, not an on/off
+        # control; clicking it only selects that value for inspection.
         button.setChecked(True)
         self.active_pick = (row, side)
         self.selection_paused = True
@@ -7107,6 +7496,7 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
             str(descriptor) if descriptor is not None else ""
         )
         self._update_pick_highlight()
+        self.reference_list.clearSelection()
 
     def _remove_mate_row(self, row: int) -> None:
         self._inspected_reference = ""
@@ -7208,18 +7598,19 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
             return
         super().keyPressEvent(event)
 
-    def _show_reference_context_menu(
-        self,
-        row: int,
-        side: str,
-        button: QPushButton,
-        position: QPoint,
-    ) -> None:
+    def _show_reference_context_menu(self, position: QPoint) -> None:
+        index = self.reference_list.indexAt(position)
+        if not index.isValid() or index.column() not in (1, 2):
+            return
+        row = index.row()
+        side = "source" if index.column() == 1 else "target"
+        button = self.rows[row][0 if side == "source" else 1]
         self._activate_pick(row, side)
-        menu = QMenu(button)
+        menu = QMenu(self.reference_list)
         delete_action = menu.addAction(tr("menu.context.delete_reference"))
         delete_action.setEnabled(button.property("reference") is not None)
-        if menu.exec(button.mapToGlobal(position)) == delete_action:
+        global_position = self.reference_list.viewport().mapToGlobal(position)
+        if menu.exec(global_position) == delete_action:
             self._clear_reference(row, side)
 
     def _clear_reference(self, row: int, side: str) -> None:
@@ -7268,19 +7659,20 @@ class AssemblyComponentPropertiesDialog(ContainerPropertiesDialog):
     def _update_pick_highlight(self) -> None:
         for row, (source, target, _mate_type, _offset, _flip) in enumerate(self.rows):
             for side, button in (("source", source), ("target", target)):
-                button.setStyleSheet(
-                    (
-                        "background-color: rgba(0, 209, 255, 110);"
-                        if button.isChecked()
-                        else ""
-                    )
-                    + (
-                        "border: 2px solid #4DD811;"
-                        if not self.selection_paused
-                        and (row, side) == self.active_pick
-                        else ""
-                    )
+                is_inspected = (
+                    self.selection_paused
+                    and (row, side) == self.active_pick
+                    and button.property("reference") is not None
                 )
+                if is_inspected:
+                    button.setBackground(QBrush(QColor("#00d1ff")))
+                    button.setForeground(QBrush(QColor("#102027")))
+                elif button.property("reference") is not None:
+                    button.setBackground(QBrush())
+                    button.setForeground(self.palette().brush(QPalette.ColorRole.Text))
+                else:
+                    button.setBackground(QBrush())
+                    button.setForeground(self.palette().brush(QPalette.ColorRole.Mid))
         self.activeReferenceChanged.emit(self.active_reference_descriptor())
 
     def active_reference_descriptor(self) -> str:
@@ -15419,6 +15811,7 @@ class MainWindow(QMainWindow):
             self.native_viewer.set_sketch_overlay(None)
             self.native_viewer.set_passive_sketch_overlay(None)
             self.native_viewer.set_source_topology_hover(None)
+            self.native_viewer.set_source_topology_selection(None)
         selected_id = self.selected_object_id
         self._populate_tree()
         if selected_id is not None:
@@ -15463,25 +15856,13 @@ class MainWindow(QMainWindow):
         )
         obj.name = name
         obj.coordinate_system.origin = solution
-        obj.coordinate_system.rotation = tuple(rotation)
+        base_rotation = self._plane_reference_rotation(constraint_references)
+        obj.coordinate_system.rotation = self._rotation_with_local_offset(
+            base_rotation, rotation
+        )
         obj.show_internal_entities = show_internal_entities
         obj.show_auxiliary_geometry = show_auxiliary_geometry
-        origin = next(
-            (
-                child
-                for child in obj.children
-                if child.kind == EntityKind.ORIGIN
-            ),
-            None,
-        )
-        point = next(
-            (
-                child
-                for child in origin.children
-                if child.kind == EntityKind.POINT
-            ),
-            None,
-        ) if origin is not None else None
+        point = self.document.create_point(obj.entity_id)
         if point is None:
             self.document.delete_container(obj.entity_id)
             return None
@@ -15495,7 +15876,7 @@ class MainWindow(QMainWindow):
                 "fallback_x": format_model_float(fallback[0]),
                 "fallback_y": format_model_float(fallback[1]),
                 "fallback_z": format_model_float(fallback[2]),
-                "reference_orientation": "false",
+                "reference_orientation": "true",
                 "rotation_offset_x": format_model_float(rotation[0]),
                 "rotation_offset_y": format_model_float(rotation[1]),
                 "rotation_offset_z": format_model_float(rotation[2]),
@@ -15614,6 +15995,24 @@ class MainWindow(QMainWindow):
             dialog.definitionChanged.connect(preview_changes)
 
         enable_feature_live_preview()
+        # Editing a Point/Axis/Plane/Container properties dialog rolls the
+        # view back to the boundary immediately before it, evaluating a
+        # fresh BodyResult that only describes that boundary's own body -
+        # not the standalone per-container source packets a placement pick
+        # resolves original faces against. Without those packets, a face on
+        # an earlier container (rotated or not) can be highlighted on hover
+        # but never accepted as a new reference once the dialog is open.
+        # Populate them exactly as Fillet/Chamfer already does. Every caller
+        # still issues its own rebuild_view() right after this method
+        # returns, so defer to the next event-loop turn instead of
+        # installing them here where that later rebuild would discard them.
+        def install_definition_source_bodies() -> None:
+            if not dialog.isVisible():
+                return
+            source_bodies = self._edge_treatment_source_bodies()
+            self._install_scene_source_bodies(source_bodies, persist=False)
+
+        QTimer.singleShot(0, install_definition_source_bodies)
         dialog.show()
         position_dialog_top_right_after_show(dialog)
         QTimer.singleShot(
@@ -15721,7 +16120,7 @@ class MainWindow(QMainWindow):
                 )
                 self.selected_face_object_id = reference.entity_id
                 if source_result is not None:
-                    self.native_viewer.set_source_topology_hover(
+                    self.native_viewer.set_source_topology_selection(
                         source_result.mesh.face_mesh(
                             reference.entity_id,
                             topology_index,
@@ -15775,7 +16174,7 @@ class MainWindow(QMainWindow):
                     "edge": source_result.mesh.edge_mesh,
                     "point": source_result.mesh.point_mesh,
                 }[topology_kind](reference.entity_id, topology_index)
-                self.native_viewer.set_source_topology_hover(
+                self.native_viewer.set_source_topology_selection(
                     element_mesh,
                     topology_kind,
                 )
@@ -17171,26 +17570,25 @@ class MainWindow(QMainWindow):
                 return False
         return True
 
-    @staticmethod
     def _rotation_with_local_offset(
+        self,
         base_rotation: tuple[float, float, float],
         local_offset: tuple[float, float, float],
     ) -> tuple[float, float, float]:
-        combined = multiply_transforms(
-            coordinate_system_transform(CoordinateSystem(rotation=base_rotation)),
-            coordinate_system_transform(CoordinateSystem(rotation=local_offset)),
-        )
-        ry = math.asin(max(-1.0, min(1.0, -combined[2][0])))
-        if abs(math.cos(ry)) > 1e-10:
-            rx = math.atan2(combined[2][1], combined[2][2])
-            rz = math.atan2(combined[1][0], combined[0][0])
-        else:
-            rx = math.atan2(
-                combined[0][1] * (1.0 if ry >= 0.0 else -1.0),
-                combined[1][1],
-            )
-            rz = 0.0
-        return tuple(math.degrees(value) for value in (rx, ry, rz))
+        return rotation_with_local_offset(base_rotation, local_offset)
+
+    def _euler_angles_from_transform(
+        self,
+        transform: tuple[tuple[float, float, float, float], ...],
+    ) -> tuple[float, float, float]:
+        return euler_angles_from_transform(transform)
+
+    def _local_offset_from_total_rotation(
+        self,
+        base_rotation: tuple[float, float, float],
+        total_rotation: tuple[float, float, float],
+    ) -> tuple[float, float, float]:
+        return local_offset_from_total_rotation(base_rotation, total_rotation)
 
     def _orientation_reference_vector(
         self,
@@ -29933,6 +30331,16 @@ class MainWindow(QMainWindow):
                     else "menu.context.suppress"
                 )
             )
+        elif (
+            item is not None
+            and item.data(0, HistoryTreeWidget.RESULT_BODY_ROLE)
+        ):
+            # The result-body ("Těleso") item is a read-only summary of the
+            # final calculated body, not a container. "Create new container"
+            # does not belong on it; it only otherwise appeared here because
+            # this item does not resolve to any entity (obj is None), which
+            # is also true of an empty-area click.
+            return
         elif obj is None or obj.kind == EntityKind.PART:
             create_action = menu.addAction(tr("menu.context.create_container"))
         elif obj.kind == EntityKind.ORIGIN:
@@ -30331,12 +30739,18 @@ class MainWindow(QMainWindow):
             f"{candidate.kind}:{candidate.owner_id}:{candidate.element_index}"
             for candidate in candidates
         )
+        # Hover already displays candidates[0] as the orange preview before
+        # any RMB press. A fresh candidate list (first press at a new
+        # position, or the very first press of a picking session) must
+        # therefore advance straight to the next candidate instead of just
+        # re-establishing index 0 - which would silently redisplay the same
+        # face already shown by hover and make the first RMB press look
+        # like a no-op.
         if cycle_ids != self._view_candidate_cycle_ids:
             self._view_candidate_cycle_index = 0
-        else:
-            self._view_candidate_cycle_index = (
-                self._view_candidate_cycle_index + 1
-            ) % len(candidates)
+        self._view_candidate_cycle_index = (
+            self._view_candidate_cycle_index + 1
+        ) % len(candidates)
         self._view_candidate_cycle_ids = cycle_ids
         self._history_source_cycle_active = True
         self.native_viewer.preview_provided_candidate(
@@ -50147,15 +50561,32 @@ class MainWindow(QMainWindow):
             else tuple(float(value) for value in dialog.point_rotation())
         )
         solution_references = dialog._solution_references()
-        reference_rotation = (
-            self._datum_plane_frame(
-                solution_references,
-                str(dialog.direction_combo.currentData()),
-            )[1]
-            if isinstance(dialog, PlaneConstraintDialog)
-            and dialog.has_orientation_reference()
-            else self._plane_reference_rotation(solution_references)
+        has_orientation_references = (
+            dialog._has_orientation_references()
+            if hasattr(dialog, "_has_orientation_references")
+            else bool(solution_references)
         )
+        if has_orientation_references:
+            reference_rotation = (
+                self._datum_plane_frame(
+                    solution_references,
+                    str(dialog.direction_combo.currentData()),
+                )[1]
+                if isinstance(dialog, PlaneConstraintDialog)
+                and dialog.has_orientation_reference()
+                else self._plane_reference_rotation(solution_references)
+            )
+        else:
+            # No orientation reference constrains rotation: the base field
+            # is a manually entered value, not derived from references.
+            absolute_edits = getattr(
+                dialog, "rotation_absolute_edits", None
+            ) or getattr(dialog, "point_rotation_absolute_edits", None)
+            reference_rotation = (
+                tuple(float(edit.value()) for edit in absolute_edits)
+                if absolute_edits
+                else (0.0, 0.0, 0.0)
+            )
         return CoordinateSystem(
             origin=tuple(float(value) for value in solution),
             rotation=self._rotation_with_local_offset(
@@ -53424,8 +53855,6 @@ class MainWindow(QMainWindow):
                 unresolved_entities += 1
                 continue
             obj.coordinate_system.origin = solution
-            if entity.kind == EntityKind.POINT:
-                obj.coordinate_system.rotation = (0.0, 0.0, 0.0)
             if (
                 entity.kind in (EntityKind.PLANE, EntityKind.SKETCH)
                 or str(
@@ -55056,6 +55485,26 @@ class MainWindow(QMainWindow):
                     )
                 except (IndexError, TypeError, ValueError):
                     pass
+        # A referenced face's owner container may be an earlier history
+        # object whose geometry was merged into the single root-owned
+        # display mesh, so its own entity_id never appears among that
+        # mesh's triangle/edge owners. Supply the individual source meshes
+        # the regeneration/edit-source lookup already has on hand, purely so
+        # the outline painters can still resolve those faces and edges.
+        source_bodies = (
+            self._native_viewer_scene.calculated_body_result.source_bodies
+            if self._native_viewer_scene is not None
+            and self._native_viewer_scene.calculated_body_result is not None
+            else {}
+        )
+        needed_owner_ids = {owner_id for owner_id, _index in faces} | {
+            owner_id for owner_id, _index in edges
+        }
+        self.native_viewer.set_reference_source_meshes({
+            owner_id: source_bodies[owner_id].mesh
+            for owner_id in needed_owner_ids
+            if owner_id in source_bodies
+        })
         self.native_viewer.set_constraint_reference_highlights(
             owner_ids=owner_ids,
             faces=faces,
