@@ -72,13 +72,12 @@ struct MateReference {
 // (un-transformed) source body of the occurrence being placed itself;
 // `target_reference` is the geometry it is placed against, which may live on
 // the assembly's own origin/constructions or on another already-placed
-// component. `mate_type`/`offset` reuse the exact same solving semantics as
-// the legacy AssemblyMate row (PlaneCoincident/AxisCoincident/PointCoincident
-// distance-or-coincidence, AxisAngle/PlaneAngle angle) -- there is only one
-// solver family, this only changes WHERE the row is stored and displayed.
-// `flip` mirrors ConstructionReference::flip: it inverts the resolved
-// direction/normal of an orientation-driving reference as a post-solve step,
-// and is a no-op for a PointCoincident row (no direction to invert).
+// component. `mate_type`/`offset` select the solving semantics
+// (PlaneCoincident/AxisCoincident/PointCoincident distance-or-coincidence,
+// AxisAngle/PlaneAngle angle). `flip` mirrors ConstructionReference::flip: it
+// inverts the resolved direction/normal of an orientation-driving reference
+// as a post-solve step, and is a no-op for a PointCoincident row (no
+// direction to invert).
 struct ComponentPlacementReference {
     MateKind mate_type{MateKind::PlaneCoincident};
     MateReference component_reference;
@@ -105,9 +104,7 @@ struct PartOccurrence {
     // Placement references entered directly in this component's own
     // Properties dialog (Python-style embedded reference table), capped at 3
     // rows like Python's _retained_mate_rows(value[:3]). Populated rows
-    // drive placement_solve_component()'s ComponentPlacement solve; this
-    // supersedes the legacy standalone AssemblyMate model for NEW placements
-    // once the properties-dialog UI is wired up.
+    // drive calculate_placement_references()'s ComponentPlacement solve.
     std::vector<ComponentPlacementReference> placement_references;
 };
 
@@ -136,22 +133,6 @@ struct ComponentDependency {
     std::string prerequisite_occurrence_id;
     ComponentDependencyKind kind{ComponentDependencyKind::PlacementReference};
     bool operator==(const ComponentDependency&) const = default;
-};
-
-struct AssemblyMate {
-    std::string mate_id;
-    std::string name;
-    MateKind kind{MateKind::PlaneCoincident};
-    MateReference dependent;
-    MateReference prerequisite;
-    double offset{};
-    double angle_degrees{};
-    std::optional<double> lower_limit;
-    std::optional<double> upper_limit;
-    bool flipped{};
-    MateStatus status{MateStatus::Uncalculated};
-    bool suppressed{};
-    bool operator==(const AssemblyMate&) const = default;
 };
 
 struct ResolvedPlane {
@@ -205,7 +186,6 @@ public:
     std::vector<AssemblyCut> cuts;
     std::vector<zima::document::ConstructionObject> constructions;
     std::vector<ComponentDependency> dependencies;
-    std::vector<AssemblyMate> mates;
 
     [[nodiscard]] static AssemblyDocument create_default();
     [[nodiscard]] static PartOccurrence create_part_occurrence(
@@ -250,19 +230,6 @@ public:
         std::string prerequisite_occurrence_id,
         ComponentDependencyKind kind);
     void add_dependency(ComponentDependency dependency);
-    [[nodiscard]] static AssemblyMate create_mate(
-        std::string name,
-        MateKind kind,
-        MateReference dependent,
-        MateReference prerequisite,
-        double offset = 0.0);
-    void add_mate(AssemblyMate mate);
-    [[nodiscard]] const AssemblyMate* find_mate(const std::string& mate_id) const;
-    [[nodiscard]] AssemblyMate* find_mate(const std::string& mate_id);
-    void replace_mate(AssemblyMate mate);
-    [[nodiscard]] bool replace_mate_and_calculate(AssemblyMate mate);
-    [[nodiscard]] bool set_mate_value(
-        const std::string& mate_id, double value);
     [[nodiscard]] static double project_linear_drag_value(
         const zima::kernel::Vec3& axis_point,
         const zima::kernel::Vec3& axis_direction,
@@ -273,18 +240,15 @@ public:
         const zima::kernel::Vec3& reference_direction,
         const zima::kernel::Vec3& ray_origin,
         const zima::kernel::Vec3& ray_direction);
-    void remove_mate(const std::string& mate_id);
     [[nodiscard]] PlaneResolution resolve_plane(
         const MateReference& reference) const;
     [[nodiscard]] AxisResolution resolve_axis(
         const MateReference& reference) const;
     [[nodiscard]] PointResolution resolve_point(
         const MateReference& reference) const;
-    void calculate_mates();
     // Solves PartOccurrence::placement_references for every non-grounded
     // component -- the embedded per-component reference-row model (see
-    // ComponentPlacementReference) that supersedes the legacy AssemblyMate
-    // vector for new placements.
+    // ComponentPlacementReference).
     void calculate_placement_references();
     [[nodiscard]] int remaining_degrees_of_freedom(
         const std::string& occurrence_id) const;

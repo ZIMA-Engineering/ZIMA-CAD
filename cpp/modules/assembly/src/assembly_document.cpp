@@ -729,146 +729,6 @@ void AssemblyDocument::add_dependency(ComponentDependency dependency) {
     dependencies.push_back(std::move(dependency));
 }
 
-AssemblyMate AssemblyDocument::create_mate(
-    std::string name,
-    MateKind kind,
-    MateReference dependent,
-    MateReference prerequisite,
-    double offset) {
-    if (name.empty() || dependent.instance_path.occurrence_ids.size() != 1 ||
-        prerequisite.instance_path.occurrence_ids.size() > 1 ||
-        dependent.owner_id.empty() || dependent.semantic_key.empty() ||
-        prerequisite.owner_id.empty() || prerequisite.semantic_key.empty() ||
-        !std::isfinite(offset)) {
-        throw std::invalid_argument("Assembly mate definition is invalid");
-    }
-    return {make_id(), std::move(name), kind, std::move(dependent),
-            std::move(prerequisite), offset, 0.0, std::nullopt, std::nullopt, false,
-            MateStatus::Uncalculated, false};
-}
-
-void AssemblyDocument::add_mate(AssemblyMate mate) {
-    const bool angular = mate.kind == MateKind::AxisAngle ||
-        mate.kind == MateKind::PlaneAngle;
-    const bool value_mate = angular || mate.kind == MateKind::PlaneCoincident;
-    const double value = angular ? mate.angle_degrees : mate.offset;
-    if (mate.mate_id.empty() || mate.name.empty() || !std::isfinite(mate.offset) ||
-        !std::isfinite(mate.angle_degrees) || mate.angle_degrees < 0.0 ||
-        mate.angle_degrees > 180.0 ||
-        (mate.lower_limit && !std::isfinite(*mate.lower_limit)) ||
-        (mate.upper_limit && !std::isfinite(*mate.upper_limit)) ||
-        (!value_mate && (mate.lower_limit || mate.upper_limit)) ||
-        (mate.lower_limit && mate.upper_limit &&
-            *mate.lower_limit > *mate.upper_limit) ||
-        (mate.lower_limit && value < *mate.lower_limit) ||
-        (mate.upper_limit && value > *mate.upper_limit) ||
-        (angular && ((mate.lower_limit && *mate.lower_limit < 0.0) ||
-                     (mate.upper_limit && *mate.upper_limit > 180.0))) ||
-        mate.dependent.instance_path.occurrence_ids.size() != 1 ||
-        mate.prerequisite.instance_path.occurrence_ids.size() > 1 ||
-        (!mate.prerequisite.instance_path.occurrence_ids.empty() &&
-         mate.dependent.instance_path.occurrence_ids.front() ==
-            mate.prerequisite.instance_path.occurrence_ids.front()) ||
-        find_occurrence(mate.dependent.instance_path.occurrence_ids.front()) == nullptr ||
-        (!mate.prerequisite.instance_path.occurrence_ids.empty() &&
-         find_occurrence(mate.prerequisite.instance_path.occurrence_ids.front()) == nullptr)) {
-        throw std::invalid_argument("Assembly mate ownership is invalid");
-    }
-    if (std::any_of(mates.begin(), mates.end(), [&](const auto& existing) {
-            return existing.mate_id == mate.mate_id;
-        })) {
-        throw std::invalid_argument("Assembly mate ID must be unique");
-    }
-    const bool component_prerequisite =
-        !mate.prerequisite.instance_path.occurrence_ids.empty();
-    ComponentDependency dependency;
-    if (component_prerequisite) {
-        dependency = {mate.mate_id,
-            mate.dependent.instance_path.occurrence_ids.front(),
-            mate.prerequisite.instance_path.occurrence_ids.front(),
-            ComponentDependencyKind::PlacementReference};
-    }
-    const auto existing_dependency = std::find_if(
-        dependencies.begin(), dependencies.end(), [&](const auto& existing) {
-            return existing.dependency_id == mate.mate_id;
-        });
-    if (component_prerequisite && existing_dependency == dependencies.end()) {
-        add_dependency(std::move(dependency));
-    } else if (component_prerequisite &&
-               (existing_dependency->dependent_occurrence_id !=
-                   dependency.dependent_occurrence_id ||
-                existing_dependency->prerequisite_occurrence_id !=
-                   dependency.prerequisite_occurrence_id ||
-                existing_dependency->kind !=
-                   ComponentDependencyKind::PlacementReference)) {
-        throw std::invalid_argument("Assembly mate dependency is inconsistent");
-    } else if (!component_prerequisite && existing_dependency != dependencies.end()) {
-        throw std::invalid_argument("Assembly datum mate must not own a component dependency");
-    }
-    mates.push_back(std::move(mate));
-}
-
-const AssemblyMate* AssemblyDocument::find_mate(const std::string& mate_id) const {
-    const auto found = std::find_if(mates.begin(), mates.end(),
-        [&](const auto& mate) { return mate.mate_id == mate_id; });
-    return found == mates.end() ? nullptr : &*found;
-}
-
-AssemblyMate* AssemblyDocument::find_mate(const std::string& mate_id) {
-    return const_cast<AssemblyMate*>(std::as_const(*this).find_mate(mate_id));
-}
-
-void AssemblyDocument::replace_mate(AssemblyMate mate) {
-    if (find_mate(mate.mate_id) == nullptr) {
-        throw std::invalid_argument("Assembly mate to replace does not exist");
-    }
-    auto replacement = *this;
-    std::erase_if(replacement.mates,
-        [&](const auto& existing) { return existing.mate_id == mate.mate_id; });
-    std::erase_if(replacement.dependencies,
-        [&](const auto& dependency) { return dependency.dependency_id == mate.mate_id; });
-    replacement.add_mate(std::move(mate));
-    *this = std::move(replacement);
-}
-
-bool AssemblyDocument::replace_mate_and_calculate(AssemblyMate mate) {
-    const auto* existing = find_mate(mate.mate_id);
-    if (existing == nullptr || mate.dependent.instance_path.occurrence_ids.empty()) {
-        throw std::invalid_argument("Assembly mate to replace does not exist");
-    }
-    const std::string affected_occurrence =
-        mate.dependent.instance_path.occurrence_ids.front();
-    auto candidate = *this;
-    candidate.replace_mate(std::move(mate));
-    candidate.calculate_mates();
-    const bool valid = std::ranges::all_of(candidate.mates, [&](const auto& item) {
-        return item.suppressed || item.dependent.instance_path.occurrence_ids.empty() ||
-            item.dependent.instance_path.occurrence_ids.front() != affected_occurrence ||
-            item.status == MateStatus::Valid;
-    });
-    if (!valid) return false;
-    *this = std::move(candidate);
-    return true;
-}
-
-bool AssemblyDocument::set_mate_value(
-    const std::string& mate_id, double value) {
-    if (!std::isfinite(value)) return false;
-    const auto* existing = find_mate(mate_id);
-    if (existing == nullptr) throw std::invalid_argument("Assembly mate does not exist");
-    auto changed = *existing;
-    if (changed.kind == MateKind::PlaneCoincident) {
-        changed.offset = value;
-    } else if (changed.kind == MateKind::AxisAngle ||
-               changed.kind == MateKind::PlaneAngle) {
-        changed.angle_degrees = value;
-    } else {
-        return false;
-    }
-    try { return replace_mate_and_calculate(std::move(changed)); }
-    catch (const std::invalid_argument&) { return false; }
-}
-
 double AssemblyDocument::project_linear_drag_value(
     const zima::kernel::Vec3& axis_point,
     const zima::kernel::Vec3& axis_direction,
@@ -921,16 +781,6 @@ double AssemblyDocument::project_angular_drag_value(
         dot(reference_direction, cursor) /
             (reference_length * cursor_length), -1.0, 1.0);
     return std::acos(cosine) * 180.0 / 3.14159265358979323846;
-}
-
-void AssemblyDocument::remove_mate(const std::string& mate_id) {
-    if (find_mate(mate_id) == nullptr) {
-        throw std::invalid_argument("Assembly mate to remove does not exist");
-    }
-    std::erase_if(mates,
-        [&](const auto& mate) { return mate.mate_id == mate_id; });
-    std::erase_if(dependencies,
-        [&](const auto& dependency) { return dependency.dependency_id == mate_id; });
 }
 
 PlaneResolution AssemblyDocument::resolve_plane(
@@ -1024,396 +874,13 @@ PointResolution AssemblyDocument::resolve_point(
     return {MateStatus::Valid, found->position};
 }
 
-void AssemblyDocument::calculate_mates() {
-    constexpr double parallel_tolerance = 1.0e-7;
-    std::unordered_map<std::string, ComponentPlacement> original_placements;
-    for (const auto& component : components) {
-        original_placements.emplace(component.occurrence_id, component.placement);
-    }
-    for (auto& mate : mates) mate.status = MateStatus::Uncalculated;
-    const auto calculate_plane = [&](AssemblyMate& mate) {
-        if (mate.dependent.kind != MateReferenceKind::Face ||
-            mate.prerequisite.kind != MateReferenceKind::Face) {
-            mate.status = MateStatus::UnsupportedGeometry;
-            return;
-        }
-        const auto dependent_plane = resolve_plane(mate.dependent);
-        const auto prerequisite_plane = resolve_plane(mate.prerequisite);
-        if (dependent_plane.status != MateStatus::Valid) {
-            mate.status = dependent_plane.status;
-            return;
-        }
-        if (prerequisite_plane.status != MateStatus::Valid) {
-            mate.status = prerequisite_plane.status;
-            return;
-        }
-        const auto& dependent_normal = dependent_plane.plane.normal;
-        const auto& prerequisite_normal = prerequisite_plane.plane.normal;
-        const double alignment =
-            dependent_normal.x * prerequisite_normal.x +
-            dependent_normal.y * prerequisite_normal.y +
-            dependent_normal.z * prerequisite_normal.z;
-        const zima::kernel::Vec3 desired_normal = mate.flipped
-            ? zima::kernel::Vec3{-prerequisite_normal.x, -prerequisite_normal.y,
-                                 -prerequisite_normal.z}
-            : alignment < 0.0
-                ? zima::kernel::Vec3{-prerequisite_normal.x, -prerequisite_normal.y,
-                                     -prerequisite_normal.z}
-                : prerequisite_normal;
-        auto* occurrence = find_occurrence(
-            mate.dependent.instance_path.occurrence_ids.front());
-        if (occurrence == nullptr) {
-            mate.status = MateStatus::MissingReference;
-            return;
-        }
-        if (occurrence->grounded) {
-            mate.status = MateStatus::Valid;
-            return;
-        }
-        const bool orientation_satisfied = mate.flipped
-            ? std::abs(alignment + 1.0) <= parallel_tolerance
-            : std::abs(std::abs(alignment) - 1.0) <= parallel_tolerance;
-        if (!orientation_satisfied) {
-            rotate_occurrence_about(*occurrence,
-                shortest_rotation(dependent_normal, desired_normal),
-                dependent_plane.plane.point);
-        }
-        const auto aligned_dependent = resolve_plane(mate.dependent);
-        if (aligned_dependent.status != MateStatus::Valid) {
-            mate.status = aligned_dependent.status;
-            return;
-        }
-        const auto& dependent_point = aligned_dependent.plane.point;
-        const auto& prerequisite_point = prerequisite_plane.plane.point;
-        const double current_offset =
-            (dependent_point.x - prerequisite_point.x) * prerequisite_normal.x +
-            (dependent_point.y - prerequisite_point.y) * prerequisite_normal.y +
-            (dependent_point.z - prerequisite_point.z) * prerequisite_normal.z;
-        const double correction = mate.offset - current_offset;
-        occurrence->placement.x += prerequisite_normal.x * correction;
-        occurrence->placement.y += prerequisite_normal.y * correction;
-        occurrence->placement.z += prerequisite_normal.z * correction;
-        mate.status = MateStatus::Valid;
-    };
-    const auto calculate_axis = [&](AssemblyMate& mate) {
-        if (mate.dependent.kind != MateReferenceKind::Axis ||
-            mate.prerequisite.kind != MateReferenceKind::Axis ||
-            std::abs(mate.offset) > 1.0e-12) {
-            mate.status = MateStatus::UnsupportedGeometry;
-            return;
-        }
-        const auto dependent = resolve_axis(mate.dependent);
-        const auto prerequisite = resolve_axis(mate.prerequisite);
-        if (dependent.status != MateStatus::Valid) {
-            mate.status = dependent.status;
-            return;
-        }
-        if (prerequisite.status != MateStatus::Valid) {
-            mate.status = prerequisite.status;
-            return;
-        }
-        const double alignment =
-            dependent.axis.direction.x * prerequisite.axis.direction.x +
-            dependent.axis.direction.y * prerequisite.axis.direction.y +
-            dependent.axis.direction.z * prerequisite.axis.direction.z;
-        const zima::kernel::Vec3 desired_direction = mate.flipped
-            ? zima::kernel::Vec3{-prerequisite.axis.direction.x,
-                                 -prerequisite.axis.direction.y,
-                                 -prerequisite.axis.direction.z}
-            : alignment < 0.0
-                ? zima::kernel::Vec3{-prerequisite.axis.direction.x,
-                                     -prerequisite.axis.direction.y,
-                                     -prerequisite.axis.direction.z}
-                : prerequisite.axis.direction;
-        auto* occurrence = find_occurrence(
-            mate.dependent.instance_path.occurrence_ids.front());
-        if (occurrence == nullptr) {
-            mate.status = MateStatus::MissingReference;
-            return;
-        }
-        if (occurrence->grounded) {
-            mate.status = MateStatus::Valid;
-            return;
-        }
-        const bool orientation_satisfied = mate.flipped
-            ? std::abs(alignment + 1.0) <= parallel_tolerance
-            : std::abs(std::abs(alignment) - 1.0) <= parallel_tolerance;
-        if (!orientation_satisfied) {
-            rotate_occurrence_about(*occurrence,
-                shortest_rotation(dependent.axis.direction, desired_direction),
-                dependent.axis.point);
-        }
-        const auto aligned_dependent = resolve_axis(mate.dependent);
-        if (aligned_dependent.status != MateStatus::Valid) {
-            mate.status = aligned_dependent.status;
-            return;
-        }
-        const zima::kernel::Vec3 delta{
-            prerequisite.axis.point.x - aligned_dependent.axis.point.x,
-            prerequisite.axis.point.y - aligned_dependent.axis.point.y,
-            prerequisite.axis.point.z - aligned_dependent.axis.point.z};
-        const double axial =
-            delta.x * prerequisite.axis.direction.x +
-            delta.y * prerequisite.axis.direction.y +
-            delta.z * prerequisite.axis.direction.z;
-        const zima::kernel::Vec3 correction{
-            delta.x - axial * prerequisite.axis.direction.x,
-            delta.y - axial * prerequisite.axis.direction.y,
-            delta.z - axial * prerequisite.axis.direction.z};
-        occurrence->placement.x += correction.x;
-        occurrence->placement.y += correction.y;
-        occurrence->placement.z += correction.z;
-        mate.status = MateStatus::Valid;
-    };
-    const auto calculate_point = [&](AssemblyMate& mate) {
-        if (mate.dependent.kind != MateReferenceKind::Point ||
-            mate.prerequisite.kind != MateReferenceKind::Point ||
-            std::abs(mate.offset) > 1.0e-12 || mate.flipped) {
-            mate.status = MateStatus::UnsupportedGeometry;
-            return;
-        }
-        const auto dependent = resolve_point(mate.dependent);
-        const auto prerequisite = resolve_point(mate.prerequisite);
-        if (dependent.status != MateStatus::Valid) {
-            mate.status = dependent.status;
-            return;
-        }
-        if (prerequisite.status != MateStatus::Valid) {
-            mate.status = prerequisite.status;
-            return;
-        }
-        auto* occurrence = find_occurrence(
-            mate.dependent.instance_path.occurrence_ids.front());
-        if (occurrence == nullptr) {
-            mate.status = MateStatus::MissingReference;
-            return;
-        }
-        if (!occurrence->grounded) {
-            occurrence->placement.x += prerequisite.point.x - dependent.point.x;
-            occurrence->placement.y += prerequisite.point.y - dependent.point.y;
-            occurrence->placement.z += prerequisite.point.z - dependent.point.z;
-        }
-        mate.status = MateStatus::Valid;
-    };
-    const auto calculate_axis_angle = [&](AssemblyMate& mate) {
-        if (mate.dependent.kind != MateReferenceKind::Axis ||
-            mate.prerequisite.kind != MateReferenceKind::Axis ||
-            std::abs(mate.offset) > 1.0e-12) {
-            mate.status = MateStatus::UnsupportedGeometry;
-            return;
-        }
-        const auto dependent = resolve_axis(mate.dependent);
-        const auto prerequisite = resolve_axis(mate.prerequisite);
-        if (dependent.status != MateStatus::Valid) {
-            mate.status = dependent.status;
-            return;
-        }
-        if (prerequisite.status != MateStatus::Valid) {
-            mate.status = prerequisite.status;
-            return;
-        }
-        auto* occurrence = find_occurrence(
-            mate.dependent.instance_path.occurrence_ids.front());
-        if (occurrence == nullptr) {
-            mate.status = MateStatus::MissingReference;
-            return;
-        }
-        constexpr double radians = 3.14159265358979323846 / 180.0;
-        const double requested = (mate.flipped ? 180.0 - mate.angle_degrees
-                                               : mate.angle_degrees) * radians;
-        const auto& source = dependent.axis.direction;
-        const auto& reference = prerequisite.axis.direction;
-        const auto target = nearest_direction_at_angle(source, reference, requested);
-        if (!occurrence->grounded) {
-            rotate_occurrence_about(*occurrence,
-                shortest_rotation(source, target), dependent.axis.point);
-        }
-        mate.status = MateStatus::Valid;
-    };
-    const auto calculate_plane_angle = [&](AssemblyMate& mate) {
-        if (mate.dependent.kind != MateReferenceKind::Face ||
-            mate.prerequisite.kind != MateReferenceKind::Face ||
-            std::abs(mate.offset) > 1.0e-12) {
-            mate.status = MateStatus::UnsupportedGeometry;
-            return;
-        }
-        const auto dependent = resolve_plane(mate.dependent);
-        const auto prerequisite = resolve_plane(mate.prerequisite);
-        if (dependent.status != MateStatus::Valid) {
-            mate.status = dependent.status;
-            return;
-        }
-        if (prerequisite.status != MateStatus::Valid) {
-            mate.status = prerequisite.status;
-            return;
-        }
-        auto* occurrence = find_occurrence(
-            mate.dependent.instance_path.occurrence_ids.front());
-        if (occurrence == nullptr) {
-            mate.status = MateStatus::MissingReference;
-            return;
-        }
-        constexpr double radians = 3.14159265358979323846 / 180.0;
-        const double requested = (mate.flipped ? 180.0 - mate.angle_degrees
-                                               : mate.angle_degrees) * radians;
-        const auto target = nearest_direction_at_angle(
-            dependent.plane.normal, prerequisite.plane.normal, requested);
-        if (!occurrence->grounded) {
-            rotate_occurrence_about(*occurrence,
-                shortest_rotation(dependent.plane.normal, target),
-                dependent.plane.point);
-        }
-        mate.status = MateStatus::Valid;
-    };
-    for (auto& mate : mates) {
-        if (!mate.suppressed && mate.kind == MateKind::AxisAngle) {
-            calculate_axis_angle(mate);
-        }
-    }
-    for (auto& mate : mates) {
-        if (!mate.suppressed && mate.kind == MateKind::PlaneAngle) {
-            calculate_plane_angle(mate);
-        }
-    }
-    for (auto& mate : mates) {
-        if (!mate.suppressed && mate.kind == MateKind::AxisCoincident) {
-            calculate_axis(mate);
-        }
-    }
-    for (auto& mate : mates) {
-        if (!mate.suppressed && mate.kind == MateKind::PlaneCoincident) {
-            calculate_plane(mate);
-        }
-    }
-    for (auto& mate : mates) {
-        if (!mate.suppressed && mate.kind == MateKind::PointCoincident) {
-            calculate_point(mate);
-        }
-    }
-    std::vector<bool> conflicts(mates.size(), false);
-    for (std::size_t index = 0; index < mates.size(); ++index) {
-        const auto& mate = mates[index];
-        if (mate.suppressed || mate.status != MateStatus::Valid) continue;
-        if (mate.kind == MateKind::AxisCoincident) {
-            const auto dependent = resolve_axis(mate.dependent);
-            const auto prerequisite = resolve_axis(mate.prerequisite);
-            if (dependent.status != MateStatus::Valid ||
-                prerequisite.status != MateStatus::Valid) {
-                conflicts[index] = true;
-                continue;
-            }
-            const zima::kernel::Vec3 delta{
-                dependent.axis.point.x - prerequisite.axis.point.x,
-                dependent.axis.point.y - prerequisite.axis.point.y,
-                dependent.axis.point.z - prerequisite.axis.point.z};
-            const double axial =
-                delta.x * prerequisite.axis.direction.x +
-                delta.y * prerequisite.axis.direction.y +
-                delta.z * prerequisite.axis.direction.z;
-            const zima::kernel::Vec3 radial{
-                delta.x - axial * prerequisite.axis.direction.x,
-                delta.y - axial * prerequisite.axis.direction.y,
-                delta.z - axial * prerequisite.axis.direction.z};
-            const double alignment = dot(
-                dependent.axis.direction, prerequisite.axis.direction);
-            conflicts[index] =
-                (mate.flipped
-                    ? std::abs(alignment + 1.0)
-                    : std::abs(std::abs(alignment) - 1.0)) > parallel_tolerance ||
-                std::sqrt(
-                radial.x * radial.x + radial.y * radial.y + radial.z * radial.z) >
-                parallel_tolerance;
-        } else if (mate.kind == MateKind::PlaneCoincident) {
-            const auto dependent = resolve_plane(mate.dependent);
-            const auto prerequisite = resolve_plane(mate.prerequisite);
-            if (dependent.status != MateStatus::Valid ||
-                prerequisite.status != MateStatus::Valid) {
-                conflicts[index] = true;
-                continue;
-            }
-            const auto& normal = prerequisite.plane.normal;
-            const double offset =
-                (dependent.plane.point.x - prerequisite.plane.point.x) * normal.x +
-                (dependent.plane.point.y - prerequisite.plane.point.y) * normal.y +
-                (dependent.plane.point.z - prerequisite.plane.point.z) * normal.z;
-            const double alignment = dot(
-                dependent.plane.normal, prerequisite.plane.normal);
-            conflicts[index] =
-                (mate.flipped
-                    ? std::abs(alignment + 1.0)
-                    : std::abs(std::abs(alignment) - 1.0)) > parallel_tolerance ||
-                std::abs(offset - mate.offset) > parallel_tolerance;
-        } else if (mate.kind == MateKind::PointCoincident) {
-            const auto dependent = resolve_point(mate.dependent);
-            const auto prerequisite = resolve_point(mate.prerequisite);
-            if (dependent.status != MateStatus::Valid ||
-                prerequisite.status != MateStatus::Valid) {
-                conflicts[index] = true;
-                continue;
-            }
-            conflicts[index] =
-                length({dependent.point.x - prerequisite.point.x,
-                        dependent.point.y - prerequisite.point.y,
-                        dependent.point.z - prerequisite.point.z}) > parallel_tolerance;
-        } else if (mate.kind == MateKind::AxisAngle) {
-            const auto dependent = resolve_axis(mate.dependent);
-            const auto prerequisite = resolve_axis(mate.prerequisite);
-            if (dependent.status != MateStatus::Valid ||
-                prerequisite.status != MateStatus::Valid) {
-                conflicts[index] = true;
-                continue;
-            }
-            constexpr double radians = 3.14159265358979323846 / 180.0;
-            const double requested = (mate.flipped ? 180.0 - mate.angle_degrees
-                                                   : mate.angle_degrees) * radians;
-            conflicts[index] = std::abs(dot(dependent.axis.direction,
-                prerequisite.axis.direction) - std::cos(requested)) > parallel_tolerance;
-        } else {
-            const auto dependent = resolve_plane(mate.dependent);
-            const auto prerequisite = resolve_plane(mate.prerequisite);
-            if (dependent.status != MateStatus::Valid ||
-                prerequisite.status != MateStatus::Valid) {
-                conflicts[index] = true;
-                continue;
-            }
-            constexpr double radians = 3.14159265358979323846 / 180.0;
-            const double requested = (mate.flipped ? 180.0 - mate.angle_degrees
-                                                   : mate.angle_degrees) * radians;
-            conflicts[index] = std::abs(dot(dependent.plane.normal,
-                prerequisite.plane.normal) - std::cos(requested)) > parallel_tolerance;
-        }
-    }
-    std::unordered_set<std::string> conflicted_occurrences;
-    for (std::size_t index = 0; index < mates.size(); ++index) {
-        if (conflicts[index]) {
-            mates[index].status = MateStatus::UnsupportedGeometry;
-            conflicted_occurrences.insert(
-                mates[index].dependent.instance_path.occurrence_ids.front());
-        }
-    }
-    for (const auto& occurrence_id : conflicted_occurrences) {
-        if (auto* occurrence = find_occurrence(occurrence_id)) {
-            occurrence->placement = original_placements.at(occurrence_id);
-        }
-        for (auto& mate : mates) {
-            if (!mate.suppressed &&
-                mate.dependent.instance_path.occurrence_ids.front() == occurrence_id) {
-                mate.status = MateStatus::UnsupportedGeometry;
-            }
-        }
-    }
-}
 
 // Solves PartOccurrence::placement_references (the embedded, Python-style
-// per-component reference rows) reusing the exact same per-kind resolution
-// functions (resolve_plane/resolve_axis/resolve_point) and rotate-then-
-// translate strategy as calculate_mates()'s AssemblyMate solve -- there is
-// only one solver family; this differs only in WHERE the rows live (on the
-// occurrence itself, `component_reference`/`target_reference` instead of a
-// top-level mates vector's `dependent`/`prerequisite`) and in reusing
-// ComponentPlacementReference::flip (identical semantics to
-// ConstructionReference::flip: inverts the resolved direction/normal as a
-// post-solve step) in place of AssemblyMate::flipped.
+// per-component reference rows) using the per-kind resolution functions
+// (resolve_plane/resolve_axis/resolve_point) and a rotate-then-translate
+// solve strategy. `flip` mirrors ConstructionReference::flip: it inverts the
+// resolved direction/normal of an orientation-driving reference as a
+// post-solve step, and is a no-op for a PointCoincident row.
 void AssemblyDocument::calculate_placement_references() {
     constexpr double parallel_tolerance = 1.0e-7;
     for (auto& component : components) {
@@ -1566,24 +1033,21 @@ int AssemblyDocument::remaining_degrees_of_freedom(
     if (occurrence->grounded) return 0;
     const auto residuals = [&](const AssemblyDocument& document) {
         std::vector<double> values;
-        for (const auto& mate : document.mates) {
-            if (mate.suppressed || mate.status != MateStatus::Valid ||
-                mate.dependent.instance_path.occurrence_ids.empty() ||
-                mate.dependent.instance_path.occurrence_ids.front() != occurrence_id) {
-                continue;
-            }
-            if (mate.kind == MateKind::PointCoincident) {
-                const auto dependent = document.resolve_point(mate.dependent);
-                const auto prerequisite = document.resolve_point(mate.prerequisite);
+        const auto* live_occurrence = document.find_occurrence(occurrence_id);
+        if (live_occurrence == nullptr) return values;
+        for (const auto& row : live_occurrence->placement_references) {
+            if (row.mate_type == MateKind::PointCoincident) {
+                const auto dependent = document.resolve_point(row.component_reference);
+                const auto prerequisite = document.resolve_point(row.target_reference);
                 if (dependent.status != MateStatus::Valid ||
                     prerequisite.status != MateStatus::Valid) continue;
                 values.insert(values.end(), {
                     dependent.point.x - prerequisite.point.x,
                     dependent.point.y - prerequisite.point.y,
                     dependent.point.z - prerequisite.point.z});
-            } else if (mate.kind == MateKind::AxisCoincident) {
-                const auto dependent = document.resolve_axis(mate.dependent);
-                const auto prerequisite = document.resolve_axis(mate.prerequisite);
+            } else if (row.mate_type == MateKind::AxisCoincident) {
+                const auto dependent = document.resolve_axis(row.component_reference);
+                const auto prerequisite = document.resolve_axis(row.target_reference);
                 if (dependent.status != MateStatus::Valid ||
                     prerequisite.status != MateStatus::Valid) continue;
                 const auto orientation = cross(
@@ -1598,9 +1062,9 @@ int AssemblyDocument::remaining_degrees_of_freedom(
                     delta.x - axial * prerequisite.axis.direction.x,
                     delta.y - axial * prerequisite.axis.direction.y,
                     delta.z - axial * prerequisite.axis.direction.z});
-            } else if (mate.kind == MateKind::PlaneCoincident) {
-                const auto dependent = document.resolve_plane(mate.dependent);
-                const auto prerequisite = document.resolve_plane(mate.prerequisite);
+            } else if (row.mate_type == MateKind::PlaneCoincident) {
+                const auto dependent = document.resolve_plane(row.component_reference);
+                const auto prerequisite = document.resolve_plane(row.target_reference);
                 if (dependent.status != MateStatus::Valid ||
                     prerequisite.status != MateStatus::Valid) continue;
                 const auto orientation = cross(
@@ -1611,25 +1075,25 @@ int AssemblyDocument::remaining_degrees_of_freedom(
                     dependent.plane.point.z - prerequisite.plane.point.z};
                 values.insert(values.end(), {orientation.x, orientation.y,
                     orientation.z,
-                    dot(delta, prerequisite.plane.normal) - mate.offset});
-            } else if (mate.kind == MateKind::AxisAngle) {
-                const auto dependent = document.resolve_axis(mate.dependent);
-                const auto prerequisite = document.resolve_axis(mate.prerequisite);
+                    dot(delta, prerequisite.plane.normal) - row.offset});
+            } else if (row.mate_type == MateKind::AxisAngle) {
+                const auto dependent = document.resolve_axis(row.component_reference);
+                const auto prerequisite = document.resolve_axis(row.target_reference);
                 if (dependent.status != MateStatus::Valid ||
                     prerequisite.status != MateStatus::Valid) continue;
                 constexpr double radians = std::numbers::pi / 180.0;
-                const double requested = (mate.flipped
-                    ? 180.0 - mate.angle_degrees : mate.angle_degrees) * radians;
+                const double requested = (row.flip
+                    ? 180.0 - row.offset : row.offset) * radians;
                 values.push_back(dot(dependent.axis.direction,
                     prerequisite.axis.direction) - std::cos(requested));
             } else {
-                const auto dependent = document.resolve_plane(mate.dependent);
-                const auto prerequisite = document.resolve_plane(mate.prerequisite);
+                const auto dependent = document.resolve_plane(row.component_reference);
+                const auto prerequisite = document.resolve_plane(row.target_reference);
                 if (dependent.status != MateStatus::Valid ||
                     prerequisite.status != MateStatus::Valid) continue;
                 constexpr double radians = std::numbers::pi / 180.0;
-                const double requested = (mate.flipped
-                    ? 180.0 - mate.angle_degrees : mate.angle_degrees) * radians;
+                const double requested = (row.flip
+                    ? 180.0 - row.offset : row.offset) * radians;
                 values.push_back(dot(dependent.plane.normal,
                     prerequisite.plane.normal) - std::cos(requested));
             }
@@ -1695,19 +1159,10 @@ AssemblyDocument::effectively_suppressed_occurrences() const {
     for (const auto& component : components) {
         if (component.suppressed) result.insert(component.occurrence_id);
     }
-    for (const auto& mate : mates) {
-        if (mate.suppressed) continue;
-        if (mate.status == MateStatus::MissingReference ||
-            mate.status == MateStatus::UnsupportedGeometry) {
-            result.insert(mate.dependent.instance_path.occurrence_ids.front());
-        }
-    }
     bool changed = true;
     while (changed) {
         changed = false;
         for (const auto& dependency : dependencies) {
-            const auto* owning_mate = find_mate(dependency.dependency_id);
-            if (owning_mate != nullptr && owning_mate->suppressed) continue;
             if (result.contains(dependency.prerequisite_occurrence_id) &&
                 result.insert(dependency.dependent_occurrence_id).second) {
                 changed = true;
@@ -1887,81 +1342,14 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
         }
         return std::nullopt;
     };
-    for (const auto& mate : mates) {
-        if (mate.suppressed || mate.status != MateStatus::Valid) continue;
-        zima::kernel::ViewerDimension dimension;
-        dimension.reference = {document_id, "mate:" + mate.mate_id, {}};
-        if (mate.kind == MateKind::PlaneCoincident) {
-            const auto dependent = find_plane(mate.dependent);
-            const auto prerequisite = find_plane(mate.prerequisite);
-            if (!dependent || !prerequisite) continue;
-            const auto& normal = prerequisite->normal;
-            const zima::kernel::Vec3 basis = std::abs(normal.x) < 0.9
-                ? zima::kernel::Vec3{1.0, 0.0, 0.0}
-                : zima::kernel::Vec3{0.0, 1.0, 0.0};
-            auto side = cross(normal, basis);
-            const double side_length = length(side);
-            side = {side.x * 10.0 / side_length, side.y * 10.0 / side_length,
-                    side.z * 10.0 / side_length};
-            dimension.witness_first = prerequisite->point;
-            dimension.witness_second = dependent->point;
-            dimension.line_first = {prerequisite->point.x + side.x,
-                                    prerequisite->point.y + side.y,
-                                    prerequisite->point.z + side.z};
-            dimension.line_second = {dependent->point.x + side.x,
-                                     dependent->point.y + side.y,
-                                     dependent->point.z + side.z};
-            dimension.value = mate.offset;
-            dimension.label_prefix = "d=";
-        } else if (mate.kind == MateKind::AxisAngle) {
-            const auto dependent = find_axis(mate.dependent);
-            const auto prerequisite = find_axis(mate.prerequisite);
-            if (!dependent || !prerequisite) continue;
-            dimension.witness_first = prerequisite->point;
-            dimension.witness_second = prerequisite->point;
-            dimension.line_first = {
-                prerequisite->point.x + prerequisite->direction.x * 30.0,
-                prerequisite->point.y + prerequisite->direction.y * 30.0,
-                prerequisite->point.z + prerequisite->direction.z * 30.0};
-            dimension.line_second = {
-                prerequisite->point.x + dependent->direction.x * 30.0,
-                prerequisite->point.y + dependent->direction.y * 30.0,
-                prerequisite->point.z + dependent->direction.z * 30.0};
-            dimension.value = mate.angle_degrees;
-            dimension.label_prefix = "∠=";
-            dimension.unit_suffix = " °";
-        } else if (mate.kind == MateKind::PlaneAngle) {
-            const auto dependent = find_plane(mate.dependent);
-            const auto prerequisite = find_plane(mate.prerequisite);
-            if (!dependent || !prerequisite) continue;
-            dimension.witness_first = prerequisite->point;
-            dimension.witness_second = prerequisite->point;
-            dimension.line_first = {
-                prerequisite->point.x + prerequisite->normal.x * 30.0,
-                prerequisite->point.y + prerequisite->normal.y * 30.0,
-                prerequisite->point.z + prerequisite->normal.z * 30.0};
-            dimension.line_second = {
-                prerequisite->point.x + dependent->normal.x * 30.0,
-                prerequisite->point.y + dependent->normal.y * 30.0,
-                prerequisite->point.z + dependent->normal.z * 30.0};
-            dimension.value = mate.angle_degrees;
-            dimension.label_prefix = "∠=";
-            dimension.unit_suffix = " °";
-        } else {
-            continue;
-        }
-        scene.dimensions.push_back(std::move(dimension));
-    }
     // Embedded placement-reference rows (PartOccurrence::placement_references,
-    // the Python-style per-component alternative to a standalone
-    // AssemblyMate) get the exact same 3D dimension-overlay treatment as a
-    // top-level Mate above -- same find_axis/find_plane helpers, same
-    // witness/line/value construction -- so the new embedded table has full
-    // interactive-viewer parity (double-click to open Properties, drag to
-    // adjust) before the legacy Mate system is ever removed. The dimension's
-    // semantic key encodes the owning occurrence + row index so a double
-    // click / drag site can look the row back up without a separate
-    // top-level id: "placement-reference:<occurrence_id>:<row_index>".
+    // the Python-style per-component reference table) get a 3D dimension
+    // overlay -- witness/line/value construction using find_axis/find_plane
+    // -- giving interactive-viewer parity (double-click to open Properties,
+    // drag to adjust). The dimension's semantic key encodes the owning
+    // occurrence + row index so a double click / drag site can look the row
+    // back up without a separate top-level id:
+    // "placement-reference:<occurrence_id>:<row_index>".
     for (const auto& component : components) {
         for (std::size_t index = 0; index < component.placement_references.size();
              ++index) {
@@ -2375,33 +1763,6 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
         dependency.kind = dependency_kind_from_name(source.at("kind").get<std::string>());
         document.add_dependency(std::move(dependency));
     }
-    for (const auto& source : root.at("mates")) {
-        const auto load_reference = [](const nlohmann::json& value) {
-            return MateReference{
-                mate_reference_kind_from_name(value.at("kind").get<std::string>()),
-                InstancePath::decode(value.at("instance_path").get<std::string>()),
-                value.at("owner_id").get<std::string>(),
-                value.at("semantic_key").get<std::string>()};
-        };
-        AssemblyMate mate;
-        mate.mate_id = source.at("mate_id").get<std::string>();
-        mate.name = source.at("name").get<std::string>();
-        mate.kind = mate_kind_from_name(source.at("kind").get<std::string>());
-        mate.dependent = load_reference(source.at("dependent"));
-        mate.prerequisite = load_reference(source.at("prerequisite"));
-        mate.offset = source.at("offset").get<double>();
-        mate.angle_degrees = source.at("angle_degrees").get<double>();
-        if (source.contains("lower_limit")) {
-            mate.lower_limit = source.at("lower_limit").get<double>();
-        }
-        if (source.contains("upper_limit")) {
-            mate.upper_limit = source.at("upper_limit").get<double>();
-        }
-        mate.flipped = source.at("flipped").get<bool>();
-        mate.status = mate_status_from_name(source.at("status").get<std::string>());
-        mate.suppressed = source.at("suppressed").get<bool>();
-        document.add_mate(std::move(mate));
-    }
     static_cast<void>(document.build_scene());
     return document;
 }
@@ -2538,29 +1899,6 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
             {"kind", dependency_kind_name(dependency.kind)},
         });
     }
-    const auto serialize_reference = [](const MateReference& reference) {
-        return nlohmann::json{
-            {"kind", mate_reference_kind_name(reference.kind)},
-            {"instance_path", reference.instance_path.encoded()},
-            {"owner_id", reference.owner_id},
-            {"semantic_key", reference.semantic_key}};
-    };
-    nlohmann::json mates_json = nlohmann::json::array();
-    for (const auto& mate : mates) {
-        nlohmann::json serialized = {
-            {"mate_id", mate.mate_id}, {"name", mate.name},
-            {"kind", mate_kind_name(mate.kind)},
-            {"dependent", serialize_reference(mate.dependent)},
-            {"prerequisite", serialize_reference(mate.prerequisite)},
-            {"offset", mate.offset}, {"angle_degrees", mate.angle_degrees},
-            {"flipped", mate.flipped},
-            {"status", mate_status_name(mate.status)},
-            {"suppressed", mate.suppressed},
-        };
-        if (mate.lower_limit) serialized["lower_limit"] = *mate.lower_limit;
-        if (mate.upper_limit) serialized["upper_limit"] = *mate.upper_limit;
-        mates_json.push_back(std::move(serialized));
-    }
     nlohmann::json relations_json = nlohmann::json::array();
     for (const auto& relation : relations) relations_json.push_back(
         {{"target", relation.target}, {"expression", relation.expression}});
@@ -2632,7 +1970,6 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
         {"constructions", std::move(constructions_json)},
         {"components", std::move(components_json)},
         {"dependencies", std::move(dependencies_json)},
-        {"mates", std::move(mates_json)},
     };
     IniSections ini;
     ini["Document"] = {
