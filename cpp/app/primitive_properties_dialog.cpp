@@ -924,8 +924,7 @@ bool PrimitivePropertiesDialog::set_reference(std::size_t index,
     zima::document::ConstructionReference reference, const QString& label) {
     if (!placement_) return false;
     QString error;
-    if (!placement_->set_reference(index, std::move(reference), label,
-            /*mirror_first_two_into_orientation=*/false, &error)) {
+    if (!placement_->set_reference(index, std::move(reference), label, &error)) {
         if (!error.isEmpty()) error_->setText(error);
         return false;
     }
@@ -976,4 +975,3 @@ void PrimitivePropertiesDialog::set_translation_constraint_state(
 }
 
 }  // namespace zima::app
-

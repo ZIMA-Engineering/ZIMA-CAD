@@ -67,23 +67,21 @@ public:
     void set_highlights_changed_callback(HighlightsChangedCallback callback);
 
     // Seeds the section from a container's persisted references, splitting
-    // orientation-driving entries (Plane FRONT/TOP mirrors) from plain
-    // position references, exactly like each dialog's constructor used to
-    // do inline.
+    // genuine orientation-only FRONT/TOP entries from plain position
+    // references, exactly like each dialog's constructor used to do inline.
     void initialize_from_references(
         const std::vector<zima::document::ConstructionReference>& references,
         const std::function<QString(const std::string&)>& label_for_semantic);
 
     // Assigns reference `index` (0-2 = position row, 3-4 = FRONT/TOP
-    // orientation row when `with_orientation` is enabled). `mirror_first_two
-    // _into_orientation` matches Plane-kind containers' rule that position
-    // rows 0/1 are simultaneously FRONT/TOP orientation references; primitive
-    // Plane-oriented features pass false since their orientation rows are
-    // independently selected. Returns false (and sets `error_text`) on a
-    // duplicate-reference conflict.
+    // orientation row when `with_orientation` is enabled). Position and
+    // orientation rows are now always independent: if the user wants a
+    // reference to drive FRONT/TOP, they must pick it into the dedicated
+    // orientation table explicitly. Returns false (and sets `error_text`)
+    // on a duplicate-reference conflict.
     bool set_reference(std::size_t index,
         zima::document::ConstructionReference reference, const QString& label,
-        bool mirror_first_two_into_orientation, QString* error_text);
+        QString* error_text);
 
     void set_remaining_translation_dof(int dof);
     void set_remaining_rotation_dof(int dof);

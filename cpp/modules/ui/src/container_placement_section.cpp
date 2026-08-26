@@ -165,35 +165,13 @@ void ContainerPlacementSection::set_highlights_changed_callback(
 void ContainerPlacementSection::initialize_from_references(
     const std::vector<zima::document::ConstructionReference>& references,
     const std::function<QString(const std::string&)>& label_for_semantic) {
-    // orientation_drives_rotation is reused for two different purposes:
-    // Plane/primitive containers (with_orientation_ == true) mirror
-    // position rows 0/1 into a *separate*, genuinely FRONT/TOP-only
-    // orientation_references_ entry (see set_reference()'s
-    // mirror_first_two_into_orientation branch) or let the user pick a
-    // standalone orientation-only reference directly into that table.
-    // A Point container (with_orientation_ == false) has no such table:
-    // there, the flag only marks that a *position* reference (rows 0-2)
-    // additionally contributes to the rotation DOF count (see
-    // assign_automatic_orientation_role() in
-    // AssemblyWorkspaceWindow::accept_construction_reference()) -- the
-    // reference itself never moves out of the position table. Splitting
-    // by the flag alone therefore silently dropped 2 of 3 Point
-    // references (and their offset editors) from the reference table on
-    // every reopen. Only honour the flag when this section actually has
-    // an orientation table to route those entries into.
-    //
-    // combined_references() persists a *mirrored* position row as two
-    // back-to-back, field-for-field identical entries (the position copy
-    // and its orientation-table twin), whereas a genuinely standalone
-    // orientation-only reference (picked directly into the Orientace
-    // table's own row, with no matching position row) has no such twin.
-    // Routing every orientation_drives_rotation entry straight into
-    // orientation_references_ -- as a naive per-entry pass would -- loses
-    // the position copy entirely (an empty "Umístění kontejneru" table on
-    // every reopen) and leaves two duplicate rows in "Orientace
-    // kontejneru" instead of one. Pairing up exact-duplicate entries here
-    // restores each mirrored pick to both tables, while a lone,
-    // unpaired entry still lands in the orientation-only table alone.
+    // `orientation_drives_rotation` alone does NOT mean "belongs in the
+    // FRONT/TOP table": Point/Axis position references can drive rotation
+    // while still remaining ordinary placement rows. Only the dedicated
+    // orientation-table entries carry `orientation_only == true`; route by
+    // that field exclusively so reopened dialogs keep every positional row
+    // in "Umístění kontejneru" and only the user-picked FRONT/TOP entries
+    // in "Orientace kontejneru".
     std::vector<zima::document::ConstructionReference> orientation_candidates;
     std::vector<QString> orientation_candidate_labels;
     for (const auto& reference : references) {
@@ -222,7 +200,7 @@ void ContainerPlacementSection::initialize_from_references(
 
 bool ContainerPlacementSection::set_reference(std::size_t index,
     zima::document::ConstructionReference reference, const QString& label,
-    bool mirror_first_two_into_orientation, QString* error_text) {
+    QString* error_text) {
     const auto duplicate = [&](const auto& existing) {
         return existing.instance_path == reference.instance_path &&
             existing.owner_id == reference.owner_id &&
@@ -264,40 +242,6 @@ bool ContainerPlacementSection::set_reference(std::size_t index,
     references_[index] = std::move(reference);
     reference_labels_[index] = label.trimmed().isEmpty()
         ? readable_reference_kind(references_[index].semantic_key) : label;
-    if (mirror_first_two_into_orientation && with_orientation_ && index < 2 &&
-        references_[index].orientation_drives_rotation) {
-        // Only mirror a position row into the FRONT/TOP table when the
-        // caller already determined (via assign_automatic_orientation_role()
-        // in AssemblyWorkspaceWindow::accept_construction_reference(), which
-        // only marks Face/Edge/Axis/origin-plane/origin-axis candidates)
-        // that this reference genuinely carries directional information.
-        // A bare point/vertex reference never drives rotation on its own --
-        // mirroring it here regardless used to forcibly set
-        // orientation_drives_rotation=true on a duplicate copy anyway, which
-        // both corrupted the DOF/shortcut-count bookkeeping (a 3rd point
-        // meant to complete the classic "3 points define a plane" shortcut
-        // was inflated past its reference-count quota by the 2 spurious
-        // mirrored duplicates and rejected as "no independent constraint")
-        // and made resolve_construction() require an axis/plane direction
-        // for what is actually just a point, making orientation_resolved
-        // false and the whole construction fail to commit.
-        auto oriented = references_[index];
-        oriented.orientation_role = index == 0 ? "front" : "top";
-        oriented.orientation_only = true;
-        if (orientation_references_.size() <= index)
-            orientation_references_.resize(index + 1);
-        if (orientation_labels_.size() <= index)
-            orientation_labels_.resize(index + 1);
-        orientation_references_[index] = oriented;
-        orientation_labels_[index] = reference_labels_[index];
-        // Keep the position-table entry field-for-field identical to its
-        // orientation-table twin (see initialize_from_references()'s
-        // comment): on reload, entries are routed to the orientation table
-        // purely by their orientation_drives_rotation flag and re-paired by
-        // exact duplicate match, so both copies must carry the same role.
-        references_[index].orientation_role = oriented.orientation_role;
-        refresh_orientation_table();
-    }
     refresh_reference_table();
     notify_changed();
     return true;
@@ -461,11 +405,9 @@ void ContainerPlacementSection::remove_reference(std::size_t index) {
     // later row up by one silently changes their meaning. Row order is
     // semantically significant -- 1st position reference = origin, 2nd =
     // direction, 3rd = plane-completing point (the "2 points define an
-    // axis"/"3 points define a plane" history-order shortcut), and rows
-    // 0/1 are what a Plane container mirrors into its FRONT/TOP
-    // orientation table. Deleting row 0 used to silently promote the old
-    // row 1 (a "direction" pick) into row 0 (an "origin" pick) and, for a
-    // Plane, into the FRONT role -- without the user ever choosing that.
+    // axis"/"3 points define a plane" history-order shortcut). Deleting
+    // row 0 used to silently promote the old row 1 (a "direction" pick)
+    // into row 0 (an "origin" pick) without the user ever choosing that.
     // It also desynchronised whatever row a bulk "Počátek" re-fill assumed
     // was empty, since the emptied slot no longer matched its own index.
     references_[index] = zima::document::ConstructionReference{};
@@ -556,22 +498,6 @@ void ContainerPlacementSection::refresh_reference_table() {
                 [this, index](double value) {
                     if (index < references_.size()) {
                         references_[index].offset = value;
-                        // For a Plane container the first two position rows
-                        // are mirrored into a separate orientation-table
-                        // copy (see set_reference()). Keep that copy's
-                        // offset synchronised, otherwise adjusting the
-                        // offset field appears to do nothing: the actual
-                        // placement equation solved in resolve_construction
-                        // ()/resolve_placement() reads the mirrored copy.
-                        if (index < orientation_references_.size() &&
-                            orientation_references_[index].owner_id ==
-                                references_[index].owner_id &&
-                            orientation_references_[index].semantic_key ==
-                                references_[index].semantic_key &&
-                            orientation_references_[index].instance_path ==
-                                references_[index].instance_path) {
-                            orientation_references_[index].offset = value;
-                        }
                         notify_changed();
                     }
                 });

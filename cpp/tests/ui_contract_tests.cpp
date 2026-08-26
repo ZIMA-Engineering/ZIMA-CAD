@@ -542,6 +542,32 @@ int main(int argc, char* argv[]) {
                     committed_plane.references[1].orientation_only,
                 "Plane Properties did not keep Plane-container row 0 positional");
 
+        auto* plane_origin_first_dialog = new zima::app::ConstructionPropertiesDialog(
+            plane_initial, false, [](zima::document::ConstructionObject) {}, &parent);
+        plane_origin_first_dialog->show();
+        application.processEvents();
+        auto* origin_first_position_table =
+            plane_origin_first_dialog->findChild<QTableWidget*>(
+                "constructionReferenceTable");
+        auto* origin_first_orientation_table =
+            plane_origin_first_dialog->findChild<QTableWidget*>(
+                "constructionOrientationTable");
+        require(origin_first_position_table != nullptr &&
+                    origin_first_orientation_table != nullptr,
+                "Plane origin-first dialog does not expose its reference tables");
+        plane_origin_first_dialog->set_reference(0,
+            {{}, "part-origin", "origin:plane:xz", 0.0, true, "none", true},
+            "Počátek dílu — Rovina XZ",
+            zima::document::ConstructionDefinition::PointReference);
+        application.processEvents();
+        require(origin_first_position_table->item(0, 1) != nullptr &&
+                    origin_first_position_table->item(0, 1)->text() ==
+                        QStringLiteral("1. Počátek dílu — Rovina XZ") &&
+                    origin_first_orientation_table->item(0, 1) != nullptr &&
+                    origin_first_orientation_table->item(0, 1)->text().contains("Vybrat"),
+                "Built-in origin plane first reference did not stay purely positional");
+        plane_origin_first_dialog->buttons()->button(QDialogButtonBox::Cancel)->click();
+
         auto* plane_axis_first_dialog = new zima::app::ConstructionPropertiesDialog(
             plane_initial, false, [](zima::document::ConstructionObject) {}, &parent);
         plane_axis_first_dialog->show();
@@ -565,27 +591,36 @@ int main(int argc, char* argv[]) {
                 "Non-plane first reference still auto-filled Plane FRONT/TOP");
         plane_axis_first_dialog->buttons()->button(QDialogButtonBox::Cancel)->click();
 
-        auto* plane_remove_dialog = new zima::app::ConstructionPropertiesDialog(
+        auto* plane_position_only_dialog = new zima::app::ConstructionPropertiesDialog(
             plane_initial, false, [](zima::document::ConstructionObject) {}, &parent);
-        plane_remove_dialog->show();
+        plane_position_only_dialog->show();
         application.processEvents();
-        plane_remove_dialog->set_reference(1,
-            {{}, "axis-remove", "axis", 0.0, false, "top", true}, "Osa synchronní",
+        auto* position_only_position_table =
+            plane_position_only_dialog->findChild<QTableWidget*>(
+                "constructionReferenceTable");
+        auto* position_only_orientation_table =
+            plane_position_only_dialog->findChild<QTableWidget*>(
+                "constructionOrientationTable");
+        require(position_only_position_table != nullptr &&
+                    position_only_orientation_table != nullptr,
+                "Plane position-only dialog does not expose its reference tables");
+        plane_position_only_dialog->set_reference(1,
+            {{}, "plane-second", "origin:plane:xy", 0.0, true, "top", true},
+            "Počátek dílu — Rovina XY",
             zima::document::ConstructionDefinition::PointReference);
-        auto* remove_position_table = plane_remove_dialog->findChild<QTableWidget*>(
-            "constructionReferenceTable");
-        auto* remove_orientation_table = plane_remove_dialog->findChild<QTableWidget*>(
-            "constructionOrientationTable");
-        auto* remove_position = remove_position_table->cellWidget(1, 0)
-            ->findChild<QPushButton*>();
-        require(remove_position != nullptr, "Plane position reference has no remove action");
-        remove_position->click();
+        plane_position_only_dialog->set_reference(2,
+            {{}, "plane-third", "origin:plane:yz", 0.0, true, "top", true},
+            "Počátek dílu — Rovina YZ",
+            zima::document::ConstructionDefinition::PointReference);
         application.processEvents();
-        auto* cleared_orientation = remove_orientation_table->item(1, 1);
-        require(cleared_orientation != nullptr &&
-                    cleared_orientation->text().contains("Vybrat"),
-                "Removing Plane position did not clear its automatic mirrored TOP reference");
-        plane_remove_dialog->buttons()->button(QDialogButtonBox::Cancel)->click();
+        require(position_only_position_table->item(1, 1) != nullptr &&
+                    position_only_position_table->item(2, 1) != nullptr &&
+                    position_only_orientation_table->item(0, 1) != nullptr &&
+                    position_only_orientation_table->item(1, 1) != nullptr &&
+                    position_only_orientation_table->item(0, 1)->text().contains("Vybrat") &&
+                    position_only_orientation_table->item(1, 1)->text().contains("Vybrat"),
+                "Second/third Plane position references still auto-filled FRONT/TOP");
+        plane_position_only_dialog->buttons()->button(QDialogButtonBox::Cancel)->click();
 
         auto point_initial = zima::document::PartDocument::create_construction(
             zima::document::ConstructionKind::Point);

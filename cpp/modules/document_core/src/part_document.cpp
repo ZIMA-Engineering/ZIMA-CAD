@@ -169,6 +169,12 @@ std::string feature_container_type(const std::string& type) {
     return result;
 }
 
+bool construction_reference_is_plane_like(
+    const ConstructionReference& reference) {
+    return reference.semantic_key == "plane" ||
+        reference.semantic_key.starts_with("origin:plane:");
+}
+
 void add_common_entity_fields(
     std::map<std::string, std::string>& section,
     const std::string& id, const std::string& name, const std::string& kind,
@@ -2589,18 +2595,19 @@ bool resolve_construction(ConstructionObject& object,
         object.origin = origin;
     }
     // Only one special case auto-inherits a Plane frame with no explicit
-    // FRONT/TOP references: the FIRST placement reference is itself another
-    // Plane container (`semantic_key == "plane"`). That first pick is the
-    // user's "parallel to / based on this Plane container" anchor, so the
-    // new Plane should follow the referenced Plane's full resolved frame
-    // (normal + in-plane axes), the same way Sketch plane references do.
-    // Any other first reference kind (point/axis/edge/face/origin plane)
-    // still positions the Plane, but leaves orientation manual.
+    // FRONT/TOP references: the FIRST placement reference is plane-like
+    // (`"plane"` for a Plane container, or `"origin:plane:*"` for a built-in
+    // document/assembly Origin plane). That first pick is the user's
+    // "parallel to / based on this plane" anchor, so the new Plane should
+    // follow the referenced plane's full resolved frame (normal + in-plane
+    // axes), the same way Sketch plane references do. Any other first
+    // reference kind still positions the Plane, but leaves orientation
+    // manual.
     std::optional<PlacementReferencePlane> inherited_plane_frame;
     if (object.kind == ConstructionKind::Plane &&
         !front_direction && !top_direction && !position_references.empty()) {
         const auto& first_reference = position_references.front().get();
-        if (first_reference.semantic_key == "plane") {
+        if (construction_reference_is_plane_like(first_reference)) {
             if (const auto resolved = plane(first_reference)) {
                 inherited_plane_frame = *resolved;
             }
