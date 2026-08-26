@@ -106,7 +106,11 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
                field(initial.origin.y, "constructionY", " mm"),
                field(initial.origin.z, "constructionZ", " mm")};
     offset_ = field(initial.offset, "constructionOffset", " mm");
-    offset_->hide();
+    if (initial.kind == zima::document::ConstructionKind::Plane) {
+        form->addRow(tr("Odsazení pracovní roviny"), offset_);
+    } else {
+        offset_->hide();
+    }
     connect(definition_, &QComboBox::currentIndexChanged,
         this, [this] { refresh_definition_fields(); });
     refresh_definition_fields();
@@ -392,10 +396,8 @@ void ConstructionPropertiesDialog::set_translation_constraint_state(
 }
 
 void ConstructionPropertiesDialog::refresh_definition_fields() {
-    const auto definition = static_cast<zima::document::ConstructionDefinition>(
-        definition_->currentData().toInt());
-    offset_->setVisible(definition ==
-        zima::document::ConstructionDefinition::PlaneReference);
+    offset_->setVisible(
+        initial_.kind == zima::document::ConstructionKind::Plane);
     if (placement_) placement_->refresh_reference_table();
     notify_preview();
 }

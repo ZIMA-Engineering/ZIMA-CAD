@@ -136,6 +136,10 @@ struct ConstructionObject {
     double display_size{100.0};
     ConstructionDefinition definition{ConstructionDefinition::Absolute};
     std::vector<ConstructionReference> references;
+    // Plane-kind containers only: persisted work-plane offset (mm). The JSON
+    // key intentionally remains the legacy generic "offset" because this
+    // field was previously persisted-but-dead; reusing it keeps save/load
+    // compatibility while repurposing it to the Python-equivalent semantics.
     double offset{};
     bool reference_valid{true};
     bool suppressed{};

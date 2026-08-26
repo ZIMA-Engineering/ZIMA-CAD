@@ -2187,6 +2187,7 @@ std::optional<PlacementReferenceAxis> placement_reference_axis(
 struct PlacementReferencePlane {
     zima::kernel::Vec3 point;
     zima::kernel::Vec3 normal;
+    double source_offset{};
 };
 
 std::optional<PlacementReferencePlane> placement_reference_plane(
@@ -2203,7 +2204,17 @@ std::optional<PlacementReferencePlane> placement_reference_plane(
             (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)};
         if (placement_vec_is_zero(normal)) return std::nullopt;
         normal = placement_vec_normalized(normal);
-        return PlacementReferencePlane{a, normal};
+        double source_offset = 0.0;
+        if (reference.semantic_key == "plane") {
+            const auto owner = reference.owner_id;
+            const auto found = std::find_if(geometry.axes.begin(), geometry.axes.end(),
+                [&](const auto& candidate) {
+                    return candidate.reference.owner_id == owner &&
+                        candidate.reference.semantic_key == "work_plane_offset";
+                });
+            if (found != geometry.axes.end()) source_offset = found->display_length;
+        }
+        return PlacementReferencePlane{a, normal, source_offset};
     }
     return std::nullopt;
 }
@@ -2240,7 +2251,8 @@ bool placement_solve_position(
             add_axis_equations(*resolved);
         } else if (const auto resolved = placement_reference_plane(reference, geometry)) {
             equations.push_back({resolved->normal,
-                placement_vec_dot(resolved->normal, resolved->point) + reference.offset});
+                placement_vec_dot(resolved->normal, resolved->point) +
+                    resolved->source_offset + reference.offset});
         } else {
             return false;
         }
@@ -3311,6 +3323,11 @@ void PartDocument::resolve_constructions(
         carrier.constructions.push_back(object);
         append(source_geometry,
             carrier.construction_viewer_mesh({}, scene_size).original_references);
+        if (object.kind == ConstructionKind::Plane &&
+            std::abs(object.offset) > 1.0e-12) {
+            source_geometry.axes.push_back({object.origin, object.direction, object.offset,
+                {object.entity_id, "work_plane_offset", {}}});
+        }
     }
     // Every history container shares the same universal placement: an
     // origin resolved from a position reference plus an optional FRONT/TOP

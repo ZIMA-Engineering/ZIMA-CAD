@@ -112,9 +112,7 @@ bool supports_placement_reference_picking(zima::document::FeatureKind kind) {
 // (Container candidate whose semantic_key resolves to "plane"), matching
 // Python's `_reference_supports_offset()` (also true for EntityKind.PLANE).
 bool candidate_supports_offset(const zima::viewer::ViewerCandidate& candidate) {
-    return candidate.kind == zima::viewer::CandidateKind::Face ||
-        (candidate.kind == zima::viewer::CandidateKind::Container &&
-            candidate.semantic_key == "plane");
+    return candidate.kind == zima::viewer::CandidateKind::Face;
 }
 
 // A picked reference is a directional (planar/linear) candidate when it is a
