@@ -514,6 +514,99 @@ int main() {
         std::filesystem::remove(point_mate_path);
         require(loaded_point_mate.mates == point_mated_assembly.mates,
                 "Point mate reference did not survive save/load");
+
+        // Embedded placement-reference table (component.placement_references,
+        // the Python-style reference stored directly on the occurrence rather
+        // than a separate top-level Mate object): PointCoincident row placed
+        // on the second occurrence, referencing the first occurrence's point,
+        // solved via calculate_placement_references() and round-tripped
+        // through save/load exactly like the top-level mates vector above.
+        auto placement_reference_assembly = loaded;
+        auto placement_second_it = std::find_if(
+            placement_reference_assembly.components.begin(),
+            placement_reference_assembly.components.end(),
+            [&](const auto& component) { return component.occurrence_id == second_id; });
+        require(placement_second_it != placement_reference_assembly.components.end(),
+                "Second occurrence missing before placement-reference test");
+        auto* placement_second = &*placement_second_it;
+        placement_second->placement_references.push_back(
+            zima::assembly::ComponentPlacementReference{
+                zima::assembly::MateKind::PointCoincident,
+                {zima::assembly::MateReferenceKind::Point,
+                 zima::assembly::InstancePath{}.child(second_id),
+                 dependent_point_source.reference.owner_id,
+                 dependent_point_source.reference.semantic_key},
+                {zima::assembly::MateReferenceKind::Point,
+                 zima::assembly::InstancePath{}.child(first_id),
+                 prerequisite_point_source.reference.owner_id,
+                 prerequisite_point_source.reference.semantic_key},
+                0.0, false});
+        placement_reference_assembly.calculate_placement_references();
+        auto placement_solved_it = std::find_if(
+            placement_reference_assembly.components.begin(),
+            placement_reference_assembly.components.end(),
+            [&](const auto& component) { return component.occurrence_id == second_id; });
+        const auto* placement_solved = placement_solved_it !=
+            placement_reference_assembly.components.end() ? &*placement_solved_it : nullptr;
+        require(placement_solved != nullptr &&
+                    std::abs(placement_solved->placement.x - first.placement.x) < 1.0e-7 &&
+                    std::abs(placement_solved->placement.y - first.placement.y) < 1.0e-7 &&
+                    std::abs(placement_solved->placement.z - first.placement.z) < 1.0e-7,
+                "calculate_placement_references() did not align the occurrence "
+                "with its embedded PointCoincident reference");
+        const auto placement_reference_path = std::filesystem::temp_directory_path() /
+            "zima-cad-cpp-placement-reference-contract.asmz";
+        placement_reference_assembly.save(placement_reference_path);
+        const auto loaded_placement_reference =
+            zima::assembly::AssemblyDocument::load(placement_reference_path);
+        std::filesystem::remove(placement_reference_path);
+        auto reloaded_placement_component_it = std::find_if(
+            loaded_placement_reference.components.begin(),
+            loaded_placement_reference.components.end(),
+            [&](const auto& component) { return component.occurrence_id == second_id; });
+        const auto* reloaded_placement_component = reloaded_placement_component_it !=
+            loaded_placement_reference.components.end() ? &*reloaded_placement_component_it : nullptr;
+        require(reloaded_placement_component != nullptr &&
+                    reloaded_placement_component->placement_references ==
+                        placement_solved->placement_references,
+                "Embedded placement_references did not survive save/load");
+
+        auto placement_reference_angle_assembly = loaded;
+        auto placement_angle_component_it = std::find_if(
+            placement_reference_angle_assembly.components.begin(),
+            placement_reference_angle_assembly.components.end(),
+            [&](const auto& component) { return component.occurrence_id == second_id; });
+        require(placement_angle_component_it !=
+                    placement_reference_angle_assembly.components.end(),
+                "Second occurrence missing before placement-reference dimension test");
+        placement_angle_component_it->placement_references.clear();
+        placement_angle_component_it->placement_references.push_back(
+            {zima::assembly::MateKind::AxisAngle,
+             {zima::assembly::MateReferenceKind::Axis,
+              zima::assembly::InstancePath{}.child(second_id),
+              "same-source-container", "axis:z"},
+             {zima::assembly::MateReferenceKind::Axis,
+              zima::assembly::InstancePath{}.child(first_id),
+              "same-source-container", "axis:z"},
+             45.0, false});
+        placement_reference_angle_assembly.calculate_placement_references();
+        const auto placement_angle_scene =
+            placement_reference_angle_assembly.build_scene();
+        const std::string expected_placement_dimension_key =
+            "placement-reference:" + second_id + ":0";
+        auto placement_dimension_it = std::find_if(
+            placement_angle_scene.dimensions.begin(),
+            placement_angle_scene.dimensions.end(),
+            [&](const auto& dimension) {
+                return dimension.reference.semantic_key ==
+                    expected_placement_dimension_key;
+            });
+        require(placement_dimension_it != placement_angle_scene.dimensions.end() &&
+                    placement_dimension_it->unit_suffix == " °" &&
+                    std::abs(placement_dimension_it->value - 45.0) < 1.0e-7,
+                "build_scene() did not emit a dimension overlay for the "
+                "embedded AxisAngle placement reference");
+
         auto angled_assembly = loaded;
         auto angle_mate = zima::assembly::AssemblyDocument::create_mate(
             "Úhel os", zima::assembly::MateKind::AxisAngle,
@@ -1148,7 +1241,9 @@ int main() {
             datum_scene.original_references.triangle_references.end(),
             [&](const auto& reference) {
                 return reference.instance_path ==
-                    zima::assembly::InstancePath{}.child(first_id).encoded();
+                    zima::assembly::InstancePath{}.child(first_id).encoded() &&
+                    (reference.semantic_key == "z_min" ||
+                        reference.semantic_key == "z_max");
             });
         auto associative_assembly = assembly;
         auto referenced_plane =
@@ -1159,7 +1254,12 @@ int main() {
         referenced_plane.references = {{
             zima::assembly::InstancePath{{first_id}}.encoded(),
             dependent_face.owner_id, dependent_face.semantic_key}};
-        referenced_plane.offset = 7.0;
+        // The per-reference offset (not the vestigial object-level
+        // ConstructionObject::offset, which the new generic
+        // resolve_construction() no longer reads -- see
+        // placement_solve_position()'s `+ reference.offset`) shifts the
+        // resolved origin along the picked face's normal.
+        referenced_plane.references.front().offset = 7.0;
         associative_assembly.constructions.push_back(referenced_plane);
         auto second_referenced_plane = referenced_plane;
         second_referenced_plane.id += "-second-occurrence";
@@ -1172,10 +1272,17 @@ int main() {
             zima::assembly::InstancePath{{second_id}}.encoded();
         associative_assembly.constructions.push_back(second_referenced_plane);
         associative_assembly.resolve_constructions();
+        // A single Face/plane pick only constrains the origin along that
+        // face's own normal (see resolve_construction()'s generic
+        // placement_solve_position() -- an intentional design matching
+        // Python's _solve_point_constraints(), leaving the two in-plane
+        // axes at their prior/default value); which world axis that is
+        // depends on which face of the box was matched first, so compare
+        // the whole resolved origin rather than assuming Z specifically.
         require(associative_assembly.constructions.front().reference_valid &&
                     associative_assembly.constructions.back().reference_valid &&
-                    associative_assembly.constructions.front().origin.z !=
-                        associative_assembly.constructions.back().origin.z &&
+                    !(associative_assembly.constructions.front().origin ==
+                        associative_assembly.constructions.back().origin) &&
                     associative_assembly.construction_viewer_mesh()
                         .original_references.triangle_references.size() == 4,
                 "Assembly datum plane did not distinguish repeated occurrence paths");

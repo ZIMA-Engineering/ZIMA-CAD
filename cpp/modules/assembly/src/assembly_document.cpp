@@ -388,6 +388,52 @@ MateStatus mate_status_from_name(const std::string& name) {
     throw std::runtime_error("Unknown Assembly mate status");
 }
 
+nlohmann::json serialize_mate_reference(const MateReference& reference) {
+    return nlohmann::json{
+        {"kind", mate_reference_kind_name(reference.kind)},
+        {"instance_path", reference.instance_path.encoded()},
+        {"owner_id", reference.owner_id},
+        {"semantic_key", reference.semantic_key}};
+}
+
+MateReference load_mate_reference(const nlohmann::json& value) {
+    return MateReference{
+        mate_reference_kind_from_name(value.at("kind").get<std::string>()),
+        InstancePath::decode(value.at("instance_path").get<std::string>()),
+        value.at("owner_id").get<std::string>(),
+        value.at("semantic_key").get<std::string>()};
+}
+
+nlohmann::json serialize_placement_reference(
+    const ComponentPlacementReference& reference) {
+    nlohmann::json serialized{
+        {"mate_type", mate_kind_name(reference.mate_type)},
+        {"component_reference", serialize_mate_reference(reference.component_reference)},
+        {"target_reference", serialize_mate_reference(reference.target_reference)},
+        {"offset", reference.offset},
+        {"flip", reference.flip}};
+    if (reference.lower_limit) serialized["lower_limit"] = *reference.lower_limit;
+    if (reference.upper_limit) serialized["upper_limit"] = *reference.upper_limit;
+    return serialized;
+}
+
+ComponentPlacementReference load_placement_reference(const nlohmann::json& value) {
+    ComponentPlacementReference reference;
+    reference.mate_type = mate_kind_from_name(value.at("mate_type").get<std::string>());
+    reference.component_reference =
+        load_mate_reference(value.at("component_reference"));
+    reference.target_reference = load_mate_reference(value.at("target_reference"));
+    reference.offset = value.at("offset").get<double>();
+    reference.flip = value.at("flip").get<bool>();
+    if (value.contains("lower_limit")) {
+        reference.lower_limit = value.at("lower_limit").get<double>();
+    }
+    if (value.contains("upper_limit")) {
+        reference.upper_limit = value.at("upper_limit").get<double>();
+    }
+    return reference;
+}
+
 nlohmann::json serialize_snapshot(const OccurrenceSnapshot& snapshot) {
     nlohmann::json children = nlohmann::json::array();
     for (const auto& child : snapshot.children) children.push_back(serialize_snapshot(child));
@@ -1358,6 +1404,161 @@ void AssemblyDocument::calculate_mates() {
     }
 }
 
+// Solves PartOccurrence::placement_references (the embedded, Python-style
+// per-component reference rows) reusing the exact same per-kind resolution
+// functions (resolve_plane/resolve_axis/resolve_point) and rotate-then-
+// translate strategy as calculate_mates()'s AssemblyMate solve -- there is
+// only one solver family; this differs only in WHERE the rows live (on the
+// occurrence itself, `component_reference`/`target_reference` instead of a
+// top-level mates vector's `dependent`/`prerequisite`) and in reusing
+// ComponentPlacementReference::flip (identical semantics to
+// ConstructionReference::flip: inverts the resolved direction/normal as a
+// post-solve step) in place of AssemblyMate::flipped.
+void AssemblyDocument::calculate_placement_references() {
+    constexpr double parallel_tolerance = 1.0e-7;
+    for (auto& component : components) {
+        if (component.grounded || component.placement_references.empty()) continue;
+        for (const auto& row : component.placement_references) {
+            if (row.mate_type == MateKind::PlaneCoincident) {
+                if (row.component_reference.kind != MateReferenceKind::Face ||
+                    row.target_reference.kind != MateReferenceKind::Face) {
+                    continue;
+                }
+                const auto moving = resolve_plane(row.component_reference);
+                const auto target = resolve_plane(row.target_reference);
+                if (moving.status != MateStatus::Valid ||
+                    target.status != MateStatus::Valid) {
+                    continue;
+                }
+                const auto& moving_normal = moving.plane.normal;
+                const auto& target_normal = target.plane.normal;
+                const double alignment = dot(moving_normal, target_normal);
+                const zima::kernel::Vec3 desired_normal = row.flip
+                    ? zima::kernel::Vec3{-target_normal.x, -target_normal.y,
+                                         -target_normal.z}
+                    : alignment < 0.0
+                        ? zima::kernel::Vec3{-target_normal.x, -target_normal.y,
+                                             -target_normal.z}
+                        : target_normal;
+                const bool orientation_satisfied = row.flip
+                    ? std::abs(alignment + 1.0) <= parallel_tolerance
+                    : std::abs(std::abs(alignment) - 1.0) <= parallel_tolerance;
+                if (!orientation_satisfied) {
+                    rotate_occurrence_about(component,
+                        shortest_rotation(moving_normal, desired_normal),
+                        moving.plane.point);
+                }
+                const auto aligned = resolve_plane(row.component_reference);
+                if (aligned.status != MateStatus::Valid) continue;
+                const auto& aligned_point = aligned.plane.point;
+                const auto& target_point = target.plane.point;
+                const double current_offset =
+                    (aligned_point.x - target_point.x) * target_normal.x +
+                    (aligned_point.y - target_point.y) * target_normal.y +
+                    (aligned_point.z - target_point.z) * target_normal.z;
+                const double correction = row.offset - current_offset;
+                component.placement.x += target_normal.x * correction;
+                component.placement.y += target_normal.y * correction;
+                component.placement.z += target_normal.z * correction;
+            } else if (row.mate_type == MateKind::AxisCoincident) {
+                if (row.component_reference.kind != MateReferenceKind::Axis ||
+                    row.target_reference.kind != MateReferenceKind::Axis) {
+                    continue;
+                }
+                const auto moving = resolve_axis(row.component_reference);
+                const auto target = resolve_axis(row.target_reference);
+                if (moving.status != MateStatus::Valid ||
+                    target.status != MateStatus::Valid) {
+                    continue;
+                }
+                const double alignment =
+                    dot(moving.axis.direction, target.axis.direction);
+                const zima::kernel::Vec3 desired_direction = row.flip
+                    ? zima::kernel::Vec3{-target.axis.direction.x,
+                                         -target.axis.direction.y,
+                                         -target.axis.direction.z}
+                    : alignment < 0.0
+                        ? zima::kernel::Vec3{-target.axis.direction.x,
+                                             -target.axis.direction.y,
+                                             -target.axis.direction.z}
+                        : target.axis.direction;
+                const bool orientation_satisfied = row.flip
+                    ? std::abs(alignment + 1.0) <= parallel_tolerance
+                    : std::abs(std::abs(alignment) - 1.0) <= parallel_tolerance;
+                if (!orientation_satisfied) {
+                    rotate_occurrence_about(component,
+                        shortest_rotation(moving.axis.direction, desired_direction),
+                        moving.axis.point);
+                }
+                const auto aligned = resolve_axis(row.component_reference);
+                if (aligned.status != MateStatus::Valid) continue;
+                const zima::kernel::Vec3 delta{
+                    target.axis.point.x - aligned.axis.point.x,
+                    target.axis.point.y - aligned.axis.point.y,
+                    target.axis.point.z - aligned.axis.point.z};
+                const double axial = dot(delta, target.axis.direction);
+                const zima::kernel::Vec3 correction{
+                    delta.x - axial * target.axis.direction.x,
+                    delta.y - axial * target.axis.direction.y,
+                    delta.z - axial * target.axis.direction.z};
+                component.placement.x += correction.x;
+                component.placement.y += correction.y;
+                component.placement.z += correction.z;
+            } else if (row.mate_type == MateKind::PointCoincident) {
+                if (row.component_reference.kind != MateReferenceKind::Point ||
+                    row.target_reference.kind != MateReferenceKind::Point) {
+                    continue;
+                }
+                const auto moving = resolve_point(row.component_reference);
+                const auto target = resolve_point(row.target_reference);
+                if (moving.status != MateStatus::Valid ||
+                    target.status != MateStatus::Valid) {
+                    continue;
+                }
+                component.placement.x += target.point.x - moving.point.x;
+                component.placement.y += target.point.y - moving.point.y;
+                component.placement.z += target.point.z - moving.point.z;
+            } else if (row.mate_type == MateKind::AxisAngle) {
+                if (row.component_reference.kind != MateReferenceKind::Axis ||
+                    row.target_reference.kind != MateReferenceKind::Axis) {
+                    continue;
+                }
+                const auto moving = resolve_axis(row.component_reference);
+                const auto target = resolve_axis(row.target_reference);
+                if (moving.status != MateStatus::Valid ||
+                    target.status != MateStatus::Valid) {
+                    continue;
+                }
+                constexpr double radians = 3.14159265358979323846 / 180.0;
+                const double requested = row.offset * radians;
+                const auto direction = nearest_direction_at_angle(
+                    moving.axis.direction, target.axis.direction, requested);
+                rotate_occurrence_about(component,
+                    shortest_rotation(moving.axis.direction, direction),
+                    moving.axis.point);
+            } else if (row.mate_type == MateKind::PlaneAngle) {
+                if (row.component_reference.kind != MateReferenceKind::Face ||
+                    row.target_reference.kind != MateReferenceKind::Face) {
+                    continue;
+                }
+                const auto moving = resolve_plane(row.component_reference);
+                const auto target = resolve_plane(row.target_reference);
+                if (moving.status != MateStatus::Valid ||
+                    target.status != MateStatus::Valid) {
+                    continue;
+                }
+                constexpr double radians = 3.14159265358979323846 / 180.0;
+                const double requested = row.offset * radians;
+                const auto direction = nearest_direction_at_angle(
+                    moving.plane.normal, target.plane.normal, requested);
+                rotate_occurrence_about(component,
+                    shortest_rotation(moving.plane.normal, direction),
+                    moving.plane.point);
+            }
+        }
+    }
+}
+
 int AssemblyDocument::remaining_degrees_of_freedom(
     const std::string& occurrence_id) const {
     const auto* occurrence = find_occurrence(occurrence_id);
@@ -1751,6 +1952,86 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
         }
         scene.dimensions.push_back(std::move(dimension));
     }
+    // Embedded placement-reference rows (PartOccurrence::placement_references,
+    // the Python-style per-component alternative to a standalone
+    // AssemblyMate) get the exact same 3D dimension-overlay treatment as a
+    // top-level Mate above -- same find_axis/find_plane helpers, same
+    // witness/line/value construction -- so the new embedded table has full
+    // interactive-viewer parity (double-click to open Properties, drag to
+    // adjust) before the legacy Mate system is ever removed. The dimension's
+    // semantic key encodes the owning occurrence + row index so a double
+    // click / drag site can look the row back up without a separate
+    // top-level id: "placement-reference:<occurrence_id>:<row_index>".
+    for (const auto& component : components) {
+        for (std::size_t index = 0; index < component.placement_references.size();
+             ++index) {
+            const auto& row = component.placement_references[index];
+            zima::kernel::ViewerDimension dimension;
+            dimension.reference = {document_id,
+                "placement-reference:" + component.occurrence_id + ":" +
+                    std::to_string(index), {}};
+            if (row.mate_type == MateKind::PlaneCoincident) {
+                const auto moving = find_plane(row.component_reference);
+                const auto target = find_plane(row.target_reference);
+                if (!moving || !target) continue;
+                const auto& normal = target->normal;
+                const zima::kernel::Vec3 basis = std::abs(normal.x) < 0.9
+                    ? zima::kernel::Vec3{1.0, 0.0, 0.0}
+                    : zima::kernel::Vec3{0.0, 1.0, 0.0};
+                auto side = cross(normal, basis);
+                const double side_length = length(side);
+                side = {side.x * 10.0 / side_length, side.y * 10.0 / side_length,
+                        side.z * 10.0 / side_length};
+                dimension.witness_first = target->point;
+                dimension.witness_second = moving->point;
+                dimension.line_first = {target->point.x + side.x,
+                                        target->point.y + side.y,
+                                        target->point.z + side.z};
+                dimension.line_second = {moving->point.x + side.x,
+                                         moving->point.y + side.y,
+                                         moving->point.z + side.z};
+                dimension.value = row.offset;
+                dimension.label_prefix = "d=";
+            } else if (row.mate_type == MateKind::AxisAngle) {
+                const auto moving = find_axis(row.component_reference);
+                const auto target = find_axis(row.target_reference);
+                if (!moving || !target) continue;
+                dimension.witness_first = target->point;
+                dimension.witness_second = target->point;
+                dimension.line_first = {
+                    target->point.x + target->direction.x * 30.0,
+                    target->point.y + target->direction.y * 30.0,
+                    target->point.z + target->direction.z * 30.0};
+                dimension.line_second = {
+                    target->point.x + moving->direction.x * 30.0,
+                    target->point.y + moving->direction.y * 30.0,
+                    target->point.z + moving->direction.z * 30.0};
+                dimension.value = row.offset;
+                dimension.label_prefix = "∠=";
+                dimension.unit_suffix = " °";
+            } else if (row.mate_type == MateKind::PlaneAngle) {
+                const auto moving = find_plane(row.component_reference);
+                const auto target = find_plane(row.target_reference);
+                if (!moving || !target) continue;
+                dimension.witness_first = target->point;
+                dimension.witness_second = target->point;
+                dimension.line_first = {
+                    target->point.x + target->normal.x * 30.0,
+                    target->point.y + target->normal.y * 30.0,
+                    target->point.z + target->normal.z * 30.0};
+                dimension.line_second = {
+                    target->point.x + moving->normal.x * 30.0,
+                    target->point.y + moving->normal.y * 30.0,
+                    target->point.z + moving->normal.z * 30.0};
+                dimension.value = row.offset;
+                dimension.label_prefix = "∠=";
+                dimension.unit_suffix = " °";
+            } else {
+                continue;
+            }
+            scene.dimensions.push_back(std::move(dimension));
+        }
+    }
     for (const auto& cut : cuts) {
         const auto& feature = cut.definition;
         if (feature.feature_kind != zima::document::FeatureKind::Extrusion ||
@@ -2072,6 +2353,16 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
                     "Source Part reference packet contains an occurrence path");
             }
         }
+        if (source.contains("placement_references")) {
+            for (const auto& reference_json : source.at("placement_references")) {
+                component.placement_references.push_back(
+                    load_placement_reference(reference_json));
+            }
+            if (component.placement_references.size() > 3) {
+                throw std::runtime_error(
+                    "Assembly component placement reference row limit exceeded");
+            }
+        }
         document.components.push_back(std::move(component));
     }
     for (const auto& source : root.at("dependencies")) {
@@ -2229,6 +2520,13 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
             {"calculated_source",
              zima::document::serialize_body_result(component.calculated_source)},
             {"nested_snapshot", std::move(nested_snapshot)},
+            {"placement_references", [&component] {
+                nlohmann::json references = nlohmann::json::array();
+                for (const auto& reference : component.placement_references) {
+                    references.push_back(serialize_placement_reference(reference));
+                }
+                return references;
+            }()},
         });
     }
     nlohmann::json dependencies_json = nlohmann::json::array();

@@ -137,6 +137,14 @@ struct MeshView::Impl {
     float radius{1.0F};
     float view_scale{1.4F};
     float reference_view_scale{1.4F};
+    // Once a baseline reference_view_scale has been established (first fit
+    // of a brand-new document, or restored from a saved camera state), later
+    // fit_all() calls must NOT overwrite it. reference_view_scale is the
+    // fixed "screen-constant" anchor that keeps the Origin's (and every
+    // container's own origin) apparent size in the View identical no matter
+    // how far the camera has to zoom out to fit newly added geometry -- see
+    // fit_all()'s comment for the full reasoning.
+    bool reference_view_scale_initialized{false};
     QQuaternion orientation = [] {
         return QQuaternion::fromAxisAndAngle(0.0F, 0.0F, 1.0F, 0.0F) *
             QQuaternion::fromAxisAndAngle(1.0F, 0.0F, 0.0F, -45.0F) *
@@ -292,6 +300,7 @@ void MeshView::set_camera_state(const std::array<float, 8>& state) {
     // just right after fit_all(). A missing/zero stored value falls back to
     // view_scale itself (equivalent to "just fit").
     impl_->reference_view_scale = state[7] > 0.0F ? state[7] : impl_->view_scale;
+    impl_->reference_view_scale_initialized = true;
     impl_->candidates.clear();
     impl_->rebuild_persisted_reference_mesh();
     update();
@@ -724,7 +733,15 @@ void MeshView::fit_all() {
         impl_->center = {};
         impl_->radius = 1.0F;
         impl_->view_scale = 1.4F;
-        impl_->reference_view_scale = 1.4F;
+        // This is the degenerate "nothing to frame yet" case (no origin
+        // geometry has even been generated into the mesh yet) -- it must
+        // NOT lock in reference_view_scale_initialized, otherwise a
+        // premature call here (before the real origin-only fit below ever
+        // runs) would permanently freeze the screen-constant baseline at an
+        // arbitrary 1.4F, unrelated to the origin's actual rendered extent.
+        if (!impl_->reference_view_scale_initialized) {
+            impl_->reference_view_scale = 1.4F;
+        }
         impl_->pan_pixels = {};
         return;
     }
@@ -755,7 +772,19 @@ void MeshView::fit_all() {
         // whitespace once panned/zoomed by the user).
         impl_->radius = static_cast<float>(std::max(reference_extent, 0.5) * 2.0);
         impl_->view_scale = impl_->radius;
-        impl_->reference_view_scale = impl_->radius;
+        // Only establish the screen-constant reference baseline the FIRST
+        // time it is ever needed. Once set, it must survive every later
+        // fit_all() -- including calls made after real geometry (an Axis,
+        // Plane, body...) has been added -- so the Origin (and every
+        // container's own origin) keeps an identical apparent size in the
+        // View no matter how far the camera has to zoom out to frame newly
+        // added, more distant geometry. Resetting it on every fit_all() call
+        // (the previous behaviour) made the Origin visibly shrink each time
+        // "Zobrazit vše" had to zoom out further than before.
+        if (!impl_->reference_view_scale_initialized) {
+            impl_->reference_view_scale = impl_->radius;
+            impl_->reference_view_scale_initialized = true;
+        }
         impl_->pan_pixels = {};
         return;
     }
@@ -784,11 +813,17 @@ void MeshView::fit_all() {
     impl_->radius = std::max(diagonal.length() / 2.0F, 0.5F);
     impl_->view_scale = bounds.size() == 1
         ? impl_->reference_view_scale : impl_->radius;
-    // Matches Python's fit_all() resetting camera.zoom to 1.0: at fit time
-    // the screen-constant reference scale (view_scale / reference_view_scale)
-    // must be exactly 1, so origin axes/planes render at their true stored
-    // size instead of being skewed by an unrelated reference_extent ratio.
-    impl_->reference_view_scale = impl_->view_scale;
+    // Only establish the screen-constant reference baseline once (see the
+    // identical guard/comment in the origin-only branch above). A document
+    // that already has an established reference_view_scale (from an earlier
+    // fit, or restored from a saved camera state) must keep it unchanged
+    // here, otherwise every "Zobrazit vše" after adding new, farther-away
+    // geometry would re-baseline the ratio to 1.0 and make the Origin (and
+    // every container's own origin) visibly shrink.
+    if (!impl_->reference_view_scale_initialized) {
+        impl_->reference_view_scale = impl_->view_scale;
+        impl_->reference_view_scale_initialized = true;
+    }
     impl_->pan_pixels = {};
     update();
 }
@@ -1652,12 +1687,29 @@ if (impl_->show_planes) {
                      (highlighted->kind == CandidateKind::Container &&
                       highlighted->semantic_key == "plane" &&
                       highlighted->owner_id + ":entity" ==
-                          edge.reference.owner_id)) &&
+                          edge.reference.owner_id) ||
+                     // Selecting/hovering the whole Origin (e.g. clicking it
+                     // in the tree) highlights every one of its own
+                     // FRONT/TOP/... plane labels too, matching Python's
+                     // unified _selected_object_id highlight check.
+                     (origin && highlighted->kind == CandidateKind::Container &&
+                      highlighted->semantic_key == "origin" &&
+                      highlighted->owner_id == edge.reference.owner_id)) &&
                     highlighted->instance_path == edge.reference.instance_path;
+                // Clicking a populated reference row in a placement dialog
+                // (Umístění kontejneru) highlights the referenced plane
+                // here too. Match ONLY the precise per-entity key (owner_id
+                // + semantic_key + instance_path) -- e.g. exactly
+                // "origin:plane:xz", never every sibling plane of the same
+                // Origin/body owner_id, which is why owner_id alone is
+                // never used for this check.
+                const bool referenced = !exact_highlight &&
+                    impl_->constraint_reference_edges.contains(edge_key(edge.reference));
                 const QColor plane_color = exact_highlight
                     ? (impl_->confirmed_candidate ? QColor(30, 220, 240)
                                                   : QColor(255, 140, 12))
-                    : origin ? QColor(173, 110, 46) : QColor(90, 180, 225);
+                    : referenced ? QColor(0, 209, 255)
+                    : QColor(173, 110, 46);
                 zima::kernel::Vec3 center;
                 const std::size_t corner_count = origin && edge.points.size() > 1
                     ? edge.points.size() - 1 : edge.points.size();
@@ -1689,60 +1741,6 @@ if (impl_->show_planes) {
                             std::string("origin:plane:").size())).toUpper();
                     painter.drawText(project(plane_point(edge.points.front())) +
                         QPointF(6.0, -5.0), key);
-                }
-            }
-        }
-        if (points_visible) {
-            for (const auto& point : impl_->mesh.points) {
-                const bool external = point.reference.semantic_key.starts_with(
-                    "external_point:");
-                const bool origin = point.reference.semantic_key == "origin:point";
-                if (origin) continue;
-                if ((origin && !impl_->show_origins && !points_selectable) ||
-                    (!origin && !external && !impl_->show_points &&
-                     !points_selectable && !point_containers_selectable) ||
-                    (external && !impl_->show_sketches)) continue;
-                if (external) {
-                    const QColor color = point.reference.semantic_key.ends_with(
-                        ":broken") ? QColor(179, 74, 60) : QColor(145, 105, 72);
-                    painter.setPen(QPen(color, 1.8));
-                    const QPointF center = project(point.position);
-                    painter.drawLine(center + QPointF(-4.0, -4.0),
-                                     center + QPointF(4.0, 4.0));
-                    painter.drawLine(center + QPointF(-4.0, 4.0),
-                                     center + QPointF(4.0, -4.0));
-                } else {
-                    const bool selected = point.reference.owner_id ==
-                            impl_->selected_container_origin_id ||
-                        (impl_->confirmed_candidate &&
-                         impl_->confirmed_candidate->kind == CandidateKind::Vertex &&
-                         impl_->confirmed_candidate->owner_id ==
-                            point.reference.owner_id &&
-                         impl_->confirmed_candidate->semantic_key ==
-                            point.reference.semantic_key &&
-                         impl_->confirmed_candidate->instance_path ==
-                            point.reference.instance_path);
-                    const bool hovered = !impl_->confirmed_candidate && highlighted &&
-                        ((highlighted->kind == CandidateKind::Container &&
-                          highlighted->semantic_key == "point" &&
-                          point.reference.owner_id ==
-                            highlighted->owner_id + ":origin") ||
-                         (highlighted->kind == CandidateKind::Vertex &&
-                          highlighted->semantic_key == point.reference.semantic_key &&
-                          highlighted->owner_id == point.reference.owner_id)) &&
-                        point.reference.instance_path == highlighted->instance_path;
-                    const QColor marker_color = selected
-                        ? QColor(30, 220, 240)
-                        : hovered ? QColor(255, 122, 0) : QColor(0, 0, 0);
-                    painter.setPen(QPen(marker_color, 1.0));
-                    painter.setBrush(marker_color);
-                    const QPointF center = project(point.position);
-                    draw_circular_marker(painter, center, marker_color);
-                    if (!point.label.empty()) {
-                        painter.setPen(QPen(marker_color, 1.0));
-                        painter.drawText(center + QPointF(8.0, -6.0),
-                                         QString::fromStdString(point.label));
-                    }
                 }
             }
         }
@@ -1790,21 +1788,34 @@ if (impl_->show_planes) {
                      (highlighted->kind == CandidateKind::Container &&
                       highlighted->semantic_key == "axis" &&
                       highlighted->owner_id + ":entity" ==
-                          axis.reference.owner_id)) &&
+                          axis.reference.owner_id) ||
+                     // Selecting/hovering the whole Origin also highlights
+                     // its own X/Y/Z axis lines and labels, matching
+                     // Python's unified selected/hovered-object check.
+                     (origin && highlighted->kind == CandidateKind::Container &&
+                      highlighted->semantic_key == "origin" &&
+                      highlighted->owner_id == axis.reference.owner_id)) &&
                     highlighted->instance_path == axis.reference.instance_path;
+                // Match ONLY the precise per-entity key -- see the identical
+                // comment on the plane block above.
+                const bool referenced = !exact_highlight &&
+                    impl_->constraint_reference_edges.contains(EdgeKey{
+                        axis.reference.owner_id, axis.reference.semantic_key,
+                        axis.reference.instance_path});
                 const QColor color = exact_highlight
                     ? (impl_->confirmed_candidate ? QColor(30, 220, 240)
                                                   : QColor(255, 140, 12))
+                    : referenced ? QColor(0, 209, 255)
                     : axis.reference.semantic_key == "origin:axis:x"
                         ? QColor(232, 76, 61)
                     : axis.reference.semantic_key == "origin:axis:y"
                         ? QColor(46, 204, 112)
                     : axis.reference.semantic_key == "origin:axis:z"
                         ? QColor(51, 153, 219) : QColor(150, 150, 150);
-                const QColor presentation_color = !origin && !exact_highlight
-                    ? QColor(90, 180, 225) : color;
+                const QColor presentation_color = !origin && !exact_highlight && !referenced
+                    ? QColor(173, 110, 46) : color;
                 painter.setPen(QPen(presentation_color, origin ? 2.0 : 1.5,
-                    origin ? Qt::SolidLine : Qt::DashDotLine));
+                    Qt::SolidLine));
                 const double first = origin ? 0.0 : -axis.display_length * 0.5;
                 const double second = origin
                     ? axis.display_length * reference_scale
@@ -1818,7 +1829,54 @@ if (impl_->show_planes) {
                 if (origin) {
                     draw_reference_segment(start, end, presentation_color, 2.0);
                 } else {
-                    painter.drawLine(start, end);
+                    // A plain painter.drawLine() call silently produces no
+                    // visible output in this overlay pass (leftover GL state
+                    // from the solid-body shader/VAO breaks QPainter's native
+                    // line primitive), whereas the filled-polygon helper
+                    // already used for the Origin's own axes renders
+                    // correctly.  Draw the construction axis as a dash-dot
+                    // pattern of small filled quads through the same helper
+                    // so it is actually visible, matching the persisted
+                    // origin axes rendering technique.
+                    const QLineF full_line(start, end);
+                    const double total_length = full_line.length();
+                    if (total_length > 1.0e-6) {
+                        const QPointF unit = (end - start) / total_length;
+                        constexpr double dash = 10.0;
+                        constexpr double gap = 5.0;
+                        constexpr double dot = 2.0;
+                        constexpr double pattern = dash + gap + dot + gap;
+                        double offset = 0.0;
+                        while (offset < total_length) {
+                            const double dash_end = std::min(offset + dash, total_length);
+                            draw_reference_segment(start + unit * offset,
+                                start + unit * dash_end, presentation_color, 1.5);
+                            const double dot_start = std::min(offset + dash + gap, total_length);
+                            const double dot_end = std::min(dot_start + dot, total_length);
+                            if (dot_end > dot_start) {
+                                draw_reference_segment(start + unit * dot_start,
+                                    start + unit * dot_end, presentation_color, 1.5);
+                            }
+                            offset += pattern;
+                        }
+                    }
+                    // Mark the axis's own origin point with a small filled
+                    // dot in the same hover/select/reference-aware color as
+                    // the axis line itself, matching the always-visible dot
+                    // used for a standalone Point container -- this is the
+                    // only way to see where a construction Axis actually
+                    // starts (its dimension/length is measured from here),
+                    // and it must stay visible together with the length
+                    // dimension annotation, not just on hover/selection.
+                    // Mark the axis's own origin point with a small filled
+                    // dot, but only while this axis is hovered or selected
+                    // (exact_highlight) -- matching a solid body's own
+                    // origin-indicator convention -- not permanently, so it
+                    // does not clutter idle/default rendering.
+                    if (exact_highlight) {
+                        draw_circular_marker(painter, project(axis.point),
+                            presentation_color, 3.0);
+                    }
                 }
                 if (origin) {
                     const QLineF line(start, end);
@@ -1844,15 +1902,90 @@ if (impl_->show_planes) {
                 }
             }
         }
+        // Non-origin construction Point markers are drawn AFTER the plane
+        // and axis overlays (rather than before them, as previously) so an
+        // overlapping origin/construction axis line can never paint over
+        // and hide a Point container's own marker -- the marker must
+        // always stay on top, matching how the Origin's own point (drawn
+        // even later, right below) is never hidden either.
+        if (points_visible) {
+            for (const auto& point : impl_->mesh.points) {
+                const bool external = point.reference.semantic_key.starts_with(
+                    "external_point:");
+                const bool origin = point.reference.semantic_key == "origin:point";
+                if (origin) continue;
+                if ((origin && !impl_->show_origins && !points_selectable) ||
+                    (!origin && !external && !impl_->show_points &&
+                     !points_selectable && !point_containers_selectable) ||
+                    (external && !impl_->show_sketches)) continue;
+                if (external) {
+                    const QColor color = point.reference.semantic_key.ends_with(
+                        ":broken") ? QColor(179, 74, 60) : QColor(145, 105, 72);
+                    painter.setPen(QPen(color, 1.8));
+                    const QPointF center = project(point.position);
+                    painter.drawLine(center + QPointF(-4.0, -4.0),
+                                     center + QPointF(4.0, 4.0));
+                    painter.drawLine(center + QPointF(-4.0, 4.0),
+                                     center + QPointF(4.0, -4.0));
+                } else {
+                    const bool selected = point.reference.owner_id ==
+                            impl_->selected_container_origin_id ||
+                        (impl_->confirmed_candidate &&
+                         impl_->confirmed_candidate->kind == CandidateKind::Vertex &&
+                         impl_->confirmed_candidate->owner_id ==
+                            point.reference.owner_id &&
+                         impl_->confirmed_candidate->semantic_key ==
+                            point.reference.semantic_key &&
+                         impl_->confirmed_candidate->instance_path ==
+                            point.reference.instance_path);
+                    const bool hovered = !impl_->confirmed_candidate && highlighted &&
+                        ((highlighted->kind == CandidateKind::Container &&
+                          highlighted->semantic_key == "point" &&
+                          point.reference.owner_id ==
+                            highlighted->owner_id + ":origin") ||
+                         (highlighted->kind == CandidateKind::Vertex &&
+                          highlighted->semantic_key == point.reference.semantic_key &&
+                          highlighted->owner_id == point.reference.owner_id)) &&
+                        point.reference.instance_path == highlighted->instance_path;
+                    // Match ONLY the precise per-entity key -- see the
+                    // identical comment on the plane block above.
+                    const bool referenced = !selected && !hovered &&
+                        impl_->constraint_reference_edges.contains(EdgeKey{
+                            point.reference.owner_id, point.reference.semantic_key,
+                            point.reference.instance_path});
+                    const QColor marker_color = selected
+                        ? QColor(30, 220, 240)
+                        : hovered ? QColor(255, 122, 0)
+                        : referenced ? QColor(0, 209, 255) : QColor(0, 0, 0);
+                    painter.setPen(QPen(marker_color, 1.0));
+                    painter.setBrush(marker_color);
+                    const QPointF center = project(point.position);
+                    draw_circular_marker(painter, center, marker_color);
+                    if (!point.label.empty()) {
+                        painter.setPen(QPen(marker_color, 1.0));
+                        painter.drawText(center + QPointF(8.0, -6.0),
+                                         QString::fromStdString(point.label));
+                    }
+                }
+            }
+        }
         if (impl_->show_origins || points_selectable ||
             impl_->editing_origin_visible) {
             for (const auto& point : impl_->mesh.points) {
                 if (point.reference.semantic_key != "origin:point") continue;
                 const QPointF center = project(point.position);
-                painter.setPen(QPen(QColor(0, 0, 0), 1.0));
-                painter.setBrush(QColor(0, 0, 0));
-                draw_circular_marker(painter, center, QColor(0, 0, 0));
+                // Match ONLY the precise per-entity key -- see the identical
+                // comment on the plane block above.
+                const bool referenced = impl_->constraint_reference_edges.contains(EdgeKey{
+                    point.reference.owner_id, point.reference.semantic_key,
+                    point.reference.instance_path});
+                const QColor marker_color = referenced
+                    ? QColor(0, 209, 255) : QColor(0, 0, 0);
+                painter.setPen(QPen(marker_color, 1.0));
+                painter.setBrush(marker_color);
+                draw_circular_marker(painter, center, marker_color);
                 if (!point.label.empty()) {
+                    painter.setPen(QPen(marker_color, 1.0));
                     painter.drawText(center + QPointF(8.5, -6.5),
                                      QString::fromStdString(point.label));
                 }

@@ -85,6 +85,8 @@ public:
     void set_reference_highlights_changed_callback(
         ReferenceHighlightsChangedCallback callback);
     [[nodiscard]] std::set<std::string> highlighted_reference_owner_ids() const;
+    [[nodiscard]] std::vector<zima::document::ConstructionReference>
+        highlighted_reference_entries() const;
 
 protected:
     bool submit() override;

@@ -965,7 +965,7 @@ zima::assembly::AssemblyDocument Workspace::refreshed_assembly(
     }
     recursion_stack.pop_back();
     refreshed.resolve_constructions();
-    refreshed.calculate_mates();
+    refreshed.calculate_placement_references();
     static_cast<void>(refreshed.build_scene());
     return refreshed;
 }

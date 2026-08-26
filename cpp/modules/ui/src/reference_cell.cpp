@@ -4,6 +4,7 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QStackedLayout>
+#include <QToolButton>
 #include <QWidget>
 
 namespace zima::ui {
@@ -64,6 +65,34 @@ void set_reference_row_populated(QWidget* indicator, bool populated) {
     if (auto* widget = qobject_cast<QWidget*>(target)) {
         layout->setCurrentWidget(widget);
     }
+}
+
+QWidget* build_reference_row_flip_button(
+    bool enabled, bool checked, std::function<void(bool)> toggled_callback) {
+    auto* button = new QToolButton();
+    button->setObjectName("referenceRowFlipButton");
+    button->setText(QStringLiteral("\u21c4"));  // ⇄, flip/reverse glyph.
+    button->setCheckable(true);
+    button->setChecked(checked && enabled);
+    button->setEnabled(enabled);
+    button->setFixedSize(30, 30);
+    button->setToolTip(enabled
+        ? QObject::tr("Obrátit směr reference")
+        : QObject::tr("Obrácení směru není pro tuto referenci k dispozici"));
+    button->setStyleSheet(
+        "QToolButton{color:#dddddd;background:#2f3339;"
+        "border:1px solid #4a4f57;border-radius:4px;"
+        "font-size:14px;font-weight:700;padding:0}"
+        "QToolButton:hover{background:#3c414a;border-color:#6a7078}"
+        "QToolButton:checked{color:#102027;background:#00d1ff;"
+        "border-color:#00a9d1}"
+        "QToolButton:disabled{color:#666666;background:#26282c;"
+        "border-color:#35383e}");
+    if (toggled_callback) {
+        QObject::connect(button, &QToolButton::toggled, button,
+            [callback = std::move(toggled_callback)](bool value) { callback(value); });
+    }
+    return button;
 }
 
 ReferenceCellItem::ReferenceCellItem(const QString& text)

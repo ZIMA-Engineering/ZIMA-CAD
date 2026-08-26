@@ -37,6 +37,7 @@ namespace zima::app {
 
 class PrimitivePropertiesDialog;
 class ConstructionPropertiesDialog;
+class ComponentPropertiesDialog;
 class OrientationDialog;
 class DrawingWindow;
 class SketchTextPropertiesDialog;
@@ -178,11 +179,6 @@ private:
     QAction* sketch_fix_point_action_{};
     QAction* finish_sketch_action_{};
     QAction* regenerate_part_action_{};
-    QAction* plane_mate_action_{};
-    QAction* axis_mate_action_{};
-    QAction* point_mate_action_{};
-    QAction* angle_mate_action_{};
-    QAction* plane_angle_mate_action_{};
     QAction* parameters_action_{};
     QAction* material_action_{};
     QAction* relations_action_{};
@@ -210,8 +206,6 @@ private:
     };
     std::optional<AssemblyCutRollbackContext> assembly_cut_rollback_;
     std::string active_occurrence_path_;
-    std::optional<zima::assembly::MateReference> pending_mate_reference_;
-    bool mate_selection_active_{};
     // "Pohled kolmo" (normal_view_action in Python): while active the viewer
     // is restricted to Face candidates; on selection the camera is rotated
     // to be perpendicular to the picked face and the mode is exited.
@@ -230,6 +224,7 @@ private:
     std::string construction_dimension_object_id_;
     std::optional<std::size_t> pending_construction_reference_index_;
     int construction_translation_dof_{3};
+    int construction_rotation_dof_{3};
     // Universal container placement (Box PoC): mirrors the
     // construction_reference_* state above but for HistoryContainer.placement
     // reference picking in PrimitivePropertiesDialog.
@@ -315,15 +310,18 @@ private:
     std::optional<zima::assembly::AssemblyDocument> assembly_sketch_drag_document_;
     std::string sketch_drag_point_id_;
     bool sketch_drag_changed_{};
-    std::optional<zima::assembly::AssemblyDocument> assembly_drag_document_;
-    std::string assembly_drag_document_id_;
-    std::string assembly_drag_mate_id_;
-    zima::kernel::Vec3 assembly_drag_axis_point_;
-    zima::kernel::Vec3 assembly_drag_axis_direction_;
-    bool assembly_drag_angular_{};
-    bool assembly_drag_changed_{};
-    zima::assembly::MateKind pending_mate_kind_{
-        zima::assembly::MateKind::PlaneCoincident};
+    // Drag-to-adjust for an embedded placement_references row's dimension
+    // overlay, addressed by owning occurrence_id + row index rather than a
+    // top-level mate_id, matching PartOccurrence::placement_references'
+    // storage.
+    std::optional<zima::assembly::AssemblyDocument> placement_reference_drag_document_;
+    std::string placement_reference_drag_document_id_;
+    std::string placement_reference_drag_occurrence_id_;
+    std::size_t placement_reference_drag_index_{};
+    zima::kernel::Vec3 placement_reference_drag_axis_point_;
+    zima::kernel::Vec3 placement_reference_drag_axis_direction_;
+    bool placement_reference_drag_angular_{};
+    bool placement_reference_drag_changed_{};
     // Free-component drag (matches Python's `_on_insertion_origin_dragged`):
     // active only while `properties_dialog_` is a ComponentPropertiesDialog
     // editing the dragged occurrence. Translates the occurrence's
@@ -334,6 +332,14 @@ private:
     zima::kernel::Vec3 component_drag_plane_point_;
     zima::kernel::Vec3 component_drag_start_local_origin_;
     bool component_drag_changed_{};
+    // Embedded placement-reference picking state for ComponentPropertiesDialog
+    // (mirrors pending_construction_reference_index_/construction_reference_dialog_
+    // above, but a row has two independently pickable cells).
+    ComponentPropertiesDialog* component_placement_dialog_{};
+    std::optional<std::size_t> pending_component_placement_index_;
+    bool pending_component_placement_component_side_{};
+    std::string component_placement_assembly_document_id_;
+    std::string component_placement_occurrence_id_;
 
     void create_layout();
     void create_actions();
@@ -362,23 +368,14 @@ private:
     void edit_family_table();
     void edit_file_settings();
     void regenerate_assembly();
-    void start_plane_mate();
-    void start_axis_mate();
-    void start_point_mate();
-    void start_angle_mate();
-    void start_plane_angle_mate();
-    void set_mate_candidate_filter();
     void start_edge_treatment(zima::document::FeatureKind kind);
     void accept_edge_treatment(const zima::viewer::ViewerCandidate& candidate);
     [[nodiscard]] bool finish_edge_treatment_selection();
     void accept_extrusion_target(const zima::viewer::ViewerCandidate& candidate);
-    void accept_mate_reference(const zima::viewer::ViewerCandidate& candidate);
     void begin_normal_view_selection();
     void accept_normal_view_reference(const zima::viewer::ViewerCandidate& candidate);
     void show_orientation_dialog();
     void accept_orientation_reference(const zima::viewer::ViewerCandidate& candidate);
-    [[nodiscard]] std::optional<zima::assembly::MateReference>
-        local_mate_reference(const zima::viewer::ViewerCandidate& candidate) const;
     void save_active_assembly();
     void save_active_document();
     void save_active_document_as();
@@ -413,8 +410,30 @@ private:
     void start_primitive_reference_selection(std::size_t index);
     void accept_primitive_reference(
         const zima::viewer::ViewerCandidate& candidate);
+    // Embedded component placement-reference picking (ComponentPropertiesDialog):
+    // mirrors start_construction_reference_selection()/accept_construction_reference()
+    // but resolves candidates against MateReferenceKind (Face/Axis/Point)
+    // instead of ConstructionReference's OCCT-origin-driven contract, and
+    // accepts BOTH a component-side and a target-side pick per row.
+    void start_component_placement_reference_selection(
+        std::size_t index, bool component_side);
+    void accept_component_placement_reference(
+        const zima::viewer::ViewerCandidate& candidate);
     [[nodiscard]] bool accept_construction_tree_reference(
         const QTreeWidgetItem* item);
+    // Accepts one already-extracted "origin-reference" leaf (Point/Axis/
+    // Plane child of a document/construction Origin node) by value instead
+    // of by QTreeWidgetItem pointer. accept_construction_reference()
+    // synchronously triggers refresh_scene(), which calls tree_->clear()
+    // and destroys every QTreeWidgetItem -- a caller that still needs to
+    // read sibling tree items afterwards (e.g. the whole-Origin bulk-accept
+    // loop in accept_construction_tree_reference()) must capture their data
+    // into plain values *before* accepting any one of them, then feed those
+    // values through this helper instead of re-reading a QTreeWidgetItem
+    // that may already have been deleted.
+    [[nodiscard]] bool accept_origin_reference_value(
+        const QString& owner_id, const QString& instance_path,
+        const QString& semantic_key);
     void show_sketch_properties(const std::string& sketch_id = {});
     void show_sketch_bspline_properties(
         const std::string& sketch_id, const std::string& bspline_id);
@@ -538,12 +557,12 @@ private:
     void update_sketch_point_drag(
         const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
     void end_sketch_point_drag();
-    [[nodiscard]] bool begin_assembly_mate_drag(
+    [[nodiscard]] bool begin_placement_reference_drag(
         const zima::viewer::ViewerCandidate& candidate);
-    void update_assembly_mate_drag(
+    void update_placement_reference_drag(
         const zima::kernel::Vec3& ray_origin,
         const zima::kernel::Vec3& ray_direction);
-    void end_assembly_mate_drag();
+    void end_placement_reference_drag();
     [[nodiscard]] bool begin_component_drag(
         const zima::viewer::ViewerCandidate& candidate);
     void update_component_drag(
@@ -595,20 +614,11 @@ private:
         const std::string& owner_assembly_document_id,
         const zima::assembly::InstancePath& parent_path,
         bool ancestor_suppressed = false);
-    void add_mate_tree_children(
-        QTreeWidgetItem* parent,
-        const std::string& owner_assembly_document_id);
     void select_occurrence(const std::string& instance_path);
     void select_container(const std::string& container_id);
     void show_component_properties(const std::string& instance_path);
     void show_component_context_menu(
         const std::string& instance_path, const QPoint& global_position);
-    void show_mate_properties(
-        const std::string& assembly_document_id, const std::string& mate_id);
-    void show_mate_context_menu(
-        const std::string& assembly_document_id,
-        const std::string& mate_id,
-        const QPoint& global_position);
     [[nodiscard]] std::optional<std::string> resolve_active_occurrence(
         const std::string& part_document_id) const;
 

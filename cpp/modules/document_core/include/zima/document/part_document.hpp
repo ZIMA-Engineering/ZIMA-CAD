@@ -48,6 +48,32 @@ struct ConstructionReference {
     bool supports_offset{};
     std::string orientation_role{"none"};
     bool orientation_drives_rotation{};
+    // True only for a reference that exists SOLELY to contribute a
+    // FRONT/TOP direction (a genuine orientation-table entry: either the
+    // separate mirrored twin of a Plane/Axis position row 0/1, or a
+    // standalone pick made directly into the orientation table) --
+    // matching Python's `position_role == "orientation_only"` in
+    // `_solve_point_constraints()`. A Point container's automatically
+    // oriented position reference (assign_automatic_orientation_role())
+    // has orientation_drives_rotation == true but this stays false: it is
+    // still the one-and-only copy of that reference and must keep
+    // contributing its own position equation, exactly like Python's
+    // `_ensure_automatic_orientation_roles()` never sets position_role on
+    // it. Only the dedicated orientation-table copy is excluded from the
+    // position solve.
+    bool orientation_only{};
+    // Inverts the resolved direction/normal derived from this reference
+    // (Plane -> flips its normal/local-X axis; Axis -> flips its direction
+    // vector) as a post-processing step AFTER placement_solve_position()/
+    // the orientation-frame composition below has already solved the
+    // position/direction from the reference geometry -- it never changes
+    // the solving equations themselves. A Point reference carries this
+    // field too (for a uniform, non-kind-specific reference model) but it
+    // is always a no-op there: a point has no direction to invert. Angles/
+    // rotations never use this flag -- the whole system is a fixed
+    // right-handed frame (right-hand rule), so a positive angle already
+    // has one unambiguous rotation direction.
+    bool flip{};
     bool operator==(const ConstructionReference&) const = default;
 };
 
@@ -100,6 +126,13 @@ struct ConstructionObject {
     // orientation-driving references.
     zima::kernel::Vec3 rotation_base{};
     zima::kernel::Vec3 direction{0.0, 0.0, 1.0};
+    // Axis only: which local frame axis ("x"/"y"/"z", matching the dialog's
+    // "Směr" combo) `direction` is picked from once an orientation-driving
+    // reference exists ("x"=left, "y"=normal/reference direction itself,
+    // "z"=up -- see resolve_construction()). Unused (kept at the default)
+    // for Point/Plane and for an Axis with no orientation reference, where
+    // the combo instead selects a plain world axis directly.
+    std::string direction_axis{"y"};
     double display_size{100.0};
     ConstructionDefinition definition{ConstructionDefinition::Absolute};
     std::vector<ConstructionReference> references;
@@ -126,6 +159,14 @@ struct PointConstraintState {
     const std::vector<ConstructionReference>& references,
     const zima::kernel::ViewerReferenceGeometry& geometry,
     bool marked_only);
+// Whether `reference` resolves to a plain point (an Origin/Sketch/other
+// container's point, or a solid vertex) rather than an axis/edge or
+// plane/face -- shared by resolve_construction()'s "2 points define an
+// axis"/"3 points define a plane" shortcut and the UI's row-acceptance
+// logic, which both need to recognize the same plain-point references.
+[[nodiscard]] bool construction_reference_is_point(
+    const ConstructionReference& reference,
+    const zima::kernel::ViewerReferenceGeometry& geometry);
 
 struct BoxParameters {
     double length{100.0};
@@ -327,17 +368,17 @@ public:
     [[nodiscard]] ConstructionObject* find_construction(const std::string& id);
     [[nodiscard]] const ConstructionObject* find_construction(
         const std::string& id) const;
-    // `reference_scene_size` is the bounding-box diagonal of the geometry
-    // already present in the scene (body + sketches), matching Python's
-    // `_scene_diagonal()`. The origin axis/plane size scales with it so the
-    // origin stays proportionate to the model instead of a fixed size; 0.0
-    // keeps the historical minimum size for an empty document.
+    // Origin's on-screen size is a fixed constant, independent of the
+    // model/scene size and camera zoom (see kDocumentOriginAxisLength in
+    // part_document.cpp). `reference_scene_size` is unused and kept only
+    // for source compatibility with existing call sites.
     [[nodiscard]] zima::kernel::ViewerMesh origin_viewer_mesh(
         double reference_scene_size = 0.0) const;
-    // `reference_scene_size` scales the container's own editing-mode Origin
-    // axes/planes the same way it scales the document's Origin (see
-    // `origin_viewer_mesh`), except a container's Origin is always half the
-    // linear size of the document Origin for both axes and planes.
+    // A container's own editing-mode Origin is likewise a fixed constant
+    // (kContainerOriginAxisLength), the same for every ConstructionKind and
+    // distinct from the document's own Origin constant so the two remain
+    // visually distinguishable. `reference_scene_size` is unused and kept
+    // only for source compatibility with existing call sites.
     [[nodiscard]] zima::kernel::ViewerMesh construction_viewer_mesh(
         const std::string& editing_object_id = {},
         double reference_scene_size = 0.0) const;

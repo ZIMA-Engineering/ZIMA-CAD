@@ -122,6 +122,10 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
         [](const std::string& semantic) { return readable_reference_kind(semantic); });
     reference_status_ = placement_->reference_status_label();
     dof_label_ = placement_->dof_label();
+    placement_->reference_table()->setObjectName("constructionReferenceTable");
+    if (placement_->orientation_table() != nullptr) {
+        placement_->orientation_table()->setObjectName("constructionOrientationTable");
+    }
     placement_->set_reference_request_callback(
         [this](std::size_t index) {
             if (reference_request_) reference_request_(index);
@@ -133,15 +137,33 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
     if (initial.kind == zima::document::ConstructionKind::Plane) {
         placement_->refresh_orientation_table();
     }
+    const bool is_point = initial.kind == zima::document::ConstructionKind::Point;
+    // X/Y/Z always come immediately after the placement reference table,
+    // matching every container kind in the reference implementation.
     auto* coordinates = new QFormLayout;
     coordinates->addRow(tr("X"), origin_[0]);
     coordinates->addRow(tr("Y"), origin_[1]);
     coordinates->addRow(tr("Z"), origin_[2]);
-    auto* orientation_heading = new QLabel(tr("Orientace kontejneru"), this);
-    auto orientation_font = orientation_heading->font();
-    orientation_font.setBold(true);
-    orientation_heading->setFont(orientation_font);
-    coordinates->addRow(orientation_heading);
+    content_layout()->addLayout(coordinates);
+
+    // Point shows a "Orientace kontejneru" heading directly above its
+    // RX/RY/RZ table and puts the remaining-DOF label at the very bottom,
+    // after that table. Axis/Plane have no such heading here (Plane's own
+    // "Orientace kontejneru" FRONT/TOP section is installed separately,
+    // later) and instead show the DOF label immediately after X/Y/Z, before
+    // the rotation table -- matching PointConstraintDialog vs.
+    // AxisConstraintDialog/PlaneConstraintDialog in the reference
+    // implementation.
+    if (!is_point) placement_->install_dof_label(content_layout());
+
+    auto* rotation_form = new QFormLayout;
+    if (is_point) {
+        auto* orientation_heading = new QLabel(tr("Orientace kontejneru"), this);
+        auto orientation_font = orientation_heading->font();
+        orientation_font.setBold(true);
+        orientation_heading->setFont(orientation_font);
+        rotation_form->addRow(orientation_heading);
+    }
     rotation_ = {field(initial.rotation.x, "constructionRotationX", " deg"),
                  field(initial.rotation.y, "constructionRotationY", " deg"),
                  field(initial.rotation.z, "constructionRotationZ", " deg")};
@@ -166,42 +188,48 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
     rotation_header_layout->setContentsMargins(0, 0, 0, 0);
     rotation_header_layout->addWidget(new QLabel(tr("Absolutní"), this));
     rotation_header_layout->addWidget(new QLabel(tr("Korekce"), this));
-    coordinates->addRow(QString(), rotation_header);
+    rotation_form->addRow(QString(), rotation_header);
     for (std::size_t index = 0; index < 3; ++index) {
         auto* row_widget = new QWidget(this);
         auto* row_layout = new QHBoxLayout(row_widget);
         row_layout->setContentsMargins(0, 0, 0, 0);
         row_layout->addWidget(rotation_[index]);
         row_layout->addWidget(rotation_offset_[index]);
-        coordinates->addRow(index == 0 ? tr("RX") : index == 1 ? tr("RY") : tr("RZ"),
+        rotation_form->addRow(index == 0 ? tr("RX") : index == 1 ? tr("RY") : tr("RZ"),
             row_widget);
     }
-    if (initial.kind != zima::document::ConstructionKind::Point) {
+    if (!is_point) {
         direction_combo_ = new QComboBox(this);
         direction_combo_->setObjectName("constructionDirection");
         if (initial.kind == zima::document::ConstructionKind::Axis) {
             direction_combo_->addItem(QStringLiteral("X"), QStringLiteral("x"));
             direction_combo_->addItem(QStringLiteral("Y"), QStringLiteral("y"));
             direction_combo_->addItem(QStringLiteral("Z"), QStringLiteral("z"));
-            const std::array components{std::abs(initial.direction.x),
-                std::abs(initial.direction.y), std::abs(initial.direction.z)};
-            const auto dominant = static_cast<int>(std::distance(components.begin(),
-                std::max_element(components.begin(), components.end())));
-            direction_combo_->setCurrentIndex(dominant);
-            coordinates->addRow(tr("Směr"), direction_combo_);
+            const auto index = direction_combo_->findData(
+                QString::fromStdString(initial.direction_axis));
+            direction_combo_->setCurrentIndex(index >= 0 ? index : 1);
+            rotation_form->addRow(tr("Směr"), direction_combo_);
         } else {
             direction_combo_->addItem(QStringLiteral("XY"), QStringLiteral("xy"));
             direction_combo_->addItem(QStringLiteral("YZ"), QStringLiteral("yz"));
             direction_combo_->addItem(QStringLiteral("XZ"), QStringLiteral("xz"));
             direction_combo_->hide();
         }
-        coordinates->addRow(initial.kind == zima::document::ConstructionKind::Axis
+        rotation_form->addRow(initial.kind == zima::document::ConstructionKind::Axis
                 ? tr("Délka zobrazení") : tr("Velikost zobrazení"),
             display_size_);
     }
-    content_layout()->addLayout(coordinates);
-    dof_label_ = new QLabel(this);
-    content_layout()->addWidget(dof_label_);
+    content_layout()->addLayout(rotation_form);
+
+    // Point puts the remaining-DOF label after its RX/RY/RZ table; Plane's
+    // separate FRONT/TOP "Orientace kontejneru" section comes after the
+    // Velikost zobrazení row above, right before the DOF label was already
+    // installed for it.
+    if (is_point) placement_->install_dof_label(content_layout());
+    if (initial.kind == zima::document::ConstructionKind::Plane) {
+        placement_->install_orientation_section(content_layout());
+    }
+
     error_ = new QLabel(this);
     error_->setStyleSheet("color: #d96b6b;");
     error_->setWordWrap(true);
@@ -243,6 +271,11 @@ void ConstructionPropertiesDialog::set_reference_highlights_changed_callback(
 std::set<std::string>
 ConstructionPropertiesDialog::highlighted_reference_owner_ids() const {
     return placement_->highlighted_reference_owner_ids();
+}
+
+std::vector<zima::document::ConstructionReference>
+ConstructionPropertiesDialog::highlighted_reference_entries() const {
+    return placement_->highlighted_reference_entries();
 }
 
 void ConstructionPropertiesDialog::set_preview_callback(PreviewCallback callback) {
@@ -301,6 +334,15 @@ bool ConstructionPropertiesDialog::owns_reference_owner(
 std::vector<zima::document::ConstructionReference>
 ConstructionPropertiesDialog::references_without(std::size_t index) const {
     return placement_->references_without(index);
+}
+
+std::size_t ConstructionPropertiesDialog::first_empty_position_index() const {
+    return placement_->first_empty_position_index();
+}
+
+std::vector<zima::document::ConstructionReference>
+ConstructionPropertiesDialog::populated_references() const {
+    return placement_->populated_references();
 }
 
 void ConstructionPropertiesDialog::set_orientation_base_rotation(
@@ -373,6 +415,9 @@ zima::document::ConstructionObject ConstructionPropertiesDialog::current_value()
     }
     if (direction_combo_ != nullptr) {
         const auto key = direction_combo_->currentData().toString();
+        if (initial_.kind == zima::document::ConstructionKind::Axis) {
+            value.direction_axis = key.toStdString();
+        }
         zima::kernel::Vec3 local = key == QStringLiteral("x") ||
                 key == QStringLiteral("yz")
             ? zima::kernel::Vec3{1.0, 0.0, 0.0}
@@ -395,18 +440,15 @@ zima::document::ConstructionObject ConstructionPropertiesDialog::current_value()
     }
     if (display_size_ != nullptr) value.display_size = display_size_->value();
     value.definition = current_definition();
+    const auto populated = placement_->populated_references();
     const std::size_t required =
             value.definition == zima::document::ConstructionDefinition::PointReference
-        ? placement_->references().size()
+        ? populated.size()
         : value.definition ==
             zima::document::ConstructionDefinition::TwoPointAxis ? 2
         : value.definition == zima::document::ConstructionDefinition::ThreePointPlane ? 3
         : value.definition == zima::document::ConstructionDefinition::Absolute ? 0 : 1;
-    value.references.assign(placement_->references().begin(),
-        placement_->references().begin() + static_cast<std::ptrdiff_t>(
-            std::min(required, placement_->references().size())));
-    value.references.insert(value.references.end(),
-        placement_->orientation_references().begin(), placement_->orientation_references().end());
+    value.references = placement_->combined_references(required);
     value.offset = offset_->value();
     return value;
 }
@@ -427,25 +469,23 @@ bool ConstructionPropertiesDialog::submit() {
         }
     }
     if (display_size_ != nullptr) value.display_size = display_size_->value();
+    const auto populated = placement_->populated_references();
     const std::size_t required =
             value.definition == zima::document::ConstructionDefinition::PointReference
-        ? std::max<std::size_t>(1, placement_->references().size())
+        ? std::max<std::size_t>(1, populated.size())
         : value.definition ==
             zima::document::ConstructionDefinition::TwoPointAxis ? 2
         : value.definition == zima::document::ConstructionDefinition::ThreePointPlane ? 3
         : value.definition == zima::document::ConstructionDefinition::Absolute ? 0 : 1;
-    if (placement_->references().size() < required ||
-        std::any_of(placement_->references().begin(), placement_->references().begin() +
+    if (populated.size() < required ||
+        std::any_of(populated.begin(), populated.begin() +
                 static_cast<std::ptrdiff_t>(required), [](const auto& reference) {
             return reference.owner_id.empty() || reference.semantic_key.empty();
         })) {
         error_->setText(tr("Vyberte všechny požadované reference."));
         return false;
     }
-    value.references.assign(placement_->references().begin(), placement_->references().begin() +
-        static_cast<std::ptrdiff_t>(required));
-    value.references.insert(value.references.end(),
-        placement_->orientation_references().begin(), placement_->orientation_references().end());
+    value.references = placement_->combined_references(required);
     value.offset = offset_->value();
     if (value.name.empty()) {
         error_->setText(tr("Název nesmí být prázdný."));

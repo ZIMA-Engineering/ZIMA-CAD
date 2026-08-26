@@ -46,6 +46,20 @@ public:
     [[nodiscard]] bool owns_reference_owner(const std::string& owner_id) const;
     [[nodiscard]] std::vector<zima::document::ConstructionReference>
         references_without(std::size_t index) const;
+    // Position row index (0..2) of the first still-empty placement
+    // reference row, or 3 if all three are already filled. Used by the
+    // "Počátek" bulk-fill so it always targets the real first empty row(s)
+    // instead of assuming the currently-armed index starts at 0 -- a 2nd
+    // bulk-fill attempt (e.g. after deleting and re-entering a reference)
+    // may arm a row other than 0.
+    [[nodiscard]] std::size_t first_empty_position_index() const;
+    // Populated position references only (empty "hole" rows left by a
+    // deleted reference are skipped, in row order). Use this instead of
+    // relying on the raw reference count whenever the true entered-reference
+    // list is needed (e.g. persisting/counting), since rows 0-2 are fixed,
+    // pre-existing slots that no longer shrink/shift when one is deleted.
+    [[nodiscard]] std::vector<zima::document::ConstructionReference>
+        populated_references() const;
     void set_remaining_translation_dof(int dof);
     void set_remaining_rotation_dof(int dof);
     void set_translation_constraint_state(
@@ -68,6 +82,8 @@ public:
     void set_reference_highlights_changed_callback(
         ReferenceHighlightsChangedCallback callback);
     [[nodiscard]] std::set<std::string> highlighted_reference_owner_ids() const;
+    [[nodiscard]] std::vector<zima::document::ConstructionReference>
+        highlighted_reference_entries() const;
 
 protected:
     bool submit() override;

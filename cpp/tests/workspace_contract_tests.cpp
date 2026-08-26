@@ -543,7 +543,7 @@ int main() {
         auto live_subassembly_preview = workspace.open_assembly(subassembly_id)
             ->session.document();
         live_subassembly_preview.components.front().placement.y += 37.0;
-        live_subassembly_preview.calculate_mates();
+        live_subassembly_preview.calculate_placement_references();
         const auto parent_before_live_override = workspace.open_assembly(topassembly_id)
             ->session.document().build_scene();
         const auto live_assembly_override = workspace.build_scene_with_assembly_override(

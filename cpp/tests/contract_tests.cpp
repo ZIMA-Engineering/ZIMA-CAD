@@ -688,19 +688,35 @@ int main() {
         point.origin = {1.0, 2.0, 3.0};
         auto axis = zima::document::PartDocument::create_construction(
             zima::document::ConstructionKind::Axis);
-        axis.direction = {1.0, 0.0, 0.0};
+        // Z direction (not X): the Plane container created below has its
+        // zero-rotation normal along X, so the shared external-reference
+        // sketch further down uses the YZ plane to view it face-on. An
+        // axis running along X would then be exactly edge-on to that view
+        // (a degenerate, zero-length 2D projection), so this axis must lie
+        // in the YZ plane instead.
+        axis.direction = {0.0, 0.0, 1.0};
         auto plane = zima::document::PartDocument::create_construction(
             zima::document::ConstructionKind::Plane);
         plane.display_size = 75.0;
         constructions.constructions = {point, axis, plane};
         const auto construction_mesh = constructions.construction_viewer_mesh();
-        require(construction_mesh.points.size() == 1 &&
+        // An Axis container now also exposes its own defining point (see
+        // `construction_viewer_mesh`'s Axis-kind branch) so hovering the
+        // container offers both its line and its point together, matching
+        // Point/Plane every other container kind already did -- hence 2
+        // points here (the Point container's own marker plus the Axis
+        // container's own marker), not 1.
+        require(construction_mesh.points.size() == 2 &&
                     construction_mesh.axes.size() == 1 &&
                     construction_mesh.edges.size() == 1 &&
-                    construction_mesh.original_references.points.size() == 1 &&
+                    construction_mesh.original_references.points.size() == 2 &&
                     construction_mesh.original_references.points.front().reference.owner_id ==
                         point.id + ":origin" &&
                     construction_mesh.original_references.points.front()
+                            .reference.semantic_key == "point" &&
+                    construction_mesh.original_references.points.back().reference.owner_id ==
+                        axis.id + ":origin" &&
+                    construction_mesh.original_references.points.back()
                             .reference.semantic_key == "point" &&
                     construction_mesh.original_references.axes.size() == 1 &&
                     construction_mesh.original_references.axes.front().reference.owner_id ==
@@ -709,7 +725,9 @@ int main() {
                 "Construction objects did not produce persisted ZIMA references");
         const auto edited_point_mesh =
             constructions.construction_viewer_mesh(point.id);
-        require(edited_point_mesh.points.size() == 1 &&
+        // Same +1 for the Axis container's own always-present point marker
+        // as above; editing the Point container does not remove it.
+        require(edited_point_mesh.points.size() == 2 &&
                     edited_point_mesh.points.front().reference.semantic_key ==
                         "point" &&
                     edited_point_mesh.axes.size() == 4 &&
@@ -722,7 +740,10 @@ int main() {
                     std::all_of(edited_point_mesh.axes.begin(),
                         edited_point_mesh.axes.begin() + 3,
                         [](const auto& value) {
-                            return std::abs(value.display_length - 2.0) < 1.0e-12;
+                            // Matches kContainerOriginAxisLength: a fixed
+                            // constant, independent of scene/model size or
+                            // camera zoom (see construction_viewer_mesh()).
+                            return std::abs(value.display_length - 5.0) < 1.0e-12;
                         }),
                 "Edited Point did not expose its distinct Container Origin");
         auto second_point = zima::document::PartDocument::create_construction(
@@ -752,7 +773,7 @@ int main() {
         referenced_plane.references = {
             {{}, constructions.document_id + ":origin", "origin:plane:xy", 8.0, true},
             {{}, constructions.document_id + ":origin", "origin:axis:x", 0.0, false,
-                "front", true}};
+                "front", true, true}};
         constructions.constructions.push_back(referenced_plane);
         constructions.resolve_constructions();
         require(constructions.constructions.back().reference_valid &&
@@ -839,6 +860,13 @@ int main() {
                 "Construction dependency accepted a self-cycle");
         constructions.constructions.pop_back();
         auto construction_reference_sketch = zima::sketcher::Sketch::create_default();
+        // A freshly created Plane container's zero-rotation normal is
+        // along GLOBAL X (Plane's local frame maps X to the normal, Y to
+        // FRONT, Z to TOP -- see construction_viewer_mesh()'s comment), so
+        // its quad lies in the YZ plane, not XY. The sketch must match that
+        // orientation, otherwise the quad projects edge-on (degenerate,
+        // zero-area) onto the sketch and is rejected as broken.
+        construction_reference_sketch.plane = zima::sketcher::SketchPlane::YZ;
         auto point_reference = zima::sketcher::Sketch::create_external_reference(
             zima::sketcher::ExternalReferenceKind::Point);
         point_reference.source_document_id = constructions.document_id;
@@ -861,11 +889,11 @@ int main() {
         plane_reference.cached_paths = {{{-1.0, -1.0}, {1.0, -1.0},
             {1.0, 1.0}, {-1.0, 1.0}, {-1.0, -1.0}}};
         construction_reference_sketch.add_external_reference(plane_reference);
-        require(construction_reference_sketch.refresh_external_references(
-                    constructions.document_id,
-                    construction_mesh.original_references) &&
+        const bool refreshed = construction_reference_sketch.refresh_external_references(
+            constructions.document_id, construction_mesh.original_references);
+        require(refreshed &&
                     construction_reference_sketch.external_references[0].cached_points ==
-                        std::vector<std::array<double, 2>>{{1.0, 2.0}} &&
+                        std::vector<std::array<double, 2>>{{2.0, 3.0}} &&
                     !construction_reference_sketch.external_references[0].broken &&
                     !construction_reference_sketch.external_references[1].broken &&
                     !construction_reference_sketch.external_references[2].broken,

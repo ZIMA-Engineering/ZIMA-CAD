@@ -207,24 +207,9 @@ and suppression are committed to the immediate owner. Nested Part rollback
 replaces only the exact leaf geometry in the cached top-level scene, preserving
 passive siblings and avoiding parent regeneration.
 
-The first Assembly-mate slice persists two exact endpoints (instance path,
-container owner, and semantic key), mate kind, signed offset, calculation
-status, and its directed dependency edge. A planar face is resolved and fully
-checked from persisted ZIMA viewer triangles only; selection and mate
-calculation never query OCCT.
+Assembly component placement now lives directly on each `PartOccurrence` as an embedded `placement_references` table edited in `ComponentPropertiesDialog`, not as a separate top-level Mate/Vazby tree system. Each row persists exact component-side and target-side references (instance path, owner, semantic key), reuses the shared `MateKind`/reference resolution helpers, and solves only on explicit OK/Regenerate via `calculate_placement_references()` from persisted ZIMA viewer data without OCCT queries.
 
-Plane-to-plane solves the deliberately bounded deterministic plane alignment
-and signed offset of the dependent immediate component. A component may own
-multiple Plane mates and multiple Axis mates. They are applied in deterministic
-order and then all active constraints are re-evaluated from persisted viewer
-geometry; any incompatible set restores the component's complete original
-placement rather than retaining a partial solution. Missing and unsupported references turn the mate
-red and suppress its dependent branch; explicit Regenerate clears the old
-error state before retrying, so repaired references recover.
-
-The GUI command selects both faces through the common viewer candidate list,
-then uses the shared internal Properties SubWindow with OK/Cancel to edit name
-and offset. OK calculates and commits one Assembly revision.
+The viewer still exposes the same editable dimension overlays and drag/value behavior for supported placement-reference rows, but ownership, serialization, dependency checks, and suppression now belong to the occurrence itself. This keeps placement editing local to the immediate owning Assembly and aligned with the Python architecture.
 
 ZIMA viewer packets now own stable axes as a point, unit direction, display
 length, and `AxisReference`. Explicit body calculation emits local `axis:x/y/z`

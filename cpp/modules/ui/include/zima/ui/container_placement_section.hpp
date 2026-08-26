@@ -40,12 +40,25 @@ public:
 
     // `parent_widget` owns every widget created by this section (tables,
     // headings, labels); `layout` is the dialog's vertical content layout
-    // the section appends its rows to, in the same top-to-bottom order as
-    // the reference implementation: status label, "Umístění kontejneru"
-    // heading, reference table, then (if `with_orientation`) the "Orientace
-    // kontejneru" heading and orientation table, then the DOF label.
+    // the section immediately appends its "Umístění kontejneru" heading and
+    // reference table to. The reference implementation's per-kind dialogs
+    // interleave the DOF label and, for Plane-kind containers, the
+    // "Orientace kontejneru" heading/FRONT-TOP table at different points
+    // relative to X/Y/Z and RX/RY/RZ, so this section only creates those
+    // widgets here; the owning dialog must position them explicitly with
+    // `install_dof_label()` / `install_orientation_section()` at the point
+    // in its own layout matching the reference implementation's order.
     ContainerPlacementSection(QWidget* parent_widget, QVBoxLayout* layout,
         bool with_orientation);
+
+    // Inserts the (already constructed) DOF label into `layout` at its
+    // current end. Call this once, at the position matching the reference
+    // implementation's dialog for this container kind.
+    void install_dof_label(QVBoxLayout* layout);
+    // Inserts the "Orientace kontejneru" heading and FRONT/TOP orientation
+    // table into `layout` at its current end. Only valid when this section
+    // was constructed with `with_orientation = true`.
+    void install_orientation_section(QVBoxLayout* layout);
 
     void set_reference_request_callback(ReferenceRequestCallback callback);
     // Invoked whenever a reference/offset/orientation-role edit changes the
@@ -91,13 +104,48 @@ public:
     [[nodiscard]] std::vector<zima::document::ConstructionReference>
         references_without(std::size_t index) const;
 
+    // Position references with empty ("removed") slots filtered out, in
+    // their existing row order. Use this (not references()) whenever the
+    // caller needs the actual list of currently-entered references -- e.g.
+    // to persist a container's placement, or to determine how many rows are
+    // truly filled -- since remove_reference() no longer shifts surviving
+    // rows up to close the gap left by a deleted reference (see its comment
+    // for why): references() itself may therefore contain empty placeholder
+    // entries at any position, not just at the end.
+    [[nodiscard]] std::vector<zima::document::ConstructionReference>
+        populated_references() const;
+    // Row index (0-2) of the first position row that is not currently
+    // populated (empty, or past the end of references()), or 3 if all three
+    // rows already hold a reference. Used by the "Počátek" bulk-fill (which
+    // always wants to target real empty rows, never assume they start at
+    // row 0) instead of trusting whichever row happens to be armed.
+    [[nodiscard]] std::size_t first_empty_position_index() const;
+
     [[nodiscard]] std::set<std::string> highlighted_reference_owner_ids() const;
+
+    // The full reference descriptors (owner_id + semantic_key +
+    // instance_path) of every currently-toggled highlighted row. Unlike
+    // highlighted_reference_owner_ids(), which only exposes the owner id,
+    // this lets a caller build a precise per-entity match (e.g. one
+    // specific Origin plane/axis/point, or one specific face of a body)
+    // instead of one that matches every sibling entity sharing that owner
+    // id (all of the Origin's planes/axes/points, or every face of the same
+    // body, share one owner id and are only told apart by semantic_key).
+    [[nodiscard]] std::vector<zima::document::ConstructionReference>
+        highlighted_reference_entries() const;
 
     // Whether `index` (across both tables) refers to an already-populated
     // row and, if so, its owner id -- used by dialogs that must reject
     // re-picking a reference already owned by the container itself.
     [[nodiscard]] QLabel* reference_status_label() const { return reference_status_; }
     [[nodiscard]] QLabel* dof_label() const { return dof_label_; }
+    // The owning dialog renames these to its own context-specific object
+    // name (e.g. "constructionReferenceTable" vs. "primitiveReferenceTable")
+    // right after construction, since this shared section is reused by
+    // multiple dialogs whose contract tests look up the table by a
+    // dialog-specific name.
+    [[nodiscard]] QTableWidget* reference_table() const { return reference_table_; }
+    [[nodiscard]] QTableWidget* orientation_table() const { return orientation_table_; }
 
     void refresh_reference_table();
     void refresh_orientation_table();
@@ -107,6 +155,7 @@ private:
     bool with_orientation_;
     QLabel* reference_status_{};
     QLabel* dof_label_{};
+    QLabel* orientation_heading_{};
     QTableWidget* reference_table_{};
     QTableWidget* orientation_table_{};
     std::array<ReferenceCellItem*, 3> reference_items_{};

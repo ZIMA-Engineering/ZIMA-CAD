@@ -25,6 +25,22 @@
 namespace zima::document {
 namespace {
 
+// Origin must never visually change size on screen as the camera zooms or
+// re-fits to newly-resolved feature geometry (Solid/Axis/Plane results are
+// the only things that are allowed to change apparent size with zoom). Sizing
+// Origin from the scene's bounding-box diagonal ("reference_scene_size")
+// made it grow/shrink every time the fit-to-view radius changed for an
+// unrelated reason (new body, new construction reference resolving, etc.),
+// which is exactly the long-running reported bug. Origin sizes are therefore
+// fixed, absolute constants, completely independent of the document's/scene's
+// size: one constant for the document's own Origin, a distinct constant for
+// every container's own editing-mode Origin (used identically for every
+// ConstructionKind -- Point, Axis, Plane, ...), never derived from geometry.
+constexpr double kDocumentOriginAxisLength = 8.0;
+constexpr double kDocumentOriginPlaneSize = 12.0;
+constexpr double kContainerOriginAxisLength = 5.0;
+constexpr double kContainerOriginPlaneSize = 7.5;
+
 std::string make_id() {
     std::mt19937_64 generator(
         static_cast<std::mt19937_64::result_type>(
@@ -2382,6 +2398,18 @@ ContainerOrigin create_container_origin(const std::string& parent_id) {
 
 bool resolve_construction(ConstructionObject& object,
     const zima::kernel::ViewerReferenceGeometry& geometry) {
+    // One shared placement model for every container kind (Point, Axis,
+    // Plane), matching Placement/resolve_placement() used by primitives and
+    // Extrusion/Revolution: placement references (orientation_drives_rotation
+    // == false) are solved generically for position, in any combination and
+    // count -- no more per-kind "named" definition (TwoPointAxis/
+    // AxisReference/ThreePointPlane/PlaneReference) requiring an exact
+    // reference count/type. References marked orientation_drives_rotation
+    // (front/top role) additionally compose the object's orientation, the
+    // same way a Point already did. The classic "2 points define an axis"/
+    // "3 points define a plane" shortcuts are still recognized, but only as
+    // a fallback when no orientation-driving reference is present and every
+    // placement reference resolves to a plain point.
     const auto matches = [](const auto& reference,
                             const ConstructionReference& expected) {
         return reference.instance_path == expected.instance_path &&
@@ -2446,208 +2474,165 @@ bool resolve_construction(ConstructionObject& object,
         }
         return std::nullopt;
     };
-    object.reference_valid = false;
-    // Plane orientation references are persisted alongside placement
-    // references, but they do not participate in the definition's required
-    // placement count.  Keep the two contracts separate when resolving.
-    const auto placement_references = [&] {
-        std::vector<std::reference_wrapper<const ConstructionReference>> result;
-        for (const auto& reference : object.references) {
-            if (!reference.orientation_drives_rotation) result.push_back(reference);
-        }
-        return result;
-    }();
-    if (object.definition == ConstructionDefinition::Absolute) {
+    if (object.references.empty()) {
         object.reference_valid = true;
-    } else if (object.definition == ConstructionDefinition::PointReference &&
-        !placement_references.empty()) {
-        // Point placement is a set of geometric constraints, not merely an
-        // alias of another vertex.  Preserve the entered origin as the
-        // under-constrained fallback and project it onto all selected stable
-        // points, straight edges/axes and planar faces/planes.
-        std::vector<std::pair<zima::kernel::Vec3, double>> equations;
-        const auto add_axis_equations = [&](const zima::kernel::ViewerAxis& value) {
-            const auto& d = value.direction;
-            const zima::kernel::Vec3 seed = std::abs(d.x) < 0.8
-                ? zima::kernel::Vec3{1.0, 0.0, 0.0}
-                : zima::kernel::Vec3{0.0, 1.0, 0.0};
-            zima::kernel::Vec3 first{
-                d.y * seed.z - d.z * seed.y,
-                d.z * seed.x - d.x * seed.z,
-                d.x * seed.y - d.y * seed.x};
-            const double first_length = std::sqrt(first.x * first.x +
-                first.y * first.y + first.z * first.z);
-            first = {first.x / first_length, first.y / first_length,
-                first.z / first_length};
-            const zima::kernel::Vec3 second{
-                d.y * first.z - d.z * first.y,
-                d.z * first.x - d.x * first.z,
-                d.x * first.y - d.y * first.x};
-            equations.push_back({first, first.x * value.point.x +
-                first.y * value.point.y + first.z * value.point.z});
-            equations.push_back({second, second.x * value.point.x +
-                second.y * value.point.y + second.z * value.point.z});
-        };
-        bool supported = true;
-        for (const auto& wrapped_reference : placement_references) {
-            const auto& reference = wrapped_reference.get();
-            if (const auto resolved = point(reference)) {
-                equations.push_back({{1.0, 0.0, 0.0}, resolved->x});
-                equations.push_back({{0.0, 1.0, 0.0}, resolved->y});
-                equations.push_back({{0.0, 0.0, 1.0}, resolved->z});
-            } else if (const auto resolved = axis(reference)) {
-                add_axis_equations(*resolved);
-            } else if (const auto resolved = plane(reference)) {
-                const auto& [plane_point, normal] = *resolved;
-                equations.push_back({normal, normal.x * plane_point.x +
-                    normal.y * plane_point.y + normal.z * plane_point.z +
-                    reference.offset});
-            } else {
-                supported = false;
-                break;
-            }
-        }
-        if (supported && !equations.empty()) {
-            constexpr double weight = 1.0e10;
-            double matrix[3][4]{{1.0, 0.0, 0.0, object.origin.x},
-                                {0.0, 1.0, 0.0, object.origin.y},
-                                {0.0, 0.0, 1.0, object.origin.z}};
-            for (const auto& [normal, rhs] : equations) {
-                const double values[3]{normal.x, normal.y, normal.z};
-                for (int row = 0; row < 3; ++row) {
-                    for (int column = 0; column < 3; ++column) {
-                        matrix[row][column] +=
-                            weight * values[row] * values[column];
-                    }
-                    matrix[row][3] += weight * values[row] * rhs;
-                }
-            }
-            bool solvable = true;
-            for (int column = 0; column < 3; ++column) {
-                int pivot = column;
-                for (int row = column + 1; row < 3; ++row) {
-                    if (std::abs(matrix[row][column]) >
-                        std::abs(matrix[pivot][column])) pivot = row;
-                }
-                if (std::abs(matrix[pivot][column]) <= 1.0e-12) {
-                    solvable = false;
-                    break;
-                }
-                if (pivot != column) {
-                    for (int item = column; item < 4; ++item) {
-                        std::swap(matrix[pivot][item], matrix[column][item]);
-                    }
-                }
-                const double divisor = matrix[column][column];
-                for (int item = column; item < 4; ++item) matrix[column][item] /= divisor;
-                for (int row = 0; row < 3; ++row) {
-                    if (row == column) continue;
-                    const double factor = matrix[row][column];
-                    for (int item = column; item < 4; ++item) {
-                        matrix[row][item] -= factor * matrix[column][item];
-                    }
-                }
-            }
-            if (solvable) {
-                const zima::kernel::Vec3 solved{
-                    matrix[0][3], matrix[1][3], matrix[2][3]};
-                const bool consistent = std::all_of(equations.begin(), equations.end(),
-                    [&](const auto& equation) {
-                        const auto& [normal, rhs] = equation;
-                        return std::abs(normal.x * solved.x + normal.y * solved.y +
-                            normal.z * solved.z - rhs) <= 1.0e-5;
-                    });
-                if (consistent) {
-                    object.origin = solved;
-                    object.reference_valid = true;
-                }
-            }
-        }
-    } else if (object.definition == ConstructionDefinition::TwoPointAxis &&
-               placement_references.size() == 2) {
-        const auto first = point(placement_references[0].get());
-        const auto second = point(placement_references[1].get());
-        if (first && second) {
-            const zima::kernel::Vec3 direction{second->x - first->x,
-                second->y - first->y, second->z - first->z};
-            const double magnitude = std::sqrt(direction.x * direction.x +
-                direction.y * direction.y + direction.z * direction.z);
-            if (magnitude > 1.0e-12) {
-                object.origin = *first;
-                object.direction = {direction.x / magnitude,
-                    direction.y / magnitude, direction.z / magnitude};
-                object.reference_valid = true;
-            }
-        }
-    } else if (object.definition == ConstructionDefinition::AxisReference &&
-               placement_references.size() == 1) {
-        if (const auto resolved = axis(placement_references[0].get())) {
-            object.origin = resolved->point;
-            object.direction = resolved->direction;
-            object.reference_valid = true;
-        }
-    } else if (object.definition == ConstructionDefinition::PlaneReference &&
-               placement_references.size() == 1) {
-        if (const auto resolved = plane(placement_references[0].get())) {
-            object.direction = resolved->second;
-            const double offset = placement_references[0].get().offset;
-            object.origin = {resolved->first.x + offset * object.direction.x,
-                resolved->first.y + offset * object.direction.y,
-                resolved->first.z + offset * object.direction.z};
-            object.reference_valid = true;
-        }
-    } else if (object.definition == ConstructionDefinition::ThreePointPlane &&
-               placement_references.size() == 3) {
-        const auto a = point(placement_references[0].get());
-        const auto b = point(placement_references[1].get());
-        const auto c = point(placement_references[2].get());
-        if (a && b && c) {
-            const zima::kernel::Vec3 ab{b->x - a->x, b->y - a->y, b->z - a->z};
-            const zima::kernel::Vec3 ac{c->x - a->x, c->y - a->y, c->z - a->z};
-            zima::kernel::Vec3 normal{ab.y * ac.z - ab.z * ac.y,
-                ab.z * ac.x - ab.x * ac.z, ab.x * ac.y - ab.y * ac.x};
-            const double magnitude = std::sqrt(normal.x * normal.x +
-                normal.y * normal.y + normal.z * normal.z);
-            if (magnitude > 1.0e-12) {
-                object.origin = *a;
-                object.direction = {normal.x / magnitude, normal.y / magnitude,
-                    normal.z / magnitude};
-                object.reference_valid = true;
-            }
-        }
+        return true;
     }
-    if (object.reference_valid && object.kind == ConstructionKind::Plane) {
-        std::optional<zima::kernel::Vec3> front;
-        std::optional<zima::kernel::Vec3> top;
-        for (const auto& reference : object.references) {
-            if (!reference.orientation_drives_rotation) continue;
+    // An orientation-driving (front/top role) reference contributes ONLY
+    // its direction to the frame below, never a position equation --
+    // exactly matching resolve_placement()'s identical split (and Python's
+    // `_solve_point_constraints()`, which skips every reference admitted as
+    // `position_role == "orientation_only"`). A reference picked purely to
+    // set FRONT/TOP is often a datum axis/plane whose own line/normal does
+    // NOT pass through the container's actual placement point (e.g. the
+    // document's own X axis picked only for direction, while a separate
+    // offset plane reference already fixes the real position) -- feeding
+    // it into the generic least-squares position solve as well would then
+    // make the whole placement spuriously unresolved by a conflicting
+    // extra equation, even though the reference implementation always
+    // treats a "position" reference and an "orientation" reference as two
+    // mutually exclusive admission outcomes for the very same pick.
+    std::vector<std::reference_wrapper<const ConstructionReference>>
+        position_references;
+    std::optional<zima::kernel::Vec3> front_direction;
+    std::optional<zima::kernel::Vec3> top_direction;
+    bool orientation_resolved = true;
+    for (const auto& reference : object.references) {
+        // Only a genuine orientation-only entry (the separate mirrored
+        // FRONT/TOP twin, or a standalone orientation-table pick) is
+        // excluded from the position solve below -- matching Python's
+        // `position_role == "orientation_only"` skip in
+        // `_solve_point_constraints()`. A Point container's automatically
+        // oriented position reference (orientation_drives_rotation == true
+        // but orientation_only == false) still contributes its own
+        // position equation; only its direction is additionally read here.
+        if (reference.orientation_drives_rotation) {
             std::optional<zima::kernel::Vec3> direction;
             if (const auto resolved = axis(reference)) direction = resolved->direction;
             else if (const auto resolved = plane(reference)) direction = resolved->second;
-            if (!direction) continue;
-            const double magnitude = std::hypot(
-                std::hypot(direction->x, direction->y), direction->z);
-            if (magnitude <= 1.0e-12) continue;
-            *direction = {direction->x / magnitude, direction->y / magnitude,
-                direction->z / magnitude};
-            if (reference.orientation_role == "top") top = *direction;
-            else front = *direction;
+            if (!direction) {
+                orientation_resolved = false;
+            } else {
+                if (reference.flip) {
+                    direction = zima::kernel::Vec3{
+                        -direction->x, -direction->y, -direction->z};
+                }
+                if (reference.orientation_role == "top") top_direction = direction;
+                else front_direction = direction;
+            }
         }
-        const auto perpendicular = [](const zima::kernel::Vec3& value) {
-            const auto seed = std::abs(value.z) < 0.8
-                ? zima::kernel::Vec3{0.0, 0.0, 1.0}
-                : zima::kernel::Vec3{0.0, 1.0, 0.0};
-            zima::kernel::Vec3 result{seed.y * value.z - seed.z * value.y,
-                seed.z * value.x - seed.x * value.z,
-                seed.x * value.y - seed.y * value.x};
+        if (!reference.orientation_only) position_references.push_back(reference);
+    }
+    // Classic "2 points define an axis"/"3 points define a plane" shortcut:
+    // only applies when no orientation-driving reference exists (it would
+    // otherwise conflict with an explicit front/top pick) and every
+    // placement reference is a plain point. This must be detected BEFORE
+    // the generic least-squares position solve below: that solve treats
+    // every point reference as an independent "origin equals this point"
+    // constraint, which is correct for a single point (or a point plus an
+    // offset plane/axis) but wrong here -- two (or three) *different*
+    // points are never meant to coincide, they define a line/plane through
+    // them. Feeding them all into the generic solve makes it average the
+    // points and then reject that average as "inconsistent" (each point is
+    // typically several mm away from the average), so a construction that
+    // the reference-table/DOF preview already reports as fully determined
+    // would otherwise fail to resolve at commit time. The shortcut instead
+    // takes the origin directly from the first picked point, matching the
+    // reference implementation's TwoPointAxis/ThreePointPlane semantics
+    // (first entity fixes the origin, subsequent ones only fix direction).
+    std::vector<zima::kernel::Vec3> shortcut_points;
+    bool all_points = !front_direction && !top_direction &&
+        !position_references.empty();
+    if (all_points) {
+        for (const auto& wrapped : position_references) {
+            if (const auto resolved = point(wrapped.get())) {
+                shortcut_points.push_back(*resolved);
+            } else {
+                all_points = false;
+                break;
+            }
+        }
+    }
+    const bool axis_shortcut = all_points &&
+        object.kind == ConstructionKind::Axis && shortcut_points.size() == 2;
+    const bool plane_shortcut = all_points &&
+        object.kind == ConstructionKind::Plane && shortcut_points.size() == 3;
+    // Position: solve generically for any combination/count of point/axis/
+    // plane placement references, falling back to the previously entered
+    // origin (not zero) when unresolved -- same contract as
+    // placement_solve_position()/resolve_placement(). The 2-point-axis/
+    // 3-point-plane shortcut instead takes the origin from the first point.
+    zima::kernel::Vec3 origin = object.origin;
+    bool position_resolved = false;
+    if (axis_shortcut || plane_shortcut) {
+        origin = shortcut_points.front();
+        position_resolved = true;
+    } else {
+        position_resolved =
+            placement_solve_position(position_references, geometry, origin);
+    }
+    if (position_resolved) object.origin = origin;
+    if (!front_direction && !top_direction && position_resolved) {
+        const std::vector<zima::kernel::Vec3>& resolved_points = shortcut_points;
+        if (axis_shortcut) {
+            const zima::kernel::Vec3 direction{
+                resolved_points[1].x - resolved_points[0].x,
+                resolved_points[1].y - resolved_points[0].y,
+                resolved_points[1].z - resolved_points[0].z};
             const double magnitude = std::hypot(
-                std::hypot(result.x, result.y), result.z);
-            return zima::kernel::Vec3{result.x / magnitude,
-                result.y / magnitude, result.z / magnitude};
-        };
-        if (front || top) {
-            auto normal_front = front;
-            auto normal_top = top;
+                std::hypot(direction.x, direction.y), direction.z);
+            if (magnitude > 1.0e-12) {
+                object.direction = {direction.x / magnitude,
+                    direction.y / magnitude, direction.z / magnitude};
+            }
+        } else if (plane_shortcut) {
+            const auto& a = resolved_points[0];
+            const auto& b = resolved_points[1];
+            const auto& c = resolved_points[2];
+            const zima::kernel::Vec3 ab{b.x - a.x, b.y - a.y, b.z - a.z};
+            const zima::kernel::Vec3 ac{c.x - a.x, c.y - a.y, c.z - a.z};
+            zima::kernel::Vec3 normal{ab.y * ac.z - ab.z * ac.y,
+                ab.z * ac.x - ab.x * ac.z, ab.x * ac.y - ab.y * ac.x};
+            const double magnitude = std::hypot(
+                std::hypot(normal.x, normal.y), normal.z);
+            if (magnitude > 1.0e-12) {
+                object.direction = {normal.x / magnitude, normal.y / magnitude,
+                    normal.z / magnitude};
+            }
+        }
+    }
+    // Orientation: a single directional reference sets the object's own
+    // direction vector directly (Axis: the picked line's direction; Plane:
+    // the normal, taking a second "top" reference into account when
+    // present, same as the FRONT/TOP frame construction below).
+    if (front_direction || top_direction) {
+        if (object.kind == ConstructionKind::Axis) {
+            // The Axis's own local frame is deferred to the Rotation step
+            // below: it composes the very same FRONT/TOP base frame used
+            // here (X -> "left", Y -> base/front, Z -> "up"/top -- exactly
+            // Plane's X=normal/Y=front/Z=top convention, see
+            // placement_frame_base_rotation_degrees) with the manual
+            // rotation_offset_* correction, then reads object.direction back
+            // out of that *composed* rotation. Deriving direction from a
+            // separate, correction-blind frame here (as before) made the
+            // Korekce RX/RY/RZ fields silently have no visible effect on the
+            // rendered axis line -- see the Rotation step for the actual
+            // direction_axis -> local-unit-vector mapping and assignment.
+        } else if (object.kind == ConstructionKind::Plane) {
+            auto normal_front = front_direction;
+            auto normal_top = top_direction;
+            const auto perpendicular = [](const zima::kernel::Vec3& value) {
+                const auto seed = std::abs(value.z) < 0.8
+                    ? zima::kernel::Vec3{0.0, 0.0, 1.0}
+                    : zima::kernel::Vec3{0.0, 1.0, 0.0};
+                zima::kernel::Vec3 result{seed.y * value.z - seed.z * value.y,
+                    seed.z * value.x - seed.x * value.z,
+                    seed.x * value.y - seed.y * value.x};
+                const double magnitude = std::hypot(
+                    std::hypot(result.x, result.y), result.z);
+                return zima::kernel::Vec3{result.x / magnitude,
+                    result.y / magnitude, result.z / magnitude};
+            };
             if (!normal_front) normal_front = perpendicular(*normal_top);
             if (!normal_top) normal_top = perpendicular(*normal_front);
             zima::kernel::Vec3 normal{
@@ -2661,47 +2646,42 @@ bool resolve_construction(ConstructionObject& object,
                     normal.z / magnitude};
             }
         }
-        // Compose the FRONT/TOP base frame (when present) with the manual
-        // rotation_offset_* correction, matching Placement's equivalent
-        // rotation_x/y/z derivation in resolve_placement().
-        const zima::kernel::Vec3 manual_offset{object.rotation_offset_x,
-            object.rotation_offset_y, object.rotation_offset_z};
-        object.rotation = placement_compose_orientation_degrees(
-            front, top, manual_offset);
-        object.rotation_base = placement_frame_base_rotation_degrees(front, top)
-            .value_or(zima::kernel::Vec3{});
-    } else if (object.reference_valid && object.kind == ConstructionKind::Point) {
-        // A Point has no dedicated orientation-reference table: any position
-        // reference marked orientation_drives_rotation (auto-assigned when a
-        // face/edge/axis is picked, see assign_automatic_orientation_role())
-        // simultaneously defines part of the frame.  Recompute rotation from
-        // whichever such references currently exist -- and fall back to the
-        // manual offset alone when none remain -- every time constructions
-        // are resolved, so deleting a rotation-driving reference restores the
-        // point's base orientation instead of leaving a stale value behind.
-        std::optional<zima::kernel::Vec3> front;
-        std::optional<zima::kernel::Vec3> top;
-        for (const auto& reference : object.references) {
-            if (!reference.orientation_drives_rotation) continue;
-            std::optional<zima::kernel::Vec3> direction;
-            if (const auto resolved = axis(reference)) direction = resolved->direction;
-            else if (const auto resolved = plane(reference)) direction = resolved->second;
-            if (!direction) continue;
-            const double magnitude = std::hypot(
-                std::hypot(direction->x, direction->y), direction->z);
-            if (magnitude <= 1.0e-12) continue;
-            *direction = {direction->x / magnitude, direction->y / magnitude,
-                direction->z / magnitude};
-            if (reference.orientation_role == "top") top = *direction;
-            else front = *direction;
-        }
-        const zima::kernel::Vec3 manual_offset{object.rotation_offset_x,
-            object.rotation_offset_y, object.rotation_offset_z};
-        object.rotation = placement_compose_orientation_degrees(
-            front, top, manual_offset);
-        object.rotation_base = placement_frame_base_rotation_degrees(front, top)
-            .value_or(zima::kernel::Vec3{});
     }
+    // Rotation: compose the FRONT/TOP base frame (when present) with the
+    // manual rotation_offset_* correction, uniformly for every kind -- same
+    // as Placement's rotation_x/y/z derivation in resolve_placement(). When
+    // no orientation-driving reference exists this leaves `object.rotation`
+    // untouched (the manually entered/last-known value), matching the
+    // "remembers last computed values" contract for a lost reference.
+    if (front_direction || top_direction) {
+        const zima::kernel::Vec3 manual_offset{object.rotation_offset_x,
+            object.rotation_offset_y, object.rotation_offset_z};
+        object.rotation = placement_compose_orientation_degrees(
+            front_direction, top_direction, manual_offset);
+        object.rotation_base = placement_frame_base_rotation_degrees(
+            front_direction, top_direction).value_or(zima::kernel::Vec3{});
+        if (object.kind == ConstructionKind::Axis) {
+            // Read the Axis's direction back out of the just-composed
+            // rotation (base frame + manual Korekce offset) instead of the
+            // pre-correction frame, so a Korekce RX/RY/RZ edit visibly
+            // rotates the rendered line -- matching Python's
+            // `_axis_direction_changed`, where the combo re-labels the
+            // picked reference's role (x -> left/local-X, y -> base/
+            // local-Y, z -> up/local-Z) onto this same rotation instead of
+            // an independent, correction-blind frame.
+            const auto matrix = placement_rotation_matrix_from_euler_degrees(
+                object.rotation);
+            const zima::kernel::Vec3 local = object.direction_axis == "x"
+                ? zima::kernel::Vec3{1.0, 0.0, 0.0}
+                : object.direction_axis == "z"
+                    ? zima::kernel::Vec3{0.0, 0.0, 1.0}
+                    : zima::kernel::Vec3{0.0, 1.0, 0.0};
+            object.direction = placement_transform_direction(matrix, local);
+        }
+    } else {
+        object.rotation_base = {};
+    }
+    object.reference_valid = position_resolved && orientation_resolved;
     return object.reference_valid;
 }
 
@@ -2712,22 +2692,25 @@ bool resolve_placement(
     std::optional<zima::kernel::Vec3> top_direction;
     bool orientation_resolved = true;
     for (const auto& reference : placement.references) {
-        if (!reference.orientation_drives_rotation) {
-            position_references.push_back(reference);
-            continue;
+        if (reference.orientation_drives_rotation) {
+            std::optional<zima::kernel::Vec3> direction;
+            if (const auto resolved = placement_reference_axis(reference, geometry)) {
+                direction = resolved->direction;
+            } else if (const auto resolved = placement_reference_plane(reference, geometry)) {
+                direction = resolved->normal;
+            }
+            if (!direction) {
+                orientation_resolved = false;
+            } else {
+                if (reference.flip) {
+                    direction = zima::kernel::Vec3{
+                        -direction->x, -direction->y, -direction->z};
+                }
+                if (reference.orientation_role == "top") top_direction = direction;
+                else front_direction = direction;
+            }
         }
-        std::optional<zima::kernel::Vec3> direction;
-        if (const auto resolved = placement_reference_axis(reference, geometry)) {
-            direction = resolved->direction;
-        } else if (const auto resolved = placement_reference_plane(reference, geometry)) {
-            direction = resolved->normal;
-        }
-        if (!direction) {
-            orientation_resolved = false;
-            continue;
-        }
-        if (reference.orientation_role == "top") top_direction = direction;
-        else front_direction = direction;
+        if (!reference.orientation_only) position_references.push_back(reference);
     }
     zima::kernel::Vec3 origin{placement.x, placement.y, placement.z};
     const bool position_resolved = placement_solve_position(
@@ -2778,7 +2761,11 @@ PointConstraintState point_constraint_state(
             direction.x * first.y - direction.y * first.x});
     };
     for (const auto& reference : references) {
-        if (reference.orientation_drives_rotation) continue;
+        // A reference also marked orientation-driving (front/top role)
+        // still constrains position (e.g. a plane's distance-from-origin
+        // equation) exactly like any other placement reference -- being
+        // used for orientation must not drop it from the position rank
+        // count, matching the equivalent fix in resolve_construction().
         if (std::any_of(geometry.points.begin(), geometry.points.end(),
                 [&](const auto& item) { return matches(item.reference, reference); })) {
             rows.insert(rows.end(), {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}});
@@ -2799,23 +2786,37 @@ PointConstraintState point_constraint_state(
                 last.x - first.x, last.y - first.y, last.z - first.z};
             const double length = std::hypot(
                 std::hypot(direction.x, direction.y), direction.z);
-            if (length <= 1.0e-12) continue;
-            direction = {direction.x / length, direction.y / length,
-                direction.z / length};
-            const bool straight = std::all_of(edge->points.begin(), edge->points.end(),
+            // A closed polygon loop (e.g. an Origin/construction plane's
+            // boundary, which is also represented as a 4/5-point "edge" for
+            // wireframe display) is not a straight line, so it must NOT be
+            // treated as a linear reference here.  Previously this fell
+            // through to `continue`, silently dropping the reference
+            // (contributing zero constraint rows) instead of falling
+            // through to the triangle-based plane-normal check below --
+            // making 2+ plane references never fully constrain X/Y/Z.
+            const bool straight = length > 1.0e-12 && std::all_of(
+                edge->points.begin(), edge->points.end(),
                 [&](const auto& point) {
                     const zima::kernel::Vec3 delta{point.x - first.x,
                         point.y - first.y, point.z - first.z};
+                    const zima::kernel::Vec3 normalized_direction{
+                        direction.x / length, direction.y / length,
+                        direction.z / length};
                     const zima::kernel::Vec3 deviation{
-                        delta.y * direction.z - delta.z * direction.y,
-                        delta.z * direction.x - delta.x * direction.z,
-                        delta.x * direction.y - delta.y * direction.x};
+                        delta.y * normalized_direction.z -
+                            delta.z * normalized_direction.y,
+                        delta.z * normalized_direction.x -
+                            delta.x * normalized_direction.z,
+                        delta.x * normalized_direction.y -
+                            delta.y * normalized_direction.x};
                     return std::hypot(std::hypot(deviation.x, deviation.y),
                         deviation.z) <= 1.0e-7;
                 });
-            if (!straight) continue;
-            append_axis_rows(direction);
-            continue;
+            if (straight) {
+                append_axis_rows({direction.x / length, direction.y / length,
+                    direction.z / length});
+                continue;
+            }
         }
         for (std::size_t index = 0;
              index < geometry.triangle_references.size(); ++index) {
@@ -2875,6 +2876,17 @@ int point_constraint_remaining_dof(
     return point_constraint_state(references, geometry).remaining_dof;
 }
 
+bool construction_reference_is_point(
+    const ConstructionReference& reference,
+    const zima::kernel::ViewerReferenceGeometry& geometry) {
+    return std::any_of(geometry.points.begin(), geometry.points.end(),
+        [&](const auto& candidate) {
+            return candidate.reference.instance_path == reference.instance_path &&
+                candidate.reference.owner_id == reference.owner_id &&
+                candidate.reference.semantic_key == reference.semantic_key;
+        });
+}
+
 int orientation_constraint_remaining_dof(
     const std::vector<ConstructionReference>& references,
     const zima::kernel::ViewerReferenceGeometry& geometry,
@@ -2897,8 +2909,28 @@ int orientation_constraint_remaining_dof(
             if (edge != geometry.edges.end() && edge->points.size() >= 2) {
                 const auto& first = edge->points.front();
                 const auto& last = edge->points.back();
-                direction = zima::kernel::Vec3{last.x - first.x,
+                const zima::kernel::Vec3 candidate{last.x - first.x,
                     last.y - first.y, last.z - first.z};
+                // A closed polygon loop (e.g. an Origin/construction plane's
+                // boundary, represented as a closed 4/5-point "edge" for
+                // wireframe display, whose first and last points coincide)
+                // is not a linear reference -- taking its degenerate
+                // first-to-last (zero-length) vector here previously
+                // produced a non-null but zero-magnitude "direction", which
+                // both skipped the triangle-based plane-normal fallback
+                // below (since `direction` was already engaged) and then
+                // got silently dropped by the magnitude<=1e-9 check further
+                // down -- making a plane reference contribute nothing to
+                // the rotation-DOF count instead of correctly resolving its
+                // normal, leaving the count stuck at 1 as if only a single
+                // direction were known. Only accept the edge as linear when
+                // it actually has non-negligible length; otherwise fall
+                // through to the triangle-normal check below, matching the
+                // equivalent straightness guard in point_constraint_state().
+                if (std::hypot(std::hypot(candidate.x, candidate.y), candidate.z) >
+                        1.0e-9) {
+                    direction = candidate;
+                }
             }
         }
         if (!direction) {
@@ -2969,14 +3001,12 @@ zima::kernel::ViewerMesh PartDocument::origin_viewer_mesh(
                            name + " · Origin"});
     mesh.original_references.points.push_back(
         {zero, {origin_id, "origin:point", {}}});
-    // Matches Python's origin_axes_mesh(): length = max(scene * 0.075, 2.5).
-    const double origin_axis_length =
-        std::max(reference_scene_size * 0.075, 2.5);
-    // Matches Python's datum_plane_mesh(): size = max(scene * 0.12, 4.0),
-    // half = size * 0.5. This is a separate constant from the axis length
-    // above -- the two must not be conflated.
-    const double origin_plane_size =
-        std::max(reference_scene_size * 0.12, 4.0);
+    // Origin's on-screen size must never change with the model/scene size
+    // or camera zoom -- see kDocumentOriginAxisLength's comment.
+    // `reference_scene_size` is intentionally unused here.
+    (void)reference_scene_size;
+    const double origin_axis_length = kDocumentOriginAxisLength;
+    const double origin_plane_size = kDocumentOriginPlaneSize;
     for (const auto& [key, direction] : std::array{
              std::pair{"x", zima::kernel::Vec3{1.0, 0.0, 0.0}},
              std::pair{"y", zima::kernel::Vec3{0.0, 1.0, 0.0}},
@@ -3066,6 +3096,10 @@ double viewer_mesh_bounds_diagonal(const zima::kernel::ViewerMesh& mesh) {
 
 zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
     const std::string& editing_object_id, double reference_scene_size) const {
+    // Origin sizing no longer depends on scene size (see
+    // kDocumentOriginAxisLength's comment); this parameter is kept only for
+    // source compatibility with existing call sites.
+    (void)reference_scene_size;
     zima::kernel::ViewerMesh mesh;
     const auto normalized = [](zima::kernel::Vec3 value) {
         const double length = std::sqrt(value.x * value.x + value.y * value.y +
@@ -3104,39 +3138,31 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
         // suppressed ones, are skipped entirely.
         if (object.suppressed) continue;
         if (!object.reference_valid && !editing) continue;
-        if (object.kind == ConstructionKind::Point) {
+        // Every container's own editing-mode Origin (axes + FRONT/TOP/...
+        // planes) is sized from a single fixed constant
+        // (kContainerOriginAxisLength/kContainerOriginPlaneSize), the same
+        // for every ConstructionKind and completely independent of the
+        // scene/model size or camera zoom -- exactly like the document's own
+        // Origin (kDocumentOriginAxisLength/kDocumentOriginPlaneSize), just a
+        // distinct constant so the two are visually told apart. Deriving
+        // either from `reference_scene_size` made both grow/shrink every
+        // time the camera's fit-to-view radius changed for an unrelated
+        // reason (new body, a construction reference resolving to real
+        // feature geometry, etc.), which was the long-running reported bug.
+        // Arrowheads remain screen-space renderer geometry. Python shows
+        // this preview for *every* container kind while it is the one being
+        // edited (see `_append_object_origins`'s
+        // `obj.entity_id == editing_object_id` branch), independent of
+        // whether the container's own feature geometry has been resolved
+        // yet -- an Axis/Plane container that has no reference at all must
+        // still show this preview instead of nothing.
+        const auto append_editing_origin_frame = [&] {
             const std::string& origin_id = object.container_origin.id;
-            // Point is the intentional container/geometry exception: its one
-            // visible marker always represents the Point container itself.
-            // Editing may expose the container's auxiliary Origin axes and
-            // planes, but must not rename the marker to a nested origin point.
-            constexpr std::string_view point_semantic{"point"};
-            if (object.reference_valid) {
-                mesh.points.push_back(
-                    {object.origin, {origin_id, std::string(point_semantic), {}}, object.name});
-                mesh.original_references.points.push_back(
-                    {object.origin, {origin_id, std::string(point_semantic), {}}});
-            }
-            if (!editing) continue;
-            // Every container Origin is half the linear size of the document
-            // Origin (matches Python's origin_axes_mesh()/datum_plane_mesh()
-            // constants: axes = max(scene * 0.075, 2.5), i.e. half of the
-            // document's max(scene * 0.15, 5.0)... but to stay consistent
-            // with the document Origin's own halving convention used
-            // elsewhere in this codebase, the container's axis length is
-            // half of `origin_viewer_mesh`'s axis length and its plane size
-            // is half of `origin_viewer_mesh`'s plane size). Arrowheads
-            // remain screen-space renderer geometry.
-            const double extent =
-                std::max(reference_scene_size * 0.075, 2.5) * 0.5;
+            const double extent = kContainerOriginAxisLength;
             // `datum_plane_mesh()`'s `size` parameter is the FULL edge
-            // length, and callers halve it to get corner half-widths (see
-            // `origin_viewer_mesh`'s `origin_plane_size * 0.5`). To make the
-            // container's plane half the *document's* plane size, halve the
-            // document plane size once for the container's own full size,
-            // then halve again for the corner half-width.
-            const double plane_extent =
-                std::max(reference_scene_size * 0.12, 4.0) * 0.5 * 0.5;
+            // length; callers halve it to get corner half-widths (see
+            // `origin_viewer_mesh`'s `origin_plane_size * 0.5`).
+            const double plane_extent = kContainerOriginPlaneSize * 0.5;
             for (const auto& [key, local_direction] : std::array{
                      std::pair{"x", zima::kernel::Vec3{1.0, 0.0, 0.0}},
                      std::pair{"y", zima::kernel::Vec3{0.0, 1.0, 0.0}},
@@ -3183,18 +3209,47 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
             append_plane("xy", {1.0, 0.0, 0.0}, {0.0, 1.0, 0.0});
             append_plane("yz", {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0});
             append_plane("xz", {1.0, 0.0, 0.0}, {0.0, 0.0, 1.0});
+        };
+        if (object.kind == ConstructionKind::Point) {
+            const std::string& origin_id = object.container_origin.id;
+            // Point is the intentional container/geometry exception: its one
+            // visible marker always represents the Point container itself.
+            // Editing may expose the container's auxiliary Origin axes and
+            // planes, but must not rename the marker to a nested origin point.
+            constexpr std::string_view point_semantic{"point"};
+            if (object.reference_valid) {
+                mesh.points.push_back(
+                    {object.origin, {origin_id, std::string(point_semantic), {}}, object.name});
+                mesh.original_references.points.push_back(
+                    {object.origin, {origin_id, std::string(point_semantic), {}}});
+            }
+            if (editing) append_editing_origin_frame();
             continue;
         }
         const auto normal = normalized(object.direction);
         if (object.kind == ConstructionKind::Axis) {
+            if (editing) append_editing_origin_frame();
             if (!object.reference_valid) continue;
             mesh.axes.push_back({object.origin, normal, object.display_size,
                                  {object.entity_id, "axis", {}}});
             mesh.original_references.axes.push_back(
                 {object.origin, normal, object.display_size,
                  {object.entity_id, "axis", {}}});
+            // An Axis container's own defining point must stay visible and
+            // labelled with the container's name, exactly like the Point
+            // container's marker below -- otherwise the Axis line renders
+            // with neither a marker at its origin nor any text, unlike
+            // every other container kind.
+            {
+                const std::string& origin_id = object.container_origin.id;
+                mesh.points.push_back(
+                    {object.origin, {origin_id, "point", {}}, object.name});
+                mesh.original_references.points.push_back(
+                    {object.origin, {origin_id, "point", {}}});
+            }
             continue;
         }
+        if (editing) append_editing_origin_frame();
         if (!object.reference_valid) continue;
         // The Plane's local frame maps X to the plane normal, Y to FRONT and
         // Z to TOP (see placement_frame_base_rotation_degrees), matching the
@@ -4181,7 +4236,9 @@ PartDocument PartDocument::load(
                         serialized.at("offset").get<double>(),
                         serialized.at("supports_offset").get<bool>(),
                         serialized.at("orientation_role").get<std::string>(),
-                        serialized.at("orientation_drives_rotation").get<bool>()});
+                        serialized.at("orientation_drives_rotation").get<bool>(),
+                        serialized.value("orientation_only", false),
+                        serialized.value("flip", false)});
                 }
             }
         }
@@ -4254,6 +4311,11 @@ PartDocument PartDocument::load(
         object.direction = {source.at("direction_x").get<double>(),
                             source.at("direction_y").get<double>(),
                             source.at("direction_z").get<double>()};
+        object.direction_axis = source.value("direction_axis", "y");
+        if (object.direction_axis != "x" && object.direction_axis != "y" &&
+            object.direction_axis != "z") {
+            throw std::runtime_error("Invalid construction direction_axis");
+        }
         object.display_size = source.at("display_size").get<double>();
         const auto definition = source.at("definition").get<std::string>();
         object.definition = definition == "absolute" ? ConstructionDefinition::Absolute
@@ -4274,7 +4336,9 @@ PartDocument PartDocument::load(
                 serialized.at("offset").get<double>(),
                 serialized.at("supports_offset").get<bool>(),
                 serialized.at("orientation_role").get<std::string>(),
-                serialized.at("orientation_drives_rotation").get<bool>()});
+                serialized.at("orientation_drives_rotation").get<bool>(),
+                serialized.value("orientation_only", false),
+                serialized.value("flip", false)});
         }
         const double direction_length = std::sqrt(
             object.direction.x * object.direction.x +
@@ -4600,7 +4664,9 @@ void PartDocument::save(
                         {"supports_offset", reference.supports_offset},
                         {"orientation_role", reference.orientation_role},
                         {"orientation_drives_rotation",
-                            reference.orientation_drives_rotation}});
+                            reference.orientation_drives_rotation},
+                        {"orientation_only", reference.orientation_only},
+                        {"flip", reference.flip}});
             }
             serialized["placement"] = {
                 {"x", container.placement.x},
@@ -4829,7 +4895,9 @@ void PartDocument::save(
                 {"supports_offset", reference.supports_offset},
                 {"orientation_role", reference.orientation_role},
                 {"orientation_drives_rotation",
-                    reference.orientation_drives_rotation}});
+                    reference.orientation_drives_rotation},
+                {"orientation_only", reference.orientation_only},
+                {"flip", reference.flip}});
         }
         const auto definition = object.definition == ConstructionDefinition::Absolute
             ? "absolute"
@@ -4863,6 +4931,7 @@ void PartDocument::save(
             {"direction_x", object.direction.x},
             {"direction_y", object.direction.y},
             {"direction_z", object.direction.z},
+            {"direction_axis", object.direction_axis},
             {"display_size", object.display_size}, {"definition", definition},
             {"references", std::move(references)}, {"offset", object.offset},
             {"reference_valid", object.reference_valid},

@@ -30,6 +30,17 @@ QWidget* build_reference_row_indicator(std::function<void()> remove_callback);
 // states. Direct port of Python's _set_reference_row_populated.
 void set_reference_row_populated(QWidget* indicator, bool populated);
 
+// Builds a checkable icon-style FLIP toggle button for an orientation-
+// driving reference row (Axis/Plane FRONT/TOP picks). A checkable QToolButton
+// rather than a QCheckBox, matching build_reference_row_indicator()'s icon-
+// button visual language; the user only inspects the live 3D-view result,
+// not the control's own checked appearance. Disabled (and left unchecked)
+// for a plain position reference (Point, or a position-only Axis/Plane
+// pick), which has no direction to invert. toggled_callback receives the
+// new checked state.
+QWidget* build_reference_row_flip_button(
+    bool enabled, bool checked, std::function<void(bool)> toggled_callback);
+
 // Reference-column table item: a flat QTableWidgetItem holding a reference
 // descriptor (empty when unfilled), its display label and a "checked"/
 // highlighted flag. Mirrors Python's _ReferenceCellItem: the reference is a

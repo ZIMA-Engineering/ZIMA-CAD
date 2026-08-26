@@ -111,7 +111,7 @@ add_executable(zima-cad-cpp
     app/component_properties_dialog.cpp app/primitive_properties_dialog.cpp
     app/construction_properties_dialog.cpp
     app/orientation_dialog.cpp
-    app/mate_properties_dialog.cpp app/sketch_properties_dialog.cpp
+    app/sketch_properties_dialog.cpp
     app/sketch_bspline_properties_dialog.cpp
     app/sketch_text_properties_dialog.cpp
     app/sketch_dimension_properties_dialog.cpp)
@@ -146,7 +146,7 @@ if(ZIMA_BUILD_TESTS)
         tests/ui_contract_tests.cpp app/primitive_properties_dialog.cpp
         app/construction_properties_dialog.cpp
         app/orientation_dialog.cpp
-        app/component_properties_dialog.cpp app/mate_properties_dialog.cpp
+        app/component_properties_dialog.cpp
         app/file_dialog.cpp app/application_settings.cpp
         app/document_tools_dialogs.cpp)
     target_sources(zima_cpp_ui_contract_tests PRIVATE app/sketch_properties_dialog.cpp)

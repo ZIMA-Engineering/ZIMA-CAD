@@ -51,6 +51,45 @@ struct OccurrenceSnapshot {
     bool operator==(const OccurrenceSnapshot&) const = default;
 };
 
+enum class MateReferenceKind { Face, Axis, Point };
+enum class MateKind {
+    PlaneCoincident, AxisCoincident, PointCoincident, AxisAngle, PlaneAngle
+};
+enum class MateStatus { Uncalculated, Valid, MissingReference, UnsupportedGeometry };
+
+struct MateReference {
+    MateReferenceKind kind{MateReferenceKind::Face};
+    InstancePath instance_path;
+    std::string owner_id;
+    std::string semantic_key;
+    bool operator==(const MateReference&) const = default;
+};
+
+// A single placement reference row stored directly on the component that is
+// being positioned -- the Python reference design (component.parameters
+// ["assembly_mates"]) rather than a separate top-level Mate document object.
+// `component_reference` is the moving geometry, picked on the ORIGINAL
+// (un-transformed) source body of the occurrence being placed itself;
+// `target_reference` is the geometry it is placed against, which may live on
+// the assembly's own origin/constructions or on another already-placed
+// component. `mate_type`/`offset` reuse the exact same solving semantics as
+// the legacy AssemblyMate row (PlaneCoincident/AxisCoincident/PointCoincident
+// distance-or-coincidence, AxisAngle/PlaneAngle angle) -- there is only one
+// solver family, this only changes WHERE the row is stored and displayed.
+// `flip` mirrors ConstructionReference::flip: it inverts the resolved
+// direction/normal of an orientation-driving reference as a post-solve step,
+// and is a no-op for a PointCoincident row (no direction to invert).
+struct ComponentPlacementReference {
+    MateKind mate_type{MateKind::PlaneCoincident};
+    MateReference component_reference;
+    MateReference target_reference;
+    double offset{};
+    bool flip{};
+    std::optional<double> lower_limit;
+    std::optional<double> upper_limit;
+    bool operator==(const ComponentPlacementReference&) const = default;
+};
+
 struct PartOccurrence {
     std::string occurrence_id;
     std::string name;
@@ -63,6 +102,13 @@ struct PartOccurrence {
     bool visible{true};
     zima::kernel::BodyResult calculated_source;
     std::vector<OccurrenceSnapshot> nested_snapshot;
+    // Placement references entered directly in this component's own
+    // Properties dialog (Python-style embedded reference table), capped at 3
+    // rows like Python's _retained_mate_rows(value[:3]). Populated rows
+    // drive placement_solve_component()'s ComponentPlacement solve; this
+    // supersedes the legacy standalone AssemblyMate model for NEW placements
+    // once the properties-dialog UI is wired up.
+    std::vector<ComponentPlacementReference> placement_references;
 };
 
 // Assembly-owned subtractive feature. `definition` is deliberately the same
@@ -90,20 +136,6 @@ struct ComponentDependency {
     std::string prerequisite_occurrence_id;
     ComponentDependencyKind kind{ComponentDependencyKind::PlacementReference};
     bool operator==(const ComponentDependency&) const = default;
-};
-
-enum class MateReferenceKind { Face, Axis, Point };
-enum class MateKind {
-    PlaneCoincident, AxisCoincident, PointCoincident, AxisAngle, PlaneAngle
-};
-enum class MateStatus { Uncalculated, Valid, MissingReference, UnsupportedGeometry };
-
-struct MateReference {
-    MateReferenceKind kind{MateReferenceKind::Face};
-    InstancePath instance_path;
-    std::string owner_id;
-    std::string semantic_key;
-    bool operator==(const MateReference&) const = default;
 };
 
 struct AssemblyMate {
@@ -249,6 +281,11 @@ public:
     [[nodiscard]] PointResolution resolve_point(
         const MateReference& reference) const;
     void calculate_mates();
+    // Solves PartOccurrence::placement_references for every non-grounded
+    // component -- the embedded per-component reference-row model (see
+    // ComponentPlacementReference) that supersedes the legacy AssemblyMate
+    // vector for new placements.
+    void calculate_placement_references();
     [[nodiscard]] int remaining_degrees_of_freedom(
         const std::string& occurrence_id) const;
     [[nodiscard]] std::unordered_set<std::string>

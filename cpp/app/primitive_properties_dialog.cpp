@@ -157,6 +157,10 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
             });
         reference_status_ = placement_->reference_status_label();
         dof_label_ = placement_->dof_label();
+        placement_->reference_table()->setObjectName("primitiveReferenceTable");
+        if (placement_->orientation_table() != nullptr) {
+            placement_->orientation_table()->setObjectName("primitiveOrientationTable");
+        }
         placement_->set_reference_request_callback(
             [this](std::size_t index) {
                 if (reference_request_) reference_request_(index);
@@ -166,6 +170,8 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
             [this] { if (reference_highlights_changed_) reference_highlights_changed_(); });
         placement_->refresh_reference_table();
         placement_->refresh_orientation_table();
+        placement_->install_orientation_section(content_layout());
+        placement_->install_dof_label(content_layout());
     }
 
     auto* form = new QFormLayout;
@@ -906,6 +912,12 @@ std::set<std::string>
 PrimitivePropertiesDialog::highlighted_reference_owner_ids() const {
     return placement_ ? placement_->highlighted_reference_owner_ids()
                        : std::set<std::string>{};
+}
+
+std::vector<zima::document::ConstructionReference>
+PrimitivePropertiesDialog::highlighted_reference_entries() const {
+    return placement_ ? placement_->highlighted_reference_entries()
+                       : std::vector<zima::document::ConstructionReference>{};
 }
 
 bool PrimitivePropertiesDialog::set_reference(std::size_t index,

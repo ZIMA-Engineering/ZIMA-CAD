@@ -1,7 +1,6 @@
 #include "primitive_properties_dialog.hpp"
 #include "construction_properties_dialog.hpp"
 #include "component_properties_dialog.hpp"
-#include "mate_properties_dialog.hpp"
 #include "sketch_properties_dialog.hpp"
 #include "sketch_dimension_properties_dialog.hpp"
 #include "sketch_text_properties_dialog.hpp"
@@ -518,7 +517,7 @@ int main(int argc, char* argv[]) {
                     orientation_table->item(0, 1) != nullptr,
                 "Plane Properties does not expose the Python FRONT/TOP table");
         plane_dialog->set_reference(0,
-            {{}, "axis-front", "axis"}, "Osa FRONT",
+            {{}, "axis-front", "axis", 0.0, false, "none", true}, "Osa FRONT",
             zima::document::ConstructionDefinition::PointReference);
         application.processEvents();
         auto* first_orientation_item = orientation_table->item(0, 1);
@@ -529,7 +528,7 @@ int main(int argc, char* argv[]) {
             {{}, "axis-top", "axis"}, "Osa TOP");
         plane_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
         require(committed_plane.references.size() == 3 &&
-                    !committed_plane.references[0].orientation_drives_rotation &&
+                    committed_plane.references[0].orientation_drives_rotation &&
                     committed_plane.references[1].orientation_drives_rotation &&
                     committed_plane.references[1].orientation_role == "front" &&
                     committed_plane.references[2].orientation_role == "top",
@@ -540,7 +539,7 @@ int main(int argc, char* argv[]) {
         plane_remove_dialog->show();
         application.processEvents();
         plane_remove_dialog->set_reference(0,
-            {{}, "axis-remove", "axis"}, "Osa synchronní",
+            {{}, "axis-remove", "axis", 0.0, false, "none", true}, "Osa synchronní",
             zima::document::ConstructionDefinition::PointReference);
         auto* remove_position_table = plane_remove_dialog->findChild<QTableWidget*>(
             "constructionReferenceTable");
@@ -783,105 +782,86 @@ int main(int argc, char* argv[]) {
                     committed_component.source_document_id == source_id,
                 "Component Properties changed source ownership or lost placement");
 
-        auto mate = zima::assembly::AssemblyDocument::create_mate(
-            "Vazba", zima::assembly::MateKind::PlaneCoincident,
-            {zima::assembly::MateReferenceKind::Face,
-             zima::assembly::InstancePath{}.child("dependent"), "box-a", "z_min"},
-            {zima::assembly::MateReferenceKind::Face,
-             zima::assembly::InstancePath{}.child("prerequisite"), "box-b", "z_max"});
-        int mate_commits = 0;
-        zima::assembly::AssemblyMate committed_mate;
-        auto* mate_dialog = new zima::app::MatePropertiesDialog(
-            mate,
-            [&](zima::assembly::AssemblyMate value) {
-                ++mate_commits;
-                committed_mate = std::move(value);
+        // Embedded placement-reference table (redesign matching Python's
+        // AssemblyComponentPropertiesDialog): the dialog itself requests
+        // viewer picks per row/side and stores committed rows in
+        // placement_references(), which submit() persists onto the
+        // committed PartOccurrence.
+        std::vector<std::pair<std::size_t, bool>> placement_reference_requests;
+        int placement_component_commits = 0;
+        zima::assembly::PartOccurrence committed_placement_component;
+        auto* placement_dialog = new zima::app::ComponentPropertiesDialog(
+            component,
+            [&](zima::assembly::PartOccurrence value) {
+                ++placement_component_commits;
+                committed_placement_component = std::move(value);
             }, &parent);
-        mate_dialog->show();
+        placement_dialog->set_reference_request_callback(
+            [&](std::size_t index, bool component_side) {
+                placement_reference_requests.emplace_back(index, component_side);
+            });
+        placement_dialog->show();
         application.processEvents();
-        auto* mate_offset = mate_dialog->findChild<QDoubleSpinBox*>("mateOffset");
-        require(mate_offset != nullptr,
-                "Mate Properties does not expose its offset");
-        mate_offset->setValue(12.5);
-        mate_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
-        application.processEvents();
-        require(mate_commits == 1 && committed_mate.offset == 12.5 &&
-                    committed_mate.dependent == mate.dependent &&
-                    committed_mate.prerequisite == mate.prerequisite,
-                "Mate Properties changed references or lost its offset");
-        auto axis_mate = zima::assembly::AssemblyDocument::create_mate(
-            "Osy", zima::assembly::MateKind::AxisCoincident,
-            {zima::assembly::MateReferenceKind::Axis,
-             zima::assembly::InstancePath{}.child("dependent"), "box-a", "axis:z"},
-            {zima::assembly::MateReferenceKind::Axis,
-             zima::assembly::InstancePath{}.child("prerequisite"), "box-b", "axis:z"});
-        auto* axis_dialog = new zima::app::MatePropertiesDialog(
-            axis_mate, [](zima::assembly::AssemblyMate) {}, &parent);
-        axis_dialog->show();
-        application.processEvents();
-        auto* axis_offset = axis_dialog->findChild<QDoubleSpinBox*>("mateOffset");
-        require(axis_offset != nullptr && !axis_offset->isEnabled(),
-                "Axis mate incorrectly exposed a meaningless axial offset");
-        axis_dialog->buttons()->button(QDialogButtonBox::Cancel)->click();
-        auto point_mate = zima::assembly::AssemblyDocument::create_mate(
-            "Body", zima::assembly::MateKind::PointCoincident,
-            {zima::assembly::MateReferenceKind::Point,
-             zima::assembly::InstancePath{}.child("dependent"), "box-a", "corner:0"},
-            {zima::assembly::MateReferenceKind::Point,
-             zima::assembly::InstancePath{}.child("prerequisite"), "box-b", "corner:0"});
-        auto* point_dialog = new zima::app::MatePropertiesDialog(
-            point_mate, [](zima::assembly::AssemblyMate) {}, &parent);
-        point_dialog->show();
-        application.processEvents();
-        auto* point_offset = point_dialog->findChild<QDoubleSpinBox*>("mateOffset");
-        auto* point_flip = point_dialog->findChild<QCheckBox*>("mateFlipped");
-        require(point_offset != nullptr && !point_offset->isEnabled() &&
-                    point_flip != nullptr && !point_flip->isEnabled(),
-                "Point mate exposed meaningless offset or orientation controls");
-        point_dialog->buttons()->button(QDialogButtonBox::Cancel)->click();
-        auto angle_mate = zima::assembly::AssemblyDocument::create_mate(
-            "Úhel", zima::assembly::MateKind::AxisAngle,
-            {zima::assembly::MateReferenceKind::Axis,
-             zima::assembly::InstancePath{}.child("dependent"), "box-a", "axis:z"},
-            {zima::assembly::MateReferenceKind::Axis,
-             zima::assembly::InstancePath{}.child("prerequisite"), "box-b", "axis:z"});
-        auto* angle_dialog = new zima::app::MatePropertiesDialog(
-            angle_mate, [](zima::assembly::AssemblyMate) {}, &parent);
-        angle_dialog->show();
-        application.processEvents();
-        auto* angle_value = angle_dialog->findChild<QDoubleSpinBox*>("mateAngle");
-        auto* mate_lower_enabled =
-            angle_dialog->findChild<QCheckBox*>("mateLowerEnabled");
-        auto* mate_upper_enabled =
-            angle_dialog->findChild<QCheckBox*>("mateUpperEnabled");
-        auto* mate_lower = angle_dialog->findChild<QDoubleSpinBox*>("mateLowerLimit");
-        auto* mate_upper = angle_dialog->findChild<QDoubleSpinBox*>("mateUpperLimit");
-        require(angle_value != nullptr && angle_value->isEnabled() &&
-                    angle_value->suffix().contains("°") && mate_lower_enabled &&
-                    mate_upper_enabled && mate_lower && mate_upper,
-                "Axis angle mate does not expose a degree-valued editor");
-        angle_value->setValue(60.0);
-        mate_lower_enabled->setChecked(true);
-        mate_upper_enabled->setChecked(true);
-        application.processEvents();
-        require(mate_lower->value() == 0.0 && mate_upper->value() == 60.0,
-                "New Assembly mate limits did not default to zero and current value");
-        angle_dialog->buttons()->button(QDialogButtonBox::Cancel)->click();
-        auto plane_angle_mate = zima::assembly::AssemblyDocument::create_mate(
-            "Úhel ploch", zima::assembly::MateKind::PlaneAngle,
+        require(placement_dialog->placement_references().empty(),
+                "New Component Properties dialog started with stale placement references");
+        placement_dialog->set_placement_reference(0, true,
             {zima::assembly::MateReferenceKind::Face,
              zima::assembly::InstancePath{}.child("dependent"), "box-a", "z_min"},
+            "Plocha");
+        placement_dialog->set_placement_reference(0, false,
             {zima::assembly::MateReferenceKind::Face,
-             zima::assembly::InstancePath{}.child("prerequisite"), "box-b", "z_max"});
-        auto* plane_angle_dialog = new zima::app::MatePropertiesDialog(
-            plane_angle_mate, [](zima::assembly::AssemblyMate) {}, &parent);
-        plane_angle_dialog->show();
+             zima::assembly::InstancePath{}.child("prerequisite"), "box-b", "z_max"},
+            "Plocha");
+        require(placement_dialog->placement_references().size() == 1 &&
+                    placement_dialog->placement_references()[0].component_reference
+                            .owner_id == "box-a" &&
+                    placement_dialog->placement_references()[0].target_reference
+                            .owner_id == "box-b",
+                "Component Properties did not store the picked placement-reference row");
+        placement_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
         application.processEvents();
-        auto* plane_angle_value =
-            plane_angle_dialog->findChild<QDoubleSpinBox*>("mateAngle");
-        require(plane_angle_value != nullptr && plane_angle_value->isEnabled(),
-                "Plane angle mate does not expose its angle editor");
-        plane_angle_dialog->buttons()->button(QDialogButtonBox::Cancel)->click();
+        require(placement_component_commits == 1 &&
+                    committed_placement_component.placement_references.size() == 1 &&
+                    committed_placement_component.placement_references[0].mate_type ==
+                        zima::assembly::MateKind::PlaneCoincident,
+                "Component Properties did not persist its embedded placement "
+                "reference onto the committed occurrence");
+
+        // A row with only one side picked is transient (not yet a valid
+        // constraint) and must be discarded on commit rather than persisted
+        // half-filled, matching Python's row-cap/discard-incomplete behavior.
+        auto* partial_dialog = new zima::app::ComponentPropertiesDialog(
+            component, [](zima::assembly::PartOccurrence) {}, &parent);
+        partial_dialog->show();
+        application.processEvents();
+        partial_dialog->set_placement_reference(0, true,
+            {zima::assembly::MateReferenceKind::Face,
+             zima::assembly::InstancePath{}.child("dependent"), "box-a", "z_min"},
+            "Plocha");
+        require(partial_dialog->placement_references().size() == 1,
+                "Partial placement-reference row was not tracked while incomplete");
+        zima::assembly::PartOccurrence committed_partial_component;
+        int partial_component_commits = 0;
+        auto* partial_dialog_committing = new zima::app::ComponentPropertiesDialog(
+            component,
+            [&](zima::assembly::PartOccurrence value) {
+                ++partial_component_commits;
+                committed_partial_component = std::move(value);
+            }, &parent);
+        partial_dialog_committing->show();
+        application.processEvents();
+        partial_dialog_committing->set_placement_reference(0, true,
+            {zima::assembly::MateReferenceKind::Face,
+             zima::assembly::InstancePath{}.child("dependent"), "box-a", "z_min"},
+            "Plocha");
+        partial_dialog_committing->buttons()->button(QDialogButtonBox::Ok)->click();
+        application.processEvents();
+        require(partial_component_commits == 1 &&
+                    committed_partial_component.placement_references.empty(),
+                "Component Properties persisted an incomplete (one-sided) "
+                "placement-reference row");
+        partial_dialog->close();
+
         auto sketch = zima::sketcher::Sketch::create_default();
         int sketch_commits = 0;
         auto* sketch_dialog = new zima::app::SketchPropertiesDialog(
