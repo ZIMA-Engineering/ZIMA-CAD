@@ -103,14 +103,6 @@ std::vector<EdgePickCandidate> ordered_edge_candidates(
     for (std::size_t edge_index = 0; edge_index < mesh.edges.size(); ++edge_index) {
         const auto& edge = mesh.edges[edge_index];
         if (!edge.reference.valid() || edge.points.size() < 2) continue;
-        // The origin/construction-plane square outline is a screen-space
-        // overlay drawn purely to visualize the plane border; it is not a
-        // pickable edge entity. Without this exclusion, hovering the plane
-        // border resolves to an Edge candidate (priority 2) instead of the
-        // Face/Container-plane candidate (priority 3-4) derived from the
-        // plane's triangles, so the datum plane could never be offered/
-        // selected as a whole -- only its border segments.
-        if (edge.reference.semantic_key.starts_with("origin:plane:")) continue;
         double nearest_ray_distance = std::numeric_limits<double>::max();
         bool hit = false;
         for (std::size_t segment = 1; segment < edge.points.size(); ++segment) {
@@ -258,6 +250,14 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
                                      CandidateGeometry geometry) {
         const auto faces = ordered_ray_candidates(source, ray_origin, ray_direction);
         for (const auto& face : faces) {
+            // A Plane's filled interior quad (built-in Origin XY/YZ/XZ, or a
+            // user construction Plane's entity quad) is display/hit-test
+            // geometry for its rectangular border only; the interior itself
+            // must not be selectable -- see the matching border-edge
+            // Face/Container generation below, which is the sole way a Plane
+            // is now offered/selected.
+            if (face.reference.semantic_key == "plane" ||
+                face.reference.semantic_key.starts_with("origin:plane:")) continue;
             const bool origin_reference =
                 face.reference.semantic_key.starts_with("origin:");
             const bool persisted_occurrence = geometry == CandidateGeometry::Display &&
@@ -301,6 +301,39 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
         }
         for (const auto& edge : ordered_edge_candidates(
                 source, ray_origin, ray_direction, world_tolerance)) {
+            // A Plane is selected through its rectangular border only: the
+            // 4 border segments (built-in Origin "origin:plane:<key>", or a
+            // user construction Plane's "border") resolve to the same
+            // Face/Container candidate pair the filled interior used to
+            // produce, so every existing Plane-picking command (which
+            // matches on CandidateKind::Face) and the ordinary whole-object
+            // Container selection keep working -- only the pickable region
+            // moved from the interior quad to its outline.
+            if (edge.reference.semantic_key == "border" ||
+                edge.reference.semantic_key.starts_with("origin:plane:")) {
+                result.push_back({CandidateKind::Face, edge.distance, edge.edge,
+                                  edge.reference.owner_id, edge.reference.semantic_key,
+                                  edge.reference.instance_path, geometry});
+                constexpr std::string_view entity_suffix{":entity"};
+                const bool datum_entity =
+                    edge.reference.owner_id.ends_with(entity_suffix) &&
+                    edge.reference.semantic_key == "border";
+                const std::string container_owner = datum_entity
+                    ? edge.reference.owner_id.substr(0,
+                        edge.reference.owner_id.size() - entity_suffix.size())
+                    : edge.reference.owner_id;
+                if (std::none_of(result.begin(), result.end(),
+                        [&](const ViewerCandidate& item) {
+                            return item.kind == CandidateKind::Container &&
+                                item.owner_id == container_owner &&
+                                item.instance_path == edge.reference.instance_path;
+                        })) {
+                    result.push_back({CandidateKind::Container, edge.distance, edge.edge,
+                                      container_owner, datum_entity ? "plane" : "",
+                                      edge.reference.instance_path, geometry});
+                }
+                continue;
+            }
             const auto kind = edge.reference.semantic_key.starts_with("trim_piece:")
                 ? CandidateKind::SketchTrimPiece
                 : edge.reference.semantic_key.starts_with("external_edge:")

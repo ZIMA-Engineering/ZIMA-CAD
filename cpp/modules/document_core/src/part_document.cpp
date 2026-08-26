@@ -3440,17 +3440,20 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
             mesh.original_references.axes.push_back(
                 {object.origin, normal, object.display_size,
                  {object.entity_id, "axis", {}}});
-            // An Axis container's own defining point must stay visible and
-            // labelled with the container's name, exactly like the Point
-            // container's marker below -- otherwise the Axis line renders
-            // with neither a marker at its origin nor any text, unlike
-            // every other container kind.
+            // An Axis container's own defining point must stay a pickable
+            // reference and labelled with the container's name, exactly
+            // like the Point container's marker below -- otherwise the Axis
+            // line renders with neither a marker at its origin nor any text,
+            // unlike every other container kind. It only actually paints
+            // when hovered/confirmed/referenced (always_visible=false):
+            // in the normal state the Axis itself is enough, without a
+            // permanent black dot.
             {
                 const std::string& origin_id = object.container_origin.id;
                 mesh.points.push_back(
-                    {object.origin, {origin_id, "point", {}}, object.name});
+                    {object.origin, {origin_id, "point", {}}, object.name, false});
                 mesh.original_references.points.push_back(
-                    {object.origin, {origin_id, "point", {}}});
+                    {object.origin, {origin_id, "point", {}}, {}, false});
             }
             continue;
         }
@@ -3488,6 +3491,17 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
             {offset, offset + 1, offset + 2, offset, offset + 2, offset + 3});
         references.triangle_references.insert(references.triangle_references.end(),
             2, {object.entity_id, "plane", {}});
+        // A Plane container also gets a defining-point marker at its own
+        // entity origin, exactly like the Axis case above: it stays hidden
+        // in the normal state (always_visible=false) and only paints when
+        // the Plane is hovered, confirmed, or referenced elsewhere.
+        {
+            const std::string& origin_id = object.container_origin.id;
+            mesh.points.push_back(
+                {object.entity_origin, {origin_id, "point", {}}, object.name, false});
+            mesh.original_references.points.push_back(
+                {object.entity_origin, {origin_id, "point", {}}, {}, false});
+        }
     }
     return mesh;
 }

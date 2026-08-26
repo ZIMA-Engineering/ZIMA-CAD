@@ -71,6 +71,12 @@ struct ViewerPoint {
     Vec3 position;
     VertexReference reference;
     std::string label;
+    // False for an Axis/Plane container's own defining-point marker: it is
+    // display/pick geometry only when hovered, confirmed, or referenced by
+    // another container's placement, and stays invisible otherwise. A Point
+    // container's own marker (and any other caller that does not set this)
+    // defaults to true and always renders, since it IS the visible entity.
+    bool always_visible{true};
 };
 
 struct ViewerAxis {

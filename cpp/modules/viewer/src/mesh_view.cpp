@@ -399,6 +399,14 @@ std::optional<zima::kernel::ViewerAxis> MeshView::candidate_axis(
 std::optional<zima::kernel::Vec3> MeshView::candidate_face_normal(
     const ViewerCandidate& candidate) const {
     if (candidate.kind != CandidateKind::Face) return std::nullopt;
+    // NOTE: a Plane's Face candidate (owner "border"/"origin:plane:<key>",
+    // see ordered_viewer_candidates) carries a *border-edge* index in
+    // geometry_index, not a triangle index -- it is picked through its
+    // rectangular outline, never its filled interior. This helper only
+    // supports true triangle-mesh Face candidates; do not call it for a
+    // Plane pick. It self-checks the owner/semantic/instance match below, so
+    // an accidental call safely returns nullopt in the overwhelming case,
+    // but callers must not rely on that.
     const auto resolve = [&](const auto& mesh) -> std::optional<zima::kernel::Vec3> {
         const std::size_t triangle = candidate.geometry_index;
         if (triangle * 3 + 2 >= mesh.triangles.size() ||
@@ -440,8 +448,13 @@ void MeshView::confirm_container(const std::string& owner_id) {
         return;
     }
     impl_->confirmed_candidate = std::move(candidate);
+    // "point"/"axis"/"plane" are the three container kinds whose own
+    // defining-point marker lives at `owner_id + ":origin"` -- see
+    // construction_viewer_mesh's Point/Axis/Plane marker pushes.
     impl_->selected_container_origin_id =
-        impl_->confirmed_candidate->semantic_key == "point"
+        (impl_->confirmed_candidate->semantic_key == "point" ||
+         impl_->confirmed_candidate->semantic_key == "axis" ||
+         impl_->confirmed_candidate->semantic_key == "plane")
         ? owner_id + ":origin" : std::string{};
     impl_->candidates.clear();
     update();
@@ -1688,6 +1701,32 @@ if (impl_->show_planes) {
                       highlighted->semantic_key == "plane" &&
                       highlighted->owner_id + ":entity" ==
                           edge.reference.owner_id) ||
+                     // A ray landing exactly on the Plane container's own
+                     // defining-point marker (see construction_viewer_mesh)
+                     // resolves to a Vertex pick of that point -- or, under
+                     // the default selection contract (Container-only, see
+                     // MeshView::Impl::allowed_kinds), to the paired
+                     // Container candidate with semantic_key=="point" that
+                     // ordered_viewer_candidates derives from that same
+                     // Vertex pick -- rather than to the border edges
+                     // themselves. Both resolve with higher priority than
+                     // Face/Container "plane" in ordered_viewer_candidates.
+                     // Without these two branches, confirming/hovering that
+                     // point would highlight only the dot, leaving the
+                     // border its plain presentation color even though the
+                     // whole container is what got selected.
+                     (highlighted->kind == CandidateKind::Vertex &&
+                      highlighted->semantic_key == "point" &&
+                      edge.reference.owner_id.ends_with(":entity") &&
+                      highlighted->owner_id == edge.reference.owner_id.substr(
+                          0, edge.reference.owner_id.size() -
+                              std::string_view(":entity").size()) + ":origin") ||
+                     (highlighted->kind == CandidateKind::Container &&
+                      highlighted->semantic_key == "point" &&
+                      edge.reference.owner_id.ends_with(":entity") &&
+                      highlighted->owner_id == edge.reference.owner_id.substr(
+                          0, edge.reference.owner_id.size() -
+                              std::string_view(":entity").size())) ||
                      // Selecting/hovering the whole Origin (e.g. clicking it
                      // in the tree) highlights every one of its own
                      // FRONT/TOP/... plane labels too, matching Python's
@@ -1789,6 +1828,32 @@ if (impl_->show_planes) {
                       highlighted->semantic_key == "axis" &&
                       highlighted->owner_id + ":entity" ==
                           axis.reference.owner_id) ||
+                     // A ray landing exactly on the Axis container's own
+                     // defining-point marker (see construction_viewer_mesh)
+                     // resolves to a Vertex pick of that point -- or, under
+                     // the default selection contract (Container-only, see
+                     // MeshView::Impl::allowed_kinds), to the paired
+                     // Container candidate with semantic_key=="point" that
+                     // ordered_viewer_candidates derives from that same
+                     // Vertex pick -- rather than to the Axis line itself.
+                     // Both resolve with higher priority than Axis/Container
+                     // "axis" in ordered_viewer_candidates. Without these
+                     // two branches, confirming/hovering that point would
+                     // highlight only the dot, leaving the line its plain
+                     // presentation color even though the whole container
+                     // is what got selected.
+                     (highlighted->kind == CandidateKind::Vertex &&
+                      highlighted->semantic_key == "point" &&
+                      axis.reference.owner_id.ends_with(":entity") &&
+                      highlighted->owner_id == axis.reference.owner_id.substr(
+                          0, axis.reference.owner_id.size() -
+                              std::string_view(":entity").size()) + ":origin") ||
+                     (highlighted->kind == CandidateKind::Container &&
+                      highlighted->semantic_key == "point" &&
+                      axis.reference.owner_id.ends_with(":entity") &&
+                      highlighted->owner_id == axis.reference.owner_id.substr(
+                          0, axis.reference.owner_id.size() -
+                              std::string_view(":entity").size())) ||
                      // Selecting/hovering the whole Origin also highlights
                      // its own X/Y/Z axis lines and labels, matching
                      // Python's unified selected/hovered-object check.
@@ -1940,7 +2005,9 @@ if (impl_->show_planes) {
                             point.reference.instance_path);
                     const bool hovered = !impl_->confirmed_candidate && highlighted &&
                         ((highlighted->kind == CandidateKind::Container &&
-                          highlighted->semantic_key == "point" &&
+                          (highlighted->semantic_key == "point" ||
+                           highlighted->semantic_key == "axis" ||
+                           highlighted->semantic_key == "plane") &&
                           point.reference.owner_id ==
                             highlighted->owner_id + ":origin") ||
                          (highlighted->kind == CandidateKind::Vertex &&
@@ -1953,6 +2020,14 @@ if (impl_->show_planes) {
                         impl_->constraint_reference_edges.contains(EdgeKey{
                             point.reference.owner_id, point.reference.semantic_key,
                             point.reference.instance_path});
+                    // An Axis/Plane container's own marker
+                    // (always_visible=false) stays fully invisible in the
+                    // ordinary state -- the Axis line / Plane border is
+                    // enough on its own; the dot only appears once one of
+                    // the states above gives it a meaningful color.
+                    if (!point.always_visible && !selected && !hovered && !referenced) {
+                        continue;
+                    }
                     const QColor marker_color = selected
                         ? QColor(30, 220, 240)
                         : hovered ? QColor(255, 122, 0)
@@ -2299,7 +2374,9 @@ void MeshView::mousePressEvent(QMouseEvent* event) {
         impl_->confirmed_candidate = impl_->candidates[impl_->active_candidate];
         impl_->selected_container_origin_id =
             impl_->confirmed_candidate->kind == CandidateKind::Container &&
-                impl_->confirmed_candidate->semantic_key == "point"
+                (impl_->confirmed_candidate->semantic_key == "point" ||
+                 impl_->confirmed_candidate->semantic_key == "axis" ||
+                 impl_->confirmed_candidate->semantic_key == "plane")
             ? impl_->confirmed_candidate->owner_id + ":origin"
             : std::string{};
         notify_confirmation();
