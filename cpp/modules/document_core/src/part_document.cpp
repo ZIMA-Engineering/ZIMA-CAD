@@ -175,6 +175,37 @@ bool construction_reference_is_plane_like(
         reference.semantic_key.starts_with("origin:plane:");
 }
 
+std::optional<std::string_view> construction_reference_origin_plane_key(
+    const ConstructionReference& reference) {
+    if (reference.semantic_key == "origin:plane:xy" ||
+        reference.semantic_key == "plane:xy") return "xy";
+    if (reference.semantic_key == "origin:plane:yz" ||
+        reference.semantic_key == "plane:yz") return "yz";
+    if (reference.semantic_key == "origin:plane:xz" ||
+        reference.semantic_key == "plane:xz") return "xz";
+    return std::nullopt;
+}
+
+bool construction_references_match_origin_plane_triad(
+    const std::vector<std::reference_wrapper<const ConstructionReference>>& references) {
+    if (references.size() < 3) return false;
+    std::optional<std::string> owner_id;
+    bool has_xy = false;
+    bool has_yz = false;
+    bool has_xz = false;
+    for (const auto& wrapped : references) {
+        const auto& reference = wrapped.get();
+        const auto plane_key = construction_reference_origin_plane_key(reference);
+        if (!plane_key) return false;
+        if (!owner_id) owner_id = reference.owner_id;
+        if (reference.owner_id != *owner_id) return false;
+        has_xy = has_xy || *plane_key == "xy";
+        has_yz = has_yz || *plane_key == "yz";
+        has_xz = has_xz || *plane_key == "xz";
+    }
+    return has_xy && has_yz && has_xz;
+}
+
 void add_common_entity_fields(
     std::map<std::string, std::string>& section,
     const std::string& id, const std::string& name, const std::string& kind,
@@ -2515,6 +2546,7 @@ bool resolve_construction(ConstructionObject& object,
     std::optional<zima::kernel::Vec3> front_direction;
     std::optional<zima::kernel::Vec3> top_direction;
     bool orientation_resolved = true;
+    bool has_explicit_orientation_reference = false;
     for (const auto& reference : object.references) {
         // Only a genuine orientation-only entry (the separate mirrored
         // FRONT/TOP twin, or a standalone orientation-table pick) is
@@ -2539,7 +2571,21 @@ bool resolve_construction(ConstructionObject& object,
                 else front_direction = direction;
             }
         }
+        if (reference.orientation_only) has_explicit_orientation_reference = true;
         if (!reference.orientation_only) position_references.push_back(reference);
+    }
+    const bool origin_bulk_fill =
+        construction_references_match_origin_plane_triad(position_references);
+    if (origin_bulk_fill && !has_explicit_orientation_reference) {
+        // Clicking the whole "Počátek" node bulk-fills all three origin
+        // planes at once. That is a request for the global/document origin
+        // frame itself, not an intentional choice of whichever one plane
+        // happened to land in row 0/1 first as a FRONT/TOP anchor. Ignore
+        // any automatically assigned front/top roles on that triad so the
+        // resolved rotation stays the identity frame.
+        front_direction.reset();
+        top_direction.reset();
+        orientation_resolved = true;
     }
     // Classic "2 points define an axis"/"3 points define a plane" shortcut:
     // only applies when no orientation-driving reference exists (it would
@@ -2605,6 +2651,7 @@ bool resolve_construction(ConstructionObject& object,
     // manual.
     std::optional<PlacementReferencePlane> inherited_plane_frame;
     if (object.kind == ConstructionKind::Plane &&
+        !origin_bulk_fill &&
         !front_direction && !top_direction && !position_references.empty()) {
         const auto& first_reference = position_references.front().get();
         if (construction_reference_is_plane_like(first_reference)) {
@@ -2758,6 +2805,7 @@ bool resolve_placement(
     std::optional<zima::kernel::Vec3> front_direction;
     std::optional<zima::kernel::Vec3> top_direction;
     bool orientation_resolved = true;
+    bool has_explicit_orientation_reference = false;
     for (const auto& reference : placement.references) {
         if (reference.orientation_drives_rotation) {
             std::optional<zima::kernel::Vec3> direction;
@@ -2777,7 +2825,14 @@ bool resolve_placement(
                 else front_direction = direction;
             }
         }
+        if (reference.orientation_only) has_explicit_orientation_reference = true;
         if (!reference.orientation_only) position_references.push_back(reference);
+    }
+    if (construction_references_match_origin_plane_triad(position_references) &&
+        !has_explicit_orientation_reference) {
+        front_direction.reset();
+        top_direction.reset();
+        orientation_resolved = true;
     }
     zima::kernel::Vec3 origin{placement.x, placement.y, placement.z};
     const bool position_resolved = placement_solve_position(

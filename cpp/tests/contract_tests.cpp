@@ -813,6 +813,28 @@ int main() {
                     std::abs(resolved_inherited_origin_plane.direction.y + 1.0) < 1.0e-6 &&
                     std::abs(resolved_inherited_origin_plane.direction.z) < 1.0e-6,
                 "Plane did not inherit frame from the built-in Origin plane");
+        auto origin_bulk_fill_plane = zima::document::PartDocument::create_construction(
+            zima::document::ConstructionKind::Plane);
+        origin_bulk_fill_plane.references = {
+            {{}, constructions.document_id + ":origin", "origin:plane:xz", 0.0,
+                false, "front", true},
+            {{}, constructions.document_id + ":origin", "origin:plane:xy", 0.0,
+                false, "top", true},
+            {{}, constructions.document_id + ":origin", "origin:plane:yz"}};
+        constructions.constructions.push_back(origin_bulk_fill_plane);
+        constructions.resolve_constructions();
+        const auto& resolved_origin_bulk_fill_plane = constructions.constructions.back();
+        require(resolved_origin_bulk_fill_plane.reference_valid &&
+                    std::abs(resolved_origin_bulk_fill_plane.origin.x) < 1.0e-6 &&
+                    std::abs(resolved_origin_bulk_fill_plane.origin.y) < 1.0e-6 &&
+                    std::abs(resolved_origin_bulk_fill_plane.origin.z) < 1.0e-6 &&
+                    std::abs(resolved_origin_bulk_fill_plane.rotation.x) < 1.0e-6 &&
+                    std::abs(resolved_origin_bulk_fill_plane.rotation.y) < 1.0e-6 &&
+                    std::abs(resolved_origin_bulk_fill_plane.rotation.z) < 1.0e-6 &&
+                    std::abs(resolved_origin_bulk_fill_plane.direction.x - 1.0) < 1.0e-6 &&
+                    std::abs(resolved_origin_bulk_fill_plane.direction.y) < 1.0e-6 &&
+                    std::abs(resolved_origin_bulk_fill_plane.direction.z) < 1.0e-6,
+                "Origin bulk-fill Plane did not resolve to the identity frame");
         // Universal container placement: any HistoryContainer (not only a
         // standalone Point/Axis/Plane) can be positioned by a reference and
         // oriented by a FRONT/TOP reference pair, mirroring the Python
@@ -835,6 +857,23 @@ int main() {
                         std::abs(identity_placement.rotation_y) < 1.0e-6 &&
                         std::abs(identity_placement.rotation_z) < 1.0e-6,
                     "Container placement did not resolve the identity FRONT=Y/TOP=Z frame");
+
+            zima::document::Placement origin_bulk_fill_placement;
+            origin_bulk_fill_placement.references = {
+                {{}, constructions.document_id + ":origin", "origin:plane:yz", 0.0,
+                    false, "front", true},
+                {{}, constructions.document_id + ":origin", "origin:plane:xz", 0.0,
+                    false, "top", true},
+                {{}, constructions.document_id + ":origin", "origin:plane:xy"}};
+            require(zima::document::resolve_placement(
+                        origin_bulk_fill_placement, document_origin_geometry) &&
+                        std::abs(origin_bulk_fill_placement.x) < 1.0e-9 &&
+                        std::abs(origin_bulk_fill_placement.y) < 1.0e-9 &&
+                        std::abs(origin_bulk_fill_placement.z) < 1.0e-9 &&
+                        std::abs(origin_bulk_fill_placement.rotation_x) < 1.0e-6 &&
+                        std::abs(origin_bulk_fill_placement.rotation_y) < 1.0e-6 &&
+                        std::abs(origin_bulk_fill_placement.rotation_z) < 1.0e-6,
+                    "Origin bulk-fill placement did not stay in the identity frame");
 
             zima::document::Placement rotated_placement;
             rotated_placement.references = {
@@ -936,7 +975,7 @@ int main() {
         const auto loaded_constructions =
             zima::document::PartDocument::load(construction_path);
         std::filesystem::remove(construction_path);
-        require(loaded_constructions.constructions.size() == 8 &&
+        require(loaded_constructions.constructions.size() == 9 &&
                     loaded_constructions.constructions[0].origin.z == 3.0 &&
                     loaded_constructions.constructions[2].display_size == 75.0 &&
                     loaded_constructions.constructions[4].definition ==
@@ -950,6 +989,12 @@ int main() {
                     std::abs(loaded_constructions.constructions[6].offset - 12.0) <
                         1.0e-6 &&
                     std::abs(loaded_constructions.constructions[7].origin.y + 6.0) <
+                        1.0e-6 &&
+                    std::abs(loaded_constructions.constructions[8].rotation.x) <
+                        1.0e-6 &&
+                    std::abs(loaded_constructions.constructions[8].rotation.y) <
+                        1.0e-6 &&
+                    std::abs(loaded_constructions.constructions[8].rotation.z) <
                         1.0e-6 &&
                     loaded_constructions.constructions.front().container_origin ==
                         point.container_origin,
