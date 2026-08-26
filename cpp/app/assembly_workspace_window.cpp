@@ -9800,6 +9800,16 @@ void AssemblyWorkspaceWindow::keyPressEvent(QKeyEvent* event) {
         event->accept();
         return;
     }
+    if (event->key() == Qt::Key_Escape) {
+        // Idle mode (no active command consumed Escape above): mirror the
+        // ordinary empty-View-space click contract and clear the confirmed
+        // View+Tree selection together.
+        viewer_->clear_selection();
+        tree_->clearSelection();
+        tree_->setCurrentItem(nullptr);
+        event->accept();
+        return;
+    }
     QMainWindow::keyPressEvent(event);
 }
 
