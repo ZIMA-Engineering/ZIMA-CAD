@@ -2518,6 +2518,7 @@ bool resolve_construction(ConstructionObject& object,
     // "3 points define a plane" shortcuts are still recognized, but only as
     // a fallback when no orientation-driving reference is present and every
     // placement reference resolves to a plain point.
+    object.orientation_inherited_from_reference = false;
     const auto matches = [](const auto& reference,
                             const ConstructionReference& expected) {
         return reference.instance_path == expected.instance_path &&
@@ -2567,6 +2568,7 @@ bool resolve_construction(ConstructionObject& object,
     };
     if (object.references.empty()) {
         object.reference_valid = true;
+        object.entity_origin = object.origin;
         return true;
     }
     // An orientation-driving (front/top role) reference contributes ONLY
@@ -2691,14 +2693,25 @@ bool resolve_construction(ConstructionObject& object,
     // same way Sketch plane references do. Non-planar/linear/point first
     // references still position the Plane, but leave orientation manual.
     std::optional<PlacementReferencePlane> inherited_plane_frame;
-    if (object.kind == ConstructionKind::Plane &&
-        !origin_bulk_fill &&
-        !front_direction && !top_direction && !position_references.empty()) {
-        const auto& first_reference = position_references.front().get();
-        if (construction_reference_is_planar_face(first_reference, geometry)) {
-            if (const auto resolved = plane(first_reference)) {
-                inherited_plane_frame = *resolved;
-            }
+    const ConstructionReference* front_role_reference = nullptr;
+    for (const auto& reference : object.references) {
+        if (reference.orientation_drives_rotation &&
+            reference.orientation_role == "front") {
+            front_role_reference = &reference;
+            break;
+        }
+    }
+    // A caller that never marked an explicit FRONT role (e.g. a reference
+    // list assembled by hand, or a legacy caller predating
+    // assign_automatic_orientation_role()) still gets the same "first
+    // position reference is FRONT" contract implicitly.
+    if (front_role_reference == nullptr && !position_references.empty()) {
+        front_role_reference = &position_references.front().get();
+    }
+    if (object.kind == ConstructionKind::Plane && front_role_reference != nullptr &&
+        construction_reference_is_planar_face(*front_role_reference, geometry)) {
+        if (const auto resolved = plane(*front_role_reference)) {
+            inherited_plane_frame = *resolved;
         }
     }
     if (!front_direction && !top_direction && position_resolved) {
@@ -2782,7 +2795,29 @@ bool resolve_construction(ConstructionObject& object,
     // no orientation-driving reference exists this leaves `object.rotation`
     // untouched (the manually entered/last-known value), matching the
     // "remembers last computed values" contract for a lost reference.
-    if (front_direction || top_direction) {
+    if (object.kind == ConstructionKind::Plane && inherited_plane_frame) {
+        // Row 0 (FRONT) resolved to a genuine plane-like reference (a Plane
+        // container, an Origin datum plane, or a coplanar model face): the
+        // new Plane is a parallel copy of that referenced plane, offset
+        // along its own normal, so it must inherit the referenced plane's
+        // full resolved frame (normal + in-plane front/top axes) directly --
+        // NOT the generic cross(front, top) composition below, which would
+        // instead orient the new Plane's normal perpendicular to the
+        // referenced plane (treating its normal as a mere "front" direction
+        // vector). This takes priority over any TOP role also present on
+        // row 1: a plane-like FRONT reference already fully determines
+        // orientation on its own, matching the "1st reference decides what
+        // the new Plane is offset from" contract.
+        const std::optional front = inherited_plane_frame->front;
+        const std::optional top = inherited_plane_frame->top;
+        const zima::kernel::Vec3 manual_offset{object.rotation_offset_x,
+            object.rotation_offset_y, object.rotation_offset_z};
+        object.rotation = placement_compose_orientation_degrees(
+            front, top, manual_offset);
+        object.rotation_base = placement_frame_base_rotation_degrees(
+            front, top).value_or(zima::kernel::Vec3{});
+        object.orientation_inherited_from_reference = true;
+    } else if (front_direction || top_direction) {
         const zima::kernel::Vec3 manual_offset{object.rotation_offset_x,
             object.rotation_offset_y, object.rotation_offset_z};
         object.rotation = placement_compose_orientation_degrees(
@@ -2807,15 +2842,6 @@ bool resolve_construction(ConstructionObject& object,
                     : zima::kernel::Vec3{0.0, 1.0, 0.0};
             object.direction = placement_transform_direction(matrix, local);
         }
-    } else if (object.kind == ConstructionKind::Plane && inherited_plane_frame) {
-        const std::optional front = inherited_plane_frame->front;
-        const std::optional top = inherited_plane_frame->top;
-        const zima::kernel::Vec3 manual_offset{object.rotation_offset_x,
-            object.rotation_offset_y, object.rotation_offset_z};
-        object.rotation = placement_compose_orientation_degrees(
-            front, top, manual_offset);
-        object.rotation_base = placement_frame_base_rotation_degrees(
-            front, top).value_or(zima::kernel::Vec3{});
     } else if (origin_bulk_fill) {
         // The whole-Origin bulk-fill is a deliberate request for the global
         // identity frame. Even if the preview object carried a stale
@@ -2836,14 +2862,18 @@ bool resolve_construction(ConstructionObject& object,
         if (!placement_vec_is_zero(resolved_normal)) {
             object.direction = placement_vec_normalized(resolved_normal);
         }
-        // A Plane's own work-plane offset is part of its resolved placement,
-        // not just metadata for downstream consumers: once the base origin
-        // has been solved from the picked reference(s), translate the Plane
-        // itself along its final resolved normal. This keeps the displayed
-        // Plane, later Plane/Sketch references to it, and the persisted
-        // origin all in the same place.
+        // The Plane's own work-plane offset only moves the rendered plane
+        // ENTITY, never the container itself: `object.origin` stays exactly
+        // at the resolved reference position (so the Container Origin
+        // preview axes/planes never move), while `entity_origin` is that
+        // same position translated along the resolved normal -- matching
+        // Python's `entity.coordinate_system.origin =
+        // self._plane_local_offset(plane, plane_offset)` being local to,
+        // and distinct from, `obj.coordinate_system.origin`.
+        object.entity_origin = object.origin;
         if (position_resolved && std::abs(object.offset) > 1.0e-12) {
-            object.origin = {resolved_position.x + object.direction.x * object.offset,
+            object.entity_origin = {
+                resolved_position.x + object.direction.x * object.offset,
                 resolved_position.y + object.direction.y * object.offset,
                 resolved_position.z + object.direction.z * object.offset};
         }
@@ -3433,6 +3463,11 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
         // helper used for the Point-kind origin planes above keeps the quad
         // consistent with that rotation instead of an independent, ad-hoc
         // normal-derived frame that could drift out of sync with it.
+        // The quad itself is centered on `entity_origin` (the container's
+        // origin translated by the work-plane offset), NOT `object.origin`
+        // (the container's own, un-offset position) -- so the offset only
+        // moves the rendered plane entity, matching the editing-origin
+        // preview frame above staying anchored to the container.
         const auto first = rotated({0.0, 1.0, 0.0}, object.rotation);
         const auto second = rotated({0.0, 0.0, 1.0}, object.rotation);
         const double half = object.display_size * 0.5;
@@ -3440,9 +3475,9 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
         for (std::size_t index = 0; index < corners.size(); ++index) {
             const double a = index == 0 || index == 3 ? -half : half;
             const double b = index < 2 ? -half : half;
-            corners[index] = {object.origin.x + a * first.x + b * second.x,
-                              object.origin.y + a * first.y + b * second.y,
-                              object.origin.z + a * first.z + b * second.z};
+            corners[index] = {object.entity_origin.x + a * first.x + b * second.x,
+                              object.entity_origin.y + a * first.y + b * second.y,
+                              object.entity_origin.z + a * first.z + b * second.z};
         }
         mesh.edges.push_back({{corners[0], corners[1], corners[2], corners[3],
                                corners[0]}, {object.entity_id, "border", {}}, false, true});
@@ -3505,7 +3540,12 @@ void PartDocument::resolve_constructions(
             });
         if (found == constructions.end() || !found->reference_valid) continue;
         const auto& normal = found->direction;
-        sketch.resolved_origin = found->origin;
+        // Use `entity_origin` (the resolved plane ENTITY position, already
+        // including the work-plane offset), not `origin` (the container's
+        // own un-offset position) -- a Sketch on this Plane must sit on the
+        // actually rendered/offset plane, exactly like Python's Sketch frame
+        // reading `entity.coordinate_system.origin`.
+        sketch.resolved_origin = found->entity_origin;
         sketch.resolved_x_axis = rotated_vector({0.0, 1.0, 0.0}, found->rotation);
         sketch.resolved_y_axis = rotated_vector({0.0, 0.0, 1.0}, found->rotation);
         sketch.resolved_normal = normal;

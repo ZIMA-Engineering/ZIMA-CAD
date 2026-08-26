@@ -148,6 +148,24 @@ void ContainerPlacementSection::install_orientation_section(QVBoxLayout* layout)
     if (orientation_table_ != nullptr) layout->addWidget(orientation_table_);
 }
 
+void ContainerPlacementSection::set_orientation_locked(
+        bool locked, const QString& source_label) {
+    if (!with_orientation_) return;
+    orientation_locked_ = locked;
+    orientation_locked_label_ = source_label;
+    refresh_orientation_table();
+}
+
+QString ContainerPlacementSection::first_position_reference_label() const {
+    if (reference_items_[0] == nullptr) return {};
+    const bool populated = !references_.empty() &&
+        !(references_[0].owner_id.empty() && references_[0].semantic_key.empty());
+    if (!populated) return {};
+    const QString text = reference_items_[0]->text();
+    const auto separator = text.indexOf(QStringLiteral(". "));
+    return separator >= 0 ? text.mid(separator + 2) : text;
+}
+
 void ContainerPlacementSection::set_reference_request_callback(
     ReferenceRequestCallback callback) {
     reference_request_ = std::move(callback);
@@ -513,29 +531,54 @@ void ContainerPlacementSection::refresh_reference_table() {
 void ContainerPlacementSection::refresh_orientation_table() {
     if (orientation_table_ == nullptr) return;
     highlighted_orientation_rows_.clear();
+    // The table is always enabled and clickable -- matching Python's
+    // `_container_orientation_references`/`_activate_container_orientation_row()`,
+    // which never disables the FRONT/TOP table just because row 0 of
+    // Umístění kontejneru already supplies a default orientation. An empty
+    // row shows a "derived from reference 1" placeholder label when
+    // `orientation_locked_` is set, but clicking it still arms picking
+    // exactly like any other empty row, letting the user override the
+    // automatic default with their own reference.
+    orientation_table_->setEnabled(true);
     const auto palette = parent_widget_->palette();
+    const QString derived_label = orientation_locked_label_.isEmpty()
+        ? tr("rovina") : orientation_locked_label_;
+    orientation_table_->setToolTip(orientation_locked_
+        ? tr("Orientace je ve výchozím stavu odvozena z první polohové "
+             "reference (%1). Kliknutím na řádek FRONT nebo TOP můžete "
+             "vybrat vlastní referenci a výchozí odvození přebít.")
+              .arg(derived_label)
+        : QString());
     for (std::size_t index = 0; index < 2; ++index) {
+        const bool populated = index < orientation_references_.size() &&
+            !orientation_references_[index].owner_id.empty();
         auto* indicator = zima::ui::build_reference_row_indicator(
-            [this, index] {
-                orientation_references_.erase(orientation_references_.begin() +
-                    static_cast<std::ptrdiff_t>(index));
-                if (index < orientation_labels_.size())
-                    orientation_labels_.erase(orientation_labels_.begin() +
-                        static_cast<std::ptrdiff_t>(index));
-                for (std::size_t role = 0; role < orientation_references_.size(); ++role)
-                    orientation_references_[role].orientation_role =
-                        role == 0 ? "front" : "top";
-                refresh_orientation_table();
-                notify_changed();
-            });
+            populated
+                ? std::function<void()>([this, index] {
+                      orientation_references_.erase(
+                          orientation_references_.begin() +
+                          static_cast<std::ptrdiff_t>(index));
+                      if (index < orientation_labels_.size())
+                          orientation_labels_.erase(
+                              orientation_labels_.begin() +
+                              static_cast<std::ptrdiff_t>(index));
+                      for (std::size_t role = 0;
+                          role < orientation_references_.size(); ++role)
+                          orientation_references_[role].orientation_role =
+                              role == 0 ? "front" : "top";
+                      refresh_orientation_table();
+                      notify_changed();
+                  })
+                : std::function<void()>({}));
         orientation_indicators_[index] = indicator;
         orientation_table_->setCellWidget(static_cast<int>(index), 0,
             zima::ui::centered_cell_widget(indicator));
 
-        const bool populated = index < orientation_references_.size() &&
-            !orientation_references_[index].owner_id.empty();
         auto* reference = new zima::ui::ReferenceCellItem(
-            tr("Vybrat orientační referenci"));
+            orientation_locked_
+                ? (index == 0 ? tr("Odvozeno z reference 1 (%1)").arg(derived_label)
+                               : tr("Odvozeno automaticky"))
+                : tr("Vybrat orientační referenci"));
         if (populated) {
             reference->set_reference(
                 QString::fromStdString(orientation_references_[index].owner_id));
@@ -558,6 +601,7 @@ void ContainerPlacementSection::refresh_orientation_table() {
             ? QString::fromStdString(orientation_references_[index].orientation_role)
             : (index == 0 ? QStringLiteral("front") : QStringLiteral("top"));
         role->setCurrentIndex(std::max(0, role->findData(stored_role)));
+        role->setEnabled(populated);
         connect(role, &QComboBox::currentIndexChanged, this, [this, index, role] {
             if (index < orientation_references_.size()) {
                 orientation_references_[index].orientation_role =

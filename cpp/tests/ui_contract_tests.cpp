@@ -525,29 +525,53 @@ int main(int argc, char* argv[]) {
         require(plane_offset != nullptr && !plane_offset->isEnabled(),
                 "Plane work-plane offset started enabled before any position reference");
         plane_dialog->set_reference(0,
-            {{}, "plane-source", "plane", 0.0, true, "none", true}, "Zdrojová rovina",
-            zima::document::ConstructionDefinition::PointReference);
+            {{}, "plane-source", "plane", 0.0, true, "front", true, false},
+            "Zdrojová rovina", zima::document::ConstructionDefinition::PointReference);
         application.processEvents();
         auto* first_position_item = plane_reference_table->item(0, 1);
-        auto* first_orientation_item = orientation_table->item(0, 1);
         require(first_position_item != nullptr &&
                     first_position_item->text() == QStringLiteral("1. Zdrojová rovina"),
                 "Plane-container first reference did not stay in the position table");
         require(plane_offset->isEnabled(),
                 "Plane work-plane offset did not enable after the first position reference");
-        require(first_orientation_item != nullptr &&
-                    first_orientation_item->text().contains("Vybrat"),
-                "Plane-container first reference still auto-filled FRONT orientation");
-        plane_dialog->set_reference(4,
-            {{}, "axis-top", "axis"}, "Osa TOP");
+        plane_dialog->set_orientation_inherited_from_reference(true);
+        application.processEvents();
+        // The table stays enabled/clickable even while it shows the
+        // automatic default (matching Python's
+        // `_container_orientation_references`, which is never disabled) --
+        // only the placeholder label communicates the default source.
+        require(orientation_table->isEnabled(),
+                "Plane FRONT/TOP table disabled itself while showing the "
+                "automatic default orientation");
+        auto* locked_orientation_item = orientation_table->item(0, 1);
+        require(locked_orientation_item != nullptr &&
+                    locked_orientation_item->text().contains("Zdrojová rovina"),
+                "Default Plane orientation row did not name its source reference");
+        plane_dialog->set_orientation_inherited_from_reference(false);
+        application.processEvents();
+        require(orientation_table->isEnabled(),
+                "Plane FRONT/TOP table did not unlock once orientation is no "
+                "longer inherited");
+        // Row 1, like row 0, keeps whatever automatic FRONT/TOP role a real
+        // caller (assign_automatic_orientation_role() in
+        // assembly_workspace_window.cpp) already assigned it: the 2nd
+        // position reference is TOP, still contributing its own position
+        // equation (orientation_only stays false) -- matching the "1st
+        // reference = FRONT, 2nd = TOP, 3rd = pure position" contract.
+        plane_dialog->set_reference(1,
+            {{}, "axis-top", "axis", 0.0, false, "top", true, false}, "Osa TOP",
+            zima::document::ConstructionDefinition::PointReference);
         plane_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
         require(committed_plane.references.size() == 2 &&
-                    !committed_plane.references[0].orientation_drives_rotation &&
+                    committed_plane.references[0].orientation_drives_rotation &&
+                    committed_plane.references[0].orientation_role == "front" &&
+                    !committed_plane.references[0].orientation_only &&
                     committed_plane.references[0].owner_id == "plane-source" &&
                     committed_plane.references[1].orientation_drives_rotation &&
                     committed_plane.references[1].orientation_role == "top" &&
-                    committed_plane.references[1].orientation_only,
-                "Plane Properties did not keep Plane-container row 0 positional");
+                    !committed_plane.references[1].orientation_only,
+                "Plane Properties did not keep the automatic FRONT/TOP roles "
+                "on its first two position references");
 
         auto* plane_origin_first_dialog = new zima::app::ConstructionPropertiesDialog(
             plane_initial, false, [](zima::document::ConstructionObject) {}, &parent);

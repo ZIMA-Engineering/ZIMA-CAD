@@ -790,13 +790,22 @@ int main() {
         constructions.resolve_constructions();
         const auto& resolved_inherited_plane = constructions.constructions.back();
         require(resolved_inherited_plane.reference_valid &&
-                    std::abs(resolved_inherited_plane.origin.x - 12.0) < 1.0e-6 &&
+                    // The CONTAINER's own origin stays exactly at the
+                    // reference position (0,0,0) -- the work-plane offset
+                    // must move only the rendered plane entity, not the
+                    // container/its Container Origin preview.
+                    std::abs(resolved_inherited_plane.origin.x) < 1.0e-6 &&
                     std::abs(resolved_inherited_plane.origin.y) < 1.0e-6 &&
                     std::abs(resolved_inherited_plane.origin.z) < 1.0e-6 &&
+                    std::abs(resolved_inherited_plane.entity_origin.x - 12.0) <
+                        1.0e-6 &&
+                    std::abs(resolved_inherited_plane.entity_origin.y) < 1.0e-6 &&
+                    std::abs(resolved_inherited_plane.entity_origin.z) < 1.0e-6 &&
                     std::abs(resolved_inherited_plane.direction.x - 1.0) < 1.0e-6 &&
                     std::abs(resolved_inherited_plane.direction.y) < 1.0e-6 &&
                     std::abs(resolved_inherited_plane.direction.z) < 1.0e-6,
-                "Plane work-plane offset did not move the Plane along the inherited normal");
+                "Plane work-plane offset did not move the Plane entity (not "
+                "the container) along the inherited normal");
         auto inherited_origin_plane = zima::document::PartDocument::create_construction(
             zima::document::ConstructionKind::Plane);
         inherited_origin_plane.references = {
@@ -806,9 +815,18 @@ int main() {
         constructions.resolve_constructions();
         const auto& resolved_inherited_origin_plane = constructions.constructions.back();
         require(resolved_inherited_origin_plane.reference_valid &&
+                    // Container origin stays at the reference position (the
+                    // XZ origin plane passes through the world origin);
+                    // the 6.0 offset must only move `entity_origin`.
                     std::abs(resolved_inherited_origin_plane.origin.x) < 1.0e-6 &&
-                    std::abs(resolved_inherited_origin_plane.origin.y + 6.0) < 1.0e-6 &&
+                    std::abs(resolved_inherited_origin_plane.origin.y) < 1.0e-6 &&
                     std::abs(resolved_inherited_origin_plane.origin.z) < 1.0e-6 &&
+                    std::abs(resolved_inherited_origin_plane.entity_origin.x) <
+                        1.0e-6 &&
+                    std::abs(resolved_inherited_origin_plane.entity_origin.y + 6.0) <
+                        1.0e-6 &&
+                    std::abs(resolved_inherited_origin_plane.entity_origin.z) <
+                        1.0e-6 &&
                     std::abs(resolved_inherited_origin_plane.direction.x) < 1.0e-6 &&
                     std::abs(resolved_inherited_origin_plane.direction.y + 1.0) < 1.0e-6 &&
                     std::abs(resolved_inherited_origin_plane.direction.z) < 1.0e-6,
@@ -824,17 +842,23 @@ int main() {
         constructions.constructions.push_back(origin_bulk_fill_plane);
         constructions.resolve_constructions();
         const auto& resolved_origin_bulk_fill_plane = constructions.constructions.back();
+        // The whole-Origin bulk-fill is no longer a special "always
+        // identity" case: matching the "1st reference decides what the new
+        // Plane is offset from" contract, row 0 (FRONT, here origin:plane:xz)
+        // still fully determines orientation even when the triad happens to
+        // be complete -- the new Plane inherits the XZ origin plane's own
+        // resolved normal (-Y), exactly like the single-reference
+        // `inherited_origin_plane` case above. Rows 1/2 only add position
+        // constraints (all three origin planes intersect at the world
+        // origin), never override that inherited orientation.
         require(resolved_origin_bulk_fill_plane.reference_valid &&
                     std::abs(resolved_origin_bulk_fill_plane.origin.x) < 1.0e-6 &&
                     std::abs(resolved_origin_bulk_fill_plane.origin.y) < 1.0e-6 &&
                     std::abs(resolved_origin_bulk_fill_plane.origin.z) < 1.0e-6 &&
-                    std::abs(resolved_origin_bulk_fill_plane.rotation.x) < 1.0e-6 &&
-                    std::abs(resolved_origin_bulk_fill_plane.rotation.y) < 1.0e-6 &&
-                    std::abs(resolved_origin_bulk_fill_plane.rotation.z) < 1.0e-6 &&
-                    std::abs(resolved_origin_bulk_fill_plane.direction.x - 1.0) < 1.0e-6 &&
-                    std::abs(resolved_origin_bulk_fill_plane.direction.y) < 1.0e-6 &&
+                    std::abs(resolved_origin_bulk_fill_plane.direction.x) < 1.0e-6 &&
+                    std::abs(resolved_origin_bulk_fill_plane.direction.y + 1.0) < 1.0e-6 &&
                     std::abs(resolved_origin_bulk_fill_plane.direction.z) < 1.0e-6,
-                "Origin bulk-fill Plane did not resolve to the identity frame");
+                "Origin bulk-fill Plane did not inherit its FRONT row's plane frame");
         auto origin_bulk_fill_point = zima::document::PartDocument::create_construction(
             zima::document::ConstructionKind::Point);
         // Simulates the transient preview state during incremental
@@ -1028,17 +1052,26 @@ int main() {
                         point.id + ":origin" &&
                     loaded_constructions.constructions[5].definition ==
                         zima::document::ConstructionDefinition::PlaneReference &&
-                    std::abs(loaded_constructions.constructions[6].origin.x - 12.0) <
+                    // Only the container's own (un-offset) origin and the
+                    // persisted `offset` value round-trip through save/load;
+                    // `entity_origin` is a transient field recomputed by
+                    // resolve_constructions(), not itself persisted.
+                    std::abs(loaded_constructions.constructions[6].origin.x) <
                         1.0e-6 &&
                     std::abs(loaded_constructions.constructions[6].offset - 12.0) <
                         1.0e-6 &&
-                    std::abs(loaded_constructions.constructions[7].origin.y + 6.0) <
+                    std::abs(loaded_constructions.constructions[7].origin.y) <
                         1.0e-6 &&
-                    std::abs(loaded_constructions.constructions[8].rotation.x) <
+                    // Index 8 is the origin bulk-fill Plane: per the
+                    // updated "row 0 (FRONT) always decides orientation"
+                    // contract it now inherits the XZ origin plane's own
+                    // frame (normal -Y) instead of forced identity -- see
+                    // the matching resolve_constructions() assertion above.
+                    std::abs(loaded_constructions.constructions[8].direction.x) <
                         1.0e-6 &&
-                    std::abs(loaded_constructions.constructions[8].rotation.y) <
-                        1.0e-6 &&
-                    std::abs(loaded_constructions.constructions[8].rotation.z) <
+                    std::abs(loaded_constructions.constructions[8].direction.y +
+                              1.0) < 1.0e-6 &&
+                    std::abs(loaded_constructions.constructions[8].direction.z) <
                         1.0e-6 &&
                     std::abs(loaded_constructions.constructions[9].rotation.x) <
                         1.0e-6 &&

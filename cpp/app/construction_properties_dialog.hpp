@@ -72,6 +72,12 @@ public:
     // false, the absolute column stays editable (there is no base to show).
     void set_orientation_base_rotation(
         const zima::kernel::Vec3& base_rotation, bool has_orientation_references);
+    // Reflects the Plane container's auto-inherited orientation (see
+    // resolve_construction()'s `orientation_inherited_from_reference`) in
+    // the FRONT/TOP table: locks it and labels it with the position
+    // reference the orientation came from, instead of leaving it looking
+    // like an empty, pickable pair of rows.
+    void set_orientation_inherited_from_reference(bool inherited);
 
     // Owner ids of the references (from both the placement- and
     // orientation-reference tables) currently toggled cyan/azure in the

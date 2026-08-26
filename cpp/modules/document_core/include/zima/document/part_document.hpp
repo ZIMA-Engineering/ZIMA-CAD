@@ -109,6 +109,16 @@ struct ConstructionObject {
     ConstructionKind kind{ConstructionKind::Point};
     ContainerOrigin container_origin;
     zima::kernel::Vec3 origin;
+    // Plane-kind containers only: the resolved position of the visible
+    // plane quad/entity itself, i.e. `origin` translated along `direction`
+    // by `offset` (see resolve_construction()). Kept separate from
+    // `origin` (the CONTAINER's own position, matching its Container
+    // Origin preview axes/planes) so the work-plane offset moves only the
+    // rendered plane entity -- exactly like Python's
+    // `entity.coordinate_system.origin = self._plane_local_offset(...)`
+    // being local to, and distinct from, `obj.coordinate_system.origin`.
+    // Equals `origin` whenever `offset` is zero. Unused for Point/Axis.
+    zima::kernel::Vec3 entity_origin;
     // Composed rotation: the FRONT/TOP orientation-reference base frame (when
     // orientation-driving references are present) combined with the manual
     // rotation_offset_* correction below, matching Placement's
@@ -125,6 +135,15 @@ struct ConstructionObject {
     // Recomputed by resolve_construction(); zero/unused when there are no
     // orientation-driving references.
     zima::kernel::Vec3 rotation_base{};
+    // Transient (not persisted): true when `rotation`/`rotation_base` above
+    // were NOT derived from an explicit FRONT/TOP orientation reference, but
+    // instead auto-inherited from the first PLANE position reference (a
+    // Plane container, built-in Origin plane, or coplanar model face) -- the
+    // "parallel to / based on this plane" shortcut. The dialog uses this to
+    // tell the user the Plane's orientation is already resolved and disable
+    // the (otherwise misleading) FRONT/TOP orientation-reference table.
+    // Recomputed by resolve_construction(); always false for Point/Axis.
+    bool orientation_inherited_from_reference{false};
     zima::kernel::Vec3 direction{0.0, 0.0, 1.0};
     // Axis only: which local frame axis ("x"/"y"/"z", matching the dialog's
     // "Směr" combo) `direction` is picked from once an orientation-driving

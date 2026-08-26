@@ -60,6 +60,27 @@ public:
     // was constructed with `with_orientation = true`.
     void install_orientation_section(QVBoxLayout* layout);
 
+    // A Plane container that auto-inherits its frame from the first
+    // position reference (see resolve_construction()'s
+    // `orientation_inherited_from_reference`) shows that as the FRONT row's
+    // *default* label so the user understands where the orientation
+    // currently comes from -- but, matching the Python reference
+    // implementation's `_container_orientation_references` (a table that is
+    // always independently clickable via
+    // `_activate_container_orientation_row()`/
+    // `_assign_container_orientation_reference()`, never disabled just
+    // because row 0 already supplies a default), the table stays enabled
+    // and clickable so the user can pick their own FRONT/TOP reference at
+    // any time, overriding the automatic default. `source_label` names the
+    // position reference the default orientation is currently derived from,
+    // shown only while no explicit orientation-table pick exists for that
+    // row.
+    void set_orientation_locked(bool locked, const QString& source_label = {});
+    // Display label of position row 0 ("1. <label>" with the index prefix
+    // stripped), or empty if that row is not populated. Used to tell the
+    // user which reference a locked orientation was derived from.
+    [[nodiscard]] QString first_position_reference_label() const;
+
     void set_reference_request_callback(ReferenceRequestCallback callback);
     // Invoked whenever a reference/offset/orientation-role edit changes the
     // resolved placement and the owning dialog should recompute its preview.
@@ -168,6 +189,8 @@ private:
     int remaining_rotation_dof_{3};
     std::set<std::size_t> highlighted_reference_rows_;
     std::set<std::size_t> highlighted_orientation_rows_;
+    bool orientation_locked_{false};
+    QString orientation_locked_label_;
     ReferenceRequestCallback reference_request_;
     ChangedCallback changed_;
     HighlightsChangedCallback highlights_changed_;

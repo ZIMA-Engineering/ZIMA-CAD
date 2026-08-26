@@ -5519,6 +5519,8 @@ void AssemblyWorkspaceWindow::show_construction_properties(
             zima::kernel::ViewerReferenceGeometry reference_geometry;
             zima::kernel::Vec3 resolved_origin = preview.origin;
             zima::kernel::Vec3 resolved_rotation = preview.rotation_base;
+            bool resolved_orientation_inherited =
+                preview.orientation_inherited_from_reference;
             if (const auto* source = workspace_.open_part(document_id)) {
                 auto next = source->session.document();
                 if (edit_mode) {
@@ -5535,6 +5537,8 @@ void AssemblyWorkspaceWindow::show_construction_properties(
                 if (const auto* resolved = next.find_construction(preview.id)) {
                     resolved_origin = resolved->origin;
                     resolved_rotation = resolved->rotation_base;
+                    resolved_orientation_inherited =
+                        resolved->orientation_inherited_from_reference;
                 }
                 {
                     // Origin's own on-screen size (document and container
@@ -5562,6 +5566,8 @@ void AssemblyWorkspaceWindow::show_construction_properties(
                 if (const auto* resolved = next.find_construction(preview.id)) {
                     resolved_origin = resolved->origin;
                     resolved_rotation = resolved->rotation_base;
+                    resolved_orientation_inherited =
+                        resolved->orientation_inherited_from_reference;
                 }
                 mesh = next.construction_viewer_mesh(preview.id);
                 reference_geometry = next.build_scene().original_references;
@@ -5587,9 +5593,11 @@ void AssemblyWorkspaceWindow::show_construction_properties(
                     preview.references.begin(), preview.references.end(),
                     [](const auto& reference) {
                         return reference.orientation_drives_rotation;
-                    });
+                    }) || resolved_orientation_inherited;
                 construction_reference_dialog_->set_orientation_base_rotation(
                     resolved_rotation, has_orientation_references);
+                construction_reference_dialog_->set_orientation_inherited_from_reference(
+                    resolved_orientation_inherited);
             }
             construction_preview_mesh_ = std::move(mesh);
             viewer_->set_transient_edges({});
@@ -5648,9 +5656,15 @@ void AssemblyWorkspaceWindow::start_construction_reference_selection(
     // but the 2nd/3rd point still carries the direction/normal information
     // needed by the "2 points define an axis"/"3 points define a plane"
     // shortcut, so it must stay enterable until rotation is resolved too.
+    // An orientation row (index >= 3) must stay armable even when rotation
+    // is ALREADY fully resolved by an automatically-derived FRONT role on
+    // position row 0/1 (Plane's "1st reference decides orientation"
+    // contract) -- otherwise clicking an empty, still-clickable FRONT/TOP
+    // row in "Orientace kontejneru" would silently do nothing, matching
+    // Python's `_container_orientation_references` table, which is always
+    // independently pickable regardless of what row 0 already resolved.
     const int baseline_dof = orientation_reference
-        ? zima::document::orientation_constraint_remaining_dof(
-            baseline_references, construction_reference_geometry_, true)
+        ? 1
         : zima::document::point_constraint_remaining_dof(
             baseline_references, construction_reference_geometry_) +
           zima::document::orientation_constraint_remaining_dof(
@@ -5843,7 +5857,16 @@ void AssemblyWorkspaceWindow::accept_construction_reference(
              baseline_references.size() <= 2) ||
          (kind == zima::document::ConstructionKind::Plane &&
              baseline_references.size() <= 3));
-    if (!is_shortcut_point && proposed_dof >= baseline_dof) {
+    // An orientation row (index >= 3) is always accepted as an explicit
+    // user override, even when FRONT/TOP is already fully resolved by an
+    // automatically-derived role on a position row -- exactly like the
+    // `baseline_dof` override in start_construction_reference_selection()
+    // above that arms picking for such a row in the first place. Rejecting
+    // the pick here via the generic "no independent constraint" DOF check
+    // would silently ignore every manual FRONT/TOP selection the user makes
+    // once row 0 already supplied a default, matching Python's always-
+    // overridable `_container_orientation_references` contract.
+    if (!orientation_reference && !is_shortcut_point && proposed_dof >= baseline_dof) {
         state_->setText(tr("Tato reference nepřidává žádnou nezávislou vazbu."));
         viewer_->clear_selection();
         return;

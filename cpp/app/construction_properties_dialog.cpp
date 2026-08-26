@@ -301,24 +301,16 @@ bool ConstructionPropertiesDialog::set_reference(std::size_t index,
     zima::document::ConstructionReference reference, const QString& label,
     zima::document::ConstructionDefinition definition) {
     QString error;
-    const bool plane_first_position_reference =
-        initial_.kind == zima::document::ConstructionKind::Plane && index == 0;
-    if (plane_first_position_reference) {
-        // A new Plane's first picked reference establishes its placement
-        // origin ("Počátek"), not FRONT/TOP orientation. Leaving the
-        // automatically assigned front/top flags on that row made the first
-        // pick behave like an orientation reference in two independent ways:
-        // the dialog mirrored it into the FRONT/TOP table, and the resolver
-        // consumed the position-row copy itself as orientation-driving data.
-        // Clear those flags here so row 0 stays a pure position reference;
-        // any special "inherit this referenced plane's frame" behavior is
-        // resolved later in PartDocument::resolve_construction() from the
-        // first picked plane-like reference itself. Every other position row
-        // also stays independent: Plane FRONT/TOP references are now manual.
-        reference.orientation_role = "none";
-        reference.orientation_drives_rotation = false;
-        reference.orientation_only = false;
-    }
+    // A new Plane's position rows keep the same automatically assigned
+    // front/top flags every other container kind gets (see
+    // assign_automatic_orientation_role() in assembly_workspace_window.cpp):
+    // row 0 is FRONT -- the plane the new Plane is offset from -- and row 1
+    // is TOP; row 2 never drives orientation. PartDocument::resolve_construction()
+    // reads row 0's role to inherit that reference's own full plane frame
+    // (parallel-copy + offset) whenever it resolves to a real plane, exactly
+    // matching the "FRONT rovina je ta, od které se odsadí skutečná rovina"
+    // contract; a non-planar row 0 (axis/point) falls back to the generic
+    // FRONT/TOP composition shared with Point/Axis.
     if (!placement_->set_reference(index, std::move(reference), label, &error)) {
         if (!error.isEmpty()) error_->setText(error);
         return false;
@@ -393,6 +385,13 @@ void ConstructionPropertiesDialog::set_orientation_base_rotation(
         }
     }
     updating_rotation_fields_ = false;
+}
+
+void ConstructionPropertiesDialog::set_orientation_inherited_from_reference(
+        bool inherited) {
+    if (placement_ == nullptr) return;
+    placement_->set_orientation_locked(inherited,
+        inherited ? placement_->first_position_reference_label() : QString());
 }
 
 void ConstructionPropertiesDialog::set_remaining_translation_dof(int dof) {
