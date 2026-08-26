@@ -132,7 +132,10 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
         [this](std::size_t index) {
             if (reference_request_) reference_request_(index);
         });
-    placement_->set_changed_callback([this] { notify_preview(); });
+    placement_->set_changed_callback([this] {
+        refresh_offset_enabled_state();
+        notify_preview();
+    });
     placement_->set_highlights_changed_callback(
         [this] { if (reference_highlights_changed_) reference_highlights_changed_(); });
     placement_->refresh_reference_table();
@@ -239,6 +242,7 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
         offset_form->addRow(tr("Odsazení pracovní roviny"), offset_);
         content_layout()->addLayout(offset_form);
     }
+    refresh_offset_enabled_state();
 
     error_ = new QLabel(this);
     error_->setStyleSheet("color: #d96b6b;");
@@ -419,8 +423,23 @@ void ConstructionPropertiesDialog::set_translation_constraint_state(
 void ConstructionPropertiesDialog::refresh_definition_fields() {
     offset_->setVisible(
         initial_.kind == zima::document::ConstructionKind::Plane);
+    refresh_offset_enabled_state();
     if (placement_) placement_->refresh_reference_table();
     notify_preview();
+}
+
+void ConstructionPropertiesDialog::refresh_offset_enabled_state() {
+    if (offset_ == nullptr) return;
+    if (initial_.kind != zima::document::ConstructionKind::Plane) {
+        offset_->setEnabled(false);
+        return;
+    }
+    // A Plane offset is defined relative to the first resolved placement
+    // anchor. Before any position reference exists, editing the field is
+    // misleading because there is no plane/face/axis/point relationship to
+    // offset from yet.
+    offset_->setEnabled(placement_ != nullptr &&
+        !placement_->populated_references().empty());
 }
 
 zima::document::ConstructionObject ConstructionPropertiesDialog::current_value() const {

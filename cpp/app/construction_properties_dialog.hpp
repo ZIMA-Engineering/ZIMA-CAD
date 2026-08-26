@@ -117,6 +117,7 @@ private:
     bool updating_rotation_fields_{false};
     ReferenceHighlightsChangedCallback reference_highlights_changed_;
     void refresh_definition_fields();
+    void refresh_offset_enabled_state();
     [[nodiscard]] zima::document::ConstructionObject current_value() const;
     void notify_preview();
 };

@@ -9,6 +9,7 @@
 #include "sketch_dimension_properties_dialog.hpp"
 #include "drawing_window.hpp"
 #include "document_tools_dialogs.hpp"
+#include "construction_reference_candidate_policy.hpp"
 #include "file_dialog.hpp"
 #include "global_settings_dialog.hpp"
 #include "resource_icon.hpp"
@@ -5702,15 +5703,14 @@ void AssemblyWorkspaceWindow::start_construction_reference_selection(
     viewer_->set_candidate_filter([this, prefix, active_part, index,
             orientation_reference, baseline_references, baseline_dof,
             unavailable_construction_owners](const auto& candidate) {
-        const bool persisted_origin_display =
-            candidate.geometry == zima::viewer::CandidateGeometry::Display &&
-            candidate.semantic_key.starts_with("origin:");
-        if (candidate.geometry !=
-                zima::viewer::CandidateGeometry::OriginalReference &&
-            !persisted_origin_display) return false;
-        if (construction_reference_dialog_ == nullptr ||
-            construction_reference_dialog_->owns_reference_owner(candidate.owner_id) ||
-            unavailable_construction_owners.contains(candidate.owner_id)) return false;
+        if (construction_reference_dialog_ == nullptr) return false;
+        if (!construction_reference_candidate_passes_static_filters(candidate,
+                orientation_reference,
+                construction_reference_dialog_->owns_reference_owner(
+                    candidate.owner_id),
+                unavailable_construction_owners.contains(candidate.owner_id))) {
+            return false;
+        }
         auto local_path = candidate.instance_path;
         try {
             auto path = zima::assembly::InstancePath::decode(
@@ -5751,12 +5751,9 @@ void AssemblyWorkspaceWindow::start_construction_reference_selection(
 void AssemblyWorkspaceWindow::accept_construction_reference(
     const zima::viewer::ViewerCandidate& candidate) {
     if (construction_reference_dialog_ == nullptr ||
-        !pending_construction_reference_index_ || candidate.owner_id.empty() ||
-        candidate.semantic_key.empty() ||
-        construction_reference_dialog_->owns_reference_owner(candidate.owner_id) ||
-        (candidate.geometry != zima::viewer::CandidateGeometry::OriginalReference &&
-         !(candidate.geometry == zima::viewer::CandidateGeometry::Display &&
-           candidate.semantic_key.starts_with("origin:")))) return;
+        !pending_construction_reference_index_) return;
+    const std::size_t selected_index = *pending_construction_reference_index_;
+    const bool orientation_reference = selected_index >= 3;
     auto local_path = candidate.instance_path;
     if (!active_occurrence_path_.empty()) {
         auto path = zima::assembly::InstancePath::decode(candidate.instance_path);
@@ -5789,6 +5786,12 @@ void AssemblyWorkspaceWindow::accept_construction_reference(
         if (references_current_or_later_construction(
                 assembly->session.document())) return;
     }
+    if (!construction_reference_candidate_passes_static_filters(candidate,
+            orientation_reference,
+            construction_reference_dialog_->owns_reference_owner(candidate.owner_id),
+            false)) {
+        return;
+    }
     // Every container kind (Point, Axis, Plane) now shares one placement
     // model, matching Placement/resolve_placement() used by primitives and
     // Extrusion/Revolution: placement references are solved generically
@@ -5802,8 +5805,6 @@ void AssemblyWorkspaceWindow::accept_construction_reference(
     // no orientation-driving reference is present, and otherwise falls back
     // to the generic position-only solve for any other combination.
     const auto kind = construction_reference_dialog_->construction_kind();
-    const std::size_t selected_index = *pending_construction_reference_index_;
-    const bool orientation_reference = selected_index >= 3;
     auto baseline_references =
         construction_reference_dialog_->references_without(selected_index);
     const auto definition = zima::document::ConstructionDefinition::PointReference;
@@ -6253,10 +6254,10 @@ bool AssemblyWorkspaceWindow::accept_construction_tree_reference(
         // children -- picking a POSITION row expands the Origin into its
         // datum planes so all three land as position references in one
         // click, fully constraining the container immediately. Only
-        // PlaneConstraintDialog further special-cases an active ORIENTATION
-        // row (FRONT/TOP, index >= 3): there it resolves to exactly the one
-        // datum plane matching the row's role (front -> XZ, top -> XY)
-        // instead of bulk-filling every plane.
+        // FRONT/TOP no longer accept `origin:plane:*` at all: a document's
+        // own datum planes looked selectable there but were misleading, and
+        // a container-origin plane is only the container's already-derived
+        // preview frame, not an independent orientation anchor.
         const auto find_plane_child = [&](std::string_view plane_key)
             -> const QTreeWidgetItem* {
             for (int i = 0; i < item->childCount(); ++i) {
@@ -6293,14 +6294,7 @@ bool AssemblyWorkspaceWindow::accept_construction_tree_reference(
                 child->data(0, Qt::UserRole + 1).toString(),
                 child->data(0, Qt::UserRole + 5).toString()};
         };
-        if (selected_index >= 3) {
-            const auto* plane_child =
-                find_plane_child(selected_index == 3 ? "plane:xz" : "plane:xy");
-            if (plane_child == nullptr) return false;
-            const auto captured = capture_plane_child(plane_child);
-            return accept_origin_reference_value(
-                captured.owner_id, captured.instance_path, captured.semantic_key);
-        }
+        if (selected_index >= 3) return false;
         std::vector<CapturedPlaneReference> captured_planes;
         for (const auto plane_key : {"plane:xy", "plane:yz", "plane:xz"}) {
             const auto* plane_child = find_plane_child(plane_key);

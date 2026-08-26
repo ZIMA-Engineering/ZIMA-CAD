@@ -1921,6 +1921,11 @@ double placement_vec_dot(
     return a.x * b.x + a.y * b.y + a.z * b.z;
 }
 
+zima::kernel::Vec3 placement_vec_sub(
+    const zima::kernel::Vec3& a, const zima::kernel::Vec3& b) {
+    return {a.x - b.x, a.y - b.y, a.z - b.z};
+}
+
 bool placement_vec_is_zero(const zima::kernel::Vec3& value) {
     return std::abs(value.x) <= 1.0e-12 && std::abs(value.y) <= 1.0e-12 &&
         std::abs(value.z) <= 1.0e-12;
@@ -2271,6 +2276,43 @@ std::optional<PlacementReferencePlane> placement_reference_plane(
         return PlacementReferencePlane{a, normal, front, top};
     }
     return std::nullopt;
+}
+
+bool construction_reference_is_planar_face(
+    const ConstructionReference& reference,
+    const zima::kernel::ViewerReferenceGeometry& geometry) {
+    if (construction_reference_is_plane_like(reference)) {
+        return true;
+    }
+    const auto resolved = placement_reference_plane(reference, geometry);
+    if (!resolved) return false;
+    bool matched_triangle = false;
+    for (std::size_t index = 0; index < geometry.triangle_references.size(); ++index) {
+        if (!placement_reference_matches(geometry.triangle_references[index], reference)) {
+            continue;
+        }
+        matched_triangle = true;
+        for (int corner = 0; corner < 3; ++corner) {
+            const auto& vertex = geometry.vertices[geometry.triangles[index * 3 + corner]];
+            const zima::kernel::Vec3 point{vertex.x, vertex.y, vertex.z};
+            const auto delta = placement_vec_sub(point, resolved->point);
+            if (std::abs(placement_vec_dot(delta, resolved->normal)) > 1.0e-7) {
+                return false;
+            }
+        }
+        const auto& a = geometry.vertices[geometry.triangles[index * 3]];
+        const auto& b = geometry.vertices[geometry.triangles[index * 3 + 1]];
+        const auto& c = geometry.vertices[geometry.triangles[index * 3 + 2]];
+        const auto triangle_normal = placement_vec_normalized(placement_vec_cross(
+            {b.x - a.x, b.y - a.y, b.z - a.z},
+            {c.x - a.x, c.y - a.y, c.z - a.z}));
+        if (placement_vec_is_zero(triangle_normal)) return false;
+        if (std::abs(placement_vec_dot(triangle_normal, resolved->normal)) <
+            1.0 - 1.0e-7) {
+            return false;
+        }
+    }
+    return matched_triangle;
 }
 
 // Solves the origin from an arbitrary set of point/axis/plane position
@@ -2641,20 +2683,19 @@ bool resolve_construction(ConstructionObject& object,
         object.origin = origin;
     }
     // Only one special case auto-inherits a Plane frame with no explicit
-    // FRONT/TOP references: the FIRST placement reference is plane-like
-    // (`"plane"` for a Plane container, or `"origin:plane:*"` for a built-in
-    // document/assembly Origin plane). That first pick is the user's
-    // "parallel to / based on this plane" anchor, so the new Plane should
-    // follow the referenced plane's full resolved frame (normal + in-plane
-    // axes), the same way Sketch plane references do. Any other first
-    // reference kind still positions the Plane, but leaves orientation
-    // manual.
+    // FRONT/TOP references: the FIRST placement reference resolves to a
+    // real planar reference (a Plane container, a built-in Origin plane, or
+    // a coplanar model face). That first pick is the user's "parallel to /
+    // based on this plane" anchor, so the new Plane should follow the
+    // referenced plane's full resolved frame (normal + in-plane axes), the
+    // same way Sketch plane references do. Non-planar/linear/point first
+    // references still position the Plane, but leave orientation manual.
     std::optional<PlacementReferencePlane> inherited_plane_frame;
     if (object.kind == ConstructionKind::Plane &&
         !origin_bulk_fill &&
         !front_direction && !top_direction && !position_references.empty()) {
         const auto& first_reference = position_references.front().get();
-        if (construction_reference_is_plane_like(first_reference)) {
+        if (construction_reference_is_planar_face(first_reference, geometry)) {
             if (const auto resolved = plane(first_reference)) {
                 inherited_plane_frame = *resolved;
             }

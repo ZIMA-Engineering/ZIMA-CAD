@@ -6,6 +6,7 @@
 #include "sketch_text_properties_dialog.hpp"
 #include "file_dialog.hpp"
 #include "document_tools_dialogs.hpp"
+#include "construction_reference_candidate_policy.hpp"
 
 #include <zima/viewer/mesh_view.hpp>
 
@@ -519,6 +520,10 @@ int main(int argc, char* argv[]) {
                     orientation_table != nullptr && orientation_table->rowCount() == 2 &&
                     orientation_table->item(0, 1) != nullptr,
                 "Plane Properties does not expose its position and FRONT/TOP tables");
+        auto* plane_offset = plane_dialog->findChild<QDoubleSpinBox*>(
+            "constructionOffset");
+        require(plane_offset != nullptr && !plane_offset->isEnabled(),
+                "Plane work-plane offset started enabled before any position reference");
         plane_dialog->set_reference(0,
             {{}, "plane-source", "plane", 0.0, true, "none", true}, "Zdrojová rovina",
             zima::document::ConstructionDefinition::PointReference);
@@ -528,6 +533,8 @@ int main(int argc, char* argv[]) {
         require(first_position_item != nullptr &&
                     first_position_item->text() == QStringLiteral("1. Zdrojová rovina"),
                 "Plane-container first reference did not stay in the position table");
+        require(plane_offset->isEnabled(),
+                "Plane work-plane offset did not enable after the first position reference");
         require(first_orientation_item != nullptr &&
                     first_orientation_item->text().contains("Vybrat"),
                 "Plane-container first reference still auto-filled FRONT orientation");
@@ -621,6 +628,28 @@ int main(int argc, char* argv[]) {
                     position_only_orientation_table->item(1, 1)->text().contains("Vybrat"),
                 "Second/third Plane position references still auto-filled FRONT/TOP");
         plane_position_only_dialog->buttons()->button(QDialogButtonBox::Cancel)->click();
+
+        {
+            const zima::viewer::ViewerCandidate document_origin_plane{
+                zima::viewer::CandidateKind::Face, 0.0, 0u,
+                "part-origin", "origin:plane:xz", {},
+                zima::viewer::CandidateGeometry::Display};
+            require(zima::app::construction_reference_candidate_passes_static_filters(
+                        document_origin_plane, false, false, false),
+                    "Position rows unexpectedly reject origin-plane candidates");
+            require(!zima::app::construction_reference_candidate_passes_static_filters(
+                        document_origin_plane, true, false, false),
+                    "FRONT/TOP still advertise document-origin plane candidates");
+            const zima::viewer::ViewerCandidate edited_plane{
+                zima::viewer::CandidateKind::Face, 0.0, 0u,
+                plane_initial.entity_id, "plane", {},
+                zima::viewer::CandidateGeometry::OriginalReference};
+            require(!zima::app::construction_reference_candidate_passes_static_filters(
+                        edited_plane, false, true, false) &&
+                    !zima::app::construction_reference_candidate_passes_static_filters(
+                        edited_plane, true, true, false),
+                "Edited construction still offers itself as a reference candidate");
+        }
 
         auto point_initial = zima::document::PartDocument::create_construction(
             zima::document::ConstructionKind::Point);
