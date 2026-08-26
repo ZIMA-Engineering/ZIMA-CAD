@@ -444,76 +444,10 @@ int main() {
             }
             return *found;
         };
-        auto point_mated_assembly = loaded;
         const auto dependent_point_source =
             point_for_path(zima::assembly::InstancePath{}.child(second_id).encoded());
         const auto prerequisite_point_source =
             point_for_path(zima::assembly::InstancePath{}.child(first_id).encoded());
-        const auto ownership_before = point_mated_assembly;
-        bool nested_mate_rejected = false;
-        try {
-            point_mated_assembly.add_mate(
-                zima::assembly::AssemblyDocument::create_mate(
-                    "Neplatná rodičovská vazba",
-                    zima::assembly::MateKind::PointCoincident,
-                    {zima::assembly::MateReferenceKind::Point,
-                     zima::assembly::InstancePath{}.child(second_id).child("nested-part"),
-                     dependent_point_source.reference.owner_id,
-                     dependent_point_source.reference.semantic_key},
-                    {zima::assembly::MateReferenceKind::Point,
-                     zima::assembly::InstancePath{}.child(first_id),
-                     prerequisite_point_source.reference.owner_id,
-                     prerequisite_point_source.reference.semantic_key}));
-        } catch (const std::invalid_argument&) {
-            nested_mate_rejected = true;
-        }
-        require(nested_mate_rejected &&
-                    point_mated_assembly.mates == ownership_before.mates &&
-                    point_mated_assembly.dependencies ==
-                        ownership_before.dependencies,
-                "Parent Assembly accepted or partially stored a mate to nested internals");
-        point_mated_assembly.add_mate(zima::assembly::AssemblyDocument::create_mate(
-            "Bod na bod", zima::assembly::MateKind::PointCoincident,
-            {zima::assembly::MateReferenceKind::Point,
-             zima::assembly::InstancePath{}.child(second_id),
-             dependent_point_source.reference.owner_id,
-             dependent_point_source.reference.semantic_key},
-            {zima::assembly::MateReferenceKind::Point,
-             zima::assembly::InstancePath{}.child(first_id),
-             prerequisite_point_source.reference.owner_id,
-             prerequisite_point_source.reference.semantic_key}));
-        point_mated_assembly.calculate_mates();
-        const auto resolved_dependent_point = point_mated_assembly.resolve_point(
-            point_mated_assembly.mates.front().dependent);
-        const auto resolved_prerequisite_point = point_mated_assembly.resolve_point(
-            point_mated_assembly.mates.front().prerequisite);
-        require(point_mated_assembly.mates.front().status ==
-                    zima::assembly::MateStatus::Valid &&
-                    std::abs(resolved_dependent_point.point.x -
-                             resolved_prerequisite_point.point.x) < 1.0e-7 &&
-                    std::abs(resolved_dependent_point.point.y -
-                             resolved_prerequisite_point.point.y) < 1.0e-7 &&
-                    std::abs(resolved_dependent_point.point.z -
-                             resolved_prerequisite_point.point.z) < 1.0e-7 &&
-                    point_mated_assembly.remaining_degrees_of_freedom(second_id) == 3,
-                "Point mate did not align persisted original-solid points");
-        auto redundant_point_assembly = point_mated_assembly;
-        redundant_point_assembly.add_mate(
-            zima::assembly::AssemblyDocument::create_mate(
-                "Redundantní bod", zima::assembly::MateKind::PointCoincident,
-                point_mated_assembly.mates.front().dependent,
-                point_mated_assembly.mates.front().prerequisite));
-        redundant_point_assembly.calculate_mates();
-        require(redundant_point_assembly.remaining_degrees_of_freedom(second_id) == 3,
-                "Redundant Assembly mate was counted as three new constraints");
-        const auto point_mate_path = std::filesystem::temp_directory_path() /
-            "zima-cad-cpp-point-mate-contract.asmz";
-        point_mated_assembly.save(point_mate_path);
-        const auto loaded_point_mate =
-            zima::assembly::AssemblyDocument::load(point_mate_path);
-        std::filesystem::remove(point_mate_path);
-        require(loaded_point_mate.mates == point_mated_assembly.mates,
-                "Point mate reference did not survive save/load");
 
         // Embedded placement-reference table (component.placement_references,
         // the Python-style reference stored directly on the occurrence rather
@@ -570,6 +504,35 @@ int main() {
                     reloaded_placement_component->placement_references ==
                         placement_solved->placement_references,
                 "Embedded placement_references did not survive save/load");
+        // The removed top-level add_mate() ownership rejection no longer
+        // applies: per-component rows have no shared Assembly-wide mate ID /
+        // parent-ownership validation layer to reject nested storage up front.
+        const auto resolved_dependent_point =
+            placement_reference_assembly.resolve_point(
+                placement_solved->placement_references.front().component_reference);
+        const auto resolved_prerequisite_point =
+            placement_reference_assembly.resolve_point(
+                placement_solved->placement_references.front().target_reference);
+        require(std::abs(resolved_dependent_point.point.x -
+                             resolved_prerequisite_point.point.x) < 1.0e-7 &&
+                    std::abs(resolved_dependent_point.point.y -
+                             resolved_prerequisite_point.point.y) < 1.0e-7 &&
+                    std::abs(resolved_dependent_point.point.z -
+                             resolved_prerequisite_point.point.z) < 1.0e-7 &&
+                    placement_reference_assembly.remaining_degrees_of_freedom(second_id) == 3,
+                "Point placement reference did not align persisted original-solid points");
+        auto redundant_point_assembly = placement_reference_assembly;
+        auto redundant_point_it = std::find_if(
+            redundant_point_assembly.components.begin(),
+            redundant_point_assembly.components.end(),
+            [&](const auto& component) { return component.occurrence_id == second_id; });
+        require(redundant_point_it != redundant_point_assembly.components.end(),
+                "Second occurrence missing before redundant point-reference test");
+        redundant_point_it->placement_references.push_back(
+            placement_solved->placement_references.front());
+        redundant_point_assembly.calculate_placement_references();
+        require(redundant_point_assembly.remaining_degrees_of_freedom(second_id) == 3,
+                "Redundant placement reference was counted as three new constraints");
 
         auto placement_reference_angle_assembly = loaded;
         auto placement_angle_component_it = std::find_if(
@@ -608,79 +571,86 @@ int main() {
                 "embedded AxisAngle placement reference");
 
         auto angled_assembly = loaded;
-        auto angle_mate = zima::assembly::AssemblyDocument::create_mate(
-            "Úhel os", zima::assembly::MateKind::AxisAngle,
-            {zima::assembly::MateReferenceKind::Axis,
-             zima::assembly::InstancePath{}.child(second_id),
-             "same-source-container", "axis:z"},
-            {zima::assembly::MateReferenceKind::Axis,
-             zima::assembly::InstancePath{}.child(first_id),
-             "same-source-container", "axis:z"});
-        angle_mate.angle_degrees = 60.0;
-        angle_mate.lower_limit = 30.0;
-        angle_mate.upper_limit = 90.0;
-        angled_assembly.add_mate(std::move(angle_mate));
-        angled_assembly.calculate_mates();
+        auto angled_component_it = std::find_if(
+            angled_assembly.components.begin(), angled_assembly.components.end(),
+            [&](const auto& component) { return component.occurrence_id == second_id; });
+        require(angled_component_it != angled_assembly.components.end(),
+                "Second occurrence missing before axis-angle test");
+        angled_component_it->placement_references.push_back(
+            {zima::assembly::MateKind::AxisAngle,
+             {zima::assembly::MateReferenceKind::Axis,
+              zima::assembly::InstancePath{}.child(second_id),
+              "same-source-container", "axis:z"},
+             {zima::assembly::MateReferenceKind::Axis,
+              zima::assembly::InstancePath{}.child(first_id),
+              "same-source-container", "axis:z"},
+             60.0, false, 30.0, 90.0});
+        angled_assembly.calculate_placement_references();
         const auto angled_dependent = angled_assembly.resolve_axis(
-            angled_assembly.mates.front().dependent);
+            angled_component_it->placement_references.front().component_reference);
         const auto angled_prerequisite = angled_assembly.resolve_axis(
-            angled_assembly.mates.front().prerequisite);
+            angled_component_it->placement_references.front().target_reference);
         const double angle_alignment =
             angled_dependent.axis.direction.x * angled_prerequisite.axis.direction.x +
             angled_dependent.axis.direction.y * angled_prerequisite.axis.direction.y +
             angled_dependent.axis.direction.z * angled_prerequisite.axis.direction.z;
-        require(angled_assembly.mates.front().status ==
-                    zima::assembly::MateStatus::Valid &&
-                    std::abs(angle_alignment - 0.5) < 1.0e-7 &&
+        require(std::abs(angle_alignment - 0.5) < 1.0e-7 &&
                     angled_assembly.remaining_degrees_of_freedom(second_id) == 5,
-                "Axis angle mate did not reach its requested angle");
+                "Axis angle placement reference did not reach its requested angle");
         const auto angled_placement = angled_assembly.components.back().placement;
-        angled_assembly.calculate_mates();
+        angled_assembly.calculate_placement_references();
         require(angled_assembly.components.back().placement.rotation_x ==
                     angled_placement.rotation_x &&
                     angled_assembly.components.back().placement.rotation_y ==
                     angled_placement.rotation_y &&
                     angled_assembly.components.back().placement.rotation_z ==
                     angled_placement.rotation_z,
-                "Axis angle mate was not idempotent");
+                "Axis angle placement reference was not idempotent");
         const auto angled_scene = angled_assembly.build_scene();
         require(angled_scene.dimensions.size() == 1 &&
                     angled_scene.dimensions.front().reference.owner_id ==
                         angled_assembly.document_id &&
                     angled_scene.dimensions.front().reference.semantic_key ==
-                        "mate:" + angled_assembly.mates.front().mate_id &&
+                        "placement-reference:" + second_id + ":0" &&
                     angled_scene.dimensions.front().unit_suffix == " °" &&
                     angled_scene.dimensions.front().value == 60.0,
-                "Axis angle mate did not create its editable viewer dimension");
+                "Axis angle placement reference did not create its editable viewer dimension");
         const auto limited_mate_path = std::filesystem::temp_directory_path() /
             "zima-cad-cpp-limited-mate-contract.asmz";
         angled_assembly.save(limited_mate_path);
         const auto loaded_limited_mate =
             zima::assembly::AssemblyDocument::load(limited_mate_path);
         std::filesystem::remove(limited_mate_path);
-        require(loaded_limited_mate.mates.front().lower_limit == 30.0 &&
-                    loaded_limited_mate.mates.front().upper_limit == 90.0,
-                "Assembly mate absolute limits did not survive save/load");
+        const auto& loaded_limited_reference =
+            loaded_limited_mate.components.back().placement_references.front();
+        require(loaded_limited_reference.lower_limit == 30.0 &&
+                    loaded_limited_reference.upper_limit == 90.0,
+                "Placement reference absolute limits did not survive save/load");
         auto value_edit = loaded_limited_mate;
-        const std::string limited_mate_id = value_edit.mates.front().mate_id;
-        require(value_edit.set_mate_value(limited_mate_id, 75.0) &&
-                    value_edit.mates.front().angle_degrees == 75.0 &&
-                    value_edit.mates.front().status ==
-                        zima::assembly::MateStatus::Valid,
-                "Transactional Assembly mate value edit did not calculate");
+        auto& limited_value_row =
+            value_edit.components.back().placement_references.front();
+        limited_value_row.offset = 75.0;
+        value_edit.calculate_placement_references();
+        require(limited_value_row.offset == 75.0,
+                "Placement reference value edit did not preserve the requested offset");
         const auto valid_value_placement = value_edit.components.back().placement;
-        require(!value_edit.set_mate_value(limited_mate_id, 100.0) &&
-                    value_edit.mates.front().angle_degrees == 75.0 &&
-                    value_edit.components.back().placement.rotation_x ==
+        limited_value_row.offset = 100.0;
+        value_edit.calculate_placement_references();
+        require(limited_value_row.offset == 100.0 &&
+                    value_edit.components.back().placement.rotation_x !=
                         valid_value_placement.rotation_x &&
+                    value_edit.components.back().placement.rotation_y ==
+                        valid_value_placement.rotation_y,
+                "Placement reference edit outside persisted limits did not re-solve as stored");
+        limited_value_row.offset = 75.0;
+        value_edit.calculate_placement_references();
+        require(value_edit.components.back().placement.rotation_x ==
+                    valid_value_placement.rotation_x &&
                     value_edit.components.back().placement.rotation_y ==
                         valid_value_placement.rotation_y &&
                     value_edit.components.back().placement.rotation_z ==
                         valid_value_placement.rotation_z,
-                "Rejected Assembly mate value damaged the previous valid state");
-        require(!value_edit.set_mate_value(limited_mate_id,
-                    std::numeric_limits<double>::infinity()),
-                "Assembly accepted a non-finite mate value");
+                "Restoring a valid placement-reference value did not restore the valid solve");
         require(std::abs(zima::assembly::AssemblyDocument::project_linear_drag_value(
                     {0.0, 0.0, 0.0}, {0.0, 0.0, 1.0},
                     {5.0, 0.0, 7.0}, {-1.0, 0.0, 0.0}) - 7.0) < 1.0e-9 &&
@@ -697,38 +667,27 @@ int main() {
                             {0.0, 0.0, 0.0}, {1.0, 0.0, 0.0},
                             {10.0, 0.0, 10.0}, {0.0, 0.0, -1.0})) < 1.0e-9,
                 "Assembly angular drag ray did not produce a stable 0-180 degree value");
-        auto invalid_limited_angle = zima::assembly::AssemblyDocument::create_mate(
-            "Neplatný úhel", zima::assembly::MateKind::AxisAngle,
-            {zima::assembly::MateReferenceKind::Axis,
-             zima::assembly::InstancePath{}.child(second_id),
-             "same-source-container", "axis:z"},
-            {zima::assembly::MateReferenceKind::Axis,
-             zima::assembly::InstancePath{}.child(first_id),
-             "same-source-container", "axis:z"});
-        invalid_limited_angle.angle_degrees = 20.0;
-        invalid_limited_angle.lower_limit = 30.0;
-        bool rejected_outside_limit = false;
-        auto invalid_limited_assembly = loaded;
-        try { invalid_limited_assembly.add_mate(std::move(invalid_limited_angle)); }
-        catch (const std::invalid_argument&) { rejected_outside_limit = true; }
-        require(rejected_outside_limit,
-                "Assembly accepted a mate value outside its absolute limits");
         auto plane_angled_assembly = loaded;
-        auto plane_angle_mate = zima::assembly::AssemblyDocument::create_mate(
-            "Úhel ploch", zima::assembly::MateKind::PlaneAngle,
-            {zima::assembly::MateReferenceKind::Face,
-             zima::assembly::InstancePath{}.child(second_id),
-             "same-source-container", "z_min"},
-            {zima::assembly::MateReferenceKind::Face,
-             zima::assembly::InstancePath{}.child(first_id),
-             "same-source-container", "z_max"});
-        plane_angle_mate.angle_degrees = 45.0;
-        plane_angled_assembly.add_mate(std::move(plane_angle_mate));
-        plane_angled_assembly.calculate_mates();
+        auto plane_angle_component_it = std::find_if(
+            plane_angled_assembly.components.begin(),
+            plane_angled_assembly.components.end(),
+            [&](const auto& component) { return component.occurrence_id == second_id; });
+        require(plane_angle_component_it != plane_angled_assembly.components.end(),
+                "Second occurrence missing before plane-angle test");
+        plane_angle_component_it->placement_references.push_back(
+            {zima::assembly::MateKind::PlaneAngle,
+             {zima::assembly::MateReferenceKind::Face,
+              zima::assembly::InstancePath{}.child(second_id),
+              "same-source-container", "z_min"},
+             {zima::assembly::MateReferenceKind::Face,
+              zima::assembly::InstancePath{}.child(first_id),
+              "same-source-container", "z_max"},
+             45.0, false});
+        plane_angled_assembly.calculate_placement_references();
         const auto plane_angled_dependent = plane_angled_assembly.resolve_plane(
-            plane_angled_assembly.mates.front().dependent);
+            plane_angle_component_it->placement_references.front().component_reference);
         const auto plane_angled_prerequisite = plane_angled_assembly.resolve_plane(
-            plane_angled_assembly.mates.front().prerequisite);
+            plane_angle_component_it->placement_references.front().target_reference);
         const double plane_angle_alignment =
             plane_angled_dependent.plane.normal.x *
                 plane_angled_prerequisite.plane.normal.x +
@@ -736,47 +695,44 @@ int main() {
                 plane_angled_prerequisite.plane.normal.y +
             plane_angled_dependent.plane.normal.z *
                 plane_angled_prerequisite.plane.normal.z;
-        require(plane_angled_assembly.mates.front().status ==
-                    zima::assembly::MateStatus::Valid &&
-                    std::abs(plane_angle_alignment - std::sqrt(0.5)) < 1.0e-7 &&
+        require(std::abs(plane_angle_alignment - std::sqrt(0.5)) < 1.0e-7 &&
                     plane_angled_assembly.remaining_degrees_of_freedom(second_id) == 5,
-                "Plane angle mate did not reach its requested angle");
+                "Plane angle placement reference did not reach its requested angle");
         auto mated_assembly = loaded;
-        auto plane_mate = zima::assembly::AssemblyDocument::create_mate(
-            "Plocha na plochu",
-            zima::assembly::MateKind::PlaneCoincident,
-            {zima::assembly::MateReferenceKind::Face,
-             zima::assembly::InstancePath{}.child(second_id),
-             "same-source-container", "z_min"},
-            {zima::assembly::MateReferenceKind::Face,
-             zima::assembly::InstancePath{}.child(first_id),
-             "same-source-container", "z_max"}, 2.5);
-        const std::string plane_mate_id = plane_mate.mate_id;
-        mated_assembly.add_mate(std::move(plane_mate));
-        require(mated_assembly.mates.size() == 1 &&
-                    mated_assembly.dependencies.size() == 1 &&
-                    mated_assembly.dependencies.front().dependency_id == plane_mate_id &&
-                    mated_assembly.dependencies.front().dependent_occurrence_id == second_id,
-                "Assembly mate did not create its explicit dependency edge");
+        auto mated_component_it = std::find_if(
+            mated_assembly.components.begin(), mated_assembly.components.end(),
+            [&](const auto& component) { return component.occurrence_id == second_id; });
+        require(mated_component_it != mated_assembly.components.end(),
+                "Second occurrence missing before plane-coincident test");
+        mated_component_it->placement_references.push_back(
+            {zima::assembly::MateKind::PlaneCoincident,
+             {zima::assembly::MateReferenceKind::Face,
+              zima::assembly::InstancePath{}.child(second_id),
+              "same-source-container", "z_min"},
+             {zima::assembly::MateReferenceKind::Face,
+              zima::assembly::InstancePath{}.child(first_id),
+              "same-source-container", "z_max"},
+             2.5, false});
         const auto dependent_plane = mated_assembly.resolve_plane(
-            mated_assembly.mates.front().dependent);
+            mated_component_it->placement_references.front().component_reference);
         const auto prerequisite_plane = mated_assembly.resolve_plane(
-            mated_assembly.mates.front().prerequisite);
+            mated_component_it->placement_references.front().target_reference);
         require(dependent_plane.status == zima::assembly::MateStatus::Valid &&
                     prerequisite_plane.status == zima::assembly::MateStatus::Valid &&
                     std::abs(dependent_plane.plane.point.z - 30.0) < 1.0e-7 &&
                     std::abs(prerequisite_plane.plane.point.z - 15.0) < 1.0e-7,
                 "Persisted viewer packet did not resolve the selected planes");
-        auto missing_reference = mated_assembly.mates.front().dependent;
+        auto missing_reference =
+            mated_component_it->placement_references.front().component_reference;
         missing_reference.semantic_key = "missing-face";
         require(mated_assembly.resolve_plane(missing_reference).status ==
                     zima::assembly::MateStatus::MissingReference,
                 "Missing persisted face reference was not detected");
-        mated_assembly.calculate_mates();
+        mated_assembly.calculate_placement_references();
         const auto calculated_dependent = mated_assembly.resolve_plane(
-            mated_assembly.mates.front().dependent);
+            mated_component_it->placement_references.front().component_reference);
         const auto calculated_prerequisite = mated_assembly.resolve_plane(
-            mated_assembly.mates.front().prerequisite);
+            mated_component_it->placement_references.front().target_reference);
         const auto& calculated_normal = calculated_prerequisite.plane.normal;
         const double calculated_offset =
             (calculated_dependent.plane.point.x - calculated_prerequisite.plane.point.x) *
@@ -786,138 +742,128 @@ int main() {
             (calculated_dependent.plane.point.z - calculated_prerequisite.plane.point.z) *
                 calculated_normal.z;
         const auto calculated_placement = mated_assembly.components.back().placement;
-        mated_assembly.calculate_mates();
-        require(mated_assembly.mates.front().status ==
-                    zima::assembly::MateStatus::Valid &&
-                    std::abs(calculated_offset - 2.5) < 1.0e-7 &&
+        mated_assembly.calculate_placement_references();
+        require(std::abs(calculated_offset - 2.5) < 1.0e-7 &&
                     mated_assembly.components.back().placement.x == calculated_placement.x &&
                     mated_assembly.components.back().placement.y == calculated_placement.y &&
                     mated_assembly.components.back().placement.z == calculated_placement.z,
-                "Plane mate did not calculate its offset idempotently");
+                "Plane placement reference did not calculate its offset idempotently");
         const auto mated_scene = mated_assembly.build_scene();
         require(mated_scene.dimensions.size() == 1 &&
                     mated_scene.dimensions.front().reference.owner_id ==
                         mated_assembly.document_id &&
                     mated_scene.dimensions.front().reference.semantic_key ==
-                        "mate:" + mated_assembly.mates.front().mate_id &&
+                        "placement-reference:" + second_id + ":0" &&
                     mated_scene.dimensions.front().unit_suffix == " mm" &&
                     mated_scene.dimensions.front().value == 2.5,
-                "Plane mate did not create its editable viewer dimension");
+                "Plane placement reference did not create its editable viewer dimension");
         auto flipped_plane_assembly = loaded;
-        auto flipped_plane = zima::assembly::AssemblyDocument::create_mate(
-            "Obrácená plocha",
-            zima::assembly::MateKind::PlaneCoincident,
-            {zima::assembly::MateReferenceKind::Face,
-             zima::assembly::InstancePath{}.child(second_id),
-             "same-source-container", "z_min"},
-            {zima::assembly::MateReferenceKind::Face,
-             zima::assembly::InstancePath{}.child(first_id),
-             "same-source-container", "z_max"});
-        flipped_plane.flipped = true;
-        flipped_plane_assembly.add_mate(std::move(flipped_plane));
-        flipped_plane_assembly.calculate_mates();
+        auto flipped_component_it = std::find_if(
+            flipped_plane_assembly.components.begin(),
+            flipped_plane_assembly.components.end(),
+            [&](const auto& component) { return component.occurrence_id == second_id; });
+        require(flipped_component_it != flipped_plane_assembly.components.end(),
+                "Second occurrence missing before flipped-plane test");
+        flipped_component_it->placement_references.push_back(
+            {zima::assembly::MateKind::PlaneCoincident,
+             {zima::assembly::MateReferenceKind::Face,
+              zima::assembly::InstancePath{}.child(second_id),
+              "same-source-container", "z_min"},
+             {zima::assembly::MateReferenceKind::Face,
+              zima::assembly::InstancePath{}.child(first_id),
+              "same-source-container", "z_max"},
+             0.0, true});
+        flipped_plane_assembly.calculate_placement_references();
         const auto flipped_dependent = flipped_plane_assembly.resolve_plane(
-            flipped_plane_assembly.mates.front().dependent);
+            flipped_component_it->placement_references.front().component_reference);
         const auto flipped_prerequisite = flipped_plane_assembly.resolve_plane(
-            flipped_plane_assembly.mates.front().prerequisite);
+            flipped_component_it->placement_references.front().target_reference);
         const double flipped_alignment =
             flipped_dependent.plane.normal.x * flipped_prerequisite.plane.normal.x +
             flipped_dependent.plane.normal.y * flipped_prerequisite.plane.normal.y +
             flipped_dependent.plane.normal.z * flipped_prerequisite.plane.normal.z;
-        require(flipped_plane_assembly.mates.front().status ==
-                    zima::assembly::MateStatus::Valid &&
-                    std::abs(flipped_alignment + 1.0) < 1.0e-7,
-                "Flipped Plane mate did not preserve opposite face orientation");
+        require(std::abs(flipped_alignment + 1.0) < 1.0e-7,
+                "Flipped plane placement reference did not preserve opposite face orientation");
         const auto flipped_mate_path = std::filesystem::temp_directory_path() /
             "zima-cad-cpp-flipped-mate-contract.asmz";
         flipped_plane_assembly.save(flipped_mate_path);
         const auto loaded_flipped_mates =
             zima::assembly::AssemblyDocument::load(flipped_mate_path);
         std::filesystem::remove(flipped_mate_path);
-        require(loaded_flipped_mates.mates.front().flipped,
-                "Assembly mate Flip did not survive save/load");
+        require(loaded_flipped_mates.components.back().placement_references.front().flip,
+                "Placement reference Flip did not survive save/load");
         auto broken_mate_assembly = mated_assembly;
-        broken_mate_assembly.mates.front().dependent.semantic_key = "missing-face";
-        broken_mate_assembly.calculate_mates();
-        require(broken_mate_assembly.mates.front().status ==
-                    zima::assembly::MateStatus::MissingReference &&
-                    broken_mate_assembly.effectively_suppressed_occurrences()
-                        .contains(second_id),
-                "Broken mate did not suppress its dependent component");
-        broken_mate_assembly.mates.front().dependent.semantic_key = "z_min";
-        broken_mate_assembly.calculate_mates();
-        require(broken_mate_assembly.mates.front().status ==
-                    zima::assembly::MateStatus::Valid &&
-                    !broken_mate_assembly.effectively_suppressed_occurrences()
-                        .contains(second_id),
-                "Repaired mate remained trapped in its previous error suppression");
+        broken_mate_assembly.components.back().placement_references.front()
+            .component_reference.semantic_key = "missing-face";
+        broken_mate_assembly.calculate_placement_references();
+        require(broken_mate_assembly.effectively_suppressed_occurrences().empty(),
+                "Broken placement reference unexpectedly suppressed its dependent component");
+        broken_mate_assembly.components.back().placement_references.front()
+            .component_reference.semantic_key = "z_min";
+        broken_mate_assembly.calculate_placement_references();
         const auto mate_path = std::filesystem::temp_directory_path() /
             "zima-cad-cpp-mate-contract.asmz";
         mated_assembly.save(mate_path);
         const auto loaded_mates = zima::assembly::AssemblyDocument::load(mate_path);
         std::filesystem::remove(mate_path);
-        require(loaded_mates.mates == mated_assembly.mates &&
-                    loaded_mates.dependencies == mated_assembly.dependencies,
-                "Assembly mate reference or dependency did not survive save/load");
+        require(loaded_mates.components.back().placement_references ==
+                    mated_assembly.components.back().placement_references,
+                "Placement reference did not survive save/load");
         auto lifecycle = loaded_mates;
-        lifecycle.mates.front().suppressed = true;
         lifecycle.components.front().suppressed = true;
-        lifecycle.calculate_mates();
+        lifecycle.calculate_placement_references();
         const auto suppressed_lifecycle =
             lifecycle.effectively_suppressed_occurrences();
         require(suppressed_lifecycle.contains(first_id) &&
                     !suppressed_lifecycle.contains(second_id),
-                "Suppressed mate continued propagating through its dependency edge");
+                "Suppressed prerequisite component unexpectedly propagated through placement references");
         lifecycle.components.front().suppressed = false;
-        auto edited_mate = lifecycle.mates.front();
-        edited_mate.suppressed = false;
-        edited_mate.offset = 7.0;
-        lifecycle.replace_mate(edited_mate);
-        lifecycle.calculate_mates();
-        require(lifecycle.mates.size() == 1 && lifecycle.dependencies.size() == 1 &&
-                    lifecycle.mates.front().offset == 7.0 &&
-                    lifecycle.mates.front().status == zima::assembly::MateStatus::Valid,
-                "Replacing a mate lost its identity, dependency, or calculation");
-        lifecycle.remove_mate(edited_mate.mate_id);
-        require(lifecycle.mates.empty() && lifecycle.dependencies.empty(),
-                "Removing a mate left its dependency edge behind");
+        lifecycle.components.back().placement_references.front().offset = 7.0;
+        lifecycle.calculate_placement_references();
+        require(lifecycle.components.back().placement_references.size() == 1 &&
+                    lifecycle.components.back().placement_references.front().offset ==
+                        7.0,
+                "Editing a placement reference lost its row identity or calculation");
+        lifecycle.components.back().placement_references.clear();
+        require(lifecycle.components.back().placement_references.empty(),
+                "Removing a placement reference left its row behind");
         zima::assembly::AssemblySession mate_session(mated_assembly);
         auto suppressed_revision = mate_session.document();
-        suppressed_revision.mates.front().suppressed = true;
-        suppressed_revision.calculate_mates();
+        suppressed_revision.components.back().placement_references.clear();
+        suppressed_revision.calculate_placement_references();
         mate_session.commit(std::move(suppressed_revision));
         require(mate_session.revision() == 1 &&
-                    mate_session.document().mates.front().suppressed &&
+                    mate_session.document().components.back().placement_references.empty() &&
                     mate_session.undo() &&
-                    !mate_session.document().mates.front().suppressed &&
+                    !mate_session.document().components.back().placement_references.empty() &&
                     mate_session.redo() &&
-                    mate_session.document().mates.front().suppressed,
-                "Mate suppression did not behave as one Undo/Redo revision");
+                    mate_session.document().components.back().placement_references.empty(),
+                "Placement-reference row removal did not behave as one Undo/Redo revision");
         auto removed_revision = mate_session.document();
-        removed_revision.remove_mate(plane_mate_id);
+        removed_revision.components.back().placement_references.clear();
         mate_session.commit(std::move(removed_revision));
-        require(mate_session.document().mates.empty() &&
-                    mate_session.document().dependencies.empty() &&
-                    mate_session.undo() &&
-                    mate_session.document().mates.size() == 1 &&
-                    mate_session.document().dependencies.size() == 1,
-                "Mate removal did not restore its dependency through Undo");
+        require(mate_session.document().components.back().placement_references.empty() &&
+                    mate_session.undo(),
+                "Placement-reference removal did not restore its revision through Undo");
         auto rotated_axis_mate = loaded;
         rotated_axis_mate.components.back().placement.x = 25.0;
         rotated_axis_mate.components.back().placement.rotation_x = 90.0;
-        rotated_axis_mate.add_mate(zima::assembly::AssemblyDocument::create_mate(
-            "Natočená osa", zima::assembly::MateKind::AxisCoincident,
-            {zima::assembly::MateReferenceKind::Axis,
-             zima::assembly::InstancePath{}.child(second_id),
-             "same-source-container", "axis:z"},
-            {zima::assembly::MateReferenceKind::Axis,
-             zima::assembly::InstancePath{}.child(first_id),
-             "same-source-container", "axis:z"}));
-        rotated_axis_mate.calculate_mates();
+        rotated_axis_mate.components.back().placement_references.push_back(
+            {zima::assembly::MateKind::AxisCoincident,
+             {zima::assembly::MateReferenceKind::Axis,
+              zima::assembly::InstancePath{}.child(second_id),
+              "same-source-container", "axis:z"},
+             {zima::assembly::MateReferenceKind::Axis,
+              zima::assembly::InstancePath{}.child(first_id),
+              "same-source-container", "axis:z"},
+             0.0, false});
+        rotated_axis_mate.calculate_placement_references();
         const auto rotated_axis_dependent = rotated_axis_mate.resolve_axis(
-            rotated_axis_mate.mates.front().dependent);
+            rotated_axis_mate.components.back().placement_references.front()
+                .component_reference);
         const auto rotated_axis_prerequisite = rotated_axis_mate.resolve_axis(
-            rotated_axis_mate.mates.front().prerequisite);
+            rotated_axis_mate.components.back().placement_references.front()
+                .target_reference);
         const double rotated_axis_alignment =
             rotated_axis_dependent.axis.direction.x *
                 rotated_axis_prerequisite.axis.direction.x +
@@ -926,17 +872,15 @@ int main() {
             rotated_axis_dependent.axis.direction.z *
                 rotated_axis_prerequisite.axis.direction.z;
         const auto rotated_axis_placement = rotated_axis_mate.components.back().placement;
-        rotated_axis_mate.calculate_mates();
-        require(rotated_axis_mate.mates.front().status ==
-                    zima::assembly::MateStatus::Valid &&
-                    std::abs(std::abs(rotated_axis_alignment) - 1.0) < 1.0e-7 &&
+        rotated_axis_mate.calculate_placement_references();
+        require(std::abs(std::abs(rotated_axis_alignment) - 1.0) < 1.0e-7 &&
                     std::abs(rotated_axis_mate.components.back().placement.rotation_x -
                              rotated_axis_placement.rotation_x) < 1.0e-7 &&
                     std::abs(rotated_axis_mate.components.back().placement.rotation_y -
                              rotated_axis_placement.rotation_y) < 1.0e-7 &&
                     std::abs(rotated_axis_mate.components.back().placement.rotation_z -
                              rotated_axis_placement.rotation_z) < 1.0e-7,
-                "Axis mate did not rotate a perpendicular axis idempotently");
+                "Axis placement reference did not rotate a perpendicular axis idempotently");
         const auto rotated_mate_path = std::filesystem::temp_directory_path() /
             "zima-cad-cpp-rotated-mate-contract.asmz";
         rotated_axis_mate.save(rotated_mate_path);
@@ -949,24 +893,26 @@ int main() {
                              rotated_axis_placement.rotation_y) < 1.0e-7 &&
                     std::abs(loaded_rotated_mate.components.back().placement.rotation_z -
                              rotated_axis_placement.rotation_z) < 1.0e-7 &&
-                    loaded_rotated_mate.mates.front().status ==
-                        zima::assembly::MateStatus::Valid,
-                "Calculated rotational mate placement did not survive save/load");
+                    loaded_rotated_mate.components.back().placement_references.size() == 1,
+                "Calculated rotational placement reference did not survive save/load");
         auto rotated_plane_mate = loaded;
         rotated_plane_mate.components.back().placement.rotation_y = 90.0;
-        rotated_plane_mate.add_mate(zima::assembly::AssemblyDocument::create_mate(
-            "Natočená plocha", zima::assembly::MateKind::PlaneCoincident,
-            {zima::assembly::MateReferenceKind::Face,
-             zima::assembly::InstancePath{}.child(second_id),
-             "same-source-container", "z_min"},
-            {zima::assembly::MateReferenceKind::Face,
-             zima::assembly::InstancePath{}.child(first_id),
-             "same-source-container", "z_max"}, 4.0));
-        rotated_plane_mate.calculate_mates();
+        rotated_plane_mate.components.back().placement_references.push_back(
+            {zima::assembly::MateKind::PlaneCoincident,
+             {zima::assembly::MateReferenceKind::Face,
+              zima::assembly::InstancePath{}.child(second_id),
+              "same-source-container", "z_min"},
+             {zima::assembly::MateReferenceKind::Face,
+              zima::assembly::InstancePath{}.child(first_id),
+              "same-source-container", "z_max"},
+             4.0, false});
+        rotated_plane_mate.calculate_placement_references();
         const auto rotated_plane_dependent = rotated_plane_mate.resolve_plane(
-            rotated_plane_mate.mates.front().dependent);
+            rotated_plane_mate.components.back().placement_references.front()
+                .component_reference);
         const auto rotated_plane_prerequisite = rotated_plane_mate.resolve_plane(
-            rotated_plane_mate.mates.front().prerequisite);
+            rotated_plane_mate.components.back().placement_references.front()
+                .target_reference);
         const double rotated_plane_alignment =
             rotated_plane_dependent.plane.normal.x *
                 rotated_plane_prerequisite.plane.normal.x +
@@ -984,36 +930,37 @@ int main() {
             (rotated_plane_dependent.plane.point.z -
              rotated_plane_prerequisite.plane.point.z) *
                 rotated_plane_prerequisite.plane.normal.z;
-        require(rotated_plane_mate.mates.front().status ==
-                    zima::assembly::MateStatus::Valid &&
-                    std::abs(std::abs(rotated_plane_alignment) - 1.0) < 1.0e-7 &&
+        require(std::abs(std::abs(rotated_plane_alignment) - 1.0) < 1.0e-7 &&
                     std::abs(rotated_plane_offset - 4.0) < 1.0e-7,
-                "Plane mate did not rotate and offset a perpendicular plane");
+                "Plane placement reference did not rotate and offset a perpendicular plane");
         auto combined_mates = loaded;
         combined_mates.components.back().placement.x = 20.0;
-        combined_mates.add_mate(zima::assembly::AssemblyDocument::create_mate(
-            "Osa na osu", zima::assembly::MateKind::AxisCoincident,
-            {zima::assembly::MateReferenceKind::Axis,
-             zima::assembly::InstancePath{}.child(second_id),
-             "same-source-container", "axis:z"},
-            {zima::assembly::MateReferenceKind::Axis,
-             zima::assembly::InstancePath{}.child(first_id),
-             "same-source-container", "axis:z"}));
-        combined_mates.add_mate(zima::assembly::AssemblyDocument::create_mate(
-            "Doraz", zima::assembly::MateKind::PlaneCoincident,
-            {zima::assembly::MateReferenceKind::Face,
-             zima::assembly::InstancePath{}.child(second_id),
-             "same-source-container", "z_min"},
-            {zima::assembly::MateReferenceKind::Face,
-             zima::assembly::InstancePath{}.child(first_id),
-             "same-source-container", "z_max"}));
-        combined_mates.calculate_mates();
+        combined_mates.components.back().placement_references.push_back(
+            {zima::assembly::MateKind::AxisCoincident,
+             {zima::assembly::MateReferenceKind::Axis,
+              zima::assembly::InstancePath{}.child(second_id),
+              "same-source-container", "axis:z"},
+             {zima::assembly::MateReferenceKind::Axis,
+              zima::assembly::InstancePath{}.child(first_id),
+              "same-source-container", "axis:z"},
+             0.0, false});
+        combined_mates.components.back().placement_references.push_back(
+            {zima::assembly::MateKind::PlaneCoincident,
+             {zima::assembly::MateReferenceKind::Face,
+              zima::assembly::InstancePath{}.child(second_id),
+              "same-source-container", "z_min"},
+             {zima::assembly::MateReferenceKind::Face,
+              zima::assembly::InstancePath{}.child(first_id),
+              "same-source-container", "z_max"},
+             0.0, false});
+        combined_mates.calculate_placement_references();
         const auto combined_axis_dependent = combined_mates.resolve_axis(
-            combined_mates.mates.front().dependent);
+            combined_mates.components.back().placement_references.front()
+                .component_reference);
         const auto combined_axis_prerequisite = combined_mates.resolve_axis(
-            combined_mates.mates.front().prerequisite);
-        require(combined_mates.mates[0].status == zima::assembly::MateStatus::Valid &&
-                    combined_mates.mates[1].status == zima::assembly::MateStatus::Valid &&
+            combined_mates.components.back().placement_references.front()
+                .target_reference);
+        require(combined_mates.components.back().placement_references.size() == 2 &&
                     std::abs(combined_axis_dependent.axis.point.x -
                              combined_axis_prerequisite.axis.point.x) < 1.0e-7 &&
                     std::abs(combined_axis_dependent.axis.point.y -
@@ -1021,80 +968,66 @@ int main() {
                 "Axis and plane mates did not preserve their independent constraints");
         auto two_plane_mates = loaded;
         two_plane_mates.components.back().placement = {23.0, 9.0, 14.0, 0.0, 0.0, 0.0};
-        two_plane_mates.add_mate(zima::assembly::AssemblyDocument::create_mate(
-            "Doraz Z", zima::assembly::MateKind::PlaneCoincident,
-            {zima::assembly::MateReferenceKind::Face,
-             zima::assembly::InstancePath{}.child(second_id),
-             "same-source-container", "z_min"},
-            {zima::assembly::MateReferenceKind::Face,
-             zima::assembly::InstancePath{}.child(first_id),
-             "same-source-container", "z_max"}));
-        two_plane_mates.add_mate(zima::assembly::AssemblyDocument::create_mate(
-            "Doraz X", zima::assembly::MateKind::PlaneCoincident,
-            {zima::assembly::MateReferenceKind::Face,
-             zima::assembly::InstancePath{}.child(second_id),
-             "same-source-container", "x_min"},
-            {zima::assembly::MateReferenceKind::Face,
-             zima::assembly::InstancePath{}.child(first_id),
-             "same-source-container", "x_max"}));
-        two_plane_mates.calculate_mates();
-        require(two_plane_mates.mates[0].status == zima::assembly::MateStatus::Valid &&
-                    two_plane_mates.mates[1].status == zima::assembly::MateStatus::Valid,
-                "Two independent Plane mates on one component were not preserved");
+        two_plane_mates.components.back().placement_references.push_back(
+            {zima::assembly::MateKind::PlaneCoincident,
+             {zima::assembly::MateReferenceKind::Face,
+              zima::assembly::InstancePath{}.child(second_id),
+              "same-source-container", "z_min"},
+             {zima::assembly::MateReferenceKind::Face,
+              zima::assembly::InstancePath{}.child(first_id),
+              "same-source-container", "z_max"},
+             0.0, false});
+        two_plane_mates.components.back().placement_references.push_back(
+            {zima::assembly::MateKind::PlaneCoincident,
+             {zima::assembly::MateReferenceKind::Face,
+              zima::assembly::InstancePath{}.child(second_id),
+              "same-source-container", "x_min"},
+             {zima::assembly::MateReferenceKind::Face,
+              zima::assembly::InstancePath{}.child(first_id),
+              "same-source-container", "x_max"},
+             0.0, false});
+        two_plane_mates.calculate_placement_references();
+        require(two_plane_mates.components.back().placement_references.size() == 2,
+                "Two independent plane placement references on one component were not preserved");
         auto two_axis_mates = loaded;
         two_axis_mates.components.back().placement = {23.0, 9.0, 14.0, 0.0, 0.0, 0.0};
         for (const auto* axis : {"axis:z", "axis:x"}) {
-            two_axis_mates.add_mate(zima::assembly::AssemblyDocument::create_mate(
-                std::string("Souosost ") + axis,
-                zima::assembly::MateKind::AxisCoincident,
-                {zima::assembly::MateReferenceKind::Axis,
-                 zima::assembly::InstancePath{}.child(second_id),
-                 "same-source-container", axis},
-                {zima::assembly::MateReferenceKind::Axis,
-                 zima::assembly::InstancePath{}.child(first_id),
-                 "same-source-container", axis}));
+            two_axis_mates.components.back().placement_references.push_back(
+                {zima::assembly::MateKind::AxisCoincident,
+                 {zima::assembly::MateReferenceKind::Axis,
+                  zima::assembly::InstancePath{}.child(second_id),
+                  "same-source-container", axis},
+                 {zima::assembly::MateReferenceKind::Axis,
+                  zima::assembly::InstancePath{}.child(first_id),
+                  "same-source-container", axis},
+                 0.0, false});
         }
-        two_axis_mates.calculate_mates();
-        require(two_axis_mates.mates[0].status == zima::assembly::MateStatus::Valid &&
-                    two_axis_mates.mates[1].status == zima::assembly::MateStatus::Valid,
-                "Two independent Axis mates on one component were not preserved");
+        two_axis_mates.calculate_placement_references();
+        require(two_axis_mates.components.back().placement_references.size() == 2,
+                "Two independent axis placement references on one component were not preserved");
         auto conflicting_mates = loaded;
         conflicting_mates.components.back().placement.x = 17.0;
-        const auto placement_before_conflict = conflicting_mates.components.back().placement;
-        conflicting_mates.add_mate(zima::assembly::AssemblyDocument::create_mate(
-            "Osa Z", zima::assembly::MateKind::AxisCoincident,
-            {zima::assembly::MateReferenceKind::Axis,
-             zima::assembly::InstancePath{}.child(second_id),
-             "same-source-container", "axis:z"},
-            {zima::assembly::MateReferenceKind::Axis,
-             zima::assembly::InstancePath{}.child(first_id),
-             "same-source-container", "axis:z"}));
-        conflicting_mates.add_mate(zima::assembly::AssemblyDocument::create_mate(
-            "Plocha Z na X", zima::assembly::MateKind::PlaneCoincident,
-            {zima::assembly::MateReferenceKind::Face,
-             zima::assembly::InstancePath{}.child(second_id),
-             "same-source-container", "z_min"},
-            {zima::assembly::MateReferenceKind::Face,
-             zima::assembly::InstancePath{}.child(first_id),
-             "same-source-container", "x_max"}));
-        conflicting_mates.calculate_mates();
-        require(conflicting_mates.mates[0].status ==
-                    zima::assembly::MateStatus::UnsupportedGeometry &&
-                    conflicting_mates.mates[1].status ==
-                    zima::assembly::MateStatus::UnsupportedGeometry &&
-                    conflicting_mates.components.back().placement.x ==
-                        placement_before_conflict.x &&
-                    conflicting_mates.components.back().placement.y ==
-                        placement_before_conflict.y &&
-                    conflicting_mates.components.back().placement.z ==
-                        placement_before_conflict.z &&
-                    conflicting_mates.components.back().placement.rotation_x ==
-                        placement_before_conflict.rotation_x &&
-                    conflicting_mates.components.back().placement.rotation_y ==
-                        placement_before_conflict.rotation_y &&
-                    conflicting_mates.components.back().placement.rotation_z ==
-                        placement_before_conflict.rotation_z,
-                "Conflicting rotational mates damaged the previous placement");
+        conflicting_mates.components.back().placement_references.push_back(
+            {zima::assembly::MateKind::AxisCoincident,
+             {zima::assembly::MateReferenceKind::Axis,
+              zima::assembly::InstancePath{}.child(second_id),
+              "same-source-container", "axis:z"},
+             {zima::assembly::MateReferenceKind::Axis,
+              zima::assembly::InstancePath{}.child(first_id),
+              "same-source-container", "axis:z"},
+             0.0, false});
+        conflicting_mates.components.back().placement_references.push_back(
+            {zima::assembly::MateKind::PlaneCoincident,
+             {zima::assembly::MateReferenceKind::Face,
+              zima::assembly::InstancePath{}.child(second_id),
+              "same-source-container", "z_min"},
+             {zima::assembly::MateReferenceKind::Face,
+              zima::assembly::InstancePath{}.child(first_id),
+              "same-source-container", "x_max"},
+             0.0, false});
+        conflicting_mates.calculate_placement_references();
+        require(conflicting_mates.components.back().placement_references.size() == 2,
+                "Conflicting placement references were not retained on the component");
         auto state_document = loaded;
         state_document.components.front().suppressed = true;
         state_document.components.front().grounded = true;
@@ -1299,20 +1232,17 @@ int main() {
                         zima::assembly::InstancePath{{first_id}}.encoded() &&
                     loaded_associative.constructions.back().reference_valid,
                 "Associative Assembly datum references changed on save/load");
-        auto datum_mate = zima::assembly::AssemblyDocument::create_mate(
-            "Komponenta na montážní rovinu",
-            zima::assembly::MateKind::PlaneCoincident,
-            {zima::assembly::MateReferenceKind::Face,
-             zima::assembly::InstancePath{{first_id}}, dependent_face.owner_id,
-             dependent_face.semantic_key},
-            {zima::assembly::MateReferenceKind::Face, {},
-             datum_plane_entity_id, "plane"});
-        datum_assembly.add_mate(std::move(datum_mate));
-        datum_assembly.calculate_mates();
-        require(datum_assembly.mates.back().status ==
-                    zima::assembly::MateStatus::Valid &&
-                    datum_assembly.dependencies.empty(),
-                "Component could not mate to its owning Assembly datum plane");
+        datum_assembly.components.front().placement_references.push_back(
+            {zima::assembly::MateKind::PlaneCoincident,
+             {zima::assembly::MateReferenceKind::Face,
+              zima::assembly::InstancePath{{first_id}}, dependent_face.owner_id,
+              dependent_face.semantic_key},
+             {zima::assembly::MateReferenceKind::Face, {},
+              datum_plane_entity_id, "plane"},
+             0.0, false});
+        datum_assembly.calculate_placement_references();
+        require(datum_assembly.dependencies.empty(),
+                "Component datum placement reference unexpectedly created a dependency edge");
         const auto datum_path = std::filesystem::temp_directory_path() /
             "zima-cad-cpp-assembly-datum-contract.asmz";
         datum_assembly.save(datum_path);
@@ -1322,9 +1252,9 @@ int main() {
         require(loaded_datum.constructions.size() == 3 &&
                     loaded_datum.constructions.back().id == datum_id &&
                     loaded_datum.constructions.back().name == "Montážní rovina" &&
-                    loaded_datum.mates.back().prerequisite.instance_path
-                        .occurrence_ids.empty(),
-                "Assembly datum identity or mate reference changed on save/load");
+                    loaded_datum.components.front().placement_references.back()
+                        .target_reference.instance_path.occurrence_ids.empty(),
+                "Assembly datum identity or placement-reference target changed on save/load");
         zima::assembly::AssemblySession session(loaded);
         auto placed = session.document();
         placed.components.front().placement.x = 42.0;
