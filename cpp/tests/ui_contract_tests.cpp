@@ -511,49 +511,80 @@ int main(int argc, char* argv[]) {
             [&](std::size_t index) { requested_orientation_reference = index; });
         plane_dialog->show();
         application.processEvents();
+        auto* plane_reference_table = plane_dialog->findChild<QTableWidget*>(
+            "constructionReferenceTable");
         auto* orientation_table = plane_dialog->findChild<QTableWidget*>(
             "constructionOrientationTable");
-        require(orientation_table != nullptr && orientation_table->rowCount() == 2 &&
+        require(plane_reference_table != nullptr &&
+                    orientation_table != nullptr && orientation_table->rowCount() == 2 &&
                     orientation_table->item(0, 1) != nullptr,
-                "Plane Properties does not expose the Python FRONT/TOP table");
+                "Plane Properties does not expose its position and FRONT/TOP tables");
         plane_dialog->set_reference(0,
-            {{}, "axis-front", "axis", 0.0, false, "none", true}, "Osa FRONT",
+            {{}, "plane-source", "plane", 0.0, true, "none", true}, "Zdrojová rovina",
             zima::document::ConstructionDefinition::PointReference);
         application.processEvents();
+        auto* first_position_item = plane_reference_table->item(0, 1);
         auto* first_orientation_item = orientation_table->item(0, 1);
+        require(first_position_item != nullptr &&
+                    first_position_item->text() == QStringLiteral("1. Zdrojová rovina"),
+                "Plane-container first reference did not stay in the position table");
         require(first_orientation_item != nullptr &&
-                    first_orientation_item->text() == QStringLiteral("Osa FRONT"),
-                "Plane first placement reference did not automatically fill FRONT");
+                    first_orientation_item->text().contains("Vybrat"),
+                "Plane-container first reference still auto-filled FRONT orientation");
         plane_dialog->set_reference(4,
             {{}, "axis-top", "axis"}, "Osa TOP");
         plane_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
-        require(committed_plane.references.size() == 3 &&
-                    committed_plane.references[0].orientation_drives_rotation &&
+        require(committed_plane.references.size() == 2 &&
+                    !committed_plane.references[0].orientation_drives_rotation &&
+                    committed_plane.references[0].owner_id == "plane-source" &&
                     committed_plane.references[1].orientation_drives_rotation &&
-                    committed_plane.references[1].orientation_role == "front" &&
-                    committed_plane.references[2].orientation_role == "top",
-                "Plane Properties lost ordered FRONT/TOP orientation references");
+                    committed_plane.references[1].orientation_role == "top" &&
+                    committed_plane.references[1].orientation_only,
+                "Plane Properties did not keep Plane-container row 0 positional");
+
+        auto* plane_axis_first_dialog = new zima::app::ConstructionPropertiesDialog(
+            plane_initial, false, [](zima::document::ConstructionObject) {}, &parent);
+        plane_axis_first_dialog->show();
+        application.processEvents();
+        auto* axis_first_position_table = plane_axis_first_dialog->findChild<QTableWidget*>(
+            "constructionReferenceTable");
+        auto* axis_first_orientation_table = plane_axis_first_dialog->findChild<QTableWidget*>(
+            "constructionOrientationTable");
+        require(axis_first_position_table != nullptr &&
+                    axis_first_orientation_table != nullptr,
+                "Plane axis-first dialog does not expose its reference tables");
+        plane_axis_first_dialog->set_reference(0,
+            {{}, "axis-front", "axis", 0.0, false, "none", true}, "Osa FRONT",
+            zima::document::ConstructionDefinition::PointReference);
+        application.processEvents();
+        require(axis_first_position_table->item(0, 1) != nullptr &&
+                    axis_first_position_table->item(0, 1)->text() ==
+                        QStringLiteral("1. Osa FRONT") &&
+                    axis_first_orientation_table->item(0, 1) != nullptr &&
+                    axis_first_orientation_table->item(0, 1)->text().contains("Vybrat"),
+                "Non-plane first reference still auto-filled Plane FRONT/TOP");
+        plane_axis_first_dialog->buttons()->button(QDialogButtonBox::Cancel)->click();
 
         auto* plane_remove_dialog = new zima::app::ConstructionPropertiesDialog(
             plane_initial, false, [](zima::document::ConstructionObject) {}, &parent);
         plane_remove_dialog->show();
         application.processEvents();
-        plane_remove_dialog->set_reference(0,
-            {{}, "axis-remove", "axis", 0.0, false, "none", true}, "Osa synchronní",
+        plane_remove_dialog->set_reference(1,
+            {{}, "axis-remove", "axis", 0.0, false, "top", true}, "Osa synchronní",
             zima::document::ConstructionDefinition::PointReference);
         auto* remove_position_table = plane_remove_dialog->findChild<QTableWidget*>(
             "constructionReferenceTable");
         auto* remove_orientation_table = plane_remove_dialog->findChild<QTableWidget*>(
             "constructionOrientationTable");
-        auto* remove_position = remove_position_table->cellWidget(0, 0)
+        auto* remove_position = remove_position_table->cellWidget(1, 0)
             ->findChild<QPushButton*>();
         require(remove_position != nullptr, "Plane position reference has no remove action");
         remove_position->click();
         application.processEvents();
-        auto* cleared_orientation = remove_orientation_table->item(0, 1);
+        auto* cleared_orientation = remove_orientation_table->item(1, 1);
         require(cleared_orientation != nullptr &&
                     cleared_orientation->text().contains("Vybrat"),
-                "Removing Plane position did not clear its automatic FRONT reference");
+                "Removing Plane position did not clear its automatic mirrored TOP reference");
         plane_remove_dialog->buttons()->button(QDialogButtonBox::Cancel)->click();
 
         auto point_initial = zima::document::PartDocument::create_construction(

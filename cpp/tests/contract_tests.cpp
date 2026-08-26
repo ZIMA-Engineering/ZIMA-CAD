@@ -781,6 +781,22 @@ int main() {
                         1.0e-6 &&
                     constructions.constructions.back().references.size() == 2,
                 "Plane reference resolution ignored its placement/orientation split");
+        auto inherited_plane = zima::document::PartDocument::create_construction(
+            zima::document::ConstructionKind::Plane);
+        inherited_plane.references = {
+            {{}, plane.entity_id, "plane"}};
+        inherited_plane.offset = 12.0;
+        constructions.constructions.push_back(inherited_plane);
+        constructions.resolve_constructions();
+        const auto& resolved_inherited_plane = constructions.constructions.back();
+        require(resolved_inherited_plane.reference_valid &&
+                    std::abs(resolved_inherited_plane.origin.x - 12.0) < 1.0e-6 &&
+                    std::abs(resolved_inherited_plane.origin.y) < 1.0e-6 &&
+                    std::abs(resolved_inherited_plane.origin.z) < 1.0e-6 &&
+                    std::abs(resolved_inherited_plane.direction.x - 1.0) < 1.0e-6 &&
+                    std::abs(resolved_inherited_plane.direction.y) < 1.0e-6 &&
+                    std::abs(resolved_inherited_plane.direction.z) < 1.0e-6,
+                "Plane work-plane offset did not move the Plane along the inherited normal");
         // Universal container placement: any HistoryContainer (not only a
         // standalone Point/Axis/Plane) can be positioned by a reference and
         // oriented by a FRONT/TOP reference pair, mirroring the Python
@@ -904,7 +920,7 @@ int main() {
         const auto loaded_constructions =
             zima::document::PartDocument::load(construction_path);
         std::filesystem::remove(construction_path);
-        require(loaded_constructions.constructions.size() == 6 &&
+        require(loaded_constructions.constructions.size() == 7 &&
                     loaded_constructions.constructions[0].origin.z == 3.0 &&
                     loaded_constructions.constructions[2].display_size == 75.0 &&
                     loaded_constructions.constructions[4].definition ==
@@ -913,6 +929,10 @@ int main() {
                         point.id + ":origin" &&
                     loaded_constructions.constructions[5].definition ==
                         zima::document::ConstructionDefinition::PlaneReference &&
+                    std::abs(loaded_constructions.constructions[6].origin.x - 12.0) <
+                        1.0e-6 &&
+                    std::abs(loaded_constructions.constructions[6].offset - 12.0) <
+                        1.0e-6 &&
                     loaded_constructions.constructions.front().container_origin ==
                         point.container_origin,
                 "Construction objects did not survive save/load");

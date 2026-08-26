@@ -352,8 +352,10 @@ ContainerPlacementSection::combined_references(std::size_t required) const {
     std::vector<zima::document::ConstructionReference> result(populated.begin(),
         populated.begin() + static_cast<std::ptrdiff_t>(
             std::min(required, populated.size())));
-    result.insert(result.end(), orientation_references_.begin(),
-        orientation_references_.end());
+    for (const auto& reference : orientation_references_) {
+        if (reference.owner_id.empty() && reference.semantic_key.empty()) continue;
+        result.push_back(reference);
+    }
     return result;
 }
 
@@ -373,12 +375,17 @@ ContainerPlacementSection::references_without(std::size_t index) const {
             auto orientations = orientation_references_;
             orientations.erase(orientations.begin() +
                 static_cast<std::ptrdiff_t>(orientation_index));
-            result.insert(result.end(), orientations.begin(), orientations.end());
+            for (const auto& reference : orientations) {
+                if (reference.owner_id.empty() && reference.semantic_key.empty()) continue;
+                result.push_back(reference);
+            }
             return result;
         }
     }
-    result.insert(result.end(), orientation_references_.begin(),
-        orientation_references_.end());
+    for (const auto& reference : orientation_references_) {
+        if (reference.owner_id.empty() && reference.semantic_key.empty()) continue;
+        result.push_back(reference);
+    }
     return result;
 }
 

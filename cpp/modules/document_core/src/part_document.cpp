@@ -2204,7 +2204,8 @@ std::optional<PlacementReferenceAxis> placement_reference_axis(
 struct PlacementReferencePlane {
     zima::kernel::Vec3 point;
     zima::kernel::Vec3 normal;
-    double source_offset{};
+    zima::kernel::Vec3 front;
+    zima::kernel::Vec3 top;
 };
 
 std::optional<PlacementReferencePlane> placement_reference_plane(
@@ -2215,23 +2216,22 @@ std::optional<PlacementReferencePlane> placement_reference_plane(
         const auto& a = geometry.vertices[geometry.triangles[index * 3]];
         const auto& b = geometry.vertices[geometry.triangles[index * 3 + 1]];
         const auto& c = geometry.vertices[geometry.triangles[index * 3 + 2]];
+        const zima::kernel::Vec3 front_delta{
+            b.x - a.x, b.y - a.y, b.z - a.z};
+        const zima::kernel::Vec3 top_delta{
+            c.x - b.x, c.y - b.y, c.z - b.z};
+        if (placement_vec_is_zero(front_delta) || placement_vec_is_zero(top_delta)) {
+            return std::nullopt;
+        }
+        const auto front = placement_vec_normalized(front_delta);
+        const auto top = placement_vec_normalized(top_delta);
         zima::kernel::Vec3 normal{
-            (b.y - a.y) * (c.z - a.z) - (b.z - a.z) * (c.y - a.y),
-            (b.z - a.z) * (c.x - a.x) - (b.x - a.x) * (c.z - a.z),
-            (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)};
+            front.y * top.z - front.z * top.y,
+            front.z * top.x - front.x * top.z,
+            front.x * top.y - front.y * top.x};
         if (placement_vec_is_zero(normal)) return std::nullopt;
         normal = placement_vec_normalized(normal);
-        double source_offset = 0.0;
-        if (reference.semantic_key == "plane") {
-            const auto owner = reference.owner_id;
-            const auto found = std::find_if(geometry.axes.begin(), geometry.axes.end(),
-                [&](const auto& candidate) {
-                    return candidate.reference.owner_id == owner &&
-                        candidate.reference.semantic_key == "work_plane_offset";
-                });
-            if (found != geometry.axes.end()) source_offset = found->display_length;
-        }
-        return PlacementReferencePlane{a, normal, source_offset};
+        return PlacementReferencePlane{a, normal, front, top};
     }
     return std::nullopt;
 }
@@ -2269,7 +2269,7 @@ bool placement_solve_position(
         } else if (const auto resolved = placement_reference_plane(reference, geometry)) {
             equations.push_back({resolved->normal,
                 placement_vec_dot(resolved->normal, resolved->point) +
-                    resolved->source_offset + reference.offset});
+                    reference.offset});
         } else {
             return false;
         }
@@ -2483,25 +2483,8 @@ bool resolve_construction(ConstructionObject& object,
             {reference.owner_id, reference.semantic_key, reference.instance_path}};
     };
     const auto plane = [&](const ConstructionReference& reference)
-        -> std::optional<std::pair<zima::kernel::Vec3, zima::kernel::Vec3>> {
-        for (std::size_t index = 0;
-             index < geometry.triangle_references.size(); ++index) {
-            if (!matches(geometry.triangle_references[index], reference)) continue;
-            const auto& a = geometry.vertices[geometry.triangles[index * 3]];
-            const auto& b = geometry.vertices[geometry.triangles[index * 3 + 1]];
-            const auto& c = geometry.vertices[geometry.triangles[index * 3 + 2]];
-            zima::kernel::Vec3 normal{
-                (b.y - a.y) * (c.z - a.z) - (b.z - a.z) * (c.y - a.y),
-                (b.z - a.z) * (c.x - a.x) - (b.x - a.x) * (c.z - a.z),
-                (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)};
-            const double magnitude = std::sqrt(normal.x * normal.x +
-                normal.y * normal.y + normal.z * normal.z);
-            if (magnitude <= 1.0e-12) return std::nullopt;
-            normal = {normal.x / magnitude, normal.y / magnitude,
-                      normal.z / magnitude};
-            return std::pair{a, normal};
-        }
-        return std::nullopt;
+        -> std::optional<PlacementReferencePlane> {
+        return placement_reference_plane(reference, geometry);
     };
     if (object.references.empty()) {
         object.reference_valid = true;
@@ -2538,7 +2521,7 @@ bool resolve_construction(ConstructionObject& object,
         if (reference.orientation_drives_rotation) {
             std::optional<zima::kernel::Vec3> direction;
             if (const auto resolved = axis(reference)) direction = resolved->direction;
-            else if (const auto resolved = plane(reference)) direction = resolved->second;
+            else if (const auto resolved = plane(reference)) direction = resolved->normal;
             if (!direction) {
                 orientation_resolved = false;
             } else {
@@ -2592,6 +2575,7 @@ bool resolve_construction(ConstructionObject& object,
     // placement_solve_position()/resolve_placement(). The 2-point-axis/
     // 3-point-plane shortcut instead takes the origin from the first point.
     zima::kernel::Vec3 origin = object.origin;
+    zima::kernel::Vec3 resolved_position = object.origin;
     bool position_resolved = false;
     if (axis_shortcut || plane_shortcut) {
         origin = shortcut_points.front();
@@ -2600,7 +2584,28 @@ bool resolve_construction(ConstructionObject& object,
         position_resolved =
             placement_solve_position(position_references, geometry, origin);
     }
-    if (position_resolved) object.origin = origin;
+    if (position_resolved) {
+        resolved_position = origin;
+        object.origin = origin;
+    }
+    // Only one special case auto-inherits a Plane frame with no explicit
+    // FRONT/TOP references: the FIRST placement reference is itself another
+    // Plane container (`semantic_key == "plane"`). That first pick is the
+    // user's "parallel to / based on this Plane container" anchor, so the
+    // new Plane should follow the referenced Plane's full resolved frame
+    // (normal + in-plane axes), the same way Sketch plane references do.
+    // Any other first reference kind (point/axis/edge/face/origin plane)
+    // still positions the Plane, but leaves orientation manual.
+    std::optional<PlacementReferencePlane> inherited_plane_frame;
+    if (object.kind == ConstructionKind::Plane &&
+        !front_direction && !top_direction && !position_references.empty()) {
+        const auto& first_reference = position_references.front().get();
+        if (first_reference.semantic_key == "plane") {
+            if (const auto resolved = plane(first_reference)) {
+                inherited_plane_frame = *resolved;
+            }
+        }
+    }
     if (!front_direction && !top_direction && position_resolved) {
         const std::vector<zima::kernel::Vec3>& resolved_points = shortcut_points;
         if (axis_shortcut) {
@@ -2707,8 +2712,34 @@ bool resolve_construction(ConstructionObject& object,
                     : zima::kernel::Vec3{0.0, 1.0, 0.0};
             object.direction = placement_transform_direction(matrix, local);
         }
+    } else if (object.kind == ConstructionKind::Plane && inherited_plane_frame) {
+        const std::optional front = inherited_plane_frame->front;
+        const std::optional top = inherited_plane_frame->top;
+        const zima::kernel::Vec3 manual_offset{object.rotation_offset_x,
+            object.rotation_offset_y, object.rotation_offset_z};
+        object.rotation = placement_compose_orientation_degrees(
+            front, top, manual_offset);
+        object.rotation_base = placement_frame_base_rotation_degrees(
+            front, top).value_or(zima::kernel::Vec3{});
     } else {
         object.rotation_base = {};
+    }
+    if (object.kind == ConstructionKind::Plane) {
+        const auto resolved_normal = rotated_vector({1.0, 0.0, 0.0}, object.rotation);
+        if (!placement_vec_is_zero(resolved_normal)) {
+            object.direction = placement_vec_normalized(resolved_normal);
+        }
+        // A Plane's own work-plane offset is part of its resolved placement,
+        // not just metadata for downstream consumers: once the base origin
+        // has been solved from the picked reference(s), translate the Plane
+        // itself along its final resolved normal. This keeps the displayed
+        // Plane, later Plane/Sketch references to it, and the persisted
+        // origin all in the same place.
+        if (position_resolved && std::abs(object.offset) > 1.0e-12) {
+            object.origin = {resolved_position.x + object.direction.x * object.offset,
+                resolved_position.y + object.direction.y * object.offset,
+                resolved_position.z + object.direction.z * object.offset};
+        }
     }
     object.reference_valid = position_resolved && orientation_resolved;
     return object.reference_valid;
@@ -3340,22 +3371,16 @@ void PartDocument::resolve_constructions(
         carrier.constructions.push_back(object);
         append(source_geometry,
             carrier.construction_viewer_mesh({}, scene_size).original_references);
-        if (object.kind == ConstructionKind::Plane &&
-            std::abs(object.offset) > 1.0e-12) {
-            source_geometry.axes.push_back({object.origin, object.direction, object.offset,
-                {object.entity_id, "work_plane_offset", {}}});
-        }
     }
     // Sketch containers with a Plane reference (see
     // SketchPropertiesDialog/plane_reference_owner_id) inherit their frame
-    // directly from that Plane container's already-resolved placement,
-    // exactly like any other referencer of a Plane -- including its own
-    // "work_plane_offset" (added here along the Plane's normal, matching
-    // the axis entry published above for every OTHER kind of referencer).
+    // directly from that Plane container's already-resolved placement. The
+    // Plane's own work-plane offset is now already baked into
+    // `found->origin`, so sketches simply reuse that final frame verbatim.
     // A Sketch with no reference is untouched: its frame keeps being
-    // computed live from `plane`/`plane_offset` (see
-    // Sketch::world_point()), so this loop only ever narrows, never
-    // widens, which sketches are affected.
+    // computed live from `plane`/`plane_offset` (see Sketch::world_point()),
+    // so this loop only ever narrows, never widens, which sketches are
+    // affected.
     for (auto& sketch : sketches) {
         if (sketch.plane_reference_owner_id.empty()) continue;
         const auto found = std::find_if(constructions.begin(), constructions.end(),
@@ -3365,10 +3390,7 @@ void PartDocument::resolve_constructions(
             });
         if (found == constructions.end() || !found->reference_valid) continue;
         const auto& normal = found->direction;
-        sketch.resolved_origin = {
-            found->origin.x + normal.x * found->offset,
-            found->origin.y + normal.y * found->offset,
-            found->origin.z + normal.z * found->offset};
+        sketch.resolved_origin = found->origin;
         sketch.resolved_x_axis = rotated_vector({0.0, 1.0, 0.0}, found->rotation);
         sketch.resolved_y_axis = rotated_vector({0.0, 0.0, 1.0}, found->rotation);
         sketch.resolved_normal = normal;

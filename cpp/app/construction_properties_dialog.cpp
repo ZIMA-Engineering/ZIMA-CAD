@@ -106,9 +106,7 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
                field(initial.origin.y, "constructionY", " mm"),
                field(initial.origin.z, "constructionZ", " mm")};
     offset_ = field(initial.offset, "constructionOffset", " mm");
-    if (initial.kind == zima::document::ConstructionKind::Plane) {
-        form->addRow(tr("Odsazení pracovní roviny"), offset_);
-    } else {
+    if (initial.kind != zima::document::ConstructionKind::Plane) {
         offset_->hide();
     }
     connect(definition_, &QComboBox::currentIndexChanged,
@@ -232,6 +230,14 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
     if (is_point) placement_->install_dof_label(content_layout());
     if (initial.kind == zima::document::ConstructionKind::Plane) {
         placement_->install_orientation_section(content_layout());
+        // "Work plane offset" is only meaningful once the user has chosen
+        // what the Plane is parallel to / anchored on, so keep it at the
+        // very bottom of the Plane dialog, right before the OK/Cancel row,
+        // instead of splitting it away from the reference/orientation
+        // controls at the top.
+        auto* offset_form = new QFormLayout;
+        offset_form->addRow(tr("Odsazení pracovní roviny"), offset_);
+        content_layout()->addLayout(offset_form);
     }
 
     error_ = new QLabel(this);
@@ -291,8 +297,32 @@ bool ConstructionPropertiesDialog::set_reference(std::size_t index,
     zima::document::ConstructionReference reference, const QString& label,
     zima::document::ConstructionDefinition definition) {
     QString error;
+    const bool plane_first_position_reference =
+        initial_.kind == zima::document::ConstructionKind::Plane && index == 0;
+    const bool first_reference_is_plane_container = plane_first_position_reference &&
+        reference.semantic_key == "plane";
+    if (plane_first_position_reference) {
+        // A new Plane's first picked reference establishes its placement
+        // origin ("Počátek"), not FRONT/TOP orientation. Leaving the
+        // automatically assigned front/top flags on that row made the first
+        // pick behave like an orientation reference in two independent ways:
+        // the dialog mirrored it into the FRONT/TOP table, and the resolver
+        // consumed the position-row copy itself as orientation-driving data.
+        // Clear those flags here so row 0 stays a pure position reference;
+        // when that first pick is itself another Plane container
+        // (`semantic_key == "plane"`), its frame inheritance is resolved
+        // later from that referenced Plane in
+        // PartDocument::resolve_construction(). Any other first reference
+        // still stays purely positional here, but leaves FRONT/TOP empty for
+        // the user to choose manually.
+        reference.orientation_role = "none";
+        reference.orientation_drives_rotation = false;
+        reference.orientation_only = false;
+    }
+    (void)first_reference_is_plane_container;
     const bool mirror_into_orientation =
-        initial_.kind == zima::document::ConstructionKind::Plane;
+        initial_.kind == zima::document::ConstructionKind::Plane &&
+        index > 0 && index < 3;
     if (!placement_->set_reference(index, std::move(reference), label,
             mirror_into_orientation, &error)) {
         if (!error.isEmpty()) error_->setText(error);
