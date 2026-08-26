@@ -2500,6 +2500,12 @@ class ZimaOpenGLViewer(QOpenGLWidget):
         # navigation fast path made them disappear until the mouse button
         # was released.
         self._paint_planes()
+        # Container/Part origin points are likewise world-space editing
+        # context (same reasoning as the plane fix above): their projected
+        # position changes on every orbit frame, so omitting them from the
+        # navigation fast path made them disappear until the mouse button
+        # was released.
+        self._paint_points()
         # Feature-boundary selection is persistent model state, not a
         # disposable hover decoration. Reproject it for every navigation
         # frame so a selected fillet stays blue while the camera rotates.

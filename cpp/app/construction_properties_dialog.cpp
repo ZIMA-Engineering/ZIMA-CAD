@@ -472,7 +472,7 @@ bool ConstructionPropertiesDialog::submit() {
     const auto populated = placement_->populated_references();
     const std::size_t required =
             value.definition == zima::document::ConstructionDefinition::PointReference
-        ? std::max<std::size_t>(1, populated.size())
+        ? populated.size()
         : value.definition ==
             zima::document::ConstructionDefinition::TwoPointAxis ? 2
         : value.definition == zima::document::ConstructionDefinition::ThreePointPlane ? 3
