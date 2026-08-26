@@ -52,6 +52,30 @@ std::string make_id() {
     return stream.str();
 }
 
+// Rotates `value` by `rotation` (RX/RY/RZ, in degrees, applied in X-then-Y-
+// then-Z order) -- the same composition every ConstructionObject
+// orientation frame uses (see e.g. construction_viewer_mesh()'s identical,
+// separately-scoped `rotated` lambda). Shared here so
+// resolve_sketch_plane_reference() can derive a Sketch's FRONT/TOP in-plane
+// axes from a referenced Plane container's object.rotation the exact same
+// way its own displayed quad is drawn.
+zima::kernel::Vec3 rotated_vector(
+    zima::kernel::Vec3 value, const zima::kernel::Vec3& rotation) {
+    constexpr double radians = std::numbers::pi / 180.0;
+    const double cx = std::cos(rotation.x * radians);
+    const double sx = std::sin(rotation.x * radians);
+    const double cy = std::cos(rotation.y * radians);
+    const double sy = std::sin(rotation.y * radians);
+    const double cz = std::cos(rotation.z * radians);
+    const double sz = std::sin(rotation.z * radians);
+    value = {value.x, cx * value.y - sx * value.z,
+        sx * value.y + cx * value.z};
+    value = {cy * value.x + sy * value.z, value.y,
+        -sy * value.x + cy * value.z};
+    return zima::kernel::Vec3{cz * value.x - sz * value.y,
+        sz * value.x + cz * value.y, value.z};
+}
+
 using IniSections = std::map<std::string, std::map<std::string, std::string>>;
 
 std::string trim_ini(std::string value) {
@@ -718,11 +742,8 @@ zima::kernel::ExtrusionRequest extrusion_request(
     require_positive(height, "extrusion height");
     validate_extrusion_direction(direction_mode);
     zima::kernel::ExtrusionRequest request;
-    request.direction = sketch.plane == zima::sketcher::SketchPlane::XY
-        ? zima::kernel::Vec3{0.0, 0.0, height}
-        : sketch.plane == zima::sketcher::SketchPlane::XZ
-            ? zima::kernel::Vec3{0.0, -height, 0.0}
-            : zima::kernel::Vec3{height, 0.0, 0.0};
+    const auto normal = sketch.normal();
+    request.direction = {normal.x * height, normal.y * height, normal.z * height};
     if (direction_mode == ExtrusionDirection::Reverse) {
         request.first_cap_is_start = false;
         request.direction.x = -request.direction.x;
@@ -1824,13 +1845,9 @@ zima::kernel::RevolutionRequest revolution_request(
     request.profile_normal = source.direction;
     request.axis_point = sketch.world_point(0.0, 0.0);
     if (axis == RevolutionAxis::SketchX) {
-        request.axis_direction = sketch.plane == zima::sketcher::SketchPlane::YZ
-            ? zima::kernel::Vec3{0.0, 1.0, 0.0}
-            : zima::kernel::Vec3{1.0, 0.0, 0.0};
+        request.axis_direction = sketch.x_axis();
     } else if (axis == RevolutionAxis::SketchY) {
-        request.axis_direction = sketch.plane == zima::sketcher::SketchPlane::XY
-            ? zima::kernel::Vec3{0.0, 1.0, 0.0}
-            : zima::kernel::Vec3{0.0, 0.0, 1.0};
+        request.axis_direction = sketch.y_axis();
     } else {
         throw std::runtime_error("Invalid Revolution axis");
     }
@@ -3328,6 +3345,33 @@ void PartDocument::resolve_constructions(
             source_geometry.axes.push_back({object.origin, object.direction, object.offset,
                 {object.entity_id, "work_plane_offset", {}}});
         }
+    }
+    // Sketch containers with a Plane reference (see
+    // SketchPropertiesDialog/plane_reference_owner_id) inherit their frame
+    // directly from that Plane container's already-resolved placement,
+    // exactly like any other referencer of a Plane -- including its own
+    // "work_plane_offset" (added here along the Plane's normal, matching
+    // the axis entry published above for every OTHER kind of referencer).
+    // A Sketch with no reference is untouched: its frame keeps being
+    // computed live from `plane`/`plane_offset` (see
+    // Sketch::world_point()), so this loop only ever narrows, never
+    // widens, which sketches are affected.
+    for (auto& sketch : sketches) {
+        if (sketch.plane_reference_owner_id.empty()) continue;
+        const auto found = std::find_if(constructions.begin(), constructions.end(),
+            [&](const auto& object) {
+                return object.entity_id == sketch.plane_reference_owner_id &&
+                    object.kind == ConstructionKind::Plane;
+            });
+        if (found == constructions.end() || !found->reference_valid) continue;
+        const auto& normal = found->direction;
+        sketch.resolved_origin = {
+            found->origin.x + normal.x * found->offset,
+            found->origin.y + normal.y * found->offset,
+            found->origin.z + normal.z * found->offset};
+        sketch.resolved_x_axis = rotated_vector({0.0, 1.0, 0.0}, found->rotation);
+        sketch.resolved_y_axis = rotated_vector({0.0, 0.0, 1.0}, found->rotation);
+        sketch.resolved_normal = normal;
     }
     // Every history container shares the same universal placement: an
     // origin resolved from a position reference plus an optional FRONT/TOP

@@ -194,6 +194,30 @@ public:
     bool suppressed{};
     SketchPlane plane{SketchPlane::XY};
     double plane_offset{};
+    // Persisted: when non-empty, this Sketch's frame is not one of the
+    // three fixed `plane`/`plane_offset` planes above -- it instead follows
+    // an arbitrary Plane construction container (identified by that
+    // container's entity id), inheriting that container's own resolved
+    // origin/orientation plus its own "work plane offset", exactly like any
+    // other reference to a Plane container (see
+    // PartDocument::resolve_constructions()/resolve_sketch_placements()).
+    // `plane`/`plane_offset` above are ignored while this is set, but are
+    // kept as-is so the Sketch can fall back to them if the reference is
+    // ever cleared.
+    std::string plane_reference_owner_id{};
+    // The resolved frame actually used by world_point()/local_point()/
+    // intersect_ray() and by every Feature built from this Sketch (see
+    // extrusion_request()/revolution_request() in part_document.cpp).
+    // Recomputed from `plane`/`plane_offset` by refresh_default_frame()
+    // whenever `plane_reference_owner_id` is empty; overwritten by
+    // PartDocument::resolve_constructions() from the referenced Plane
+    // container's own resolved placement otherwise. Never edited directly
+    // by callers -- always derived, and persisted only so a just-loaded
+    // document already has a valid frame before the first resolve pass.
+    zima::kernel::Vec3 resolved_origin{};
+    zima::kernel::Vec3 resolved_x_axis{1.0, 0.0, 0.0};
+    zima::kernel::Vec3 resolved_y_axis{0.0, 1.0, 0.0};
+    zima::kernel::Vec3 resolved_normal{0.0, 0.0, 1.0};
     std::vector<SketchPoint> points;
     std::vector<SketchSegment> segments;
     std::vector<SketchCircle> circles;
@@ -326,6 +350,22 @@ public:
     [[nodiscard]] SketchDimension create_ellipse_rotation_dimension(
         const std::string& ellipse_id) const;
     [[nodiscard]] zima::kernel::ViewerMesh viewer_mesh() const;
+    // Recomputes resolved_origin/resolved_x_axis/resolved_y_axis/
+    // resolved_normal from `plane`/`plane_offset`. Call after changing
+    // either field directly (e.g. from the properties dialog) whenever
+    // `plane_reference_owner_id` is empty -- when it is non-empty, the
+    // owning PartDocument overwrites the resolved frame instead and this
+    // call would be immediately discarded on the next resolve pass.
+    void refresh_default_frame();
+    // Live-computed the same way as world_point()/local_point(): from
+    // `plane`/`plane_offset` while plane_reference_owner_id is empty, from
+    // the resolved_* cache otherwise. Feature builders (extrusion/
+    // revolution direction, see part_document.cpp) must use these instead
+    // of switching on `plane` directly, so they automatically follow an
+    // arbitrary Plane container reference.
+    [[nodiscard]] zima::kernel::Vec3 normal() const;
+    [[nodiscard]] zima::kernel::Vec3 x_axis() const;
+    [[nodiscard]] zima::kernel::Vec3 y_axis() const;
     [[nodiscard]] zima::kernel::Vec3 world_point(double x, double y) const;
     [[nodiscard]] std::array<double, 2> local_point(
         const zima::kernel::Vec3& point) const;

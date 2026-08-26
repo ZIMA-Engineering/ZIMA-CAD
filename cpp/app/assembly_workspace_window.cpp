@@ -6460,9 +6460,17 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
     const bool edit_mode = found != sketches.end();
     if (!sketch_id.empty() && !edit_mode) return;
     auto initial = edit_mode ? *found : zima::sketcher::Sketch::create_default();
+    const auto& constructions = part != nullptr
+        ? part->session.document().constructions : assembly->session.document().constructions;
+    std::vector<SketchPropertiesDialog::PlaneOption> plane_options;
+    for (const auto& object : constructions) {
+        if (object.kind != zima::document::ConstructionKind::Plane) continue;
+        plane_options.push_back(SketchPropertiesDialog::PlaneOption{
+            object.entity_id, QString::fromStdString(object.name)});
+    }
     const std::string owner_id = workspace_.active_document_id();
     auto* dialog = new SketchPropertiesDialog(
-        std::move(initial), edit_mode,
+        std::move(initial), edit_mode, std::move(plane_options),
         [this, owner_id, edit_mode](zima::sketcher::Sketch committed) {
             active_sketch_id_ = committed.id;
             selected_sketch_id_ = committed.id;
@@ -6488,6 +6496,13 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                 auto next = target_part->session.document();
                 update(next);
                 auto calculated = target_part->session.calculated_boundaries();
+                // Resolves the just-committed Sketch's frame from its
+                // (possibly just changed) plane_reference_owner_id, the
+                // same way any other reference to a Plane container is
+                // resolved -- see PartDocument::resolve_constructions()'s
+                // dedicated Sketch loop.
+                next.resolve_constructions(
+                    construction_reference_source_geometry(calculated));
                 static_cast<void>(refresh_sketch_external_references(next, calculated));
                 target_part->session.commit(std::move(next), std::move(calculated));
                 return;
@@ -6498,6 +6513,7 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             }
             auto next = target_assembly->session.document();
             update(next);
+            next.resolve_constructions();
             target_assembly->session.commit(std::move(next));
         }, this);
     properties_dialog_ = dialog;

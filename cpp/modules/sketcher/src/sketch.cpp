@@ -129,6 +129,31 @@ SketchPlane plane_from_name(const std::string& name) {
     throw std::runtime_error("Unknown sketch plane");
 }
 
+struct SketchFrame {
+    zima::kernel::Vec3 origin;
+    zima::kernel::Vec3 x_axis;
+    zima::kernel::Vec3 y_axis;
+    zima::kernel::Vec3 normal;
+};
+
+SketchFrame default_sketch_frame(SketchPlane plane, double plane_offset) {
+    if (plane == SketchPlane::XY) {
+        return {{0.0, 0.0, plane_offset}, {1.0, 0.0, 0.0},
+                {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}};
+    }
+    if (plane == SketchPlane::XZ) {
+        // Normal is x_axis x y_axis = {1,0,0} x {0,0,1} = {0,-1,0} (matches
+        // the extrusion-direction sign the reference implementation always
+        // used for this plane -- see extrusion_request() in
+        // part_document.cpp, which now derives its direction from
+        // Sketch::normal() instead of switching on `plane` directly).
+        return {{0.0, plane_offset, 0.0}, {1.0, 0.0, 0.0},
+                {0.0, 0.0, 1.0}, {0.0, -1.0, 0.0}};
+    }
+    return {{plane_offset, 0.0, 0.0}, {0.0, 1.0, 0.0},
+            {0.0, 0.0, 1.0}, {1.0, 0.0, 0.0}};
+}
+
 const char* constraint_name(ConstraintKind kind) {
     switch (kind) {
     case ConstraintKind::Horizontal: return "horizontal";
@@ -675,7 +700,16 @@ double unwrap_near(double value, double reference) {
 Sketch Sketch::create_default() {
     Sketch sketch;
     sketch.id = make_id();
+    sketch.refresh_default_frame();
     return sketch;
+}
+
+void Sketch::refresh_default_frame() {
+    const auto frame = default_sketch_frame(plane, plane_offset);
+    resolved_origin = frame.origin;
+    resolved_x_axis = frame.x_axis;
+    resolved_y_axis = frame.y_axis;
+    resolved_normal = frame.normal;
 }
 
 SketchPoint Sketch::create_point(double x, double y) {
@@ -4783,12 +4817,28 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
     return result;
 }
 
+namespace {
+// Sketches without a Plane container reference always compute their frame
+// live from `plane`/`plane_offset` (never from the persisted resolved_*
+// cache) so direct field assignment -- as done by every pre-existing
+// caller/test that never touches plane_reference_owner_id -- keeps working
+// unchanged, with no explicit refresh_default_frame() call required.
+SketchFrame active_sketch_frame(const Sketch& sketch) {
+    if (sketch.plane_reference_owner_id.empty()) {
+        return default_sketch_frame(sketch.plane, sketch.plane_offset);
+    }
+    return {sketch.resolved_origin, sketch.resolved_x_axis,
+            sketch.resolved_y_axis, sketch.resolved_normal};
+}
+}  // namespace
+
 zima::kernel::Vec3 Sketch::world_point(double x, double y) const {
     require_finite(x, "sketch x");
     require_finite(y, "sketch y");
-    if (plane == SketchPlane::XY) return {x, y, plane_offset};
-    if (plane == SketchPlane::XZ) return {x, plane_offset, y};
-    return {plane_offset, x, y};
+    const auto frame = active_sketch_frame(*this);
+    return {frame.origin.x + x * frame.x_axis.x + y * frame.y_axis.x,
+            frame.origin.y + x * frame.x_axis.y + y * frame.y_axis.y,
+            frame.origin.z + x * frame.x_axis.z + y * frame.y_axis.z};
 }
 
 std::array<double, 2> Sketch::local_point(
@@ -4796,29 +4846,49 @@ std::array<double, 2> Sketch::local_point(
     require_finite(point.x, "world x");
     require_finite(point.y, "world y");
     require_finite(point.z, "world z");
-    if (plane == SketchPlane::XY) return {point.x, point.y};
-    if (plane == SketchPlane::XZ) return {point.x, point.z};
-    return {point.y, point.z};
+    const auto frame = active_sketch_frame(*this);
+    const zima::kernel::Vec3 relative{
+        point.x - frame.origin.x,
+        point.y - frame.origin.y,
+        point.z - frame.origin.z};
+    return {relative.x * frame.x_axis.x + relative.y * frame.x_axis.y +
+                relative.z * frame.x_axis.z,
+            relative.x * frame.y_axis.x + relative.y * frame.y_axis.y +
+                relative.z * frame.y_axis.z};
 }
 
 std::optional<std::array<double, 2>> Sketch::intersect_ray(
     const zima::kernel::Vec3& origin,
     const zima::kernel::Vec3& direction) const {
     constexpr double epsilon = 1.0e-12;
-    const double denominator = plane == SketchPlane::XY ? direction.z
-        : plane == SketchPlane::XZ ? direction.y : direction.x;
+    const auto frame = active_sketch_frame(*this);
+    const auto& normal = frame.normal;
+    const double denominator = direction.x * normal.x + direction.y * normal.y +
+        direction.z * normal.z;
     if (std::abs(denominator) <= epsilon) return std::nullopt;
-    const double coordinate = plane == SketchPlane::XY ? origin.z
-        : plane == SketchPlane::XZ ? origin.y : origin.x;
-    const double parameter = (plane_offset - coordinate) / denominator;
+    const double numerator =
+        (frame.origin.x - origin.x) * normal.x +
+        (frame.origin.y - origin.y) * normal.y +
+        (frame.origin.z - origin.z) * normal.z;
+    const double parameter = numerator / denominator;
     if (!std::isfinite(parameter) || parameter < 0.0) return std::nullopt;
     const zima::kernel::Vec3 point{
         origin.x + direction.x * parameter,
         origin.y + direction.y * parameter,
         origin.z + direction.z * parameter};
-    if (plane == SketchPlane::XY) return std::array<double, 2>{point.x, point.y};
-    if (plane == SketchPlane::XZ) return std::array<double, 2>{point.x, point.z};
-    return std::array<double, 2>{point.y, point.z};
+    return local_point(point);
+}
+
+zima::kernel::Vec3 Sketch::normal() const {
+    return active_sketch_frame(*this).normal;
+}
+
+zima::kernel::Vec3 Sketch::x_axis() const {
+    return active_sketch_frame(*this).x_axis;
+}
+
+zima::kernel::Vec3 Sketch::y_axis() const {
+    return active_sketch_frame(*this).y_axis;
 }
 
 std::string Sketch::serialized() const {
@@ -4935,10 +5005,16 @@ std::string Sketch::serialized() const {
         if (dimension.upper_limit) value["upper_limit"] = *dimension.upper_limit;
         dimension_values.push_back(std::move(value));
     }
-    const nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 20},
+    const nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 21},
         {"id", id}, {"name", name}, {"suppressed", suppressed},
         {"plane", plane_name(plane)},
-        {"plane_offset", plane_offset}, {"points", std::move(point_values)},
+        {"plane_offset", plane_offset},
+        {"plane_reference_owner_id", plane_reference_owner_id},
+        {"resolved_origin", {resolved_origin.x, resolved_origin.y, resolved_origin.z}},
+        {"resolved_x_axis", {resolved_x_axis.x, resolved_x_axis.y, resolved_x_axis.z}},
+        {"resolved_y_axis", {resolved_y_axis.x, resolved_y_axis.y, resolved_y_axis.z}},
+        {"resolved_normal", {resolved_normal.x, resolved_normal.y, resolved_normal.z}},
+        {"points", std::move(point_values)},
         {"segments", std::move(segment_values)},
         {"circles", std::move(circle_values)},
         {"arcs", std::move(arc_values)},
@@ -4955,7 +5031,7 @@ std::string Sketch::serialized() const {
 
 Sketch Sketch::from_serialized(const std::string& value) {
     const auto root = nlohmann::json::parse(value);
-    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 20) {
+    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 21) {
         throw std::runtime_error("Unsupported sketch format");
     }
     Sketch sketch;
@@ -4964,6 +5040,16 @@ Sketch Sketch::from_serialized(const std::string& value) {
     sketch.suppressed = root.at("suppressed").get<bool>();
     sketch.plane = plane_from_name(root.at("plane").get<std::string>());
     sketch.plane_offset = root.at("plane_offset").get<double>();
+    sketch.plane_reference_owner_id =
+        root.at("plane_reference_owner_id").get<std::string>();
+    const auto read_vec3 = [](const nlohmann::json& array) {
+        return zima::kernel::Vec3{array.at(0).get<double>(),
+            array.at(1).get<double>(), array.at(2).get<double>()};
+    };
+    sketch.resolved_origin = read_vec3(root.at("resolved_origin"));
+    sketch.resolved_x_axis = read_vec3(root.at("resolved_x_axis"));
+    sketch.resolved_y_axis = read_vec3(root.at("resolved_y_axis"));
+    sketch.resolved_normal = read_vec3(root.at("resolved_normal"));
     for (const auto& value : root.at("points")) sketch.points.push_back({
         value.at("id").get<std::string>(), value.at("x").get<double>(),
         value.at("y").get<double>(), value.at("fixed").get<bool>(),

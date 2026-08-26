@@ -865,7 +865,7 @@ int main(int argc, char* argv[]) {
         auto sketch = zima::sketcher::Sketch::create_default();
         int sketch_commits = 0;
         auto* sketch_dialog = new zima::app::SketchPropertiesDialog(
-            sketch, false, [&](zima::sketcher::Sketch committed) {
+            sketch, false, {}, [&](zima::sketcher::Sketch committed) {
                 ++sketch_commits;
                 sketch = std::move(committed);
             }, &parent);
