@@ -835,6 +835,50 @@ int main() {
                     std::abs(resolved_origin_bulk_fill_plane.direction.y) < 1.0e-6 &&
                     std::abs(resolved_origin_bulk_fill_plane.direction.z) < 1.0e-6,
                 "Origin bulk-fill Plane did not resolve to the identity frame");
+        auto origin_bulk_fill_point = zima::document::PartDocument::create_construction(
+            zima::document::ConstructionKind::Point);
+        // Simulates the transient preview state during incremental
+        // "Počátek" bulk-fill entry: the first picked origin plane may have
+        // already produced a temporary non-identity rotation before the full
+        // xy/yz/xz triad is complete. The completed bulk-fill must
+        // overwrite that stale intermediate value back to the identity.
+        origin_bulk_fill_point.rotation = {37.0, -18.0, 92.0};
+        origin_bulk_fill_point.references = {
+            {{}, constructions.document_id + ":origin", "origin:plane:xz", 0.0,
+                false, "front", true},
+            {{}, constructions.document_id + ":origin", "origin:plane:xy", 0.0,
+                false, "top", true},
+            {{}, constructions.document_id + ":origin", "origin:plane:yz"}};
+        constructions.constructions.push_back(origin_bulk_fill_point);
+        constructions.resolve_constructions();
+        const auto& resolved_origin_bulk_fill_point = constructions.constructions.back();
+        require(resolved_origin_bulk_fill_point.reference_valid &&
+                    std::abs(resolved_origin_bulk_fill_point.origin.x) < 1.0e-6 &&
+                    std::abs(resolved_origin_bulk_fill_point.origin.y) < 1.0e-6 &&
+                    std::abs(resolved_origin_bulk_fill_point.origin.z) < 1.0e-6 &&
+                    std::abs(resolved_origin_bulk_fill_point.rotation.x) < 1.0e-6 &&
+                    std::abs(resolved_origin_bulk_fill_point.rotation.y) < 1.0e-6 &&
+                    std::abs(resolved_origin_bulk_fill_point.rotation.z) < 1.0e-6,
+                "Origin bulk-fill Point did not clear its stale intermediate rotation");
+        const auto point_origin_mesh = constructions.construction_viewer_mesh(
+            resolved_origin_bulk_fill_point.id);
+        const auto require_axis_direction = [&](std::string_view semantic,
+                                               zima::kernel::Vec3 expected) {
+            const auto axis = std::find_if(point_origin_mesh.axes.begin(),
+                point_origin_mesh.axes.end(), [&](const auto& candidate) {
+                    return candidate.reference.owner_id ==
+                            resolved_origin_bulk_fill_point.container_origin.id &&
+                        candidate.reference.semantic_key == semantic;
+                });
+            require(axis != point_origin_mesh.axes.end() &&
+                        std::abs(axis->direction.x - expected.x) < 1.0e-6 &&
+                        std::abs(axis->direction.y - expected.y) < 1.0e-6 &&
+                        std::abs(axis->direction.z - expected.z) < 1.0e-6,
+                    "Origin bulk-fill Point editing triad axes were permuted");
+        };
+        require_axis_direction("origin:axis:x", {1.0, 0.0, 0.0});
+        require_axis_direction("origin:axis:y", {0.0, 1.0, 0.0});
+        require_axis_direction("origin:axis:z", {0.0, 0.0, 1.0});
         // Universal container placement: any HistoryContainer (not only a
         // standalone Point/Axis/Plane) can be positioned by a reference and
         // oriented by a FRONT/TOP reference pair, mirroring the Python
@@ -975,7 +1019,7 @@ int main() {
         const auto loaded_constructions =
             zima::document::PartDocument::load(construction_path);
         std::filesystem::remove(construction_path);
-        require(loaded_constructions.constructions.size() == 9 &&
+        require(loaded_constructions.constructions.size() == 10 &&
                     loaded_constructions.constructions[0].origin.z == 3.0 &&
                     loaded_constructions.constructions[2].display_size == 75.0 &&
                     loaded_constructions.constructions[4].definition ==
@@ -995,6 +1039,12 @@ int main() {
                     std::abs(loaded_constructions.constructions[8].rotation.y) <
                         1.0e-6 &&
                     std::abs(loaded_constructions.constructions[8].rotation.z) <
+                        1.0e-6 &&
+                    std::abs(loaded_constructions.constructions[9].rotation.x) <
+                        1.0e-6 &&
+                    std::abs(loaded_constructions.constructions[9].rotation.y) <
+                        1.0e-6 &&
+                    std::abs(loaded_constructions.constructions[9].rotation.z) <
                         1.0e-6 &&
                     loaded_constructions.constructions.front().container_origin ==
                         point.container_origin,

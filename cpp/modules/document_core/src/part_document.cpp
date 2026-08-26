@@ -2775,6 +2775,18 @@ bool resolve_construction(ConstructionObject& object,
             front, top, manual_offset);
         object.rotation_base = placement_frame_base_rotation_degrees(
             front, top).value_or(zima::kernel::Vec3{});
+    } else if (origin_bulk_fill) {
+        // The whole-Origin bulk-fill is a deliberate request for the global
+        // identity frame. Even if the preview object carried a stale
+        // intermediate rotation from an earlier single-plane step while the
+        // bulk-fill was being entered incrementally, the completed origin
+        // triad must overwrite it here so both the resolved data and the
+        // editing-origin preview axes land back on +X/+Y/+Z.
+        const zima::kernel::Vec3 manual_offset{object.rotation_offset_x,
+            object.rotation_offset_y, object.rotation_offset_z};
+        object.rotation = placement_compose_orientation_degrees(
+            std::nullopt, std::nullopt, manual_offset);
+        object.rotation_base = {};
     } else {
         object.rotation_base = {};
     }
