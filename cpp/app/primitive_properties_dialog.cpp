@@ -128,8 +128,13 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
     // the same position as ConstructionPropertiesDialog's Point/Axis/Plane
     // dialogs, before any shape-specific dimension fields.
     if (supports_placement_reference_table(initial.feature_kind)) {
+        const bool owns_profile_sketch =
+            initial.feature_kind == zima::document::FeatureKind::Extrusion ||
+            initial.feature_kind == zima::document::FeatureKind::Revolution;
         placement_ = std::make_unique<zima::ui::ContainerPlacementSection>(
-            this, content_layout(), /*with_orientation=*/true);
+            this, content_layout(), /*with_orientation=*/true,
+            /*position_rows_can_define_rotation=*/true,
+            /*with_sketch_view_controls=*/owns_profile_sketch);
         placement_->initialize_from_references(initial.placement.references,
             [](const std::string& semantic) {
                 return readable_placement_reference_kind(semantic);
@@ -619,6 +624,12 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
     connect(name_, &QLineEdit::textChanged, this, [this](const QString&) {
         error_->clear();
     });
+    // Basic-solid dimensions drive the analytical wire preview immediately.
+    // The OCCT body is still calculated only when OK commits the dialog.
+    for (auto* input : {length_, width_, height_, radius_, top_radius_, top_offset_}) {
+        if (input != nullptr) connect(input, &QDoubleSpinBox::valueChanged,
+            this, [this] { notify_preview(); });
+    }
     for (auto* input : translation_) {
         if (input != nullptr) connect(input, &QDoubleSpinBox::valueChanged,
             this, [this] { notify_preview(); });
@@ -827,6 +838,10 @@ void PrimitivePropertiesDialog::set_edit_sketch_callback(
     edit_sketch_ = std::move(callback);
 }
 
+void PrimitivePropertiesDialog::set_commit_required(bool required) {
+    commit_required_ = required;
+}
+
 void PrimitivePropertiesDialog::set_preview_callback(
     std::function<void(const zima::document::HistoryContainer&)> callback) {
     preview_ = std::move(callback);
@@ -885,7 +900,8 @@ bool PrimitivePropertiesDialog::submit() {
             return false;
         }
     }
-    if (edit_mode_ && accepted_baseline_ && result == *accepted_baseline_ &&
+    if (!commit_required_ && edit_mode_ && accepted_baseline_ &&
+        result == *accepted_baseline_ &&
         selected_targets == accepted_target_baseline_) {
         return true;
     }

@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <optional>
@@ -182,7 +183,16 @@ struct MeshView::Impl {
     void rebuild_persisted_reference_mesh() {
         auto& target = persisted_reference_mesh;
         target = {};
-        target.edges = mesh.original_references.edges;
+        // Screen-constant datum-plane borders are rebuilt below from the
+        // displayed rectangle. Do not retain their unscaled model-space
+        // originals as a second pick target: that produced exactly the two
+        // simultaneous hover offers visible in 01.png/02.png (the small
+        // displayed rectangle plus a much larger invisible rectangle).
+        std::copy_if(mesh.original_references.edges.begin(),
+            mesh.original_references.edges.end(),
+            std::back_inserter(target.edges), [](const auto& edge) {
+                return !is_screen_constant_plane(edge.reference.semantic_key);
+            });
         target.points = mesh.original_references.points;
         target.axes = mesh.original_references.axes;
         const double scale = view_scale /
@@ -915,6 +925,13 @@ void MeshView::fit_all() {
         bounds.push_back(dimension.line_first);
         bounds.push_back(dimension.line_second);
     }
+    // Pending primitive bodies are analytical transient wires until OK, so
+    // they are intentionally absent from mesh.vertices/mesh.edges. They are
+    // nevertheless the primary object the user needs framed while entering
+    // Box/Cylinder/etc. parameters.
+    for (const auto& edge : impl_->transient_edges) {
+        bounds.insert(bounds.end(), edge.points.begin(), edge.points.end());
+    }
     if (bounds.empty() && reference_centers.empty()) {
         impl_->center = {};
         impl_->radius = 1.0F;
@@ -1334,7 +1351,13 @@ void MeshView::upload_mesh() {
     impl_->line_ranges.clear();
     impl_->line_edges.clear();
     for (const auto& edge : impl_->mesh.edges) {
-        if (edge.overlay || edge.points.size() < 2) continue;
+        // Datum/work-plane rectangles are rendered later by QPainter after
+        // applying the screen-constant reference scale. Uploading their raw
+        // model-space border to the GL line pass as well draws a second,
+        // differently-sized rectangle that separates from the real one
+        // during zoom (the small flickering plane visible in 01.png).
+        if (edge.overlay || is_screen_constant_plane(edge.reference.semantic_key) ||
+            edge.points.size() < 2) continue;
         const auto first = static_cast<GLint>(line_data.size() / 6);
         const auto count = static_cast<GLsizei>(edge.points.size());
         impl_->line_ranges.emplace_back(first, count);
@@ -2538,6 +2561,17 @@ if (impl_->show_planes) {
                 for (std::size_t triangle = 0;
                      triangle < triangle_references.size(); ++triangle) {
                     const auto& reference = triangle_references[triangle];
+                    // Datum and work planes have their own screen-constant
+                    // rectangular highlight above. Feeding their persisted
+                    // model-space picking triangles into this generic
+                    // Container/Face boundary pass draws a second tiny
+                    // unscaled rectangle (the "ghost Origin" in 01.png).
+                    // Picking triangles remain intact; only this duplicate
+                    // presentation path is suppressed.
+                    if (reference.semantic_key == "plane" ||
+                        reference.semantic_key.starts_with("origin:plane:")) {
+                        continue;
+                    }
                     const bool matches = highlighted->kind == CandidateKind::Occurrence
                         ? reference.instance_path == highlighted->instance_path
                         : highlighted->kind == CandidateKind::Container

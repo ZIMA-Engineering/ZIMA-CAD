@@ -11,7 +11,7 @@ class QDoubleSpinBox;
 class QComboBox;
 class QLabel;
 class QLineEdit;
-class QPushButton;
+class QToolButton;
 class QTableWidget;
 
 namespace zima::ui {
@@ -82,7 +82,7 @@ private:
     std::array<QComboBox*, 3> mate_type_combos_{};
     std::array<QDoubleSpinBox*, 3> offset_fields_{};
     std::array<QWidget*, 3> flip_buttons_{};
-    std::array<QPushButton*, 3> limit_buttons_{};
+    std::array<QToolButton*, 3> limit_buttons_{};
     ReferenceRequestCallback reference_request_;
 
     void refresh_placement_table();

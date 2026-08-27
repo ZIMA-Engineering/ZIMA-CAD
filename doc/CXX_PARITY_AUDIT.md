@@ -23,7 +23,7 @@ round-trips for every advanced Assembly and Drawing operation.
 A cross-language persistence contract now also runs in the other direction:
 a native `cross_language_persistence_emitter` writes C++-produced Part,
 nested Assembly, and Drawing documents that the bundled Python runtime loads
-and validates (`tests/test_cpp_python_persistence.py`). This closed two real
+and validates (`archive/python/tests/test_cpp_python_persistence.py`). This closed two real
 defects in the C++ INI writer — `combine_mode` was serialized as
 `"add"/"subtract"` instead of Python's `CombineMode` enum values, and Sketch
 and Construction entities reused their owning Container's id for their own

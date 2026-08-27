@@ -20,12 +20,15 @@
 #include <QFileSystemModel>
 #include <QMouseEvent>
 #include <QListWidget>
+#include <QLabel>
 #include <QPushButton>
 #include <QPlainTextEdit>
 #include <QTimer>
 #include <QTableWidget>
+#include <QToolButton>
 #include <QWidget>
 #include <QWheelEvent>
+#include <QVBoxLayout>
 
 #include <chrono>
 #include <filesystem>
@@ -77,7 +80,16 @@ int main(int argc, char* argv[]) {
                 "Create and edit must share the feature-only dialog title");
         auto* length = ok_dialog->findChild<QDoubleSpinBox*>("boxLength");
         require(length != nullptr, "Box dialog must expose its length");
+        int box_preview_updates = 0;
+        double previewed_box_length = 0.0;
+        ok_dialog->set_preview_callback(
+            [&](const zima::document::HistoryContainer& preview) {
+                ++box_preview_updates;
+                previewed_box_length = preview.box.length;
+            });
         length->setValue(125.0);
+        require(box_preview_updates >= 2 && previewed_box_length == 125.0,
+                "Changing a Box dimension did not update its wire preview");
         const auto translations =
             ok_dialog->findChildren<QDoubleSpinBox*>("primitiveTranslation");
         require(translations.size() == 3,
@@ -275,16 +287,16 @@ int main(int argc, char* argv[]) {
         auto* rotate_button = sphere_dialog->findChild<QPushButton*>(
             "containerOrientationRotate");
         require(front_button && back_button && rotate_button &&
-                    front_button->isChecked() && !back_button->isChecked() &&
-                    rotate_button->text().contains("0°") &&
+                    !front_button->isVisible() && !back_button->isVisible() &&
+                    !rotate_button->isVisible() &&
+                    std::ranges::none_of(sphere_dialog->findChildren<QLabel*>(),
+                        [](const auto* label) {
+                            return label->isVisible() &&
+                                label->text() == QStringLiteral("Pohled na skicu");
+                        }) &&
                     sphere_dialog->findChild<QTableWidget*>(
                         "primitiveOrientationTable")->isHidden(),
-                "Container orientation did not replace FRONT/TOP table with buttons");
-        back_button->click();
-        rotate_button->click();
-        require(back_button->isChecked() && !front_button->isChecked() &&
-                    rotate_button->text().contains("90°"),
-                "FRONT/BACK or cyclic ROTATE button did not update immediately");
+                "Primitive Properties exposes Sketch-only view controls");
         auto* sphere_absolute_rx = sphere_dialog->findChild<QDoubleSpinBox*>(
             "containerRotationX");
         const auto sphere_corrections = sphere_dialog->findChildren<QDoubleSpinBox*>(
@@ -581,6 +593,12 @@ int main(int argc, char* argv[]) {
             {{}, "plane-source", "plane", 0.0, true},
             "Zdrojová rovina", zima::document::ConstructionDefinition::PointReference);
         application.processEvents();
+        auto* base_plane = plane_dialog->findChild<QComboBox*>(
+            "constructionBasePlane");
+        require(base_plane != nullptr &&
+                    base_plane->currentData() == QStringLiteral("xz") &&
+                    base_plane->currentText().contains(QStringLiteral("Zdrojová rovina")),
+                "First planar reference did not become the Plane offset base");
         auto* first_position_item = plane_reference_table->item(0, 1);
         require(first_position_item != nullptr &&
                     first_position_item->text() == QStringLiteral("1. Zdrojová rovina"),
@@ -610,8 +628,6 @@ int main(int argc, char* argv[]) {
         plane_dialog->set_reference(1,
             {{}, "axis-top", "axis"}, "Osa TOP",
             zima::document::ConstructionDefinition::PointReference);
-        auto* base_plane = plane_dialog->findChild<QComboBox*>(
-            "constructionBasePlane");
         require(base_plane != nullptr &&
                     base_plane->findData(QStringLiteral("xy")) >= 0 &&
                     base_plane->findData(QStringLiteral("yz")) >= 0 &&
@@ -889,6 +905,13 @@ int main(int argc, char* argv[]) {
                         "primitiveReferenceTable") != nullptr,
                 "Extrusion dialog does not share the universal container "
                 "placement UI");
+        require(extrusion_dialog->findChild<QPushButton*>(
+                    "containerOrientationFront")->isVisible() &&
+                    extrusion_dialog->findChild<QPushButton*>(
+                    "containerOrientationBack")->isVisible() &&
+                    extrusion_dialog->findChild<QPushButton*>(
+                    "containerOrientationRotate")->isVisible(),
+                "Extrusion does not expose its owned-Sketch view controls");
         require(extrusion_dialog->set_reference(
                     0, {{}, "part-origin", "origin:point"}, "Počátek dílu"),
                 "Extrusion Properties rejected its placement reference");
@@ -923,6 +946,21 @@ int main(int argc, char* argv[]) {
                         "part-origin" &&
                     preview_updates >= 2,
                 "Extrusion Properties did not preserve its Sketch or height");
+
+        int profile_completion_commits = 0;
+        auto* completed_profile_dialog =
+            new zima::app::PrimitivePropertiesDialog(
+                committed_extrusion, true, false,
+                [&](zima::document::HistoryContainer) {
+                    ++profile_completion_commits;
+                }, &parent);
+        completed_profile_dialog->set_commit_required(true);
+        completed_profile_dialog->show();
+        application.processEvents();
+        completed_profile_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
+        require(profile_completion_commits == 1,
+                "Unchanged Extrusion parameters skipped calculation after its "
+                "owned Sketch profile changed");
 
         auto revolution_initial =
             zima::document::PartDocument::create_revolution_container(
@@ -1037,12 +1075,56 @@ int main(int argc, char* argv[]) {
                     placement_dialog->placement_references()[0].target_reference
                             .owner_id == "box-b",
                 "Component Properties did not store the picked placement-reference row");
+        auto* mate_table = placement_dialog->findChild<QTableWidget*>(
+            "componentPlacementTable");
+        auto* limits_cell = mate_table == nullptr
+            ? nullptr : mate_table->cellWidget(0, 6);
+        auto* limits_button = limits_cell == nullptr
+            ? nullptr : limits_cell->findChild<QToolButton*>();
+        require(limits_button != nullptr && limits_button->isEnabled(),
+                "Mate row does not expose its end-of-row limits icon");
+        limits_button->click();
+        application.processEvents();
+        auto* limits_dialog = parent.findChild<QDialog*>("mateLimitsDialog");
+        require(limits_dialog != nullptr &&
+                    limits_dialog->windowFlags().testFlag(Qt::SubWindow),
+                "Mate limits did not open as an internal Properties SubWindow");
+        auto* mate_lower_enabled =
+            limits_dialog->findChild<QCheckBox*>("mateLowerEnabled");
+        auto* mate_upper_enabled =
+            limits_dialog->findChild<QCheckBox*>("mateUpperEnabled");
+        auto* lower =
+            limits_dialog->findChild<QDoubleSpinBox*>("mateLowerLimit");
+        auto* upper =
+            limits_dialog->findChild<QDoubleSpinBox*>("mateUpperLimit");
+        auto* current =
+            limits_dialog->findChild<QDoubleSpinBox*>("mateCurrentValue");
+        require(mate_lower_enabled && mate_upper_enabled && lower && upper && current &&
+                    current->isReadOnly() && current->value() == 0.0,
+                "Mate limits window does not show current/lower/upper values");
+        mate_lower_enabled->setChecked(true);
+        mate_upper_enabled->setChecked(true);
+        lower->setValue(-5.0);
+        upper->setValue(10.0);
+        auto* limits_properties = dynamic_cast<zima::ui::PropertiesSubWindow*>(
+            limits_dialog);
+        require(limits_properties != nullptr,
+                "Mate limits window does not use the shared Properties contract");
+        limits_properties->buttons()->button(QDialogButtonBox::Ok)->click();
+        application.processEvents();
+        require(placement_dialog->placement_references()[0].lower_limit == -5.0 &&
+                    placement_dialog->placement_references()[0].upper_limit == 10.0,
+                "Mate limits were not written back into their mate row");
         placement_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
         application.processEvents();
         require(placement_component_commits == 1 &&
                     committed_placement_component.placement_references.size() == 1 &&
                     committed_placement_component.placement_references[0].mate_type ==
-                        zima::assembly::MateKind::PlaneCoincident,
+                        zima::assembly::MateKind::PlaneCoincident &&
+                    committed_placement_component.placement_references[0].lower_limit ==
+                        -5.0 &&
+                    committed_placement_component.placement_references[0].upper_limit ==
+                        10.0,
                 "Component Properties did not persist its embedded placement "
                 "reference onto the committed occurrence");
 
@@ -1084,13 +1166,16 @@ int main(int argc, char* argv[]) {
         auto sketch = zima::sketcher::Sketch::create_default();
         zima::document::Placement sketch_placement;
         int sketch_commits = 0;
+        bool sketch_entry_requested = true;
         auto* sketch_dialog = new zima::app::SketchPropertiesDialog(
             sketch, sketch_placement, false, {},
             [&](zima::sketcher::Sketch committed,
-                zima::document::Placement committed_placement) {
+                zima::document::Placement committed_placement,
+                bool enter_sketch) {
                 ++sketch_commits;
                 sketch = std::move(committed);
                 sketch_placement = std::move(committed_placement);
+                sketch_entry_requested = enter_sketch;
             }, &parent);
         sketch_dialog->show();
         require(sketch_dialog->windowFlags().testFlag(Qt::SubWindow),
@@ -1101,6 +1186,21 @@ int main(int argc, char* argv[]) {
                 "Sketch Properties does not expose its plane offset");
         require(sketch_dialog->findChild<QTableWidget*>("sketchReferenceTable") != nullptr,
                 "Sketch Properties does not reuse container placement UI");
+        auto* sketch_dof_label = sketch_dialog->findChild<QLabel*>(
+            "containerPlacementDofLabel");
+        require(sketch_dof_label != nullptr && sketch_dof_label->isVisible() &&
+                    sketch_dialog->content_layout()->indexOf(sketch_dof_label) >= 0,
+                "Sketch placement DOF label is floating outside the dialog layout");
+        require(sketch_dialog->set_reference(0,
+                    {{}, "source-plane", "plane", 0.0, true},
+                    "První rovina"),
+                "Sketch Properties rejected its first planar reference");
+        auto* sketch_plane = sketch_dialog->findChild<QComboBox*>("sketchPlane");
+        require(sketch_plane != nullptr &&
+                    sketch_plane->currentData().toInt() == static_cast<int>(
+                        zima::sketcher::SketchPlane::XZ) &&
+                    sketch_plane->currentText().contains(QStringLiteral("První rovina")),
+                "First planar reference did not become the Sketch work plane");
         auto* sketch_front = sketch_dialog->findChild<QPushButton*>(
             "containerOrientationFront");
         auto* sketch_back = sketch_dialog->findChild<QPushButton*>(
@@ -1115,9 +1215,31 @@ int main(int argc, char* argv[]) {
         sketch_offset->setValue(12.5);
         sketch_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
         require(sketch_commits == 1 && sketch.plane_offset == 12.5 &&
+                    sketch.plane == zima::sketcher::SketchPlane::XZ &&
+                    !sketch_placement.references.empty() &&
+                    sketch_placement.references.front().owner_id == "source-plane" &&
                     sketch_placement.orientation_back &&
-                    sketch_placement.orientation_quarter_turns == 1,
-                "Sketch Properties did not commit exactly once on OK");
+                    sketch_placement.orientation_quarter_turns == 1 &&
+                    !sketch_entry_requested,
+                "Sketch Properties OK committed incorrectly or entered Sketcher");
+        application.processEvents();
+
+        bool explicit_sketch_entry_requested = false;
+        auto* sketch_entry_dialog = new zima::app::SketchPropertiesDialog(
+            sketch, sketch_placement, true, {},
+            [&](zima::sketcher::Sketch,
+                zima::document::Placement, bool enter_sketch) {
+                explicit_sketch_entry_requested = enter_sketch;
+            }, &parent);
+        sketch_entry_dialog->show();
+        application.processEvents();
+        auto* open_sketch_button = sketch_entry_dialog->findChild<QPushButton*>(
+            "sketchOpenButton");
+        require(open_sketch_button != nullptr,
+                "Sketch Properties does not expose its Sketcher entry action");
+        open_sketch_button->click();
+        require(explicit_sketch_entry_requested,
+                "SKETCH did not request entry into Sketcher");
         application.processEvents();
 
         auto initial_text = zima::sketcher::Sketch::create_text();

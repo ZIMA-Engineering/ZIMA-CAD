@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import os
 from enum import Enum
 from pathlib import Path
 
@@ -13,6 +14,8 @@ class RuntimePlatform(str, Enum):
 def application_root() -> Path:
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
+    if configured_root := os.environ.get("ZIMA_CAD_APPLICATION_ROOT"):
+        return Path(configured_root).expanduser().resolve()
     return Path(__file__).resolve().parent.parent
 
 

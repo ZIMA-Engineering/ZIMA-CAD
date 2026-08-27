@@ -50,6 +50,7 @@
 #include <TopExp_Explorer.hxx>
 #include <TopExp.hxx>
 #include <TopTools_ListIteratorOfListOfShape.hxx>
+#include <TopTools_IndexedMapOfShape.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Edge.hxx>
@@ -76,10 +77,15 @@
 #include <stdexcept>
 #include <utility>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
+#include <deque>
 
 namespace zima::kernel {
+
 namespace {
+
+constexpr std::size_t kLiveShapeCacheLimit = 256;
 
 gp_Trsf primitive_transform(const Vec3& translation, const Vec3& rotation_degrees);
 
@@ -1542,19 +1548,48 @@ std::vector<Owned> propagate_topology(
 }
 
 template <typename Reference, typename Owned>
-Reference reference_for_shape(
-    const TopoDS_Shape& shape, const std::vector<Owned>& owned_shapes) {
-    Reference result;
-    for (const auto& owned : owned_shapes) {
-        if (!shape.IsSame(owned.shape)) continue;
-        if (!result.valid()) {
-            result = owned.reference;
-        } else if (result != owned.reference) {
-            // Ambiguous ancestry must remain unselectable until repaired.
-            return {};
+class TopologyReferenceIndex {
+public:
+    explicit TopologyReferenceIndex(const std::vector<Owned>& owned_shapes) {
+        references_.resize(1);
+        ambiguous_.resize(1);
+        for (const auto& owned : owned_shapes) {
+            int index = shapes_.FindIndex(owned.shape);
+            if (index == 0) {
+                index = shapes_.Add(owned.shape);
+                references_.resize(static_cast<std::size_t>(index) + 1);
+                ambiguous_.resize(static_cast<std::size_t>(index) + 1);
+                references_[static_cast<std::size_t>(index)] = owned.reference;
+            } else if (references_[static_cast<std::size_t>(index)] !=
+                       owned.reference) {
+                // Multiple persisted parents for one runtime OCCT shape are
+                // deliberately ambiguous and therefore not selectable.
+                ambiguous_[static_cast<std::size_t>(index)] = true;
+            }
         }
     }
-    return result;
+
+    [[nodiscard]] Reference reference_for(const TopoDS_Shape& shape) const {
+        const int index = shapes_.FindIndex(shape);
+        if (index == 0 || ambiguous_[static_cast<std::size_t>(index)]) return {};
+        return references_[static_cast<std::size_t>(index)];
+    }
+
+private:
+    TopTools_IndexedMapOfShape shapes_;
+    std::vector<Reference> references_;
+    std::vector<bool> ambiguous_;
+};
+
+std::string serialize_kernel_shape(const TopoDS_Shape& shape) {
+    std::ostringstream serialized_shape;
+    // Viewer triangles are persisted separately in ViewerMesh. The kernel
+    // snapshot exists only to resume an explicitly requested solid
+    // calculation, so storing OCCT's duplicate triangulation wastes both
+    // serialization time and document space.
+    BRepTools::Write(shape, serialized_shape, false, false,
+        TopTools_FormatVersion_CURRENT);
+    return serialized_shape.str();
 }
 
 BodyResult make_result(
@@ -1562,7 +1597,8 @@ BodyResult make_result(
     const std::vector<OwnedFace>& owned_faces,
     const std::vector<OwnedEdge>& owned_edges,
     const std::vector<OwnedVertex>& owned_vertices,
-    bool original_reference_geometry = false) {
+    bool original_reference_geometry = false,
+    bool persist_kernel_shape = true) {
     BRepMesh_IncrementalMesh(shape, 0.1, false, 0.5, true).Perform();
     BodyResult result;
     GProp_GProps volume_properties;
@@ -1571,9 +1607,16 @@ BodyResult make_result(
     BRepGProp::SurfaceProperties(shape, surface_properties);
     result.volume = volume_properties.Mass();
     result.surface_area = surface_properties.Mass();
-    std::ostringstream serialized_shape;
-    BRepTools::Write(shape, serialized_shape);
-    result.kernel_shape = serialized_shape.str();
+    if (persist_kernel_shape) result.kernel_shape = serialize_kernel_shape(shape);
+    std::optional<TopologyReferenceIndex<FaceReference, OwnedFace>> face_references;
+    std::optional<TopologyReferenceIndex<EdgeReference, OwnedEdge>> edge_references;
+    std::optional<TopologyReferenceIndex<VertexReference, OwnedVertex>>
+        vertex_references;
+    if (original_reference_geometry) {
+        face_references.emplace(owned_faces);
+        edge_references.emplace(owned_edges);
+        vertex_references.emplace(owned_vertices);
+    }
 
     for (TopExp_Explorer explorer(shape, TopAbs_FACE); explorer.More(); explorer.Next()) {
         const TopoDS_Face face = TopoDS::Face(explorer.Current());
@@ -1582,7 +1625,7 @@ BodyResult make_result(
             BRep_Tool::Triangulation(face, location);
         if (triangulation.IsNull()) continue;
         const FaceReference reference = original_reference_geometry
-            ? reference_for_shape<FaceReference>(face, owned_faces)
+            ? face_references->reference_for(face)
             : FaceReference{};
         const std::uint32_t base =
             static_cast<std::uint32_t>(result.mesh.vertices.size());
@@ -1605,16 +1648,13 @@ BodyResult make_result(
             result.mesh.triangle_references.push_back(reference);
         }
     }
-    std::vector<TopoDS_Shape> sampled_edges;
+    TopTools_IndexedMapOfShape sampled_edges;
     for (TopExp_Explorer explorer(shape, TopAbs_EDGE); explorer.More(); explorer.Next()) {
         const TopoDS_Edge edge = TopoDS::Edge(explorer.Current());
-        if (std::ranges::any_of(sampled_edges,
-                [&](const auto& sampled) { return sampled.IsSame(edge); })) {
-            continue;
-        }
-        sampled_edges.push_back(edge);
+        if (sampled_edges.Contains(edge)) continue;
+        sampled_edges.Add(edge);
         const EdgeReference reference = original_reference_geometry
-            ? reference_for_shape<EdgeReference>(edge, owned_edges)
+            ? edge_references->reference_for(edge)
             : EdgeReference{};
         BRepAdaptor_Curve curve(edge);
         const int sample_count = curve.GetType() == GeomAbs_Line ? 2 : 33;
@@ -1629,17 +1669,14 @@ BodyResult make_result(
         }
         result.mesh.edges.push_back(std::move(viewer_edge));
     }
-    std::vector<TopoDS_Shape> sampled_vertices;
+    TopTools_IndexedMapOfShape sampled_vertices;
     if (original_reference_geometry) for (
         TopExp_Explorer explorer(shape, TopAbs_VERTEX); explorer.More(); explorer.Next()) {
         const TopoDS_Vertex vertex = TopoDS::Vertex(explorer.Current());
-        if (std::ranges::any_of(sampled_vertices,
-                [&](const auto& sampled) { return sampled.IsSame(vertex); })) {
-            continue;
-        }
-        sampled_vertices.push_back(vertex);
+        if (sampled_vertices.Contains(vertex)) continue;
+        sampled_vertices.Add(vertex);
         const VertexReference reference =
-            reference_for_shape<VertexReference>(vertex, owned_vertices);
+            vertex_references->reference_for(vertex);
         if (!reference.valid()) continue;
         const gp_Pnt point = BRep_Tool::Pnt(vertex);
         result.mesh.points.push_back({
@@ -1670,7 +1707,62 @@ void append_original_reference_geometry(
     target.axes.insert(target.axes.end(), source.axes.begin(), source.axes.end());
 }
 
+ViewerReferenceGeometry reference_geometry_for_owners(
+    const ViewerReferenceGeometry& source,
+    const std::unordered_set<std::string>& owners) {
+    ViewerReferenceGeometry result;
+    for (std::size_t triangle = 0;
+         triangle < source.triangle_references.size(); ++triangle) {
+        const auto& reference = source.triangle_references[triangle];
+        if (!owners.contains(reference.owner_id)) continue;
+        const auto output_offset =
+            static_cast<std::uint32_t>(result.vertices.size());
+        for (int corner = 0; corner < 3; ++corner) {
+            result.vertices.push_back(source.vertices.at(
+                source.triangles.at(triangle * 3 + corner)));
+            result.triangles.push_back(output_offset + corner);
+        }
+        result.triangle_references.push_back(reference);
+    }
+    std::ranges::copy_if(source.edges, std::back_inserter(result.edges),
+        [&](const auto& edge) { return owners.contains(edge.reference.owner_id); });
+    std::ranges::copy_if(source.points, std::back_inserter(result.points),
+        [&](const auto& point) { return owners.contains(point.reference.owner_id); });
+    std::ranges::copy_if(source.axes, std::back_inserter(result.axes),
+        [&](const auto& axis) { return owners.contains(axis.reference.owner_id); });
+    return result;
+}
+
+void compact_history_reference_geometry(std::vector<BodyResult>& boundaries) {
+    if (boundaries.size() < 2) return;
+    for (auto iterator = boundaries.begin(); iterator != boundaries.end() - 1;
+         ++iterator) {
+        iterator->mesh.original_references = {};
+    }
+}
+
 }  // namespace
+
+struct OcctKernel::LiveCache {
+    struct Topology {
+        std::vector<OwnedFace> faces;
+        std::vector<OwnedEdge> edges;
+        std::vector<OwnedVertex> vertices;
+    };
+
+    struct Boundary {
+        TopoDS_Shape shape;
+        std::shared_ptr<const Topology> topology;
+    };
+
+    std::unordered_map<std::string, Boundary> boundaries;
+    std::deque<std::string> insertion_order;
+    std::unordered_map<std::string, ViewerMesh> reference_meshes;
+    std::deque<std::string> reference_insertion_order;
+};
+
+OcctKernel::OcctKernel() : live_cache_(std::make_unique<LiveCache>()) {}
+OcctKernel::~OcctKernel() = default;
 
 std::string OcctKernel::name() const {
     return "OCCT";
@@ -1798,6 +1890,12 @@ void OcctKernel::export_stl(
 
 std::vector<BodyResult> OcctKernel::evaluate_history(
     const std::vector<HistoryOperation>& operations) const {
+    return evaluate_history_incremental(operations, {});
+}
+
+std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
+    const std::vector<HistoryOperation>& operations,
+    const std::vector<BodyResult>& previous_boundaries) const {
     if (operations.empty()) return {};
     const auto first_active = std::find_if(operations.begin(), operations.end(),
         [](const auto& operation) { return !operation.suppressed; });
@@ -1807,21 +1905,118 @@ std::vector<BodyResult> OcctKernel::evaluate_history(
     }
     try {
         TopoDS_Shape result_shape;
-        std::vector<OwnedFace> owned_faces;
-        std::vector<OwnedEdge> owned_edges;
-        std::vector<OwnedVertex> owned_vertices;
+        std::shared_ptr<const LiveCache::Topology> owned_topology =
+            std::make_shared<LiveCache::Topology>();
         ViewerReferenceGeometry original_references;
         std::unordered_map<std::string, Handle(TDocStd_Document)> step_documents;
         std::vector<BodyResult> boundaries;
         boundaries.reserve(operations.size());
-        for (const auto& operation : operations) {
+        const auto remember_live_boundary = [this](
+                const std::string& fingerprint, const TopoDS_Shape& shape,
+                std::shared_ptr<const LiveCache::Topology> topology) {
+            if (fingerprint.empty() || shape.IsNull()) return;
+            auto [iterator, inserted] =
+                live_cache_->boundaries.insert_or_assign(fingerprint,
+                    LiveCache::Boundary{shape, std::move(topology)});
+            static_cast<void>(iterator);
+            if (!inserted) return;
+            live_cache_->insertion_order.push_back(fingerprint);
+            while (live_cache_->insertion_order.size() > kLiveShapeCacheLimit) {
+                live_cache_->boundaries.erase(
+                    live_cache_->insertion_order.front());
+                live_cache_->insertion_order.pop_front();
+            }
+        };
+        std::size_t matching_prefix = 0;
+        const auto available = std::min(
+            operations.size(), previous_boundaries.size());
+        while (matching_prefix < available &&
+               previous_boundaries[matching_prefix].source_fingerprint ==
+                   history_fingerprint(operations, matching_prefix + 1)) {
+            ++matching_prefix;
+        }
+        if (matching_prefix == operations.size()) {
+            std::vector<BodyResult> reused{
+                previous_boundaries.begin(),
+                    previous_boundaries.begin() +
+                        static_cast<std::ptrdiff_t>(matching_prefix)};
+            compact_history_reference_geometry(reused);
+            return reused;
+        }
+        std::size_t reusable_prefix = matching_prefix;
+        while (reusable_prefix > 0) {
+            const auto& boundary = previous_boundaries[reusable_prefix - 1];
+            if (!boundary.kernel_shape.empty() ||
+                live_cache_->boundaries.contains(boundary.source_fingerprint)) {
+                break;
+            }
+            --reusable_prefix;
+        }
+        const bool reusable_prefix_has_live_ancestry = reusable_prefix > 0 &&
+            live_cache_->boundaries.contains(
+                previous_boundaries[reusable_prefix - 1].source_fingerprint);
+        // A persisted B-Rep alone is sufficient for ordinary Boolean
+        // primitives. Exact face/edge operations additionally require the
+        // in-memory ZIMA-to-OCCT ancestry stored with the live boundary.
+        const bool suffix_requires_live_ancestry = std::any_of(
+            operations.begin() + static_cast<std::ptrdiff_t>(reusable_prefix),
+            operations.end(), [](const auto& operation) {
+                if (std::holds_alternative<FilletRequest>(operation.primitive) ||
+                    std::holds_alternative<ChamferRequest>(operation.primitive)) {
+                    return true;
+                }
+                const auto* extrusion =
+                    std::get_if<ExtrusionRequest>(&operation.primitive);
+                return extrusion != nullptr &&
+                    extrusion->extent != ExtrusionRequest::Extent::Blind;
+            });
+        if (suffix_requires_live_ancestry &&
+            !reusable_prefix_has_live_ancestry) {
+            reusable_prefix = 0;
+        }
+        if (reusable_prefix > 0) {
+            const auto& prefix_boundary =
+                previous_boundaries[reusable_prefix - 1];
+            const auto cached = live_cache_->boundaries.find(
+                prefix_boundary.source_fingerprint);
+            if (cached == live_cache_->boundaries.end()) {
+                result_shape = read_kernel_shape(prefix_boundary);
+            } else {
+                result_shape = cached->second.shape;
+                owned_topology = cached->second.topology;
+            }
+            std::unordered_set<std::string> prefix_owners;
+            for (std::size_t index = 0; index < reusable_prefix; ++index) {
+                if (!operations[index].suppressed) {
+                    prefix_owners.insert(operations[index].owner_id);
+                }
+            }
+            original_references = reference_geometry_for_owners(
+                previous_boundaries.back().mesh.original_references,
+                prefix_owners);
+            boundaries.insert(boundaries.end(), previous_boundaries.begin(),
+                previous_boundaries.begin() +
+                    static_cast<std::ptrdiff_t>(reusable_prefix));
+        }
+        for (std::size_t operation_index = reusable_prefix;
+             operation_index < operations.size(); ++operation_index) {
+            const auto& operation = operations[operation_index];
+            const bool persist_boundary_shape =
+                operation_index + 1 == operations.size();
             if (operation.owner_id.empty()) {
                 throw std::invalid_argument("History operation owner ID is required");
             }
             if (operation.suppressed) {
                 auto boundary = boundaries.empty() ? BodyResult{} : boundaries.back();
+                if (persist_boundary_shape && !result_shape.IsNull()) {
+                    boundary.kernel_shape = serialize_kernel_shape(result_shape);
+                } else if (!persist_boundary_shape) {
+                    boundary.kernel_shape.clear();
+                }
                 boundary.source_fingerprint = history_fingerprint(
                     operations, boundaries.size() + 1);
+                remember_live_boundary(boundary.source_fingerprint, result_shape,
+                    owned_topology);
                 boundaries.push_back(std::move(boundary));
                 continue;
             }
@@ -1854,7 +2049,7 @@ std::vector<BodyResult> OcctKernel::evaluate_history(
                 std::vector<TopoDS_Edge> selected;
                 for (const auto& requested : treatment.edges) {
                     bool found = false;
-                    for (const auto& owned : owned_edges) {
+                    for (const auto& owned : owned_topology->edges) {
                         if (owned.reference.owner_id == requested.owner_id &&
                             owned.reference.semantic_key == requested.semantic_key) {
                             selected.push_back(TopoDS::Edge(owned.shape));
@@ -1872,31 +2067,38 @@ std::vector<BodyResult> OcctKernel::evaluate_history(
                     for (const auto& edge : selected) algorithm.Add(size, edge);
                     algorithm.Build();
                     if (!algorithm.IsDone()) throw std::runtime_error("OCCT Fillet failed");
-                    owned_faces = propagate_topology(
-                        algorithm, owned_faces, std::vector<OwnedFace>{});
-                    owned_edges = propagate_topology(
-                        algorithm, owned_edges, std::vector<OwnedEdge>{});
-                    owned_vertices = propagate_topology(
-                        algorithm, owned_vertices, std::vector<OwnedVertex>{});
+                    owned_topology = std::make_shared<LiveCache::Topology>(
+                        LiveCache::Topology{
+                            propagate_topology(algorithm, owned_topology->faces,
+                                std::vector<OwnedFace>{}),
+                            propagate_topology(algorithm, owned_topology->edges,
+                                std::vector<OwnedEdge>{}),
+                            propagate_topology(algorithm, owned_topology->vertices,
+                                std::vector<OwnedVertex>{})});
                     result_shape = algorithm.Shape();
                 } else {
                     BRepFilletAPI_MakeChamfer algorithm(result_shape);
                     for (const auto& edge : selected) algorithm.Add(size, edge);
                     algorithm.Build();
                     if (!algorithm.IsDone()) throw std::runtime_error("OCCT Chamfer failed");
-                    owned_faces = propagate_topology(
-                        algorithm, owned_faces, std::vector<OwnedFace>{});
-                    owned_edges = propagate_topology(
-                        algorithm, owned_edges, std::vector<OwnedEdge>{});
-                    owned_vertices = propagate_topology(
-                        algorithm, owned_vertices, std::vector<OwnedVertex>{});
+                    owned_topology = std::make_shared<LiveCache::Topology>(
+                        LiveCache::Topology{
+                            propagate_topology(algorithm, owned_topology->faces,
+                                std::vector<OwnedFace>{}),
+                            propagate_topology(algorithm, owned_topology->edges,
+                                std::vector<OwnedEdge>{}),
+                            propagate_topology(algorithm, owned_topology->vertices,
+                                std::vector<OwnedVertex>{})});
                     result_shape = algorithm.Shape();
                 }
                 boundaries.push_back(
-                    make_result(result_shape, owned_faces, owned_edges, owned_vertices));
-                boundaries.back().mesh.original_references = original_references;
+                    make_result(result_shape, owned_topology->faces,
+                        owned_topology->edges, owned_topology->vertices,
+                        false, persist_boundary_shape));
                 boundaries.back().source_fingerprint =
                     history_fingerprint(operations, boundaries.size());
+                remember_live_boundary(boundaries.back().source_fingerprint,
+                    result_shape, owned_topology);
             };
             if (const auto* fillet = std::get_if<FilletRequest>(&operation.primitive)) {
                 apply_edge_treatment(*fillet);
@@ -1933,7 +2135,8 @@ std::vector<BodyResult> OcctKernel::evaluate_history(
                     if ((primitive.extent == ExtrusionRequest::Extent::UpToPlane ||
                          primitive.extent == ExtrusionRequest::Extent::UpToSurface) &&
                         !primitive.target_is_datum &&
-                        std::none_of(owned_faces.begin(), owned_faces.end(),
+                        std::none_of(owned_topology->faces.begin(),
+                            owned_topology->faces.end(),
                             [&](const auto& face) {
                                 return face.reference.owner_id ==
                                            primitive.target_face.owner_id &&
@@ -1946,7 +2149,7 @@ std::vector<BodyResult> OcctKernel::evaluate_history(
                     std::optional<TopoDS_Face> exact_target;
                     if (primitive.extent == ExtrusionRequest::Extent::UpToSurface) {
                         std::vector<const OwnedFace*> matching_faces;
-                        for (const auto& face : owned_faces) {
+                        for (const auto& face : owned_topology->faces) {
                             if (face.reference.owner_id ==
                                     primitive.target_face.owner_id &&
                                 face.reference.semantic_key ==
@@ -1971,16 +2174,46 @@ std::vector<BodyResult> OcctKernel::evaluate_history(
                     throw std::logic_error("Edge treatment reached primitive builder");
                 }
             }, operation.primitive);
-            auto operand_result = make_result(
-                operand.shape, operand.faces, operand.edges, operand.vertices, true);
-            operand_result.mesh.axes = axes_for_operation(operation);
+            const std::string reference_cache_key = history_fingerprint(
+                std::vector<HistoryOperation>{operation}, 1);
+            const auto* extrusion_request =
+                std::get_if<ExtrusionRequest>(&operation.primitive);
+            const bool cache_reference_mesh =
+                !imported_step &&
+                (extrusion_request == nullptr ||
+                 extrusion_request->extent == ExtrusionRequest::Extent::Blind);
+            ViewerMesh operand_mesh;
+            const auto cached_reference = cache_reference_mesh
+                ? live_cache_->reference_meshes.find(reference_cache_key)
+                : live_cache_->reference_meshes.end();
+            if (cached_reference != live_cache_->reference_meshes.end()) {
+                operand_mesh = cached_reference->second;
+            } else {
+                auto operand_result = make_result(
+                    operand.shape, operand.faces, operand.edges,
+                    operand.vertices, true, false);
+                operand_result.mesh.axes = axes_for_operation(operation);
+                operand_mesh = std::move(operand_result.mesh);
+                if (cache_reference_mesh) {
+                    live_cache_->reference_meshes.emplace(
+                        reference_cache_key, operand_mesh);
+                    live_cache_->reference_insertion_order.push_back(
+                        reference_cache_key);
+                    while (live_cache_->reference_insertion_order.size() >
+                           kLiveShapeCacheLimit) {
+                        live_cache_->reference_meshes.erase(
+                            live_cache_->reference_insertion_order.front());
+                        live_cache_->reference_insertion_order.pop_front();
+                    }
+                }
+            }
             append_original_reference_geometry(
-                original_references, std::move(operand_result.mesh));
+                original_references, std::move(operand_mesh));
             if (result_shape.IsNull()) {
                 result_shape = operand.shape;
-                owned_faces = operand.faces;
-                owned_edges = operand.edges;
-                owned_vertices = operand.vertices;
+                owned_topology = std::make_shared<LiveCache::Topology>(
+                    LiveCache::Topology{
+                        operand.faces, operand.edges, operand.vertices});
             } else if (imported_step && operation.operation == BooleanOperation::Add) {
                 TopoDS_Compound compound;
                 BRep_Builder builder;
@@ -1988,37 +2221,59 @@ std::vector<BodyResult> OcctKernel::evaluate_history(
                 builder.Add(compound, result_shape);
                 builder.Add(compound, operand.shape);
                 result_shape = compound;
-                owned_faces.insert(owned_faces.end(), operand.faces.begin(), operand.faces.end());
-                owned_edges.insert(owned_edges.end(), operand.edges.begin(), operand.edges.end());
-                owned_vertices.insert(
-                    owned_vertices.end(), operand.vertices.begin(), operand.vertices.end());
+                auto combined_topology = std::make_shared<LiveCache::Topology>(
+                    *owned_topology);
+                combined_topology->faces.insert(combined_topology->faces.end(),
+                    operand.faces.begin(), operand.faces.end());
+                combined_topology->edges.insert(combined_topology->edges.end(),
+                    operand.edges.begin(), operand.edges.end());
+                combined_topology->vertices.insert(
+                    combined_topology->vertices.end(), operand.vertices.begin(),
+                    operand.vertices.end());
+                owned_topology = std::move(combined_topology);
             } else if (operation.operation == BooleanOperation::Add) {
                 BRepAlgoAPI_Fuse algorithm(result_shape, operand.shape);
                 algorithm.SetToFillHistory(true);
                 algorithm.Build();
                 if (!algorithm.IsDone()) throw std::runtime_error("OCCT fuse failed");
-                owned_faces = propagate_topology(algorithm, owned_faces, operand.faces);
-                owned_edges = propagate_topology(algorithm, owned_edges, operand.edges);
-                owned_vertices = propagate_topology(
-                    algorithm, owned_vertices, operand.vertices);
+                owned_topology = std::make_shared<LiveCache::Topology>(
+                    LiveCache::Topology{
+                        propagate_topology(algorithm, owned_topology->faces,
+                            operand.faces),
+                        propagate_topology(algorithm, owned_topology->edges,
+                            operand.edges),
+                        propagate_topology(algorithm, owned_topology->vertices,
+                            operand.vertices)});
                 result_shape = algorithm.Shape();
             } else {
                 BRepAlgoAPI_Cut algorithm(result_shape, operand.shape);
                 algorithm.SetToFillHistory(true);
                 algorithm.Build();
                 if (!algorithm.IsDone()) throw std::runtime_error("OCCT cut failed");
-                owned_faces = propagate_topology(algorithm, owned_faces, operand.faces);
-                owned_edges = propagate_topology(algorithm, owned_edges, operand.edges);
-                owned_vertices = propagate_topology(
-                    algorithm, owned_vertices, operand.vertices);
+                owned_topology = std::make_shared<LiveCache::Topology>(
+                    LiveCache::Topology{
+                        propagate_topology(algorithm, owned_topology->faces,
+                            operand.faces),
+                        propagate_topology(algorithm, owned_topology->edges,
+                            operand.edges),
+                        propagate_topology(algorithm, owned_topology->vertices,
+                            operand.vertices)});
                 result_shape = algorithm.Shape();
             }
-            boundaries.push_back(
-                make_result(result_shape, owned_faces, owned_edges, owned_vertices));
-            boundaries.back().mesh.original_references = original_references;
+            boundaries.push_back(make_result(
+                result_shape, owned_topology->faces, owned_topology->edges,
+                owned_topology->vertices,
+                false, persist_boundary_shape));
             boundaries.back().source_fingerprint =
                 history_fingerprint(operations, boundaries.size());
+            remember_live_boundary(boundaries.back().source_fingerprint,
+                result_shape, owned_topology);
         }
+        if (!boundaries.empty()) {
+            boundaries.back().mesh.original_references =
+                std::move(original_references);
+        }
+        compact_history_reference_geometry(boundaries);
         return boundaries;
     } catch (const Standard_Failure& failure) {
         throw std::runtime_error(failure.GetMessageString());

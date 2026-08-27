@@ -13,6 +13,7 @@
 #include <QPalette>
 #include <QPushButton>
 #include <QSignalBlocker>
+#include <QSizePolicy>
 #include <QTableWidget>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -43,9 +44,10 @@ QString readable_reference_kind(const std::string& semantic) {
 
 ContainerPlacementSection::ContainerPlacementSection(
     QWidget* parent_widget, QVBoxLayout* layout, bool with_orientation,
-    bool position_rows_can_define_rotation)
+    bool position_rows_can_define_rotation, bool with_sketch_view_controls)
     : QObject(parent_widget), parent_widget_(parent_widget),
       with_orientation_(with_orientation),
+      with_sketch_view_controls_(with_sketch_view_controls),
       position_rows_can_define_rotation_(position_rows_can_define_rotation) {
     // A section without its own orientation table (e.g. Point) never has
     // set_remaining_rotation_dof() called on it by its owning dialog -- the
@@ -103,7 +105,7 @@ ContainerPlacementSection::ContainerPlacementSection(
         });
 
     if (with_orientation_) {
-        orientation_heading_ = new QLabel(tr("Orientace kontejneru"), parent_widget_);
+        orientation_heading_ = new QLabel(tr("Pohled na skicu"), parent_widget_);
         auto orientation_heading_font = orientation_heading_->font();
         orientation_heading_font.setBold(true);
         orientation_heading_->setFont(orientation_heading_font);
@@ -139,7 +141,8 @@ ContainerPlacementSection::ContainerPlacementSection(
                 }
                 orientation_table_->clearSelection();
             });
-        layout->addWidget(orientation_heading_);
+        if (with_sketch_view_controls_) layout->addWidget(orientation_heading_);
+        else orientation_heading_->hide();
         auto* orientation_controls = new QWidget(parent_widget_);
         auto* orientation_controls_layout = new QHBoxLayout(orientation_controls);
         orientation_controls_layout->setContentsMargins(0, 0, 0, 0);
@@ -179,7 +182,8 @@ ContainerPlacementSection::ContainerPlacementSection(
         orientation_controls_layout->addWidget(front_button_);
         orientation_controls_layout->addWidget(back_button_);
         orientation_controls_layout->addWidget(rotate_button_, 1);
-        layout->addWidget(orientation_controls);
+        if (with_sketch_view_controls_) layout->addWidget(orientation_controls);
+        else orientation_controls->hide();
         // Kept as an internal value adapter while old call sites are removed;
         // it is deliberately not presented to the user anymore.
         orientation_table_->hide();
@@ -232,6 +236,14 @@ ContainerPlacementSection::ContainerPlacementSection(
     }
 
     dof_label_ = new QLabel(parent_widget_);
+    dof_label_->setObjectName("containerPlacementDofLabel");
+    dof_label_->setWordWrap(true);
+    dof_label_->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Minimum);
+    // A child QWidget without a layout position is still painted by Qt at
+    // its default geometry. Keep it hidden until install_dof_label() places
+    // it, otherwise a caller that forgets installation gets a floating,
+    // clipped "Zbývající stupně volnosti" label over the dialog.
+    dof_label_->hide();
 }
 
 void ContainerPlacementSection::initialize_numeric_values(
@@ -313,7 +325,9 @@ void ContainerPlacementSection::set_orientation_base_rotation(
 }
 
 void ContainerPlacementSection::install_dof_label(QVBoxLayout* layout) {
-    if (dof_label_ != nullptr && layout != nullptr) layout->addWidget(dof_label_);
+    if (dof_label_ == nullptr || layout == nullptr) return;
+    if (layout->indexOf(dof_label_) < 0) layout->addWidget(dof_label_);
+    dof_label_->show();
 }
 
 void ContainerPlacementSection::set_orientation_locked(

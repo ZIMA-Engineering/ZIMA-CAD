@@ -284,6 +284,9 @@ void ConstructionPropertiesDialog::set_preview_callback(PreviewCallback callback
 bool ConstructionPropertiesDialog::set_reference(std::size_t index,
     zima::document::ConstructionReference reference, const QString& label,
     zima::document::ConstructionDefinition definition) {
+    const bool first_plane_reference = initial_.kind ==
+            zima::document::ConstructionKind::Plane && index == 0 &&
+        reference.supports_offset;
     QString error;
     // A new Plane's position rows keep the same automatically assigned
     // front/top flags every other container kind gets (see
@@ -302,6 +305,20 @@ bool ConstructionPropertiesDialog::set_reference(std::size_t index,
     error_->clear();
     if (index < 3) {
         definition_->setCurrentIndex(definition_->findData(static_cast<int>(definition)));
+    }
+    if (first_plane_reference && base_plane_combo_ != nullptr) {
+        // FRONT maps the picked plane normal onto the container's local Y
+        // axis. The local XZ datum is therefore the plane that is parallel
+        // to that first picked plane and is the correct source for offset.
+        // Name the choice after the real picked source so the UI does not
+        // misleadingly look as though the offset still starts at an
+        // unrelated default Container-Origin plane.
+        const int xz_index = base_plane_combo_->findData(QStringLiteral("xz"));
+        if (xz_index >= 0) {
+            base_plane_combo_->setItemText(xz_index,
+                tr("Podle první reference — %1").arg(label));
+            base_plane_combo_->setCurrentIndex(xz_index);
+        }
     }
     return true;
 }

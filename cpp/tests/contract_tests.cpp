@@ -113,6 +113,55 @@ int main() {
         require(!body.mesh.vertices.empty(), "Viewer mesh is empty");
         require(!body.kernel_shape.empty(),
                 "Calculated body did not persist its kernel snapshot");
+        auto centered_box_document = zima::document::PartDocument::create_default();
+        centered_box_document.history.push_back(
+            zima::document::PartDocument::create_box_container());
+        const auto centered_box_result = kernel.evaluate_history(
+            centered_box_document.kernel_operations()).front();
+        const auto bounds_on = [&](auto coordinate) {
+            const auto bounds = std::minmax_element(
+                centered_box_result.mesh.vertices.begin(),
+                centered_box_result.mesh.vertices.end(),
+                [&](const auto& left, const auto& right) {
+                    return coordinate(left) < coordinate(right);
+                });
+            return std::pair{coordinate(*bounds.first), coordinate(*bounds.second)};
+        };
+        const auto [box_x_min, box_x_max] = bounds_on(
+            [](const auto& point) { return point.x; });
+        const auto [box_y_min, box_y_max] = bounds_on(
+            [](const auto& point) { return point.y; });
+        const auto [box_z_min, box_z_max] = bounds_on(
+            [](const auto& point) { return point.z; });
+        require(std::abs(box_x_min + 50.0) < 1.0e-7 &&
+                    std::abs(box_x_max - 50.0) < 1.0e-7 &&
+                    std::abs(box_y_min + 40.0) < 1.0e-7 &&
+                    std::abs(box_y_max - 40.0) < 1.0e-7 &&
+                    std::abs(box_z_min + 25.0) < 1.0e-7 &&
+                    std::abs(box_z_max - 25.0) < 1.0e-7,
+                "Part Box is not symmetric about its local origin");
+        centered_box_document.history.front().placement.x = 7.0;
+        centered_box_document.history.front().placement.y = -4.0;
+        centered_box_document.history.front().placement.z = 13.0;
+        centered_box_document.history.front().placement.rotation_x = 21.0;
+        centered_box_document.history.front().placement.rotation_y = 32.0;
+        centered_box_document.history.front().placement.rotation_z = 43.0;
+        const auto rotated_centered_box = kernel.evaluate_history(
+            centered_box_document.kernel_operations()).front();
+        zima::kernel::Vec3 vertex_center;
+        for (const auto& point :
+             rotated_centered_box.mesh.original_references.points) {
+            vertex_center.x += point.position.x;
+            vertex_center.y += point.position.y;
+            vertex_center.z += point.position.z;
+        }
+        const double vertex_count = static_cast<double>(
+            rotated_centered_box.mesh.original_references.points.size());
+        require(vertex_count == 8.0 &&
+                    std::abs(vertex_center.x / vertex_count - 7.0) < 1.0e-7 &&
+                    std::abs(vertex_center.y / vertex_count + 4.0) < 1.0e-7 &&
+                    std::abs(vertex_center.z / vertex_count - 13.0) < 1.0e-7,
+                "Rotated Part Box local origin is not its geometric center");
         zima::kernel::BoxRequest cutter_request{20.0, 20.0, 20.0};
         cutter_request.translation = {50.0, 0.0, 0.0};
         const auto cutter = kernel.make_box(cutter_request);
@@ -200,6 +249,26 @@ int main() {
                     fillet_boundaries.back().volume < body.volume &&
                     fillet_boundaries.back().volume > body.volume - 1000.0,
                 "Original-edge Fillet did not produce a valid bounded solid");
+        const std::vector<zima::kernel::HistoryOperation> edited_fillet_history{
+            {"box", zima::kernel::BoxRequest{100.0, 80.0, 50.0},
+             zima::kernel::BooleanOperation::Add},
+            {"fillet", zima::kernel::FilletRequest{
+                {selected_box_edge},
+                zima::kernel::EdgeSelectionOrigin::OriginalEntity, 4.0},
+             zima::kernel::BooleanOperation::Add},
+        };
+        const auto incremental_fillet = kernel.evaluate_history_incremental(
+            edited_fillet_history, fillet_boundaries);
+        const auto full_edited_fillet =
+            kernel.evaluate_history(edited_fillet_history);
+        require(incremental_fillet.size() == full_edited_fillet.size() &&
+                    incremental_fillet.back().mesh.vertices ==
+                        full_edited_fillet.back().mesh.vertices &&
+                    incremental_fillet.back().mesh.triangles ==
+                        full_edited_fillet.back().mesh.triangles &&
+                    std::abs(incremental_fillet.back().volume -
+                             full_edited_fillet.back().volume) < 1.0e-7,
+                "Live topology cache changed an incremental Fillet result");
         const auto chamfer_boundaries = kernel.evaluate_history({
             {"box", zima::kernel::BoxRequest{100.0, 80.0, 50.0},
              zima::kernel::BooleanOperation::Add},
@@ -244,6 +313,124 @@ int main() {
         }
         require(regenerated_edge_keys == box_edge_keys,
                 "Resize/rotation changed primitive semantic edge identities");
+        auto incremental_document = zima::document::PartDocument::create_default();
+        incremental_document.history.clear();
+        for (int index = 0; index < 10; ++index) {
+            auto feature = zima::document::PartDocument::create_box_container();
+            feature.placement.x = index * 12.0;
+            feature.box = {20.0, 20.0, 20.0};
+            incremental_document.history.push_back(std::move(feature));
+        }
+        const auto incremental_original_operations =
+            incremental_document.kernel_operations();
+        const auto incremental_original =
+            kernel.evaluate_history(incremental_original_operations);
+        require(std::count_if(incremental_original.begin(),
+                    incremental_original.end(), [](const auto& boundary) {
+                        return !boundary.kernel_shape.empty();
+                    }) == 1 &&
+                    std::all_of(incremental_original.begin(),
+                        incremental_original.end() - 1,
+                        [](const auto& boundary) {
+                            return boundary.kernel_shape.empty();
+                        }) &&
+                    !incremental_original.back().kernel_shape.empty(),
+                "Part history persisted an intermediate BRep checkpoint");
+        incremental_document.history.back().box.height = 30.0;
+        const auto incremental_changed_operations =
+            incremental_document.kernel_operations();
+        const auto incremental_result = kernel.evaluate_history_incremental(
+            incremental_changed_operations, incremental_original);
+        const auto incremental_full =
+            kernel.evaluate_history(incremental_changed_operations);
+        zima::kernel::OcctKernel cold_incremental_kernel;
+        const auto cold_incremental_result =
+            cold_incremental_kernel.evaluate_history_incremental(
+                incremental_changed_operations, incremental_original);
+        require(incremental_result.size() == incremental_full.size() &&
+                    incremental_result.back().source_fingerprint ==
+                        incremental_full.back().source_fingerprint &&
+                    std::abs(incremental_result.back().volume -
+                             incremental_full.back().volume) < 1.0e-7 &&
+                    incremental_result.back().mesh.triangles ==
+                        incremental_full.back().mesh.triangles &&
+                    incremental_result.back().mesh.vertices ==
+                        incremental_full.back().mesh.vertices,
+                "Incremental Part regeneration differs from a full calculation");
+        require(cold_incremental_result.size() == incremental_full.size() &&
+                    cold_incremental_result.back().source_fingerprint ==
+                        incremental_full.back().source_fingerprint &&
+                    cold_incremental_result.back().mesh.vertices ==
+                        incremental_full.back().mesh.vertices &&
+                    cold_incremental_result.back().mesh.triangles ==
+                        incremental_full.back().mesh.triangles,
+                "Cold incremental regeneration did not fall back to persisted BRep");
+        auto appended_document = incremental_document;
+        appended_document.history.back().box.height = 20.0;
+        auto appended_feature =
+            zima::document::PartDocument::create_box_container();
+        appended_feature.placement.x = 120.0;
+        appended_feature.box = {20.0, 20.0, 20.0};
+        appended_document.history.push_back(std::move(appended_feature));
+        const auto appended_operations = appended_document.kernel_operations();
+        zima::kernel::OcctKernel cold_append_kernel;
+        const auto appended_incremental =
+            cold_append_kernel.evaluate_history_incremental(
+                appended_operations, incremental_original);
+        const auto appended_full = kernel.evaluate_history(appended_operations);
+        require(appended_incremental.size() == appended_full.size() &&
+                    appended_incremental.back().source_fingerprint ==
+                        appended_full.back().source_fingerprint &&
+                    appended_incremental.back().mesh.vertices ==
+                        appended_full.back().mesh.vertices &&
+                    appended_incremental.back().mesh.triangles ==
+                        appended_full.back().mesh.triangles,
+                "Final persisted BRep did not resume an appended operation");
+        require(std::equal(incremental_result.begin(),
+                    incremental_result.end() - 1, incremental_original.begin(),
+                    [](const auto& reused, const auto& original) {
+                        return reused.source_fingerprint == original.source_fingerprint &&
+                            reused.kernel_shape == original.kernel_shape;
+                    }),
+                "Incremental Part regeneration did not preserve its unchanged prefix");
+        require(std::all_of(incremental_result.begin(),
+                    incremental_result.end() - 1, [](const auto& boundary) {
+                        const auto& references = boundary.mesh.original_references;
+                        return references.vertices.empty() &&
+                            references.edges.empty() && references.points.empty() &&
+                            references.axes.empty();
+                    }) &&
+                    !incremental_result.back().mesh.original_references.edges.empty(),
+                "Part history duplicated cumulative reference geometry in every boundary");
+        zima::document::DocumentSession incremental_session(
+            incremental_document, incremental_result);
+        const auto cursor_body = incremental_session.calculated_boundary(4);
+        require(cursor_body &&
+                    !cursor_body->mesh.original_references.edges.empty() &&
+                    std::all_of(
+                        cursor_body->mesh.original_references.edges.begin(),
+                        cursor_body->mesh.original_references.edges.end(),
+                        [&](const auto& edge) {
+                            return std::any_of(
+                                incremental_document.history.begin(),
+                                incremental_document.history.begin() + 4,
+                                [&](const auto& feature) {
+                                    return feature.id == edge.reference.owner_id;
+                                });
+                        }),
+                "Compact Part cache did not reconstruct history-cursor references");
+        const auto rollback = incremental_session.rollback_boundary(
+            incremental_document.history.back().id);
+        require(rollback && rollback->input_body &&
+                    !rollback->input_body->mesh.original_references.edges.empty() &&
+                    std::none_of(
+                        rollback->input_body->mesh.original_references.edges.begin(),
+                        rollback->input_body->mesh.original_references.edges.end(),
+                        [&](const auto& edge) {
+                            return edge.reference.owner_id ==
+                                incremental_document.history.back().id;
+                        }),
+                "Compact Part cache did not reconstruct rollback references");
         require(regenerated.mesh.original_references.axes.size() == 3 &&
                     std::abs(regenerated.mesh.original_references.axes.front().direction.y) > 1.0e-3,
                 "Primitive placement was not applied to persisted axes");
@@ -1255,6 +1442,17 @@ int main() {
                     std::abs(moved_profile_origin.y + 3.0) < 1.0e-9 &&
                     std::abs(moved_profile_origin.z - 26.0) < 1.0e-9,
                 "Owned Extrusion Sketch did not follow container placement and plane offset");
+        const auto moved_results = kernel.evaluate_history(
+            moved_owned_sketch_document.kernel_operations());
+        require(moved_results.size() == 1 &&
+                    std::any_of(moved_results.front().mesh.vertices.begin(),
+                        moved_results.front().mesh.vertices.end(),
+                        [&](const auto& vertex) {
+                            return std::abs(vertex.x - moved_profile_origin.x) < 1.0e-7 &&
+                                std::abs(vertex.y - moved_profile_origin.y) < 1.0e-7 &&
+                                std::abs(vertex.z - moved_profile_origin.z) < 1.0e-7;
+                        }),
+                "Owned Extrusion solid was transformed away from its resolved Sketch plane");
         std::set<std::string> extrusion_faces;
         for (const auto& reference : extrusion_results.front().mesh.original_references.triangle_references) {
             require(reference.owner_id == extrusion_container_id && reference.valid(),
@@ -1522,12 +1720,12 @@ int main() {
             zima::document::ExtrusionExtent::UpToPlane;
         face_target_cut.extrusion.target_face = {
             face_target_base_id, "z_max", {}};
-        face_target_cut.extrusion.target_plane_origin = {0.0, 0.0, 10.0};
+        face_target_cut.extrusion.target_plane_origin = {0.0, 0.0, 5.0};
         face_target_cut.extrusion.target_plane_normal = {0.0, 0.0, 1.0};
         face_target_document.history.push_back(face_target_cut);
         const auto face_target_results =
             kernel.evaluate_history(face_target_document.kernel_operations());
-        require(std::abs(face_target_results.back().volume - 3000.0) < 1e-6,
+        require(std::abs(face_target_results.back().volume - 3500.0) < 1e-6,
                 "Up-to stable original face did not resolve at its history boundary");
         auto curved_target_document = zima::document::PartDocument::create_default();
         auto curved_target_sphere =
@@ -1780,7 +1978,8 @@ int main() {
 
         auto circular_document = zima::document::PartDocument::create_default();
         auto circular_sketch = zima::sketcher::Sketch::create_default();
-        static_cast<void>(circular_sketch.add_circle(20.0, 20.0, 5.0));
+        circular_sketch.plane_offset = -5.0;
+        static_cast<void>(circular_sketch.add_circle(0.0, 0.0, 5.0));
         const auto circular_sketch_id = circular_sketch.id;
         circular_document.sketches.push_back(std::move(circular_sketch));
         auto circular_base = zima::document::PartDocument::create_box_container();
@@ -1934,7 +2133,17 @@ int main() {
         text_cut_box.box.width = 20.0;
         text_cut_box.box.height = 5.0;
         text_cut_document.history.push_back(std::move(text_cut_box));
-        text_cut_document.sketches.push_back(text_profile_sketch);
+        auto centered_text_cut_sketch = text_profile_sketch;
+        centered_text_cut_sketch.plane_offset = -2.5;
+        for (auto& text : centered_text_cut_sketch.texts) {
+            for (auto& contour : text.contours) {
+                for (auto& point : contour) {
+                    point[0] -= 10.5;
+                    point[1] -= 6.0;
+                }
+            }
+        }
+        text_cut_document.sketches.push_back(std::move(centered_text_cut_sketch));
         auto text_cut = zima::document::PartDocument::create_extrusion_container(
             text_profile_sketch_id);
         text_cut.combine_mode = zima::document::CombineMode::Subtract;

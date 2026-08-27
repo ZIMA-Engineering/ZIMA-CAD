@@ -62,6 +62,10 @@ public:
     void set_profile_pick_request(std::function<void(bool)> callback);
     void set_edit_sketch_callback(
         std::function<void(zima::document::HistoryContainer)> callback);
+    // The numeric fields may be unchanged after returning from an owned
+    // Sketch, while the profile geometry itself is newly created/edited.
+    // In that case OK must still invoke the explicit body calculation.
+    void set_commit_required(bool required);
     void set_preview_callback(
         std::function<void(const zima::document::HistoryContainer&)> callback);
     void add_edge_reference(const zima::kernel::EdgeReference& edge);
@@ -103,6 +107,7 @@ protected:
 private:
     zima::document::HistoryContainer initial_;
     bool edit_mode_{};
+    bool commit_required_{};
     std::optional<zima::document::HistoryContainer> accepted_baseline_;
     std::vector<std::string> accepted_target_baseline_;
     CommitCallback commit_;

@@ -56,7 +56,7 @@ Verification at handoff:
 - the user manually confirmed Protrusion placement/rotation, thin behavior,
   offset planes, exact Fillet/Chamfer selection and the final treatment
   dimensions;
-- `python -m py_compile zima_cad/app.py`, `git diff --check`, and the five
+- `python -m py_compile archive/python/zima_cad/app.py`, `git diff --check`, and the five
   architecture tests pass;
 - the first open of a document may populate caches; a second open of the tested
   Part was fast. The dimension-frame calculation runs only when its inspection

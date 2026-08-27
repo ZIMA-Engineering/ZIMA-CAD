@@ -114,7 +114,8 @@ Acceptance:
 
 For each removal step:
 
-1. run `python3 -m compileall -q zima_cad`;
+1. for the frozen reference only, run
+   `python3 -m compileall -q archive/python/zima_cad`;
 2. start the bundled Linux build;
 3. open an existing `.prtz` file and create each primitive;
 4. exercise display modes, standard views, fit, rotate, pan and zoom;

@@ -4,11 +4,13 @@
 #include <zima/viewer/picking.hpp>
 #include <zima/workspace/workspace.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdlib>
 #include <iomanip>
 #include <iostream>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace {
@@ -68,6 +70,95 @@ int main() {
         std::cerr << "part fixture calculation produced unexpected boundaries\n";
         return EXIT_FAILURE;
     }
+    const auto reference_count = [](const auto& geometry) {
+        return geometry.triangle_references.size() + geometry.edges.size() +
+            geometry.points.size() + geometry.axes.size();
+    };
+    std::size_t stored_reference_items = 0;
+    std::size_t stored_kernel_bytes = 0;
+    for (const auto& boundary : part_boundaries) {
+        stored_reference_items += reference_count(
+            boundary.mesh.original_references);
+        stored_kernel_bytes += boundary.kernel_shape.size();
+    }
+    std::unordered_map<std::string, std::size_t> owner_reference_items;
+    const auto& final_references =
+        part_boundaries.back().mesh.original_references;
+    for (const auto& reference : final_references.triangle_references) {
+        ++owner_reference_items[reference.owner_id];
+    }
+    for (const auto& edge : final_references.edges) {
+        ++owner_reference_items[edge.reference.owner_id];
+    }
+    for (const auto& point : final_references.points) {
+        ++owner_reference_items[point.reference.owner_id];
+    }
+    for (const auto& axis : final_references.axes) {
+        ++owner_reference_items[axis.reference.owner_id];
+    }
+    std::size_t cumulative_reference_items = 0;
+    for (std::size_t index = 0; index < operations.size(); ++index) {
+        cumulative_reference_items += owner_reference_items[operations[index].owner_id] *
+            (operations.size() - index);
+    }
+    auto changed_part = part;
+    changed_part.history.back().box.height = 24.0;
+    const auto changed_operations = changed_part.kernel_operations();
+    const auto part_incremental_ms = milliseconds([&] {
+        const auto result = kernel.evaluate_history_incremental(
+            changed_operations, part_boundaries);
+        if (result.size() != part_features ||
+            std::abs(result.back().volume - 93120.0) > 1.0e-6) std::abort();
+    }, repetitions);
+    const auto part_cold_incremental_ms = milliseconds([&] {
+        zima::kernel::OcctKernel cold_kernel;
+        const auto result = cold_kernel.evaluate_history_incremental(
+            changed_operations, part_boundaries);
+        if (result.size() != part_features ||
+            std::abs(result.back().volume - 93120.0) > 1.0e-6) std::abort();
+    }, repetitions);
+
+    auto fillet_base_operations = operations;
+    for (std::size_t index = 0; index < fillet_base_operations.size(); ++index) {
+        auto& box = std::get<zima::kernel::BoxRequest>(
+            fillet_base_operations[index].primitive);
+        box.translation = {static_cast<double>(index) * 30.0, 0.0, 0.0};
+    }
+    const auto fillet_base_boundaries =
+        kernel.evaluate_history(fillet_base_operations);
+    const auto fillet_edge = std::find_if(
+        fillet_base_boundaries.back().mesh.original_references.edges.begin(),
+        fillet_base_boundaries.back().mesh.original_references.edges.end(),
+        [](const auto& edge) {
+            return edge.reference.owner_id == "benchmark-box-23";
+        });
+    if (fillet_edge ==
+        fillet_base_boundaries.back().mesh.original_references.edges.end()) {
+        std::cerr << "part fixture has no stable edge for Fillet benchmark\n";
+        return EXIT_FAILURE;
+    }
+    auto fillet_operations = fillet_base_operations;
+    fillet_operations.push_back({"benchmark-fillet",
+        zima::kernel::FilletRequest{{fillet_edge->reference},
+            zima::kernel::EdgeSelectionOrigin::OriginalEntity, 1.0},
+        zima::kernel::BooleanOperation::Add});
+    const auto fillet_boundaries = kernel.evaluate_history(fillet_operations);
+    auto changed_fillet_operations = fillet_operations;
+    std::get<zima::kernel::FilletRequest>(
+        changed_fillet_operations.back().primitive).radius = 1.5;
+    const auto fillet_incremental_ms = milliseconds([&] {
+        const auto result = kernel.evaluate_history_incremental(
+            changed_fillet_operations, fillet_boundaries);
+        if (result.size() != fillet_operations.size() ||
+            result.back().volume <= 0.0) std::abort();
+    }, repetitions);
+    const auto fillet_cold_incremental_ms = milliseconds([&] {
+        zima::kernel::OcctKernel cold_kernel;
+        const auto result = cold_kernel.evaluate_history_incremental(
+            changed_fillet_operations, fillet_boundaries);
+        if (result.size() != fillet_operations.size() ||
+            result.back().volume <= 0.0) std::abort();
+    }, repetitions);
 
     zima::assembly::AssemblyDocument scene_fixture =
         zima::assembly::AssemblyDocument::create_default();
@@ -123,10 +214,25 @@ int main() {
               << "ZIMA_PERF_V1 repetitions=" << repetitions << '\n'
               << "part_history features=" << part_features
               << " boundaries=" << part_boundaries.size()
+              << " volume=" << part_boundaries.back().volume
               << " mean_ms=" << milliseconds([&] {
                      const auto result = kernel.evaluate_history(operations);
                      if (result.size() != part_features) std::abort();
                  }, repetitions) << '\n'
+              << "part_incremental changed_index=" << (part_features - 1)
+              << " reused_boundaries=" << (part_features - 1)
+              << " mean_ms=" << part_incremental_ms << '\n'
+              << "part_cold_incremental changed_index=" << (part_features - 1)
+              << " persisted_brep=final_only"
+              << " mean_ms=" << part_cold_incremental_ms << '\n'
+              << "part_reference_cache stored_items=" << stored_reference_items
+              << " cumulative_items=" << cumulative_reference_items
+              << " kernel_bytes=" << stored_kernel_bytes << '\n'
+              << "part_fillet_incremental changed_index=" << part_features
+              << " reused_boundaries=" << part_features
+              << " mean_ms=" << fillet_incremental_ms << '\n'
+              << "part_fillet_cold_incremental changed_index=" << part_features
+              << " mean_ms=" << fillet_cold_incremental_ms << '\n'
               << "assembly_scene components=" << assembly_components
               << " triangles=" << scene.triangles.size()
               << " mean_ms=" << scene_ms << '\n'

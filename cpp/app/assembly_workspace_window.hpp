@@ -396,6 +396,7 @@ private:
     void open_document();
     void rebuild_insert_menu();
     [[nodiscard]] bool has_insertable_component() const;
+    void insert_component_from_file();
     void insert_component(const std::string& source_document_id);
     void rebuild_application_toolbar();
     void update_application_actions();
@@ -691,7 +692,8 @@ private:
     void undo();
     void redo();
     [[nodiscard]] std::vector<zima::kernel::BodyResult> calculate_part(
-        const zima::document::PartDocument& document) const;
+        const zima::document::PartDocument& document,
+        const std::vector<zima::kernel::BodyResult>* previous = nullptr) const;
     void calculate_assembly_cuts(
         zima::assembly::AssemblyDocument& document) const;
     void refresh_tabs();

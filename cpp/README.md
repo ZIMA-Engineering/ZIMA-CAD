@@ -1,8 +1,8 @@
-# ZIMA-CAD C++ migration
+# ZIMA-CAD C++ implementation
 
-This directory contains the parallel C++ implementation. The Python
-application remains the behavioural reference until an explicitly verified
-cutover.
+This directory contains the active ZIMA-CAD implementation. The former Python
+application is frozen under `archive/python/` and is retained only as a
+runnable behavioural and visual reference.
 
 The first vertical slice exercises:
 
@@ -149,9 +149,8 @@ revisioned `AssemblySession` state. Part edits do not implicitly update parent
 Assemblies; insertion and Regenerate explicitly consume authoritative
 in-memory calculated Part results, including unsaved ones.
 
-The integrated migration target is `zima-cad-cpp`. The Python application and
-the repository `zima-cad` launcher remain the behavioural and user-facing
-reference until the documented parity gate is complete. The C++ target now
+The integrated application target is `zima-cad-cpp`, and the repository
+`zima-cad` launcher starts it as the user-facing application. The C++ target now
 uses the same empty startup, internal New Document dialog, menu order, document
 tabs, left document tree, common view toolbar and one dynamic application
 toolbar for Part, Assembly and Drawing. It also provides insertion of a selected

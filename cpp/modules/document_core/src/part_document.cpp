@@ -41,6 +41,65 @@ constexpr double kDocumentOriginPlaneSize = 12.0;
 constexpr double kContainerOriginAxisLength = 5.0;
 constexpr double kContainerOriginPlaneSize = 7.5;
 
+void append_reference_geometry(
+    zima::kernel::ViewerReferenceGeometry& target,
+    const zima::kernel::ViewerReferenceGeometry& source) {
+    const auto vertex_offset = static_cast<std::uint32_t>(target.vertices.size());
+    target.vertices.insert(target.vertices.end(),
+        source.vertices.begin(), source.vertices.end());
+    target.triangles.reserve(target.triangles.size() + source.triangles.size());
+    for (const auto index : source.triangles) {
+        target.triangles.push_back(vertex_offset + index);
+    }
+    target.triangle_references.insert(target.triangle_references.end(),
+        source.triangle_references.begin(), source.triangle_references.end());
+    target.edges.insert(target.edges.end(), source.edges.begin(), source.edges.end());
+    target.points.insert(target.points.end(), source.points.begin(), source.points.end());
+    target.axes.insert(target.axes.end(), source.axes.begin(), source.axes.end());
+}
+
+zima::kernel::ViewerReferenceGeometry reference_geometry_delta(
+    const zima::kernel::ViewerReferenceGeometry& current,
+    const zima::kernel::ViewerReferenceGeometry& previous) {
+    if (current.vertices.size() < previous.vertices.size() ||
+        current.triangles.size() < previous.triangles.size() ||
+        current.triangle_references.size() < previous.triangle_references.size() ||
+        current.edges.size() < previous.edges.size() ||
+        current.points.size() < previous.points.size() ||
+        current.axes.size() < previous.axes.size()) {
+        throw std::runtime_error(
+            "Calculated reference geometry is not append-only");
+    }
+    zima::kernel::ViewerReferenceGeometry delta;
+    delta.vertices.assign(current.vertices.begin() +
+            static_cast<std::ptrdiff_t>(previous.vertices.size()),
+        current.vertices.end());
+    delta.triangles.reserve(current.triangles.size() - previous.triangles.size());
+    for (auto iterator = current.triangles.begin() +
+             static_cast<std::ptrdiff_t>(previous.triangles.size());
+         iterator != current.triangles.end(); ++iterator) {
+        if (*iterator < previous.vertices.size()) {
+            throw std::runtime_error(
+                "Calculated reference delta points into its prefix");
+        }
+        delta.triangles.push_back(
+            *iterator - static_cast<std::uint32_t>(previous.vertices.size()));
+    }
+    delta.triangle_references.assign(current.triangle_references.begin() +
+            static_cast<std::ptrdiff_t>(previous.triangle_references.size()),
+        current.triangle_references.end());
+    delta.edges.assign(current.edges.begin() +
+            static_cast<std::ptrdiff_t>(previous.edges.size()),
+        current.edges.end());
+    delta.points.assign(current.points.begin() +
+            static_cast<std::ptrdiff_t>(previous.points.size()),
+        current.points.end());
+    delta.axes.assign(current.axes.begin() +
+            static_cast<std::ptrdiff_t>(previous.axes.size()),
+        current.axes.end());
+    return delta;
+}
+
 std::string make_id() {
     std::mt19937_64 generator(
         static_cast<std::mt19937_64::result_type>(
@@ -3771,11 +3830,18 @@ void PartDocument::resolve_constructions(
             local_x = {0.0, 1.0, 0.0}; local_y = {0.0, 0.0, 1.0};
             local_normal = {1.0, 0.0, 0.0};
         }
-        const zima::kernel::Vec3 rotation{owner->placement.rotation_x,
-            owner->placement.rotation_y, owner->placement.rotation_z};
+        // FRONT/BACK and ROTATE are Sketch viewing choices, not modeling
+        // transforms. Resolve the same placement without those view flags so
+        // neither the plane normal nor its offset changes with the camera.
+        auto geometric_placement = owner->placement;
+        geometric_placement.orientation_back = false;
+        geometric_placement.orientation_quarter_turns = 0;
+        static_cast<void>(resolve_placement(geometric_placement, source_geometry));
+        const zima::kernel::Vec3 rotation{geometric_placement.rotation_x,
+            geometric_placement.rotation_y, geometric_placement.rotation_z};
         const auto shifted = rotated_vector(local_origin, rotation);
-        sketch.resolved_origin = {owner->placement.x + shifted.x,
-            owner->placement.y + shifted.y, owner->placement.z + shifted.z};
+        sketch.resolved_origin = {geometric_placement.x + shifted.x,
+            geometric_placement.y + shifted.y, geometric_placement.z + shifted.z};
         sketch.resolved_x_axis = rotated_vector(local_x, rotation);
         sketch.resolved_y_axis = rotated_vector(local_y, rotation);
         sketch.resolved_normal = rotated_vector(local_normal, rotation);
@@ -3995,12 +4061,12 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::primitive_preview_edges(
         append(std::move(points), role);
     };
     if (container.feature_kind == FeatureKind::Box) {
-        const double x = container.box.length;
-        const double y = container.box.width;
-        const double z = container.box.height;
+        const double x = container.box.length * 0.5;
+        const double y = container.box.width * 0.5;
+        const double z = container.box.height * 0.5;
         const std::array<zima::kernel::Vec3, 8> vertices{{
-            {0,0,0}, {x,0,0}, {x,y,0}, {0,y,0},
-            {0,0,z}, {x,0,z}, {x,y,z}, {0,y,z}}};
+            {-x,-y,-z}, {x,-y,-z}, {x,y,-z}, {-x,y,-z},
+            {-x,-y,z}, {x,-y,z}, {x,y,z}, {-x,y,z}}};
         constexpr std::array<std::array<int, 2>, 12> segments{{
             {{0,1}},{{1,2}},{{2,3}},{{3,0}},{{4,5}},{{5,6}},{{6,7}},{{7,4}},
             {{0,4}},{{1,5}},{{2,6}},{{3,7}}}};
@@ -4282,7 +4348,12 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
         if (container.feature_kind == FeatureKind::Box) {
             zima::kernel::BoxRequest box{
                 container.box.length, container.box.width, container.box.height};
-            box.translation = translation;
+            const auto centered_corner = rotated_vector(
+                {-container.box.length * 0.5, -container.box.width * 0.5,
+                 -container.box.height * 0.5}, rotation);
+            box.translation = {translation.x + centered_corner.x,
+                translation.y + centered_corner.y,
+                translation.z + centered_corner.z};
             box.rotation_degrees = rotation;
             primitive = box;
         } else if (container.feature_kind == FeatureKind::Cylinder) {
@@ -4393,7 +4464,14 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 extrusion.target_plane_normal = target->fallback_normal;
                 extrusion.target_surface_triangles = target->fallback_triangles;
             }
-            apply_container_placement(extrusion, container.placement);
+            // An owned Sketch is resolved into the owning container's absolute
+            // frame by resolve_constructions().  Its generated profile and
+            // normal therefore already contain the complete placement.
+            // Applying the same placement here would move and rotate the
+            // calculated solid a second time, away from the visible Sketch.
+            if (sketch->owner_container_id != container.id) {
+                apply_container_placement(extrusion, container.placement);
+            }
             primitive = std::move(extrusion);
         } else if (container.feature_kind == FeatureKind::Revolution) {
             const auto sketch = std::find_if(sketches.begin(), sketches.end(),
@@ -4417,7 +4495,9 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 revolution.axis_direction.y = -revolution.axis_direction.y;
                 revolution.axis_direction.z = -revolution.axis_direction.z;
             }
-            apply_container_placement(revolution, container.placement);
+            if (sketch->owner_container_id != container.id) {
+                apply_container_placement(revolution, container.placement);
+            }
             primitive = std::move(revolution);
         } else if (container.feature_kind == FeatureKind::ImportedStep) {
             zima::kernel::StepRequest step{
@@ -5067,7 +5147,16 @@ PartDocument PartDocument::load(
     }
     std::vector<zima::kernel::BodyResult> loaded_boundaries;
     for (const auto& boundary : root.at("calculated_boundaries")) {
-        loaded_boundaries.push_back(load_body_result(boundary));
+        auto loaded = load_body_result(boundary);
+        if (boundary.value("original_references_mode", "full") == "append") {
+            auto references = loaded_boundaries.empty()
+                ? zima::kernel::ViewerReferenceGeometry{}
+                : loaded_boundaries.back().mesh.original_references;
+            append_reference_geometry(
+                references, loaded.mesh.original_references);
+            loaded.mesh.original_references = std::move(references);
+        }
+        loaded_boundaries.push_back(std::move(loaded));
     }
     const auto expected_operations = document.kernel_operations();
     if (!loaded_boundaries.empty() &&
@@ -5508,8 +5597,18 @@ void PartDocument::save(
         }
     }
     nlohmann::json serialized_boundaries = nlohmann::json::array();
+    const zima::kernel::ViewerReferenceGeometry empty_references;
+    const zima::kernel::ViewerReferenceGeometry* previous_references =
+        &empty_references;
     for (const auto& boundary : calculated_boundaries) {
-        serialized_boundaries.push_back(serialize_body_result(boundary));
+        auto serialized = serialize_body_result(boundary);
+        const auto delta = reference_geometry_delta(
+            boundary.mesh.original_references, *previous_references);
+        serialized["original_references"] =
+            serialize_viewer_reference_geometry(delta);
+        serialized["original_references_mode"] = "append";
+        serialized_boundaries.push_back(std::move(serialized));
+        previous_references = &boundary.mesh.original_references;
     }
     nlohmann::json serialized_sketches = nlohmann::json::array();
     std::unordered_set<std::string> sketch_ids;

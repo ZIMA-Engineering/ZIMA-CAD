@@ -26,6 +26,8 @@ public:
     [[nodiscard]] bool can_redo() const;
     [[nodiscard]] const std::vector<zima::kernel::BodyResult>&
         calculated_boundaries() const;
+    [[nodiscard]] std::optional<zima::kernel::BodyResult>
+        calculated_boundary(std::size_t operation_count) const;
     [[nodiscard]] std::optional<HistoryRollbackBoundary> rollback_boundary(
         const std::string& container_id) const;
 

@@ -724,7 +724,7 @@ void DrawingWindow::create_actions() {
     edit_view_action_ = drawing->addAction(tr("Vlastnosti pohledu…"), this,
         [this] { edit_selected_view(); });
     edit_view_action_->setObjectName("editDrawingViewAction");
-    regenerate_view_action_ = drawing->addAction(tr("Regenerovat pohled"), this,
+    regenerate_view_action_ = drawing->addAction(tr("Regenerovat"), this,
         [this] { regenerate_selected_view(); });
     regenerate_view_action_->setObjectName("regenerateDrawingViewAction");
     delete_view_action_ = drawing->addAction(tr("Odstranit pohled"), this,

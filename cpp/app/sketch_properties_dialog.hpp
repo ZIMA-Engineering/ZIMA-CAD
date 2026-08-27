@@ -25,7 +25,7 @@ class SketchPropertiesDialog final : public zima::ui::PropertiesSubWindow,
                                      public PlacementReferenceDialog {
 public:
     using CommitCallback = std::function<void(
-        zima::sketcher::Sketch, zima::document::Placement)>;
+        zima::sketcher::Sketch, zima::document::Placement, bool)>;
 
     // Identifies one candidate Plane construction container the Sketch may
     // be placed on instead of one of the three fixed XY/XZ/YZ planes --
@@ -86,6 +86,7 @@ private:
     std::unique_ptr<zima::ui::ContainerPlacementSection> placement_;
     zima::kernel::ViewerReferenceGeometry reference_geometry_;
     PreviewCallback preview_;
+    bool enter_sketch_after_commit_{};
 
     void update_plane_fields_enabled();
     void refresh_resolved_placement();

@@ -413,8 +413,9 @@ void MainWindow::regenerate() {
     if (properties_dialog_ != nullptr) return;
     const auto started = std::chrono::steady_clock::now();
     try {
-        session_.update_calculated_boundaries(
-            calculate_document(session_.document()));
+        session_.update_calculated_boundaries(kernel_.evaluate_history_incremental(
+            session_.document().kernel_operations(),
+            session_.calculated_boundaries()));
         const auto elapsed = std::chrono::duration<double, std::milli>(
             std::chrono::steady_clock::now() - started).count();
         rebuild();

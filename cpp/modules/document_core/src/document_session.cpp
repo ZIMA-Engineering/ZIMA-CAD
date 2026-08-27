@@ -1,8 +1,39 @@
 #include <zima/document/document_session.hpp>
 
+#include <algorithm>
+#include <iterator>
+#include <unordered_set>
 #include <utility>
 
 namespace zima::document {
+namespace {
+
+zima::kernel::ViewerReferenceGeometry references_for_owners(
+    const zima::kernel::ViewerReferenceGeometry& source,
+    const std::unordered_set<std::string>& owners) {
+    zima::kernel::ViewerReferenceGeometry result;
+    for (std::size_t triangle = 0;
+         triangle < source.triangle_references.size(); ++triangle) {
+        const auto& reference = source.triangle_references[triangle];
+        if (!owners.contains(reference.owner_id)) continue;
+        const auto offset = static_cast<std::uint32_t>(result.vertices.size());
+        for (int corner = 0; corner < 3; ++corner) {
+            result.vertices.push_back(source.vertices.at(
+                source.triangles.at(triangle * 3 + corner)));
+            result.triangles.push_back(offset + corner);
+        }
+        result.triangle_references.push_back(reference);
+    }
+    std::ranges::copy_if(source.edges, std::back_inserter(result.edges),
+        [&](const auto& value) { return owners.contains(value.reference.owner_id); });
+    std::ranges::copy_if(source.points, std::back_inserter(result.points),
+        [&](const auto& value) { return owners.contains(value.reference.owner_id); });
+    std::ranges::copy_if(source.axes, std::back_inserter(result.axes),
+        [&](const auto& value) { return owners.contains(value.reference.owner_id); });
+    return result;
+}
+
+}  // namespace
 
 DocumentSession::DocumentSession(
     PartDocument document,
@@ -19,6 +50,27 @@ bool DocumentSession::can_redo() const { return !redo_.empty(); }
 const std::vector<zima::kernel::BodyResult>&
 DocumentSession::calculated_boundaries() const {
     return current_.calculated_boundaries;
+}
+
+std::optional<zima::kernel::BodyResult> DocumentSession::calculated_boundary(
+    const std::size_t operation_count) const {
+    if (operation_count == 0 ||
+        current_.calculated_boundaries.size() < operation_count) {
+        return std::nullopt;
+    }
+    auto result = current_.calculated_boundaries[operation_count - 1];
+    const auto operations = current_.document.kernel_operations();
+    std::unordered_set<std::string> owners;
+    for (std::size_t operation = 0;
+         operation < operation_count && operation < operations.size();
+         ++operation) {
+        if (!operations[operation].suppressed) {
+            owners.insert(operations[operation].owner_id);
+        }
+    }
+    result.mesh.original_references = references_for_owners(
+        current_.calculated_boundaries.back().mesh.original_references, owners);
+    return result;
 }
 
 std::optional<HistoryRollbackBoundary> DocumentSession::rollback_boundary(
@@ -41,7 +93,7 @@ std::optional<HistoryRollbackBoundary> DocumentSession::rollback_boundary(
     }
     HistoryRollbackBoundary result{*index, std::nullopt};
     if (calculated_before > 0) {
-        result.input_body = current_.calculated_boundaries[calculated_before - 1];
+        result.input_body = calculated_boundary(calculated_before);
     }
     return result;
 }

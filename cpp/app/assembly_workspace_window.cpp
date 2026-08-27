@@ -27,6 +27,7 @@
 #include <QBrush>
 #include <QComboBox>
 #include <QColor>
+#include <QCursor>
 #include <QDialogButtonBox>
 #include <QFont>
 #include <QFormLayout>
@@ -401,21 +402,6 @@ void append_mesh(zima::kernel::ViewerMesh& target, zima::kernel::ViewerMesh sour
         source.constraint_markers.begin(), source.constraint_markers.end());
     append_reference_geometry(
         target.original_references, std::move(source.original_references));
-}
-
-const zima::kernel::BodyResult* body_at_history_cursor(
-    const zima::document::PartDocument& document,
-    const std::vector<zima::kernel::BodyResult>& boundaries) {
-    if (boundaries.empty()) return nullptr;
-    if (document.history_order.empty()) return &boundaries.back();
-    const auto cursor = document.effective_history_cursor();
-    std::size_t feature_count = 0;
-    for (std::size_t index = 0; index < cursor; ++index) {
-        if (document.history_order[index].kind ==
-            zima::document::PartHistoryKind::Feature) ++feature_count;
-    }
-    if (feature_count == 0) return nullptr;
-    return &boundaries[std::min(feature_count, boundaries.size()) - 1];
 }
 
 QTreeWidgetItem* add_origin_tree_item(QTreeWidgetItem* parent,
@@ -1211,8 +1197,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     file->addAction(working_directory_action_);
 
     auto* edit = menuBar()->addMenu(t("menu.edit", "Upravit"));
-    regenerate_document_action_ = make_action(
-        t("command.regenerate", "⟳ Regenerovat model"));
+    regenerate_document_action_ = make_action(tr("Regenerovat"));
     regenerate_document_action_->setObjectName("regenerateDocumentAction");
     regenerate_document_action_->setShortcut(QKeySequence(QStringLiteral("F5")));
     regenerate_document_action_->setToolTip(
@@ -1634,7 +1619,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     finish_sketch_action_ = make_action(tr("Dokončit skicu"), "sketch");
     finish_sketch_action_->setObjectName("finishSketchAction");
     finish_sketch_action_->setEnabled(false);
-    regenerate_part_action_ = make_action(tr("Regenerovat díl"));
+    regenerate_part_action_ = make_action(tr("Regenerovat"));
     regenerate_part_action_->setObjectName("regeneratePartAction");
 
     connect(box_action_, &QAction::triggered, this, [this] {
@@ -1805,13 +1790,14 @@ void AssemblyWorkspaceWindow::create_actions() {
 
     insert_menu_ = new QMenu(tr("Vložit otevřený dokument"), this);
     insert_menu_->setObjectName("insertComponentMenu");
-    insert_action_ = insert_menu_->menuAction();
+    insert_action_ = make_action(tr("Vložit komponentu"));
     insert_action_->setIcon(resource_icon("assembly"));
-    insert_action_->setText(tr("Vložit komponentu"));
     insert_action_->setObjectName("insertComponentAction");
+    connect(insert_action_, &QAction::triggered, this,
+        [this] { insert_component_from_file(); });
     connect(insert_menu_, &QMenu::aboutToShow, this,
         [this] { rebuild_insert_menu(); });
-    regenerate_action_ = make_action(tr("Regenerovat sestavu"));
+    regenerate_action_ = make_action(tr("Regenerovat"));
     regenerate_action_->setObjectName("regenerateAssemblyAction");
     connect(regenerate_action_, &QAction::triggered, this, [this] { regenerate_assembly(); });
 
@@ -3027,7 +3013,14 @@ void AssemblyWorkspaceWindow::create_layout() {
     connect(tree_, &QTreeWidget::itemSelectionChanged, this,
         synchronize_tree_selection);
     connect(tree_, &QTreeWidget::itemClicked, this,
-        [this, synchronize_tree_selection](QTreeWidgetItem*, int) {
+        [this, synchronize_tree_selection](QTreeWidgetItem* item, int) {
+            if (item != nullptr &&
+                item->data(0, Qt::UserRole + 3).toString() ==
+                    QStringLiteral("assembly-insert-here")) {
+                rebuild_insert_menu();
+                insert_menu_->popup(QCursor::pos());
+                return;
+            }
             if (construction_reference_dialog_ != nullptr ||
                 pending_construction_reference_index_ ||
                 primitive_reference_dialog_ != nullptr ||
@@ -4057,6 +4050,11 @@ void AssemblyWorkspaceWindow::rebuild_insert_menu() {
     insert_menu_->clear();
     const std::string owner_id = workspace_.displayed_document_id();
     if (workspace_.open_assembly(owner_id) == nullptr) return;
+    auto* choose_file = insert_menu_->addAction(tr("Vybrat soubor…"));
+    choose_file->setObjectName("insertComponentFromFileAction");
+    connect(choose_file, &QAction::triggered, this,
+        [this] { insert_component_from_file(); });
+    insert_menu_->addSeparator();
     for (const auto& state : workspace_.documents()) {
         std::visit([&](const auto& item) {
             using State = std::decay_t<decltype(item)>;
@@ -4088,9 +4086,38 @@ void AssemblyWorkspaceWindow::rebuild_insert_menu() {
             }
         }, state);
     }
-    if (insert_menu_->actions().empty()) {
-        auto* empty = insert_menu_->addAction(tr("Není otevřený žádný zdrojový dokument"));
-        empty->setEnabled(false);
+}
+
+void AssemblyWorkspaceWindow::insert_component_from_file() {
+    const QString path = open_file(this, tr("Vložit komponentu"),
+        QString::fromStdString(working_directory_.string()),
+        tr("Komponenty ZIMA-CAD (*.prtz *.asmz)"),
+        application_settings_.translations);
+    if (path.isEmpty()) return;
+    const std::filesystem::path source_path = path.toStdString();
+    try {
+        std::string source_id;
+        if (const auto open_id = workspace_.document_id_for_path(source_path)) {
+            source_id = *open_id;
+        } else if (path.endsWith(".prtz", Qt::CaseInsensitive)) {
+            std::vector<zima::kernel::BodyResult> calculated;
+            auto source = zima::document::PartDocument::load(
+                source_path, &calculated);
+            source_id = source.document_id;
+            workspace_.add_part(std::move(source), std::move(calculated), source_path);
+        } else if (path.endsWith(".asmz", Qt::CaseInsensitive)) {
+            auto source = zima::assembly::AssemblyDocument::load(source_path);
+            source_id = source.document_id;
+            workspace_.add_assembly(std::move(source), source_path);
+        } else {
+            throw std::runtime_error("Komponenta musí být Part nebo sestava.");
+        }
+        if (!source_path.parent_path().empty()) {
+            working_directory_ = source_path.parent_path();
+        }
+        insert_component(source_id);
+    } catch (const std::exception& error) {
+        QMessageBox::critical(this, tr("Vložení selhalo"), error.what());
     }
 }
 
@@ -4113,6 +4140,8 @@ void AssemblyWorkspaceWindow::insert_component(
         refresh_tabs();
         refresh_scene();
         viewer_->confirm_occurrence(
+            zima::assembly::InstancePath{}.child(occurrence_id).encoded());
+        show_component_properties(
             zima::assembly::InstancePath{}.child(occurrence_id).encoded());
     } catch (const std::exception& error) {
         QMessageBox::critical(this, tr("Vložení selhalo"), error.what());
@@ -4154,7 +4183,8 @@ void AssemblyWorkspaceWindow::regenerate_assembly() {
                             });
                     });
                 if (has_context) {
-                    auto calculated = calculate_part(next);
+                    const auto& previous = part->session.calculated_boundaries();
+                    auto calculated = calculate_part(next, &previous);
                     const auto previous_constructions = next.constructions;
                     next.resolve_constructions(calculated.empty()
                         ? zima::kernel::ViewerReferenceGeometry{}
@@ -4162,7 +4192,9 @@ void AssemblyWorkspaceWindow::regenerate_assembly() {
                     const bool references_changed =
                         refresh_sketch_external_references(next, calculated) |
                         workspace_.refresh_context_external_references(next);
-                    if (references_changed) calculated = calculate_part(next);
+                    if (references_changed) {
+                        calculated = calculate_part(next, &calculated);
+                    }
                     if (references_changed ||
                         next.constructions != previous_constructions) {
                         part->session.commit(std::move(next), std::move(calculated));
@@ -5791,8 +5823,12 @@ void AssemblyWorkspaceWindow::export_file() {
 }
 
 std::vector<zima::kernel::BodyResult> AssemblyWorkspaceWindow::calculate_part(
-    const zima::document::PartDocument& document) const {
-    return kernel_.evaluate_history(document.kernel_operations());
+    const zima::document::PartDocument& document,
+    const std::vector<zima::kernel::BodyResult>* previous) const {
+    const auto operations = document.kernel_operations();
+    return previous == nullptr
+        ? kernel_.evaluate_history(operations)
+        : kernel_.evaluate_history_incremental(operations, *previous);
 }
 
 void AssemblyWorkspaceWindow::calculate_assembly_cuts(
@@ -5892,6 +5928,9 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     const bool edit_mode = edited != nullptr;
     const bool pending_profile_edit = edit_mode && pending_profile_feature_ &&
         pending_profile_feature_->id == container_id;
+    const bool profile_feature =
+        feature_kind == zima::document::FeatureKind::Extrusion ||
+        feature_kind == zima::document::FeatureKind::Revolution;
     std::optional<std::size_t> assembly_cut_index;
     if (edit_mode && assembly_cut) {
         const auto& cuts = assembly->session.document().cuts;
@@ -6039,7 +6078,17 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             if (edit_mode) {
                 auto* target = next.find_container(committed.id);
                 if (target == nullptr) throw std::runtime_error("Container no longer exists");
-                if (*target == committed && !pending_profile_edit) return;
+                // OK on a profile feature is an explicit body-calculation
+                // request even when its visible numeric fields are unchanged:
+                // the owned Sketch geometry lives outside HistoryContainer
+                // equality and may have changed from blank to a closed
+                // rectangle. Skipping here left the valid cyan preview with
+                // no calculated solid.
+                if (*target == committed && !pending_profile_edit &&
+                    committed.feature_kind !=
+                        zima::document::FeatureKind::Extrusion &&
+                    committed.feature_kind !=
+                        zima::document::FeatureKind::Revolution) return;
                 *target = std::move(committed);
             } else {
                 next.insert_history_entry(
@@ -6071,6 +6120,21 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                             "Internal profile Sketch no longer exists");
                     }
                     owned->owner_container_id = committed_container->id;
+                    // The first planar placement reference defines local
+                    // FRONT (+Y). The owned profile must therefore use the
+                    // local XZ plane, whose normal is parallel to that first
+                    // reference, exactly like standalone Sketch Properties.
+                    const auto first_reference = std::find_if(
+                        committed_container->placement.references.begin(),
+                        committed_container->placement.references.end(),
+                        [](const auto& reference) {
+                            return !reference.owner_id.empty();
+                        });
+                    if (first_reference !=
+                            committed_container->placement.references.end() &&
+                        first_reference->supports_offset) {
+                        owned->plane = zima::sketcher::SketchPlane::XZ;
+                    }
                     owned->plane_offset = extrusion
                         ? committed_container->extrusion.profile_plane_offset
                         : committed_container->revolution.profile_plane_offset;
@@ -6098,6 +6162,10 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             }
         }, this, std::move(assembly_targets), std::move(selected_targets),
         assembly_cut);
+    // Extrusion/Revolution OK always means validate + calculate. Their owned
+    // Sketch is stored separately from the parameter object, so numeric
+    // equality cannot prove that the operation is a no-op.
+    dialog->set_commit_required(pending_profile_edit || profile_feature);
     std::function<void(const zima::document::HistoryContainer&)> placement_preview;
     const auto prepare_owned_profile_preview = [this](
             zima::document::PartDocument& preview_document,
@@ -6115,6 +6183,15 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             });
         if (sketch == preview_document.sketches.end()) return;
         sketch->owner_container_id = preview.id;
+        const auto first_reference = std::find_if(
+            preview.placement.references.begin(),
+            preview.placement.references.end(), [](const auto& reference) {
+                return !reference.owner_id.empty();
+            });
+        if (first_reference != preview.placement.references.end() &&
+            first_reference->supports_offset) {
+            sketch->plane = zima::sketcher::SketchPlane::XZ;
+        }
         const double next_offset = extrusion
             ? preview.extrusion.profile_plane_offset
             : preview.revolution.profile_plane_offset;
@@ -6198,7 +6275,13 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 {}, highlighted_reference_edge_keys(*dialog));
         });
         primitive_reference_dialog_ = dialog;
-        placement_preview = [this](const zima::document::HistoryContainer& preview) {
+        const bool fit_new_basic_preview = !edit_mode &&
+            feature_kind != zima::document::FeatureKind::Extrusion &&
+            feature_kind != zima::document::FeatureKind::Revolution &&
+            feature_kind != zima::document::FeatureKind::Fillet &&
+            feature_kind != zima::document::FeatureKind::Chamfer;
+        placement_preview = [this, fit_new_basic_preview](
+                const zima::document::HistoryContainer& preview) {
             if (primitive_reference_dialog_ == nullptr) return;
             auto resolved_preview = preview;
             auto& placement = resolved_preview.placement;
@@ -6242,6 +6325,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 resolved_preview.container_origin.id});
             preserve_view_on_refresh_ = true;
             refresh_scene();
+            if (fit_new_basic_preview) viewer_->fit_all();
         };
         // Box/Cylinder/.../Wedge have no other preview needs: install the
         // placement-only preview directly. Extrusion/Revolution below merge
@@ -6375,6 +6459,17 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 draft_container.placement = pending_feature.placement;
                 auto draft_sketch = *pending_owned_sketch;
                 draft_sketch.owner_container_id = draft_container.id;
+                const auto first_reference = std::find_if(
+                    pending_feature.placement.references.begin(),
+                    pending_feature.placement.references.end(),
+                    [](const auto& reference) {
+                        return !reference.owner_id.empty();
+                    });
+                if (first_reference !=
+                        pending_feature.placement.references.end() &&
+                    first_reference->supports_offset) {
+                    draft_sketch.plane = zima::sketcher::SketchPlane::XZ;
+                }
                 draft_sketch.plane_offset = extrusion
                     ? pending_feature.extrusion.profile_plane_offset
                     : pending_feature.revolution.profile_plane_offset;
@@ -6383,13 +6478,35 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                     zima::document::PartHistoryKind::Feature,
                     draft_container.id);
                 next.history.push_back(std::move(draft_container));
+                // Resolve the owned Sketch frame before activating Sketcher.
+                // Merely changing Sketch::plane to XZ is insufficient: the
+                // camera consumes resolved_normal/resolved_origin, which
+                // otherwise still contain create_default()'s stale XY frame
+                // and align to the wrong plane after the first reference.
+                const auto calculated = target_part->session.calculated_boundaries();
+                auto reference_geometry =
+                    construction_reference_source_geometry(calculated);
+                append_reference_geometry(reference_geometry,
+                    next.origin_viewer_mesh().original_references);
+                append_reference_geometry(reference_geometry,
+                    next.construction_viewer_mesh().original_references);
+                next.resolve_constructions(reference_geometry);
                 target_part->session.commit(std::move(next),
-                    target_part->session.calculated_boundaries());
+                    calculated);
                 pending_profile_feature_ = std::move(pending_feature);
             }
             active_sketch_id_ = sketch_id;
             selected_sketch_id_ = active_sketch_id_;
             refresh_scene();
+            // Entering the owned profile from Extrusion/Revolution follows
+            // the same camera contract as the standalone SKETCH button. Run
+            // it after the feature dialog has finished closing; its teardown
+            // refreshes the scene once more and used to leave the camera in
+            // the previous 3D view instead of looking along the sketch-plane
+            // normal.
+            QTimer::singleShot(0, this, [this, sketch_id] {
+                if (active_sketch_id_ == sketch_id) align_active_sketch_view();
+            });
         });
     }
     properties_dialog_ = dialog;
@@ -7621,8 +7738,9 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
         std::move(initial), initial_placement, edit_mode, std::move(plane_options),
         [this, owner_id, edit_mode, new_sketch_container](
             zima::sketcher::Sketch committed,
-            zima::document::Placement committed_placement) {
-            active_sketch_id_ = committed.id;
+            zima::document::Placement committed_placement,
+            bool enter_sketch) {
+            if (enter_sketch) active_sketch_id_ = committed.id;
             selected_sketch_id_ = committed.id;
             const auto update = [&](auto& next) {
                 if (edit_mode) {
@@ -7726,6 +7844,11 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                 primitive_reference_dialog_->set_orientation_base_rotation(
                     base_rotation, orientation_from_reference);
             }
+            auto geometric_placement = pending_placement;
+            geometric_placement.orientation_back = false;
+            geometric_placement.orientation_quarter_turns = 0;
+            static_cast<void>(zima::document::resolve_placement(
+                geometric_placement, primitive_reference_geometry_));
 
             auto plane = zima::document::PartDocument::create_construction(
                 zima::document::ConstructionKind::Plane);
@@ -7737,14 +7860,15 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                     zima::document::create_container_origin(plane.id);
             }
             plane.name = sketch.name;
-            plane.origin = {placement.x, placement.y, placement.z};
-            plane.rotation = {placement.rotation_x,
-                placement.rotation_y, placement.rotation_z};
-            plane.absolute_rotation = {placement.absolute_rotation_x,
-                placement.absolute_rotation_y, placement.absolute_rotation_z};
-            plane.orientation_back = placement.orientation_back;
-            plane.orientation_quarter_turns =
-                placement.orientation_quarter_turns;
+            plane.origin = {geometric_placement.x, geometric_placement.y,
+                            geometric_placement.z};
+            plane.rotation = {geometric_placement.rotation_x,
+                geometric_placement.rotation_y, geometric_placement.rotation_z};
+            plane.absolute_rotation = {geometric_placement.absolute_rotation_x,
+                geometric_placement.absolute_rotation_y,
+                geometric_placement.absolute_rotation_z};
+            plane.orientation_back = false;
+            plane.orientation_quarter_turns = 0;
             plane.base_plane = sketch.plane == zima::sketcher::SketchPlane::XY
                 ? zima::document::LocalDatumPlane::XY
                 : sketch.plane == zima::sketcher::SketchPlane::XZ
@@ -7757,14 +7881,22 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             auto preview_container =
                 zima::document::PartDocument::create_sketch_container();
             preview_container.id = sketch.owner_container_id;
-            preview_container.placement = placement;
+            preview_container.placement = geometric_placement;
             preview_document.history.push_back(std::move(preview_container));
             preview_document.sketches.push_back(sketch);
             preview_document.resolve_constructions(primitive_reference_geometry_);
             primitive_origin_preview_mesh_ =
                 preview_document.construction_viewer_mesh(plane.id);
-            append_mesh(*primitive_origin_preview_mesh_,
-                preview_document.sketches.front().viewer_mesh());
+            // A standalone Sketch container remains visible while its
+            // Properties window is open. Only suppress Sketcher's infinite
+            // working X/Y cross here; removing the complete viewer_mesh()
+            // also removed the actual white sketch curves. Extrusion and
+            // Revolution own separate internal sketches and continue to
+            // control their normal-view visibility through their history
+            // container contract.
+            auto sketch_preview = preview_document.sketches.front().viewer_mesh();
+            sketch_preview.axes.clear();
+            append_mesh(*primitive_origin_preview_mesh_, std::move(sketch_preview));
             sketch_properties_preview_id_ = sketch.id;
             viewer_->set_feature_preview_owners(
                 {plane.entity_id, plane.container_origin.id});
@@ -8157,12 +8289,31 @@ void AssemblyWorkspaceWindow::align_active_sketch_view() {
         sketches.begin(), sketches.end(),
         [&](const auto& value) { return value.id == active_sketch_id_; });
     if (sketch == sketches.end()) return;
-    zima::kernel::Vec3 direction =
-        sketch->plane == zima::sketcher::SketchPlane::XY
+    // `plane` is only the local XY/XZ/YZ choice. Once the container has
+    // placement/orientation references, the real sketch plane can point in
+    // any world direction; using the enum here caused Sketcher to claim a
+    // normal view while retaining the oblique view shown in 03.png.
+    zima::kernel::Vec3 direction = sketch->resolved_normal;
+    const double direction_length = std::sqrt(direction.x * direction.x +
+        direction.y * direction.y + direction.z * direction.z);
+    if (direction_length <= 1.0e-12) {
+        direction = sketch->plane == zima::sketcher::SketchPlane::XY
             ? zima::kernel::Vec3{0.0, 0.0, 1.0}
             : sketch->plane == zima::sketcher::SketchPlane::XZ
                 ? zima::kernel::Vec3{0.0, -1.0, 0.0}
                 : zima::kernel::Vec3{1.0, 0.0, 0.0};
+    }
+    bool back = false;
+    int quarter_turns = 0;
+    if (part != nullptr) {
+        const auto* owner = part->session.document().find_container(
+            sketch->owner_container_id);
+        if (owner != nullptr) {
+            back = owner->placement.orientation_back;
+            quarter_turns = owner->placement.orientation_quarter_turns;
+        }
+    }
+    if (back) direction = {-direction.x, -direction.y, -direction.z};
     if (part != nullptr &&
         workspace_.open_assembly(workspace_.displayed_document_id()) != nullptr) {
         const auto occurrence = resolve_active_occurrence(
@@ -8172,7 +8323,8 @@ void AssemblyWorkspaceWindow::align_active_sketch_view() {
             workspace_.displayed_document_id(),
             zima::assembly::InstancePath::decode(*occurrence), direction);
     }
-    viewer_->set_view_direction(direction);
+    viewer_->set_view_direction(direction,
+        static_cast<float>(quarter_turns * 90));
     viewer_->fit_all();
     state_->setText(tr("Pohled je kolmý k rovině aktivní skici."));
 }
@@ -11616,7 +11768,8 @@ void AssemblyWorkspaceWindow::toggle_part_container_suppressed(
             if (sketch == next.sketches.end()) return;
             sketch->suppressed = !sketch->suppressed;
         }
-        auto calculated = calculate_part(next);
+        const auto& previous = part->session.calculated_boundaries();
+        auto calculated = calculate_part(next, &previous);
         next.resolve_constructions(calculated.empty()
             ? zima::kernel::ViewerReferenceGeometry{}
             : calculated.back().mesh.original_references);
@@ -13404,7 +13557,8 @@ void AssemblyWorkspaceWindow::regenerate_active_part() {
     if (part == nullptr || properties_dialog_ != nullptr) return;
     try {
         auto next = part->session.document();
-        auto calculated = calculate_part(next);
+        const auto& previous = part->session.calculated_boundaries();
+        auto calculated = calculate_part(next, &previous);
         const auto previous_constructions = next.constructions;
         next.resolve_constructions(calculated.empty()
             ? zima::kernel::ViewerReferenceGeometry{}
@@ -13412,7 +13566,7 @@ void AssemblyWorkspaceWindow::regenerate_active_part() {
         const bool references_changed =
             refresh_sketch_external_references(next, calculated) |
             workspace_.refresh_context_external_references(next);
-        if (references_changed) calculated = calculate_part(next);
+        if (references_changed) calculated = calculate_part(next, &calculated);
         if (references_changed || next.constructions != previous_constructions) {
             part->session.commit(std::move(next), std::move(calculated));
         } else {
@@ -13566,6 +13720,11 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             sheet_item->setExpanded(true);
         }
         root->setExpanded(true);
+        // The drawing document name is already shown by its tab. Hide the
+        // technical owner row (for example "part" from part.drwz) and make
+        // sheets/views the visible tree root, consistently with Part and
+        // Assembly workspaces.
+        tree_->setRootIndex(tree_->indexFromItem(root));
         active_application_ = ApplicationMode::Drawing;
         insert_action_->setEnabled(false);
         regenerate_action_->setEnabled(false);
@@ -13918,19 +14077,11 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             part_rollback_->part_document_id == document.document_id) {
             auto display = part_rollback_->input_body
                 ? part_rollback_->input_body->mesh : zima::kernel::ViewerMesh{};
-            // Origin's own on-screen size (document and container alike) is
-            // a fixed constant independent of the scene/model size -- see
-            // kDocumentOriginAxisLength's comment in part_document.cpp.
-            // While editing a Sketch, its own origin and X/Y axes come from
-            // Sketch::viewer_mesh().  Showing the complete Part origin and
-            // every construction plane at the same time obscures the profile.
-            // Temporarily expose them only for the explicit external-reference
-            // command, where they are valid selectable source geometry.
-            if (active_sketch_id_.empty() ||
-                sketch_external_reference_active_) {
-                append_mesh(display, document.origin_viewer_mesh());
-                append_mesh(display, construction_mesh(document, 0.0));
-            }
+            // Sketcher keeps the complete View context visible. Selection
+            // tools narrow what can be confirmed through their candidate
+            // contracts; presentation itself is never filtered.
+            append_mesh(display, document.origin_viewer_mesh());
+            append_mesh(display, construction_mesh(document, 0.0));
             if (primitive_origin_preview_mesh_) {
                 append_mesh(display, *primitive_origin_preview_mesh_);
             }
@@ -13938,14 +14089,26 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             preserve_view_on_refresh_ = false;
         } else {
             const auto& calculated = part->session.calculated_boundaries();
-            const auto* cursor_body = body_at_history_cursor(document, calculated);
-            zima::kernel::ViewerMesh display = cursor_body == nullptr
-                ? zima::kernel::ViewerMesh{} : cursor_body->mesh;
+            std::size_t feature_count{};
+            if (document.history_order.empty()) {
+                feature_count = calculated.size();
+            } else {
+                const auto cursor = document.effective_history_cursor();
+                for (std::size_t index = 0; index < cursor; ++index) {
+                    if (document.history_order[index].kind ==
+                        zima::document::PartHistoryKind::Feature) {
+                        ++feature_count;
+                    }
+                }
+            }
+            const auto cursor_body = part->session.calculated_boundary(
+                std::min(feature_count, calculated.size()));
+            zima::kernel::ViewerMesh display = cursor_body
+                ? cursor_body->mesh : zima::kernel::ViewerMesh{};
             for (const auto& sketch : document.sketches) {
                 if (sketch.id == sketch_properties_preview_id_) continue;
-                if (active_sketch_id_.empty()) {
-                    if (!sketch_visible_outside_sketcher(document, sketch)) continue;
-                } else if (sketch.id != active_sketch_id_) continue;
+                if (sketch.id != active_sketch_id_ &&
+                    !sketch_visible_outside_sketcher(document, sketch)) continue;
                 const auto* displayed_sketch = sketch_trim_active_ &&
                         sketch_trim_preview_ && sketch.id == active_sketch_id_
                     ? &*sketch_trim_preview_ : &sketch;
@@ -13987,17 +14150,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                 if (sketch.id != active_sketch_id_) sketch_mesh.axes.clear();
                 append_mesh(display, std::move(sketch_mesh));
             }
-            // Origin's own on-screen size (document and container alike) is
-            // a fixed constant independent of the scene/model size -- see
-            // kDocumentOriginAxisLength's comment in part_document.cpp.
-            // During ordinary Sketch editing the Sketch mesh already supplies
-            // its local origin and X/Y axes.  The complete Part origin is only
-            // exposed when the external-reference command explicitly needs it.
-            if (active_sketch_id_.empty() ||
-                sketch_external_reference_active_) {
-                append_mesh(display, document.origin_viewer_mesh());
-                append_mesh(display, construction_mesh(document, 0.0));
-            }
+            append_mesh(display, document.origin_viewer_mesh());
+            append_mesh(display, construction_mesh(document, 0.0));
             if (primitive_origin_preview_mesh_) {
                 append_mesh(display, *primitive_origin_preview_mesh_);
             }
@@ -14200,6 +14354,11 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             tree_, {QString::fromStdString(document.name)});
         add_assembly_tree_children(root, document.document_id, {});
         root->setExpanded(true);
+        // The document remains the internal owner, but its file/name is
+        // already visible in the tab. Present the Assembly contents as the
+        // tree root, matching Part and the Python history tree, instead of
+        // exposing an extra top row such as "part" from part.asmz.
+        tree_->setRootIndex(tree_->indexFromItem(root));
     }
     viewer_->set_selection_contract(!selection_action_->isChecked()
         ? std::vector<zima::viewer::CandidateKind>{}
@@ -14334,10 +14493,9 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             }
             for (const auto& sketch : active_part->session.document().sketches) {
                 if (sketch.id == sketch_properties_preview_id_) continue;
-                if (active_sketch_id_.empty()) {
-                    if (!sketch_visible_outside_sketcher(
-                            active_part->session.document(), sketch)) continue;
-                } else if (sketch.id != active_sketch_id_) continue;
+                if (sketch.id != active_sketch_id_ &&
+                    !sketch_visible_outside_sketcher(
+                        active_part->session.document(), sketch)) continue;
                 const auto* displayed_sketch = sketch_trim_active_ &&
                         sketch_trim_preview_ && sketch.id == active_sketch_id_
                     ? &*sketch_trim_preview_ : &sketch;
@@ -14369,20 +14527,14 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                 }
                 append_mesh(live_source.mesh, std::move(sketch_mesh));
             }
-            // In an Assembly context the active Part still follows the same
-            // Sketcher presentation contract: body as passive context, only
-            // the Sketch-local origin/axes visible during ordinary editing.
-            if (active_sketch_id_.empty() ||
-                sketch_external_reference_active_) {
-                append_mesh(live_source.mesh,
-                    active_part->session.document().origin_viewer_mesh(
-                        zima::document::viewer_mesh_bounds_diagonal(
-                            live_source.mesh)));
-                append_mesh(live_source.mesh,
-                    construction_mesh(active_part->session.document(),
-                        zima::document::viewer_mesh_bounds_diagonal(
-                            live_source.mesh)));
-            }
+            append_mesh(live_source.mesh,
+                active_part->session.document().origin_viewer_mesh(
+                    zima::document::viewer_mesh_bounds_diagonal(
+                        live_source.mesh)));
+            append_mesh(live_source.mesh,
+                construction_mesh(active_part->session.document(),
+                    zima::document::viewer_mesh_bounds_diagonal(
+                        live_source.mesh)));
             if (primitive_origin_preview_mesh_) {
                 append_mesh(live_source.mesh, *primitive_origin_preview_mesh_);
             }
@@ -14411,7 +14563,9 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             .arg(QString::fromStdString(document.name),
                  QString::fromStdString(workspace_.active_document_id())));
     rebuild_insert_menu();
-    insert_action_->setEnabled(has_insertable_component());
+    // A component may be selected from disk even when no other source
+    // document is currently open, matching the Python insertion workflow.
+    insert_action_->setEnabled(true);
     regenerate_action_->setEnabled(true);
     save_action_->setEnabled(true);
     save_as_action_->setEnabled(true);
@@ -14513,24 +14667,6 @@ void AssemblyWorkspaceWindow::populate_sketch_tree(
     const zima::sketcher::Sketch& sketch) {
     tree_->setHeaderLabels({tr("SKETCHER — %1").arg(
         QString::fromStdString(sketch.name))});
-    auto analyzed = sketch;
-    const auto solve_state = analyzed.solve();
-    const QString solve_label = solve_state.status ==
-            zima::sketcher::SolveStatus::Solved
-        ? tr("Stav skici — plně zavazbená (0 SV)")
-        : solve_state.status == zima::sketcher::SolveStatus::UnderConstrained
-            ? tr("Stav skici — nedostatečně zavazbená (%1 SV)")
-                .arg(solve_state.remaining_degrees_of_freedom)
-            : solve_state.status == zima::sketcher::SolveStatus::Conflicting
-                ? tr("Stav skici — konfliktní")
-                : tr("Stav skici — neplatná");
-    auto* solve_item = new QTreeWidgetItem(tree_, {solve_label});
-    solve_item->setFlags(Qt::ItemIsEnabled);
-    solve_item->setForeground(0, QBrush(solve_state.status ==
-            zima::sketcher::SolveStatus::Solved
-        ? QColor(46, 204, 112)
-        : solve_state.status == zima::sketcher::SolveStatus::UnderConstrained
-            ? QColor(230, 190, 55) : QColor(220, 75, 75)));
     auto* origin = new QTreeWidgetItem(tree_, {
         tr("Počátek kontejneru — %1").arg(QString::fromStdString(sketch.name))});
     origin->setIcon(0, resource_icon("origin"));
@@ -14933,6 +15069,15 @@ void AssemblyWorkspaceWindow::add_assembly_tree_children(
     add_snapshot_tree_children(
         parent, assembly->session.document().occurrence_snapshot(),
         assembly_document_id, parent_path, ancestor_suppressed);
+    if (assembly_document_id == workspace_.active_document_id() &&
+        parent_path.occurrence_ids.empty()) {
+        auto* insert_here = new QTreeWidgetItem(parent, {tr("← Vložit zde")});
+        insert_here->setData(0, Qt::UserRole + 3, "assembly-insert-here");
+        auto font = insert_here->font(0);
+        font.setBold(true);
+        insert_here->setFont(0, font);
+        insert_here->setForeground(0, QBrush(QColor("#4DD811")));
+    }
 }
 
 void AssemblyWorkspaceWindow::add_snapshot_tree_children(

@@ -786,6 +786,12 @@ public:
         const std::vector<BoxOperation>& operations) const = 0;
     [[nodiscard]] virtual std::vector<BodyResult> evaluate_history(
         const std::vector<HistoryOperation>& operations) const = 0;
+    // Reuses the longest valid persisted prefix when the remaining operations
+    // do not require live topology ancestry from that prefix. Implementations
+    // must conservatively fall back to a full calculation otherwise.
+    [[nodiscard]] virtual std::vector<BodyResult> evaluate_history_incremental(
+        const std::vector<HistoryOperation>& operations,
+        const std::vector<BodyResult>& previous_boundaries) const = 0;
     [[nodiscard]] virtual BodyResult compound_bodies(
         const std::vector<PlacedBody>& bodies) const = 0;
 };

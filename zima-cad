@@ -1,69 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ZIMA_CAD_PYTHON="$PROJECT_ROOT/runtime/linux/python/bin/python"
+zima_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
-# Prefer the native backend of the active desktop session. An explicit
-# QT_QPA_PLATFORM always wins; when neither display protocol is advertised,
-# leave the choice to Qt (useful for headless/offscreen environments).
-if [[ -z "${QT_QPA_PLATFORM:-}" ]]; then
-    if [[ "${XDG_SESSION_TYPE:-}" == "wayland" \
-        && -n "${WAYLAND_DISPLAY:-}" ]]; then
-        export QT_QPA_PLATFORM=wayland
-    elif [[ "${XDG_SESSION_TYPE:-}" == "x11" \
-        && -n "${DISPLAY:-}" ]]; then
-        export QT_QPA_PLATFORM=xcb
-    elif [[ -n "${WAYLAND_DISPLAY:-}" ]]; then
-        export QT_QPA_PLATFORM=wayland
-    elif [[ -n "${DISPLAY:-}" ]]; then
-        export QT_QPA_PLATFORM=xcb
+for executable in \
+    "$zima_root/build/cpp-release/zima-cad-cpp" \
+    "$zima_root/build/cpp-debug/zima-cad-cpp"
+do
+    if [[ -x "$executable" ]]; then
+        exec "$executable" "$@"
     fi
-fi
+done
 
-# GPU selection is portable and overrideable:
-#   auto   - use NVIDIA PRIME on a hybrid NVIDIA system, system GPU otherwise
-#   nvidia - force NVIDIA PRIME
-#   system - leave GPU/platform selection entirely to Qt and the desktop
-ZIMA_CAD_GPU_MODE="${ZIMA_CAD_GPU:-auto}"
-ZIMA_CAD_HAS_NVIDIA=false
-if command -v nvidia-smi >/dev/null 2>&1 \
-    && nvidia-smi -L >/dev/null 2>&1; then
-    ZIMA_CAD_HAS_NVIDIA=true
-fi
-
-ZIMA_CAD_HYBRID_GPU=false
-if [[ "$ZIMA_CAD_HAS_NVIDIA" == true ]]; then
-    for ZIMA_CAD_VENDOR_FILE in /sys/class/drm/card*/device/vendor; do
-        [[ -r "$ZIMA_CAD_VENDOR_FILE" ]] || continue
-        read -r ZIMA_CAD_VENDOR < "$ZIMA_CAD_VENDOR_FILE"
-        if [[ "$ZIMA_CAD_VENDOR" != "0x10de" ]]; then
-            ZIMA_CAD_HYBRID_GPU=true
-            break
-        fi
-    done
-fi
-
-if [[ "$ZIMA_CAD_GPU_MODE" == "nvidia" ]] \
-    || [[ "$ZIMA_CAD_GPU_MODE" == "auto" \
-        && "$ZIMA_CAD_HYBRID_GPU" == true ]]; then
-    export __NV_PRIME_RENDER_OFFLOAD=1
-    export __GLX_VENDOR_LIBRARY_NAME=nvidia
-elif [[ "$ZIMA_CAD_GPU_MODE" != "auto" \
-    && "$ZIMA_CAD_GPU_MODE" != "system" ]]; then
-    echo "Unknown ZIMA_CAD_GPU mode: $ZIMA_CAD_GPU_MODE" >&2
-    echo "Use auto, nvidia, or system." >&2
-    exit 2
-fi
-
-if [[ ! -x "$ZIMA_CAD_PYTHON" ]]; then
-    echo "ZIMA-CAD Linux runtime was not found:"
-    echo "$ZIMA_CAD_PYTHON"
-    echo
-    echo "Build and unpack it with:"
-    echo "tools/pack-linux-runtime.sh"
-    echo "tools/unpack-linux-runtime.sh --force"
-    exit 1
-fi
-
-exec "$ZIMA_CAD_PYTHON" "$PROJECT_ROOT/main.py" "$@"
+echo "ZIMA-CAD C++ executable was not found." >&2
+echo "Build it with:" >&2
+echo "  cmake --preset linux-runtime-debug -S cpp" >&2
+echo "  cmake --build build/cpp-debug --target zima-cad-cpp" >&2
+exit 1

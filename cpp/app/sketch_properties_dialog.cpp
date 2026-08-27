@@ -61,7 +61,8 @@ SketchPropertiesDialog::SketchPropertiesDialog(
     content_layout()->addLayout(form);
     placement_ = std::make_unique<zima::ui::ContainerPlacementSection>(
         this, content_layout(), /*with_orientation=*/true,
-        /*position_rows_can_define_rotation=*/true);
+        /*position_rows_can_define_rotation=*/true,
+        /*with_sketch_view_controls=*/true);
     placement_->initialize_from_references(initial_placement_.references,
         [](const std::string& semantic) {
             return QString::fromStdString(semantic);
@@ -92,6 +93,7 @@ SketchPropertiesDialog::SketchPropertiesDialog(
     orientation_form->addRow(tr("Výchozí rovina"), plane_);
     orientation_form->addRow(tr("Odsazení roviny"), offset_);
     content_layout()->addLayout(orientation_form);
+    placement_->install_dof_label(content_layout());
     sketch_button_ = new QPushButton(QStringLiteral("SKETCH"), this);
     sketch_button_->setObjectName("sketchOpenButton");
     sketch_button_->setMinimumHeight(40);
@@ -113,7 +115,9 @@ SketchPropertiesDialog::SketchPropertiesDialog(
     connect(offset_, &QDoubleSpinBox::valueChanged, this,
         [this](double) { notify_preview(); });
     connect(sketch_button_, &QPushButton::clicked, this, [this] {
+        enter_sketch_after_commit_ = true;
         if (submit()) accept();
+        else enter_sketch_after_commit_ = false;
     });
     update_plane_fields_enabled();
 }
@@ -200,9 +204,24 @@ bool SketchPropertiesDialog::owns_reference_owner(
 bool SketchPropertiesDialog::set_reference(std::size_t index,
         zima::document::ConstructionReference reference,
         const QString& label) {
+    const bool first_plane_reference = index == 0 && reference.supports_offset;
     QString error;
     const bool accepted = placement_->set_reference(
         index, std::move(reference), label, &error);
+    if (accepted && first_plane_reference) {
+        // The first planar placement reference is mirrored into FRONT, which
+        // maps its normal onto the container's local Y axis. Therefore local
+        // XZ — not the default XY — is the actual sketch plane parallel to
+        // the picked reference. This keeps placement, preview and the frame
+        // later opened in Sketcher on one and the same plane.
+        const int xz_index = plane_->findData(
+            static_cast<int>(zima::sketcher::SketchPlane::XZ));
+        if (xz_index >= 0) {
+            plane_->setItemText(xz_index,
+                tr("Podle první reference — %1").arg(label));
+            plane_->setCurrentIndex(xz_index);
+        }
+    }
     if (accepted) refresh_resolved_placement();
     return accepted;
 }
@@ -235,7 +254,8 @@ bool SketchPropertiesDialog::submit() {
     auto [result, resolved_placement] = current_values();
     try {
         result.validate();
-        commit_(std::move(result), std::move(resolved_placement));
+        commit_(std::move(result), std::move(resolved_placement),
+            enter_sketch_after_commit_);
     } catch (const std::exception& failure) {
         error_->setText(QString::fromUtf8(failure.what()));
         return false;

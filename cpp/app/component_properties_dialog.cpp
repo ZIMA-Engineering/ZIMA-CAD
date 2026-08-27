@@ -4,8 +4,6 @@
 
 #include <QComboBox>
 #include <QCheckBox>
-#include <QDialog>
-#include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
 #include <QHBoxLayout>
@@ -13,10 +11,14 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QSignalBlocker>
+#include <QStyle>
 #include <QTableWidget>
+#include <QToolButton>
 #include <QVBoxLayout>
 
 #include <algorithm>
+#include <cmath>
 #include <exception>
 
 namespace zima::app {
@@ -39,78 +41,94 @@ bool mate_type_is_angular(zima::assembly::MateKind kind) {
         kind == zima::assembly::MateKind::PlaneAngle;
 }
 
-// Small modal editor for a single placement-reference row's optional
-// lower_limit/upper_limit, opened from the row's "Meze" button. Mirrors
-// MatePropertiesDialog's limit fields/validation, but only the limit part --
-// the nominal value itself stays editable in the main table's offset field.
-// Validation (lower <= upper, current value inside range) is performed
-// atomically on OK, matching MatePropertiesDialog::submit(); nothing is
-// written back to `row` until the user confirms with valid values.
-bool edit_placement_reference_limits(
-    QWidget* parent, zima::assembly::ComponentPlacementReference& row) {
-    const bool angular = mate_type_is_angular(row.mate_type);
-    QDialog dialog(parent);
-    dialog.setWindowTitle(QObject::tr("Meze reference umístění"));
-    auto* layout = new QFormLayout(&dialog);
-    auto* lower_enabled = new QCheckBox(&dialog);
-    auto* lower_field = new QDoubleSpinBox(&dialog);
-    auto* upper_enabled = new QCheckBox(&dialog);
-    auto* upper_field = new QDoubleSpinBox(&dialog);
-    for (auto* field : {lower_field, upper_field}) {
-        field->setDecimals(3);
-        field->setRange(angular ? -360.0 : -1'000'000'000.0,
-            angular ? 360.0 : 1'000'000'000.0);
-        field->setSuffix(angular ? QStringLiteral(" °") : QStringLiteral(" mm"));
+class MateLimitsDialog final : public zima::ui::PropertiesSubWindow {
+public:
+    using Commit = std::function<void(std::optional<double>, std::optional<double>)>;
+
+    MateLimitsDialog(const zima::assembly::ComponentPlacementReference& row,
+        Commit commit, QWidget* parent)
+        : PropertiesSubWindow(tr("Meze mate"), parent),
+          current_value_(row.offset), commit_(std::move(commit)) {
+        setObjectName("mateLimitsDialog");
+        const bool angular = mate_type_is_angular(row.mate_type);
+        auto* form = new QFormLayout;
+        current_ = new QDoubleSpinBox(this);
+        lower_enabled_ = new QCheckBox(this);
+        lower_ = new QDoubleSpinBox(this);
+        upper_enabled_ = new QCheckBox(this);
+        upper_ = new QDoubleSpinBox(this);
+        for (auto* field : {current_, lower_, upper_}) {
+            field->setObjectName(field == current_ ? "mateCurrentValue" :
+                field == lower_ ? "mateLowerLimit" : "mateUpperLimit");
+            field->setDecimals(3);
+            field->setRange(angular ? -360.0 : -1'000'000'000.0,
+                angular ? 360.0 : 1'000'000'000.0);
+            field->setSuffix(angular ? QStringLiteral(" °") : QStringLiteral(" mm"));
+        }
+        current_->setValue(row.offset);
+        current_->setReadOnly(true);
+        current_->setButtonSymbols(QAbstractSpinBox::NoButtons);
+        lower_enabled_->setObjectName("mateLowerEnabled");
+        upper_enabled_->setObjectName("mateUpperEnabled");
+        lower_enabled_->setChecked(row.lower_limit.has_value());
+        lower_->setValue(row.lower_limit.value_or(row.offset));
+        lower_->setEnabled(lower_enabled_->isChecked());
+        upper_enabled_->setChecked(row.upper_limit.has_value());
+        upper_->setValue(row.upper_limit.value_or(row.offset));
+        upper_->setEnabled(upper_enabled_->isChecked());
+        connect(lower_enabled_, &QCheckBox::toggled, lower_,
+            &QDoubleSpinBox::setEnabled);
+        connect(upper_enabled_, &QCheckBox::toggled, upper_,
+            &QDoubleSpinBox::setEnabled);
+        form->addRow(tr("Hodnota"), current_);
+        form->addRow(tr("Dolní mez"), limit_row(lower_enabled_, lower_));
+        form->addRow(tr("Horní mez"), limit_row(upper_enabled_, upper_));
+        error_ = new QLabel(this);
+        error_->setStyleSheet("color:#c64b4b;");
+        error_->setWordWrap(true);
+        content_layout()->addLayout(form);
+        content_layout()->addWidget(error_);
+        set_initial_size({340, 250});
     }
-    lower_enabled->setChecked(row.lower_limit.has_value());
-    lower_field->setValue(row.lower_limit.value_or(row.offset));
-    lower_field->setEnabled(lower_enabled->isChecked());
-    upper_enabled->setChecked(row.upper_limit.has_value());
-    upper_field->setValue(row.upper_limit.value_or(row.offset));
-    upper_field->setEnabled(upper_enabled->isChecked());
-    QObject::connect(lower_enabled, &QCheckBox::toggled, lower_field,
-        &QDoubleSpinBox::setEnabled);
-    QObject::connect(upper_enabled, &QCheckBox::toggled, upper_field,
-        &QDoubleSpinBox::setEnabled);
-    auto* lower_row = new QWidget(&dialog);
-    auto* lower_row_layout = new QHBoxLayout(lower_row);
-    lower_row_layout->setContentsMargins(0, 0, 0, 0);
-    lower_row_layout->addWidget(lower_enabled);
-    lower_row_layout->addWidget(lower_field, 1);
-    layout->addRow(QObject::tr("Dolní mez"), lower_row);
-    auto* upper_row = new QWidget(&dialog);
-    auto* upper_row_layout = new QHBoxLayout(upper_row);
-    upper_row_layout->setContentsMargins(0, 0, 0, 0);
-    upper_row_layout->addWidget(upper_enabled);
-    upper_row_layout->addWidget(upper_field, 1);
-    layout->addRow(QObject::tr("Horní mez"), upper_row);
-    auto* error = new QLabel(&dialog);
-    error->setStyleSheet("color: #c64b4b;");
-    error->setWordWrap(true);
-    layout->addRow(error);
-    auto* buttons = new QDialogButtonBox(
-        QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
-    layout->addRow(buttons);
-    QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-    QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, [&] {
-        const std::optional<double> lower = lower_enabled->isChecked()
-            ? std::optional<double>{lower_field->value()} : std::nullopt;
-        const std::optional<double> upper = upper_enabled->isChecked()
-            ? std::optional<double>{upper_field->value()} : std::nullopt;
+
+protected:
+    bool submit() override {
+        const std::optional<double> lower = lower_enabled_->isChecked()
+            ? std::optional<double>{lower_->value()} : std::nullopt;
+        const std::optional<double> upper = upper_enabled_->isChecked()
+            ? std::optional<double>{upper_->value()} : std::nullopt;
         if (lower && upper && *lower > *upper) {
-            error->setText(QObject::tr("Dolní mez nesmí být větší než horní mez."));
-            return;
+            error_->setText(tr("Dolní mez nesmí být větší než horní mez."));
+            return false;
         }
-        if ((lower && row.offset < *lower) || (upper && row.offset > *upper)) {
-            error->setText(QObject::tr("Jmenovitá hodnota musí ležet v zadaných mezích."));
-            return;
+        if ((lower && current_value_ < *lower) ||
+            (upper && current_value_ > *upper)) {
+            error_->setText(tr("Aktuální hodnota musí ležet v zadaných mezích."));
+            return false;
         }
-        row.lower_limit = lower;
-        row.upper_limit = upper;
-        dialog.accept();
-    });
-    return dialog.exec() == QDialog::Accepted;
-}
+        commit_(lower, upper);
+        return true;
+    }
+
+private:
+    QWidget* limit_row(QCheckBox* enabled, QDoubleSpinBox* value) {
+        auto* widget = new QWidget(this);
+        auto* layout = new QHBoxLayout(widget);
+        layout->setContentsMargins(0, 0, 0, 0);
+        layout->addWidget(enabled);
+        layout->addWidget(value, 1);
+        return widget;
+    }
+
+    double current_value_{};
+    Commit commit_;
+    QDoubleSpinBox* current_{};
+    QCheckBox* lower_enabled_{};
+    QDoubleSpinBox* lower_{};
+    QCheckBox* upper_enabled_{};
+    QDoubleSpinBox* upper_{};
+    QLabel* error_{};
+};
 
 }  // namespace
 
@@ -170,7 +188,7 @@ ComponentPropertiesDialog::ComponentPropertiesDialog(
     placement_table_ = new QTableWidget(0, 7, this);
     placement_table_->setObjectName("componentPlacementTable");
     placement_table_->setHorizontalHeaderLabels({QString(), tr("Tento díl"),
-        tr("Cíl"), tr("Typ"), tr("Hodnota"), tr("Obrátit"), tr("Meze")});
+        tr("Cíl"), tr("Typ"), tr("Hodnota"), tr("Obrátit"), QString()});
     placement_table_->horizontalHeader()->setSectionResizeMode(
         0, QHeaderView::ResizeToContents);
     placement_table_->horizontalHeader()->setSectionResizeMode(
@@ -344,9 +362,24 @@ void ComponentPropertiesDialog::refresh_placement_table() {
         connect(mate_type, &QComboBox::currentIndexChanged, this,
             [this, index, mate_type] {
                 if (index >= placement_references_.size()) return;
-                placement_references_[index].mate_type =
-                    static_cast<zima::assembly::MateKind>(
-                        mate_type->currentData().toInt());
+                auto& row = placement_references_[index];
+                const auto next = static_cast<zima::assembly::MateKind>(
+                    mate_type->currentData().toInt());
+                if (mate_type_is_angular(row.mate_type) !=
+                    mate_type_is_angular(next)) {
+                    row.lower_limit.reset();
+                    row.upper_limit.reset();
+                }
+                row.mate_type = next;
+                if (auto* field = offset_fields_[index]) {
+                    const QSignalBlocker blocked(field);
+                    const bool angular = mate_type_is_angular(next);
+                    field->setRange(angular ? -360.0 : -1'000'000'000.0,
+                        angular ? 360.0 : 1'000'000'000.0);
+                    field->setSuffix(angular ? QStringLiteral(" °") :
+                        QStringLiteral(" mm"));
+                    field->setValue(row.offset);
+                }
             });
 
         auto* offset = new QDoubleSpinBox(placement_table_);
@@ -360,9 +393,16 @@ void ComponentPropertiesDialog::refresh_placement_table() {
         offset_fields_[index] = offset;
         placement_table_->setCellWidget(static_cast<int>(index), 4, offset);
         connect(offset, &QDoubleSpinBox::valueChanged, this,
-            [this, index](double value) {
+            [this, index, offset](double value) {
                 if (index < placement_references_.size()) {
-                    placement_references_[index].offset = value;
+                    auto& row = placement_references_[index];
+                    if (row.lower_limit) value = std::max(value, *row.lower_limit);
+                    if (row.upper_limit) value = std::min(value, *row.upper_limit);
+                    if (std::abs(offset->value() - value) > 1.0e-12) {
+                        const QSignalBlocker blocked(offset);
+                        offset->setValue(value);
+                    }
+                    row.offset = value;
                 }
             });
 
@@ -382,16 +422,40 @@ void ComponentPropertiesDialog::refresh_placement_table() {
         placement_table_->setCellWidget(static_cast<int>(index), 5,
             zima::ui::centered_cell_widget(flip_button));
 
-        auto* limit_button = new QPushButton(tr("Meze…"), placement_table_);
+        auto* limit_button = new QToolButton(placement_table_);
+        limit_button->setObjectName(
+            QStringLiteral("mateLimitsButton%1").arg(index));
+        limit_button->setIcon(style()->standardIcon(
+            QStyle::SP_FileDialogDetailedView));
+        limit_button->setToolTip(tr("Hodnota a meze mate"));
+        limit_button->setAutoRaise(true);
+        limit_button->setProperty("limitsEnabled",
+            row.lower_limit.has_value() || row.upper_limit.has_value());
         limit_button->setEnabled(populated);
         limit_buttons_[index] = limit_button;
         placement_table_->setCellWidget(static_cast<int>(index), 6,
             zima::ui::centered_cell_widget(limit_button));
-        connect(limit_button, &QPushButton::clicked, this, [this, index] {
+        connect(limit_button, &QToolButton::clicked, this, [this, index] {
             if (index >= placement_references_.size()) return;
-            if (edit_placement_reference_limits(this, placement_references_[index])) {
-                refresh_placement_table();
-            }
+            QWidget* owner = parentWidget() != nullptr ? parentWidget() : this;
+            auto* dialog = new MateLimitsDialog(placement_references_[index],
+                [this, index](std::optional<double> lower,
+                    std::optional<double> upper) {
+                    if (index >= placement_references_.size()) return;
+                    auto& row = placement_references_[index];
+                    row.lower_limit = lower;
+                    row.upper_limit = upper;
+                    if (auto* button = limit_buttons_[index]) {
+                        button->setProperty("limitsEnabled", lower || upper);
+                        button->setToolTip(lower || upper
+                            ? tr("Mate má nastavené meze")
+                            : tr("Hodnota a meze mate"));
+                    }
+                }, owner);
+            dialog->setAttribute(Qt::WA_DeleteOnClose, true);
+            connect(this, &QObject::destroyed, dialog, &QWidget::close);
+            dialog->show();
+            dialog->raise();
         });
     }
 }

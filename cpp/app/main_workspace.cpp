@@ -965,7 +965,12 @@ int verify_startup_contract(
                 "Sketch must use the shared in-application Properties window")) {
         return 1;
     }
-    buttons->button(QDialogButtonBox::Ok)->click();
+    auto* open_sketch = properties->findChild<QPushButton*>("sketchOpenButton");
+    if (!verify(open_sketch != nullptr,
+                "Sketch Properties must expose its SKETCH entry action")) {
+        return 1;
+    }
+    open_sketch->click();
     application.processEvents();
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     application.processEvents();

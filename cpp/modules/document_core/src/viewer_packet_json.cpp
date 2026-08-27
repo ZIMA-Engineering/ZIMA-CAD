@@ -186,6 +186,16 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result) {
     };
 }
 
+nlohmann::json serialize_viewer_reference_geometry(
+    const zima::kernel::ViewerReferenceGeometry& geometry) {
+    return serialize_reference_geometry(geometry);
+}
+
+zima::kernel::ViewerReferenceGeometry load_viewer_reference_geometry(
+    const nlohmann::json& source) {
+    return load_reference_geometry(source);
+}
+
 zima::kernel::BodyResult load_body_result(const nlohmann::json& source) {
     zima::kernel::BodyResult result;
     result.volume = source.at("volume").get<double>();
