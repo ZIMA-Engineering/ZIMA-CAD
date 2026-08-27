@@ -50,6 +50,15 @@ int main() {
                 "Edge candidates do not use stable owners in depth order");
         require(mesh.edges.size() == 3,
                 "Viewer packet did not retain an unowned display-only result edge");
+        zima::kernel::ViewerMesh infinite_line_mesh;
+        infinite_line_mesh.edges.push_back({
+            {{-1.0, 0.0, 5.0}, {1.0, 0.0, 5.0}},
+            {"sketch", "segment:centerline"}, true, true, true, true});
+        const auto infinite_line_candidates =
+            zima::viewer::ordered_edge_candidates(infinite_line_mesh,
+                {50.0, 0.0, 0.0}, {0.0, 0.0, 1.0}, 0.01);
+        require(infinite_line_candidates.size() == 1,
+                "Unbounded Sketch centerline remained pickable only between defining points");
         mesh.points = {
             {{0.0, 0.0, 4.0}, {"front", "vertex-a"}},
             {{0.0, 0.0, 9.0}, {"back", "vertex-b"}},
@@ -85,6 +94,22 @@ int main() {
                         zima::viewer::CandidateKind::Container &&
                     tree_point_confirmation->owner_id == "point-container",
                 "Tree could not confirm the Point container marker");
+        zima::kernel::ViewerMesh construction_plane_mesh;
+        construction_plane_mesh.edges.push_back({
+            {{-1.0, 0.0, 5.0}, {1.0, 0.0, 5.0}},
+            {"plane-container:entity", "border"}, false, true});
+        construction_plane_mesh.original_references.edges.push_back({
+            {{-1.0, 0.0, 5.0}, {1.0, 0.0, 5.0}},
+            {"plane-container:entity", "border"}, false, true});
+        const auto construction_plane_faces = zima::viewer::filter_candidates(
+            zima::viewer::ordered_viewer_candidates(construction_plane_mesh,
+                {0.0, 0.0, 0.0}, {0.0, 0.0, 1.0}, 0.01),
+            {zima::viewer::CandidateKind::Plane});
+        require(construction_plane_faces.size() == 1 &&
+                    construction_plane_faces.front().owner_id ==
+                        "plane-container:entity" &&
+                    construction_plane_faces.front().semantic_key == "plane",
+                "Plane rectangle did not expose the stable Plane entity on hover");
         const auto all_candidates = zima::viewer::ordered_viewer_candidates(
             mesh, {0.0, 0.0, 0.0}, {0.0, 0.0, 1.0}, 0.01);
         const auto edge_contract = zima::viewer::filter_candidates(
@@ -119,6 +144,17 @@ int main() {
         require(dimension_contract.size() == 1 &&
                     dimension_contract.front().owner_id == "sketch",
                 "Dimension selection contract left the common candidate list");
+        mesh.constraint_markers.push_back({
+            {0.0, 2.0, 5.0}, "H", {"sketch", "constraint:horizontal"}});
+        const auto constraint_contract = zima::viewer::filter_candidates(
+            zima::viewer::ordered_viewer_candidates(
+                mesh, {0.0, 2.0, 0.0}, {0.0, 0.0, 1.0}, 0.01),
+            {zima::viewer::CandidateKind::SketchConstraint});
+        require(constraint_contract.size() == 1 &&
+                    constraint_contract.front().owner_id == "sketch" &&
+                    constraint_contract.front().semantic_key ==
+                        "constraint:horizontal",
+                "Constraint marker did not use the common hover/click candidate list");
         zima::kernel::ViewerMesh trim_mesh;
         trim_mesh.edges.push_back({
             {{-2.0, 0.0, 5.0}, {2.0, 0.0, 5.0}},
@@ -206,6 +242,19 @@ int main() {
                     separated_containers.front().geometry ==
                         zima::viewer::CandidateGeometry::OriginalReference,
                 "Leaf selection preferred transient result-body topology");
+        auto local_part = separated;
+        local_part.triangle_references.front().instance_path.clear();
+        local_part.original_references.triangle_references.front()
+            .instance_path.clear();
+        const auto local_part_containers = zima::viewer::filter_candidates(
+            zima::viewer::ordered_viewer_candidates(local_part,
+                {0.0, 0.0, 0.0}, {0.0, 0.0, 1.0}, 0.01),
+            {zima::viewer::CandidateKind::Container});
+        require(local_part_containers.size() == 1 &&
+                    local_part_containers.front().owner_id == "original-box" &&
+                    local_part_containers.front().geometry ==
+                        zima::viewer::CandidateGeometry::OriginalReference,
+                "Part hover offered the result Body instead of its leaf Container");
         std::cout << "C++ viewer picking contracts passed\n";
         return 0;
     } catch (const std::exception& error) {

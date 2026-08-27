@@ -700,22 +700,22 @@ int main() {
         plane.display_size = 75.0;
         constructions.constructions = {point, axis, plane};
         const auto construction_mesh = constructions.construction_viewer_mesh();
-        // An Axis container now also exposes its own defining point (see
-        // `construction_viewer_mesh`'s Axis-kind branch) so hovering the
-        // container offers both its line and its point together, matching
-        // Point/Plane every other container kind already did -- hence 2
-        // points here (the Point container's own marker plus the Axis
-        // container's own marker), not 1.
-        require(construction_mesh.points.size() == 2 &&
+        // Point, Axis and Plane each expose their own defining point through
+        // a distinct persisted Container-Origin owner.
+        require(construction_mesh.points.size() == 3 &&
                     construction_mesh.axes.size() == 1 &&
                     construction_mesh.edges.size() == 1 &&
-                    construction_mesh.original_references.points.size() == 2 &&
+                    construction_mesh.original_references.points.size() == 3 &&
                     construction_mesh.original_references.points.front().reference.owner_id ==
                         point.id + ":origin" &&
                     construction_mesh.original_references.points.front()
                             .reference.semantic_key == "point" &&
-                    construction_mesh.original_references.points.back().reference.owner_id ==
+                    construction_mesh.original_references.points[1].reference.owner_id ==
                         axis.id + ":origin" &&
+                    construction_mesh.original_references.points[1]
+                            .reference.semantic_key == "point" &&
+                    construction_mesh.original_references.points.back().reference.owner_id ==
+                        plane.id + ":origin" &&
                     construction_mesh.original_references.points.back()
                             .reference.semantic_key == "point" &&
                     construction_mesh.original_references.axes.size() == 1 &&
@@ -725,9 +725,9 @@ int main() {
                 "Construction objects did not produce persisted ZIMA references");
         const auto edited_point_mesh =
             constructions.construction_viewer_mesh(point.id);
-        // Same +1 for the Axis container's own always-present point marker
-        // as above; editing the Point container does not remove it.
-        require(edited_point_mesh.points.size() == 2 &&
+        // Editing the Point adds its origin frame, but not a duplicate of
+        // the Point entity itself; Axis and Plane keep their own markers.
+        require(edited_point_mesh.points.size() == 3 &&
                     edited_point_mesh.points.front().reference.semantic_key ==
                         "point" &&
                     edited_point_mesh.axes.size() == 4 &&
@@ -842,23 +842,23 @@ int main() {
         constructions.constructions.push_back(origin_bulk_fill_plane);
         constructions.resolve_constructions();
         const auto& resolved_origin_bulk_fill_plane = constructions.constructions.back();
-        // The whole-Origin bulk-fill is no longer a special "always
-        // identity" case: matching the "1st reference decides what the new
-        // Plane is offset from" contract, row 0 (FRONT, here origin:plane:xz)
-        // still fully determines orientation even when the triad happens to
-        // be complete -- the new Plane inherits the XZ origin plane's own
-        // resolved normal (-Y), exactly like the single-reference
-        // `inherited_origin_plane` case above. Rows 1/2 only add position
-        // constraints (all three origin planes intersect at the world
-        // origin), never override that inherited orientation.
+        // The whole-Origin bulk-fill IS a special "always identity" case:
+        // whichever origin datum plane happens to land in row 0 first as an
+        // automatically assigned FRONT role is an accidental artifact of
+        // click order (the tree's "Počátek" node bulk-fills all three at
+        // once), not a deliberate "parallel to this one plane" pick. So a
+        // Plane resolved from the completed origin triad ignores that
+        // auto-assigned FRONT role and lands on the identity frame, exactly
+        // like every other kind (Point/Axis) already does for the same
+        // bulk-filled triad below.
         require(resolved_origin_bulk_fill_plane.reference_valid &&
                     std::abs(resolved_origin_bulk_fill_plane.origin.x) < 1.0e-6 &&
                     std::abs(resolved_origin_bulk_fill_plane.origin.y) < 1.0e-6 &&
                     std::abs(resolved_origin_bulk_fill_plane.origin.z) < 1.0e-6 &&
-                    std::abs(resolved_origin_bulk_fill_plane.direction.x) < 1.0e-6 &&
-                    std::abs(resolved_origin_bulk_fill_plane.direction.y + 1.0) < 1.0e-6 &&
+                    std::abs(resolved_origin_bulk_fill_plane.direction.x - 1.0) < 1.0e-6 &&
+                    std::abs(resolved_origin_bulk_fill_plane.direction.y) < 1.0e-6 &&
                     std::abs(resolved_origin_bulk_fill_plane.direction.z) < 1.0e-6,
-                "Origin bulk-fill Plane did not inherit its FRONT row's plane frame");
+                "Origin bulk-fill Plane did not resolve to the identity frame");
         auto origin_bulk_fill_point = zima::document::PartDocument::create_construction(
             zima::document::ConstructionKind::Point);
         // Simulates the transient preview state during incremental
@@ -957,16 +957,22 @@ int main() {
                     "Container placement did not derive RZ from a FRONT=X reference");
 
             zima::document::Placement offset_placement;
+            offset_placement.rotation_x = 22.0;
+            offset_placement.rotation_y = -8.0;
+            offset_placement.rotation_z = 41.0;
+            offset_placement.absolute_rotation_x = 22.0;
+            offset_placement.absolute_rotation_y = -8.0;
+            offset_placement.absolute_rotation_z = 41.0;
             offset_placement.rotation_offset_x = 12.5;
             offset_placement.rotation_offset_y = -4.0;
             offset_placement.rotation_offset_z = 30.0;
             require(zima::document::resolve_placement(
                         offset_placement, document_origin_geometry) &&
-                        std::abs(offset_placement.rotation_x - 12.5) < 1.0e-9 &&
-                        std::abs(offset_placement.rotation_y - (-4.0)) < 1.0e-9 &&
-                        std::abs(offset_placement.rotation_z - 30.0) < 1.0e-9,
-                    "Container placement without a FRONT/TOP reference did not pass "
-                    "the manual RX/RY/RZ correction through unchanged");
+                        std::abs(offset_placement.rotation_x - 22.0) < 1.0e-9 &&
+                        std::abs(offset_placement.rotation_y - (-8.0)) < 1.0e-9 &&
+                        std::abs(offset_placement.rotation_z - 41.0) < 1.0e-9,
+                    "Container placement without a FRONT/TOP reference did not "
+                    "preserve absolute RX/RY/RZ or incorrectly applied correction");
 
             zima::document::Placement composed_placement;
             composed_placement.rotation_offset_z = 15.0;
@@ -980,6 +986,30 @@ int main() {
                         std::abs(composed_placement.rotation_z - (-75.0)) < 1.0e-4,
                     "Container placement did not compose the manual RZ correction "
                     "on top of the FRONT/TOP reference frame");
+
+            zima::kernel::ViewerReferenceGeometry three_point_geometry;
+            three_point_geometry.points = {
+                {{0.0, 0.0, 0.0}, {"points", "p1"}},
+                {{10.0, 0.0, 0.0}, {"points", "p2"}},
+                {{0.0, 10.0, 0.0}, {"points", "p3"}}};
+            zima::document::Placement three_point_placement;
+            three_point_placement.references = {
+                {{}, "points", "p1"}, {{}, "points", "p2"},
+                {{}, "points", "p3"}};
+            zima::kernel::Vec3 three_point_base;
+            bool three_point_oriented = false;
+            require(zima::document::resolve_placement(three_point_placement,
+                        three_point_geometry, &three_point_base,
+                        &three_point_oriented) && three_point_oriented &&
+                        std::abs(three_point_base.x) < 1.0e-9 &&
+                        std::abs(three_point_base.y) < 1.0e-9 &&
+                        std::abs(three_point_base.z) < 1.0e-9,
+                    "Three ordered points did not derive X=P1->P2 and Y toward P3");
+            three_point_placement.orientation_quarter_turns = 1;
+            require(zima::document::resolve_placement(
+                        three_point_placement, three_point_geometry) &&
+                        std::abs(three_point_placement.rotation_z - 90.0) < 1.0e-6,
+                    "ROTATE did not apply one 90-degree turn to the derived frame");
 
             zima::document::Placement missing_placement;
             missing_placement.references = {
@@ -1062,15 +1092,14 @@ int main() {
                         1.0e-6 &&
                     std::abs(loaded_constructions.constructions[7].origin.y) <
                         1.0e-6 &&
-                    // Index 8 is the origin bulk-fill Plane: per the
-                    // updated "row 0 (FRONT) always decides orientation"
-                    // contract it now inherits the XZ origin plane's own
-                    // frame (normal -Y) instead of forced identity -- see
-                    // the matching resolve_constructions() assertion above.
-                    std::abs(loaded_constructions.constructions[8].direction.x) <
-                        1.0e-6 &&
-                    std::abs(loaded_constructions.constructions[8].direction.y +
+                    // Index 8 is the origin bulk-fill Plane. The complete
+                    // origin triad represents the document identity frame;
+                    // save/load must preserve that result instead of
+                    // inheriting whichever datum plane filled row 0 first.
+                    std::abs(loaded_constructions.constructions[8].direction.x -
                               1.0) < 1.0e-6 &&
+                    std::abs(loaded_constructions.constructions[8].direction.y) <
+                        1.0e-6 &&
                     std::abs(loaded_constructions.constructions[8].direction.z) <
                         1.0e-6 &&
                     std::abs(loaded_constructions.constructions[9].rotation.x) <
@@ -1082,6 +1111,92 @@ int main() {
                     loaded_constructions.constructions.front().container_origin ==
                         point.container_origin,
                 "Construction objects did not survive save/load");
+        {
+            auto local_plane_document =
+                zima::document::PartDocument::create_default();
+            auto local_plane = zima::document::PartDocument::create_construction(
+                zima::document::ConstructionKind::Plane);
+            local_plane.base_plane = zima::document::LocalDatumPlane::XY;
+            local_plane.offset = 9.0;
+            const auto local_plane_id = local_plane.id;
+            local_plane_document.constructions.push_back(local_plane);
+            local_plane_document.resolve_constructions();
+            const auto* resolved_local_plane =
+                local_plane_document.find_construction(local_plane_id);
+            require(resolved_local_plane != nullptr &&
+                        resolved_local_plane->base_plane ==
+                            zima::document::LocalDatumPlane::XY &&
+                        std::abs(resolved_local_plane->direction.x) < 1.0e-9 &&
+                        std::abs(resolved_local_plane->direction.y) < 1.0e-9 &&
+                        std::abs(resolved_local_plane->direction.z - 1.0) < 1.0e-9 &&
+                        std::abs(resolved_local_plane->origin.z) < 1.0e-9 &&
+                        std::abs(resolved_local_plane->entity_origin.z - 9.0) < 1.0e-9,
+                    "Plane did not offset from its selected local Container Origin XY plane");
+            const auto local_plane_mesh =
+                local_plane_document.construction_viewer_mesh(local_plane_id);
+            const auto displayed_plane = std::find_if(local_plane_mesh.edges.begin(),
+                local_plane_mesh.edges.end(), [](const auto& edge) {
+                    return edge.reference.semantic_key == "border";
+                });
+            const auto local_origin_xy = std::find_if(local_plane_mesh.edges.begin(),
+                local_plane_mesh.edges.end(), [](const auto& edge) {
+                    return edge.reference.semantic_key == "origin:plane:xy";
+                });
+            require(displayed_plane != local_plane_mesh.edges.end() &&
+                        local_origin_xy != local_plane_mesh.edges.end() &&
+                        std::all_of(displayed_plane->points.begin(),
+                            displayed_plane->points.end(), [](const auto& point) {
+                                return std::abs(point.z - 9.0) < 1.0e-9;
+                            }) &&
+                        displayed_plane->points.size() == 5 &&
+                        local_origin_xy->points.size() == 5 &&
+                        std::abs(std::hypot(
+                            displayed_plane->points[1].x -
+                                displayed_plane->points[0].x,
+                            displayed_plane->points[1].y -
+                                displayed_plane->points[0].y) - 7.5) < 1.0e-9,
+                    "Displayed Plane quad ignored its selected local XY plane");
+            const auto edge_length = [](const auto& edge) {
+                const auto& first = edge.points[0];
+                const auto& second = edge.points[1];
+                return std::hypot(std::hypot(second.x - first.x,
+                                             second.y - first.y),
+                                  second.z - first.z);
+            };
+            const auto tiny_scene_plane =
+                local_plane_document.construction_viewer_mesh(local_plane_id, 1.0);
+            const auto huge_scene_plane =
+                local_plane_document.construction_viewer_mesh(local_plane_id, 1.0e6);
+            const auto border_length = [&](const auto& mesh) {
+                const auto border = std::find_if(mesh.edges.begin(), mesh.edges.end(),
+                    [](const auto& edge) {
+                        return edge.reference.semantic_key == "border";
+                    });
+                return border == mesh.edges.end() ? -1.0 : edge_length(*border);
+            };
+            require(std::abs(edge_length(*displayed_plane) -
+                             edge_length(*local_origin_xy)) < 1.0e-9 &&
+                        std::abs(border_length(tiny_scene_plane) - 7.5) < 1.0e-9 &&
+                        std::abs(border_length(huge_scene_plane) - 7.5) < 1.0e-9,
+                    "Work Plane and Container Origin planes do not share one fixed display size");
+            require(std::any_of(local_plane_mesh.points.begin(),
+                        local_plane_mesh.points.end(), [](const auto& point) {
+                            return point.reference.semantic_key ==
+                                "preview:plane-offset-point" &&
+                                std::abs(point.position.z - 9.0) < 1.0e-9;
+                        }),
+                    "Editing Plane has no display-only offset-position marker");
+            const auto local_plane_path = std::filesystem::temp_directory_path() /
+                "zima-cad-cpp-local-base-plane-contract.prtz";
+            local_plane_document.save(local_plane_path);
+            const auto loaded_local_plane =
+                zima::document::PartDocument::load(local_plane_path);
+            std::filesystem::remove(local_plane_path);
+            require(loaded_local_plane.constructions.size() == 1 &&
+                        loaded_local_plane.constructions.front().base_plane ==
+                            zima::document::LocalDatumPlane::XY,
+                    "Plane local Container Origin plane did not survive save/load");
+        }
         auto extrusion_document = zima::document::PartDocument::create_default();
         auto extrusion_sketch = zima::sketcher::Sketch::create_default();
         extrusion_sketch.name = "Obdélníkový profil";
@@ -1104,6 +1219,42 @@ int main() {
         require(extrusion_results.size() == 1 &&
                     std::abs(extrusion_results.front().volume - 6000.0) < 1.0e-6,
                 "Closed Sketch extrusion produced an incorrect solid volume");
+        auto owned_sketch_document = extrusion_document;
+        owned_sketch_document.sketches.front().owner_container_id =
+            extrusion_container_id;
+        owned_sketch_document.insert_history_entry(
+            zima::document::PartHistoryKind::Feature, extrusion_container_id);
+        const auto owned_sketch_path = std::filesystem::temp_directory_path() /
+            "zima-cad-owned-sketch-contract.prtz";
+        owned_sketch_document.save(owned_sketch_path, extrusion_results);
+        std::vector<zima::kernel::BodyResult> loaded_owned_boundaries;
+        const auto loaded_owned_sketch_document =
+            zima::document::PartDocument::load(
+                owned_sketch_path, &loaded_owned_boundaries);
+        std::filesystem::remove(owned_sketch_path);
+        require(loaded_owned_sketch_document.history_order.size() == 1 &&
+                    loaded_owned_sketch_document.history_order.front().kind ==
+                        zima::document::PartHistoryKind::Feature &&
+                    loaded_owned_sketch_document.sketches.size() == 1 &&
+                    loaded_owned_sketch_document.sketches.front()
+                            .owner_container_id == extrusion_container_id &&
+                    loaded_owned_sketch_document.history.front().extrusion.sketch_id ==
+                        loaded_owned_sketch_document.sketches.front().id &&
+                    loaded_owned_boundaries.size() == 1,
+                "Owned Sketch was duplicated in history or lost during Part save/load");
+        auto moved_owned_sketch_document = loaded_owned_sketch_document;
+        moved_owned_sketch_document.history.front().placement.x = 11.0;
+        moved_owned_sketch_document.history.front().placement.y = -3.0;
+        moved_owned_sketch_document.history.front().placement.z = 20.0;
+        moved_owned_sketch_document.history.front().extrusion.profile_plane_offset = 6.0;
+        moved_owned_sketch_document.sketches.front().plane_offset = 6.0;
+        moved_owned_sketch_document.resolve_constructions();
+        const auto moved_profile_origin =
+            moved_owned_sketch_document.sketches.front().world_point(0.0, 0.0);
+        require(std::abs(moved_profile_origin.x - 11.0) < 1.0e-9 &&
+                    std::abs(moved_profile_origin.y + 3.0) < 1.0e-9 &&
+                    std::abs(moved_profile_origin.z - 26.0) < 1.0e-9,
+                "Owned Extrusion Sketch did not follow container placement and plane offset");
         std::set<std::string> extrusion_faces;
         for (const auto& reference : extrusion_results.front().mesh.original_references.triangle_references) {
             require(reference.owner_id == extrusion_container_id && reference.valid(),

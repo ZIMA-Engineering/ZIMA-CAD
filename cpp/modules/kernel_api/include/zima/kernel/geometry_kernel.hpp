@@ -65,6 +65,10 @@ struct ViewerEdge {
     // Screen-space helpers (Sketcher and construction planes) are painted as
     // UI overlays. Calculated body topology stays in the depth-tested GL pass.
     bool overlay{};
+    // Sketch centerlines are defined by two points but presented and picked
+    // as an unbounded line in the active Sketch plane.
+    bool infinite{};
+    bool dash_dot{};
 };
 
 struct ViewerPoint {
@@ -77,6 +81,9 @@ struct ViewerPoint {
     // container's own marker (and any other caller that does not set this)
     // defaults to true and always renders, since it IS the visible entity.
     bool always_visible{true};
+    // Sketch geometry role. Ordinary/profile points render white; auxiliary
+    // construction points render green, matching construction edges.
+    bool construction{};
 };
 
 struct ViewerAxis {
@@ -96,6 +103,17 @@ struct ViewerDimension {
     EdgeReference reference;
     std::string label_prefix;
     std::string unit_suffix{" mm"};
+    std::vector<std::string> participant_semantic_keys;
+};
+
+struct ViewerConstraintMarker {
+    Vec3 position;
+    std::string label;
+    EdgeReference reference;
+    // Stable Sketch semantic keys of every entity participating in the
+    // relation. The viewer uses these persisted identities for exact
+    // dependency highlighting; it never reconstructs participants from OCCT.
+    std::vector<std::string> participant_semantic_keys;
 };
 
 // Hidden persisted geometry owned by original ZIMA entities. It participates
@@ -120,6 +138,7 @@ struct ViewerMesh {
     std::vector<ViewerPoint> points;
     std::vector<ViewerAxis> axes;
     std::vector<ViewerDimension> dimensions;
+    std::vector<ViewerConstraintMarker> constraint_markers;
     ViewerReferenceGeometry original_references;
 };
 

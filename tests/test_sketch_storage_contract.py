@@ -10,7 +10,7 @@ from zima_cad.storage import load_part_document, save_part_document
 class SketchStorageContractTests(unittest.TestCase):
     def test_native_sketch_payload_maps_without_kernel_work(self) -> None:
         native = {
-            "format": "zima-cad-cpp-sketch", "version": 20,
+            "format": "zima-cad-cpp-sketch", "version": 27,
             "id": "Sketch001", "name": "Profile", "suppressed": False,
             "plane": "xz", "plane_offset": 2.5,
             "points": [
@@ -18,7 +18,8 @@ class SketchStorageContractTests(unittest.TestCase):
                 {"id": "p1", "x": 10, "y": 0, "fixed": False, "construction": True},
                 {"id": "pc", "x": 5, "y": 5, "fixed": False, "construction": False},
             ],
-            "segments": [{"id": "axis", "first": "p0", "second": "p1", "construction": True}],
+            "segments": [{"id": "axis", "first": "p0", "second": "p1",
+                          "construction": True, "centerline": True}],
             "circles": [{"id": "hole", "center": "pc", "radius": 2, "construction": False}],
             "arcs": [], "ellipses": [], "elliptical_arcs": [], "bsplines": [],
             "import_blocks": [], "texts": [],
@@ -38,7 +39,7 @@ class SketchStorageContractTests(unittest.TestCase):
         }
         model = SketchModel.from_dict(native)
         self.assertEqual(model.sketch_id, "Sketch001")
-        self.assertTrue(model.geometry["axis"].attributes["construction"])
+        self.assertEqual(model.geometry["axis"].geometry_type.value, "construction")
         self.assertEqual(model.geometry["hole"].geometry_type, GeometryType.CIRCLE)
         self.assertEqual(model.external_references[0]["source_owner_id"], "Body")
         self.assertEqual(

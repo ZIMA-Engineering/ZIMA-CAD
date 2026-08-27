@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <map>
 #include <stdexcept>
 #include <utility>
@@ -341,6 +342,66 @@ double point_segment_distance(
         point[1] - first[1] - factor * dy);
 }
 
+double nearest_curve_parameter(
+    const SampledCurve& curve, const Point2& point) {
+    double best_distance = std::numeric_limits<double>::infinity();
+    double best_parameter{};
+    for (std::size_t index = 1; index < curve.points.size(); ++index) {
+        const auto& first = curve.points[index - 1];
+        const auto& second = curve.points[index];
+        const double dx = second[0] - first[0];
+        const double dy = second[1] - first[1];
+        const double denominator = dx * dx + dy * dy;
+        const double factor = denominator <= 1.0e-20 ? 0.0 : std::clamp(
+            ((point[0] - first[0]) * dx +
+             (point[1] - first[1]) * dy) / denominator,
+            0.0, 1.0);
+        const Point2 closest{
+            first[0] + factor * dx, first[1] + factor * dy};
+        const double distance = std::hypot(
+            point[0] - closest[0], point[1] - closest[1]);
+        if (distance < best_distance) {
+            best_distance = distance;
+            best_parameter = curve.parameters[index - 1] + factor *
+                (curve.parameters[index] - curve.parameters[index - 1]);
+        }
+    }
+    return best_parameter;
+}
+
+struct PersistedCurveContact {
+    std::string geometry_id;
+    std::string point_id;
+    double parameter{};
+};
+
+std::vector<PersistedCurveContact> persisted_curve_contacts(
+    const Sketch& sketch, const std::vector<SampledCurve>& curves) {
+    std::vector<PersistedCurveContact> result;
+    for (const auto& constraint : sketch.constraints) {
+        if (constraint.suppressed ||
+            (constraint.kind != ConstraintKind::PointOnLine &&
+             constraint.kind != ConstraintKind::PointOnCircle)) {
+            continue;
+        }
+        const auto curve = std::find_if(curves.begin(), curves.end(),
+            [&](const auto& value) {
+                return value.geometry_id == constraint.geometry_id;
+            });
+        const auto* point = sketch.find_point(constraint.first_point_id);
+        if (curve == curves.end() || point == nullptr) continue;
+        const double parameter = nearest_curve_parameter(
+            *curve, {point->x, point->y});
+        if (std::none_of(result.begin(), result.end(), [&](const auto& old) {
+                return old.geometry_id == curve->geometry_id &&
+                    old.point_id == point->id;
+            })) {
+            result.push_back({curve->geometry_id, point->id, parameter});
+        }
+    }
+    return result;
+}
+
 Point2 exact_geometry_point(
     const Sketch& sketch, const SampledCurve& sampled,
     double parameter) {
@@ -444,6 +505,14 @@ std::vector<SketchTrimPiece> sketch_trim_topology(
                 cuts[second.geometry_id].push_back(hit[1]);
             }
         }
+    }
+    // A persisted point-on-curve relation is an exact topological boundary
+    // even when no second curve crosses it. In particular, tangential or
+    // deliberately attached points must split trim topology just as they do
+    // in the Python Sketcher; sampled polyline intersections alone cannot
+    // reliably recover such contacts.
+    for (const auto& contact : persisted_curve_contacts(sketch, curves)) {
+        cuts[contact.geometry_id].push_back(contact.parameter);
     }
     std::vector<SketchTrimPiece> pieces;
     for (const auto& curve : curves) {
@@ -555,6 +624,7 @@ SketchTrimResult apply_sketch_trim(
             std::any_of(topology_without_axes.begin(), topology_without_axes.end(), matches);
     };
     const auto curves = sample_curves(sketch);
+    const auto persisted_contacts = persisted_curve_contacts(sketch, curves);
     std::map<std::string, const SampledCurve*> curve_by_id;
     for (const auto& curve : curves) curve_by_id[curve.geometry_id] = &curve;
     std::map<std::string, std::vector<std::array<double, 2>>> removed_by_id;
@@ -719,6 +789,26 @@ SketchTrimResult apply_sketch_trim(
             }
             next.points.push_back(*source_point);
         };
+        // Keep the stable identity of every persisted point-on-curve contact
+        // that becomes a survivor boundary. The reconstruction helpers then
+        // snap the new Segment/Arc endpoint to this already restored point.
+        for (const auto& contact : persisted_contacts) {
+            if (contact.geometry_id != geometry_id) continue;
+            const bool survivor_boundary = std::any_of(
+                domains.begin(), domains.end(), [&](const auto& domain) {
+                    const auto cyclic_distance = [&](double boundary) {
+                        double distance = std::abs(boundary - contact.parameter);
+                        if (curve.closed) {
+                            distance = std::min(distance,
+                                std::abs(distance - 1.0));
+                        }
+                        return distance;
+                    };
+                    return cyclic_distance(domain[0]) <= 1.0e-6 ||
+                        cyclic_distance(domain[1]) <= 1.0e-6;
+                });
+            if (survivor_boundary) restore_source_point(contact.point_id);
+        }
         if (!domains.empty()) {
             if (curve.kind == SampledKind::Circle || curve.kind == SampledKind::Arc ||
                 curve.kind == SampledKind::Ellipse ||

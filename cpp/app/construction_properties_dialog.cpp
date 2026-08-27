@@ -57,10 +57,6 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
     setFont(compact_font);
     auto* form = new QFormLayout;
     name_ = new QLineEdit(QString::fromStdString(initial.name), this);
-    set_internal_title(name_->text());
-    connect(name_, &QLineEdit::textChanged, this, [this](const QString& name) {
-        set_internal_title(name.trimmed());
-    });
     form->addRow(tr("Název"), name_);
     definition_ = new QComboBox(this);
     definition_->setObjectName("constructionDefinition");
@@ -102,9 +98,6 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
         result->setValue(value);
         return result;
     };
-    origin_ = {field(initial.origin.x, "constructionX", " mm"),
-               field(initial.origin.y, "constructionY", " mm"),
-               field(initial.origin.z, "constructionZ", " mm")};
     offset_ = field(initial.offset, "constructionOffset", " mm");
     if (initial.kind != zima::document::ConstructionKind::Plane) {
         offset_->hide();
@@ -119,7 +112,42 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
     content_layout()->addLayout(form);
     placement_ = std::make_unique<zima::ui::ContainerPlacementSection>(
         this, content_layout(),
-        initial.kind == zima::document::ConstructionKind::Plane);
+        /*with_orientation=*/true,
+        /*position_rows_can_define_rotation=*/
+            initial.kind != zima::document::ConstructionKind::Point);
+    zima::document::Placement numeric;
+    numeric.x = initial.origin.x; numeric.y = initial.origin.y; numeric.z = initial.origin.z;
+    const auto initial_absolute = initial.absolute_rotation;
+    numeric.rotation_x = initial_absolute.x;
+    numeric.rotation_y = initial_absolute.y;
+    numeric.rotation_z = initial_absolute.z;
+    numeric.absolute_rotation_x = initial_absolute.x;
+    numeric.absolute_rotation_y = initial_absolute.y;
+    numeric.absolute_rotation_z = initial_absolute.z;
+    numeric.orientation_back = initial.orientation_back;
+    numeric.orientation_quarter_turns = initial.orientation_quarter_turns;
+    numeric.rotation_offset_x = initial.rotation_offset_x;
+    numeric.rotation_offset_y = initial.rotation_offset_y;
+    numeric.rotation_offset_z = initial.rotation_offset_z;
+    placement_->initialize_numeric_values(numeric);
+    const bool has_orientation_reference = std::any_of(
+        initial.references.begin(), initial.references.end(),
+        [](const auto& reference) { return reference.orientation_drives_rotation; });
+    placement_->set_orientation_base_rotation(
+        has_orientation_reference ? initial.rotation_base : initial.rotation,
+        has_orientation_reference);
+    origin_ = placement_->translation_fields();
+    rotation_ = placement_->rotation_fields();
+    rotation_offset_ = placement_->rotation_offset_fields();
+    origin_[0]->setObjectName("constructionX");
+    origin_[1]->setObjectName("constructionY");
+    origin_[2]->setObjectName("constructionZ");
+    rotation_[0]->setObjectName("constructionRotationX");
+    rotation_[1]->setObjectName("constructionRotationY");
+    rotation_[2]->setObjectName("constructionRotationZ");
+    rotation_offset_[0]->setObjectName("constructionRotationOffsetX");
+    rotation_offset_[1]->setObjectName("constructionRotationOffsetY");
+    rotation_offset_[2]->setObjectName("constructionRotationOffsetZ");
     placement_->initialize_from_references(initial.references,
         [](const std::string& semantic) { return readable_reference_kind(semantic); });
     reference_status_ = placement_->reference_status_label();
@@ -143,66 +171,7 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
         placement_->refresh_orientation_table();
     }
     const bool is_point = initial.kind == zima::document::ConstructionKind::Point;
-    // X/Y/Z always come immediately after the placement reference table,
-    // matching every container kind in the reference implementation.
-    auto* coordinates = new QFormLayout;
-    coordinates->addRow(tr("X"), origin_[0]);
-    coordinates->addRow(tr("Y"), origin_[1]);
-    coordinates->addRow(tr("Z"), origin_[2]);
-    content_layout()->addLayout(coordinates);
-
-    // Point shows a "Orientace kontejneru" heading directly above its
-    // RX/RY/RZ table and puts the remaining-DOF label at the very bottom,
-    // after that table. Axis/Plane have no such heading here (Plane's own
-    // "Orientace kontejneru" FRONT/TOP section is installed separately,
-    // later) and instead show the DOF label immediately after X/Y/Z, before
-    // the rotation table -- matching PointConstraintDialog vs.
-    // AxisConstraintDialog/PlaneConstraintDialog in the reference
-    // implementation.
-    if (!is_point) placement_->install_dof_label(content_layout());
-
     auto* rotation_form = new QFormLayout;
-    if (is_point) {
-        auto* orientation_heading = new QLabel(tr("Orientace kontejneru"), this);
-        auto orientation_font = orientation_heading->font();
-        orientation_font.setBold(true);
-        orientation_heading->setFont(orientation_font);
-        rotation_form->addRow(orientation_heading);
-    }
-    rotation_ = {field(initial.rotation.x, "constructionRotationX", " deg"),
-                 field(initial.rotation.y, "constructionRotationY", " deg"),
-                 field(initial.rotation.z, "constructionRotationZ", " deg")};
-    rotation_offset_ = {
-        field(initial.rotation_offset_x, "constructionRotationOffsetX", " deg"),
-        field(initial.rotation_offset_y, "constructionRotationOffsetY", " deg"),
-        field(initial.rotation_offset_z, "constructionRotationOffsetZ", " deg")};
-    for (auto* input : rotation_) {
-        input->setRange(-360'000.0, 360'000.0);
-        input->setSingleStep(5.0);
-        input->setToolTip(tr("Absolutní natočení odvozené z orientačních "
-            "referencí. Bez referencí lze zadat ručně."));
-    }
-    for (auto* input : rotation_offset_) {
-        input->setRange(-360'000.0, 360'000.0);
-        input->setSingleStep(5.0);
-        input->setToolTip(tr("Ruční korekce natočení, přičtená k "
-            "absolutnímu natočení."));
-    }
-    auto* rotation_header = new QWidget(this);
-    auto* rotation_header_layout = new QHBoxLayout(rotation_header);
-    rotation_header_layout->setContentsMargins(0, 0, 0, 0);
-    rotation_header_layout->addWidget(new QLabel(tr("Absolutní"), this));
-    rotation_header_layout->addWidget(new QLabel(tr("Korekce"), this));
-    rotation_form->addRow(QString(), rotation_header);
-    for (std::size_t index = 0; index < 3; ++index) {
-        auto* row_widget = new QWidget(this);
-        auto* row_layout = new QHBoxLayout(row_widget);
-        row_layout->setContentsMargins(0, 0, 0, 0);
-        row_layout->addWidget(rotation_[index]);
-        row_layout->addWidget(rotation_offset_[index]);
-        rotation_form->addRow(index == 0 ? tr("RX") : index == 1 ? tr("RY") : tr("RZ"),
-            row_widget);
-    }
     if (!is_point) {
         direction_combo_ = new QComboBox(this);
         direction_combo_->setObjectName("constructionDirection");
@@ -226,20 +195,33 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
     }
     content_layout()->addLayout(rotation_form);
 
-    // Point puts the remaining-DOF label after its RX/RY/RZ table; Plane's
-    // separate FRONT/TOP "Orientace kontejneru" section comes after the
-    // Velikost zobrazení row above, right before the DOF label was already
-    // installed for it.
-    if (is_point) placement_->install_dof_label(content_layout());
+    placement_->install_dof_label(content_layout());
     if (initial.kind == zima::document::ConstructionKind::Plane) {
-        placement_->install_orientation_section(content_layout());
         // "Work plane offset" is only meaningful once the user has chosen
         // what the Plane is parallel to / anchored on, so keep it at the
         // very bottom of the Plane dialog, right before the OK/Cancel row,
         // instead of splitting it away from the reference/orientation
         // controls at the top.
         auto* offset_form = new QFormLayout;
-        offset_form->addRow(tr("Odsazení pracovní roviny"), offset_);
+        base_plane_combo_ = new QComboBox(this);
+        base_plane_combo_->setObjectName("constructionBasePlane");
+        base_plane_combo_->addItem(
+            tr("Počátek kontejneru — Rovina XY"), QStringLiteral("xy"));
+        base_plane_combo_->addItem(
+            tr("Počátek kontejneru — Rovina YZ"), QStringLiteral("yz"));
+        base_plane_combo_->addItem(
+            tr("Počátek kontejneru — Rovina XZ"), QStringLiteral("xz"));
+        const auto base_plane_key = initial.base_plane ==
+                zima::document::LocalDatumPlane::XY ? QStringLiteral("xy")
+            : initial.base_plane == zima::document::LocalDatumPlane::XZ
+                ? QStringLiteral("xz") : QStringLiteral("yz");
+        base_plane_combo_->setCurrentIndex(
+            base_plane_combo_->findData(base_plane_key));
+        base_plane_combo_->setToolTip(tr(
+            "Rovina XY, YZ nebo XZ lokálního počátku kontejneru, se kterou "
+            "bude výsledná rovina rovnoběžná."));
+        offset_form->addRow(tr("Výchozí rovina"), base_plane_combo_);
+        offset_form->addRow(tr("Odsazení roviny"), offset_);
         content_layout()->addLayout(offset_form);
     }
     refresh_offset_enabled_state();
@@ -267,6 +249,8 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
     if (display_size_ != nullptr) connect(display_size_,
         &QDoubleSpinBox::valueChanged, this, [this] { notify_preview(); });
     if (direction_combo_ != nullptr) connect(direction_combo_,
+        &QComboBox::currentIndexChanged, this, [this] { notify_preview(); });
+    if (base_plane_combo_ != nullptr) connect(base_plane_combo_,
         &QComboBox::currentIndexChanged, this, [this] { notify_preview(); });
     connect(offset_, &QDoubleSpinBox::valueChanged,
         this, [this] { notify_preview(); });
@@ -371,19 +355,8 @@ void ConstructionPropertiesDialog::set_orientation_base_rotation(
     if (updating_rotation_fields_) return;
     has_orientation_base_rotation_ = has_orientation_references;
     updating_rotation_fields_ = true;
-    if (has_orientation_references) {
-        const std::array values{base_rotation.x, base_rotation.y, base_rotation.z};
-        for (std::size_t index = 0; index < rotation_.size(); ++index) {
-            if (rotation_[index] == nullptr) continue;
-            const QSignalBlocker blocker(rotation_[index]);
-            rotation_[index]->setValue(values[index]);
-            rotation_[index]->setEnabled(false);
-        }
-    } else {
-        for (auto* input : rotation_) {
-            if (input != nullptr) input->setEnabled(true);
-        }
-    }
+    placement_->set_orientation_base_rotation(
+        base_rotation, has_orientation_references);
     updating_rotation_fields_ = false;
 }
 
@@ -433,12 +406,14 @@ void ConstructionPropertiesDialog::refresh_offset_enabled_state() {
         offset_->setEnabled(false);
         return;
     }
-    // A Plane offset is defined relative to the first resolved placement
-    // anchor. Before any position reference exists, editing the field is
-    // misleading because there is no plane/face/axis/point relationship to
-    // offset from yet.
-    offset_->setEnabled(placement_ != nullptr &&
-        !placement_->populated_references().empty());
+    // A Plane's work-plane offset always has a well-defined direction to
+    // move along: resolve_construction() falls back to the identity normal
+    // (+X) whenever no orientation-driving reference is present, exactly
+    // like the un-referenced X/Y/Z origin fields above. So the offset field
+    // must stay editable even with zero position references -- disabling it
+    // until a reference exists was a leftover restriction with no actual
+    // mathematical dependency behind it.
+    offset_->setEnabled(true);
 }
 
 zima::document::ConstructionObject ConstructionPropertiesDialog::current_value() const {
@@ -446,9 +421,13 @@ zima::document::ConstructionObject ConstructionPropertiesDialog::current_value()
     value.name = name_->text().trimmed().toStdString();
     value.origin = {origin_[0]->value(), origin_[1]->value(), origin_[2]->value()};
     if (rotation_[0] != nullptr) {
-        value.rotation = {rotation_[0]->value(), rotation_[1]->value(),
-                          rotation_[2]->value()};
+        value.absolute_rotation = {rotation_[0]->value(), rotation_[1]->value(),
+                                   rotation_[2]->value()};
+        value.rotation = value.absolute_rotation;
     }
+    const auto numeric = placement_->numeric_placement();
+    value.orientation_back = numeric.orientation_back;
+    value.orientation_quarter_turns = numeric.orientation_quarter_turns;
     if (rotation_offset_[0] != nullptr) {
         value.rotation_offset_x = rotation_offset_[0]->value();
         value.rotation_offset_y = rotation_offset_[1]->value();
@@ -480,6 +459,14 @@ zima::document::ConstructionObject ConstructionPropertiesDialog::current_value()
             sz * local.x + cz * local.y, local.z};
     }
     if (display_size_ != nullptr) value.display_size = display_size_->value();
+    if (base_plane_combo_ != nullptr) {
+        const auto key = base_plane_combo_->currentData().toString();
+        value.base_plane = key == QStringLiteral("xy")
+            ? zima::document::LocalDatumPlane::XY
+            : key == QStringLiteral("xz")
+                ? zima::document::LocalDatumPlane::XZ
+                : zima::document::LocalDatumPlane::YZ;
+    }
     value.definition = current_definition();
     const auto populated = placement_->populated_references();
     const std::size_t required =

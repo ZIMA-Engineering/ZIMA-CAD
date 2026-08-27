@@ -7,8 +7,12 @@
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QHeaderView>
+#include <QFormLayout>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QPalette>
+#include <QPushButton>
+#include <QSignalBlocker>
 #include <QTableWidget>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -38,9 +42,11 @@ QString readable_reference_kind(const std::string& semantic) {
 }  // namespace
 
 ContainerPlacementSection::ContainerPlacementSection(
-    QWidget* parent_widget, QVBoxLayout* layout, bool with_orientation)
+    QWidget* parent_widget, QVBoxLayout* layout, bool with_orientation,
+    bool position_rows_can_define_rotation)
     : QObject(parent_widget), parent_widget_(parent_widget),
-      with_orientation_(with_orientation) {
+      with_orientation_(with_orientation),
+      position_rows_can_define_rotation_(position_rows_can_define_rotation) {
     // A section without its own orientation table (e.g. Point) never has
     // set_remaining_rotation_dof() called on it by its owning dialog -- the
     // member's {3} default initializer would then permanently keep
@@ -105,7 +111,7 @@ ContainerPlacementSection::ContainerPlacementSection(
         orientation_table_ = new QTableWidget(2, 4, parent_widget_);
         orientation_table_->setObjectName("containerPlacementOrientationTable");
         orientation_table_->setHorizontalHeaderLabels(
-            {QString(), tr("Reference"), tr("FRONT / TOP"), tr("Obrátit")});
+            {QString(), tr("Reference"), tr("Rovina kontejneru"), tr("Obrátit")});
         orientation_table_->horizontalHeader()->setSectionResizeMode(
             0, QHeaderView::ResizeToContents);
         orientation_table_->horizontalHeader()->setSectionResizeMode(
@@ -133,26 +139,188 @@ ContainerPlacementSection::ContainerPlacementSection(
                 }
                 orientation_table_->clearSelection();
             });
+        layout->addWidget(orientation_heading_);
+        auto* orientation_controls = new QWidget(parent_widget_);
+        auto* orientation_controls_layout = new QHBoxLayout(orientation_controls);
+        orientation_controls_layout->setContentsMargins(0, 0, 0, 0);
+        front_button_ = new QPushButton(tr("FRONT"), orientation_controls);
+        back_button_ = new QPushButton(tr("BACK"), orientation_controls);
+        rotate_button_ = new QPushButton(tr("↻ ROTATE 0°"), orientation_controls);
+        front_button_->setObjectName("containerOrientationFront");
+        back_button_->setObjectName("containerOrientationBack");
+        rotate_button_->setObjectName("containerOrientationRotate");
+        front_button_->setCheckable(true);
+        back_button_->setCheckable(true);
+        const auto refresh_buttons = [this] {
+            front_button_->setChecked(!orientation_back_);
+            back_button_->setChecked(orientation_back_);
+            rotate_button_->setText(tr("↻ ROTATE %1°").arg(
+                orientation_quarter_turns_ * 90));
+        };
+        connect(front_button_, &QPushButton::clicked, this,
+            [this, refresh_buttons] {
+                orientation_back_ = false;
+                refresh_buttons();
+                notify_changed();
+            });
+        connect(back_button_, &QPushButton::clicked, this,
+            [this, refresh_buttons] {
+                orientation_back_ = true;
+                refresh_buttons();
+                notify_changed();
+            });
+        connect(rotate_button_, &QPushButton::clicked, this,
+            [this, refresh_buttons] {
+                orientation_quarter_turns_ = (orientation_quarter_turns_ + 1) % 4;
+                refresh_buttons();
+                notify_changed();
+            });
+        refresh_buttons();
+        orientation_controls_layout->addWidget(front_button_);
+        orientation_controls_layout->addWidget(back_button_);
+        orientation_controls_layout->addWidget(rotate_button_, 1);
+        layout->addWidget(orientation_controls);
+        // Kept as an internal value adapter while old call sites are removed;
+        // it is deliberately not presented to the user anymore.
+        orientation_table_->hide();
+    }
+
+    const auto field = [this](bool angular, const char* object_name) {
+        auto* input = new QDoubleSpinBox(parent_widget_);
+        input->setRange(angular ? -360'000.0 : -1'000'000.0,
+                        angular ? 360'000.0 : 1'000'000.0);
+        input->setDecimals(3);
+        input->setSingleStep(angular ? 5.0 : 1.0);
+        input->setSuffix(angular ? tr(" deg") : tr(" mm"));
+        input->setObjectName(object_name);
+        connect(input, &QDoubleSpinBox::valueChanged, this,
+            [this] { notify_changed(); });
+        return input;
+    };
+    translation_ = {field(false, "containerPlacementX"),
+                    field(false, "containerPlacementY"),
+                    field(false, "containerPlacementZ")};
+    auto* coordinates = new QFormLayout;
+    coordinates->addRow(tr("X"), translation_[0]);
+    coordinates->addRow(tr("Y"), translation_[1]);
+    coordinates->addRow(tr("Z"), translation_[2]);
+    layout->addLayout(coordinates);
+
+    if (with_orientation_) {
+        rotation_ = {field(true, "containerRotationX"),
+                     field(true, "containerRotationY"),
+                     field(true, "containerRotationZ")};
+        rotation_offset_ = {field(true, "containerRotationOffsetX"),
+                            field(true, "containerRotationOffsetY"),
+                            field(true, "containerRotationOffsetZ")};
+        auto* rotation_form = new QFormLayout;
+        auto* header = new QWidget(parent_widget_);
+        auto* header_layout = new QHBoxLayout(header);
+        header_layout->setContentsMargins(0, 0, 0, 0);
+        header_layout->addWidget(new QLabel(tr("Absolutní"), parent_widget_));
+        header_layout->addWidget(new QLabel(tr("Korekce"), parent_widget_));
+        rotation_form->addRow(QString(), header);
+        for (std::size_t index = 0; index < 3; ++index) {
+            auto* row = new QWidget(parent_widget_);
+            auto* row_layout = new QHBoxLayout(row);
+            row_layout->setContentsMargins(0, 0, 0, 0);
+            row_layout->addWidget(rotation_[index]);
+            row_layout->addWidget(rotation_offset_[index]);
+            rotation_form->addRow(index == 0 ? tr("RX") : index == 1 ? tr("RY") : tr("RZ"), row);
+        }
+        layout->addLayout(rotation_form);
     }
 
     dof_label_ = new QLabel(parent_widget_);
+}
+
+void ContainerPlacementSection::initialize_numeric_values(
+        const zima::document::Placement& placement) {
+    const std::array position{placement.x, placement.y, placement.z};
+    const bool has_orientation_reference = std::any_of(
+        placement.references.begin(), placement.references.end(),
+        [](const auto& reference) { return reference.orientation_drives_rotation; });
+    const std::array rotation{
+        !has_orientation_reference ? placement.absolute_rotation_x : placement.rotation_x,
+        !has_orientation_reference ? placement.absolute_rotation_y : placement.rotation_y,
+        !has_orientation_reference ? placement.absolute_rotation_z : placement.rotation_z};
+    const std::array correction{placement.rotation_offset_x,
+        placement.rotation_offset_y, placement.rotation_offset_z};
+    for (std::size_t i = 0; i < 3; ++i) {
+        translation_[i]->setValue(position[i]);
+        if (rotation_[i]) rotation_[i]->setValue(rotation[i]);
+        if (rotation_offset_[i]) rotation_offset_[i]->setValue(correction[i]);
+    }
+    orientation_back_ = placement.orientation_back;
+    orientation_quarter_turns_ =
+        ((placement.orientation_quarter_turns % 4) + 4) % 4;
+    if (front_button_) front_button_->setChecked(!orientation_back_);
+    if (back_button_) back_button_->setChecked(orientation_back_);
+    if (rotate_button_) rotate_button_->setText(
+        tr("↻ ROTATE %1°").arg(orientation_quarter_turns_ * 90));
+}
+
+zima::document::Placement ContainerPlacementSection::numeric_placement() const {
+    zima::document::Placement result;
+    result.x = translation_[0]->value(); result.y = translation_[1]->value();
+    result.z = translation_[2]->value();
+    if (rotation_[0]) {
+        result.rotation_x = rotation_[0]->value();
+        result.rotation_y = rotation_[1]->value();
+        result.rotation_z = rotation_[2]->value();
+        result.rotation_offset_x = rotation_offset_[0]->value();
+        result.rotation_offset_y = rotation_offset_[1]->value();
+        result.rotation_offset_z = rotation_offset_[2]->value();
+        result.absolute_rotation_x = rotation_[0]->value();
+        result.absolute_rotation_y = rotation_[1]->value();
+        result.absolute_rotation_z = rotation_[2]->value();
+        result.orientation_back = orientation_back_;
+        result.orientation_quarter_turns = orientation_quarter_turns_;
+    }
+    return result;
+}
+
+void ContainerPlacementSection::set_translation_constraint_state(
+        const zima::document::PointConstraintState& state,
+        const zima::kernel::Vec3& solution) {
+    set_remaining_translation_dof(state.remaining_dof);
+    const std::array values{solution.x, solution.y, solution.z};
+    for (std::size_t i = 0; i < 3; ++i) {
+        translation_[i]->setEnabled(!state.constrained_axes[i]);
+        if (state.constrained_axes[i]) {
+            const QSignalBlocker blocker(translation_[i]);
+            translation_[i]->setValue(values[i]);
+        }
+    }
+}
+
+void ContainerPlacementSection::set_orientation_base_rotation(
+        const zima::kernel::Vec3& value, bool constrained) {
+    const std::array values{value.x, value.y, value.z};
+    for (std::size_t i = 0; i < 3; ++i) {
+        if (!rotation_[i]) continue;
+        const QSignalBlocker blocker(rotation_[i]);
+        rotation_[i]->setValue(values[i]);
+        rotation_[i]->setEnabled(!constrained);
+        if (rotation_offset_[i]) {
+            rotation_offset_[i]->setEnabled(constrained);
+            if (!constrained) {
+                const QSignalBlocker offset_blocker(rotation_offset_[i]);
+                rotation_offset_[i]->setValue(0.0);
+            }
+        }
+    }
 }
 
 void ContainerPlacementSection::install_dof_label(QVBoxLayout* layout) {
     if (dof_label_ != nullptr && layout != nullptr) layout->addWidget(dof_label_);
 }
 
-void ContainerPlacementSection::install_orientation_section(QVBoxLayout* layout) {
-    if (!with_orientation_ || layout == nullptr) return;
-    if (orientation_heading_ != nullptr) layout->addWidget(orientation_heading_);
-    if (orientation_table_ != nullptr) layout->addWidget(orientation_table_);
-}
-
 void ContainerPlacementSection::set_orientation_locked(
         bool locked, const QString& source_label) {
     if (!with_orientation_) return;
-    orientation_locked_ = locked;
-    orientation_locked_label_ = source_label;
+    orientation_inherited_ = locked;
+    orientation_inherited_label_ = source_label;
     refresh_orientation_table();
 }
 
@@ -189,9 +357,11 @@ void ContainerPlacementSection::initialize_from_references(
     // orientation-table entries carry `orientation_only == true`; route by
     // that field exclusively so reopened dialogs keep every positional row
     // in "Umístění kontejneru" and only the user-picked FRONT/TOP entries
-    // in "Orientace kontejneru".
-    std::vector<zima::document::ConstructionReference> orientation_candidates;
-    std::vector<QString> orientation_candidate_labels;
+    // in "Orientace kontejneru". FRONT and TOP are fixed semantic slots;
+    // never compact them, because a document may intentionally contain TOP
+    // without an explicit FRONT override.
+    std::vector<zima::document::ConstructionReference> orientation_candidates(2);
+    std::vector<QString> orientation_candidate_labels(2);
     for (const auto& reference : references) {
         const auto label = label_for_semantic
             ? label_for_semantic(reference.semantic_key)
@@ -205,8 +375,13 @@ void ContainerPlacementSection::initialize_from_references(
         // its own correct orientation_only flag, so no further pairing
         // reconstruction is needed (unlike before this field existed).
         if (with_orientation_ && reference.orientation_only) {
-            orientation_candidates.push_back(reference);
-            orientation_candidate_labels.push_back(label);
+            const bool secondary = reference.orientation_role == "top" ||
+                reference.orientation_role == "bottom" ||
+                reference.orientation_role == "left" ||
+                reference.orientation_role == "right";
+            const std::size_t slot = secondary ? 1 : 0;
+            orientation_candidates[slot] = reference;
+            orientation_candidate_labels[slot] = label;
         } else {
             references_.push_back(reference);
             reference_labels_.push_back(label);
@@ -227,8 +402,7 @@ bool ContainerPlacementSection::set_reference(std::size_t index,
     if (index >= 3) {
         const auto orientation_index = index - 3;
         if (!with_orientation_ || orientation_index >= 2) return false;
-        if (std::any_of(references_.begin(), references_.end(), duplicate) ||
-            std::any_of(orientation_references_.begin(),
+        if (std::any_of(orientation_references_.begin(),
                 orientation_references_.end(), duplicate)) {
             if (error_text) *error_text = tr("Stejnou referenci nelze zadat vícekrát.");
             return false;
@@ -260,8 +434,53 @@ bool ContainerPlacementSection::set_reference(std::size_t index,
     references_[index] = std::move(reference);
     reference_labels_[index] = label.trimmed().isEmpty()
         ? readable_reference_kind(references_[index].semantic_key) : label;
+    // Plane properties mirror the first two planar placement references
+    // into the independent container-orientation slots, matching the
+    // reference implementation's _record_automatic_container_orientation().
+    // The mirrored descriptors keep the same stable source geometry but are
+    // persisted as orientation-only mappings, so position and rotation
+    // remain separate concerns and either mapping can later be replaced.
+    if (with_orientation_ && references_[index].supports_offset) {
+        if (orientation_references_.size() < 2) orientation_references_.resize(2);
+        if (orientation_labels_.size() < 2) orientation_labels_.resize(2);
+        const auto same_source = [&](const auto& existing) {
+            return !existing.owner_id.empty() && duplicate(existing);
+        };
+        const bool already_mirrored = std::any_of(
+            orientation_references_.begin(), orientation_references_.end(),
+            same_source);
+        if (!already_mirrored) {
+            const auto empty = std::find_if(orientation_references_.begin(),
+                orientation_references_.end(), [](const auto& existing) {
+                    return existing.owner_id.empty() && existing.semantic_key.empty();
+                });
+            if (empty != orientation_references_.end()) {
+                const auto slot = static_cast<std::size_t>(std::distance(
+                    orientation_references_.begin(), empty));
+                *empty = references_[index];
+                empty->orientation_drives_rotation = true;
+                empty->orientation_role = slot == 0 ? "front" : "top";
+                empty->orientation_only = true;
+                // In the identity frame the XZ plane's geometric normal is
+                // -Y (X cross Z). FRONT is local +Y, so an automatically
+                // mirrored XZ datum used as FRONT must be inverted. This is
+                // what keeps X→X, Y→Y and Z→Z after whole-Origin bulk-fill.
+                if (slot == 0 &&
+                    references_[index].semantic_key.ends_with("plane:xz")) {
+                    empty->flip = !empty->flip;
+                }
+                orientation_labels_[slot] = reference_labels_[index];
+                refresh_orientation_table();
+            }
+        }
+    }
     refresh_reference_table();
     notify_changed();
+    // Removing a populated row is itself an explicit request to replace
+    // that reference. notify_changed() may rebuild the shared View and thus
+    // clears its command filter; arm the same row afterwards so hover works
+    // immediately for the replacement pick.
+    if (reference_request_) reference_request_(index);
     return true;
 }
 
@@ -475,8 +694,10 @@ void ContainerPlacementSection::refresh_reference_table() {
     // classic history-order-dependent shortcut: 1st point = origin, 2nd =
     // direction, 3rd = plane-completing point), which would otherwise be
     // impossible to enter once translation alone reaches 0.
+    const int position_dof = remaining_translation_dof_ +
+        (position_rows_can_define_rotation_ ? remaining_rotation_dof_ : 0);
     const std::size_t visible = std::min<std::size_t>(3, references_.size() +
-        ((remaining_translation_dof_ + remaining_rotation_dof_) > 0 ? 1 : 0));
+        (position_dof > 0 ? 1 : 0));
     const auto palette = parent_widget_->palette();
     for (std::size_t index = 0; index < visible; ++index) {
         // A middle row can be an empty "hole" left by remove_reference()
@@ -536,17 +757,17 @@ void ContainerPlacementSection::refresh_orientation_table() {
     // which never disables the FRONT/TOP table just because row 0 of
     // Umístění kontejneru already supplies a default orientation. An empty
     // row shows a "derived from reference 1" placeholder label when
-    // `orientation_locked_` is set, but clicking it still arms picking
+    // the frame is inherited, but clicking it still arms picking
     // exactly like any other empty row, letting the user override the
     // automatic default with their own reference.
     orientation_table_->setEnabled(true);
     const auto palette = parent_widget_->palette();
-    const QString derived_label = orientation_locked_label_.isEmpty()
-        ? tr("rovina") : orientation_locked_label_;
-    orientation_table_->setToolTip(orientation_locked_
-        ? tr("Orientace je ve výchozím stavu odvozena z první polohové "
-             "reference (%1). Kliknutím na řádek FRONT nebo TOP můžete "
-             "vybrat vlastní referenci a výchozí odvození přebít.")
+    const QString derived_label = orientation_inherited_label_.isEmpty()
+        ? tr("první roviny umístění") : orientation_inherited_label_;
+    orientation_table_->setToolTip(orientation_inherited_
+        ? tr("Lokální roviny FRONT a TOP jsou ve výchozím stavu vypočtené "
+             "z umístění kontejneru (%1). Každé z nich můžete kdykoliv "
+             "přiřadit vlastní orientační referenci.")
               .arg(derived_label)
         : QString());
     for (std::size_t index = 0; index < 2; ++index) {
@@ -555,19 +776,12 @@ void ContainerPlacementSection::refresh_orientation_table() {
         auto* indicator = zima::ui::build_reference_row_indicator(
             populated
                 ? std::function<void()>([this, index] {
-                      orientation_references_.erase(
-                          orientation_references_.begin() +
-                          static_cast<std::ptrdiff_t>(index));
+                      orientation_references_[index] = {};
                       if (index < orientation_labels_.size())
-                          orientation_labels_.erase(
-                              orientation_labels_.begin() +
-                              static_cast<std::ptrdiff_t>(index));
-                      for (std::size_t role = 0;
-                          role < orientation_references_.size(); ++role)
-                          orientation_references_[role].orientation_role =
-                              role == 0 ? "front" : "top";
+                          orientation_labels_[index].clear();
                       refresh_orientation_table();
                       notify_changed();
+                      if (reference_request_) reference_request_(index + 3);
                   })
                 : std::function<void()>({}));
         orientation_indicators_[index] = indicator;
@@ -575,9 +789,8 @@ void ContainerPlacementSection::refresh_orientation_table() {
             zima::ui::centered_cell_widget(indicator));
 
         auto* reference = new zima::ui::ReferenceCellItem(
-            orientation_locked_
-                ? (index == 0 ? tr("Odvozeno z reference 1 (%1)").arg(derived_label)
-                               : tr("Odvozeno automaticky"))
+            orientation_inherited_
+                ? tr("Vypočteno z umístění (%1)").arg(derived_label)
                 : tr("Vybrat orientační referenci"));
         if (populated) {
             reference->set_reference(
@@ -595,15 +808,23 @@ void ContainerPlacementSection::refresh_orientation_table() {
         zima::ui::set_reference_row_populated(indicator, populated);
 
         auto* role = new QComboBox(orientation_table_);
-        role->addItem(QStringLiteral("FRONT"), QStringLiteral("front"));
-        role->addItem(QStringLiteral("TOP"), QStringLiteral("top"));
-        const auto stored_role = index < orientation_references_.size()
+        if (index == 0) {
+            role->addItem(QStringLiteral("FRONT"), QStringLiteral("front"));
+            role->addItem(QStringLiteral("BACK"), QStringLiteral("back"));
+        } else {
+            role->addItem(QStringLiteral("TOP"), QStringLiteral("top"));
+            role->addItem(QStringLiteral("BOTTOM"), QStringLiteral("bottom"));
+            role->addItem(QStringLiteral("LEFT"), QStringLiteral("left"));
+            role->addItem(QStringLiteral("RIGHT"), QStringLiteral("right"));
+        }
+        const auto stored_role = populated
             ? QString::fromStdString(orientation_references_[index].orientation_role)
             : (index == 0 ? QStringLiteral("front") : QStringLiteral("top"));
         role->setCurrentIndex(std::max(0, role->findData(stored_role)));
         role->setEnabled(populated);
         connect(role, &QComboBox::currentIndexChanged, this, [this, index, role] {
-            if (index < orientation_references_.size()) {
+            if (index < orientation_references_.size() &&
+                !orientation_references_[index].owner_id.empty()) {
                 orientation_references_[index].orientation_role =
                     role->currentData().toString().toStdString();
                 notify_changed();

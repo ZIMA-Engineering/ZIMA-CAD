@@ -118,11 +118,14 @@ ComponentPropertiesDialog::ComponentPropertiesDialog(
     const zima::assembly::PartOccurrence& initial,
     CommitCallback commit,
     QWidget* parent)
-    : PropertiesSubWindow(tr("Vlastnosti komponenty"), parent),
+    : PropertiesSubWindow(tr("Komponenta"), parent),
       initial_(initial), commit_(std::move(commit)),
       placement_references_(initial.placement_references) {
     setAttribute(Qt::WA_DeleteOnClose, true);
-    setMinimumWidth(420);
+    // The three reference columns must remain readable without horizontal
+    // compression; match the proven Python component-properties proportions.
+    setMinimumWidth(720);
+    resize(820, sizeHint().height());
     auto* form = new QFormLayout;
     name_ = new QLineEdit(QString::fromStdString(initial.name), this);
     form->addRow(tr("Název"), name_);
@@ -151,12 +154,6 @@ ComponentPropertiesDialog::ComponentPropertiesDialog(
         placement(initial.placement.rotation_y, true),
         placement(initial.placement.rotation_z, true),
     };
-    form->addRow(tr("Posunutí X"), translation_[0]);
-    form->addRow(tr("Posunutí Y"), translation_[1]);
-    form->addRow(tr("Posunutí Z"), translation_[2]);
-    form->addRow(tr("Natočení X"), rotation_[0]);
-    form->addRow(tr("Natočení Y"), rotation_[1]);
-    form->addRow(tr("Natočení Z"), rotation_[2]);
     content_layout()->addLayout(form);
 
     // Embedded placement reference table -- Python reference design
@@ -164,7 +161,7 @@ ComponentPropertiesDialog::ComponentPropertiesDialog(
     // THIS dialog rather than via separate Mate commands + a "Vazby" tree
     // branch. Columns: [indicator, component reference, target reference,
     // mate type, offset/angle, flip].
-    auto* heading = new QLabel(tr("Vazby umístění"), this);
+    auto* heading = new QLabel(tr("Umístění komponenty"), this);
     auto heading_font = heading->font();
     heading_font.setBold(true);
     heading->setFont(heading_font);
@@ -213,14 +210,28 @@ ComponentPropertiesDialog::ComponentPropertiesDialog(
             placement_table_->clearSelection();
         });
 
+    auto* position_form = new QFormLayout;
+    position_form->addRow(tr("X"), translation_[0]);
+    position_form->addRow(tr("Y"), translation_[1]);
+    position_form->addRow(tr("Z"), translation_[2]);
+    content_layout()->addLayout(position_form);
+
+    auto* orientation_heading = new QLabel(tr("Orientace komponenty"), this);
+    auto orientation_heading_font = orientation_heading->font();
+    orientation_heading_font.setBold(true);
+    orientation_heading->setFont(orientation_heading_font);
+    content_layout()->addWidget(orientation_heading);
+    auto* orientation_form = new QFormLayout;
+    orientation_form->addRow(tr("RX"), rotation_[0]);
+    orientation_form->addRow(tr("RY"), rotation_[1]);
+    orientation_form->addRow(tr("RZ"), rotation_[2]);
+    content_layout()->addLayout(orientation_form);
+
     error_ = new QLabel(this);
     error_->setStyleSheet("color: #c64b4b;");
     error_->setWordWrap(true);
     content_layout()->addWidget(error_);
-    connect(name_, &QLineEdit::textChanged, this, [this](const QString& name) {
-        set_internal_title(name.trimmed().isEmpty()
-            ? tr("Vlastnosti komponenty")
-            : tr("Vlastnosti: %1").arg(name.trimmed()));
+    connect(name_, &QLineEdit::textChanged, this, [this](const QString&) {
         error_->clear();
     });
 

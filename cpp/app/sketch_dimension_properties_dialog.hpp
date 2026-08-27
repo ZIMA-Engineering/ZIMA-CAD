@@ -4,6 +4,7 @@
 #include <zima/ui/properties_subwindow.hpp>
 
 #include <functional>
+#include <QString>
 
 class QCheckBox;
 class QDoubleSpinBox;
@@ -17,7 +18,8 @@ public:
 
     SketchDimensionPropertiesDialog(
         zima::sketcher::SketchDimension initial, bool edit_mode,
-        CommitCallback commit, QWidget* parent);
+        CommitCallback commit, QWidget* parent,
+        QString custom_title = {});
 
 protected:
     bool submit() override;

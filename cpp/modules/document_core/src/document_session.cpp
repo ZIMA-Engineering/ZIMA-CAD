@@ -24,12 +24,24 @@ DocumentSession::calculated_boundaries() const {
 std::optional<HistoryRollbackBoundary> DocumentSession::rollback_boundary(
     const std::string& container_id) const {
     const auto index = current_.document.history_index(container_id);
-    if (!index || (*index > 0 && current_.calculated_boundaries.size() < *index)) {
+    if (!index) return std::nullopt;
+    // Sketch containers occupy real history positions but do not produce an
+    // OCCT boundary.  The input boundary index therefore counts only body
+    // operations preceding the edited container, while history_index keeps
+    // the actual Tree/history position used to suppress downstream items.
+    std::size_t calculated_before{};
+    for (std::size_t history_index = 0; history_index < *index; ++history_index) {
+        if (current_.document.history[history_index].feature_kind !=
+                FeatureKind::Sketch) {
+            ++calculated_before;
+        }
+    }
+    if (current_.calculated_boundaries.size() < calculated_before) {
         return std::nullopt;
     }
     HistoryRollbackBoundary result{*index, std::nullopt};
-    if (*index > 0) {
-        result.input_body = current_.calculated_boundaries[*index - 1];
+    if (calculated_before > 0) {
+        result.input_body = current_.calculated_boundaries[calculated_before - 1];
     }
     return result;
 }

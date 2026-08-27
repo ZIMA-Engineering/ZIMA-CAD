@@ -50,6 +50,7 @@ private:
     QAction* edit_view_action_{};
     QAction* regenerate_view_action_{};
     QAction* delete_view_action_{};
+    QAction* selection_action_{};
     QAction* linear_dimension_action_{};
 
     void create_actions();
@@ -74,6 +75,7 @@ private:
     void edit_selected_view();
     void regenerate_selected_view();
     void delete_selected_view();
+    void start_selection();
     void start_linear_dimension();
     void update_action_states();
     void refresh();

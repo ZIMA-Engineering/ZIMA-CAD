@@ -15,6 +15,7 @@
 #include <QPalette>
 #include <QPushButton>
 #include <QSignalBlocker>
+#include <QSizePolicy>
 #include <QStringList>
 #include <QTableWidget>
 
@@ -56,21 +57,21 @@ bool supports_placement_reference_table(zima::document::FeatureKind kind) {
 }
 
 QString primitive_label(zima::document::FeatureKind kind) {
-    return kind == zima::document::FeatureKind::Cylinder ? QObject::tr("válce")
-        : kind == zima::document::FeatureKind::Sphere ? QObject::tr("koule")
-        : kind == zima::document::FeatureKind::Cone ? QObject::tr("kužele")
-        : kind == zima::document::FeatureKind::Pyramid ? QObject::tr("jehlanu")
-        : kind == zima::document::FeatureKind::Wedge ? QObject::tr("klínu")
+    return kind == zima::document::FeatureKind::Cylinder ? QObject::tr("Válec")
+        : kind == zima::document::FeatureKind::Sphere ? QObject::tr("Koule")
+        : kind == zima::document::FeatureKind::Cone ? QObject::tr("Kužel")
+        : kind == zima::document::FeatureKind::Pyramid ? QObject::tr("Jehlan")
+        : kind == zima::document::FeatureKind::Wedge ? QObject::tr("Klín")
         : kind == zima::document::FeatureKind::Extrusion
-            ? QObject::tr("vytažení")
+            ? QObject::tr("Vytažení")
         : kind == zima::document::FeatureKind::Revolution
-            ? QObject::tr("rotace")
+            ? QObject::tr("Rotace")
         : kind == zima::document::FeatureKind::Fillet
-            ? QObject::tr("zaoblení")
+            ? QObject::tr("Zaoblení")
         : kind == zima::document::FeatureKind::Chamfer
-            ? QObject::tr("sražení")
+            ? QObject::tr("Sražení")
         : kind == zima::document::FeatureKind::ImportedStep
-            ? QObject::tr("importovaného STEP") : QObject::tr("kvádru");
+            ? QObject::tr("Import STEP") : QObject::tr("Kvádr");
 }
 
 }  // namespace
@@ -98,31 +99,9 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
     std::vector<AssemblyTarget> assembly_targets,
     std::vector<std::string> selected_targets,
     bool assembly_cut_mode)
-    : PropertiesSubWindow(
-          edit_mode
-              ? tr("Vlastnosti %1").arg(primitive_label(initial.feature_kind))
-              : initial.feature_kind == zima::document::FeatureKind::Cylinder
-                  ? tr("Nový válec")
-                  : initial.feature_kind == zima::document::FeatureKind::Sphere
-                      ? tr("Nová koule")
-                  : initial.feature_kind == zima::document::FeatureKind::Cone
-                      ? tr("Nový kužel")
-                  : initial.feature_kind == zima::document::FeatureKind::Pyramid
-                      ? tr("Nový jehlan")
-                  : initial.feature_kind == zima::document::FeatureKind::Wedge
-                      ? tr("Nový klín")
-                  : initial.feature_kind == zima::document::FeatureKind::Extrusion
-                      ? tr("Nové vytažení")
-                  : initial.feature_kind == zima::document::FeatureKind::Revolution
-                      ? tr("Nová rotace")
-                  : initial.feature_kind == zima::document::FeatureKind::Fillet
-                      ? tr("Nové zaoblení")
-                  : initial.feature_kind == zima::document::FeatureKind::Chamfer
-                      ? tr("Nové sražení")
-                  : initial.feature_kind == zima::document::FeatureKind::ImportedStep
-                      ? tr("Import STEP") : tr("Nový kvádr"),
-          parent),
-      initial_(initial), commit_(std::move(commit)) {
+    : PropertiesSubWindow(primitive_label(initial.feature_kind), parent),
+      initial_(initial), edit_mode_(edit_mode),
+      accepted_target_baseline_(selected_targets), commit_(std::move(commit)) {
     setAttribute(Qt::WA_DeleteOnClose, true);
     setMinimumWidth(340);
     auto* header_form = new QFormLayout;
@@ -139,7 +118,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         if (initial.combine_mode == zima::document::CombineMode::Subtract) {
             operation_->setCurrentIndex(operation_->findData("subtract"));
         }
-        header_form->addRow(tr("Operace"), operation_);
+        operation_->hide();
         if (assembly_cut_mode) operation_->setEnabled(false);
     }
     content_layout()->addLayout(header_form);
@@ -155,6 +134,19 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
             [](const std::string& semantic) {
                 return readable_placement_reference_kind(semantic);
             });
+        placement_->initialize_numeric_values(initial.placement);
+        const bool has_orientation_reference = std::any_of(
+            initial.placement.references.begin(), initial.placement.references.end(),
+            [](const auto& reference) {
+                return reference.orientation_drives_rotation;
+            });
+        placement_->set_orientation_base_rotation(
+            {initial.placement.rotation_x, initial.placement.rotation_y,
+             initial.placement.rotation_z}, has_orientation_reference);
+        translation_ = placement_->translation_fields();
+        rotation_ = placement_->rotation_offset_fields();
+        for (auto* input : translation_) input->setObjectName("primitiveTranslation");
+        for (auto* input : rotation_) input->setObjectName("primitiveRotation");
         reference_status_ = placement_->reference_status_label();
         dof_label_ = placement_->dof_label();
         placement_->reference_table()->setObjectName("primitiveReferenceTable");
@@ -170,7 +162,6 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
             [this] { if (reference_highlights_changed_) reference_highlights_changed_(); });
         placement_->refresh_reference_table();
         placement_->refresh_orientation_table();
-        placement_->install_orientation_section(content_layout());
         placement_->install_dof_label(content_layout());
     }
 
@@ -269,6 +260,10 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         source_layout->addWidget(profile_pick_button_);
         source_layout->addWidget(profile_reset_button_);
         form->addRow(tr("Zdroj profilu"), source_row);
+        // Extrusion/Revolution always own their Sketch.  A model command must
+        // never silently attach the new history container to a Sketch owned
+        // by another container.
+        source_row->setVisible(false);
         connect(profile_pick_button_, &QPushButton::toggled, this,
             [this](bool checked) {
                 if (profile_pick_request_) profile_pick_request_(checked);
@@ -282,6 +277,15 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         profile_status_->setReadOnly(true);
         profile_status_->setText(tr("Uzavřený"));
         form->addRow(tr("Stav profilu"), profile_status_);
+        profile_plane_offset_ = dimension(
+            revolve ? initial.revolution.profile_plane_offset
+                    : initial.extrusion.profile_plane_offset,
+            "profilePlaneOffset");
+        profile_plane_offset_->setRange(-1'000'000.0, 1'000'000.0);
+        profile_plane_offset_->setValue(
+            revolve ? initial.revolution.profile_plane_offset
+                    : initial.extrusion.profile_plane_offset);
+        form->addRow(tr("Odsazení roviny"), profile_plane_offset_);
         result_type_ = new QComboBox(this);
         result_type_->addItem(tr("Těleso"), "solid");
         result_type_->addItem(tr("Thin"), "thin");
@@ -452,43 +456,6 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
             reverse_end_row_ = reverse_length_;
             form->addRow(tr("Zpětný úhel"), reverse_length_);
         }
-        if (operation_ != nullptr) {
-            operation_->hide();
-            if (auto* label = form->labelForField(operation_)) label->hide();
-            auto* operation_row = new QWidget(this);
-            auto* operation_layout = new QHBoxLayout(operation_row);
-            operation_layout->setContentsMargins(0, 0, 0, 0);
-            add_operation_button_ = new QPushButton(tr("Přičíst"), this);
-            subtract_operation_button_ = new QPushButton(tr("Odečíst"), this);
-            for (auto* button : {add_operation_button_, subtract_operation_button_}) {
-                button->setCheckable(true);
-                button->setMinimumHeight(40);
-            }
-            add_operation_button_->setStyleSheet(
-                "QPushButton{border:2px solid #54703a;border-radius:6px;font-weight:700;"
-                "padding:7px 14px} QPushButton:checked{background:#80AA1A;color:#101510;"
-                "border-color:#a7d52b}");
-            subtract_operation_button_->setStyleSheet(
-                "QPushButton{border:2px solid #713d3d;border-radius:6px;font-weight:700;"
-                "padding:7px 14px} QPushButton:checked{background:#c64b4b;color:white;"
-                "border-color:#ed7777}");
-            const bool subtract = operation_->currentData() == "subtract";
-            add_operation_button_->setChecked(!subtract);
-            subtract_operation_button_->setChecked(subtract);
-            operation_layout->addWidget(add_operation_button_, 1);
-            operation_layout->addWidget(subtract_operation_button_, 1);
-            form->addRow(tr("Operace"), operation_row);
-            const auto select_operation = [this](bool subtract_selected) {
-                operation_->setCurrentIndex(operation_->findData(
-                    subtract_selected ? "subtract" : "add"));
-                add_operation_button_->setChecked(!subtract_selected);
-                subtract_operation_button_->setChecked(subtract_selected);
-            };
-            connect(add_operation_button_, &QPushButton::clicked, this,
-                [select_operation] { select_operation(false); });
-            connect(subtract_operation_button_, &QPushButton::clicked, this,
-                [select_operation] { select_operation(true); });
-        }
         own_sketch_button_ = new QPushButton(QStringLiteral("SKETCH"), this);
         own_sketch_button_->setMinimumHeight(40);
         own_sketch_button_->setStyleSheet(
@@ -497,13 +464,9 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
             "QPushButton:hover{background:#65ec2c}");
         form->addRow(own_sketch_button_);
         connect(own_sketch_button_, &QPushButton::clicked, this, [this] {
-            const std::string sketch_id = initial_.feature_kind ==
-                    zima::document::FeatureKind::Extrusion
-                ? initial_.extrusion.sketch_id : initial_.revolution.sketch_id;
-            if (submit()) {
-                accept();
-                if (edit_sketch_) edit_sketch_(sketch_id);
-            }
+            auto pending = values();
+            accept();
+            if (edit_sketch_) edit_sketch_(std::move(pending));
         });
         connect(result_type_, &QComboBox::currentIndexChanged, this, [this](int) {
             const bool thin = result_type_->currentData() == "thin";
@@ -570,53 +533,66 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
             references.push_back(QString::fromStdString(
                 edge.owner_id + " / " + edge.semantic_key));
         }
-        auto* edge_list = new QLabel(references.join("\n"), this);
-        edge_list->setTextInteractionFlags(Qt::TextSelectableByMouse);
-        form->addRow(tr("Hrany"), edge_list);
+        edge_list_ = new QLabel(references.join("\n"), this);
+        edge_list_->setObjectName("edgeTreatmentEdges");
+        edge_list_->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        form->addRow(tr("Hrany"), edge_list_);
         treatment_size_ = dimension(initial.edge_treatment.size, "edgeTreatmentSize");
         form->addRow(initial.feature_kind == zima::document::FeatureKind::Fillet
             ? tr("Poloměr") : tr("Vzdálenost"), treatment_size_);
     }
 
-    const auto placement = [this](double value, bool angular) {
-        auto* field = new QDoubleSpinBox(this);
-        field->setRange(angular ? -360.0 : -1'000'000.0,
-                        angular ? 360.0 : 1'000'000.0);
-        field->setDecimals(3);
-        field->setSingleStep(1.0);
-        field->setSuffix(angular ? "°" : " mm");
-        field->setValue(value);
-        field->setObjectName(angular ? "primitiveRotation" : "primitiveTranslation");
-        return field;
-    };
-    if (initial.feature_kind == zima::document::FeatureKind::Box ||
-        initial.feature_kind == zima::document::FeatureKind::Cylinder ||
-        initial.feature_kind == zima::document::FeatureKind::Sphere ||
-        initial.feature_kind == zima::document::FeatureKind::Cone ||
-        initial.feature_kind == zima::document::FeatureKind::Pyramid ||
-        initial.feature_kind == zima::document::FeatureKind::Wedge ||
-        initial.feature_kind == zima::document::FeatureKind::Extrusion ||
-        initial.feature_kind == zima::document::FeatureKind::Revolution ||
-        initial.feature_kind == zima::document::FeatureKind::ImportedStep) {
-        translation_ = {
-            placement(initial.placement.x, false),
-            placement(initial.placement.y, false),
-            placement(initial.placement.z, false),
-        };
-        rotation_ = {
-            placement(initial.placement.rotation_x, true),
-            placement(initial.placement.rotation_y, true),
-            placement(initial.placement.rotation_z, true),
-        };
-        for (auto* input : rotation_) input->setRange(-360'000.0, 360'000.0);
-        form->addRow(tr("Posunutí X"), translation_[0]);
-        form->addRow(tr("Posunutí Y"), translation_[1]);
-        form->addRow(tr("Posunutí Z"), translation_[2]);
-        form->addRow(tr("Natočení X"), rotation_[0]);
-        form->addRow(tr("Natočení Y"), rotation_[1]);
-        form->addRow(tr("Natočení Z"), rotation_[2]);
-    }
     content_layout()->addLayout(form);
+
+    // Shared bottom operation row, matching Python's _build_operation_form
+    // for primitives, Extrusion and Revolution. The hidden combo remains an
+    // internal value adapter only; it is no longer part of the visible UI.
+    if (operation_ != nullptr) {
+        auto* operation_row = new QWidget(this);
+        auto* operation_layout = new QHBoxLayout(operation_row);
+        operation_layout->setContentsMargins(0, 0, 0, 0);
+        operation_layout->setSpacing(8);
+        add_operation_button_ = new QPushButton(tr("Přičíst"), this);
+        subtract_operation_button_ = new QPushButton(tr("Odečíst"), this);
+        for (auto* button : {add_operation_button_, subtract_operation_button_}) {
+            button->setCheckable(true);
+            button->setMinimumHeight(40);
+            button->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        }
+        add_operation_button_->setObjectName("primitiveAddOperation");
+        subtract_operation_button_->setObjectName("primitiveSubtractOperation");
+        add_operation_button_->setStyleSheet(
+            "QPushButton{border:2px solid #2d5670;border-radius:6px;font-weight:700;"
+            "padding:7px 14px} QPushButton:checked{background:#00d1ff;color:#101510;"
+            "border-color:#6fe3ff}");
+        subtract_operation_button_->setStyleSheet(
+            "QPushButton{border:2px solid #713d3d;border-radius:6px;font-weight:700;"
+            "padding:7px 14px} QPushButton:checked{background:#c64b4b;color:#ffffff;"
+            "border-color:#ed7777}");
+        const bool subtract = operation_->currentData() == "subtract";
+        add_operation_button_->setChecked(!subtract);
+        subtract_operation_button_->setChecked(subtract);
+        operation_layout->addWidget(add_operation_button_);
+        operation_layout->addWidget(subtract_operation_button_);
+        auto* operation_form = new QFormLayout;
+        operation_form->addRow(tr("Operace"), operation_row);
+        content_layout()->addLayout(operation_form);
+        const auto select_operation = [this](bool subtract_selected) {
+            operation_->setCurrentIndex(operation_->findData(
+                subtract_selected ? "subtract" : "add"));
+            add_operation_button_->setChecked(!subtract_selected);
+            subtract_operation_button_->setChecked(subtract_selected);
+            notify_preview();
+        };
+        connect(add_operation_button_, &QPushButton::clicked, this,
+            [select_operation] { select_operation(false); });
+        connect(subtract_operation_button_, &QPushButton::clicked, this,
+            [select_operation] { select_operation(true); });
+        if (assembly_cut_mode) {
+            add_operation_button_->setEnabled(false);
+            subtract_operation_button_->setEnabled(false);
+        }
+    }
 
     if (assembly_cut_mode) {
         assembly_targets_ = new QListWidget(this);
@@ -640,10 +616,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
     error_->setStyleSheet("color: #c64b4b;");
     error_->setWordWrap(true);
     content_layout()->addWidget(error_);
-    connect(name_, &QLineEdit::textChanged, this, [this](const QString& name) {
-        set_internal_title(name.trimmed().isEmpty()
-            ? tr("Vlastnosti %1").arg(primitive_label(initial_.feature_kind))
-            : tr("Vlastnosti: %1").arg(name.trimmed()));
+    connect(name_, &QLineEdit::textChanged, this, [this](const QString&) {
         error_->clear();
     });
     for (auto* input : translation_) {
@@ -654,6 +627,12 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         if (input != nullptr) connect(input, &QDoubleSpinBox::valueChanged,
             this, [this] { notify_preview(); });
     }
+    // Compare edits against the values represented by the fully constructed
+    // controls, rather than against the raw persisted object. Some widgets
+    // normalize equivalent values while loading (for example a placement or
+    // extent combo). Pressing OK without a user-visible change must therefore
+    // remain a no-op and must not create an Undo revision.
+    accepted_baseline_ = values();
 }
 
 zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
@@ -679,10 +658,9 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
         result.wedge = {length_->value(), width_->value(), height_->value(),
                         top_offset_->value()};
     } else if (result.feature_kind == zima::document::FeatureKind::Extrusion) {
-        result.extrusion.profile_source = profile_source_->text() ==
-                tr("Vlastní kontejner")
-            ? zima::document::ProfileSource::Internal
-            : zima::document::ProfileSource::External;
+        result.extrusion.profile_plane_offset = profile_plane_offset_->value();
+        result.extrusion.profile_source =
+            zima::document::ProfileSource::Internal;
         result.extrusion.result_type = result_type_->currentData() == "thin"
             ? zima::document::ProfileResultType::Thin
             : zima::document::ProfileResultType::Solid;
@@ -718,10 +696,9 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
             ? result.extrusion.length_forward
             : result.extrusion.length_forward + result.extrusion.length_reverse;
     } else if (result.feature_kind == zima::document::FeatureKind::Revolution) {
-        result.revolution.profile_source = profile_source_->text() ==
-                tr("Vlastní kontejner")
-            ? zima::document::ProfileSource::Internal
-            : zima::document::ProfileSource::External;
+        result.revolution.profile_plane_offset = profile_plane_offset_->value();
+        result.revolution.profile_source =
+            zima::document::ProfileSource::Internal;
         result.revolution.result_type = result_type_->currentData() == "thin"
             ? zima::document::ProfileResultType::Thin
             : zima::document::ProfileResultType::Solid;
@@ -757,26 +734,45 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
         result.feature_kind == zima::document::FeatureKind::Extrusion ||
         result.feature_kind == zima::document::FeatureKind::Revolution ||
         result.feature_kind == zima::document::FeatureKind::ImportedStep) {
-        result.placement = {
-            translation_[0]->value(), translation_[1]->value(), translation_[2]->value(),
-            rotation_[0]->value(), rotation_[1]->value(), rotation_[2]->value(),
-        };
-        if (placement_ && (!placement_->references().empty() ||
-                !placement_->orientation_references().empty())) {
-            // A position/orientation reference is present: the manual
-            // RX/RY/RZ fields become the correction on top of the FRONT/TOP
-            // frame (or a no-op passthrough without one), matching
-            // resolve_placement()'s manual rotation_offset_* contract.
-            result.placement.rotation_offset_x = rotation_[0]->value();
-            result.placement.rotation_offset_y = rotation_[1]->value();
-            result.placement.rotation_offset_z = rotation_[2]->value();
-            result.placement.references = placement_->references();
-            result.placement.references.insert(result.placement.references.end(),
-                placement_->orientation_references().begin(),
-                placement_->orientation_references().end());
-        }
+        result.placement = placement_->numeric_placement();
+        const auto placement_references = placement_
+            ? placement_->combined_references(3)
+            : std::vector<zima::document::ConstructionReference>{};
+        result.placement.references = placement_references;
     }
     return result;
+}
+
+void PrimitivePropertiesDialog::add_edge_reference(
+    const zima::kernel::EdgeReference& edge) {
+    if (!edge.valid()) return;
+    auto& edges = initial_.edge_treatment.edges;
+    if (std::find(edges.begin(), edges.end(), edge) == edges.end()) {
+        edges.push_back(edge);
+    }
+    if (edge_list_ != nullptr) {
+        QStringList references;
+        for (const auto& selected : edges) {
+            references.push_back(QString::fromStdString(
+                selected.owner_id + " / " + selected.semantic_key));
+        }
+        edge_list_->setText(references.join("\n"));
+    }
+    notify_preview();
+}
+
+void PrimitivePropertiesDialog::set_edge_references(
+    std::vector<zima::kernel::EdgeReference> edges) {
+    initial_.edge_treatment.edges = std::move(edges);
+    if (edge_list_ != nullptr) {
+        QStringList references;
+        for (const auto& selected : initial_.edge_treatment.edges) {
+            references.push_back(QString::fromStdString(
+                selected.owner_id + " / " + selected.semantic_key));
+        }
+        edge_list_->setText(references.join("\n"));
+    }
+    notify_preview();
 }
 
 void PrimitivePropertiesDialog::set_extrusion_target(
@@ -827,7 +823,7 @@ void PrimitivePropertiesDialog::set_profile_pick_request(
 }
 
 void PrimitivePropertiesDialog::set_edit_sketch_callback(
-    std::function<void(std::string)> callback) {
+    std::function<void(zima::document::HistoryContainer)> callback) {
     edit_sketch_ = std::move(callback);
 }
 
@@ -889,6 +885,10 @@ bool PrimitivePropertiesDialog::submit() {
             return false;
         }
     }
+    if (edit_mode_ && accepted_baseline_ && result == *accepted_baseline_ &&
+        selected_targets == accepted_target_baseline_) {
+        return true;
+    }
     try {
         commit_(std::move(result), std::move(selected_targets));
     } catch (const std::exception& failure) {
@@ -947,6 +947,10 @@ PrimitivePropertiesDialog::references_without(std::size_t index) const {
                        : std::vector<zima::document::ConstructionReference>{};
 }
 
+std::size_t PrimitivePropertiesDialog::first_empty_position_index() const {
+    return placement_ ? placement_->first_empty_position_index() : 3;
+}
+
 void PrimitivePropertiesDialog::set_remaining_translation_dof(int dof) {
     if (!placement_) return;
     placement_->set_remaining_translation_dof(dof);
@@ -963,15 +967,13 @@ void PrimitivePropertiesDialog::set_translation_constraint_state(
     const zima::document::PointConstraintState& state,
     const zima::kernel::Vec3& solution) {
     set_remaining_translation_dof(state.remaining_dof);
-    const std::array values{solution.x, solution.y, solution.z};
-    for (std::size_t index = 0; index < translation_.size(); ++index) {
-        if (translation_[index] == nullptr) continue;
-        translation_[index]->setEnabled(!state.constrained_axes[index]);
-        if (state.constrained_axes[index]) {
-            const QSignalBlocker blocker(translation_[index]);
-            translation_[index]->setValue(values[index]);
-        }
-    }
+    placement_->set_translation_constraint_state(state, solution);
+}
+
+void PrimitivePropertiesDialog::set_orientation_base_rotation(
+    const zima::kernel::Vec3& rotation, bool constrained) {
+    if (!placement_) return;
+    placement_->set_orientation_base_rotation(rotation, constrained);
 }
 
 }  // namespace zima::app

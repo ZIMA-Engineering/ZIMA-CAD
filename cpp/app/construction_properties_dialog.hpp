@@ -108,6 +108,7 @@ private:
     // matching Python's rotation_offset_x/y/z fields.
     std::array<QDoubleSpinBox*, 3> rotation_offset_{};
     QComboBox* direction_combo_{};
+    QComboBox* base_plane_combo_{};
     QDoubleSpinBox* display_size_{};
     QDoubleSpinBox* offset_{};
     QComboBox* definition_{};

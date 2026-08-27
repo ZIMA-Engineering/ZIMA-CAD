@@ -18,6 +18,8 @@ void append_mesh(zima::kernel::ViewerMesh& target,
     target.points.insert(target.points.end(), source.points.begin(), source.points.end());
     target.axes.insert(target.axes.end(), source.axes.begin(), source.axes.end());
     target.edges.insert(target.edges.end(), source.edges.begin(), source.edges.end());
+    target.constraint_markers.insert(target.constraint_markers.end(),
+        source.constraint_markers.begin(), source.constraint_markers.end());
     auto& references = target.original_references;
     const auto offset = static_cast<std::uint32_t>(references.vertices.size());
     references.vertices.insert(references.vertices.end(),
@@ -753,6 +755,9 @@ zima::kernel::ViewerMesh Workspace::build_scene_with_part_override(
                       calculated_source.mesh.axes.end());
     scene.dimensions.insert(scene.dimensions.end(),
         calculated_source.mesh.dimensions.begin(), calculated_source.mesh.dimensions.end());
+    scene.constraint_markers.insert(scene.constraint_markers.end(),
+        calculated_source.mesh.constraint_markers.begin(),
+        calculated_source.mesh.constraint_markers.end());
     const auto& replacement_references = calculated_source.mesh.original_references;
     const auto reference_offset =
         static_cast<std::uint32_t>(scene_references.vertices.size());

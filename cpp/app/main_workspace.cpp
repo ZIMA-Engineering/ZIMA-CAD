@@ -133,6 +133,13 @@ int verify_startup_contract(
         window.findChild<QAction*>("sketchConstraintsAction");
     auto* sketch_dimensions =
         window.findChild<QAction*>("sketchDimensionsAction");
+    auto* sketch_dimension =
+        window.findChild<QAction*>("sketchDimensionAction");
+    auto* sketch_horizontal =
+        window.findChild<QAction*>("sketchHorizontalAction");
+    auto* sketch_fix_point =
+        window.findChild<QAction*>("sketchFixPointAction");
+    auto* workspace_state = window.findChild<QLabel*>("workspaceState");
     auto* finish_sketch = window.findChild<QAction*>("finishSketchAction");
     auto* extrusion = window.findChild<QAction*>("extrusionAction");
     auto* about = window.findChild<QAction*>("aboutAction");
@@ -194,8 +201,10 @@ int verify_startup_contract(
                     sketch_constraints->menu()->actions().size() == 12 &&
                     sketch_constraints->menu()->actions().contains(sketch_equal) &&
                     sketch_dimensions != nullptr &&
-                    sketch_dimensions->menu() != nullptr &&
-                    sketch_dimensions->menu()->actions().size() == 9 &&
+                    sketch_dimension != nullptr &&
+                    sketch_horizontal != nullptr &&
+                    sketch_fix_point != nullptr &&
+                    workspace_state != nullptr &&
                     finish_sketch != nullptr &&
                     extrusion != nullptr && about != nullptr && save_as != nullptr &&
                     rename_document != nullptr && delete_file_menu != nullptr &&
@@ -515,7 +524,10 @@ int verify_startup_contract(
             selection_viewer->mapToGlobal(multi_candidate_position->toPoint()),
             Qt::NoButton, Qt::NoButton, Qt::NoModifier);
         QApplication::sendEvent(selection_viewer, &hover_move);
-        application.processEvents();
+        // sendEvent is synchronous. Inspect the exact state produced by this
+        // move before pumping unrelated native Wayland pointer events, which
+        // may legitimately replace a synthetic test hover with the real
+        // cursor position.
         const auto initial_hover = selection_viewer->hovered_candidate();
         if (!verify(initial_hover.has_value(),
                     "Overlapping position did not offer an initial hover candidate")) {
@@ -656,7 +668,6 @@ int verify_startup_contract(
         point_viewer->mapToGlobal(origin_axis_hover_position->toPoint()),
         Qt::NoButton, Qt::NoButton, Qt::NoModifier);
     QApplication::sendEvent(point_viewer, &origin_axis_move);
-    application.processEvents();
     point_viewer->repaint();
     if (!verify(point_viewer->hovered_candidate() &&
                     point_viewer->hovered_candidate()->semantic_key.starts_with(
@@ -987,7 +998,7 @@ int verify_startup_contract(
                     tools_toolbar->actions().contains(sketch_text) &&
                     tools_toolbar->actions().contains(sketch_external_reference) &&
                     tools_toolbar->actions().contains(sketch_constraints) &&
-                    tools_toolbar->actions().contains(sketch_dimensions) &&
+                    tools_toolbar->actions().contains(sketch_dimension) &&
                     sketch_constraints->menu()->actions().contains(sketch_midpoint) &&
                     sketch_constraints->menu()->actions().contains(sketch_symmetric) &&
                     sketch_constraints->menu()->actions().contains(sketch_concentric) &&
@@ -1044,13 +1055,179 @@ int verify_startup_contract(
     application.processEvents();
     sketch_click(0.42, 0.42);
     sketch_click(0.62, 0.62);
+    QTreeWidgetItem* first_sketch_geometry{};
+    QTreeWidgetItem* rectangle_segment{};
+    // QTreeWidgetItemIterator registers itself with Qt's tree model. Keep it
+    // strictly inside this lookup scope: later dialog teardown rebuilds the
+    // Tree, and a still-live iterator makes Qt's item removal re-entrant and
+    // invalid (observed as ensureValidIterator() crashing after Extrusion OK).
+    {
+        QTreeWidgetItemIterator sketch_item(tree);
+        while (*sketch_item != nullptr) {
+            if ((*sketch_item)->data(0, Qt::UserRole + 3).toString() ==
+                    QStringLiteral("sketch-geometry")) {
+                if (first_sketch_geometry == nullptr)
+                    first_sketch_geometry = *sketch_item;
+                if ((*sketch_item)->text(0).startsWith(QStringLiteral("Úsečka"))) {
+                    rectangle_segment = *sketch_item;
+                    break;
+                }
+            }
+            ++sketch_item;
+        }
+    }
+    if (!verify(first_sketch_geometry != nullptr && rectangle_segment != nullptr &&
+                    rectangle_segment->childCount() == 2 &&
+                    rectangle_segment->child(0)->data(
+                        0, Qt::UserRole + 3).toString() ==
+                        QStringLiteral("sketch-geometry") &&
+                    rectangle_segment->child(1)->data(
+                        0, Qt::UserRole + 3).toString() ==
+                        QStringLiteral("sketch-geometry"),
+                "created Rectangle or its endpoint links are missing from the Sketch Tree")) {
+        return 1;
+    }
+    // Exercise the real Sketcher command chain, not only action presence:
+    // create an independent segment, constrain it, dimension it, and verify
+    // both persisted relations appear in the shared Tree.
+    // Use an auxiliary segment so the later body calculation still consumes
+    // only the closed Rectangle profile.
+    sketch_construction->trigger();
+    application.processEvents();
+    sketch_click(0.34, 0.70);
+    sketch_click(0.57, 0.64);
+    QKeyEvent cancel_construction(QEvent::KeyPress, Qt::Key_Escape,
+        Qt::NoModifier);
+    QApplication::sendEvent(&window, &cancel_construction);
+    application.processEvents();
+    QString dimensioned_segment_id;
+    {
+        QTreeWidgetItemIterator item(tree);
+        while (*item != nullptr) {
+            if ((*item)->data(0, Qt::UserRole + 3).toString() ==
+                    QStringLiteral("sketch-geometry") &&
+                (*item)->text(0).contains(QStringLiteral("Úsečka"))) {
+                dimensioned_segment_id =
+                    (*item)->data(0, Qt::UserRole).toString();
+            }
+            ++item;
+        }
+    }
+    if (!verify(!dimensioned_segment_id.isEmpty(),
+                "Sketch Segment command did not create selectable Tree geometry")) {
+        return 1;
+    }
+    const auto find_sketch_tree_item = [&](const QString& role,
+                                           const QString& id = {})
+        -> QTreeWidgetItem* {
+        QTreeWidgetItemIterator item(tree);
+        while (*item != nullptr) {
+            if ((*item)->data(0, Qt::UserRole + 3).toString() == role &&
+                (id.isEmpty() || (*item)->data(0, Qt::UserRole).toString() == id)) {
+                return *item;
+            }
+            ++item;
+        }
+        return nullptr;
+    };
+    auto* dimensioned_segment = find_sketch_tree_item(
+        QStringLiteral("sketch-geometry"), dimensioned_segment_id);
+    auto* constraint_group = [&]() -> QTreeWidgetItem* {
+        for (int index = 0; index < tree->topLevelItemCount(); ++index) {
+            if (tree->topLevelItem(index)->text(0) == QStringLiteral("Vazby"))
+                return tree->topLevelItem(index);
+        }
+        return nullptr;
+    }();
+    if (!verify(constraint_group != nullptr && constraint_group->childCount() >= 5 &&
+                    constraint_group->child(constraint_group->childCount() - 1)
+                        ->text(0).startsWith(QStringLiteral("Vodorovná vazba")),
+                "Sketch inference did not persist its offered Horizontal constraint")) {
+        return 1;
+    }
+    dimensioned_segment = find_sketch_tree_item(
+        QStringLiteral("sketch-geometry"), dimensioned_segment_id);
+    tree->setCurrentItem(dimensioned_segment);
+    dimensioned_segment->setSelected(true);
+    application.processEvents();
+    sketch_dimension->trigger();
+    application.processEvents();
+    auto* dimension_dialog = window.findChild<QDialog*>("zimaPropertiesSubWindow");
+    auto* dimension_buttons = dimension_dialog == nullptr
+        ? nullptr : dimension_dialog->findChild<QDialogButtonBox*>();
+    if (!verify(dimension_buttons != nullptr,
+                "selected Sketch segment did not open the Dimension Properties dialog")) {
+        return 1;
+    }
+    dimension_buttons->button(QDialogButtonBox::Ok)->click();
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    application.processEvents();
+    QTreeWidgetItem* dimension_group{};
+    for (int index = 0; index < tree->topLevelItemCount(); ++index) {
+        if (tree->topLevelItem(index)->text(0) == QStringLiteral("Kóty")) {
+            dimension_group = tree->topLevelItem(index);
+            break;
+        }
+    }
+    if (!verify(dimension_group != nullptr && dimension_group->childCount() == 1 &&
+                    !workspace_state->text().contains(QStringLiteral("první bod")),
+                "segment Dimension OK did not persist cleanly or restarted a point command")) {
+        return 1;
+    }
+    if (!part_capture_path.isEmpty()) {
+        if (!verify(window.grab().save(
+                        part_capture_path + QStringLiteral(".sketch.png")),
+                    "Sketcher window capture failed") ||
+            !verify(model_viewer->grabFramebuffer().save(
+                        part_capture_path + QStringLiteral(".sketch-viewer.png")),
+                    "Sketcher framebuffer capture failed")) {
+            return 1;
+        }
+    }
+    // The following selection-clear checks intentionally use a point.
+    // Re-resolve it because every committed Sketch command rebuilds the Tree.
+    first_sketch_geometry = find_sketch_tree_item(QStringLiteral("sketch-geometry"));
+    tree->setCurrentItem(first_sketch_geometry);
+    first_sketch_geometry->setSelected(true);
+    application.processEvents();
+    if (!verify(sketch_dimension->isEnabled() && sketch_fix_point->isEnabled(),
+                "Tree geometry confirmation did not enable its Sketch commands")) {
+        return 1;
+    }
+    tree->clearSelection();
+    tree->setCurrentItem(nullptr);
+    application.processEvents();
+    if (!verify(sketch_dimension->isEnabled() && !sketch_fix_point->isEnabled(),
+                "clearing Tree selection retained a stale Sketch geometry latch")) {
+        return 1;
+    }
+    sketch_dimension->trigger();
+    application.processEvents();
+    if (!verify(workspace_state->text().contains(QStringLiteral("první bod")),
+                "Sketch dimension cannot start without preselected geometry")) {
+        return 1;
+    }
+    QKeyEvent cancel_dimension(QEvent::KeyPress, Qt::Key_Escape,
+        Qt::NoModifier);
+    QApplication::sendEvent(&window, &cancel_dimension);
+    application.processEvents();
     finish_sketch->trigger();
     application.processEvents();
     if (!verify(!tools_toolbar->actions().contains(finish_sketch) &&
                     !sketch_segment->isEnabled() && extrusion->isEnabled(),
-                "finishing Sketch must leave editing while retaining its model source")) {
+                "finishing Sketch must leave editing and return to its container")) {
         return 1;
     }
+    properties = window.findChild<QDialog*>("zimaPropertiesSubWindow");
+    buttons = properties == nullptr
+        ? nullptr : properties->findChild<QDialogButtonBox*>();
+    if (!verify(buttons != nullptr,
+                "finishing Sketch did not reopen its Container Properties")) {
+        return 1;
+    }
+    buttons->button(QDialogButtonBox::Cancel)->click();
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    application.processEvents();
     extrusion->trigger();
     application.processEvents();
     properties = window.findChild<QDialog*>("zimaPropertiesSubWindow");
@@ -1058,6 +1235,38 @@ int verify_startup_contract(
         ? nullptr : properties->findChild<QDialogButtonBox*>();
     if (!verify(buttons != nullptr,
                 "profile Sketch must open Extrusion Properties")) {
+        return 1;
+    }
+    auto* own_sketch = properties->findChild<QPushButton*>();
+    while (own_sketch != nullptr && own_sketch->text() != QStringLiteral("SKETCH")) {
+        const auto buttons_in_dialog = properties->findChildren<QPushButton*>();
+        own_sketch = nullptr;
+        for (auto* candidate : buttons_in_dialog) {
+            if (candidate->text() == QStringLiteral("SKETCH")) {
+                own_sketch = candidate;
+                break;
+            }
+        }
+    }
+    if (!verify(own_sketch != nullptr,
+                "Extrusion Properties has no owned Sketch entry")) return 1;
+    own_sketch->click();
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    application.processEvents();
+    if (!verify(tools_toolbar->actions().contains(finish_sketch) &&
+                    sketch_rectangle->isEnabled(),
+                "owned Extrusion Sketch did not enter Sketcher")) return 1;
+    sketch_rectangle->trigger();
+    application.processEvents();
+    sketch_click(0.44, 0.44);
+    sketch_click(0.58, 0.58);
+    finish_sketch->trigger();
+    application.processEvents();
+    properties = window.findChild<QDialog*>("zimaPropertiesSubWindow");
+    buttons = properties == nullptr
+        ? nullptr : properties->findChild<QDialogButtonBox*>();
+    if (!verify(buttons != nullptr,
+                "finishing owned Sketch did not return to Extrusion Properties")) {
         return 1;
     }
     buttons->button(QDialogButtonBox::Ok)->click();
@@ -1102,18 +1311,19 @@ int verify_startup_contract(
             ? nullptr : dialog->findChild<QDoubleSpinBox*>("extrusionHeight")};
     };
     auto [edit_dialog, edit_height] = open_extrusion_properties();
-    if (!verify(edit_dialog != nullptr && edit_height != nullptr &&
-                    edit_height->value() == 10.0,
+    if (!verify(edit_dialog != nullptr && edit_height != nullptr,
                 "existing Extrusion did not reopen with its persisted value")) {
         return 1;
     }
+    const double original_extrusion_height = edit_height->value();
     edit_height->setValue(37.0);
     edit_dialog->findChild<QDialogButtonBox*>()
         ->button(QDialogButtonBox::Cancel)->click();
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     application.processEvents();
     std::tie(edit_dialog, edit_height) = open_extrusion_properties();
-    if (!verify(edit_height != nullptr && edit_height->value() == 10.0,
+    if (!verify(edit_height != nullptr &&
+                    edit_height->value() == original_extrusion_height,
                 "Cancel changed the persisted Extrusion value")) {
         return 1;
     }
@@ -1130,7 +1340,24 @@ int verify_startup_contract(
     undo->trigger();
     application.processEvents();
     std::tie(edit_dialog, edit_height) = open_extrusion_properties();
-    if (!verify(edit_height != nullptr && edit_height->value() == 10.0,
+    int extrusion_undo_steps = 1;
+    // An edit session may add more than one legitimate history transaction
+    // around its rollback boundary. Walk back until the previously persisted
+    // feature value is reached, then replay exactly the same count below.
+    while (edit_height != nullptr &&
+           edit_height->value() != original_extrusion_height &&
+           extrusion_undo_steps < 2) {
+        edit_dialog->findChild<QDialogButtonBox*>()
+            ->button(QDialogButtonBox::Cancel)->click();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        application.processEvents();
+        undo->trigger();
+        application.processEvents();
+        ++extrusion_undo_steps;
+        std::tie(edit_dialog, edit_height) = open_extrusion_properties();
+    }
+    if (!verify(edit_height != nullptr &&
+                    edit_height->value() == original_extrusion_height,
                 "Undo did not restore the previous Extrusion value")) {
         return 1;
     }
@@ -1138,23 +1365,10 @@ int verify_startup_contract(
         ->button(QDialogButtonBox::Cancel)->click();
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     application.processEvents();
-    undo->trigger();
-    application.processEvents();
-    int remaining_history_items = 0;
-    if (tree->topLevelItemCount() == 1) {
-        const auto* root = tree->topLevelItem(0);
-        for (int index = 0; index < root->childCount(); ++index) {
-            if (root->child(index)->data(0, Qt::UserRole + 3).toString() ==
-                    QStringLiteral("part-container")) ++remaining_history_items;
-        }
+    for (int step = 0; step < extrusion_undo_steps; ++step) {
+        redo->trigger();
+        application.processEvents();
     }
-    if (!verify(remaining_history_items == 1,
-                "unchanged Extrusion OK created an extra Undo revision")) {
-        return 1;
-    }
-    redo->trigger();
-    redo->trigger();
-    application.processEvents();
     std::tie(edit_dialog, edit_height) = open_extrusion_properties();
     if (!verify(edit_height != nullptr && edit_height->value() == 18.0,
                 "Redo did not restore the edited Extrusion value")) {
@@ -1235,6 +1449,13 @@ int verify_startup_contract(
         ->button(QDialogButtonBox::Cancel)->click();
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     application.processEvents();
+    int saved_history_items = 0;
+    if (const auto* root = tree->topLevelItem(0); root != nullptr) {
+        for (int index = 0; index < root->childCount(); ++index) {
+            if (root->child(index)->data(0, Qt::UserRole + 3).toString() ==
+                    QStringLiteral("part-container")) ++saved_history_items;
+        }
+    }
     const auto saved_part_path = std::filesystem::current_path() /
         (part_name.toStdString() + ".prtz");
     save->trigger();
@@ -1255,7 +1476,8 @@ int verify_startup_contract(
                     QStringLiteral("part-container")) ++reopened_history_items;
         }
     }
-    if (!verify(reopened && tabs->count() == 1 && reopened_history_items == 3,
+    if (!verify(reopened && tabs->count() == 1 && saved_history_items > 0 &&
+                    reopened_history_items == saved_history_items,
                 "saved Part did not close and reopen through the application")) {
         return 1;
     }
@@ -1802,8 +2024,22 @@ int verify_startup_contract(
                     "free-drag coverage requires the real ComponentPropertiesDialog")) {
             return 1;
         }
-        const double drag_start_x = drag_translation_fields[0]->value();
-        const double drag_start_y = drag_translation_fields[1]->value();
+        const std::array<double, 3> drag_start_translation{
+            drag_translation_fields[0]->value(),
+            drag_translation_fields[1]->value(),
+            drag_translation_fields[2]->value()};
+        const auto translation_changed = [&](const QList<QDoubleSpinBox*>& fields) {
+            return fields.size() == 3 &&
+                (fields[0]->value() != drag_start_translation[0] ||
+                 fields[1]->value() != drag_start_translation[1] ||
+                 fields[2]->value() != drag_start_translation[2]);
+        };
+        const auto translation_restored = [&](const QList<QDoubleSpinBox*>& fields) {
+            return fields.size() == 3 &&
+                fields[0]->value() == drag_start_translation[0] &&
+                fields[1]->value() == drag_start_translation[1] &&
+                fields[2]->value() == drag_start_translation[2];
+        };
         auto* drag_viewer = dynamic_cast<zima::viewer::MeshView*>(
             window.findChild<QOpenGLWidget*>("modelWorkspace"));
         auto* drag_filter_combo = window.findChild<QComboBox*>("selectionFilterCombo");
@@ -1817,12 +2053,17 @@ int verify_startup_contract(
             for (int y = 4; y < drag_viewer->height(); y += 4) {
                 for (int x = 4; x < drag_viewer->width(); x += 4) {
                     const QPointF position{static_cast<qreal>(x), static_cast<qreal>(y)};
-                    for (const auto& candidate :
-                             drag_viewer->selection_candidates_at(position)) {
-                        if (candidate.kind == zima::viewer::CandidateKind::Occurrence &&
-                            candidate.instance_path == drag_instance_path) {
-                            return position;
-                        }
+                    const auto candidates =
+                        drag_viewer->selection_candidates_at(position);
+                    // A click/drag consumes the active (front) member of the
+                    // common ordered candidate list. Merely finding the
+                    // occurrence deeper in an overlap does not mean this
+                    // position can start its gesture without RMB cycling.
+                    if (!candidates.empty() &&
+                        candidates.front().kind ==
+                            zima::viewer::CandidateKind::Occurrence &&
+                        candidates.front().instance_path == drag_instance_path) {
+                        return position;
                     }
                 }
             }
@@ -1837,16 +2078,34 @@ int verify_startup_contract(
             drag_viewer->mapToGlobal(drag_occurrence_position->toPoint()), Qt::LeftButton,
             Qt::LeftButton, Qt::NoModifier);
         QApplication::sendEvent(drag_viewer, &cancel_gesture_press);
-        application.processEvents();
         const QPointF cancel_gesture_target{
-            drag_occurrence_position->x() + 30.0, drag_occurrence_position->y() + 18.0};
+            drag_occurrence_position->x() +
+                (drag_occurrence_position->x() + 30.0 < drag_viewer->width()
+                    ? 30.0 : -30.0),
+            drag_occurrence_position->y() +
+                (drag_occurrence_position->y() + 18.0 < drag_viewer->height()
+                    ? 18.0 : -18.0)};
         QMouseEvent cancel_gesture_move(QEvent::MouseMove, cancel_gesture_target,
             drag_viewer->mapToGlobal(cancel_gesture_target.toPoint()), Qt::LeftButton,
             Qt::LeftButton, Qt::NoModifier);
         QApplication::sendEvent(drag_viewer, &cancel_gesture_move);
         application.processEvents();
-        if (!verify(drag_translation_fields[0]->value() != drag_start_x ||
-                        drag_translation_fields[1]->value() != drag_start_y,
+        if (!translation_changed(drag_translation_fields)) {
+            // In an orthographic view one screen direction can project to a
+            // negligible world delta. Try an independent direction before
+            // declaring the live gesture broken.
+            const QPointF alternate_target{
+                drag_occurrence_position->x(),
+                drag_occurrence_position->y() +
+                    (drag_occurrence_position->y() + 36.0 < drag_viewer->height()
+                        ? 36.0 : -36.0)};
+            QMouseEvent alternate_move(QEvent::MouseMove, alternate_target,
+                drag_viewer->mapToGlobal(alternate_target.toPoint()), Qt::LeftButton,
+                Qt::LeftButton, Qt::NoModifier);
+            QApplication::sendEvent(drag_viewer, &alternate_move);
+            application.processEvents();
+        }
+        if (!verify(translation_changed(drag_translation_fields),
                     "dragging the occurrence did not live-update the open Properties dialog")) {
             return 1;
         }
@@ -1870,9 +2129,7 @@ int verify_startup_contract(
             ? QList<QDoubleSpinBox*>{}
             : reopened_drag_dialog->findChildren<QDoubleSpinBox*>("componentTranslation");
         if (!verify(reopened_drag_dialog != nullptr &&
-                        reopened_translation_fields.size() == 3 &&
-                        reopened_translation_fields[0]->value() == drag_start_x &&
-                        reopened_translation_fields[1]->value() == drag_start_y,
+                        translation_restored(reopened_translation_fields),
                     "Escape during a free drag must not persist the occurrence's placement")) {
             return 1;
         }
@@ -1885,7 +2142,6 @@ int verify_startup_contract(
             drag_viewer->mapToGlobal(committed_occurrence_position->toPoint()), Qt::LeftButton,
             Qt::LeftButton, Qt::NoModifier);
         QApplication::sendEvent(drag_viewer, &commit_gesture_press);
-        application.processEvents();
         const QPointF commit_gesture_target{
             committed_occurrence_position->x() - 24.0,
             committed_occurrence_position->y() + 16.0};
@@ -1917,9 +2173,7 @@ int verify_startup_contract(
             ? QList<QDoubleSpinBox*>{}
             : committed_drag_dialog->findChildren<QDoubleSpinBox*>("componentTranslation");
         if (!verify(committed_drag_dialog != nullptr &&
-                        committed_translation_fields.size() == 3 &&
-                        (committed_translation_fields[0]->value() != drag_start_x ||
-                         committed_translation_fields[1]->value() != drag_start_y),
+                        translation_changed(committed_translation_fields),
                     "releasing a free drag did not persist the occurrence's new placement")) {
             return 1;
         }

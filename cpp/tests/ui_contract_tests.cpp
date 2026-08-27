@@ -73,6 +73,8 @@ int main(int argc, char* argv[]) {
             &parent);
         ok_dialog->show();
         application.processEvents();
+        require(ok_dialog->windowTitle() == QStringLiteral("Kvádr"),
+                "Create and edit must share the feature-only dialog title");
         auto* length = ok_dialog->findChild<QDoubleSpinBox*>("boxLength");
         require(length != nullptr, "Box dialog must expose its length");
         length->setValue(125.0);
@@ -87,6 +89,25 @@ int main(int argc, char* argv[]) {
         require(committed.box.length == 125.0, "OK did not commit edited length");
         require(committed.placement.x == 42.0,
                 "OK did not commit container placement");
+
+        auto fillet = initial;
+        fillet.feature_kind = zima::document::FeatureKind::Fillet;
+        fillet.name = "Zaoblení";
+        fillet.edge_treatment.edges.clear();
+        zima::document::HistoryContainer committed_fillet;
+        auto* fillet_dialog = new zima::app::PrimitivePropertiesDialog(
+            fillet, false, false,
+            [&](zima::document::HistoryContainer value) {
+                committed_fillet = std::move(value);
+            }, &parent);
+        fillet_dialog->show();
+        fillet_dialog->set_edge_references({{"body-owner", "edge:stable", {}}});
+        require(fillet_dialog->windowTitle() == QStringLiteral("Zaoblení"),
+                "Fillet create/edit dialog title is not feature-only");
+        fillet_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
+        application.processEvents();
+        require(committed_fillet.edge_treatment.edges.size() == 1,
+                "Fillet dialog did not retain edges selected while it was open");
 
         int middle_commits = 0;
         zima::document::CombineMode middle_operation =
@@ -247,6 +268,38 @@ int main(int argc, char* argv[]) {
         require(sphere_dialog->findChild<QTableWidget*>("primitiveReferenceTable") !=
                     nullptr,
                 "Sphere Properties did not receive the universal placement table");
+        auto* front_button = sphere_dialog->findChild<QPushButton*>(
+            "containerOrientationFront");
+        auto* back_button = sphere_dialog->findChild<QPushButton*>(
+            "containerOrientationBack");
+        auto* rotate_button = sphere_dialog->findChild<QPushButton*>(
+            "containerOrientationRotate");
+        require(front_button && back_button && rotate_button &&
+                    front_button->isChecked() && !back_button->isChecked() &&
+                    rotate_button->text().contains("0°") &&
+                    sphere_dialog->findChild<QTableWidget*>(
+                        "primitiveOrientationTable")->isHidden(),
+                "Container orientation did not replace FRONT/TOP table with buttons");
+        back_button->click();
+        rotate_button->click();
+        require(back_button->isChecked() && !front_button->isChecked() &&
+                    rotate_button->text().contains("90°"),
+                "FRONT/BACK or cyclic ROTATE button did not update immediately");
+        auto* sphere_absolute_rx = sphere_dialog->findChild<QDoubleSpinBox*>(
+            "containerRotationX");
+        const auto sphere_corrections = sphere_dialog->findChildren<QDoubleSpinBox*>(
+            "primitiveRotation");
+        require(sphere_absolute_rx != nullptr && sphere_absolute_rx->isEnabled() &&
+                    sphere_corrections.size() == 3 &&
+                    std::ranges::none_of(sphere_corrections,
+                        [](const auto* field) { return field->isEnabled(); }),
+                "Reference-free primitive enables correction instead of absolute rotation");
+        sphere_dialog->set_orientation_base_rotation({10.0, 20.0, 30.0}, true);
+        require(!sphere_absolute_rx->isEnabled() &&
+                    std::ranges::all_of(sphere_corrections,
+                        [](const auto* field) { return field->isEnabled(); }),
+                "Referenced primitive did not lock its base rotation and enable correction");
+        sphere_dialog->set_orientation_base_rotation({10.0, 20.0, 30.0}, false);
         sphere_radius->setValue(27.0);
         sphere_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
         application.processEvents();
@@ -522,10 +575,10 @@ int main(int argc, char* argv[]) {
                 "Plane Properties does not expose its position and FRONT/TOP tables");
         auto* plane_offset = plane_dialog->findChild<QDoubleSpinBox*>(
             "constructionOffset");
-        require(plane_offset != nullptr && !plane_offset->isEnabled(),
-                "Plane work-plane offset started enabled before any position reference");
+        require(plane_offset != nullptr && plane_offset->isEnabled(),
+                "Plane work-plane offset was not editable without a position reference");
         plane_dialog->set_reference(0,
-            {{}, "plane-source", "plane", 0.0, true, "front", true, false},
+            {{}, "plane-source", "plane", 0.0, true},
             "Zdrojová rovina", zima::document::ConstructionDefinition::PointReference);
         application.processEvents();
         auto* first_position_item = plane_reference_table->item(0, 1);
@@ -552,26 +605,34 @@ int main(int argc, char* argv[]) {
         require(orientation_table->isEnabled(),
                 "Plane FRONT/TOP table did not unlock once orientation is no "
                 "longer inherited");
-        // Row 1, like row 0, keeps whatever automatic FRONT/TOP role a real
-        // caller (assign_automatic_orientation_role() in
-        // assembly_workspace_window.cpp) already assigned it: the 2nd
-        // position reference is TOP, still contributing its own position
-        // equation (orientation_only stays false) -- matching the "1st
-        // reference = FRONT, 2nd = TOP, 3rd = pure position" contract.
+        // A non-planar second position reference stays positional and does
+        // not occupy the TOP plane-mapping slot.
         plane_dialog->set_reference(1,
-            {{}, "axis-top", "axis", 0.0, false, "top", true, false}, "Osa TOP",
+            {{}, "axis-top", "axis"}, "Osa TOP",
             zima::document::ConstructionDefinition::PointReference);
+        auto* base_plane = plane_dialog->findChild<QComboBox*>(
+            "constructionBasePlane");
+        require(base_plane != nullptr &&
+                    base_plane->findData(QStringLiteral("xy")) >= 0 &&
+                    base_plane->findData(QStringLiteral("yz")) >= 0 &&
+                    base_plane->findData(QStringLiteral("xz")) >= 0,
+                "Plane Properties does not offer all Container Origin planes");
+        base_plane->setCurrentIndex(base_plane->findData(QStringLiteral("xy")));
         plane_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
-        require(committed_plane.references.size() == 2 &&
-                    committed_plane.references[0].orientation_drives_rotation &&
-                    committed_plane.references[0].orientation_role == "front" &&
+        require(committed_plane.references.size() == 3 &&
+                    committed_plane.base_plane ==
+                        zima::document::LocalDatumPlane::XY &&
+                    !committed_plane.references[0].orientation_drives_rotation &&
                     !committed_plane.references[0].orientation_only &&
                     committed_plane.references[0].owner_id == "plane-source" &&
-                    committed_plane.references[1].orientation_drives_rotation &&
-                    committed_plane.references[1].orientation_role == "top" &&
-                    !committed_plane.references[1].orientation_only,
-                "Plane Properties did not keep the automatic FRONT/TOP roles "
-                "on its first two position references");
+                    !committed_plane.references[1].orientation_only &&
+                    committed_plane.references[1].owner_id == "axis-top" &&
+                    committed_plane.references[2].orientation_drives_rotation &&
+                    committed_plane.references[2].orientation_only &&
+                    committed_plane.references[2].orientation_role == "front" &&
+                    committed_plane.references[2].owner_id == "plane-source",
+                "Plane Properties did not mirror its first planar position "
+                "reference into the independent FRONT slot");
 
         auto* plane_origin_first_dialog = new zima::app::ConstructionPropertiesDialog(
             plane_initial, false, [](zima::document::ConstructionObject) {}, &parent);
@@ -587,7 +648,7 @@ int main(int argc, char* argv[]) {
                     origin_first_orientation_table != nullptr,
                 "Plane origin-first dialog does not expose its reference tables");
         plane_origin_first_dialog->set_reference(0,
-            {{}, "part-origin", "origin:plane:xz", 0.0, true, "none", true},
+            {{}, "part-origin", "origin:plane:xz", 0.0, true},
             "Počátek dílu — Rovina XZ",
             zima::document::ConstructionDefinition::PointReference);
         application.processEvents();
@@ -595,8 +656,9 @@ int main(int argc, char* argv[]) {
                     origin_first_position_table->item(0, 1)->text() ==
                         QStringLiteral("1. Počátek dílu — Rovina XZ") &&
                     origin_first_orientation_table->item(0, 1) != nullptr &&
-                    origin_first_orientation_table->item(0, 1)->text().contains("Vybrat"),
-                "Built-in origin plane first reference did not stay purely positional");
+                    origin_first_orientation_table->item(0, 1)->text().contains(
+                        "Rovina XZ"),
+                "Built-in origin plane did not mirror into Plane FRONT");
         plane_origin_first_dialog->buttons()->button(QDialogButtonBox::Cancel)->click();
 
         auto* plane_axis_first_dialog = new zima::app::ConstructionPropertiesDialog(
@@ -636,11 +698,11 @@ int main(int argc, char* argv[]) {
                     position_only_orientation_table != nullptr,
                 "Plane position-only dialog does not expose its reference tables");
         plane_position_only_dialog->set_reference(1,
-            {{}, "plane-second", "origin:plane:xy", 0.0, true, "top", true},
+            {{}, "plane-second", "origin:plane:xy", 0.0, true},
             "Počátek dílu — Rovina XY",
             zima::document::ConstructionDefinition::PointReference);
         plane_position_only_dialog->set_reference(2,
-            {{}, "plane-third", "origin:plane:yz", 0.0, true, "top", true},
+            {{}, "plane-third", "origin:plane:yz", 0.0, true},
             "Počátek dílu — Rovina YZ",
             zima::document::ConstructionDefinition::PointReference);
         application.processEvents();
@@ -648,24 +710,33 @@ int main(int argc, char* argv[]) {
                     position_only_position_table->item(2, 1) != nullptr &&
                     position_only_orientation_table->item(0, 1) != nullptr &&
                     position_only_orientation_table->item(1, 1) != nullptr &&
-                    position_only_orientation_table->item(0, 1)->text().contains("Vybrat") &&
-                    position_only_orientation_table->item(1, 1)->text().contains("Vybrat"),
-                "Second/third Plane position references still auto-filled FRONT/TOP");
+                    position_only_orientation_table->item(0, 1)->text().contains("Rovina XY") &&
+                    position_only_orientation_table->item(1, 1)->text().contains("Rovina YZ") &&
+                    qobject_cast<QComboBox*>(position_only_orientation_table->cellWidget(
+                        0, 2)) != nullptr &&
+                    qobject_cast<QComboBox*>(position_only_orientation_table->cellWidget(
+                        1, 2)) != nullptr &&
+                    qobject_cast<QComboBox*>(position_only_orientation_table->cellWidget(
+                        0, 2))->findData(QStringLiteral("back")) >= 0 &&
+                    qobject_cast<QComboBox*>(position_only_orientation_table->cellWidget(
+                        1, 2))->findData(QStringLiteral("right")) >= 0,
+                "Plane position references did not auto-fill the editable "
+                "FRONT/BACK and TOP/BOTTOM/LEFT/RIGHT mappings");
         plane_position_only_dialog->buttons()->button(QDialogButtonBox::Cancel)->click();
 
         {
             const zima::viewer::ViewerCandidate document_origin_plane{
-                zima::viewer::CandidateKind::Face, 0.0, 0u,
+                zima::viewer::CandidateKind::Plane, 0.0, 0u,
                 "part-origin", "origin:plane:xz", {},
                 zima::viewer::CandidateGeometry::Display};
             require(zima::app::construction_reference_candidate_passes_static_filters(
                         document_origin_plane, false, false, false),
                     "Position rows unexpectedly reject origin-plane candidates");
-            require(!zima::app::construction_reference_candidate_passes_static_filters(
+            require(zima::app::construction_reference_candidate_passes_static_filters(
                         document_origin_plane, true, false, false),
-                    "FRONT/TOP still advertise document-origin plane candidates");
+                    "FRONT/TOP reject stable document-origin plane candidates");
             const zima::viewer::ViewerCandidate edited_plane{
-                zima::viewer::CandidateKind::Face, 0.0, 0u,
+                zima::viewer::CandidateKind::Plane, 0.0, 0u,
                 plane_initial.entity_id, "plane", {},
                 zima::viewer::CandidateGeometry::OriginalReference};
             require(!zima::app::construction_reference_candidate_passes_static_filters(
@@ -673,6 +744,19 @@ int main(int argc, char* argv[]) {
                     !zima::app::construction_reference_candidate_passes_static_filters(
                         edited_plane, true, true, false),
                 "Edited construction still offers itself as a reference candidate");
+            const zima::viewer::ViewerCandidate body_face{
+                zima::viewer::CandidateKind::Face, 0.0, 0u,
+                "box", "z_max", {},
+                zima::viewer::CandidateGeometry::OriginalReference};
+            const zima::viewer::ViewerCandidate body_edge{
+                zima::viewer::CandidateKind::Edge, 0.0, 0u,
+                "box", "edge", {},
+                zima::viewer::CandidateGeometry::OriginalReference};
+            require(zima::app::placement_reference_candidate_has_stable_geometry(
+                        body_face) &&
+                    !zima::app::placement_reference_candidate_has_stable_geometry(
+                        body_edge),
+                "Placement contract did not distinguish persisted Face from Edge");
         }
 
         auto point_initial = zima::document::PartDocument::create_construction(
@@ -740,12 +824,18 @@ int main(int argc, char* argv[]) {
         require(committed_point.kind == zima::document::ConstructionKind::Point &&
                     committed_point.definition ==
                         zima::document::ConstructionDefinition::PointReference &&
-                    committed_point.references.size() == 1 &&
+                    committed_point.references.size() == 2 &&
                     committed_point.references.front().owner_id == "part-origin" &&
                     committed_point.references.front().semantic_key == "origin:plane:xy" &&
                     committed_point.references.front().offset == 17.0 &&
-                    committed_point.references.front().supports_offset,
-                "Point Properties did not commit its selected Origin reference");
+                    committed_point.references.front().supports_offset &&
+                    committed_point.references.back().owner_id == "part-origin" &&
+                    committed_point.references.back().semantic_key ==
+                        "origin:plane:xy" &&
+                    committed_point.references.back().orientation_only &&
+                    committed_point.references.back().orientation_role == "front",
+                "Point Properties did not commit its selected Origin reference "
+                "and mirrored container orientation");
 
         int cancelled_point_commits = 0;
         auto* cancelled_point_dialog = new zima::app::ConstructionPropertiesDialog(
@@ -784,11 +874,14 @@ int main(int argc, char* argv[]) {
             extrusion_dialog->findChild<QComboBox*>("extrusionExtentMode");
         auto* forward_end = extrusion_dialog->findChild<QComboBox*>(
             "extrusionForwardEndCondition");
+        auto* extrusion_plane_offset = extrusion_dialog->findChild<QDoubleSpinBox*>(
+            "profilePlaneOffset");
         require(extrusion_height != nullptr,
                 "Extrusion dialog does not expose its height");
         require(extrusion_direction != nullptr,
                 "Extrusion dialog does not expose its direction");
-        require(extrusion_extent != nullptr && forward_end != nullptr,
+        require(extrusion_extent != nullptr && forward_end != nullptr &&
+                    extrusion_plane_offset != nullptr,
                 "Extrusion dialog does not expose its extent");
         require(!extrusion_dialog->findChildren<QDoubleSpinBox*>(
                     "primitiveTranslation").empty() &&
@@ -800,6 +893,7 @@ int main(int argc, char* argv[]) {
                     0, {{}, "part-origin", "origin:point"}, "Počátek dílu"),
                 "Extrusion Properties rejected its placement reference");
         extrusion_height->setValue(48.0);
+        extrusion_plane_offset->setValue(-7.5);
         extrusion_extent->setCurrentIndex(
             extrusion_extent->findData("symmetric"));
         int preview_updates = 0;
@@ -816,6 +910,7 @@ int main(int argc, char* argv[]) {
                     committed_extrusion.extrusion.sketch_id == "sketch-profile" &&
                     committed_extrusion.extrusion.length_forward == 48.0 &&
                     committed_extrusion.extrusion.length_reverse == 48.0 &&
+                    committed_extrusion.extrusion.profile_plane_offset == -7.5 &&
                     committed_extrusion.extrusion.extent_mode ==
                         zima::document::ProfileExtentMode::Symmetric &&
                     committed_extrusion.extrusion.end_condition_forward ==
@@ -846,7 +941,10 @@ int main(int argc, char* argv[]) {
             revolution_dialog->findChild<QComboBox*>("revolutionAxis");
         auto* revolution_angle =
             revolution_dialog->findChild<QDoubleSpinBox*>("revolutionAngle");
-        require(revolution_axis != nullptr && revolution_angle != nullptr,
+        auto* revolution_plane_offset =
+            revolution_dialog->findChild<QDoubleSpinBox*>("profilePlaneOffset");
+        require(revolution_axis != nullptr && revolution_angle != nullptr &&
+                    revolution_plane_offset != nullptr,
                 "Revolution dialog does not expose its axis and angle");
         require(!revolution_dialog->findChildren<QDoubleSpinBox*>(
                     "primitiveTranslation").empty() &&
@@ -860,6 +958,7 @@ int main(int argc, char* argv[]) {
         revolution_axis->setCurrentIndex(
             revolution_axis->findData("sketch_y"));
         revolution_angle->setValue(225.0);
+        revolution_plane_offset->setValue(12.25);
         revolution_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
         application.processEvents();
         require(revolution_commits == 1 &&
@@ -870,6 +969,7 @@ int main(int argc, char* argv[]) {
                     committed_revolution.revolution.axis ==
                         zima::document::RevolutionAxis::SketchY &&
                     committed_revolution.revolution.angle_degrees == 225.0 &&
+                    committed_revolution.revolution.profile_plane_offset == 12.25 &&
                     committed_revolution.placement.references.size() == 1 &&
                     committed_revolution.placement.references[0].owner_id ==
                         "part-origin",
@@ -982,11 +1082,15 @@ int main(int argc, char* argv[]) {
         partial_dialog->close();
 
         auto sketch = zima::sketcher::Sketch::create_default();
+        zima::document::Placement sketch_placement;
         int sketch_commits = 0;
         auto* sketch_dialog = new zima::app::SketchPropertiesDialog(
-            sketch, false, {}, [&](zima::sketcher::Sketch committed) {
+            sketch, sketch_placement, false, {},
+            [&](zima::sketcher::Sketch committed,
+                zima::document::Placement committed_placement) {
                 ++sketch_commits;
                 sketch = std::move(committed);
+                sketch_placement = std::move(committed_placement);
             }, &parent);
         sketch_dialog->show();
         require(sketch_dialog->windowFlags().testFlag(Qt::SubWindow),
@@ -995,9 +1099,24 @@ int main(int argc, char* argv[]) {
             sketch_dialog->findChild<QDoubleSpinBox*>("sketchPlaneOffset");
         require(sketch_offset != nullptr,
                 "Sketch Properties does not expose its plane offset");
+        require(sketch_dialog->findChild<QTableWidget*>("sketchReferenceTable") != nullptr,
+                "Sketch Properties does not reuse container placement UI");
+        auto* sketch_front = sketch_dialog->findChild<QPushButton*>(
+            "containerOrientationFront");
+        auto* sketch_back = sketch_dialog->findChild<QPushButton*>(
+            "containerOrientationBack");
+        auto* sketch_rotate = sketch_dialog->findChild<QPushButton*>(
+            "containerOrientationRotate");
+        require(sketch_front != nullptr && sketch_back != nullptr &&
+                    sketch_rotate != nullptr && sketch_front->isChecked(),
+                "Sketch Properties does not expose Plane-style FRONT/BACK/ROTATE");
+        sketch_back->click();
+        sketch_rotate->click();
         sketch_offset->setValue(12.5);
         sketch_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
-        require(sketch_commits == 1 && sketch.plane_offset == 12.5,
+        require(sketch_commits == 1 && sketch.plane_offset == 12.5 &&
+                    sketch_placement.orientation_back &&
+                    sketch_placement.orientation_quarter_turns == 1,
                 "Sketch Properties did not commit exactly once on OK");
         application.processEvents();
 
@@ -1058,8 +1177,18 @@ int main(int argc, char* argv[]) {
             dimension_dialog->findChild<QDoubleSpinBox*>("sketchLowerLimit");
         auto* upper_limit =
             dimension_dialog->findChild<QDoubleSpinBox*>("sketchUpperLimit");
-        require(lower_enabled && upper_enabled && lower_limit && upper_limit,
+        auto* dimension_value =
+            dimension_dialog->findChild<QDoubleSpinBox*>("sketchDimensionValue");
+        auto* dimension_driving =
+            dimension_dialog->findChild<QCheckBox*>("sketchDimensionDriving");
+        require(lower_enabled && upper_enabled && lower_limit && upper_limit &&
+                    dimension_value && dimension_driving,
                 "Sketch dimension Properties does not expose independent limits");
+        dimension_value->setValue(35.0);
+        dimension_driving->setChecked(false);
+        require(!dimension_value->isEnabled() && dimension_value->value() == 20.0,
+                "Reference dimension remained editable or retained a pending driver value");
+        dimension_driving->setChecked(true);
         lower_enabled->setChecked(true);
         upper_enabled->setChecked(true);
         require(lower_limit->value() == 0.0 && upper_limit->value() == 20.0,
@@ -1248,6 +1377,39 @@ int main(int argc, char* argv[]) {
                 "Rejected file dialog unexpectedly returned a selection");
         require(file_dialog_inspected && file_dialog_contents_valid,
                 "File dialog did not hide 0000-index or keep directories first");
+
+        zima::viewer::MeshView gesture_view(&parent);
+        gesture_view.resize(320, 240);
+        int short_middle_confirmations{};
+        int double_middle_finishes{};
+        gesture_view.set_short_middle_click_callback([&] {
+            ++short_middle_confirmations;
+            return true;
+        });
+        gesture_view.set_double_middle_click_callback([&] {
+            ++double_middle_finishes;
+            return true;
+        });
+        int pointer_preview_refreshes{};
+        gesture_view.set_world_pointer_callback([&](const auto&, const auto&) {
+            ++pointer_preview_refreshes;
+        });
+        require(gesture_view.refresh_current_pointer_preview() &&
+                    pointer_preview_refreshes == 1,
+                "RMB inference cycling could not refresh the current View preview");
+        require(gesture_view.confirm_current_pointer() &&
+                    short_middle_confirmations == 1,
+                "View-focused confirmation did not share the short-middle path");
+        QMouseEvent middle_double(QEvent::MouseButtonDblClick,
+            QPointF(20.0, 20.0), QPointF(20.0, 20.0), QPointF(20.0, 20.0),
+            Qt::MiddleButton, Qt::MiddleButton, Qt::NoModifier);
+        QApplication::sendEvent(&gesture_view, &middle_double);
+        QMouseEvent gesture_middle_release(QEvent::MouseButtonRelease,
+            QPointF(20.0, 20.0), QPointF(20.0, 20.0), QPointF(20.0, 20.0),
+            Qt::MiddleButton, Qt::NoButton, Qt::NoModifier);
+        QApplication::sendEvent(&gesture_view, &gesture_middle_release);
+        require(double_middle_finishes == 1 && short_middle_confirmations == 1,
+                "Middle double-click did not finish exactly once or leaked a short click");
 
         std::cout << "C++ properties-window contracts passed\n";
         return 0;

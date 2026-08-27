@@ -344,12 +344,12 @@ class SketchModel:
 
     @classmethod
     def from_cpp_dict(cls, data: Mapping[str, Any]) -> "SketchModel":
-        """Adapt the native Sketch v20 JSON to the point-based model.
+        """Adapt the native Sketch v27 JSON to the point-based model.
 
         This is intentionally a pure data conversion.  It is used while
         loading documents and never calls OCCT or the native solver.
         """
-        if data.get("format") != "zima-cad-cpp-sketch" or int(data.get("version", 0)) != 20:
+        if data.get("format") != "zima-cad-cpp-sketch" or int(data.get("version", 0)) != 27:
             raise SketchModelError("unsupported C++ sketch schema")
         model = cls(
             sketch_id=str(data.get("id", "")),
@@ -370,11 +370,15 @@ class SketchModel:
             ))
 
         def add_geometry(raw: Mapping[str, Any], kind: GeometryType, points: tuple[str, ...], attrs: dict[str, Any]) -> None:
-            attrs["construction"] = bool(raw.get("construction", False))
+            if bool(raw.get("construction", False)) and kind != GeometryType.CONSTRUCTION:
+                attrs["role"] = "construction"
             model.add_geometry(SketchGeometry(str(raw["id"]), kind, points, attrs))
 
         for raw in data.get("segments", ()):
-            add_geometry(raw, GeometryType.SEGMENT,
+            add_geometry(raw,
+                         GeometryType.CONSTRUCTION
+                         if bool(raw.get("centerline", False))
+                         else GeometryType.SEGMENT,
                          (str(raw["first"]), str(raw["second"])), {})
         for raw in data.get("circles", ()):
             add_geometry(raw, GeometryType.CIRCLE, (str(raw["center"]),),

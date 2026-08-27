@@ -118,7 +118,9 @@ std::vector<EdgePickCandidate> ordered_edge_candidates(
                 segment_length_squared * ray_length_squared - b * b;
             double segment_parameter = denominator > 1.0e-18
                 ? (b * e - ray_length_squared * d) / denominator : 0.0;
-            segment_parameter = std::clamp(segment_parameter, 0.0, 1.0);
+            if (!edge.infinite) {
+                segment_parameter = std::clamp(segment_parameter, 0.0, 1.0);
+            }
             const Vec3 segment_point = add_scaled(p0, segment_direction, segment_parameter);
             double ray_parameter = dot(subtract(segment_point, ray_origin), ray_direction) /
                 ray_length_squared;
@@ -301,6 +303,15 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
         }
         for (const auto& edge : ordered_edge_candidates(
                 source, ray_origin, ray_direction, world_tolerance)) {
+            // Plane borders in the display packet are unscaled model-space
+            // helpers. Their one visible/pickable screen-constant copy lives
+            // in the rebuilt persisted-reference packet.
+            if (geometry == CandidateGeometry::Display &&
+                edge.edge < source.edges.size() && source.edges[edge.edge].overlay &&
+                (edge.reference.semantic_key == "border" ||
+                 edge.reference.semantic_key.starts_with("origin:plane:"))) {
+                continue;
+            }
             // A Plane is selected through its rectangular border only: the
             // 4 border segments (built-in Origin "origin:plane:<key>", or a
             // user construction Plane's "border") resolve to the same
@@ -311,13 +322,14 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
             // moved from the interior quad to its outline.
             if (edge.reference.semantic_key == "border" ||
                 edge.reference.semantic_key.starts_with("origin:plane:")) {
-                result.push_back({CandidateKind::Face, edge.distance, edge.edge,
-                                  edge.reference.owner_id, edge.reference.semantic_key,
-                                  edge.reference.instance_path, geometry});
                 constexpr std::string_view entity_suffix{":entity"};
                 const bool datum_entity =
                     edge.reference.owner_id.ends_with(entity_suffix) &&
                     edge.reference.semantic_key == "border";
+                result.push_back({CandidateKind::Plane, edge.distance, edge.edge,
+                                  edge.reference.owner_id,
+                                  datum_entity ? "plane" : edge.reference.semantic_key,
+                                  edge.reference.instance_path, geometry});
                 const std::string container_owner = datum_entity
                     ? edge.reference.owner_id.substr(0,
                         edge.reference.owner_id.size() - entity_suffix.size())
@@ -366,7 +378,10 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
         for (const auto& vertex : ordered_vertex_candidates(
                 source, ray_origin, ray_direction, world_tolerance)) {
             const auto kind = vertex.reference.semantic_key.starts_with(
-                    "external_point:")
+                    "external_point:") ||
+                    vertex.reference.semantic_key.starts_with("sketch_midpoint:") ||
+                    vertex.reference.semantic_key.starts_with("sketch_intersection:") ||
+                    vertex.reference.semantic_key.starts_with("sketch_curve_keypoint:")
                 ? CandidateKind::SketchExternalReference
                 : vertex.reference.semantic_key.starts_with("point:")
                     ? CandidateKind::SketchPoint : CandidateKind::Vertex;
@@ -414,8 +429,28 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
                           dimension.reference.semantic_key,
                           dimension.reference.instance_path});
     }
+    const double ray_length_squared = dot(ray_direction, ray_direction);
+    if (ray_length_squared > 1.0e-18) {
+        for (std::size_t index = 0; index < mesh.constraint_markers.size(); ++index) {
+            const auto& marker = mesh.constraint_markers[index];
+            if (!marker.reference.valid()) continue;
+            const double ray_parameter = dot(
+                subtract(marker.position, ray_origin), ray_direction) /
+                ray_length_squared;
+            if (ray_parameter < 0.0) continue;
+            const auto ray_point = add_scaled(
+                ray_origin, ray_direction, ray_parameter);
+            if (length(subtract(marker.position, ray_point)) <= world_tolerance) {
+                result.push_back({CandidateKind::SketchConstraint, ray_parameter,
+                    index, marker.reference.owner_id,
+                    marker.reference.semantic_key,
+                    marker.reference.instance_path});
+            }
+        }
+    }
     const auto priority = [](CandidateKind kind) {
         switch (kind) {
+        case CandidateKind::SketchConstraint: return 0;
         case CandidateKind::Dimension: return 0;
         case CandidateKind::SketchTrimPiece: return 0;
         case CandidateKind::SketchExternalReference: return 1;
@@ -427,6 +462,7 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
         case CandidateKind::SketchAxis: return 1;
         case CandidateKind::SketchSegment: return 2;
         case CandidateKind::Edge: return 2;
+        case CandidateKind::Plane: return 3;
         case CandidateKind::Face: return 3;
         case CandidateKind::Container: return 4;
         case CandidateKind::Occurrence: return 5;

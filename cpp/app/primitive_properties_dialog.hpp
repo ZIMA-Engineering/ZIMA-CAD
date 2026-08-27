@@ -1,5 +1,7 @@
 #pragma once
 
+#include "placement_reference_dialog.hpp"
+
 #include <zima/document/part_document.hpp>
 #include <zima/ui/container_placement_section.hpp>
 #include <zima/ui/properties_subwindow.hpp>
@@ -25,7 +27,8 @@ class ReferenceCellItem;
 
 namespace zima::app {
 
-class PrimitivePropertiesDialog final : public zima::ui::PropertiesSubWindow {
+class PrimitivePropertiesDialog final : public zima::ui::PropertiesSubWindow,
+                                        public PlacementReferenceDialog {
 public:
     using LegacyCommitCallback =
         std::function<void(zima::document::HistoryContainer)>;
@@ -57,9 +60,12 @@ public:
         std::vector<zima::kernel::Vec3> triangles);
     void set_extrusion_target_request(std::function<void()> callback);
     void set_profile_pick_request(std::function<void(bool)> callback);
-    void set_edit_sketch_callback(std::function<void(std::string)> callback);
+    void set_edit_sketch_callback(
+        std::function<void(zima::document::HistoryContainer)> callback);
     void set_preview_callback(
         std::function<void(const zima::document::HistoryContainer&)> callback);
+    void add_edge_reference(const zima::kernel::EdgeReference& edge);
+    void set_edge_references(std::vector<zima::kernel::EdgeReference> edges);
 
     // Universal container placement (position + FRONT/TOP orientation
     // references), reusing the same reference/DOF contract as
@@ -73,11 +79,14 @@ public:
     [[nodiscard]] bool owns_reference_owner(const std::string& owner_id) const;
     [[nodiscard]] std::vector<zima::document::ConstructionReference>
         references_without(std::size_t index) const;
+    [[nodiscard]] std::size_t first_empty_position_index() const;
     void set_remaining_translation_dof(int dof);
     void set_remaining_rotation_dof(int dof);
     void set_translation_constraint_state(
         const zima::document::PointConstraintState& state,
         const zima::kernel::Vec3& solution);
+    void set_orientation_base_rotation(
+        const zima::kernel::Vec3& rotation, bool constrained);
 
     // Toggle-highlight-on-click for populated reference rows, matching
     // ConstructionPropertiesDialog and Python's `_reference_cell_clicked`.
@@ -93,6 +102,9 @@ protected:
 
 private:
     zima::document::HistoryContainer initial_;
+    bool edit_mode_{};
+    std::optional<zima::document::HistoryContainer> accepted_baseline_;
+    std::vector<std::string> accepted_target_baseline_;
     CommitCallback commit_;
     QLineEdit* name_{};
     QComboBox* operation_{};
@@ -112,6 +124,7 @@ private:
     QPushButton* profile_reset_button_{};
     QPushButton* own_sketch_button_{};
     QLineEdit* profile_status_{};
+    QDoubleSpinBox* profile_plane_offset_{};
     QComboBox* result_type_{};
     QPushButton* result_type_switch_button_{};
     QDoubleSpinBox* thin_thickness_{};
@@ -137,11 +150,12 @@ private:
     std::string active_end_target_side_{"forward"};
     std::function<void()> extrusion_target_request_;
     std::function<void(bool)> profile_pick_request_;
-    std::function<void(std::string)> edit_sketch_;
+    std::function<void(zima::document::HistoryContainer)> edit_sketch_;
     std::function<void(const zima::document::HistoryContainer&)> preview_;
     QComboBox* revolution_axis_{};
     QDoubleSpinBox* angle_{};
     QDoubleSpinBox* treatment_size_{};
+    QLabel* edge_list_{};
     std::array<QDoubleSpinBox*, 3> translation_{};
     std::array<QDoubleSpinBox*, 3> rotation_{};
     std::unique_ptr<zima::ui::ContainerPlacementSection> placement_;
@@ -158,4 +172,3 @@ private:
 };
 
 }  // namespace zima::app
-

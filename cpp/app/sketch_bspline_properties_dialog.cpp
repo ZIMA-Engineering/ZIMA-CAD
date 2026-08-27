@@ -13,7 +13,7 @@ SketchBSplinePropertiesDialog::SketchBSplinePropertiesDialog(
     unsigned degree, bool closed,
     std::vector<std::array<double, 2>> control_points,
     CommitCallback commit, QWidget* parent)
-    : PropertiesSubWindow(tr("Vlastnosti B-spline"), parent),
+    : PropertiesSubWindow(tr("B-spline"), parent),
       commit_(std::move(commit)) {
     setAttribute(Qt::WA_DeleteOnClose, true);
     setMinimumWidth(390);

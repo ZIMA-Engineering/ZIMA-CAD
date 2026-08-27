@@ -12,6 +12,8 @@
 #include <optional>
 #include <functional>
 #include <set>
+#include <string>
+#include <utility>
 #include <vector>
 
 class QMouseEvent;
@@ -69,6 +71,7 @@ public:
         std::function<bool(const ViewerCandidate&)> candidate_filter);
     void confirm_container(const std::string& owner_id);
     void confirm_occurrence(const std::string& instance_path);
+    void confirm_result_body();
     void confirm_origin(const std::string& owner_id,
         const std::string& instance_path);
     void confirm_reference(const std::string& owner_id,
@@ -92,15 +95,32 @@ public:
             const zima::kernel::Vec3&, const zima::kernel::Vec3&)> update,
         std::function<void()> end);
     void set_short_middle_click_callback(std::function<bool()> callback);
+    void set_double_middle_click_callback(std::function<bool()> callback);
+    // Executes the same command confirmation path as a short middle click at
+    // the last View pointer position. Used by view-focused Enter.
+    bool confirm_current_pointer();
+    bool refresh_current_pointer_preview();
+    void set_empty_right_click_callback(std::function<bool()> callback);
+    void set_single_candidate_right_click_callback(
+        std::function<bool(const ViewerCandidate&)> callback);
+    void set_candidate_right_click_callback(
+        std::function<bool(const ViewerCandidate&, std::size_t, std::size_t)> callback);
+    void reset_candidate_cycle();
     void set_double_confirmation_callback(
         std::function<void(const ViewerCandidate&)> callback);
     void set_candidate_drag_callbacks(
-        std::function<bool(const ViewerCandidate&)> begin,
+        std::function<bool(const ViewerCandidate&, const zima::kernel::Vec3&,
+            const zima::kernel::Vec3&)> begin,
         std::function<void(const zima::kernel::Vec3&, const zima::kernel::Vec3&)> update,
         std::function<void()> end);
     void set_transient_point_transform(
         std::function<zima::kernel::Vec3(const zima::kernel::Vec3&)> transform);
     void set_transient_edges(std::vector<zima::kernel::ViewerEdge> edges);
+    // Active Sketch input points are deliberately separate from model points:
+    // they are transient, non-pickable and always rendered in inference orange.
+    void set_transient_points(std::vector<zima::kernel::Vec3> points);
+    void set_transient_labels(std::vector<std::pair<zima::kernel::Vec3,
+        std::string>> labels);
     // Per-edge highlight priority state, mirroring the Python widget's
     // frozenset-based bookkeeping (zima_cad/viewer.py _edge_display_color /
     // _edge_is_highlighted). Highest priority first: selected > object

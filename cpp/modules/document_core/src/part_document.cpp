@@ -351,6 +351,27 @@ nlohmann::json read_part_ini(const std::filesystem::path& path) {
                 {"kind", "construction"}, {"id", id}});
         }
     }
+    // Sketches owned by a Sketch/Extrusion/Revolution history container are
+    // nested model data, not independent history entries. Persist them in a
+    // dedicated index so the INI transport does not depend on history_order
+    // to discover them. Standalone sketches may also be present in the index;
+    // avoid duplicating those already read from a legacy-style container row.
+    std::unordered_set<std::string> loaded_sketch_ids;
+    for (const auto& sketch : root["sketches"]) {
+        loaded_sketch_ids.insert(sketch.at("id").get<std::string>());
+    }
+    std::stringstream sketch_ids(ini_value(ini, "Sketches", "items"));
+    while (std::getline(sketch_ids, id, ',')) {
+        id = trim_ini(std::move(id));
+        if (id.empty() || loaded_sketch_ids.contains(id)) continue;
+        const auto serialized = ini_required(ini, "Sketch." + id, "data");
+        auto sketch = nlohmann::json::parse(serialized);
+        if (sketch.at("id").get<std::string>() != id) {
+            throw std::runtime_error("Sketch index ID does not match Sketch data");
+        }
+        root["sketches"].push_back(std::move(sketch));
+        loaded_sketch_ids.insert(id);
+    }
     if (const auto cursor = ini_value(ini, "Document", "history_cursor");
         !cursor.empty()) {
         root["history_cursor"] = std::stoull(cursor);
@@ -539,6 +560,14 @@ void write_part_ini(
         items += id;
     }
     ini["Containers"]["items"] = items;
+    std::string sketch_items;
+    for (const auto& sketch : root.at("sketches")) {
+        const auto sketch_id = sketch.at("id").get<std::string>();
+        if (!sketch_items.empty()) sketch_items += ",";
+        sketch_items += sketch_id;
+        ini["Sketch." + sketch_id]["data"] = sketch.dump();
+    }
+    ini["Sketches"]["items"] = sketch_items;
     if (!root.at("calculated_boundaries").empty()) {
         ini["CachedBodies"] = {
             {"encoding", "zima-cpp-body-results-json"},
@@ -586,6 +615,13 @@ void validate_placement(const Placement& placement) {
     require_finite(placement.rotation_x, "rotation x");
     require_finite(placement.rotation_y, "rotation y");
     require_finite(placement.rotation_z, "rotation z");
+    require_finite(placement.absolute_rotation_x, "absolute rotation x");
+    require_finite(placement.absolute_rotation_y, "absolute rotation y");
+    require_finite(placement.absolute_rotation_z, "absolute rotation z");
+    if (placement.orientation_quarter_turns < 0 ||
+        placement.orientation_quarter_turns > 3) {
+        throw std::runtime_error("orientation quarter turns must be 0..3");
+    }
 }
 
 void require_default_sketch_feature_placement(const Placement& placement) {
@@ -2052,6 +2088,25 @@ zima::kernel::Vec3 placement_compose_orientation_degrees(
     return placement_euler_degrees_from_rotation_matrix(combined);
 }
 
+zima::kernel::Vec3 placement_apply_view_orientation_degrees(
+    const zima::kernel::Vec3& base_degrees, bool back, int quarter_turns,
+    const zima::kernel::Vec3& correction_degrees) {
+    auto combined = placement_rotation_matrix_from_euler_degrees(base_degrees);
+    if (back) {
+        combined = placement_rotation_matrix_multiply(combined,
+            placement_rotation_matrix_from_euler_degrees({180.0, 0.0, 0.0}));
+    }
+    const int normalized_turns = ((quarter_turns % 4) + 4) % 4;
+    if (normalized_turns != 0) {
+        combined = placement_rotation_matrix_multiply(combined,
+            placement_rotation_matrix_from_euler_degrees(
+                {0.0, 0.0, normalized_turns * 90.0}));
+    }
+    combined = placement_rotation_matrix_multiply(combined,
+        placement_rotation_matrix_from_euler_degrees(correction_degrees));
+    return placement_euler_degrees_from_rotation_matrix(combined);
+}
+
 zima::kernel::Vec3 placement_transform_point(
     const PlacementRotationMatrix& rotation,
     const zima::kernel::Vec3& translation, const zima::kernel::Vec3& point) {
@@ -2395,6 +2450,32 @@ bool placement_solve_position(
     return true;
 }
 
+void placement_assign_orientation_direction(
+    const ConstructionReference& reference,
+    zima::kernel::Vec3 direction,
+    std::optional<zima::kernel::Vec3>& front_direction,
+    std::optional<zima::kernel::Vec3>& top_direction) {
+    if (reference.flip) direction = {-direction.x, -direction.y, -direction.z};
+    const auto& role = reference.orientation_role;
+    if (role == "back") {
+        front_direction = {-direction.x, -direction.y, -direction.z};
+    } else if (role == "top") {
+        top_direction = direction;
+    } else if (role == "bottom") {
+        top_direction = {-direction.x, -direction.y, -direction.z};
+    } else if (role == "left" || role == "right") {
+        if (!front_direction) return;
+        const zima::kernel::Vec3 local_x = role == "left" ? direction
+            : zima::kernel::Vec3{-direction.x, -direction.y, -direction.z};
+        auto local_z = placement_vec_cross(local_x, *front_direction);
+        if (!placement_vec_is_zero(local_z)) {
+            top_direction = placement_vec_normalized(local_z);
+        }
+    } else {
+        front_direction = direction;
+    }
+}
+
 }  // namespace
 
 PartDocument PartDocument::create_default() {
@@ -2566,11 +2647,11 @@ bool resolve_construction(ConstructionObject& object,
         -> std::optional<PlacementReferencePlane> {
         return placement_reference_plane(reference, geometry);
     };
-    if (object.references.empty()) {
-        object.reference_valid = true;
-        object.entity_origin = object.origin;
-        return true;
-    }
+    // Even an absolute construction with no references must continue
+    // through the common frame calculation below. Plane in particular must
+    // transform its selected local XY/YZ/XZ normal and apply its offset;
+    // returning here used to leave every unreferenced Plane stuck on the
+    // old hard-coded normal with a dead offset value.
     // An orientation-driving (front/top role) reference contributes ONLY
     // its direction to the frame below, never a position equation --
     // exactly matching resolve_placement()'s identical split (and Python's
@@ -2607,12 +2688,8 @@ bool resolve_construction(ConstructionObject& object,
             if (!direction) {
                 orientation_resolved = false;
             } else {
-                if (reference.flip) {
-                    direction = zima::kernel::Vec3{
-                        -direction->x, -direction->y, -direction->z};
-                }
-                if (reference.orientation_role == "top") top_direction = direction;
-                else front_direction = direction;
+                placement_assign_orientation_direction(reference, *direction,
+                    front_direction, top_direction);
             }
         }
         if (reference.orientation_only) has_explicit_orientation_reference = true;
@@ -2708,7 +2785,17 @@ bool resolve_construction(ConstructionObject& object,
     if (front_role_reference == nullptr && !position_references.empty()) {
         front_role_reference = &position_references.front().get();
     }
+    // The whole-Origin bulk-fill (clicking the tree's "Počátek" node) is a
+    // request for the global/document origin frame itself, not an
+    // intentional "parallel to this one plane" pick -- whichever origin
+    // datum plane happened to land in row 0 first is an accidental artifact
+    // of click order, not user intent. Skip frame inheritance for that case
+    // exactly like the front_direction/top_direction reset above, so a
+    // Plane resolved from the bulk-filled triad always lands on the
+    // identity frame regardless of pick order.
     if (object.kind == ConstructionKind::Plane && front_role_reference != nullptr &&
+        !has_explicit_orientation_reference &&
+        !(origin_bulk_fill && !has_explicit_orientation_reference) &&
         construction_reference_is_planar_face(*front_role_reference, geometry)) {
         if (const auto resolved = plane(*front_role_reference)) {
             inherited_plane_frame = *resolved;
@@ -2857,8 +2944,26 @@ bool resolve_construction(ConstructionObject& object,
     } else {
         object.rotation_base = {};
     }
+    const bool orientation_from_reference = front_direction || top_direction ||
+        origin_bulk_fill || object.orientation_inherited_from_reference;
+    const auto absolute_base = object.absolute_rotation;
+    const auto final_base = orientation_from_reference
+        ? object.rotation_base : absolute_base;
+    object.rotation = placement_apply_view_orientation_degrees(
+        final_base, object.orientation_back, object.orientation_quarter_turns,
+        orientation_from_reference
+            ? zima::kernel::Vec3{object.rotation_offset_x,
+                                 object.rotation_offset_y,
+                                 object.rotation_offset_z}
+            : zima::kernel::Vec3{});
     if (object.kind == ConstructionKind::Plane) {
-        const auto resolved_normal = rotated_vector({1.0, 0.0, 0.0}, object.rotation);
+        const zima::kernel::Vec3 local_normal =
+            object.base_plane == LocalDatumPlane::XY
+                ? zima::kernel::Vec3{0.0, 0.0, 1.0}
+            : object.base_plane == LocalDatumPlane::XZ
+                ? zima::kernel::Vec3{0.0, 1.0, 0.0}
+                : zima::kernel::Vec3{1.0, 0.0, 0.0};
+        const auto resolved_normal = rotated_vector(local_normal, object.rotation);
         if (!placement_vec_is_zero(resolved_normal)) {
             object.direction = placement_vec_normalized(resolved_normal);
         }
@@ -2883,12 +2988,17 @@ bool resolve_construction(ConstructionObject& object,
 }
 
 bool resolve_placement(
-    Placement& placement, const zima::kernel::ViewerReferenceGeometry& geometry) {
+    Placement& placement, const zima::kernel::ViewerReferenceGeometry& geometry,
+    zima::kernel::Vec3* base_rotation,
+    bool* orientation_from_reference) {
     std::vector<std::reference_wrapper<const ConstructionReference>> position_references;
     std::optional<zima::kernel::Vec3> front_direction;
     std::optional<zima::kernel::Vec3> top_direction;
     bool orientation_resolved = true;
     bool has_explicit_orientation_reference = false;
+    bool has_orientation_reference = std::any_of(
+        placement.references.begin(), placement.references.end(),
+        [](const auto& reference) { return reference.orientation_drives_rotation; });
     for (const auto& reference : placement.references) {
         if (reference.orientation_drives_rotation) {
             std::optional<zima::kernel::Vec3> direction;
@@ -2900,12 +3010,8 @@ bool resolve_placement(
             if (!direction) {
                 orientation_resolved = false;
             } else {
-                if (reference.flip) {
-                    direction = zima::kernel::Vec3{
-                        -direction->x, -direction->y, -direction->z};
-                }
-                if (reference.orientation_role == "top") top_direction = direction;
-                else front_direction = direction;
+                placement_assign_orientation_direction(reference, *direction,
+                    front_direction, top_direction);
             }
         }
         if (reference.orientation_only) has_explicit_orientation_reference = true;
@@ -2918,20 +3024,78 @@ bool resolve_placement(
         orientation_resolved = true;
     }
     zima::kernel::Vec3 origin{placement.x, placement.y, placement.z};
-    const bool position_resolved = placement_solve_position(
+    bool position_resolved = placement_solve_position(
         position_references, geometry, origin);
     if (position_resolved) {
         placement.x = origin.x;
         placement.y = origin.y;
         placement.z = origin.z;
     }
-    const zima::kernel::Vec3 manual_offset{placement.rotation_offset_x,
-        placement.rotation_offset_y, placement.rotation_offset_z};
-    const auto composed = placement_compose_orientation_degrees(
-        front_direction, top_direction, manual_offset);
-    placement.rotation_x = composed.x;
-    placement.rotation_y = composed.y;
-    placement.rotation_z = composed.z;
+    std::optional<zima::kernel::Vec3> three_point_base;
+    if (position_references.size() >= 3) {
+        const auto first = placement_reference_point(
+            position_references[0].get(), geometry);
+        const auto second = placement_reference_point(
+            position_references[1].get(), geometry);
+        const auto third = placement_reference_point(
+            position_references[2].get(), geometry);
+        if (first && second && third) {
+            // Ordered three-point placement is a frame definition, not
+            // three contradictory requests to place the origin on all
+            // three points. P1 is the origin; P2 and P3 only establish X
+            // and the positive-Y half-plane.
+            placement.x = first->x;
+            placement.y = first->y;
+            placement.z = first->z;
+            position_resolved = true;
+            const auto difference = [](const auto& left, const auto& right) {
+                return zima::kernel::Vec3{left.x - right.x,
+                    left.y - right.y, left.z - right.z};
+            };
+            const auto x_axis = placement_vec_normalized(
+                difference(*second, *first));
+            const auto y_axis = placement_vec_normalized(
+                placement_vec_project_perpendicular(
+                    difference(*third, *first), x_axis));
+            if (!placement_vec_is_zero(x_axis) && !placement_vec_is_zero(y_axis)) {
+                const auto z_axis = placement_vec_normalized(
+                    placement_vec_cross(x_axis, y_axis));
+                if (!placement_vec_is_zero(z_axis)) {
+                    three_point_base = placement_euler_degrees_from_rotation_matrix(
+                        placement_rotation_matrix_from_columns(x_axis, y_axis, z_axis));
+                    has_orientation_reference = true;
+                }
+            }
+        }
+    }
+    if (orientation_from_reference) {
+        *orientation_from_reference = has_orientation_reference;
+    }
+    if (has_orientation_reference) {
+        const zima::kernel::Vec3 manual_offset{placement.rotation_offset_x,
+            placement.rotation_offset_y, placement.rotation_offset_z};
+        const auto resolved_base = three_point_base.value_or(
+            placement_frame_base_rotation_degrees(
+                front_direction, top_direction).value_or(zima::kernel::Vec3{}));
+        if (base_rotation) *base_rotation = resolved_base;
+        const auto composed = placement_apply_view_orientation_degrees(
+            resolved_base, placement.orientation_back,
+            placement.orientation_quarter_turns, manual_offset);
+        placement.rotation_x = composed.x;
+        placement.rotation_y = composed.y;
+        placement.rotation_z = composed.z;
+    } else {
+        const zima::kernel::Vec3 resolved_base{
+            placement.absolute_rotation_x, placement.absolute_rotation_y,
+            placement.absolute_rotation_z};
+        if (base_rotation) *base_rotation = resolved_base;
+        const auto composed = placement_apply_view_orientation_degrees(
+            resolved_base, placement.orientation_back,
+            placement.orientation_quarter_turns, {});
+        placement.rotation_x = composed.x;
+        placement.rotation_y = composed.y;
+        placement.rotation_z = composed.z;
+    }
     placement.reference_valid = position_resolved && orientation_resolved;
     return placement.reference_valid;
 }
@@ -3414,6 +3578,22 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
             append_plane("xy", {1.0, 0.0, 0.0}, {0.0, 1.0, 0.0});
             append_plane("yz", {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0});
             append_plane("xz", {1.0, 0.0, 0.0}, {0.0, 0.0, 1.0});
+            // The editing-preview origin frame also needs its own point
+            // marker at the container's origin, exactly like the real
+            // document Origin's marker -- otherwise an Axis/Plane under
+            // construction shows its three datum axes/planes but no dot at
+            // the point they all meet, unlike the main "Počátek dílu" frame.
+            // always_visible=true: this must render immediately while the
+            // dialog is open, not only when hovered/selected/referenced.
+            // A Point container's entity already is this exact marker with
+            // the same persisted owner/key. Adding another one here would
+            // duplicate both its display geometry and picker candidate.
+            if (object.kind != ConstructionKind::Point) {
+                mesh.points.push_back(
+                    {object.origin, {origin_id, "point", {}}, {}, true});
+                mesh.original_references.points.push_back(
+                    {object.origin, {origin_id, "point", {}}, {}, true});
+            }
         };
         if (object.kind == ConstructionKind::Point) {
             const std::string& origin_id = object.container_origin.id;
@@ -3471,9 +3651,23 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
         // (the container's own, un-offset position) -- so the offset only
         // moves the rendered plane entity, matching the editing-origin
         // preview frame above staying anchored to the container.
-        const auto first = rotated({0.0, 1.0, 0.0}, object.rotation);
-        const auto second = rotated({0.0, 0.0, 1.0}, object.rotation);
-        const double half = object.display_size * 0.5;
+        const zima::kernel::Vec3 local_first =
+            object.base_plane == LocalDatumPlane::XY
+                ? zima::kernel::Vec3{1.0, 0.0, 0.0}
+                : object.base_plane == LocalDatumPlane::XZ
+                    ? zima::kernel::Vec3{1.0, 0.0, 0.0}
+                    : zima::kernel::Vec3{0.0, 1.0, 0.0};
+        const zima::kernel::Vec3 local_second =
+            object.base_plane == LocalDatumPlane::XY
+                ? zima::kernel::Vec3{0.0, 1.0, 0.0}
+                : zima::kernel::Vec3{0.0, 0.0, 1.0};
+        const auto first = rotated(local_first, object.rotation);
+        const auto second = rotated(local_second, object.rotation);
+        // A work plane is the offset/oriented counterpart of the container's
+        // local datum planes, so use the same nominal rectangle. MeshView
+        // keeps both screen-constant; `display_size` remains relevant to Axis
+        // constructions but no longer makes Plane containers visually huge.
+        const double half = kContainerOriginPlaneSize * 0.5;
         std::array<zima::kernel::Vec3, 4> corners;
         for (std::size_t index = 0; index < corners.size(); ++index) {
             const double a = index == 0 || index == 3 ? -half : half;
@@ -3491,6 +3685,15 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
             {offset, offset + 1, offset + 2, offset, offset + 2, offset + 3});
         references.triangle_references.insert(references.triangle_references.end(),
             2, {object.entity_id, "plane", {}});
+        // Editing-only visual marker at the actual, offset work plane.  It is
+        // deliberately display-only: the persisted selectable point below
+        // keeps its stable ZIMA identity, while this purple marker merely
+        // explains the distance between the Container Origin and the plane
+        // currently being created.
+        if (editing) {
+            mesh.points.push_back({object.entity_origin,
+                {object.entity_id, "preview:plane-offset-point", {}}, {}, true});
+        }
         // A Plane container also gets a defining-point marker at its own
         // entity origin, exactly like the Axis case above: it stays hidden
         // in the normal state (always_visible=false) and only paints when
@@ -3536,7 +3739,48 @@ void PartDocument::resolve_constructions(
         append(source_geometry,
             carrier.construction_viewer_mesh({}, scene_size).original_references);
     }
-    // Sketch containers with a Plane reference (see
+    // Resolve every owning container before deriving its local work plane.
+    for (auto& container : history) {
+        if (container.placement.references.empty()) continue;
+        static_cast<void>(resolve_placement(container.placement, source_geometry));
+    }
+    // An owned Sketch derives its work plane strictly from its container's
+    // local origin. Offset therefore moves the plane along the selected
+    // local normal and the complete frame follows the container placement.
+    for (auto& sketch : sketches) {
+        if (sketch.owner_container_id.empty()) continue;
+        const auto owner = std::find_if(history.begin(), history.end(),
+            [&](const auto& container) {
+                return container.id == sketch.owner_container_id;
+            });
+        if (owner == history.end()) continue;
+        zima::kernel::Vec3 local_origin;
+        zima::kernel::Vec3 local_x;
+        zima::kernel::Vec3 local_y;
+        zima::kernel::Vec3 local_normal;
+        if (sketch.plane == zima::sketcher::SketchPlane::XY) {
+            local_origin = {0.0, 0.0, sketch.plane_offset};
+            local_x = {1.0, 0.0, 0.0}; local_y = {0.0, 1.0, 0.0};
+            local_normal = {0.0, 0.0, 1.0};
+        } else if (sketch.plane == zima::sketcher::SketchPlane::XZ) {
+            local_origin = {0.0, sketch.plane_offset, 0.0};
+            local_x = {1.0, 0.0, 0.0}; local_y = {0.0, 0.0, 1.0};
+            local_normal = {0.0, -1.0, 0.0};
+        } else {
+            local_origin = {sketch.plane_offset, 0.0, 0.0};
+            local_x = {0.0, 1.0, 0.0}; local_y = {0.0, 0.0, 1.0};
+            local_normal = {1.0, 0.0, 0.0};
+        }
+        const zima::kernel::Vec3 rotation{owner->placement.rotation_x,
+            owner->placement.rotation_y, owner->placement.rotation_z};
+        const auto shifted = rotated_vector(local_origin, rotation);
+        sketch.resolved_origin = {owner->placement.x + shifted.x,
+            owner->placement.y + shifted.y, owner->placement.z + shifted.z};
+        sketch.resolved_x_axis = rotated_vector(local_x, rotation);
+        sketch.resolved_y_axis = rotated_vector(local_y, rotation);
+        sketch.resolved_normal = rotated_vector(local_normal, rotation);
+    }
+    // Unowned sketches with a Plane reference (Assembly-owned sketches)
     // SketchPropertiesDialog/plane_reference_owner_id) inherit their frame
     // directly from that Plane container's already-resolved placement. The
     // Plane's own work-plane offset is now already baked into
@@ -3546,6 +3790,7 @@ void PartDocument::resolve_constructions(
     // so this loop only ever narrows, never widens, which sketches are
     // affected.
     for (auto& sketch : sketches) {
+        if (!sketch.owner_container_id.empty()) continue;
         if (sketch.plane_reference_owner_id.empty()) continue;
         const auto found = std::find_if(constructions.begin(), constructions.end(),
             [&](const auto& object) {
@@ -3563,19 +3808,6 @@ void PartDocument::resolve_constructions(
         sketch.resolved_x_axis = rotated_vector({0.0, 1.0, 0.0}, found->rotation);
         sketch.resolved_y_axis = rotated_vector({0.0, 0.0, 1.0}, found->rotation);
         sketch.resolved_normal = normal;
-    }
-    // Every history container shares the same universal placement: an
-    // origin resolved from a position reference plus an optional FRONT/TOP
-    // reference-driven orientation frame, composed with a manual RX/RY/RZ
-    // correction. This mirrors the reference implementation's container
-    // placement, which is independent of the feature/construction kind.
-    // Containers with no placement references keep using their raw
-    // x/y/z/rotation_x/y/z fields untouched (legacy direct XYZ placement),
-    // since resolve_placement() would otherwise overwrite rotation_x/y/z
-    // with the (possibly zero) manual rotation_offset_x/y/z correction.
-    for (auto& container : history) {
-        if (container.placement.references.empty()) continue;
-        static_cast<void>(resolve_placement(container.placement, source_geometry));
     }
 }
 
@@ -3727,6 +3959,114 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
     return result;
 }
 
+std::vector<zima::kernel::ViewerEdge> PartDocument::primitive_preview_edges(
+        const HistoryContainer& container) const {
+    std::vector<zima::kernel::ViewerEdge> result;
+    const zima::kernel::Vec3 rotation{container.placement.rotation_x,
+        container.placement.rotation_y, container.placement.rotation_z};
+    const zima::kernel::Vec3 translation{container.placement.x,
+        container.placement.y, container.placement.z};
+    const auto world = [&](zima::kernel::Vec3 point) {
+        point = rotated_vector(point, rotation);
+        return zima::kernel::Vec3{point.x + translation.x,
+            point.y + translation.y, point.z + translation.z};
+    };
+    const auto append = [&](std::vector<zima::kernel::Vec3> points,
+                            const std::string& role) {
+        zima::kernel::ViewerEdge edge;
+        edge.reference = {container.id, "preview:" + role, {}};
+        edge.points.reserve(points.size());
+        for (auto point : points) edge.points.push_back(world(point));
+        result.push_back(std::move(edge));
+    };
+    const auto circle = [&](double radius, double z, const std::string& role,
+                            int plane = 0) {
+        constexpr int samples = 64;
+        std::vector<zima::kernel::Vec3> points;
+        points.reserve(samples + 1);
+        for (int sample = 0; sample <= samples; ++sample) {
+            const double angle = 2.0 * std::numbers::pi * sample / samples;
+            const double a = radius * std::cos(angle);
+            const double b = radius * std::sin(angle);
+            points.push_back(plane == 0 ? zima::kernel::Vec3{a, b, z}
+                : plane == 1 ? zima::kernel::Vec3{a, z, b}
+                             : zima::kernel::Vec3{z, a, b});
+        }
+        append(std::move(points), role);
+    };
+    if (container.feature_kind == FeatureKind::Box) {
+        const double x = container.box.length;
+        const double y = container.box.width;
+        const double z = container.box.height;
+        const std::array<zima::kernel::Vec3, 8> vertices{{
+            {0,0,0}, {x,0,0}, {x,y,0}, {0,y,0},
+            {0,0,z}, {x,0,z}, {x,y,z}, {0,y,z}}};
+        constexpr std::array<std::array<int, 2>, 12> segments{{
+            {{0,1}},{{1,2}},{{2,3}},{{3,0}},{{4,5}},{{5,6}},{{6,7}},{{7,4}},
+            {{0,4}},{{1,5}},{{2,6}},{{3,7}}}};
+        for (std::size_t index = 0; index < segments.size(); ++index) {
+            append(std::vector<zima::kernel::Vec3>{
+                    vertices[segments[index][0]], vertices[segments[index][1]]},
+                "box:" + std::to_string(index));
+        }
+    } else if (container.feature_kind == FeatureKind::Cylinder) {
+        const double radius = container.cylinder.radius;
+        const double height = container.cylinder.height;
+        circle(radius, 0.0, "cylinder:bottom");
+        circle(radius, height, "cylinder:top");
+        for (int index = 0; index < 4; ++index) {
+            const double angle = 0.5 * std::numbers::pi * index;
+            const double x = radius * std::cos(angle);
+            const double y = radius * std::sin(angle);
+            append(std::vector<zima::kernel::Vec3>{
+                    {x, y, 0.0}, {x, y, height}},
+                "cylinder:side:" + std::to_string(index));
+        }
+    } else if (container.feature_kind == FeatureKind::Sphere) {
+        circle(container.sphere.radius, 0.0, "sphere:xy", 0);
+        circle(container.sphere.radius, 0.0, "sphere:xz", 1);
+        circle(container.sphere.radius, 0.0, "sphere:yz", 2);
+    } else if (container.feature_kind == FeatureKind::Cone) {
+        circle(container.cone.bottom_radius, 0.0, "cone:bottom");
+        if (container.cone.top_radius > 1.0e-9) {
+            circle(container.cone.top_radius, container.cone.height, "cone:top");
+        }
+        for (int index = 0; index < 4; ++index) {
+            const double angle = 0.5 * std::numbers::pi * index;
+            append({{container.cone.bottom_radius * std::cos(angle),
+                         container.cone.bottom_radius * std::sin(angle), 0.0},
+                    {container.cone.top_radius * std::cos(angle),
+                         container.cone.top_radius * std::sin(angle),
+                         container.cone.height}},
+                "cone:side:" + std::to_string(index));
+        }
+    } else if (container.feature_kind == FeatureKind::Pyramid) {
+        const double x = container.pyramid.length * 0.5;
+        const double y = container.pyramid.width * 0.5;
+        const std::array<zima::kernel::Vec3, 4> base{{
+            {-x,-y,0}, {x,-y,0}, {x,y,0}, {-x,y,0}}};
+        append({base[0], base[1], base[2], base[3], base[0]}, "pyramid:base");
+        for (std::size_t index = 0; index < base.size(); ++index) {
+            append({base[index], {0,0,container.pyramid.height}},
+                "pyramid:side:" + std::to_string(index));
+        }
+    } else if (container.feature_kind == FeatureKind::Wedge) {
+        const double x = container.wedge.length * 0.5;
+        const double y = container.wedge.width * 0.5;
+        const double top_x = -x + container.wedge.top_offset;
+        const std::array<zima::kernel::Vec3, 8> p{{
+            {-x,-y,0}, {x,-y,0}, {top_x,-y,container.wedge.height},
+            {-x,-y,container.wedge.height}, {-x,y,0}, {x,y,0},
+            {top_x,y,container.wedge.height}, {-x,y,container.wedge.height}}};
+        append({p[0],p[1],p[2],p[3],p[0]}, "wedge:front");
+        append({p[4],p[5],p[6],p[7],p[4]}, "wedge:back");
+        for (std::size_t index = 0; index < 4; ++index) {
+            append({p[index], p[index + 4]}, "wedge:cross:" + std::to_string(index));
+        }
+    }
+    return result;
+}
+
 std::vector<zima::kernel::ViewerEdge> PartDocument::revolution_preview_edges(
     const HistoryContainer& container) const {
     if (container.feature_kind != FeatureKind::Revolution) return {};
@@ -3812,6 +4152,17 @@ HistoryContainer PartDocument::create_extrusion_container(std::string sketch_id)
     container.name = "Vytažení";
     container.feature_kind = FeatureKind::Extrusion;
     container.extrusion.sketch_id = std::move(sketch_id);
+    return container;
+}
+
+HistoryContainer PartDocument::create_sketch_container() {
+    HistoryContainer container;
+    container.id = make_id();
+    container.feature_id = make_id();
+    container.feature_parent_id = container.id;
+    container.container_origin = create_container_origin(container.id);
+    container.name = "Skica";
+    container.feature_kind = FeatureKind::Sketch;
     return container;
 }
 
@@ -3921,6 +4272,7 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
     std::vector<zima::kernel::HistoryOperation> operations;
     operations.reserve(history.size());
     for (const auto& container : history) {
+        if (container.feature_kind == FeatureKind::Sketch) continue;
         zima::kernel::Vec3 translation{
             container.placement.x, container.placement.y, container.placement.z};
         zima::kernel::Vec3 rotation{
@@ -4130,7 +4482,7 @@ PartDocument PartDocument::load(
     std::unordered_set<std::string> container_ids;
     for (const auto& source : source_history) {
         const std::string type = source.at("type").get<std::string>();
-        if (type != "box" && type != "cylinder" && type != "sphere" &&
+        if (type != "sketch" && type != "box" && type != "cylinder" && type != "sphere" &&
             type != "cone" && type != "pyramid" && type != "wedge" &&
             type != "extrusion" &&
             type != "revolution" && type != "imported_step" &&
@@ -4138,7 +4490,8 @@ PartDocument PartDocument::load(
             throw std::runtime_error("Unsupported history feature type");
         }
         HistoryContainer container;
-        container.feature_kind = type == "cylinder" ? FeatureKind::Cylinder
+        container.feature_kind = type == "sketch" ? FeatureKind::Sketch
+            : type == "cylinder" ? FeatureKind::Cylinder
             : type == "sphere" ? FeatureKind::Sphere
             : type == "cone" ? FeatureKind::Cone
             : type == "pyramid" ? FeatureKind::Pyramid
@@ -4195,7 +4548,10 @@ PartDocument PartDocument::load(
         container.combine_mode = combine == "subtract"
             ? CombineMode::Subtract : CombineMode::Add;
         container.suppressed = source.at("suppressed").get<bool>();
-        if (container.feature_kind == FeatureKind::Box) {
+        if (container.feature_kind == FeatureKind::Sketch) {
+            // Sketch geometry is persisted in PartDocument::sketches and
+            // linked through Sketch::owner_container_id.
+        } else if (container.feature_kind == FeatureKind::Box) {
             container.box.length = source.at("length").get<double>();
             container.box.width = source.at("width").get<double>();
             container.box.height = source.at("height").get<double>();
@@ -4250,6 +4606,8 @@ PartDocument PartDocument::load(
                     ? ProfileResultType::Thin
                     : throw std::runtime_error("Invalid profile result type");
             container.extrusion.thin_thickness = source.at("thin_thickness");
+            container.extrusion.profile_plane_offset =
+                source.at("profile_plane_offset");
             container.extrusion.thin_mode = source.at("thin_mode") == "one_side"
                 ? ThinMode::OneSide : source.at("thin_mode") == "other_side"
                     ? ThinMode::OtherSide : source.at("thin_mode") == "symmetric"
@@ -4303,6 +4661,9 @@ PartDocument PartDocument::load(
             container.extrusion.end_targets_reverse =
                 parse_targets(source.at("end_targets_reverse"));
             require_positive(container.extrusion.thin_thickness, "thin thickness");
+            if (!std::isfinite(container.extrusion.profile_plane_offset)) {
+                throw std::runtime_error("Invalid Extrusion profile-plane offset");
+            }
             require_positive(container.extrusion.length_forward, "forward length");
             require_positive(container.extrusion.length_reverse, "reverse length");
             container.extrusion.height = source.at("height").get<double>();
@@ -4385,6 +4746,8 @@ PartDocument PartDocument::load(
                     ? ProfileResultType::Thin
                     : throw std::runtime_error("Invalid Revolution result type");
             container.revolution.thin_thickness = source.at("thin_thickness");
+            container.revolution.profile_plane_offset =
+                source.at("profile_plane_offset");
             const std::string thin_mode = source.at("thin_mode");
             container.revolution.thin_mode = thin_mode == "one_side"
                 ? ThinMode::OneSide : thin_mode == "other_side"
@@ -4404,6 +4767,9 @@ PartDocument PartDocument::load(
                     : throw std::runtime_error("Invalid Revolution direction");
             container.revolution.angle_reverse = source.at("angle_reverse");
             require_positive(container.revolution.thin_thickness, "Revolution thin thickness");
+            if (!std::isfinite(container.revolution.profile_plane_offset)) {
+                throw std::runtime_error("Invalid Revolution profile-plane offset");
+            }
             require_positive(container.revolution.angle_reverse, "reverse angle");
             container.revolution.angle_degrees =
                 source.at("angle_degrees").get<double>();
@@ -4477,6 +4843,16 @@ PartDocument PartDocument::load(
                 placement.value("rotation_offset_y", 0.0);
             container.placement.rotation_offset_z =
                 placement.value("rotation_offset_z", 0.0);
+            container.placement.absolute_rotation_x =
+                placement.value("absolute_rotation_x", container.placement.rotation_x);
+            container.placement.absolute_rotation_y =
+                placement.value("absolute_rotation_y", container.placement.rotation_y);
+            container.placement.absolute_rotation_z =
+                placement.value("absolute_rotation_z", container.placement.rotation_z);
+            container.placement.orientation_back =
+                placement.value("orientation_back", false);
+            container.placement.orientation_quarter_turns =
+                placement.value("orientation_quarter_turns", 0);
             container.placement.reference_valid =
                 placement.value("reference_valid", false);
             if (placement.contains("references")) {
@@ -4560,6 +4936,13 @@ PartDocument PartDocument::load(
         object.rotation_offset_x = source.value("rotation_offset_x", 0.0);
         object.rotation_offset_y = source.value("rotation_offset_y", 0.0);
         object.rotation_offset_z = source.value("rotation_offset_z", 0.0);
+        object.absolute_rotation = {
+            source.value("absolute_rotation_x", object.rotation.x),
+            source.value("absolute_rotation_y", object.rotation.y),
+            source.value("absolute_rotation_z", object.rotation.z)};
+        object.orientation_back = source.value("orientation_back", false);
+        object.orientation_quarter_turns = source.value(
+            "orientation_quarter_turns", 0);
         object.direction = {source.at("direction_x").get<double>(),
                             source.at("direction_y").get<double>(),
                             source.at("direction_z").get<double>()};
@@ -4569,6 +4952,11 @@ PartDocument PartDocument::load(
             throw std::runtime_error("Invalid construction direction_axis");
         }
         object.display_size = source.at("display_size").get<double>();
+        const auto base_plane = source.value("base_plane", "yz");
+        object.base_plane = base_plane == "xy" ? LocalDatumPlane::XY
+            : base_plane == "xz" ? LocalDatumPlane::XZ
+            : base_plane == "yz" ? LocalDatumPlane::YZ
+            : throw std::runtime_error("Invalid construction base_plane");
         const auto definition = source.at("definition").get<std::string>();
         object.definition = definition == "absolute" ? ConstructionDefinition::Absolute
             : definition == "point_reference" ? ConstructionDefinition::PointReference
@@ -4604,6 +4992,11 @@ PartDocument PartDocument::load(
             !std::isfinite(object.rotation.x) ||
             !std::isfinite(object.rotation.y) ||
             !std::isfinite(object.rotation.z) ||
+            !std::isfinite(object.absolute_rotation.x) ||
+            !std::isfinite(object.absolute_rotation.y) ||
+            !std::isfinite(object.absolute_rotation.z) ||
+            object.orientation_quarter_turns < 0 ||
+            object.orientation_quarter_turns > 3 ||
             !std::isfinite(direction_length) ||
             (object.kind != ConstructionKind::Point && direction_length <= 0.0) ||
             !std::isfinite(object.display_size) || object.display_size <= 0.0) {
@@ -4625,7 +5018,10 @@ PartDocument PartDocument::load(
                 [&](const auto& value) { return value.id == entry.id; })
             : entry.kind == PartHistoryKind::Sketch
                 ? std::any_of(document.sketches.begin(), document.sketches.end(),
-                    [&](const auto& value) { return value.id == entry.id; })
+                    [&](const auto& value) {
+                        return value.id == entry.id &&
+                            value.owner_container_id.empty();
+                    })
                 : std::any_of(document.constructions.begin(),
                     document.constructions.end(),
                     [&](const auto& value) { return value.id == entry.id; });
@@ -4634,7 +5030,10 @@ PartDocument PartDocument::load(
         }
         document.history_order.push_back(std::move(entry));
     }
-    if (ordered_ids.size() != document.history.size() + document.sketches.size() +
+    const auto standalone_sketch_count = static_cast<std::size_t>(std::count_if(
+        document.sketches.begin(), document.sketches.end(),
+        [](const auto& sketch) { return sketch.owner_container_id.empty(); }));
+    if (ordered_ids.size() != document.history.size() + standalone_sketch_count +
             document.constructions.size()) {
         throw std::runtime_error("Part history order does not cover every container");
     }
@@ -4670,16 +5069,16 @@ PartDocument PartDocument::load(
     for (const auto& boundary : root.at("calculated_boundaries")) {
         loaded_boundaries.push_back(load_body_result(boundary));
     }
+    const auto expected_operations = document.kernel_operations();
     if (!loaded_boundaries.empty() &&
-        loaded_boundaries.size() != document.history.size()) {
+        loaded_boundaries.size() != expected_operations.size()) {
         throw std::runtime_error(
             "Calculated history boundaries do not match document history");
     }
     std::unordered_set<std::string> available_owners;
-    const auto expected_operations = document.kernel_operations();
     for (std::size_t boundary_index = 0;
          boundary_index < loaded_boundaries.size(); ++boundary_index) {
-        available_owners.insert(document.history[boundary_index].id);
+        available_owners.insert(expected_operations[boundary_index].owner_id);
         if (loaded_boundaries[boundary_index].source_fingerprint !=
             zima::kernel::history_fingerprint(
                 expected_operations, boundary_index + 1)) {
@@ -4761,7 +5160,13 @@ void PartDocument::save(
             container.container_origin != create_container_origin(container.id)) {
             throw std::runtime_error("History container hierarchy is invalid");
         }
-        if (container.feature_kind == FeatureKind::Box) {
+        if (container.feature_kind == FeatureKind::Sketch) {
+            if (std::none_of(sketches.begin(), sketches.end(), [&](const auto& sketch) {
+                    return sketch.owner_container_id == container.id;
+                })) {
+                throw std::runtime_error("Sketch container does not own a Sketch");
+            }
+        } else if (container.feature_kind == FeatureKind::Box) {
             require_positive(container.box.length, "length");
             require_positive(container.box.width, "width");
             require_positive(container.box.height, "height");
@@ -4792,7 +5197,8 @@ void PartDocument::save(
                 throw std::runtime_error("Invalid Wedge top offset");
             }
         } else if (container.feature_kind == FeatureKind::Extrusion) {
-            if (container.extrusion.sketch_id.empty() ||
+            if (!std::isfinite(container.extrusion.profile_plane_offset) ||
+                container.extrusion.sketch_id.empty() ||
                 std::none_of(sketches.begin(), sketches.end(), [&](const auto& sketch) {
                     return sketch.id == container.extrusion.sketch_id;
                 })) {
@@ -4825,6 +5231,7 @@ void PartDocument::save(
                     return sketch.id == container.revolution.sketch_id;
                 }) || (container.revolution.axis != RevolutionAxis::SketchX &&
                        container.revolution.axis != RevolutionAxis::SketchY) ||
+                !std::isfinite(container.revolution.profile_plane_offset) ||
                 !std::isfinite(container.revolution.angle_degrees) ||
                 container.revolution.angle_degrees <= 0.0 ||
                 container.revolution.angle_degrees > 360.0 ||
@@ -4862,7 +5269,8 @@ void PartDocument::save(
             {"id", container.id},
             {"feature_id", container.feature_id},
             {"feature_parent_id", container.feature_parent_id},
-            {"type", container.feature_kind == FeatureKind::Box ? "box"
+            {"type", container.feature_kind == FeatureKind::Sketch ? "sketch"
+                : container.feature_kind == FeatureKind::Box ? "box"
                 : container.feature_kind == FeatureKind::Cylinder
                     ? "cylinder"
                 : container.feature_kind == FeatureKind::Sphere
@@ -4930,11 +5338,20 @@ void PartDocument::save(
                 {"rotation_offset_x", container.placement.rotation_offset_x},
                 {"rotation_offset_y", container.placement.rotation_offset_y},
                 {"rotation_offset_z", container.placement.rotation_offset_z},
+                {"absolute_rotation_x", container.placement.absolute_rotation_x},
+                {"absolute_rotation_y", container.placement.absolute_rotation_y},
+                {"absolute_rotation_z", container.placement.absolute_rotation_z},
+                {"orientation_back", container.placement.orientation_back},
+                {"orientation_quarter_turns",
+                    container.placement.orientation_quarter_turns},
                 {"reference_valid", container.placement.reference_valid},
                 {"references", std::move(placement_references)},
             };
         }
-        if (container.feature_kind == FeatureKind::Box) {
+        if (container.feature_kind == FeatureKind::Sketch) {
+            // No additional feature parameters: the owned Sketch is stored
+            // in the document sketch collection.
+        } else if (container.feature_kind == FeatureKind::Box) {
             serialized["length"] = container.box.length;
             serialized["width"] = container.box.width;
             serialized["height"] = container.box.height;
@@ -4963,6 +5380,8 @@ void PartDocument::save(
             serialized["result_type"] = container.extrusion.result_type ==
                     ProfileResultType::Solid ? "solid" : "thin";
             serialized["thin_thickness"] = container.extrusion.thin_thickness;
+            serialized["profile_plane_offset"] =
+                container.extrusion.profile_plane_offset;
             serialized["thin_mode"] = container.extrusion.thin_mode == ThinMode::OneSide
                 ? "one_side" : container.extrusion.thin_mode == ThinMode::OtherSide
                     ? "other_side" : "symmetric";
@@ -5038,6 +5457,8 @@ void PartDocument::save(
             serialized["result_type"] = container.revolution.result_type ==
                     ProfileResultType::Solid ? "solid" : "thin";
             serialized["thin_thickness"] = container.revolution.thin_thickness;
+            serialized["profile_plane_offset"] =
+                container.revolution.profile_plane_offset;
             serialized["thin_mode"] = container.revolution.thin_mode == ThinMode::OneSide
                 ? "one_side" : container.revolution.thin_mode == ThinMode::OtherSide
                     ? "other_side" : "symmetric";
@@ -5073,12 +5494,12 @@ void PartDocument::save(
         first_active->combine_mode == CombineMode::Subtract) {
         throw std::runtime_error("The first history container cannot subtract");
     }
+    const auto expected_operations = kernel_operations();
     if (!calculated_boundaries.empty() &&
-        calculated_boundaries.size() != history.size()) {
+        calculated_boundaries.size() != expected_operations.size()) {
         throw std::runtime_error(
             "Calculated history boundaries do not match document history");
     }
-    const auto expected_operations = kernel_operations();
     for (std::size_t index = 0; index < calculated_boundaries.size(); ++index) {
         if (calculated_boundaries[index].source_fingerprint !=
             zima::kernel::history_fingerprint(expected_operations, index + 1)) {
@@ -5112,6 +5533,11 @@ void PartDocument::save(
             !std::isfinite(object.rotation.x) ||
             !std::isfinite(object.rotation.y) ||
             !std::isfinite(object.rotation.z) ||
+            !std::isfinite(object.absolute_rotation.x) ||
+            !std::isfinite(object.absolute_rotation.y) ||
+            !std::isfinite(object.absolute_rotation.z) ||
+            object.orientation_quarter_turns < 0 ||
+            object.orientation_quarter_turns > 3 ||
             !std::isfinite(direction_length) ||
             (object.kind != ConstructionKind::Point && direction_length <= 0.0) ||
             !std::isfinite(object.display_size) || object.display_size <= 0.0) {
@@ -5180,10 +5606,17 @@ void PartDocument::save(
             {"rotation_offset_x", object.rotation_offset_x},
             {"rotation_offset_y", object.rotation_offset_y},
             {"rotation_offset_z", object.rotation_offset_z},
+            {"absolute_rotation_x", object.absolute_rotation.x},
+            {"absolute_rotation_y", object.absolute_rotation.y},
+            {"absolute_rotation_z", object.absolute_rotation.z},
+            {"orientation_back", object.orientation_back},
+            {"orientation_quarter_turns", object.orientation_quarter_turns},
             {"direction_x", object.direction.x},
             {"direction_y", object.direction.y},
             {"direction_z", object.direction.z},
             {"direction_axis", object.direction_axis},
+            {"base_plane", object.base_plane == LocalDatumPlane::XY ? "xy"
+                : object.base_plane == LocalDatumPlane::XZ ? "xz" : "yz"},
             {"display_size", object.display_size}, {"definition", definition},
             {"references", std::move(references)}, {"offset", object.offset},
             {"reference_valid", object.reference_valid},
@@ -5196,8 +5629,10 @@ void PartDocument::save(
     if (effective_order.empty()) {
         for (const auto& value : history) effective_order.push_back(
             {PartHistoryKind::Feature, value.id});
-        for (const auto& value : sketches) effective_order.push_back(
-            {PartHistoryKind::Sketch, value.id});
+        for (const auto& value : sketches) {
+            if (value.owner_container_id.empty()) effective_order.push_back(
+                {PartHistoryKind::Sketch, value.id});
+        }
         for (const auto& value : constructions) effective_order.push_back(
             {PartHistoryKind::Construction, value.id});
     }
@@ -5212,7 +5647,10 @@ void PartDocument::save(
                 : entry.kind == PartHistoryKind::Sketch ? "sketch"
                 : "construction"}, {"id", entry.id}});
     }
-    if (ordered_ids.size() != history.size() + sketches.size() +
+    const auto standalone_sketch_count = static_cast<std::size_t>(std::count_if(
+        sketches.begin(), sketches.end(),
+        [](const auto& sketch) { return sketch.owner_container_id.empty(); }));
+    if (ordered_ids.size() != history.size() + standalone_sketch_count +
             constructions.size()) {
         throw std::runtime_error("Part history order does not cover every container");
     }

@@ -37,7 +37,7 @@ SketchTextPropertiesDialog::SketchTextPropertiesDialog(
     zima::sketcher::SketchText initial,
     std::optional<std::array<double, 2>> anchor,
     PreviewCallback preview, CommitCallback commit, QWidget* parent)
-    : PropertiesSubWindow(tr("Vlastnosti textu skici"), parent),
+    : PropertiesSubWindow(tr("Text skici"), parent),
       initial_(std::move(initial)), anchor_(anchor),
       preview_(std::move(preview)), commit_(std::move(commit)) {
     setAttribute(Qt::WA_DeleteOnClose, true);

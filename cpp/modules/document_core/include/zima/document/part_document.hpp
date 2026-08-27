@@ -14,7 +14,7 @@
 namespace zima::document {
 
 enum class CombineMode { Add, Subtract };
-enum class FeatureKind { Box, Cylinder, Sphere, Cone, Pyramid, Wedge, Extrusion, Revolution, ImportedStep, Fillet, Chamfer };
+enum class FeatureKind { Sketch, Box, Cylinder, Sphere, Cone, Pyramid, Wedge, Extrusion, Revolution, ImportedStep, Fillet, Chamfer };
 enum class ExtrusionDirection { Forward, Reverse, Symmetric };
 enum class ExtrusionExtent { Blind, UpToPlane, UpToSurface, ThroughAll };
 enum class ProfileSource { Internal, External };
@@ -25,6 +25,7 @@ enum class EndCondition { Length, UpTo, ThroughAll };
 enum class EndTargetKind { Point, Plane, Face };
 enum class RevolutionAxis { SketchX, SketchY };
 enum class ConstructionKind { Point, Axis, Plane };
+enum class LocalDatumPlane { XY, YZ, XZ };
 enum class PartHistoryKind { Feature, Sketch, Construction };
 struct PartHistoryEntry {
     PartHistoryKind kind{PartHistoryKind::Feature};
@@ -127,6 +128,9 @@ struct ConstructionObject {
     // rotation entered by the user (rotation_offset_* stays zero in that
     // case, mirroring Python's `_rotation_with_local_offset`).
     zima::kernel::Vec3 rotation;
+    zima::kernel::Vec3 absolute_rotation;
+    bool orientation_back{};
+    int orientation_quarter_turns{};
     double rotation_offset_x{};
     double rotation_offset_y{};
     double rotation_offset_z{};
@@ -152,6 +156,10 @@ struct ConstructionObject {
     // for Point/Plane and for an Axis with no orientation reference, where
     // the combo instead selects a plain world axis directly.
     std::string direction_axis{"y"};
+    // Plane only: which plane of this container's already-resolved local
+    // Container Origin is used as the un-offset construction plane. This is
+    // a semantic local choice, never a self-reference to viewer geometry.
+    LocalDatumPlane base_plane{LocalDatumPlane::YZ};
     double display_size{100.0};
     ConstructionDefinition definition{ConstructionDefinition::Absolute};
     std::vector<ConstructionReference> references;
@@ -225,6 +233,7 @@ struct WedgeParameters {
 
 struct ExtrusionParameters {
     std::string sketch_id;
+    double profile_plane_offset{};
     ProfileSource profile_source{ProfileSource::Internal};
     ProfileResultType result_type{ProfileResultType::Solid};
     double thin_thickness{1.0};
@@ -257,6 +266,7 @@ struct ExtrusionParameters {
 
 struct RevolutionParameters {
     std::string sketch_id;
+    double profile_plane_offset{};
     ProfileSource profile_source{ProfileSource::Internal};
     ProfileResultType result_type{ProfileResultType::Solid};
     double thin_thickness{1.0};
@@ -297,6 +307,11 @@ struct Placement {
     double rotation_x{};
     double rotation_y{};
     double rotation_z{};
+    double absolute_rotation_x{};
+    double absolute_rotation_y{};
+    double absolute_rotation_z{};
+    bool orientation_back{};
+    int orientation_quarter_turns{};
     // Manual RX/RY/RZ correction the user edits directly; combined on top of
     // any FRONT/TOP reference frame during resolve_placement().
     double rotation_offset_x{};
@@ -320,7 +335,9 @@ struct Placement {
 // in `geometry`; on failure the previous x/y/z/rotation_* fields are kept as
 // the under-constrained fallback.
 [[nodiscard]] bool resolve_placement(
-    Placement& placement, const zima::kernel::ViewerReferenceGeometry& geometry);
+    Placement& placement, const zima::kernel::ViewerReferenceGeometry& geometry,
+    zima::kernel::Vec3* base_rotation = nullptr,
+    bool* orientation_from_reference = nullptr);
 
 struct HistoryContainer {
     std::string id;
@@ -381,6 +398,7 @@ public:
 
     [[nodiscard]] static PartDocument create_default();
     [[nodiscard]] static HistoryContainer create_box_container();
+    [[nodiscard]] static HistoryContainer create_sketch_container();
     [[nodiscard]] static HistoryContainer create_cylinder_container();
     [[nodiscard]] static HistoryContainer create_sphere_container();
     [[nodiscard]] static HistoryContainer create_cone_container();
@@ -409,6 +427,8 @@ public:
         zima::kernel::ViewerReferenceGeometry source_geometry = {});
     [[nodiscard]] std::vector<zima::kernel::ViewerEdge> extrusion_preview_edges(
         const HistoryContainer& container, double through_all_span = 1000.0) const;
+    [[nodiscard]] std::vector<zima::kernel::ViewerEdge> primitive_preview_edges(
+        const HistoryContainer& container) const;
     [[nodiscard]] std::vector<zima::kernel::ViewerEdge> revolution_preview_edges(
         const HistoryContainer& container) const;
     [[nodiscard]] static HistoryContainer create_extrusion_container(

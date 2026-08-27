@@ -41,8 +41,10 @@ QWidget* optional_field(
 
 SketchDimensionPropertiesDialog::SketchDimensionPropertiesDialog(
     zima::sketcher::SketchDimension initial, bool edit_mode,
-    CommitCallback commit, QWidget* parent)
-    : PropertiesSubWindow(edit_mode ? tr("Vlastnosti kóty") : tr("Nová kóta"), parent),
+    CommitCallback commit, QWidget* parent, QString custom_title)
+    : PropertiesSubWindow(custom_title.isEmpty()
+          ? tr("Kóta")
+          : std::move(custom_title), parent),
       initial_(std::move(initial)), commit_(std::move(commit)) {
     setAttribute(Qt::WA_DeleteOnClose, true);
     setMinimumWidth(340);
@@ -52,6 +54,7 @@ SketchDimensionPropertiesDialog::SketchDimensionPropertiesDialog(
     driving_ = new QCheckBox(tr("Řídicí kóta"), this);
     driving_->setObjectName("sketchDimensionDriving");
     driving_->setChecked(initial_.driving);
+    value_->setEnabled(initial_.driving);
     form->addRow(tr("Stav kóty"), driving_);
     form->addRow(tr("Dolní mez"), optional_field(
         lower_enabled_, lower_, initial_.lower_limit.has_value(),
@@ -61,12 +64,18 @@ SketchDimensionPropertiesDialog::SketchDimensionPropertiesDialog(
         initial_.upper_limit.value_or(initial_.value),
         "sketchUpperEnabled", "sketchUpperLimit", this));
     if (initial_.kind == zima::sketcher::DimensionKind::Angle ||
+        initial_.kind == zima::sketcher::DimensionKind::AngleBetween ||
         initial_.kind == zima::sketcher::DimensionKind::EllipseRotation) {
         value_->setRange(-180.0, 180.0);
         value_->setSuffix(" °");
         lower_->setRange(-180.0, 180.0);
         lower_->setSuffix(" °");
         upper_->setRange(-180.0, 180.0);
+        upper_->setSuffix(" °");
+    } else if (initial_.kind ==
+               zima::sketcher::DimensionKind::AngleThreePoint) {
+        value_->setSuffix(" °");
+        lower_->setSuffix(" °");
         upper_->setSuffix(" °");
     }
     content_layout()->addLayout(form);
@@ -86,6 +95,14 @@ SketchDimensionPropertiesDialog::SketchDimensionPropertiesDialog(
     });
     connect(value_, qOverload<double>(&QDoubleSpinBox::valueChanged),
         this, [this](double) { error_->clear(); });
+    connect(driving_, &QCheckBox::toggled, this, [this](bool driving) {
+        // A reference dimension is a measurement, not an editable command.
+        // Restore the last measured value if the user first typed a new
+        // number and only then changed the dimension to reference mode.
+        if (!driving) value_->setValue(initial_.value);
+        value_->setEnabled(driving);
+        error_->clear();
+    });
 }
 
 bool SketchDimensionPropertiesDialog::submit() {
@@ -97,6 +114,9 @@ bool SketchDimensionPropertiesDialog::submit() {
     result.upper_limit = upper_enabled_->isChecked()
         ? std::optional<double>{upper_->value()} : std::nullopt;
     if ((result.kind == zima::sketcher::DimensionKind::Distance ||
+         result.kind == zima::sketcher::DimensionKind::DistancePointLine ||
+         result.kind == zima::sketcher::DimensionKind::DistanceSymmetric ||
+         result.kind == zima::sketcher::DimensionKind::DistanceLine ||
          result.kind == zima::sketcher::DimensionKind::Radius ||
          result.kind == zima::sketcher::DimensionKind::Diameter ||
          result.kind == zima::sketcher::DimensionKind::EllipseMajorRadius ||
@@ -106,6 +126,7 @@ bool SketchDimensionPropertiesDialog::submit() {
         return false;
     }
     if ((result.kind == zima::sketcher::DimensionKind::Angle ||
+         result.kind == zima::sketcher::DimensionKind::AngleBetween ||
          result.kind == zima::sketcher::DimensionKind::EllipseRotation) &&
         (result.value < -180.0 || result.value > 180.0)) {
         error_->setText(tr("Úhel musí být v rozsahu −180° až +180°."));

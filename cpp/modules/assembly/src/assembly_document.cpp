@@ -93,6 +93,8 @@ void append_viewer_mesh(zima::kernel::ViewerMesh& target,
     target.axes.insert(target.axes.end(), source.axes.begin(), source.axes.end());
     target.dimensions.insert(target.dimensions.end(),
         source.dimensions.begin(), source.dimensions.end());
+    target.constraint_markers.insert(target.constraint_markers.end(),
+        source.constraint_markers.begin(), source.constraint_markers.end());
     auto& references = target.original_references;
     auto& incoming = source.original_references;
     const auto reference_offset = static_cast<std::uint32_t>(references.vertices.size());

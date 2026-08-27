@@ -35,7 +35,7 @@ class ViewPropertiesDialog final : public zima::ui::PropertiesSubWindow {
 public:
     ViewPropertiesDialog(QMainWindow* parent, zima::drawing::DrawingView initial,
                          std::function<void(zima::drawing::DrawingView)> accepted)
-        : PropertiesSubWindow(QObject::tr("Vlastnosti pohledu"), parent),
+        : PropertiesSubWindow(QObject::tr("Pohled"), parent),
           value_(std::move(initial)), accepted_(std::move(accepted)) {
         auto* content = new QWidget(this);
         auto* form = new QFormLayout(content);
@@ -94,7 +94,7 @@ class SheetPropertiesDialog final : public zima::ui::PropertiesSubWindow {
 public:
     SheetPropertiesDialog(QMainWindow* parent, zima::drawing::DrawingSheet initial,
                           std::function<void(zima::drawing::DrawingSheet)> accepted)
-        : PropertiesSubWindow(QObject::tr("Vlastnosti listu"), parent),
+        : PropertiesSubWindow(QObject::tr("List"), parent),
           value_(std::move(initial)), accepted_(std::move(accepted)) {
         auto* content = new QWidget(this); auto* form = new QFormLayout(content);
         format_ = new QComboBox(content);
@@ -339,6 +339,7 @@ public:
         selection_changed_ = std::move(callback);
     }
     void start_linear_dimension() { dimension_mode_ = true; first_edge_.reset(); update(); }
+    void start_selection() { dimension_mode_ = false; first_edge_.reset(); update(); }
     [[nodiscard]] bool dimension_mode() const { return dimension_mode_; }
 protected:
     void paintEvent(QPaintEvent*) override {
@@ -733,21 +734,23 @@ void DrawingWindow::create_actions() {
         [this] { start_linear_dimension(); });
     linear_dimension_action_->setObjectName("drawingDimensionAction");
     linear_dimension_action_->setCheckable(true);
+    selection_action_ = new QAction(tr("Výběr"), this);
+    selection_action_->setObjectName("drawingSelectionAction");
+    selection_action_->setCheckable(true);
+    connect(selection_action_, &QAction::triggered, this,
+        [this] { start_selection(); });
 
     drawing_toolbar_ = new QToolBar(tr("Výkres"), this);
     drawing_toolbar_->setObjectName("drawingToolbar");
     drawing_toolbar_->setMovable(false);
     drawing_toolbar_->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    // Keep the application toolbar contract identical to the Python UI:
+    // Selection, separator, Insert view, Dimension. Less frequent view/sheet
+    // operations remain in the Drawing menu and context workflow.
+    drawing_toolbar_->addAction(selection_action_);
+    drawing_toolbar_->addSeparator();
     drawing_toolbar_->addAction(insert_view_action_);
-    drawing_toolbar_->addAction(projected_view_action_);
     drawing_toolbar_->addAction(linear_dimension_action_);
-    drawing_toolbar_->addSeparator();
-    drawing_toolbar_->addAction(edit_view_action_);
-    drawing_toolbar_->addAction(regenerate_view_action_);
-    drawing_toolbar_->addAction(delete_view_action_);
-    drawing_toolbar_->addSeparator();
-    drawing_toolbar_->addAction(add_sheet_action_);
-    drawing_toolbar_->addAction(edit_sheet_action_);
     addToolBar(Qt::TopToolBarArea, drawing_toolbar_);
 }
 
@@ -1028,6 +1031,11 @@ void DrawingWindow::start_linear_dimension() {
     update_action_states();
     state_->setText(tr("Lineární kóta: vyberte dvě rovnoběžné hrany stejného pohledu."));
 }
+void DrawingWindow::start_selection() {
+    canvas_->start_selection();
+    update_action_states();
+    state_->setText(tr("Výběr: kliknutím vyberte pohled nebo kótu."));
+}
 void DrawingWindow::update_action_states() {
     const auto* sheet = active_sheet();
     const bool has_sheet = sheet != nullptr;
@@ -1047,6 +1055,8 @@ void DrawingWindow::update_action_states() {
     delete_view_action_->setEnabled(selected_view);
     linear_dimension_action_->setEnabled(has_view);
     linear_dimension_action_->setChecked(canvas_->dimension_mode());
+    selection_action_->setEnabled(has_sheet);
+    selection_action_->setChecked(!canvas_->dimension_mode());
 }
 void DrawingWindow::refresh() {
     const int wanted = std::clamp(sheets_ ? sheets_->currentIndex() : 0, 0, static_cast<int>(document_.sheets.size() - 1));

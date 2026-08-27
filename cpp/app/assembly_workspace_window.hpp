@@ -36,6 +36,7 @@ namespace zima::viewer { class MeshView; struct ViewerCandidate; }
 namespace zima::app {
 
 class PrimitivePropertiesDialog;
+class PlacementReferenceDialog;
 class ConstructionPropertiesDialog;
 class ComponentPropertiesDialog;
 class OrientationDialog;
@@ -138,6 +139,7 @@ private:
     QAction* sketch_action_{};
     QAction* sketch_normal_view_action_{};
     QAction* sketch_external_reference_action_{};
+    QAction* sketch_external_profile_action_{};
     QAction* sketch_point_action_{};
     QAction* sketch_construction_action_{};
     QAction* sketch_segment_action_{};
@@ -146,6 +148,7 @@ private:
     QAction* sketch_polygon_action_{};
     QMenu* sketch_polygon_menu_{};
     QAction* sketch_trim_action_{};
+    QAction* sketch_corner_fillet_action_{};
     QAction* sketch_mirror_action_{};
     QAction* sketch_circle_action_{};
     QAction* sketch_arc_action_{};
@@ -170,7 +173,11 @@ private:
     QAction* sketch_dimension_action_{};
     QAction* sketch_dimension_x_action_{};
     QAction* sketch_dimension_y_action_{};
+    QAction* sketch_point_line_dimension_action_{};
+    QAction* sketch_symmetric_dimension_action_{};
+    QAction* sketch_three_point_angle_dimension_action_{};
     QAction* sketch_angle_dimension_action_{};
+    QAction* sketch_parallel_distance_dimension_action_{};
     QAction* sketch_radius_dimension_action_{};
     QAction* sketch_diameter_dimension_action_{};
     QAction* sketch_ellipse_major_dimension_action_{};
@@ -205,6 +212,10 @@ private:
         std::map<std::string, zima::kernel::BodyResult> input_component_bodies;
     };
     std::optional<AssemblyCutRollbackContext> assembly_cut_rollback_;
+    // A newly invoked Extrusion/Revolution owns this transient draft while
+    // its internal Sketch is being edited. OCCT is not called until the
+    // reopened feature Properties dialog is confirmed with OK.
+    std::optional<zima::document::HistoryContainer> pending_profile_feature_;
     std::string active_occurrence_path_;
     // "Pohled kolmo" (normal_view_action in Python): while active the viewer
     // is restricted to Face candidates; on selection the camera is rotated
@@ -216,10 +227,13 @@ private:
         orientation_reference_candidates_;
     std::size_t pending_orientation_reference_index_{};
     std::optional<zima::document::FeatureKind> edge_treatment_selection_;
+    PrimitivePropertiesDialog* edge_treatment_dialog_{};
     std::vector<zima::kernel::EdgeReference> pending_edge_treatment_edges_;
     PrimitivePropertiesDialog* extrusion_target_dialog_{};
     ConstructionPropertiesDialog* construction_reference_dialog_{};
     std::optional<zima::kernel::ViewerMesh> construction_preview_mesh_;
+    std::optional<zima::kernel::ViewerMesh> primitive_origin_preview_mesh_;
+    std::string sketch_properties_preview_id_;
     zima::kernel::ViewerReferenceGeometry construction_reference_geometry_;
     std::string construction_dimension_object_id_;
     std::optional<std::size_t> pending_construction_reference_index_;
@@ -228,7 +242,7 @@ private:
     // Universal container placement (Box PoC): mirrors the
     // construction_reference_* state above but for HistoryContainer.placement
     // reference picking in PrimitivePropertiesDialog.
-    PrimitivePropertiesDialog* primitive_reference_dialog_{};
+    PlacementReferenceDialog* primitive_reference_dialog_{};
     zima::kernel::ViewerReferenceGeometry primitive_reference_geometry_;
     std::optional<std::size_t> pending_primitive_reference_index_;
     int primitive_translation_dof_{3};
@@ -245,15 +259,30 @@ private:
     std::string selected_sketch_point_id_;
     bool sketch_point_active_{};
     std::optional<std::array<double, 2>> pending_segment_start_;
+    std::string pending_sketch_snap_geometry_id_;
+    std::optional<zima::sketcher::ConstraintKind> pending_sketch_snap_kind_;
+    std::string pending_segment_start_snap_geometry_id_;
+    std::optional<zima::sketcher::ConstraintKind>
+        pending_segment_start_snap_kind_;
+    std::size_t sketch_segment_inference_cycle_{};
+    std::size_t sketch_segment_inference_variant_count_{1};
+    bool sketch_inference_cycle_refresh_{};
+    bool sketch_skip_candidate_snap_{};
     bool sketch_segment_active_{};
     bool sketch_segment_construction_{};
     bool sketch_polyline_active_{};
+    bool sketch_polyline_arc_mode_{};
+    std::string pending_polyline_tangent_geometry_id_;
     bool sketch_rectangle_active_{};
+    bool sketch_rectangle_axis_selecting_{};
+    std::string pending_rectangle_axis_id_;
     std::optional<std::array<double, 2>> pending_rectangle_corner_;
     bool sketch_polygon_active_{};
     unsigned sketch_polygon_sides_{6};
     std::optional<std::array<double, 2>> pending_polygon_center_;
     bool sketch_trim_active_{};
+    bool sketch_corner_fillet_active_{};
+    std::string pending_corner_fillet_segment_id_;
     bool sketch_trim_changed_{};
     std::optional<zima::sketcher::Sketch> sketch_trim_preview_;
     std::vector<zima::sketcher::SketchTrimPiece> sketch_trim_topology_;
@@ -266,6 +295,7 @@ private:
     bool sketch_circle_active_{};
     std::optional<std::array<double, 2>> pending_circle_center_;
     bool sketch_arc_active_{};
+    bool sketch_arc_clockwise_{};
     std::optional<std::array<double, 2>> pending_arc_center_;
     std::optional<std::array<double, 2>> pending_arc_start_;
     bool sketch_ellipse_active_{};
@@ -283,8 +313,11 @@ private:
     std::string editing_sketch_text_id_;
     SketchTextPropertiesDialog* sketch_text_dialog_{};
     bool sketch_external_reference_active_{};
+    bool sketch_external_profile_active_{};
     bool sketch_coincident_active_{};
     std::string pending_coincident_point_id_;
+    zima::sketcher::ConstraintKind pending_point_pair_constraint_kind_{
+        zima::sketcher::ConstraintKind::Coincident};
     bool sketch_midpoint_active_{};
     std::string pending_midpoint_point_id_;
     bool sketch_symmetric_active_{};
@@ -302,13 +335,21 @@ private:
         zima::sketcher::ConstraintKind::Parallel};
     bool sketch_point_dimension_active_{};
     std::string pending_point_dimension_first_id_;
+    std::string pending_point_dimension_second_id_;
+    std::string pending_point_dimension_vertex_id_;
+    std::optional<std::array<double, 2>> pending_point_dimension_cursor_;
     zima::sketcher::DimensionKind pending_point_dimension_kind_{
         zima::sketcher::DimensionKind::Distance};
+    bool sketch_line_pair_dimension_active_{};
+    std::string pending_line_dimension_reference_id_;
+    zima::sketcher::DimensionKind pending_line_dimension_kind_{
+        zima::sketcher::DimensionKind::DistanceLine};
     bool preserve_view_on_refresh_{};
     std::map<std::string, std::array<float, 8>> document_camera_states_;
     std::optional<zima::document::PartDocument> sketch_drag_document_;
     std::optional<zima::assembly::AssemblyDocument> assembly_sketch_drag_document_;
     std::string sketch_drag_point_id_;
+    std::string sketch_drag_dimension_id_;
     bool sketch_drag_changed_{};
     // Drag-to-adjust for an embedded placement_references row's dimension
     // overlay, addressed by owning occurrence_id + row index rather than a
@@ -330,6 +371,8 @@ private:
     std::string component_drag_document_id_;
     std::string component_drag_occurrence_id_;
     zima::kernel::Vec3 component_drag_plane_point_;
+    zima::kernel::Vec3 component_drag_plane_normal_;
+    zima::kernel::Vec3 component_drag_start_hit_;
     zima::kernel::Vec3 component_drag_start_local_origin_;
     bool component_drag_changed_{};
     // Embedded placement-reference picking state for ComponentPropertiesDialog
@@ -421,6 +464,8 @@ private:
         const zima::viewer::ViewerCandidate& candidate);
     [[nodiscard]] bool accept_construction_tree_reference(
         const QTreeWidgetItem* item);
+    [[nodiscard]] bool accept_primitive_tree_reference(
+        const QTreeWidgetItem* item);
     // Accepts one already-extracted "origin-reference" leaf (Point/Axis/
     // Plane child of a document/construction Origin node) by value instead
     // of by QTreeWidgetItem pointer. accept_construction_reference()
@@ -448,11 +493,17 @@ private:
     void start_sketch_segment(bool construction = false);
     void start_sketch_polyline();
     void cancel_sketch_segment();
+    bool cancel_current_sketch_step(bool right_click_behavior = false);
+    bool confirm_current_sketch_step();
+    bool finish_current_sketch_tool();
     void start_sketch_rectangle();
     void cancel_sketch_rectangle();
     void start_sketch_polygon(unsigned sides);
     void cancel_sketch_polygon();
     void start_sketch_trim();
+    void start_sketch_corner_fillet();
+    void accept_sketch_corner_fillet_segment(
+        const zima::viewer::ViewerCandidate& candidate);
     void cancel_sketch_trim();
     [[nodiscard]] bool begin_sketch_trim_gesture(
         const std::optional<zima::viewer::ViewerCandidate>& candidate,
@@ -485,18 +536,43 @@ private:
     bool accept_sketch_point_ray(
         const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
     bool accept_sketch_external_snap(
-        const zima::viewer::ViewerCandidate& candidate);
-    [[nodiscard]] std::optional<std::pair<zima::kernel::Vec3,
-        zima::kernel::Vec3>> sketch_external_snap_ray(
-            const zima::viewer::ViewerCandidate& candidate) const;
+        const zima::viewer::ViewerCandidate& candidate,
+        const zima::kernel::Vec3& origin,
+        const zima::kernel::Vec3& direction);
+    struct SketchCandidateSnap {
+        zima::kernel::Vec3 origin;
+        zima::kernel::Vec3 direction;
+        std::string support_geometry_id;
+        std::optional<zima::sketcher::ConstraintKind> relation;
+    };
+    [[nodiscard]] std::optional<SketchCandidateSnap> sketch_candidate_snap_ray(
+        const zima::viewer::ViewerCandidate& candidate,
+        const zima::kernel::Vec3& origin,
+        const zima::kernel::Vec3& direction) const;
     bool accept_sketch_segment_ray(
         const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
+    struct SketchSegmentInference {
+        std::array<double, 2> position;
+        std::optional<zima::sketcher::ConstraintKind> kind;
+        std::string reference_point_id;
+        std::string equal_length_reference_id;
+        std::string symmetry_axis_id;
+        std::string tangent_reference_id;
+        std::string perpendicular_reference_id;
+        std::string parallel_reference_id;
+        std::string midpoint_line_reference_id;
+        std::size_t variant_count{1};
+    };
+    [[nodiscard]] SketchSegmentInference inferred_sketch_segment_end(
+        const std::array<double, 2>& position) const;
     void preview_sketch_segment_ray(
         const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
     bool accept_sketch_rectangle_ray(
         const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
     void preview_sketch_rectangle_ray(
         const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
+    void accept_sketch_rectangle_axis(
+        const zima::viewer::ViewerCandidate& candidate);
     bool accept_sketch_polygon_ray(
         const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
     void preview_sketch_polygon_ray(
@@ -505,6 +581,12 @@ private:
         const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
     void preview_sketch_circle_ray(
         const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
+    [[nodiscard]] std::optional<std::pair<double, std::string>>
+        inferred_sketch_circle_radius(
+            const std::array<double, 2>& rim_position) const;
+    [[nodiscard]] std::optional<std::pair<double, std::string>>
+        inferred_sketch_circle_tangent(
+            const std::array<double, 2>& rim_position) const;
     bool accept_sketch_arc_ray(
         const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
     void preview_sketch_arc_ray(
@@ -524,7 +606,9 @@ private:
     bool accept_sketch_text_ray(
         const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
     void constrain_selected_segment(zima::sketcher::ConstraintKind kind);
-    void start_sketch_coincident();
+    void start_sketch_coincident(
+        zima::sketcher::ConstraintKind kind =
+            zima::sketcher::ConstraintKind::Coincident);
     void cancel_sketch_coincident();
     void accept_sketch_coincident_point(
         const zima::viewer::ViewerCandidate& candidate);
@@ -551,12 +635,25 @@ private:
     void start_sketch_point_dimension(zima::sketcher::DimensionKind kind);
     void accept_sketch_point_dimension(
         const zima::viewer::ViewerCandidate& candidate);
+    [[nodiscard]] bool accept_sketch_dimension_placement_ray(
+        const zima::kernel::Vec3& origin,
+        const zima::kernel::Vec3& direction);
+    void finish_pending_linear_dimension(
+        const std::array<double, 2>& cursor);
+    void start_sketch_line_pair_dimension(zima::sketcher::DimensionKind kind);
+    void accept_sketch_line_pair_dimension(
+        const zima::viewer::ViewerCandidate& candidate);
     void toggle_selected_sketch_point_fixed();
     [[nodiscard]] bool begin_sketch_point_drag(
         const zima::viewer::ViewerCandidate& candidate);
     void update_sketch_point_drag(
         const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
     void end_sketch_point_drag();
+    [[nodiscard]] bool begin_sketch_dimension_drag(
+        const zima::viewer::ViewerCandidate& candidate);
+    void update_sketch_dimension_drag(
+        const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
+    void end_sketch_dimension_drag();
     [[nodiscard]] bool begin_placement_reference_drag(
         const zima::viewer::ViewerCandidate& candidate);
     void update_placement_reference_drag(
@@ -564,12 +661,17 @@ private:
         const zima::kernel::Vec3& ray_direction);
     void end_placement_reference_drag();
     [[nodiscard]] bool begin_component_drag(
-        const zima::viewer::ViewerCandidate& candidate);
+        const zima::viewer::ViewerCandidate& candidate,
+        const zima::kernel::Vec3& ray_origin,
+        const zima::kernel::Vec3& ray_direction);
     void update_component_drag(
         const zima::kernel::Vec3& ray_origin,
         const zima::kernel::Vec3& ray_direction);
     void end_component_drag();
+    void clear_selected_sketch_geometry();
     [[nodiscard]] bool delete_selected_sketch_geometry();
+    void set_active_sketch_geometry_construction(
+        const std::string& geometry_id, bool construction);
     void remove_sketch_relation(
         const std::string& sketch_id, const std::string& relation_id,
         bool dimension);
@@ -581,7 +683,10 @@ private:
         zima::sketcher::DimensionKind creation_kind =
             zima::sketcher::DimensionKind::Distance,
         const std::string& first_point_id = {},
-        const std::string& second_point_id = {});
+        const std::string& second_point_id = {},
+        const std::string& first_geometry_id = {},
+        const std::string& second_geometry_id = {},
+        std::optional<std::array<double, 2>> placement = std::nullopt);
     void regenerate_active_part();
     void undo();
     void redo();

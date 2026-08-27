@@ -13,12 +13,20 @@ namespace zima::sketcher {
 enum class SketchPlane { XY, XZ, YZ };
 enum class ConstraintKind {
     Horizontal, Vertical, Coincident, Parallel, Perpendicular, EqualLength,
-    EqualRadius, PointOnCircle, PointOnLine, Symmetric, Midpoint, Concentric, Tangent
+    EqualRadius, PointOnCircle, PointOnLine, MidpointOnLine, Symmetric,
+    Midpoint, Concentric, Tangent
 };
 enum class DimensionKind {
-    Distance, DistanceX, DistanceY, Radius, Diameter, Angle,
+    Distance, DistanceX, DistanceY, DistancePointLine, DistanceSymmetric,
+    DistanceLine,
+    Radius, Diameter, Angle, AngleThreePoint,
+    AngleBetween,
     EllipseMajorRadius, EllipseMinorRadius, EllipseRotation
 };
+[[nodiscard]] DimensionKind classify_linear_dimension(
+    const std::array<double, 2>& first,
+    const std::array<double, 2>& second,
+    const std::array<double, 2>& cursor);
 enum class TextHorizontalAlignment { Left, Center, Right };
 enum class TextVerticalAlignment { Bottom, Middle, Top };
 enum class SketchTextColor { Green, White, Yellow };
@@ -39,6 +47,9 @@ struct SketchSegment {
     std::string first_point_id;
     std::string second_point_id;
     bool construction{};
+    // A true centerline (Python geometry type "construction") is unbounded.
+    // `construction && !centerline` is finite auxiliary geometry.
+    bool centerline{};
     bool operator==(const SketchSegment&) const = default;
 };
 
@@ -167,6 +178,10 @@ struct SketchDimension {
     std::optional<double> lower_limit;
     std::optional<double> upper_limit;
     std::string geometry_id;
+    // Second persisted line owner for line-to-line distance and angle.
+    // Built-in sketch axes use the stable IDs sketch_axis:x / sketch_axis:y.
+    std::string second_geometry_id;
+    std::optional<std::array<double, 2>> placement;
     bool operator==(const SketchDimension&) const = default;
 };
 
@@ -187,9 +202,19 @@ struct MirroredGeometryResult {
     std::vector<std::string> point_ids;
 };
 
+struct CornerFilletResult {
+    std::string arc_id;
+    std::string first_tangent_point_id;
+    std::string second_tangent_point_id;
+};
+
 class Sketch {
 public:
     std::string id;
+    // The single history container that owns this Sketch. The same owner is
+    // retained when the container is transformed in-place into Extrusion or
+    // Revolution.
+    std::string owner_container_id;
     std::string name{"Skica"};
     bool suppressed{};
     SketchPlane plane{SketchPlane::XY};
@@ -242,7 +267,12 @@ public:
     [[nodiscard]] SolveResult solve(std::size_t maximum_iterations = 100);
     [[nodiscard]] bool set_dimension_value(
         const std::string& dimension_id, double value);
+    [[nodiscard]] bool set_dimension_placement(
+        const std::string& dimension_id, double x, double y);
     void set_point_fixed(const std::string& point_id, bool fixed);
+    void set_geometry_construction(
+        const std::string& geometry_id, bool construction);
+    void set_segment_centerline(const std::string& segment_id, bool centerline);
     [[nodiscard]] bool move_point(
         const std::string& point_id, double x, double y);
     [[nodiscard]] std::string add_point(
@@ -253,6 +283,9 @@ public:
         double snap_tolerance = 1.0e-6, bool construction = false);
     [[nodiscard]] std::string add_segment_constraint(
         const std::string& segment_id, ConstraintKind kind);
+    [[nodiscard]] std::string add_point_pair_constraint(
+        const std::string& reference_point_id,
+        const std::string& driven_point_id, ConstraintKind kind);
     [[nodiscard]] std::string add_coincident_constraint(
         const std::string& first_point_id, const std::string& second_point_id);
     [[nodiscard]] std::string add_segment_pair_constraint(
@@ -263,8 +296,19 @@ public:
         const std::string& driven_geometry_id);
     [[nodiscard]] std::string add_point_on_circle_constraint(
         const std::string& point_id, const std::string& circle_id);
+    [[nodiscard]] std::optional<std::array<double, 2>> project_point_to_curve(
+        const std::string& geometry_id, double x, double y) const;
+    [[nodiscard]] std::optional<std::array<double, 2>> curve_tangent_at_point(
+        const std::string& geometry_id, double x, double y) const;
+    [[nodiscard]] std::vector<std::array<double, 2>> curve_line_intersections(
+        const std::string& geometry_id,
+        const std::array<double, 2>& line_origin,
+        const std::array<double, 2>& line_direction,
+        bool line_bounded) const;
     [[nodiscard]] std::string add_point_on_line_constraint(
         const std::string& point_id, const std::string& line_id);
+    [[nodiscard]] std::string add_midpoint_on_line_constraint(
+        const std::string& segment_id, const std::string& line_id);
     [[nodiscard]] std::string add_symmetric_constraint(
         const std::string& source_point_id,
         const std::string& mirrored_point_id,
@@ -284,6 +328,10 @@ public:
     [[nodiscard]] std::vector<std::string> add_rectangle(
         double first_x, double first_y, double second_x, double second_y,
         double snap_tolerance = 1.0e-6);
+    [[nodiscard]] std::vector<std::string> add_oriented_rectangle(
+        double first_x, double first_y, double guide_x, double guide_y,
+        const std::string& symmetry_axis_id,
+        double snap_tolerance = 1.0e-6);
     [[nodiscard]] RegularPolygonResult add_regular_polygon(
         double center_x, double center_y, double rim_x, double rim_y,
         unsigned sides, double snap_tolerance = 1.0e-6);
@@ -297,6 +345,18 @@ public:
     [[nodiscard]] std::string add_arc(
         double center_x, double center_y, double start_x, double start_y,
         double end_x, double end_y, bool construction = false,
+        double snap_tolerance = 1.0e-6, bool clockwise = false);
+    [[nodiscard]] std::string add_tangent_arc(
+        const std::string& start_point_id,
+        double end_x, double end_y,
+        const std::string& tangent_geometry_id,
+        bool reverse = false,
+        bool construction = false,
+        double snap_tolerance = 1.0e-6);
+    [[nodiscard]] CornerFilletResult add_corner_fillet(
+        const std::string& first_segment_id,
+        const std::string& second_segment_id,
+        double radius,
         double snap_tolerance = 1.0e-6);
     [[nodiscard]] std::string add_ellipse(
         double center_x, double center_y, double major_x, double major_y,
@@ -321,6 +381,8 @@ public:
     [[nodiscard]] static SketchExternalReference create_external_reference(
         ExternalReferenceKind kind);
     void add_external_reference(SketchExternalReference reference);
+    [[nodiscard]] std::string add_external_profile_geometry(
+        const std::string& reference_id);
     [[nodiscard]] bool refresh_external_references(
         const std::string& source_document_id,
         const zima::kernel::ViewerReferenceGeometry& source_geometry);
@@ -338,6 +400,23 @@ public:
     [[nodiscard]] SketchDimension create_point_dimension(
         const std::string& first_point_id, const std::string& second_point_id,
         DimensionKind kind = DimensionKind::Distance) const;
+    [[nodiscard]] SketchDimension create_three_point_angle_dimension(
+        const std::string& first_point_id, const std::string& vertex_point_id,
+        const std::string& second_point_id) const;
+    [[nodiscard]] SketchDimension create_axis_dimension(
+        const std::string& point_id,
+        const std::string& sketch_axis_id) const;
+    [[nodiscard]] SketchDimension create_point_line_dimension(
+        const std::string& point_id,
+        const std::string& line_id) const;
+    [[nodiscard]] SketchDimension create_symmetric_dimension(
+        const std::string& first_point_id,
+        const std::string& second_point_id,
+        const std::string& axis_id) const;
+    [[nodiscard]] SketchDimension create_line_pair_dimension(
+        const std::string& reference_line_id,
+        const std::string& driven_line_id,
+        DimensionKind kind) const;
     void apply_dimension(SketchDimension dimension);
     [[nodiscard]] SketchDimension create_circle_radius_dimension(
         const std::string& circle_id) const;

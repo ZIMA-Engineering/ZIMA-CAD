@@ -14,6 +14,8 @@ class QWidget;
 class QLabel;
 class QTableWidget;
 class QVBoxLayout;
+class QDoubleSpinBox;
+class QPushButton;
 
 namespace zima::ui {
 
@@ -40,41 +42,39 @@ public:
 
     // `parent_widget` owns every widget created by this section (tables,
     // headings, labels); `layout` is the dialog's vertical content layout
-    // the section immediately appends its "Umístění kontejneru" heading and
-    // reference table to. The reference implementation's per-kind dialogs
-    // interleave the DOF label and, for Plane-kind containers, the
-    // "Orientace kontejneru" heading/FRONT-TOP table at different points
-    // relative to X/Y/Z and RX/RY/RZ, so this section only creates those
-    // widgets here; the owning dialog must position them explicitly with
-    // `install_dof_label()` / `install_orientation_section()` at the point
-    // in its own layout matching the reference implementation's order.
+    // the section immediately appends its adjacent "Umístění kontejneru"
+    // and "Orientace kontejneru" blocks to. Dialogs no longer assemble
+    // those two halves independently; one shared component owns their
+    // ordering, behavior and visual style for every container kind.
     ContainerPlacementSection(QWidget* parent_widget, QVBoxLayout* layout,
-        bool with_orientation);
+        bool with_orientation, bool position_rows_can_define_rotation = false);
 
     // Inserts the (already constructed) DOF label into `layout` at its
     // current end. Call this once, at the position matching the reference
     // implementation's dialog for this container kind.
     void install_dof_label(QVBoxLayout* layout);
-    // Inserts the "Orientace kontejneru" heading and FRONT/TOP orientation
-    // table into `layout` at its current end. Only valid when this section
-    // was constructed with `with_orientation = true`.
-    void install_orientation_section(QVBoxLayout* layout);
-
-    // A Plane container that auto-inherits its frame from the first
-    // position reference (see resolve_construction()'s
-    // `orientation_inherited_from_reference`) shows that as the FRONT row's
-    // *default* label so the user understands where the orientation
-    // currently comes from -- but, matching the Python reference
-    // implementation's `_container_orientation_references` (a table that is
-    // always independently clickable via
-    // `_activate_container_orientation_row()`/
-    // `_assign_container_orientation_reference()`, never disabled just
-    // because row 0 already supplies a default), the table stays enabled
-    // and clickable so the user can pick their own FRONT/TOP reference at
-    // any time, overriding the automatic default. `source_label` names the
-    // position reference the default orientation is currently derived from,
-    // shown only while no explicit orientation-table pick exists for that
-    // row.
+    // Shared numeric half of the placement contract. Every container uses
+    // these fields; shape dialogs only add their own geometric parameters.
+    void initialize_numeric_values(const zima::document::Placement& placement);
+    [[nodiscard]] zima::document::Placement numeric_placement() const;
+    void set_translation_constraint_state(
+        const zima::document::PointConstraintState& state,
+        const zima::kernel::Vec3& solution);
+    void set_orientation_base_rotation(
+        const zima::kernel::Vec3& rotation, bool constrained);
+    [[nodiscard]] const std::array<QDoubleSpinBox*, 3>& translation_fields() const {
+        return translation_;
+    }
+    [[nodiscard]] const std::array<QDoubleSpinBox*, 3>& rotation_fields() const {
+        return rotation_;
+    }
+    [[nodiscard]] const std::array<QDoubleSpinBox*, 3>& rotation_offset_fields() const {
+        return rotation_offset_;
+    }
+    // Reports that the initial local container frame was calculated from
+    // the first placement reference. FRONT and TOP remain two stable,
+    // independently editable local-plane slots; this state only supplies
+    // their default display text and never locks the table.
     void set_orientation_locked(bool locked, const QString& source_label = {});
     // Display label of position row 0 ("1. <label>" with the index prefix
     // stripped), or empty if that row is not populated. Used to tell the
@@ -172,6 +172,7 @@ public:
 private:
     QWidget* parent_widget_;
     bool with_orientation_;
+    bool position_rows_can_define_rotation_;
     QLabel* reference_status_{};
     QLabel* dof_label_{};
     QLabel* orientation_heading_{};
@@ -181,6 +182,14 @@ private:
     std::array<QWidget*, 3> reference_indicators_{};
     std::array<ReferenceCellItem*, 2> orientation_items_{};
     std::array<QWidget*, 2> orientation_indicators_{};
+    std::array<QDoubleSpinBox*, 3> translation_{};
+    std::array<QDoubleSpinBox*, 3> rotation_{};
+    std::array<QDoubleSpinBox*, 3> rotation_offset_{};
+    QPushButton* front_button_{};
+    QPushButton* back_button_{};
+    QPushButton* rotate_button_{};
+    bool orientation_back_{};
+    int orientation_quarter_turns_{};
     std::vector<zima::document::ConstructionReference> references_;
     std::vector<QString> reference_labels_;
     std::vector<zima::document::ConstructionReference> orientation_references_;
@@ -189,8 +198,8 @@ private:
     int remaining_rotation_dof_{3};
     std::set<std::size_t> highlighted_reference_rows_;
     std::set<std::size_t> highlighted_orientation_rows_;
-    bool orientation_locked_{false};
-    QString orientation_locked_label_;
+    bool orientation_inherited_{false};
+    QString orientation_inherited_label_;
     ReferenceRequestCallback reference_request_;
     ChangedCallback changed_;
     HighlightsChangedCallback highlights_changed_;
