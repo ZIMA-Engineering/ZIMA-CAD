@@ -3,6 +3,7 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <fstream>
@@ -41,12 +42,20 @@ DimensionKind classify_linear_dimension(
 namespace {
 
 std::string make_id() {
-    std::mt19937_64 generator(static_cast<std::mt19937_64::result_type>(
-        std::chrono::steady_clock::now().time_since_epoch().count()));
-    std::uniform_int_distribution<unsigned long long> distribution;
+    static const auto process_nonce = [] {
+        std::random_device source;
+        std::seed_seq seed{
+            source(), source(), source(), source(),
+            static_cast<unsigned int>(
+                std::chrono::steady_clock::now().time_since_epoch().count())};
+        std::mt19937_64 generator(seed);
+        return generator();
+    }();
+    static std::atomic<std::uint64_t> sequence{0};
+    const auto serial = sequence.fetch_add(1, std::memory_order_relaxed);
     std::ostringstream stream;
     stream << std::hex << std::setfill('0') << std::setw(16)
-           << distribution(generator) << std::setw(16) << distribution(generator);
+           << process_nonce << std::setw(16) << serial;
     return stream.str();
 }
 
@@ -1464,12 +1473,19 @@ void Sketch::validate() const {
     }
     ids.clear();
     for (const auto& segment : segments) {
-        if (segment.id.empty() || !ids.insert(segment.id).second ||
-            segment.first_point_id == segment.second_point_id ||
-            find_point(segment.first_point_id) == nullptr ||
-            find_point(segment.second_point_id) == nullptr) {
-            throw std::runtime_error("Sketch segment is invalid");
-        }
+        if (segment.id.empty())
+            throw std::runtime_error("Sketch segment has an empty ID");
+        if (!ids.insert(segment.id).second)
+            throw std::runtime_error("Sketch segment has a duplicate ID: " + segment.id);
+        if (segment.first_point_id == segment.second_point_id)
+            throw std::runtime_error(
+                "Sketch segment has identical endpoints: " + segment.id);
+        if (find_point(segment.first_point_id) == nullptr)
+            throw std::runtime_error("Sketch segment " + segment.id +
+                " references missing first point " + segment.first_point_id);
+        if (find_point(segment.second_point_id) == nullptr)
+            throw std::runtime_error("Sketch segment " + segment.id +
+                " references missing second point " + segment.second_point_id);
     }
     ids.clear();
     for (const auto& circle : circles) {
@@ -4301,6 +4317,17 @@ CornerFilletResult Sketch::add_corner_fillet(
         first_tangent[0], first_tangent[1], snap_tolerance);
     result.second_tangent_point_id = next.add_point(
         second_tangent[0], second_tangent[1], snap_tolerance);
+    // add_point() commits through a replacement Sketch, invalidating all
+    // iterators into next. Resolve the edited segments again before trimming.
+    first_segment = std::find_if(next.segments.begin(), next.segments.end(),
+        [&](const auto& value) { return value.id == first_segment_id; });
+    second_segment = std::find_if(next.segments.begin(), next.segments.end(),
+        [&](const auto& value) { return value.id == second_segment_id; });
+    if (first_segment == next.segments.end() ||
+        second_segment == next.segments.end()) {
+        throw std::runtime_error(
+            "Corner fillet segments disappeared while trimming");
+    }
     if (result.first_tangent_point_id == result.second_tangent_point_id ||
         result.first_tangent_point_id == corner_id ||
         result.second_tangent_point_id == corner_id) {

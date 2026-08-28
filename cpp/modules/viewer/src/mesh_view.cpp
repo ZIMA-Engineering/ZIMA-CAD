@@ -940,6 +940,72 @@ std::optional<double> MeshView::candidate_dimension_value(
     return dimension.value;
 }
 
+std::optional<QPoint> MeshView::candidate_dimension_label_position(
+    const ViewerCandidate& candidate) const {
+    if (candidate.kind != CandidateKind::Dimension ||
+        candidate.geometry_index >= impl_->mesh.dimensions.size() ||
+        width() <= 0 || height() <= 0) return std::nullopt;
+    const auto& dimension = impl_->mesh.dimensions[candidate.geometry_index];
+    if (dimension.reference.owner_id != candidate.owner_id ||
+        dimension.reference.semantic_key != candidate.semantic_key) return std::nullopt;
+    const QMatrix4x4 mvp = impl_->projection(width(), height()) * impl_->view();
+    const auto project = [&](const zima::kernel::Vec3& point) {
+        QVector4D clip = mvp * QVector4D(point.x, point.y, point.z, 1.0F);
+        if (std::abs(clip.w()) > 1.0e-9F) clip /= clip.w();
+        return QPointF((clip.x() + 1.0F) * width() / 2.0F,
+            (1.0F - clip.y()) * height() / 2.0F);
+    };
+    const QString text = QString::fromStdString(dimension.label_prefix) +
+        QString::number(dimension.value, 'f', 3) +
+        QString::fromStdString(dimension.unit_suffix);
+    const QFontMetricsF metrics(font());
+    QPointF baseline;
+    if (dimension.kind == zima::kernel::ViewerDimensionKind::Angular) {
+        const QPointF vertex = project(dimension.witness_first);
+        const QPointF first = project(dimension.line_first);
+        const QPointF second = project(dimension.line_second);
+        const QPointF first_vector = first - vertex;
+        const QPointF second_vector = second - vertex;
+        const double radius = std::max(22.0,
+            std::hypot(first_vector.x(), first_vector.y()));
+        const double start = std::atan2(first_vector.y(), first_vector.x());
+        double sweep = std::abs(dimension.sweep_degrees) *
+            std::numbers::pi / 180.0;
+        if (first_vector.x() * second_vector.y() -
+                first_vector.y() * second_vector.x() < 0.0) sweep = -sweep;
+        const double middle = start + sweep * 0.5;
+        baseline = vertex + QPointF((radius + 12.0) * std::cos(middle),
+                                     (radius + 12.0) * std::sin(middle));
+    } else if (dimension.kind == zima::kernel::ViewerDimensionKind::Radius ||
+               dimension.kind == zima::kernel::ViewerDimensionKind::Diameter) {
+        const QPointF center = project(dimension.witness_first);
+        const QPointF rim = project(dimension.witness_second);
+        QPointF outward = rim - center;
+        const double length = std::hypot(outward.x(), outward.y());
+        if (length <= 1.0e-9) return std::nullopt;
+        outward /= length;
+        const QPointF tail = rim + outward * 17.0;
+        const double side = outward.x() >= 0.0 ? 1.0 : -1.0;
+        const QPointF shoulder = tail + QPointF(side * 36.0, 0.0);
+        baseline = shoulder + QPointF(
+            side > 0.0 ? 2.0 : -metrics.horizontalAdvance(text) - 2.0, 5.0);
+    } else {
+        const QPointF line_first = project(dimension.line_first);
+        const QPointF line_second = project(dimension.line_second);
+        const QPointF vector = line_second - line_first;
+        const double length = std::hypot(vector.x(), vector.y());
+        if (length <= 1.0e-6) return std::nullopt;
+        const QPointF along = vector / length;
+        const QPointF first_tail = line_first - along * 17.0;
+        const QPointF second_tail = line_second + along * 17.0;
+        const QPointF leader_start = first_tail.x() > second_tail.x()
+            ? first_tail : second_tail;
+        baseline = leader_start + QPointF(34.0, 0.0);
+    }
+    return QPointF(baseline.x() + metrics.horizontalAdvance(text) * 0.5,
+                   baseline.y() - (metrics.ascent() - metrics.descent()) * 0.5)
+        .toPoint();
+}
 void MeshView::set_empty_right_click_callback(std::function<bool()> callback) {
     impl_->empty_right_click_callback = std::move(callback);
 }

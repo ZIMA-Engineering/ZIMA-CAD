@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=ZIMA-CAD
+Comment=Parametric CAD application
+Exec=zima-cad-cpp %F
+Icon=zima-cad
+Terminal=false
+Categories=Graphics;Engineering;
+StartupNotify=true

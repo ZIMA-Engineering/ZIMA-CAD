@@ -596,6 +596,7 @@ int main() {
                     empty_text.find("[UserParameterValues]\n") != std::string::npos,
                 "Part persistence did not write the Python-compatible INI sections");
         const auto empty_loaded = zima::document::PartDocument::load(empty_path);
+        empty_serialized.close();
         std::filesystem::remove(empty_path);
         require(empty_loaded.history.empty(), "Empty history was not preserved");
         require(empty_loaded.document_units == document.document_units &&

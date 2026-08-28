@@ -214,6 +214,7 @@ int main() {
                     !assembly_text.empty() && assembly_text.front() == '[',
                 "Assembly save did not produce Python-compatible INI sections");
         const auto loaded = zima::assembly::AssemblyDocument::load(assembly_path);
+        assembly_file.close();
         std::filesystem::remove(assembly_path);
         require(loaded.document_id == assembly.document_id &&
                     loaded.components.size() == 2 &&
@@ -269,6 +270,7 @@ int main() {
             std::istreambuf_iterator<char>(nested_file), {});
         const auto loaded_nested =
             zima::assembly::AssemblyDocument::load(nested_file_path);
+        nested_file.close();
         std::filesystem::remove(nested_file_path);
         require(nested_text.find("[Container." + nested_occurrence_id + "]\n") !=
                     std::string::npos &&

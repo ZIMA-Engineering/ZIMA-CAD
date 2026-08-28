@@ -2,13 +2,18 @@
 setlocal
 set "ZIMA_CAD_ROOT=%~dp0"
 
+if exist "%ZIMA_CAD_ROOT%build\cpp-windows-release\zima-cad-cpp.exe" (
+    "%ZIMA_CAD_ROOT%build\cpp-windows-release\zima-cad-cpp.exe" --working-directory "%ZIMA_CAD_ROOT%" %*
+    exit /b %ERRORLEVEL%
+)
+
 if exist "%ZIMA_CAD_ROOT%build\cpp-release\zima-cad-cpp.exe" (
-    "%ZIMA_CAD_ROOT%build\cpp-release\zima-cad-cpp.exe" %*
+    "%ZIMA_CAD_ROOT%build\cpp-release\zima-cad-cpp.exe" --working-directory "%ZIMA_CAD_ROOT%" %*
     exit /b %ERRORLEVEL%
 )
 
 if exist "%ZIMA_CAD_ROOT%build\cpp-debug\zima-cad-cpp.exe" (
-    "%ZIMA_CAD_ROOT%build\cpp-debug\zima-cad-cpp.exe" %*
+    "%ZIMA_CAD_ROOT%build\cpp-debug\zima-cad-cpp.exe" --working-directory "%ZIMA_CAD_ROOT%" %*
     exit /b %ERRORLEVEL%
 )
 

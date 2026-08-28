@@ -6357,8 +6357,22 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             pending_owned_sketch = *found;
             source_sketch_id = found->id;
         } else {
-            pending_owned_sketch = zima::sketcher::Sketch::create_default();
-            pending_owned_sketch->name = tr("Skica").toStdString();
+            if (assembly_cut && !selected_sketch_id_.empty()) {
+                const auto selected = std::find_if(
+                    assembly->session.document().sketches.begin(),
+                    assembly->session.document().sketches.end(),
+                    [&](const auto& sketch) {
+                        return sketch.id == selected_sketch_id_ &&
+                            sketch.owner_container_id.empty();
+                    });
+                if (selected != assembly->session.document().sketches.end()) {
+                    pending_owned_sketch = *selected;
+                }
+            }
+            if (!pending_owned_sketch) {
+                pending_owned_sketch = zima::sketcher::Sketch::create_default();
+                pending_owned_sketch->name = tr("Skica").toStdString();
+            }
             source_sketch_id = pending_owned_sketch->id;
         }
     }
@@ -6491,18 +6505,23 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 if (target == nullptr) throw std::runtime_error(
                     "Assembly is no longer open");
                 auto next = target->session.document();
-                if (pending_owned_sketch && !edit_mode &&
-                    std::none_of(next.sketches.begin(), next.sketches.end(),
-                        [&](const auto& sketch) {
-                            return sketch.id == pending_owned_sketch->id;
-                        })) {
+                if (pending_owned_sketch && !edit_mode) {
                     auto owned = *pending_owned_sketch;
                     owned.owner_container_id = committed.id;
                     owned.plane_offset = committed.feature_kind ==
                             zima::document::FeatureKind::Extrusion
                         ? committed.extrusion.profile_plane_offset
                         : committed.revolution.profile_plane_offset;
-                    next.sketches.push_back(std::move(owned));
+                    const auto existing = std::find_if(
+                        next.sketches.begin(), next.sketches.end(),
+                        [&](const auto& sketch) {
+                            return sketch.id == owned.id;
+                        });
+                    if (existing == next.sketches.end()) {
+                        next.sketches.push_back(std::move(owned));
+                    } else {
+                        *existing = std::move(owned);
+                    }
                 }
                 if (committed.feature_kind ==
                         zima::document::FeatureKind::Revolution) {
@@ -8472,7 +8491,7 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
     if (!sketch_id.empty() && !edit_mode) return;
     auto initial = edit_mode ? *found : zima::sketcher::Sketch::create_default();
     std::optional<zima::document::HistoryContainer> new_sketch_container;
-    if (!edit_mode) {
+    if (!edit_mode && part != nullptr) {
         new_sketch_container = zima::document::PartDocument::create_sketch_container();
         initial.owner_container_id = new_sketch_container->id;
     }
@@ -8546,20 +8565,25 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                         }
                     }
                 } else {
-                    if (committed.owner_container_id.empty() || !new_sketch_container ||
-                        committed.owner_container_id != new_sketch_container->id) {
-                        throw std::runtime_error("Sketch has no owning container");
-                    }
-                    auto container = *new_sketch_container;
-                    container.placement = committed_placement;
-                    next.sketches.push_back(committed);
-                    if constexpr (requires { next.insert_history_entry(
-                            zima::document::PartHistoryKind::Sketch,
-                            committed.id); }) {
+                    if constexpr (requires { next.history; }) {
+                        if (committed.owner_container_id.empty() ||
+                            !new_sketch_container ||
+                            committed.owner_container_id != new_sketch_container->id) {
+                            throw std::runtime_error("Sketch has no owning container");
+                        }
+                        auto container = *new_sketch_container;
+                        container.placement = committed_placement;
+                        next.sketches.push_back(committed);
                         next.insert_history_entry(
                             zima::document::PartHistoryKind::Feature,
                             new_sketch_container->id);
                         next.history.push_back(std::move(container));
+                    } else {
+                        if (!committed.owner_container_id.empty()) {
+                            throw std::runtime_error(
+                                "Standalone Assembly Sketch cannot own a cut container");
+                        }
+                        next.sketches.push_back(committed);
                     }
                 }
             };
@@ -8671,11 +8695,13 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             plane.reference_valid = true;
             zima::document::PartDocument preview_document;
             preview_document.constructions.push_back(plane);
-            auto preview_container =
-                zima::document::PartDocument::create_sketch_container();
-            preview_container.id = sketch.owner_container_id;
-            preview_container.placement = geometric_placement;
-            preview_document.history.push_back(std::move(preview_container));
+            if (!sketch.owner_container_id.empty()) {
+                auto preview_container =
+                    zima::document::PartDocument::create_sketch_container();
+                preview_container.id = sketch.owner_container_id;
+                preview_container.placement = geometric_placement;
+                preview_document.history.push_back(std::move(preview_container));
+            }
             preview_document.sketches.push_back(sketch);
             preview_document.resolve_constructions(primitive_reference_geometry_);
             primitive_origin_preview_mesh_ =
@@ -9427,7 +9453,10 @@ void AssemblyWorkspaceWindow::cancel_sketch_segment() {
     // shared viewer.  Every tool transition must release that latch so the
     // common candidate list can immediately offer points, the local origin
     // and both infinite Sketch axes for visual snapping.
-    if (viewer_ != nullptr) viewer_->clear_selection();
+    if (viewer_ != nullptr) {
+        viewer_->clear_selection();
+        viewer_->set_sketch_box_selection(false, {});
+    }
     viewer_->set_candidate_filter({});
     viewer_->set_transient_edges({});
     viewer_->set_sketch_cursor(std::nullopt);
@@ -16999,6 +17028,13 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
     const zima::viewer::ViewerCandidate& candidate) {
     const auto value = viewer_->candidate_dimension_value(candidate);
     if (!value || candidate.kind != zima::viewer::CandidateKind::Dimension) return;
+    const auto label_position =
+        viewer_->candidate_dimension_label_position(candidate);
+    // A double click is preceded by a press that may have started dimension
+    // placement dragging. Finish it before creating the value editor;
+    // otherwise the release following the double click refreshes the scene
+    // underneath the editor and makes the dimension disappear.
+    if (!sketch_drag_dimension_id_.empty()) end_sketch_dimension_drag();
     if (inline_dimension_edit_ != nullptr) inline_dimension_edit_->deleteLater();
     auto* edit = new InlineDimensionEdit(viewer_);
     inline_dimension_edit_ = edit;
@@ -17010,7 +17046,7 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
         "QLineEdit { background:#171A1D; color:#FFD400;"
         " border:1px solid #00DDF0; border-radius:3px;"
         " selection-background-color:#356E22; padding:2px 5px; }");
-    const QPoint pointer = viewer_->last_pointer_position();
+    const QPoint pointer = label_position.value_or(viewer_->last_pointer_position());
     edit->move(std::clamp(pointer.x() - edit->width() / 2, 0,
                              std::max(0, viewer_->width() - edit->width())),
                std::clamp(pointer.y() - edit->height() / 2, 0,
@@ -17115,6 +17151,11 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
             auto calculated = calculate_part(next, &previous);
             static_cast<void>(refresh_sketch_external_references(next, calculated));
             part->session.commit(std::move(next), std::move(calculated));
+            // Remove the editor before rebuilding the scene. Keeping the
+            // child QLineEdit over the old label while refresh_scene() swaps
+            // the dimension mesh makes a successful edit look as if the
+            // dimension disappeared and its input window remained open.
+            guarded->hide();
             construction_dimension_object_id_ = candidate.owner_id;
             preserve_view_on_refresh_ = true;
             refresh_tabs();
@@ -17122,10 +17163,15 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
             state_->setText(tr("Hodnota kóty byla změněna přímo ve view."));
             guarded->deleteLater();
         } catch (const std::exception& error) {
-            guarded->setProperty("committed", false);
             state_->setText(QString::fromUtf8(error.what()));
-            guarded->selectAll();
-            guarded->setFocus();
+            // The attempted edit is transactional. Explicitly restore the
+            // unchanged scene and close the editor after a rejected solve or
+            // calculation. A submitted value must never leave a stale input
+            // floating over the restored dimension.
+            guarded->hide();
+            preserve_view_on_refresh_ = true;
+            refresh_scene();
+            guarded->deleteLater();
         }
     };
     connect(edit, &QLineEdit::returnPressed, this, commit);

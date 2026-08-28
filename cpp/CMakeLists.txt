@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.24)
 
 project(ZimaCadCpp VERSION 0.1.0 LANGUAGES CXX)
 
+include(GNUInstallDirs)
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -118,9 +120,37 @@ add_executable(zima-cad-cpp
 target_include_directories(zima-cad-cpp PRIVATE app)
 target_link_libraries(zima-cad-cpp PRIVATE
     zima_workspace zima_assembly zima_document_core zima_drawing zima_kernel_occt zima_viewer zima_ui
-    zima_interchange
+    zima_interchange nlohmann_json::nlohmann_json
     Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg)
 set_target_properties(zima-cad-cpp PROPERTIES AUTORCC ON)
+if(WIN32)
+    target_sources(zima-cad-cpp PRIVATE app/windows/zima-cad.rc)
+endif()
+if(WIN32 AND TARGET Qt6::QWindowsIntegrationPlugin)
+    add_custom_command(TARGET zima-cad-cpp POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:zima-cad-cpp>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "$<TARGET_FILE:Qt6::QWindowsIntegrationPlugin>"
+            "$<TARGET_FILE_DIR:zima-cad-cpp>/platforms/")
+endif()
+
+if(WIN32 AND TARGET Qt6::QModernWindowsStylePlugin)
+    add_custom_command(TARGET zima-cad-cpp POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:zima-cad-cpp>/styles"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "$<TARGET_FILE:Qt6::QModernWindowsStylePlugin>"
+            "$<TARGET_FILE_DIR:zima-cad-cpp>/styles/")
+endif()
+install(TARGETS zima-cad-cpp RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+if(UNIX AND NOT APPLE)
+    install(FILES app/linux/zima-cad.desktop
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
+    install(FILES ../resources/branding/app-icon.svg
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps
+        RENAME zima-cad.svg)
+endif()
 
 add_executable(zima-cad-drawing-harness
     app/main_drawing.cpp app/drawing_window.cpp app/file_dialog.cpp)
@@ -136,6 +166,12 @@ target_link_libraries(zima_cpp_performance_benchmark PRIVATE
 
 if(ZIMA_BUILD_TESTS)
     enable_testing()
+    if(WIN32)
+        set(ZIMA_GUI_TEST_ENVIRONMENT
+            "QT_QPA_PLATFORM=windows;QT_STYLE_OVERRIDE=Fusion")
+    else()
+        set(ZIMA_GUI_TEST_ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    endif()
     add_executable(zima_cpp_contract_tests tests/contract_tests.cpp)
     target_link_libraries(zima_cpp_contract_tests PRIVATE
         zima_document_core zima_kernel_occt TKPrim TKDESTEP)
@@ -154,10 +190,10 @@ if(ZIMA_BUILD_TESTS)
     target_sources(zima_cpp_ui_contract_tests PRIVATE app/sketch_text_properties_dialog.cpp)
     target_include_directories(zima_cpp_ui_contract_tests PRIVATE app)
     target_link_libraries(zima_cpp_ui_contract_tests PRIVATE
-        zima_document_core zima_assembly zima_ui zima_viewer Qt6::Widgets)
+        zima_document_core zima_assembly zima_ui zima_viewer Qt6::Widgets nlohmann_json::nlohmann_json)
     add_test(NAME zima_cpp_ui_contract_tests COMMAND zima_cpp_ui_contract_tests)
     set_tests_properties(zima_cpp_ui_contract_tests PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}")
     add_executable(zima_cpp_viewer_contract_tests tests/viewer_contract_tests.cpp)
     target_link_libraries(zima_cpp_viewer_contract_tests PRIVATE zima_viewer)
     add_test(NAME zima_cpp_viewer_contract_tests COMMAND zima_cpp_viewer_contract_tests)
@@ -181,7 +217,7 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_workspace_startup_contract
         COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_workspace_startup_contract PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM=wayland"
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_executable(zima_cpp_drawing_contract_tests tests/drawing_contract_tests.cpp)
     target_link_libraries(zima_cpp_drawing_contract_tests PRIVATE zima_drawing)

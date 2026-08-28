@@ -560,3 +560,20 @@ developer harnesses, not separate user applications.
 
 CMake and Ninja are build prerequisites. They are deliberately not embedded
 into the application runtime.
+
+## Windows build
+
+From the repository root, run the repository build script. It automatically
+finds Visual Studio, its bundled vcpkg, CMake, and Ninja. Qt, OCCT, and
+nlohmann-json are pinned by the manifest, while downloads, installed packages,
+and build outputs stay under the repository `build/` directory.
+
+```powershell
+.\tools\build-windows.ps1 -Configuration Release
+```
+
+Add `-RunTests` to run CTest, or use `-Configuration Debug` for a Debug build.
+The executable is `build\cpp-windows-release\zima-cad-cpp.exe`. `VCPKG_ROOT`
+is optional and is needed only with a standalone vcpkg checkout instead of the
+Visual Studio component. Windows portable packaging remains a separate
+validated release step described in `doc/WINDOWS_RUNTIME_AND_BUILD.md`.

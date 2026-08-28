@@ -1,6 +1,7 @@
 #include "assembly_workspace_window.hpp"
 #include "construction_properties_dialog.hpp"
 #include "drawing_window.hpp"
+#include "resource_icon.hpp"
 
 #include <zima/ui/reference_cell.hpp>
 #include <zima/viewer/mesh_view.hpp>
@@ -33,6 +34,7 @@
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QSurfaceFormat>
+#include <QStyleFactory>
 #include <QTabBar>
 #include <QTableWidget>
 #include <QTimer>
@@ -1050,10 +1052,20 @@ int verify_startup_contract(
         const QPointF local{
             model_viewer->width() * x_ratio,
             model_viewer->height() * y_ratio};
+        QMouseEvent move(QEvent::MouseMove, local,
+            model_viewer->mapToGlobal(local.toPoint()), Qt::NoButton,
+            Qt::NoButton, Qt::NoModifier);
+        QApplication::sendEvent(model_viewer, &move);
+        application.processEvents();
         QMouseEvent press(QEvent::MouseButtonPress, local,
             model_viewer->mapToGlobal(local.toPoint()), Qt::LeftButton,
             Qt::LeftButton, Qt::NoModifier);
         QApplication::sendEvent(model_viewer, &press);
+        application.processEvents();
+        QMouseEvent release(QEvent::MouseButtonRelease, local,
+            model_viewer->mapToGlobal(local.toPoint()), Qt::LeftButton,
+            Qt::NoButton, Qt::NoModifier);
+        QApplication::sendEvent(model_viewer, &release);
         application.processEvents();
     };
     sketch_rectangle->trigger();
@@ -1100,7 +1112,7 @@ int verify_startup_contract(
     sketch_construction->trigger();
     application.processEvents();
     sketch_click(0.34, 0.70);
-    sketch_click(0.57, 0.64);
+    sketch_click(0.57, 0.70);
     QKeyEvent cancel_construction(QEvent::KeyPress, Qt::Key_Escape,
         Qt::NoModifier);
     QApplication::sendEvent(&window, &cancel_construction);
@@ -1144,9 +1156,15 @@ int verify_startup_contract(
         }
         return nullptr;
     }();
+    const bool has_inferred_horizontal = constraint_group != nullptr && [&] {
+        for (int index = 0; index < constraint_group->childCount(); ++index) {
+            if (constraint_group->child(index)->text(0).startsWith(
+                    QStringLiteral("Vodorovná vazba"))) return true;
+        }
+        return false;
+    }();
     if (!verify(constraint_group != nullptr && constraint_group->childCount() >= 5 &&
-                    constraint_group->child(constraint_group->childCount() - 1)
-                        ->text(0).startsWith(QStringLiteral("Vodorovná vazba")),
+                    has_inferred_horizontal,
                 "Sketch inference did not persist its offered Horizontal constraint")) {
         return 1;
     }
@@ -1265,6 +1283,23 @@ int verify_startup_contract(
     application.processEvents();
     sketch_click(0.44, 0.44);
     sketch_click(0.58, 0.58);
+    bool owned_profile_rectangle_created = false;
+    {
+        QTreeWidgetItemIterator item(tree);
+        while (*item != nullptr) {
+            if ((*item)->data(0, Qt::UserRole + 3).toString() ==
+                    QStringLiteral("sketch-geometry") &&
+                (*item)->text(0).startsWith(QStringLiteral("Úsečka"))) {
+                owned_profile_rectangle_created = true;
+                break;
+            }
+            ++item;
+        }
+    }
+    if (!verify(owned_profile_rectangle_created,
+                "Owned profile Rectangle did not create persisted geometry")) {
+        return 1;
+    }
     finish_sketch->trigger();
     application.processEvents();
     properties = window.findChild<QDialog*>("zimaPropertiesSubWindow");
@@ -1527,7 +1562,6 @@ int verify_startup_contract(
                 "Assembly must expose the shared Sketch command")) return 1;
     sketch->trigger();
     application.processEvents();
-    auto* assembly_sketch_name = window.findChild<QLineEdit*>("sketchName");
     QDialog* assembly_sketch_dialog{};
     for (auto* candidate : window.findChildren<QDialog*>()) {
         if (candidate->findChild<QLineEdit*>("sketchName") != nullptr) {
@@ -1535,19 +1569,39 @@ int verify_startup_contract(
             break;
         }
     }
+    auto* assembly_open_sketch = assembly_sketch_dialog == nullptr
+        ? nullptr
+        : assembly_sketch_dialog->findChild<QPushButton*>("sketchOpenButton");
     if (!verify(assembly_sketch_dialog != nullptr &&
-                    assembly_sketch_dialog->windowFlags().testFlag(Qt::SubWindow),
+                    assembly_sketch_dialog->windowFlags().testFlag(Qt::SubWindow) &&
+                    assembly_open_sketch != nullptr,
                 "Assembly Sketch must use the shared internal Sketch dialog")) {
         return 1;
     }
-    assembly_sketch_dialog->findChild<QDialogButtonBox*>()
-        ->button(QDialogButtonBox::Ok)->click();
+    assembly_open_sketch->click();
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     application.processEvents();
     sketch_rectangle->trigger();
     application.processEvents();
     sketch_click(0.44, 0.44);
     sketch_click(0.58, 0.58);
+    bool assembly_rectangle_created = false;
+    {
+        QTreeWidgetItemIterator item(tree);
+        while (*item != nullptr) {
+            if ((*item)->data(0, Qt::UserRole + 3).toString() ==
+                    QStringLiteral("sketch-geometry") &&
+                (*item)->text(0).startsWith(QStringLiteral("Úsečka"))) {
+                assembly_rectangle_created = true;
+                break;
+            }
+            ++item;
+        }
+    }
+    if (!verify(assembly_rectangle_created,
+                "Assembly Sketch Rectangle did not create persisted geometry")) {
+        return 1;
+    }
     finish_sketch->trigger();
     application.processEvents();
     bool assembly_sketch_in_tree = false;
@@ -1593,6 +1647,35 @@ int verify_startup_contract(
                 "inserting the open Part must create an Assembly occurrence")) {
         return 1;
     }
+    auto* inserted_component_dialog =
+        window.findChild<QDialog*>("zimaPropertiesSubWindow");
+    auto* inserted_component_buttons = inserted_component_dialog == nullptr
+        ? nullptr : inserted_component_dialog->findChild<QDialogButtonBox*>();
+    if (!verify(inserted_component_buttons != nullptr,
+                "inserting a component must open its internal Properties dialog")) {
+        return 1;
+    }
+    inserted_component_buttons->button(QDialogButtonBox::Ok)->click();
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    application.processEvents();
+    QTreeWidgetItem* assembly_profile_sketch{};
+    if (tree->topLevelItemCount() == 1) {
+        auto* root = tree->topLevelItem(0);
+        for (int index = 0; index < root->childCount(); ++index) {
+            if (root->child(index)->data(0, Qt::UserRole + 3).toString() ==
+                    QStringLiteral("assembly-sketch")) {
+                assembly_profile_sketch = root->child(index);
+                break;
+            }
+        }
+    }
+    if (!verify(assembly_profile_sketch != nullptr,
+                "Assembly profile Sketch disappeared after component insertion")) {
+        return 1;
+    }
+    tree->setCurrentItem(assembly_profile_sketch);
+    assembly_profile_sketch->setSelected(true);
+    application.processEvents();
     if (!verify(extrusion->isEnabled(),
                 "Assembly Sketch must enable the shared Extrusion command")) {
         return 1;
@@ -1914,6 +1997,25 @@ int verify_startup_contract(
         }
         second_source_action->trigger();
         application.processEvents();
+        auto* second_component_dialog =
+            window.findChild<QDialog*>("zimaPropertiesSubWindow");
+        auto* second_component_buttons = second_component_dialog == nullptr
+            ? nullptr : second_component_dialog->findChild<QDialogButtonBox*>();
+        if (!verify(second_component_buttons != nullptr,
+                    "second insertion did not open Component Properties")) {
+            return 1;
+        }
+        const auto second_translation_fields =
+            second_component_dialog->findChildren<QDoubleSpinBox*>(
+                "componentTranslation");
+        if (!verify(second_translation_fields.size() == 3,
+                    "second insertion has no component translation fields")) {
+            return 1;
+        }
+        second_translation_fields[0]->setValue(40.0);
+        second_component_buttons->button(QDialogButtonBox::Ok)->click();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        application.processEvents();
         int part_occurrence_count_after_first = 0;
         if (insertion_tree->topLevelItemCount() == 1) {
             const auto* root = insertion_tree->topLevelItem(0);
@@ -1945,6 +2047,25 @@ int verify_startup_contract(
             return 1;
         }
         third_source_action->trigger();
+        application.processEvents();
+        auto* third_component_dialog =
+            window.findChild<QDialog*>("zimaPropertiesSubWindow");
+        auto* third_component_buttons = third_component_dialog == nullptr
+            ? nullptr : third_component_dialog->findChild<QDialogButtonBox*>();
+        if (!verify(third_component_buttons != nullptr,
+                    "third insertion did not open Component Properties")) {
+            return 1;
+        }
+        const auto third_translation_fields =
+            third_component_dialog->findChildren<QDoubleSpinBox*>(
+                "componentTranslation");
+        if (!verify(third_translation_fields.size() == 3,
+                    "third insertion has no component translation fields")) {
+            return 1;
+        }
+        third_translation_fields[0]->setValue(-40.0);
+        third_component_buttons->button(QDialogButtonBox::Ok)->click();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
         application.processEvents();
         int part_occurrence_count_after_second = 0;
         if (insertion_tree->topLevelItemCount() == 1) {
@@ -1983,11 +2104,36 @@ int verify_startup_contract(
         }
         tabs->setCurrentIndex(drag_assembly_tab_index);
         application.processEvents();
+        auto* drag_viewer = dynamic_cast<zima::viewer::MeshView*>(
+            window.findChild<QOpenGLWidget*>("modelWorkspace"));
+        auto* drag_filter_combo = window.findChild<QComboBox*>("selectionFilterCombo");
+        if (!verify(drag_viewer != nullptr && drag_filter_combo != nullptr,
+                    "free-drag coverage requires the shared viewer and selection filter")) {
+            return 1;
+        }
+        drag_filter_combo->setCurrentIndex(0);  // Vše (offers Occurrence candidates)
+        drag_viewer->fit_all();
+        application.processEvents();
+        std::string drag_instance_path;
+        for (int y = 4; y < drag_viewer->height() && drag_instance_path.empty(); y += 4) {
+            for (int x = 4; x < drag_viewer->width(); x += 4) {
+                const QPointF position{static_cast<qreal>(x), static_cast<qreal>(y)};
+                const auto candidates = drag_viewer->selection_candidates_at(position);
+                if (!candidates.empty() && candidates.front().kind ==
+                        zima::viewer::CandidateKind::Occurrence) {
+                    drag_instance_path = candidates.front().instance_path;
+                    break;
+                }
+            }
+        }
+        if (!verify(!drag_instance_path.empty(),
+                    "viewer did not offer a front-most occurrence for free-drag coverage")) {
+            return 1;
+        }
         // Each Properties confirm/cancel triggers a refresh_scene()/
         // refresh_tabs() that rebuilds the tree, invalidating any previously
         // located QTreeWidgetItem*, so re-locate the occurrence's own tree
         // item fresh every time.
-        std::string drag_instance_path;
         const auto find_drag_occurrence_item = [&]() -> QTreeWidgetItem* {
             auto* current_tree = window.findChild<QTreeWidget*>("documentTree");
             if (current_tree == nullptr || current_tree->topLevelItemCount() != 1) {
@@ -2045,15 +2191,6 @@ int verify_startup_contract(
                 fields[1]->value() == drag_start_translation[1] &&
                 fields[2]->value() == drag_start_translation[2];
         };
-        auto* drag_viewer = dynamic_cast<zima::viewer::MeshView*>(
-            window.findChild<QOpenGLWidget*>("modelWorkspace"));
-        auto* drag_filter_combo = window.findChild<QComboBox*>("selectionFilterCombo");
-        if (!verify(drag_viewer != nullptr && drag_filter_combo != nullptr,
-                    "free-drag coverage requires the shared viewer and selection filter")) {
-            return 1;
-        }
-        drag_filter_combo->setCurrentIndex(0);  // Vše (offers Occurrence candidates)
-        application.processEvents();
         const auto find_occurrence_position = [&]() -> std::optional<QPointF> {
             for (int y = 4; y < drag_viewer->height(); y += 4) {
                 for (int x = 4; x < drag_viewer->width(); x += 4) {
@@ -2658,7 +2795,16 @@ int main(int argc, char* argv[]) {
     format.setSamples(4);
     QSurfaceFormat::setDefaultFormat(format);
     QApplication application(argc, argv);
+#ifdef Q_OS_WIN
+    if (QGuiApplication::platformName() == QStringLiteral("windows")) {
+        if (auto* windows_style = QStyleFactory::create(QStringLiteral("windows11"))) {
+            application.setStyle(windows_style);
+        }
+    }
+#endif
     application.setApplicationName("ZIMA-CAD");
+    application.setDesktopFileName("zima-cad");
+    application.setWindowIcon(zima::app::application_icon());
     QString startup_directory = QDir::currentPath();
     const auto arguments = application.arguments();
     for (int index = 1; index < arguments.size(); ++index) {

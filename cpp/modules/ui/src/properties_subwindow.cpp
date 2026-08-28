@@ -7,6 +7,7 @@
 #include <QMouseEvent>
 #include <QPushButton>
 #include <QShowEvent>
+#include <QStyle>
 #include <QResizeEvent>
 #include <QTimer>
 #include <QVBoxLayout>
@@ -33,6 +34,7 @@ PropertiesSubWindow::PropertiesSubWindow(const QString& title, QWidget* parent)
 
     auto* outer = new QVBoxLayout(this);
     outer->setContentsMargins(8, 6, 8, 8);
+    outer->setSpacing(8);
     title_bar_ = new QWidget(this);
     title_bar_->setObjectName("propertiesTitleBar");
     title_bar_->setFixedHeight(34);
@@ -48,18 +50,22 @@ PropertiesSubWindow::PropertiesSubWindow(const QString& title, QWidget* parent)
     title_font.setBold(true);
     title_label_->setFont(title_font);
     title_layout->addWidget(title_label_, 1);
-    auto* close = new QPushButton(QStringLiteral("×"), title_bar_);
+    auto* close = new QPushButton(title_bar_);
     close->setObjectName("propertiesCloseButton");
     close->setFixedSize(27, 26);
+    close->setIcon(style()->standardIcon(QStyle::SP_TitleBarCloseButton));
+    close->setIconSize(QSize(16, 16));
     close->setToolTip(tr("Zrušit"));
     close->setStyleSheet(
         "QPushButton { border:none; border-radius:4px; font-weight:700; }"
         "QPushButton:hover { background:#b83232; color:white; }");
     connect(close, &QPushButton::clicked, this, &QDialog::reject);
     title_layout->addWidget(close);
+    title_layout->setAlignment(close, Qt::AlignVCenter);
     outer->addWidget(title_bar_);
 
     content_layout_ = new QVBoxLayout;
+    content_layout_->setSpacing(8);
     outer->addLayout(content_layout_);
     submit_error_ = new QLabel(this);
     submit_error_->setObjectName("propertiesSubmitError");

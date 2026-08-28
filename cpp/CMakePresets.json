@@ -16,18 +16,75 @@
       "inherits": "linux-runtime-debug",
       "displayName": "Linux bundled runtime (Release)",
       "binaryDir": "${sourceDir}/../build/cpp-release",
-      "cacheVariables": {"CMAKE_BUILD_TYPE": "Release"}
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "windows-vcpkg-debug",
+      "displayName": "Windows vcpkg (Debug)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/../build/cpp-windows-debug",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+        "VCPKG_TARGET_TRIPLET": "x64-windows"
+      }
+    },
+    {
+      "name": "windows-vcpkg-release",
+      "inherits": "windows-vcpkg-debug",
+      "displayName": "Windows vcpkg (Release)",
+      "binaryDir": "${sourceDir}/../build/cpp-windows-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
     }
   ],
   "buildPresets": [
-    {"name": "linux-debug", "configurePreset": "linux-runtime-debug"},
-    {"name": "linux-release", "configurePreset": "linux-runtime-release"}
+    {
+      "name": "linux-debug",
+      "configurePreset": "linux-runtime-debug"
+    },
+    {
+      "name": "linux-release",
+      "configurePreset": "linux-runtime-release"
+    },
+    {
+      "name": "windows-debug",
+      "configurePreset": "windows-vcpkg-debug"
+    },
+    {
+      "name": "windows-release",
+      "configurePreset": "windows-vcpkg-release"
+    }
   ],
   "testPresets": [
     {
       "name": "linux-debug",
       "configurePreset": "linux-runtime-debug",
-      "output": {"outputOnFailure": true}
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "windows-debug",
+      "configurePreset": "windows-vcpkg-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "windows-release",
+      "configurePreset": "windows-vcpkg-release",
+      "output": {
+        "outputOnFailure": true
+      }
     }
   ]
 }

@@ -140,16 +140,34 @@ QString save_file(QWidget* parent, const QString& caption,
 QString choose_directory(QWidget* parent, const QString& caption,
                          const QString& initial_path,
                          const QMap<QString, QString>& translations) {
-    // Match Python's QFileDialog.getExistingDirectory contract. In
-    // particular, retain the platform/native presentation and its standard
-    // controls; the only intentional customization is the requested
-    // localization of Qt's otherwise untranslated "File type" label.
-    QFileDialog dialog(parent, caption, initial_path);
+    QFileDialog dialog(parent);
+    dialog.setOption(QFileDialog::DontUseNativeDialog, true);
+    dialog.setWindowTitle(caption);
+    if (!initial_path.trimmed().isEmpty()) dialog.setDirectory(initial_path);
     dialog.setOption(QFileDialog::ShowDirsOnly, true);
     dialog.setAcceptMode(QFileDialog::AcceptOpen);
     dialog.setFileMode(QFileDialog::Directory);
-    dialog.setLabelText(QFileDialog::FileType,
-        translations.value("file.dialog.file_type", QStringLiteral("File type")));
+    dialog.setViewMode(QFileDialog::Detail);
+    if (auto* label = dialog.findChild<QLabel*>("lookInLabel"))
+        label->setText(translations.value("file.dialog.look_in", label->text()));
+    if (auto* label = dialog.findChild<QLabel*>("fileNameLabel"))
+        label->setText(translations.value("file.dialog.directory", label->text()));
+    if (auto* buttons = dialog.findChild<QDialogButtonBox*>()) {
+        if (auto* accept = buttons->button(QDialogButtonBox::Open))
+            accept->setText(translations.value("button.select", accept->text()));
+        if (auto* cancel = buttons->button(QDialogButtonBox::Cancel))
+            cancel->setText(translations.value("button.cancel", cancel->text()));
+    }
+    auto* proxy = new FileProxyModel(&dialog);
+    proxy->setDynamicSortFilter(true);
+    dialog.setProxyModel(proxy);
+    for (auto* view : dialog.findChildren<QListView*>())
+        view->setIconSize(QSize(20, 20));
+    for (auto* view : dialog.findChildren<QTreeView*>()) {
+        view->setIconSize(QSize(20, 20));
+        view->sortByColumn(0, Qt::AscendingOrder);
+    }
+    proxy->sort(0, Qt::AscendingOrder);
     if (dialog.exec() != QDialog::Accepted || dialog.selectedFiles().isEmpty()) return {};
     return dialog.selectedFiles().front();
 }

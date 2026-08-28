@@ -154,6 +154,7 @@ int main() {
                     ini.find("items=\n") != std::string::npos,
                 "Drawing persistence is not Python-compatible INI");
         const auto loaded = zima::drawing::DrawingDocument::load(path);
+        persisted.close();
         std::filesystem::remove(path);
         require(loaded.document_id == drawing.document_id &&
                     loaded.sheets.size() == 1 && loaded.find_view(view_id) != nullptr &&

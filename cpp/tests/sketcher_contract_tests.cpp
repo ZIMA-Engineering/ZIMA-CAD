@@ -20,6 +20,13 @@ void require(bool condition, const char* message) {
 int main() {
     try {
         using zima::sketcher::DimensionKind;
+        std::set<std::string> generated_ids;
+        for (int index = 0; index < 1024; ++index) {
+            generated_ids.insert(
+                zima::sketcher::Sketch::create_point(index, index).id);
+        }
+        require(generated_ids.size() == 1024,
+                "Rapid Sketch ID generation produced a collision");
         require(zima::sketcher::classify_linear_dimension(
                     {0.0, 0.0}, {10.0, 6.0}, {5.0, 3.0}) ==
                     DimensionKind::Distance,
@@ -911,6 +918,13 @@ int main() {
                     std::abs(axis_dimensioned.find_point(axis_point)->y + 7.0) < 1.0e-7 &&
                     axis_dimensioned.viewer_mesh().dimensions.size() == 2,
                 "Point-to-Sketch-axis dimensions did not drive both coordinates");
+        const auto edited_axis_dimension_id = axis_dimensioned.dimensions.front().id;
+        require(axis_dimensioned.set_dimension_value(
+                    edited_axis_dimension_id, 14.0) &&
+                    axis_dimensioned.dimensions.size() == 2 &&
+                    axis_dimensioned.viewer_mesh().dimensions.size() == 2 &&
+                    std::abs(axis_dimensioned.find_point(axis_point)->x - 14.0) < 1.0e-7,
+                "Editing a point offset from the Sketch origin hid its dimension");
         const auto loaded_axis_dimensions = zima::sketcher::Sketch::from_serialized(
             axis_dimensioned.serialized());
         require(loaded_axis_dimensions.dimensions == axis_dimensioned.dimensions,
@@ -2211,14 +2225,29 @@ int main() {
             10.0, 0.0, 0.0, 0.0);
         const auto fillet_second = corner_fillet.add_segment(
             0.0, 0.0, 0.0, 10.0);
+        const auto fillet_corner_id =
+            corner_fillet.segments.front().second_point_id;
         const auto fillet = corner_fillet.add_corner_fillet(
             fillet_first, fillet_second, 2.0);
         const auto* fillet_first_point = corner_fillet.find_point(
             fillet.first_tangent_point_id);
         const auto* fillet_second_point = corner_fillet.find_point(
             fillet.second_tangent_point_id);
+        const auto trimmed_first = std::find_if(
+            corner_fillet.segments.begin(), corner_fillet.segments.end(),
+            [&](const auto& segment) { return segment.id == fillet_first; });
+        const auto trimmed_second = std::find_if(
+            corner_fillet.segments.begin(), corner_fillet.segments.end(),
+            [&](const auto& segment) { return segment.id == fillet_second; });
         require(!fillet.arc_id.empty() && corner_fillet.arcs.size() == 1 &&
                     fillet_first_point != nullptr && fillet_second_point != nullptr &&
+                    trimmed_first != corner_fillet.segments.end() &&
+                    trimmed_second != corner_fillet.segments.end() &&
+                    (trimmed_first->first_point_id == fillet.first_tangent_point_id ||
+                     trimmed_first->second_point_id == fillet.first_tangent_point_id) &&
+                    (trimmed_second->first_point_id == fillet.second_tangent_point_id ||
+                     trimmed_second->second_point_id == fillet.second_tangent_point_id) &&
+                    corner_fillet.find_point(fillet_corner_id) == nullptr &&
                     std::abs(std::hypot(fillet_first_point->x, fillet_first_point->y) -
                         2.0) < 1.0e-7 &&
                     std::abs(std::hypot(fillet_second_point->x, fillet_second_point->y) -

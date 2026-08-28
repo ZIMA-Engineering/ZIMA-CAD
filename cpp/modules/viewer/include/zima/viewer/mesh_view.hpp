@@ -114,6 +114,8 @@ public:
     [[nodiscard]] QPoint last_pointer_position() const;
     [[nodiscard]] std::optional<double> candidate_dimension_value(
         const ViewerCandidate& candidate) const;
+    [[nodiscard]] std::optional<QPoint> candidate_dimension_label_position(
+        const ViewerCandidate& candidate) const;
     void set_empty_right_click_callback(std::function<bool()> callback);
     void set_single_candidate_right_click_callback(
         std::function<bool(const ViewerCandidate&)> callback);
