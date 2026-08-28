@@ -312,6 +312,7 @@ nlohmann::json read_part_ini(const std::filesystem::path& path) {
         {"family_table", ini_value(ini, "Document", "family_table",
             "{\"columns\":[],\"instances\":[]}")},
         {"named_views", ini_value(ini, "Document", "named_views", "[]")},
+        {"body_color", ini_value(ini, "Document", "body_color", "#B9C2CC")},
         {"user_parameters", nlohmann::json::object()},
         {"user_parameter_order", nlohmann::json::array()},
         {"user_parameter_labels", nlohmann::json::object()},
@@ -454,6 +455,7 @@ void write_part_ini(
         {"name", root.at("name").get<std::string>()},
         {"family_table", root.at("family_table").get<std::string>()},
         {"named_views", root.value("named_views", std::string("[]"))},
+        {"body_color", root.value("body_color", std::string("#B9C2CC"))},
         {"history_cursor", std::to_string(root.at("history_cursor").get<std::size_t>())},
     };
     const auto copy_object = [&](const char* section_name, const char* root_name) {
@@ -4596,6 +4598,7 @@ PartDocument PartDocument::load(
     document.material_parameter_descriptions = root.at("material_parameter_descriptions").get<decltype(document.material_parameter_descriptions)>();
     document.family_table = root.at("family_table").get<std::string>();
     document.named_views = root.value("named_views", std::string("[]"));
+    document.body_color = root.at("body_color").get<std::string>();
     const auto& source_history = root.at("history");
     if (!source_history.is_array()) {
         throw std::runtime_error("Document history must be an array");
@@ -5805,6 +5808,7 @@ void PartDocument::save(
         {"material_parameter_descriptions", material_parameter_descriptions},
         {"family_table", family_table},
         {"named_views", named_views},
+        {"body_color", body_color},
         {"history", std::move(serialized_history)},
         {"sketches", std::move(serialized_sketches)},
         {"constructions", std::move(serialized_constructions)},

@@ -8,7 +8,11 @@
 
 #include <QAction>
 #include <QComboBox>
+#include <QCoreApplication>
+#include <QDir>
 #include <QDoubleSpinBox>
+#include <QFileInfo>
+#include <QFontDatabase>
 #include <QFormLayout>
 #include <QLabel>
 #include <QKeyEvent>
@@ -21,6 +25,7 @@
 #include <QPushButton>
 #include <QTabBar>
 #include <QToolBar>
+#include <QWheelEvent>
 #include <QPushButton>
 #include <QVBoxLayout>
 
@@ -31,6 +36,22 @@
 
 namespace zima::app {
 namespace {
+
+QString drawing_font_family() {
+    static const QString family = [] {
+        const QString relative = QStringLiteral("config/fonts/osifont-lgpl3fe.ttf");
+        QString path = relative;
+        if (!QFileInfo::exists(path)) {
+            path = QDir(QCoreApplication::applicationDirPath())
+                .absoluteFilePath(QStringLiteral("../../config/fonts/osifont-lgpl3fe.ttf"));
+        }
+        const int id = QFontDatabase::addApplicationFont(path);
+        const auto families = id >= 0
+            ? QFontDatabase::applicationFontFamilies(id) : QStringList{};
+        return families.empty() ? QStringLiteral("sans-serif") : families.front();
+    }();
+    return family;
+}
 
 class ViewPropertiesDialog final : public zima::ui::PropertiesSubWindow {
 public:
@@ -208,14 +229,14 @@ zima::drawing::Point2 projection_placement(
     zima::drawing::ProjectionDirection direction, double distance) {
     constexpr double diagonal = 0.7071067811865475244;
     switch (direction) {
-        case zima::drawing::ProjectionDirection::Right: return {distance,0};
-        case zima::drawing::ProjectionDirection::TopRight: return {distance*diagonal,-distance*diagonal};
-        case zima::drawing::ProjectionDirection::Top: return {0,-distance};
-        case zima::drawing::ProjectionDirection::TopLeft: return {-distance*diagonal,-distance*diagonal};
-        case zima::drawing::ProjectionDirection::Left: return {-distance,0};
-        case zima::drawing::ProjectionDirection::BottomLeft: return {-distance*diagonal,distance*diagonal};
-        case zima::drawing::ProjectionDirection::Bottom: return {0,distance};
-        case zima::drawing::ProjectionDirection::BottomRight: return {distance*diagonal,distance*diagonal};
+        case zima::drawing::ProjectionDirection::Right: return {-distance,0};
+        case zima::drawing::ProjectionDirection::TopRight: return {-distance*diagonal,distance*diagonal};
+        case zima::drawing::ProjectionDirection::Top: return {0,distance};
+        case zima::drawing::ProjectionDirection::TopLeft: return {distance*diagonal,distance*diagonal};
+        case zima::drawing::ProjectionDirection::Left: return {distance,0};
+        case zima::drawing::ProjectionDirection::BottomLeft: return {distance*diagonal,-distance*diagonal};
+        case zima::drawing::ProjectionDirection::Bottom: return {0,-distance};
+        case zima::drawing::ProjectionDirection::BottomRight: return {-distance*diagonal,-distance*diagonal};
         case zima::drawing::ProjectionDirection::None: return {};
     }
     return {};
@@ -310,6 +331,9 @@ class DrawingCanvas final : public QWidget {
 public:
     explicit DrawingCanvas(QWidget* parent = nullptr) : QWidget(parent) {
         setMinimumSize(640, 480); setMouseTracking(true); setFocusPolicy(Qt::StrongFocus);
+        auto drawing_font = font();
+        drawing_font.setFamily(drawing_font_family());
+        setFont(drawing_font);
         auto canvas_palette = palette();
         canvas_palette.setColor(QPalette::Window, QColor("#000000"));
         setPalette(canvas_palette);
@@ -343,15 +367,24 @@ public:
     void start_selection() { dimension_mode_ = false; first_edge_.reset(); update(); }
     [[nodiscard]] bool dimension_mode() const { return dimension_mode_; }
 protected:
+    [[nodiscard]] double canvas_zoom() const {
+        if (sheet_ == nullptr) return 1.0;
+        const double margin = 24.0;
+        const double fit = std::min((width() - 2 * margin) / sheet_->width_mm(),
+                                    (height() - 2 * margin) / sheet_->height_mm());
+        return std::max(1.0e-6, fit * view_zoom_);
+    }
+    [[nodiscard]] QPointF canvas_origin(double zoom) const {
+        if (sheet_ == nullptr) return view_pan_;
+        return QPointF((width() - sheet_->width_mm() * zoom) * 0.5,
+                       (height() - sheet_->height_mm() * zoom) * 0.5) + view_pan_;
+    }
     void paintEvent(QPaintEvent*) override {
         QPainter painter(this);
         painter.fillRect(rect(), QColor("#000000"));
         if (sheet_ == nullptr) return;
-        const double margin = 24.0;
-        const double zoom = std::min((width() - 2 * margin) / sheet_->width_mm(),
-                                     (height() - 2 * margin) / sheet_->height_mm());
-        const QPointF origin((width() - sheet_->width_mm() * zoom) * 0.5,
-                             (height() - sheet_->height_mm() * zoom) * 0.5);
+        const double zoom = canvas_zoom();
+        const QPointF origin = canvas_origin(zoom);
         const QRectF paper(origin.x(), origin.y(), sheet_->width_mm() * zoom,
                            sheet_->height_mm() * zoom);
         painter.setRenderHint(QPainter::Antialiasing, true);
@@ -359,7 +392,8 @@ protected:
         painter.drawRect(paper);
         painter.setPen(QPen(QColor("#FFFFFF"), 1.0));
         const auto screen=[&](const zima::drawing::Point2& point) {
-            return QPointF(origin.x()+point.x*zoom,origin.y()+point.y*zoom);
+            return QPointF(origin.x()+sheet_->width_mm()*zoom-point.x*zoom,
+                           origin.y()+sheet_->height_mm()*zoom-point.y*zoom);
         };
         const auto pen_color=[](zima::drawing::DrawingPen pen) {
             return pen == zima::drawing::DrawingPen::Yellow ? QColor("#E6C85C")
@@ -392,11 +426,11 @@ protected:
             painter.drawText(screen(field.position),value);
         }
         for(std::size_t index=0;index<sheet_->bom_rows.size();++index) {
-            const auto& row=sheet_->bom_rows[index]; const double y=sheet_->height_mm()-75.0-index*6.0;
+            const auto& row=sheet_->bom_rows[index]; const double y=75.0+index*6.0;
             painter.setPen(QColor("#FFFFFF"));
-            painter.drawText(screen({sheet_->width_mm()-18.0,y}),QString::number(row.item_number));
-            painter.drawText(screen({sheet_->width_mm()-35.0,y}),QString::number(row.quantity));
-            painter.drawText(screen({sheet_->width_mm()-100.0,y}),QString::fromStdString(row.name));
+            painter.drawText(screen({18.0,y}),QString::number(row.item_number));
+            painter.drawText(screen({35.0,y}),QString::number(row.quantity));
+            painter.drawText(screen({100.0,y}),QString::fromStdString(row.name));
         }
         for (const auto& view : sheet_->views) {
             if (view.display_style != zima::drawing::DisplayStyle::ShadedWithEdges) continue;
@@ -409,8 +443,10 @@ protected:
                     static_cast<int>(204.0 * light)));
                 QPolygonF polygon;
                 for (const auto& point : triangle.points)
-                    polygon << QPointF(origin.x() + (view.x + point.x * view.scale) * zoom,
-                                       origin.y() + (view.y - point.y * view.scale) * zoom);
+                    polygon << QPointF(origin.x() + sheet_->width_mm()*zoom -
+                                           (view.x - point.x * view.scale) * zoom,
+                                       origin.y() + sheet_->height_mm()*zoom -
+                                           (view.y + point.y * view.scale) * zoom);
                 painter.drawPolygon(polygon);
             }
         }
@@ -426,8 +462,10 @@ protected:
                 if (edge.points.size() < 2) continue;
                 QPolygonF line;
                 for (const auto& point : edge.points) {
-                    line << QPointF(origin.x() + (view.x + point.x * view.scale) * zoom,
-                                    origin.y() + (view.y - point.y * view.scale) * zoom);
+                    line << QPointF(origin.x() + sheet_->width_mm()*zoom -
+                                        (view.x - point.x * view.scale) * zoom,
+                                    origin.y() + sheet_->height_mm()*zoom -
+                                        (view.y + point.y * view.scale) * zoom);
                 }
                 painter.drawPolyline(line);
             }
@@ -443,8 +481,10 @@ protected:
             }();
             if (view == nullptr) continue;
             const auto screen = [&](const zima::drawing::Point2& point) {
-                return QPointF(origin.x() + (view->x + point.x * view->scale) * zoom,
-                               origin.y() + (view->y - point.y * view->scale) * zoom);
+                return QPointF(origin.x() + sheet_->width_mm()*zoom -
+                                   (view->x - point.x * view->scale) * zoom,
+                               origin.y() + sheet_->height_mm()*zoom -
+                                   (view->y + point.y * view->scale) * zoom);
             };
             const QPointF first = screen(dimension.first_point);
             const QPointF second = screen(dimension.second_point);
@@ -481,12 +521,19 @@ protected:
         }
     }
     void mousePressEvent(QMouseEvent* event) override {
-        if (sheet_ == nullptr || event->button() != Qt::LeftButton) return;
-        const double margin = 24.0;
-        const double zoom = std::min((width() - 2 * margin) / sheet_->width_mm(),
-                                     (height() - 2 * margin) / sheet_->height_mm());
-        const QPointF origin((width() - sheet_->width_mm() * zoom) * 0.5,
-                             (height() - sheet_->height_mm() * zoom) * 0.5);
+        if (sheet_ == nullptr) return;
+        if ((event->buttons() & Qt::MiddleButton) &&
+            (event->buttons() & Qt::RightButton)) {
+            view_panning_ = true;
+            view_pan_start_ = view_pan_;
+            view_pan_pointer_ = event->position();
+            setCursor(Qt::ClosedHandCursor);
+            event->accept();
+            return;
+        }
+        if (event->button() != Qt::LeftButton) return;
+        const double zoom = canvas_zoom();
+        const QPointF origin = canvas_origin(zoom);
         const auto segment_distance = [](QPointF point, QPointF a, QPointF b) {
             const QPointF delta = b - a;
             const double length_squared = delta.x() * delta.x() + delta.y() * delta.y();
@@ -503,8 +550,10 @@ protected:
                 return item.id==dimension.view_id; });
             if(view==sheet_->views.end()) continue;
             const auto screen_point=[&](const zima::drawing::Point2& point) {
-                return QPointF(origin.x()+(view->x+point.x*view->scale)*zoom,
-                    origin.y()+(view->y-point.y*view->scale)*zoom); };
+                return QPointF(origin.x()+sheet_->width_mm()*zoom-
+                        (view->x-point.x*view->scale)*zoom,
+                    origin.y()+sheet_->height_mm()*zoom-
+                        (view->y+point.y*view->scale)*zoom); };
             const QPointF label=screen_point(dimension.label_position);
             const double label_distance=std::hypot(label.x()-event->position().x(),
                                                     label.y()-event->position().y());
@@ -539,8 +588,10 @@ protected:
                 (edge.hidden && view.display_style == zima::drawing::DisplayStyle::VisibleEdges)) continue;
             for (std::size_t point = 1; point < edge.points.size(); ++point) {
                 const auto screen = [&](const auto& value) {
-                    return QPointF(origin.x() + (view.x + value.x * view.scale) * zoom,
-                                   origin.y() + (view.y - value.y * view.scale) * zoom);
+                    return QPointF(origin.x() + sheet_->width_mm()*zoom -
+                                       (view.x - value.x * view.scale) * zoom,
+                                   origin.y() + sheet_->height_mm()*zoom -
+                                       (view.y + value.y * view.scale) * zoom);
                 };
                 const double distance = segment_distance(event->position(),
                     screen(edge.points[point - 1]), screen(edge.points[point]));
@@ -595,9 +646,18 @@ protected:
     }
     void mouseMoveEvent(QMouseEvent* event) override {
         if(sheet_==nullptr) return;
-        const double margin = 24.0;
-        const double zoom = std::min((width() - 2 * margin) / sheet_->width_mm(),
-                                     (height() - 2 * margin) / sheet_->height_mm());
+        if (view_panning_) {
+            if ((event->buttons() & Qt::MiddleButton) &&
+                (event->buttons() & Qt::RightButton)) {
+                view_pan_ = view_pan_start_ + event->position() - view_pan_pointer_;
+                update();
+                event->accept();
+                return;
+            }
+            view_panning_ = false;
+            unsetCursor();
+        }
+        const double zoom = canvas_zoom();
         if(!dragged_dimension_id_.empty() && (event->buttons()&Qt::LeftButton)) {
             const auto dimension=std::find_if(sheet_->dimensions.begin(),sheet_->dimensions.end(),
                 [&](const auto& item){return item.id==dragged_dimension_id_;});
@@ -605,7 +665,7 @@ protected:
             const auto view=std::find_if(sheet_->views.begin(),sheet_->views.end(),
                 [&](const auto& item){return item.id==dimension->view_id;});
             if(view==sheet_->views.end() || zoom<=0.0 || view->scale<=0.0) return;
-            dimension->label_position={dimension_label_start_.x+
+            dimension->label_position={dimension_label_start_.x-
                 (event->position().x()-dimension_drag_start_.x())/(zoom*view->scale),
                 dimension_label_start_.y-
                 (event->position().y()-dimension_drag_start_.y())/(zoom*view->scale)};
@@ -615,8 +675,8 @@ protected:
         const auto found = std::find_if(sheet_->views.begin(), sheet_->views.end(),
             [&](const auto& view) { return view.id == drag_view_id_; });
         if (found == sheet_->views.end() || zoom <= 0.0) return;
-        double next_x = drag_origin_.x + (event->position().x() - drag_start_.x()) / zoom;
-        double next_y = drag_origin_.y + (event->position().y() - drag_start_.y()) / zoom;
+        double next_x = drag_origin_.x - (event->position().x() - drag_start_.x()) / zoom;
+        double next_y = drag_origin_.y - (event->position().y() - drag_start_.y()) / zoom;
         if (!found->parent_view_id.empty() &&
             found->projection_direction != zima::drawing::ProjectionDirection::None) {
             const auto parent = std::find_if(sheet_->views.begin(), sheet_->views.end(),
@@ -637,10 +697,35 @@ protected:
         move_children(found->id);
         update();
     }
-    void mouseReleaseEvent(QMouseEvent*) override {
+    void mouseReleaseEvent(QMouseEvent* event) override {
+        if (view_panning_ &&
+            (!(event->buttons() & Qt::MiddleButton) ||
+             !(event->buttons() & Qt::RightButton))) {
+            view_panning_ = false;
+            unsetCursor();
+            event->accept();
+        }
         if((!drag_view_id_.empty() || !dragged_dimension_id_.empty()) && changed_) changed_();
         drag_view_id_.clear();
         dragged_dimension_id_.clear();
+    }
+    void wheelEvent(QWheelEvent* event) override {
+        if (sheet_ == nullptr || event->angleDelta().y() == 0) {
+            QWidget::wheelEvent(event);
+            return;
+        }
+        const double old_zoom = canvas_zoom();
+        const QPointF old_origin = canvas_origin(old_zoom);
+        const QPointF local = (event->position() - old_origin) / old_zoom;
+        const double factor = std::pow(1.0 / 1.15,
+            static_cast<double>(event->angleDelta().y()) / 120.0);
+        view_zoom_ = std::clamp(view_zoom_ * factor, 0.05, 100.0);
+        const double new_zoom = canvas_zoom();
+        const QPointF centered((width() - sheet_->width_mm() * new_zoom) * 0.5,
+            (height() - sheet_->height_mm() * new_zoom) * 0.5);
+        view_pan_ = event->position() - local * new_zoom - centered;
+        update();
+        event->accept();
     }
     void keyPressEvent(QKeyEvent* event) override {
         if(event->key()==Qt::Key_Escape) {
@@ -676,6 +761,11 @@ private:
     QPointF dimension_drag_start_;
     zima::drawing::Point2 dimension_label_start_;
     std::optional<zima::drawing::TitleBlockContext> title_block_context_;
+    double view_zoom_{1.0};
+    QPointF view_pan_;
+    bool view_panning_{};
+    QPointF view_pan_start_;
+    QPointF view_pan_pointer_;
 };
 
 DrawingWindow::DrawingWindow(

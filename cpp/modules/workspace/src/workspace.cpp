@@ -841,6 +841,7 @@ std::string Workspace::insert_open_part(
     auto occurrence = zima::assembly::AssemblyDocument::create_part_occurrence(
         std::move(occurrence_name), part_document_id, part->path,
         part_result(*part));
+    occurrence.body_color = part->session.document().body_color;
     const std::string occurrence_id = occurrence.occurrence_id;
     next.components.push_back(std::move(occurrence));
     static_cast<void>(next.build_scene());
@@ -966,6 +967,7 @@ zima::assembly::AssemblyDocument Workspace::refreshed_assembly(
                 "An open Assembly dependency has no calculated Part result");
         }
         occurrence.calculated_source = part_result(*part);
+        occurrence.body_color = part->session.document().body_color;
         occurrence.source_path = part->path;
     }
     recursion_stack.pop_back();

@@ -1031,6 +1031,8 @@ int main() {
         auto state_document = loaded;
         state_document.components.front().suppressed = true;
         state_document.components.front().grounded = true;
+        state_document.components.front().body_color = "#3F7652";
+        state_document.components.front().body_color_override = "#806B5A8E";
         state_document.components.back().visible = false;
         require(state_document.build_scene().triangles.empty() &&
                     state_document.components.size() == 2 &&
@@ -1043,6 +1045,9 @@ int main() {
         std::filesystem::remove(state_path);
         require(loaded_state.components.front().suppressed &&
                     loaded_state.components.front().grounded &&
+                    loaded_state.components.front().body_color == "#3F7652" &&
+                    loaded_state.components.front().body_color_override ==
+                        std::optional<std::string>{"#806B5A8E"} &&
                     loaded_state.remaining_degrees_of_freedom(first_id) == 0 &&
                     !loaded_state.components.back().visible,
                 "Assembly suppression, visibility or grounding were not persisted separately");

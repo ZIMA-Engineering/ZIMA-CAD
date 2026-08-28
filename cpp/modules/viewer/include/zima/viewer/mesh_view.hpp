@@ -46,6 +46,14 @@ enum class ReferenceVisibility {
     Sketches,
 };
 
+struct ExtentManipulator {
+    std::string start_key;
+    std::string end_key;
+    zima::kernel::Vec3 origin;
+    zima::kernel::Vec3 direction;
+    double length{};
+};
+
 class MeshView final : public QOpenGLWidget, protected QOpenGLFunctions {
 public:
     explicit MeshView(QWidget* parent = nullptr);
@@ -96,10 +104,16 @@ public:
         std::function<void()> end);
     void set_short_middle_click_callback(std::function<bool()> callback);
     void set_double_middle_click_callback(std::function<bool()> callback);
+    void set_sketch_box_selection(
+        bool enabled,
+        std::function<void(std::vector<ViewerCandidate>, bool)> callback = {});
     // Executes the same command confirmation path as a short middle click at
     // the last View pointer position. Used by view-focused Enter.
     bool confirm_current_pointer();
     bool refresh_current_pointer_preview();
+    [[nodiscard]] QPoint last_pointer_position() const;
+    [[nodiscard]] std::optional<double> candidate_dimension_value(
+        const ViewerCandidate& candidate) const;
     void set_empty_right_click_callback(std::function<bool()> callback);
     void set_single_candidate_right_click_callback(
         std::function<bool(const ViewerCandidate&)> callback);
@@ -121,6 +135,15 @@ public:
     void set_transient_points(std::vector<zima::kernel::Vec3> points);
     void set_transient_labels(std::vector<std::pair<zima::kernel::Vec3,
         std::string>> labels);
+    // Sketch placement cursor: white in free space, orange when a persisted
+    // candidate or inference will create a relation on confirmation.
+    void set_sketch_cursor(std::optional<zima::kernel::Vec3> point,
+        bool snapped = false, std::string relation_label = {});
+    void set_extent_manipulator(std::optional<ExtentManipulator> manipulator);
+    void set_extent_manipulator_callbacks(
+        std::function<void(const std::string&)> begin,
+        std::function<void(const std::string&, double)> update,
+        std::function<void()> end);
     // Per-edge highlight priority state, mirroring the Python widget's
     // frozenset-based bookkeeping (zima_cad/viewer.py _edge_display_color /
     // _edge_is_highlighted). Highest priority first: selected > object
@@ -135,6 +158,8 @@ public:
     void set_selected_container_contents(std::set<std::string> owner_ids);
     void set_object_overlay_main_edges(std::set<EdgeKey> edges);
     void set_edge_color_override(std::optional<QColor> color);
+    void set_body_surface_colors(QColor default_color,
+        std::map<std::string, QColor> instance_colors = {});
     [[nodiscard]] std::optional<ViewerCandidate> confirmed_candidate() const;
     [[nodiscard]] std::optional<ViewerCandidate> hovered_candidate() const;
     [[nodiscard]] std::vector<ViewerCandidate> selection_candidates_at(
@@ -145,6 +170,9 @@ public:
         const ViewerCandidate& candidate) const;
     [[nodiscard]] std::optional<zima::kernel::ViewerAxis> candidate_axis(
         const ViewerCandidate& candidate) const;
+    [[nodiscard]] std::vector<zima::kernel::EdgeReference> tangent_edge_route(
+        const ViewerCandidate& seed,
+        double angular_tolerance_degrees = 35.0) const;
     // Outward unit normal of a Face candidate's triangle, in the same
     // document-space coordinates as candidate_edge/candidate_point. Used by
     // the perpendicular-to-face ("Pohled kolmo") view orientation command.

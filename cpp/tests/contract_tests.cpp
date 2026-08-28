@@ -582,6 +582,7 @@ int main() {
         document.physical_parameter_units["MASS_DENSITY"] = "kg/mm^3";
         document.material_parameter_descriptions["MASS_DENSITY"]["cs"] = "Hustota";
         document.family_table = R"({"columns":["length"],"instances":[]})";
+        document.body_color = "#803F6F9F";
         const auto empty_path = std::filesystem::temp_directory_path() /
             "zima-cad-cpp-empty-contract.prtz";
         document.save(empty_path);
@@ -607,7 +608,8 @@ int main() {
                     empty_loaded.physical_parameter_units == document.physical_parameter_units &&
                     empty_loaded.material_parameter_descriptions ==
                         document.material_parameter_descriptions &&
-                    empty_loaded.family_table == document.family_table,
+                    empty_loaded.family_table == document.family_table &&
+                    empty_loaded.body_color == document.body_color,
                 "Part document tools data did not round-trip");
         auto first = zima::document::PartDocument::create_box_container();
         first.box.length = 123.5;

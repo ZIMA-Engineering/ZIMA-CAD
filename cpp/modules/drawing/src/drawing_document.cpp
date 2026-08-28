@@ -725,9 +725,13 @@ void load_title_block_template(DrawingSheet& sheet, const std::filesystem::path&
     const auto geometry=ini.find("Geometry");
     sheet.title_block_lines.clear(); sheet.title_block_texts.clear();
     sheet.title_block_fields.clear();
-    const auto transform=[&](double x,double y) {
-        return Point2{sheet.width_mm()-x,sheet.height_mm()-y};
-    };
+    // Current title-block templates (SchemaVersion 3) already use the same
+    // engineering paper coordinates as DrawingSheet: origin at the lower
+    // right, positive X to the left and positive Y upwards.  Mirroring them
+    // through the sheet dimensions here, and then applying the paper-to-screen
+    // transform in DrawingCanvas, reflected the block a second time and put it
+    // at the upper left of the sheet.
+    const auto transform=[](double x,double y) { return Point2{x,y}; };
     if (geometry != ini.end())
         parse_geometry(geometry->second,sheet.title_block_lines,sheet.title_block_texts,transform);
     for (const auto& [section,values] : ini) if (section.starts_with("Field.")) {

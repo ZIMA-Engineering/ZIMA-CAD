@@ -19,9 +19,11 @@
 class QAction;
 class QActionGroup;
 class QComboBox;
+class QColor;
 class QDialog;
 class QLabel;
 class QKeyEvent;
+class QLineEdit;
 class QMenu;
 class QString;
 class QTabBar;
@@ -52,6 +54,7 @@ public:
     [[nodiscard]] bool open_document_path(const QString& path);
     void show_tree_item_properties(QTreeWidgetItem* item);
     void focus_parameter_dimension_field(const std::string& semantic_key);
+    void edit_dimension_inline(const zima::viewer::ViewerCandidate& candidate);
     // Exposed for regression coverage of nested Assembly occurrence
     // activation through the real window (no context-menu interaction).
     [[nodiscard]] bool activate_occurrence_for_test(const std::string& instance_path);
@@ -87,6 +90,7 @@ private:
     QToolBar* view_toolbar_{};
     QToolBar* tools_toolbar_{};
     QComboBox* standard_view_combo_{};
+    QLineEdit* inline_dimension_edit_{};
     QComboBox* selection_filter_combo_{};
     QAction* new_document_action_{};
     QAction* open_document_action_{};
@@ -122,6 +126,9 @@ private:
     QAction* show_planes_action_{};
     QAction* show_sketches_action_{};
     QMenu* colors_menu_{};
+    std::array<QAction*, 8> body_color_preset_actions_{};
+    QAction* custom_body_color_action_{};
+    QAction* reset_body_color_action_{};
     QActionGroup* display_mode_group_{};
     QActionGroup* application_group_{};
     std::array<QAction*, 6> application_actions_{};
@@ -234,6 +241,9 @@ private:
     std::optional<zima::document::FeatureKind> edge_treatment_selection_;
     PrimitivePropertiesDialog* edge_treatment_dialog_{};
     std::vector<zima::kernel::EdgeReference> pending_edge_treatment_edges_;
+    std::vector<std::vector<zima::kernel::EdgeReference>>
+        pending_edge_treatment_groups_;
+    std::vector<zima::kernel::EdgeReference> pending_edge_treatment_seeds_;
     PrimitivePropertiesDialog* extrusion_target_dialog_{};
     ConstructionPropertiesDialog* construction_reference_dialog_{};
     std::optional<zima::kernel::ViewerMesh> construction_preview_mesh_;
@@ -270,6 +280,7 @@ private:
     std::string selected_sketch_text_id_;
     std::string selected_sketch_external_reference_id_;
     std::string selected_sketch_point_id_;
+    std::set<std::string> selected_sketch_geometry_ids_;
     bool sketch_point_active_{};
     std::optional<std::array<double, 2>> pending_segment_start_;
     std::string pending_sketch_snap_geometry_id_;
@@ -427,6 +438,10 @@ private:
     void regenerate_assembly();
     void start_edge_treatment(zima::document::FeatureKind kind);
     void accept_edge_treatment(const zima::viewer::ViewerCandidate& candidate);
+    void refresh_edge_treatment_selection_ui();
+    void remove_edge_treatment_member(
+        std::size_t group, std::optional<std::size_t> member);
+    void restore_edge_treatment_route(std::size_t group);
     [[nodiscard]] bool finish_edge_treatment_selection();
     void accept_extrusion_target(const zima::viewer::ViewerCandidate& candidate);
     void begin_normal_view_selection();
@@ -479,6 +494,8 @@ private:
     [[nodiscard]] bool accept_construction_tree_reference(
         const QTreeWidgetItem* item);
     [[nodiscard]] bool accept_primitive_tree_reference(
+        const QTreeWidgetItem* item);
+    [[nodiscard]] bool accept_component_placement_tree_reference(
         const QTreeWidgetItem* item);
     // Accepts one already-extracted "origin-reference" leaf (Point/Axis/
     // Plane child of a document/construction Origin node) by value instead
@@ -713,6 +730,13 @@ private:
         zima::assembly::AssemblyDocument& document) const;
     void refresh_tabs();
     void refresh_scene();
+    void apply_body_color(const QColor& color);
+    void reset_body_color();
+    void show_body_color_dialog();
+    void update_body_color_actions();
+    void update_viewer_body_colors();
+    [[nodiscard]] std::optional<std::string> selected_occurrence_path() const;
+    [[nodiscard]] QColor selected_body_color() const;
     void update_document_kind_button();
     void navigate_document_kind();
     void add_part_tree_children(

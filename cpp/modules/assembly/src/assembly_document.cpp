@@ -1753,6 +1753,13 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
                     "Assembly component placement reference row limit exceeded");
             }
         }
+        if (source.contains("body_color_override") &&
+            !source.at("body_color_override").is_null()) {
+            component.body_color_override =
+                source.at("body_color_override").get<std::string>();
+        }
+        component.body_color =
+            source.value("body_color", std::string("#B9C2CC"));
         document.components.push_back(std::move(component));
     }
     for (const auto& source : root.at("dependencies")) {
@@ -1890,6 +1897,10 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
                 }
                 return references;
             }()},
+            {"body_color_override", component.body_color_override
+                ? nlohmann::json(*component.body_color_override)
+                : nlohmann::json(nullptr)},
+            {"body_color", component.body_color},
         });
     }
     nlohmann::json dependencies_json = nlohmann::json::array();

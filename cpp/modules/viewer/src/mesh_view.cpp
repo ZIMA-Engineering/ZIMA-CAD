@@ -3,10 +3,12 @@
 
 #include <QMatrix4x4>
 #include <QMouseEvent>
+#include <QFontMetricsF>
 #include <QOpenGLBuffer>
 #include <QOpenGLShaderProgram>
 #include <QOpenGLVertexArrayObject>
 #include <QPainter>
+#include <QRectF>
 #include <QQuaternion>
 #include <QEasingCurve>
 #include <QVariantAnimation>
@@ -36,6 +38,18 @@ namespace {
 // the first body exists: a 1 mm plane offset is visible, but no longer fills
 // a large part of the View.
 constexpr float kEmptyDocumentViewHalfExtent = 50.0F;
+
+double screen_segment_distance(const QPointF& point, const QPointF& first,
+    const QPointF& second) {
+    const QPointF delta = second - first;
+    const double squared = delta.x() * delta.x() + delta.y() * delta.y();
+    if (squared <= 1.0e-12) return QLineF(point, first).length();
+    const QPointF relative = point - first;
+    const double parameter = std::clamp(
+        (relative.x() * delta.x() + relative.y() * delta.y()) / squared,
+        0.0, 1.0);
+    return QLineF(point, first + delta * parameter).length();
+}
 
 bool is_screen_constant_plane(const std::string& semantic_key) {
     return semantic_key == "border" ||
@@ -126,6 +140,12 @@ struct MeshView::Impl {
     bool command_gesture_active{};
     std::function<bool()> short_middle_click_callback;
     std::function<bool()> double_middle_click_callback;
+    bool sketch_box_selection_enabled{};
+    std::optional<QPointF> sketch_box_start;
+    std::optional<QPointF> sketch_box_end;
+    std::function<void(std::vector<ViewerCandidate>, bool)>
+        sketch_box_selection_callback;
+    std::vector<ViewerCandidate> sketch_box_selected_candidates;
     std::function<bool()> empty_right_click_callback;
     std::function<bool(const ViewerCandidate&)>
         single_candidate_right_click_callback;
@@ -137,6 +157,16 @@ struct MeshView::Impl {
     std::vector<zima::kernel::ViewerEdge> transient_edges;
     std::vector<zima::kernel::Vec3> transient_points;
     std::vector<std::pair<zima::kernel::Vec3, std::string>> transient_labels;
+    std::optional<zima::kernel::Vec3> sketch_cursor;
+    bool sketch_cursor_snapped{};
+    std::string sketch_cursor_label;
+    std::optional<ExtentManipulator> extent_manipulator;
+    std::optional<ExtentManipulator> dragged_extent_manipulator;
+    std::string dragged_extent_key;
+    std::string hovered_extent_key;
+    std::function<void(const std::string&)> extent_begin_callback;
+    std::function<void(const std::string&, double)> extent_update_callback;
+    std::function<void()> extent_end_callback;
     std::function<zima::kernel::Vec3(const zima::kernel::Vec3&)>
         transient_point_transform;
     // Per-edge highlight priority state. Mirrors the frozenset bookkeeping in
@@ -153,6 +183,8 @@ struct MeshView::Impl {
     std::set<std::string> selected_container_content_ids;
     std::set<EdgeKey> object_overlay_main_edge_keys;
     std::optional<QColor> edge_color_override;
+    QColor body_surface_color{"#B9C2CC"};
+    std::map<std::string, QColor> body_surface_instance_colors;
     QPoint last_pointer;
     QVector3D center;
     QPointF pan_pixels;
@@ -424,9 +456,90 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
     // consistent at every zoom and DPI.
     const double world_tolerance =
         world_tolerance_for_pixels(9.0 * devicePixelRatioF());
-    return filter_candidates(ordered_viewer_candidates(
+    auto candidates = ordered_viewer_candidates(
         impl_->mesh, impl_->persisted_reference_mesh,
-        ray_origin, ray_direction, world_tolerance),
+        ray_origin, ray_direction, world_tolerance);
+
+    // Dimensions are painted as a screen-space annotation. Their text,
+    // witness lines and leaders therefore cannot be picked reliably by the
+    // world-space ray test alone (and the text was not represented there at
+    // all). Add those same visible parts to this one common candidate list,
+    // which is subsequently consumed unchanged by hover, LMB, RMB and double
+    // click.
+    const QMatrix4x4 mvp = impl_->projection(width(), height()) * impl_->view();
+    const auto project = [&](const zima::kernel::Vec3& point) {
+        QVector4D clip = mvp * QVector4D(point.x, point.y, point.z, 1.0F);
+        if (std::abs(clip.w()) > 1.0e-9F) clip /= clip.w();
+        return QPointF((clip.x() + 1.0F) * width() / 2.0F,
+            (1.0F - clip.y()) * height() / 2.0F);
+    };
+    const QFontMetricsF metrics(font());
+    constexpr double hit_radius = 9.0;
+    for (std::size_t index = 0; index < impl_->mesh.dimensions.size(); ++index) {
+        const auto& dimension = impl_->mesh.dimensions[index];
+        const QPointF witness_first = project(dimension.witness_first);
+        const QPointF witness_second = project(dimension.witness_second);
+        const QPointF line_first = project(dimension.line_first);
+        const QPointF line_second = project(dimension.line_second);
+        const QString text = QString::fromStdString(dimension.label_prefix) +
+            QString::number(dimension.value, 'f', 3) +
+            QString::fromStdString(dimension.unit_suffix);
+        QPointF text_anchor = line_second + QPointF(12.0, 0.0);
+        if (dimension.kind == zima::kernel::ViewerDimensionKind::Linear) {
+            const QPointF vector = line_second - line_first;
+            const double length = std::hypot(vector.x(), vector.y());
+            if (length > 1.0e-6) {
+                const QPointF along = vector / length;
+                const QPointF first_tail = line_first - along * 17.0;
+                const QPointF second_tail = line_second + along * 17.0;
+                const QPointF leader_start = first_tail.x() > second_tail.x()
+                    ? first_tail : second_tail;
+                text_anchor = leader_start + QPointF(34.0, 0.0);
+            }
+        } else if (dimension.kind == zima::kernel::ViewerDimensionKind::Radius ||
+                   dimension.kind == zima::kernel::ViewerDimensionKind::Diameter) {
+            QPointF outward = witness_second - witness_first;
+            const double length = std::hypot(outward.x(), outward.y());
+            if (length > 1.0e-6) {
+                outward /= length;
+                const QPointF tail = witness_second + outward * 17.0;
+                const double side = outward.x() >= 0.0 ? 1.0 : -1.0;
+                text_anchor = tail + QPointF(side * 38.0, 5.0);
+                if (side < 0.0) text_anchor.rx() -= metrics.horizontalAdvance(text);
+            }
+        } else if (dimension.kind == zima::kernel::ViewerDimensionKind::Angular) {
+            const QPointF first_vector = line_first - witness_first;
+            const QPointF second_vector = line_second - witness_first;
+            const double radius = std::max(22.0,
+                std::hypot(first_vector.x(), first_vector.y()));
+            const double start = std::atan2(first_vector.y(), first_vector.x());
+            double sweep = std::abs(dimension.sweep_degrees) *
+                std::numbers::pi / 180.0;
+            if (first_vector.x() * second_vector.y() -
+                    first_vector.y() * second_vector.x() < 0.0) sweep = -sweep;
+            const double middle = start + sweep * 0.5;
+            text_anchor = witness_first + QPointF(
+                (radius + 12.0) * std::cos(middle),
+                (radius + 12.0) * std::sin(middle));
+        }
+        QRectF text_bounds = metrics.boundingRect(text);
+        text_bounds.moveTopLeft(text_anchor + QPointF(0.0, -metrics.ascent()));
+        text_bounds.adjust(-hit_radius, -hit_radius, hit_radius, hit_radius);
+        const bool hit = text_bounds.contains(position) ||
+            screen_segment_distance(position, witness_first, line_first) <= hit_radius ||
+            screen_segment_distance(position, witness_second, line_second) <= hit_radius ||
+            screen_segment_distance(position, line_first, line_second) <= hit_radius;
+        if (!hit) continue;
+        std::erase_if(candidates, [index](const auto& candidate) {
+            return candidate.kind == CandidateKind::Dimension &&
+                candidate.geometry_index == index;
+        });
+        candidates.insert(candidates.begin(), ViewerCandidate{
+            CandidateKind::Dimension, 0.0, index,
+            dimension.reference.owner_id, dimension.reference.semantic_key,
+            dimension.reference.instance_path});
+    }
+    return filter_candidates(candidates,
         impl_->allowed_kinds, impl_->candidate_filter);
 }
 
@@ -470,6 +583,83 @@ std::optional<zima::kernel::ViewerAxis> MeshView::candidate_axis(
         return std::nullopt;
     }
     return axis;
+}
+
+std::vector<zima::kernel::EdgeReference> MeshView::tangent_edge_route(
+    const ViewerCandidate& seed, double angular_tolerance_degrees) const {
+    if (seed.kind != CandidateKind::Edge) return {};
+    const auto& edges = seed.geometry == CandidateGeometry::OriginalReference
+        ? impl_->mesh.original_references.edges : impl_->mesh.edges;
+    struct Endpoint { std::size_t edge{}; int end{}; };
+    const double tolerance = std::max(1.0e-6,
+        world_tolerance_for_pixels(0.05));
+    const auto key = [tolerance](const zima::kernel::Vec3& point) {
+        return std::array<long long, 3>{
+            std::llround(point.x / tolerance),
+            std::llround(point.y / tolerance),
+            std::llround(point.z / tolerance)};
+    };
+    std::map<std::array<long long, 3>, std::vector<Endpoint>> endpoints;
+    std::optional<std::size_t> seed_index;
+    for (std::size_t index = 0; index < edges.size(); ++index) {
+        const auto& edge = edges[index];
+        if (edge.reference.owner_id != seed.owner_id ||
+            edge.reference.instance_path != seed.instance_path ||
+            edge.points.size() < 2) continue;
+        endpoints[key(edge.points.front())].push_back({index, 0});
+        endpoints[key(edge.points.back())].push_back({index, 1});
+        if (edge.reference.semantic_key == seed.semantic_key) seed_index = index;
+    }
+    if (!seed_index) return {};
+    const auto direction = [&](std::size_t index, int end)
+        -> std::optional<zima::kernel::Vec3> {
+        const auto& points = edges[index].points;
+        const auto& origin = end == 0 ? points.front() : points.back();
+        for (std::size_t step = 1; step < points.size(); ++step) {
+            const auto& target = end == 0 ? points[step]
+                                         : points[points.size() - 1 - step];
+            zima::kernel::Vec3 value{target.x - origin.x,
+                target.y - origin.y, target.z - origin.z};
+            const double length = std::hypot(std::hypot(value.x, value.y), value.z);
+            if (length > tolerance) return zima::kernel::Vec3{
+                value.x / length, value.y / length, value.z / length};
+        }
+        return std::nullopt;
+    };
+    const double limit = std::cos(angular_tolerance_degrees *
+        std::numbers::pi / 180.0);
+    std::set<std::size_t> selected{*seed_index};
+    std::vector<std::size_t> pending{*seed_index};
+    while (!pending.empty()) {
+        const auto current = pending.back(); pending.pop_back();
+        for (int end = 0; end < 2; ++end) {
+            const auto current_direction = direction(current, end);
+            if (!current_direction) continue;
+            const auto& point = end == 0 ? edges[current].points.front()
+                                         : edges[current].points.back();
+            std::vector<std::size_t> continuations;
+            for (const auto candidate : endpoints[key(point)]) {
+                if (candidate.edge == current || selected.contains(candidate.edge)) continue;
+                const auto candidate_direction = direction(candidate.edge, candidate.end);
+                if (!candidate_direction) continue;
+                const double alignment = std::abs(
+                    current_direction->x * candidate_direction->x +
+                    current_direction->y * candidate_direction->y +
+                    current_direction->z * candidate_direction->z);
+                if (alignment >= limit) continuations.push_back(candidate.edge);
+            }
+            std::sort(continuations.begin(), continuations.end());
+            continuations.erase(std::unique(continuations.begin(), continuations.end()),
+                                continuations.end());
+            if (continuations.size() != 1) continue;
+            selected.insert(continuations.front());
+            pending.push_back(continuations.front());
+        }
+    }
+    std::vector<zima::kernel::EdgeReference> result;
+    result.reserve(selected.size());
+    for (const auto index : selected) result.push_back(edges[index].reference);
+    return result;
 }
 
 std::optional<zima::kernel::Vec3> MeshView::candidate_face_normal(
@@ -657,6 +847,7 @@ void MeshView::clear_selection() {
     impl_->selected_container_origin_id.clear();
     impl_->candidates.clear();
     impl_->active_candidate = 0;
+    impl_->sketch_box_selected_candidates.clear();
     update();
 }
 
@@ -704,6 +895,17 @@ void MeshView::set_double_middle_click_callback(std::function<bool()> callback) 
     impl_->double_middle_click_callback = std::move(callback);
 }
 
+void MeshView::set_sketch_box_selection(bool enabled,
+    std::function<void(std::vector<ViewerCandidate>, bool)> callback) {
+    impl_->sketch_box_selection_enabled = enabled;
+    impl_->sketch_box_selection_callback = std::move(callback);
+    if (!enabled) {
+        impl_->sketch_box_start.reset();
+        impl_->sketch_box_end.reset();
+    }
+    update();
+}
+
 bool MeshView::confirm_current_pointer() {
     bool handled = impl_->short_middle_click_callback &&
         impl_->short_middle_click_callback();
@@ -724,6 +926,18 @@ bool MeshView::refresh_current_pointer_preview() {
     if (!ray) return false;
     impl_->world_pointer_callback(ray->first, ray->second);
     return true;
+}
+
+QPoint MeshView::last_pointer_position() const { return impl_->last_pointer; }
+
+std::optional<double> MeshView::candidate_dimension_value(
+    const ViewerCandidate& candidate) const {
+    if (candidate.kind != CandidateKind::Dimension ||
+        candidate.geometry_index >= impl_->mesh.dimensions.size()) return std::nullopt;
+    const auto& dimension = impl_->mesh.dimensions[candidate.geometry_index];
+    if (dimension.reference.owner_id != candidate.owner_id ||
+        dimension.reference.semantic_key != candidate.semantic_key) return std::nullopt;
+    return dimension.value;
 }
 
 void MeshView::set_empty_right_click_callback(std::function<bool()> callback) {
@@ -796,6 +1010,50 @@ void MeshView::set_transient_labels(
     update();
 }
 
+void MeshView::set_sketch_cursor(std::optional<zima::kernel::Vec3> point,
+    bool snapped, std::string relation_label) {
+    if (point && impl_->transient_point_transform) {
+        *point = impl_->transient_point_transform(*point);
+    }
+    impl_->sketch_cursor = std::move(point);
+    impl_->sketch_cursor_snapped = snapped;
+    impl_->sketch_cursor_label = std::move(relation_label);
+    update();
+}
+
+void MeshView::set_extent_manipulator(
+    std::optional<ExtentManipulator> manipulator) {
+    if (manipulator && impl_->transient_point_transform) {
+        auto& value = *manipulator;
+        const auto transformed_origin =
+            impl_->transient_point_transform(value.origin);
+        const auto transformed_end = impl_->transient_point_transform({
+            value.origin.x + value.direction.x,
+            value.origin.y + value.direction.y,
+            value.origin.z + value.direction.z});
+        value.origin = transformed_origin;
+        value.direction = {transformed_end.x - transformed_origin.x,
+            transformed_end.y - transformed_origin.y,
+            transformed_end.z - transformed_origin.z};
+    }
+    impl_->extent_manipulator = std::move(manipulator);
+    if (!impl_->extent_manipulator) {
+        impl_->hovered_extent_key.clear();
+        if (impl_->dragged_extent_key.empty())
+            impl_->dragged_extent_manipulator.reset();
+    }
+    update();
+}
+
+void MeshView::set_extent_manipulator_callbacks(
+    std::function<void(const std::string&)> begin,
+    std::function<void(const std::string&, double)> update_callback,
+    std::function<void()> end) {
+    impl_->extent_begin_callback = std::move(begin);
+    impl_->extent_update_callback = std::move(update_callback);
+    impl_->extent_end_callback = std::move(end);
+}
+
 void MeshView::set_edge_treatment_selection_edges(std::set<EdgeKey> edges) {
     if (edges == impl_->edge_treatment_selection_edges) return;
     impl_->edge_treatment_selection_edges = std::move(edges);
@@ -847,6 +1105,14 @@ void MeshView::set_object_overlay_main_edges(std::set<EdgeKey> edges) {
 
 void MeshView::set_edge_color_override(std::optional<QColor> color) {
     impl_->edge_color_override = std::move(color);
+    update();
+}
+
+void MeshView::set_body_surface_colors(
+    QColor default_color, std::map<std::string, QColor> instance_colors) {
+    impl_->body_surface_color = default_color.isValid()
+        ? std::move(default_color) : QColor("#B9C2CC");
+    impl_->body_surface_instance_colors = std::move(instance_colors);
     update();
 }
 
@@ -1053,7 +1319,13 @@ void MeshView::fit_all() {
     // geometry would re-baseline the ratio to 1.0 and make the Origin (and
     // every container's own origin) visibly shrink.
     if (!impl_->reference_view_scale_initialized) {
-        impl_->reference_view_scale = impl_->view_scale;
+        // A document may be opened for the first time with an already large
+        // persisted body. The body controls only the camera fit; it must not
+        // establish the LCD size of datum axes/planes. Use the datum's own
+        // model extent exactly like the origin-only branch above, so opening
+        // a 10 mm and a 10 m Part presents an identical Origin on screen.
+        impl_->reference_view_scale = static_cast<float>(
+            std::max(reference_extent, 0.5) * 2.0);
         impl_->reference_view_scale_initialized = true;
     }
     impl_->pan_pixels = {};
@@ -1661,8 +1933,50 @@ if (impl_->show_planes) {
         // lose arbitrary edge sections depending on the driver.
         glEnable(GL_POLYGON_OFFSET_FILL);
         glPolygonOffset(1.0F, 1.0F);
-        glDrawArrays(GL_TRIANGLES, 0,
-            static_cast<GLsizei>(impl_->mesh.triangles.size()));
+        const auto color_vector = [](const QColor& color) {
+            return QVector4D(static_cast<float>(color.redF()),
+                static_cast<float>(color.greenF()),
+                static_cast<float>(color.blueF()),
+                static_cast<float>(color.alphaF()));
+        };
+        const std::size_t triangle_count = impl_->mesh.triangles.size() / 3;
+        std::size_t first{};
+        while (first < triangle_count) {
+            QColor color = impl_->body_surface_color;
+            if (first < impl_->mesh.triangle_references.size()) {
+                const auto& path =
+                    impl_->mesh.triangle_references[first].instance_path;
+                if (const auto found =
+                        impl_->body_surface_instance_colors.find(path);
+                    found != impl_->body_surface_instance_colors.end()) {
+                    color = found->second;
+                }
+            }
+            std::size_t end = first + 1;
+            while (end < triangle_count) {
+                QColor next = impl_->body_surface_color;
+                if (end < impl_->mesh.triangle_references.size()) {
+                    const auto& path =
+                        impl_->mesh.triangle_references[end].instance_path;
+                    if (const auto found =
+                            impl_->body_surface_instance_colors.find(path);
+                        found != impl_->body_surface_instance_colors.end()) {
+                        next = found->second;
+                    }
+                }
+                if (next != color) break;
+                ++end;
+            }
+            if (color.alpha() < 255) {
+                glEnable(GL_BLEND);
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            }
+            impl_->program.setUniformValue("color", color_vector(color));
+            glDrawArrays(GL_TRIANGLES, static_cast<GLint>(first * 3),
+                static_cast<GLsizei>((end - first) * 3));
+            if (color.alpha() < 255) glDisable(GL_BLEND);
+            first = end;
+        }
         glDisable(GL_POLYGON_OFFSET_FILL);
     };
     // Resolves one final edge colour by priority, mirroring Python's
@@ -1791,14 +2105,10 @@ if (impl_->show_planes) {
         case DisplayMode::ShadedWithEdges:
             // Default body fill matches Python's ViewerMesh surface color
             // #B9C2CC (zima_cad/viewer.py:565), not a hardcoded green.
-            impl_->program.setUniformValue(
-                "color", QVector4D(0.7255F, 0.7608F, 0.8000F, 1.0F));
             draw_triangles();
             draw_visible_lines();
             break;
         case DisplayMode::Shaded:
-            impl_->program.setUniformValue(
-                "color", QVector4D(0.7255F, 0.7608F, 0.8000F, 1.0F));
             draw_triangles();
             break;
     }
@@ -1923,6 +2233,8 @@ if (impl_->show_planes) {
         sketch_geometry_visible || dimensions_visible ||
         !impl_->transient_edges.empty() || !impl_->transient_points.empty() ||
         !impl_->transient_labels.empty() ||
+        impl_->sketch_cursor.has_value() ||
+        impl_->extent_manipulator.has_value() ||
         // Every candidate kind has an overlay below.  Restricting entry to
         // point/edge/axis candidates accidentally made Face, Container and
         // Occurrence hover completely invisible whenever datum overlays were
@@ -1964,6 +2276,54 @@ if (impl_->show_planes) {
             const QPointF middle = (first + second) * 0.5;
             return QLineF(middle - unit * extent, middle + unit * extent);
         };
+        if (impl_->extent_manipulator) {
+            const auto& handle = *impl_->extent_manipulator;
+            const double direction_length = std::sqrt(
+                handle.direction.x * handle.direction.x +
+                handle.direction.y * handle.direction.y +
+                handle.direction.z * handle.direction.z);
+            if (direction_length > 1.0e-12) {
+                const zima::kernel::Vec3 direction{
+                    handle.direction.x / direction_length,
+                    handle.direction.y / direction_length,
+                    handle.direction.z / direction_length};
+                const zima::kernel::Vec3 endpoint{
+                    handle.origin.x + direction.x * handle.length,
+                    handle.origin.y + direction.y * handle.length,
+                    handle.origin.z + direction.z * handle.length};
+                const QPointF start = project(handle.origin);
+                const QPointF finish = project(endpoint);
+                const QColor purple("#D05CFF");
+                const QColor orange("#FF7A00");
+                const bool start_hot = impl_->hovered_extent_key ==
+                        handle.start_key || impl_->dragged_extent_key ==
+                        handle.start_key;
+                const bool end_hot = impl_->hovered_extent_key ==
+                        handle.end_key || impl_->dragged_extent_key ==
+                        handle.end_key;
+                painter.setPen(QPen(purple, 2.0));
+                painter.drawLine(start, finish);
+                QPointF along = finish - start;
+                const double screen_length = std::hypot(along.x(), along.y());
+                if (screen_length > 1.0e-6) {
+                    along /= screen_length;
+                    const QPointF normal{-along.y(), along.x()};
+                    const QPointF tip = finish - along * 9.0;
+                    const QPointF base = tip - along * 10.0;
+                    painter.setBrush(purple);
+                    painter.drawPolygon(QPolygonF{tip,
+                        base + normal * 1.763269807,
+                        base - normal * 1.763269807});
+                }
+                painter.setPen(QPen(start_hot ? orange : purple, 1.0));
+                painter.setBrush(start_hot ? orange : purple);
+                painter.drawEllipse(start, 6.0, 6.0);
+                painter.setPen(QPen(end_hot ? orange : purple, 1.0));
+                painter.setBrush(end_hot ? orange : purple);
+                painter.drawEllipse(finish, 6.0, 6.0);
+                painter.setBrush(Qt::NoBrush);
+            }
+        }
         if (sketch_geometry_visible) {
             for (const auto& edge : impl_->mesh.edges) {
                 if (!edge.reference.semantic_key.starts_with("segment:") &&
@@ -2162,6 +2522,17 @@ if (impl_->show_planes) {
         for (const auto& point : impl_->transient_points) {
             draw_circular_marker(painter, project(point), QColor(255, 140, 12));
         }
+        if (impl_->sketch_cursor) {
+            const QColor cursor_color = impl_->sketch_cursor_snapped
+                ? QColor(255, 140, 12) : QColor(255, 255, 255);
+            const QPointF cursor = project(*impl_->sketch_cursor);
+            draw_circular_marker(painter, cursor, cursor_color);
+            if (!impl_->sketch_cursor_label.empty()) {
+                painter.setPen(QPen(cursor_color, 1.5));
+                painter.drawText(cursor + QPointF(8.0, -8.0),
+                    QString::fromStdString(impl_->sketch_cursor_label));
+            }
+        }
         if (!impl_->transient_labels.empty()) {
             painter.setPen(QPen(QColor(255, 140, 12), 1.5));
             for (const auto& [point, label] : impl_->transient_labels) {
@@ -2307,7 +2678,8 @@ if (impl_->show_planes) {
                         !impl_->editing_origin_visible) ||
                     (!origin && !impl_->show_axes && !axes_selectable)) continue;
                 const bool exact_highlight = highlighted &&
-                    ((highlighted->kind == CandidateKind::Axis &&
+                    (((highlighted->kind == CandidateKind::Axis ||
+                       highlighted->kind == CandidateKind::SketchAxis) &&
                       highlighted->owner_id == axis.reference.owner_id &&
                       highlighted->semantic_key == axis.reference.semantic_key) ||
                      (highlighted->kind == CandidateKind::Container &&
@@ -3005,6 +3377,31 @@ if (impl_->show_planes) {
                 }
             }
         }
+        painter.setPen(QPen(QColor(30, 220, 240), 2.0,
+                            Qt::SolidLine, Qt::RoundCap));
+        painter.setBrush(QColor(30, 220, 240));
+        for (const auto& selected : impl_->sketch_box_selected_candidates) {
+            if ((selected.kind == CandidateKind::SketchSegment ||
+                 selected.kind == CandidateKind::SketchCurve ||
+                 selected.kind == CandidateKind::SketchText) &&
+                selected.geometry_index < impl_->mesh.edges.size()) {
+                const auto& edge = impl_->mesh.edges[selected.geometry_index];
+                for (std::size_t index = 1; index < edge.points.size(); ++index) {
+                    painter.drawLine(project(edge.points[index - 1]),
+                                     project(edge.points[index]));
+                }
+            } else if (selected.kind == CandidateKind::SketchPoint &&
+                       selected.geometry_index < impl_->mesh.points.size()) {
+                painter.drawEllipse(project(
+                    impl_->mesh.points[selected.geometry_index].position), 5.0, 5.0);
+            }
+        }
+        if (impl_->sketch_box_start && impl_->sketch_box_end) {
+            painter.setPen(QPen(QColor("#43B9FF"), 1.0));
+            painter.setBrush(QColor(67, 185, 255, 35));
+            painter.drawRect(QRectF(*impl_->sketch_box_start,
+                                    *impl_->sketch_box_end).normalized());
+        }
     }
 }
 
@@ -3048,6 +3445,42 @@ MeshView::ray_at(const QPointF& position) const {
 
 void MeshView::mousePressEvent(QMouseEvent* event) {
     impl_->last_pointer = event->position().toPoint();
+    if (event->button() == Qt::LeftButton && impl_->extent_manipulator) {
+        const auto& handle = *impl_->extent_manipulator;
+        const double norm = std::sqrt(handle.direction.x * handle.direction.x +
+            handle.direction.y * handle.direction.y +
+            handle.direction.z * handle.direction.z);
+        if (norm > 1.0e-12) {
+            const zima::kernel::Vec3 direction{handle.direction.x / norm,
+                handle.direction.y / norm, handle.direction.z / norm};
+            const auto project = [&](const zima::kernel::Vec3& point) {
+                QVector4D clip = (impl_->projection(width(), height()) * impl_->view()) *
+                    QVector4D(point.x, point.y, point.z, 1.0F);
+                if (std::abs(clip.w()) > 1.0e-9F) clip /= clip.w();
+                return QPointF((clip.x() + 1.0F) * width() / 2.0F,
+                    (1.0F - clip.y()) * height() / 2.0F);
+            };
+            const zima::kernel::Vec3 endpoint{handle.origin.x + direction.x * handle.length,
+                handle.origin.y + direction.y * handle.length,
+                handle.origin.z + direction.z * handle.length};
+            const QPointF pointer = event->position();
+            const double start_distance = QLineF(pointer, project(handle.origin)).length();
+            const double end_distance = QLineF(pointer, project(endpoint)).length();
+            constexpr double tolerance = 12.0;
+            if (std::min(start_distance, end_distance) <=
+                    tolerance * devicePixelRatioF()) {
+                impl_->dragged_extent_manipulator = handle;
+                impl_->dragged_extent_key = start_distance <= end_distance
+                    ? handle.start_key : handle.end_key;
+                impl_->hovered_extent_key = impl_->dragged_extent_key;
+                if (impl_->extent_begin_callback)
+                    impl_->extent_begin_callback(impl_->dragged_extent_key);
+                event->accept();
+                update();
+                return;
+            }
+        }
+    }
     if (event->button() == Qt::RightButton &&
         event->buttons().testFlag(Qt::MiddleButton)) {
         event->accept();
@@ -3098,6 +3531,15 @@ void MeshView::mousePressEvent(QMouseEvent* event) {
             event->accept();
             return;
         }
+    }
+    if (event->button() == Qt::LeftButton &&
+        impl_->sketch_box_selection_enabled && impl_->candidates.empty()) {
+        impl_->sketch_box_start = event->position();
+        impl_->sketch_box_end = event->position();
+        impl_->confirmed_candidate.reset();
+        event->accept();
+        update();
+        return;
     }
     if (event->button() == Qt::LeftButton && impl_->world_click_callback) {
         const auto ray = ray_at(event->position());
@@ -3171,6 +3613,7 @@ void MeshView::mousePressEvent(QMouseEvent* event) {
 }
 
 void MeshView::mouseDoubleClickEvent(QMouseEvent* event) {
+    impl_->last_pointer = event->position().toPoint();
     if (event->button() == Qt::MiddleButton) {
         impl_->middle_double_clicked = true;
         if (impl_->double_middle_click_callback &&
@@ -3191,6 +3634,46 @@ void MeshView::mouseMoveEvent(QMouseEvent* event) {
     const QPoint current = event->position().toPoint();
     const QPoint movement = current - impl_->last_pointer;
     impl_->last_pointer = current;
+    if ((event->buttons() & Qt::LeftButton) && impl_->sketch_box_start) {
+        impl_->sketch_box_end = event->position();
+        event->accept();
+        update();
+        return;
+    }
+    if ((event->buttons() & Qt::LeftButton) &&
+        impl_->dragged_extent_manipulator &&
+        !impl_->dragged_extent_key.empty()) {
+        const auto& handle = *impl_->dragged_extent_manipulator;
+        const double norm = std::sqrt(handle.direction.x * handle.direction.x +
+            handle.direction.y * handle.direction.y +
+            handle.direction.z * handle.direction.z);
+        if (norm > 1.0e-12 && impl_->extent_update_callback) {
+            const zima::kernel::Vec3 direction{handle.direction.x / norm,
+                handle.direction.y / norm, handle.direction.z / norm};
+            const auto project = [&](const zima::kernel::Vec3& point) {
+                QVector4D clip = (impl_->projection(width(), height()) * impl_->view()) *
+                    QVector4D(point.x, point.y, point.z, 1.0F);
+                if (std::abs(clip.w()) > 1.0e-9F) clip /= clip.w();
+                return QPointF((clip.x() + 1.0F) * width() / 2.0F,
+                    (1.0F - clip.y()) * height() / 2.0F);
+            };
+            const QPointF screen_origin = project(handle.origin);
+            const QPointF screen_unit = project({handle.origin.x + direction.x,
+                handle.origin.y + direction.y, handle.origin.z + direction.z});
+            const QPointF axis = screen_unit - screen_origin;
+            const double pixels_squared = axis.x() * axis.x() + axis.y() * axis.y();
+            if (pixels_squared > 1.0e-9) {
+                const QPointF offset = event->position() - screen_origin;
+                const double coordinate =
+                    (offset.x() * axis.x() + offset.y() * axis.y()) /
+                    pixels_squared;
+                impl_->extent_update_callback(
+                    impl_->dragged_extent_key, coordinate);
+            }
+        }
+        event->accept();
+        return;
+    }
     if ((event->buttons() & Qt::LeftButton) && impl_->command_gesture_active) {
         if (impl_->command_gesture_update_callback) {
             const auto ray = ray_at(event->position());
@@ -3224,6 +3707,41 @@ void MeshView::mouseMoveEvent(QMouseEvent* event) {
         return;
     }
     if (event->buttons() == Qt::NoButton && !impl_->confirmed_candidate) {
+        std::string hovered;
+        if (impl_->extent_manipulator) {
+            const auto& handle = *impl_->extent_manipulator;
+            const double norm = std::sqrt(handle.direction.x * handle.direction.x +
+                handle.direction.y * handle.direction.y +
+                handle.direction.z * handle.direction.z);
+            if (norm > 1.0e-12) {
+                const zima::kernel::Vec3 direction{handle.direction.x / norm,
+                    handle.direction.y / norm, handle.direction.z / norm};
+                const auto project = [&](const zima::kernel::Vec3& point) {
+                    QVector4D clip = (impl_->projection(width(), height()) * impl_->view()) *
+                        QVector4D(point.x, point.y, point.z, 1.0F);
+                    if (std::abs(clip.w()) > 1.0e-9F) clip /= clip.w();
+                    return QPointF((clip.x() + 1.0F) * width() / 2.0F,
+                        (1.0F - clip.y()) * height() / 2.0F);
+                };
+                const zima::kernel::Vec3 endpoint{
+                    handle.origin.x + direction.x * handle.length,
+                    handle.origin.y + direction.y * handle.length,
+                    handle.origin.z + direction.z * handle.length};
+                const double start_distance =
+                    QLineF(event->position(), project(handle.origin)).length();
+                const double end_distance =
+                    QLineF(event->position(), project(endpoint)).length();
+                if (std::min(start_distance, end_distance) <=
+                        12.0 * devicePixelRatioF()) {
+                    hovered = start_distance <= end_distance
+                        ? handle.start_key : handle.end_key;
+                }
+            }
+        }
+        if (hovered != impl_->hovered_extent_key) {
+            impl_->hovered_extent_key = std::move(hovered);
+            update();
+        }
         update_candidates(event->position());
         if (impl_->world_pointer_callback) {
             const auto ray = ray_at(event->position());
@@ -3233,6 +3751,112 @@ void MeshView::mouseMoveEvent(QMouseEvent* event) {
 }
 
 void MeshView::mouseReleaseEvent(QMouseEvent* event) {
+    if (event->button() == Qt::LeftButton && impl_->sketch_box_start) {
+        const QPointF start = *impl_->sketch_box_start;
+        const QPointF end = event->position();
+        const QRectF rectangle(start, end);
+        const QRectF normalized = rectangle.normalized();
+        const bool crossing = end.x() < start.x();
+        const auto project = [&](const zima::kernel::Vec3& point) {
+            QVector4D clip =
+                (impl_->projection(width(), height()) * impl_->view()) *
+                QVector4D(point.x, point.y, point.z, 1.0F);
+            if (std::abs(clip.w()) > 1.0e-9F) clip /= clip.w();
+            return QPointF((clip.x() + 1.0F) * width() / 2.0F,
+                (1.0F - clip.y()) * height() / 2.0F);
+        };
+        const std::array borders{
+            QLineF(normalized.topLeft(), normalized.topRight()),
+            QLineF(normalized.topRight(), normalized.bottomRight()),
+            QLineF(normalized.bottomRight(), normalized.bottomLeft()),
+            QLineF(normalized.bottomLeft(), normalized.topLeft())};
+        std::vector<ViewerCandidate> selected;
+        if (normalized.width() >= 3.0 || normalized.height() >= 3.0) {
+            for (std::size_t edge_index = 0;
+                 edge_index < impl_->mesh.edges.size(); ++edge_index) {
+                const auto& edge = impl_->mesh.edges[edge_index];
+                if (edge.points.empty()) continue;
+                CandidateKind kind;
+                if (edge.reference.semantic_key.starts_with("segment:"))
+                    kind = CandidateKind::SketchSegment;
+                else if (edge.reference.semantic_key.starts_with("circle:") ||
+                         edge.reference.semantic_key.starts_with("arc:") ||
+                         edge.reference.semantic_key.starts_with("ellipse:") ||
+                         edge.reference.semantic_key.starts_with("elliptical_arc:") ||
+                         edge.reference.semantic_key.starts_with("bspline:"))
+                    kind = CandidateKind::SketchCurve;
+                else if (edge.reference.semantic_key.starts_with("text:"))
+                    kind = CandidateKind::SketchText;
+                else
+                    continue;
+                std::vector<QPointF> screen;
+                screen.reserve(edge.points.size());
+                std::transform(edge.points.begin(), edge.points.end(),
+                    std::back_inserter(screen), project);
+                const bool contained = std::all_of(screen.begin(), screen.end(),
+                    [&](const auto& point) { return normalized.contains(point); });
+                bool crossed = crossing && std::any_of(screen.begin(), screen.end(),
+                    [&](const auto& point) { return normalized.contains(point); });
+                if (crossing && !crossed) {
+                    for (std::size_t index = 1;
+                         index < screen.size() && !crossed; ++index) {
+                        const QLineF segment(screen[index - 1], screen[index]);
+                        crossed = std::any_of(borders.begin(), borders.end(),
+                            [&](const auto& border) {
+                                return segment.intersects(border, nullptr) ==
+                                    QLineF::BoundedIntersection;
+                            });
+                    }
+                }
+                if (contained || crossed) {
+                    selected.push_back({kind, 0.0, edge_index,
+                        edge.reference.owner_id,
+                        edge.reference.semantic_key,
+                        edge.reference.instance_path, CandidateGeometry::Display});
+                }
+            }
+            for (std::size_t point_index = 0;
+                 point_index < impl_->mesh.points.size(); ++point_index) {
+                const auto& point = impl_->mesh.points[point_index];
+                if (!point.reference.semantic_key.starts_with("point:")) continue;
+                if (normalized.contains(project(point.position))) {
+                    selected.push_back({CandidateKind::SketchPoint, 0.0, point_index,
+                        point.reference.owner_id, point.reference.semantic_key,
+                        point.reference.instance_path, CandidateGeometry::Display});
+                }
+            }
+        }
+        impl_->sketch_box_start.reset();
+        impl_->sketch_box_end.reset();
+        if (impl_->sketch_box_selection_callback) {
+            if (!event->modifiers().testFlag(Qt::ShiftModifier)) {
+                impl_->sketch_box_selected_candidates = selected;
+            } else {
+                for (const auto& candidate : selected) {
+                    if (std::find(impl_->sketch_box_selected_candidates.begin(),
+                                  impl_->sketch_box_selected_candidates.end(),
+                                  candidate) ==
+                        impl_->sketch_box_selected_candidates.end()) {
+                        impl_->sketch_box_selected_candidates.push_back(candidate);
+                    }
+                }
+            }
+            impl_->sketch_box_selection_callback(std::move(selected),
+                event->modifiers().testFlag(Qt::ShiftModifier));
+        }
+        event->accept();
+        update();
+        return;
+    }
+    if (event->button() == Qt::LeftButton &&
+        !impl_->dragged_extent_key.empty()) {
+        impl_->dragged_extent_key.clear();
+        impl_->dragged_extent_manipulator.reset();
+        if (impl_->extent_end_callback) impl_->extent_end_callback();
+        event->accept();
+        update();
+        return;
+    }
     if (event->button() == Qt::MiddleButton && impl_->middle_double_clicked) {
         impl_->middle_double_clicked = false;
         event->accept();

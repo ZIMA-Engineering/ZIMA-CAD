@@ -106,6 +106,12 @@ struct PartOccurrence {
     // rows like Python's _retained_mate_rows(value[:3]). Populated rows
     // drive calculate_placement_references()'s ComponentPlacement solve.
     std::vector<ComponentPlacementReference> placement_references;
+    // Source colour captured when the component is inserted or explicitly
+    // regenerated. This preserves the Assembly's last calculated appearance.
+    std::string body_color{"#B9C2CC"};
+    // Empty means that the occurrence uses the normal silver body colour.
+    // A value is an Assembly-owned presentation override for this occurrence.
+    std::optional<std::string> body_color_override;
 };
 
 // Assembly-owned subtractive feature. `definition` is deliberately the same

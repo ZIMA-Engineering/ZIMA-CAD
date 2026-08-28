@@ -18,6 +18,7 @@
 #include <QSizePolicy>
 #include <QStringList>
 #include <QTableWidget>
+#include <QTreeWidget>
 
 #include <exception>
 #include <algorithm>
@@ -106,9 +107,10 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
     setMinimumWidth(340);
     auto* header_form = new QFormLayout;
     name_ = new QLineEdit(QString::fromStdString(initial.name), this);
-    header_form->addRow(tr("Název"), name_);
     const bool treatment = initial.feature_kind == zima::document::FeatureKind::Fillet ||
         initial.feature_kind == zima::document::FeatureKind::Chamfer;
+    if (!treatment) header_form->addRow(tr("Název"), name_);
+    else name_->hide();
     if (!treatment) {
         operation_ = new QComboBox(this);
         if (!assembly_cut_mode) operation_->addItem(tr("Přičíst"), "add");
@@ -287,6 +289,9 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
             revolve ? initial.revolution.profile_plane_offset
                     : initial.extrusion.profile_plane_offset);
         form->addRow(tr("Odsazení roviny"), profile_plane_offset_);
+        connect(profile_plane_offset_,
+            qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+            [this] { notify_preview(); });
         result_type_ = new QComboBox(this);
         result_type_->addItem(tr("Těleso"), "solid");
         result_type_->addItem(tr("Thin"), "thin");
@@ -455,6 +460,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
             form->addRow(tr("Zpětný úhel"), reverse_length_);
         }
         own_sketch_button_ = new QPushButton(QStringLiteral("SKETCH"), this);
+        own_sketch_button_->setObjectName("primitiveOwnSketchButton");
         own_sketch_button_->setMinimumHeight(40);
         own_sketch_button_->setStyleSheet(
             "QPushButton{background:#4DD811;color:#102027;font-weight:700;"
@@ -526,18 +532,42 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         source->setWordWrap(true);
         form->addRow(tr("Zdrojový soubor"), source);
     } else {
-        QStringList references;
-        for (const auto& edge : initial.edge_treatment.edges) {
-            references.push_back(QString::fromStdString(
-                edge.owner_id + " / " + edge.semantic_key));
-        }
-        edge_list_ = new QLabel(references.join("\n"), this);
-        edge_list_->setObjectName("edgeTreatmentEdges");
-        edge_list_->setTextInteractionFlags(Qt::TextSelectableByMouse);
-        form->addRow(tr("Hrany"), edge_list_);
         treatment_size_ = dimension(initial.edge_treatment.size, "edgeTreatmentSize");
         form->addRow(initial.feature_kind == zima::document::FeatureKind::Fillet
             ? tr("Poloměr") : tr("Vzdálenost"), treatment_size_);
+        auto* edges_label = new QLabel(tr("Vybrané hrany"), this);
+        auto label_font = edges_label->font(); label_font.setBold(true);
+        edges_label->setFont(label_font);
+        form->addRow(edges_label);
+        edge_list_ = new QTreeWidget(this);
+        edge_list_->setObjectName("edgeTreatmentEdges");
+        edge_list_->setColumnCount(2);
+        edge_list_->setHeaderLabels({tr("Trasa"), tr("Objekty")});
+        edge_list_->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+        edge_list_->header()->setSectionResizeMode(1, QHeaderView::Stretch);
+        edge_list_->setMinimumHeight(90);
+        form->addRow(edge_list_);
+        remove_edge_button_ = new QPushButton(tr("Odebrat vybranou hranu"), this);
+        restore_route_button_ = new QPushButton(tr("Obnovit celou trasu"), this);
+        form->addRow(remove_edge_button_); form->addRow(restore_route_button_);
+        connect(remove_edge_button_, &QPushButton::clicked, this, [this] {
+            const auto* item = edge_list_->currentItem();
+            if (item == nullptr || !remove_edge_) return;
+            const auto group = item->data(0, Qt::UserRole).toUInt();
+            const auto member_data = item->data(0, Qt::UserRole + 1);
+            remove_edge_(group, member_data.isValid()
+                ? std::optional<std::size_t>{member_data.toUInt()} : std::nullopt);
+        });
+        connect(restore_route_button_, &QPushButton::clicked, this, [this] {
+            const auto* item = edge_list_->currentItem();
+            if (item != nullptr && restore_route_)
+                restore_route_(item->data(0, Qt::UserRole).toUInt());
+        });
+        set_edge_groups([&] {
+            std::vector<EdgeGroup> groups;
+            for (const auto& edge : initial.edge_treatment.edges) groups.push_back({edge});
+            return groups;
+        }());
     }
 
     content_layout()->addLayout(form);
@@ -750,29 +780,59 @@ void PrimitivePropertiesDialog::add_edge_reference(
     if (std::find(edges.begin(), edges.end(), edge) == edges.end()) {
         edges.push_back(edge);
     }
-    if (edge_list_ != nullptr) {
-        QStringList references;
-        for (const auto& selected : edges) {
-            references.push_back(QString::fromStdString(
-                selected.owner_id + " / " + selected.semantic_key));
-        }
-        edge_list_->setText(references.join("\n"));
-    }
+    if (edge_list_ != nullptr) set_edge_groups([&] {
+        std::vector<EdgeGroup> groups;
+        for (const auto& selected : edges) groups.push_back({selected});
+        return groups;
+    }());
     notify_preview();
 }
 
 void PrimitivePropertiesDialog::set_edge_references(
     std::vector<zima::kernel::EdgeReference> edges) {
     initial_.edge_treatment.edges = std::move(edges);
-    if (edge_list_ != nullptr) {
-        QStringList references;
-        for (const auto& selected : initial_.edge_treatment.edges) {
-            references.push_back(QString::fromStdString(
-                selected.owner_id + " / " + selected.semantic_key));
-        }
-        edge_list_->setText(references.join("\n"));
-    }
+    if (edge_list_ != nullptr && edge_groups_.empty()) set_edge_groups([&] {
+        std::vector<EdgeGroup> groups;
+        for (const auto& selected : initial_.edge_treatment.edges)
+            groups.push_back({selected});
+        return groups;
+    }());
     notify_preview();
+}
+
+void PrimitivePropertiesDialog::set_edge_groups(std::vector<EdgeGroup> groups) {
+    edge_groups_ = std::move(groups);
+    initial_.edge_treatment.edges.clear();
+    if (edge_list_ == nullptr) return;
+    edge_list_->clear();
+    for (std::size_t group_index = 0; group_index < edge_groups_.size(); ++group_index) {
+        const auto& group = edge_groups_[group_index];
+        if (group.empty()) continue;
+        auto* route = new QTreeWidgetItem(edge_list_, {
+            tr("Trasa %1").arg(group_index + 1),
+            tr("%1 objektů").arg(group.size())});
+        route->setData(0, Qt::UserRole, static_cast<uint>(group_index));
+        for (std::size_t member = 0; member < group.size(); ++member) {
+            const auto& edge = group[member];
+            initial_.edge_treatment.edges.push_back(edge);
+            auto* child = new QTreeWidgetItem(route, {QString{},
+                QString::fromStdString(edge.owner_id + " / " + edge.semantic_key)});
+            child->setData(0, Qt::UserRole, static_cast<uint>(group_index));
+            child->setData(0, Qt::UserRole + 1, static_cast<uint>(member));
+        }
+        route->setExpanded(true);
+    }
+    const bool available = !initial_.edge_treatment.edges.empty();
+    if (remove_edge_button_) remove_edge_button_->setEnabled(available);
+    if (restore_route_button_) restore_route_button_->setEnabled(available);
+    notify_preview();
+}
+
+void PrimitivePropertiesDialog::set_edge_group_callbacks(
+    std::function<void(std::size_t, std::optional<std::size_t>)> remove,
+    std::function<void(std::size_t)> restore) {
+    remove_edge_ = std::move(remove);
+    restore_route_ = std::move(restore);
 }
 
 void PrimitivePropertiesDialog::set_extrusion_target(
@@ -835,6 +895,34 @@ void PrimitivePropertiesDialog::set_preview_callback(
     std::function<void(const zima::document::HistoryContainer&)> callback) {
     preview_ = std::move(callback);
     notify_preview();
+}
+
+double PrimitivePropertiesDialog::profile_plane_offset() const {
+    return profile_plane_offset_ == nullptr ? 0.0 : profile_plane_offset_->value();
+}
+
+double PrimitivePropertiesDialog::forward_extent_length() const {
+    return forward_length_ == nullptr ? 0.0 : forward_length_->value();
+}
+
+bool PrimitivePropertiesDialog::extrusion_direction_reversed() const {
+    return extrusion_direction_ != nullptr &&
+        extrusion_direction_->currentData() == "reverse";
+}
+
+void PrimitivePropertiesDialog::set_profile_offset_and_forward_length(
+    double offset, double length) {
+    if (profile_plane_offset_ == nullptr || forward_length_ == nullptr) return;
+    const QSignalBlocker offset_blocker(profile_plane_offset_);
+    const QSignalBlocker length_blocker(forward_length_);
+    profile_plane_offset_->setValue(offset);
+    forward_length_->setValue(std::max(0.001, length));
+    notify_preview();
+}
+
+void PrimitivePropertiesDialog::set_forward_extent_length(double length) {
+    if (forward_length_ == nullptr) return;
+    forward_length_->setValue(std::max(0.001, length));
 }
 
 void PrimitivePropertiesDialog::notify_preview() {

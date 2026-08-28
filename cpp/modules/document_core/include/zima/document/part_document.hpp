@@ -387,6 +387,9 @@ public:
     // "Pohled kolmo" orientation dialog, mirroring Python's
     // document.document_settings["named_views"].
     std::string named_views{"[]"};
+    // Display colour of the calculated body.  It is presentation metadata;
+    // changing it never invalidates or recalculates OCCT geometry.
+    std::string body_color{"#B9C2CC"};
     std::vector<HistoryContainer> history;
     std::vector<zima::sketcher::Sketch> sketches;
     std::vector<ConstructionObject> constructions;

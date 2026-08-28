@@ -19,6 +19,7 @@ class QLineEdit;
 class QListWidget;
 class QPushButton;
 class QTableWidget;
+class QTreeWidget;
 class QWidget;
 
 namespace zima::ui {
@@ -68,8 +69,18 @@ public:
     void set_commit_required(bool required);
     void set_preview_callback(
         std::function<void(const zima::document::HistoryContainer&)> callback);
+    [[nodiscard]] double profile_plane_offset() const;
+    [[nodiscard]] double forward_extent_length() const;
+    [[nodiscard]] bool extrusion_direction_reversed() const;
+    void set_profile_offset_and_forward_length(double offset, double length);
+    void set_forward_extent_length(double length);
     void add_edge_reference(const zima::kernel::EdgeReference& edge);
     void set_edge_references(std::vector<zima::kernel::EdgeReference> edges);
+    using EdgeGroup = std::vector<zima::kernel::EdgeReference>;
+    void set_edge_groups(std::vector<EdgeGroup> groups);
+    void set_edge_group_callbacks(
+        std::function<void(std::size_t, std::optional<std::size_t>)> remove,
+        std::function<void(std::size_t)> restore);
 
     // Universal container placement (position + FRONT/TOP orientation
     // references), reusing the same reference/DOF contract as
@@ -159,7 +170,12 @@ private:
     std::function<void(const zima::document::HistoryContainer&)> preview_;
     QDoubleSpinBox* angle_{};
     QDoubleSpinBox* treatment_size_{};
-    QLabel* edge_list_{};
+    QTreeWidget* edge_list_{};
+    QPushButton* remove_edge_button_{};
+    QPushButton* restore_route_button_{};
+    std::vector<EdgeGroup> edge_groups_;
+    std::function<void(std::size_t, std::optional<std::size_t>)> remove_edge_;
+    std::function<void(std::size_t)> restore_route_;
     std::array<QDoubleSpinBox*, 3> translation_{};
     std::array<QDoubleSpinBox*, 3> rotation_{};
     std::unique_ptr<zima::ui::ContainerPlacementSection> placement_;

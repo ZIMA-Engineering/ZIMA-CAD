@@ -21,11 +21,13 @@
 #include <QMouseEvent>
 #include <QListWidget>
 #include <QLabel>
+#include <QLineEdit>
 #include <QPushButton>
 #include <QPlainTextEdit>
 #include <QTimer>
 #include <QTableWidget>
 #include <QToolButton>
+#include <QTreeWidget>
 #include <QWidget>
 #include <QWheelEvent>
 #include <QVBoxLayout>
@@ -116,6 +118,14 @@ int main(int argc, char* argv[]) {
         fillet_dialog->set_edge_references({{"body-owner", "edge:stable", {}}});
         require(fillet_dialog->windowTitle() == QStringLiteral("Zaoblení"),
                 "Fillet create/edit dialog title is not feature-only");
+        auto* fillet_routes = fillet_dialog->findChild<QTreeWidget*>(
+            "edgeTreatmentEdges");
+        require(fillet_routes != nullptr && fillet_routes->columnCount() == 2 &&
+                    fillet_routes->topLevelItemCount() == 1 &&
+                    fillet_routes->topLevelItem(0)->childCount() == 1,
+                "Fillet dialog did not expose the Python-style route/object tree");
+        require(fillet_dialog->findChild<QLineEdit*>()->isHidden(),
+                "Fillet dialog retained the unrelated container-name editor");
         fillet_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
         application.processEvents();
         require(committed_fillet.edge_treatment.edges.size() == 1,
@@ -936,6 +946,13 @@ int main(int argc, char* argv[]) {
         int preview_updates = 0;
         extrusion_dialog->set_preview_callback(
             [&](const auto&) { ++preview_updates; });
+        extrusion_dialog->set_profile_offset_and_forward_length(4.0, 37.0);
+        require(extrusion_dialog->profile_plane_offset() == 4.0 &&
+                    extrusion_dialog->forward_extent_length() == 37.0 &&
+                    preview_updates == 2,
+                "Extrusion two-end manipulator update did not atomically "
+                "change offset and length with one preview rebuild");
+        extrusion_dialog->set_profile_offset_and_forward_length(-7.5, 48.0);
         forward_end->setCurrentIndex(forward_end->findData("up_to"));
         extrusion_dialog->set_extrusion_target(
             {"datum-plane", "plane", {}}, {0.0, 0.0, 30.0}, {0.0, 0.0, 1.0});
@@ -1349,7 +1366,14 @@ int main(int argc, char* argv[]) {
             {"occurrence-b"}, true);
         auto* assembly_targets =
             assembly_cut_dialog->findChild<QListWidget*>("assemblyCutTargets");
-        require(assembly_targets != nullptr && assembly_targets->count() == 2 &&
+        require(assembly_targets != nullptr &&
+                    assembly_cut_dialog->findChild<QTableWidget*>(
+                        "primitiveReferenceTable") != nullptr &&
+                    assembly_cut_dialog->findChild<QPushButton*>(
+                        "primitiveAddOperation") != nullptr &&
+                    assembly_cut_dialog->findChild<QPushButton*>(
+                        "primitiveOwnSketchButton") != nullptr &&
+                    assembly_targets->count() == 2 &&
                     assembly_targets->item(0)->checkState() == Qt::Unchecked &&
                     assembly_targets->item(1)->checkState() == Qt::Checked,
                 "Assembly cut did not expose the shared dialog target selection");
