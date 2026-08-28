@@ -9,6 +9,8 @@
 class QAction;
 class QComboBox;
 class QLabel;
+class QPushButton;
+class QDoubleSpinBox;
 class QTabBar;
 class QToolBar;
 
@@ -39,6 +41,11 @@ private:
     QTabBar* sheets_{};
     DrawingCanvas* canvas_{};
     QLabel* state_{};
+    QComboBox* sheet_format_{};
+    QComboBox* projection_method_{};
+    QComboBox* lineweight_mode_{};
+    QDoubleSpinBox* scale_numerator_{};
+    QDoubleSpinBox* scale_denominator_{};
     QToolBar* drawing_toolbar_{};
     QAction* save_action_{};
     QAction* add_sheet_action_{};

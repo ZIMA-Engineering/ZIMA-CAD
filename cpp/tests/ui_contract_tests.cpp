@@ -180,6 +180,15 @@ int main(int argc, char* argv[]) {
         zima::viewer::MeshView view(&parent);
         view.setGeometry(0, 0, 500, 360);
         view.show();
+        zima::kernel::ViewerMesh empty_document_mesh;
+        empty_document_mesh.axes.push_back({
+            {0.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, 8.0,
+            {"part-origin", "origin:axis:x", {}}});
+        view.set_mesh(std::move(empty_document_mesh));
+        const auto startup_camera = view.camera_state();
+        require(startup_camera[4] >= 50.0F && startup_camera[7] < startup_camera[4],
+                "Empty document camera does not expose a useful metric working area "
+                "independently of the screen-constant Origin size");
         view_middle_dialog->show();
         application.processEvents();
         QMouseEvent view_middle_double_click(
@@ -286,9 +295,8 @@ int main(int argc, char* argv[]) {
             "containerOrientationBack");
         auto* rotate_button = sphere_dialog->findChild<QPushButton*>(
             "containerOrientationRotate");
-        require(front_button && back_button && rotate_button &&
-                    !front_button->isVisible() && !back_button->isVisible() &&
-                    !rotate_button->isVisible() &&
+        require(front_button == nullptr && back_button == nullptr &&
+                    rotate_button == nullptr &&
                     std::ranges::none_of(sphere_dialog->findChildren<QLabel*>(),
                         [](const auto* label) {
                             return label->isVisible() &&
@@ -507,6 +515,8 @@ int main(int argc, char* argv[]) {
             }, &parent);
         construction_axis_dialog->show();
         application.processEvents();
+        require(construction_axis_dialog->width() <= 360,
+                "Axis Properties is wider than the compact feature dialogs");
         construction_axis_dialog->findChild<QDoubleSpinBox*>("constructionX")->setValue(12.0);
         auto* construction_axis_direction =
             construction_axis_dialog->findChild<QComboBox*>("constructionDirection");
@@ -577,6 +587,8 @@ int main(int argc, char* argv[]) {
             [&](std::size_t index) { requested_orientation_reference = index; });
         plane_dialog->show();
         application.processEvents();
+        require(plane_dialog->width() <= 360,
+                "Plane Properties is wider than the compact feature dialogs");
         auto* plane_reference_table = plane_dialog->findChild<QTableWidget*>(
             "constructionReferenceTable");
         auto* orientation_table = plane_dialog->findChild<QTableWidget*>(
@@ -788,6 +800,8 @@ int main(int argc, char* argv[]) {
             [&](std::size_t index) { requested_point_reference = index; });
         construction_point_dialog->show();
         application.processEvents();
+        require(construction_point_dialog->width() <= 360,
+                "Point Properties is wider than the compact feature dialogs");
         auto* point_reference_item = construction_point_dialog->findChild<QTableWidget*>(
             "constructionReferenceTable")->item(0, 1);
         require(point_reference_item != nullptr,
@@ -906,12 +920,12 @@ int main(int argc, char* argv[]) {
                 "Extrusion dialog does not share the universal container "
                 "placement UI");
         require(extrusion_dialog->findChild<QPushButton*>(
-                    "containerOrientationFront")->isVisible() &&
+                    "containerOrientationFront") == nullptr &&
                     extrusion_dialog->findChild<QPushButton*>(
-                    "containerOrientationBack")->isVisible() &&
+                    "containerOrientationBack") == nullptr &&
                     extrusion_dialog->findChild<QPushButton*>(
-                    "containerOrientationRotate")->isVisible(),
-                "Extrusion does not expose its owned-Sketch view controls");
+                    "containerOrientationRotate") == nullptr,
+                "Extrusion Properties still exposes Sketcher camera controls");
         require(extrusion_dialog->set_reference(
                     0, {{}, "part-origin", "origin:point"}, "Počátek dílu"),
                 "Extrusion Properties rejected its placement reference");
@@ -975,15 +989,18 @@ int main(int argc, char* argv[]) {
             }, &parent);
         revolution_dialog->show();
         application.processEvents();
-        auto* revolution_axis =
-            revolution_dialog->findChild<QComboBox*>("revolutionAxis");
+        auto* revolution_axis_hint =
+            revolution_dialog->findChild<QLabel*>("revolutionAxisHint");
         auto* revolution_angle =
             revolution_dialog->findChild<QDoubleSpinBox*>("revolutionAngle");
         auto* revolution_plane_offset =
             revolution_dialog->findChild<QDoubleSpinBox*>("profilePlaneOffset");
-        require(revolution_axis != nullptr && revolution_angle != nullptr &&
+        require(revolution_axis_hint != nullptr &&
+                    revolution_axis_hint->text().contains(
+                        QStringLiteral("konstrukční osa")) &&
+                    revolution_angle != nullptr &&
                     revolution_plane_offset != nullptr,
-                "Revolution dialog does not expose its axis and angle");
+                "Revolution dialog does not explain its Sketch centerline axis");
         require(!revolution_dialog->findChildren<QDoubleSpinBox*>(
                     "primitiveTranslation").empty() &&
                     revolution_dialog->findChild<QTableWidget*>(
@@ -993,8 +1010,6 @@ int main(int argc, char* argv[]) {
         require(revolution_dialog->set_reference(
                     0, {{}, "part-origin", "origin:point"}, "Počátek dílu"),
                 "Revolution Properties rejected its placement reference");
-        revolution_axis->setCurrentIndex(
-            revolution_axis->findData("sketch_y"));
         revolution_angle->setValue(225.0);
         revolution_plane_offset->setValue(12.25);
         revolution_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
@@ -1004,8 +1019,7 @@ int main(int argc, char* argv[]) {
                         zima::document::FeatureKind::Revolution &&
                     committed_revolution.revolution.sketch_id ==
                         "sketch-revolution" &&
-                    committed_revolution.revolution.axis ==
-                        zima::document::RevolutionAxis::SketchY &&
+                    committed_revolution.revolution.axis_segment_id.empty() &&
                     committed_revolution.revolution.angle_degrees == 225.0 &&
                     committed_revolution.revolution.profile_plane_offset == 12.25 &&
                     committed_revolution.placement.references.size() == 1 &&
@@ -1207,19 +1221,17 @@ int main(int argc, char* argv[]) {
             "containerOrientationBack");
         auto* sketch_rotate = sketch_dialog->findChild<QPushButton*>(
             "containerOrientationRotate");
-        require(sketch_front != nullptr && sketch_back != nullptr &&
-                    sketch_rotate != nullptr && sketch_front->isChecked(),
-                "Sketch Properties does not expose Plane-style FRONT/BACK/ROTATE");
-        sketch_back->click();
-        sketch_rotate->click();
+        require(sketch_front == nullptr && sketch_back == nullptr &&
+                    sketch_rotate == nullptr,
+                "Sketch Properties still exposes Sketcher camera controls");
         sketch_offset->setValue(12.5);
         sketch_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
         require(sketch_commits == 1 && sketch.plane_offset == 12.5 &&
                     sketch.plane == zima::sketcher::SketchPlane::XZ &&
                     !sketch_placement.references.empty() &&
                     sketch_placement.references.front().owner_id == "source-plane" &&
-                    sketch_placement.orientation_back &&
-                    sketch_placement.orientation_quarter_turns == 1 &&
+                    !sketch_placement.orientation_back &&
+                    sketch_placement.orientation_quarter_turns == 0 &&
                     !sketch_entry_requested,
                 "Sketch Properties OK committed incorrectly or entered Sketcher");
         application.processEvents();

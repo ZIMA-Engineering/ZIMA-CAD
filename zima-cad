@@ -4,8 +4,8 @@ set -euo pipefail
 zima_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 for executable in \
-    "$zima_root/build/cpp-release/zima-cad-cpp" \
-    "$zima_root/build/cpp-debug/zima-cad-cpp"
+    "$zima_root/build/cpp-debug/zima-cad-cpp" \
+    "$zima_root/build/cpp-release/zima-cad-cpp"
 do
     if [[ -x "$executable" ]]; then
         exec "$executable" "$@"

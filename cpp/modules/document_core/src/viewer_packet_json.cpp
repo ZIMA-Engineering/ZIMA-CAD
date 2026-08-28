@@ -171,6 +171,14 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result) {
             {"value", dimension.value},
             {"label_prefix", dimension.label_prefix},
             {"unit_suffix", dimension.unit_suffix},
+            {"kind", dimension.kind == zima::kernel::ViewerDimensionKind::Angular
+                ? "angular"
+                : dimension.kind == zima::kernel::ViewerDimensionKind::Radius
+                    ? "radius"
+                    : dimension.kind == zima::kernel::ViewerDimensionKind::Diameter
+                        ? "diameter" : "linear"},
+            {"plane_normal", serialize_vec3(dimension.plane_normal)},
+            {"sweep_degrees", dimension.sweep_degrees},
         });
     }
     return {
@@ -284,7 +292,16 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source) {
         loaded.value = dimension.at("value").get<double>();
         loaded.label_prefix = dimension.at("label_prefix").get<std::string>();
         loaded.unit_suffix = dimension.at("unit_suffix").get<std::string>();
+        const auto kind = dimension.at("kind").get<std::string>();
+        loaded.kind = kind == "angular"
+            ? zima::kernel::ViewerDimensionKind::Angular
+            : kind == "radius" ? zima::kernel::ViewerDimensionKind::Radius
+            : kind == "diameter" ? zima::kernel::ViewerDimensionKind::Diameter
+                                 : zima::kernel::ViewerDimensionKind::Linear;
+        loaded.plane_normal = load_vec3(dimension.at("plane_normal"));
+        loaded.sweep_degrees = dimension.at("sweep_degrees").get<double>();
         require_finite(loaded.value, "viewer dimension value");
+        require_finite(loaded.sweep_degrees, "viewer dimension sweep");
         if (!loaded.reference.valid()) {
             throw std::runtime_error("Persisted viewer dimension is invalid");
         }

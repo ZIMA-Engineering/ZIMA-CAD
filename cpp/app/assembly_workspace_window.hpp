@@ -26,6 +26,7 @@ class QMenu;
 class QString;
 class QTabBar;
 class QToolBar;
+class QToolButton;
 class QTreeWidget;
 class QTreeWidgetItem;
 class QStackedWidget;
@@ -50,6 +51,7 @@ public:
     ~AssemblyWorkspaceWindow() override;
     [[nodiscard]] bool open_document_path(const QString& path);
     void show_tree_item_properties(QTreeWidgetItem* item);
+    void focus_parameter_dimension_field(const std::string& semantic_key);
     // Exposed for regression coverage of nested Assembly occurrence
     // activation through the real window (no context-menu interaction).
     [[nodiscard]] bool activate_occurrence_for_test(const std::string& instance_path);
@@ -74,6 +76,7 @@ private:
     std::filesystem::path working_directory_{std::filesystem::current_path()};
     QTabBar* tabs_{};
     QTreeWidget* tree_{};
+    QToolButton* document_kind_button_{};
     zima::viewer::MeshView* viewer_{};
     QStackedWidget* workspace_stack_{};
     QSplitter* document_splitter_{};
@@ -138,6 +141,8 @@ private:
     QAction* chamfer_action_{};
     QAction* sketch_action_{};
     QAction* sketch_normal_view_action_{};
+    QAction* sketch_flip_view_action_{};
+    QAction* sketch_rotate_view_action_{};
     QAction* sketch_external_reference_action_{};
     QAction* sketch_external_profile_action_{};
     QAction* sketch_point_action_{};
@@ -236,6 +241,11 @@ private:
     std::string sketch_properties_preview_id_;
     zima::kernel::ViewerReferenceGeometry construction_reference_geometry_;
     std::string construction_dimension_object_id_;
+    bool refreshing_scene_{};
+    std::optional<zima::document::HistoryContainer>
+        parameter_dimension_preview_;
+    std::optional<zima::document::ConstructionObject>
+        construction_parameter_preview_;
     std::optional<std::size_t> pending_construction_reference_index_;
     int construction_translation_dof_{3};
     int construction_rotation_dof_{3};
@@ -247,6 +257,9 @@ private:
     std::optional<std::size_t> pending_primitive_reference_index_;
     int primitive_translation_dof_{3};
     std::string active_sketch_id_;
+    std::string sketch_view_state_id_;
+    bool sketch_view_back_{};
+    int sketch_view_quarter_turns_{};
     std::string selected_sketch_id_;
     std::string selected_sketch_segment_id_;
     std::string selected_sketch_circle_id_;
@@ -488,7 +501,9 @@ private:
     void set_sketch_external_reference_mode(bool enabled);
     void accept_sketch_external_reference(
         const zima::viewer::ViewerCandidate& candidate);
-    void align_active_sketch_view();
+    void align_active_sketch_view(bool fit_view = true);
+    void flip_active_sketch_view();
+    void rotate_active_sketch_view();
     void finish_active_sketch();
     void start_sketch_point();
     void start_sketch_segment(bool construction = false);
@@ -698,6 +713,8 @@ private:
         zima::assembly::AssemblyDocument& document) const;
     void refresh_tabs();
     void refresh_scene();
+    void update_document_kind_button();
+    void navigate_document_kind();
     void add_part_tree_children(
         QTreeWidgetItem* parent,
         const zima::document::PartDocument& document);

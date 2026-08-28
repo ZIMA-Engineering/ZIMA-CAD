@@ -11,7 +11,6 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPalette>
-#include <QPushButton>
 #include <QSignalBlocker>
 #include <QSizePolicy>
 #include <QTableWidget>
@@ -44,10 +43,9 @@ QString readable_reference_kind(const std::string& semantic) {
 
 ContainerPlacementSection::ContainerPlacementSection(
     QWidget* parent_widget, QVBoxLayout* layout, bool with_orientation,
-    bool position_rows_can_define_rotation, bool with_sketch_view_controls)
+    bool position_rows_can_define_rotation)
     : QObject(parent_widget), parent_widget_(parent_widget),
       with_orientation_(with_orientation),
-      with_sketch_view_controls_(with_sketch_view_controls),
       position_rows_can_define_rotation_(position_rows_can_define_rotation) {
     // A section without its own orientation table (e.g. Point) never has
     // set_remaining_rotation_dof() called on it by its owning dialog -- the
@@ -105,11 +103,6 @@ ContainerPlacementSection::ContainerPlacementSection(
         });
 
     if (with_orientation_) {
-        orientation_heading_ = new QLabel(tr("Pohled na skicu"), parent_widget_);
-        auto orientation_heading_font = orientation_heading_->font();
-        orientation_heading_font.setBold(true);
-        orientation_heading_->setFont(orientation_heading_font);
-
         orientation_table_ = new QTableWidget(2, 4, parent_widget_);
         orientation_table_->setObjectName("containerPlacementOrientationTable");
         orientation_table_->setHorizontalHeaderLabels(
@@ -141,49 +134,6 @@ ContainerPlacementSection::ContainerPlacementSection(
                 }
                 orientation_table_->clearSelection();
             });
-        if (with_sketch_view_controls_) layout->addWidget(orientation_heading_);
-        else orientation_heading_->hide();
-        auto* orientation_controls = new QWidget(parent_widget_);
-        auto* orientation_controls_layout = new QHBoxLayout(orientation_controls);
-        orientation_controls_layout->setContentsMargins(0, 0, 0, 0);
-        front_button_ = new QPushButton(tr("FRONT"), orientation_controls);
-        back_button_ = new QPushButton(tr("BACK"), orientation_controls);
-        rotate_button_ = new QPushButton(tr("↻ ROTATE 0°"), orientation_controls);
-        front_button_->setObjectName("containerOrientationFront");
-        back_button_->setObjectName("containerOrientationBack");
-        rotate_button_->setObjectName("containerOrientationRotate");
-        front_button_->setCheckable(true);
-        back_button_->setCheckable(true);
-        const auto refresh_buttons = [this] {
-            front_button_->setChecked(!orientation_back_);
-            back_button_->setChecked(orientation_back_);
-            rotate_button_->setText(tr("↻ ROTATE %1°").arg(
-                orientation_quarter_turns_ * 90));
-        };
-        connect(front_button_, &QPushButton::clicked, this,
-            [this, refresh_buttons] {
-                orientation_back_ = false;
-                refresh_buttons();
-                notify_changed();
-            });
-        connect(back_button_, &QPushButton::clicked, this,
-            [this, refresh_buttons] {
-                orientation_back_ = true;
-                refresh_buttons();
-                notify_changed();
-            });
-        connect(rotate_button_, &QPushButton::clicked, this,
-            [this, refresh_buttons] {
-                orientation_quarter_turns_ = (orientation_quarter_turns_ + 1) % 4;
-                refresh_buttons();
-                notify_changed();
-            });
-        refresh_buttons();
-        orientation_controls_layout->addWidget(front_button_);
-        orientation_controls_layout->addWidget(back_button_);
-        orientation_controls_layout->addWidget(rotate_button_, 1);
-        if (with_sketch_view_controls_) layout->addWidget(orientation_controls);
-        else orientation_controls->hide();
         // Kept as an internal value adapter while old call sites are removed;
         // it is deliberately not presented to the user anymore.
         orientation_table_->hide();
@@ -266,10 +216,6 @@ void ContainerPlacementSection::initialize_numeric_values(
     orientation_back_ = placement.orientation_back;
     orientation_quarter_turns_ =
         ((placement.orientation_quarter_turns % 4) + 4) % 4;
-    if (front_button_) front_button_->setChecked(!orientation_back_);
-    if (back_button_) back_button_->setChecked(orientation_back_);
-    if (rotate_button_) rotate_button_->setText(
-        tr("↻ ROTATE %1°").arg(orientation_quarter_turns_ * 90));
 }
 
 zima::document::Placement ContainerPlacementSection::numeric_placement() const {

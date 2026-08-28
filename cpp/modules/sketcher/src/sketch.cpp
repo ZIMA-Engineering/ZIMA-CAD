@@ -6804,7 +6804,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
     // same object.
     result.points.reserve(points.size() + segments.size() + 1);
     result.points.push_back(
-        {origin, {id, "external_point:sketch_origin", {}}, {}, false});
+        {origin, {id, "external_point:sketch_origin", {}}, {}, true});
     for (const auto& point : points) {
         result.points.push_back(
             {project(point), {id, "point:" + point.id, {}}, {}, true,
@@ -7316,9 +7316,16 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
             if (ellipse == ellipses.end()) continue;
             const auto* center = find_point(ellipse->center_point_id);
             const auto* major = find_point(ellipse->major_point_id);
+            const double radius = std::hypot(
+                major->x - center->x, major->y - center->y);
             result.dimensions.push_back({
-                project(*center), project(*major), project(*center), project(*major),
+                project(*center), project(*center),
+                world_point(center->x + radius, center->y), project(*major),
                 dimension.value, {id, "dimension:" + dimension.id, {}}, "∠", " °"});
+            result.dimensions.back().kind =
+                zima::kernel::ViewerDimensionKind::Angular;
+            result.dimensions.back().plane_normal = resolved_normal;
+            result.dimensions.back().sweep_degrees = dimension.value;
             continue;
         }
         if (dimension.kind == DimensionKind::EllipseMajorRadius ||
@@ -7334,6 +7341,8 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
                 project(*center), project(*rim), project(*center), project(*rim),
                 dimension.value, {id, "dimension:" + dimension.id, {}},
                 dimension.kind == DimensionKind::EllipseMajorRadius ? "a=" : "b="});
+            result.dimensions.back().kind =
+                zima::kernel::ViewerDimensionKind::Radius;
             continue;
         }
         if (dimension.kind == DimensionKind::Diameter) {
@@ -7354,6 +7363,8 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
             result.dimensions.push_back({
                 first_rim, second_rim, first_rim, second_rim, dimension.value,
                 {id, "dimension:" + dimension.id, {}}, "Ø"});
+            result.dimensions.back().kind =
+                zima::kernel::ViewerDimensionKind::Diameter;
             continue;
         }
         if (dimension.kind == DimensionKind::Radius) {
@@ -7383,6 +7394,8 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
             result.dimensions.push_back({
                 project(*center), rim, project(*center), rim, dimension.value,
                 {id, "dimension:" + dimension.id, {}}, "R"});
+            result.dimensions.back().kind =
+                zima::kernel::ViewerDimensionKind::Radius;
             continue;
         }
         if (dimension.kind == DimensionKind::DistancePointLine ||
@@ -7500,6 +7513,10 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
                                 vertex[1] + display_radius * std::sin(da)),
                     dimension.value, {id, "dimension:" + dimension.id, {}},
                     "∠ ", "°"});
+                result.dimensions.back().kind =
+                    zima::kernel::ViewerDimensionKind::Angular;
+                result.dimensions.back().plane_normal = resolved_normal;
+                result.dimensions.back().sweep_degrees = dimension.value;
             }
             continue;
         }
@@ -7529,6 +7546,10 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
                             vertex->y + display_radius * std::sin(second_angle)),
                 dimension.value, {id, "dimension:" + dimension.id, {}},
                 "∠ ", "°"});
+            result.dimensions.back().kind =
+                zima::kernel::ViewerDimensionKind::Angular;
+            result.dimensions.back().plane_normal = resolved_normal;
+            result.dimensions.back().sweep_degrees = dimension.value;
             continue;
         }
         const auto dimension_point = [&](const std::string& point_id)
@@ -7561,6 +7582,10 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
                             (*first)[1] + display_radius * std::sin(radians)),
                 dimension.value, {id, "dimension:" + dimension.id, {}},
                 "∠ ", "°"});
+            result.dimensions.back().kind =
+                zima::kernel::ViewerDimensionKind::Angular;
+            result.dimensions.back().plane_normal = resolved_normal;
+            result.dimensions.back().sweep_degrees = dimension.value;
             continue;
         }
         if (dimension.kind == DimensionKind::DistanceX) {

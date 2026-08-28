@@ -128,13 +128,9 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
     // the same position as ConstructionPropertiesDialog's Point/Axis/Plane
     // dialogs, before any shape-specific dimension fields.
     if (supports_placement_reference_table(initial.feature_kind)) {
-        const bool owns_profile_sketch =
-            initial.feature_kind == zima::document::FeatureKind::Extrusion ||
-            initial.feature_kind == zima::document::FeatureKind::Revolution;
         placement_ = std::make_unique<zima::ui::ContainerPlacementSection>(
             this, content_layout(), /*with_orientation=*/true,
-            /*position_rows_can_define_rotation=*/true,
-            /*with_sketch_view_controls=*/owns_profile_sketch);
+            /*position_rows_can_define_rotation=*/true);
         placement_->initialize_from_references(initial.placement.references,
             [](const std::string& semantic) {
                 return readable_placement_reference_kind(semantic);
@@ -385,14 +381,11 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
                 spin->setRange(0.001, 360.0);
                 spin->setSuffix(QStringLiteral("°"));
             }
-            revolution_axis_ = new QComboBox(this);
-            revolution_axis_->setObjectName("revolutionAxis");
-            revolution_axis_->addItem(tr("Osa X skici"), "sketch_x");
-            revolution_axis_->addItem(tr("Osa Y skici"), "sketch_y");
-            revolution_axis_->setCurrentIndex(revolution_axis_->findData(
-                initial.revolution.axis == zima::document::RevolutionAxis::SketchX
-                    ? "sketch_x" : "sketch_y"));
-            form->addRow(tr("Osa"), revolution_axis_);
+            auto* axis_hint = new QLabel(
+                tr("Zelená konstrukční osa ve skici"), this);
+            axis_hint->setObjectName("revolutionAxisHint");
+            axis_hint->setWordWrap(true);
+            form->addRow(tr("Osa rotace"), axis_hint);
         }
         const auto end_condition = [this](zima::document::EndCondition selected,
                                           const char* name) {
@@ -727,10 +720,6 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
         result.revolution.direction = extrusion_direction_->currentData() == "reverse"
             ? zima::document::ExtrusionDirection::Reverse
             : zima::document::ExtrusionDirection::Forward;
-        result.revolution.axis =
-            revolution_axis_->currentData().toString() == "sketch_y"
-                ? zima::document::RevolutionAxis::SketchY
-                : zima::document::RevolutionAxis::SketchX;
         result.revolution.angle_degrees = forward_length_->value();
         result.revolution.angle_reverse = reverse_length_->value();
     } else if (result.feature_kind != zima::document::FeatureKind::ImportedStep) {

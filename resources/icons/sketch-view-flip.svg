@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
+  <title id="title">Flip sketch view</title>
+  <g fill="none" stroke="currentColor" stroke-width="1.75"
+     stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 12L12 8.5L20 12L12 15.5Z"/>
+    <path d="M8 6.5C9.1 4.9 10.4 4 12 4C14 4 15.7 5.3 16.5 7.2"
+          stroke="#80AA1A"/>
+    <path d="M14.2 6.8L16.7 7.4L17.3 4.9" stroke="#80AA1A"/>
+    <path d="M16 17.5C14.9 19.1 13.6 20 12 20C10 20 8.3 18.7 7.5 16.8"
+          stroke="#80AA1A"/>
+    <path d="M9.8 17.2L7.3 16.6L6.7 19.1" stroke="#80AA1A"/>
+  </g>
+</svg>

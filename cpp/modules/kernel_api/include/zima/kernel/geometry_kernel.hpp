@@ -94,6 +94,8 @@ struct ViewerAxis {
     std::string label;
 };
 
+enum class ViewerDimensionKind { Linear, Angular, Radius, Diameter };
+
 struct ViewerDimension {
     Vec3 witness_first;
     Vec3 witness_second;
@@ -104,6 +106,13 @@ struct ViewerDimension {
     std::string label_prefix;
     std::string unit_suffix{" mm"};
     std::vector<std::string> participant_semantic_keys;
+    ViewerDimensionKind kind{ViewerDimensionKind::Linear};
+    // Angular dimensions use witness_first as their vertex, line_first and
+    // line_second as points on the two rays, and this stable modeling-plane
+    // normal to define sweep orientation. Radius/Diameter use witness_first
+    // as center and witness_second as the rim point.
+    Vec3 plane_normal{0.0, 0.0, 1.0};
+    double sweep_degrees{};
 };
 
 struct ViewerConstraintMarker {

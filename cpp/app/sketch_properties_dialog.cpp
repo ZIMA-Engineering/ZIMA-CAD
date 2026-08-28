@@ -61,8 +61,7 @@ SketchPropertiesDialog::SketchPropertiesDialog(
     content_layout()->addLayout(form);
     placement_ = std::make_unique<zima::ui::ContainerPlacementSection>(
         this, content_layout(), /*with_orientation=*/true,
-        /*position_rows_can_define_rotation=*/true,
-        /*with_sketch_view_controls=*/true);
+        /*position_rows_can_define_rotation=*/true);
     placement_->initialize_from_references(initial_placement_.references,
         [](const std::string& semantic) {
             return QString::fromStdString(semantic);

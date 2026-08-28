@@ -79,7 +79,8 @@ int main() {
                         [&](const auto& point) {
                             return point.reference.owner_id == sketch.id &&
                                 point.reference.semantic_key ==
-                                    "external_point:sketch_origin";
+                                    "external_point:sketch_origin" &&
+                                point.always_visible;
                         }) &&
                     mesh.edges.front().reference.owner_id == sketch.id &&
                     mesh.edges.front().reference.semantic_key.rfind("segment:", 0) == 0 &&
@@ -95,6 +96,15 @@ int main() {
                             "external_point:sketch_origin";
                     }),
                 "Sketch origin was not offered through the common candidate list");
+        const auto distant_axis_candidates = zima::viewer::filter_candidates(
+            zima::viewer::ordered_viewer_candidates(
+                mesh, {5000.0, 0.0, 10.0}, {0.0, 0.0, -1.0}, 0.2),
+            {zima::viewer::CandidateKind::SketchAxis});
+        require(std::any_of(distant_axis_candidates.begin(),
+                    distant_axis_candidates.end(), [](const auto& candidate) {
+                        return candidate.semantic_key == "sketch_axis:x";
+                    }),
+                "Sketch base axis was drawn as infinite but remained finitely pickable");
         require(std::any_of(origin_candidates.begin(), origin_candidates.end(),
                     [](const auto& candidate) {
                         return candidate.semantic_key ==
@@ -1063,6 +1073,8 @@ int main() {
                     std::abs(solved_angle_second->y -
                         (2.0 + std::sqrt(2.0))) < 1.0e-8 &&
                     three_point_angle.viewer_mesh().dimensions.size() == 1 &&
+                    three_point_angle.viewer_mesh().dimensions.front().kind ==
+                        zima::kernel::ViewerDimensionKind::Angular &&
                     three_point_angle.viewer_mesh().dimensions.front()
                         .participant_semantic_keys ==
                         std::vector<std::string>{
@@ -2542,6 +2554,8 @@ int main() {
                 "Diameter dimension did not drive half its value as circle radius");
         const auto diameter_packet = diameter_sketch.viewer_mesh();
         require(diameter_packet.dimensions.size() == 1 &&
+                    diameter_packet.dimensions.front().kind ==
+                        zima::kernel::ViewerDimensionKind::Diameter &&
                     diameter_packet.dimensions.front().label_prefix == "Ø" &&
                     std::abs(diameter_packet.dimensions.front().value - 30.0) < 1.0e-9,
                 "Diameter dimension did not produce stable viewer data");
@@ -2761,7 +2775,13 @@ int main() {
                         3.14159265358979323846 / 6.0) < 1.0e-9 &&
                     dimensioned_ellipse_packet.dimensions.size() == 3 &&
                     dimensioned_ellipse_packet.dimensions[0].label_prefix == "a=" &&
+                    dimensioned_ellipse_packet.dimensions[0].kind ==
+                        zima::kernel::ViewerDimensionKind::Radius &&
                     dimensioned_ellipse_packet.dimensions[1].label_prefix == "b=" &&
+                    dimensioned_ellipse_packet.dimensions[1].kind ==
+                        zima::kernel::ViewerDimensionKind::Radius &&
+                    dimensioned_ellipse_packet.dimensions[2].kind ==
+                        zima::kernel::ViewerDimensionKind::Angular &&
                     dimensioned_ellipse_packet.dimensions[2].unit_suffix == " °",
                 "Ellipse dimensions did not drive geometry or viewer data");
         const auto ellipse_before_rotation_limit = ellipse_sketch;

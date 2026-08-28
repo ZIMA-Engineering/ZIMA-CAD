@@ -59,6 +59,26 @@ int main() {
                 {50.0, 0.0, 0.0}, {0.0, 0.0, 1.0}, 0.01);
         require(infinite_line_candidates.size() == 1,
                 "Unbounded Sketch centerline remained pickable only between defining points");
+        zima::kernel::ViewerMesh ordinary_sketch_mesh;
+        ordinary_sketch_mesh.edges.push_back({
+            {{-5.0, 0.0, 5.0}, {5.0, 0.0, 5.0}},
+            {"sketch-container", "segment:profile"}, false, true});
+        const auto ordinary_sketch_candidates =
+            zima::viewer::ordered_viewer_candidates(ordinary_sketch_mesh,
+                {0.0, 0.0, 0.0}, {0.0, 0.0, 1.0}, 0.01);
+        const auto ordinary_sketch_containers = zima::viewer::filter_candidates(
+            ordinary_sketch_candidates,
+            {zima::viewer::CandidateKind::Container});
+        const auto tree_sketch_candidate = zima::viewer::container_candidate(
+            ordinary_sketch_mesh, "sketch-container");
+        require(ordinary_sketch_containers.size() == 1 &&
+                    ordinary_sketch_containers.front().owner_id ==
+                        "sketch-container" &&
+                    ordinary_sketch_containers.front().semantic_key == "sketch" &&
+                    tree_sketch_candidate &&
+                    tree_sketch_candidate->semantic_key == "sketch",
+                "Ordinary View did not expose the whole Sketch through the "
+                "shared candidate list");
         mesh.points = {
             {{0.0, 0.0, 4.0}, {"front", "vertex-a"}},
             {{0.0, 0.0, 9.0}, {"back", "vertex-b"}},
@@ -87,6 +107,19 @@ int main() {
                     construction_point_vertices.front().owner_id ==
                         "point-container:origin",
                 "Point marker did not expose its container and persisted point roles");
+        zima::kernel::ViewerMesh solid_origin_mesh;
+        solid_origin_mesh.points.push_back({
+            {0.0, 0.0, 5.0},
+            {"box-container", "container:origin-marker"}});
+        const auto solid_origin_candidates = zima::viewer::filter_candidates(
+            zima::viewer::ordered_viewer_candidates(solid_origin_mesh,
+                {0.0, 0.0, 0.0}, {0.0, 0.0, 1.0}, 0.01),
+            {zima::viewer::CandidateKind::Container});
+        require(solid_origin_candidates.size() == 1 &&
+                    solid_origin_candidates.front().owner_id ==
+                        "box-container" &&
+                    solid_origin_candidates.front().semantic_key == "solid",
+                "Basic-solid origin marker did not confirm its owning container");
         const auto tree_point_confirmation = zima::viewer::container_candidate(
             construction_point_mesh, "point-container");
         require(tree_point_confirmation &&
@@ -144,6 +177,25 @@ int main() {
         require(dimension_contract.size() == 1 &&
                     dimension_contract.front().owner_id == "sketch",
                 "Dimension selection contract left the common candidate list");
+        zima::kernel::ViewerMesh angular_dimension_mesh;
+        zima::kernel::ViewerDimension angular_dimension{
+            {0.0, 0.0, 5.0}, {0.0, 0.0, 5.0},
+            {1.0, 0.0, 5.0}, {0.0, 1.0, 5.0}, 90.0,
+            {"sketch", "dimension:angle"}, "∠ ", "°"};
+        angular_dimension.kind =
+            zima::kernel::ViewerDimensionKind::Angular;
+        angular_dimension.sweep_degrees = 90.0;
+        angular_dimension_mesh.dimensions.push_back(angular_dimension);
+        const auto angular_dimension_candidates =
+            zima::viewer::filter_candidates(
+                zima::viewer::ordered_viewer_candidates(
+                    angular_dimension_mesh, {0.70710678, 0.70710678, 0.0},
+                    {0.0, 0.0, 1.0}, 0.03),
+                {zima::viewer::CandidateKind::Dimension});
+        require(angular_dimension_candidates.size() == 1 &&
+                    angular_dimension_candidates.front().semantic_key ==
+                        "dimension:angle",
+                "Angular dimension arc did not use the common picker");
         mesh.constraint_markers.push_back({
             {0.0, 2.0, 5.0}, "H", {"sketch", "constraint:horizontal"}});
         const auto constraint_contract = zima::viewer::filter_candidates(

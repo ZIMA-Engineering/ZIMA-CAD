@@ -15,7 +15,6 @@ class QLabel;
 class QTableWidget;
 class QVBoxLayout;
 class QDoubleSpinBox;
-class QPushButton;
 
 namespace zima::ui {
 
@@ -47,8 +46,7 @@ public:
     // those two halves independently; one shared component owns their
     // ordering, behavior and visual style for every container kind.
     ContainerPlacementSection(QWidget* parent_widget, QVBoxLayout* layout,
-        bool with_orientation, bool position_rows_can_define_rotation = false,
-        bool with_sketch_view_controls = false);
+        bool with_orientation, bool position_rows_can_define_rotation = false);
 
     // Inserts the (already constructed) DOF label into `layout` at its
     // current end. Call this once, at the position matching the reference
@@ -173,11 +171,9 @@ public:
 private:
     QWidget* parent_widget_;
     bool with_orientation_;
-    bool with_sketch_view_controls_;
     bool position_rows_can_define_rotation_;
     QLabel* reference_status_{};
     QLabel* dof_label_{};
-    QLabel* orientation_heading_{};
     QTableWidget* reference_table_{};
     QTableWidget* orientation_table_{};
     std::array<ReferenceCellItem*, 3> reference_items_{};
@@ -187,9 +183,6 @@ private:
     std::array<QDoubleSpinBox*, 3> translation_{};
     std::array<QDoubleSpinBox*, 3> rotation_{};
     std::array<QDoubleSpinBox*, 3> rotation_offset_{};
-    QPushButton* front_button_{};
-    QPushButton* back_button_{};
-    QPushButton* rotate_button_{};
     bool orientation_back_{};
     int orientation_quarter_turns_{};
     std::vector<zima::document::ConstructionReference> references_;

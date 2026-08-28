@@ -1956,7 +1956,7 @@ zima::kernel::ExtrusionRequest extrusion_request(
 
 zima::kernel::RevolutionRequest revolution_request(
     const zima::sketcher::Sketch& sketch,
-    RevolutionAxis axis, double angle_degrees) {
+    const std::string& axis_segment_id, double angle_degrees) {
     if (!std::isfinite(angle_degrees) || angle_degrees <= 0.0 ||
         angle_degrees > 360.0) {
         throw std::runtime_error("Revolution angle must be in (0, 360] degrees");
@@ -1975,14 +1975,37 @@ zima::kernel::RevolutionRequest revolution_request(
     request.outer_vertex_source_ids = source.outer_vertex_source_ids;
     request.inner_vertex_source_ids = source.inner_vertex_source_ids;
     request.profile_normal = source.direction;
-    request.axis_point = sketch.world_point(0.0, 0.0);
-    if (axis == RevolutionAxis::SketchX) {
-        request.axis_direction = sketch.x_axis();
-    } else if (axis == RevolutionAxis::SketchY) {
-        request.axis_direction = sketch.y_axis();
-    } else {
-        throw std::runtime_error("Invalid Revolution axis");
+    auto axis = sketch.segments.end();
+    if (!axis_segment_id.empty()) {
+        axis = std::find_if(sketch.segments.begin(), sketch.segments.end(),
+            [&](const auto& segment) {
+                return segment.id == axis_segment_id && segment.construction &&
+                    segment.centerline;
+            });
     }
+    if (axis == sketch.segments.end()) {
+        for (auto candidate = sketch.segments.begin();
+             candidate != sketch.segments.end(); ++candidate) {
+            if (!candidate->construction || !candidate->centerline) continue;
+            if (axis != sketch.segments.end()) {
+                throw std::runtime_error(
+                    "Revolution Sketch contains more than one construction centerline");
+            }
+            axis = candidate;
+        }
+    }
+    if (axis == sketch.segments.end()) {
+        throw std::runtime_error(
+            "Revolution requires a persisted green construction centerline");
+    }
+    const auto* first = sketch.find_point(axis->first_point_id);
+    const auto* second = sketch.find_point(axis->second_point_id);
+    request.axis_point = sketch.world_point(first->x, first->y);
+    const auto axis_end = sketch.world_point(second->x, second->y);
+    request.axis_direction = {
+        axis_end.x - request.axis_point.x,
+        axis_end.y - request.axis_point.y,
+        axis_end.z - request.axis_point.z};
     request.angle_degrees = angle_degrees;
     return request;
 }
@@ -3744,11 +3767,10 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
             {offset, offset + 1, offset + 2, offset, offset + 2, offset + 3});
         references.triangle_references.insert(references.triangle_references.end(),
             2, {object.entity_id, "plane", {}});
-        // Editing-only visual marker at the actual, offset work plane.  It is
-        // deliberately display-only: the persisted selectable point below
-        // keeps its stable ZIMA identity, while this purple marker merely
-        // explains the distance between the Container Origin and the plane
-        // currently being created.
+        // Editing-only cyan visual marker at the actual, offset work plane.
+        // It is deliberately display-only: the persisted selectable point
+        // below keeps its stable ZIMA identity, while this marker explains
+        // the distance between the Container Origin and the live work plane.
         if (editing) {
             mesh.points.push_back({object.entity_origin,
                 {object.entity_id, "preview:plane-offset-point", {}}, {}, true});
@@ -3764,6 +3786,23 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
             mesh.original_references.points.push_back(
                 {object.entity_origin, {origin_id, "point", {}}, {}, false});
         }
+    }
+    // Basic solid containers expose their persisted placement origin as a
+    // viewer marker.  It stays hidden while idle and is presented together
+    // with the solid's wire when the whole history container is hovered or
+    // selected.  This is ZIMA viewer data; no OCCT topology is inspected.
+    for (const auto& container : history) {
+        const bool basic_solid = container.feature_kind == FeatureKind::Box ||
+            container.feature_kind == FeatureKind::Cylinder ||
+            container.feature_kind == FeatureKind::Sphere ||
+            container.feature_kind == FeatureKind::Cone ||
+            container.feature_kind == FeatureKind::Pyramid ||
+            container.feature_kind == FeatureKind::Wedge;
+        if (!basic_solid || container.suppressed) continue;
+        mesh.points.push_back({
+            {container.placement.x, container.placement.y,
+             container.placement.z},
+            {container.id, "container:origin-marker", {}}, {}, false});
     }
     return mesh;
 }
@@ -4144,7 +4183,8 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::revolution_preview_edges(
         ? 0.0 : parameters.extent_mode == ProfileExtentMode::Symmetric
             ? parameters.angle_degrees : parameters.angle_reverse;
     auto request = revolution_request(
-        *sketch, parameters.axis, parameters.angle_degrees + reverse);
+        *sketch, parameters.axis_segment_id,
+        parameters.angle_degrees + reverse);
     if (parameters.direction == ExtrusionDirection::Reverse) {
         request.axis_direction.x = -request.axis_direction.x;
         request.axis_direction.y = -request.axis_direction.y;
@@ -4182,7 +4222,7 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::revolution_preview_edges(
     const double end_angle = parameters.angle_degrees;
     std::vector<zima::kernel::ViewerEdge> result;
     for (const auto& source : sketch->viewer_mesh().edges) {
-        if (source.points.size() < 2) continue;
+        if (source.construction || source.points.size() < 2) continue;
         zima::kernel::ViewerEdge start;
         zima::kernel::ViewerEdge end;
         start.reference = {container.id, "preview:start", {}};
@@ -4488,7 +4528,8 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 : parameters.extent_mode == ProfileExtentMode::Symmetric
                     ? parameters.angle_degrees : parameters.angle_reverse;
             auto revolution = revolution_request(
-                *sketch, parameters.axis, parameters.angle_degrees + reverse);
+                *sketch, parameters.axis_segment_id,
+                parameters.angle_degrees + reverse);
             revolution.start_angle_degrees = -reverse;
             if (parameters.direction == ExtrusionDirection::Reverse) {
                 revolution.axis_direction.x = -revolution.axis_direction.x;
@@ -4853,14 +4894,8 @@ PartDocument PartDocument::load(
             require_positive(container.revolution.angle_reverse, "reverse angle");
             container.revolution.angle_degrees =
                 source.at("angle_degrees").get<double>();
-            const std::string axis = source.at("axis").get<std::string>();
-            if (axis == "sketch_x") {
-                container.revolution.axis = RevolutionAxis::SketchX;
-            } else if (axis == "sketch_y") {
-                container.revolution.axis = RevolutionAxis::SketchY;
-            } else {
-                throw std::runtime_error("Invalid Revolution axis");
-            }
+            container.revolution.axis_segment_id =
+                source.at("axis_segment_id").get<std::string>();
             if (container.revolution.sketch_id.empty() ||
                 !std::isfinite(container.revolution.angle_degrees) ||
                 container.revolution.angle_degrees <= 0.0 ||
@@ -5318,8 +5353,7 @@ void PartDocument::save(
             if (container.revolution.sketch_id.empty() ||
                 std::none_of(sketches.begin(), sketches.end(), [&](const auto& sketch) {
                     return sketch.id == container.revolution.sketch_id;
-                }) || (container.revolution.axis != RevolutionAxis::SketchX &&
-                       container.revolution.axis != RevolutionAxis::SketchY) ||
+                }) ||
                 !std::isfinite(container.revolution.profile_plane_offset) ||
                 !std::isfinite(container.revolution.angle_degrees) ||
                 container.revolution.angle_degrees <= 0.0 ||
@@ -5558,8 +5592,8 @@ void PartDocument::save(
             serialized["direction"] = container.revolution.direction ==
                     ExtrusionDirection::Forward ? "forward" : "reverse";
             serialized["angle_reverse"] = container.revolution.angle_reverse;
-            serialized["axis"] = container.revolution.axis == RevolutionAxis::SketchX
-                ? "sketch_x" : "sketch_y";
+            serialized["axis_segment_id"] =
+                container.revolution.axis_segment_id;
             serialized["angle_degrees"] = container.revolution.angle_degrees;
         } else if (container.feature_kind == FeatureKind::ImportedStep) {
             serialized["source_path"] = container.imported_step.source_path;

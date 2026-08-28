@@ -23,7 +23,6 @@ enum class ProfileExtentMode { OneSide, TwoSides, Symmetric };
 enum class ThinMode { OneSide, OtherSide, Symmetric };
 enum class EndCondition { Length, UpTo, ThroughAll };
 enum class EndTargetKind { Point, Plane, Face };
-enum class RevolutionAxis { SketchX, SketchY };
 enum class ConstructionKind { Point, Axis, Plane };
 enum class LocalDatumPlane { XY, YZ, XZ };
 enum class PartHistoryKind { Feature, Sketch, Construction };
@@ -266,6 +265,9 @@ struct ExtrusionParameters {
 
 struct RevolutionParameters {
     std::string sketch_id;
+    // Stable ZIMA Sketch segment used as the unbounded revolution axis.
+    // It must identify a green construction centerline in the owned Sketch.
+    std::string axis_segment_id;
     double profile_plane_offset{};
     ProfileSource profile_source{ProfileSource::Internal};
     ProfileResultType result_type{ProfileResultType::Solid};
@@ -274,7 +276,6 @@ struct RevolutionParameters {
     ProfileExtentMode extent_mode{ProfileExtentMode::OneSide};
     ExtrusionDirection direction{ExtrusionDirection::Forward};
     double angle_reverse{360.0};
-    RevolutionAxis axis{RevolutionAxis::SketchX};
     double angle_degrees{360.0};
     bool operator==(const RevolutionParameters&) const = default;
 };

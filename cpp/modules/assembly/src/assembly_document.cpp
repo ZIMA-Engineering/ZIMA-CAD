@@ -1573,8 +1573,8 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
                 point.at(0).get<double>(), point.at(1).get<double>(),
                 point.at(2).get<double>()});
         }
-        feature.revolution.axis = static_cast<zima::document::RevolutionAxis>(
-            value.at("axis").get<int>());
+        feature.revolution.axis_segment_id =
+            value.at("axis_segment_id").get<std::string>();
         feature.revolution.angle_degrees = value.at("angle").get<double>();
         cut.target_occurrence_ids = value.at("targets").get<std::vector<std::string>>();
         for (const auto& [occurrence_id, body] : value.at("input_component_bodies").items()) {
@@ -1948,7 +1948,7 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
                 feature.extrusion.target_plane_normal.y,
                 feature.extrusion.target_plane_normal.z}},
             {"target_triangles", std::move(triangles)},
-            {"axis", static_cast<int>(feature.revolution.axis)},
+            {"axis_segment_id", feature.revolution.axis_segment_id},
             {"angle", feature.revolution.angle_degrees},
             {"targets", cut.target_occurrence_ids},
             {"input_component_bodies", std::move(input_bodies)}});

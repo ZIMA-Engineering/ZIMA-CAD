@@ -22,6 +22,15 @@ void require(bool condition, const char* message) {
     if (!condition) throw std::runtime_error(message);
 }
 
+std::string add_revolution_axis(
+    zima::sketcher::Sketch& sketch, bool vertical = false) {
+    const auto id = vertical
+        ? sketch.add_segment(0.0, -100.0, 0.0, 100.0, true)
+        : sketch.add_segment(-100.0, 0.0, 100.0, 0.0, true);
+    sketch.set_segment_centerline(id, true);
+    return id;
+}
+
 }  // namespace
 
 int main() {
@@ -910,6 +919,24 @@ int main() {
                         axis.entity_id &&
                     construction_mesh.original_references.triangle_references.size() == 2,
                 "Construction objects did not produce persisted ZIMA references");
+        auto solid_origin_document =
+            zima::document::PartDocument::create_default();
+        auto solid_origin_box =
+            zima::document::PartDocument::create_box_container();
+        solid_origin_box.placement = {11.0, 12.0, 13.0};
+        const auto solid_origin_owner = solid_origin_box.id;
+        solid_origin_document.history.push_back(std::move(solid_origin_box));
+        const auto solid_origin_mesh =
+            solid_origin_document.construction_viewer_mesh();
+        require(solid_origin_mesh.points.size() == 1 &&
+                    solid_origin_mesh.points.front().reference.owner_id ==
+                        solid_origin_owner &&
+                    solid_origin_mesh.points.front().reference.semantic_key ==
+                        "container:origin-marker" &&
+                    solid_origin_mesh.points.front().position.x == 11.0 &&
+                    solid_origin_mesh.points.front().position.y == 12.0 &&
+                    solid_origin_mesh.points.front().position.z == 13.0,
+                "Basic solid did not publish its persisted placement-origin marker");
         const auto edited_point_mesh =
             constructions.construction_viewer_mesh(point.id);
         // Editing the Point adds its origin frame, but not a duplicate of
@@ -2161,6 +2188,7 @@ int main() {
             {{1.0, 5.0}, {6.0, 5.0}, {6.0, 10.0}, {1.0, 10.0}},
             {{9.0, 5.0}, {14.0, 5.0}, {14.0, 10.0}, {9.0, 10.0}}};
         text_revolution_sketch.add_text(std::move(revolution_text));
+        static_cast<void>(add_revolution_axis(text_revolution_sketch));
         auto text_revolution_document = zima::document::PartDocument::create_default();
         const auto text_revolution_sketch_id = text_revolution_sketch.id;
         text_revolution_document.sketches.push_back(std::move(text_revolution_sketch));
@@ -2413,6 +2441,7 @@ int main() {
         auto ellipse_revolution_sketch = zima::sketcher::Sketch::create_default();
         static_cast<void>(ellipse_revolution_sketch.add_ellipse(
             0.0, 20.0, 10.0, 20.0, 0.0, 24.0));
+        static_cast<void>(add_revolution_axis(ellipse_revolution_sketch));
         const auto ellipse_revolution_sketch_id = ellipse_revolution_sketch.id;
         ellipse_revolution_document.sketches.push_back(
             std::move(ellipse_revolution_sketch));
@@ -2501,11 +2530,13 @@ int main() {
         for (const auto& point : revolution_sketch.points) {
             revolution_point_ids.push_back(point.id);
         }
+        const auto revolution_axis_id = add_revolution_axis(revolution_sketch);
         const auto revolution_sketch_id = revolution_sketch.id;
         revolution_document.sketches.push_back(std::move(revolution_sketch));
         auto revolution_container =
             zima::document::PartDocument::create_revolution_container(
                 revolution_sketch_id);
+        revolution_container.revolution.axis_segment_id = revolution_axis_id;
         const auto revolution_owner = revolution_container.id;
         revolution_document.history.push_back(std::move(revolution_container));
         const auto revolution_results =
@@ -2600,8 +2631,8 @@ int main() {
         require(loaded_revolution.history.size() == 1 &&
                     loaded_revolution.history.front().feature_kind ==
                         zima::document::FeatureKind::Revolution &&
-                    loaded_revolution.history.front().revolution.axis ==
-                        zima::document::RevolutionAxis::SketchX &&
+                    loaded_revolution.history.front().revolution.axis_segment_id ==
+                        revolution_axis_id &&
                     loaded_revolution.history.front().revolution.angle_degrees == 180.0 &&
                     loaded_revolution_results.size() == 1,
                 "Revolution did not survive save/load");
@@ -2649,14 +2680,15 @@ int main() {
             zima::sketcher::Sketch::create_default();
         static_cast<void>(torus_revolution_sketch.add_circle(
             10.0, 0.0, 2.0));
+        const auto torus_axis_id = add_revolution_axis(
+            torus_revolution_sketch, true);
         const auto torus_revolution_sketch_id = torus_revolution_sketch.id;
         torus_revolution_document.sketches.push_back(
             std::move(torus_revolution_sketch));
         auto torus_revolution =
             zima::document::PartDocument::create_revolution_container(
                 torus_revolution_sketch_id);
-        torus_revolution.revolution.axis =
-            zima::document::RevolutionAxis::SketchY;
+        torus_revolution.revolution.axis_segment_id = torus_axis_id;
         torus_revolution_document.history.push_back(std::move(torus_revolution));
         const auto torus_revolution_results = kernel.evaluate_history(
             torus_revolution_document.kernel_operations());
@@ -2669,13 +2701,14 @@ int main() {
             10.0, 0.0, 10.0, -2.0, 10.0, 2.0));
         static_cast<void>(arc_torus_sketch.add_arc(
             10.0, 0.0, 10.0, 2.0, 10.0, -2.0));
+        const auto arc_torus_axis_id = add_revolution_axis(
+            arc_torus_sketch, true);
         const auto arc_torus_sketch_id = arc_torus_sketch.id;
         arc_torus_document.sketches.push_back(std::move(arc_torus_sketch));
         auto arc_torus_revolution =
             zima::document::PartDocument::create_revolution_container(
                 arc_torus_sketch_id);
-        arc_torus_revolution.revolution.axis =
-            zima::document::RevolutionAxis::SketchY;
+        arc_torus_revolution.revolution.axis_segment_id = arc_torus_axis_id;
         arc_torus_document.history.push_back(std::move(arc_torus_revolution));
         const auto arc_torus_results = kernel.evaluate_history(
             arc_torus_document.kernel_operations());
@@ -2695,6 +2728,8 @@ int main() {
             0.0, 10.0, 0.0, -10.0));
         static_cast<void>(curved_holed_revolution_sketch.add_circle(
             4.0, 0.0, 2.0));
+        const auto curved_axis_id = add_revolution_axis(
+            curved_holed_revolution_sketch, true);
         const auto curved_holed_revolution_sketch_id =
             curved_holed_revolution_sketch.id;
         curved_holed_revolution_document.sketches.push_back(
@@ -2702,8 +2737,7 @@ int main() {
         auto curved_holed_revolution =
             zima::document::PartDocument::create_revolution_container(
                 curved_holed_revolution_sketch_id);
-        curved_holed_revolution.revolution.axis =
-            zima::document::RevolutionAxis::SketchY;
+        curved_holed_revolution.revolution.axis_segment_id = curved_axis_id;
         curved_holed_revolution_document.history.push_back(
             std::move(curved_holed_revolution));
         const auto curved_holed_revolution_results = kernel.evaluate_history(
@@ -2721,6 +2755,7 @@ int main() {
             10.0, 5.0, 20.0, 8.0));
         static_cast<void>(holed_revolution_sketch.add_circle(
             15.0, 6.5, 1.0));
+        static_cast<void>(add_revolution_axis(holed_revolution_sketch));
         const auto holed_revolution_sketch_id = holed_revolution_sketch.id;
         holed_revolution_document.sketches.push_back(
             std::move(holed_revolution_sketch));
@@ -2747,6 +2782,7 @@ int main() {
         yz_revolution_sketch.plane_offset = 3.0;
         static_cast<void>(yz_revolution_sketch.add_rectangle(
             10.0, 5.0, 20.0, 8.0));
+        static_cast<void>(add_revolution_axis(yz_revolution_sketch));
         const auto yz_revolution_sketch_id = yz_revolution_sketch.id;
         yz_revolution_document.sketches.push_back(
             std::move(yz_revolution_sketch));
@@ -2766,14 +2802,15 @@ int main() {
         xz_revolution_sketch.plane_offset = -2.0;
         static_cast<void>(xz_revolution_sketch.add_rectangle(
             5.0, 10.0, 8.0, 20.0));
+        const auto xz_axis_id = add_revolution_axis(
+            xz_revolution_sketch, true);
         const auto xz_revolution_sketch_id = xz_revolution_sketch.id;
         xz_revolution_document.sketches.push_back(
             std::move(xz_revolution_sketch));
         auto xz_revolution =
             zima::document::PartDocument::create_revolution_container(
                 xz_revolution_sketch_id);
-        xz_revolution.revolution.axis =
-            zima::document::RevolutionAxis::SketchY;
+        xz_revolution.revolution.axis_segment_id = xz_axis_id;
         xz_revolution_document.history.push_back(std::move(xz_revolution));
         const auto xz_revolution_results = kernel.evaluate_history(
             xz_revolution_document.kernel_operations());

@@ -11,6 +11,7 @@
 #include <QLineEdit>
 #include <QPalette>
 #include <QSignalBlocker>
+#include <QSizePolicy>
 #include <QTableWidget>
 
 #include <algorithm>
@@ -51,7 +52,10 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
     if (initial.kind == zima::document::ConstructionKind::Point)
         remaining_rotation_dof_ = 0;
     setAttribute(Qt::WA_DeleteOnClose, true);
-    setMinimumWidth(460);
+    // Keep Point/Axis/Plane properties as compact as Sketch and feature
+    // properties. The reference table stretches inside this width; the old
+    // 460 px minimum only left a needlessly wide empty middle column.
+    setMinimumWidth(340);
     auto compact_font = font();
     compact_font.setPixelSize(10);
     setFont(compact_font);
@@ -205,6 +209,11 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
         auto* offset_form = new QFormLayout;
         base_plane_combo_ = new QComboBox(this);
         base_plane_combo_->setObjectName("constructionBasePlane");
+        base_plane_combo_->setSizeAdjustPolicy(
+            QComboBox::AdjustToMinimumContentsLengthWithIcon);
+        base_plane_combo_->setMinimumContentsLength(18);
+        base_plane_combo_->setSizePolicy(
+            QSizePolicy::Ignored, QSizePolicy::Fixed);
         base_plane_combo_->addItem(
             tr("Počátek kontejneru — Rovina XY"), QStringLiteral("xy"));
         base_plane_combo_->addItem(

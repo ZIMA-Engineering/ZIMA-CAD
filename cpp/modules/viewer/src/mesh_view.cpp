@@ -31,6 +31,12 @@ namespace zima::viewer {
 
 namespace {
 
+// A new, otherwise empty metric CAD document starts with roughly 100 mm of
+// vertical working area. This gives a useful physical sense of scale before
+// the first body exists: a 1 mm plane offset is visible, but no longer fills
+// a large part of the View.
+constexpr float kEmptyDocumentViewHalfExtent = 50.0F;
+
 bool is_screen_constant_plane(const std::string& semantic_key) {
     return semantic_key == "border" ||
         semantic_key.starts_with("origin:plane:");
@@ -897,7 +903,10 @@ void MeshView::fit_all() {
         bounds.insert(bounds.end(), edge.points.begin(), edge.points.end());
     }
     for (const auto& point : impl_->mesh.points) {
-        if (point.reference.semantic_key == "origin:point") {
+        const bool preview_helper =
+            point.reference.semantic_key == "preview:plane-offset-point" ||
+            impl_->feature_preview_owner_ids.contains(point.reference.owner_id);
+        if (point.reference.semantic_key == "origin:point" || preview_helper) {
             reference_centers.push_back(point.position);
         } else {
             bounds.push_back(point.position);
@@ -934,8 +943,8 @@ void MeshView::fit_all() {
     }
     if (bounds.empty() && reference_centers.empty()) {
         impl_->center = {};
-        impl_->radius = 1.0F;
-        impl_->view_scale = 1.4F;
+        impl_->radius = kEmptyDocumentViewHalfExtent;
+        impl_->view_scale = kEmptyDocumentViewHalfExtent;
         // This is the degenerate "nothing to frame yet" case (no origin
         // geometry has even been generated into the mesh yet) -- it must
         // NOT lock in reference_view_scale_initialized, otherwise a
@@ -973,7 +982,10 @@ void MeshView::fit_all() {
         // do not fill the entire viewport edge-to-edge (matches the visual
         // margin a body with real bounds gets from its own surrounding
         // whitespace once panned/zoomed by the user).
-        impl_->radius = static_cast<float>(std::max(reference_extent, 0.5) * 2.0);
+        const float reference_frame_scale = static_cast<float>(
+            std::max(reference_extent, 0.5) * 2.0);
+        impl_->radius = std::max(
+            reference_frame_scale, kEmptyDocumentViewHalfExtent);
         impl_->view_scale = impl_->radius;
         // Only establish the screen-constant reference baseline the FIRST
         // time it is ever needed. Once set, it must survive every later
@@ -985,7 +997,10 @@ void MeshView::fit_all() {
         // (the previous behaviour) made the Origin visibly shrink each time
         // "Zobrazit vše" had to zoom out further than before.
         if (!impl_->reference_view_scale_initialized) {
-            impl_->reference_view_scale = impl_->radius;
+            // Decouple real-world startup scale from screen-constant datum
+            // size: zoom the empty world out to ~100 mm, but keep document
+            // and container Origins at their established LCD size.
+            impl_->reference_view_scale = reference_frame_scale;
             impl_->reference_view_scale_initialized = true;
         }
         impl_->pan_pixels = {};
@@ -1027,7 +1042,8 @@ void MeshView::fit_all() {
         : 1.0F;
     const float narrow_view_compensation = 1.0F / std::min(aspect, 1.0F);
     impl_->view_scale = bounds.size() == 1
-        ? impl_->reference_view_scale
+        ? std::max(impl_->reference_view_scale,
+              kEmptyDocumentViewHalfExtent)
         : impl_->radius * fit_margin * narrow_view_compensation;
     // Only establish the screen-constant reference baseline once (see the
     // identical guard/comment in the origin-only branch above). A document
@@ -2164,6 +2180,97 @@ if (impl_->show_planes) {
                                                   : QColor(255, 140, 12))
                     : QColor(245, 205, 80);
                 painter.setPen(QPen(color, selected ? 3.0 : 1.5));
+                painter.setBrush(color);
+                const QString text =
+                    QString::fromStdString(dimension.label_prefix) +
+                    QString::number(dimension.value, 'f', 3) +
+                    QString::fromStdString(dimension.unit_suffix);
+                constexpr double arrow_length = 10.0;
+                constexpr double arrow_half_width = 1.763269807;
+                constexpr double tail_length = 7.0;
+                const auto arrow = [&](const QPointF& tip,
+                        QPointF direction) {
+                    const double length = std::hypot(direction.x(), direction.y());
+                    if (length <= 1.0e-9) return QPolygonF{};
+                    direction /= length;
+                    const QPointF normal{-direction.y(), direction.x()};
+                    const QPointF base = tip - direction * arrow_length;
+                    return QPolygonF{tip,
+                        base + normal * arrow_half_width,
+                        base - normal * arrow_half_width};
+                };
+                if (dimension.kind ==
+                        zima::kernel::ViewerDimensionKind::Angular) {
+                    const QPointF vertex = project(dimension.witness_first);
+                    const QPointF first = project(dimension.line_first);
+                    const QPointF second = project(dimension.line_second);
+                    const QPointF first_vector = first - vertex;
+                    const QPointF second_vector = second - vertex;
+                    const double radius = std::max(22.0,
+                        std::hypot(first_vector.x(), first_vector.y()));
+                    const double start = std::atan2(
+                        first_vector.y(), first_vector.x());
+                    double sweep = dimension.sweep_degrees *
+                        std::numbers::pi / 180.0;
+                    const double cross = first_vector.x() * second_vector.y() -
+                        first_vector.y() * second_vector.x();
+                    if (cross < 0.0) sweep = -std::abs(sweep);
+                    else sweep = std::abs(sweep);
+                    constexpr int samples = 48;
+                    QPolygonF arc;
+                    arc.reserve(samples + 1);
+                    for (int sample = 0; sample <= samples; ++sample) {
+                        const double angle = start + sweep * sample / samples;
+                        arc.push_back(vertex + QPointF(
+                            radius * std::cos(angle), radius * std::sin(angle)));
+                    }
+                    painter.drawLine(vertex, arc.front());
+                    painter.drawLine(vertex, arc.back());
+                    painter.drawPolyline(arc);
+                    if (arc.size() > 2) {
+                        painter.drawPolygon(arrow(arc.front(), arc[1] - arc[0]));
+                        painter.drawPolygon(arrow(arc.back(),
+                            arc[arc.size() - 2] - arc.back()));
+                    }
+                    const double middle = start + sweep * 0.5;
+                    painter.drawText(vertex + QPointF(
+                        (radius + 12.0) * std::cos(middle),
+                        (radius + 12.0) * std::sin(middle)), text);
+                    painter.setBrush(Qt::NoBrush);
+                    continue;
+                }
+                if (dimension.kind ==
+                        zima::kernel::ViewerDimensionKind::Radius ||
+                    dimension.kind ==
+                        zima::kernel::ViewerDimensionKind::Diameter) {
+                    const QPointF center = project(dimension.witness_first);
+                    const QPointF rim = project(dimension.witness_second);
+                    QPointF outward = rim - center;
+                    const double length = std::hypot(outward.x(), outward.y());
+                    if (length <= 1.0e-9) continue;
+                    outward /= length;
+                    const QPointF opposite = center - (rim - center);
+                    painter.drawLine(
+                        dimension.kind == zima::kernel::ViewerDimensionKind::Diameter
+                            ? opposite : center, rim);
+                    painter.drawPolygon(arrow(rim, -outward));
+                    if (dimension.kind ==
+                        zima::kernel::ViewerDimensionKind::Diameter) {
+                        painter.drawPolygon(arrow(opposite, outward));
+                    }
+                    const QPointF tail = rim + outward *
+                        (arrow_length + tail_length);
+                    const double side = outward.x() >= 0.0 ? 1.0 : -1.0;
+                    const QPointF shoulder = tail + QPointF(side * 36.0, 0.0);
+                    painter.drawLine(rim + outward * arrow_length, tail);
+                    painter.drawLine(tail, shoulder);
+                    const double text_width =
+                        painter.fontMetrics().horizontalAdvance(text);
+                    painter.drawText(shoulder + QPointF(
+                        side > 0.0 ? 2.0 : -text_width - 2.0, 5.0), text);
+                    painter.setBrush(Qt::NoBrush);
+                    continue;
+                }
                 const QPointF witness_first = project(dimension.witness_first);
                 const QPointF witness_second = project(dimension.witness_second);
                 const QPointF line_first = project(dimension.line_first);
@@ -2175,26 +2282,21 @@ if (impl_->show_planes) {
                 const double line_length = std::hypot(vector.x(), vector.y());
                 if (line_length > 1.0e-6) {
                     const QPointF along = vector / line_length;
-                    const QPointF normal{-along.y(), along.x()};
-                    constexpr double arrow_length = 10.0;
-                    constexpr double arrow_half_width = 1.763269807;
-                    const auto arrow = [&](const QPointF& tip, double sign) {
-                        const QPointF base = tip + along * arrow_length * sign;
-                        return QPolygonF{tip,
-                            base + normal * arrow_half_width,
-                            base - normal * arrow_half_width};
-                    };
-                    painter.setBrush(color);
-                    painter.drawPolygon(arrow(line_first, -1.0));
-                    painter.drawPolygon(arrow(line_second, 1.0));
-                    painter.setBrush(Qt::NoBrush);
+                    painter.drawPolygon(arrow(line_first, along));
+                    painter.drawPolygon(arrow(line_second, -along));
+                    const QPointF first_tail =
+                        line_first - along * (arrow_length + tail_length);
+                    const QPointF second_tail =
+                        line_second + along * (arrow_length + tail_length);
+                    painter.drawLine(line_first - along * arrow_length, first_tail);
+                    painter.drawLine(line_second + along * arrow_length, second_tail);
+                    const QPointF leader_start =
+                        first_tail.x() > second_tail.x() ? first_tail : second_tail;
+                    const QPointF leader_end = leader_start + QPointF(30.0, 0.0);
+                    painter.drawLine(leader_start, leader_end);
+                    painter.drawText(leader_end + QPointF(4.0, 0.0), text);
                 }
-                const QPointF middle =
-                    (line_first + line_second) * 0.5;
-                painter.drawText(middle + QPointF(4.0, -4.0),
-                    QString::fromStdString(dimension.label_prefix) +
-                    QString::number(dimension.value, 'f', 3) +
-                    QString::fromStdString(dimension.unit_suffix));
+                painter.setBrush(Qt::NoBrush);
             }
         }
         if (axes_visible) {
@@ -2299,21 +2401,28 @@ if (impl_->show_planes) {
                         ? screen_infinite_line(start, end) : QLineF(start, end);
                     const double total_length = full_line.length();
                     if (total_length > 1.0e-6) {
-                        const QPointF unit = (end - start) / total_length;
-                        constexpr double dash = 10.0;
-                        constexpr double gap = 5.0;
-                        constexpr double dot = 2.0;
+                        const QPointF pattern_start = full_line.p1();
+                        const QPointF unit = (full_line.p2() - full_line.p1()) /
+                            total_length;
+                        // Keep the Python Sketcher-like dash-dot rhythm legible
+                        // at normal DPI. The former 10/5/2/5 pixel pattern was
+                        // visually compressed and almost looked continuous.
+                        constexpr double dash = 20.0;
+                        constexpr double gap = 10.0;
+                        constexpr double dot = 3.0;
                         constexpr double pattern = dash + gap + dot + gap;
                         double offset = 0.0;
                         while (offset < total_length) {
                             const double dash_end = std::min(offset + dash, total_length);
-                            draw_reference_segment(start + unit * offset,
-                                start + unit * dash_end, presentation_color, 1.5);
+                            draw_reference_segment(pattern_start + unit * offset,
+                                pattern_start + unit * dash_end,
+                                presentation_color, 1.5);
                             const double dot_start = std::min(offset + dash + gap, total_length);
                             const double dot_end = std::min(dot_start + dot, total_length);
                             if (dot_end > dot_start) {
-                                draw_reference_segment(start + unit * dot_start,
-                                    start + unit * dot_end, presentation_color, 1.5);
+                                draw_reference_segment(pattern_start + unit * dot_start,
+                                    pattern_start + unit * dot_end,
+                                    presentation_color, 1.5);
                             }
                             offset += pattern;
                         }
@@ -2332,8 +2441,8 @@ if (impl_->show_planes) {
                     // origin-indicator convention -- not permanently, so it
                     // does not clutter idle/default rendering.
                     if (exact_highlight) {
-                        draw_circular_marker(painter, project(axis.point),
-                            presentation_color, 3.0);
+                        draw_circular_marker(
+                            painter, project(axis.point), presentation_color);
                     }
                 }
                 if (origin) {
@@ -2368,6 +2477,14 @@ if (impl_->show_planes) {
         // even later, right below) is never hidden either.
         if (points_visible) {
             for (const auto& point : impl_->mesh.points) {
+                // In an inactive Sketch this point is deliberately visible
+                // only together with the whole-container hover/selection
+                // overlay below.  Construction/profile points retain their
+                // normal visibility rules.
+                if (point.reference.semantic_key ==
+                        "sketch:origin-marker" ||
+                    point.reference.semantic_key ==
+                        "container:origin-marker") continue;
                 const bool external = point.reference.semantic_key.starts_with(
                         "external_point:") &&
                     point.reference.semantic_key !=
@@ -2435,13 +2552,21 @@ if (impl_->show_planes) {
                         !creation_preview) {
                         continue;
                     }
+                    // A live work-plane preview is one visual object: its
+                    // rectangular border and its offset-origin point use the
+                    // same cyan preview colour in Plane, Sketch, Extrusion
+                    // and Revolution properties. The old purple exception
+                    // made the point look unrelated to its plane.
                     const QColor marker_color = plane_offset_preview
-                        ? QColor(190, 90, 255)
+                        ? QColor(0, 209, 255)
                         : selected
                         ? QColor(30, 220, 240)
                         : hovered ? QColor(255, 122, 0)
                         : (referenced || creation_preview)
                             ? QColor(0, 209, 255)
+                        : point.reference.semantic_key ==
+                                "external_point:sketch_origin"
+                            ? QColor(173, 110, 46)
                         : point.reference.semantic_key.starts_with("point:")
                             ? point.construction
                                 ? QColor(77, 216, 17)
@@ -2486,6 +2611,9 @@ if (impl_->show_planes) {
                 ? QColor(30, 220, 240) : QColor(255, 140, 12);
             const bool origin_group = highlighted->kind == CandidateKind::Container &&
                 highlighted->semantic_key == "origin";
+            const bool sketch_container =
+                highlighted->kind == CandidateKind::Container &&
+                highlighted->semantic_key == "sketch";
             // Datum planes are selected through their two hidden picking
             // triangles, but hover/confirmation must present the semantic
             // plane as its rectangular border. Never expose the triangulated
@@ -2526,6 +2654,54 @@ if (impl_->show_planes) {
                         draw_reference_segment(project(display_point(edge->points[index - 1])),
                             project(display_point(edge->points[index])), color, 1.5);
                     }
+                }
+            }
+            if (sketch_container) {
+                // The whole Sketch is the exact ordinary-mode candidate.
+                // Highlight its persisted ZIMA curves together, while
+                // active Sketcher still highlights individual entities via
+                // SketchSegment/SketchCurve candidates.
+                painter.setPen(QPen(color, 1.8, Qt::SolidLine, Qt::RoundCap));
+                painter.setBrush(color);
+                for (const auto& edge : impl_->mesh.edges) {
+                    if (edge.reference.owner_id != highlighted->owner_id ||
+                        edge.reference.instance_path !=
+                            highlighted->instance_path || edge.construction) continue;
+                    const auto& key = edge.reference.semantic_key;
+                    if (!key.starts_with("segment:") &&
+                        !key.starts_with("circle:") &&
+                        !key.starts_with("arc:") &&
+                        !key.starts_with("ellipse:") &&
+                        !key.starts_with("elliptical_arc:") &&
+                        !key.starts_with("bspline:") &&
+                        !key.starts_with("text:")) continue;
+                    for (std::size_t index = 1; index < edge.points.size(); ++index) {
+                        painter.drawLine(project(edge.points[index - 1]),
+                                         project(edge.points[index]));
+                    }
+                }
+                for (const auto& point : impl_->mesh.points) {
+                    if (point.reference.owner_id == highlighted->owner_id &&
+                        point.reference.instance_path ==
+                            highlighted->instance_path &&
+                        (point.reference.semantic_key.starts_with("point:") ||
+                         point.reference.semantic_key ==
+                            "sketch:origin-marker")) {
+                        draw_circular_marker(
+                            painter, project(point.position), color);
+                    }
+                }
+            }
+            if (highlighted->kind == CandidateKind::Container) {
+                for (const auto& point : impl_->mesh.points) {
+                    if (point.reference.semantic_key !=
+                            "container:origin-marker" ||
+                        point.reference.owner_id != highlighted->owner_id ||
+                        point.reference.instance_path !=
+                            highlighted->instance_path) continue;
+                    painter.setPen(QPen(color, 1.0));
+                    painter.setBrush(color);
+                    draw_circular_marker(painter, project(point.position), color);
                 }
             }
             if ((highlighted->kind == CandidateKind::Occurrence ||

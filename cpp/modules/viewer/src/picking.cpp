@@ -190,7 +190,12 @@ std::vector<AxisPickCandidate> ordered_axis_candidates(
             segment_length_squared * ray_length_squared - b * b;
         double segment_parameter = denominator > 1.0e-18
             ? (b * e - ray_length_squared * d) / denominator : 0.5;
-        segment_parameter = std::clamp(segment_parameter, 0.0, 1.0);
+        const bool infinite_sketch_axis =
+            axis.reference.semantic_key == "sketch_axis:x" ||
+            axis.reference.semantic_key == "sketch_axis:y";
+        if (!infinite_sketch_axis) {
+            segment_parameter = std::clamp(segment_parameter, 0.0, 1.0);
+        }
         const Vec3 segment_point = add_scaled(start, segment_direction, segment_parameter);
         double ray_parameter = dot(subtract(segment_point, ray_origin), ray_direction) /
             ray_length_squared;
@@ -211,14 +216,57 @@ std::vector<DimensionPickCandidate> ordered_dimension_candidates(
     const Vec3& ray_direction,
     double world_tolerance) {
     zima::kernel::ViewerMesh lines;
-    for (const auto& dimension : mesh.dimensions) {
+    std::vector<std::size_t> dimension_indices;
+    for (std::size_t index = 0; index < mesh.dimensions.size(); ++index) {
+        const auto& dimension = mesh.dimensions[index];
+        if (dimension.kind == zima::kernel::ViewerDimensionKind::Angular) {
+            const Vec3 vertex = dimension.witness_first;
+            const Vec3 radial = subtract(dimension.line_first, vertex);
+            const double normal_length = length(dimension.plane_normal);
+            if (length(radial) > 1.0e-12 && normal_length > 1.0e-12) {
+                const Vec3 normal{
+                    dimension.plane_normal.x / normal_length,
+                    dimension.plane_normal.y / normal_length,
+                    dimension.plane_normal.z / normal_length};
+                constexpr int samples = 48;
+                zima::kernel::ViewerEdge arc;
+                arc.reference = dimension.reference;
+                for (int sample = 0; sample <= samples; ++sample) {
+                    const double angle = dimension.sweep_degrees *
+                        3.14159265358979323846 / 180.0 * sample / samples;
+                    const auto perpendicular = cross(normal, radial);
+                    const double projection = dot(normal, radial);
+                    arc.points.push_back({
+                        vertex.x + radial.x * std::cos(angle) +
+                            perpendicular.x * std::sin(angle) +
+                            normal.x * projection * (1.0 - std::cos(angle)),
+                        vertex.y + radial.y * std::cos(angle) +
+                            perpendicular.y * std::sin(angle) +
+                            normal.y * projection * (1.0 - std::cos(angle)),
+                        vertex.z + radial.z * std::cos(angle) +
+                            perpendicular.z * std::sin(angle) +
+                            normal.z * projection * (1.0 - std::cos(angle))});
+                }
+                lines.edges.push_back(std::move(arc));
+                dimension_indices.push_back(index);
+                continue;
+            }
+        }
         lines.edges.push_back({
             {dimension.line_first, dimension.line_second}, dimension.reference});
+        dimension_indices.push_back(index);
     }
     std::vector<DimensionPickCandidate> result;
     for (const auto& candidate : ordered_edge_candidates(
             lines, ray_origin, ray_direction, world_tolerance)) {
-        result.push_back({candidate.edge, candidate.distance, candidate.reference});
+        if (candidate.edge >= dimension_indices.size()) continue;
+        const auto dimension_index = dimension_indices[candidate.edge];
+        if (std::none_of(result.begin(), result.end(), [&](const auto& existing) {
+                return existing.dimension == dimension_index;
+            })) {
+            result.push_back(
+                {dimension_index, candidate.distance, candidate.reference});
+        }
     }
     return result;
 }
@@ -374,6 +422,28 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
                                   edge.reference.owner_id, edge.reference.semantic_key,
                                   edge.reference.instance_path, geometry});
             }
+            const bool native_sketch_geometry =
+                kind == CandidateKind::SketchSegment ||
+                kind == CandidateKind::SketchCurve ||
+                kind == CandidateKind::SketchText;
+            if (native_sketch_geometry &&
+                std::none_of(result.begin(), result.end(),
+                    [&](const ViewerCandidate& candidate) {
+                        return candidate.kind == CandidateKind::Container &&
+                            candidate.semantic_key == "sketch" &&
+                            candidate.owner_id == edge.reference.owner_id &&
+                            candidate.instance_path ==
+                                edge.reference.instance_path &&
+                            candidate.geometry == geometry;
+                    })) {
+                // Outside Sketcher the same hit is offered as the complete
+                // Sketch leaf container. Active Sketcher contracts filter
+                // this candidate out and continue to consume the individual
+                // persisted geometry candidate above.
+                result.push_back({CandidateKind::Container, edge.distance,
+                    edge.edge, edge.reference.owner_id, "sketch",
+                    edge.reference.instance_path, geometry});
+            }
         }
         for (const auto& vertex : ordered_vertex_candidates(
                 source, ray_origin, ray_direction, world_tolerance)) {
@@ -388,6 +458,16 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
             result.push_back({kind, vertex.distance, vertex.point,
                               vertex.reference.owner_id, vertex.reference.semantic_key,
                               vertex.reference.instance_path, geometry});
+            if (vertex.reference.semantic_key ==
+                "container:origin-marker") {
+                // Clicking the characteristic origin dot confirms the same
+                // solid container as clicking its wire.  Point-taking
+                // commands can still consume the preceding exact Vertex
+                // candidate from this one common ordered list.
+                result.push_back({CandidateKind::Container, vertex.distance,
+                    vertex.point, vertex.reference.owner_id, "solid",
+                    vertex.reference.instance_path, geometry});
+            }
             // A construction Point is deliberately both a history container
             // and a persisted point reference. Ordinary selection offers the
             // container; point-taking commands filter the same ordered list
@@ -612,7 +692,24 @@ std::optional<ViewerCandidate> container_candidate(
     if (auto original_plane = find_plane(
             mesh.original_references.triangle_references,
             CandidateGeometry::OriginalReference)) return original_plane;
-    return find_plane(mesh.triangle_references, CandidateGeometry::Display);
+    if (auto display_plane = find_plane(
+            mesh.triangle_references, CandidateGeometry::Display)) {
+        return display_plane;
+    }
+    const auto sketch_edge = std::find_if(mesh.edges.begin(), mesh.edges.end(),
+        [&](const zima::kernel::ViewerEdge& edge) {
+            const auto& key = edge.reference.semantic_key;
+            return edge.reference.owner_id == owner_id &&
+                edge.reference.instance_path == instance_path &&
+                (key.starts_with("segment:") || key.starts_with("circle:") ||
+                 key.starts_with("arc:") || key.starts_with("ellipse:") ||
+                 key.starts_with("elliptical_arc:") ||
+                 key.starts_with("bspline:") || key.starts_with("text:"));
+        });
+    if (sketch_edge == mesh.edges.end()) return std::nullopt;
+    return ViewerCandidate{CandidateKind::Container, 0.0,
+        static_cast<std::size_t>(std::distance(mesh.edges.begin(), sketch_edge)),
+        owner_id, "sketch", instance_path, CandidateGeometry::Display};
 }
 
 }  // namespace zima::viewer

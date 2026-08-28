@@ -157,7 +157,6 @@ private:
     std::function<void(bool)> profile_pick_request_;
     std::function<void(zima::document::HistoryContainer)> edit_sketch_;
     std::function<void(const zima::document::HistoryContainer&)> preview_;
-    QComboBox* revolution_axis_{};
     QDoubleSpinBox* angle_{};
     QDoubleSpinBox* treatment_size_{};
     QLabel* edge_list_{};

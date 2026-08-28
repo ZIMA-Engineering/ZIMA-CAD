@@ -21,6 +21,7 @@
 #include <QPushButton>
 #include <QTabBar>
 #include <QToolBar>
+#include <QPushButton>
 #include <QVBoxLayout>
 
 #include <algorithm>
@@ -756,7 +757,8 @@ void DrawingWindow::create_actions() {
 
 void DrawingWindow::create_layout() {
     auto* central = new QWidget(this); auto* layout = new QVBoxLayout(central);
-    layout->setContentsMargins(4, 4, 4, 4);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
     sheets_ = new QTabBar(central); sheets_->setObjectName("drawingSheetTabs");
     sheets_->setExpanding(false);
     canvas_ = new DrawingCanvas(central); canvas_->setObjectName("drawingCanvas");
@@ -766,7 +768,79 @@ void DrawingWindow::create_layout() {
         update_action_states();
     });
     canvas_->set_selection_changed_callback([this] { update_action_states(); });
-    layout->addWidget(sheets_); layout->addWidget(canvas_, 1); layout->addWidget(state_);
+    auto* bottom = new QHBoxLayout;
+    bottom->setContentsMargins(6, 3, 6, 3);
+    auto* remove_sheet = new QPushButton(QStringLiteral("−"), central);
+    auto* add_sheet = new QPushButton(QStringLiteral("+"), central);
+    remove_sheet->setObjectName("drawingRemoveSheetButton");
+    add_sheet->setObjectName("drawingAddSheetButton");
+    remove_sheet->setFixedWidth(34); add_sheet->setFixedWidth(34);
+    connect(remove_sheet, &QPushButton::clicked, this, [this] { this->remove_sheet(); });
+    connect(add_sheet, &QPushButton::clicked, this, [this] { this->add_sheet(); });
+    lineweight_mode_ = new QComboBox(central);
+    lineweight_mode_->setObjectName("drawingLineweightMode");
+    lineweight_mode_->addItem(tr("Tenké čáry"));
+    lineweight_mode_->addItem(tr("Náhled tlouštěk"));
+    scale_numerator_ = new QDoubleSpinBox(central);
+    scale_denominator_ = new QDoubleSpinBox(central);
+    for (auto* spin : {scale_numerator_, scale_denominator_}) {
+        spin->setRange(1.0, 1000.0); spin->setDecimals(0); spin->setValue(1.0);
+    }
+    sheet_format_ = new QComboBox(central);
+    sheet_format_->setObjectName("drawingFormatCombo");
+    for (const auto* format : {"A4", "A3", "A2", "A1", "A0"})
+        sheet_format_->addItem(QString::fromLatin1(format));
+    auto* add_format = new QPushButton(tr("Přidat formát"), central);
+    auto* remove_format = new QPushButton(tr("Odebrat formát"), central);
+    auto* add_title = new QPushButton(tr("Přidat razítko"), central);
+    auto* remove_title = new QPushButton(tr("Odebrat razítko"), central);
+    projection_method_ = new QComboBox(central);
+    projection_method_->setObjectName("drawingProjectionMethodCombo");
+    projection_method_->addItem(tr("První kvadrant"));
+    projection_method_->addItem(tr("Třetí kvadrant"));
+    bottom->addWidget(sheets_, 1); bottom->addWidget(remove_sheet);
+    bottom->addWidget(add_sheet); bottom->addSpacing(16);
+    bottom->addWidget(new QLabel(tr("Tloušťky:"), central));
+    bottom->addWidget(lineweight_mode_);
+    bottom->addWidget(new QLabel(tr("Měřítko:"), central));
+    bottom->addWidget(scale_numerator_); bottom->addWidget(new QLabel(":"));
+    bottom->addWidget(scale_denominator_);
+    bottom->addWidget(new QLabel(tr("Formát:"), central));
+    bottom->addWidget(sheet_format_); bottom->addWidget(add_format);
+    bottom->addWidget(remove_format); bottom->addWidget(add_title);
+    bottom->addWidget(remove_title);
+    bottom->addWidget(new QLabel(tr("Promítání:"), central));
+    bottom->addWidget(projection_method_);
+    connect(add_format, &QPushButton::clicked, this, [this] { load_frame(); });
+    connect(remove_format, &QPushButton::clicked, this, [this] { remove_frame(); });
+    connect(add_title, &QPushButton::clicked, this, [this] { load_title_block(); });
+    connect(remove_title, &QPushButton::clicked, this, [this] { remove_title_block(); });
+    connect(sheet_format_, &QComboBox::currentIndexChanged, this, [this](int index) {
+        auto* sheet = active_sheet(); if (sheet == nullptr || index < 0) return;
+        const auto format = static_cast<zima::drawing::SheetFormat>(index);
+        if (sheet->format == format) return;
+        sheet->format = format; sheet->frame_lines.clear(); sheet->frame_texts.clear();
+        sheet->title_block_lines.clear(); sheet->title_block_texts.clear();
+        sheet->title_block_fields.clear(); refresh();
+    });
+    const auto change_scale = [this] {
+        auto* sheet = active_sheet(); if (sheet == nullptr) return;
+        sheet->default_scale = scale_numerator_->value() /
+            scale_denominator_->value(); canvas_->update(); sync_workspace_document();
+    };
+    connect(scale_numerator_, &QDoubleSpinBox::valueChanged, this,
+        [change_scale](double) { change_scale(); });
+    connect(scale_denominator_, &QDoubleSpinBox::valueChanged, this,
+        [change_scale](double) { change_scale(); });
+    connect(projection_method_, &QComboBox::currentIndexChanged, this,
+        [this](int index) {
+            auto* sheet = active_sheet(); if (sheet == nullptr || index < 0) return;
+            sheet->projection_method = index == 0
+                ? zima::drawing::ProjectionMethod::FirstAngle
+                : zima::drawing::ProjectionMethod::ThirdAngle;
+            sync_workspace_document();
+        });
+    layout->addWidget(canvas_, 1); layout->addLayout(bottom); layout->addWidget(state_);
     setCentralWidget(central);
     connect(sheets_, &QTabBar::currentChanged, this, [this] { refresh(); });
 }
@@ -1063,6 +1137,17 @@ void DrawingWindow::refresh() {
     sheets_->blockSignals(true); while (sheets_->count()) sheets_->removeTab(0);
     for (const auto& sheet : document_.sheets) sheets_->addTab(QString::fromStdString(sheet.name));
     sheets_->setCurrentIndex(wanted); sheets_->blockSignals(false); canvas_->set_sheet(active_sheet());
+    if (const auto* sheet = active_sheet()) {
+        const QSignalBlocker format_blocker(sheet_format_);
+        const QSignalBlocker projection_blocker(projection_method_);
+        const QSignalBlocker numerator_blocker(scale_numerator_);
+        const QSignalBlocker denominator_blocker(scale_denominator_);
+        sheet_format_->setCurrentIndex(static_cast<int>(sheet->format));
+        projection_method_->setCurrentIndex(
+            sheet->projection_method == zima::drawing::ProjectionMethod::FirstAngle ? 0 : 1);
+        scale_numerator_->setValue(1.0);
+        scale_denominator_->setValue(1.0 / std::max(sheet->default_scale, 0.001));
+    }
     const auto view_count = active_sheet() ? active_sheet()->views.size() : 0;
     state_->setText(view_count == 0
         ? tr("Nový výkres: použijte Vložit pohled a vyberte otevřený Part nebo sestavu.")
