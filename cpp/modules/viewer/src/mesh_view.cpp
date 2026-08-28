@@ -51,6 +51,96 @@ double screen_segment_distance(const QPointF& point, const QPointF& first,
     return QLineF(point, first + delta * parameter).length();
 }
 
+struct LinearDimensionLayout {
+    QPointF witness_first;
+    QPointF witness_second;
+    QPointF line_first;
+    QPointF line_second;
+    QPointF along;
+    QPointF first_tail;
+    QPointF second_tail;
+    QPointF leader_start;
+    QPointF leader_end;
+    QPointF text_baseline;
+};
+
+template <typename Project>
+LinearDimensionLayout linear_dimension_layout(
+    const zima::kernel::ViewerDimension& dimension,
+    const zima::kernel::ViewerMesh& mesh, Project&& project) {
+    LinearDimensionLayout result;
+    result.witness_first = project(dimension.witness_first);
+    result.witness_second = project(dimension.witness_second);
+    result.line_first = project(dimension.line_first);
+    result.line_second = project(dimension.line_second);
+    QPointF direction = result.line_second - result.line_first;
+    double length = std::hypot(direction.x(), direction.y());
+    if (length <= 1.0e-6 &&
+        dimension.reference.semantic_key.starts_with(
+            "parameter:reference_offset:")) {
+        const zima::kernel::Vec3 direction_tip{
+            dimension.line_second.x + dimension.plane_normal.x,
+            dimension.line_second.y + dimension.plane_normal.y,
+            dimension.line_second.z + dimension.plane_normal.z};
+        direction = project(direction_tip) - result.line_second;
+        length = std::hypot(direction.x(), direction.y());
+    }
+    if (length <= 1.0e-6) {
+        char axis_name = '\0';
+        if (dimension.label_prefix.starts_with("X")) axis_name = 'x';
+        else if (dimension.label_prefix.starts_with("Y")) axis_name = 'y';
+        else if (dimension.label_prefix.starts_with("Z")) axis_name = 'z';
+        const zima::kernel::ViewerAxis* exact_axis{};
+        const zima::kernel::ViewerAxis* nearest_axis{};
+        double exact_distance = std::numeric_limits<double>::infinity();
+        double nearest_distance = std::numeric_limits<double>::infinity();
+        for (const auto& candidate : mesh.axes) {
+            if (axis_name == '\0' ||
+                candidate.reference.instance_path !=
+                    dimension.reference.instance_path) continue;
+            const std::string suffix = std::string("axis:") + axis_name;
+            if (!candidate.reference.semantic_key.ends_with(suffix)) continue;
+            const double dx = candidate.point.x - dimension.witness_second.x;
+            const double dy = candidate.point.y - dimension.witness_second.y;
+            const double dz = candidate.point.z - dimension.witness_second.z;
+            const double distance = dx * dx + dy * dy + dz * dz;
+            if (candidate.reference.owner_id == dimension.reference.owner_id &&
+                distance < exact_distance) {
+                exact_axis = &candidate;
+                exact_distance = distance;
+            }
+            if (distance < nearest_distance) {
+                nearest_axis = &candidate;
+                nearest_distance = distance;
+            }
+        }
+        const auto* axis = exact_axis != nullptr ? exact_axis : nearest_axis;
+        if (axis != nullptr) {
+            const zima::kernel::Vec3 direction_tip{
+                dimension.line_second.x + axis->direction.x,
+                dimension.line_second.y + axis->direction.y,
+                dimension.line_second.z + axis->direction.z};
+            direction = project(direction_tip) - result.line_second;
+            length = std::hypot(direction.x(), direction.y());
+        }
+    }
+    if (length <= 1.0e-6) {
+        const QPointF witness_direction =
+            result.witness_second - result.witness_first;
+        direction = {-witness_direction.y(), witness_direction.x()};
+        length = std::hypot(direction.x(), direction.y());
+    }
+    result.along = length > 1.0e-6
+        ? direction / length : QPointF{1.0, 0.0};
+    result.first_tail = result.line_first - result.along * 17.0;
+    result.second_tail = result.line_second + result.along * 17.0;
+    result.leader_start = result.first_tail.x() > result.second_tail.x()
+        ? result.first_tail : result.second_tail;
+    result.leader_end = result.leader_start + QPointF(30.0, 0.0);
+    result.text_baseline = result.leader_end + QPointF(4.0, 0.0);
+    return result;
+}
+
 bool is_screen_constant_plane(const std::string& semantic_key) {
     return semantic_key == "border" ||
         semantic_key.starts_with("origin:plane:");
@@ -210,6 +300,7 @@ struct MeshView::Impl {
     // instead of a hard jump cut.
     QVariantAnimation* camera_animation{};
     DisplayMode display_mode{DisplayMode::ShadedWithEdges};
+    int dimension_decimal_places{3};
     bool show_origins{true};
     bool show_points{true};
     bool show_axes{true};
@@ -370,6 +461,15 @@ void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
     update();
 }
 
+void MeshView::set_dimension_decimal_places(int decimal_places) {
+    impl_->dimension_decimal_places = std::clamp(decimal_places, 0, 12);
+    update();
+}
+
+int MeshView::dimension_decimal_places() const {
+    return impl_->dimension_decimal_places;
+}
+
 std::array<float, 8> MeshView::camera_state() const {
     return {impl_->orientation.scalar(), impl_->orientation.x(),
             impl_->orientation.y(), impl_->orientation.z(), impl_->view_scale,
@@ -482,20 +582,15 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
         const QPointF line_first = project(dimension.line_first);
         const QPointF line_second = project(dimension.line_second);
         const QString text = QString::fromStdString(dimension.label_prefix) +
-            QString::number(dimension.value, 'f', 3) +
+            QString::number(dimension.value, 'f',
+                impl_->dimension_decimal_places) +
             QString::fromStdString(dimension.unit_suffix);
         QPointF text_anchor = line_second + QPointF(12.0, 0.0);
+        std::optional<LinearDimensionLayout> linear_layout;
         if (dimension.kind == zima::kernel::ViewerDimensionKind::Linear) {
-            const QPointF vector = line_second - line_first;
-            const double length = std::hypot(vector.x(), vector.y());
-            if (length > 1.0e-6) {
-                const QPointF along = vector / length;
-                const QPointF first_tail = line_first - along * 17.0;
-                const QPointF second_tail = line_second + along * 17.0;
-                const QPointF leader_start = first_tail.x() > second_tail.x()
-                    ? first_tail : second_tail;
-                text_anchor = leader_start + QPointF(34.0, 0.0);
-            }
+            linear_layout = linear_dimension_layout(
+                dimension, impl_->mesh, project);
+            text_anchor = linear_layout->text_baseline;
         } else if (dimension.kind == zima::kernel::ViewerDimensionKind::Radius ||
                    dimension.kind == zima::kernel::ViewerDimensionKind::Diameter) {
             QPointF outward = witness_second - witness_first;
@@ -525,10 +620,21 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
         QRectF text_bounds = metrics.boundingRect(text);
         text_bounds.moveTopLeft(text_anchor + QPointF(0.0, -metrics.ascent()));
         text_bounds.adjust(-hit_radius, -hit_radius, hit_radius, hit_radius);
-        const bool hit = text_bounds.contains(position) ||
+        bool hit = text_bounds.contains(position) ||
             screen_segment_distance(position, witness_first, line_first) <= hit_radius ||
             screen_segment_distance(position, witness_second, line_second) <= hit_radius ||
             screen_segment_distance(position, line_first, line_second) <= hit_radius;
+        if (linear_layout) {
+            hit = hit ||
+                screen_segment_distance(position,
+                    linear_layout->line_first - linear_layout->along * 10.0,
+                    linear_layout->first_tail) <= hit_radius ||
+                screen_segment_distance(position,
+                    linear_layout->line_second + linear_layout->along * 10.0,
+                    linear_layout->second_tail) <= hit_radius ||
+                screen_segment_distance(position, linear_layout->leader_start,
+                    linear_layout->leader_end) <= hit_radius;
+        }
         if (!hit) continue;
         std::erase_if(candidates, [index](const auto& candidate) {
             return candidate.kind == CandidateKind::Dimension &&
@@ -956,7 +1062,8 @@ std::optional<QPoint> MeshView::candidate_dimension_label_position(
             (1.0F - clip.y()) * height() / 2.0F);
     };
     const QString text = QString::fromStdString(dimension.label_prefix) +
-        QString::number(dimension.value, 'f', 3) +
+        QString::number(dimension.value, 'f',
+                impl_->dimension_decimal_places) +
         QString::fromStdString(dimension.unit_suffix);
     const QFontMetricsF metrics(font());
     QPointF baseline;
@@ -990,17 +1097,8 @@ std::optional<QPoint> MeshView::candidate_dimension_label_position(
         baseline = shoulder + QPointF(
             side > 0.0 ? 2.0 : -metrics.horizontalAdvance(text) - 2.0, 5.0);
     } else {
-        const QPointF line_first = project(dimension.line_first);
-        const QPointF line_second = project(dimension.line_second);
-        const QPointF vector = line_second - line_first;
-        const double length = std::hypot(vector.x(), vector.y());
-        if (length <= 1.0e-6) return std::nullopt;
-        const QPointF along = vector / length;
-        const QPointF first_tail = line_first - along * 17.0;
-        const QPointF second_tail = line_second + along * 17.0;
-        const QPointF leader_start = first_tail.x() > second_tail.x()
-            ? first_tail : second_tail;
-        baseline = leader_start + QPointF(34.0, 0.0);
+        baseline = linear_dimension_layout(
+            dimension, impl_->mesh, project).text_baseline;
     }
     return QPointF(baseline.x() + metrics.horizontalAdvance(text) * 0.5,
                    baseline.y() - (metrics.ascent() - metrics.descent()) * 0.5)
@@ -1203,7 +1301,11 @@ double MeshView::world_tolerance_for_pixels(double pixels) const {
 
 void MeshView::notify_confirmation() {
     if (impl_->confirmed_candidate && impl_->confirmation_callback) {
-        impl_->confirmation_callback(*impl_->confirmed_candidate);
+        // Confirmation handlers may immediately change the selection contract
+        // or rebuild the scene. Both operations clear confirmed_candidate, so
+        // never expose a reference into that optional to the callback.
+        const ViewerCandidate candidate = *impl_->confirmed_candidate;
+        impl_->confirmation_callback(candidate);
     }
 }
 
@@ -2620,7 +2722,8 @@ if (impl_->show_planes) {
                 painter.setBrush(color);
                 const QString text =
                     QString::fromStdString(dimension.label_prefix) +
-                    QString::number(dimension.value, 'f', 3) +
+                    QString::number(dimension.value, 'f',
+                impl_->dimension_decimal_places) +
                     QString::fromStdString(dimension.unit_suffix);
                 constexpr double arrow_length = 10.0;
                 constexpr double arrow_half_width = 1.763269807;
@@ -2708,31 +2811,21 @@ if (impl_->show_planes) {
                     painter.setBrush(Qt::NoBrush);
                     continue;
                 }
-                const QPointF witness_first = project(dimension.witness_first);
-                const QPointF witness_second = project(dimension.witness_second);
-                const QPointF line_first = project(dimension.line_first);
-                const QPointF line_second = project(dimension.line_second);
-                painter.drawLine(witness_first, line_first);
-                painter.drawLine(witness_second, line_second);
-                painter.drawLine(line_first, line_second);
-                const QPointF vector = line_second - line_first;
-                const double line_length = std::hypot(vector.x(), vector.y());
-                if (line_length > 1.0e-6) {
-                    const QPointF along = vector / line_length;
-                    painter.drawPolygon(arrow(line_first, along));
-                    painter.drawPolygon(arrow(line_second, -along));
-                    const QPointF first_tail =
-                        line_first - along * (arrow_length + tail_length);
-                    const QPointF second_tail =
-                        line_second + along * (arrow_length + tail_length);
-                    painter.drawLine(line_first - along * arrow_length, first_tail);
-                    painter.drawLine(line_second + along * arrow_length, second_tail);
-                    const QPointF leader_start =
-                        first_tail.x() > second_tail.x() ? first_tail : second_tail;
-                    const QPointF leader_end = leader_start + QPointF(30.0, 0.0);
-                    painter.drawLine(leader_start, leader_end);
-                    painter.drawText(leader_end + QPointF(4.0, 0.0), text);
-                }
+                const auto layout = linear_dimension_layout(
+                    dimension, impl_->mesh, project);
+                painter.drawLine(layout.witness_first, layout.line_first);
+                painter.drawLine(layout.witness_second, layout.line_second);
+                painter.drawLine(layout.line_first, layout.line_second);
+                painter.drawPolygon(arrow(layout.line_first, layout.along));
+                painter.drawPolygon(arrow(layout.line_second, -layout.along));
+                painter.drawLine(
+                    layout.line_first - layout.along * arrow_length,
+                    layout.first_tail);
+                painter.drawLine(
+                    layout.line_second + layout.along * arrow_length,
+                    layout.second_tail);
+                painter.drawLine(layout.leader_start, layout.leader_end);
+                painter.drawText(layout.text_baseline, text);
                 painter.setBrush(Qt::NoBrush);
             }
         }

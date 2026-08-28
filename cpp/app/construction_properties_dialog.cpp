@@ -42,7 +42,7 @@ QString readable_reference_kind(const std::string& semantic) {
 
 ConstructionPropertiesDialog::ConstructionPropertiesDialog(
     const zima::document::ConstructionObject& initial, bool edit_mode,
-    CommitCallback commit, QWidget* parent)
+    CommitCallback commit, QWidget* parent, int decimal_places)
     : PropertiesSubWindow(
           initial.kind == zima::document::ConstructionKind::Point
               ? tr("Bod")
@@ -92,10 +92,12 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
         : initial.kind == zima::document::ConstructionKind::Axis ? 1 : 2);
     container_type->setEnabled(false);
     form->addRow(tr("Typ kontejneru"), container_type);
-    const auto field = [this](double value, const char* name, const QString& suffix) {
+    const int precision = std::clamp(decimal_places, 0, 12);
+    const auto field = [this, precision](
+            double value, const char* name, const QString& suffix) {
         auto* result = new QDoubleSpinBox(this);
         result->setRange(-1'000'000.0, 1'000'000.0);
-        result->setDecimals(3);
+        result->setDecimals(precision);
         result->setSingleStep(1.0);
         result->setSuffix(suffix);
         result->setObjectName(name);
@@ -118,7 +120,8 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
         this, content_layout(),
         /*with_orientation=*/true,
         /*position_rows_can_define_rotation=*/
-            initial.kind != zima::document::ConstructionKind::Point);
+            initial.kind != zima::document::ConstructionKind::Point,
+        precision);
     zima::document::Placement numeric;
     numeric.x = initial.origin.x; numeric.y = initial.origin.y; numeric.z = initial.origin.z;
     const auto initial_absolute = initial.absolute_rotation;
@@ -416,6 +419,32 @@ void ConstructionPropertiesDialog::set_translation_constraint_state(
             origin_[index]->setValue(values[index]);
         }
     }
+}
+
+bool ConstructionPropertiesDialog::set_inline_parameter_value(
+    std::string_view key, double value) {
+    const auto set_field = [value](QDoubleSpinBox* field) {
+        if (field == nullptr || !field->isEnabled() || !field->isVisible())
+            return false;
+        field->setValue(value);
+        return true;
+    };
+    if (key == "x") return set_field(origin_[0]);
+    if (key == "y") return set_field(origin_[1]);
+    if (key == "z") return set_field(origin_[2]);
+    if (key == "offset") return set_field(offset_);
+    if (key == "length") return set_field(display_size_);
+    constexpr std::string_view prefix{"reference_offset:"};
+    if (!key.starts_with(prefix)) return false;
+    const auto suffix = key.substr(prefix.size());
+    if (suffix.empty()) return false;
+    std::size_t index{};
+    for (const char digit : suffix) {
+        if (digit < '0' || digit > '9') return false;
+        index = index * 10 + static_cast<std::size_t>(digit - '0');
+    }
+    return placement_ != nullptr &&
+        placement_->set_reference_offset(index, value);
 }
 
 void ConstructionPropertiesDialog::refresh_definition_fields() {

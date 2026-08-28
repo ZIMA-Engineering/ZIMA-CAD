@@ -43,10 +43,11 @@ QString readable_reference_kind(const std::string& semantic) {
 
 ContainerPlacementSection::ContainerPlacementSection(
     QWidget* parent_widget, QVBoxLayout* layout, bool with_orientation,
-    bool position_rows_can_define_rotation)
+    bool position_rows_can_define_rotation, int decimal_places)
     : QObject(parent_widget), parent_widget_(parent_widget),
       with_orientation_(with_orientation),
-      position_rows_can_define_rotation_(position_rows_can_define_rotation) {
+      position_rows_can_define_rotation_(position_rows_can_define_rotation),
+      decimal_places_(std::clamp(decimal_places, 0, 12)) {
     // A section without its own orientation table (e.g. Point) never has
     // set_remaining_rotation_dof() called on it by its owning dialog -- the
     // member's {3} default initializer would then permanently keep
@@ -143,7 +144,7 @@ ContainerPlacementSection::ContainerPlacementSection(
         auto* input = new QDoubleSpinBox(parent_widget_);
         input->setRange(angular ? -360'000.0 : -1'000'000.0,
                         angular ? 360'000.0 : 1'000'000.0);
-        input->setDecimals(3);
+        input->setDecimals(decimal_places_);
         input->setSingleStep(angular ? 5.0 : 1.0);
         input->setSuffix(angular ? tr(" deg") : tr(" mm"));
         input->setObjectName(object_name);
@@ -644,6 +645,7 @@ void ContainerPlacementSection::refresh_reference_table() {
     if (reference_table_ == nullptr) return;
     reference_items_.fill(nullptr);
     reference_indicators_.fill(nullptr);
+    reference_offset_fields_.fill(nullptr);
     highlighted_reference_rows_.clear();
     reference_table_->setRowCount(0);
     // Offer another empty row whenever ANY degree of freedom (position OR
@@ -680,7 +682,7 @@ void ContainerPlacementSection::refresh_reference_table() {
 
         auto* offset = new QDoubleSpinBox(reference_table_);
         offset->setRange(-1'000'000'000.0, 1'000'000'000.0);
-        offset->setDecimals(3);
+        offset->setDecimals(decimal_places_);
         offset->setSuffix(QStringLiteral(" mm"));
         if (populated) {
             reference->set_reference(
@@ -704,9 +706,26 @@ void ContainerPlacementSection::refresh_reference_table() {
             reference->set_placeholder_style(palette.color(QPalette::Mid));
             offset->setEnabled(false);
         }
+        reference_offset_fields_[index] = offset;
         reference_table_->setCellWidget(static_cast<int>(index), 2, offset);
         zima::ui::set_reference_row_populated(indicator, populated);
     }
+}
+
+bool ContainerPlacementSection::set_reference_offset(
+    std::size_t populated_index, double value) {
+    std::size_t current{};
+    for (std::size_t row = 0; row < references_.size() &&
+            row < reference_offset_fields_.size(); ++row) {
+        if (references_[row].owner_id.empty() &&
+            references_[row].semantic_key.empty()) continue;
+        if (current++ != populated_index) continue;
+        auto* field = reference_offset_fields_[row];
+        if (field == nullptr || !field->isEnabled()) return false;
+        field->setValue(value);
+        return true;
+    }
+    return false;
 }
 
 void ContainerPlacementSection::refresh_orientation_table() {

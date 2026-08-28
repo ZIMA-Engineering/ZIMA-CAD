@@ -166,6 +166,24 @@ int main() {
                     axis_contract.front().kind == zima::viewer::CandidateKind::Axis &&
                     axis_contract.front().instance_path == "4:part",
                 "Axis selection contract left the common candidate list");
+        zima::kernel::ViewerMesh sketch_origin_priority_mesh;
+        sketch_origin_priority_mesh.points.push_back({
+            {0.0, 0.0, 5.001},
+            {"sketch", "external_point:sketch_origin"}});
+        sketch_origin_priority_mesh.axes.push_back({
+            {0.0, 0.0, 5.0}, {1.0, 0.0, 0.0}, 10.0,
+            {"sketch", "sketch_axis:x"}});
+        const auto sketch_origin_priority = zima::viewer::filter_candidates(
+            zima::viewer::ordered_viewer_candidates(sketch_origin_priority_mesh,
+                {0.0, 0.0, 0.0}, {0.0, 0.0, 1.0}, 0.01),
+            {zima::viewer::CandidateKind::SketchExternalReference,
+             zima::viewer::CandidateKind::SketchAxis});
+        require(sketch_origin_priority.size() == 2 &&
+                    sketch_origin_priority.front().kind ==
+                        zima::viewer::CandidateKind::SketchExternalReference &&
+                    sketch_origin_priority.front().semantic_key ==
+                        "external_point:sketch_origin",
+                "Sketch origin point did not take stable priority over its axes");
         mesh.dimensions.push_back({
             {-1.0, 0.0, 5.0}, {1.0, 0.0, 5.0},
             {-1.0, 1.0, 5.0}, {1.0, 1.0, 5.0}, 2.0,

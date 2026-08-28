@@ -246,6 +246,56 @@ int main(int argc, char* argv[]) {
         require(empty_selection_callbacks == 1,
                 "Empty LMB click did not notify tree/view selection clearing");
 
+        zima::kernel::ViewerMesh zero_dimension_mesh;
+        zero_dimension_mesh.axes.push_back({
+            {0.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, 20.0,
+            {"sketch", "sketch_axis:y", {}}});
+        zero_dimension_mesh.dimensions.push_back({
+            {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0},
+            {15.0, 0.0, 0.0}, {15.0, 0.0, 0.0}, 0.0,
+            {"sketch", "dimension:zero-y", {}}, "Y "});
+        zima::viewer::MeshView zero_dimension_view(&parent);
+        zero_dimension_view.set_dimension_decimal_places(5);
+        require(zero_dimension_view.dimension_decimal_places() == 5,
+                "MeshView did not retain the document dimension precision");
+        zero_dimension_view.set_dimension_decimal_places(99);
+        require(zero_dimension_view.dimension_decimal_places() == 12,
+                "MeshView did not clamp unsafe dimension precision");
+        zero_dimension_view.set_dimension_decimal_places(2);
+        zero_dimension_view.setGeometry(0, 0, 500, 360);
+        zero_dimension_view.set_mesh(std::move(zero_dimension_mesh));
+        zero_dimension_view.show();
+        application.processEvents();
+        zero_dimension_view.confirm_reference("sketch", "dimension:zero-y", {},
+            zima::viewer::CandidateKind::Dimension);
+        const auto zero_dimension_candidate =
+            zero_dimension_view.confirmed_candidate();
+        const auto zero_dimension_label = zero_dimension_candidate
+            ? zero_dimension_view.candidate_dimension_label_position(
+                  *zero_dimension_candidate)
+            : std::nullopt;
+        require(zero_dimension_label.has_value(),
+                "Zero-valued point dimension lost its numeric label position");
+        int zero_dimension_edits{};
+        zero_dimension_view.set_selection_contract(
+            {zima::viewer::CandidateKind::Dimension});
+        zero_dimension_view.set_double_confirmation_callback(
+            [&](const auto& candidate) {
+                if (candidate.kind == zima::viewer::CandidateKind::Dimension &&
+                    candidate.semantic_key == "dimension:zero-y") {
+                    ++zero_dimension_edits;
+                }
+            });
+        QMouseEvent zero_dimension_double_click(
+            QEvent::MouseButtonDblClick, QPointF(*zero_dimension_label),
+            QPointF(*zero_dimension_label), QPointF(*zero_dimension_label),
+            Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(
+            &zero_dimension_view, &zero_dimension_double_click);
+        application.processEvents();
+        require(zero_dimension_edits == 1,
+                "Zero-valued point dimension label could not be double-click edited");
+
         auto cylinder_initial =
             zima::document::PartDocument::create_cylinder_container();
         int cylinder_commits = 0;
@@ -805,7 +855,7 @@ int main(int argc, char* argv[]) {
             point_initial, false,
             [&](zima::document::ConstructionObject value) {
                 committed_point = std::move(value);
-            }, &parent);
+            }, &parent, 2);
         construction_point_dialog->set_reference_request_callback(
             [&](std::size_t index) { requested_point_reference = index; });
         construction_point_dialog->show();
@@ -846,8 +896,30 @@ int main(int argc, char* argv[]) {
             construction_point_dialog->findChild<QTableWidget*>(
                 "constructionReferenceTable")->cellWidget(0, 2));
         require(construction_point_offset != nullptr &&
-                    construction_point_offset->isEnabled(),
-                "Point Properties did not enable offset for a planar reference");
+                    construction_point_offset->isEnabled() &&
+                    point_x->decimals() == 2 &&
+                    construction_point_offset->decimals() == 2,
+                "Point Properties did not apply document precision to its fields");
+        std::optional<zima::document::ConstructionObject> inline_point_preview;
+        construction_point_dialog->set_preview_callback(
+            [&](zima::document::ConstructionObject value) {
+                inline_point_preview = std::move(value);
+            });
+        require(construction_point_dialog->set_inline_parameter_value(
+                    "x", 4.126) &&
+                    std::abs(point_x->value() - 4.13) < 1.0e-9 &&
+                    inline_point_preview.has_value() &&
+                    std::abs(inline_point_preview->origin.x - 4.13) < 1.0e-9 &&
+                    construction_point_dialog->set_inline_parameter_value(
+                        "reference_offset:0", 12.346) &&
+                    std::abs(construction_point_offset->value() - 12.35) < 1.0e-9 &&
+                    inline_point_preview.has_value() &&
+                    std::abs(inline_point_preview->references.front().offset -
+                        12.35) < 1.0e-9 &&
+                    !construction_point_dialog->set_inline_parameter_value(
+                        "z", 99.0),
+                "Inline Point dimension edit did not update the matching live "
+                "dialog value and preview at document precision");
         construction_point_offset->setValue(17.0);
         require(construction_point_dialog->findChild<QTableWidget*>(
                     "constructionReferenceTable")->rowCount() == 2,

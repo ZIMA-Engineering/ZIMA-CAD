@@ -3323,6 +3323,85 @@ PointConstraintState point_constraint_state(
     return state;
 }
 
+std::vector<zima::kernel::ViewerDimension> construction_point_dimensions(
+    const ConstructionObject& object,
+    const zima::kernel::ViewerReferenceGeometry& geometry) {
+    std::vector<zima::kernel::ViewerDimension> result;
+    if (object.kind != ConstructionKind::Point) return result;
+
+    const auto state = point_constraint_state(object.references, geometry);
+    const auto append = [&](std::string semantic, std::string label,
+            zima::kernel::Vec3 witness_first,
+            zima::kernel::Vec3 witness_second,
+            zima::kernel::Vec3 line_offset, double value,
+            std::vector<std::string> participants = {}) {
+        result.push_back({witness_first, witness_second,
+            {witness_first.x + line_offset.x,
+             witness_first.y + line_offset.y,
+             witness_first.z + line_offset.z},
+            {witness_second.x + line_offset.x,
+             witness_second.y + line_offset.y,
+             witness_second.z + line_offset.z},
+            value, {object.id, std::move(semantic), {}}, std::move(label),
+            " mm", std::move(participants)});
+    };
+
+    if (!state.constrained_axes[0]) {
+        append("parameter:x", "X = ", {}, {object.origin.x, 0.0, 0.0},
+            {0.0, -8.0, 0.0}, object.origin.x);
+    }
+    if (!state.constrained_axes[1]) {
+        append("parameter:y", "Y = ", {object.origin.x, 0.0, 0.0},
+            {object.origin.x, object.origin.y, 0.0},
+            {8.0, 0.0, 0.0}, object.origin.y);
+    }
+    if (!state.constrained_axes[2]) {
+        append("parameter:z", "Z = ",
+            {object.origin.x, object.origin.y, 0.0}, object.origin,
+            {8.0, 0.0, 0.0}, object.origin.z);
+    }
+
+    std::size_t position_index{};
+    for (const auto& reference : object.references) {
+        if (reference.orientation_only ||
+            (reference.owner_id.empty() && reference.semantic_key.empty())) {
+            continue;
+        }
+        const std::size_t current_index = position_index++;
+        if (current_index >= 3 || !reference.supports_offset) continue;
+        const auto plane = placement_reference_plane(reference, geometry);
+        if (!plane) continue;
+
+        const auto normal = plane->normal;
+        const zima::kernel::Vec3 plane_point{
+            object.origin.x - normal.x * reference.offset,
+            object.origin.y - normal.y * reference.offset,
+            object.origin.z - normal.z * reference.offset};
+        const std::array magnitudes{
+            std::abs(normal.x), std::abs(normal.y), std::abs(normal.z)};
+        const std::size_t axis = magnitudes[1] > magnitudes[0]
+            ? (magnitudes[2] > magnitudes[1] ? 2 : 1)
+            : (magnitudes[2] > magnitudes[0] ? 2 : 0);
+        const std::array labels{
+            std::string{"X = "}, std::string{"Y = "}, std::string{"Z = "}};
+        const std::array offsets{
+            zima::kernel::Vec3{0.0, -8.0, 0.0},
+            zima::kernel::Vec3{8.0, 0.0, 0.0},
+            // Keep a Z dimension in the XZ plane instead of placing it in an
+            // oblique plane produced by a simultaneous X and Y displacement.
+            zima::kernel::Vec3{8.0, 0.0, 0.0}};
+        append("parameter:reference_offset:" +
+                std::to_string(current_index),
+            labels[axis], plane_point, object.origin, offsets[axis],
+            reference.offset, {reference.semantic_key});
+        // Preserve the exact reference normal for a zero offset. Its witness
+        // points coincide, so the viewer cannot infer the dimension direction
+        // from their difference; this vector keeps an XY offset on Z, etc.
+        result.back().plane_normal = normal;
+    }
+    return result;
+}
+
 int point_constraint_remaining_dof(
     const std::vector<ConstructionReference>& references,
     const zima::kernel::ViewerReferenceGeometry& geometry) {

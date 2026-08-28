@@ -59,6 +59,8 @@ public:
     explicit MeshView(QWidget* parent = nullptr);
     ~MeshView() override;
     void set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view = true);
+    void set_dimension_decimal_places(int decimal_places);
+    [[nodiscard]] int dimension_decimal_places() const;
     [[nodiscard]] std::array<float, 8> camera_state() const;
     void set_camera_state(const std::array<float, 8>& state);
     // Animates a full camera-state restore (orientation, pan, zoom),

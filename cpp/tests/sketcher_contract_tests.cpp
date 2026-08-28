@@ -27,6 +27,31 @@ int main() {
         }
         require(generated_ids.size() == 1024,
                 "Rapid Sketch ID generation produced a collision");
+        for (const auto plane : {zima::sketcher::SketchPlane::XY,
+                                 zima::sketcher::SketchPlane::XZ,
+                                 zima::sketcher::SketchPlane::YZ}) {
+            for (const double normal_displacement : {-7.25, 4.5}) {
+                auto original_plane = zima::sketcher::Sketch::create_default();
+                original_plane.plane = plane;
+                original_plane.plane_offset = 3.0;
+                original_plane.refresh_default_frame();
+                auto moved_plane = original_plane;
+                moved_plane.plane_offset +=
+                    zima::sketcher::plane_offset_delta_for_normal_displacement(
+                        plane, normal_displacement);
+                moved_plane.refresh_default_frame();
+                const zima::kernel::Vec3 movement{
+                    moved_plane.resolved_origin.x - original_plane.resolved_origin.x,
+                    moved_plane.resolved_origin.y - original_plane.resolved_origin.y,
+                    moved_plane.resolved_origin.z - original_plane.resolved_origin.z};
+                const double movement_along_normal =
+                    movement.x * original_plane.resolved_normal.x +
+                    movement.y * original_plane.resolved_normal.y +
+                    movement.z * original_plane.resolved_normal.z;
+                require(std::abs(movement_along_normal - normal_displacement) < 1.0e-9,
+                        "Plane-offset drag moved opposite to the Sketch normal");
+            }
+        }
         require(zima::sketcher::classify_linear_dimension(
                     {0.0, 0.0}, {10.0, 6.0}, {5.0, 3.0}) ==
                     DimensionKind::Distance,
@@ -786,6 +811,19 @@ int main() {
                     std::abs((*yz_hit)[1] - 7.0) < 1.0e-9 &&
                     !sketch.intersect_ray({10.0, 4.0, 7.0}, {0.0, 1.0, 0.0}),
                 "YZ viewer ray projection or parallel-ray rejection is invalid");
+        auto placed_sketch = zima::sketcher::Sketch::create_default();
+        placed_sketch.owner_container_id = "placed-sketch";
+        placed_sketch.resolved_origin = {2.0, 3.0, 4.0};
+        placed_sketch.resolved_x_axis = {1.0, 0.0, 0.0};
+        placed_sketch.resolved_y_axis = {0.0, 0.0, 1.0};
+        placed_sketch.resolved_normal = {0.0, -1.0, 0.0};
+        const auto [snap_origin, snap_direction] =
+            placed_sketch.normal_ray(4.0, 7.0);
+        const auto placed_snap = placed_sketch.intersect_ray(
+            snap_origin, snap_direction);
+        require(placed_snap && std::abs((*placed_snap)[0] - 4.0) < 1.0e-9 &&
+                    std::abs((*placed_snap)[1] - 7.0) < 1.0e-9,
+                "Sketch snap ray ignored the resolved placed-plane normal");
         auto conflict = sketch;
         conflict.points.back().fixed = true;
         conflict.points.back().x = 5.0;
@@ -916,8 +954,14 @@ int main() {
         axis_dimensioned.apply_dimension(from_x_axis);
         require(std::abs(axis_dimensioned.find_point(axis_point)->x - 9.0) < 1.0e-7 &&
                     std::abs(axis_dimensioned.find_point(axis_point)->y + 7.0) < 1.0e-7 &&
-                    axis_dimensioned.viewer_mesh().dimensions.size() == 2,
-                "Point-to-Sketch-axis dimensions did not drive both coordinates");
+                    axis_dimensioned.viewer_mesh().dimensions.size() == 2 &&
+                    axis_dimensioned.dimensions[0].first_point_id == axis_point &&
+                    axis_dimensioned.dimensions[0].second_point_id.empty() &&
+                    axis_dimensioned.dimensions[0].geometry_id == "sketch_axis:y" &&
+                    axis_dimensioned.dimensions[1].first_point_id == axis_point &&
+                    axis_dimensioned.dimensions[1].second_point_id.empty() &&
+                    axis_dimensioned.dimensions[1].geometry_id == "sketch_axis:x",
+                "Point-to-Sketch-axis dimensions did not preserve their exact axes");
         const auto edited_axis_dimension_id = axis_dimensioned.dimensions.front().id;
         require(axis_dimensioned.set_dimension_value(
                     edited_axis_dimension_id, 14.0) &&
@@ -929,6 +973,32 @@ int main() {
             axis_dimensioned.serialized());
         require(loaded_axis_dimensions.dimensions == axis_dimensioned.dimensions,
                 "Point-to-axis dimensions did not survive persistence");
+        auto zero_axis_dimension = zima::sketcher::Sketch::create_default();
+        const auto zero_axis_point = zero_axis_dimension.add_point(0.0, 0.0);
+        auto zero_x_coordinate = zero_axis_dimension.create_axis_dimension(
+            zero_axis_point, "sketch_axis:y");
+        zero_axis_dimension.apply_dimension(zero_x_coordinate);
+        const auto zero_axis_view = zero_axis_dimension.viewer_mesh();
+        require(zero_axis_view.dimensions.size() == 1 &&
+                    zero_axis_dimension.dimensions.front().geometry_id ==
+                        "sketch_axis:y" &&
+                    zero_axis_dimension.dimensions.front().second_point_id.empty() &&
+                    std::ranges::find(
+                        zero_axis_view.dimensions.front().participant_semantic_keys,
+                        "sketch_axis:y") !=
+                        zero_axis_view.dimensions.front()
+                            .participant_semantic_keys.end() &&
+                    std::ranges::find(
+                        zero_axis_view.dimensions.front().participant_semantic_keys,
+                        "origin:point") ==
+                        zero_axis_view.dimensions.front()
+                            .participant_semantic_keys.end(),
+                "Zero coordinate dimension was disguised as an origin-point reference");
+        require(zero_axis_dimension.set_dimension_value(
+                    zero_x_coordinate.id, 6.0) &&
+                    std::abs(zero_axis_dimension.find_point(
+                        zero_axis_point)->x - 6.0) < 1.0e-8,
+                "Zero coordinate-axis dimension could not drive its referenced point");
         auto angled = zima::sketcher::Sketch::create_default();
         const auto angled_segment = angled.add_segment(0.0, 0.0, 10.0, 0.0);
         auto angle_dimension = angled.create_segment_dimension(
@@ -1192,6 +1262,57 @@ int main() {
                     180.0 / 3.14159265358979323846) - 35.0) < 1.0e-7 &&
                     between_angle.viewer_mesh().dimensions.size() == 1,
                 "Angle between a line and the Sketch axis was not solved or displayed");
+
+        auto zero_origin_dimension = zima::sketcher::Sketch::create_default();
+        const auto zero_origin_point =
+            zero_origin_dimension.add_point(10.0, 0.0);
+        auto zero_y = zero_origin_dimension.create_point_dimension(
+            "sketch_origin", zero_origin_point,
+            zima::sketcher::DimensionKind::DistanceY);
+        zero_origin_dimension.apply_dimension(zero_y);
+        const auto zero_origin_view = zero_origin_dimension.viewer_mesh();
+        require(zero_origin_view.dimensions.size() == 1 &&
+                    zero_origin_dimension.dimensions.front().first_point_id ==
+                        "sketch_origin" &&
+                    zero_origin_dimension.dimensions.front().second_point_id ==
+                        zero_origin_point &&
+                    zero_origin_dimension.dimensions.front().geometry_id.empty() &&
+                    std::abs(zero_origin_view.dimensions.front().value) < 1.0e-12 &&
+                    zero_origin_view.dimensions.front().label_prefix == "Y " &&
+                    std::abs(zero_origin_view.dimensions.front().line_first.x -
+                        zero_origin_view.dimensions.front().line_second.x) < 1.0e-12 &&
+                    std::abs(zero_origin_view.dimensions.front().line_first.y -
+                        zero_origin_view.dimensions.front().line_second.y) < 1.0e-12,
+                "Zero point-to-origin dimension was not preserved for display");
+        require(zero_origin_dimension.set_dimension_value(zero_y.id, 4.0) &&
+                    std::abs(zero_origin_dimension.find_point(
+                        zero_origin_point)->y - 4.0) < 1.0e-8,
+                "Zero point-to-origin driving dimension could not be edited");
+        auto referenced_x_dimension = zima::sketcher::Sketch::create_default();
+        const auto referenced_x_first = referenced_x_dimension.add_point(2.0, 3.0);
+        const auto referenced_x_second = referenced_x_dimension.add_point(2.0, 7.0);
+        auto referenced_x = referenced_x_dimension.create_point_dimension(
+            referenced_x_first, referenced_x_second,
+            zima::sketcher::DimensionKind::DistanceX);
+        referenced_x_dimension.apply_dimension(referenced_x);
+        const auto referenced_x_view = referenced_x_dimension.viewer_mesh();
+        require(referenced_x_dimension.dimensions.front().first_point_id ==
+                    referenced_x_first &&
+                    referenced_x_dimension.dimensions.front().second_point_id ==
+                    referenced_x_second &&
+                    referenced_x_dimension.dimensions.front().geometry_id.empty() &&
+                    std::ranges::find(
+                        referenced_x_view.dimensions.front().participant_semantic_keys,
+                        "origin:point") ==
+                        referenced_x_view.dimensions.front()
+                            .participant_semantic_keys.end(),
+                "Projected X form replaced its selected point references with origin");
+        require(referenced_x_dimension.set_dimension_value(referenced_x.id, 5.0) &&
+                    std::abs(referenced_x_dimension.find_point(
+                        referenced_x_second)->x -
+                        referenced_x_dimension.find_point(
+                            referenced_x_first)->x - 5.0) < 1.0e-8,
+                "Projected X point-reference dimension could not be edited from zero");
         auto dragged = zima::sketcher::Sketch::create_default();
         const auto dragged_segment = dragged.add_segment(0.0, 0.0, 10.0, 0.0);
         auto measured = dragged.create_segment_dimension(dragged_segment);

@@ -185,6 +185,13 @@ struct PointConstraintState {
 [[nodiscard]] PointConstraintState point_constraint_state(
     const std::vector<ConstructionReference>& references,
     const zima::kernel::ViewerReferenceGeometry& geometry);
+// A Point exposes six possible editable dimension slots: absolute X/Y/Z
+// coordinates and the offsets of up to three position-reference rows.
+// Only slots whose matching dialog fields are editable are returned.
+[[nodiscard]] std::vector<zima::kernel::ViewerDimension>
+construction_point_dimensions(
+    const ConstructionObject& object,
+    const zima::kernel::ViewerReferenceGeometry& geometry);
 [[nodiscard]] int orientation_constraint_remaining_dof(
     const std::vector<ConstructionReference>& references,
     const zima::kernel::ViewerReferenceGeometry& geometry,

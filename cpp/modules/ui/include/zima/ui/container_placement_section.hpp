@@ -46,7 +46,8 @@ public:
     // those two halves independently; one shared component owns their
     // ordering, behavior and visual style for every container kind.
     ContainerPlacementSection(QWidget* parent_widget, QVBoxLayout* layout,
-        bool with_orientation, bool position_rows_can_define_rotation = false);
+        bool with_orientation, bool position_rows_can_define_rotation = false,
+        int decimal_places = 3);
 
     // Inserts the (already constructed) DOF label into `layout` at its
     // current end. Call this once, at the position matching the reference
@@ -167,17 +168,22 @@ public:
 
     void refresh_reference_table();
     void refresh_orientation_table();
+    // populated_index follows the compact persisted/preview reference order,
+    // while the table may contain a removed middle-row hole.
+    bool set_reference_offset(std::size_t populated_index, double value);
 
 private:
     QWidget* parent_widget_;
     bool with_orientation_;
     bool position_rows_can_define_rotation_;
+    int decimal_places_{3};
     QLabel* reference_status_{};
     QLabel* dof_label_{};
     QTableWidget* reference_table_{};
     QTableWidget* orientation_table_{};
     std::array<ReferenceCellItem*, 3> reference_items_{};
     std::array<QWidget*, 3> reference_indicators_{};
+    std::array<QDoubleSpinBox*, 3> reference_offset_fields_{};
     std::array<ReferenceCellItem*, 2> orientation_items_{};
     std::array<QWidget*, 2> orientation_indicators_{};
     std::array<QDoubleSpinBox*, 3> translation_{};

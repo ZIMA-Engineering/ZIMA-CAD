@@ -853,6 +853,93 @@ int main() {
                     {{}, constructions.document_id + ":origin", "origin:point"}},
                     document_origin_geometry) == 0,
                 "Point placement DOF did not use geometric matrix rank");
+        auto dimensioned_point = plane_constrained_point;
+        const std::array reference_offsets{4.0, 5.0, 6.0};
+        for (std::size_t index = 0;
+             index < dimensioned_point.references.size(); ++index) {
+            dimensioned_point.references[index].supports_offset = true;
+            dimensioned_point.references[index].offset =
+                reference_offsets[index];
+        }
+        require(zima::document::resolve_construction(
+                    dimensioned_point, document_origin_geometry),
+                "Dimensioned Point fixture did not resolve its Origin planes");
+        const auto referenced_point_dimensions =
+            zima::document::construction_point_dimensions(
+                dimensioned_point, document_origin_geometry);
+        require(referenced_point_dimensions.size() == 3 &&
+                    referenced_point_dimensions[0].reference.semantic_key ==
+                        "parameter:reference_offset:0" &&
+                    referenced_point_dimensions[1].reference.semantic_key ==
+                        "parameter:reference_offset:1" &&
+                    referenced_point_dimensions[2].reference.semantic_key ==
+                        "parameter:reference_offset:2" &&
+                    referenced_point_dimensions[0].label_prefix == "X = " &&
+                    referenced_point_dimensions[1].label_prefix == "Y = " &&
+                    referenced_point_dimensions[2].label_prefix == "Z = " &&
+                    std::abs(referenced_point_dimensions[2].plane_normal.x) <
+                        1.0e-9 &&
+                    std::abs(referenced_point_dimensions[2].plane_normal.y) <
+                        1.0e-9 &&
+                    std::abs(std::abs(
+                        referenced_point_dimensions[2].plane_normal.z) - 1.0) <
+                        1.0e-9 &&
+                    std::abs(referenced_point_dimensions[0].witness_second.y -
+                        referenced_point_dimensions[0].witness_first.y) < 1.0e-9 &&
+                    std::abs(referenced_point_dimensions[0].witness_second.z -
+                        referenced_point_dimensions[0].witness_first.z) < 1.0e-9 &&
+                    std::abs(referenced_point_dimensions[1].witness_second.x -
+                        referenced_point_dimensions[1].witness_first.x) < 1.0e-9 &&
+                    std::abs(referenced_point_dimensions[1].witness_second.z -
+                        referenced_point_dimensions[1].witness_first.z) < 1.0e-9 &&
+                    std::abs(referenced_point_dimensions[2].witness_second.x -
+                        referenced_point_dimensions[2].witness_first.x) < 1.0e-9 &&
+                    std::abs(referenced_point_dimensions[2].witness_second.y -
+                        referenced_point_dimensions[2].witness_first.y) < 1.0e-9 &&
+                    std::abs(referenced_point_dimensions[2].line_first.y -
+                        referenced_point_dimensions[2].witness_first.y) < 1.0e-9 &&
+                    std::abs(referenced_point_dimensions[2].line_second.y -
+                        referenced_point_dimensions[2].witness_second.y) < 1.0e-9 &&
+                    std::abs(referenced_point_dimensions[2].line_first.x -
+                        referenced_point_dimensions[2].witness_first.x) > 1.0e-9,
+                "Referenced Point did not expose three axis-aligned offset "
+                "dimensions with Z in a stable XZ plane");
+
+        auto partially_referenced_point = plane_constrained_point;
+        partially_referenced_point.references = {
+            {{}, constructions.document_id + ":origin", "origin:plane:xy",
+                2.0, true}};
+        require(zima::document::resolve_construction(
+                    partially_referenced_point, document_origin_geometry),
+                "Partially referenced Point fixture did not resolve");
+        const auto partial_dimensions =
+            zima::document::construction_point_dimensions(
+                partially_referenced_point, document_origin_geometry);
+        require(partial_dimensions.size() == 3 &&
+                    partial_dimensions[0].reference.semantic_key == "parameter:x" &&
+                    partial_dimensions[1].reference.semantic_key == "parameter:y" &&
+                    partial_dimensions[2].reference.semantic_key ==
+                        "parameter:reference_offset:0",
+                "Point dimensions did not automatically exchange constrained "
+                "absolute Z for the editable reference offset");
+
+        auto absolute_dimensioned_point =
+            zima::document::PartDocument::create_construction(
+                zima::document::ConstructionKind::Point);
+        absolute_dimensioned_point.origin = {1.0, 2.0, 3.0};
+        const auto absolute_dimensions =
+            zima::document::construction_point_dimensions(
+                absolute_dimensioned_point, document_origin_geometry);
+        require(absolute_dimensions.size() == 3 &&
+                    absolute_dimensions[0].reference.semantic_key == "parameter:x" &&
+                    absolute_dimensions[1].reference.semantic_key == "parameter:y" &&
+                    absolute_dimensions[2].reference.semantic_key == "parameter:z" &&
+                    std::abs(absolute_dimensions[2].line_first.y -
+                        absolute_dimensions[2].witness_first.y) < 1.0e-9 &&
+                    std::abs(absolute_dimensions[2].line_second.y -
+                        absolute_dimensions[2].witness_second.y) < 1.0e-9,
+                "Absolute Point did not restore all three coordinate dimensions "
+                "with Z in a stable XZ plane");
         auto rank_geometry = document_origin_geometry;
         rank_geometry.axes.push_back({{0.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, 10.0,
             {"parallel-a", "axis", {}}});

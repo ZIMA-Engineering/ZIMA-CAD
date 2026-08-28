@@ -522,6 +522,7 @@ private:
     void flip_active_sketch_view();
     void rotate_active_sketch_view();
     void finish_active_sketch();
+    void set_sketch_placement_selection_contract();
     void start_sketch_point();
     void start_sketch_segment(bool construction = false);
     void start_sketch_polyline();

@@ -1048,10 +1048,7 @@ int verify_startup_contract(
                 "Sketch parity workflow is missing the model viewer")) {
         return 1;
     }
-    const auto sketch_click = [&](double x_ratio, double y_ratio) {
-        const QPointF local{
-            model_viewer->width() * x_ratio,
-            model_viewer->height() * y_ratio};
+    const auto sketch_click_at = [&](const QPointF& local) {
         QMouseEvent move(QEvent::MouseMove, local,
             model_viewer->mapToGlobal(local.toPoint()), Qt::NoButton,
             Qt::NoButton, Qt::NoModifier);
@@ -1068,6 +1065,68 @@ int verify_startup_contract(
         QApplication::sendEvent(model_viewer, &release);
         application.processEvents();
     };
+    const auto sketch_click = [&](double x_ratio, double y_ratio) {
+        sketch_click_at({model_viewer->width() * x_ratio,
+                         model_viewer->height() * y_ratio});
+    };
+    auto* sketch_viewer = dynamic_cast<zima::viewer::MeshView*>(model_viewer);
+    if (!verify(sketch_viewer != nullptr,
+                "Sketch interaction regression is missing MeshView")) {
+        return 1;
+    }
+    // Exact first-entity regression: a new Sketch point is created on the
+    // persisted local origin offered by the common View candidate list.
+    sketch_point->trigger();
+    application.processEvents();
+    std::optional<QPointF> sketch_origin_position;
+    double sketch_origin_screen_distance = 1.0e300;
+    const QPointF sketch_view_center{
+        sketch_viewer->width() * 0.5, sketch_viewer->height() * 0.5};
+    for (int y = 2; y < sketch_viewer->height(); y += 4) {
+        for (int x = 2; x < sketch_viewer->width(); x += 4) {
+            const QPointF position{static_cast<qreal>(x),
+                                   static_cast<qreal>(y)};
+            const auto candidates = sketch_viewer->selection_candidates_at(position);
+            if (!candidates.empty() &&
+                candidates.front().kind ==
+                    zima::viewer::CandidateKind::SketchExternalReference &&
+                candidates.front().semantic_key ==
+                    "external_point:sketch_origin") {
+                const QPointF delta = position - sketch_view_center;
+                const double distance =
+                    delta.x() * delta.x() + delta.y() * delta.y();
+                if (distance < sketch_origin_screen_distance) {
+                    sketch_origin_screen_distance = distance;
+                    sketch_origin_position = position;
+                }
+            }
+        }
+    }
+    if (!verify(sketch_origin_position.has_value(),
+                "new Sketch did not offer its local origin for first-entity snapping")) {
+        return 1;
+    }
+    sketch_click_at(*sketch_origin_position);
+    QKeyEvent cancel_first_entity(QEvent::KeyPress, Qt::Key_Escape,
+        Qt::NoModifier);
+    QApplication::sendEvent(&window, &cancel_first_entity);
+    application.processEvents();
+    bool first_entity_snapped_to_origin{};
+    for (int index = 0; index < tree->topLevelItemCount(); ++index) {
+        auto* group = tree->topLevelItem(index);
+        if (group->text(0) != QStringLiteral("Vazby")) continue;
+        for (int child = 0; child < group->childCount(); ++child) {
+            if (group->child(child)->text(0).startsWith(
+                    QStringLiteral("Shodnost bodů"))) {
+                first_entity_snapped_to_origin = true;
+                break;
+            }
+        }
+    }
+    if (!verify(first_entity_snapped_to_origin,
+                "first Sketch entity did not persist its coincidence to the origin")) {
+        return 1;
+    }
     sketch_rectangle->trigger();
     application.processEvents();
     sketch_click(0.42, 0.42);
@@ -1147,8 +1206,6 @@ int verify_startup_contract(
         }
         return nullptr;
     };
-    auto* dimensioned_segment = find_sketch_tree_item(
-        QStringLiteral("sketch-geometry"), dimensioned_segment_id);
     auto* constraint_group = [&]() -> QTreeWidgetItem* {
         for (int index = 0; index < tree->topLevelItemCount(); ++index) {
             if (tree->topLevelItem(index)->text(0) == QStringLiteral("Vazby"))
@@ -1168,18 +1225,84 @@ int verify_startup_contract(
                 "Sketch inference did not persist its offered Horizontal constraint")) {
         return 1;
     }
-    dimensioned_segment = find_sketch_tree_item(
-        QStringLiteral("sketch-geometry"), dimensioned_segment_id);
-    tree->setCurrentItem(dimensioned_segment);
-    dimensioned_segment->setSelected(true);
+    tree->clearSelection();
+    tree->setCurrentItem(nullptr);
+    sketch_viewer->clear_selection();
     application.processEvents();
     sketch_dimension->trigger();
     application.processEvents();
+    std::optional<QPointF> dimension_segment_position;
+    std::string dimension_segment_semantic_key;
+    for (int y = 2; y < sketch_viewer->height() &&
+                        !dimension_segment_position; y += 4) {
+        for (int x = 2; x < sketch_viewer->width(); x += 4) {
+            const QPointF position{static_cast<qreal>(x),
+                                   static_cast<qreal>(y)};
+            const auto candidates =
+                sketch_viewer->selection_candidates_at(position);
+            if (!candidates.empty() &&
+                candidates.front().kind ==
+                    zima::viewer::CandidateKind::SketchSegment) {
+                dimension_segment_position = position;
+                dimension_segment_semantic_key = candidates.front().semantic_key;
+                break;
+            }
+        }
+    }
+    if (!verify(dimension_segment_position.has_value(),
+                "Dimension command did not offer the requested Sketch segment in View")) {
+        return 1;
+    }
+    // The first scanned hit lies at the edge of the 9 px picking tolerance.
+    // Average the complete hit band of this exact segment so the synthetic
+    // click lands on its visible center and remains stable across repaints.
+    double dimension_screen_x{};
+    double dimension_screen_y{};
+    std::size_t dimension_screen_samples{};
+    for (int y = 2; y < sketch_viewer->height(); y += 4) {
+        for (int x = 2; x < sketch_viewer->width(); x += 4) {
+            const QPointF position{static_cast<qreal>(x),
+                                   static_cast<qreal>(y)};
+            const auto candidates =
+                sketch_viewer->selection_candidates_at(position);
+            if (!candidates.empty() &&
+                candidates.front().kind ==
+                    zima::viewer::CandidateKind::SketchSegment &&
+                candidates.front().semantic_key ==
+                    dimension_segment_semantic_key) {
+                dimension_screen_x += position.x();
+                dimension_screen_y += position.y();
+                ++dimension_screen_samples;
+            }
+        }
+    }
+    if (!verify(dimension_screen_samples > 0,
+                "Dimension segment had no stable View hit area")) {
+        return 1;
+    }
+    dimension_segment_position = QPointF{
+        dimension_screen_x / static_cast<double>(dimension_screen_samples),
+        dimension_screen_y / static_cast<double>(dimension_screen_samples)};
+    const auto stable_dimension_candidates =
+        sketch_viewer->selection_candidates_at(*dimension_segment_position);
+    if (!verify(!stable_dimension_candidates.empty() &&
+                    stable_dimension_candidates.front().kind ==
+                        zima::viewer::CandidateKind::SketchSegment &&
+                    stable_dimension_candidates.front().semantic_key ==
+                        dimension_segment_semantic_key,
+                "Dimension segment center was not stable in the common View candidate list")) {
+        return 1;
+    }
+    // Exact user regression: activate Dimension with no prior Tree selection,
+    // then confirm a segment in View. The handler changes the viewer filter
+    // while processing this candidate and must not invalidate its reference.
+    // The segment path still creates the dimension from both persisted endpoint IDs.
+    sketch_click_at(*dimension_segment_position);
     auto* dimension_dialog = window.findChild<QDialog*>("zimaPropertiesSubWindow");
     auto* dimension_buttons = dimension_dialog == nullptr
         ? nullptr : dimension_dialog->findChild<QDialogButtonBox*>();
     if (!verify(dimension_buttons != nullptr,
-                "selected Sketch segment did not open the Dimension Properties dialog")) {
+                "View-selected Sketch segment did not open the Dimension Properties dialog")) {
         return 1;
     }
     dimension_buttons->button(QDialogButtonBox::Ok)->click();

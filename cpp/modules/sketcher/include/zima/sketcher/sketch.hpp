@@ -6,11 +6,17 @@
 #include <array>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace zima::sketcher {
 
 enum class SketchPlane { XY, XZ, YZ };
+// Converts a signed displacement along the Sketch frame normal into the
+// persisted plane-offset convention. XZ uses +Y for increasing offset while
+// its right-handed frame normal points toward -Y.
+[[nodiscard]] double plane_offset_delta_for_normal_displacement(
+    SketchPlane plane, double normal_displacement) noexcept;
 enum class ConstraintKind {
     Horizontal, Vertical, Coincident, Parallel, Perpendicular, EqualLength,
     EqualRadius, PointOnCircle, PointOnLine, MidpointOnLine, Symmetric,
@@ -177,6 +183,10 @@ struct SketchDimension {
     bool suppressed{};
     std::optional<double> lower_limit;
     std::optional<double> upper_limit;
+    // Form and references are independent. A projected X/Y point-pair
+    // dimension owns first_point_id + second_point_id and leaves geometry_id
+    // empty. A direct coordinate dimension owns first_point_id + the selected
+    // sketch_axis:x/y in geometry_id and leaves second_point_id empty.
     std::string geometry_id;
     // Second persisted line owner for line-to-line distance and angle.
     // Built-in sketch axes use the stable IDs sketch_axis:x / sketch_axis:y.
@@ -446,6 +456,11 @@ public:
     [[nodiscard]] zima::kernel::Vec3 x_axis() const;
     [[nodiscard]] zima::kernel::Vec3 y_axis() const;
     [[nodiscard]] zima::kernel::Vec3 world_point(double x, double y) const;
+    // Returns a forward ray normal to the active resolved Sketch plane and
+    // passing through the requested local point. This is the canonical ray
+    // for visual snapping on arbitrarily referenced or placed Sketch planes.
+    [[nodiscard]] std::pair<zima::kernel::Vec3, zima::kernel::Vec3>
+        normal_ray(double x, double y) const;
     [[nodiscard]] std::array<double, 2> local_point(
         const zima::kernel::Vec3& point) const;
     [[nodiscard]] std::optional<std::array<double, 2>> intersect_ray(

@@ -528,8 +528,15 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
             }
         }
     }
-    const auto priority = [](CandidateKind kind) {
-        switch (kind) {
+    const auto priority = [](const ViewerCandidate& candidate) {
+        if (candidate.kind == CandidateKind::SketchExternalReference &&
+            (candidate.semantic_key.starts_with("external_point:") ||
+             candidate.semantic_key.starts_with("sketch_midpoint:") ||
+             candidate.semantic_key.starts_with("sketch_intersection:") ||
+             candidate.semantic_key.starts_with("sketch_curve_keypoint:"))) {
+            return 0;
+        }
+        switch (candidate.kind) {
         case CandidateKind::SketchConstraint: return 0;
         case CandidateKind::Dimension: return 0;
         case CandidateKind::SketchTrimPiece: return 0;
@@ -557,8 +564,8 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
         if (point_container(left) != point_container(right)) {
             return point_container(left);
         }
-        if (priority(left.kind) != priority(right.kind)) {
-            return priority(left.kind) < priority(right.kind);
+        if (priority(left) != priority(right)) {
+            return priority(left) < priority(right);
         }
         if (std::abs(left.distance - right.distance) > 1.0e-9) {
             return left.distance < right.distance;

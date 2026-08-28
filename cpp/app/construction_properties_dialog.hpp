@@ -8,6 +8,7 @@
 #include <functional>
 #include <memory>
 #include <set>
+#include <string_view>
 #include <QString>
 
 class QDoubleSpinBox;
@@ -28,7 +29,7 @@ public:
 
     ConstructionPropertiesDialog(
         const zima::document::ConstructionObject& initial, bool edit_mode,
-        CommitCallback commit, QWidget* parent);
+        CommitCallback commit, QWidget* parent, int decimal_places = 3);
     using ReferenceRequestCallback = std::function<void(std::size_t)>;
     using PreviewCallback = std::function<void(zima::document::ConstructionObject)>;
     void set_reference_request_callback(ReferenceRequestCallback callback);
@@ -65,6 +66,10 @@ public:
     void set_translation_constraint_state(
         const zima::document::PointConstraintState& state,
         const zima::kernel::Vec3& solution);
+    // Applies an inline View-dimension edit to the same live widget that
+    // owns the pending Point/Axis/Plane value. This deliberately does not
+    // commit the document; OK/Cancel remain the transaction boundary.
+    bool set_inline_parameter_value(std::string_view key, double value);
     // Refreshes the "Absolutní" rotation column from the base rotation
     // implied by orientation-driving references (front/top), disabling it
     // while such references are present; matches Python's

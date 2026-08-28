@@ -39,6 +39,13 @@ DimensionKind classify_linear_dimension(
     return horizontal_gap < vertical_gap
         ? DimensionKind::DistanceY : DimensionKind::DistanceX;
 }
+
+double plane_offset_delta_for_normal_displacement(
+    SketchPlane plane, double normal_displacement) noexcept {
+    return plane == SketchPlane::XZ
+        ? -normal_displacement : normal_displacement;
+}
+
 namespace {
 
 std::string make_id() {
@@ -74,6 +81,12 @@ std::optional<std::array<double, 2>> external_point_position(
     return found->cached_points.front();
 }
 
+bool has_coordinate_axis_reference(const SketchDimension& dimension) noexcept {
+    return (dimension.kind == DimensionKind::DistanceX &&
+            dimension.geometry_id == "sketch_axis:y") ||
+        (dimension.kind == DimensionKind::DistanceY &&
+         dimension.geometry_id == "sketch_axis:x");
+}
 std::optional<std::pair<std::array<double, 2>, std::array<double, 2>>>
 external_reference_line(const Sketch& sketch, const std::string& reference_id) {
     const auto found = std::find_if(sketch.external_references.begin(),
@@ -558,6 +571,12 @@ std::optional<double> measured_dimension_value(
         if (scale <= 1.0e-12) return std::nullopt;
         return std::acos(std::clamp((ax * bx + ay * by) / scale, -1.0, 1.0)) *
             180.0 / 3.14159265358979323846;
+    }
+    if (has_coordinate_axis_reference(dimension)) {
+        const auto point = point_position(dimension.first_point_id);
+        if (!point || !dimension.second_point_id.empty()) return std::nullopt;
+        return dimension.kind == DimensionKind::DistanceX
+            ? (*point)[0] : (*point)[1];
     }
     const auto first = point_position(dimension.first_point_id);
     const auto second = point_position(dimension.second_point_id);
@@ -1864,6 +1883,11 @@ void Sketch::validate() const {
             dimension.kind == DimensionKind::EllipseRotation;
         const bool three_point_angle =
             dimension.kind == DimensionKind::AngleThreePoint;
+        const bool coordinate_axis_dimension =
+            has_coordinate_axis_reference(dimension) &&
+            dimension.second_point_id.empty() &&
+            dimension.second_geometry_id.empty() &&
+            find_point(dimension.first_point_id) != nullptr;
         const bool circle_geometry = std::any_of(
             circles.begin(), circles.end(), [&](const auto& circle) {
                 return circle.id == dimension.geometry_id;
@@ -1939,7 +1963,8 @@ void Sketch::validate() const {
                 : line_pair_dimension ? !line_pair_geometry_valid
                 : point_line_dimension ? !point_line_geometry_valid
                 : three_point_angle ? !three_point_angle_valid
-                : !segment_geometry_valid && !point_pair_geometry_valid)) {
+                : !segment_geometry_valid && !point_pair_geometry_valid &&
+                  !coordinate_axis_dimension)) {
             throw std::runtime_error("Sketch dimension is invalid");
         }
         require_finite(dimension.value, "dimension value");
@@ -5122,10 +5147,17 @@ SketchDimension Sketch::create_axis_dimension(
          sketch_axis_id != "sketch_axis:y")) {
         throw std::invalid_argument("Axis dimension input is invalid");
     }
-    return create_point_dimension(
-        "sketch_origin", point_id,
+    SketchDimension result{
+        make_id(),
         sketch_axis_id == "sketch_axis:x"
-            ? DimensionKind::DistanceY : DimensionKind::DistanceX);
+            ? DimensionKind::DistanceY : DimensionKind::DistanceX,
+        point_id, {},
+        sketch_axis_id == "sketch_axis:x" ? point->y : point->x};
+    // A coordinate-axis reference is not a disguised point-to-origin
+    // dimension. Keep the selected axis as its persisted reference owner;
+    // kind controls only whether the displayed/calculated form is X or Y.
+    result.geometry_id = sketch_axis_id;
+    return result;
 }
 
 SketchDimension Sketch::create_point_line_dimension(
@@ -6359,6 +6391,25 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
                 }
                 continue;
             }
+            const bool coordinate_axis_dimension =
+                has_coordinate_axis_reference(dimension);
+            if (coordinate_axis_dimension) {
+                auto* point = find_point(dimension.first_point_id);
+                const double measured = dimension.kind == DimensionKind::DistanceX
+                    ? point->x : point->y;
+                const double residual = measured - dimension.value;
+                maximum_residual = std::max(maximum_residual, std::abs(residual));
+                if (std::abs(residual) > tolerance) {
+                    if (immutable(*point)) {
+                        immovable_conflict = true;
+                    } else if (dimension.kind == DimensionKind::DistanceX) {
+                        point->x -= residual;
+                    } else {
+                        point->y -= residual;
+                    }
+                }
+                continue;
+            }
             const auto first = point_position(dimension.first_point_id);
             const auto second = point_position(dimension.second_point_id);
             double dx = (*second)[0] - (*first)[0];
@@ -6704,6 +6755,12 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
                         (std::hypot(ax, ay) * std::hypot(bx, by)), -1.0, 1.0)) *
                     180.0 / 3.14159265358979323846;
                 result.push_back(measured - geometric_angle_degrees(dimension.value));
+                continue;
+            }
+            if (has_coordinate_axis_reference(dimension)) {
+                const auto* point = find_point(dimension.first_point_id);
+                result.push_back((dimension.kind == DimensionKind::DistanceX
+                    ? point->x : point->y) - dimension.value);
                 continue;
             }
             const auto first = point_position(dimension.first_point_id);
@@ -7579,6 +7636,31 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
             result.dimensions.back().sweep_degrees = dimension.value;
             continue;
         }
+        const bool coordinate_axis_dimension =
+            has_coordinate_axis_reference(dimension);
+        if (coordinate_axis_dimension) {
+            const auto* point = find_point(dimension.first_point_id);
+            if (point == nullptr) continue;
+            const double magnitude = dimension.kind == DimensionKind::DistanceX
+                ? std::abs(point->x) : std::abs(point->y);
+            const double offset = std::clamp(magnitude * 0.15, 5.0, 25.0);
+            if (dimension.kind == DimensionKind::DistanceX) {
+                const double line_y = dimension.placement
+                    ? (*dimension.placement)[1] : point->y + offset;
+                result.dimensions.push_back({
+                    world_point(0.0, point->y), world_point(point->x, point->y),
+                    world_point(0.0, line_y), world_point(point->x, line_y),
+                    dimension.value, {id, "dimension:" + dimension.id, {}}, "X "});
+            } else {
+                const double line_x = dimension.placement
+                    ? (*dimension.placement)[0] : point->x + offset;
+                result.dimensions.push_back({
+                    world_point(point->x, 0.0), world_point(point->x, point->y),
+                    world_point(line_x, 0.0), world_point(line_x, point->y),
+                    dimension.value, {id, "dimension:" + dimension.id, {}}, "Y "});
+            }
+            continue;
+        }
         const auto dimension_point = [&](const std::string& point_id)
             -> std::optional<std::array<double, 2>> {
             if (const auto* point = find_point(point_id)) {
@@ -7703,6 +7785,17 @@ zima::kernel::Vec3 Sketch::world_point(double x, double y) const {
     return {frame.origin.x + x * frame.x_axis.x + y * frame.y_axis.x,
             frame.origin.y + x * frame.x_axis.y + y * frame.y_axis.y,
             frame.origin.z + x * frame.x_axis.z + y * frame.y_axis.z};
+}
+
+std::pair<zima::kernel::Vec3, zima::kernel::Vec3> Sketch::normal_ray(
+    double x, double y) const {
+    const auto point = world_point(x, y);
+    const auto frame = active_sketch_frame(*this);
+    return {
+        {point.x + frame.normal.x,
+         point.y + frame.normal.y,
+         point.z + frame.normal.z},
+        {-frame.normal.x, -frame.normal.y, -frame.normal.z}};
 }
 
 std::array<double, 2> Sketch::local_point(
