@@ -2952,6 +2952,129 @@ std::optional<std::array<double, 2>> Sketch::curve_tangent_at_point(
     return std::array{tangent[0] / length, tangent[1] / length};
 }
 
+std::string Sketch::add_common_tangent_segment(
+    const std::string& first_curve_id,
+    const std::array<double, 2>& first_hint,
+    const std::string& second_curve_id,
+    const std::array<double, 2>& second_hint) {
+    if (first_curve_id.empty() || second_curve_id.empty() ||
+        first_curve_id == second_curve_id ||
+        !std::isfinite(first_hint[0]) || !std::isfinite(first_hint[1]) ||
+        !std::isfinite(second_hint[0]) || !std::isfinite(second_hint[1])) {
+        throw std::invalid_argument("Common tangent input is invalid");
+    }
+    auto first_contact = project_point_to_curve(
+        first_curve_id, first_hint[0], first_hint[1]);
+    auto second_contact = project_point_to_curve(
+        second_curve_id, second_hint[0], second_hint[1]);
+    if (!first_contact || !second_contact ||
+        std::hypot((*second_contact)[0] - (*first_contact)[0],
+                   (*second_contact)[1] - (*first_contact)[1]) <= 1.0e-8) {
+        throw std::invalid_argument(
+            "Selected curve locations do not define a tangent segment");
+    }
+
+    const auto residual = [&](const std::array<double, 2>& first,
+                              const std::array<double, 2>& second)
+        -> std::optional<std::array<double, 2>> {
+        const auto first_tangent = curve_tangent_at_point(
+            first_curve_id, first[0], first[1]);
+        const auto second_tangent = curve_tangent_at_point(
+            second_curve_id, second[0], second[1]);
+        const double dx = second[0] - first[0];
+        const double dy = second[1] - first[1];
+        const double length = std::hypot(dx, dy);
+        if (!first_tangent || !second_tangent || length <= 1.0e-12) {
+            return std::nullopt;
+        }
+        return std::array{
+            dx / length * (*first_tangent)[1] -
+                dy / length * (*first_tangent)[0],
+            dx / length * (*second_tangent)[1] -
+                dy / length * (*second_tangent)[0]};
+    };
+    for (unsigned iteration = 0; iteration < 32; ++iteration) {
+        const auto current = residual(*first_contact, *second_contact);
+        if (!current) break;
+        if (std::hypot((*current)[0], (*current)[1]) <= 1.0e-10) break;
+        const auto first_tangent = curve_tangent_at_point(
+            first_curve_id, (*first_contact)[0], (*first_contact)[1]);
+        const auto second_tangent = curve_tangent_at_point(
+            second_curve_id, (*second_contact)[0], (*second_contact)[1]);
+        if (!first_tangent || !second_tangent) break;
+        const double chord = std::hypot(
+            (*second_contact)[0] - (*first_contact)[0],
+            (*second_contact)[1] - (*first_contact)[1]);
+        // B-spline projection is intentionally based on a persisted sampled
+        // ZIMA curve. Use a finite step large enough to cross a sample cell;
+        // an analytic-conic-sized epsilon can otherwise produce a zero
+        // numerical Jacobian even though a nearby tangent exists.
+        const double step = std::max(1.0e-4, chord * 1.0e-3);
+        const auto shifted_first = project_point_to_curve(first_curve_id,
+            (*first_contact)[0] + (*first_tangent)[0] * step,
+            (*first_contact)[1] + (*first_tangent)[1] * step);
+        const auto shifted_second = project_point_to_curve(second_curve_id,
+            (*second_contact)[0] + (*second_tangent)[0] * step,
+            (*second_contact)[1] + (*second_tangent)[1] * step);
+        if (!shifted_first || !shifted_second) break;
+        const auto first_shift_residual = residual(
+            *shifted_first, *second_contact);
+        const auto second_shift_residual = residual(
+            *first_contact, *shifted_second);
+        if (!first_shift_residual || !second_shift_residual) break;
+        const double a = ((*first_shift_residual)[0] - (*current)[0]) / step;
+        const double c = ((*first_shift_residual)[1] - (*current)[1]) / step;
+        const double b = ((*second_shift_residual)[0] - (*current)[0]) / step;
+        const double d = ((*second_shift_residual)[1] - (*current)[1]) / step;
+        const double determinant = a * d - b * c;
+        if (std::abs(determinant) <= 1.0e-15) break;
+        const double limit = std::max(1.0e-5, chord * 0.25);
+        const double first_delta = std::clamp(
+            (-(*current)[0] * d + b * (*current)[1]) / determinant,
+            -limit, limit);
+        const double second_delta = std::clamp(
+            (-a * (*current)[1] + c * (*current)[0]) / determinant,
+            -limit, limit);
+        first_contact = project_point_to_curve(first_curve_id,
+            (*first_contact)[0] + (*first_tangent)[0] * first_delta,
+            (*first_contact)[1] + (*first_tangent)[1] * first_delta);
+        second_contact = project_point_to_curve(second_curve_id,
+            (*second_contact)[0] + (*second_tangent)[0] * second_delta,
+            (*second_contact)[1] + (*second_tangent)[1] * second_delta);
+        if (!first_contact || !second_contact) break;
+    }
+    const auto final_residual = first_contact && second_contact
+        ? residual(*first_contact, *second_contact) : std::nullopt;
+    if (!final_residual ||
+        std::hypot((*final_residual)[0], (*final_residual)[1]) > 1.0e-5) {
+        throw std::invalid_argument(
+            "No common tangent exists near the selected curve locations");
+    }
+
+    // Build and solve the four persistent relations on a copy. A failure in
+    // any one of them therefore leaves the original Sketch unchanged.
+    auto next = *this;
+    const auto segment_id = next.add_segment(
+        (*first_contact)[0], (*first_contact)[1],
+        (*second_contact)[0], (*second_contact)[1], 1.0e-9);
+    const auto segment = std::find_if(next.segments.begin(), next.segments.end(),
+        [&](const auto& value) { return value.id == segment_id; });
+    if (segment == next.segments.end()) {
+        throw std::runtime_error("Common tangent segment was not created");
+    }
+    const auto first_point_id = segment->first_point_id;
+    const auto second_point_id = segment->second_point_id;
+    static_cast<void>(next.add_point_on_circle_constraint(
+        first_point_id, first_curve_id));
+    static_cast<void>(next.add_point_on_circle_constraint(
+        second_point_id, second_curve_id));
+    static_cast<void>(next.add_tangent_constraint(first_curve_id, segment_id));
+    static_cast<void>(next.add_tangent_constraint(second_curve_id, segment_id));
+    next.validate();
+    *this = std::move(next);
+    return segment_id;
+}
+
 std::vector<std::array<double, 2>> Sketch::curve_line_intersections(
     const std::string& geometry_id,
     const std::array<double, 2>& line_origin,

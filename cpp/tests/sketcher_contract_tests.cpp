@@ -1675,6 +1675,71 @@ int main() {
         require(loaded_tangent.constraints == tangent.constraints &&
                     loaded_tangent.points == tangent.points,
                 "Tangent constraint did not survive Sketch serialization");
+        auto common_tangent = zima::sketcher::Sketch::create_default();
+        const auto common_first = common_tangent.add_circle(0.0, 0.0, 2.0);
+        const auto common_second = common_tangent.add_circle(10.0, 0.0, 3.0);
+        const auto common_segment = common_tangent.add_common_tangent_segment(
+            common_first, {0.0, 2.0}, common_second, {10.0, 3.0});
+        const auto created_common = std::find_if(common_tangent.segments.begin(),
+            common_tangent.segments.end(), [&](const auto& value) {
+                return value.id == common_segment;
+            });
+        require(created_common != common_tangent.segments.end(),
+            "Common tangent did not create its segment");
+        require(std::count_if(common_tangent.constraints.begin(),
+                    common_tangent.constraints.end(), [&](const auto& constraint) {
+                        return constraint.kind ==
+                                zima::sketcher::ConstraintKind::Tangent &&
+                            (constraint.geometry_id == common_segment ||
+                             constraint.second_geometry_id == common_segment);
+                    }) == 2,
+            "Common tangent does not persist both tangent relations");
+        auto lower_common_tangent = zima::sketcher::Sketch::create_default();
+        const auto lower_first = lower_common_tangent.add_circle(0.0, 0.0, 2.0);
+        const auto lower_second = lower_common_tangent.add_circle(10.0, 0.0, 3.0);
+        const auto lower_segment_id =
+            lower_common_tangent.add_common_tangent_segment(
+                lower_first, {0.0, -2.0}, lower_second, {10.0, -3.0});
+        const auto lower_segment = std::ranges::find_if(
+            lower_common_tangent.segments, [&](const auto& value) {
+                return value.id == lower_segment_id;
+            });
+        require(lower_segment != lower_common_tangent.segments.end() &&
+                lower_common_tangent.find_point(
+                    lower_segment->first_point_id)->y < 0.0 &&
+                lower_common_tangent.find_point(
+                    lower_segment->second_point_id)->y < 0.0,
+            "Common tangent ignored the lower click-selected branch");
+        auto common_elliptic_tangent =
+            zima::sketcher::Sketch::create_default();
+        const auto common_ellipse = common_elliptic_tangent.add_ellipse(
+            0.0, 0.0, 4.0, 0.0, 0.0, 2.0);
+        const auto common_circle = common_elliptic_tangent.add_circle(
+            12.0, 0.0, 3.0);
+        static_cast<void>(common_elliptic_tangent.add_common_tangent_segment(
+            common_ellipse, {0.0, 2.0}, common_circle, {12.0, 3.0}));
+        require(common_elliptic_tangent.solve().status !=
+                    zima::sketcher::SolveStatus::Conflicting &&
+                std::count_if(common_elliptic_tangent.constraints.begin(),
+                    common_elliptic_tangent.constraints.end(),
+                    [](const auto& constraint) {
+                        return constraint.kind ==
+                            zima::sketcher::ConstraintKind::Tangent;
+                    }) == 2,
+            "Common ellipse/circle tangent is not parametrically stable");
+        auto common_spline_tangent = zima::sketcher::Sketch::create_default();
+        const auto common_first_spline = common_spline_tangent.add_bspline(
+            {{-2.0, -2.0}, {2.0, -2.0}, {2.0, 2.0}, {-2.0, 2.0}},
+            1, true);
+        const auto common_second_spline = common_spline_tangent.add_bspline(
+            {{8.0, -2.0}, {12.0, -2.0}, {12.0, 2.0}, {8.0, 2.0}},
+            1, true);
+        static_cast<void>(common_spline_tangent.add_common_tangent_segment(
+            common_first_spline, {0.0, 2.0},
+            common_second_spline, {10.0, 2.0}));
+        require(common_spline_tangent.solve().status !=
+                    zima::sketcher::SolveStatus::Conflicting,
+            "Common B-spline tangent is not parametrically stable");
         bool duplicate_tangent_rejected = false;
         try {
             static_cast<void>(tangent.add_tangent_constraint(

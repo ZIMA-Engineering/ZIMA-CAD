@@ -24,6 +24,7 @@
     <file alias="icons/plane.svg">../../resources/icons/plane.svg</file>
     <file alias="icons/sketch.svg">../../resources/icons/sketch.svg</file>
     <file alias="icons/sketch-segment.svg">../../resources/icons/sketch-segment.svg</file>
+    <file alias="icons/sketch-common-tangent.svg">../../resources/icons/sketch-common-tangent.svg</file>
     <file alias="icons/sketch-construction.svg">../../resources/icons/sketch-construction.svg</file>
     <file alias="icons/sketch-polyline.svg">../../resources/icons/sketch-polyline.svg</file>
     <file alias="icons/sketch-rectangle.svg">../../resources/icons/sketch-rectangle.svg</file>

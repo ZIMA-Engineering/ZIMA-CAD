@@ -54,8 +54,8 @@ obrazovky. Přiblížení zůstává uživatelské a nejde o kalibrované měře
 Rámečky `.frmz` a razítka `.tblz` místo toho při otevření zobrazí celý list.
 
 Po potvrzení kotevního bodu textu se otevřou společné interní
-**Vlastnosti skici**. Dokud uživatel nepotvrdí **OK**, **Použít** nebo
-**Zrušit**, view nesmí přijmout další bod textu. Editor používá víceřádkové
+**Vlastnosti skici**. Dokud uživatel nepotvrdí **OK** nebo **Cancel**, view
+nesmí přijmout další bod textu. Editor používá víceřádkové
 pole přibližně pro pět řádků a ukládá zalomení řádků. Stejný dialog a stejné
 ovládání se používají při vytvoření i pozdější editaci textu.
 
@@ -219,6 +219,44 @@ nesmí značku kolmosti přesunout na konec nové úsečky.
   a je zobrazen v náhledu značkou `T`.
 - **Soustředná**: první kružnice nebo oblouk je reference, druhý převezme
   střed.
+
+## Společná tečná úsečka
+
+**Společná tečna** je nástroj tvorby geometrie, nikoliv pouze dodatečná vazba.
+Přijímá kružnici, kruhový oblouk, elipsu, eliptický oblouk nebo B-spline.
+Úsečky, body, osy, externí reference a křivky jiné skici se během příkazu
+nenabízejí.
+
+Postup je následující:
+
+1. uživatel klikne na první křivku poblíž požadovaného dotyku;
+2. klikne na druhou křivku poblíž druhého požadovaného dotyku;
+3. obě polohy kliknutí určují počáteční větev řešení — například horní,
+   dolní, levou, pravou, vnější nebo vnitřní tečnu;
+4. solver vytvoří běžnou profilovou úsečku a uloží oba její konce jako body
+   na příslušných křivkách společně s tečností na obou stranách.
+
+Výsledkem není neasociativní vypočtená čára. Úsečka, oba dotykové body a čtyři
+vztahy zůstávají v persistovaném ZIMA Sketch modelu a po změně zdrojových
+křivek se znovu řeší. Výpočet používá pouze analytickou nebo persistovanou
+skicovou geometrii; OCCT se při hoveru, výběru ani vytvoření nevolá.
+
+Oblouky a otevřené B-spline navíc omezují dotyk na vlastní parametrický rozsah.
+Pokud v okolí zvolených míst společná tečna neexistuje, je degenerovaná nebo
+je v konfliktu s existujícími vazbami, odmítne se celá operace bez bodu,
+úsečky či vazby navíc. První klik je pouze transientní stav. `Escape` jej
+zruší; druhý platný klik uloží vše jako jednu vratnou revizi.
+
+## Výběr, tažení a transientní zobrazení
+
+Výběr obdélníkem ukládá jednu množinu bodů, čar, křivek a textů. Tree tuto
+množinu pouze zrcadlí a nesmí ji při označování jednotlivých řádků postupně
+zmenšovat. `Delete` odstraní celý výběr v jedné revizi a zároveň bezpečně
+odstraní osiřelé body a související vazby.
+
+Tažení bodu nebo kóty pracuje nad transientní kopií dokumentu. Náhled smí
+zobrazit pouze aktivní skicu a stejný pasivní modelový kontext jako běžný
+Skicář; ostatní skici Partu se během stisku myši nesmějí dočasně objevit.
 
 Při zadávání druhého bodu úsečky nebo konstrukční čáry se v omezené obrazové
 toleranci nabízejí také délky existujících úseček. Kandidát přichytí nový

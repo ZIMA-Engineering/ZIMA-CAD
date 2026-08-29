@@ -38,7 +38,7 @@ Dokumenty:
 Dokumentové ikony používají jednu společnou významovou sadu v záložkách,
 stromech, dialogu Nový dokument a v Qt file-dialogu:
 
-- Part je prázdná obrysová krychle.
+- Part je modrá krychle se třemi odstíny ploch a kontrastním obrysem.
 - Assembly má všechny tři plochy vyplněné odstíny žluté.
 - Drawing používá list s pohledy a kótovací čárou.
 - Drawing Format používá list s vnitřním rámečkem.
@@ -47,6 +47,10 @@ stromech, dialogu Nový dokument a v Qt file-dialogu:
 Základní GUI:
 `new.svg`, `open.svg`, `save.svg`, `undo.svg`, `redo.svg`,
 `delete.svg`, `view-fit.svg`, `measure.svg`, `settings.svg`
+
+Skicář používá mimo jiné `sketch-common-tangent.svg`: dvě křivky, jejich
+společnou tečnou úsečku a dva zelené body dotyku. Ikona označuje nástroj tvorby
+nové parametrické geometrie, nikoliv samotnou dodatečnou vazbu **Tečná**.
 
 ## Qt
 

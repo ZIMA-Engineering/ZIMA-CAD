@@ -928,6 +928,10 @@ musí dát totožný výsledek. Obdélníkový profil s vnitřní kružnicí R1 
 
 Výkres má vlastní modul `zima_drawing`; současný dokumentový formát verze 2
 navíc persistuje kamerové báze, vložené šablony a BOM.
+Výkres současně persistuje primární ID, cestu a zobrazovaný název zdrojového
+Partu nebo Assembly nezávisle na vložených pohledech. Navigace VÝKRES ↔
+DÍL/SESTAVA proto funguje i u dosud prázdného výkresu a přejmenování zdroje
+aktualizuje tuto vazbu bez odvozování identity z názvu souboru.
 Formát záměrně nenačítá starší prototypové výkresy. Dokument persistuje listy,
 jejich formát A4–A0, metodu promítání, modelové pohledy a lineární kóty. Pohled
 drží ID a cestu zdrojového Partu nebo Assembly, stabilní reference promítnutých
@@ -1049,3 +1053,24 @@ referenční trojúhelníky. Všechny tři druhy jsou bezpečné lokální zdroj
 vazby na pořadí historie. OK jejich Vlastností a OK Vlastností cílové skici
 spustí pouze aplikační reprojekci externích referencí nad hotovými viewer daty,
 nikoli skrytý výpočet OCCT.
+
+Nativní Sketcher obsahuje samostatný geometrický příkaz **Společná tečna**.
+Nejde o novou serializovanou vazbu ani o kompatibilní formátovou větev:
+výsledkem je existující persistovaná úsečka, dvě existující vazby
+`PointOnCircle` (obecně bod na podporované křivce) a dvě vazby `Tangent`.
+Vstupem jsou stabilní ID dvou kružnic, oblouků, elips, eliptických oblouků či
+B-spline a dvě lokální polohy kliknutí určující požadovanou větev. Numerické
+zpřesnění pracuje jen nad ZIMA Sketch geometrií; OCCT se nevolá. Celý výsledek
+se nejprve sestaví a vyřeší na kopii, takže neexistující, degenerovaná nebo
+konfliktní větev nezanechá částečný bod, segment ani vazbu.
+
+Příkaz má vlastní `QAction`, SVG ikonu a viewerový selection contract omezený
+na `SketchCurve` aktivní skici. První klik je transientní a druhý platný klik
+commitne jednu revizi. Polohy kliknutí nejsou trvalou identitou; po vytvoření
+je geometrie řízena výhradně stabilními ID a čtyřmi vztahy.
+
+Transientní náhled tažení bodu a kóty byl současně sjednocen s běžnou
+viditelností Sketcheru. Drag kopie připojuje pouze `viewer_mesh()` aktivní
+skici, nikoliv všechny skici Partu. Výběrový obdélník blokuje zpětné signály
+Tree během hromadné synchronizace a `Delete` odstraní celou vybranou množinu v
+jedné revizi.

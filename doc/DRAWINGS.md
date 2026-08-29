@@ -11,6 +11,13 @@ sestavu `.asmz`. Jeden dokument může obsahovat více listů. Každý list má
 samostatně uložený formát, rámeček, razítko, vložené pohledy, kóty a hodnoty
 polí náležející pouze listu.
 
+Tlačítko **VÝKRES** v záhlaví stromu zdrojového Dílu nebo Sestavy otevře jeho
+již existující výkres. Pokud ještě neexistuje, vytvoří nový soubor výkresu a
+otevře jej v novém tabu. Vazba na zdroj je uložená přímo ve výkresovém
+dokumentu už před vložením prvního pohledu. Opačné tlačítko **DÍL** nebo
+**SESTAVA** proto vždy přejde zpět na přesný zdrojový dokument. Přejmenování
+zdroje aktualizuje jeho cestu a název také v navázaném výkresu.
+
 Rámeček i razítko se při vložení zkopírují přímo do dat listu. Otevřený výkres
 proto není závislý na pozdější existenci souboru `.frmz` nebo `.tblz` v
 `config/formats`. Smazání, přejmenování nebo úprava knihovní šablony již

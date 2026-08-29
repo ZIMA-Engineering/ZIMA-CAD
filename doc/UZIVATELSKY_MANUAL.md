@@ -84,7 +84,7 @@ modelu a následně obnoví geometrii, varianty a razítko výkresu.
 | Prostřední + pravé tlačítko + pohyb myši | Posun pohledu |
 | Kolečko dopředu | Oddálení |
 | Kolečko dozadu | Přiblížení |
-| Jeden klik prostředním tlačítkem | Použít změny v aktivním dialogu, pokud nabízí tlačítko Použít |
+| Jeden klik prostředním tlačítkem | Bez potvrzení dialogu; ve Skicáři může potvrdit právě rozpracovaný krok nástroje |
 | Dvojklik prostředním tlačítkem | Potvrzení aktivního dialogu tlačítkem OK |
 | F2 | Zavřít aktivní dokumentový tab |
 
@@ -230,19 +230,16 @@ dokončení nebo zrušení.
 - Změna číselné hodnoty, včetně použití šipek `+` a `−`, se okamžitě projeví
   ve 3D pohledu.
 - `Enter` v číselném poli dokončí zadání hodnoty, ale okno nezavře.
-- **Použít** potvrdí aktuální stav a ponechá okno otevřené.
-- Jeden klik prostředním tlačítkem odpovídá tlačítku **Použít**. Pravidlo
-  platí globálně také v dialozích nového souboru, materiálu a nastavení.
-- **OK** potvrdí změny a zavře okno.
-- **Zrušit** obnoví stav při otevření okna nebo stav naposledy potvrzený
-  tlačítkem **Použít**.
+- **OK** hodnoty ověří, vypočítá a uloží jako jednu transakci a okno zavře.
+- **Cancel** zavře okno bez uložení rozpracovaných změn.
+- Krátký klik prostředním tlačítkem dialog nepotvrzuje; tažení je vyhrazené
+  navigaci pohledu.
 - Dvojklik prostředním tlačítkem odpovídá tlačítku **OK** v aktivním dialogu.
 
-U Protrusion a Revolve má **Použít** zvláštní rychlý režim: vytvoří samostatný
-azurový náhled prvku bez operace Fuse/Cut a ponechá Vlastnosti otevřené. Náhled
-zůstává azurový také při změně směru, délky nebo úhlu, jednostranného,
-oboustranného či symetrického rozsahu a operace. Teprve **OK** zavře dialog a
-provede skutečný booleovský výpočet výsledného tělesa.
+U Protrusion a Revolve zůstává během zadávání samostatný azurový drátový
+náhled bez finální operace Fuse/Cut. Reaguje na směr, délku nebo úhel,
+jednostranný, oboustranný či symetrický rozsah a zvolenou operaci. Teprve
+**OK** provede kontrolu, skutečný booleovský výpočet a commit výsledku.
 
 ### Rollback při editaci kontejneru
 
@@ -261,14 +258,12 @@ Těleso → předchozí kontejnery → zelený editovaný kontejner
         → Vložit zde → potlačené následující kontejnery
 ```
 
-**Použít** přepočítá tentýž kontejner, zobrazí jeho dočasný náhled a ponechá
-rollback i okno aktivní. Nevytváří kopii kontejneru a opakovaný náhled se vždy
-počítá ze stejné vstupní geometrie, nikoliv z předchozího náhledu. Výběrové
-zvýraznění zůstává při otáčení pohledu zachované.
+Transientní náhled se vždy odvozuje ze stejné vstupní geometrie, nikoliv z
+předchozího náhledu. Výběrové zvýraznění zůstává při otáčení pohledu zachované.
 
-**OK** zahrnuje použití změn, ukončí editaci, vrátí **Vložit zde** na konec
-stromu a znovu vyhodnotí následující operace. **Zrušit** obnoví stav před
-otevřením nebo stav posledního úspěšného použití. V obou případech view odstraní
+**OK** změny ověří a vypočítá, ukončí editaci, vrátí **Vložit zde** na konec
+stromu a znovu vyhodnotí následující operace. **Cancel** obnoví stav před
+otevřením. V obou případech view odstraní
 dočasný náhled, editační kóty a pomocná zvýraznění, obnoví běžný režim výběru a
 zobrazí celé výsledné těleso. Natočení a přiblížení kamery se přitom nemění.
 
@@ -345,6 +340,12 @@ stejný fyzický rámec i při záporném odsazení pracovní roviny a korekcíc
 `RX/RY/RZ`. Skica se proto při otevření kreslí přímo v odsazené a natočené
 rovině, nikoliv dočasně v počátku kontejneru.
 
+Samostatný kontejner **Skica** lze z Tree i z View převést příkazem kontextové
+nabídky **Vytažení** nebo **Rotace**. Otevře se stejné okno Vlastností jako při
+novém vytvoření prvku. **OK** nahradí Skicu cílovým prvkem při zachování ID,
+pořadí historie, umístění a profilové geometrie; **Cancel** ponechá původní
+Skicu. Tlačítkem **Skica** lze před potvrzením profil ještě upravit.
+
 ### Zaoblení hrany
 
 Příkaz **Zaoblení** rovnou otevře jediné okno **Vlastnosti zaoblení**, které se
@@ -359,18 +360,17 @@ s jednotlivými hranami pod ní. Označení dítěte a odebrání smaže pouze t
 hranu; označení nadřazené trasy odstraní celou trasu. **Obnovit kontinuální
 trasu** znovu dopočítá její aktuální členy.
 
-**Použít** spočítá dočasný náhled a nechá okno otevřené. Náhled nevytváří další
-kontejner a každé další použití se znovu počítá z původního ostrého tělesa.
-**OK** provede stejnou kontrolu, vloží právě jeden prvek Zaoblení do historie a
-okno zavře. Krátký klik prostředním tlačítkem odpovídá **Použít**, dvojklik
-prostředním tlačítkem odpovídá **OK**; tažení prostředním tlačítkem pouze otáčí
+Náhled nevytváří další kontejner a vždy vychází z původního ostrého tělesa.
+**OK** provede kontrolu, vloží právě jeden prvek Zaoblení do historie a okno
+zavře. **Cancel** neuloží rozpracovanou změnu. Krátký klik prostředním
+tlačítkem dialog nepotvrzuje, dvojklik odpovídá **OK** a tažení pouze otáčí
 pohled.
 
 Při editaci se historie dočasně vrátí těsně před upravované Zaoblení, takže je
 ve view dostupná původní ostrá hrana. Upravovaný kontejner zůstává ve stromu
 viditelný a je označen zeleně, zatímco následující prvky jsou po dobu úpravy
-potlačené. **Použít** upraví existující prvek bez založení kopie a **OK** změnu
-potvrdí a vrátí vyhodnocení na konec historie.
+potlačené. **OK** upraví existující prvek bez založení kopie a vrátí
+vyhodnocení na konec historie.
 
 Vybrané zaoblení se ve view zvýrazňuje pouze svými hraničními hranami, nikoliv
 celou plochou nebo celým dílem. Dvojklik levým tlačítkem zobrazí editovatelnou
@@ -398,7 +398,7 @@ jen poloměr a **Vlastnosti sražení** jen vzdálenost sražení; žádné z t�
 nenabízí přepnutí na druhou operaci. První verze Sražení je symetrická: stejná
 vzdálenost se měří na obou sousedních plochách.
 
-Výběr více hran pomocí `Ctrl`, seznam hran, **Použít**, **OK**, prostřední
+Výběr více hran pomocí `Ctrl`, seznam hran, **OK**, **Cancel**, prostřední
 tlačítko, rollback stromu a chování náhledu jsou shodné se Zaoblením. Změna
 hodnoty se vztahuje na všechny vybrané hrany. Existující Zaoblení ani Sražení
 se ve Vlastnostech na druhý typ nepřevádí.
@@ -596,8 +596,24 @@ osách, nikoli kruhovou nebo osově zarovnanou aproximaci. Bod dotyku musí lež
 uvnitř konečné úsečky a u každého oblouku také uvnitř jeho parametrického
 rozsahu; jinak se vazba odmítne bez změny skici. Pevný nebo s referencí sdílený
 bod, který brání tuhému překladu, je rovněž transakční konflikt. Tečnost dvou
-křivek, z nichž je některá eliptická, zatím příkaz nepodporuje. První klik nic
-neukládá, druhý platný klik vytvoří jednu Part revizi a `Escape` příkaz zruší.
+analytických křivek podporuje také elipsy a eliptické oblouky, pokud dotyk leží
+v rozsahu obou křivek. B-spline lze tímto příkazem svázat s existující úsečkou.
+První klik nic neukládá, druhý platný klik vytvoří jednu Part revizi a `Escape`
+příkaz zruší.
+
+Samostatný příkaz **Společná tečna** novou úsečku rovnou vytvoří. Po jeho
+spuštění hover nabízí pouze kružnice, oblouky, elipsy, eliptické oblouky a
+B-spline aktivní skici. Klikněte poblíž požadovaného dotyku na první a potom
+na druhou křivku. Nevybírá se jen dvojice objektů: poloha obou kliknutí určuje,
+zda má vzniknout například horní, dolní, vnější nebo vnitřní větev společné
+tečny.
+
+Vytvořená úsečka je běžná profilová geometrie. Každý její konec zůstane vazbou
+na příslušné křivce a úsečka je k oběma křivkám tečná. Po změně poloměru, os
+elipsy nebo řídicích bodů spline se proto řeší znovu. U oblouku nebo otevřené
+spline musí dotyk ležet v jejich skutečném rozsahu. Neexistující, degenerovaná
+nebo konfliktní větev se odmítne bez částečné změny skici. První klik lze
+zrušit `Escape`; druhý platný klik vytvoří jednu vratnou revizi.
 
 Příkazy **Vazby → Vodorovná** a **Vazby → Svislá** se aplikují výběrem jedné
 úsečky nebo konstrukční čáry. První bod zůstane pevný a odpovídající souřadnice
@@ -627,6 +643,12 @@ Nástroj **Výběr** s ikonou šipky ukončí rozpracovaný kreslicí příkaz. 
 lze označit bod nebo geometrii oranžově a odstranit ji tlačítkem
 **Vymazat vybrané** nebo klávesou `Delete`. Odstranění řídicího bodu odstraní
 také geometrii, která je na něj navázaná.
+
+Tažením výběrového obdélníku v prázdném prostoru lze označit více bodů,
+geometrií a textů. `Ctrl` přidává k existujícímu výběru a `Delete` odstraní
+celou označenou množinu v jedné vratné revizi. Při tažení jednotlivého bodu
+nebo kóty zůstává ve View pouze aktivní skica; jiné skici Partu se kvůli
+transientnímu náhledu nezobrazují.
 
 - **Dokončit skicu** uloží změny a obnoví předchozí 3D pohled.
 - **Zrušit úpravy** zahodí změny od vstupu do režimu a vrátí se do Vlastností
@@ -819,10 +841,12 @@ Výkres používá příponu `.drwz` a je navázaný na zdrojový díl `.prtz` n
 sestavu `.asmz`. Lze jej založit přes **Soubor → Nový → Výkres**, nebo
 tlačítkem **Výkres** v záhlaví stromu otevřeného dílu či sestavy. Tlačítko
 nejprve otevře již existující stejně pojmenovaný výkres a teprve pokud
-neexistuje, vytvoří nový.
+neexistuje, vytvoří nový a otevře jej v samostatném tabu. Zdrojová vazba
+vzniká okamžitě, není tedy nutné nejprve vložit pohled.
 
 V záhlaví stromu výkresu je opačné tlačítko **Díl** nebo **Sestava**, které
-otevře zdrojový dokument.
+otevře přesný zdrojový dokument. Přejmenování zdrojového Dílu nebo Sestavy se
+promítne také do názvu a cesty uložené v jeho výkresu.
 
 ### Listy a formáty
 

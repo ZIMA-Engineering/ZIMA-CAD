@@ -155,6 +155,7 @@ private:
     QAction* sketch_point_action_{};
     QAction* sketch_construction_action_{};
     QAction* sketch_segment_action_{};
+    QAction* sketch_common_tangent_action_{};
     QAction* sketch_polyline_action_{};
     QAction* sketch_rectangle_action_{};
     QAction* sketch_polygon_action_{};
@@ -228,6 +229,12 @@ private:
     // its internal Sketch is being edited. OCCT is not called until the
     // reopened feature Properties dialog is confirmed with OK.
     std::optional<zima::document::HistoryContainer> pending_profile_feature_;
+    // Set only while a standalone Sketch container is being transactionally
+    // transformed into Extrusion/Revolution.  The draft feature may be
+    // installed temporarily while Sketcher is open; Cancel restores this
+    // exact container instead of deleting an existing history entry.
+    std::optional<zima::document::HistoryContainer>
+        pending_profile_transform_original_;
     std::string active_occurrence_path_;
     // "Pohled kolmo" (normal_view_action in Python): while active the viewer
     // is restricted to Face candidates; on selection the camera is rotated
@@ -352,6 +359,10 @@ private:
     std::string pending_tangent_geometry_id_;
     bool pending_tangent_reference_is_segment_{};
     bool pending_tangent_reference_supports_curve_pair_{};
+    bool sketch_common_tangent_active_{};
+    std::string pending_common_tangent_curve_id_;
+    std::optional<std::array<double, 2>> pending_common_tangent_first_hint_;
+    std::optional<std::array<double, 2>> sketch_pointer_position_;
     bool sketch_segment_pair_active_{};
     std::string pending_pair_geometry_id_;
     bool pending_pair_reference_is_circular_{};
@@ -429,6 +440,8 @@ private:
     void update_document_area_visibility();
     void regenerate_active_document();
     [[nodiscard]] const zima::sketcher::Sketch* active_sketch() const;
+    [[nodiscard]] zima::kernel::ViewerMesh sketch_viewer_mesh(
+        const zima::sketcher::Sketch& sketch) const;
     bool mutate_active_sketch(
         const std::function<void(zima::sketcher::Sketch&)>& mutation);
     void edit_document_parameters();
@@ -476,6 +489,9 @@ private:
     void show_primitive_properties(
         zima::document::FeatureKind feature_kind,
         const std::string& container_id = {});
+    void transform_sketch_container(
+        const std::string& container_id,
+        zima::document::FeatureKind target_kind);
     void show_construction_properties(
         zima::document::ConstructionKind kind, const std::string& object_id = {});
     void start_construction_reference_selection(std::size_t index);
@@ -663,6 +679,10 @@ private:
     void start_sketch_tangent();
     void set_sketch_tangent_contract();
     void accept_sketch_tangent_selection(
+        const zima::viewer::ViewerCandidate& candidate);
+    void start_sketch_common_tangent();
+    void set_sketch_common_tangent_contract();
+    void accept_sketch_common_tangent_selection(
         const zima::viewer::ViewerCandidate& candidate);
     void start_sketch_segment_pair(zima::sketcher::ConstraintKind kind);
     void set_sketch_pair_contract();

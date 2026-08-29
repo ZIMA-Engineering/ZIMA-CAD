@@ -18,6 +18,10 @@ Samostatné prototypy doporučené varianty jsou `part-a.svg` a
 
 ## Barevná varianta
 
+> Historická poznámka: zde popsaná prázdná ikona Partu byla později
+> nahrazena modře vyplněnou krychlí v `resources/icons/part.svg`. Tato složka
+> uchovává návrhové iterace, nikoliv aktuální závaznou sadu ikon.
+
 Po druhém návrhovém kole vznikla jednodušší dvojice se shodnou siluetou:
 
 - Part je prázdná obrysová krychle bez barevné výplně.

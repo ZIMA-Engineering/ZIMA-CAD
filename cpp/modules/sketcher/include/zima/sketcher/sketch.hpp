@@ -320,6 +320,11 @@ public:
         const std::string& geometry_id, double x, double y) const;
     [[nodiscard]] std::optional<std::array<double, 2>> curve_tangent_at_point(
         const std::string& geometry_id, double x, double y) const;
+    [[nodiscard]] std::string add_common_tangent_segment(
+        const std::string& first_curve_id,
+        const std::array<double, 2>& first_hint,
+        const std::string& second_curve_id,
+        const std::array<double, 2>& second_hint);
     [[nodiscard]] std::vector<std::array<double, 2>> curve_line_intersections(
         const std::string& geometry_id,
         const std::array<double, 2>& line_origin,

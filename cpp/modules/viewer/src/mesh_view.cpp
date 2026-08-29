@@ -2678,6 +2678,12 @@ if (impl_->show_planes) {
                     : edge.construction
                         ? QPen(QColor(77, 216, 17), 1.5, Qt::DashLine)
                         : QPen(QColor(255, 255, 255), 1.8);
+                if (edge.construction && !edge.dash_dot) {
+                    // Qt's default dash pattern is dense enough that construction
+                    // geometry reads as a solid line at ordinary sketch zoom levels.
+                    edge_pen.setStyle(Qt::CustomDashLine);
+                    edge_pen.setDashPattern({10.0, 7.0});
+                }
                 if (edge.dash_dot) {
                     edge_pen.setStyle(Qt::CustomDashLine);
                     edge_pen.setDashPattern({9.0, 4.0, 2.0, 4.0});

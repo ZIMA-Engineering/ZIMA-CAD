@@ -140,6 +140,9 @@ int main() {
         child.scale = 0.5;
         const std::string child_id = child.id;
         drawing.sheets.front().views.push_back(std::move(child));
+        drawing.source_document_id = "part-1";
+        drawing.source_path = "part.prtz";
+        drawing.source_name = "Hnací hřídel";
         const auto path = std::filesystem::current_path() /
             "zima-cad-cpp-drawing-contract.drwz";
         drawing.save(path);
@@ -157,6 +160,9 @@ int main() {
         persisted.close();
         std::filesystem::remove(path);
         require(loaded.document_id == drawing.document_id &&
+                    loaded.source_document_id == "part-1" &&
+                    loaded.source_path == std::filesystem::path("part.prtz") &&
+                    loaded.source_name == "Hnací hřídel" &&
                     loaded.sheets.size() == 1 && loaded.find_view(view_id) != nullptr &&
                     loaded.find_view(child_id) != nullptr &&
                     loaded.find_view(child_id)->parent_view_id == view_id &&

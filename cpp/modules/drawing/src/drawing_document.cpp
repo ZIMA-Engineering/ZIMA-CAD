@@ -472,7 +472,10 @@ void DrawingDocument::save(const std::filesystem::path& path) const {
         throw std::runtime_error("Drawing identity, name and sheets are required");
     }
     nlohmann::json root{{"format", "zima-cad-drawing"}, {"version", 2},
-                        {"document_id", document_id}, {"name", name}};
+                        {"document_id", document_id}, {"name", name},
+                        {"source_document_id", source_document_id},
+                        {"source_path", source_path.generic_string()},
+                        {"source_name", source_name}};
     root["sheets"] = nlohmann::json::array();
     std::unordered_set<std::string> ids;
     for (const auto& sheet : sheets) {
@@ -612,6 +615,9 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
     DrawingDocument document;
     document.document_id = root.at("document_id").get<std::string>();
     document.name = root.at("name").get<std::string>();
+    document.source_document_id = root.value("source_document_id", "");
+    document.source_path = root.value("source_path", "");
+    document.source_name = root.value("source_name", "");
     for (const auto& serialized : root.at("sheets")) {
         DrawingSheet sheet;
         sheet.id = serialized.at("id").get<std::string>();

@@ -118,6 +118,12 @@ class DrawingDocument {
 public:
     std::string document_id;
     std::string name{"Nový výkres"};
+    // The model document whose Tree-header VÝKRES command created this
+    // drawing.  This relationship exists before the first view is inserted,
+    // so DÍL/SESTAVA navigation never has to infer ownership from a view.
+    std::string source_document_id;
+    std::filesystem::path source_path;
+    std::string source_name;
     std::vector<DrawingSheet> sheets;
 
     [[nodiscard]] static DrawingDocument create_default();

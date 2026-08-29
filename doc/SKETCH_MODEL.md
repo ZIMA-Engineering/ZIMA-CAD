@@ -53,6 +53,31 @@ External projected geometry is a reference, not copied authoritative
 geometry. Cached coordinates may be retained for display and recovery, but
 must never become the source of truth while the reference is valid.
 
+## Common tangent construction
+
+The Common Tangent command consumes two persisted Sketch curve IDs and one
+local-space click hint for each curve. Supported inputs are circles, circular
+arcs, ellipses, elliptical arcs and B-splines. The hints select the local
+solution branch; they are command input and are not persisted as topology or
+as a replacement for the resulting constraints.
+
+The command projects both hints to their curves, refines the two contact
+locations until the connecting chord is tangent at both ends, and commits:
+
+- one ordinary Segment with stable point and geometry IDs;
+- one point-on-curve constraint for each endpoint;
+- one Tangent constraint between the Segment and each source curve.
+
+All records are created transactionally. An absent, out-of-domain,
+degenerate, non-convergent or conflicting branch leaves the Sketch unchanged.
+The implementation uses the persisted ZIMA curve model and never OCCT. This
+also means later edits are solved from the four stored relations, not from a
+cached line calculated at creation time.
+
+Viewer hover, both confirmations and right-click candidate cycling consume the
+shared ordered candidate list filtered to supported curves owned by the active
+Sketch. Curves from sibling Sketches are not valid command inputs.
+
 ## Editor boundary
 
 The current editor temporarily uses a flat mutable projection while a command
