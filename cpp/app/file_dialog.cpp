@@ -12,7 +12,10 @@
 #include <QListView>
 #include <QSize>
 #include <QSortFilterProxyModel>
+#include <QStyledItemDelegate>
 #include <QTreeView>
+
+#include <utility>
 
 namespace zima::app {
 namespace {
@@ -20,6 +23,17 @@ namespace {
 class FileProxyModel final : public QSortFilterProxyModel {
 public:
     using QSortFilterProxyModel::QSortFilterProxyModel;
+
+    void set_name_header(QString value) { name_header_ = std::move(value); }
+
+    QVariant headerData(int section, Qt::Orientation orientation,
+                        int role) const override {
+        if (section == 0 && orientation == Qt::Horizontal &&
+            role == Qt::DisplayRole && !name_header_.isEmpty()) {
+            return name_header_;
+        }
+        return QSortFilterProxyModel::headerData(section, orientation, role);
+    }
 
 protected:
     bool filterAcceptsRow(int row, const QModelIndex& parent) const override {
@@ -43,6 +57,9 @@ protected:
         }
         return QSortFilterProxyModel::lessThan(left, right);
     }
+
+private:
+    QString name_header_;
 };
 
 class ZimaDocumentFileIconProvider final : public QFileIconProvider {
@@ -61,6 +78,38 @@ public:
         return QFileIconProvider::icon(info);
     }
 };
+
+class Utf8FileNameDelegate final : public QStyledItemDelegate {
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+
+    QString displayText(const QVariant& value,
+                        const QLocale& locale) const override {
+        const QString text = QStyledItemDelegate::displayText(value, locale);
+        // Some Qt builds decode the UTF-8 XDG user-directory names through
+        // Latin-1 in QFileDialog's places sidebar (for example StaÅ¾enÃ©).
+        // Repair only strings carrying the characteristic mojibake markers.
+        if (!text.contains(QChar(0x00c3)) && !text.contains(QChar(0x00c5)))
+            return text;
+        const QByteArray latin1 = text.toLatin1();
+        if (latin1.contains('?')) return text;
+        const QString repaired = QString::fromUtf8(latin1);
+        return repaired.contains(QChar::ReplacementCharacter) ? text : repaired;
+    }
+};
+
+void localize_file_views(QFileDialog& dialog,
+                         const QMap<QString, QString>& translations) {
+    for (auto* view : dialog.findChildren<QListView*>()) {
+        view->setIconSize(QSize(20, 20));
+        view->setItemDelegate(new Utf8FileNameDelegate(view));
+    }
+    for (auto* view : dialog.findChildren<QTreeView*>()) {
+        view->setIconSize(QSize(20, 20));
+        view->setItemDelegate(new Utf8FileNameDelegate(view));
+        view->sortByColumn(0, Qt::AscendingOrder);
+    }
+}
 
 QString choose_file(QWidget* parent, const QString& caption,
                     const QString& initial_path, const QString& name_filter,
@@ -107,14 +156,11 @@ QString choose_file(QWidget* parent, const QString& caption,
     ZimaDocumentFileIconProvider icon_provider;
     dialog.setIconProvider(&icon_provider);
     auto* proxy = new FileProxyModel(&dialog);
+    proxy->set_name_header(
+        translations.value("file.dialog.name", QStringLiteral("Name")));
     proxy->setDynamicSortFilter(true);
     dialog.setProxyModel(proxy);
-    for (auto* view : dialog.findChildren<QListView*>())
-        view->setIconSize(QSize(20, 20));
-    for (auto* view : dialog.findChildren<QTreeView*>()) {
-        view->setIconSize(QSize(20, 20));
-        view->sortByColumn(0, Qt::AscendingOrder);
-    }
+    localize_file_views(dialog, translations);
     proxy->sort(0, Qt::AscendingOrder);
     if (dialog.exec() != QDialog::Accepted || dialog.selectedFiles().isEmpty()) return {};
     return dialog.selectedFiles().front();
@@ -159,14 +205,11 @@ QString choose_directory(QWidget* parent, const QString& caption,
             cancel->setText(translations.value("button.cancel", cancel->text()));
     }
     auto* proxy = new FileProxyModel(&dialog);
+    proxy->set_name_header(
+        translations.value("file.dialog.name", QStringLiteral("Name")));
     proxy->setDynamicSortFilter(true);
     dialog.setProxyModel(proxy);
-    for (auto* view : dialog.findChildren<QListView*>())
-        view->setIconSize(QSize(20, 20));
-    for (auto* view : dialog.findChildren<QTreeView*>()) {
-        view->setIconSize(QSize(20, 20));
-        view->sortByColumn(0, Qt::AscendingOrder);
-    }
+    localize_file_views(dialog, translations);
     proxy->sort(0, Qt::AscendingOrder);
     if (dialog.exec() != QDialog::Accepted || dialog.selectedFiles().isEmpty()) return {};
     return dialog.selectedFiles().front();

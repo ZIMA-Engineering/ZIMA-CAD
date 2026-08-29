@@ -7,8 +7,11 @@
 #include <QString>
 
 class QCheckBox;
+class QComboBox;
 class QDoubleSpinBox;
+class QFormLayout;
 class QLabel;
+class QLineEdit;
 
 namespace zima::app {
 
@@ -28,12 +31,17 @@ private:
     zima::sketcher::SketchDimension initial_;
     CommitCallback commit_;
     QDoubleSpinBox* value_{};
-    QCheckBox* lower_enabled_{};
+    QFormLayout* form_{};
     QCheckBox* driving_{};
-    QDoubleSpinBox* lower_{};
-    QCheckBox* upper_enabled_{};
-    QDoubleSpinBox* upper_{};
+    QLineEdit* prefix_{};
+    QLineEdit* suffix_{};
+    QComboBox* tolerance_mode_{};
+    QLineEdit* symmetric_tolerance_{};
+    QLineEdit* single_tolerance_{};
+    QLineEdit* upper_tolerance_{};
+    QLineEdit* lower_tolerance_{};
     QLabel* error_{};
+    void refresh_tolerance_fields();
 };
 
 }  // namespace zima::app

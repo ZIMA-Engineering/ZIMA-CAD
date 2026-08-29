@@ -478,6 +478,10 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
             thin_mode_->setVisible(thin);
             notify_preview();
         });
+        connect(thin_thickness_, qOverload<double>(&QDoubleSpinBox::valueChanged),
+            this, [this] { notify_preview(); });
+        connect(thin_mode_, &QComboBox::currentIndexChanged,
+            this, [this] { notify_preview(); });
         const auto refresh_extent = [this] {
             const auto mode = extent_mode_->currentData().toString();
             const bool reverse = mode == "two_sides";
@@ -905,6 +909,21 @@ double PrimitivePropertiesDialog::forward_extent_length() const {
     return forward_length_ == nullptr ? 0.0 : forward_length_->value();
 }
 
+double PrimitivePropertiesDialog::reverse_extent_length() const {
+    return reverse_length_ == nullptr ? 0.0 : reverse_length_->value();
+}
+
+zima::document::ProfileExtentMode
+PrimitivePropertiesDialog::profile_extent_mode() const {
+    if (extent_mode_ == nullptr)
+        return zima::document::ProfileExtentMode::OneSide;
+    return extent_mode_->currentData() == "two_sides"
+        ? zima::document::ProfileExtentMode::TwoSides
+        : extent_mode_->currentData() == "symmetric"
+            ? zima::document::ProfileExtentMode::Symmetric
+            : zima::document::ProfileExtentMode::OneSide;
+}
+
 bool PrimitivePropertiesDialog::extrusion_direction_reversed() const {
     return extrusion_direction_ != nullptr &&
         extrusion_direction_->currentData() == "reverse";
@@ -923,6 +942,36 @@ void PrimitivePropertiesDialog::set_profile_offset_and_forward_length(
 void PrimitivePropertiesDialog::set_forward_extent_length(double length) {
     if (forward_length_ == nullptr) return;
     forward_length_->setValue(std::max(0.001, length));
+}
+
+void PrimitivePropertiesDialog::set_forward_extent_and_direction(
+        double length, bool reversed) {
+    if (forward_length_ == nullptr || extrusion_direction_ == nullptr) return;
+    const QSignalBlocker length_blocker(forward_length_);
+    const QSignalBlocker direction_blocker(extrusion_direction_);
+    forward_length_->setValue(std::clamp(std::abs(length),
+        forward_length_->minimum(), forward_length_->maximum()));
+    extrusion_direction_->setCurrentIndex(
+        extrusion_direction_->findData(reversed ? "reverse" : "forward"));
+    notify_preview();
+}
+
+void PrimitivePropertiesDialog::set_reverse_extent_length(double length) {
+    if (reverse_length_ == nullptr) return;
+    reverse_length_->setValue(std::clamp(std::abs(length),
+        reverse_length_->minimum(), reverse_length_->maximum()));
+}
+
+void PrimitivePropertiesDialog::set_reverse_extent_and_direction(
+        double length, bool reversed) {
+    if (reverse_length_ == nullptr || extrusion_direction_ == nullptr) return;
+    const QSignalBlocker length_blocker(reverse_length_);
+    const QSignalBlocker direction_blocker(extrusion_direction_);
+    reverse_length_->setValue(std::clamp(std::abs(length),
+        reverse_length_->minimum(), reverse_length_->maximum()));
+    extrusion_direction_->setCurrentIndex(
+        extrusion_direction_->findData(reversed ? "reverse" : "forward"));
+    notify_preview();
 }
 
 void PrimitivePropertiesDialog::notify_preview() {
@@ -1067,6 +1116,46 @@ void PrimitivePropertiesDialog::set_orientation_base_rotation(
     const zima::kernel::Vec3& rotation, bool constrained) {
     if (!placement_) return;
     placement_->set_orientation_base_rotation(rotation, constrained);
+}
+
+bool PrimitivePropertiesDialog::set_inline_parameter_value(
+    std::string_view key, double value) {
+    const auto set_field = [value](QDoubleSpinBox* field) {
+        if (field == nullptr || !field->isEnabled() || !field->isVisible())
+            return false;
+        field->setValue(value);
+        return true;
+    };
+    constexpr std::string_view placement_prefix{"placement:"};
+    if (key.starts_with(placement_prefix)) {
+        key.remove_prefix(placement_prefix.size());
+        if (key == "x") return set_field(translation_[0]);
+        if (key == "y") return set_field(translation_[1]);
+        if (key == "z") return set_field(translation_[2]);
+        constexpr std::string_view reference_prefix{"reference_offset:"};
+        if (!key.starts_with(reference_prefix) || placement_ == nullptr)
+            return false;
+        const auto suffix = key.substr(reference_prefix.size());
+        if (suffix.empty()) return false;
+        std::size_t index{};
+        for (const char digit : suffix) {
+            if (digit < '0' || digit > '9') return false;
+            index = index * 10 + static_cast<std::size_t>(digit - '0');
+        }
+        return placement_->set_reference_offset(index, value);
+    }
+    if (key == "length") return set_field(length_);
+    if (key == "width") return set_field(width_);
+    if (key == "height") return set_field(height_);
+    if (key == "radius" || key == "bottom_radius") return set_field(radius_);
+    if (key == "top_radius") return set_field(top_radius_);
+    if (key == "top_offset") return set_field(top_offset_);
+    if (key == "length_forward") return set_field(forward_length_);
+    if (key == "length_reverse") return set_field(reverse_length_);
+    if (key == "profile_offset") return set_field(profile_plane_offset_);
+    if (key == "angle") return set_field(angle_);
+    if (key == "size") return set_field(treatment_size_);
+    return false;
 }
 
 }  // namespace zima::app

@@ -621,7 +621,12 @@ int verify_startup_contract(
             for (int x = 2; x < point_viewer->width(); x += 2) {
                 for (const auto& candidate : point_viewer->selection_candidates_at(
                          {static_cast<qreal>(x), static_cast<qreal>(y)})) {
-                    if (point_properties->owns_reference_owner(candidate.owner_id)) {
+                    // The Point's own parameter dimensions deliberately stay
+                    // interactive while its placement-reference command is
+                    // armed. Only its own reference geometry must be excluded.
+                    if (candidate.kind !=
+                            zima::viewer::CandidateKind::Dimension &&
+                        point_properties->owns_reference_owner(candidate.owner_id)) {
                         own_point_candidate = candidate;
                         break;
                     }
@@ -676,6 +681,50 @@ int verify_startup_contract(
                         "origin:axis:") &&
                     contains_orange_hover(point_viewer->grabFramebuffer()),
                 "Origin axis hover was not rendered orange during placement")) return 1;
+    std::optional<QPointF> point_x_dimension_position;
+    for (int y = 2; y < point_viewer->height() &&
+            !point_x_dimension_position; y += 2) {
+        for (int x = 2; x < point_viewer->width(); x += 2) {
+            const QPointF position{static_cast<qreal>(x), static_cast<qreal>(y)};
+            const auto candidates = point_viewer->selection_candidates_at(position);
+            if (std::any_of(candidates.begin(), candidates.end(),
+                    [&](const auto& candidate) {
+                        return candidate.kind ==
+                                zima::viewer::CandidateKind::Dimension &&
+                            candidate.owner_id == point_properties->construction_id() &&
+                            candidate.semantic_key == "parameter:x";
+                    })) {
+                point_x_dimension_position = position;
+                break;
+            }
+        }
+    }
+    if (!verify(point_x_dimension_position.has_value(),
+                "Point X dimension was not an interactive View candidate")) return 1;
+    QMouseEvent point_dimension_double_click(
+        QEvent::MouseButtonDblClick, *point_x_dimension_position,
+        point_viewer->mapToGlobal(point_x_dimension_position->toPoint()),
+        Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+    QApplication::sendEvent(point_viewer, &point_dimension_double_click);
+    application.processEvents();
+    auto* inline_point_dimension =
+        point_viewer->findChild<QLineEdit*>("inlineDimensionValueEdit");
+    if (!verify(inline_point_dimension != nullptr,
+                "Point dimension double-click did not open its inline editor")) return 1;
+    inline_point_dimension->setText(QStringLiteral("12"));
+    QKeyEvent submit_point_dimension(
+        QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier);
+    QApplication::sendEvent(inline_point_dimension, &submit_point_dimension);
+    application.processEvents();
+    auto* point_x_field = point_dialog->findChild<QDoubleSpinBox*>("constructionX");
+    if (!verify(point_x_field != nullptr &&
+                    std::abs(point_x_field->value() - 12.0) < 1.0e-9,
+                "Point dimension edit did not update the pending X field")) return 1;
+    point_x_field->setValue(0.0);
+    application.processEvents();
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    point_viewer->clear_selection();
+    point_viewer->reset_candidate_cycle();
     std::optional<zima::viewer::ViewerCandidate> point_hover;
     QPointF point_hover_position;
     if (point_viewer != nullptr) {
@@ -1298,14 +1347,27 @@ int verify_startup_contract(
     // while processing this candidate and must not invalidate its reference.
     // The segment path still creates the dimension from both persisted endpoint IDs.
     sketch_click_at(*dimension_segment_position);
-    auto* dimension_dialog = window.findChild<QDialog*>("zimaPropertiesSubWindow");
-    auto* dimension_buttons = dimension_dialog == nullptr
-        ? nullptr : dimension_dialog->findChild<QDialogButtonBox*>();
-    if (!verify(dimension_buttons != nullptr,
-                "View-selected Sketch segment did not open the Dimension Properties dialog")) {
+    std::optional<QPointF> empty_dimension_placement;
+    for (int y = 20; y < sketch_viewer->height() - 20 &&
+            !empty_dimension_placement; y += 20) {
+        for (int x = 20; x < sketch_viewer->width() - 20; x += 20) {
+            const QPointF position{static_cast<qreal>(x),
+                                   static_cast<qreal>(y)};
+            if (sketch_viewer->selection_candidates_at(position).empty()) {
+                empty_dimension_placement = position;
+                break;
+            }
+        }
+    }
+    if (!verify(empty_dimension_placement.has_value(),
+                "Sketch Dimension test found no empty View placement point")) {
         return 1;
     }
-    dimension_buttons->button(QDialogButtonBox::Ok)->click();
+    sketch_click_at(*empty_dimension_placement);
+    if (!verify(window.findChild<QDialog*>("zimaPropertiesSubWindow") == nullptr,
+                "View-selected Sketch segment unexpectedly opened Dimension Properties")) {
+        return 1;
+    }
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     application.processEvents();
     QTreeWidgetItem* dimension_group{};
@@ -1317,7 +1379,7 @@ int verify_startup_contract(
     }
     if (!verify(dimension_group != nullptr && dimension_group->childCount() == 1 &&
                     !workspace_state->text().contains(QStringLiteral("první bod")),
-                "segment Dimension OK did not persist cleanly or restarted a point command")) {
+                "segment Dimension did not persist directly in View or restarted a point command")) {
         return 1;
     }
     if (!part_capture_path.isEmpty()) {
@@ -2928,7 +2990,7 @@ int main(int argc, char* argv[]) {
     application.setApplicationName("ZIMA-CAD");
     application.setDesktopFileName("zima-cad");
     application.setWindowIcon(zima::app::application_icon());
-    QString startup_directory = QDir::currentPath();
+    QString startup_directory;
     const auto arguments = application.arguments();
     for (int index = 1; index < arguments.size(); ++index) {
         const QString argument = arguments.at(index);
@@ -2957,6 +3019,12 @@ int main(int argc, char* argv[]) {
             startup_directory = candidate.absolutePath();
             break;
         }
+    }
+    // Keep the startup UI contract isolated from the user's configured
+    // project directory and any files stored there.
+    if (startup_directory.isEmpty() &&
+        arguments.contains(QStringLiteral("--verify-startup"))) {
+        startup_directory = QDir::currentPath();
     }
     zima::app::AssemblyWorkspaceWindow window(startup_directory);
     QString part_capture_path;

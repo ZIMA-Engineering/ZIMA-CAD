@@ -10,6 +10,7 @@
 #include <functional>
 #include <memory>
 #include <set>
+#include <string_view>
 #include <QString>
 
 class QComboBox;
@@ -71,9 +72,14 @@ public:
         std::function<void(const zima::document::HistoryContainer&)> callback);
     [[nodiscard]] double profile_plane_offset() const;
     [[nodiscard]] double forward_extent_length() const;
+    [[nodiscard]] double reverse_extent_length() const;
+    [[nodiscard]] zima::document::ProfileExtentMode profile_extent_mode() const;
     [[nodiscard]] bool extrusion_direction_reversed() const;
     void set_profile_offset_and_forward_length(double offset, double length);
     void set_forward_extent_length(double length);
+    void set_forward_extent_and_direction(double length, bool reversed);
+    void set_reverse_extent_length(double length);
+    void set_reverse_extent_and_direction(double length, bool reversed);
     void add_edge_reference(const zima::kernel::EdgeReference& edge);
     void set_edge_references(std::vector<zima::kernel::EdgeReference> edges);
     using EdgeGroup = std::vector<zima::kernel::EdgeReference>;
@@ -102,6 +108,8 @@ public:
         const zima::kernel::Vec3& solution);
     void set_orientation_base_rotation(
         const zima::kernel::Vec3& rotation, bool constrained);
+    bool set_inline_parameter_value(
+        std::string_view key, double value) override;
 
     // Toggle-highlight-on-click for populated reference rows, matching
     // ConstructionPropertiesDialog and Python's `_reference_cell_clicked`.

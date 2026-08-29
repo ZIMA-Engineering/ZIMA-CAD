@@ -192,6 +192,16 @@ struct SketchDimension {
     // Built-in sketch axes use the stable IDs sketch_axis:x / sketch_axis:y.
     std::string second_geometry_id;
     std::optional<std::array<double, 2>> placement;
+    // Presentation metadata belongs to the persisted ZIMA dimension, not to
+    // a transient viewer label. Tolerance mode is: empty, symmetric,
+    // single_deviation, or deviations.
+    std::string prefix;
+    std::string suffix;
+    std::string tolerance_mode;
+    std::string symmetric_tolerance;
+    std::string single_tolerance;
+    std::string upper_tolerance;
+    std::string lower_tolerance;
     bool operator==(const SketchDimension&) const = default;
 };
 

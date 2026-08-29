@@ -1381,7 +1381,11 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
                                          moving->point.y + side.y,
                                          moving->point.z + side.z};
                 dimension.value = row.offset;
-                dimension.label_prefix = "d=";
+                dimension.label_prefix.clear();
+                // The measured direction and the deliberately chosen side
+                // offset define one stable dimension plane.  Do not leave
+                // the default global-Z plane on an arbitrarily oriented mate.
+                dimension.plane_normal = cross(normal, side);
             } else if (row.mate_type == MateKind::AxisAngle) {
                 const auto moving = find_axis(row.component_reference);
                 const auto target = find_axis(row.target_reference);
@@ -1397,8 +1401,12 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
                     target->point.y + moving->direction.y * 30.0,
                     target->point.z + moving->direction.z * 30.0};
                 dimension.value = row.offset;
-                dimension.label_prefix = "∠=";
+                dimension.label_prefix.clear();
                 dimension.unit_suffix = " °";
+                dimension.kind = zima::kernel::ViewerDimensionKind::Angular;
+                dimension.sweep_degrees = row.offset;
+                dimension.plane_normal = cross(
+                    target->direction, moving->direction);
             } else if (row.mate_type == MateKind::PlaneAngle) {
                 const auto moving = find_plane(row.component_reference);
                 const auto target = find_plane(row.target_reference);
@@ -1414,8 +1422,11 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
                     target->point.y + moving->normal.y * 30.0,
                     target->point.z + moving->normal.z * 30.0};
                 dimension.value = row.offset;
-                dimension.label_prefix = "∠=";
+                dimension.label_prefix.clear();
                 dimension.unit_suffix = " °";
+                dimension.kind = zima::kernel::ViewerDimensionKind::Angular;
+                dimension.sweep_degrees = row.offset;
+                dimension.plane_normal = cross(target->normal, moving->normal);
             } else {
                 continue;
             }

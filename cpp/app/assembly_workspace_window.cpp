@@ -52,6 +52,7 @@
 #include <QPixmap>
 #include <QPainter>
 #include <QPushButton>
+#include <QProxyStyle>
 #include <QRadioButton>
 #include <QScopedValueRollback>
 #include <QSignalBlocker>
@@ -64,6 +65,7 @@
 #include <QTableWidget>
 #include <QToolBar>
 #include <QToolButton>
+#include <QStyleOptionToolButton>
 #include <QTreeWidget>
 #include <QVBoxLayout>
 
@@ -101,6 +103,41 @@ protected:
     }
 };
 
+class LeftAlignedToolButtonStyle final : public QProxyStyle {
+public:
+    explicit LeftAlignedToolButtonStyle(QStyle* base, QObject* parent)
+        : QProxyStyle(base) {
+        setParent(parent);
+    }
+
+    void drawControl(ControlElement element, const QStyleOption* option,
+        QPainter* painter, const QWidget* widget = nullptr) const override {
+        if (element != CE_ToolButtonLabel) {
+            QProxyStyle::drawControl(element, option, painter, widget);
+            return;
+        }
+        const auto* button = qstyleoption_cast<const QStyleOptionToolButton*>(option);
+        if (button == nullptr ||
+            button->toolButtonStyle != Qt::ToolButtonTextBesideIcon) {
+            QProxyStyle::drawControl(element, option, painter, widget);
+            return;
+        }
+        QStyleOptionToolButton aligned = *button;
+        const int icon_width = button->icon.isNull() ? 0 : button->iconSize.width();
+        const int icon_gap = icon_width == 0 || button->text.isEmpty() ? 0 : 4;
+        const int text_width = button->fontMetrics.horizontalAdvance(button->text);
+        const int menu_width = button->features.testFlag(
+                QStyleOptionToolButton::HasMenu)
+            ? pixelMetric(PM_MenuButtonIndicator, button, widget) : 0;
+        constexpr int horizontal_padding = 6;
+        aligned.rect.setLeft(button->rect.left() + horizontal_padding);
+        aligned.rect.setWidth(std::min(
+            button->rect.width() - horizontal_padding,
+            icon_width + icon_gap + text_width + menu_width));
+        QProxyStyle::drawControl(element, &aligned, painter, widget);
+    }
+};
+
 int document_decimal_places(const auto& document) noexcept {
     const auto found = document.document_precision.find("decimal_places");
     if (found == document.document_precision.end()) return 3;
@@ -116,6 +153,79 @@ double rounded_to_decimal_places(double value, int decimal_places) {
         10.0, std::clamp(decimal_places, 0, 12));
     const double rounded = std::round(value * scale) / scale;
     return std::abs(rounded) < 0.5 / scale ? 0.0 : rounded;
+}
+
+void normalize_owned_profile_front_references(
+        std::vector<zima::document::ConstructionReference>& references,
+        bool preserve_front_through_origin_triad = false) {
+    const auto first = std::find_if(references.begin(), references.end(),
+        [](const auto& reference) {
+            return !reference.orientation_only && reference.supports_offset &&
+                !reference.owner_id.empty();
+        });
+    if (first == references.end()) return;
+    const auto owner = first->owner_id;
+    const auto path = first->instance_path;
+    const auto semantic = first->semantic_key;
+    const auto same_source = [&](const auto& reference) {
+        return reference.owner_id == owner &&
+            reference.instance_path == path &&
+            reference.semantic_key == semantic;
+    };
+    const auto second_plane = std::find_if(std::next(first), references.end(),
+        [&](const auto& reference) {
+            return !reference.orientation_only && reference.supports_offset &&
+                !same_source(reference);
+        });
+    for (auto& reference : references) {
+        if (reference.orientation_only) continue;
+        const bool front = same_source(reference);
+        const bool top = second_plane != references.end() &&
+            &reference == &*second_plane;
+        reference.orientation_drives_rotation = front || top;
+        reference.orientation_role = front ? "front" : top ? "top" : "none";
+    }
+    std::erase_if(references, [&](const auto& reference) {
+        return reference.orientation_only && !same_source(reference);
+    });
+    if (preserve_front_through_origin_triad) {
+        // resolve_placement() deliberately collapses the ordinary three
+        // planes of the main Origin to the document identity frame.  An
+        // owned Sketch/profile is different: its first positional plane is
+        // explicitly its FRONT, also while the feature dialog is only
+        // showing a transient preview.  The calculated Sketch path already
+        // supplies this non-persisted orientation twin; do the same here so
+        // the cyan local origin cannot jump to the last reference until the
+        // first profile calculation/drag refreshes it.
+        auto explicit_front = *first;
+        explicit_front.orientation_only = true;
+        explicit_front.orientation_drives_rotation = true;
+        explicit_front.orientation_role = "front";
+        references.push_back(std::move(explicit_front));
+    }
+}
+
+zima::kernel::Vec3 euler_degrees_from_frame_columns(
+        const zima::kernel::Vec3& x_axis,
+        const zima::kernel::Vec3& y_axis,
+        const zima::kernel::Vec3& z_axis) {
+    const std::array<std::array<double, 3>, 3> matrix{{
+        {x_axis.x, y_axis.x, z_axis.x},
+        {x_axis.y, y_axis.y, z_axis.y},
+        {x_axis.z, y_axis.z, z_axis.z}}};
+    constexpr double degrees_per_radian = 180.0 / std::numbers::pi;
+    const double ry = std::asin(std::clamp(-matrix[2][0], -1.0, 1.0));
+    double rx{};
+    double rz{};
+    if (std::abs(std::cos(ry)) > 1.0e-10) {
+        rx = std::atan2(matrix[2][1], matrix[2][2]);
+        rz = std::atan2(matrix[1][0], matrix[0][0]);
+    } else {
+        rx = std::atan2(
+            matrix[0][1] * (ry >= 0.0 ? 1.0 : -1.0), matrix[1][1]);
+    }
+    return {rx * degrees_per_radian, ry * degrees_per_radian,
+        rz * degrees_per_radian};
 }
 
 // Builds the precise per-entity key set for every currently-toggled
@@ -478,6 +588,19 @@ void keep_only_inactive_sketch_profile(
     mesh.original_references = {};
 }
 
+void remove_sketch_computation_points(zima::kernel::ViewerMesh& mesh) {
+    // Segment midpoints are live Sketcher inference/picking aids. They are
+    // useful only while the Sketch itself is active and must not leak into
+    // the intermediate Properties preview of Sketch, Extrusion or
+    // Revolution.
+    std::erase_if(mesh.points, [](const auto& point) {
+        return point.reference.semantic_key.starts_with("sketch_midpoint:");
+    });
+    std::erase_if(mesh.original_references.points, [](const auto& point) {
+        return point.reference.semantic_key.starts_with("sketch_midpoint:");
+    });
+}
+
 QTreeWidgetItem* add_origin_tree_item(QTreeWidgetItem* parent,
     const std::string& document_id, bool assembly,
     const zima::assembly::InstancePath& instance_path = {}) {
@@ -676,6 +799,73 @@ std::string revolution_axis_segment_id(
             "Ve skice rotace nakreslete zelenou konstrukční osu.");
     }
     return result;
+}
+
+struct RevolutionCueFrame {
+    zima::kernel::Vec3 center;
+    zima::kernel::Vec3 axis;
+    zima::kernel::Vec3 radial;
+};
+
+std::optional<RevolutionCueFrame> revolution_cue_frame(
+    const zima::sketcher::Sketch& sketch, const std::string& axis_segment_id) {
+    const auto segment = std::find_if(sketch.segments.begin(),
+        sketch.segments.end(), [&](const auto& value) {
+            return value.id == axis_segment_id && value.construction &&
+                value.centerline;
+        });
+    if (segment == sketch.segments.end()) return std::nullopt;
+    const auto* first_point = sketch.find_point(segment->first_point_id);
+    const auto* second_point = sketch.find_point(segment->second_point_id);
+    if (first_point == nullptr || second_point == nullptr) return std::nullopt;
+    const auto first = sketch.world_point(first_point->x, first_point->y);
+    const auto second = sketch.world_point(second_point->x, second_point->y);
+    zima::kernel::Vec3 axis{second.x - first.x, second.y - first.y,
+        second.z - first.z};
+    const double axis_norm = std::hypot(std::hypot(axis.x, axis.y), axis.z);
+    if (axis_norm <= 1.0e-12) return std::nullopt;
+    axis = {axis.x / axis_norm, axis.y / axis_norm, axis.z / axis_norm};
+
+    zima::kernel::Vec3 centroid{};
+    std::size_t point_count = 0;
+    for (const auto& edge : sketch.viewer_mesh().edges) {
+        if (edge.construction || edge.reference.owner_id != sketch.id ||
+            edge.reference.semantic_key.starts_with("external_")) {
+            continue;
+        }
+        for (const auto& point : edge.points) {
+            centroid.x += point.x;
+            centroid.y += point.y;
+            centroid.z += point.z;
+            ++point_count;
+        }
+    }
+    if (point_count == 0) return std::nullopt;
+    centroid = {centroid.x / static_cast<double>(point_count),
+        centroid.y / static_cast<double>(point_count),
+        centroid.z / static_cast<double>(point_count)};
+    const zima::kernel::Vec3 from_axis{centroid.x - first.x,
+        centroid.y - first.y, centroid.z - first.z};
+    const double axial = from_axis.x * axis.x + from_axis.y * axis.y +
+        from_axis.z * axis.z;
+    const zima::kernel::Vec3 center{first.x + axis.x * axial,
+        first.y + axis.y * axial, first.z + axis.z * axial};
+    zima::kernel::Vec3 radial{centroid.x - center.x,
+        centroid.y - center.y, centroid.z - center.z};
+    double radial_norm = std::hypot(std::hypot(radial.x, radial.y), radial.z);
+    if (radial_norm <= 1.0e-12) {
+        radial = {
+            sketch.resolved_normal.y * axis.z - sketch.resolved_normal.z * axis.y,
+            sketch.resolved_normal.z * axis.x - sketch.resolved_normal.x * axis.z,
+            sketch.resolved_normal.x * axis.y - sketch.resolved_normal.y * axis.x};
+        radial_norm = std::hypot(std::hypot(radial.x, radial.y), radial.z);
+    }
+    if (radial_norm <= 1.0e-12) return std::nullopt;
+    constexpr double cue_radius = 25.0;
+    radial = {radial.x / radial_norm * cue_radius,
+        radial.y / radial_norm * cue_radius,
+        radial.z / radial_norm * cue_radius};
+    return RevolutionCueFrame{center, axis, radial};
 }
 
 std::optional<std::string> sketch_external_reference_id_from_key(
@@ -1218,12 +1408,21 @@ private:
 }  // namespace
 
 AssemblyWorkspaceWindow::AssemblyWorkspaceWindow(const QString& working_directory) {
-    if (!working_directory.trimmed().isEmpty()) {
+    const bool has_explicit_working_directory =
+        !working_directory.trimmed().isEmpty();
+    if (has_explicit_working_directory) {
         working_directory_ =
             QFileInfo(working_directory).absoluteFilePath().toStdString();
     }
     application_settings_ = ApplicationSettings::load(
-        QString::fromStdString(working_directory_.string()));
+        has_explicit_working_directory ? working_directory : QString{});
+    if (!has_explicit_working_directory) {
+        const QString configured =
+            application_settings_.resolved_paths.value("WorkingDirectory");
+        if (!configured.trimmed().isEmpty() && QFileInfo(configured).isDir()) {
+            working_directory_ = QFileInfo(configured).absoluteFilePath().toStdString();
+        }
+    }
     setWindowTitle(tr("ZIMA-CAD"));
     setWindowIcon(application_icon());
     resize(1200, 800);
@@ -2187,11 +2386,6 @@ void AssemblyWorkspaceWindow::create_layout() {
             accept_construction_reference(candidate);
             return;
         }
-        if (primitive_reference_dialog_ != nullptr &&
-            pending_primitive_reference_index_) {
-            accept_primitive_reference(candidate);
-            return;
-        }
         if (component_placement_dialog_ != nullptr &&
             pending_component_placement_index_) {
             accept_component_placement_reference(candidate);
@@ -2199,6 +2393,11 @@ void AssemblyWorkspaceWindow::create_layout() {
         }
         if (extrusion_target_dialog_ != nullptr) {
             accept_extrusion_target(candidate);
+            return;
+        }
+        if (primitive_reference_dialog_ != nullptr &&
+            pending_primitive_reference_index_) {
+            accept_primitive_reference(candidate);
             return;
         }
         if (edge_treatment_selection_) {
@@ -2608,21 +2807,39 @@ void AssemblyWorkspaceWindow::create_layout() {
             if (candidate.kind == zima::viewer::CandidateKind::Dimension &&
                 candidate.semantic_key.starts_with("dimension:")) {
                 const auto dimension_id = candidate.semantic_key.substr(10);
+                const auto* sketch = active_sketch();
+                const auto existing = sketch == nullptr
+                    ? std::vector<zima::sketcher::SketchDimension>::const_iterator{}
+                    : std::find_if(sketch->dimensions.begin(), sketch->dimensions.end(),
+                        [&](const auto& value) { return value.id == dimension_id; });
+                if (sketch == nullptr || existing == sketch->dimensions.end()) return;
+                const bool locked = existing->driving;
                 QMenu menu(this);
-                auto* edit = menu.addAction(tr("Editovat hodnotu"));
+                auto* lock = menu.addAction(
+                    locked ? tr("Odemknout kótu") : tr("Uzamknout kótu"));
+                menu.addSeparator();
                 auto* properties = menu.addAction(tr("Vlastnosti…"));
+                menu.addSeparator();
                 auto* remove = menu.addAction(tr("Odstranit"));
                 const auto* chosen = menu.exec(global_position);
-                if (chosen == edit || chosen == properties) {
+                if (chosen == lock) {
+                    if (mutate_active_sketch([&](auto& target) {
+                            const auto found = std::find_if(
+                                target.dimensions.begin(), target.dimensions.end(),
+                                [&](const auto& value) {
+                                    return value.id == dimension_id;
+                                });
+                            if (found != target.dimensions.end()) {
+                                found->driving = !locked;
+                            }
+                        })) {
+                        preserve_view_on_refresh_ = true;
+                        refresh_tabs();
+                        refresh_scene();
+                    }
+                } else if (chosen == properties) {
                     show_sketch_dimension_properties(
                         candidate.owner_id, dimension_id);
-                    if (chosen == edit && properties_dialog_ != nullptr) {
-                        if (auto* value = properties_dialog_->findChild<
-                                QDoubleSpinBox*>("sketchDimensionValue")) {
-                            value->setFocus();
-                            value->selectAll();
-                        }
-                    }
                 } else if (chosen == remove) {
                     remove_sketch_relation(
                         candidate.owner_id, dimension_id, true);
@@ -3405,6 +3622,49 @@ void AssemblyWorkspaceWindow::create_layout() {
                 pending_primitive_reference_index_) return;
             auto* item = tree_->itemAt(position);
             if (item == nullptr || item->parent() == nullptr) return;
+            const auto delete_tree_selection = [this, item] {
+                struct Target { std::string id; QString kind; };
+                std::vector<Target> targets;
+                const auto append = [&](QTreeWidgetItem* selected_item) {
+                    const auto tree_kind = selected_item->data(
+                        0, Qt::UserRole + 3).toString();
+                    QString delete_kind;
+                    if (tree_kind == QStringLiteral("part-container"))
+                        delete_kind = QStringLiteral("container");
+                    else if (tree_kind == QStringLiteral("part-construction") ||
+                             tree_kind == QStringLiteral("assembly-construction") ||
+                             tree_kind == QStringLiteral("assembly-cut") ||
+                             tree_kind == QStringLiteral("assembly-sketch"))
+                        delete_kind = tree_kind;
+                    else if (tree_kind == QStringLiteral("part-sketch"))
+                        delete_kind = QStringLiteral("sketch");
+                    else return;
+                    const auto id = selected_item->data(
+                        0, Qt::UserRole).toString().toStdString();
+                    if (id.empty() || std::any_of(targets.begin(), targets.end(),
+                            [&](const auto& target) {
+                                return target.id == id && target.kind == delete_kind;
+                            })) return;
+                    targets.push_back({id, delete_kind});
+                };
+                for (auto* selected_item : tree_->selectedItems()) append(selected_item);
+                if (targets.empty()) append(item);
+                if (targets.empty()) return;
+                if (QMessageBox::question(this, tr("Odstranit objekty"),
+                        targets.size() == 1
+                            ? tr("Opravdu chcete vybraný objekt odstranit?")
+                            : tr("Opravdu chcete odstranit všech %1 vybraných objektů?")
+                                  .arg(targets.size()),
+                        QMessageBox::Yes | QMessageBox::No,
+                        QMessageBox::No) != QMessageBox::Yes) return;
+                // Tree order is history order. Delete downstream objects
+                // first so a selected dependent does not block deletion of
+                // its also-selected source.
+                std::reverse(targets.begin(), targets.end());
+                for (const auto& target : targets) {
+                    delete_part_object(target.id, target.kind, false);
+                }
+            };
             if (item->data(0, Qt::UserRole + 3).toString() ==
                     "sketch-geometry") {
                 const auto geometry_id =
@@ -3493,7 +3753,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                     refresh_tabs();
                     refresh_scene();
                 } else if (selected == remove) {
-                    delete_part_object(id, QStringLiteral("assembly-cut"));
+                    delete_tree_selection();
                 }
             } else if (item->data(0, Qt::UserRole + 3).toString() == "part-container") {
                 const std::string id = item->data(0, Qt::UserRole).toString().toStdString();
@@ -3532,7 +3792,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 } else if (selected == move_down) {
                     move_part_container(id, 1);
                 } else if (selected == remove) {
-                    delete_part_object(id, QStringLiteral("container"));
+                    delete_tree_selection();
                 }
             } else if (item->data(0, Qt::UserRole + 3).toString() ==
                            "part-construction" ||
@@ -3570,7 +3830,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 } else if (selected == move_down) {
                     move_part_container(id, 1);
                 } else if (selected == remove) {
-                    delete_part_object(id, item->data(0, Qt::UserRole + 3).toString());
+                    delete_tree_selection();
                 }
             } else if (item->data(0, Qt::UserRole + 3).toString() == "part-sketch" ||
                        item->data(0, Qt::UserRole + 3).toString() == "assembly-sketch") {
@@ -3606,11 +3866,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 else if (selected == move_up) move_part_container(id, -1);
                 else if (selected == move_down) move_part_container(id, 1);
                 else if (selected == remove) {
-                    delete_part_object(id,
-                        item->data(0, Qt::UserRole + 3).toString() ==
-                                QStringLiteral("assembly-sketch")
-                            ? QStringLiteral("assembly-sketch")
-                            : QStringLiteral("sketch"));
+                    delete_tree_selection();
                 }
             } else if (item->data(0, Qt::UserRole + 3).toString() ==
                            "sketch-geometry" ||
@@ -3953,7 +4209,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         : active_application_ == ApplicationMode::Piping ? tr("Potrubí")
         : tr("Výkres");
     auto* heading = new QLabel(heading_text, tools_toolbar_);
-    heading->setAlignment(Qt::AlignCenter);
+    heading->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     heading->setFont(tree_->font());
     heading->setStyleSheet(QStringLiteral("font-weight:600; padding:3px;"));
     tools_toolbar_->addWidget(heading);
@@ -3972,6 +4228,8 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         if (auto* button = qobject_cast<QToolButton*>(
                 tools_toolbar_->widgetForAction(action))) {
             button->setObjectName("applicationCommandButton");
+            button->setStyle(new LeftAlignedToolButtonStyle(
+                button->style(), button));
             if (action->menu() != nullptr) {
                 button->setPopupMode(QToolButton::InstantPopup);
             }
@@ -4826,6 +5084,7 @@ void AssemblyWorkspaceWindow::accept_extrusion_target(
     zima::kernel::Vec3 origin;
     zima::kernel::Vec3 normal;
     bool resolved = false;
+    bool construction_plane = false;
     std::vector<zima::kernel::Vec3> surface_triangles;
     const auto* construction = part == nullptr ? nullptr
         : part->session.document().find_construction(candidate.owner_id);
@@ -4834,6 +5093,7 @@ void AssemblyWorkspaceWindow::accept_extrusion_target(
         origin = construction->origin;
         normal = construction->direction;
         resolved = true;
+        construction_plane = true;
     } else {
         const auto scene = assembly == nullptr
             ? zima::kernel::ViewerMesh{}
@@ -4890,12 +5150,18 @@ void AssemblyWorkspaceWindow::accept_extrusion_target(
             break;
         }
     }
-    if (!resolved && !surface_triangles.empty()) {
+    // A planar face of an original solid is still a finite persisted Face,
+    // not a datum Plane.  Turning it into an infinite fallback plane loses
+    // the selected face boundary and makes Up-to terminate against geometry
+    // other than the object the user actually picked.  Only a real
+    // construction plane follows the plane-target path; every solid face
+    // retains its persisted identity and triangle packet.
+    if (!construction_plane && !surface_triangles.empty()) {
         extrusion_target_dialog_->set_extrusion_surface_target(
             {candidate.owner_id, candidate.semantic_key, candidate.instance_path},
             std::move(surface_triangles));
-        extrusion_target_dialog_ = nullptr;
-        state_->setText(tr("Zakřivená cílová plocha vytažení byla nastavena."));
+        finish_extrusion_target_selection();
+        state_->setText(tr("Cílová plocha vytažení byla nastavena."));
         return;
     }
     if (!resolved) {
@@ -4905,8 +5171,25 @@ void AssemblyWorkspaceWindow::accept_extrusion_target(
     extrusion_target_dialog_->set_extrusion_target(
         {candidate.owner_id, candidate.semantic_key, candidate.instance_path},
         origin, normal);
-    extrusion_target_dialog_ = nullptr;
+    finish_extrusion_target_selection();
     state_->setText(tr("Cílová plocha vytažení byla nastavena."));
+}
+
+void AssemblyWorkspaceWindow::finish_extrusion_target_selection() {
+    extrusion_target_dialog_ = nullptr;
+    viewer_->clear_selection();
+    // Do not auto-resume an incomplete placement row.  The user explicitly
+    // entered the Up-to target field; placement may only become active again
+    // after an explicit click in its own reference table.
+    pending_primitive_reference_index_.reset();
+    tree_->setProperty("commandSelectionActive", false);
+    viewer_->set_selection_contract({zima::viewer::CandidateKind::Dimension});
+    viewer_->set_candidate_filter([this](const auto& candidate) {
+        return primitive_reference_dialog_ != nullptr &&
+            candidate.kind == zima::viewer::CandidateKind::Dimension &&
+            primitive_reference_dialog_->owns_reference_owner(candidate.owner_id) &&
+            candidate.semantic_key.starts_with("parameter:");
+    });
 }
 
 
@@ -5295,7 +5578,9 @@ void AssemblyWorkspaceWindow::save_active_document() {
         working_directory_ = part->path.parent_path();
         part->session.mark_saved();
         refresh_tabs();
-        refresh_scene();
+        // Saving changes persistence state and the tab's dirty marker only.
+        // Rebuilding an unchanged scene would invoke the viewer's automatic
+        // fit and unexpectedly move the user's camera.
     } catch (const std::exception& error) {
         QMessageBox::critical(this,
             application_settings_.text("message.save_failed", tr("Uložení se nezdařilo")),
@@ -5372,7 +5657,8 @@ void AssemblyWorkspaceWindow::save_active_document_as() {
         }
         if (!target.parent_path().empty()) working_directory_ = target.parent_path();
         refresh_tabs();
-        refresh_scene();
+        // Save As changes the path/tab label, not displayed geometry. Keep
+        // the exact current camera and avoid an unnecessary scene rebuild.
         state_->setText(tr("Dokument uložen jako %1").arg(selected));
     } catch (const std::exception& error) {
         QMessageBox::critical(this,
@@ -5935,6 +6221,12 @@ void AssemblyWorkspaceWindow::show_global_settings() {
     global_settings_dialog_ = dialog;
     connect(dialog, &QDialog::accepted, this, [this] {
         application_settings_ = ApplicationSettings::load();
+        const QString configured =
+            application_settings_.resolved_paths.value("WorkingDirectory");
+        if (!configured.trimmed().isEmpty() && QFileInfo(configured).isDir()) {
+            working_directory_ = QFileInfo(configured).absoluteFilePath().toStdString();
+            refresh_delete_file_actions();
+        }
     });
     connect(dialog, &QObject::destroyed, this, [this] {
         global_settings_dialog_ = nullptr;
@@ -6474,7 +6766,19 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         : feature_kind == zima::document::FeatureKind::Revolution
             ? zima::document::PartDocument::create_revolution_container(source_sketch_id)
             : zima::document::PartDocument::create_box_container();
-    if (pending_owned_sketch) pending_owned_sketch->owner_container_id = initial.id;
+    if (pending_owned_sketch) {
+        pending_owned_sketch->owner_container_id = initial.id;
+        // The transient owned Sketch and its profile feature must share one
+        // identity before Sketcher is ever opened.  Relying on the later
+        // Sketcher commit to repair this association made the first
+        // Properties preview unable to find its plane; offset plane and
+        // dimensions then appeared only after returning from Sketcher.
+        if (feature_kind == zima::document::FeatureKind::Extrusion) {
+            pending_owned_sketch->id = initial.extrusion.sketch_id;
+        } else if (feature_kind == zima::document::FeatureKind::Revolution) {
+            pending_owned_sketch->id = initial.revolution.sketch_id;
+        }
+    }
     if (!edit_mode && (feature_kind == zima::document::FeatureKind::Extrusion ||
                        feature_kind == zima::document::FeatureKind::Revolution)) {
         const auto source = zima::document::ProfileSource::Internal;
@@ -6503,8 +6807,27 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 initial.extrusion.profile_plane_offset = source->plane_offset;
             } else {
                 initial.revolution.profile_plane_offset = source->plane_offset;
+                const auto axis_count = std::count_if(
+                    source->segments.begin(), source->segments.end(),
+                    [](const auto& segment) {
+                        return segment.construction && segment.centerline;
+                    });
+                if (axis_count == 1) {
+                    initial.revolution.axis_segment_id =
+                        revolution_axis_segment_id(
+                            *source, initial.revolution.axis_segment_id);
+                }
             }
         }
+    }
+    if (feature_kind == zima::document::FeatureKind::Revolution &&
+        pending_owned_sketch &&
+        std::count_if(pending_owned_sketch->segments.begin(),
+            pending_owned_sketch->segments.end(), [](const auto& segment) {
+                return segment.construction && segment.centerline;
+            }) == 1) {
+        initial.revolution.axis_segment_id = revolution_axis_segment_id(
+            *pending_owned_sketch, initial.revolution.axis_segment_id);
     }
     const bool allow_subtract = assembly_cut || (!part->session.document().history.empty() &&
         !(edit_mode && part->session.document().history.front().id == initial.id));
@@ -6528,6 +6851,13 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
          pending_profile_edit](
             zima::document::HistoryContainer committed,
             std::vector<std::string> target_occurrences) mutable {
+            if (committed.feature_kind ==
+                    zima::document::FeatureKind::Extrusion ||
+                committed.feature_kind ==
+                    zima::document::FeatureKind::Revolution) {
+                normalize_owned_profile_front_references(
+                    committed.placement.references);
+            }
             if (assembly_cut) {
                 workspace_.regenerate_assembly_from_open_dependencies(owner_id);
                 auto* target = workspace_.open_assembly(owner_id);
@@ -6697,7 +7027,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     // Sketch is stored separately from the parameter object, so numeric
     // equality cannot prove that the operation is a no-op.
     dialog->set_commit_required(pending_profile_edit || profile_feature);
-    std::function<void(const zima::document::HistoryContainer&)> placement_preview;
+    std::function<zima::document::HistoryContainer(
+        const zima::document::HistoryContainer&)> placement_preview;
     const auto prepare_owned_profile_preview = [this](
             zima::document::PartDocument& preview_document,
             const zima::document::HistoryContainer& preview) {
@@ -6708,11 +7039,33 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         if (profile_source != zima::document::ProfileSource::Internal) return;
         const auto& sketch_id = extrusion ? preview.extrusion.sketch_id
                                           : preview.revolution.sketch_id;
-        const auto sketch = std::find_if(preview_document.sketches.begin(),
+        auto sketch = std::find_if(preview_document.sketches.begin(),
             preview_document.sketches.end(), [&](const auto& value) {
                 return value.id == sketch_id;
             });
-        if (sketch == preview_document.sketches.end()) return;
+        if (sketch == preview_document.sketches.end()) {
+            // Before the first planar placement reference exists there is no
+            // user-defined profile plane to present. Creating a default
+            // Sketch here used to paint an unrelated XY plane in world space
+            // immediately after starting Extrusion/Revolution.
+            const bool has_planar_reference = std::any_of(
+                preview.placement.references.begin(),
+                preview.placement.references.end(), [](const auto& reference) {
+                    return !reference.orientation_only &&
+                        reference.supports_offset &&
+                        !reference.owner_id.empty();
+                });
+            if (!has_planar_reference) return;
+            // Once the support plane is known, the offset plane and operation
+            // dimensions must already work before entering Sketcher even if
+            // the empty owned Sketch has not yet been inserted into this
+            // transient document.
+            auto empty_profile = zima::sketcher::Sketch::create_default();
+            empty_profile.id = sketch_id;
+            empty_profile.owner_container_id = preview.id;
+            preview_document.sketches.push_back(std::move(empty_profile));
+            sketch = std::prev(preview_document.sketches.end());
+        }
         sketch->owner_container_id = preview.id;
         const auto first_reference = std::find_if(
             preview.placement.references.begin(),
@@ -6741,6 +7094,11 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             *owner = preview;
         }
         preview_document.resolve_constructions(primitive_reference_geometry_);
+        // The document resolver is the sole authority for the owned work
+        // plane. Reconstructing this frame again from the container's Euler
+        // fields made referenced/quarter-rotated profiles consume a second,
+        // different interpretation of the same placement and shifted the
+        // preview away from the calculated solid.
     };
     const auto update_owned_profile_context_preview = [this](
             zima::document::PartDocument& preview_document,
@@ -6781,14 +7139,119 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         plane.reference_valid = true;
         preview_document.constructions.push_back(plane);
         preview_document.resolve_constructions(primitive_reference_geometry_);
+        // Extrusion/Revolution use the owned Sketch's resolved work plane,
+        // which may differ from the generic container frame (notably for a
+        // manually entered triad of built-in Origin planes).  The cyan
+        // offset-plane preview must be built from that final Sketch frame,
+        // otherwise only the highlighted source FRONT plane is visible and
+        // FRONT/BACK, quarter-turn and profile offset appear to do nothing.
+        auto& resolved_plane = preview_document.constructions.back();
+        const zima::kernel::Vec3 local_z{
+            -sketch->resolved_y_axis.x,
+            -sketch->resolved_y_axis.y,
+            -sketch->resolved_y_axis.z};
+        const auto resolved_rotation = euler_degrees_from_frame_columns(
+            sketch->resolved_x_axis, sketch->resolved_normal, local_z);
+        resolved_plane.base_plane = zima::document::LocalDatumPlane::XZ;
+        resolved_plane.rotation = resolved_rotation;
+        resolved_plane.absolute_rotation = resolved_rotation;
+        resolved_plane.direction = sketch->resolved_normal;
+        resolved_plane.entity_origin = sketch->resolved_origin;
+        resolved_plane.origin = {
+            sketch->resolved_origin.x -
+                sketch->resolved_normal.x * sketch->plane_offset,
+            sketch->resolved_origin.y -
+                sketch->resolved_normal.y * sketch->plane_offset,
+            sketch->resolved_origin.z -
+                sketch->resolved_normal.z * sketch->plane_offset};
+        // This Plane is a display carrier derived from the owned Sketch, not
+        // an independently constrained model object. resolve_constructions()
+        // therefore (correctly for persisted constructions) marks its empty
+        // reference set unresolved. Restore validity only for this transient
+        // carrier so construction_viewer_mesh() emits the actual offset plane
+        // instead of stopping after the editing Origin frame.
+        resolved_plane.reference_valid = true;
         primitive_origin_preview_mesh_ =
             preview_document.construction_viewer_mesh(plane.id);
+        const double profile_offset = extrusion
+            ? preview.extrusion.profile_plane_offset
+            : preview.revolution.profile_plane_offset;
+        const auto start = sketch->resolved_origin;
+        const auto normal = sketch->resolved_normal;
+        const auto base = zima::kernel::Vec3{
+            start.x - normal.x * profile_offset,
+            start.y - normal.y * profile_offset,
+            start.z - normal.z * profile_offset};
+        const auto front = sketch->resolved_x_axis;
+        constexpr double witness_length = 8.0;
+        const auto append_dimension = [&](const zima::kernel::Vec3& first,
+                                           const zima::kernel::Vec3& second,
+                                           double value,
+                                           std::string key,
+                                           double witness_sign) {
+            const zima::kernel::Vec3 witness{
+                front.x * witness_length * witness_sign,
+                front.y * witness_length * witness_sign,
+                front.z * witness_length * witness_sign};
+            zima::kernel::ViewerDimension dimension{
+                first, second,
+                {first.x + witness.x, first.y + witness.y,
+                 first.z + witness.z},
+                {second.x + witness.x, second.y + witness.y,
+                 second.z + witness.z},
+                value, {preview.id, std::move(key), {}}, {}};
+            const zima::kernel::Vec3 direction{
+                second.x - first.x, second.y - first.y,
+                second.z - first.z};
+            dimension.plane_normal = {
+                direction.y * front.z - direction.z * front.y,
+                direction.z * front.x - direction.x * front.z,
+                direction.x * front.y - direction.y * front.x};
+            primitive_origin_preview_mesh_->dimensions.push_back(
+                std::move(dimension));
+        };
+        if (std::abs(profile_offset) > 1.0e-12) {
+            append_dimension(base, start, profile_offset,
+                "parameter:profile_offset", 1.0);
+        }
+        if (extrusion) {
+            zima::kernel::Vec3 direction = normal;
+            if (preview.extrusion.direction ==
+                    zima::document::ExtrusionDirection::Reverse) {
+                direction = {-direction.x, -direction.y, -direction.z};
+            }
+            const auto along = [&](double distance) {
+                return zima::kernel::Vec3{
+                    start.x + direction.x * distance,
+                    start.y + direction.y * distance,
+                    start.z + direction.z * distance};
+            };
+            if (preview.extrusion.end_condition_forward ==
+                    zima::document::EndCondition::Length) {
+                append_dimension(start,
+                    along(preview.extrusion.length_forward),
+                    preview.extrusion.length_forward,
+                    "parameter:length_forward", -1.0);
+            }
+            if (preview.extrusion.extent_mode ==
+                    zima::document::ProfileExtentMode::TwoSides &&
+                preview.extrusion.end_condition_reverse ==
+                    zima::document::EndCondition::Length) {
+                append_dimension(start,
+                    along(-preview.extrusion.length_reverse),
+                    preview.extrusion.length_reverse,
+                    "parameter:length_reverse", -1.0);
+            }
+        }
         viewer_->set_feature_preview_owners({plane.entity_id});
     };
     struct ExtentDragBaseline {
         double offset{};
         double length{};
+        double reverse_length{};
         bool reversed{};
+        zima::document::ProfileExtentMode extent_mode{
+            zima::document::ProfileExtentMode::OneSide};
         zima::sketcher::SketchPlane profile_plane{
             zima::sketcher::SketchPlane::XY};
     };
@@ -6810,9 +7273,120 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 zima::document::ExtrusionDirection::Reverse) {
             direction = {-direction.x, -direction.y, -direction.z};
         }
-        viewer_->set_extent_manipulator(zima::viewer::ExtentManipulator{
-            "profile_start", "length_forward", sketch->resolved_origin,
-            direction, preview.extrusion.length_forward});
+        const bool editable_length =
+            preview.extrusion.extent == zima::document::ExtrusionExtent::Blind &&
+            preview.extrusion.end_condition_forward ==
+                zima::document::EndCondition::Length;
+        const bool second_side = preview.extrusion.extent_mode !=
+            zima::document::ProfileExtentMode::OneSide;
+        const bool editable_reverse = second_side &&
+            preview.extrusion.extent == zima::document::ExtrusionExtent::Blind &&
+            (preview.extrusion.extent_mode ==
+                    zima::document::ProfileExtentMode::Symmetric ||
+             preview.extrusion.end_condition_reverse ==
+                    zima::document::EndCondition::Length);
+        std::vector<zima::viewer::ExtentManipulator> manipulators;
+        // Up-to and Through-all have no editable numeric length.  They show
+        // only the direction arrow; a fixed endpoint would look like a
+        // draggable length handle and would compete with the profile-offset
+        // point at the same origin.
+        if (editable_length) {
+            manipulators.push_back({"profile_start", "length_forward",
+                sketch->resolved_origin, direction,
+                preview.extrusion.length_forward, false});
+        }
+        if (second_side) {
+            const zima::kernel::Vec3 reverse_direction{
+                -direction.x, -direction.y, -direction.z};
+            if (editable_reverse) {
+                manipulators.push_back({"profile_start",
+                    preview.extrusion.extent_mode ==
+                            zima::document::ProfileExtentMode::Symmetric
+                        ? "length_forward" : "length_reverse",
+                    sketch->resolved_origin, reverse_direction,
+                    preview.extrusion.extent_mode ==
+                            zima::document::ProfileExtentMode::Symmetric
+                        ? preview.extrusion.length_forward
+                        : preview.extrusion.length_reverse,
+                    false});
+            }
+        }
+        viewer_->set_extent_manipulators(std::move(manipulators));
+        std::vector<zima::viewer::OperationDirectionIndicator> indicators;
+        if (!editable_length) indicators.push_back(
+            {sketch->resolved_origin, direction, {}, 0.0, false});
+        if (second_side && !editable_reverse) indicators.push_back(
+            {sketch->resolved_origin,
+             {-direction.x, -direction.y, -direction.z}, {}, 0.0, false});
+        viewer_->set_operation_direction_indicators(std::move(indicators));
+    };
+    const auto publish_revolution_direction = [this](
+            const zima::document::PartDocument& preview_document,
+            const zima::document::HistoryContainer& preview) {
+        const auto sketch = std::find_if(preview_document.sketches.begin(),
+            preview_document.sketches.end(), [&](const auto& value) {
+                return value.id == preview.revolution.sketch_id;
+            });
+        if (sketch == preview_document.sketches.end()) {
+            viewer_->set_operation_direction_indicator(std::nullopt);
+            return;
+        }
+        auto frame = revolution_cue_frame(
+            *sketch, preview.revolution.axis_segment_id);
+        if (!frame) {
+            viewer_->set_operation_direction_indicator(std::nullopt);
+            viewer_->set_extent_manipulator(std::nullopt);
+            return;
+        }
+        auto axis = frame->axis;
+        if (preview.revolution.direction ==
+                zima::document::ExtrusionDirection::Reverse) {
+            axis = {-axis.x, -axis.y, -axis.z};
+        }
+        const auto radial = frame->radial;
+        const zima::kernel::Vec3 tangent{
+            axis.y * radial.z - axis.z * radial.y,
+            axis.z * radial.x - axis.x * radial.z,
+            axis.x * radial.y - axis.y * radial.x};
+        std::vector<zima::viewer::OperationDirectionIndicator> indicators;
+        std::vector<zima::viewer::ExtentManipulator> handles;
+        const auto append_side = [&](double degrees, const char* key, double sign) {
+            const double signed_degrees = degrees * sign;
+            indicators.push_back({frame->center, axis, radial,
+                signed_degrees, true});
+            const double radians = signed_degrees *
+                std::numbers::pi / 180.0;
+            const zima::kernel::Vec3 endpoint{
+                frame->center.x + radial.x * std::cos(radians) +
+                    tangent.x * std::sin(radians),
+                frame->center.y + radial.y * std::cos(radians) +
+                    tangent.y * std::sin(radians),
+                frame->center.z + radial.z * std::cos(radians) +
+                    tangent.z * std::sin(radians)};
+            zima::kernel::Vec3 endpoint_tangent{
+                -radial.x * std::sin(radians) +
+                    tangent.x * std::cos(radians),
+                -radial.y * std::sin(radians) +
+                    tangent.y * std::cos(radians),
+                -radial.z * std::sin(radians) +
+                    tangent.z * std::cos(radians)};
+            endpoint_tangent = {endpoint_tangent.x * sign,
+                endpoint_tangent.y * sign, endpoint_tangent.z * sign};
+            handles.push_back({key, {}, endpoint, endpoint_tangent, 0.0, true});
+        };
+        append_side(preview.revolution.angle_degrees,
+            "revolution_angle_forward", 1.0);
+        if (preview.revolution.extent_mode ==
+                zima::document::ProfileExtentMode::TwoSides) {
+            append_side(preview.revolution.angle_reverse,
+                "revolution_angle_reverse", -1.0);
+        } else if (preview.revolution.extent_mode ==
+                zima::document::ProfileExtentMode::Symmetric) {
+            append_side(preview.revolution.angle_degrees,
+                "revolution_angle_symmetric", -1.0);
+        }
+        viewer_->set_operation_direction_indicators(std::move(indicators));
+        viewer_->set_extent_manipulators(std::move(handles));
     };
     if (supports_placement_reference_picking(feature_kind)) {
         // Universal container placement: Part features and Assembly cuts use
@@ -6847,11 +7421,21 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             feature_kind != zima::document::FeatureKind::Revolution &&
             feature_kind != zima::document::FeatureKind::Fillet &&
             feature_kind != zima::document::FeatureKind::Chamfer;
-        placement_preview = [this, fit_new_basic_preview](
-                const zima::document::HistoryContainer& preview) {
-            if (primitive_reference_dialog_ == nullptr) return;
+        const bool defer_profile_scene_refresh =
+            feature_kind == zima::document::FeatureKind::Extrusion ||
+            feature_kind == zima::document::FeatureKind::Revolution;
+        placement_preview = [this, fit_new_basic_preview,
+                             defer_profile_scene_refresh](
+                const zima::document::HistoryContainer& preview)
+                -> zima::document::HistoryContainer {
+            if (primitive_reference_dialog_ == nullptr) return preview;
             auto resolved_preview = preview;
             auto& placement = resolved_preview.placement;
+            if (defer_profile_scene_refresh) {
+                normalize_owned_profile_front_references(
+                    placement.references,
+                    /*preserve_front_through_origin_triad=*/true);
+            }
             zima::kernel::Vec3 base_rotation;
             bool orientation_from_reference = false;
             static_cast<void>(zima::document::resolve_placement(
@@ -6892,9 +7476,18 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             viewer_->set_feature_preview_owners({
                 resolved_preview.feature_id,
                 resolved_preview.container_origin.id});
-            preserve_view_on_refresh_ = true;
-            refresh_scene();
-            if (fit_new_basic_preview) viewer_->fit_all();
+            // Extrusion/Revolution continue by rebuilding their owned Sketch
+            // plane, operation dimensions, manipulator and wire. Publishing
+            // this placement-only intermediate state made the dimensions
+            // disappear for one frame on every drag update. Their outer
+            // preview callback performs the single atomic scene refresh once
+            // all of those pieces are ready.
+            if (!defer_profile_scene_refresh) {
+                preserve_view_on_refresh_ = true;
+                refresh_scene();
+                if (fit_new_basic_preview) viewer_->fit_all();
+            }
+            return resolved_preview;
         };
         // Box/Cylinder/.../Wedge have no other preview needs: install the
         // placement-only preview directly. Extrusion/Revolution below merge
@@ -6906,7 +7499,13 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     }
     if (feature_kind == zima::document::FeatureKind::Extrusion) {
         dialog->set_extrusion_target_request([this, dialog, assembly_cut] {
+            // Placement auto-arms its next empty row, but Up-to is a
+            // separate selection command with a different reference owner.
+            // Exactly one of those commands may consume the next LMB click.
+            pending_primitive_reference_index_.reset();
             extrusion_target_dialog_ = dialog;
+            tree_->setProperty("commandSelectionActive", true);
+            viewer_->clear_selection();
             viewer_->set_selection_contract({zima::viewer::CandidateKind::Face});
             const auto* part =
                 workspace_.open_part(workspace_.active_document_id());
@@ -6935,7 +7534,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                                       update_owned_profile_context_preview,
                                       publish_extrusion_extent](
                                           const auto& preview) {
-            if (placement_preview) placement_preview(preview);
+            const auto resolved_preview = placement_preview
+                ? placement_preview(preview) : preview;
             try {
                 if (assembly_cut) {
                     const auto* owner = workspace_.open_assembly(owner_id);
@@ -6949,11 +7549,15 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                             })) {
                         preview_document.sketches.push_back(*pending_owned_sketch);
                     }
-                    prepare_owned_profile_preview(preview_document, preview);
-                    update_owned_profile_context_preview(preview_document, preview);
-                    publish_extrusion_extent(preview_document, preview);
+                    prepare_owned_profile_preview(
+                        preview_document, resolved_preview);
+                    update_owned_profile_context_preview(
+                        preview_document, resolved_preview);
+                    publish_extrusion_extent(
+                        preview_document, resolved_preview);
                     viewer_->set_transient_edges(
-                        preview_document.extrusion_preview_edges(preview));
+                        preview_document.extrusion_preview_edges(
+                            resolved_preview));
                 } else {
                     const auto* owner = workspace_.open_part(owner_id);
                     if (owner == nullptr) return;
@@ -6965,11 +7569,15 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                             })) {
                         preview_document.sketches.push_back(*pending_owned_sketch);
                     }
-                    prepare_owned_profile_preview(preview_document, preview);
-                    update_owned_profile_context_preview(preview_document, preview);
-                    publish_extrusion_extent(preview_document, preview);
+                    prepare_owned_profile_preview(
+                        preview_document, resolved_preview);
+                    update_owned_profile_context_preview(
+                        preview_document, resolved_preview);
+                    publish_extrusion_extent(
+                        preview_document, resolved_preview);
                     viewer_->set_transient_edges(
-                        preview_document.extrusion_preview_edges(preview));
+                        preview_document.extrusion_preview_edges(
+                            resolved_preview));
                 }
                 // placement_preview refreshed the scene before the owned
                 // profile Plane had been rebuilt. Publish that new cyan
@@ -6979,7 +7587,15 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 refresh_scene();
                 state_->setText(tr("Azurový drát zobrazuje náhled vytažení."));
             } catch (const std::exception& error) {
+                // An empty/incomplete owned Sketch prevents only the body
+                // wire calculation. The already prepared placement plane,
+                // profile offset/extent dimensions and manipulators remain
+                // valid editing context and must still replace the previous
+                // frame. Skipping this refresh was why a new Extrusion did
+                // not react until after returning from Sketcher.
                 viewer_->set_transient_edges({});
+                preserve_view_on_refresh_ = true;
+                refresh_scene();
                 state_->setText(QString::fromUtf8(error.what()));
             }
         });
@@ -6987,9 +7603,11 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         dialog->set_preview_callback([this, owner_id, assembly_cut,
                                       pending_owned_sketch, placement_preview,
                                       prepare_owned_profile_preview,
-                                      update_owned_profile_context_preview](
+                                      update_owned_profile_context_preview,
+                                      publish_revolution_direction](
                                           const auto& preview) {
-            if (placement_preview) placement_preview(preview);
+            const auto resolved_preview = placement_preview
+                ? placement_preview(preview) : preview;
             try {
                 if (assembly_cut) {
                     const auto* owner = workspace_.open_assembly(owner_id);
@@ -7003,10 +7621,15 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                             })) {
                         preview_document.sketches.push_back(*pending_owned_sketch);
                     }
-                    prepare_owned_profile_preview(preview_document, preview);
-                    update_owned_profile_context_preview(preview_document, preview);
+                    prepare_owned_profile_preview(
+                        preview_document, resolved_preview);
+                    update_owned_profile_context_preview(
+                        preview_document, resolved_preview);
+                    publish_revolution_direction(
+                        preview_document, resolved_preview);
                     viewer_->set_transient_edges(
-                        preview_document.revolution_preview_edges(preview));
+                        preview_document.revolution_preview_edges(
+                            resolved_preview));
                 } else {
                     const auto* owner = workspace_.open_part(owner_id);
                     if (owner == nullptr) return;
@@ -7018,10 +7641,15 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                             })) {
                         preview_document.sketches.push_back(*pending_owned_sketch);
                     }
-                    prepare_owned_profile_preview(preview_document, preview);
-                    update_owned_profile_context_preview(preview_document, preview);
+                    prepare_owned_profile_preview(
+                        preview_document, resolved_preview);
+                    update_owned_profile_context_preview(
+                        preview_document, resolved_preview);
+                    publish_revolution_direction(
+                        preview_document, resolved_preview);
                     viewer_->set_transient_edges(
-                        preview_document.revolution_preview_edges(preview));
+                        preview_document.revolution_preview_edges(
+                            resolved_preview));
                 }
                 // Same ordering contract as Extrusion: the live offset Plane
                 // is calculated after the generic placement preview, so the
@@ -7030,7 +7658,12 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 refresh_scene();
                 state_->setText(tr("Azurový drát zobrazuje náhled rotace."));
             } catch (const std::exception& error) {
+                // Revolution has the same partial-preview contract as
+                // Extrusion: a missing closed profile/axis may suppress the
+                // operation wire, never its live work plane and dimensions.
                 viewer_->set_transient_edges({});
+                preserve_view_on_refresh_ = true;
+                refresh_scene();
                 state_->setText(QString::fromUtf8(error.what()));
             }
         });
@@ -7128,6 +7761,10 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             [dialog, extent_drag_baseline](const std::string&) {
                 extent_drag_baseline->offset = dialog->profile_plane_offset();
                 extent_drag_baseline->length = dialog->forward_extent_length();
+                extent_drag_baseline->reverse_length =
+                    dialog->reverse_extent_length();
+                extent_drag_baseline->extent_mode =
+                    dialog->profile_extent_mode();
                 extent_drag_baseline->reversed = dialog->extrusion_direction_reversed();
             },
             [dialog, extent_drag_baseline](const std::string& key, double coordinate) {
@@ -7148,9 +7785,66 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                                     normal_displacement),
                         extent_drag_baseline->length);
                 } else if (key == "length_forward") {
-                    dialog->set_forward_extent_length(
-                        std::max(0.001, coordinate));
+                    if (extent_drag_baseline->extent_mode ==
+                            zima::document::ProfileExtentMode::Symmetric) {
+                        dialog->set_forward_extent_length(std::abs(coordinate));
+                        return;
+                    }
+                    dialog->set_forward_extent_and_direction(
+                        std::abs(coordinate),
+                        coordinate < 0.0
+                            ? !extent_drag_baseline->reversed
+                            : extent_drag_baseline->reversed);
+                } else if (key == "length_reverse") {
+                    dialog->set_reverse_extent_and_direction(
+                        std::abs(coordinate),
+                        coordinate < 0.0
+                            ? !extent_drag_baseline->reversed
+                            : extent_drag_baseline->reversed);
                 }
+            }, [] {});
+    } else if (feature_kind == zima::document::FeatureKind::Revolution) {
+        viewer_->set_extent_manipulator_callbacks(
+            [dialog, extent_drag_baseline](const std::string&) {
+                extent_drag_baseline->length =
+                    dialog->forward_extent_length();
+                extent_drag_baseline->reverse_length =
+                    dialog->reverse_extent_length();
+                extent_drag_baseline->extent_mode =
+                    dialog->profile_extent_mode();
+                extent_drag_baseline->reversed =
+                    dialog->extrusion_direction_reversed();
+            },
+            [dialog, extent_drag_baseline](const std::string& key,
+                    double coordinate) {
+                if (!key.starts_with("revolution_angle_")) return;
+                constexpr double cue_radius = 25.0;
+                const double delta_degrees = coordinate / cue_radius *
+                    180.0 / std::numbers::pi;
+                if (key == "revolution_angle_reverse") {
+                    const double signed_magnitude =
+                        extent_drag_baseline->reverse_length + delta_degrees;
+                    dialog->set_reverse_extent_and_direction(
+                        std::clamp(std::abs(signed_magnitude), 0.001,
+                            360.0 - extent_drag_baseline->length),
+                        signed_magnitude < 0.0
+                            ? !extent_drag_baseline->reversed
+                            : extent_drag_baseline->reversed);
+                    return;
+                }
+                const double signed_magnitude =
+                    extent_drag_baseline->length + delta_degrees;
+                const double maximum = extent_drag_baseline->extent_mode ==
+                        zima::document::ProfileExtentMode::TwoSides
+                    ? 360.0 - extent_drag_baseline->reverse_length
+                    : extent_drag_baseline->extent_mode ==
+                            zima::document::ProfileExtentMode::Symmetric
+                        ? 180.0 : 360.0;
+                dialog->set_forward_extent_and_direction(
+                    std::clamp(std::abs(signed_magnitude), 0.001, maximum),
+                    signed_magnitude < 0.0
+                        ? !extent_drag_baseline->reversed
+                        : extent_drag_baseline->reversed);
             }, [] {});
     }
     properties_dialog_ = dialog;
@@ -7273,10 +7967,15 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         primitive_reference_geometry_ = {};
         primitive_origin_preview_mesh_.reset();
         parameter_dimension_preview_.reset();
+        // Parameter/placement dimensions belong to the feature-properties
+        // interaction. In particular, SKETCH transitions into a different
+        // editor whose view must contain only Sketch constraints/dimensions.
+        construction_dimension_object_id_.clear();
         primitive_translation_dof_ = 3;
         tree_->setProperty("commandSelectionActive", false);
         viewer_->set_transient_edges({});
         viewer_->set_extent_manipulator(std::nullopt);
+        viewer_->set_operation_direction_indicator(std::nullopt);
         viewer_->set_extent_manipulator_callbacks({}, {}, {});
         viewer_->set_feature_preview_owners({});
         viewer_->set_candidate_filter({});
@@ -7379,6 +8078,26 @@ void AssemblyWorkspaceWindow::show_construction_properties(
             {}, highlighted_reference_edge_keys(*dialog));
     });
     construction_reference_dialog_ = dialog;
+    auto plane_drag_baseline = std::make_shared<double>(initial.offset);
+    auto plane_drag_back = std::make_shared<bool>(initial.orientation_back);
+    if (kind == zima::document::ConstructionKind::Plane) {
+        viewer_->set_extent_manipulator_callbacks(
+            [dialog, plane_drag_baseline, plane_drag_back](const std::string&) {
+                *plane_drag_baseline = dialog->plane_offset();
+                *plane_drag_back = dialog->orientation_back();
+            },
+            [dialog, plane_drag_baseline, plane_drag_back](const std::string& key,
+                    double coordinate) {
+                if (key == "plane_offset") {
+                    const double signed_offset =
+                        *plane_drag_baseline + coordinate;
+                    dialog->set_plane_offset_and_orientation(
+                        std::abs(signed_offset),
+                        signed_offset < 0.0
+                            ? !*plane_drag_back : *plane_drag_back);
+                }
+            }, [] {});
+    }
     dialog->set_preview_callback(
         [this, document_id, edit_mode](zima::document::ConstructionObject preview) {
             const std::set<std::string> preview_owners{
@@ -7386,6 +8105,8 @@ void AssemblyWorkspaceWindow::show_construction_properties(
             zima::kernel::ViewerMesh mesh;
             zima::kernel::ViewerReferenceGeometry reference_geometry;
             zima::kernel::Vec3 resolved_origin = preview.origin;
+            zima::kernel::Vec3 resolved_entity_origin = preview.entity_origin;
+            zima::kernel::Vec3 resolved_direction = preview.direction;
             zima::kernel::Vec3 resolved_rotation = preview.rotation_base;
             bool resolved_orientation_inherited =
                 preview.orientation_inherited_from_reference;
@@ -7404,6 +8125,8 @@ void AssemblyWorkspaceWindow::show_construction_properties(
                 next.resolve_constructions(reference_geometry);
                 if (const auto* resolved = next.find_construction(preview.id)) {
                     resolved_origin = resolved->origin;
+                    resolved_entity_origin = resolved->entity_origin;
+                    resolved_direction = resolved->direction;
                     resolved_rotation = resolved->rotation_base;
                     resolved_orientation_inherited =
                         resolved->orientation_inherited_from_reference;
@@ -7434,6 +8157,8 @@ void AssemblyWorkspaceWindow::show_construction_properties(
                 next.resolve_constructions();
                 if (const auto* resolved = next.find_construction(preview.id)) {
                     resolved_origin = resolved->origin;
+                    resolved_entity_origin = resolved->entity_origin;
+                    resolved_direction = resolved->direction;
                     resolved_rotation = resolved->rotation_base;
                     resolved_orientation_inherited =
                         resolved->orientation_inherited_from_reference;
@@ -7452,7 +8177,8 @@ void AssemblyWorkspaceWindow::show_construction_properties(
                     constraint_state, resolved_origin);
                 construction_rotation_dof_ =
                     zima::document::orientation_constraint_remaining_dof(
-                        preview.references, reference_geometry, true);
+                        preview.references, reference_geometry, true,
+                        resolved_origin);
                 if (construction_shortcut_satisfied(
                         preview.kind, preview.references, reference_geometry)) {
                     construction_rotation_dof_ = 0;
@@ -7475,6 +8201,11 @@ void AssemblyWorkspaceWindow::show_construction_properties(
             viewer_->set_transient_edges({});
             preserve_view_on_refresh_ = true;
             refresh_scene();
+            if (preview.kind == zima::document::ConstructionKind::Plane) {
+                viewer_->set_extent_manipulator(zima::viewer::ExtentManipulator{
+                    "plane_offset", {}, resolved_entity_origin,
+                    resolved_direction, 0.0, true});
+            }
         });
     viewer_->set_editing_origin_visible(true);
     properties_dialog_ = dialog;
@@ -7489,6 +8220,8 @@ void AssemblyWorkspaceWindow::show_construction_properties(
         construction_translation_dof_ = 3;
         construction_rotation_dof_ = 3;
         viewer_->set_transient_edges({});
+        viewer_->set_extent_manipulator(std::nullopt);
+        viewer_->set_extent_manipulator_callbacks({}, {}, {});
         viewer_->set_feature_preview_owners({});
         viewer_->set_editing_origin_visible(false);
         // A construction command installs its own persisted-reference filter.
@@ -7525,6 +8258,18 @@ void AssemblyWorkspaceWindow::start_construction_reference_selection(
     const bool orientation_reference = index >= 3;
     const auto baseline_references =
         construction_reference_dialog_->references_without(index);
+    const zima::kernel::Vec3 orientation_origin =
+        construction_parameter_preview_
+            ? construction_parameter_preview_->origin : zima::kernel::Vec3{};
+    const int baseline_translation_dof =
+        zima::document::point_constraint_remaining_dof(
+            baseline_references, construction_reference_geometry_);
+    const int baseline_rotation_dof =
+        zima::document::orientation_constraint_remaining_dof(
+            baseline_references, construction_reference_geometry_, true,
+            orientation_origin);
+    const bool direction_reference = !orientation_reference && index < 3 &&
+        baseline_translation_dof == 0 && baseline_rotation_dof > 0;
     // A position row (index < 3) is only truly "full" once both translation
     // AND rotation are resolved: a lone point already zeroes translation,
     // but the 2nd/3rd point still carries the direction/normal information
@@ -7537,12 +8282,9 @@ void AssemblyWorkspaceWindow::start_construction_reference_selection(
     // row in "Orientace kontejneru" would silently do nothing, matching
     // Python's `_container_orientation_references` table, which is always
     // independently pickable regardless of what row 0 already resolved.
-    const int baseline_dof = orientation_reference
+    const int baseline_dof = orientation_reference || direction_reference
         ? 1
-        : zima::document::point_constraint_remaining_dof(
-            baseline_references, construction_reference_geometry_) +
-          zima::document::orientation_constraint_remaining_dof(
-              baseline_references, construction_reference_geometry_, true);
+        : baseline_translation_dof + baseline_rotation_dof;
     // A completed placement has no next input. Existing rows can still be
     // armed because replacing one reference is evaluated with that row removed.
     const bool shortcut_satisfied = !orientation_reference &&
@@ -7552,7 +8294,15 @@ void AssemblyWorkspaceWindow::start_construction_reference_selection(
     if (baseline_dof == 0 || shortcut_satisfied) {
         pending_construction_reference_index_.reset();
         tree_->setProperty("commandSelectionActive", false);
-        viewer_->set_candidate_filter({});
+        viewer_->set_selection_contract(
+            {zima::viewer::CandidateKind::Dimension});
+        viewer_->set_candidate_filter([this](const auto& candidate) {
+            return construction_reference_dialog_ != nullptr &&
+                candidate.kind == zima::viewer::CandidateKind::Dimension &&
+                candidate.owner_id ==
+                    construction_reference_dialog_->construction_id() &&
+                candidate.semantic_key.starts_with("parameter:");
+        });
         viewer_->clear_selection();
         state_->setText(tr("Konstrukce je již plně určená."));
         return;
@@ -7590,11 +8340,16 @@ void AssemblyWorkspaceWindow::start_construction_reference_selection(
             workspace_.open_assembly(workspace_.active_document_id()))
         collect_unavailable(assembly->session.document());
     viewer_->set_candidate_filter([this, prefix, active_part, index,
-            orientation_reference, baseline_references, baseline_dof,
+            orientation_reference, direction_reference, orientation_origin,
+            baseline_references, baseline_dof,
             unavailable_construction_owners](const auto& candidate) {
         if (construction_reference_dialog_ == nullptr) return false;
+        if (candidate.kind == zima::viewer::CandidateKind::Dimension &&
+            candidate.owner_id ==
+                construction_reference_dialog_->construction_id() &&
+            candidate.semantic_key.starts_with("parameter:")) return true;
         if (!construction_reference_candidate_passes_static_filters(candidate,
-                orientation_reference,
+                orientation_reference || direction_reference,
                 construction_reference_dialog_->owns_reference_owner(
                     candidate.owner_id),
                 unavailable_construction_owners.contains(candidate.owner_id))) {
@@ -7621,17 +8376,36 @@ void AssemblyWorkspaceWindow::start_construction_reference_selection(
         auto candidate_reference = zima::document::ConstructionReference{
             std::move(local_path), candidate.owner_id, candidate.semantic_key, 0.0,
             candidate_supports_offset(candidate)};
-        if (orientation_reference) {
+        if (orientation_reference || direction_reference) {
             candidate_reference.orientation_drives_rotation = true;
-            candidate_reference.orientation_role = index == 3 ? "front" : "top";
+            candidate_reference.orientation_role = direction_reference
+                ? "direction" : index == 3 ? "front" : "top";
+            candidate_reference.orientation_only = direction_reference;
+            if (direction_reference) candidate_reference.supports_offset = false;
         }
         auto proposed = baseline_references;
         proposed.push_back(std::move(candidate_reference));
-        const int proposed_dof = orientation_reference
+        const int proposed_dof = orientation_reference || direction_reference
             ? zima::document::orientation_constraint_remaining_dof(
-                proposed, construction_reference_geometry_, true)
+                proposed, construction_reference_geometry_, true,
+                orientation_origin)
             : zima::document::point_constraint_remaining_dof(
                 proposed, construction_reference_geometry_);
+        // The generic point DOF rank sees the first point as fully fixing
+        // translation, but classic construction shortcuts deliberately use
+        // subsequent points for orientation: 2 points define an Axis and 3
+        // points define a Plane. Keep those persisted vertices hoverable even
+        // when the generic rank does not decrease; accept_construction_reference()
+        // applies the identical quota before committing the row.
+        const auto construction_kind =
+            construction_reference_dialog_->construction_kind();
+        const bool shortcut_point = !orientation_reference &&
+            candidate.kind == zima::viewer::CandidateKind::Vertex &&
+            ((construction_kind == zima::document::ConstructionKind::Axis &&
+                 proposed.size() <= 2) ||
+             (construction_kind == zima::document::ConstructionKind::Plane &&
+                 proposed.size() <= 3));
+        if (shortcut_point) return true;
         return proposed_dof < baseline_dof;
     });
     state_->setText(tr("Vyberte stabilní geometrii pro definici konstrukčního objektu."));
@@ -7643,6 +8417,21 @@ void AssemblyWorkspaceWindow::accept_construction_reference(
         !pending_construction_reference_index_) return;
     const std::size_t selected_index = *pending_construction_reference_index_;
     const bool orientation_reference = selected_index >= 3;
+    const auto selection_baseline =
+        construction_reference_dialog_->references_without(selected_index);
+    const zima::kernel::Vec3 orientation_origin =
+        construction_parameter_preview_
+            ? construction_parameter_preview_->origin : zima::kernel::Vec3{};
+    const int selection_translation_dof =
+        zima::document::point_constraint_remaining_dof(
+            selection_baseline, construction_reference_geometry_);
+    const int selection_rotation_dof =
+        zima::document::orientation_constraint_remaining_dof(
+            selection_baseline, construction_reference_geometry_, true,
+            orientation_origin);
+    const bool direction_reference = !orientation_reference &&
+        selected_index < 3 && selection_translation_dof == 0 &&
+        selection_rotation_dof > 0;
     auto local_path = candidate.instance_path;
     if (!active_occurrence_path_.empty()) {
         auto path = zima::assembly::InstancePath::decode(candidate.instance_path);
@@ -7676,7 +8465,7 @@ void AssemblyWorkspaceWindow::accept_construction_reference(
                 assembly->session.document())) return;
     }
     if (!construction_reference_candidate_passes_static_filters(candidate,
-            orientation_reference,
+            orientation_reference || direction_reference,
             construction_reference_dialog_->owns_reference_owner(candidate.owner_id),
             false)) {
         return;
@@ -7697,22 +8486,27 @@ void AssemblyWorkspaceWindow::accept_construction_reference(
     auto baseline_references =
         construction_reference_dialog_->references_without(selected_index);
     const auto definition = zima::document::ConstructionDefinition::PointReference;
-    const int baseline_dof = orientation_reference
+    const int baseline_dof = orientation_reference || direction_reference
         ? zima::document::orientation_constraint_remaining_dof(
-            baseline_references, construction_reference_geometry_, true)
+            baseline_references, construction_reference_geometry_, true,
+            orientation_origin)
         : zima::document::point_constraint_remaining_dof(
             baseline_references, construction_reference_geometry_);
     auto proposed_reference = zima::document::ConstructionReference{
         local_path, candidate.owner_id, candidate.semantic_key, 0.0,
         candidate_supports_offset(candidate)};
-    if (orientation_reference) {
+    if (orientation_reference || direction_reference) {
         proposed_reference.orientation_drives_rotation = true;
-        proposed_reference.orientation_role = selected_index == 3 ? "front" : "top";
+        proposed_reference.orientation_role = direction_reference
+            ? "direction" : selected_index == 3 ? "front" : "top";
+        proposed_reference.orientation_only = direction_reference;
+        if (direction_reference) proposed_reference.supports_offset = false;
     }
     baseline_references.push_back(proposed_reference);
-    const int proposed_dof = orientation_reference
+    const int proposed_dof = orientation_reference || direction_reference
         ? zima::document::orientation_constraint_remaining_dof(
-            baseline_references, construction_reference_geometry_, true)
+            baseline_references, construction_reference_geometry_, true,
+            orientation_origin)
         : zima::document::point_constraint_remaining_dof(
             baseline_references, construction_reference_geometry_);
     // A 2nd (Axis) or 2nd/3rd (Plane) plain point reference carries real
@@ -7741,7 +8535,8 @@ void AssemblyWorkspaceWindow::accept_construction_reference(
     // would silently ignore every manual FRONT/TOP selection the user makes
     // once row 0 already supplied a default, matching Python's always-
     // overridable `_container_orientation_references` contract.
-    if (!orientation_reference && !is_shortcut_point && proposed_dof >= baseline_dof) {
+    if (!orientation_reference && !is_shortcut_point &&
+        proposed_dof >= baseline_dof) {
         state_->setText(tr("Tato reference nepřidává žádnou nezávislou vazbu."));
         viewer_->clear_selection();
         return;
@@ -7784,6 +8579,12 @@ void AssemblyWorkspaceWindow::accept_construction_reference(
     auto committed_reference = zima::document::ConstructionReference{
         std::move(local_path), candidate.owner_id, candidate.semantic_key, 0.0,
         candidate_supports_offset(candidate)};
+    if (direction_reference) {
+        committed_reference.orientation_drives_rotation = true;
+        committed_reference.orientation_role = "direction";
+        committed_reference.orientation_only = true;
+        committed_reference.supports_offset = false;
+    }
     // Every construction dialog now owns the same independent orientation
     // table. Planar position references are mirrored into its first two
     // slots by ContainerPlacementSection; position rows themselves never
@@ -7824,8 +8625,15 @@ void AssemblyWorkspaceWindow::accept_construction_reference(
         // reference input is armed. Clicking an existing row installs a fresh
         // replacement contract with that row removed from the rank baseline.
         tree_->setProperty("commandSelectionActive", false);
-        viewer_->set_selection_contract({});
-        viewer_->set_candidate_filter([](const auto&) { return false; });
+        viewer_->set_selection_contract(
+            {zima::viewer::CandidateKind::Dimension});
+        viewer_->set_candidate_filter([this](const auto& candidate) {
+            return construction_reference_dialog_ != nullptr &&
+                candidate.kind == zima::viewer::CandidateKind::Dimension &&
+                candidate.owner_id ==
+                    construction_reference_dialog_->construction_id() &&
+                candidate.semantic_key.starts_with("parameter:");
+        });
         viewer_->clear_selection();
     }
 }
@@ -7844,7 +8652,15 @@ void AssemblyWorkspaceWindow::start_primitive_reference_selection(
     if (baseline_dof == 0) {
         pending_primitive_reference_index_.reset();
         tree_->setProperty("commandSelectionActive", false);
-        viewer_->set_candidate_filter({});
+        viewer_->set_selection_contract(
+            {zima::viewer::CandidateKind::Dimension});
+        viewer_->set_candidate_filter([this](const auto& candidate) {
+            return primitive_reference_dialog_ != nullptr &&
+                candidate.kind == zima::viewer::CandidateKind::Dimension &&
+                primitive_reference_dialog_->owns_reference_owner(
+                    candidate.owner_id) &&
+                candidate.semantic_key.starts_with("parameter:");
+        });
         viewer_->clear_selection();
         state_->setText(tr("Umístění kontejneru je již plně určené."));
         return;
@@ -7854,7 +8670,8 @@ void AssemblyWorkspaceWindow::start_primitive_reference_selection(
     viewer_->set_selection_contract({zima::viewer::CandidateKind::Vertex,
         zima::viewer::CandidateKind::Axis,
         zima::viewer::CandidateKind::Plane,
-        zima::viewer::CandidateKind::Face});
+        zima::viewer::CandidateKind::Face,
+        zima::viewer::CandidateKind::Dimension});
     const auto prefix = active_occurrence_path_.empty()
         ? zima::assembly::InstancePath{}
         : zima::assembly::InstancePath::decode(active_occurrence_path_);
@@ -8112,13 +8929,25 @@ void AssemblyWorkspaceWindow::accept_primitive_reference(
     }
     pending_primitive_reference_index_.reset();
     viewer_->clear_selection();
+    // set_reference() synchronously publishes the live placement preview and
+    // refreshes the scene while preserving the camera. This follow-up refresh
+    // only updates the post-pick selection contract; it must not perform an
+    // implicit Fit All and make the model jump/shrink after every reference.
+    preserve_view_on_refresh_ = true;
     refresh_scene();
     if (primitive_translation_dof_ > 0 && selected_index + 1 < 3) {
         start_primitive_reference_selection(selected_index + 1);
     } else {
         tree_->setProperty("commandSelectionActive", false);
-        viewer_->set_selection_contract({});
-        viewer_->set_candidate_filter([](const auto&) { return false; });
+        viewer_->set_selection_contract(
+            {zima::viewer::CandidateKind::Dimension});
+        viewer_->set_candidate_filter([this](const auto& dimension) {
+            return primitive_reference_dialog_ != nullptr &&
+                dimension.kind == zima::viewer::CandidateKind::Dimension &&
+                primitive_reference_dialog_->owns_reference_owner(
+                    dimension.owner_id) &&
+                dimension.semantic_key.starts_with("parameter:");
+        });
         viewer_->clear_selection();
     }
 }
@@ -8680,10 +9509,76 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             viewer_->set_constraint_reference_highlights(
                 {}, highlighted_reference_edge_keys(*dialog));
         });
-        dialog->set_preview_callback([this](
+        struct SketchOffsetDragState {
+            double current_offset{};
+            double baseline_offset{};
+            zima::sketcher::SketchPlane plane{
+                zima::sketcher::SketchPlane::XY};
+        };
+        auto sketch_offset_drag = std::make_shared<SketchOffsetDragState>();
+        viewer_->set_extent_manipulator_callbacks(
+            [sketch_offset_drag](const std::string&) {
+                sketch_offset_drag->baseline_offset =
+                    sketch_offset_drag->current_offset;
+            },
+            [dialog, sketch_offset_drag](const std::string& key,
+                    double coordinate) {
+                if (key != "sketch_plane_offset") return;
+                const double delta = zima::sketcher::
+                    plane_offset_delta_for_normal_displacement(
+                        sketch_offset_drag->plane, coordinate);
+                static_cast<void>(dialog->set_inline_parameter_value(
+                    "profile_offset",
+                    sketch_offset_drag->baseline_offset + delta));
+            }, [] {});
+        dialog->set_preview_callback([this, sketch_offset_drag](
                 const zima::sketcher::Sketch& sketch,
                 const zima::document::Placement& pending_placement) {
             auto placement = pending_placement;
+            // resolve_placement() deliberately treats the complete built-in
+            // Origin plane triad as a request for the document identity
+            // frame.  That is correct for an ordinary container populated by
+            // clicking the whole Origin node, but not for Sketch Properties:
+            // here row 0 is an explicitly selected work plane and must remain
+            // FRONT while rows 1/2 only finish locating the container.  The
+            // committed PartDocument resolver already enforces that stricter
+            // Sketch contract.  Give the live preview the same transient
+            // row-0 orientation twin so its cyan plane cannot jump back to
+            // the identity/last Origin plane while the dialog is open.
+            const auto first_position_plane = std::find_if(
+                placement.references.begin(), placement.references.end(),
+                [](const auto& reference) {
+                    return !reference.orientation_only &&
+                        reference.supports_offset &&
+                        !reference.owner_id.empty();
+                });
+            if (first_position_plane != placement.references.end()) {
+                const auto front_owner = first_position_plane->owner_id;
+                const auto front_path = first_position_plane->instance_path;
+                const auto front_semantic = first_position_plane->semantic_key;
+                const auto is_front_source = [&](const auto& reference) {
+                    return reference.owner_id == front_owner &&
+                        reference.instance_path == front_path &&
+                        reference.semantic_key == front_semantic;
+                };
+                for (auto& reference : placement.references) {
+                    if (reference.orientation_only) continue;
+                    reference.orientation_drives_rotation =
+                        is_front_source(reference);
+                    reference.orientation_role =
+                        is_front_source(reference) ? "front" : "none";
+                }
+                std::erase_if(placement.references,
+                    [&](const auto& reference) {
+                        return reference.orientation_only &&
+                            !is_front_source(reference);
+                    });
+                auto preview_front = *first_position_plane;
+                preview_front.orientation_only = true;
+                preview_front.orientation_drives_rotation = true;
+                preview_front.orientation_role = "front";
+                placement.references.push_back(std::move(preview_front));
+            }
             zima::kernel::Vec3 base_rotation;
             bool orientation_from_reference = false;
             static_cast<void>(zima::document::resolve_placement(
@@ -8701,11 +9596,11 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                 primitive_reference_dialog_->set_orientation_base_rotation(
                     base_rotation, orientation_from_reference);
             }
-            auto geometric_placement = pending_placement;
-            geometric_placement.orientation_back = false;
-            geometric_placement.orientation_quarter_turns = 0;
-            static_cast<void>(zima::document::resolve_placement(
-                geometric_placement, primitive_reference_geometry_));
+            // Preview the Sketch in the final container frame. Placement
+            // FRONT/BACK and ROTATE are modeling-frame controls here, so the
+            // white Sketch wire must follow them live just like an owned
+            // Extrusion/Revolution profile does.
+            const auto& geometric_placement = placement;
 
             auto plane = zima::document::PartDocument::create_construction(
                 zima::document::ConstructionKind::Plane);
@@ -8744,8 +9639,100 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             }
             preview_document.sketches.push_back(sketch);
             preview_document.resolve_constructions(primitive_reference_geometry_);
+            auto& resolved_sketch = preview_document.sketches.front();
+            // The dialog's already-resolved placement is authoritative for
+            // the live preview. A second solve inside preview_document may
+            // use a different transient reference set and must not move the
+            // visible local Origin away from the X/Y/Z values shown to the
+            // user.
+            resolved_sketch.resolved_origin = {
+                geometric_placement.x + resolved_sketch.resolved_normal.x *
+                    resolved_sketch.plane_offset,
+                geometric_placement.y + resolved_sketch.resolved_normal.y *
+                    resolved_sketch.plane_offset,
+                geometric_placement.z + resolved_sketch.resolved_normal.z *
+                    resolved_sketch.plane_offset};
+            // The cyan rectangle represents the actual (possibly offset)
+            // Sketch work plane.  Do not leave it in the generic container
+            // placement frame: the complete built-in Origin triad has a
+            // special identity-frame rule there, while an owned Sketch keeps
+            // its first selected plane as FRONT.  Rebuild this display-only
+            // Plane from the already resolved Sketch frame so the rectangle,
+            // offset point and the plane opened by SKETCH are identical.
+            auto& resolved_plane = preview_document.constructions.front();
+            const zima::kernel::Vec3 local_z{
+                -resolved_sketch.resolved_y_axis.x,
+                -resolved_sketch.resolved_y_axis.y,
+                -resolved_sketch.resolved_y_axis.z};
+            const auto resolved_rotation = euler_degrees_from_frame_columns(
+                resolved_sketch.resolved_x_axis,
+                resolved_sketch.resolved_normal, local_z);
+            resolved_plane.base_plane = zima::document::LocalDatumPlane::XZ;
+            resolved_plane.rotation = resolved_rotation;
+            resolved_plane.absolute_rotation = resolved_rotation;
+            resolved_plane.direction = resolved_sketch.resolved_normal;
+            resolved_plane.entity_origin = resolved_sketch.resolved_origin;
+            resolved_plane.origin = {
+                resolved_sketch.resolved_origin.x -
+                    resolved_sketch.resolved_normal.x * resolved_sketch.plane_offset,
+                resolved_sketch.resolved_origin.y -
+                    resolved_sketch.resolved_normal.y * resolved_sketch.plane_offset,
+                resolved_sketch.resolved_origin.z -
+                    resolved_sketch.resolved_normal.z * resolved_sketch.plane_offset};
+            resolved_plane.reference_valid = true;
             primitive_origin_preview_mesh_ =
                 preview_document.construction_viewer_mesh(plane.id);
+            // Placement dimensions belong to the Sketch Properties
+            // interaction and must therefore be present even for a brand-new
+            // Sketch whose owning container is not in the real document yet.
+            // Keeping them in this transient mesh also gives the SKETCH
+            // transition a clean boundary: destroying the properties dialog
+            // removes the complete parameter preview before Sketcher opens.
+            if (!sketch.owner_container_id.empty()) {
+                auto placement_dimensions =
+                    zima::document::container_placement_dimensions(
+                        sketch.owner_container_id, geometric_placement,
+                        primitive_reference_geometry_);
+                primitive_origin_preview_mesh_->dimensions.insert(
+                    primitive_origin_preview_mesh_->dimensions.end(),
+                    std::make_move_iterator(placement_dimensions.begin()),
+                    std::make_move_iterator(placement_dimensions.end()));
+            }
+            sketch_offset_drag->current_offset =
+                resolved_sketch.plane_offset;
+            sketch_offset_drag->plane = resolved_sketch.plane;
+            viewer_->set_extent_manipulator(
+                zima::viewer::ExtentManipulator{
+                    "sketch_plane_offset", {},
+                    resolved_sketch.resolved_origin,
+                    resolved_sketch.resolved_normal, 0.0, true});
+            if (std::abs(resolved_sketch.plane_offset) > 1.0e-12) {
+                const auto start = resolved_sketch.resolved_origin;
+                const auto normal = resolved_sketch.resolved_normal;
+                const auto base = zima::kernel::Vec3{
+                    start.x - normal.x * resolved_sketch.plane_offset,
+                    start.y - normal.y * resolved_sketch.plane_offset,
+                    start.z - normal.z * resolved_sketch.plane_offset};
+                const auto front = resolved_sketch.resolved_x_axis;
+                constexpr double witness_length = 8.0;
+                zima::kernel::ViewerDimension offset_dimension{
+                    base, start,
+                    {base.x + front.x * witness_length,
+                     base.y + front.y * witness_length,
+                     base.z + front.z * witness_length},
+                    {start.x + front.x * witness_length,
+                     start.y + front.y * witness_length,
+                     start.z + front.z * witness_length},
+                    resolved_sketch.plane_offset,
+                    {sketch.owner_container_id,
+                     "parameter:profile_offset", {}}, {}};
+                offset_dimension.plane_normal = {
+                    normal.y * front.z - normal.z * front.y,
+                    normal.z * front.x - normal.x * front.z,
+                    normal.x * front.y - normal.y * front.x};
+                primitive_origin_preview_mesh_->dimensions.push_back(
+                    std::move(offset_dimension));
+            }
             // A standalone Sketch container remains visible while its
             // Properties window is open. Only suppress Sketcher's infinite
             // working X/Y cross here; removing the complete viewer_mesh()
@@ -8755,6 +9742,7 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             // container contract.
             auto sketch_preview = preview_document.sketches.front().viewer_mesh();
             sketch_preview.axes.clear();
+            remove_sketch_computation_points(sketch_preview);
             append_mesh(*primitive_origin_preview_mesh_, std::move(sketch_preview));
             sketch_properties_preview_id_ = sketch.id;
             viewer_->set_feature_preview_owners(
@@ -8775,6 +9763,8 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
         viewer_->set_selection_contract({});
         viewer_->set_constraint_reference_highlights({}, {});
         viewer_->set_feature_preview_owners({});
+        viewer_->set_extent_manipulator(std::nullopt);
+        viewer_->set_extent_manipulator_callbacks({}, {}, {});
         primitive_origin_preview_mesh_.reset();
         sketch_properties_preview_id_.clear();
         refresh_tabs();
@@ -9159,22 +10149,21 @@ void AssemblyWorkspaceWindow::align_active_sketch_view(bool fit_view) {
         direction = sketch->plane == zima::sketcher::SketchPlane::XY
             ? zima::kernel::Vec3{0.0, 0.0, 1.0}
             : sketch->plane == zima::sketcher::SketchPlane::XZ
-                ? zima::kernel::Vec3{0.0, -1.0, 0.0}
+                ? zima::kernel::Vec3{0.0, 1.0, 0.0}
                 : zima::kernel::Vec3{1.0, 0.0, 0.0};
     }
+    // The model frame already contains placement FRONT/BACK, in-plane
+    // ROTATE and angular corrections.  Use its resolved X axis to derive the
+    // camera roll instead of replaying those Placement flags a second time.
+    // This makes entry into Sketcher show the exact owning-container frame,
+    // including the intended side of a supporting solid face.
+    zima::kernel::Vec3 screen_x = sketch->resolved_x_axis;
     if (sketch_view_state_id_ != active_sketch_id_) {
         sketch_view_state_id_ = active_sketch_id_;
+        // Sketcher controls are relative camera overrides. The initial view
+        // itself comes entirely from the persisted model frame above.
         sketch_view_back_ = false;
         sketch_view_quarter_turns_ = 0;
-        if (part != nullptr) {
-            const auto* owner = part->session.document().find_container(
-                sketch->owner_container_id);
-            if (owner != nullptr) {
-                sketch_view_back_ = owner->placement.orientation_back;
-                sketch_view_quarter_turns_ =
-                    ((owner->placement.orientation_quarter_turns % 4) + 4) % 4;
-            }
-        }
     }
     if (sketch_view_back_) direction = {-direction.x, -direction.y, -direction.z};
     if (part != nullptr &&
@@ -9185,9 +10174,14 @@ void AssemblyWorkspaceWindow::align_active_sketch_view(bool fit_view) {
         direction = workspace_.occurrence_direction_to_scene(
             workspace_.displayed_document_id(),
             zima::assembly::InstancePath::decode(*occurrence), direction);
+        screen_x = workspace_.occurrence_direction_to_scene(
+            workspace_.displayed_document_id(),
+            zima::assembly::InstancePath::decode(*occurrence), screen_x);
     }
-    viewer_->set_view_direction(direction,
-        static_cast<float>(sketch_view_quarter_turns_ * 90));
+    const double frame_roll = camera_roll_for_direction(
+        direction, screen_x, 0.0);
+    viewer_->set_view_direction(direction, static_cast<float>(
+        frame_roll + sketch_view_quarter_turns_ * 90.0));
     if (fit_view) viewer_->fit_all();
     state_->setText(tr("Pohled je kolmý k rovině aktivní skici."));
 }
@@ -9469,6 +10463,7 @@ void AssemblyWorkspaceWindow::cancel_sketch_segment() {
     pending_point_dimension_vertex_id_.clear();
     pending_point_dimension_cursor_.reset();
     pending_line_dimension_reference_id_.clear();
+    pending_sketch_dimension_.reset();
     pending_segment_start_.reset();
     pending_sketch_snap_geometry_id_.clear();
     pending_sketch_snap_kind_.reset();
@@ -9530,7 +10525,8 @@ bool AssemblyWorkspaceWindow::finish_current_sketch_tool() {
         sketch_midpoint_active_ || sketch_symmetric_active_ ||
         sketch_concentric_active_ || sketch_tangent_active_ ||
         sketch_segment_pair_active_ || sketch_point_dimension_active_ ||
-        sketch_line_pair_dimension_active_ || sketch_corner_fillet_active_;
+        sketch_line_pair_dimension_active_ || pending_sketch_dimension_ ||
+        sketch_corner_fillet_active_;
     if (active) {
         cancel_sketch_segment();
         preserve_view_on_refresh_ = true;
@@ -12431,6 +13427,11 @@ void AssemblyWorkspaceWindow::end_sketch_dimension_drag() {
     }
     sketch_drag_document_.reset();
     assembly_sketch_drag_document_.reset();
+    // A simple click selects a dimension but also passes through the same
+    // press/release gesture path as a drag.  Preserve the camera even when
+    // no placement changed; otherwise this harmless selection refits/jumps
+    // the View on release.
+    preserve_view_on_refresh_ = true;
     refresh_scene();
 }
 
@@ -12602,6 +13603,16 @@ bool AssemblyWorkspaceWindow::delete_selected_sketch_geometry() {
         sketch_symmetric_active_ || sketch_concentric_active_ ||
         sketch_tangent_active_ ||
         sketch_segment_pair_active_) return false;
+    if (auto* item = tree_->currentItem(); item != nullptr &&
+        item->data(0, Qt::UserRole + 3).toString() ==
+            QStringLiteral("part-sketch-dimension")) {
+        const auto dimension_id =
+            item->data(0, Qt::UserRole).toString().toStdString();
+        if (!dimension_id.empty()) {
+            remove_sketch_relation(active_sketch_id_, dimension_id, true);
+            return true;
+        }
+    }
     const std::string geometry_id = !selected_sketch_segment_id_.empty()
         ? selected_sketch_segment_id_
         : !selected_sketch_circle_id_.empty() ? selected_sketch_circle_id_
@@ -12754,9 +13765,10 @@ void AssemblyWorkspaceWindow::move_part_container(
 }
 
 void AssemblyWorkspaceWindow::delete_part_object(
-    const std::string& object_id, const QString& kind) {
+    const std::string& object_id, const QString& kind,
+    bool ask_confirmation) {
     if (properties_dialog_ != nullptr || object_id.empty()) return;
-    if (QMessageBox::question(this, tr("Odstranit objekt"),
+    if (ask_confirmation && QMessageBox::question(this, tr("Odstranit objekt"),
             tr("Opravdu chcete vybraný objekt odstranit?"),
             QMessageBox::Yes | QMessageBox::No, QMessageBox::No) !=
         QMessageBox::Yes) return;
@@ -12883,6 +13895,13 @@ void AssemblyWorkspaceWindow::delete_part_object(
                 std::erase_if(next.constructions,
                     [&](const auto& object) { return object.id == object_id; });
             } else {
+                // An internal profile Sketch is owned by its history
+                // container and must disappear with that container. Keeping
+                // it would leave an unreachable orphan after either single
+                // or multi-selection deletion.
+                std::erase_if(next.sketches, [&](const auto& sketch) {
+                    return sketch.owner_container_id == object_id;
+                });
                 std::erase_if(next.history,
                     [&](const auto& container) { return container.id == object_id; });
             }
@@ -13160,6 +14179,31 @@ void AssemblyWorkspaceWindow::accept_sketch_point_dimension(
 bool AssemblyWorkspaceWindow::accept_sketch_dimension_placement_ray(
     const zima::kernel::Vec3& origin,
     const zima::kernel::Vec3& direction) {
+    if (pending_sketch_dimension_) {
+        const auto* sketch = active_sketch();
+        if (sketch == nullptr) return false;
+        const auto cursor = sketch->intersect_ray(origin, direction);
+        if (!cursor) return true;
+        auto dimension = std::move(*pending_sketch_dimension_);
+        pending_sketch_dimension_.reset();
+        dimension.placement = *cursor;
+        if (!mutate_active_sketch([&](auto& target) {
+                target.apply_dimension(dimension);
+            })) {
+            throw std::runtime_error("Sketch is no longer active");
+        }
+        selected_sketch_segment_id_.clear();
+        selected_sketch_circle_id_.clear();
+        selected_sketch_arc_id_.clear();
+        selected_sketch_ellipse_id_.clear();
+        viewer_->set_candidate_filter({});
+        preserve_view_on_refresh_ = true;
+        refresh_tabs();
+        refresh_scene();
+        state_->setText(tr(
+            "Kóta byla vytvořena. Dvojklik na hodnotu ji upraví."));
+        return true;
+    }
     if (!sketch_point_dimension_active_ ||
         pending_point_dimension_second_id_.empty()) return false;
     const auto* sketch = active_sketch();
@@ -13396,8 +14440,7 @@ void AssemblyWorkspaceWindow::show_sketch_dimension_properties(
     const bool segment_dimension_creation = !edit_mode &&
         !selected_sketch_segment_id_.empty() && first_point_id.empty() &&
         first_geometry_id.empty();
-    auto* dialog = new SketchDimensionPropertiesDialog(
-        std::move(initial), edit_mode,
+    const auto commit_dimension =
         [this, sketch_id, edit_mode, creation_kind, active_target,
          segment_dimension_creation](
             zima::sketcher::SketchDimension committed) {
@@ -13462,7 +14505,40 @@ void AssemblyWorkspaceWindow::show_sketch_dimension_properties(
                 }
             }
             preserve_view_on_refresh_ = true;
-        }, this);
+        };
+    // Match the mature Sketcher interaction from the Python implementation:
+    // placing a new dimension is completed directly in the View at its
+    // measured value.  Opening the full Properties subwindow here breaks the
+    // continuous dimension tool and obscures the geometry.  A deliberate
+    // edit of an existing dimension still opens Properties (limits/driving
+    // state), while a value-only change remains available by double-clicking
+    // the dimension text in the View.
+    if (!edit_mode && !placement) {
+        // Entity selection and dimension placement are two separate LMB
+        // steps.  Keep the measured dimension transient until the following
+        // click in empty View space supplies the requested main-line
+        // placement, matching the original Sketcher interaction.
+        pending_sketch_dimension_ = std::move(initial);
+        sketch_point_dimension_active_ = false;
+        sketch_line_pair_dimension_active_ = false;
+        pending_point_dimension_first_id_.clear();
+        pending_point_dimension_second_id_.clear();
+        pending_point_dimension_vertex_id_.clear();
+        pending_line_dimension_reference_id_.clear();
+        viewer_->set_selection_contract({});
+        viewer_->set_candidate_filter({});
+        state_->setText(tr(
+            "Kóta: kliknutím LMB do prostoru určete polohu kótovací čáry."));
+        return;
+    }
+    if (!edit_mode) {
+        commit_dimension(std::move(initial));
+        refresh_tabs();
+        refresh_scene();
+        return;
+    }
+    auto* dialog = new SketchDimensionPropertiesDialog(
+        std::move(initial), true, commit_dimension, this);
     properties_dialog_ = dialog;
     connect(dialog, &QObject::destroyed, this, [this] {
         properties_dialog_ = nullptr;
@@ -14487,6 +15563,12 @@ void AssemblyWorkspaceWindow::keyPressEvent(QKeyEvent* event) {
         event->accept();
         return;
     }
+    if (event->key() == Qt::Key_Escape && extrusion_target_dialog_ != nullptr) {
+        finish_extrusion_target_selection();
+        state_->setText(tr("Výběr cílové plochy vytažení byl zrušen."));
+        event->accept();
+        return;
+    }
     if (event->key() == Qt::Key_Delete && delete_selected_sketch_geometry()) {
         event->accept();
         return;
@@ -14508,7 +15590,8 @@ void AssemblyWorkspaceWindow::keyPressEvent(QKeyEvent* event) {
          sketch_symmetric_active_ || sketch_concentric_active_ ||
          sketch_tangent_active_ ||
          sketch_segment_pair_active_ || sketch_point_dimension_active_ ||
-         sketch_line_pair_dimension_active_ || sketch_corner_fillet_active_)) {
+         sketch_line_pair_dimension_active_ || pending_sketch_dimension_ ||
+         sketch_corner_fillet_active_)) {
         if (cancel_current_sketch_step()) {
             event->accept();
             return;
@@ -14978,6 +16061,7 @@ void AssemblyWorkspaceWindow::update_viewer_body_colors() {
 void AssemblyWorkspaceWindow::refresh_scene() {
     update_viewer_body_colors();
     update_body_color_actions();
+    viewer_->set_active_sketch_owner(active_sketch_id_);
     QScopedValueRollback refreshing_guard(refreshing_scene_, true);
     update_document_area_visibility();
     tree_->setRootIndex(QModelIndex{});
@@ -15011,12 +16095,71 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                 zima::kernel::Vec3 witness_first,
                 zima::kernel::Vec3 witness_second,
                 zima::kernel::Vec3 offset, double value) {
+            // Keep every non-degenerate linear dimension in one modeling
+            // plane.  The measured segment supplies the first in-plane
+            // direction; project the preferred offset perpendicular to it so
+            // both witness lines are true perpendiculars.  This also gives a
+            // stable plane for an arbitrary point-to-point measurement.
+            const zima::kernel::Vec3 measured{
+                witness_second.x - witness_first.x,
+                witness_second.y - witness_first.y,
+                witness_second.z - witness_first.z};
+            const auto dot = [](const zima::kernel::Vec3& left,
+                                 const zima::kernel::Vec3& right) {
+                return left.x * right.x + left.y * right.y +
+                    left.z * right.z;
+            };
+            const double measured_squared = dot(measured, measured);
+            const double requested_offset_length = std::sqrt(dot(offset, offset));
+            if (measured_squared > 1.0e-18 &&
+                requested_offset_length > 1.0e-9) {
+                const double parallel = dot(offset, measured) / measured_squared;
+                offset = {offset.x - measured.x * parallel,
+                    offset.y - measured.y * parallel,
+                    offset.z - measured.z * parallel};
+                double perpendicular_length = std::sqrt(dot(offset, offset));
+                if (perpendicular_length <= 1.0e-9) {
+                    const std::array basis{
+                        zima::kernel::Vec3{1.0, 0.0, 0.0},
+                        zima::kernel::Vec3{0.0, 1.0, 0.0},
+                        zima::kernel::Vec3{0.0, 0.0, 1.0}};
+                    const auto fallback = *std::min_element(
+                        basis.begin(), basis.end(), [&](const auto& left,
+                            const auto& right) {
+                            return std::abs(dot(left, measured)) <
+                                std::abs(dot(right, measured));
+                        });
+                    const double fallback_parallel =
+                        dot(fallback, measured) / measured_squared;
+                    offset = {fallback.x - measured.x * fallback_parallel,
+                        fallback.y - measured.y * fallback_parallel,
+                        fallback.z - measured.z * fallback_parallel};
+                    perpendicular_length = std::sqrt(dot(offset, offset));
+                }
+                const double scale = requested_offset_length /
+                    perpendicular_length;
+                offset = {offset.x * scale, offset.y * scale, offset.z * scale};
+            }
             mesh.dimensions.push_back({witness_first, witness_second,
                 {witness_first.x + offset.x, witness_first.y + offset.y,
                     witness_first.z + offset.z},
                 {witness_second.x + offset.x, witness_second.y + offset.y,
                     witness_second.z + offset.z}, value,
-                {owner, std::string("parameter:") + key, {}}, label});
+                {owner, std::string("parameter:") + key, {}}, {}});
+            if (measured_squared > 1.0e-18) {
+                const zima::kernel::Vec3 normal{
+                    measured.y * offset.z - measured.z * offset.y,
+                    measured.z * offset.x - measured.x * offset.z,
+                    measured.x * offset.y - measured.y * offset.x};
+                const double normal_length = std::sqrt(dot(normal, normal));
+                if (normal_length > 1.0e-9) {
+                    mesh.dimensions.back().plane_normal = {
+                        normal.x / normal_length,
+                        normal.y / normal_length,
+                        normal.z / normal_length};
+                }
+            }
+            static_cast<void>(label);
         };
         if (object != nullptr) {
             if (object->kind == zima::document::ConstructionKind::Point) {
@@ -15025,17 +16168,37 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                         *object, reference_geometry);
                 mesh.dimensions.insert(mesh.dimensions.end(),
                     dimensions.begin(), dimensions.end());
-            } else if (object->kind == zima::document::ConstructionKind::Axis) {
-                const auto end = zima::kernel::Vec3{
-                    object->origin.x + object->direction.x * object->display_size,
-                    object->origin.y + object->direction.y * object->display_size,
-                    object->origin.z + object->direction.z * object->display_size};
-                append_dimension(object->id, "length", "L = ",
-                    object->origin, end, {5, 5, 0}, object->display_size);
             } else {
-                append_dimension(object->id, "offset", "Odsazení = ",
-                    object->origin, object->entity_origin, {5, 5, 0},
-                    object->offset);
+                zima::document::Placement placement;
+                placement.x = object->origin.x;
+                placement.y = object->origin.y;
+                placement.z = object->origin.z;
+                placement.references = object->references;
+                const auto dimensions =
+                    zima::document::container_placement_dimensions(
+                        object->id, placement, reference_geometry);
+                mesh.dimensions.insert(mesh.dimensions.end(),
+                    dimensions.begin(), dimensions.end());
+            }
+            if (object->kind == zima::document::ConstructionKind::Axis) {
+                const double half = object->display_size * 0.5;
+                const auto start = zima::kernel::Vec3{
+                    object->origin.x - object->direction.x * half,
+                    object->origin.y - object->direction.y * half,
+                    object->origin.z - object->direction.z * half};
+                const auto end = zima::kernel::Vec3{
+                    object->origin.x + object->direction.x * half,
+                    object->origin.y + object->direction.y * half,
+                    object->origin.z + object->direction.z * half};
+                append_dimension(object->id, "length", "L = ",
+                    start, end, {5, 5, 0}, object->display_size);
+            } else if (object->kind ==
+                       zima::document::ConstructionKind::Plane) {
+                if (std::abs(object->offset) > 1.0e-12) {
+                    append_dimension(object->id, "offset", "Odsazení = ",
+                        object->origin, object->entity_origin, {5, 5, 0},
+                        object->offset);
+                }
             }
         }
         if constexpr (requires { document.history; }) {
@@ -15051,6 +16214,12 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                 : stored_container != document.history.end()
                     ? &*stored_container : nullptr;
             if (container != nullptr) {
+                const auto placement_dimensions =
+                    zima::document::container_placement_dimensions(
+                        container->id, container->placement,
+                        reference_geometry);
+                mesh.dimensions.insert(mesh.dimensions.end(),
+                    placement_dimensions.begin(), placement_dimensions.end());
                 const auto origin = zima::kernel::Vec3{
                     container->placement.x, container->placement.y,
                     container->placement.z};
@@ -15073,11 +16242,16 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                         origin.y + sz * xy + cz * yx,
                         origin.z + zy};
                 };
+                const auto local_vector = [&](zima::kernel::Vec3 value) {
+                    const auto endpoint = local(value.x, value.y, value.z);
+                    return zima::kernel::Vec3{endpoint.x - origin.x,
+                        endpoint.y - origin.y, endpoint.z - origin.z};
+                };
                 const auto linear = [&](const char* key, const char* label,
                         zima::kernel::Vec3 first, zima::kernel::Vec3 second,
                         zima::kernel::Vec3 offset, double value) {
                     append_dimension(container->id, key, label, first, second,
-                        offset, value);
+                        local_vector(offset), value);
                 };
                 const auto radius = [&](const char* key,
                         zima::kernel::Vec3 center, zima::kernel::Vec3 rim,
@@ -15097,7 +16271,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                     linear("width", "Šířka = ", local(-x,-y,-z), local(-x,y,-z),
                         {-8,0,0}, container->box.width);
                     linear("height", "Výška = ", local(-x,-y,-z), local(-x,-y,z),
-                        {-8,-8,0}, container->box.height);
+                        {-8,0,0}, container->box.height);
                 } else if (container->feature_kind == FeatureKind::Cylinder) {
                     radius("radius", origin,
                         local(container->cylinder.radius,0,0), {0,6,0},
@@ -15127,7 +16301,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                         local(0,container->pyramid.width,0), {-8,0,0},
                         container->pyramid.width);
                     linear("height", "Výška = ", origin,
-                        local(0,0,container->pyramid.height), {8,8,0},
+                        local(0,0,container->pyramid.height), {8,0,0},
                         container->pyramid.height);
                 } else if (container->feature_kind == FeatureKind::Wedge) {
                     linear("length", "Délka = ", origin,
@@ -15137,7 +16311,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                         local(0,container->wedge.width,0), {-8,0,0},
                         container->wedge.width);
                     linear("height", "Výška = ", origin,
-                        local(0,0,container->wedge.height), {8,8,0},
+                        local(0,0,container->wedge.height), {8,0,0},
                         container->wedge.height);
                     linear("top_offset", "Posun = ", origin,
                         local(container->wedge.top_offset,0,0), {0,8,0},
@@ -15148,26 +16322,63 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                             return value.id == container->extrusion.sketch_id;
                         });
                     if (sketch != document.sketches.end()) {
-                        const auto start = sketch->resolved_origin;
+                        zima::kernel::Vec3 local_normal;
+                        zima::kernel::Vec3 local_offset;
+                        if (sketch->plane == zima::sketcher::SketchPlane::XY) {
+                            local_normal = {0,0,1};
+                            local_offset = {0,0,
+                                container->extrusion.profile_plane_offset};
+                        } else if (sketch->plane ==
+                                zima::sketcher::SketchPlane::XZ) {
+                            local_normal = {0,1,0};
+                            local_offset = {0,
+                                container->extrusion.profile_plane_offset,0};
+                        } else {
+                            local_normal = {1,0,0};
+                            local_offset = {
+                                container->extrusion.profile_plane_offset,0,0};
+                        }
+                        const auto start = local(
+                            local_offset.x, local_offset.y, local_offset.z);
+                        const auto normal_endpoint = local(
+                            local_offset.x + local_normal.x,
+                            local_offset.y + local_normal.y,
+                            local_offset.z + local_normal.z);
+                        zima::kernel::Vec3 direction{
+                            normal_endpoint.x - start.x,
+                            normal_endpoint.y - start.y,
+                            normal_endpoint.z - start.z};
+                        if (container->extrusion.direction ==
+                                zima::document::ExtrusionDirection::Reverse) {
+                            direction = {-direction.x, -direction.y, -direction.z};
+                        }
                         const auto along = [&](double distance) {
                             return zima::kernel::Vec3{
-                                start.x + sketch->resolved_normal.x * distance,
-                                start.y + sketch->resolved_normal.y * distance,
-                                start.z + sketch->resolved_normal.z * distance};
+                                start.x + direction.x * distance,
+                                start.y + direction.y * distance,
+                                start.z + direction.z * distance};
                         };
-                        linear("length_forward", "Délka = ", start,
-                            along(container->extrusion.length_forward), {8,8,0},
-                            container->extrusion.length_forward);
-                        if (container->extrusion.extent_mode ==
+                        if (!primitive_origin_preview_mesh_) {
+                            linear("length_forward", "Délka = ", start,
+                                along(container->extrusion.length_forward),
+                                {8,8,0},
+                                container->extrusion.length_forward);
+                        }
+                        if (!primitive_origin_preview_mesh_ &&
+                            container->extrusion.extent_mode ==
                                 zima::document::ProfileExtentMode::TwoSides) {
                             linear("length_reverse", "Délka 2 = ", start,
                                 along(-container->extrusion.length_reverse),
                                 {-8,-8,0}, container->extrusion.length_reverse);
                         }
-                        const auto base = along(
-                            -container->extrusion.profile_plane_offset);
-                        linear("profile_offset", "Odsazení = ", base, start,
-                            {5,5,0}, container->extrusion.profile_plane_offset);
+                        const auto base = origin;
+                        if (std::abs(
+                                container->extrusion.profile_plane_offset) >
+                                1.0e-12 && !primitive_origin_preview_mesh_) {
+                            linear("profile_offset", "Odsazení = ", base, start,
+                                {5,5,0},
+                                container->extrusion.profile_plane_offset);
+                        }
                     }
                 } else if (container->feature_kind == FeatureKind::Revolution) {
                     const auto sketch = std::find_if(document.sketches.begin(),
@@ -15175,61 +16386,67 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                             return value.id == container->revolution.sketch_id;
                         });
                     if (sketch != document.sketches.end()) {
-                        const auto segment = std::find_if(sketch->segments.begin(),
-                            sketch->segments.end(), [&](const auto& value) {
-                                return value.id ==
-                                    container->revolution.axis_segment_id;
-                            });
-                        if (segment != sketch->segments.end()) {
-                            const auto* first = sketch->find_point(
-                                segment->first_point_id);
-                            const auto* second = sketch->find_point(
-                                segment->second_point_id);
-                            if (first != nullptr && second != nullptr) {
-                                const auto vertex = sketch->world_point(first->x, first->y);
-                                const auto axis_end = sketch->world_point(second->x, second->y);
-                                zima::kernel::Vec3 axis{
-                                    axis_end.x - vertex.x, axis_end.y - vertex.y,
-                                    axis_end.z - vertex.z};
-                                const double axis_length = std::hypot(
-                                    std::hypot(axis.x, axis.y), axis.z);
-                                axis = {axis.x / axis_length, axis.y / axis_length,
-                                        axis.z / axis_length};
-                                zima::kernel::Vec3 radial{
-                                    axis.y * sketch->resolved_normal.z -
-                                        axis.z * sketch->resolved_normal.y,
-                                    axis.z * sketch->resolved_normal.x -
-                                        axis.x * sketch->resolved_normal.z,
-                                    axis.x * sketch->resolved_normal.y -
-                                        axis.y * sketch->resolved_normal.x};
-                                constexpr double radius = 25.0;
-                                const auto ray = zima::kernel::Vec3{
-                                    vertex.x + radial.x * radius,
-                                    vertex.y + radial.y * radius,
-                                    vertex.z + radial.z * radius};
-                                const double angle = container->revolution.angle_degrees *
+                        if (auto frame = revolution_cue_frame(*sketch,
+                                container->revolution.axis_segment_id)) {
+                            auto axis = frame->axis;
+                            if (container->revolution.direction ==
+                                    zima::document::ExtrusionDirection::Reverse) {
+                                axis = {-axis.x, -axis.y, -axis.z};
+                            }
+                            const auto& vertex = frame->center;
+                            // Keep the readable angular dimension just outside
+                            // the purple rotation manipulator. Both arcs stay
+                            // in the same operation plane without painting over
+                            // one another.
+                            constexpr double dimension_radius_scale = 1.28;
+                            const zima::kernel::Vec3 radial{
+                                frame->radial.x * dimension_radius_scale,
+                                frame->radial.y * dimension_radius_scale,
+                                frame->radial.z * dimension_radius_scale};
+                            const auto ray = zima::kernel::Vec3{
+                                vertex.x + radial.x,
+                                vertex.y + radial.y,
+                                vertex.z + radial.z};
+                            const auto perpendicular = zima::kernel::Vec3{
+                                axis.y * radial.z - axis.z * radial.y,
+                                axis.z * radial.x - axis.x * radial.z,
+                                axis.x * radial.y - axis.y * radial.x};
+                            const auto append_angle_dimension =
+                                [&](double degrees, double sign,
+                                    const char* parameter_key) {
+                                const double signed_angle = degrees * sign;
+                                const double angle = signed_angle *
                                     std::numbers::pi / 180.0;
-                                const auto perpendicular = zima::kernel::Vec3{
-                                    axis.y * radial.z - axis.z * radial.y,
-                                    axis.z * radial.x - axis.x * radial.z,
-                                    axis.x * radial.y - axis.y * radial.x};
                                 const auto other = zima::kernel::Vec3{
-                                    vertex.x + radius * (radial.x * std::cos(angle) +
-                                        perpendicular.x * std::sin(angle)),
-                                    vertex.y + radius * (radial.y * std::cos(angle) +
-                                        perpendicular.y * std::sin(angle)),
-                                    vertex.z + radius * (radial.z * std::cos(angle) +
-                                        perpendicular.z * std::sin(angle))};
+                                    vertex.x + radial.x * std::cos(angle) +
+                                        perpendicular.x * std::sin(angle),
+                                    vertex.y + radial.y * std::cos(angle) +
+                                        perpendicular.y * std::sin(angle),
+                                    vertex.z + radial.z * std::cos(angle) +
+                                        perpendicular.z * std::sin(angle)};
                                 mesh.dimensions.push_back({vertex, vertex, ray, other,
-                                    container->revolution.angle_degrees,
-                                    {container->id, "parameter:angle", {}},
+                                    degrees,
+                                    {container->id, parameter_key, {}},
                                     "", "°"});
                                 auto& angle_dimension = mesh.dimensions.back();
                                 angle_dimension.kind =
                                     zima::kernel::ViewerDimensionKind::Angular;
                                 angle_dimension.plane_normal = axis;
-                                angle_dimension.sweep_degrees =
-                                    container->revolution.angle_degrees;
+                                angle_dimension.sweep_degrees = signed_angle;
+                            };
+                            append_angle_dimension(
+                                container->revolution.angle_degrees, 1.0,
+                                "parameter:angle");
+                            if (container->revolution.extent_mode ==
+                                    zima::document::ProfileExtentMode::TwoSides) {
+                                append_angle_dimension(
+                                    container->revolution.angle_reverse, -1.0,
+                                    "parameter:length_reverse");
+                            } else if (container->revolution.extent_mode ==
+                                    zima::document::ProfileExtentMode::Symmetric) {
+                                append_angle_dimension(
+                                    container->revolution.angle_degrees, -1.0,
+                                    "parameter:angle");
                             }
                         }
                         const auto start = sketch->resolved_origin;
@@ -15240,8 +16457,16 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                                 container->revolution.profile_plane_offset,
                             start.z - sketch->resolved_normal.z *
                                 container->revolution.profile_plane_offset};
-                        linear("profile_offset", "Odsazení = ", base, start,
-                            {5,5,0}, container->revolution.profile_plane_offset);
+                        if (std::abs(
+                                container->revolution.profile_plane_offset) >
+                                1.0e-12 && !primitive_origin_preview_mesh_) {
+                            const auto front = sketch->resolved_x_axis;
+                            linear("profile_offset", "Odsazení = ", base,
+                                start,
+                                {front.x * 8.0, front.y * 8.0,
+                                 front.z * 8.0},
+                                container->revolution.profile_plane_offset);
+                        }
                     }
                 } else if (container->feature_kind == FeatureKind::Fillet ||
                            container->feature_kind == FeatureKind::Chamfer) {
@@ -15330,9 +16555,19 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                         sketch->plane_offset,
                     sketch->resolved_origin.z - sketch->resolved_normal.z *
                         sketch->plane_offset};
-                append_dimension(sketch->owner_container_id, "profile_offset",
-                    "Odsazení = ", base, sketch->resolved_origin,
-                    {5,5,0}, sketch->plane_offset);
+                // Persisted Sketch inspection uses this generic dimension.
+                // An open Sketch/Extrusion/Revolution Properties window
+                // publishes its own live plane-aligned offset dimension in
+                // primitive_origin_preview_mesh_. Drawing both produced the
+                // two identical 5 mm dimensions seen after returning from
+                // Sketcher.
+                if (std::abs(sketch->plane_offset) > 1.0e-12 &&
+                    !primitive_origin_preview_mesh_) {
+                    append_dimension(sketch->owner_container_id,
+                        "profile_offset", "Odsazení = ", base,
+                        sketch->resolved_origin, {5,5,0},
+                        sketch->plane_offset);
+                }
             }
         }
         return mesh;
@@ -15570,6 +16805,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                               zima::viewer::CandidateKind::SketchPoint,
                               zima::viewer::CandidateKind::SketchCurve,
                               zima::viewer::CandidateKind::SketchExternalReference}
+            : extrusion_target_dialog_ != nullptr
+                ? std::vector{zima::viewer::CandidateKind::Face}
             : pending_construction_reference_index_ ||
                     pending_primitive_reference_index_
                 ? std::vector{zima::viewer::CandidateKind::Vertex,
@@ -15814,6 +17051,9 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                         sketch_trim_preview_ && sketch.id == active_sketch_id_
                     ? &*sketch_trim_preview_ : &sketch;
                 auto sketch_mesh = displayed_sketch->viewer_mesh();
+                if (properties_dialog_ != nullptr && active_sketch_id_.empty()) {
+                    remove_sketch_computation_points(sketch_mesh);
+                }
                 if (!editing_sketch_text_id_.empty() &&
                     sketch.id == active_sketch_id_) {
                     std::erase_if(sketch_mesh.edges, [&](const auto& edge) {
@@ -16116,6 +17356,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                           zima::viewer::CandidateKind::SketchPoint,
                           zima::viewer::CandidateKind::SketchCurve,
                           zima::viewer::CandidateKind::SketchExternalReference}
+        : extrusion_target_dialog_ != nullptr
+            ? std::vector{zima::viewer::CandidateKind::Face}
         : pending_construction_reference_index_ ||
                 pending_primitive_reference_index_
             ? std::vector{zima::viewer::CandidateKind::Vertex,
@@ -16216,6 +17458,9 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                     if (!active_sketch_id_.empty() &&
                         sketch.id != active_sketch_id_) continue;
                     auto mesh = sketch.viewer_mesh();
+                    if (properties_dialog_ != nullptr && active_sketch_id_.empty()) {
+                        remove_sketch_computation_points(mesh);
+                    }
                     if (sketch.id != active_sketch_id_) {
                         keep_only_inactive_sketch_profile(mesh);
                     }
@@ -16284,6 +17529,9 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                         sketch_trim_preview_ && sketch.id == active_sketch_id_
                     ? &*sketch_trim_preview_ : &sketch;
                 auto sketch_mesh = displayed_sketch->viewer_mesh();
+                if (properties_dialog_ != nullptr && active_sketch_id_.empty()) {
+                    remove_sketch_computation_points(sketch_mesh);
+                }
                 if (sketch.id != active_sketch_id_) {
                     keep_only_inactive_sketch_profile(sketch_mesh);
                 }
@@ -16944,17 +18192,6 @@ void AssemblyWorkspaceWindow::add_snapshot_tree_children(
         }
         else if (!component.visible) label += tr(" [skryto]");
         if (component.grounded) label += tr(" [uzemněno]");
-        if (parent_path.occurrence_ids.empty()) {
-            if (const auto* owner = workspace_.open_assembly(
-                    owner_assembly_document_id)) {
-                const auto& live = owner->session.document();
-                if (live.find_occurrence(component.occurrence_id) != nullptr &&
-                    !component.grounded && !suppressed) {
-                    label += tr(" [%1 DOF]").arg(
-                        live.remaining_degrees_of_freedom(component.occurrence_id));
-                }
-            }
-        }
         auto* item = new QTreeWidgetItem(parent, {label});
         const auto path = parent_path.child(component.occurrence_id);
         item->setData(0, Qt::UserRole, QString::fromStdString(component.occurrence_id));
@@ -17104,6 +18341,27 @@ void AssemblyWorkspaceWindow::show_component_properties(
         [this](std::size_t index, bool component_side) {
             start_component_placement_reference_selection(index, component_side);
         });
+    dialog->set_preview_callback(
+        [this, assembly_id = address->owner_assembly_document_id,
+         occurrence_id = address->occurrence_id](const auto& preview) {
+            const auto* assembly = workspace_.open_assembly(assembly_id);
+            if (assembly == nullptr) return;
+            auto next = assembly->session.document();
+            auto found = std::find_if(next.components.begin(), next.components.end(),
+                [&](const auto& item) {
+                    return item.occurrence_id == occurrence_id;
+                });
+            if (found == next.components.end()) return;
+            *found = preview;
+            try {
+                next.calculate_placement_references();
+                viewer_->set_mesh(next.build_scene(), false);
+            } catch (const std::exception&) {
+                // An incomplete reference row is intentionally transient.
+                // Keep the last valid view until enough data exists to solve
+                // the next placement state.
+            }
+        });
     component_placement_dialog_ = dialog;
     component_placement_assembly_document_id_ = address->owner_assembly_document_id;
     component_placement_occurrence_id_ = address->occurrence_id;
@@ -17209,20 +18467,145 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
         const double next_value = rounded_to_decimal_places(
             parsed_value, viewer_->dimension_decimal_places());
         try {
+            PlacementReferenceDialog* inline_placement_dialog =
+                construction_reference_dialog_ != nullptr
+                ? static_cast<PlacementReferenceDialog*>(
+                      construction_reference_dialog_)
+                : primitive_reference_dialog_;
             if (candidate.semantic_key.starts_with("parameter:") &&
-                construction_reference_dialog_ != nullptr &&
-                construction_reference_dialog_->construction_id() ==
-                    candidate.owner_id) {
+                inline_placement_dialog != nullptr &&
+                inline_placement_dialog->owns_reference_owner(
+                    candidate.owner_id)) {
                 guarded->hide();
-                if (!construction_reference_dialog_->set_inline_parameter_value(
+                if (!inline_placement_dialog->set_inline_parameter_value(
                         candidate.semantic_key.substr(10), next_value)) {
                     throw std::runtime_error(
-                        "This Point dimension is not currently editable");
+                        "This dimension is not currently editable");
                 }
                 state_->setText(
                     tr("Hodnota kóty byla přenesena do otevřeného okna vlastností."));
                 guarded->deleteLater();
                 return;
+            }
+            if (candidate.semantic_key.starts_with("parameter:")) {
+                const auto key = std::string_view(candidate.semantic_key).substr(10);
+                const auto mutate_construction = [&](auto& document,
+                        const zima::kernel::ViewerReferenceGeometry& geometry) {
+                    auto* construction = document.find_construction(candidate.owner_id);
+                    if (construction == nullptr) return false;
+                    auto construction_key = key;
+                    bool placement_key{};
+                    constexpr std::string_view placement_prefix{"placement:"};
+                    if (construction_key.starts_with(placement_prefix)) {
+                        construction_key.remove_prefix(placement_prefix.size());
+                        placement_key = true;
+                    }
+                    if (construction->kind ==
+                            zima::document::ConstructionKind::Point ||
+                        placement_key) {
+                        const auto constraint =
+                            zima::document::point_constraint_state(
+                                construction->references, geometry);
+                        if (construction_key == "x" &&
+                            !constraint.constrained_axes[0]) {
+                            construction->origin.x = next_value;
+                        } else if (construction_key == "y" &&
+                                   !constraint.constrained_axes[1]) {
+                            construction->origin.y = next_value;
+                        } else if (construction_key == "z" &&
+                                   !constraint.constrained_axes[2]) {
+                            construction->origin.z = next_value;
+                        } else if (construction_key.starts_with(
+                                       "reference_offset:")) {
+                            const auto suffix = construction_key.substr(
+                                std::string_view{"reference_offset:"}.size());
+                            if (suffix.empty()) return false;
+                            std::size_t requested{};
+                            for (const char digit : suffix) {
+                                if (digit < '0' || digit > '9') return false;
+                                requested = requested * 10 +
+                                    static_cast<std::size_t>(digit - '0');
+                            }
+                            std::size_t populated{};
+                            auto reference = std::find_if(
+                                construction->references.begin(),
+                                construction->references.end(),
+                                [&](const auto& value) {
+                                    if (value.orientation_only ||
+                                        (value.owner_id.empty() &&
+                                         value.semantic_key.empty())) return false;
+                                    return populated++ == requested;
+                                });
+                            if (reference == construction->references.end() ||
+                                !reference->supports_offset) return false;
+                            reference->offset = next_value;
+                        } else {
+                            return false;
+                        }
+                    } else if (construction->kind ==
+                                   zima::document::ConstructionKind::Axis &&
+                               key == "length") {
+                        if (next_value <= 1.0e-9)
+                            throw std::runtime_error(
+                                "Dimension must be positive");
+                        construction->display_size = next_value;
+                    } else if (construction->kind ==
+                                   zima::document::ConstructionKind::Plane &&
+                               key == "offset") {
+                        construction->offset = next_value;
+                    } else {
+                        return false;
+                    }
+                    return true;
+                };
+                bool construction_changed{};
+                if (auto* source =
+                        workspace_.open_part(workspace_.active_document_id())) {
+                    auto next = source->session.document();
+                    auto calculated = source->session.calculated_boundaries();
+                    construction_changed = mutate_construction(next,
+                        construction_reference_source_geometry(calculated));
+                    if (construction_changed) {
+                        next.resolve_constructions(
+                            construction_reference_source_geometry(calculated));
+                        const auto* resolved =
+                            next.find_construction(candidate.owner_id);
+                        if (resolved == nullptr || !resolved->reference_valid) {
+                            throw std::runtime_error(
+                                "Construction definition has a missing or cyclic reference");
+                        }
+                        static_cast<void>(
+                            refresh_sketch_external_references(next, calculated));
+                        source->session.commit(
+                            std::move(next), std::move(calculated));
+                    }
+                } else if (auto* source = workspace_.open_assembly(
+                               workspace_.active_document_id())) {
+                    auto next = source->session.document();
+                    construction_changed = mutate_construction(
+                        next, next.build_scene().original_references);
+                    if (construction_changed) {
+                        next.resolve_constructions();
+                        const auto* resolved =
+                            next.find_construction(candidate.owner_id);
+                        if (resolved == nullptr || !resolved->reference_valid) {
+                            throw std::runtime_error(
+                                "Construction definition has a missing or cyclic reference");
+                        }
+                        source->session.commit(std::move(next));
+                    }
+                }
+                if (construction_changed) {
+                    guarded->hide();
+                    construction_dimension_object_id_ = candidate.owner_id;
+                    preserve_view_on_refresh_ = true;
+                    refresh_tabs();
+                    refresh_scene();
+                    state_->setText(
+                        tr("Hodnota kóty byla změněna přímo ve view."));
+                    guarded->deleteLater();
+                    return;
+                }
             }
             auto* part = workspace_.open_part(workspace_.active_document_id());
             if (part == nullptr) throw std::runtime_error(
@@ -17253,7 +18636,61 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                     target = next_value;
                     changed = true;
                 };
-                if (container->feature_kind == FeatureKind::Box) {
+                if (key.starts_with("placement:")) {
+                    const auto placement_key = std::string_view(key).substr(
+                        std::string_view{"placement:"}.size());
+                    const auto geometry = construction_reference_source_geometry(
+                        part->session.calculated_boundaries());
+                    const auto constraint = zima::document::point_constraint_state(
+                        container->placement.references, geometry);
+                    if (placement_key == "x" && !constraint.constrained_axes[0]) {
+                        container->placement.x = next_value; changed = true;
+                    } else if (placement_key == "y" &&
+                               !constraint.constrained_axes[1]) {
+                        container->placement.y = next_value; changed = true;
+                    } else if (placement_key == "z" &&
+                               !constraint.constrained_axes[2]) {
+                        container->placement.z = next_value; changed = true;
+                    } else if (placement_key.starts_with("reference_offset:")) {
+                        const auto suffix = placement_key.substr(
+                            std::string_view{"reference_offset:"}.size());
+                        if (!suffix.empty()) {
+                            std::size_t requested{};
+                            bool valid_index = true;
+                            for (const char digit : suffix) {
+                                if (digit < '0' || digit > '9') {
+                                    valid_index = false; break;
+                                }
+                                requested = requested * 10 +
+                                    static_cast<std::size_t>(digit - '0');
+                            }
+                            std::size_t populated{};
+                            auto reference = std::find_if(
+                                container->placement.references.begin(),
+                                container->placement.references.end(),
+                                [&](const auto& value) {
+                                    if (value.orientation_only ||
+                                        (value.owner_id.empty() &&
+                                         value.semantic_key.empty())) return false;
+                                    return populated++ == requested;
+                                });
+                            if (valid_index &&
+                                reference != container->placement.references.end() &&
+                                reference->supports_offset) {
+                                reference->offset = next_value; changed = true;
+                            }
+                        }
+                    }
+                } else if (container->feature_kind == FeatureKind::Sketch &&
+                           key == "profile_offset") {
+                    const auto sketch = std::find_if(next.sketches.begin(),
+                        next.sketches.end(), [&](const auto& value) {
+                            return value.owner_container_id == container->id;
+                        });
+                    if (sketch != next.sketches.end()) {
+                        sketch->plane_offset = next_value; changed = true;
+                    }
+                } else if (container->feature_kind == FeatureKind::Box) {
                     if (key == "length") positive(container->box.length);
                     else if (key == "width") positive(container->box.width);
                     else if (key == "height") positive(container->box.height);

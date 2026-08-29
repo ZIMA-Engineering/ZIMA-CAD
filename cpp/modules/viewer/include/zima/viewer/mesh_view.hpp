@@ -52,6 +52,22 @@ struct ExtentManipulator {
     zima::kernel::Vec3 origin;
     zima::kernel::Vec3 direction;
     double length{};
+    // A one-parameter object such as an offset Plane needs the established
+    // purple draggable-point language without implying a second endpoint or
+    // displaying an extent arrow.
+    bool point_only{};
+};
+
+// Screen-constant operation direction cue. Linear operations use a purple
+// segment; angular operations use a purple arc about `axis`. This is purely
+// explanatory geometry and never pretends that an Up-to endpoint is a
+// draggable model length.
+struct OperationDirectionIndicator {
+    zima::kernel::Vec3 origin;
+    zima::kernel::Vec3 direction;
+    zima::kernel::Vec3 radial;
+    double angle_degrees{};
+    bool angular{};
 };
 
 class MeshView final : public QOpenGLWidget, protected QOpenGLFunctions {
@@ -77,6 +93,7 @@ public:
     [[nodiscard]] bool reference_visible(ReferenceVisibility reference) const;
     void set_editing_origin_visible(bool visible);
     void set_selection_contract(std::vector<CandidateKind> allowed_kinds);
+    void set_active_sketch_owner(std::string owner_id);
     void set_candidate_filter(
         std::function<bool(const ViewerCandidate&)> candidate_filter);
     void confirm_container(const std::string& owner_id);
@@ -144,6 +161,11 @@ public:
     void set_sketch_cursor(std::optional<zima::kernel::Vec3> point,
         bool snapped = false, std::string relation_label = {});
     void set_extent_manipulator(std::optional<ExtentManipulator> manipulator);
+    void set_extent_manipulators(std::vector<ExtentManipulator> manipulators);
+    void set_operation_direction_indicator(
+        std::optional<OperationDirectionIndicator> indicator);
+    void set_operation_direction_indicators(
+        std::vector<OperationDirectionIndicator> indicators);
     void set_extent_manipulator_callbacks(
         std::function<void(const std::string&)> begin,
         std::function<void(const std::string&, double)> update,

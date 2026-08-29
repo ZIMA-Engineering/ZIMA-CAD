@@ -368,6 +368,7 @@ private:
     std::string pending_line_dimension_reference_id_;
     zima::sketcher::DimensionKind pending_line_dimension_kind_{
         zima::sketcher::DimensionKind::DistanceLine};
+    std::optional<zima::sketcher::SketchDimension> pending_sketch_dimension_;
     bool preserve_view_on_refresh_{};
     std::map<std::string, std::array<float, 8>> document_camera_states_;
     std::optional<zima::document::PartDocument> sketch_drag_document_;
@@ -444,6 +445,7 @@ private:
     void restore_edge_treatment_route(std::size_t group);
     [[nodiscard]] bool finish_edge_treatment_selection();
     void accept_extrusion_target(const zima::viewer::ViewerCandidate& candidate);
+    void finish_extrusion_target_selection();
     void begin_normal_view_selection();
     void accept_normal_view_reference(const zima::viewer::ViewerCandidate& candidate);
     void show_orientation_dialog();
@@ -711,7 +713,8 @@ private:
         bool dimension);
     void toggle_part_container_suppressed(const std::string& container_id);
     void move_part_container(const std::string& container_id, int direction);
-    void delete_part_object(const std::string& object_id, const QString& kind);
+    void delete_part_object(const std::string& object_id, const QString& kind,
+        bool ask_confirmation = true);
     void show_sketch_dimension_properties(
         const std::string& sketch_id, const std::string& dimension_id = {},
         zima::sketcher::DimensionKind creation_kind =

@@ -9,6 +9,7 @@
 
 #include <functional>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <memory>
 #include <utility>
@@ -68,6 +69,8 @@ public:
     void set_remaining_rotation_dof(int dof) override;
     void set_orientation_base_rotation(
         const zima::kernel::Vec3& rotation, bool constrained) override;
+    bool set_inline_parameter_value(
+        std::string_view key, double value) override;
 
 protected:
     bool submit() override;

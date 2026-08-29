@@ -8,11 +8,14 @@
 #include <QDoubleSpinBox>
 #include <QHeaderView>
 #include <QFormLayout>
+#include <QFontMetrics>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPalette>
+#include <QPushButton>
 #include <QSignalBlocker>
 #include <QSizePolicy>
+#include <QStyle>
 #include <QTableWidget>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -138,6 +141,32 @@ ContainerPlacementSection::ContainerPlacementSection(
         // Kept as an internal value adapter while old call sites are removed;
         // it is deliberately not presented to the user anymore.
         orientation_table_->hide();
+
+        // Orientation is a property of the final local container frame. It
+        // therefore sits directly below the position-reference table and is
+        // deliberately independent of reference offsets: FRONT/BACK changes
+        // only the normal direction and the quarter turn rotates the in-plane
+        // axes without relocating the container origin.
+        auto* orientation_controls = new QHBoxLayout;
+        orientation_flip_button_ = new QPushButton(parent_widget_);
+        orientation_flip_button_->setObjectName("containerOrientationFlipButton");
+        orientation_rotate_button_ = new QPushButton(parent_widget_);
+        orientation_rotate_button_->setObjectName("containerOrientationRotateButton");
+        orientation_controls->addWidget(orientation_flip_button_);
+        orientation_controls->addWidget(orientation_rotate_button_);
+        orientation_controls->addStretch(1);
+        layout->addLayout(orientation_controls);
+        connect(orientation_flip_button_, &QPushButton::clicked, this, [this] {
+            orientation_back_ = !orientation_back_;
+            refresh_orientation_controls();
+            notify_changed();
+        });
+        connect(orientation_rotate_button_, &QPushButton::clicked, this, [this] {
+            orientation_quarter_turns_ = (orientation_quarter_turns_ + 1) % 4;
+            refresh_orientation_controls();
+            notify_changed();
+        });
+        refresh_orientation_controls();
     }
 
     const auto field = [this](bool angular, const char* object_name) {
@@ -217,6 +246,29 @@ void ContainerPlacementSection::initialize_numeric_values(
     orientation_back_ = placement.orientation_back;
     orientation_quarter_turns_ =
         ((placement.orientation_quarter_turns % 4) + 4) % 4;
+    refresh_orientation_controls();
+}
+
+void ContainerPlacementSection::refresh_orientation_controls() {
+    if (orientation_flip_button_ != nullptr) {
+        orientation_flip_button_->setText(
+            orientation_back_ ? tr("ZADNÍ") : tr("PŘEDNÍ"));
+        orientation_flip_button_->setToolTip(
+            tr("Převrátit přední/zadní stranu lokálního rámce bez změny polohy"));
+    }
+    if (orientation_rotate_button_ != nullptr) {
+        orientation_rotate_button_->setText(
+            tr("Rotace %1°").arg(orientation_quarter_turns_ * 90));
+        orientation_rotate_button_->setToolTip(
+            tr("Otočit lokální rámec o 90° bez změny polohy"));
+    }
+}
+
+void ContainerPlacementSection::set_orientation_back(bool back) {
+    if (orientation_back_ == back) return;
+    orientation_back_ = back;
+    refresh_orientation_controls();
+    notify_changed();
 }
 
 zima::document::Placement ContainerPlacementSection::numeric_placement() const {
@@ -335,7 +387,8 @@ void ContainerPlacementSection::initialize_from_references(
         // twin belongs in orientation_candidates. Each entry now carries
         // its own correct orientation_only flag, so no further pairing
         // reconstruction is needed (unlike before this field existed).
-        if (with_orientation_ && reference.orientation_only) {
+        if (with_orientation_ && reference.orientation_only &&
+            reference.orientation_role != "direction") {
             const bool secondary = reference.orientation_role == "top" ||
                 reference.orientation_role == "bottom" ||
                 reference.orientation_role == "left" ||
@@ -354,7 +407,7 @@ void ContainerPlacementSection::initialize_from_references(
 
 bool ContainerPlacementSection::set_reference(std::size_t index,
     zima::document::ConstructionReference reference, const QString& label,
-    QString* error_text) {
+    QString* error_text, bool derive_orientation) {
     const auto duplicate = [&](const auto& existing) {
         return existing.instance_path == reference.instance_path &&
             existing.owner_id == reference.owner_id &&
@@ -401,7 +454,8 @@ bool ContainerPlacementSection::set_reference(std::size_t index,
     // The mirrored descriptors keep the same stable source geometry but are
     // persisted as orientation-only mappings, so position and rotation
     // remain separate concerns and either mapping can later be replaced.
-    if (with_orientation_ && references_[index].supports_offset) {
+    if (with_orientation_ && derive_orientation &&
+        references_[index].supports_offset) {
         if (orientation_references_.size() < 2) orientation_references_.resize(2);
         if (orientation_labels_.size() < 2) orientation_labels_.resize(2);
         const auto same_source = [&](const auto& existing) {
@@ -422,14 +476,6 @@ bool ContainerPlacementSection::set_reference(std::size_t index,
                 empty->orientation_drives_rotation = true;
                 empty->orientation_role = slot == 0 ? "front" : "top";
                 empty->orientation_only = true;
-                // In the identity frame the XZ plane's geometric normal is
-                // -Y (X cross Z). FRONT is local +Y, so an automatically
-                // mirrored XZ datum used as FRONT must be inverted. This is
-                // what keeps X→X, Y→Y and Z→Z after whole-Origin bulk-fill.
-                if (slot == 0 &&
-                    references_[index].semantic_key.ends_with("plane:xz")) {
-                    empty->flip = !empty->flip;
-                }
                 orientation_labels_[slot] = reference_labels_[index];
                 refresh_orientation_table();
             }
@@ -684,6 +730,19 @@ void ContainerPlacementSection::refresh_reference_table() {
         offset->setRange(-1'000'000'000.0, 1'000'000'000.0);
         offset->setDecimals(decimal_places_);
         offset->setSuffix(QStringLiteral(" mm"));
+        // Keep the offset column no wider than one value at the configured
+        // calculation precision. QDoubleSpinBox::sizeHint() otherwise uses
+        // the full ±1e9 range and needlessly steals most of the useful text
+        // width from the Reference column.
+        const QString zero_text = QStringLiteral("-") +
+            offset->locale().toString(0.0, 'f', decimal_places_) +
+            offset->suffix();
+        const int spin_width = offset->fontMetrics().horizontalAdvance(zero_text) +
+            offset->style()->pixelMetric(QStyle::PM_ScrollBarExtent, nullptr, offset) +
+            2 * offset->style()->pixelMetric(
+                    QStyle::PM_SpinBoxFrameWidth, nullptr, offset) +
+            10;
+        offset->setFixedWidth(spin_width);
         if (populated) {
             reference->set_reference(
                 QString::fromStdString(references_[index].semantic_key));
@@ -708,6 +767,12 @@ void ContainerPlacementSection::refresh_reference_table() {
         }
         reference_offset_fields_[index] = offset;
         reference_table_->setCellWidget(static_cast<int>(index), 2, offset);
+        const int header_width = reference_table_->horizontalHeader()
+            ->fontMetrics().horizontalAdvance(tr("Odsazení")) + 14;
+        reference_table_->horizontalHeader()->setSectionResizeMode(
+            2, QHeaderView::Fixed);
+        reference_table_->horizontalHeader()->resizeSection(
+            2, std::max(spin_width + 2, header_width));
         zima::ui::set_reference_row_populated(indicator, populated);
     }
 }

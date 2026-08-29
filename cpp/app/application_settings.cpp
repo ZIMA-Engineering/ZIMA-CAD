@@ -14,13 +14,15 @@ namespace {
 
 const QStringList path_keys{
     QStringLiteral("Materials"), QStringLiteral("Templates"),
-    QStringLiteral("Formats"), QStringLiteral("Localization")};
+    QStringLiteral("Formats"), QStringLiteral("Localization"),
+    QStringLiteral("WorkingDirectory")};
 
 const QMap<QString, QString> path_defaults{
     {QStringLiteral("Materials"), QStringLiteral("materials")},
     {QStringLiteral("Templates"), QStringLiteral("templates")},
     {QStringLiteral("Formats"), QStringLiteral("formats")},
-    {QStringLiteral("Localization"), QStringLiteral("localization")}};
+    {QStringLiteral("Localization"), QStringLiteral("localization")},
+    {QStringLiteral("WorkingDirectory"), QStringLiteral("../Projects")}};
 
 const QMap<QString, QString> unit_defaults{
     {QStringLiteral("Length"), QStringLiteral("mm")},

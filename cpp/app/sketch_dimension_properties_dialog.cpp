@@ -1,10 +1,14 @@
 #include "sketch_dimension_properties_dialog.hpp"
 
 #include <QCheckBox>
+#include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QLineEdit>
+#include <QMenu>
+#include <QToolButton>
 #include <QWidget>
 
 namespace zima::app {
@@ -21,19 +25,30 @@ QDoubleSpinBox* dimension_field(double value, const char* name, QWidget* parent)
     return field;
 }
 
-QWidget* optional_field(
-    QCheckBox*& enabled, QDoubleSpinBox*& field, bool checked,
-    double value, const char* check_name, const char* field_name, QWidget* parent) {
+QWidget* symbol_field(QLineEdit*& edit, const std::string& value,
+                      const char* name, QWidget* parent) {
     auto* widget = new QWidget(parent);
     auto* layout = new QHBoxLayout(widget);
     layout->setContentsMargins(0, 0, 0, 0);
-    enabled = new QCheckBox(widget);
-    enabled->setObjectName(check_name);
-    enabled->setChecked(checked);
-    field = dimension_field(value, field_name, widget);
-    field->setEnabled(checked);
-    layout->addWidget(enabled);
-    layout->addWidget(field, 1);
+    edit = new QLineEdit(QString::fromStdString(value), widget);
+    edit->setObjectName(name);
+    layout->addWidget(edit, 1);
+    auto* symbols = new QToolButton(widget);
+    symbols->setText(QStringLiteral("⌀"));
+    symbols->setPopupMode(QToolButton::InstantPopup);
+    auto* menu = new QMenu(symbols);
+    for (const auto& symbol : {QStringLiteral("⌀"), QStringLiteral("○"),
+            QStringLiteral("●"), QStringLiteral("R"), QStringLiteral("SR"),
+            QStringLiteral("S⌀"), QStringLiteral("□"), QStringLiteral("⌴"),
+            QStringLiteral("⌵"), QStringLiteral("↧"), QStringLiteral("⌒"),
+            QStringLiteral("∠"), QStringLiteral("°"), QStringLiteral("±"),
+            QStringLiteral("×"), QStringLiteral("≈")}) {
+        auto* action = menu->addAction(symbol);
+        QObject::connect(action, &QAction::triggered, edit,
+            [edit, symbol] { edit->insert(symbol); edit->setFocus(); });
+    }
+    symbols->setMenu(menu);
+    layout->addWidget(symbols);
     return widget;
 }
 
@@ -48,51 +63,59 @@ SketchDimensionPropertiesDialog::SketchDimensionPropertiesDialog(
       initial_(std::move(initial)), commit_(std::move(commit)) {
     setAttribute(Qt::WA_DeleteOnClose, true);
     setMinimumWidth(340);
-    auto* form = new QFormLayout;
+    form_ = new QFormLayout;
     value_ = dimension_field(initial_.value, "sketchDimensionValue", this);
-    form->addRow(tr("Jmenovitá hodnota"), value_);
+    form_->addRow(tr("Jmenovitá hodnota"), value_);
     driving_ = new QCheckBox(tr("Řídicí kóta"), this);
     driving_->setObjectName("sketchDimensionDriving");
     driving_->setChecked(initial_.driving);
     value_->setEnabled(initial_.driving);
-    form->addRow(tr("Stav kóty"), driving_);
-    form->addRow(tr("Dolní mez"), optional_field(
-        lower_enabled_, lower_, initial_.lower_limit.has_value(),
-        initial_.lower_limit.value_or(0.0), "sketchLowerEnabled", "sketchLowerLimit", this));
-    form->addRow(tr("Horní mez"), optional_field(
-        upper_enabled_, upper_, initial_.upper_limit.has_value(),
-        initial_.upper_limit.value_or(initial_.value),
-        "sketchUpperEnabled", "sketchUpperLimit", this));
+    form_->addRow(tr("Stav kóty"), driving_);
+    form_->addRow(tr("Prefix"), symbol_field(
+        prefix_, initial_.prefix, "sketchDimensionPrefix", this));
+    form_->addRow(tr("Suffix"), symbol_field(
+        suffix_, initial_.suffix, "sketchDimensionSuffix", this));
+    tolerance_mode_ = new QComboBox(this);
+    tolerance_mode_->setObjectName("sketchDimensionToleranceMode");
+    tolerance_mode_->addItem(tr("Bez tolerance"), "");
+    tolerance_mode_->addItem(tr("Symetrická"), "symmetric");
+    tolerance_mode_->addItem(tr("Jednostranná odchylka"), "single_deviation");
+    tolerance_mode_->addItem(tr("Horní a dolní odchylka"), "deviations");
+    tolerance_mode_->setCurrentIndex(std::max(0,
+        tolerance_mode_->findData(QString::fromStdString(initial_.tolerance_mode))));
+    form_->addRow(tr("Tolerance"), tolerance_mode_);
+    symmetric_tolerance_ = new QLineEdit(
+        QString::fromStdString(initial_.symmetric_tolerance), this);
+    single_tolerance_ = new QLineEdit(
+        QString::fromStdString(initial_.single_tolerance), this);
+    upper_tolerance_ = new QLineEdit(
+        QString::fromStdString(initial_.upper_tolerance), this);
+    lower_tolerance_ = new QLineEdit(
+        QString::fromStdString(initial_.lower_tolerance), this);
+    symmetric_tolerance_->setObjectName("sketchSymmetricTolerance");
+    single_tolerance_->setObjectName("sketchSingleTolerance");
+    upper_tolerance_->setObjectName("sketchUpperDeviation");
+    lower_tolerance_->setObjectName("sketchLowerDeviation");
+    form_->addRow(tr("Hodnota ±"), symmetric_tolerance_);
+    form_->addRow(tr("Odchylka"), single_tolerance_);
+    form_->addRow(tr("Horní odchylka"), upper_tolerance_);
+    form_->addRow(tr("Dolní odchylka"), lower_tolerance_);
     if (initial_.kind == zima::sketcher::DimensionKind::Angle ||
         initial_.kind == zima::sketcher::DimensionKind::AngleBetween ||
         initial_.kind == zima::sketcher::DimensionKind::EllipseRotation) {
         value_->setRange(-180.0, 180.0);
         value_->setSuffix(" °");
-        lower_->setRange(-180.0, 180.0);
-        lower_->setSuffix(" °");
-        upper_->setRange(-180.0, 180.0);
-        upper_->setSuffix(" °");
     } else if (initial_.kind ==
                zima::sketcher::DimensionKind::AngleThreePoint) {
         value_->setSuffix(" °");
-        lower_->setSuffix(" °");
-        upper_->setSuffix(" °");
     }
-    content_layout()->addLayout(form);
+    content_layout()->addLayout(form_);
     error_ = new QLabel(this);
     error_->setStyleSheet("color: #c64b4b;");
     error_->setWordWrap(true);
     content_layout()->addWidget(error_);
-    connect(lower_enabled_, &QCheckBox::toggled, this, [this](bool enabled) {
-        lower_->setEnabled(enabled);
-        if (enabled && !initial_.lower_limit) lower_->setValue(0.0);
-        error_->clear();
-    });
-    connect(upper_enabled_, &QCheckBox::toggled, this, [this](bool enabled) {
-        upper_->setEnabled(enabled);
-        if (enabled && !initial_.upper_limit) upper_->setValue(value_->value());
-        error_->clear();
-    });
+    connect(tolerance_mode_, &QComboBox::currentIndexChanged, this,
+        [this](int) { refresh_tolerance_fields(); error_->clear(); });
     connect(value_, qOverload<double>(&QDoubleSpinBox::valueChanged),
         this, [this](double) { error_->clear(); });
     connect(driving_, &QCheckBox::toggled, this, [this](bool driving) {
@@ -103,16 +126,28 @@ SketchDimensionPropertiesDialog::SketchDimensionPropertiesDialog(
         value_->setEnabled(driving);
         error_->clear();
     });
+    refresh_tolerance_fields();
+}
+
+void SketchDimensionPropertiesDialog::refresh_tolerance_fields() {
+    const auto mode = tolerance_mode_->currentData().toString();
+    form_->setRowVisible(symmetric_tolerance_, mode == "symmetric");
+    form_->setRowVisible(single_tolerance_, mode == "single_deviation");
+    form_->setRowVisible(upper_tolerance_, mode == "deviations");
+    form_->setRowVisible(lower_tolerance_, mode == "deviations");
 }
 
 bool SketchDimensionPropertiesDialog::submit() {
     auto result = initial_;
     result.value = value_->value();
     result.driving = driving_->isChecked();
-    result.lower_limit = lower_enabled_->isChecked()
-        ? std::optional<double>{lower_->value()} : std::nullopt;
-    result.upper_limit = upper_enabled_->isChecked()
-        ? std::optional<double>{upper_->value()} : std::nullopt;
+    result.prefix = prefix_->text().toStdString();
+    result.suffix = suffix_->text().toStdString();
+    result.tolerance_mode = tolerance_mode_->currentData().toString().toStdString();
+    result.symmetric_tolerance = symmetric_tolerance_->text().trimmed().toStdString();
+    result.single_tolerance = single_tolerance_->text().trimmed().toStdString();
+    result.upper_tolerance = upper_tolerance_->text().trimmed().toStdString();
+    result.lower_tolerance = lower_tolerance_->text().trimmed().toStdString();
     if ((result.kind == zima::sketcher::DimensionKind::Distance ||
          result.kind == zima::sketcher::DimensionKind::DistancePointLine ||
          result.kind == zima::sketcher::DimensionKind::DistanceSymmetric ||
@@ -130,16 +165,6 @@ bool SketchDimensionPropertiesDialog::submit() {
          result.kind == zima::sketcher::DimensionKind::EllipseRotation) &&
         (result.value < -180.0 || result.value > 180.0)) {
         error_->setText(tr("Úhel musí být v rozsahu −180° až +180°."));
-        return false;
-    }
-    if (result.lower_limit && result.upper_limit &&
-        *result.lower_limit > *result.upper_limit) {
-        error_->setText(tr("Dolní mez nesmí být větší než horní mez."));
-        return false;
-    }
-    if ((result.lower_limit && result.value < *result.lower_limit) ||
-        (result.upper_limit && result.value > *result.upper_limit)) {
-        error_->setText(tr("Jmenovitá hodnota musí ležet v zadaných mezích."));
         return false;
     }
     try {

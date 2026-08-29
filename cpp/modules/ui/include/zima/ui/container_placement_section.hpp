@@ -15,6 +15,7 @@ class QLabel;
 class QTableWidget;
 class QVBoxLayout;
 class QDoubleSpinBox;
+class QPushButton;
 
 namespace zima::ui {
 
@@ -57,6 +58,7 @@ public:
     // these fields; shape dialogs only add their own geometric parameters.
     void initialize_numeric_values(const zima::document::Placement& placement);
     [[nodiscard]] zima::document::Placement numeric_placement() const;
+    void set_orientation_back(bool back);
     void set_translation_constraint_state(
         const zima::document::PointConstraintState& state,
         const zima::kernel::Vec3& solution);
@@ -102,7 +104,7 @@ public:
     // on a duplicate-reference conflict.
     bool set_reference(std::size_t index,
         zima::document::ConstructionReference reference, const QString& label,
-        QString* error_text);
+        QString* error_text, bool derive_orientation = true);
 
     void set_remaining_translation_dof(int dof);
     void set_remaining_rotation_dof(int dof);
@@ -181,6 +183,8 @@ private:
     QLabel* dof_label_{};
     QTableWidget* reference_table_{};
     QTableWidget* orientation_table_{};
+    QPushButton* orientation_flip_button_{};
+    QPushButton* orientation_rotate_button_{};
     std::array<ReferenceCellItem*, 3> reference_items_{};
     std::array<QWidget*, 3> reference_indicators_{};
     std::array<QDoubleSpinBox*, 3> reference_offset_fields_{};
@@ -209,6 +213,7 @@ private:
     void toggle_reference_highlight(std::size_t row);
     void toggle_orientation_highlight(std::size_t row);
     void update_reference_highlight_styles();
+    void refresh_orientation_controls();
     void notify_changed();
 };
 

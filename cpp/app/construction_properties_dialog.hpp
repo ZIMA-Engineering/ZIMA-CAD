@@ -1,5 +1,7 @@
 #pragma once
 
+#include "placement_reference_dialog.hpp"
+
 #include <zima/document/part_document.hpp>
 #include <zima/ui/container_placement_section.hpp>
 #include <zima/ui/properties_subwindow.hpp>
@@ -23,7 +25,8 @@ class ReferenceCellItem;
 
 namespace zima::app {
 
-class ConstructionPropertiesDialog final : public zima::ui::PropertiesSubWindow {
+class ConstructionPropertiesDialog final : public zima::ui::PropertiesSubWindow,
+                                           public PlacementReferenceDialog {
 public:
     using CommitCallback = std::function<void(zima::document::ConstructionObject)>;
 
@@ -44,6 +47,9 @@ public:
     [[nodiscard]] zima::document::ConstructionDefinition current_definition() const;
     [[nodiscard]] zima::document::ConstructionKind construction_kind() const;
     [[nodiscard]] const std::string& construction_id() const;
+    [[nodiscard]] double plane_offset() const;
+    [[nodiscard]] bool orientation_back() const;
+    void set_plane_offset_and_orientation(double offset, bool back);
     [[nodiscard]] bool owns_reference_owner(const std::string& owner_id) const;
     [[nodiscard]] std::vector<zima::document::ConstructionReference>
         references_without(std::size_t index) const;
@@ -69,7 +75,8 @@ public:
     // Applies an inline View-dimension edit to the same live widget that
     // owns the pending Point/Axis/Plane value. This deliberately does not
     // commit the document; OK/Cancel remain the transaction boundary.
-    bool set_inline_parameter_value(std::string_view key, double value);
+    bool set_inline_parameter_value(
+        std::string_view key, double value) override;
     // Refreshes the "Absolutní" rotation column from the base rotation
     // implied by orientation-driving references (front/top), disabling it
     // while such references are present; matches Python's

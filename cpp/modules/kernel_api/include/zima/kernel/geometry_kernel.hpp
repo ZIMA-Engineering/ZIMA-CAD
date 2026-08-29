@@ -296,6 +296,10 @@ struct RevolutionRequest {
     Vec3 profile_normal{0.0, 0.0, 1.0};
     Vec3 axis_point;
     Vec3 axis_direction{1.0, 0.0, 0.0};
+    // Stable semantic cap ownership. Reversing the rotation axis changes
+    // which OCCT boundary is geometrically first, but must not exchange the
+    // persisted ZIMA start/end identities used by downstream references.
+    bool first_cap_is_start{true};
     double start_angle_degrees{};
     double angle_degrees{360.0};
 };
@@ -753,6 +757,7 @@ struct PlacedBody {
                         primitive.angle_degrees}) {
                     u64(std::bit_cast<std::uint64_t>(value));
                 }
+                byte(primitive.first_cap_is_start);
             } else if constexpr (std::is_same_v<Request, StepRequest>) {
                 u64(primitive.source_path.size());
                 for (const unsigned char value : primitive.source_path) byte(value);

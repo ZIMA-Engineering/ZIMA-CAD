@@ -18,6 +18,7 @@
 #include <QCheckBox>
 #include <QFileDialog>
 #include <QFileSystemModel>
+#include <QHeaderView>
 #include <QMouseEvent>
 #include <QListWidget>
 #include <QLabel>
@@ -661,6 +662,9 @@ int main(int argc, char* argv[]) {
             "constructionOffset");
         require(plane_offset != nullptr && plane_offset->isEnabled(),
                 "Plane work-plane offset was not editable without a position reference");
+        require(plane_dialog->set_inline_parameter_value("offset", 6.25) &&
+                    std::abs(plane_dialog->plane_offset() - 6.25) < 1.0e-9,
+                "Plane drag/inline offset path did not update the live pending value");
         plane_dialog->set_reference(0,
             {{}, "plane-source", "plane", 0.0, true},
             "Zdrojová rovina", zima::document::ConstructionDefinition::PointReference);
@@ -1016,12 +1020,31 @@ int main(int argc, char* argv[]) {
         extrusion_extent->setCurrentIndex(
             extrusion_extent->findData("symmetric"));
         int preview_updates = 0;
+        zima::document::HistoryContainer extrusion_preview;
         extrusion_dialog->set_preview_callback(
-            [&](const auto&) { ++preview_updates; });
+            [&](const auto& value) {
+                ++preview_updates;
+                extrusion_preview = value;
+            });
+        auto* extrusion_flip = extrusion_dialog->findChild<QPushButton*>(
+            "containerOrientationFlipButton");
+        auto* extrusion_rotate = extrusion_dialog->findChild<QPushButton*>(
+            "containerOrientationRotateButton");
+        require(extrusion_flip != nullptr && extrusion_rotate != nullptr,
+                "Extrusion placement orientation controls are missing");
+        extrusion_plane_offset->setValue(6.25);
+        extrusion_flip->click();
+        extrusion_rotate->click();
+        require(extrusion_preview.extrusion.profile_plane_offset == 6.25 &&
+                    extrusion_preview.placement.orientation_back &&
+                    extrusion_preview.placement.orientation_quarter_turns == 1,
+                "Extrusion offset/FRONT/rotation changes did not reach the "
+                "live preview callback");
+        const int updates_before_atomic_extent = preview_updates;
         extrusion_dialog->set_profile_offset_and_forward_length(4.0, 37.0);
         require(extrusion_dialog->profile_plane_offset() == 4.0 &&
                     extrusion_dialog->forward_extent_length() == 37.0 &&
-                    preview_updates == 2,
+                    preview_updates == updates_before_atomic_extent + 1,
                 "Extrusion two-end manipulator update did not atomically "
                 "change offset and length with one preview rebuild");
         extrusion_dialog->set_profile_offset_and_forward_length(-7.5, 48.0);
@@ -1289,6 +1312,11 @@ int main(int argc, char* argv[]) {
                 "Sketch Properties does not expose its plane offset");
         require(sketch_dialog->findChild<QTableWidget*>("sketchReferenceTable") != nullptr,
                 "Sketch Properties does not reuse container placement UI");
+        auto* sketch_reference_table =
+            sketch_dialog->findChild<QTableWidget*>("sketchReferenceTable");
+        require(sketch_reference_table->horizontalHeader()->sectionSize(1) >
+                    sketch_reference_table->horizontalHeader()->sectionSize(2),
+                "Offset column still steals space from placement reference text");
         auto* sketch_dof_label = sketch_dialog->findChild<QLabel*>(
             "containerPlacementDofLabel");
         require(sketch_dof_label != nullptr && sketch_dof_label->isVisible() &&
@@ -1313,14 +1341,24 @@ int main(int argc, char* argv[]) {
         require(sketch_front == nullptr && sketch_back == nullptr &&
                     sketch_rotate == nullptr,
                 "Sketch Properties still exposes Sketcher camera controls");
+        auto* container_flip = sketch_dialog->findChild<QPushButton*>(
+            "containerOrientationFlipButton");
+        auto* container_rotate = sketch_dialog->findChild<QPushButton*>(
+            "containerOrientationRotateButton");
+        require(container_flip != nullptr && container_rotate != nullptr &&
+                    container_flip->text() == QStringLiteral("PŘEDNÍ") &&
+                    container_rotate->text().contains(QStringLiteral("0°")),
+                "Shared placement FRONT/rotation controls are missing");
+        container_flip->click();
+        container_rotate->click();
         sketch_offset->setValue(12.5);
         sketch_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
         require(sketch_commits == 1 && sketch.plane_offset == 12.5 &&
                     sketch.plane == zima::sketcher::SketchPlane::XZ &&
                     !sketch_placement.references.empty() &&
                     sketch_placement.references.front().owner_id == "source-plane" &&
-                    !sketch_placement.orientation_back &&
-                    sketch_placement.orientation_quarter_turns == 0 &&
+                    sketch_placement.orientation_back &&
+                    sketch_placement.orientation_quarter_turns == 1 &&
                     !sketch_entry_requested,
                 "Sketch Properties OK committed incorrectly or entered Sketcher");
         application.processEvents();
@@ -1392,34 +1430,34 @@ int main(int argc, char* argv[]) {
                 committed_dimension = std::move(committed);
             }, &parent);
         dimension_dialog->show();
-        auto* lower_enabled =
-            dimension_dialog->findChild<QCheckBox*>("sketchLowerEnabled");
-        auto* upper_enabled =
-            dimension_dialog->findChild<QCheckBox*>("sketchUpperEnabled");
-        auto* lower_limit =
-            dimension_dialog->findChild<QDoubleSpinBox*>("sketchLowerLimit");
-        auto* upper_limit =
-            dimension_dialog->findChild<QDoubleSpinBox*>("sketchUpperLimit");
         auto* dimension_value =
             dimension_dialog->findChild<QDoubleSpinBox*>("sketchDimensionValue");
         auto* dimension_driving =
             dimension_dialog->findChild<QCheckBox*>("sketchDimensionDriving");
-        require(lower_enabled && upper_enabled && lower_limit && upper_limit &&
-                    dimension_value && dimension_driving,
-                "Sketch dimension Properties does not expose independent limits");
+        auto* dimension_prefix =
+            dimension_dialog->findChild<QLineEdit*>("sketchDimensionPrefix");
+        auto* tolerance_mode =
+            dimension_dialog->findChild<QComboBox*>("sketchDimensionToleranceMode");
+        auto* symmetric_tolerance =
+            dimension_dialog->findChild<QLineEdit*>("sketchSymmetricTolerance");
+        require(dimension_value && dimension_driving && dimension_prefix &&
+                    tolerance_mode && symmetric_tolerance &&
+                    dimension_dialog->findChild<QCheckBox*>("sketchLowerEnabled") == nullptr,
+                "Sketch dimension Properties is missing style/tolerance fields or retained limits");
         dimension_value->setValue(35.0);
         dimension_driving->setChecked(false);
         require(!dimension_value->isEnabled() && dimension_value->value() == 20.0,
                 "Reference dimension remained editable or retained a pending driver value");
         dimension_driving->setChecked(true);
-        lower_enabled->setChecked(true);
-        upper_enabled->setChecked(true);
-        require(lower_limit->value() == 0.0 && upper_limit->value() == 20.0,
-                "New dimension limits did not default to zero and nominal value");
+        dimension_prefix->setText(QStringLiteral("⌀"));
+        tolerance_mode->setCurrentIndex(
+            tolerance_mode->findData(QStringLiteral("symmetric")));
+        symmetric_tolerance->setText(QStringLiteral("0.1"));
         dimension_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
-        require(dimension_commits == 1 && committed_dimension.lower_limit == 0.0 &&
-                    committed_dimension.upper_limit == 20.0,
-                "Sketch dimension Properties did not commit its absolute limits");
+        require(dimension_commits == 1 && committed_dimension.prefix == "⌀" &&
+                    committed_dimension.tolerance_mode == "symmetric" &&
+                    committed_dimension.symmetric_tolerance == "0.1",
+                "Sketch dimension Properties did not commit display/tolerance style");
 
         auto assembly_extrusion =
             zima::document::PartDocument::create_extrusion_container("assembly-sketch");

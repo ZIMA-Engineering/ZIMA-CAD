@@ -498,12 +498,114 @@ PrimitiveData make_cone_data(const ConeRequest& request, const std::string& owne
 
 PrimitiveData make_polyhedral_data(
     const TopoDS_Shape& unplaced, const gp_Trsf& transform,
-    const std::string& owner_id) {
-    static_cast<void>(owner_id);
+    const std::string& owner_id, std::string_view kind) {
     BRepBuilderAPI_Transform transformer(unplaced, transform, true);
     PrimitiveData result{transformer.Shape(), {}, {}, {}};
-    // Pyramid/Wedge request data currently has no persisted boundary entities.
-    // Do not manufacture selectable identities from OCCT traversal order.
+    TopTools_IndexedMapOfShape vertex_map;
+    TopExp::MapShapes(unplaced, TopAbs_VERTEX, vertex_map);
+    double min_x = std::numeric_limits<double>::infinity();
+    double min_y = min_x;
+    double min_z = min_x;
+    double max_x = -min_x;
+    double max_y = max_x;
+    double max_z = max_x;
+    for (int index = 1; index <= vertex_map.Extent(); ++index) {
+        const auto point = BRep_Tool::Pnt(TopoDS::Vertex(vertex_map(index)));
+        min_x = std::min(min_x, point.X()); max_x = std::max(max_x, point.X());
+        min_y = std::min(min_y, point.Y()); max_y = std::max(max_y, point.Y());
+        min_z = std::min(min_z, point.Z()); max_z = std::max(max_z, point.Z());
+    }
+    const auto coordinate_role = [](double value, double minimum,
+                                    double maximum) {
+        constexpr double tolerance = 1.0e-7;
+        if (std::abs(value - minimum) <= tolerance) return std::string{"min"};
+        if (std::abs(value - maximum) <= tolerance) return std::string{"max"};
+        return std::string{"mid"};
+    };
+    std::vector<std::pair<TopoDS_Vertex, std::string>> vertex_roles;
+    for (int index = 1; index <= vertex_map.Extent(); ++index) {
+        const auto vertex = TopoDS::Vertex(vertex_map(index));
+        const auto point = BRep_Tool::Pnt(vertex);
+        auto role = std::string{"vertex:x_"} +
+            coordinate_role(point.X(), min_x, max_x) + ":y_" +
+            coordinate_role(point.Y(), min_y, max_y) + ":z_" +
+            coordinate_role(point.Z(), min_z, max_z);
+        vertex_roles.emplace_back(vertex, role);
+        const auto transformed = transformer.ModifiedShape(vertex);
+        if (!transformed.IsNull()) {
+            result.vertices.push_back({transformed, {owner_id, std::move(role)}});
+        }
+    }
+    const auto vertex_role = [&](const TopoDS_Vertex& vertex) {
+        const auto found = std::find_if(vertex_roles.begin(), vertex_roles.end(),
+            [&](const auto& entry) { return entry.first.IsSame(vertex); });
+        return found == vertex_roles.end() ? std::string{} : found->second;
+    };
+    TopTools_IndexedMapOfShape edge_map;
+    TopExp::MapShapes(unplaced, TopAbs_EDGE, edge_map);
+    for (int index = 1; index <= edge_map.Extent(); ++index) {
+        const auto edge = TopoDS::Edge(edge_map(index));
+        TopoDS_Vertex first;
+        TopoDS_Vertex second;
+        TopExp::Vertices(edge, first, second, true);
+        auto first_role = vertex_role(first);
+        auto second_role = vertex_role(second);
+        if (second_role < first_role) std::swap(first_role, second_role);
+        const auto transformed = transformer.ModifiedShape(edge);
+        if (!transformed.IsNull() && !first_role.empty() && !second_role.empty()) {
+            result.edges.push_back({transformed,
+                {owner_id, "edge:" + first_role.substr(7) + "--" +
+                    second_role.substr(7)}});
+        }
+    }
+    // These semantic roles are defined by the primitive's parametric frame,
+    // never by OCCT traversal position. OCCT is used only to locate the
+    // runtime face matching each already-defined ZIMA role.
+    for (TopExp_Explorer explorer(unplaced, TopAbs_FACE);
+         explorer.More(); explorer.Next()) {
+        const auto face = TopoDS::Face(explorer.Current());
+        GProp_GProps properties;
+        BRepGProp::SurfaceProperties(face, properties);
+        const auto center = properties.CentreOfMass();
+        std::string role;
+        constexpr double tolerance = 1.0e-7;
+        if (kind == "pyramid") {
+            if (std::abs(center.Z()) <= tolerance) role = "face:base";
+            else if (std::abs(center.X()) >= std::abs(center.Y())) {
+                role = center.X() < 0.0 ? "face:x_min" : "face:x_max";
+            } else {
+                role = center.Y() < 0.0 ? "face:y_min" : "face:y_max";
+            }
+        } else {
+            // A centered wedge has two end caps at y extrema, a bottom at
+            // z=0, one vertical x-end and one sloped roof. Classify by the
+            // defining parametric coordinates; no enumeration index enters
+            // the persisted identity.
+            BRepAdaptor_Surface surface(face);
+            const auto surface_type = surface.GetType();
+            if (std::abs(center.Z()) <= tolerance) role = "face:bottom";
+            else if (surface_type == GeomAbs_Plane) {
+                const auto plane = surface.Plane();
+                const auto normal = plane.Axis().Direction();
+                const double ax = std::abs(normal.X());
+                const double ay = std::abs(normal.Y());
+                const double az = std::abs(normal.Z());
+                if (ay >= ax && ay >= az) {
+                    role = normal.Y() < 0.0 ? "face:y_min" : "face:y_max";
+                } else if (ax >= ay && ax >= az) {
+                    role = normal.X() < 0.0 ? "face:x_min" : "face:x_max";
+                } else {
+                    role = "face:slope";
+                }
+            } else {
+                role = "face:slope";
+            }
+        }
+        const auto transformed = transformer.ModifiedShape(face);
+        if (!transformed.IsNull()) {
+            result.faces.push_back({transformed, {owner_id, std::move(role)}});
+        }
+    }
     return result;
 }
 
@@ -535,7 +637,8 @@ PrimitiveData make_pyramid_data(
     builder.Build();
     if (!builder.IsDone()) throw std::runtime_error("Pyramid calculation failed");
     return make_polyhedral_data(builder.Shape(),
-        primitive_transform(request.translation, request.rotation_degrees), owner_id);
+        primitive_transform(request.translation, request.rotation_degrees),
+        owner_id, "pyramid");
 }
 
 void validate_wedge(const WedgeRequest& request) {
@@ -562,7 +665,8 @@ PrimitiveData make_wedge_data(const WedgeRequest& request, const std::string& ow
     centered.SetTranslation(gp_Vec(-request.length / 2.0, -request.width / 2.0, 0.0));
     BRepBuilderAPI_Transform centerer(unplaced, centered, true);
     return make_polyhedral_data(centerer.Shape(),
-        primitive_transform(request.translation, request.rotation_degrees), owner_id);
+        primitive_transform(request.translation, request.rotation_degrees),
+        owner_id, "wedge");
 }
 
 void validate_extrusion(const ExtrusionRequest& request) {
@@ -1396,11 +1500,13 @@ PrimitiveData make_revolution_data(
         throw std::runtime_error("OCCT Revolution failed or produced an invalid solid");
     }
     PrimitiveData result{revolution.Shape(), {}, {}, {}};
+    const std::string first_role = request.first_cap_is_start ? "start" : "end";
+    const std::string last_role = request.first_cap_is_start ? "end" : "start";
     if (request.angle_degrees < 360.0 - 1.0e-9) {
         result.faces.push_back(
-            {revolution.FirstShape(), {owner_id, "start"}});
+            {revolution.FirstShape(), {owner_id, first_role}});
         result.faces.push_back(
-            {revolution.LastShape(), {owner_id, "end"}});
+            {revolution.LastShape(), {owner_id, last_role}});
     }
     std::vector<std::vector<std::string>> edge_sources{
         request.outer_edge_source_ids};
@@ -1437,11 +1543,11 @@ PrimitiveData make_revolution_data(
                 const auto last = revolution.LastShape(edge);
                 if (!first.IsNull()) {
                     result.edges.push_back(
-                        {first, {owner_id, "start:" + curve_id}});
+                        {first, {owner_id, first_role + ":" + curve_id}});
                 }
                 if (!last.IsNull()) {
                     result.edges.push_back(
-                        {last, {owner_id, "end:" + curve_id}});
+                        {last, {owner_id, last_role + ":" + curve_id}});
                 }
             }
             if (vertex_sources[wire_index].empty()) continue;
@@ -1463,11 +1569,11 @@ PrimitiveData make_revolution_data(
                 const auto last = revolution.LastShape(vertex);
                 if (!first.IsNull()) {
                     result.vertices.push_back(
-                        {first, {owner_id, "start:" + point_id}});
+                        {first, {owner_id, first_role + ":" + point_id}});
                 }
                 if (!last.IsNull()) {
                     result.vertices.push_back(
-                        {last, {owner_id, "end:" + point_id}});
+                        {last, {owner_id, last_role + ":" + point_id}});
                 }
             }
         }

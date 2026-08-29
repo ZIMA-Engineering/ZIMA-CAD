@@ -252,6 +252,14 @@ ComponentPropertiesDialog::ComponentPropertiesDialog(
     connect(name_, &QLineEdit::textChanged, this, [this](const QString&) {
         error_->clear();
     });
+    for (auto* field : translation_) {
+        connect(field, &QDoubleSpinBox::valueChanged, this,
+            [this](double) { notify_preview(); });
+    }
+    for (auto* field : rotation_) {
+        connect(field, &QDoubleSpinBox::valueChanged, this,
+            [this](double) { notify_preview(); });
+    }
 
     refresh_placement_table();
 }
@@ -273,6 +281,11 @@ void ComponentPropertiesDialog::set_reference_request_callback(
     reference_request_ = std::move(callback);
 }
 
+void ComponentPropertiesDialog::set_preview_callback(PreviewCallback callback) {
+    preview_ = std::move(callback);
+    notify_preview();
+}
+
 void ComponentPropertiesDialog::set_placement_reference(
     std::size_t index, bool component_side,
     zima::assembly::MateReference reference, const QString& label) {
@@ -284,6 +297,7 @@ void ComponentPropertiesDialog::set_placement_reference(
     if (component_side) row.component_reference = std::move(reference);
     else row.target_reference = std::move(reference);
     refresh_placement_table();
+    notify_preview();
     static_cast<void>(label);
 }
 
@@ -292,6 +306,7 @@ void ComponentPropertiesDialog::remove_placement_reference(std::size_t index) {
     placement_references_.erase(placement_references_.begin() +
         static_cast<std::ptrdiff_t>(index));
     refresh_placement_table();
+    notify_preview();
 }
 
 void ComponentPropertiesDialog::refresh_placement_table() {
@@ -380,6 +395,7 @@ void ComponentPropertiesDialog::refresh_placement_table() {
                         QStringLiteral(" mm"));
                     field->setValue(row.offset);
                 }
+                notify_preview();
             });
 
         auto* offset = new QDoubleSpinBox(placement_table_);
@@ -403,6 +419,7 @@ void ComponentPropertiesDialog::refresh_placement_table() {
                         offset->setValue(value);
                     }
                     row.offset = value;
+                    notify_preview();
                 }
             });
 
@@ -416,6 +433,7 @@ void ComponentPropertiesDialog::refresh_placement_table() {
             [this, index](bool value) {
                 if (index < placement_references_.size()) {
                     placement_references_[index].flip = value;
+                    notify_preview();
                 }
             });
         flip_buttons_[index] = flip_button;
@@ -451,6 +469,7 @@ void ComponentPropertiesDialog::refresh_placement_table() {
                             ? tr("Mate má nastavené meze")
                             : tr("Hodnota a meze mate"));
                     }
+                    notify_preview();
                 }, owner);
             dialog->setAttribute(Qt::WA_DeleteOnClose, true);
             connect(this, &QObject::destroyed, dialog, &QWidget::close);
@@ -460,6 +479,28 @@ void ComponentPropertiesDialog::refresh_placement_table() {
     }
 }
 
+zima::assembly::PartOccurrence ComponentPropertiesDialog::current_value() const {
+    auto result = initial_;
+    result.name = name_->text().trimmed().toStdString();
+    result.placement = {
+        translation_[0]->value(), translation_[1]->value(), translation_[2]->value(),
+        rotation_[0]->value(), rotation_[1]->value(), rotation_[2]->value(),
+    };
+    result.placement_references.clear();
+    for (const auto& row : placement_references_) {
+        if (row.component_reference.owner_id.empty() ||
+            row.component_reference.semantic_key.empty() ||
+            row.target_reference.owner_id.empty() ||
+            row.target_reference.semantic_key.empty()) continue;
+        result.placement_references.push_back(row);
+    }
+    return result;
+}
+
+void ComponentPropertiesDialog::notify_preview() {
+    if (preview_) preview_(current_value());
+}
+
 bool ComponentPropertiesDialog::submit() {
     const QString name = name_->text().trimmed();
     if (name.isEmpty()) {
@@ -467,25 +508,7 @@ bool ComponentPropertiesDialog::submit() {
         name_->setFocus();
         return false;
     }
-    auto result = initial_;
-    result.name = name.toStdString();
-    result.placement = {
-        translation_[0]->value(), translation_[1]->value(), translation_[2]->value(),
-        rotation_[0]->value(), rotation_[1]->value(), rotation_[2]->value(),
-    };
-    // Only retain fully-populated rows (both sides picked); an in-progress
-    // partially-filled row is not persisted, matching Python's row cap and
-    // discard-incomplete-rows behavior.
-    result.placement_references.clear();
-    for (const auto& row : placement_references_) {
-        if (row.component_reference.owner_id.empty() ||
-            row.component_reference.semantic_key.empty() ||
-            row.target_reference.owner_id.empty() ||
-            row.target_reference.semantic_key.empty()) {
-            continue;
-        }
-        result.placement_references.push_back(row);
-    }
+    auto result = current_value();
     try {
         commit_(std::move(result));
     } catch (const std::exception& failure) {

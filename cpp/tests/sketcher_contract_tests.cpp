@@ -800,7 +800,7 @@ int main() {
                 "XY viewer ray did not project into Sketch coordinates");
         sketch.plane = zima::sketcher::SketchPlane::XZ;
         sketch.plane_offset = 3.0;
-        const auto xz_hit = sketch.intersect_ray({4.0, 20.0, 7.0}, {0.0, -1.0, 0.0});
+        const auto xz_hit = sketch.intersect_ray({4.0, 20.0, -7.0}, {0.0, -1.0, 0.0});
         require(xz_hit && std::abs((*xz_hit)[0] - 4.0) < 1.0e-9 &&
                     std::abs((*xz_hit)[1] - 7.0) < 1.0e-9,
                 "XZ viewer ray did not project into Sketch coordinates");

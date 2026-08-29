@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <QString>
@@ -30,6 +31,9 @@ public:
     virtual void set_remaining_rotation_dof(int dof) = 0;
     virtual void set_orientation_base_rotation(
         const zima::kernel::Vec3& rotation, bool constrained) = 0;
+    // Inline View dimensions edit the same pending widgets as the dialog.
+    virtual bool set_inline_parameter_value(
+        std::string_view key, double value) = 0;
 };
 
 }  // namespace zima::app

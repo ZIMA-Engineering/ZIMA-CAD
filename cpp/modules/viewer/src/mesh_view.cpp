@@ -76,8 +76,7 @@ LinearDimensionLayout linear_dimension_layout(
     QPointF direction = result.line_second - result.line_first;
     double length = std::hypot(direction.x(), direction.y());
     if (length <= 1.0e-6 &&
-        dimension.reference.semantic_key.starts_with(
-            "parameter:reference_offset:")) {
+        dimension.kind == zima::kernel::ViewerDimensionKind::Linear) {
         const zima::kernel::Vec3 direction_tip{
             dimension.line_second.x + dimension.plane_normal.x,
             dimension.line_second.y + dimension.plane_normal.y,
@@ -87,9 +86,9 @@ LinearDimensionLayout linear_dimension_layout(
     }
     if (length <= 1.0e-6) {
         char axis_name = '\0';
-        if (dimension.label_prefix.starts_with("X")) axis_name = 'x';
-        else if (dimension.label_prefix.starts_with("Y")) axis_name = 'y';
-        else if (dimension.label_prefix.starts_with("Z")) axis_name = 'z';
+        if (dimension.reference.semantic_key == "parameter:x") axis_name = 'x';
+        else if (dimension.reference.semantic_key == "parameter:y") axis_name = 'y';
+        else if (dimension.reference.semantic_key == "parameter:z") axis_name = 'z';
         const zima::kernel::ViewerAxis* exact_axis{};
         const zima::kernel::ViewerAxis* nearest_axis{};
         double exact_distance = std::numeric_limits<double>::infinity();
@@ -250,7 +249,8 @@ struct MeshView::Impl {
     std::optional<zima::kernel::Vec3> sketch_cursor;
     bool sketch_cursor_snapped{};
     std::string sketch_cursor_label;
-    std::optional<ExtentManipulator> extent_manipulator;
+    std::vector<ExtentManipulator> extent_manipulators;
+    std::vector<OperationDirectionIndicator> operation_direction_indicators;
     std::optional<ExtentManipulator> dragged_extent_manipulator;
     std::string dragged_extent_key;
     std::string hovered_extent_key;
@@ -267,6 +267,7 @@ struct MeshView::Impl {
     std::set<EdgeKey> feature_hover_edges;
     std::set<EdgeKey> feature_selected_edges;
     std::set<std::string> feature_preview_owner_ids;
+    std::string active_sketch_owner_id;
     std::set<std::string> constraint_reference_owner_ids;
     std::set<EdgeKey> constraint_reference_edges;
     std::set<EdgeKey> assembly_reference_edges;
@@ -507,6 +508,15 @@ void MeshView::set_selection_contract(std::vector<CandidateKind> allowed_kinds) 
     update();
 }
 
+void MeshView::set_active_sketch_owner(std::string owner_id) {
+    if (impl_->active_sketch_owner_id == owner_id) return;
+    impl_->active_sketch_owner_id = std::move(owner_id);
+    impl_->candidates.clear();
+    impl_->active_candidate = 0;
+    impl_->confirmed_candidate.reset();
+    update();
+}
+
 void MeshView::set_candidate_filter(
     std::function<bool(const ViewerCandidate&)> candidate_filter) {
     impl_->candidate_filter = std::move(candidate_filter);
@@ -644,6 +654,23 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
             CandidateKind::Dimension, 0.0, index,
             dimension.reference.owner_id, dimension.reference.semantic_key,
             dimension.reference.instance_path});
+    }
+    if (!impl_->active_sketch_owner_id.empty()) {
+        const auto sketch_owned_kind = [](CandidateKind kind) {
+            return kind == CandidateKind::SketchPoint ||
+                kind == CandidateKind::SketchSegment ||
+                kind == CandidateKind::SketchCurve ||
+                kind == CandidateKind::SketchAxis ||
+                kind == CandidateKind::SketchConstraint ||
+                kind == CandidateKind::SketchText ||
+                kind == CandidateKind::SketchExternalReference ||
+                kind == CandidateKind::SketchTrimPiece ||
+                kind == CandidateKind::Dimension;
+        };
+        std::erase_if(candidates, [&](const auto& candidate) {
+            return sketch_owned_kind(candidate.kind) &&
+                candidate.owner_id != impl_->active_sketch_owner_id;
+        });
     }
     return filter_candidates(candidates,
         impl_->allowed_kinds, impl_->candidate_filter);
@@ -1187,8 +1214,15 @@ void MeshView::set_sketch_cursor(std::optional<zima::kernel::Vec3> point,
 
 void MeshView::set_extent_manipulator(
     std::optional<ExtentManipulator> manipulator) {
-    if (manipulator && impl_->transient_point_transform) {
-        auto& value = *manipulator;
+    set_extent_manipulators(manipulator
+        ? std::vector<ExtentManipulator>{std::move(*manipulator)}
+        : std::vector<ExtentManipulator>{});
+}
+
+void MeshView::set_extent_manipulators(
+    std::vector<ExtentManipulator> manipulators) {
+    for (auto& value : manipulators) {
+      if (impl_->transient_point_transform) {
         const auto transformed_origin =
             impl_->transient_point_transform(value.origin);
         const auto transformed_end = impl_->transient_point_transform({
@@ -1199,13 +1233,52 @@ void MeshView::set_extent_manipulator(
         value.direction = {transformed_end.x - transformed_origin.x,
             transformed_end.y - transformed_origin.y,
             transformed_end.z - transformed_origin.z};
+      }
     }
-    impl_->extent_manipulator = std::move(manipulator);
-    if (!impl_->extent_manipulator) {
+    impl_->extent_manipulators = std::move(manipulators);
+    if (impl_->extent_manipulators.empty()) {
         impl_->hovered_extent_key.clear();
         if (impl_->dragged_extent_key.empty())
             impl_->dragged_extent_manipulator.reset();
     }
+    update();
+}
+
+void MeshView::set_operation_direction_indicator(
+        std::optional<OperationDirectionIndicator> indicator) {
+    set_operation_direction_indicators(indicator
+        ? std::vector<OperationDirectionIndicator>{std::move(*indicator)}
+        : std::vector<OperationDirectionIndicator>{});
+}
+
+void MeshView::set_operation_direction_indicators(
+        std::vector<OperationDirectionIndicator> indicators) {
+    for (auto& value : indicators) {
+      if (impl_->transient_point_transform) {
+        const auto transformed_origin =
+            impl_->transient_point_transform(value.origin);
+        const auto transformed_direction_end =
+            impl_->transient_point_transform({
+                value.origin.x + value.direction.x,
+                value.origin.y + value.direction.y,
+                value.origin.z + value.direction.z});
+        const auto transformed_radial_end =
+            impl_->transient_point_transform({
+                value.origin.x + value.radial.x,
+                value.origin.y + value.radial.y,
+                value.origin.z + value.radial.z});
+        value.origin = transformed_origin;
+        value.direction = {
+            transformed_direction_end.x - transformed_origin.x,
+            transformed_direction_end.y - transformed_origin.y,
+            transformed_direction_end.z - transformed_origin.z};
+        value.radial = {
+            transformed_radial_end.x - transformed_origin.x,
+            transformed_radial_end.y - transformed_origin.y,
+            transformed_radial_end.z - transformed_origin.z};
+      }
+    }
+    impl_->operation_direction_indicators = std::move(indicators);
     update();
 }
 
@@ -2402,7 +2475,8 @@ if (impl_->show_planes) {
         !impl_->transient_edges.empty() || !impl_->transient_points.empty() ||
         !impl_->transient_labels.empty() ||
         impl_->sketch_cursor.has_value() ||
-        impl_->extent_manipulator.has_value() ||
+        !impl_->extent_manipulators.empty() ||
+        !impl_->operation_direction_indicators.empty() ||
         // Every candidate kind has an overlay below.  Restricting entry to
         // point/edge/axis candidates accidentally made Face, Container and
         // Occurrence hover completely invisible whenever datum overlays were
@@ -2444,8 +2518,79 @@ if (impl_->show_planes) {
             const QPointF middle = (first + second) * 0.5;
             return QLineF(middle - unit * extent, middle + unit * extent);
         };
-        if (impl_->extent_manipulator) {
-            const auto& handle = *impl_->extent_manipulator;
+        for (const auto& indicator : impl_->operation_direction_indicators) {
+            const QColor purple("#D05CFF");
+            painter.setPen(QPen(purple, 2.0, Qt::SolidLine, Qt::RoundCap));
+            painter.setBrush(purple);
+            const QPointF center = project(indicator.origin);
+            std::vector<QPointF> path;
+            if (!indicator.angular) {
+                const QPointF projected_direction = project({
+                    indicator.origin.x + indicator.direction.x,
+                    indicator.origin.y + indicator.direction.y,
+                    indicator.origin.z + indicator.direction.z}) - center;
+                const double magnitude = std::hypot(
+                    projected_direction.x(), projected_direction.y());
+                if (magnitude > 1.0e-6) {
+                    path = {center, center + projected_direction / magnitude * 62.0};
+                }
+            } else {
+                const auto normalize = [](zima::kernel::Vec3 value) {
+                    const double length = std::sqrt(value.x * value.x +
+                        value.y * value.y + value.z * value.z);
+                    return length > 1.0e-12
+                        ? zima::kernel::Vec3{value.x / length, value.y / length,
+                            value.z / length}
+                        : zima::kernel::Vec3{};
+                };
+                const auto axis = normalize(indicator.direction);
+                const auto radial_unit = normalize(indicator.radial);
+                const double radial_length = std::sqrt(
+                    indicator.radial.x * indicator.radial.x +
+                    indicator.radial.y * indicator.radial.y +
+                    indicator.radial.z * indicator.radial.z);
+                const auto tangent_unit = normalize({
+                    axis.y * radial_unit.z - axis.z * radial_unit.y,
+                    axis.z * radial_unit.x - axis.x * radial_unit.z,
+                    axis.x * radial_unit.y - axis.y * radial_unit.x});
+                const double shown_angle = std::clamp(
+                    std::abs(indicator.angle_degrees), 0.001, 360.0);
+                constexpr int samples = 40;
+                for (int sample = 0; sample <= samples; ++sample) {
+                    const double radians = shown_angle *
+                        static_cast<double>(sample) / samples *
+                        std::numbers::pi / 180.0 *
+                        (indicator.angle_degrees < 0.0 ? -1.0 : 1.0);
+                    const zima::kernel::Vec3 point{
+                        indicator.origin.x + radial_length *
+                            (radial_unit.x * std::cos(radians) +
+                             tangent_unit.x * std::sin(radians)),
+                        indicator.origin.y + radial_length *
+                            (radial_unit.y * std::cos(radians) +
+                             tangent_unit.y * std::sin(radians)),
+                        indicator.origin.z + radial_length *
+                            (radial_unit.z * std::cos(radians) +
+                             tangent_unit.z * std::sin(radians))};
+                    path.push_back(project(point));
+                }
+            }
+            for (std::size_t index = 1; index < path.size(); ++index)
+                painter.drawLine(path[index - 1], path[index]);
+            if (path.size() >= 2) {
+                QPointF along = path.back() - path[path.size() - 2];
+                const double magnitude = std::hypot(along.x(), along.y());
+                if (magnitude > 1.0e-6) {
+                    along /= magnitude;
+                    const QPointF normal{-along.y(), along.x()};
+                    const QPointF tip = path.back();
+                    const QPointF base = tip - along * 11.0;
+                    painter.drawPolygon(QPolygonF{
+                        tip, base + normal * 4.0, base - normal * 4.0});
+                }
+            }
+            painter.setBrush(Qt::NoBrush);
+        }
+        for (const auto& handle : impl_->extent_manipulators) {
             const double direction_length = std::sqrt(
                 handle.direction.x * handle.direction.x +
                 handle.direction.y * handle.direction.y +
@@ -2462,33 +2607,43 @@ if (impl_->show_planes) {
                 const QPointF start = project(handle.origin);
                 const QPointF finish = project(endpoint);
                 const QColor purple("#D05CFF");
-                const QColor orange("#FF7A00");
                 const bool start_hot = impl_->hovered_extent_key ==
                         handle.start_key || impl_->dragged_extent_key ==
                         handle.start_key;
                 const bool end_hot = impl_->hovered_extent_key ==
                         handle.end_key || impl_->dragged_extent_key ==
                         handle.end_key;
-                painter.setPen(QPen(purple, 2.0));
-                painter.drawLine(start, finish);
-                QPointF along = finish - start;
-                const double screen_length = std::hypot(along.x(), along.y());
-                if (screen_length > 1.0e-6) {
-                    along /= screen_length;
-                    const QPointF normal{-along.y(), along.x()};
-                    const QPointF tip = finish - along * 9.0;
-                    const QPointF base = tip - along * 10.0;
-                    painter.setBrush(purple);
-                    painter.drawPolygon(QPolygonF{tip,
-                        base + normal * 1.763269807,
-                        base - normal * 1.763269807});
+                if (!handle.point_only) {
+                    painter.setPen(QPen(purple, 2.0));
+                    painter.drawLine(start, finish);
+                    QPointF along = finish - start;
+                    const double screen_length = std::hypot(along.x(), along.y());
+                    if (screen_length > 1.0e-6) {
+                        along /= screen_length;
+                        const QPointF normal{-along.y(), along.x()};
+                        const QPointF tip = finish - along * 9.0;
+                        const QPointF base = tip - along * 10.0;
+                        painter.setBrush(purple);
+                        painter.drawPolygon(QPolygonF{tip,
+                            base + normal * 1.763269807,
+                            base - normal * 1.763269807});
+                    }
                 }
-                painter.setPen(QPen(start_hot ? orange : purple, 1.0));
-                painter.setBrush(start_hot ? orange : purple);
+                // Purple operation manipulators keep their semantic colour
+                // even under the pointer. They are painted by QPainter above
+                // the depth-tested model, so they remain visible through the
+                // preview body just like the Plane offset handle.
+                static_cast<void>(start_hot);
+                static_cast<void>(end_hot);
+                const QColor start_color = purple;
+                painter.setPen(QPen(start_color, 1.0));
+                painter.setBrush(start_color);
                 painter.drawEllipse(start, 6.0, 6.0);
-                painter.setPen(QPen(end_hot ? orange : purple, 1.0));
-                painter.setBrush(end_hot ? orange : purple);
-                painter.drawEllipse(finish, 6.0, 6.0);
+                if (!handle.point_only) {
+                    painter.setPen(QPen(purple, 1.0));
+                    painter.setBrush(purple);
+                    painter.drawEllipse(finish, 6.0, 6.0);
+                }
                 painter.setBrush(Qt::NoBrush);
             }
         }
@@ -2570,9 +2725,13 @@ if (impl_->show_planes) {
                 const bool origin = edge.reference.semantic_key.starts_with(
                     "origin:plane:");
                 if (edge.reference.semantic_key != "border" && !origin) continue;
+                const bool creation_preview = !origin &&
+                    impl_->feature_preview_owner_ids.contains(
+                        edge.reference.owner_id);
                 if ((origin && !impl_->show_planes && !planes_selectable &&
                         !impl_->editing_origin_visible) ||
-                    (!origin && !impl_->show_planes && !planes_selectable)) continue;
+                    (!origin && !impl_->show_planes && !planes_selectable &&
+                        !creation_preview)) continue;
                 const bool exact_highlight = highlighted &&
                     ((highlighted->kind == CandidateKind::Plane &&
                       highlighted->owner_id == edge.reference.owner_id &&
@@ -2626,9 +2785,6 @@ if (impl_->show_planes) {
                 // never used for this check.
                 const bool referenced = !exact_highlight &&
                     impl_->constraint_reference_edges.contains(edge_key(edge.reference));
-                const bool creation_preview = !origin &&
-                    impl_->feature_preview_owner_ids.contains(
-                        edge.reference.owner_id);
                 const QColor plane_color = exact_highlight
                     ? (impl_->confirmed_candidate ? QColor(30, 220, 240)
                                                   : QColor(255, 140, 12))
@@ -2742,27 +2898,43 @@ if (impl_->show_planes) {
                 if (dimension.kind ==
                         zima::kernel::ViewerDimensionKind::Angular) {
                     const QPointF vertex = project(dimension.witness_first);
-                    const QPointF first = project(dimension.line_first);
-                    const QPointF second = project(dimension.line_second);
-                    const QPointF first_vector = first - vertex;
-                    const QPointF second_vector = second - vertex;
-                    const double radius = std::max(22.0,
-                        std::hypot(first_vector.x(), first_vector.y()));
-                    const double start = std::atan2(
-                        first_vector.y(), first_vector.x());
-                    double sweep = dimension.sweep_degrees *
+                    const auto normalize = [](zima::kernel::Vec3 value) {
+                        const double length = std::hypot(
+                            std::hypot(value.x, value.y), value.z);
+                        return length > 1.0e-12
+                            ? zima::kernel::Vec3{value.x / length,
+                                value.y / length, value.z / length}
+                            : zima::kernel::Vec3{};
+                    };
+                    const auto axis = normalize(dimension.plane_normal);
+                    const zima::kernel::Vec3 radial{
+                        dimension.line_first.x - dimension.witness_first.x,
+                        dimension.line_first.y - dimension.witness_first.y,
+                        dimension.line_first.z - dimension.witness_first.z};
+                    const double radius = std::hypot(
+                        std::hypot(radial.x, radial.y), radial.z);
+                    const auto radial_unit = normalize(radial);
+                    const auto tangent = normalize({
+                        axis.y * radial_unit.z - axis.z * radial_unit.y,
+                        axis.z * radial_unit.x - axis.x * radial_unit.z,
+                        axis.x * radial_unit.y - axis.y * radial_unit.x});
+                    const double sweep = dimension.sweep_degrees *
                         std::numbers::pi / 180.0;
-                    const double cross = first_vector.x() * second_vector.y() -
-                        first_vector.y() * second_vector.x();
-                    if (cross < 0.0) sweep = -std::abs(sweep);
-                    else sweep = std::abs(sweep);
                     constexpr int samples = 48;
                     QPolygonF arc;
                     arc.reserve(samples + 1);
                     for (int sample = 0; sample <= samples; ++sample) {
-                        const double angle = start + sweep * sample / samples;
-                        arc.push_back(vertex + QPointF(
-                            radius * std::cos(angle), radius * std::sin(angle)));
+                        const double angle = sweep * sample / samples;
+                        arc.push_back(project({
+                            dimension.witness_first.x + radius *
+                                (radial_unit.x * std::cos(angle) +
+                                 tangent.x * std::sin(angle)),
+                            dimension.witness_first.y + radius *
+                                (radial_unit.y * std::cos(angle) +
+                                 tangent.y * std::sin(angle)),
+                            dimension.witness_first.z + radius *
+                                (radial_unit.z * std::cos(angle) +
+                                 tangent.z * std::sin(angle))}));
                     }
                     painter.drawLine(vertex, arc.front());
                     painter.drawLine(vertex, arc.back());
@@ -2772,10 +2944,18 @@ if (impl_->show_planes) {
                         painter.drawPolygon(arrow(arc.back(),
                             arc[arc.size() - 2] - arc.back()));
                     }
-                    const double middle = start + sweep * 0.5;
-                    painter.drawText(vertex + QPointF(
-                        (radius + 12.0) * std::cos(middle),
-                        (radius + 12.0) * std::sin(middle)), text);
+                    const double middle = sweep * 0.5;
+                    const auto middle_world = zima::kernel::Vec3{
+                        dimension.witness_first.x + (radius + 3.0) *
+                            (radial_unit.x * std::cos(middle) +
+                             tangent.x * std::sin(middle)),
+                        dimension.witness_first.y + (radius + 3.0) *
+                            (radial_unit.y * std::cos(middle) +
+                             tangent.y * std::sin(middle)),
+                        dimension.witness_first.z + (radius + 3.0) *
+                            (radial_unit.z * std::cos(middle) +
+                             tangent.z * std::sin(middle))};
+                    painter.drawText(project(middle_world), text);
                     painter.setBrush(Qt::NoBrush);
                     continue;
                 }
@@ -3037,12 +3217,25 @@ if (impl_->show_planes) {
                     painter.drawLine(center + QPointF(-4.0, 4.0),
                                      center + QPointF(4.0, -4.0));
                 } else {
+                    const bool replaced_by_active_point_manipulator =
+                        std::any_of(impl_->extent_manipulators.begin(),
+                            impl_->extent_manipulators.end(), [&](const auto& handle) {
+                                return handle.point_only &&
+                                    std::abs(point.position.x - handle.origin.x) <= 1.0e-9 &&
+                                    std::abs(point.position.y - handle.origin.y) <= 1.0e-9 &&
+                                    std::abs(point.position.z - handle.origin.z) <= 1.0e-9;
+                            });
                     const bool plane_offset_preview =
                         point.reference.semantic_key ==
                             "preview:plane-offset-point";
                     const bool creation_preview =
                         impl_->feature_preview_owner_ids.contains(
                             point.reference.owner_id);
+                    const bool active_sketch_point =
+                        !impl_->active_sketch_owner_id.empty() &&
+                        point.reference.owner_id ==
+                            impl_->active_sketch_owner_id &&
+                        point.reference.semantic_key.starts_with("point:");
                     const bool selected = point.reference.owner_id ==
                             impl_->selected_container_origin_id ||
                         (impl_->confirmed_candidate &&
@@ -3088,7 +3281,9 @@ if (impl_->show_planes) {
                     // same cyan preview colour in Plane, Sketch, Extrusion
                     // and Revolution properties. The old purple exception
                     // made the point look unrelated to its plane.
-                    const QColor marker_color = plane_offset_preview
+                    const QColor marker_color = active_sketch_point
+                        ? QColor("#D05CFF")
+                        : plane_offset_preview
                         ? QColor(0, 209, 255)
                         : selected
                         ? QColor(30, 220, 240)
@@ -3106,9 +3301,19 @@ if (impl_->show_planes) {
                     painter.setPen(QPen(marker_color, 1.0));
                     painter.setBrush(marker_color);
                     const QPointF center = project(point.position);
-                    draw_circular_marker(painter, center, marker_color);
+                    // While Plane Properties owns this exact position, its
+                    // purple drag handle replaces (rather than overlays) the
+                    // normal cyan plane marker. The persisted point remains
+                    // in viewer data and returns immediately when the dialog
+                    // closes, preserving ordinary View-only editing.
+                    if (!replaced_by_active_point_manipulator) {
+                        draw_circular_marker(painter, center, marker_color);
+                    }
                     if (!point.label.empty()) {
-                        painter.setPen(QPen(marker_color, 1.0));
+                        painter.setPen(QPen(replaced_by_active_point_manipulator
+                                ? QColor("#D05CFF")
+                                : marker_color,
+                            1.0));
                         painter.drawText(center + QPointF(8.0, -6.0),
                                          QString::fromStdString(point.label));
                     }
@@ -3138,8 +3343,14 @@ if (impl_->show_planes) {
             }
         }
         if (highlighted) {
-            const QColor color = impl_->confirmed_candidate
-                ? QColor(30, 220, 240) : QColor(255, 140, 12);
+            const bool active_sketch_point =
+                highlighted->kind == CandidateKind::SketchPoint &&
+                !impl_->active_sketch_owner_id.empty() &&
+                highlighted->owner_id == impl_->active_sketch_owner_id;
+            const QColor color = active_sketch_point
+                ? QColor("#D05CFF")
+                : impl_->confirmed_candidate
+                    ? QColor(30, 220, 240) : QColor(255, 140, 12);
             const bool origin_group = highlighted->kind == CandidateKind::Container &&
                 highlighted->semantic_key == "origin";
             const bool sketch_container =
@@ -3604,8 +3815,8 @@ MeshView::ray_at(const QPointF& position) const {
 
 void MeshView::mousePressEvent(QMouseEvent* event) {
     impl_->last_pointer = event->position().toPoint();
-    if (event->button() == Qt::LeftButton && impl_->extent_manipulator) {
-        const auto& handle = *impl_->extent_manipulator;
+    if (event->button() == Qt::LeftButton) {
+      for (const auto& handle : impl_->extent_manipulators) {
         const double norm = std::sqrt(handle.direction.x * handle.direction.x +
             handle.direction.y * handle.direction.y +
             handle.direction.z * handle.direction.z);
@@ -3624,7 +3835,9 @@ void MeshView::mousePressEvent(QMouseEvent* event) {
                 handle.origin.z + direction.z * handle.length};
             const QPointF pointer = event->position();
             const double start_distance = QLineF(pointer, project(handle.origin)).length();
-            const double end_distance = QLineF(pointer, project(endpoint)).length();
+            const double end_distance = handle.point_only
+                ? std::numeric_limits<double>::infinity()
+                : QLineF(pointer, project(endpoint)).length();
             constexpr double tolerance = 12.0;
             if (std::min(start_distance, end_distance) <=
                     tolerance * devicePixelRatioF()) {
@@ -3639,6 +3852,7 @@ void MeshView::mousePressEvent(QMouseEvent* event) {
                 return;
             }
         }
+      }
     }
     if (event->button() == Qt::RightButton &&
         event->buttons().testFlag(Qt::MiddleButton)) {
@@ -3867,8 +4081,7 @@ void MeshView::mouseMoveEvent(QMouseEvent* event) {
     }
     if (event->buttons() == Qt::NoButton && !impl_->confirmed_candidate) {
         std::string hovered;
-        if (impl_->extent_manipulator) {
-            const auto& handle = *impl_->extent_manipulator;
+        for (const auto& handle : impl_->extent_manipulators) {
             const double norm = std::sqrt(handle.direction.x * handle.direction.x +
                 handle.direction.y * handle.direction.y +
                 handle.direction.z * handle.direction.z);
@@ -3888,8 +4101,9 @@ void MeshView::mouseMoveEvent(QMouseEvent* event) {
                     handle.origin.z + direction.z * handle.length};
                 const double start_distance =
                     QLineF(event->position(), project(handle.origin)).length();
-                const double end_distance =
-                    QLineF(event->position(), project(endpoint)).length();
+                const double end_distance = handle.point_only
+                    ? std::numeric_limits<double>::infinity()
+                    : QLineF(event->position(), project(endpoint)).length();
                 if (std::min(start_distance, end_distance) <=
                         12.0 * devicePixelRatioF()) {
                     hovered = start_distance <= end_distance
@@ -3934,6 +4148,9 @@ void MeshView::mouseReleaseEvent(QMouseEvent* event) {
             for (std::size_t edge_index = 0;
                  edge_index < impl_->mesh.edges.size(); ++edge_index) {
                 const auto& edge = impl_->mesh.edges[edge_index];
+                if (!impl_->active_sketch_owner_id.empty() &&
+                    edge.reference.owner_id !=
+                        impl_->active_sketch_owner_id) continue;
                 if (edge.points.empty()) continue;
                 CandidateKind kind;
                 if (edge.reference.semantic_key.starts_with("segment:"))
@@ -3977,6 +4194,9 @@ void MeshView::mouseReleaseEvent(QMouseEvent* event) {
             for (std::size_t point_index = 0;
                  point_index < impl_->mesh.points.size(); ++point_index) {
                 const auto& point = impl_->mesh.points[point_index];
+                if (!impl_->active_sketch_owner_id.empty() &&
+                    point.reference.owner_id !=
+                        impl_->active_sketch_owner_id) continue;
                 if (!point.reference.semantic_key.starts_with("point:")) continue;
                 if (normalized.contains(project(point.position))) {
                     selected.push_back({CandidateKind::SketchPoint, 0.0, point_index,

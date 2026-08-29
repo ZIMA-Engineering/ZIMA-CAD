@@ -18,6 +18,42 @@ namespace {
 // plane_reference_ -- distinct from any real owner_id string, matched
 // against a userData() of an empty QString.
 constexpr const char* kNoPlaneReference = "";
+
+void normalize_sketch_front_references(
+        std::vector<zima::document::ConstructionReference>& references) {
+    auto first_position_plane = std::find_if(references.begin(), references.end(),
+        [](const auto& reference) {
+            return !reference.orientation_only && reference.supports_offset &&
+                (!reference.owner_id.empty() || !reference.semantic_key.empty());
+        });
+    if (first_position_plane == references.end()) return;
+    const auto front_owner = first_position_plane->owner_id;
+    const auto front_path = first_position_plane->instance_path;
+    const auto front_semantic = first_position_plane->semantic_key;
+    const auto same_source = [&](const auto& reference) {
+        return reference.owner_id == front_owner &&
+            reference.instance_path == front_path &&
+            reference.semantic_key == front_semantic;
+    };
+    for (auto& reference : references) {
+        if (reference.orientation_only) continue;
+        if (&reference == &*first_position_plane) {
+            reference.orientation_drives_rotation = true;
+            reference.orientation_role = "front";
+        } else {
+            reference.orientation_drives_rotation = false;
+            reference.orientation_role = "none";
+        }
+    }
+    // A Sketch's first planar row owns its complete work-plane frame. Any
+    // automatic orientation-only twin belonging to rows 1/2 (FRONT, TOP or
+    // another role) would rotate that local Origin even though those rows
+    // are position constraints only. Retain orientation copies solely for
+    // the row-0 source.
+    std::erase_if(references, [&](const auto& reference) {
+        return reference.orientation_only && !same_source(reference);
+    });
+}
 }  // namespace
 
 SketchPropertiesDialog::SketchPropertiesDialog(
@@ -28,6 +64,7 @@ SketchPropertiesDialog::SketchPropertiesDialog(
     : PropertiesSubWindow(tr("Skica"), parent),
       initial_(std::move(initial)), initial_placement_(std::move(initial_placement)),
       plane_options_(std::move(plane_options)), commit_(std::move(commit)) {
+    normalize_sketch_front_references(initial_placement_.references);
     setAttribute(Qt::WA_DeleteOnClose, true);
     setMinimumWidth(320);
     auto* form = new QFormLayout;
@@ -157,6 +194,7 @@ SketchPropertiesDialog::current_values() const {
     sketch.plane_reference_owner_id.clear();
     auto placement = placement_->numeric_placement();
     placement.references = placement_->populated_references();
+    normalize_sketch_front_references(placement.references);
     return {std::move(sketch), std::move(placement)};
 }
 
@@ -169,6 +207,7 @@ void SketchPropertiesDialog::notify_preview() {
 void SketchPropertiesDialog::refresh_resolved_placement() {
     auto value = placement_->numeric_placement();
     value.references = placement_->populated_references();
+    normalize_sketch_front_references(value.references);
     zima::kernel::Vec3 base_rotation;
     bool orientation_from_reference = false;
     static_cast<void>(zima::document::resolve_placement(
@@ -204,9 +243,18 @@ bool SketchPropertiesDialog::set_reference(std::size_t index,
         zima::document::ConstructionReference reference,
         const QString& label) {
     const bool first_plane_reference = index == 0 && reference.supports_offset;
+    // Only position row 0 defines the Sketch work-plane FRONT. Rows 1/2
+    // finish locating the origin; their normals must not replace row 0,
+    // especially when the whole document Origin is expanded into 3 planes.
+    if (index > 0) {
+        reference.orientation_drives_rotation = false;
+        reference.orientation_role.clear();
+        reference.orientation_only = false;
+    }
     QString error;
     const bool accepted = placement_->set_reference(
-        index, std::move(reference), label, &error);
+        index, std::move(reference), label, &error,
+        /*derive_orientation=*/index == 0);
     if (accepted && first_plane_reference) {
         // The first planar placement reference is mirrored into FRONT, which
         // maps its normal onto the container's local Y axis. Therefore local
@@ -242,6 +290,34 @@ void SketchPropertiesDialog::set_remaining_rotation_dof(int dof) {
 void SketchPropertiesDialog::set_orientation_base_rotation(
         const zima::kernel::Vec3& rotation, bool constrained) {
     placement_->set_orientation_base_rotation(rotation, constrained);
+}
+
+bool SketchPropertiesDialog::set_inline_parameter_value(
+    std::string_view key, double value) {
+    const auto set_field = [value](QDoubleSpinBox* field) {
+        if (field == nullptr || !field->isEnabled() || !field->isVisible())
+            return false;
+        field->setValue(value);
+        return true;
+    };
+    if (key == "profile_offset") return set_field(offset_);
+    constexpr std::string_view placement_prefix{"placement:"};
+    if (!key.starts_with(placement_prefix)) return false;
+    key.remove_prefix(placement_prefix.size());
+    const auto& translation = placement_->translation_fields();
+    if (key == "x") return set_field(translation[0]);
+    if (key == "y") return set_field(translation[1]);
+    if (key == "z") return set_field(translation[2]);
+    constexpr std::string_view reference_prefix{"reference_offset:"};
+    if (!key.starts_with(reference_prefix)) return false;
+    const auto suffix = key.substr(reference_prefix.size());
+    if (suffix.empty()) return false;
+    std::size_t index{};
+    for (const char digit : suffix) {
+        if (digit < '0' || digit > '9') return false;
+        index = index * 10 + static_cast<std::size_t>(digit - '0');
+    }
+    return placement_->set_reference_offset(index, value);
 }
 
 bool SketchPropertiesDialog::submit() {

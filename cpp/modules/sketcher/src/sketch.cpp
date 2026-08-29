@@ -42,8 +42,8 @@ DimensionKind classify_linear_dimension(
 
 double plane_offset_delta_for_normal_displacement(
     SketchPlane plane, double normal_displacement) noexcept {
-    return plane == SketchPlane::XZ
-        ? -normal_displacement : normal_displacement;
+    static_cast<void>(plane);
+    return normal_displacement;
 }
 
 namespace {
@@ -272,13 +272,10 @@ SketchFrame default_sketch_frame(SketchPlane plane, double plane_offset) {
                 {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}};
     }
     if (plane == SketchPlane::XZ) {
-        // Normal is x_axis x y_axis = {1,0,0} x {0,0,1} = {0,-1,0} (matches
-        // the extrusion-direction sign the reference implementation always
-        // used for this plane -- see extrusion_request() in
-        // part_document.cpp, which now derives its direction from
-        // Sketch::normal() instead of switching on `plane` directly).
+        // Match Construction Plane XZ: positive offset and extrusion follow
+        // +Y. The in-plane Y axis is -Z so X cross Y remains the normal.
         return {{0.0, plane_offset, 0.0}, {1.0, 0.0, 0.0},
-                {0.0, 0.0, 1.0}, {0.0, -1.0, 0.0}};
+                {0.0, 0.0, -1.0}, {0.0, 1.0, 0.0}};
     }
     return {{plane_offset, 0.0, 0.0}, {0.0, 1.0, 0.0},
             {0.0, 0.0, 1.0}, {1.0, 0.0, 0.0}};
@@ -7740,6 +7737,22 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         const auto dimension = std::find_if(dimensions.begin(), dimensions.end(),
             [&](const auto& value) { return value.id == dimension_id; });
         if (dimension == dimensions.end()) continue;
+        rendered.label_prefix = dimension->prefix + rendered.label_prefix;
+        if (!dimension->suffix.empty()) rendered.unit_suffix = dimension->suffix;
+        if (dimension->tolerance_mode == "symmetric" &&
+            !dimension->symmetric_tolerance.empty()) {
+            rendered.unit_suffix += " ±" + dimension->symmetric_tolerance;
+        } else if (dimension->tolerance_mode == "single_deviation" &&
+                   !dimension->single_tolerance.empty()) {
+            rendered.unit_suffix += " " + dimension->single_tolerance;
+        } else if (dimension->tolerance_mode == "deviations") {
+            if (!dimension->upper_tolerance.empty()) {
+                rendered.unit_suffix += " +" + dimension->upper_tolerance;
+            }
+            if (!dimension->lower_tolerance.empty()) {
+                rendered.unit_suffix += " /-" + dimension->lower_tolerance;
+            }
+        }
         for (const auto& point_id : {dimension->first_point_id,
                                      dimension->second_point_id}) {
             if (point_id.empty()) continue;
@@ -7963,6 +7976,13 @@ std::string Sketch::serialized() const {
         if (dimension.placement) value["placement"] = *dimension.placement;
         if (dimension.lower_limit) value["lower_limit"] = *dimension.lower_limit;
         if (dimension.upper_limit) value["upper_limit"] = *dimension.upper_limit;
+        value["prefix"] = dimension.prefix;
+        value["suffix"] = dimension.suffix;
+        value["tolerance_mode"] = dimension.tolerance_mode;
+        value["symmetric_tolerance"] = dimension.symmetric_tolerance;
+        value["single_tolerance"] = dimension.single_tolerance;
+        value["upper_tolerance"] = dimension.upper_tolerance;
+        value["lower_tolerance"] = dimension.lower_tolerance;
         dimension_values.push_back(std::move(value));
     }
     const nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 27},
@@ -8140,6 +8160,17 @@ Sketch Sketch::from_serialized(const std::string& value) {
         }
         if (value.contains("lower_limit")) dimension.lower_limit = value.at("lower_limit").get<double>();
         if (value.contains("upper_limit")) dimension.upper_limit = value.at("upper_limit").get<double>();
+        dimension.prefix = value.value("prefix", std::string{});
+        dimension.suffix = value.value("suffix", std::string{});
+        dimension.tolerance_mode = value.value("tolerance_mode", std::string{});
+        dimension.symmetric_tolerance =
+            value.value("symmetric_tolerance", std::string{});
+        dimension.single_tolerance =
+            value.value("single_tolerance", std::string{});
+        dimension.upper_tolerance =
+            value.value("upper_tolerance", std::string{});
+        dimension.lower_tolerance =
+            value.value("lower_tolerance", std::string{});
         sketch.dimensions.push_back(std::move(dimension));
     }
     sketch.validate();

@@ -111,7 +111,7 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
     connect(definition_, &QComboBox::currentIndexChanged,
         this, [this] { refresh_definition_fields(); });
     refresh_definition_fields();
-    if (initial.kind != zima::document::ConstructionKind::Point) {
+    if (initial.kind == zima::document::ConstructionKind::Axis) {
         display_size_ = field(initial.display_size, "constructionDisplaySize", " mm");
         display_size_->setRange(0.001, 1'000'000.0);
     }
@@ -196,9 +196,9 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
             direction_combo_->addItem(QStringLiteral("XZ"), QStringLiteral("xz"));
             direction_combo_->hide();
         }
-        rotation_form->addRow(initial.kind == zima::document::ConstructionKind::Axis
-                ? tr("Délka zobrazení") : tr("Velikost zobrazení"),
-            display_size_);
+        if (initial.kind == zima::document::ConstructionKind::Axis) {
+            rotation_form->addRow(tr("Délka zobrazení"), display_size_);
+        }
     }
     content_layout()->addLayout(rotation_form);
 
@@ -359,6 +359,24 @@ const std::string& ConstructionPropertiesDialog::construction_id() const {
     return initial_.id;
 }
 
+double ConstructionPropertiesDialog::plane_offset() const {
+    return offset_ == nullptr ? 0.0 : offset_->value();
+}
+
+bool ConstructionPropertiesDialog::orientation_back() const {
+    return placement_ != nullptr &&
+        placement_->numeric_placement().orientation_back;
+}
+
+void ConstructionPropertiesDialog::set_plane_offset_and_orientation(
+        double offset, bool back) {
+    if (offset_ == nullptr || placement_ == nullptr) return;
+    const QSignalBlocker blocker(offset_);
+    offset_->setValue(std::abs(offset));
+    placement_->set_orientation_back(back);
+    notify_preview();
+}
+
 bool ConstructionPropertiesDialog::owns_reference_owner(
     const std::string& owner_id) const {
     return owner_id == initial_.id || owner_id == initial_.entity_id ||
@@ -423,6 +441,9 @@ void ConstructionPropertiesDialog::set_translation_constraint_state(
 
 bool ConstructionPropertiesDialog::set_inline_parameter_value(
     std::string_view key, double value) {
+    constexpr std::string_view placement_prefix{"placement:"};
+    if (key.starts_with(placement_prefix)) key.remove_prefix(
+        placement_prefix.size());
     const auto set_field = [value](QDoubleSpinBox* field) {
         if (field == nullptr || !field->isEnabled() || !field->isVisible())
             return false;

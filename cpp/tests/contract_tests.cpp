@@ -544,7 +544,11 @@ int main() {
             {"pyramid", pyramid, zima::kernel::BooleanOperation::Add}});
         require(pyramid_boundaries.size() == 1 &&
                     std::abs(pyramid_boundaries.front().volume - 8000.0) < 1e-5 &&
-                    pyramid_boundaries.front().mesh.original_references.axes.size() == 3,
+                    pyramid_boundaries.front().mesh.original_references.axes.size() == 3 &&
+                    !pyramid_boundaries.front().mesh.original_references
+                        .triangle_references.empty() &&
+                    !pyramid_boundaries.front().mesh.original_references.edges.empty() &&
+                    !pyramid_boundaries.front().mesh.original_references.points.empty(),
                 "Pyramid geometry or references are incorrect");
         zima::kernel::WedgeRequest wedge;
         wedge.length = 60.0; wedge.width = 40.0;
@@ -552,7 +556,11 @@ int main() {
         const auto wedge_boundaries = kernel.evaluate_history({
             {"wedge", wedge, zima::kernel::BooleanOperation::Add}});
         require(wedge_boundaries.size() == 1 && wedge_boundaries.front().volume > 0.0 &&
-                    wedge_boundaries.front().mesh.original_references.axes.size() == 3,
+                    wedge_boundaries.front().mesh.original_references.axes.size() == 3 &&
+                    !wedge_boundaries.front().mesh.original_references
+                        .triangle_references.empty() &&
+                    !wedge_boundaries.front().mesh.original_references.edges.empty() &&
+                    !wedge_boundaries.front().mesh.original_references.points.empty(),
                 "Wedge geometry or references are incorrect");
         std::set<std::string> cylinder_edges;
         bool sampled_circle = false;
@@ -874,9 +882,9 @@ int main() {
                         "parameter:reference_offset:1" &&
                     referenced_point_dimensions[2].reference.semantic_key ==
                         "parameter:reference_offset:2" &&
-                    referenced_point_dimensions[0].label_prefix == "X = " &&
-                    referenced_point_dimensions[1].label_prefix == "Y = " &&
-                    referenced_point_dimensions[2].label_prefix == "Z = " &&
+                    referenced_point_dimensions[0].label_prefix.empty() &&
+                    referenced_point_dimensions[1].label_prefix.empty() &&
+                    referenced_point_dimensions[2].label_prefix.empty() &&
                     std::abs(referenced_point_dimensions[2].plane_normal.x) <
                         1.0e-9 &&
                     std::abs(referenced_point_dimensions[2].plane_normal.y) <
@@ -904,6 +912,14 @@ int main() {
                         referenced_point_dimensions[2].witness_first.x) > 1.0e-9,
                 "Referenced Point did not expose three axis-aligned offset "
                 "dimensions with Z in a stable XZ plane");
+
+        auto zero_offset_point = dimensioned_point;
+        for (auto& reference : zero_offset_point.references) {
+            reference.offset = 0.0;
+        }
+        require(zima::document::construction_point_dimensions(
+                    zero_offset_point, document_origin_geometry).empty(),
+                "Zero reference offsets still produced viewer dimensions");
 
         auto partially_referenced_point = plane_constrained_point;
         partially_referenced_point.references = {
@@ -934,12 +950,56 @@ int main() {
                     absolute_dimensions[0].reference.semantic_key == "parameter:x" &&
                     absolute_dimensions[1].reference.semantic_key == "parameter:y" &&
                     absolute_dimensions[2].reference.semantic_key == "parameter:z" &&
+                    absolute_dimensions[0].label_prefix.empty() &&
+                    absolute_dimensions[1].label_prefix.empty() &&
+                    absolute_dimensions[2].label_prefix.empty() &&
+                    absolute_dimensions[0].plane_normal ==
+                        zima::kernel::Vec3{1.0, 0.0, 0.0} &&
+                    absolute_dimensions[1].plane_normal ==
+                        zima::kernel::Vec3{0.0, 1.0, 0.0} &&
+                    absolute_dimensions[2].plane_normal ==
+                        zima::kernel::Vec3{0.0, 0.0, 1.0} &&
                     std::abs(absolute_dimensions[2].line_first.y -
                         absolute_dimensions[2].witness_first.y) < 1.0e-9 &&
                     std::abs(absolute_dimensions[2].line_second.y -
                         absolute_dimensions[2].witness_second.y) < 1.0e-9,
                 "Absolute Point did not restore all three coordinate dimensions "
                 "with Z in a stable XZ plane");
+        zima::document::Placement container_placement;
+        container_placement.x = 1.0;
+        container_placement.y = 2.0;
+        container_placement.z = 3.0;
+        const auto container_dimensions =
+            zima::document::container_placement_dimensions(
+                "container", container_placement, document_origin_geometry);
+        require(container_dimensions.size() == 3 &&
+                    container_dimensions[0].reference.semantic_key ==
+                        "parameter:placement:x" &&
+                    container_dimensions[1].reference.semantic_key ==
+                        "parameter:placement:y" &&
+                    container_dimensions[2].reference.semantic_key ==
+                        "parameter:placement:z" &&
+                    container_dimensions[0].label_prefix.empty() &&
+                    container_dimensions[1].label_prefix.empty() &&
+                    container_dimensions[2].label_prefix.empty(),
+                "Universal container placement did not expose numeric-only "
+                "editable coordinate dimensions");
+        container_placement.references = dimensioned_point.references;
+        container_placement.x = dimensioned_point.origin.x;
+        container_placement.y = dimensioned_point.origin.y;
+        container_placement.z = dimensioned_point.origin.z;
+        const auto referenced_container_dimensions =
+            zima::document::container_placement_dimensions(
+                "container", container_placement, document_origin_geometry);
+        require(referenced_container_dimensions.size() == 3 &&
+                    referenced_container_dimensions[0].reference.semantic_key ==
+                        "parameter:placement:reference_offset:0" &&
+                    referenced_container_dimensions[1].reference.semantic_key ==
+                        "parameter:placement:reference_offset:1" &&
+                    referenced_container_dimensions[2].reference.semantic_key ==
+                        "parameter:placement:reference_offset:2",
+                "Universal container placement did not exchange constrained "
+                "coordinates for its three editable reference-offset dimensions");
         auto rank_geometry = document_origin_geometry;
         rank_geometry.axes.push_back({{0.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, 10.0,
             {"parallel-a", "axis", {}}});
@@ -1127,12 +1187,12 @@ int main() {
                     std::abs(resolved_inherited_origin_plane.origin.z) < 1.0e-6 &&
                     std::abs(resolved_inherited_origin_plane.entity_origin.x) <
                         1.0e-6 &&
-                    std::abs(resolved_inherited_origin_plane.entity_origin.y + 6.0) <
+                    std::abs(resolved_inherited_origin_plane.entity_origin.y - 6.0) <
                         1.0e-6 &&
                     std::abs(resolved_inherited_origin_plane.entity_origin.z) <
                         1.0e-6 &&
                     std::abs(resolved_inherited_origin_plane.direction.x) < 1.0e-6 &&
-                    std::abs(resolved_inherited_origin_plane.direction.y + 1.0) < 1.0e-6 &&
+                    std::abs(resolved_inherited_origin_plane.direction.y - 1.0) < 1.0e-6 &&
                     std::abs(resolved_inherited_origin_plane.direction.z) < 1.0e-6,
                 "Plane did not inherit frame from the built-in Origin plane");
         auto origin_bulk_fill_plane = zima::document::PartDocument::create_construction(
@@ -1230,13 +1290,76 @@ int main() {
                         std::abs(identity_placement.rotation_z) < 1.0e-6,
                     "Container placement did not resolve the identity FRONT=Y/TOP=Z frame");
 
+            auto cylinder_end_geometry =
+                cylinder_boundaries.front().mesh.original_references;
+            const auto append_reference_geometry = [](auto& target,
+                                                       const auto& source) {
+                const auto vertex_offset =
+                    static_cast<std::uint32_t>(target.vertices.size());
+                target.vertices.insert(target.vertices.end(),
+                    source.vertices.begin(), source.vertices.end());
+                for (const auto index : source.triangles) {
+                    target.triangles.push_back(vertex_offset + index);
+                }
+                target.triangle_references.insert(
+                    target.triangle_references.end(),
+                    source.triangle_references.begin(),
+                    source.triangle_references.end());
+                target.edges.insert(target.edges.end(),
+                    source.edges.begin(), source.edges.end());
+                target.points.insert(target.points.end(),
+                    source.points.begin(), source.points.end());
+                target.axes.insert(target.axes.end(),
+                    source.axes.begin(), source.axes.end());
+            };
+            append_reference_geometry(
+                cylinder_end_geometry, document_origin_geometry);
+            zima::document::Placement cylinder_end_placement;
+            cylinder_end_placement.references = {
+                {{}, "cylinder", "z_max", 0.0, true, "front", true},
+                {{}, constructions.document_id + ":origin", "origin:plane:xz",
+                    0.0, true, "top", true},
+                {{}, constructions.document_id + ":origin", "origin:plane:yz",
+                    0.0, true, "none", false}};
+            require(zima::document::resolve_placement(
+                        cylinder_end_placement, cylinder_end_geometry) &&
+                        std::abs(cylinder_end_placement.x) < 1.0e-7 &&
+                        std::abs(cylinder_end_placement.y) < 1.0e-7 &&
+                        std::abs(cylinder_end_placement.z - cylinder.height) < 1.0e-7,
+                "Cylinder end plus Origin planes did not locate a primitive container");
+            const auto rotate = [](zima::kernel::Vec3 value,
+                                   const zima::document::Placement& placement) {
+                constexpr double radians = std::numbers::pi / 180.0;
+                const double cx = std::cos(placement.rotation_x * radians);
+                const double sx = std::sin(placement.rotation_x * radians);
+                const double cy = std::cos(placement.rotation_y * radians);
+                const double sy = std::sin(placement.rotation_y * radians);
+                const double cz = std::cos(placement.rotation_z * radians);
+                const double sz = std::sin(placement.rotation_z * radians);
+                value = {value.x, cx * value.y - sx * value.z,
+                    sx * value.y + cx * value.z};
+                value = {cy * value.x + sy * value.z, value.y,
+                    -sy * value.x + cy * value.z};
+                return zima::kernel::Vec3{cz * value.x - sz * value.y,
+                    sz * value.x + cz * value.y, value.z};
+            };
+            const auto resolved_front = rotate(
+                {0.0, 1.0, 0.0}, cylinder_end_placement);
+            const auto resolved_top = rotate(
+                {0.0, 0.0, 1.0}, cylinder_end_placement);
+            require(resolved_front.z > 0.999 && resolved_top.y > 0.999,
+                "Cylinder FRONT/TOP references did not align the local container Origin");
+
             zima::document::Placement origin_bulk_fill_placement;
             origin_bulk_fill_placement.references = {
-                {{}, constructions.document_id + ":origin", "origin:plane:yz", 0.0,
-                    false, "front", true},
+                // This is the canonical order used when the whole Origin
+                // node is clicked: XZ owns FRONT, XY owns TOP and YZ only
+                // completes translation.
                 {{}, constructions.document_id + ":origin", "origin:plane:xz", 0.0,
+                    false, "front", true},
+                {{}, constructions.document_id + ":origin", "origin:plane:xy", 0.0,
                     false, "top", true},
-                {{}, constructions.document_id + ":origin", "origin:plane:xy"}};
+                {{}, constructions.document_id + ":origin", "origin:plane:yz"}};
             require(zima::document::resolve_placement(
                         origin_bulk_fill_placement, document_origin_geometry) &&
                         std::abs(origin_bulk_fill_placement.x) < 1.0e-9 &&
@@ -1246,6 +1369,74 @@ int main() {
                         std::abs(origin_bulk_fill_placement.rotation_y) < 1.0e-6 &&
                         std::abs(origin_bulk_fill_placement.rotation_z) < 1.0e-6,
                     "Origin bulk-fill placement did not stay in the identity frame");
+
+            auto manually_ordered_origin_placement = origin_bulk_fill_placement;
+            manually_ordered_origin_placement.references = {
+                {{}, constructions.document_id + ":origin", "origin:plane:yz", 0.0,
+                    false, "front", true},
+                {{}, constructions.document_id + ":origin", "origin:plane:xz", 0.0,
+                    false, "top", true},
+                {{}, constructions.document_id + ":origin", "origin:plane:xy"}};
+            require(zima::document::resolve_placement(
+                        manually_ordered_origin_placement,
+                        document_origin_geometry),
+                    "Manually ordered Origin planes did not resolve placement");
+            const auto manual_front = rotate(
+                {0.0, 1.0, 0.0}, manually_ordered_origin_placement);
+            require(manual_front.x > 0.999,
+                    "Complete Origin triad replaced its manually selected first FRONT plane");
+
+            zima::document::PartDocument origin_sketch_document;
+            origin_sketch_document.document_id = constructions.document_id;
+            auto sketch_container =
+                zima::document::PartDocument::create_sketch_container();
+            sketch_container.placement.references = {
+                {{}, constructions.document_id + ":origin", "origin:plane:xz",
+                    0.0, true, "front", true},
+                {{}, constructions.document_id + ":origin", "origin:plane:xy",
+                    0.0, true},
+                {{}, constructions.document_id + ":origin", "origin:plane:yz",
+                    0.0, true, "front", true},
+                // Reproduce the stale automatic orientation twin that used
+                // to make the last entered plane replace row-0 FRONT.
+                {{}, constructions.document_id + ":origin", "origin:plane:yz",
+                    0.0, true, "front", true, true}};
+            auto origin_sketch = zima::sketcher::Sketch::create_default();
+            origin_sketch.owner_container_id = sketch_container.id;
+            origin_sketch_document.history.push_back(sketch_container);
+            origin_sketch_document.sketches.push_back(origin_sketch);
+            origin_sketch_document.resolve_constructions(document_origin_geometry);
+            require(std::abs(origin_sketch_document.sketches.front()
+                        .resolved_normal.x) < 1.0e-6 &&
+                    std::abs(origin_sketch_document.sketches.front()
+                        .resolved_normal.y - 1.0) < 1.0e-6 &&
+                    std::abs(origin_sketch_document.sketches.front()
+                        .resolved_normal.z) < 1.0e-6,
+                "Third Origin plane replaced the Sketch row-0 FRONT plane");
+            const auto origin_sketch_normal =
+                origin_sketch_document.sketches.front().resolved_normal;
+            const auto origin_sketch_x_axis =
+                origin_sketch_document.sketches.front().resolved_x_axis;
+            origin_sketch_document.history.front().placement
+                .orientation_quarter_turns = 1;
+            origin_sketch_document.resolve_constructions(document_origin_geometry);
+            const auto& quarter_turned_origin_sketch =
+                origin_sketch_document.sketches.front();
+            require(std::abs(quarter_turned_origin_sketch.resolved_normal.x -
+                            origin_sketch_normal.x) < 1.0e-6 &&
+                        std::abs(quarter_turned_origin_sketch.resolved_normal.y -
+                            origin_sketch_normal.y) < 1.0e-6 &&
+                        std::abs(quarter_turned_origin_sketch.resolved_normal.z -
+                            origin_sketch_normal.z) < 1.0e-6,
+                "ROTATE tilted a referenced Sketch away from its work plane");
+            require(std::abs(
+                        quarter_turned_origin_sketch.resolved_x_axis.x *
+                            origin_sketch_x_axis.x +
+                        quarter_turned_origin_sketch.resolved_x_axis.y *
+                            origin_sketch_x_axis.y +
+                        quarter_turned_origin_sketch.resolved_x_axis.z *
+                            origin_sketch_x_axis.z) < 1.0e-6,
+                "ROTATE did not turn the referenced Sketch axes in its plane");
 
             zima::document::Placement rotated_placement;
             rotated_placement.references = {
@@ -1314,6 +1505,59 @@ int main() {
                         three_point_placement, three_point_geometry) &&
                         std::abs(three_point_placement.rotation_z - 90.0) < 1.0e-6,
                     "ROTATE did not apply one 90-degree turn to the derived frame");
+
+            auto three_point_plane =
+                zima::document::PartDocument::create_construction(
+                    zima::document::ConstructionKind::Plane);
+            three_point_plane.definition =
+                zima::document::ConstructionDefinition::ThreePointPlane;
+            three_point_plane.references = {
+                {{}, "points", "p1"}, {{}, "points", "p2"},
+                {{}, "points", "p3"}};
+            three_point_plane.offset = 6.0;
+            require(zima::document::resolve_construction(
+                        three_point_plane, three_point_geometry) &&
+                        three_point_plane.direction.z > 0.999 &&
+                        three_point_plane.entity_origin.z > 5.999,
+                    "Three-point Plane did not offset along its FRONT normal");
+            const auto front_plane_origin = three_point_plane.origin;
+            three_point_plane.orientation_back = true;
+            require(zima::document::resolve_construction(
+                        three_point_plane, three_point_geometry) &&
+                        three_point_plane.origin == front_plane_origin &&
+                        three_point_plane.direction.z < -0.999 &&
+                        three_point_plane.entity_origin.z < -5.999,
+                    "BACK did not reverse a three-point Plane normal and offset");
+
+            zima::document::Placement xz_offset_placement;
+            xz_offset_placement.references = {{{},
+                constructions.document_id + ":origin", "origin:plane:xz",
+                12.0, true}};
+            require(zima::document::resolve_placement(
+                        xz_offset_placement, document_origin_geometry) &&
+                        std::abs(xz_offset_placement.x) < 1.0e-7 &&
+                        std::abs(xz_offset_placement.y - 12.0) < 1.0e-7 &&
+                        std::abs(xz_offset_placement.z) < 1.0e-7,
+                    "Positive XZ placement offset did not follow canonical +Y");
+            const auto xz_offset_origin = zima::kernel::Vec3{
+                xz_offset_placement.x, xz_offset_placement.y,
+                xz_offset_placement.z};
+            xz_offset_placement.orientation_back = true;
+            xz_offset_placement.orientation_quarter_turns = 3;
+            require(zima::document::resolve_placement(
+                        xz_offset_placement, document_origin_geometry) &&
+                        std::abs(xz_offset_placement.x - xz_offset_origin.x) < 1.0e-7 &&
+                        std::abs(xz_offset_placement.y - xz_offset_origin.y) < 1.0e-7 &&
+                        std::abs(xz_offset_placement.z - xz_offset_origin.z) < 1.0e-7,
+                    "FRONT/rotation controls relocated the placement origin");
+
+            zima::document::Placement collinear_three_point;
+            auto collinear_geometry = three_point_geometry;
+            collinear_geometry.points[2].position = {20.0, 0.0, 0.0};
+            collinear_three_point.references = three_point_placement.references;
+            require(!zima::document::resolve_placement(
+                        collinear_three_point, collinear_geometry),
+                    "Collinear three-point placement was accepted as a frame");
 
             zima::document::Placement missing_placement;
             missing_placement.references = {
@@ -1523,6 +1767,44 @@ int main() {
         require(extrusion_results.size() == 1 &&
                     std::abs(extrusion_results.front().volume - 6000.0) < 1.0e-6,
                 "Closed Sketch extrusion produced an incorrect solid volume");
+        const auto solid_only_preview =
+            extrusion_document.extrusion_preview_edges(
+                extrusion_document.history.front());
+        auto thin_extrusion_document = extrusion_document;
+        thin_extrusion_document.history.front().extrusion.result_type =
+            zima::document::ProfileResultType::Thin;
+        thin_extrusion_document.history.front().extrusion.thin_thickness = 2.0;
+        thin_extrusion_document.history.front().extrusion.thin_mode =
+            zima::document::ThinMode::Symmetric;
+        const auto thin_extrusion_preview =
+            thin_extrusion_document.extrusion_preview_edges(
+                thin_extrusion_document.history.front());
+        require(!thin_extrusion_preview.empty() &&
+                    thin_extrusion_preview.size() != solid_only_preview.size() &&
+                    std::ranges::any_of(thin_extrusion_preview, [](const auto& edge) {
+                        return edge.reference.semantic_key ==
+                            "preview:start:thin:inside";
+                    }) &&
+                    std::ranges::any_of(thin_extrusion_preview, [](const auto& edge) {
+                        return edge.reference.semantic_key ==
+                            "preview:start:thin:outside";
+                    }),
+                "Thin Extrusion preview did not replace the Sketch centreline "
+                "with its two offset wall boundaries");
+        auto construction_profile_document = extrusion_document;
+        static_cast<void>(construction_profile_document.sketches.front()
+            .add_segment(-100.0, -100.0, 100.0, 100.0, 1.0e-6, true));
+        const auto construction_filtered_preview =
+            construction_profile_document.extrusion_preview_edges(
+                construction_profile_document.history.front());
+        const auto construction_filtered_results = kernel.evaluate_history(
+            construction_profile_document.kernel_operations());
+        require(construction_filtered_preview.size() ==
+                    solid_only_preview.size() &&
+                    construction_filtered_results.size() == 1 &&
+                    std::abs(construction_filtered_results.front().volume -
+                        extrusion_results.front().volume) < 1.0e-6,
+                "Construction geometry leaked into the Extrusion preview or solid");
         auto owned_sketch_document = extrusion_document;
         owned_sketch_document.sketches.front().owner_container_id =
             extrusion_container_id;
@@ -1559,6 +1841,30 @@ int main() {
                     std::abs(moved_profile_origin.y + 3.0) < 1.0e-9 &&
                     std::abs(moved_profile_origin.z - 26.0) < 1.0e-9,
                 "Owned Extrusion Sketch did not follow container placement and plane offset");
+        auto rotated_owned_sketch_document = moved_owned_sketch_document;
+        rotated_owned_sketch_document.history.front().placement
+            .orientation_quarter_turns = 1;
+        rotated_owned_sketch_document.resolve_constructions();
+        const auto rotated_profile_point =
+            rotated_owned_sketch_document.sketches.front().world_point(30.0, 0.0);
+        require(std::abs(rotated_profile_point.x - 11.0) < 1.0e-7 &&
+                    std::abs(rotated_profile_point.y - 27.0) < 1.0e-7 &&
+                    std::abs(rotated_profile_point.z - 26.0) < 1.0e-7 &&
+                    !rotated_owned_sketch_document.extrusion_preview_edges(
+                        rotated_owned_sketch_document.history.front()).empty(),
+                "ROTATE did not rigidly rotate the owned Sketch and Extrusion preview");
+        auto flipped_owned_sketch_document = moved_owned_sketch_document;
+        flipped_owned_sketch_document.history.front().placement.orientation_back = true;
+        flipped_owned_sketch_document.resolve_constructions();
+        const auto flipped_profile_origin =
+            flipped_owned_sketch_document.sketches.front().world_point(0.0, 0.0);
+        const auto flipped_profile_point =
+            flipped_owned_sketch_document.sketches.front().world_point(0.0, 20.0);
+        require(std::abs(flipped_profile_origin.x - 11.0) < 1.0e-7 &&
+                    std::abs(flipped_profile_origin.y + 3.0) < 1.0e-7 &&
+                    std::abs(flipped_profile_origin.z - 14.0) < 1.0e-7 &&
+                    std::abs(flipped_profile_point.y + 23.0) < 1.0e-7,
+                "FRONT/BACK did not rigidly flip the owned Sketch frame");
         const auto moved_results = kernel.evaluate_history(
             moved_owned_sketch_document.kernel_operations());
         require(moved_results.size() == 1 &&
@@ -2149,7 +2455,7 @@ int main() {
         require(std::abs(xz_circle_results.front().volume -
                     63.0 * std::numbers::pi) < 1.0e-6 &&
                     xz_circle_results.front().mesh.original_references.axes.size() == 1 &&
-                    xz_circle_results.front().mesh.original_references.axes.front().direction.y < -0.999,
+                    xz_circle_results.front().mesh.original_references.axes.front().direction.y > 0.999,
                 "Circular XZ extrusion lost its exact volume or plane normal");
         auto multiple_circle_document = circular_document;
         static_cast<void>(multiple_circle_document.sketches.front().add_circle(
@@ -2682,8 +2988,13 @@ int main() {
         two_sided_parameters.angle_reverse = 45.0;
         two_sided_parameters.direction =
             zima::document::ExtrusionDirection::Reverse;
+        const auto two_sided_operations =
+            two_sided_revolution.kernel_operations();
+        require(!std::get<zima::kernel::RevolutionRequest>(
+                    two_sided_operations.front().primitive).first_cap_is_start,
+            "Reverse Revolution did not preserve semantic start/end cap ownership");
         const auto two_sided_results = kernel.evaluate_history(
-            two_sided_revolution.kernel_operations());
+            two_sided_operations);
         const auto two_sided_preview =
             two_sided_revolution.revolution_preview_edges(
                 two_sided_revolution.history.front());
@@ -2691,6 +3002,15 @@ int main() {
                     146.25 * std::numbers::pi) < 1.0e-6 &&
                     two_sided_preview.size() >= 4,
                 "Two-sided reversed Revolution has an incorrect body or cyan wire");
+        auto thin_revolution_preview_document = two_sided_revolution;
+        thin_revolution_preview_document.history.front().revolution.result_type =
+            zima::document::ProfileResultType::Thin;
+        thin_revolution_preview_document.history.front().revolution.thin_thickness = 1.0;
+        const auto thin_revolution_preview =
+            thin_revolution_preview_document.revolution_preview_edges(
+                thin_revolution_preview_document.history.front());
+        require(!thin_revolution_preview.empty(),
+                "Thin Revolution did not publish its offset cyan wire preview");
         std::set<std::string> partial_revolution_edges;
         for (const auto& edge : half_revolution_results.front().mesh
                  .original_references.edges) {
@@ -2906,7 +3226,7 @@ int main() {
             xz_revolution_document.kernel_operations());
         require(std::abs(xz_revolution_results.front().volume -
                     390.0 * std::numbers::pi) < 1.0e-6 &&
-                    xz_revolution_results.front().mesh.original_references.axes.front().direction.z > 0.999,
+                    xz_revolution_results.front().mesh.original_references.axes.front().direction.z < -0.999,
                 "Sketch Y Revolution axis was mapped incorrectly on the XZ plane");
 
         zima::document::DocumentSession session(

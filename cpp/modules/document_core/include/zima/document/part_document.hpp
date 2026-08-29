@@ -182,6 +182,7 @@ struct PointConstraintState {
     int remaining_dof{3};
     std::array<bool, 3> constrained_axes{};
 };
+struct Placement;
 [[nodiscard]] PointConstraintState point_constraint_state(
     const std::vector<ConstructionReference>& references,
     const zima::kernel::ViewerReferenceGeometry& geometry);
@@ -192,10 +193,17 @@ struct PointConstraintState {
 construction_point_dimensions(
     const ConstructionObject& object,
     const zima::kernel::ViewerReferenceGeometry& geometry);
+// The same six dimension slots (absolute X/Y/Z plus three reference offsets)
+// for every container that owns a universal Placement section.
+[[nodiscard]] std::vector<zima::kernel::ViewerDimension>
+container_placement_dimensions(
+    const std::string& owner_id, const Placement& placement,
+    const zima::kernel::ViewerReferenceGeometry& geometry);
 [[nodiscard]] int orientation_constraint_remaining_dof(
     const std::vector<ConstructionReference>& references,
     const zima::kernel::ViewerReferenceGeometry& geometry,
-    bool marked_only);
+    bool marked_only,
+    const zima::kernel::Vec3& orientation_origin = {});
 // Whether `reference` resolves to a plain point (an Origin/Sketch/other
 // container's point, or a solid vertex) rather than an axis/edge or
 // plane/face -- shared by resolve_construction()'s "2 points define an

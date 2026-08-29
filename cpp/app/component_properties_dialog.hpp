@@ -34,6 +34,8 @@ namespace zima::app {
 class ComponentPropertiesDialog final : public zima::ui::PropertiesSubWindow {
 public:
     using CommitCallback = std::function<void(zima::assembly::PartOccurrence)>;
+    using PreviewCallback = std::function<void(
+        const zima::assembly::PartOccurrence&)>;
     // Requests the viewer accept the next pick for placement-reference row
     // `index`'s `component_side` cell (true = component-side/moving
     // reference, false = target-side/fixed reference).
@@ -57,6 +59,7 @@ public:
     void set_live_translation(double x, double y, double z);
 
     void set_reference_request_callback(ReferenceRequestCallback callback);
+    void set_preview_callback(PreviewCallback callback);
     // Assigns the picked reference to row `index`'s component-side or
     // target-side cell and refreshes that row's display.
     void set_placement_reference(std::size_t index, bool component_side,
@@ -84,9 +87,12 @@ private:
     std::array<QWidget*, 3> flip_buttons_{};
     std::array<QToolButton*, 3> limit_buttons_{};
     ReferenceRequestCallback reference_request_;
+    PreviewCallback preview_;
 
     void refresh_placement_table();
     void remove_placement_reference(std::size_t index);
+    [[nodiscard]] zima::assembly::PartOccurrence current_value() const;
+    void notify_preview();
 };
 
 }  // namespace zima::app
