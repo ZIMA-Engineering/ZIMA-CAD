@@ -186,8 +186,7 @@ int verify_startup_contract(
                     sketch_point != nullptr && sketch_construction != nullptr &&
                     sketch_segment != nullptr && sketch_polyline != nullptr &&
                     sketch_rectangle != nullptr &&
-                    sketch_polygon != nullptr && sketch_polygon->menu() != nullptr &&
-                    sketch_polygon->menu()->actions().size() == 3 &&
+                    sketch_polygon != nullptr && sketch_polygon->menu() == nullptr &&
                     sketch_trim != nullptr &&
                     sketch_mirror != nullptr &&
                     sketch_elliptical_arc != nullptr &&
@@ -1081,7 +1080,10 @@ int verify_startup_contract(
         ? nullptr : qobject_cast<QDialog*>(text_value->parentWidget());
     auto* text_buttons = text_dialog == nullptr
         ? nullptr : text_dialog->findChild<QDialogButtonBox*>();
+    auto* text_angle = text_dialog == nullptr
+        ? nullptr : text_dialog->findChild<QDoubleSpinBox*>("sketchTextAngle");
     if (!verify(text_dialog != nullptr && text_buttons != nullptr &&
+                    text_angle != nullptr && text_angle->value() == 180.0 &&
                     text_dialog->windowFlags().testFlag(Qt::SubWindow) &&
                     text_buttons->button(QDialogButtonBox::Ok) != nullptr &&
                     text_buttons->button(QDialogButtonBox::Cancel) != nullptr &&

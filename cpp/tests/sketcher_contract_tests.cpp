@@ -2377,6 +2377,18 @@ int main() {
         require(std::abs(oriented_a->y + oriented_b->y) < 1.0e-7 &&
                     std::abs(oriented_a->x - oriented_b->x) < 1.0e-7,
                 "Oriented rectangle was not mirrored around its construction axis");
+        auto base_axis_rectangle = zima::sketcher::Sketch::create_default();
+        const auto base_axis_ids = base_axis_rectangle.add_oriented_rectangle(
+            0.0, 4.0, 12.0, 7.0, "sketch_axis:x");
+        require(base_axis_ids.size() == 4 &&
+                    base_axis_rectangle.segments.size() == 4 &&
+                    std::count_if(base_axis_rectangle.constraints.begin(),
+                        base_axis_rectangle.constraints.end(), [](const auto& value) {
+                            return value.kind ==
+                                zima::sketcher::ConstraintKind::Symmetric &&
+                                value.geometry_id == "sketch_axis:x";
+                        }) == 2,
+                "Oriented rectangle did not accept the persisted Sketch X axis");
         const auto loaded_oriented = zima::sketcher::Sketch::from_serialized(
             oriented_rectangle.serialized());
         require(loaded_oriented.segments == oriented_rectangle.segments &&
@@ -2772,6 +2784,14 @@ int main() {
                     diameter_packet.dimensions.front().kind ==
                         zima::kernel::ViewerDimensionKind::Diameter &&
                     diameter_packet.dimensions.front().label_prefix == "Ø" &&
+                    std::abs(diameter_packet.dimensions.front().witness_first.x) <
+                        1.0e-9 &&
+                    std::abs(diameter_packet.dimensions.front().witness_first.y) <
+                        1.0e-9 &&
+                    std::abs(std::hypot(
+                        diameter_packet.dimensions.front().witness_second.x,
+                        diameter_packet.dimensions.front().witness_second.y) -
+                        15.0) < 1.0e-9 &&
                     std::abs(diameter_packet.dimensions.front().value - 30.0) < 1.0e-9,
                 "Diameter dimension did not produce stable viewer data");
         bool second_radial_driver_rejected = false;

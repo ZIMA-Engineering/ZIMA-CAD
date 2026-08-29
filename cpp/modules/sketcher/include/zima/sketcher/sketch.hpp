@@ -157,6 +157,7 @@ struct SketchExternalReference {
     std::string context_instance_path;
     std::vector<std::array<double, 2>> cached_points;
     std::vector<std::vector<std::array<double, 2>>> cached_paths;
+    bool infinite{};
     bool broken{};
     bool operator==(const SketchExternalReference&) const = default;
 };

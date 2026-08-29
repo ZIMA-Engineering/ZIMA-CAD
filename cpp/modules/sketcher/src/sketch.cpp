@@ -1009,6 +1009,8 @@ struct SegmentCurveTangentState {
     double normal_y{};
     double signed_distance{};
     double target_distance{};
+    double contact_x{};
+    double contact_y{};
     bool contact_on_segment{};
     bool contact_on_curve{};
 };
@@ -1079,6 +1081,7 @@ std::optional<SegmentCurveTangentState> segment_curve_tangent_state(
         segment->first_point_id, segment->second_point_id,
         curve->center_point_id, normal_x, normal_y,
         signed_distance, target_distance,
+        center->x + contact_offset_x, center->y + contact_offset_y,
         contact_on_segment, contact_on_curve};
 }
 
@@ -3881,9 +3884,11 @@ std::vector<std::string> Sketch::add_oriented_rectangle(
         [&](const auto& value) {
             return value.id == symmetry_axis_id && value.construction;
         });
-    if (!axis || axis_segment == segments.end()) {
+    const bool base_axis = symmetry_axis_id == "sketch_axis:x" ||
+        symmetry_axis_id == "sketch_axis:y";
+    if (!axis || (!base_axis && axis_segment == segments.end())) {
         throw std::invalid_argument(
-            "Oriented rectangle requires a construction-axis segment");
+            "Oriented rectangle requires a Sketch axis or construction-axis segment");
     }
     const double ax = axis->second[0];
     const double ay = axis->second[1];
@@ -7360,6 +7365,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
             (reference.broken ? ":broken" : ""), {}};
         edge.construction = true;
         edge.overlay = true;
+        edge.infinite = reference.infinite;
         edge.points.reserve(reference.cached_points.size());
         for (const auto& point : reference.cached_points) {
             edge.points.push_back(world_point(point[0], point[1]));
@@ -7374,9 +7380,24 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
                 (reference.broken ? ":broken" : ""), {}};
             edge.construction = true;
             edge.overlay = true;
-            edge.points.reserve(path.size());
-            for (const auto& point : path) {
-                edge.points.push_back(world_point(point[0], point[1]));
+            edge.infinite = reference.infinite;
+            if (reference.infinite && path.size() >= 2) {
+                const auto farthest = std::max_element(
+                    std::next(path.begin()), path.end(), [&](const auto& left,
+                                                            const auto& right) {
+                        return std::hypot(left[0] - path.front()[0],
+                                          left[1] - path.front()[1]) <
+                            std::hypot(right[0] - path.front()[0],
+                                       right[1] - path.front()[1]);
+                    });
+                edge.points = {
+                    world_point(path.front()[0], path.front()[1]),
+                    world_point((*farthest)[0], (*farthest)[1])};
+            } else {
+                edge.points.reserve(path.size());
+                for (const auto& point : path) {
+                    edge.points.push_back(world_point(point[0], point[1]));
+                }
             }
             result.edges.push_back(std::move(edge));
         }
@@ -7472,9 +7493,27 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
     for (const auto& constraint : constraints) {
         if (constraint.suppressed) continue;
         std::optional<zima::kernel::Vec3> anchor;
+        if (constraint.kind == ConstraintKind::Tangent) {
+            const bool first_segment = std::ranges::any_of(segments,
+                [&](const auto& value) {
+                    return value.id == constraint.geometry_id;
+                });
+            const bool second_segment = std::ranges::any_of(segments,
+                [&](const auto& value) {
+                    return value.id == constraint.second_geometry_id;
+                });
+            if (first_segment != second_segment) {
+                const auto state = segment_curve_tangent_state(*this,
+                    first_segment ? constraint.geometry_id
+                                  : constraint.second_geometry_id,
+                    first_segment ? constraint.second_geometry_id
+                                  : constraint.geometry_id);
+                if (state) anchor = world_point(state->contact_x, state->contact_y);
+            }
+        }
         const bool directional = constraint.kind == ConstraintKind::Horizontal ||
             constraint.kind == ConstraintKind::Vertical;
-        if (directional && !constraint.geometry_id.empty()) {
+        if (!anchor && directional && !constraint.geometry_id.empty()) {
             anchor = geometry_anchor(constraint.geometry_id);
         } else if ((directional || constraint.kind == ConstraintKind::Coincident) &&
                    !constraint.second_point_id.empty()) {
@@ -7503,8 +7542,18 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
             if (const auto key = geometry_semantic_key(geometry_id); !key.empty())
                 participants.push_back(key);
         }
+        const auto marker_reference = zima::kernel::EdgeReference{
+            id, "constraint:" + constraint.id, {}};
         result.constraint_markers.push_back({*anchor, marker_label(constraint.kind),
-            {id, "constraint:" + constraint.id, {}}, std::move(participants)});
+            marker_reference, participants});
+        if (constraint.kind == ConstraintKind::Symmetric &&
+            !constraint.second_point_id.empty()) {
+            if (const auto* mirrored = find_point(constraint.second_point_id)) {
+                result.constraint_markers.push_back({project(*mirrored),
+                    marker_label(constraint.kind), marker_reference,
+                    std::move(participants)});
+            }
+        }
     }
     for (const auto& point : points) {
         if (!point.fixed) continue;
@@ -7558,14 +7607,11 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
                 ? std::atan2((*dimension.placement)[1] - center->y,
                              (*dimension.placement)[0] - center->x)
                 : 0.0;
-            const auto first_rim = world_point(
-                center->x - circle->radius * std::cos(angle),
-                center->y - circle->radius * std::sin(angle));
-            const auto second_rim = world_point(
+            const auto rim = world_point(
                 center->x + circle->radius * std::cos(angle),
                 center->y + circle->radius * std::sin(angle));
             result.dimensions.push_back({
-                first_rim, second_rim, first_rim, second_rim, dimension.value,
+                project(*center), rim, project(*center), rim, dimension.value,
                 {id, "dimension:" + dimension.id, {}}, "Ø"});
             result.dimensions.back().kind =
                 zima::kernel::ViewerDimensionKind::Diameter;
@@ -8080,6 +8126,7 @@ std::string Sketch::serialized() const {
             {"context_instance_path", reference.context_instance_path},
             {"cached_points", std::move(points)},
             {"cached_paths", std::move(paths)},
+            {"infinite", reference.infinite},
             {"broken", reference.broken}});
     }
     nlohmann::json constraint_values = nlohmann::json::array();
@@ -8260,6 +8307,7 @@ Sketch Sketch::from_serialized(const std::string& value) {
             }
             reference.cached_paths.push_back(std::move(path));
         }
+        reference.infinite = value.value("infinite", false);
         reference.broken = value.at("broken").get<bool>();
         sketch.external_references.push_back(std::move(reference));
     }

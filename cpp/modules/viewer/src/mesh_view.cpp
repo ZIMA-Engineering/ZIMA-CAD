@@ -3669,44 +3669,12 @@ if (impl_->show_planes) {
                         axis.point.z + axis.direction.z * half}));
                 }
             }
-            if (highlighted->kind == CandidateKind::Dimension &&
-                highlighted->geometry_index < impl_->mesh.dimensions.size()) {
-                const auto& dimension =
-                    impl_->mesh.dimensions[highlighted->geometry_index];
-                const auto participates = [&](const std::string& semantic_key) {
-                    return std::find(dimension.participant_semantic_keys.begin(),
-                               dimension.participant_semantic_keys.end(), semantic_key) !=
-                        dimension.participant_semantic_keys.end();
-                };
-                painter.setPen(QPen(color, 2.0, Qt::SolidLine, Qt::RoundCap));
-                painter.setBrush(color);
-                for (const auto& edge : impl_->mesh.edges) {
-                    if (edge.reference.owner_id != highlighted->owner_id ||
-                        !participates(edge.reference.semantic_key)) continue;
-                    for (std::size_t index = 1; index < edge.points.size(); ++index) {
-                        painter.drawLine(project(edge.points[index - 1]),
-                                         project(edge.points[index]));
-                    }
-                }
-                for (const auto& point : impl_->mesh.points) {
-                    if (point.reference.owner_id == highlighted->owner_id &&
-                        participates(point.reference.semantic_key)) {
-                        painter.drawEllipse(project(point.position), 5.0, 5.0);
-                    }
-                }
-                for (const auto& axis : impl_->mesh.axes) {
-                    if (axis.reference.owner_id != highlighted->owner_id ||
-                        !participates(axis.reference.semantic_key)) continue;
-                    const double half = axis.display_length * 0.5;
-                    painter.drawLine(project({
-                        axis.point.x - axis.direction.x * half,
-                        axis.point.y - axis.direction.y * half,
-                        axis.point.z - axis.direction.z * half}), project({
-                        axis.point.x + axis.direction.x * half,
-                        axis.point.y + axis.direction.y * half,
-                        axis.point.z + axis.direction.z * half}));
-                }
-            }
+            // A Dimension is an independent selectable annotation. Its own
+            // witness/main/leader lines and text are recoloured in the
+            // dimension pass above; recolouring participant geometry here
+            // made one LMB confirmation appear to select both the dimension
+            // and its measured segment/points, and made RMB ownership
+            // ambiguous.
             // Whole-Origin hover/selection is already handled by the main
             // plane/axis overlay loops above. Redrawing the same geometry a
             // second time here produced two differently antialiased copies
@@ -3869,6 +3837,31 @@ void MeshView::mousePressEvent(QMouseEvent* event) {
         impl_->middle_dragged = false;
         impl_->middle_press_position = event->position().toPoint();
     }
+    const bool additive_sketch_click = event->button() == Qt::LeftButton &&
+        event->modifiers().testFlag(Qt::ControlModifier);
+    const auto multi_selectable = [](CandidateKind kind) {
+        return kind == CandidateKind::SketchSegment ||
+            kind == CandidateKind::SketchCurve ||
+            kind == CandidateKind::SketchPoint ||
+            kind == CandidateKind::SketchText ||
+            kind == CandidateKind::SketchExternalReference;
+    };
+    // A confirmed candidate normally suppresses hover. When Ctrl starts an
+    // additive Sketch selection, transfer that candidate to the persistent
+    // multi-selection overlay first so the common picker can offer the next
+    // segment without requiring an empty click between them.
+    if (additive_sketch_click && impl_->confirmed_candidate &&
+        multi_selectable(impl_->confirmed_candidate->kind)) {
+        if (std::find(impl_->sketch_box_selected_candidates.begin(),
+                impl_->sketch_box_selected_candidates.end(),
+                *impl_->confirmed_candidate) ==
+            impl_->sketch_box_selected_candidates.end()) {
+            impl_->sketch_box_selected_candidates.push_back(
+                *impl_->confirmed_candidate);
+        }
+        impl_->confirmed_candidate.reset();
+        impl_->candidates.clear();
+    }
     // Hover, RMB cycling and LMB confirmation always consume the candidate
     // list produced for the click position. A preceding mouse move is not a
     // precondition for selecting or clearing a selection.
@@ -3953,6 +3946,20 @@ void MeshView::mousePressEvent(QMouseEvent* event) {
                   pressed_candidate, drag_ray->first, drag_ray->second)
             : false;
         notify_confirmation();
+        if (additive_sketch_click && multi_selectable(pressed_candidate.kind)) {
+            const auto selected = std::find(
+                impl_->sketch_box_selected_candidates.begin(),
+                impl_->sketch_box_selected_candidates.end(), pressed_candidate);
+            if (selected == impl_->sketch_box_selected_candidates.end()) {
+                impl_->sketch_box_selected_candidates.push_back(pressed_candidate);
+            } else {
+                impl_->sketch_box_selected_candidates.erase(selected);
+            }
+            impl_->confirmed_candidate.reset();
+            impl_->candidates.clear();
+        } else if (!additive_sketch_click && multi_selectable(pressed_candidate.kind)) {
+            impl_->sketch_box_selected_candidates.clear();
+        }
         impl_->drag_active = drag_started;
         update();
     } else if (event->button() == Qt::LeftButton) {
@@ -4214,7 +4221,10 @@ void MeshView::mouseReleaseEvent(QMouseEvent* event) {
         impl_->sketch_box_start.reset();
         impl_->sketch_box_end.reset();
         if (impl_->sketch_box_selection_callback) {
-            if (!event->modifiers().testFlag(Qt::ShiftModifier)) {
+            const bool additive =
+                event->modifiers().testFlag(Qt::ControlModifier) ||
+                event->modifiers().testFlag(Qt::ShiftModifier);
+            if (!additive) {
                 impl_->sketch_box_selected_candidates = selected;
             } else {
                 for (const auto& candidate : selected) {
@@ -4226,8 +4236,8 @@ void MeshView::mouseReleaseEvent(QMouseEvent* event) {
                     }
                 }
             }
-            impl_->sketch_box_selection_callback(std::move(selected),
-                event->modifiers().testFlag(Qt::ShiftModifier));
+            impl_->sketch_box_selection_callback(
+                std::move(selected), additive);
         }
         event->accept();
         update();

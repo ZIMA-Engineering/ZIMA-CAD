@@ -277,9 +277,39 @@ int main(int argc, char* argv[]) {
             : std::nullopt;
         require(zero_dimension_label.has_value(),
                 "Zero-valued point dimension lost its numeric label position");
-        int zero_dimension_edits{};
+        zero_dimension_view.clear_selection();
         zero_dimension_view.set_selection_contract(
             {zima::viewer::CandidateKind::Dimension});
+        QMouseEvent zero_dimension_select(
+            QEvent::MouseButtonPress, QPointF(*zero_dimension_label),
+            QPointF(*zero_dimension_label), QPointF(*zero_dimension_label),
+            Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(&zero_dimension_view, &zero_dimension_select);
+        application.processEvents();
+        const auto selected_zero_dimension =
+            zero_dimension_view.confirmed_candidate();
+        require(selected_zero_dimension.has_value() &&
+                    selected_zero_dimension->kind ==
+                        zima::viewer::CandidateKind::Dimension &&
+                    selected_zero_dimension->semantic_key == "dimension:zero-y",
+                "LMB on a dimension annotation did not confirm the exact dimension");
+        int dimension_context_requests{};
+        zero_dimension_view.set_context_menu_callback(
+            [&](const auto& candidate, const QPoint&) {
+                if (candidate.kind == zima::viewer::CandidateKind::Dimension &&
+                    candidate.semantic_key == "dimension:zero-y") {
+                    ++dimension_context_requests;
+                }
+            });
+        QMouseEvent zero_dimension_context(
+            QEvent::MouseButtonPress, QPointF(*zero_dimension_label),
+            QPointF(*zero_dimension_label), QPointF(*zero_dimension_label),
+            Qt::RightButton, Qt::RightButton, Qt::NoModifier);
+        QApplication::sendEvent(&zero_dimension_view, &zero_dimension_context);
+        application.processEvents();
+        require(dimension_context_requests == 1,
+                "RMB on a confirmed dimension did not request its context menu");
+        int zero_dimension_edits{};
         zero_dimension_view.set_double_confirmation_callback(
             [&](const auto& candidate) {
                 if (candidate.kind == zima::viewer::CandidateKind::Dimension &&

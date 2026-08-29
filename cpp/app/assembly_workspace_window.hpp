@@ -159,7 +159,6 @@ private:
     QAction* sketch_polyline_action_{};
     QAction* sketch_rectangle_action_{};
     QAction* sketch_polygon_action_{};
-    QMenu* sketch_polygon_menu_{};
     QAction* sketch_trim_action_{};
     QAction* sketch_corner_fillet_action_{};
     QAction* sketch_mirror_action_{};
@@ -288,6 +287,10 @@ private:
     std::string selected_sketch_external_reference_id_;
     std::string selected_sketch_point_id_;
     std::set<std::string> selected_sketch_geometry_ids_;
+    std::optional<zima::sketcher::Sketch> sketch_corner_drag_source_;
+    std::string sketch_corner_drag_first_segment_id_;
+    std::string sketch_corner_drag_second_segment_id_;
+    std::string sketch_corner_drag_vertex_id_;
     bool sketch_point_active_{};
     std::optional<std::array<double, 2>> pending_segment_start_;
     std::string pending_sketch_snap_geometry_id_;
