@@ -3764,6 +3764,8 @@ int main() {
             tangent_bridge_trim.add_circle(-15.0, 0.0, 5.0);
         const auto right_bridge_circle =
             tangent_bridge_trim.add_circle(15.0, 0.0, 5.0);
+        const auto left_bridge_center =
+            tangent_bridge_trim.circles[0].center_point_id;
         const auto upper_bridge =
             tangent_bridge_trim.add_segment(-15.0, 5.0, 15.0, 5.0);
         const auto lower_bridge =
@@ -3820,6 +3822,9 @@ int main() {
                         }) == 4,
                 "Two-circle Trim did not preserve all four C+T contacts");
         tangent_bridge_trim.validate();
+        require(tangent_bridge_trim.move_point(
+                    left_bridge_center, -16.0, 1.0),
+                "Preserved C+T contacts made the trimmed bridge immovable");
 
         auto split_trim = zima::sketcher::Sketch::create_default();
         const auto split_target = split_trim.add_segment(-10.0, 2.0, 10.0, 2.0);

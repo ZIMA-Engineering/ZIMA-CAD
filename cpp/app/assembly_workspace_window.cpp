@@ -11250,18 +11250,12 @@ void AssemblyWorkspaceWindow::start_sketch_trim() {
     const auto* sketch = active_sketch();
     if (sketch == nullptr) return;
     cancel_sketch_segment();
+    clear_selected_sketch_geometry();
     sketch_trim_preview_ = *sketch;
     sketch_trim_topology_ = zima::sketcher::sketch_trim_topology(
         *sketch_trim_preview_, true);
     sketch_trim_active_ = true;
     sketch_trim_changed_ = false;
-    selected_sketch_segment_id_.clear();
-    selected_sketch_circle_id_.clear();
-    selected_sketch_arc_id_.clear();
-    selected_sketch_ellipse_id_.clear();
-    selected_sketch_elliptical_arc_id_.clear();
-    selected_sketch_bspline_id_.clear();
-    selected_sketch_point_id_.clear();
     selection_action_->setChecked(true);
     viewer_->clear_selection();
     preserve_view_on_refresh_ = true;
@@ -13826,15 +13820,9 @@ bool AssemblyWorkspaceWindow::begin_sketch_point_drag(
         return true;
     }
     std::vector<std::string> selected_segments;
-    for (const auto& selected_id : selected_sketch_geometry_ids_) {
-        if (std::any_of(sketch->segments.begin(), sketch->segments.end(),
-                [&](const auto& segment) { return segment.id == selected_id; })) {
-            selected_segments.push_back(selected_id);
-        }
-    }
-    // The View owns the exact candidates which are visibly selected.  Do not
-    // let a delayed tree/toolbar synchronization discard that authoritative
-    // pair before the corner gesture begins.
+    // Only candidates which are still visibly selected in the View may arm
+    // the corner gesture. The workspace mirror can outlive a viewer clear or
+    // a Sketch switch; using that stale pair blocked every unrelated point.
     for (const auto& selected : viewer_->sketch_selection()) {
         if (selected.owner_id != active_sketch_id_ ||
             selected.kind != zima::viewer::CandidateKind::SketchSegment ||

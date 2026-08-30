@@ -2364,6 +2364,82 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
     };
     if (const auto anchored_x = anchored_coordinate(true)) x = *anchored_x;
     if (const auto anchored_y = anchored_coordinate(false)) y = *anchored_y;
+    const double requested_translation_x = x - original_x;
+    const double requested_translation_y = y - original_y;
+    const bool dragging_curve_center = std::any_of(
+            next.circles.begin(), next.circles.end(), [&](const auto& value) {
+                return value.center_point_id == point_id;
+            }) || std::any_of(next.arcs.begin(), next.arcs.end(),
+            [&](const auto& value) { return value.center_point_id == point_id; }) ||
+        std::any_of(next.ellipses.begin(), next.ellipses.end(),
+            [&](const auto& value) { return value.center_point_id == point_id; }) ||
+        std::any_of(next.elliptical_arcs.begin(), next.elliptical_arcs.end(),
+            [&](const auto& value) { return value.center_point_id == point_id; });
+    bool translated_center_component = false;
+    if (dragging_curve_center &&
+        std::hypot(requested_translation_x, requested_translation_y) > 1.0e-12) {
+        auto component = point_translation_closure(next, point_id);
+        bool expanded = true;
+        while (expanded) {
+            expanded = false;
+            const auto insert = [&](const std::string& id) {
+                if (component.insert(id).second) expanded = true;
+            };
+            for (const auto& segment : next.segments) {
+                if (!component.contains(segment.first_point_id) &&
+                    !component.contains(segment.second_point_id)) continue;
+                insert(segment.first_point_id);
+                insert(segment.second_point_id);
+            }
+            for (const auto& arc : next.arcs) {
+                if (!component.contains(arc.center_point_id) &&
+                    !component.contains(arc.start_point_id) &&
+                    !component.contains(arc.end_point_id)) continue;
+                insert(arc.center_point_id);
+                insert(arc.start_point_id);
+                insert(arc.end_point_id);
+                for (const auto& constraint : next.constraints) {
+                    if (!constraint.suppressed &&
+                        constraint.kind == ConstraintKind::PointOnCircle &&
+                        constraint.geometry_id == arc.id) {
+                        insert(constraint.first_point_id);
+                    }
+                }
+            }
+            for (const auto& circle : next.circles) {
+                bool connected = component.contains(circle.center_point_id);
+                for (const auto& constraint : next.constraints) {
+                    if (!constraint.suppressed &&
+                        constraint.kind == ConstraintKind::PointOnCircle &&
+                        constraint.geometry_id == circle.id &&
+                        component.contains(constraint.first_point_id)) {
+                        connected = true;
+                    }
+                }
+                if (!connected) continue;
+                insert(circle.center_point_id);
+                for (const auto& constraint : next.constraints) {
+                    if (!constraint.suppressed &&
+                        constraint.kind == ConstraintKind::PointOnCircle &&
+                        constraint.geometry_id == circle.id) {
+                        insert(constraint.first_point_id);
+                    }
+                }
+            }
+        }
+        for (const auto& dependent_id : component) {
+            auto* dependent = next.find_point(dependent_id);
+            if (dependent == nullptr || dependent->fixed ||
+                externally_linked.contains(dependent_id)) return false;
+        }
+        for (const auto& dependent_id : component) {
+            if (dependent_id == point_id) continue;
+            auto* dependent = next.find_point(dependent_id);
+            dependent->x += requested_translation_x;
+            dependent->y += requested_translation_y;
+        }
+        translated_center_component = true;
+    }
     point->x = x;
     point->y = y;
     const double translation_x = x - original_x;
@@ -2371,6 +2447,7 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
     std::set<std::string> translated_circle_points;
     for (const auto& circle : next.circles) {
         if (circle.center_point_id != point_id) continue;
+        if (translated_center_component) continue;
         for (const auto& constraint : next.constraints) {
             if (constraint.suppressed ||
                 constraint.kind != ConstraintKind::PointOnCircle ||
@@ -2429,6 +2506,7 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
         auto* start = next.find_point(arc.start_point_id);
         auto* end = next.find_point(arc.end_point_id);
         if (arc.center_point_id == point_id) {
+            if (translated_center_component) continue;
             const double dx = x - original_x;
             const double dy = y - original_y;
             if ((start->fixed && (std::abs(dx) > 1.0e-12 || std::abs(dy) > 1.0e-12)) ||
@@ -2495,6 +2573,7 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
         auto* minor = next.find_point(ellipse.minor_point_id);
         const double orientation = ellipse.reversed ? -1.0 : 1.0;
         if (ellipse.center_point_id == point_id) {
+            if (translated_center_component) continue;
             const double dx = x - original_x;
             const double dy = y - original_y;
             if ((major->fixed || minor->fixed) &&
@@ -2555,6 +2634,7 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
             return true;
         };
         if (arc.center_point_id == point_id) {
+            if (translated_center_component) continue;
             std::set<std::string> translated;
             for (const auto& dependent_id : {
                     arc.major_point_id, arc.minor_point_id,
