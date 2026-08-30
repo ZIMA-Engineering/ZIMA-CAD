@@ -1963,6 +1963,7 @@ void AssemblyWorkspaceWindow::create_actions() {
         [this] { start_sketch_polygon(4); });
     sketch_trim_action_ = make_action(tr("Ořezat"), "sketch-trim");
     sketch_trim_action_->setObjectName("sketchTrimAction");
+    sketch_trim_action_->setCheckable(true);
     sketch_trim_action_->setEnabled(false);
     sketch_corner_fillet_action_ = make_action(tr("Zaoblit roh"), "sketch-fillet");
     sketch_corner_fillet_action_->setObjectName("sketchCornerFilletAction");
@@ -4579,6 +4580,7 @@ void AssemblyWorkspaceWindow::sync_sketch_tool_action_checks() {
     set_checked(sketch_elliptical_arc_action_,
         sketch_elliptical_arc_active_);
     set_checked(sketch_bspline_action_, sketch_bspline_active_);
+    set_checked(sketch_trim_action_, sketch_trim_active_);
     const bool command_active = sketch_point_active_ || sketch_segment_active_ ||
         sketch_rectangle_active_ || sketch_polygon_active_ ||
         sketch_circle_active_ || sketch_arc_active_ || sketch_ellipse_active_ ||
@@ -11264,8 +11266,8 @@ void AssemblyWorkspaceWindow::start_sketch_trim() {
         *sketch_trim_preview_, true);
     sketch_trim_active_ = true;
     sketch_trim_changed_ = false;
-    selection_action_->setChecked(true);
     viewer_->clear_selection();
+    sync_sketch_tool_action_checks();
     preserve_view_on_refresh_ = true;
     refresh_scene();
     state_->setText(tr(
@@ -11482,9 +11484,16 @@ void AssemblyWorkspaceWindow::end_sketch_trim_gesture() {
 
 bool AssemblyWorkspaceWindow::finish_sketch_trim() {
     if (!sketch_trim_active_) return false;
-    if (active_sketch() == nullptr || !sketch_trim_preview_) return true;
+    if (active_sketch() == nullptr || !sketch_trim_preview_) {
+        cancel_sketch_segment();
+        preserve_view_on_refresh_ = true;
+        refresh_scene();
+        state_->setText(tr(
+            "Ořezání bylo ukončeno, protože aktivní skica již není dostupná."));
+        return true;
+    }
     if (!sketch_trim_changed_) {
-        cancel_sketch_trim();
+        cancel_sketch_segment();
         preserve_view_on_refresh_ = true;
         refresh_scene();
         state_->setText(tr("Ořezání ukončeno beze změny."));
@@ -11492,15 +11501,32 @@ bool AssemblyWorkspaceWindow::finish_sketch_trim() {
     }
     try {
         if (!mutate_active_sketch(
-                [&](auto& sketch) { sketch = *sketch_trim_preview_; })) return true;
-        cancel_sketch_trim();
+                [&](auto& sketch) { sketch = *sketch_trim_preview_; })) {
+            cancel_sketch_segment();
+            preserve_view_on_refresh_ = true;
+            refresh_scene();
+            state_->setText(tr(
+                "Ořezání nebylo možné uložit; aktivní je opět Výběr."));
+            return true;
+        }
+        // Return through the same complete tool-reset path as every other
+        // Sketch command. Merely clearing sketch_trim_active_ left the viewer
+        // candidate contract and toolbar state in Trim mode, so points and
+        // Dimensions stopped responding after a successful Trim.
+        cancel_sketch_segment();
+        clear_selected_sketch_geometry();
         viewer_->clear_selection();
         preserve_view_on_refresh_ = true;
         refresh_tabs();
         refresh_scene();
         state_->setText(tr("Ořezání skici bylo potvrzeno jako jedna Part revize."));
     } catch (const std::exception& error) {
-        state_->setText(QString::fromUtf8(error.what()));
+        cancel_sketch_segment();
+        clear_selected_sketch_geometry();
+        preserve_view_on_refresh_ = true;
+        refresh_scene();
+        state_->setText(tr("Ořezání nebylo uloženo: %1. Aktivní je Výběr.")
+            .arg(QString::fromUtf8(error.what())));
     }
     return true;
 }
