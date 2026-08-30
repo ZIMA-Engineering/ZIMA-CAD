@@ -11244,13 +11244,16 @@ bool AssemblyWorkspaceWindow::finish_current_sketch_tool() {
             if (pending_bspline_points_.size() < 3) {
                 state_->setText(tr(
                     "B-spline vyžaduje alespoň 3 potvrzené body; "
-                    "dvojklik nic nepřidal."));
-                return true;
+                    "neúplná křivka byla zrušena."));
+                // The universal finishing gesture must still leave the tool.
+                // Fewer than three points own no committable geometry, so the
+                // general reset below can discard them transactionally.
+            } else {
+                static_cast<void>(finish_sketch_bspline());
+                // A failed model mutation deliberately leaves the pending input
+                // intact so the user can correct or cancel it explicitly.
+                if (!pending_bspline_points_.empty()) return true;
             }
-            static_cast<void>(finish_sketch_bspline());
-            // A failed model mutation deliberately leaves the pending input
-            // intact so the user can correct or cancel it explicitly.
-            if (!pending_bspline_points_.empty()) return true;
         }
         if (sketch_trim_active_ && sketch_trim_changed_) {
             static_cast<void>(finish_sketch_trim());

@@ -120,10 +120,14 @@ int verify_startup_contract(
     auto* sketch_polyline = window.findChild<QAction*>("sketchPolylineAction");
     auto* sketch_rectangle = window.findChild<QAction*>("sketchRectangleAction");
     auto* sketch_polygon = window.findChild<QAction*>("sketchPolygonAction");
+    auto* sketch_circle = window.findChild<QAction*>("sketchCircleAction");
+    auto* sketch_arc = window.findChild<QAction*>("sketchArcAction");
+    auto* sketch_ellipse = window.findChild<QAction*>("sketchEllipseAction");
     auto* sketch_trim = window.findChild<QAction*>("sketchTrimAction");
     auto* sketch_mirror = window.findChild<QAction*>("sketchMirrorAction");
     auto* sketch_elliptical_arc =
         window.findChild<QAction*>("sketchEllipticalArcAction");
+    auto* sketch_bspline = window.findChild<QAction*>("sketchBSplineAction");
     auto* sketch_midpoint = window.findChild<QAction*>("sketchMidpointAction");
     auto* sketch_symmetric = window.findChild<QAction*>("sketchSymmetricAction");
     auto* sketch_concentric = window.findChild<QAction*>("sketchConcentricAction");
@@ -1034,10 +1038,12 @@ int verify_startup_contract(
         !verify(sketch_normal->isEnabled() && sketch_point->isEnabled() &&
                     sketch_construction->isEnabled() && sketch_segment->isEnabled() &&
                     sketch_polyline->isEnabled() && sketch_rectangle->isEnabled() &&
-                    sketch_polygon->isEnabled() &&
+                    sketch_polygon->isEnabled() && sketch_circle->isEnabled() &&
+                    sketch_arc->isEnabled() && sketch_ellipse->isEnabled() &&
                     sketch_trim->isEnabled() &&
                     sketch_mirror->isEnabled() &&
                     sketch_elliptical_arc->isEnabled() &&
+                    sketch_bspline->isEnabled() &&
                     sketch_midpoint->isEnabled() &&
                     sketch_symmetric->isEnabled() &&
                     sketch_concentric->isEnabled() &&
@@ -1128,6 +1134,97 @@ int verify_startup_contract(
     auto* sketch_viewer = dynamic_cast<zima::viewer::MeshView*>(model_viewer);
     if (!verify(sketch_viewer != nullptr,
                 "Sketch interaction regression is missing MeshView")) {
+        return 1;
+    }
+    const auto finish_sketch_tool_with_middle_double_click = [&] {
+        const QPointF local{model_viewer->width() * 0.78,
+                            model_viewer->height() * 0.24};
+        QMouseEvent middle_double(QEvent::MouseButtonDblClick, local,
+            model_viewer->mapToGlobal(local.toPoint()),
+            Qt::MiddleButton, Qt::MiddleButton, Qt::NoModifier);
+        QApplication::sendEvent(model_viewer, &middle_double);
+        application.processEvents();
+        QMouseEvent middle_release(QEvent::MouseButtonRelease, local,
+            model_viewer->mapToGlobal(local.toPoint()),
+            Qt::MiddleButton, Qt::NoButton, Qt::NoModifier);
+        QApplication::sendEvent(model_viewer, &middle_release);
+        application.processEvents();
+    };
+    struct SketchFinishFixture {
+        QAction* action{};
+        const char* name{};
+        bool confirm_first_step{};
+    };
+    const std::array sketch_finish_fixtures{
+        SketchFinishFixture{sketch_point, "Point", true},
+        SketchFinishFixture{sketch_construction, "Construction Segment", true},
+        SketchFinishFixture{sketch_segment, "Segment", true},
+        SketchFinishFixture{sketch_polyline, "Polyline", true},
+        SketchFinishFixture{sketch_rectangle, "Rectangle", true},
+        SketchFinishFixture{sketch_polygon, "Regular Polygon", true},
+        SketchFinishFixture{sketch_circle, "Circle", true},
+        SketchFinishFixture{sketch_arc, "Arc", true},
+        SketchFinishFixture{sketch_ellipse, "Ellipse", true},
+        SketchFinishFixture{sketch_elliptical_arc, "Elliptical Arc", true},
+        SketchFinishFixture{sketch_bspline, "B-spline", true},
+        SketchFinishFixture{sketch_trim, "Trim", false},
+        SketchFinishFixture{sketch_mirror, "Mirror", false},
+        SketchFinishFixture{sketch_external_reference,
+            "External Reference", false},
+        SketchFinishFixture{sketch_midpoint, "Midpoint", false},
+        SketchFinishFixture{sketch_symmetric, "Symmetric", false},
+        SketchFinishFixture{sketch_concentric, "Concentric", false},
+        SketchFinishFixture{sketch_tangent, "Tangent", false},
+        SketchFinishFixture{sketch_equal, "Equal", false},
+        SketchFinishFixture{sketch_dimension, "Dimension", false},
+        SketchFinishFixture{sketch_universal_dimension,
+            "Universal Dimension", false}};
+    for (const auto& fixture : sketch_finish_fixtures) {
+        const std::string activation_message =
+            std::string{"Sketch finish matrix cannot activate "} + fixture.name;
+        if (!verify(fixture.action != nullptr && fixture.action->isEnabled(),
+                    activation_message.c_str())) {
+            return 1;
+        }
+        fixture.action->trigger();
+        application.processEvents();
+        if (fixture.confirm_first_step) sketch_click(0.76, 0.28);
+        finish_sketch_tool_with_middle_double_click();
+        const std::string finish_message =
+            std::string{"Middle-button double-click did not cleanly finish "} +
+            fixture.name;
+        if (!verify(!fixture.action->isChecked() &&
+                        sketch_viewer->sketch_selection().empty() &&
+                        workspace_state->text().contains(QStringLiteral("Výběr")),
+                    finish_message.c_str())) {
+            return 1;
+        }
+    }
+    const auto spline_tree_count = [&] {
+        int count{};
+        QTreeWidgetItemIterator item(tree);
+        while (*item != nullptr) {
+            if ((*item)->data(0, Qt::UserRole + 3).toString() ==
+                    QStringLiteral("sketch-geometry") &&
+                (*item)->text(0).startsWith(QStringLiteral("Spline"))) {
+                ++count;
+            }
+            ++item;
+        }
+        return count;
+    };
+    const int splines_before_three_points = spline_tree_count();
+    sketch_bspline->trigger();
+    application.processEvents();
+    sketch_click(0.70, 0.32);
+    sketch_click(0.76, 0.38);
+    sketch_click(0.82, 0.31);
+    finish_sketch_tool_with_middle_double_click();
+    if (!verify(spline_tree_count() == splines_before_three_points + 1 &&
+                    !sketch_bspline->isChecked() &&
+                    sketch_viewer->sketch_selection().empty() &&
+                    workspace_state->text().contains(QStringLiteral("Výběr")),
+                "Three-point B-spline was not committed and cleanly finished")) {
         return 1;
     }
     // Exact first-entity regression: a new Sketch point is created on the
