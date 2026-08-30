@@ -12371,6 +12371,7 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
     auto inferred_end = inferred_sketch_segment_end(*position);
     auto confirmed_position = inferred_end.position;
     auto direction_inference = inferred_end.kind;
+    const auto offered_direction_inference = direction_inference;
     const auto end_snap_geometry_id = std::exchange(
         pending_sketch_snap_geometry_id_, {});
     const auto end_snap_kind = std::exchange(
@@ -12399,7 +12400,7 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
                 const double tangent_error = std::abs(
                     segment_x * (*tangent)[1] - segment_y * (*tangent)[0]);
                 if (tangent_error <= viewer_->world_tolerance_for_pixels(
-                        3.0 * viewer_->devicePixelRatioF())) {
+                        2.0 * viewer_->devicePixelRatioF())) {
                     inferred_end.tangent_reference_id = end_snap_geometry_id;
                 }
             }
@@ -12417,11 +12418,24 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
                         segment_x * (*tangent)[1] -
                         segment_y * (*tangent)[0]);
                     if (tangent_error <= viewer_->world_tolerance_for_pixels(
-                            3.0 * viewer_->devicePixelRatioF())) {
+                            2.0 * viewer_->devicePixelRatioF())) {
                         inferred_end.tangent_reference_id = *curve_id;
                     }
                 }
+            } else if (offered_direction_inference ==
+                           zima::sketcher::ConstraintKind::Horizontal ||
+                       offered_direction_inference ==
+                           zima::sketcher::ConstraintKind::Vertical) {
+                // The preview offered C+H/V for this exact point. Preserve
+                // both relations instead of discarding direction after C.
+                direction_inference = offered_direction_inference;
             }
+        } else if (*end_snap_kind == zima::sketcher::ConstraintKind::Midpoint &&
+                   (offered_direction_inference ==
+                        zima::sketcher::ConstraintKind::Horizontal ||
+                    offered_direction_inference ==
+                        zima::sketcher::ConstraintKind::Vertical)) {
+            direction_inference = offered_direction_inference;
         } else if (*end_snap_kind ==
                    zima::sketcher::ConstraintKind::PointOnLine) {
             // Landing on a line means coincidence with that support.  Add
@@ -12439,7 +12453,7 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
                     ? std::abs(segment_x) : std::abs(segment_y);
                 const double intent_tolerance =
                     viewer_->world_tolerance_for_pixels(
-                        3.0 * viewer_->devicePixelRatioF());
+                        2.0 * viewer_->devicePixelRatioF());
                 if (direction_error <= intent_tolerance) {
                     direction_inference = vertical
                         ? zima::sketcher::ConstraintKind::Vertical
@@ -12464,7 +12478,7 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
                     std::max(support_length, 1.0e-12);
                 const double intent_tolerance =
                     viewer_->world_tolerance_for_pixels(
-                        3.0 * viewer_->devicePixelRatioF());
+                        2.0 * viewer_->devicePixelRatioF());
                 if (perpendicular_error <= intent_tolerance) {
                     inferred_end.perpendicular_reference_id =
                         end_snap_geometry_id;
@@ -12660,7 +12674,7 @@ AssemblyWorkspaceWindow::inferred_sketch_segment_end(
     // Its capture band must stay a few pixels wide regardless of segment
     // length; an angular tolerance becomes enormous on long geometry.
     const double direction_tolerance = viewer_->world_tolerance_for_pixels(
-        3.0 * viewer_->devicePixelRatioF());
+        2.0 * viewer_->devicePixelRatioF());
     std::vector<std::pair<double, SketchSegmentInference>> point_alignments;
     std::vector<std::pair<double, SketchSegmentInference>> directions;
     std::vector<std::pair<double, SketchSegmentInference>> symmetries;
@@ -15721,7 +15735,7 @@ void AssemblyWorkspaceWindow::preview_sketch_segment_ray(
               ? *endpoint_keypoint_curve : pending_sketch_snap_geometry_id_}
         : std::nullopt;
     const double direction_tolerance = viewer_->world_tolerance_for_pixels(
-        3.0 * viewer_->devicePixelRatioF());
+        2.0 * viewer_->devicePixelRatioF());
     const double cursor_x = (*position)[0] - (*pending_segment_start_)[0];
     const double cursor_y = (*position)[1] - (*pending_segment_start_)[1];
     bool endpoint_tangent = false;
