@@ -14509,6 +14509,19 @@ bool AssemblyWorkspaceWindow::begin_sketch_point_drag(
             selected_segments.push_back(selected_id);
         }
     }
+    // Tree/box selection is the persistent application-side truth. During
+    // the press that starts a drag, MeshView may already have promoted the
+    // shared point to its confirmed candidate and no longer expose both
+    // segments through sketch_selection(). Recover the still-selected
+    // segment pair before considering an ordinary point/group move.
+    for (const auto& selected_id : selected_sketch_geometry_ids_) {
+        if (std::ranges::find(selected_segments, selected_id) !=
+            selected_segments.end()) continue;
+        if (std::ranges::any_of(sketch->segments,
+                [&](const auto& segment) { return segment.id == selected_id; })) {
+            selected_segments.push_back(selected_id);
+        }
+    }
     if (selected_segments.size() == 2) {
         const auto first = std::find_if(sketch->segments.begin(), sketch->segments.end(),
             [&](const auto& value) { return value.id == selected_segments[0]; });
@@ -14527,30 +14540,11 @@ bool AssemblyWorkspaceWindow::begin_sketch_point_drag(
             const bool pressed_shared_point =
                 candidate.kind == zima::viewer::CandidateKind::SketchPoint &&
                 candidate.semantic_key == "point:" + shared_point_id;
-            const bool selection_contains_only_corner = std::ranges::all_of(
-                viewer_selection, [&](const auto& selected) {
-                    if (selected.kind ==
-                            zima::viewer::CandidateKind::SketchSegment &&
-                        selected.semantic_key.starts_with("segment:")) {
-                        return std::ranges::find(selected_segments,
-                            selected.semantic_key.substr(8)) !=
-                            selected_segments.end();
-                    }
-                    // On LMB press MeshView confirms the shared point before
-                    // asking the workspace which drag owns the gesture.  The
-                    // point is therefore legitimately the third selected
-                    // candidate; it must not demote the corner drag to the
-                    // ordinary group/point mover.
-                    return selected.kind ==
-                            zima::viewer::CandidateKind::SketchPoint &&
-                        selected.semantic_key == "point:" + shared_point_id;
-                });
             // Selecting the second segment is not the fillet gesture.  Start
             // only on the subsequent press of their shared persisted point;
             // otherwise the Ctrl-selection click itself consumes and clears
             // the just-completed pair before the user can drag the corner.
-            if (!shared_point_id.empty() && pressed_shared_point &&
-                selection_contains_only_corner) {
+            if (!shared_point_id.empty() && pressed_shared_point) {
                 if (qEnvironmentVariableIsSet("ZIMA_SKETCH_TRACE")) {
                     qInfo().noquote() << "SKETCH_TRACE|BRANCH|CORNER_FILLET|segments="
                         << QString::fromStdString(first->id) << ','
@@ -14601,86 +14595,6 @@ bool AssemblyWorkspaceWindow::begin_sketch_point_drag(
         assembly_sketch_drag_document_ = assembly->session.document();
     } else {
         return false;
-    }
-    const bool pressed_selected = std::ranges::any_of(viewer_selection,
-        [&](const auto& selected) { return selected == candidate; });
-    if (pressed_selected && viewer_selection.size() > 1) {
-        const auto append_unique = [](auto& values, const std::string& value) {
-            if (!value.empty() && std::ranges::find(values, value) == values.end())
-                values.push_back(value);
-        };
-        for (const auto& selected : viewer_selection) {
-            if (selected.owner_id != active_sketch_id_) continue;
-            const auto& key = selected.semantic_key;
-            if (selected.kind == zima::viewer::CandidateKind::SketchPoint &&
-                key.starts_with("point:")) {
-                append_unique(sketch_group_drag_point_ids_, key.substr(6));
-            } else {
-                for (const std::string_view prefix : {
-                        "segment:", "circle:", "arc:", "ellipse:",
-                        "elliptical_arc:", "bspline:"}) {
-                    if (key.starts_with(prefix)) {
-                        append_unique(sketch_group_drag_geometry_ids_,
-                            key.substr(prefix.size()));
-                        break;
-                    }
-                }
-            }
-        }
-        append_unique(sketch_group_drag_point_ids_, point_id);
-        std::unordered_set<std::string> effective_points(
-            sketch_group_drag_point_ids_.begin(),
-            sketch_group_drag_point_ids_.end());
-        for (const auto& segment : sketch->segments) {
-            if (std::ranges::find(sketch_group_drag_geometry_ids_, segment.id) ==
-                sketch_group_drag_geometry_ids_.end()) continue;
-            effective_points.insert(segment.first_point_id);
-            effective_points.insert(segment.second_point_id);
-        }
-        for (const auto& circle : sketch->circles) {
-            if (std::ranges::find(sketch_group_drag_geometry_ids_, circle.id) !=
-                sketch_group_drag_geometry_ids_.end())
-                effective_points.insert(circle.center_point_id);
-        }
-        for (const auto& arc : sketch->arcs) {
-            if (std::ranges::find(sketch_group_drag_geometry_ids_, arc.id) ==
-                sketch_group_drag_geometry_ids_.end()) continue;
-            effective_points.insert(arc.center_point_id);
-            effective_points.insert(arc.start_point_id);
-            effective_points.insert(arc.end_point_id);
-        }
-        for (const auto& ellipse : sketch->ellipses) {
-            if (std::ranges::find(sketch_group_drag_geometry_ids_, ellipse.id) ==
-                sketch_group_drag_geometry_ids_.end()) continue;
-            effective_points.insert(ellipse.center_point_id);
-            effective_points.insert(ellipse.major_point_id);
-            effective_points.insert(ellipse.minor_point_id);
-        }
-        for (const auto& arc : sketch->elliptical_arcs) {
-            if (std::ranges::find(sketch_group_drag_geometry_ids_, arc.id) ==
-                sketch_group_drag_geometry_ids_.end()) continue;
-            effective_points.insert(arc.center_point_id);
-            effective_points.insert(arc.major_point_id);
-            effective_points.insert(arc.minor_point_id);
-            effective_points.insert(arc.start_point_id);
-            effective_points.insert(arc.end_point_id);
-        }
-        for (const auto& spline : sketch->bsplines) {
-            if (std::ranges::find(sketch_group_drag_geometry_ids_, spline.id) !=
-                sketch_group_drag_geometry_ids_.end())
-                effective_points.insert(spline.control_point_ids.begin(),
-                    spline.control_point_ids.end());
-        }
-        if (effective_points.size() > 1) {
-            sketch_group_drag_source_ = *sketch;
-            sketch_group_drag_anchor_ = {point->x, point->y};
-            sketch_drag_point_id_ = point_id;
-            sketch_drag_changed_ = false;
-            state_->setText(tr("Tažení výběru: všechny vybrané body se posunou společně."));
-            return true;
-        }
-        sketch_group_drag_point_ids_.clear();
-        sketch_group_drag_geometry_ids_.clear();
     }
     sketch_drag_point_id_ = point_id;
     if (qEnvironmentVariableIsSet("ZIMA_SKETCH_TRACE")) {
@@ -14791,16 +14705,8 @@ void AssemblyWorkspaceWindow::update_sketch_point_drag(
     }
     if (next_sketch == sketches.end()) return;
     bool moved = false;
-    if (sketch_group_drag_source_) {
-        *next_sketch = *sketch_group_drag_source_;
-        moved = next_sketch->translate_selection(
-            sketch_group_drag_point_ids_, sketch_group_drag_geometry_ids_,
-            (*position)[0] - sketch_group_drag_anchor_[0],
-            (*position)[1] - sketch_group_drag_anchor_[1]);
-    } else {
-        moved = next_sketch->move_point(
-            sketch_drag_point_id_, (*position)[0], (*position)[1]);
-    }
+    moved = next_sketch->move_point(
+        sketch_drag_point_id_, (*position)[0], (*position)[1]);
     if (!moved) {
         state_->setText(tr("Bod nelze přesunout mimo vazby nebo absolutní meze."));
         return;
@@ -14825,9 +14731,6 @@ void AssemblyWorkspaceWindow::end_sketch_point_drag() {
     if (!sketch_drag_document_ && !assembly_sketch_drag_document_) return;
     const bool corner_radius_drag = sketch_corner_drag_source_.has_value();
     sketch_drag_point_id_.clear();
-    sketch_group_drag_source_.reset();
-    sketch_group_drag_point_ids_.clear();
-    sketch_group_drag_geometry_ids_.clear();
     const bool changed = sketch_drag_changed_;
     sketch_drag_changed_ = false;
     if (changed) {
