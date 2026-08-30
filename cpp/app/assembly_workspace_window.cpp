@@ -18534,6 +18534,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         regenerate_part_action_->setEnabled(true);
         undo_action_->setEnabled(part->session.can_undo());
         redo_action_->setEnabled(part->session.can_redo());
+        configure_sketch_box_selection(!active_sketch_id_.empty());
         update_application_actions();
         rebuild_application_toolbar();
         return;
@@ -18992,6 +18993,11 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     update_application_actions();
     rebuild_application_toolbar();
 
+    configure_sketch_box_selection(has_active_part_sketch);
+}
+
+void AssemblyWorkspaceWindow::configure_sketch_box_selection(
+    bool sketch_available) {
     const bool drawing_tool_active = sketch_point_active_ ||
         sketch_segment_active_ || sketch_rectangle_active_ ||
         sketch_polygon_active_ || sketch_trim_active_ ||
@@ -19006,7 +19012,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         sketch_line_pair_dimension_active_ ||
         sketch_corner_fillet_active_;
     viewer_->set_sketch_box_selection(
-        has_active_part_sketch && !drawing_tool_active,
+        sketch_available && !drawing_tool_active,
         [this](std::vector<zima::viewer::ViewerCandidate> candidates,
                bool additive) {
             const QSignalBlocker tree_signals(tree_);
