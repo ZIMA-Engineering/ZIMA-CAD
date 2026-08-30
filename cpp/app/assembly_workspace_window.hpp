@@ -625,6 +625,8 @@ private:
     };
     [[nodiscard]] SketchSegmentInference inferred_sketch_segment_end(
         const std::array<double, 2>& position) const;
+    [[nodiscard]] std::optional<std::array<double, 2>>
+        sketch_line_support_direction(const std::string& support_id) const;
     void preview_sketch_segment_ray(
         const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
     bool accept_sketch_rectangle_ray(

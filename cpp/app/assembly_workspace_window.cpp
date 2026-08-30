@@ -12357,7 +12357,30 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
             }
         } else if (*end_snap_kind ==
                    zima::sketcher::ConstraintKind::PointOnLine) {
-            inferred_end.perpendicular_reference_id = end_snap_geometry_id;
+            // Landing on a line means coincidence with that support.  Add
+            // perpendicularity only when the cursor also expresses a clear
+            // directional intent.  Making it unconditional prevented an
+            // ordinary oblique segment from starting or ending on an axis.
+            if (const auto support_direction =
+                    sketch_line_support_direction(end_snap_geometry_id)) {
+                const double support_length = std::hypot(
+                    (*support_direction)[0], (*support_direction)[1]);
+                const double segment_x =
+                    confirmed_position[0] - (*pending_segment_start_)[0];
+                const double segment_y =
+                    confirmed_position[1] - (*pending_segment_start_)[1];
+                const double perpendicular_error = std::abs(
+                    segment_x * (*support_direction)[0] +
+                    segment_y * (*support_direction)[1]) /
+                    std::max(support_length, 1.0e-12);
+                const double intent_tolerance =
+                    viewer_->world_tolerance_for_pixels(
+                        3.0 * viewer_->devicePixelRatioF());
+                if (perpendicular_error <= intent_tolerance) {
+                    inferred_end.perpendicular_reference_id =
+                        end_snap_geometry_id;
+                }
+            }
         }
     }
     if (sketch_polyline_active_ && sketch_polyline_arc_mode_) {
@@ -12585,58 +12608,9 @@ AssemblyWorkspaceWindow::inferred_sketch_segment_end(
         if (pending_segment_start_snap_kind_ ==
                 zima::sketcher::ConstraintKind::PointOnLine &&
             !pending_segment_start_snap_geometry_id_.empty()) {
-            std::optional<std::array<double, 2>> support_direction;
             const auto support_id = pending_segment_start_snap_geometry_id_;
-            if (support_id == "sketch_axis:x") {
-                support_direction = std::array{1.0, 0.0};
-            } else if (support_id == "sketch_axis:y") {
-                support_direction = std::array{0.0, 1.0};
-            } else if (const auto segment = std::find_if(
-                    sketch->segments.begin(), sketch->segments.end(),
-                    [&](const auto& value) { return value.id == support_id; });
-                segment != sketch->segments.end()) {
-                const auto* first = sketch->find_point(segment->first_point_id);
-                const auto* second = sketch->find_point(segment->second_point_id);
-                support_direction = std::array{
-                    second->x - first->x, second->y - first->y};
-            } else if (const auto reference = std::find_if(
-                    sketch->external_references.begin(),
-                    sketch->external_references.end(),
-                    [&](const auto& value) {
-                        return value.id == support_id &&
-                            (value.kind ==
-                                 zima::sketcher::ExternalReferenceKind::Edge ||
-                             value.kind ==
-                                 zima::sketcher::ExternalReferenceKind::Axis) &&
-                            value.cached_points.size() >= 2;
-                    }); reference != sketch->external_references.end()) {
-                if (reference->kind ==
-                    zima::sketcher::ExternalReferenceKind::Axis) {
-                    support_direction = std::array{
-                        reference->cached_points.back()[0] -
-                            reference->cached_points.front()[0],
-                        reference->cached_points.back()[1] -
-                            reference->cached_points.front()[1]};
-                } else {
-                    const auto& first = reference->cached_points.front();
-                    const auto& last = reference->cached_points.back();
-                    const double dx = last[0] - first[0];
-                    const double dy = last[1] - first[1];
-                    const double length = std::hypot(dx, dy);
-                    bool straight = length > 1.0e-12;
-                    for (const auto& point : reference->cached_points) {
-                        const double deviation = std::abs(
-                            (point[0] - first[0]) * dy -
-                            (point[1] - first[1]) * dx) /
-                            std::max(length, 1.0e-12);
-                        if (deviation > 1.0e-8) {
-                            straight = false;
-                            break;
-                        }
-                    }
-                    if (straight) support_direction = std::array{dx, dy};
-                }
-            }
+            const auto support_direction =
+                sketch_line_support_direction(support_id);
             if (support_direction) {
                 const double length = std::hypot(
                     (*support_direction)[0], (*support_direction)[1]);
@@ -12647,18 +12621,26 @@ AssemblyWorkspaceWindow::inferred_sketch_segment_end(
                         position[0] - (*pending_segment_start_)[0];
                     const double cursor_y =
                         position[1] - (*pending_segment_start_)[1];
-                    double along = cursor_x * normal_x + cursor_y * normal_y;
-                    if (std::abs(along) <= 1.0e-9) {
-                        along = std::copysign(
-                            std::max(std::hypot(cursor_x, cursor_y), tolerance),
-                            along == 0.0 ? 1.0 : along);
+                    const double perpendicular_error = std::abs(
+                        cursor_x * (*support_direction)[0] +
+                        cursor_y * (*support_direction)[1]) / length;
+                    const double intent_tolerance =
+                        viewer_->world_tolerance_for_pixels(
+                            3.0 * viewer_->devicePixelRatioF());
+                    if (perpendicular_error <= intent_tolerance) {
+                        double along = cursor_x * normal_x + cursor_y * normal_y;
+                        if (std::abs(along) <= 1.0e-9) {
+                            along = std::copysign(
+                                std::max(std::hypot(cursor_x, cursor_y), tolerance),
+                                along == 0.0 ? 1.0 : along);
+                        }
+                        SketchSegmentInference candidate{{
+                            (*pending_segment_start_)[0] + along * normal_x,
+                            (*pending_segment_start_)[1] + along * normal_y},
+                            std::nullopt, {}};
+                        candidate.perpendicular_reference_id = support_id;
+                        perpendiculars.push_back(std::move(candidate));
                     }
-                    SketchSegmentInference candidate{{
-                        (*pending_segment_start_)[0] + along * normal_x,
-                        (*pending_segment_start_)[1] + along * normal_y},
-                        std::nullopt, {}};
-                    candidate.perpendicular_reference_id = support_id;
-                    perpendiculars.push_back(std::move(candidate));
                 }
             }
         }
@@ -12881,6 +12863,49 @@ AssemblyWorkspaceWindow::inferred_sketch_segment_end(
     auto selected = variants[sketch_segment_inference_cycle_ % variants.size()];
     selected.variant_count = variants.size();
     return selected;
+}
+
+std::optional<std::array<double, 2>>
+AssemblyWorkspaceWindow::sketch_line_support_direction(
+    const std::string& support_id) const {
+    const auto* sketch = active_sketch();
+    if (sketch == nullptr) return std::nullopt;
+    if (support_id == "sketch_axis:x") return std::array{1.0, 0.0};
+    if (support_id == "sketch_axis:y") return std::array{0.0, 1.0};
+    if (const auto segment = std::find_if(sketch->segments.begin(),
+            sketch->segments.end(), [&](const auto& value) {
+                return value.id == support_id;
+            }); segment != sketch->segments.end()) {
+        const auto* first = sketch->find_point(segment->first_point_id);
+        const auto* second = sketch->find_point(segment->second_point_id);
+        if (first != nullptr && second != nullptr) {
+            return std::array{second->x - first->x, second->y - first->y};
+        }
+        return std::nullopt;
+    }
+    const auto reference = std::find_if(sketch->external_references.begin(),
+        sketch->external_references.end(), [&](const auto& value) {
+            return value.id == support_id &&
+                (value.kind == zima::sketcher::ExternalReferenceKind::Edge ||
+                 value.kind == zima::sketcher::ExternalReferenceKind::Axis) &&
+                value.cached_points.size() >= 2;
+        });
+    if (reference == sketch->external_references.end()) return std::nullopt;
+    const auto& first = reference->cached_points.front();
+    const auto& last = reference->cached_points.back();
+    const double dx = last[0] - first[0];
+    const double dy = last[1] - first[1];
+    const double length = std::hypot(dx, dy);
+    if (length <= 1.0e-12) return std::nullopt;
+    if (reference->kind == zima::sketcher::ExternalReferenceKind::Edge) {
+        for (const auto& point : reference->cached_points) {
+            const double deviation = std::abs(
+                (point[0] - first[0]) * dy -
+                (point[1] - first[1]) * dx) / length;
+            if (deviation > 1.0e-8) return std::nullopt;
+        }
+    }
+    return std::array{dx, dy};
 }
 
 void AssemblyWorkspaceWindow::constrain_selected_segment(
