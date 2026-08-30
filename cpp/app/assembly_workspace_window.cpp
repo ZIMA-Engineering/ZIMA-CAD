@@ -12468,6 +12468,10 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
                     direction_inference = vertical
                         ? zima::sketcher::ConstraintKind::Vertical
                         : zima::sketcher::ConstraintKind::Horizontal;
+                    // This H/V belongs to the new segment endpoints. A nearby
+                    // unrelated point alignment found before the axis snap
+                    // must not steal the directional relation.
+                    inferred_end.reference_point_id.clear();
                     if (vertical) {
                         confirmed_position[0] = (*pending_segment_start_)[0];
                     } else {

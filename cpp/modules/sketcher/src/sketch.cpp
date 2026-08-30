@@ -6383,6 +6383,114 @@ SolveResult Sketch::solve_impl(
         }
         return false;
     };
+    const auto project_common_tangent_segments = [&] {
+        constexpr double turn = 2.0 * 3.14159265358979323846;
+        for (const auto& segment : segments) {
+            std::vector<std::string> tangent_curves;
+            for (const auto& constraint : constraints) {
+                if (constraint.suppressed ||
+                    constraint.kind != ConstraintKind::Tangent) continue;
+                if (constraint.geometry_id == segment.id) {
+                    tangent_curves.push_back(constraint.second_geometry_id);
+                } else if (constraint.second_geometry_id == segment.id) {
+                    tangent_curves.push_back(constraint.geometry_id);
+                }
+            }
+            if (tangent_curves.size() != 2) continue;
+            const auto endpoint_for = [&](const std::string& curve_id)
+                    -> std::optional<std::string> {
+                for (const auto& constraint : constraints) {
+                    if (!constraint.suppressed &&
+                        constraint.kind == ConstraintKind::PointOnCircle &&
+                        constraint.geometry_id == curve_id &&
+                        (constraint.first_point_id == segment.first_point_id ||
+                         constraint.first_point_id == segment.second_point_id)) {
+                        return constraint.first_point_id;
+                    }
+                }
+                return std::nullopt;
+            };
+            const auto first_id = endpoint_for(tangent_curves[0]);
+            const auto second_id = endpoint_for(tangent_curves[1]);
+            const auto first_center_id = center_curve_point_id(*this, tangent_curves[0]);
+            const auto second_center_id = center_curve_point_id(*this, tangent_curves[1]);
+            const auto first_radius = circular_curve_radius(*this, tangent_curves[0]);
+            const auto second_radius = circular_curve_radius(*this, tangent_curves[1]);
+            if (!first_id || !second_id || *first_id == *second_id ||
+                !first_center_id || !second_center_id ||
+                !first_radius || !second_radius) continue;
+            auto* first = find_point(*first_id);
+            auto* second = find_point(*second_id);
+            const auto* first_center = find_point(*first_center_id);
+            const auto* second_center = find_point(*second_center_id);
+            if (first == nullptr || second == nullptr || first_center == nullptr ||
+                second_center == nullptr || immutable(*first) || immutable(*second)) {
+                continue;
+            }
+            const double current_dx = second->x - first->x;
+            const double current_dy = second->y - first->y;
+            const double current_length = std::hypot(current_dx, current_dy);
+            const double center_dx = second_center->x - first_center->x;
+            const double center_dy = second_center->y - first_center->y;
+            const double center_length = std::hypot(center_dx, center_dy);
+            if (current_length <= 1.0e-12 || center_length <= 1.0e-12) continue;
+            const double current_nx = -current_dy / current_length;
+            const double current_ny = current_dx / current_length;
+            const double first_side =
+                ((first_center->x - first->x) * current_nx +
+                 (first_center->y - first->y) * current_ny) >= 0.0 ? 1.0 : -1.0;
+            const double second_side =
+                ((second_center->x - second->x) * current_nx +
+                 (second_center->y - second->y) * current_ny) >= 0.0 ? 1.0 : -1.0;
+            const double normal_along_centers =
+                (second_side * *second_radius - first_side * *first_radius) /
+                center_length;
+            if (std::abs(normal_along_centers) > 1.0 + 1.0e-10) continue;
+            const double ux = center_dx / center_length;
+            const double uy = center_dy / center_length;
+            const double perpendicular = std::sqrt(std::max(
+                0.0, 1.0 - normal_along_centers * normal_along_centers));
+            struct Candidate { double nx, ny, first_x, first_y, second_x, second_y, error; };
+            std::optional<Candidate> best;
+            for (const double branch : {-1.0, 1.0}) {
+                const double nx = normal_along_centers * ux -
+                    branch * perpendicular * uy;
+                const double ny = normal_along_centers * uy +
+                    branch * perpendicular * ux;
+                Candidate candidate{nx, ny,
+                    first_center->x - first_side * *first_radius * nx,
+                    first_center->y - first_side * *first_radius * ny,
+                    second_center->x - second_side * *second_radius * nx,
+                    second_center->y - second_side * *second_radius * ny, 0.0};
+                candidate.error = std::hypot(candidate.first_x - first->x,
+                    candidate.first_y - first->y) +
+                    std::hypot(candidate.second_x - second->x,
+                        candidate.second_y - second->y);
+                if (!best || candidate.error < best->error) best = candidate;
+            }
+            if (!best) continue;
+            first->x = best->first_x; first->y = best->first_y;
+            second->x = best->second_x; second->y = best->second_y;
+            for (auto& arc : arcs) {
+                const auto update_endpoint = [&](const std::string& endpoint_id,
+                                                  bool start) {
+                    if (endpoint_id != *first_id && endpoint_id != *second_id) return;
+                    const auto* endpoint = find_point(endpoint_id);
+                    const auto* center = find_point(arc.center_point_id);
+                    double angle = std::atan2(
+                        endpoint->y - center->y, endpoint->x - center->x);
+                    const double old = start ? arc.start_angle : arc.end_angle;
+                    while (angle < old - 3.14159265358979323846) angle += turn;
+                    while (angle > old + 3.14159265358979323846) angle -= turn;
+                    if (start) arc.start_angle = angle;
+                    else arc.end_angle = angle;
+                };
+                update_endpoint(arc.start_point_id, true);
+                update_endpoint(arc.end_point_id, false);
+                while (arc.end_angle <= arc.start_angle) arc.end_angle += turn;
+            }
+        }
+    };
     const auto directional_translation_closure = [&](
             const std::string& root_id, DimensionKind kind) {
         std::set<std::string> result;
@@ -6653,6 +6761,7 @@ SolveResult Sketch::solve_impl(
         return true;
     };
     for (std::size_t iteration = 0; iteration < maximum_iterations; ++iteration) {
+        project_common_tangent_segments();
         maximum_residual = 0.0;
         bool immovable_conflict = false;
         for (const auto& constraint : constraints) {
@@ -8804,6 +8913,47 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         }
         if (!anchor) continue;
         std::vector<std::string> participants;
+        const auto append_point_geometry = [&](const std::string& point_id) {
+            for (const auto& segment : segments) {
+                if (segment.first_point_id == point_id ||
+                    segment.second_point_id == point_id) {
+                    participants.push_back("segment:" + segment.id);
+                }
+            }
+            for (const auto& circle : circles) {
+                if (circle.center_point_id == point_id)
+                    participants.push_back("circle:" + circle.id);
+            }
+            for (const auto& arc : arcs) {
+                if (arc.center_point_id == point_id ||
+                    arc.start_point_id == point_id ||
+                    arc.end_point_id == point_id) {
+                    participants.push_back("arc:" + arc.id);
+                }
+            }
+            for (const auto& ellipse : ellipses) {
+                if (ellipse.center_point_id == point_id ||
+                    ellipse.major_point_id == point_id ||
+                    ellipse.minor_point_id == point_id) {
+                    participants.push_back("ellipse:" + ellipse.id);
+                }
+            }
+            for (const auto& arc : elliptical_arcs) {
+                if (arc.center_point_id == point_id ||
+                    arc.major_point_id == point_id ||
+                    arc.minor_point_id == point_id ||
+                    arc.start_point_id == point_id ||
+                    arc.end_point_id == point_id) {
+                    participants.push_back("elliptical_arc:" + arc.id);
+                }
+            }
+            for (const auto& spline : bsplines) {
+                if (std::ranges::find(spline.control_point_ids, point_id) !=
+                    spline.control_point_ids.end()) {
+                    participants.push_back("bspline:" + spline.id);
+                }
+            }
+        };
         for (const auto& point_id : {constraint.first_point_id,
                                      constraint.second_point_id}) {
             if (point_id.empty()) continue;
@@ -8821,8 +8971,13 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
                 participants.push_back(
                     point_id == "sketch_origin" ? "origin:point"
                                                  : "point:" + point_id);
+                if (point_id != "sketch_origin") append_point_geometry(point_id);
             }
         }
+        std::sort(participants.begin(), participants.end());
+        participants.erase(
+            std::unique(participants.begin(), participants.end()),
+            participants.end());
         for (const auto& geometry_id : {constraint.geometry_id,
                                         constraint.second_geometry_id}) {
             if (const auto key = geometry_semantic_key(geometry_id); !key.empty())

@@ -1315,6 +1315,21 @@ int main() {
         require(rejected_redundant_direction &&
                     redundant_direction.constraints.size() == 1,
                 "Redundant point-pair constraint was not rejected transactionally");
+        auto combined_axis_snap = zima::sketcher::Sketch::create_default();
+        static_cast<void>(combined_axis_snap.add_segment(3.0, 5.0, 3.0, 0.0));
+        const auto combined_first =
+            combined_axis_snap.segments.front().first_point_id;
+        const auto combined_second =
+            combined_axis_snap.segments.front().second_point_id;
+        static_cast<void>(combined_axis_snap.add_point_on_line_constraint(
+            combined_second, "sketch_axis:x"));
+        static_cast<void>(combined_axis_snap.add_point_pair_constraint(
+            combined_first, combined_second,
+            zima::sketcher::ConstraintKind::Vertical));
+        require(combined_axis_snap.constraints.size() == 2 &&
+                    std::abs(combined_axis_snap.find_point(
+                        combined_second)->y) < 1.0e-10,
+                "Axis endpoint did not preserve combined C+V inference");
         auto redundant_dimension = zima::sketcher::Sketch::create_default();
         const auto fixed_dimension_point = redundant_dimension.add_point(5.0, 0.0);
         redundant_dimension.set_point_fixed(fixed_dimension_point, true);
@@ -3859,6 +3874,15 @@ int main() {
             commanded_bridge_trim.add_circle(-15.0, 0.0, 7.0);
         const auto commanded_right =
             commanded_bridge_trim.add_circle(15.0, 0.0, 5.0);
+        const auto commanded_left_center =
+            commanded_bridge_trim.circles[0].center_point_id;
+        const auto commanded_right_center =
+            commanded_bridge_trim.circles[1].center_point_id;
+        const auto commanded_center_distance =
+            commanded_bridge_trim.create_point_dimension(
+                commanded_left_center, commanded_right_center,
+                zima::sketcher::DimensionKind::DistanceX);
+        commanded_bridge_trim.apply_dimension(commanded_center_distance);
         static_cast<void>(commanded_bridge_trim.add_common_tangent_segment(
             commanded_left, {-15.0, 7.0}, commanded_right, {15.0, 5.0}));
         static_cast<void>(commanded_bridge_trim.add_common_tangent_segment(
@@ -3876,9 +3900,24 @@ int main() {
         static_cast<void>(zima::sketcher::apply_sketch_trim(
             commanded_bridge_trim,
             {*commanded_left_outer, *commanded_right_outer}));
+        const auto commanded_left_radius =
+            commanded_bridge_trim.create_arc_radius_dimension(commanded_left);
+        const auto commanded_right_radius =
+            commanded_bridge_trim.create_arc_radius_dimension(commanded_right);
+        commanded_bridge_trim.apply_dimension(commanded_left_radius);
+        commanded_bridge_trim.apply_dimension(commanded_right_radius);
         const auto commanded_free = commanded_bridge_trim.add_point(40.0, 20.0);
         require(commanded_bridge_trim.move_point(commanded_free, 42.0, 21.0),
             "Command-created trimmed C+T loop blocked an unrelated point");
+        require(commanded_bridge_trim.set_dimension_value(
+                    commanded_left_radius.id, 8.0),
+            "Trimmed left Arc radius dimension was not editable");
+        require(commanded_bridge_trim.set_dimension_value(
+                    commanded_right_radius.id, 6.0),
+            "Trimmed right Arc radius dimension was not editable");
+        require(commanded_bridge_trim.set_dimension_value(
+                    commanded_center_distance.id, 34.0),
+            "Trimmed tangent-loop center distance dimension was not editable");
 
         auto split_trim = zima::sketcher::Sketch::create_default();
         const auto split_target = split_trim.add_segment(-10.0, 2.0, 10.0, 2.0);

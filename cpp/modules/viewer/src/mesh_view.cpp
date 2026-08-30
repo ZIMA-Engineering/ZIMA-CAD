@@ -679,6 +679,33 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
             dimension.reference.owner_id, dimension.reference.semantic_key,
             dimension.reference.instance_path});
     }
+    // Constraint labels sharing one geometric anchor are painted in separate
+    // slots to the right (for example C T). Pick those actual visible slots,
+    // not only the common invisible anchor, so the second and later relation
+    // can be hovered and selected directly.
+    std::map<std::pair<int, int>, int> constraint_slots;
+    for (std::size_t index = 0;
+         index < impl_->mesh.constraint_markers.size(); ++index) {
+        const auto& marker = impl_->mesh.constraint_markers[index];
+        const QPointF anchor = project(marker.position);
+        const auto key = std::pair{
+            static_cast<int>(std::lround(anchor.x())),
+            static_cast<int>(std::lround(anchor.y()))};
+        const int slot = constraint_slots[key]++;
+        const QPointF baseline = anchor + QPointF(7.0 + slot * 16.0, -7.0);
+        QRectF bounds = metrics.boundingRect(QString::fromStdString(marker.label));
+        bounds.moveTopLeft(baseline + QPointF(0.0, -metrics.ascent()));
+        bounds.adjust(-5.0, -5.0, 5.0, 5.0);
+        if (!bounds.contains(position)) continue;
+        std::erase_if(candidates, [index](const auto& candidate) {
+            return candidate.kind == CandidateKind::SketchConstraint &&
+                candidate.geometry_index == index;
+        });
+        candidates.insert(candidates.begin(), ViewerCandidate{
+            CandidateKind::SketchConstraint, 0.0, index,
+            marker.reference.owner_id, marker.reference.semantic_key,
+            marker.reference.instance_path});
+    }
     if (!impl_->active_sketch_owner_id.empty()) {
         const auto sketch_owned_kind = [](CandidateKind kind) {
             return kind == CandidateKind::SketchPoint ||

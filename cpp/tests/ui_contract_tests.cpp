@@ -1801,6 +1801,10 @@ int main(int argc, char* argv[]) {
             false, true});
         box_selection_mesh.points.push_back({{0.0, 0.0, 0.0},
             {"box-selection-sketch", "point:shared-corner"}});
+        box_selection_mesh.constraint_markers.push_back({{0.0, 0.0, 0.0},
+            "C", {"box-selection-sketch", "constraint:first"}});
+        box_selection_mesh.constraint_markers.push_back({{0.0, 0.0, 0.0},
+            "T", {"box-selection-sketch", "constraint:second"}});
         // A passive outer edge establishes a larger camera extent, leaving
         // the active Sketch segment wholly inside the drag rectangle.
         box_selection_mesh.edges.push_back({
@@ -1864,6 +1868,18 @@ int main(int argc, char* argv[]) {
         }
         require(shared_corner_position.has_value(),
                 "Shared Sketch corner was not a View candidate");
+        box_selection_view.set_selection_contract({
+            zima::viewer::CandidateKind::SketchConstraint});
+        const auto second_relation_candidates =
+            box_selection_view.selection_candidates_at(
+                *shared_corner_position + QPointF(25.0, -12.0));
+        require(!second_relation_candidates.empty() &&
+                    second_relation_candidates.front().semantic_key ==
+                        "constraint:second",
+                "Second visible relation glyph was not directly selectable");
+        box_selection_view.set_selection_contract({
+            zima::viewer::CandidateKind::SketchSegment,
+            zima::viewer::CandidateKind::SketchPoint});
         std::optional<zima::viewer::ViewerCandidate> drag_candidate;
         box_selection_view.set_candidate_drag_callbacks(
             [&](const auto& candidate, const auto&, const auto&) {
