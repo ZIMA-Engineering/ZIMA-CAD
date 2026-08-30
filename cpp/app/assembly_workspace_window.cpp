@@ -8027,6 +8027,9 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             }
             active_sketch_id_ = sketch_id;
             selected_sketch_id_ = active_sketch_id_;
+            clear_selected_sketch_geometry();
+            tree_->clearSelection();
+            viewer_->clear_selection();
             refresh_scene();
             // Entering the owned profile from Extrusion/Revolution follows
             // the same camera contract as the standalone SKETCH button. Run
@@ -9772,7 +9775,12 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             zima::sketcher::Sketch committed,
             zima::document::Placement committed_placement,
             bool enter_sketch) {
-            if (enter_sketch) active_sketch_id_ = committed.id;
+            if (enter_sketch) {
+                active_sketch_id_ = committed.id;
+                clear_selected_sketch_geometry();
+                tree_->clearSelection();
+                viewer_->clear_selection();
+            }
             selected_sketch_id_ = committed.id;
             const auto update = [&](auto& next) {
                 if (edit_mode) {
