@@ -556,6 +556,46 @@ sketch_axis_line(const Sketch& sketch, const std::string& axis_id) {
         std::array{second->x - first->x, second->y - first->y}};
 }
 
+bool is_base_sketch_axis(const std::string& id) {
+    return id == "sketch_axis:x" || id == "sketch_axis:y";
+}
+
+using SketchLine2 = std::pair<std::array<double, 2>, std::array<double, 2>>;
+
+std::optional<std::pair<SketchLine2, SketchLine2>> angle_dimension_lines(
+    const Sketch& sketch, const SketchDimension& dimension) {
+    if (dimension.kind != DimensionKind::AngleBetween) return std::nullopt;
+    const auto point_line = [&](const std::string& first_id,
+            const std::string& second_id) -> std::optional<SketchLine2> {
+        const auto* first = sketch.find_point(first_id);
+        const auto* second = sketch.find_point(second_id);
+        if (first == nullptr || second == nullptr) return std::nullopt;
+        return SketchLine2{{first->x, first->y},
+            {second->x - first->x, second->y - first->y}};
+    };
+    if (const auto first = point_line(
+            dimension.first_point_id, dimension.second_point_id)) {
+        if (const auto second = point_line(
+                dimension.geometry_id, dimension.second_geometry_id)) {
+            return std::pair{*first, *second};
+        }
+        const auto reference = sketch_axis_line(sketch, dimension.geometry_id)
+            ? sketch_axis_line(sketch, dimension.geometry_id)
+            : segment_or_external_line(sketch, dimension.geometry_id);
+        if (reference && dimension.second_geometry_id.empty()) {
+            return std::pair{*reference, *first};
+        }
+    }
+    const auto reference = sketch_axis_line(sketch, dimension.geometry_id)
+        ? sketch_axis_line(sketch, dimension.geometry_id)
+        : segment_or_external_line(sketch, dimension.geometry_id);
+    const auto driven = segment_or_external_line(
+        sketch, dimension.second_geometry_id);
+    if (!reference || !driven) return std::nullopt;
+    return std::pair{*reference, *driven};
+}
+
+
 std::optional<double> measured_dimension_value(
     const Sketch& sketch, const SketchDimension& dimension) {
     const auto point_position = [&](const std::string& point_id)
@@ -626,11 +666,33 @@ std::optional<double> measured_dimension_value(
     }
     if (dimension.kind == DimensionKind::DistanceLine ||
         dimension.kind == DimensionKind::AngleBetween) {
+        if (dimension.kind == DimensionKind::AngleBetween) {
+            const auto lines = angle_dimension_lines(sketch, dimension);
+            if (!lines) return std::nullopt;
+            const auto& rv = lines->first.second;
+            const auto& dv = lines->second.second;
+            const double scale = std::hypot(rv[0], rv[1]) *
+                std::hypot(dv[0], dv[1]);
+            if (scale <= 1.0e-12) return std::nullopt;
+            return std::acos(std::clamp(
+                (rv[0] * dv[0] + rv[1] * dv[1]) / scale, -1.0, 1.0)) *
+                180.0 / 3.14159265358979323846;
+        }
         const auto reference = sketch_axis_line(sketch, dimension.geometry_id)
             ? sketch_axis_line(sketch, dimension.geometry_id)
             : segment_or_external_line(sketch, dimension.geometry_id);
-        const auto driven = segment_or_external_line(
+        auto driven = segment_or_external_line(
             sketch, dimension.second_geometry_id);
+        if (dimension.kind == DimensionKind::AngleBetween &&
+            dimension.second_geometry_id.empty()) {
+            const auto first = point_position(dimension.first_point_id);
+            const auto second = point_position(dimension.second_point_id);
+            if (first && second) {
+                driven = std::pair{*first,
+                    std::array{(*second)[0] - (*first)[0],
+                               (*second)[1] - (*first)[1]}};
+            }
+        }
         if (!reference || !driven) return std::nullopt;
         const double reference_length = std::hypot(
             reference->second[0], reference->second[1]);
@@ -1119,22 +1181,31 @@ std::optional<SegmentCurveTangentState> segment_curve_tangent_state(
     const auto segment = std::find_if(
         sketch.segments.begin(), sketch.segments.end(),
         [&](const auto& value) { return value.id == segment_id; });
+    const auto axis = segment == sketch.segments.end() &&
+            is_base_sketch_axis(segment_id)
+        ? sketch_axis_line(sketch, segment_id) : std::nullopt;
     const auto curve = tangent_curve_data(sketch, curve_id);
-    if (segment == sketch.segments.end() || !curve) return std::nullopt;
-    const auto* first = sketch.find_point(segment->first_point_id);
-    const auto* second = sketch.find_point(segment->second_point_id);
+    if ((segment == sketch.segments.end() && !axis) || !curve)
+        return std::nullopt;
+    const auto* first = segment == sketch.segments.end()
+        ? nullptr : sketch.find_point(segment->first_point_id);
+    const auto* second = segment == sketch.segments.end()
+        ? nullptr : sketch.find_point(segment->second_point_id);
     const auto* center = sketch.find_point(curve->center_point_id);
-    if (first == nullptr || second == nullptr || center == nullptr) return std::nullopt;
-    const double dx = second->x - first->x;
-    const double dy = second->y - first->y;
+    if ((!axis && (first == nullptr || second == nullptr)) || center == nullptr)
+        return std::nullopt;
+    const double first_x = axis ? axis->first[0] : first->x;
+    const double first_y = axis ? axis->first[1] : first->y;
+    const double dx = axis ? axis->second[0] : second->x - first->x;
+    const double dy = axis ? axis->second[1] : second->y - first->y;
     const double length = std::hypot(dx, dy);
     if (length <= 1.0e-12) return std::nullopt;
     const double tangent_x = dx / length;
     const double tangent_y = dy / length;
     const double normal_x = -tangent_y;
     const double normal_y = tangent_x;
-    const double center_x = center->x - first->x;
-    const double center_y = center->y - first->y;
+    const double center_x = center->x - first_x;
+    const double center_y = center->y - first_y;
     const double signed_distance = center_x * normal_x + center_y * normal_y;
     const double normal_major =
         normal_x * curve->major_x + normal_y * curve->major_y;
@@ -1157,8 +1228,8 @@ std::optional<SegmentCurveTangentState> segment_curve_tangent_state(
     const double target_distance = signed_distance >= 0.0
         ? support : -support;
     constexpr double linear_tolerance = 1.0e-8;
-    const bool contact_on_segment =
-        along >= -linear_tolerance && along <= length + linear_tolerance;
+    const bool contact_on_segment = axis ||
+        (along >= -linear_tolerance && along <= length + linear_tolerance);
     bool contact_on_curve = true;
     if (curve->parameter_domain) {
         constexpr double circle_turn = 2.0 * 3.14159265358979323846;
@@ -1182,7 +1253,8 @@ std::optional<SegmentCurveTangentState> segment_curve_tangent_state(
             relative >= circle_turn - angular_tolerance;
     }
     return SegmentCurveTangentState{
-        segment->first_point_id, segment->second_point_id,
+        axis ? std::string{} : segment->first_point_id,
+        axis ? std::string{} : segment->second_point_id,
         curve->center_point_id, normal_x, normal_y,
         signed_distance, target_distance,
         center->x + contact_offset_x, center->y + contact_offset_y,
@@ -1954,17 +2026,23 @@ void Sketch::validate() const {
             ? circular_curve_radius(*this, constraint.second_geometry_id) : std::nullopt;
         const bool first_is_segment = owned_segment != nullptr;
         const bool second_is_segment = second_owned_segment != nullptr;
+        const bool first_is_axis = tangent &&
+            is_base_sketch_axis(constraint.geometry_id);
+        const bool second_is_axis = tangent &&
+            is_base_sketch_axis(constraint.second_geometry_id);
+        const bool first_is_line = first_is_segment || first_is_axis;
+        const bool second_is_line = second_is_segment || second_is_axis;
         const bool external_direction_pair = pair_constraint &&
             constraint.kind != ConstraintKind::EqualLength &&
             segment_or_external_line(*this, constraint.geometry_id).has_value() &&
             second_is_segment;
         const bool tangent_line_curve_valid =
-            first_is_segment != second_is_segment &&
-            (first_is_segment
+            first_is_line != second_is_line &&
+            (first_is_line
                 ? static_cast<bool>(second_tangent_curve) || second_tangent_spline
                 : static_cast<bool>(first_tangent_curve) || first_tangent_spline);
         const bool tangent_curve_pair_valid =
-            !first_is_segment && !second_is_segment &&
+            !first_is_line && !second_is_line &&
             first_tangent_curve && second_tangent_curve;
         const auto symmetry_axis = symmetric
             ? sketch_axis_line(*this, constraint.geometry_id) : std::nullopt;
@@ -1974,8 +2052,11 @@ void Sketch::validate() const {
             return find_point(point_id) != nullptr ||
                 external_point_position(*this, point_id).has_value();
         };
-        const bool points_valid = pair_constraint || midpoint_on_line ||
-                concentric || tangent || equal_radius
+        const bool points_valid = tangent
+            ? constraint.second_point_id.empty() &&
+              (constraint.first_point_id.empty() ||
+               find_point(constraint.first_point_id) != nullptr)
+            : pair_constraint || midpoint_on_line || concentric || equal_radius
             ? constraint.first_point_id.empty() && constraint.second_point_id.empty()
             : point_on_circle || point_on_line || midpoint
                 ? find_point(constraint.first_point_id) != nullptr &&
@@ -2041,6 +2122,20 @@ void Sketch::validate() const {
         const bool line_pair_dimension =
             dimension.kind == DimensionKind::DistanceLine ||
             dimension.kind == DimensionKind::AngleBetween;
+        const bool point_line_angle =
+            dimension.kind == DimensionKind::AngleBetween &&
+            dimension.second_geometry_id.empty() &&
+            find_point(dimension.first_point_id) != nullptr &&
+            find_point(dimension.second_point_id) != nullptr &&
+            dimension.first_point_id != dimension.second_point_id;
+        const bool four_point_angle =
+            dimension.kind == DimensionKind::AngleBetween &&
+            find_point(dimension.first_point_id) != nullptr &&
+            find_point(dimension.second_point_id) != nullptr &&
+            find_point(dimension.geometry_id) != nullptr &&
+            find_point(dimension.second_geometry_id) != nullptr &&
+            dimension.first_point_id != dimension.second_point_id &&
+            dimension.geometry_id != dimension.second_geometry_id;
         const bool point_line_dimension =
             dimension.kind == DimensionKind::DistancePointLine ||
             dimension.kind == DimensionKind::DistanceSymmetric;
@@ -2093,15 +2188,25 @@ void Sketch::validate() const {
                 ? sketch_axis_line(*this, dimension.geometry_id)
                 : segment_or_external_line(*this, dimension.geometry_id))
             : std::nullopt;
-        const auto second_dimension_line = line_pair_dimension
+        auto second_dimension_line = line_pair_dimension && !point_line_angle
             ? segment_or_external_line(*this, dimension.second_geometry_id)
-            : std::nullopt;
+            : std::optional<std::pair<std::array<double, 2>,
+                  std::array<double, 2>>>{};
+        if (point_line_angle) {
+            const auto* first = find_point(dimension.first_point_id);
+            const auto* second = find_point(dimension.second_point_id);
+            second_dimension_line = std::pair{
+                std::array{first->x, first->y},
+                std::array{second->x - first->x, second->y - first->y}};
+        }
         const bool line_pair_geometry_valid = line_pair_dimension &&
-            first_dimension_line && second_dimension_line &&
-            dimension.geometry_id != dimension.second_geometry_id &&
-            std::any_of(segments.begin(), segments.end(), [&](const auto& segment) {
-                return segment.id == dimension.second_geometry_id;
-            });
+            ((four_point_angle && angle_dimension_lines(*this, dimension)) ||
+             (first_dimension_line && second_dimension_line &&
+             (point_line_angle ||
+             (dimension.geometry_id != dimension.second_geometry_id &&
+              std::any_of(segments.begin(), segments.end(), [&](const auto& segment) {
+                  return segment.id == dimension.second_geometry_id;
+              })))));
         const auto point_dimension_line = point_line_dimension
             ? (sketch_axis_line(*this, dimension.geometry_id)
                 ? sketch_axis_line(*this, dimension.geometry_id)
@@ -2148,7 +2253,7 @@ void Sketch::validate() const {
             throw std::runtime_error("Distance must not be negative");
         }
         if ((dimension.kind == DimensionKind::AngleBetween &&
-             (dimension.value < 0.0 || dimension.value > 180.0)) ||
+             (dimension.value < -180.0 || dimension.value > 180.0)) ||
             ((dimension.kind == DimensionKind::Angle ||
              dimension.kind == DimensionKind::EllipseRotation) &&
              (dimension.value < -180.0 || dimension.value > 180.0))) {
@@ -2227,7 +2332,6 @@ bool Sketch::set_dimension_value(const std::string& dimension_id, double value) 
           found->kind == DimensionKind::AngleBetween ||
           found->kind == DimensionKind::EllipseRotation) &&
          (value < -180.0 || value > 180.0)) ||
-        (found->kind == DimensionKind::AngleBetween && value < 0.0) ||
         (found->lower_limit && value < *found->lower_limit) ||
         (found->upper_limit && value > *found->upper_limit)) return false;
     auto updated = *found;
@@ -3840,7 +3944,8 @@ std::string Sketch::add_concentric_constraint(
 
 std::string Sketch::add_tangent_constraint(
     const std::string& reference_geometry_id,
-    const std::string& driven_geometry_id) {
+    const std::string& driven_geometry_id,
+    const std::string& contact_point_id) {
     const bool reference_is_segment = std::any_of(
         segments.begin(), segments.end(), [&](const auto& value) {
             return value.id == reference_geometry_id;
@@ -3849,36 +3954,41 @@ std::string Sketch::add_tangent_constraint(
         segments.begin(), segments.end(), [&](const auto& value) {
             return value.id == driven_geometry_id;
         });
+    const bool reference_is_axis = is_base_sketch_axis(reference_geometry_id);
+    const bool driven_is_axis = is_base_sketch_axis(driven_geometry_id);
+    const bool reference_is_line = reference_is_segment || reference_is_axis;
+    const bool driven_is_line = driven_is_segment || driven_is_axis;
     const auto reference_curve = tangent_curve_data(*this, reference_geometry_id);
     const auto driven_curve = tangent_curve_data(*this, driven_geometry_id);
     const bool reference_spline = std::ranges::any_of(bsplines,
         [&](const auto& value) { return value.id == reference_geometry_id; });
     const bool driven_spline = std::ranges::any_of(bsplines,
         [&](const auto& value) { return value.id == driven_geometry_id; });
-    const bool line_curve = reference_is_segment != driven_is_segment &&
-        (reference_is_segment
+    const bool line_curve = reference_is_line != driven_is_line &&
+        (reference_is_line
             ? static_cast<bool>(driven_curve) || driven_spline
             : static_cast<bool>(reference_curve) || reference_spline);
     const bool curve_pair =
-        !reference_is_segment && !driven_is_segment &&
+        !reference_is_line && !driven_is_line &&
         reference_curve && driven_curve;
     if (reference_geometry_id.empty() || driven_geometry_id.empty() ||
         reference_geometry_id == driven_geometry_id ||
+        (!contact_point_id.empty() && find_point(contact_point_id) == nullptr) ||
         (!line_curve && !curve_pair)) {
         throw std::invalid_argument("Tangent constraint input is invalid");
     }
     bool tangent_internal = false;
     if (line_curve) {
-        const std::string& segment_id = reference_is_segment
+        const std::string& segment_id = reference_is_line
             ? reference_geometry_id : driven_geometry_id;
-        const std::string& curve_id = reference_is_segment
+        const std::string& curve_id = reference_is_line
             ? driven_geometry_id : reference_geometry_id;
         const bool spline_curve = std::ranges::any_of(bsplines,
             [&](const auto& value) { return value.id == curve_id; });
         const auto state = spline_curve
             ? std::optional<SegmentCurveTangentState>{}
             : segment_curve_tangent_state(*this, segment_id, curve_id);
-        const auto spline_state = spline_curve
+        const auto spline_state = spline_curve && !reference_is_axis && !driven_is_axis
             ? segment_spline_tangent_state(*this, segment_id, curve_id)
             : std::optional<SegmentSplineTangentState>{};
         if ((!spline_curve &&
@@ -3927,6 +4037,7 @@ std::string Sketch::add_tangent_constraint(
     SketchConstraint constraint;
     constraint.id = make_id();
     constraint.kind = ConstraintKind::Tangent;
+    constraint.first_point_id = contact_point_id;
     constraint.geometry_id = reference_geometry_id;
     constraint.second_geometry_id = driven_geometry_id;
     constraint.tangent_internal = tangent_internal;
@@ -6047,6 +6158,69 @@ SketchDimension Sketch::create_three_point_angle_dimension(
     return result;
 }
 
+SketchDimension Sketch::create_point_line_angle_dimension(
+    const std::string& first_point_id, const std::string& second_point_id,
+    const std::string& reference_line_id) const {
+    const auto* first = find_point(first_point_id);
+    const auto* second = find_point(second_point_id);
+    const auto reference = sketch_axis_line(*this, reference_line_id)
+        ? sketch_axis_line(*this, reference_line_id)
+        : segment_or_external_line(*this, reference_line_id);
+    if (first == nullptr || second == nullptr || first_point_id == second_point_id ||
+        !reference) {
+        throw std::invalid_argument(
+            "Point-line angle requires two distinct points and a valid line");
+    }
+    const double dx = second->x - first->x;
+    const double dy = second->y - first->y;
+    const double reference_length = std::hypot(
+        reference->second[0], reference->second[1]);
+    const double driven_length = std::hypot(dx, dy);
+    if (reference_length <= 1.0e-12 || driven_length <= 1.0e-12) {
+        throw std::invalid_argument("Angle directions must have nonzero length");
+    }
+    SketchDimension result;
+    result.id = make_id();
+    result.kind = DimensionKind::AngleBetween;
+    result.first_point_id = first_point_id;
+    result.second_point_id = second_point_id;
+    result.geometry_id = reference_line_id;
+    result.value = std::acos(std::clamp(
+        (reference->second[0] * dx + reference->second[1] * dy) /
+            (reference_length * driven_length), -1.0, 1.0)) *
+        180.0 / 3.14159265358979323846;
+    return result;
+}
+
+SketchDimension Sketch::create_four_point_angle_dimension(
+    const std::string& first_point_id, const std::string& second_point_id,
+    const std::string& third_point_id, const std::string& fourth_point_id) const {
+    const auto* first = find_point(first_point_id);
+    const auto* second = find_point(second_point_id);
+    const auto* third = find_point(third_point_id);
+    const auto* fourth = find_point(fourth_point_id);
+    if (first == nullptr || second == nullptr || third == nullptr || fourth == nullptr ||
+        first_point_id == second_point_id || third_point_id == fourth_point_id) {
+        throw std::invalid_argument("Four-point angle requires two valid point pairs");
+    }
+    const double ax = second->x - first->x;
+    const double ay = second->y - first->y;
+    const double bx = fourth->x - third->x;
+    const double by = fourth->y - third->y;
+    const double scale = std::hypot(ax, ay) * std::hypot(bx, by);
+    if (scale <= 1.0e-12) throw std::invalid_argument("Angle directions are degenerate");
+    SketchDimension result;
+    result.id = make_id();
+    result.kind = DimensionKind::AngleBetween;
+    result.first_point_id = first_point_id;
+    result.second_point_id = second_point_id;
+    result.geometry_id = third_point_id;
+    result.second_geometry_id = fourth_point_id;
+    result.value = std::acos(std::clamp((ax * bx + ay * by) / scale, -1.0, 1.0)) *
+        180.0 / 3.14159265358979323846;
+    return result;
+}
+
 SketchDimension Sketch::create_axis_dimension(
     const std::string& point_id,
     const std::string& sketch_axis_id) const {
@@ -6289,8 +6463,14 @@ void Sketch::apply_dimension(SketchDimension dimension) {
                         ? value.geometry_id == dimension.geometry_id
                         : (dimension.kind == DimensionKind::DistanceLine ||
                            dimension.kind == DimensionKind::AngleBetween)
-                            ? value.geometry_id == dimension.geometry_id &&
-                              value.second_geometry_id == dimension.second_geometry_id
+                            ? (value.geometry_id == dimension.geometry_id &&
+                               value.second_geometry_id ==
+                                   dimension.second_geometry_id) ||
+                              (value.kind == DimensionKind::AngleBetween &&
+                               value.geometry_id ==
+                                   dimension.second_geometry_id &&
+                               value.second_geometry_id ==
+                                   dimension.geometry_id)
                         : (dimension.kind == DimensionKind::DistancePointLine ||
                            dimension.kind == DimensionKind::DistanceSymmetric)
                             ? value.first_point_id == dimension.first_point_id &&
@@ -6901,7 +7081,11 @@ SolveResult Sketch::solve_impl(
                     segments.begin(), segments.end(), [&](const auto& value) {
                         return value.id == constraint.second_geometry_id;
                     });
-                if (!reference_is_segment && !driven_is_segment) {
+                const bool reference_is_line = reference_is_segment ||
+                    is_base_sketch_axis(constraint.geometry_id);
+                const bool driven_is_line = driven_is_segment ||
+                    is_base_sketch_axis(constraint.second_geometry_id);
+                if (!reference_is_line && !driven_is_line) {
                     const auto reference_curve = tangent_curve_data(
                         *this, constraint.geometry_id);
                     const auto driven_curve = tangent_curve_data(
@@ -6969,9 +7153,9 @@ SolveResult Sketch::solve_impl(
                     }
                     continue;
                 }
-                const std::string& segment_id = reference_is_segment
+                const std::string& segment_id = reference_is_line
                     ? constraint.geometry_id : constraint.second_geometry_id;
-                const std::string& curve_id = reference_is_segment
+                const std::string& curve_id = reference_is_line
                     ? constraint.second_geometry_id : constraint.geometry_id;
                 if (std::ranges::any_of(bsplines,
                         [&](const auto& value) { return value.id == curve_id; })) {
@@ -7021,10 +7205,12 @@ SolveResult Sketch::solve_impl(
                 std::set<std::string> reference_points;
                 double translation_x{};
                 double translation_y{};
-                if (reference_is_segment) {
+                if (reference_is_line) {
                     translated = center_curve_translation_points(*this, curve_id);
-                    reference_points.insert(state->first_point_id);
-                    reference_points.insert(state->second_point_id);
+                    if (!state->first_point_id.empty())
+                        reference_points.insert(state->first_point_id);
+                    if (!state->second_point_id.empty())
+                        reference_points.insert(state->second_point_id);
                     translation_x = correction * state->normal_x;
                     translation_y = correction * state->normal_y;
                 } else {
@@ -7495,10 +7681,27 @@ SolveResult Sketch::solve_impl(
                     [&](const auto& value) {
                         return value.id == dimension.second_geometry_id;
                     });
-                auto* driven_first = find_point(driven_segment->first_point_id);
-                auto* driven_second = find_point(driven_segment->second_point_id);
-                const double rx = reference->second[0];
-                const double ry = reference->second[1];
+                const bool point_line_angle =
+                    dimension.kind == DimensionKind::AngleBetween &&
+                    dimension.second_geometry_id.empty();
+                const bool four_point_angle =
+                    dimension.kind == DimensionKind::AngleBetween &&
+                    find_point(dimension.geometry_id) != nullptr &&
+                    find_point(dimension.second_geometry_id) != nullptr;
+                auto* driven_first = find_point(four_point_angle
+                    ? dimension.geometry_id
+                    : point_line_angle ? dimension.first_point_id
+                    : driven_segment->first_point_id);
+                auto* driven_second = find_point(four_point_angle
+                    ? dimension.second_geometry_id
+                    : point_line_angle ? dimension.second_point_id
+                    : driven_segment->second_point_id);
+                const auto angle_lines = dimension.kind == DimensionKind::AngleBetween
+                    ? angle_dimension_lines(*this, dimension) : std::nullopt;
+                const double rx = angle_lines
+                    ? angle_lines->first.second[0] : reference->second[0];
+                const double ry = angle_lines
+                    ? angle_lines->first.second[1] : reference->second[1];
                 const double reference_length = std::hypot(rx, ry);
                 const double dx = driven_second->x - driven_first->x;
                 const double dy = driven_second->y - driven_first->y;
@@ -7528,17 +7731,97 @@ SolveResult Sketch::solve_impl(
                             (reference_length * driven_length), -1.0, 1.0);
                     const double measured = std::acos(cosine) *
                         180.0 / 3.14159265358979323846;
-                    const double residual = measured - dimension.value;
+                    const double displayed_magnitude = std::abs(dimension.value);
+                    const double supplementary_target =
+                        180.0 - displayed_magnitude;
+                    // The displayed sector can reverse either line ray at
+                    // their intersection.  Therefore angle_sector alone does
+                    // not say whether the stored line directions constrain
+                    // alpha or 180-alpha.  Keep the branch represented by the
+                    // current geometry; this is stable while editing another
+                    // dimension and follows a direct edit to the nearby
+                    // angular value.
+                    const double solver_target = dimension.angle_sector == 1 &&
+                            std::abs(measured - supplementary_target) <
+                                std::abs(measured - displayed_magnitude)
+                        ? supplementary_target : displayed_magnitude;
+                    const double residual = measured - solver_target;
                     maximum_residual = std::max(maximum_residual, std::abs(residual));
                     if (std::abs(residual) > tolerance) {
                         const double reference_angle = std::atan2(ry, rx);
                         const double orientation = rx * dy - ry * dx < 0.0 ? -1.0 : 1.0;
                         const double target = reference_angle + orientation *
-                            dimension.value * 3.14159265358979323846 / 180.0;
+                            solver_target * 3.14159265358979323846 / 180.0;
                         const double target_dx = driven_length * std::cos(target);
                         const double target_dy = driven_length * std::sin(target);
-                        if (!move_pair(*driven_first, *driven_second,
-                                target_dx - dx, target_dy - dy)) {
+                        bool moved{};
+                        const auto reference_segment = std::find_if(
+                            segments.begin(), segments.end(), [&](const auto& value) {
+                                return value.id == dimension.geometry_id;
+                            });
+                        SketchPoint* shared{};
+                        SketchPoint* free_endpoint{};
+                        double direction_sign{1.0};
+                        if (reference_segment != segments.end()) {
+                            if (reference_segment->first_point_id == driven_first->id ||
+                                reference_segment->second_point_id == driven_first->id) {
+                                shared = driven_first;
+                                free_endpoint = driven_second;
+                            } else if (reference_segment->first_point_id ==
+                                    driven_second->id ||
+                                reference_segment->second_point_id ==
+                                    driven_second->id) {
+                                shared = driven_second;
+                                free_endpoint = driven_first;
+                                direction_sign = -1.0;
+                            }
+                        }
+                        if (shared != nullptr && free_endpoint != nullptr &&
+                            !immutable(*free_endpoint)) {
+                            const double ray_x = direction_sign * std::cos(target);
+                            const double ray_y = direction_sign * std::sin(target);
+                            std::optional<std::array<double, 2>> intersection;
+                            for (const auto& constraint : constraints) {
+                                if (constraint.suppressed ||
+                                    constraint.kind != ConstraintKind::PointOnLine ||
+                                    constraint.first_point_id != free_endpoint->id) {
+                                    continue;
+                                }
+                                const auto line = sketch_axis_line(
+                                    *this, constraint.geometry_id)
+                                    ? sketch_axis_line(*this, constraint.geometry_id)
+                                    : segment_or_external_line(
+                                        *this, constraint.geometry_id);
+                                if (!line) continue;
+                                const double denominator =
+                                    ray_x * line->second[1] -
+                                    ray_y * line->second[0];
+                                if (std::abs(denominator) <= 1.0e-12) continue;
+                                const double offset_x = line->first[0] - shared->x;
+                                const double offset_y = line->first[1] - shared->y;
+                                const double parameter =
+                                    (offset_x * line->second[1] -
+                                     offset_y * line->second[0]) / denominator;
+                                intersection = std::array{
+                                    shared->x + parameter * ray_x,
+                                    shared->y + parameter * ray_y};
+                                break;
+                            }
+                            if (intersection) {
+                                free_endpoint->x = (*intersection)[0];
+                                free_endpoint->y = (*intersection)[1];
+                            } else {
+                                free_endpoint->x = shared->x +
+                                    direction_sign * target_dx;
+                                free_endpoint->y = shared->y +
+                                    direction_sign * target_dy;
+                            }
+                            moved = true;
+                        } else {
+                            moved = move_pair(*driven_first, *driven_second,
+                                target_dx - dx, target_dy - dy);
+                        }
+                        if (!moved) {
                             immovable_conflict = true;
                         }
                     }
@@ -7746,7 +8029,11 @@ SolveResult Sketch::solve_impl(
                     segments.begin(), segments.end(), [&](const auto& value) {
                         return value.id == constraint.second_geometry_id;
                     });
-                if (!reference_is_segment && !driven_is_segment) {
+                const bool reference_is_line = reference_is_segment ||
+                    is_base_sketch_axis(constraint.geometry_id);
+                const bool driven_is_line = driven_is_segment ||
+                    is_base_sketch_axis(constraint.second_geometry_id);
+                if (!reference_is_line && !driven_is_line) {
                     const auto reference_curve = tangent_curve_data(
                         *this, constraint.geometry_id);
                     const auto driven_curve = tangent_curve_data(
@@ -7768,13 +8055,13 @@ SolveResult Sketch::solve_impl(
                         result.push_back(state ? state->distance : 1.0e12);
                     }
                 } else {
-                    const auto& curve_id = reference_is_segment
+                    const auto& curve_id = reference_is_line
                         ? constraint.second_geometry_id : constraint.geometry_id;
                     if (std::ranges::any_of(bsplines,
                             [&](const auto& value) { return value.id == curve_id; })) {
                         const auto state = segment_spline_tangent_state(
                             *this,
-                            reference_is_segment ? constraint.geometry_id
+                            reference_is_line ? constraint.geometry_id
                                                  : constraint.second_geometry_id,
                             curve_id);
                         result.push_back(state ? state->residual : 1.0e12);
@@ -7782,9 +8069,9 @@ SolveResult Sketch::solve_impl(
                     }
                     const auto state = segment_curve_tangent_state(
                         *this,
-                        reference_is_segment
+                        reference_is_line
                             ? constraint.geometry_id : constraint.second_geometry_id,
-                        reference_is_segment
+                        reference_is_line
                             ? constraint.second_geometry_id : constraint.geometry_id);
                     result.push_back(state
                         ? std::abs(state->signed_distance) -
@@ -7989,11 +8276,55 @@ SolveResult Sketch::solve_impl(
             }
             if (dimension.kind == DimensionKind::DistanceLine ||
                 dimension.kind == DimensionKind::AngleBetween) {
+                if (dimension.kind == DimensionKind::AngleBetween) {
+                    const auto lines = angle_dimension_lines(*this, dimension);
+                    if (!lines) {
+                        result.push_back(1.0e12);
+                        continue;
+                    }
+                    const auto& rv = lines->first.second;
+                    const auto& dv = lines->second.second;
+                    const double scale = std::hypot(rv[0], rv[1]) *
+                        std::hypot(dv[0], dv[1]);
+                    const double cross =
+                        (rv[0] * dv[1] - rv[1] * dv[0]) / scale;
+                    const double dot =
+                        (rv[0] * dv[0] + rv[1] * dv[1]) / scale;
+                    const double orientation =
+                        dimension.value < 0.0 ? -1.0 : 1.0;
+                    const double measured = std::acos(std::clamp(dot, -1.0, 1.0)) *
+                        180.0 / 3.14159265358979323846;
+                    const double displayed_magnitude = std::abs(dimension.value);
+                    const double supplementary_target =
+                        180.0 - displayed_magnitude;
+                    const double solver_target = dimension.angle_sector == 1 &&
+                            std::abs(measured - supplementary_target) <
+                                std::abs(measured - displayed_magnitude)
+                        ? supplementary_target : displayed_magnitude;
+                    // acos has a singular numerical derivative at 0 and 180
+                    // degrees.  That made a horizontal constraint and a 0°
+                    // angular driver look independent to the rank test.  A
+                    // locally signed atan2 residual describes the same single
+                    // rotational equation and remains differentiable at 0°.
+                    result.push_back(orientation * std::atan2(cross, dot) *
+                        180.0 / 3.14159265358979323846 - solver_target);
+                    continue;
+                }
                 const auto reference = sketch_axis_line(*this, dimension.geometry_id)
                     ? sketch_axis_line(*this, dimension.geometry_id)
                     : segment_or_external_line(*this, dimension.geometry_id);
-                const auto driven = segment_or_external_line(
+                auto driven = segment_or_external_line(
                     *this, dimension.second_geometry_id);
+                if (dimension.kind == DimensionKind::AngleBetween &&
+                    dimension.second_geometry_id.empty()) {
+                    const auto first = point_position(dimension.first_point_id);
+                    const auto second = point_position(dimension.second_point_id);
+                    if (first && second) {
+                        driven = std::pair{*first,
+                            std::array{(*second)[0] - (*first)[0],
+                                       (*second)[1] - (*first)[1]}};
+                    }
+                }
                 const double rx = reference->second[0];
                 const double ry = reference->second[1];
                 const double dx = driven->second[0];
@@ -8154,8 +8485,21 @@ SolveResult Sketch::solve_impl(
             structural_unite(columns.front(), columns[index]);
         }
     }
+    std::set<std::string> tangent_contact_points;
+    for (const auto& constraint : constraints) {
+        if (!constraint.suppressed &&
+            constraint.kind == ConstraintKind::Tangent &&
+            !constraint.first_point_id.empty()) {
+            tangent_contact_points.insert(constraint.first_point_id);
+        }
+    }
     for (const auto& constraint : constraints) {
         if (constraint.suppressed) continue;
+        if ((constraint.kind == ConstraintKind::PointOnCircle ||
+             constraint.kind == ConstraintKind::PointOnLine) &&
+            tangent_contact_points.contains(constraint.first_point_id)) {
+            continue;
+        }
         unite_entities({constraint.first_point_id, constraint.second_point_id,
                         constraint.geometry_id, constraint.second_geometry_id});
     }
@@ -8991,10 +9335,35 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         }
         return std::string{};
     };
+    const auto contact_relation_owned_by_tangent = [&](const auto& relation) {
+        if ((relation.kind != ConstraintKind::PointOnCircle &&
+             relation.kind != ConstraintKind::PointOnLine) ||
+            relation.first_point_id.empty()) {
+            return false;
+        }
+        return std::ranges::any_of(constraints, [&](const auto& tangent) {
+            return !tangent.suppressed &&
+                tangent.kind == ConstraintKind::Tangent &&
+                tangent.first_point_id == relation.first_point_id &&
+                (relation.geometry_id == tangent.geometry_id ||
+                 relation.geometry_id == tangent.second_geometry_id);
+        });
+    };
     for (const auto& constraint : constraints) {
         if (constraint.suppressed) continue;
+        // A persisted tangent contact necessarily owns two incidence
+        // relations: point-on-curve and point-on-support. They are solver
+        // inputs, not three independent user-facing markers. The Tangent
+        // marker below represents the complete contact as one "C T" label.
+        if (contact_relation_owned_by_tangent(constraint)) continue;
         std::optional<zima::kernel::Vec3> anchor;
-        if (constraint.kind == ConstraintKind::Tangent) {
+        if (constraint.kind == ConstraintKind::Tangent &&
+            !constraint.first_point_id.empty()) {
+            if (const auto* contact = find_point(constraint.first_point_id)) {
+                anchor = project(*contact);
+            }
+        }
+        if (!anchor && constraint.kind == ConstraintKind::Tangent) {
             const bool first_segment = std::ranges::any_of(segments,
                 [&](const auto& value) {
                     return value.id == constraint.geometry_id;
@@ -9172,7 +9541,10 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
             participants.end());
         const auto marker_reference = zima::kernel::EdgeReference{
             id, "constraint:" + constraint.id, {}};
-        result.constraint_markers.push_back({*anchor, marker_label(constraint.kind),
+        result.constraint_markers.push_back({*anchor,
+            constraint.kind == ConstraintKind::Tangent &&
+                    !constraint.first_point_id.empty()
+                ? "C T" : marker_label(constraint.kind),
             marker_reference, participants});
         if (constraint.kind == ConstraintKind::Symmetric &&
             !constraint.second_point_id.empty()) {
@@ -9356,11 +9728,30 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         }
         if (dimension.kind == DimensionKind::DistanceLine ||
             dimension.kind == DimensionKind::AngleBetween) {
-            const auto reference = sketch_axis_line(*this, dimension.geometry_id)
+            auto reference = sketch_axis_line(*this, dimension.geometry_id)
                 ? sketch_axis_line(*this, dimension.geometry_id)
                 : segment_or_external_line(*this, dimension.geometry_id);
-            const auto driven = segment_or_external_line(
+            auto driven = segment_or_external_line(
                 *this, dimension.second_geometry_id);
+            if (dimension.kind == DimensionKind::AngleBetween) {
+                if (const auto lines = angle_dimension_lines(*this, dimension)) {
+                    reference = lines->first;
+                    driven = lines->second;
+                    if (dimension.angle_presentation_reversed) {
+                        std::swap(reference, driven);
+                    }
+                }
+            }
+            if (dimension.kind == DimensionKind::AngleBetween &&
+                dimension.second_geometry_id.empty()) {
+                const auto* first = find_point(dimension.first_point_id);
+                const auto* second = find_point(dimension.second_point_id);
+                if (first != nullptr && second != nullptr) {
+                    driven = std::pair{std::array{first->x, first->y},
+                        std::array{second->x - first->x,
+                                   second->y - first->y}};
+                }
+            }
             if (!reference || !driven) continue;
             const double rx = reference->second[0];
             const double ry = reference->second[1];
@@ -9410,10 +9801,71 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
                         (*dimension.placement)[0] - vertex[0],
                         (*dimension.placement)[1] - vertex[1]))
                     : 20.0;
-                const double ra = std::atan2(ry, rx);
-                const double orientation = cross < 0.0 ? -1.0 : 1.0;
-                const double da = ra + orientation * dimension.value *
-                    3.14159265358979323846 / 180.0;
+                double ra = std::atan2(ry, rx);
+                double sweep_radians = (cross < 0.0 ? -1.0 : 1.0) *
+                    dimension.value * 3.14159265358979323846 / 180.0;
+                double displayed_value = dimension.value;
+                if (dimension.placement) {
+                    constexpr double pi = 3.14159265358979323846;
+                    constexpr double tau = 2.0 * pi;
+                    const auto normalized = [tau](double angle) {
+                        angle = std::fmod(angle, tau);
+                        return angle < 0.0 ? angle + tau : angle;
+                    };
+                    const double reference_length = std::hypot(rx, ry);
+                    const double driven_length = std::hypot(dx, dy);
+                    std::array<double, 2> first_ray{
+                        rx / reference_length, ry / reference_length};
+                    std::array<double, 2> second_ray{
+                        dx / driven_length, dy / driven_length};
+                    const std::array cursor_vector{
+                        (*dimension.placement)[0] - vertex[0],
+                        (*dimension.placement)[1] - vertex[1]};
+                    const double cursor_angle = normalized(std::atan2(
+                        cursor_vector[1], cursor_vector[0]));
+                    if (dimension.angle_sector < 0) {
+                        if (cursor_vector[0] * first_ray[0] +
+                                cursor_vector[1] * first_ray[1] < 0.0) {
+                            first_ray[0] = -first_ray[0];
+                            first_ray[1] = -first_ray[1];
+                        }
+                        if (cursor_vector[0] * second_ray[0] +
+                                cursor_vector[1] * second_ray[1] < 0.0) {
+                            second_ray[0] = -second_ray[0];
+                            second_ray[1] = -second_ray[1];
+                        }
+                        ra = normalized(std::atan2(first_ray[1], first_ray[0]));
+                        const double second_angle = normalized(
+                            std::atan2(second_ray[1], second_ray[0]));
+                        const double counterclockwise = normalized(second_angle - ra);
+                        const double cursor_from_first = normalized(cursor_angle - ra);
+                        sweep_radians = cursor_from_first <= counterclockwise
+                            ? counterclockwise : counterclockwise - tau;
+                        displayed_value = sweep_radians * 180.0 / pi;
+                    } else {
+                        if (dimension.angle_sector == 1) {
+                            first_ray[0] = -first_ray[0];
+                            first_ray[1] = -first_ray[1];
+                        }
+                        const double first_angle = normalized(
+                            std::atan2(first_ray[1], first_ray[0]));
+                        const double second_angle = normalized(
+                            std::atan2(second_ray[1], second_ray[0]));
+                        double candidate_sweep = normalized(
+                            second_angle - first_angle);
+                        if (candidate_sweep > pi) candidate_sweep -= tau;
+                        const double candidate_middle =
+                            first_angle + candidate_sweep * 0.5;
+                        const double opposite_middle = candidate_middle + pi;
+                        const bool opposite = std::cos(
+                            cursor_angle - opposite_middle) >
+                            std::cos(cursor_angle - candidate_middle);
+                        ra = first_angle + (opposite ? pi : 0.0);
+                        sweep_radians = candidate_sweep;
+                        displayed_value = dimension.value;
+                    }
+                }
+                const double da = ra + sweep_radians;
                 result.dimensions.push_back({
                     world_point(vertex[0], vertex[1]),
                     world_point(vertex[0], vertex[1]),
@@ -9421,12 +9873,17 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
                                 vertex[1] + display_radius * std::sin(ra)),
                     world_point(vertex[0] + display_radius * std::cos(da),
                                 vertex[1] + display_radius * std::sin(da)),
-                    dimension.value, {id, "dimension:" + dimension.id, {}},
+                    displayed_value, {id, "dimension:" + dimension.id, {}},
                     "∠ ", "°"});
                 result.dimensions.back().kind =
                     zima::kernel::ViewerDimensionKind::Angular;
                 result.dimensions.back().plane_normal = resolved_normal;
-                result.dimensions.back().sweep_degrees = dimension.value;
+                result.dimensions.back().sweep_degrees =
+                    sweep_radians * 180.0 / 3.14159265358979323846;
+                if (dimension.placement) {
+                    result.dimensions.back().label_position = world_point(
+                        (*dimension.placement)[0], (*dimension.placement)[1]);
+                }
             }
             continue;
         }
@@ -9832,7 +10289,10 @@ std::string Sketch::serialized() const {
             {"first", dimension.first_point_id}, {"second", dimension.second_point_id},
             {"value", dimension.value}, {"driving", dimension.driving},
             {"suppressed", dimension.suppressed}, {"geometry", dimension.geometry_id},
-            {"second_geometry", dimension.second_geometry_id}};
+            {"second_geometry", dimension.second_geometry_id},
+            {"angle_sector", dimension.angle_sector},
+            {"angle_presentation_reversed",
+             dimension.angle_presentation_reversed}};
         if (dimension.placement) value["placement"] = *dimension.placement;
         if (dimension.lower_limit) value["lower_limit"] = *dimension.lower_limit;
         if (dimension.upper_limit) value["upper_limit"] = *dimension.upper_limit;
@@ -10029,6 +10489,9 @@ Sketch Sketch::from_serialized(const std::string& value) {
         dimension.geometry_id = value.at("geometry").get<std::string>();
         dimension.second_geometry_id =
             value.at("second_geometry").get<std::string>();
+        dimension.angle_sector = value.value("angle_sector", -1);
+        dimension.angle_presentation_reversed =
+            value.value("angle_presentation_reversed", false);
         if (value.contains("placement")) {
             dimension.placement = value.at("placement")
                 .get<std::array<double, 2>>();

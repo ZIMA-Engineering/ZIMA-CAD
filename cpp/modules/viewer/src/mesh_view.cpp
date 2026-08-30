@@ -8,6 +8,7 @@
 #include <QOpenGLShaderProgram>
 #include <QOpenGLVertexArrayObject>
 #include <QPainter>
+#include <QPainterPath>
 #include <QDebug>
 #include <QRectF>
 #include <QQuaternion>
@@ -195,6 +196,7 @@ struct MeshView::Impl {
     std::vector<SilhouetteCandidate> silhouette_candidates;
     std::vector<CandidateKind> allowed_kinds{CandidateKind::Container};
     std::function<bool(const ViewerCandidate&)> candidate_filter;
+    std::function<int(const ViewerCandidate&)> candidate_priority;
     std::vector<ViewerCandidate> candidates;
     // Position at which `candidates` was last (re)computed. RMB cycling
     // reuses the list as-is instead of forcing a redundant recompute when the
@@ -517,6 +519,7 @@ void MeshView::set_camera_state(const std::array<float, 8>& state) {
 void MeshView::set_selection_contract(std::vector<CandidateKind> allowed_kinds) {
     impl_->allowed_kinds = std::move(allowed_kinds);
     impl_->candidate_filter = {};
+    impl_->candidate_priority = {};
     impl_->candidates.clear();
     impl_->active_candidate = 0;
     impl_->confirmed_candidate.reset();
@@ -536,6 +539,16 @@ void MeshView::set_active_sketch_owner(std::string owner_id) {
 void MeshView::set_candidate_filter(
     std::function<bool(const ViewerCandidate&)> candidate_filter) {
     impl_->candidate_filter = std::move(candidate_filter);
+    impl_->candidates.clear();
+    impl_->active_candidate = 0;
+    impl_->confirmed_candidate.reset();
+    impl_->selected_container_origin_id.clear();
+    update();
+}
+
+void MeshView::set_candidate_priority(
+    std::function<int(const ViewerCandidate&)> candidate_priority) {
+    impl_->candidate_priority = std::move(candidate_priority);
     impl_->candidates.clear();
     impl_->active_candidate = 0;
     impl_->confirmed_candidate.reset();
@@ -566,6 +579,12 @@ std::optional<ViewerCandidate> MeshView::confirmed_candidate() const {
 
 std::optional<ViewerCandidate> MeshView::hovered_candidate() const {
     if (impl_->confirmed_candidate || impl_->candidates.empty() ||
+        impl_->active_candidate >= impl_->candidates.size()) return std::nullopt;
+    return impl_->candidates[impl_->active_candidate];
+}
+
+std::optional<ViewerCandidate> MeshView::offered_candidate() const {
+    if (impl_->candidates.empty() ||
         impl_->active_candidate >= impl_->candidates.size()) return std::nullopt;
     return impl_->candidates[impl_->active_candidate];
 }
@@ -640,16 +659,46 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
                     first_vector.y() * second_vector.x() < 0.0) sweep = -sweep;
             const double middle = start + sweep * 0.5;
             text_anchor = witness_first + QPointF(
-                (radius + 12.0) * std::cos(middle),
-                (radius + 12.0) * std::sin(middle));
+                (radius + 3.0) * std::cos(middle),
+                (radius + 3.0) * std::sin(middle));
+            if (dimension.label_position) {
+                text_anchor = project(*dimension.label_position);
+            }
         }
         QRectF text_bounds = metrics.boundingRect(text);
         text_bounds.moveTopLeft(text_anchor + QPointF(0.0, -metrics.ascent()));
         text_bounds.adjust(-hit_radius, -hit_radius, hit_radius, hit_radius);
         bool hit = text_bounds.contains(position) ||
             screen_segment_distance(position, witness_first, line_first) <= hit_radius ||
-            screen_segment_distance(position, witness_second, line_second) <= hit_radius ||
-            screen_segment_distance(position, line_first, line_second) <= hit_radius;
+            screen_segment_distance(position, witness_second, line_second) <= hit_radius;
+        if (dimension.kind == zima::kernel::ViewerDimensionKind::Angular) {
+            const QPointF first_vector = line_first - witness_first;
+            const QPointF second_vector = line_second - witness_first;
+            const double radius = std::hypot(first_vector.x(), first_vector.y());
+            if (radius > 1.0e-6) {
+                const double start = std::atan2(
+                    first_vector.y(), first_vector.x());
+                double sweep = std::abs(dimension.sweep_degrees) *
+                    std::numbers::pi / 180.0;
+                if (first_vector.x() * second_vector.y() -
+                        first_vector.y() * second_vector.x() < 0.0) {
+                    sweep = -sweep;
+                }
+                constexpr int samples = 48;
+                QPointF previous = line_first;
+                for (int sample = 1; sample <= samples && !hit; ++sample) {
+                    const double angle = start + sweep * sample / samples;
+                    const QPointF current = witness_first + QPointF(
+                        radius * std::cos(angle), radius * std::sin(angle));
+                    hit = screen_segment_distance(
+                        position, previous, current) <= hit_radius;
+                    previous = current;
+                }
+            }
+        } else {
+            hit = hit || screen_segment_distance(
+                position, line_first, line_second) <= hit_radius;
+        }
         if (linear_layout) {
             hit = hit ||
                 screen_segment_distance(position,
@@ -723,8 +772,16 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
                 candidate.owner_id != impl_->active_sketch_owner_id;
         });
     }
-    return filter_candidates(candidates,
+    auto filtered = filter_candidates(candidates,
         impl_->allowed_kinds, impl_->candidate_filter);
+    if (impl_->candidate_priority) {
+        std::stable_sort(filtered.begin(), filtered.end(),
+            [&](const auto& left, const auto& right) {
+                return impl_->candidate_priority(left) <
+                    impl_->candidate_priority(right);
+            });
+    }
+    return filtered;
 }
 
 std::optional<zima::kernel::ViewerEdge> MeshView::candidate_edge(
@@ -1159,8 +1216,11 @@ std::optional<QPoint> MeshView::candidate_dimension_label_position(
         if (first_vector.x() * second_vector.y() -
                 first_vector.y() * second_vector.x() < 0.0) sweep = -sweep;
         const double middle = start + sweep * 0.5;
-        baseline = vertex + QPointF((radius + 12.0) * std::cos(middle),
-                                     (radius + 12.0) * std::sin(middle));
+        baseline = vertex + QPointF((radius + 3.0) * std::cos(middle),
+                                     (radius + 3.0) * std::sin(middle));
+        if (dimension.label_position) {
+            baseline = project(*dimension.label_position);
+        }
     } else if (dimension.kind == zima::kernel::ViewerDimensionKind::Radius ||
                dimension.kind == zima::kernel::ViewerDimensionKind::Diameter) {
         const QPointF center = project(dimension.witness_first);
@@ -2763,9 +2823,18 @@ if (impl_->show_planes) {
                         project(edge.points.front()), project(edge.points.back())));
                     continue;
                 }
-                for (std::size_t index = 1; index < edge.points.size(); ++index) {
-                    painter.drawLine(project(edge.points[index - 1]),
-                                     project(edge.points[index]));
+                if (!edge.points.empty()) {
+                    // Stroke the complete sampled curve as one path. Calling
+                    // drawLine for every chord restarts a custom dash pattern
+                    // on every chord, which makes construction circles/arcs/
+                    // ellipses look almost solid while a one-chord segment
+                    // has the intended spacing.
+                    QPainterPath path(project(edge.points.front()));
+                    for (std::size_t index = 1;
+                         index < edge.points.size(); ++index) {
+                        path.lineTo(project(edge.points[index]));
+                    }
+                    painter.drawPath(path);
                 }
             }
         }
@@ -3038,7 +3107,9 @@ if (impl_->show_planes) {
                         dimension.witness_first.z + (radius + 3.0) *
                             (radial_unit.z * std::cos(middle) +
                              tangent.z * std::sin(middle))};
-                    painter.drawText(project(middle_world), text);
+                    painter.drawText(dimension.label_position
+                        ? project(*dimension.label_position)
+                        : project(middle_world), text);
                     painter.setBrush(Qt::NoBrush);
                     continue;
                 }
@@ -4307,7 +4378,22 @@ void MeshView::mouseMoveEvent(QMouseEvent* event) {
         update();
         return;
     }
-    if (event->buttons() == Qt::NoButton && !impl_->confirmed_candidate) {
+    const bool command_wants_next_candidate =
+        static_cast<bool>(impl_->candidate_filter);
+    if (event->buttons() == Qt::NoButton &&
+        (!impl_->confirmed_candidate || command_wants_next_candidate)) {
+        // A command-local selection filter means that the previous click was
+        // an input step, not a terminal ordinary selection.  Never let a
+        // confirmed candidate left by that press suppress hover for the next
+        // required reference (for example the second line/axis of an angular
+        // dimension). Ordinary selection has no filter and retains the usual
+        // confirmed-selection behavior.
+        if (command_wants_next_candidate && impl_->confirmed_candidate) {
+            impl_->confirmed_candidate.reset();
+            impl_->selected_container_origin_id.clear();
+            impl_->candidates.clear();
+            impl_->active_candidate = 0;
+        }
         std::string hovered;
         for (const auto& handle : impl_->extent_manipulators) {
             const double norm = std::sqrt(handle.direction.x * handle.direction.x +
@@ -4347,6 +4433,15 @@ void MeshView::mouseMoveEvent(QMouseEvent* event) {
         if (impl_->world_pointer_callback) {
             const auto ray = ray_at(event->position());
             if (ray) impl_->world_pointer_callback(ray->first, ray->second);
+        }
+        // A live command preview may rebuild the mesh from inside the pointer
+        // callback. set_mesh() necessarily invalidates the candidate indices,
+        // but without this second pass it also erased the just-computed hover
+        // before the frame was painted. Re-evaluate against the final mesh at
+        // the same pointer position so the next line/axis remains visibly
+        // orange while an interactive dimension follows the cursor.
+        if (command_wants_next_candidate) {
+            update_candidates(event->position());
         }
     }
 }

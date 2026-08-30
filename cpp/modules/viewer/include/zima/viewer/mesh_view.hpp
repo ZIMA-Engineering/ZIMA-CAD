@@ -96,6 +96,8 @@ public:
     void set_active_sketch_owner(std::string owner_id);
     void set_candidate_filter(
         std::function<bool(const ViewerCandidate&)> candidate_filter);
+    void set_candidate_priority(
+        std::function<int(const ViewerCandidate&)> candidate_priority);
     void confirm_container(const std::string& owner_id);
     void confirm_occurrence(const std::string& instance_path);
     void confirm_result_body();
@@ -189,6 +191,10 @@ public:
         std::map<std::string, QColor> instance_colors = {});
     [[nodiscard]] std::optional<ViewerCandidate> confirmed_candidate() const;
     [[nodiscard]] std::optional<ViewerCandidate> hovered_candidate() const;
+    // Candidate selected from the current ordered offer list, even while an
+    // older confirmed candidate still exists. Command world-click handlers
+    // use this during LMB press, before ordinary confirmation runs.
+    [[nodiscard]] std::optional<ViewerCandidate> offered_candidate() const;
     [[nodiscard]] std::vector<ViewerCandidate> selection_candidates_at(
         const QPointF& position) const;
     [[nodiscard]] std::optional<zima::kernel::ViewerEdge> candidate_edge(

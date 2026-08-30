@@ -183,6 +183,7 @@ private:
     QAction* sketch_dimensions_action_{};
     QMenu* sketch_dimensions_menu_{};
     QAction* sketch_dimension_action_{};
+    QAction* sketch_universal_dimension_action_{};
     QAction* sketch_dimension_x_action_{};
     QAction* sketch_dimension_y_action_{};
     QAction* sketch_point_line_dimension_action_{};
@@ -389,6 +390,17 @@ private:
         zima::sketcher::DimensionKind::DistanceLine};
     std::optional<zima::sketcher::SketchDimension> pending_sketch_dimension_;
     std::string pending_corner_radius_dimension_id_;
+    enum class UniversalDimensionReferenceKind { Point, Line };
+    struct UniversalDimensionReference {
+        UniversalDimensionReferenceKind kind{};
+        std::string id;
+    };
+    bool sketch_universal_dimension_active_{};
+    std::vector<UniversalDimensionReference> universal_dimension_references_;
+    std::optional<zima::sketcher::SketchDimension>
+        universal_pending_dimension_;
+    std::string universal_corner_radius_dimension_id_;
+    std::optional<std::array<double, 2>> universal_dimension_cursor_;
     bool preserve_view_on_refresh_{};
     std::map<std::string, std::array<float, 8>> document_camera_states_;
     std::optional<zima::document::PartDocument> sketch_drag_document_;
@@ -632,6 +644,8 @@ private:
     };
     [[nodiscard]] SketchSegmentInference inferred_sketch_segment_end(
         const std::array<double, 2>& position) const;
+    void clear_completed_sketch_interaction();
+    void clear_sketch_confirmed_selection();
     [[nodiscard]] std::optional<std::array<double, 2>>
         sketch_line_support_direction(const std::string& support_id) const;
     void preview_sketch_segment_ray(
@@ -653,7 +667,14 @@ private:
     [[nodiscard]] std::optional<std::pair<double, std::string>>
         inferred_sketch_circle_radius(
             const std::array<double, 2>& rim_position) const;
-    [[nodiscard]] std::optional<std::pair<double, std::string>>
+    struct SketchCircleTangentInference {
+        double radius{};
+        std::string support_id;
+        std::array<double, 2> contact{};
+    };
+    std::optional<SketchCircleTangentInference>
+        pending_circle_tangent_inference_;
+    [[nodiscard]] std::optional<SketchCircleTangentInference>
         inferred_sketch_circle_tangent(
             const std::array<double, 2>& rim_position) const;
     bool accept_sketch_arc_ray(
@@ -708,6 +729,14 @@ private:
     void start_sketch_point_dimension(zima::sketcher::DimensionKind kind);
     void accept_sketch_point_dimension(
         const zima::viewer::ViewerCandidate& candidate);
+    void start_sketch_universal_dimension();
+    void reset_sketch_universal_dimension(bool keep_active);
+    void set_sketch_universal_dimension_contract();
+    void accept_sketch_universal_dimension(
+        const zima::viewer::ViewerCandidate& candidate);
+    [[nodiscard]] bool accept_sketch_universal_dimension_ray(
+        const zima::kernel::Vec3& origin,
+        const zima::kernel::Vec3& direction);
     [[nodiscard]] bool accept_sketch_dimension_placement_ray(
         const zima::kernel::Vec3& origin,
         const zima::kernel::Vec3& direction);

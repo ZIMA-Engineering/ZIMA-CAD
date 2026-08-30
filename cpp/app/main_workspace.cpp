@@ -138,6 +138,8 @@ int verify_startup_contract(
         window.findChild<QAction*>("sketchDimensionsAction");
     auto* sketch_dimension =
         window.findChild<QAction*>("sketchDimensionAction");
+    auto* sketch_universal_dimension =
+        window.findChild<QAction*>("sketchUniversalDimensionAction");
     auto* sketch_horizontal =
         window.findChild<QAction*>("sketchHorizontalAction");
     auto* sketch_fix_point =
@@ -204,6 +206,7 @@ int verify_startup_contract(
                     sketch_constraints->menu()->actions().contains(sketch_equal) &&
                     sketch_dimensions != nullptr &&
                     sketch_dimension != nullptr &&
+                    sketch_universal_dimension != nullptr &&
                     sketch_horizontal != nullptr &&
                     sketch_fix_point != nullptr &&
                     workspace_state != nullptr &&
@@ -1054,7 +1057,8 @@ int verify_startup_contract(
                     tools_toolbar->actions().contains(sketch_text) &&
                     tools_toolbar->actions().contains(sketch_external_reference) &&
                     tools_toolbar->actions().contains(sketch_constraints) &&
-                    tools_toolbar->actions().contains(sketch_dimension) &&
+                    tools_toolbar->actions().contains(
+                        sketch_universal_dimension) &&
                     sketch_constraints->menu()->actions().contains(sketch_midpoint) &&
                     sketch_constraints->menu()->actions().contains(sketch_symmetric) &&
                     sketch_constraints->menu()->actions().contains(sketch_concentric) &&
@@ -1385,6 +1389,281 @@ int verify_startup_contract(
                 "segment Dimension did not persist directly in View or restarted a point command")) {
         return 1;
     }
+    // Universal Dimension must distinguish a reference click from an empty
+    // placement click. MeshView calls the world-click callback before it
+    // confirms the candidate from the same press, so Segment -> Axis used to
+    // commit the provisional segment length and never reach angular input.
+    sketch_universal_dimension->trigger();
+    application.processEvents();
+    sketch_click_at(*dimension_segment_position);
+    application.processEvents();
+    std::optional<QPointF> universal_axis_position;
+    for (int y = 2; y < sketch_viewer->height() &&
+                        !universal_axis_position; y += 4) {
+        for (int x = 2; x < sketch_viewer->width(); x += 4) {
+            const QPointF position{static_cast<qreal>(x),
+                                   static_cast<qreal>(y)};
+            const auto candidates =
+                sketch_viewer->selection_candidates_at(position);
+            if (!candidates.empty() && candidates.front().kind ==
+                    zima::viewer::CandidateKind::SketchAxis) {
+                universal_axis_position = position;
+                break;
+            }
+        }
+    }
+    if (!verify(universal_axis_position.has_value(),
+                "Universal Dimension did not offer a Sketch axis after its first segment")) {
+        return 1;
+    }
+    dimension_group = nullptr;
+    for (int index = 0; index < tree->topLevelItemCount(); ++index) {
+        if (tree->topLevelItem(index)->text(0) == QStringLiteral("Kóty")) {
+            dimension_group = tree->topLevelItem(index);
+            break;
+        }
+    }
+    if (!verify(dimension_group != nullptr,
+                "Universal Dimension lost the Sketch dimension group")) {
+        return 1;
+    }
+    const int dimensions_before_universal_angle = dimension_group->childCount();
+    sketch_click_at(*universal_axis_position);
+    application.processEvents();
+    dimension_group = nullptr;
+    for (int index = 0; index < tree->topLevelItemCount(); ++index) {
+        if (tree->topLevelItem(index)->text(0) == QStringLiteral("Kóty")) {
+            dimension_group = tree->topLevelItem(index);
+            break;
+        }
+    }
+    if (!verify(dimension_group != nullptr &&
+                    dimension_group->childCount() ==
+                        dimensions_before_universal_angle,
+                "Universal Dimension committed segment length before confirming its second axis")) {
+        return 1;
+    }
+    if (!verify(workspace_state->text().contains(
+                    QStringLiteral("klikněte do prostoru")),
+                "Universal Dimension did not enter angular placement after Segment -> Axis")) {
+        return 1;
+    }
+    QKeyEvent cancel_universal_angle(QEvent::KeyPress, Qt::Key_Escape,
+        Qt::NoModifier);
+    QApplication::sendEvent(&window, &cancel_universal_angle);
+    application.processEvents();
+    QApplication::sendEvent(&window, &cancel_universal_angle);
+    application.processEvents();
+    sketch_universal_dimension->trigger();
+    application.processEvents();
+    std::map<std::string, std::tuple<double, double, std::size_t>>
+        universal_point_samples;
+    for (int y = 2; y < sketch_viewer->height(); y += 4) {
+        for (int x = 2; x < sketch_viewer->width(); x += 4) {
+            const QPointF position{static_cast<qreal>(x),
+                                   static_cast<qreal>(y)};
+            const auto candidates =
+                sketch_viewer->selection_candidates_at(position);
+            if (candidates.empty() || candidates.front().kind !=
+                    zima::viewer::CandidateKind::SketchPoint) continue;
+            auto& [sum_x, sum_y, count] =
+                universal_point_samples[candidates.front().semantic_key];
+            sum_x += position.x();
+            sum_y += position.y();
+            ++count;
+        }
+    }
+    std::vector<std::pair<std::string, QPointF>> universal_point_hits;
+    for (const auto& [semantic_key, samples] : universal_point_samples) {
+        const auto& [sum_x, sum_y, count] = samples;
+        if (count != 0) {
+            universal_point_hits.emplace_back(semantic_key,
+                QPointF{sum_x / static_cast<double>(count),
+                        sum_y / static_cast<double>(count)});
+        }
+    }
+    std::optional<std::array<QPointF, 3>> universal_angle_points;
+    for (std::size_t first = 0; first < universal_point_hits.size() &&
+            !universal_angle_points; ++first) {
+        for (std::size_t second = first + 1;
+             second < universal_point_hits.size() && !universal_angle_points;
+             ++second) {
+            for (std::size_t third = second + 1;
+                 third < universal_point_hits.size(); ++third) {
+                const auto a = universal_point_hits[second].second -
+                    universal_point_hits[first].second;
+                const auto b = universal_point_hits[third].second -
+                    universal_point_hits[first].second;
+                if (std::abs(a.x() * b.y() - a.y() * b.x()) > 25.0) {
+                    universal_angle_points = std::array{
+                        universal_point_hits[first].second,
+                        universal_point_hits[second].second,
+                        universal_point_hits[third].second};
+                    break;
+                }
+            }
+        }
+    }
+    if (!verify(universal_angle_points.has_value(),
+                "Universal Dimension test found no three non-collinear Sketch points")) {
+        return 1;
+    }
+    dimension_group = nullptr;
+    for (int index = 0; index < tree->topLevelItemCount(); ++index) {
+        if (tree->topLevelItem(index)->text(0) == QStringLiteral("Kóty")) {
+            dimension_group = tree->topLevelItem(index);
+            break;
+        }
+    }
+    const int dimensions_before_three_point =
+        dimension_group == nullptr ? 0 : dimension_group->childCount();
+    for (const auto& point : *universal_angle_points) {
+        sketch_click_at(point);
+        application.processEvents();
+    }
+    dimension_group = nullptr;
+    for (int index = 0; index < tree->topLevelItemCount(); ++index) {
+        if (tree->topLevelItem(index)->text(0) == QStringLiteral("Kóty")) {
+            dimension_group = tree->topLevelItem(index);
+            break;
+        }
+    }
+    if (!verify(dimension_group != nullptr &&
+                    dimension_group->childCount() ==
+                        dimensions_before_three_point,
+                "Universal Dimension committed two-point distance before confirming third point")) {
+        return 1;
+    }
+    if (!verify(!workspace_state->text().contains(
+                    QStringLiteral("umístění úhlové kóty")),
+                "Universal Dimension created an angle before receiving four points")) {
+        return 1;
+    }
+    std::optional<QPointF> universal_fourth_point;
+    for (const auto& [semantic_key, position] : universal_point_hits) {
+        static_cast<void>(semantic_key);
+        if (std::ranges::all_of(*universal_angle_points,
+                [&](const auto& selected) {
+                    return QLineF(position, selected).length() > 3.0;
+                })) {
+            universal_fourth_point = position;
+            break;
+        }
+    }
+    if (!verify(universal_fourth_point.has_value(),
+                "Universal Dimension test found no independent fourth point")) {
+        return 1;
+    }
+    sketch_click_at(*universal_fourth_point);
+    application.processEvents();
+    if (!verify(workspace_state->text().contains(
+                    QStringLiteral("umístění úhlové kóty")),
+                "Universal Dimension did not create its angle after four points")) {
+        return 1;
+    }
+    QApplication::sendEvent(&window, &cancel_universal_angle);
+    application.processEvents();
+    QApplication::sendEvent(&window, &cancel_universal_angle);
+    application.processEvents();
+    sketch_universal_dimension->trigger();
+    application.processEvents();
+    struct UniversalSegmentHit {
+        QPointF screen;
+        zima::kernel::Vec3 direction;
+    };
+    std::map<std::string, std::tuple<double, double, std::size_t,
+        zima::kernel::Vec3>> universal_segment_samples;
+    for (int y = 2; y < sketch_viewer->height(); y += 4) {
+        for (int x = 2; x < sketch_viewer->width(); x += 4) {
+            const QPointF position{static_cast<qreal>(x),
+                                   static_cast<qreal>(y)};
+            const auto candidates =
+                sketch_viewer->selection_candidates_at(position);
+            if (candidates.empty() || candidates.front().kind !=
+                    zima::viewer::CandidateKind::SketchSegment) continue;
+            const auto edge = sketch_viewer->candidate_edge(candidates.front());
+            if (!edge || edge->points.size() < 2) continue;
+            auto& [sum_x, sum_y, count, direction] =
+                universal_segment_samples[candidates.front().semantic_key];
+            sum_x += position.x();
+            sum_y += position.y();
+            ++count;
+            direction = {
+                edge->points.back().x - edge->points.front().x,
+                edge->points.back().y - edge->points.front().y,
+                edge->points.back().z - edge->points.front().z};
+        }
+    }
+    std::vector<UniversalSegmentHit> universal_segment_hits;
+    for (const auto& [semantic_key, samples] : universal_segment_samples) {
+        static_cast<void>(semantic_key);
+        const auto& [sum_x, sum_y, count, direction] = samples;
+        if (count != 0) {
+            universal_segment_hits.push_back({
+                {sum_x / static_cast<double>(count),
+                 sum_y / static_cast<double>(count)}, direction});
+        }
+    }
+    std::optional<std::array<QPointF, 2>> universal_angle_segments;
+    for (std::size_t first = 0; first < universal_segment_hits.size() &&
+            !universal_angle_segments; ++first) {
+        for (std::size_t second = first + 1;
+             second < universal_segment_hits.size(); ++second) {
+            const auto& a = universal_segment_hits[first].direction;
+            const auto& b = universal_segment_hits[second].direction;
+            const zima::kernel::Vec3 cross{
+                a.y * b.z - a.z * b.y,
+                a.z * b.x - a.x * b.z,
+                a.x * b.y - a.y * b.x};
+            const double cross_length = std::sqrt(
+                cross.x * cross.x + cross.y * cross.y + cross.z * cross.z);
+            const double scale = std::sqrt(
+                (a.x * a.x + a.y * a.y + a.z * a.z) *
+                (b.x * b.x + b.y * b.y + b.z * b.z));
+            if (scale > 1.0e-12 && cross_length / scale > 1.0e-3) {
+                universal_angle_segments = std::array{
+                    universal_segment_hits[first].screen,
+                    universal_segment_hits[second].screen};
+                break;
+            }
+        }
+    }
+    if (!verify(universal_angle_segments.has_value(),
+                "Universal Dimension test found no two non-parallel Sketch segments")) {
+        return 1;
+    }
+    dimension_group = nullptr;
+    for (int index = 0; index < tree->topLevelItemCount(); ++index) {
+        if (tree->topLevelItem(index)->text(0) == QStringLiteral("Kóty")) {
+            dimension_group = tree->topLevelItem(index);
+            break;
+        }
+    }
+    const int dimensions_before_segment_angle =
+        dimension_group == nullptr ? 0 : dimension_group->childCount();
+    for (const auto& segment_position : *universal_angle_segments) {
+        sketch_click_at(segment_position);
+        application.processEvents();
+    }
+    dimension_group = nullptr;
+    for (int index = 0; index < tree->topLevelItemCount(); ++index) {
+        if (tree->topLevelItem(index)->text(0) == QStringLiteral("Kóty")) {
+            dimension_group = tree->topLevelItem(index);
+            break;
+        }
+    }
+    if (!verify(dimension_group != nullptr &&
+                    dimension_group->childCount() ==
+                        dimensions_before_segment_angle &&
+                    workspace_state->text().contains(
+                        QStringLiteral("umístění úhlové kóty")),
+                "Universal Dimension did not enter angular placement after two segments")) {
+        return 1;
+    }
+    QApplication::sendEvent(&window, &cancel_universal_angle);
+    application.processEvents();
+    QApplication::sendEvent(&window, &cancel_universal_angle);
+    application.processEvents();
     if (!part_capture_path.isEmpty()) {
         if (!verify(window.grab().save(
                         part_capture_path + QStringLiteral(".sketch.png")),

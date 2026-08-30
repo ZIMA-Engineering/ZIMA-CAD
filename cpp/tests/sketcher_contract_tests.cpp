@@ -1387,6 +1387,199 @@ int main() {
                     180.0 / 3.14159265358979323846) - 35.0) < 1.0e-7 &&
                     between_angle.viewer_mesh().dimensions.size() == 1,
                 "Angle between a line and the Sketch axis was not solved or displayed");
+        require(between_angle.set_dimension_placement(between.id, 8.0, 8.0),
+                "Angular dimension did not accept interactive placement");
+        const auto near_sector = between_angle.viewer_mesh().dimensions.front();
+        require(between_angle.set_dimension_placement(between.id, -12.0, -12.0),
+                "Angular dimension did not update interactive placement");
+        const auto opposite_sector = between_angle.viewer_mesh().dimensions.front();
+        require(near_sector.kind == zima::kernel::ViewerDimensionKind::Angular &&
+                    opposite_sector.kind ==
+                        zima::kernel::ViewerDimensionKind::Angular &&
+                    near_sector.line_first.x > 0.0 &&
+                    opposite_sector.line_first.x < 0.0 &&
+                    std::hypot(opposite_sector.line_first.x,
+                        opposite_sector.line_first.y) >
+                        std::hypot(near_sector.line_first.x,
+                            near_sector.line_first.y),
+                "Angular dimension preview did not follow cursor radius and opposite sector");
+        auto duplicate_angle = zima::sketcher::Sketch::create_default();
+        const auto duplicate_first = duplicate_angle.add_segment(
+            0.0, 0.0, 10.0, 0.0);
+        const auto duplicate_second = duplicate_angle.add_segment(
+            0.0, 0.0, 4.0, 8.0);
+        auto first_angle_driver = duplicate_angle.create_line_pair_dimension(
+            duplicate_first, duplicate_second,
+            zima::sketcher::DimensionKind::AngleBetween);
+        duplicate_angle.apply_dimension(first_angle_driver);
+        const auto duplicate_before = duplicate_angle;
+        bool rejected_reversed_angle{};
+        try {
+            auto reversed_angle = duplicate_angle.create_line_pair_dimension(
+                duplicate_second, duplicate_first,
+                zima::sketcher::DimensionKind::AngleBetween);
+            duplicate_angle.apply_dimension(reversed_angle);
+        } catch (const std::invalid_argument&) {
+            rejected_reversed_angle = true;
+        }
+        require(rejected_reversed_angle &&
+                    duplicate_angle.dimensions == duplicate_before.dimensions &&
+                    duplicate_angle.points == duplicate_before.points,
+                "Reversed duplicate angular driver was not rejected transactionally");
+
+        auto constrained_angle = zima::sketcher::Sketch::create_default();
+        const auto constrained_segment = constrained_angle.add_segment(
+            0.0, 4.0, 10.0, 4.0);
+        const auto constrained_geometry = constrained_angle.segments.front();
+        static_cast<void>(constrained_angle.add_point_pair_constraint(
+            constrained_geometry.first_point_id,
+            constrained_geometry.second_point_id,
+            zima::sketcher::ConstraintKind::Horizontal));
+        const auto constrained_before = constrained_angle;
+        bool rejected_constraint_implied_angle{};
+        try {
+            auto implied = constrained_angle.create_line_pair_dimension(
+                "sketch_axis:x", constrained_segment,
+                zima::sketcher::DimensionKind::AngleBetween);
+            constrained_angle.apply_dimension(implied);
+        } catch (const std::invalid_argument&) {
+            rejected_constraint_implied_angle = true;
+        }
+        require(rejected_constraint_implied_angle &&
+                    constrained_angle.dimensions.empty() &&
+                    constrained_angle.points == constrained_before.points &&
+                    constrained_angle.constraints == constrained_before.constraints,
+                "Constraint-implied angular driver was not rejected transactionally");
+
+        // Regression from Projects/part.prtz: two connected segments, the
+        // first dimensioned from the fixed origin and the second endpoint on
+        // the X axis.  Editing the existing length must let the angular
+        // equation rotate the free second branch instead of reporting a
+        // spurious solver conflict.
+        auto editable_chain = zima::sketcher::Sketch::create_default();
+        const auto chain_first = editable_chain.add_segment(
+            0.0, 0.0, 261.996337890625, -318.6537628174258);
+        const auto chain_second = editable_chain.add_segment(
+            261.996337890625, -318.6537628174258, 576.8365734371087, 0.0);
+        const auto chain_geometry = editable_chain.segments;
+        static_cast<void>(editable_chain.add_coincident_constraint(
+            chain_geometry.front().first_point_id, "sketch_origin"));
+        static_cast<void>(editable_chain.add_point_on_line_constraint(
+            chain_geometry.back().second_point_id, "sketch_axis:x"));
+        auto chain_length = editable_chain.create_point_dimension(
+            chain_geometry.front().first_point_id,
+            chain_geometry.front().second_point_id);
+        try {
+            editable_chain.apply_dimension(chain_length);
+        } catch (const std::exception& error) {
+            throw std::runtime_error(std::string{
+                "part.prtz initial length dimension: "} + error.what());
+        }
+        auto chain_angle = editable_chain.create_line_pair_dimension(
+            chain_first, chain_second,
+            zima::sketcher::DimensionKind::AngleBetween);
+        chain_angle.value = 95.91794857737798;
+        chain_angle.angle_sector = 1;
+        try {
+            editable_chain.apply_dimension(chain_angle);
+        } catch (const std::exception& error) {
+            throw std::runtime_error(std::string{
+                "part.prtz initial angular dimension: "} + error.what());
+        }
+        chain_length.value = 350.0;
+        try {
+            editable_chain.apply_dimension(chain_length);
+        } catch (const std::exception& error) {
+            throw std::runtime_error(std::string{
+                "part.prtz edited length dimension: "} + error.what());
+        }
+        const auto* edited_chain_first = editable_chain.find_point(
+            chain_geometry.front().first_point_id);
+        const auto* edited_chain_second = editable_chain.find_point(
+            chain_geometry.front().second_point_id);
+        require(std::abs(std::hypot(
+                    edited_chain_second->x - edited_chain_first->x,
+                    edited_chain_second->y - edited_chain_first->y) - 350.0) <
+                    1.0e-7,
+                "Existing length dimension in the part.prtz chain could not be edited");
+        auto disconnected_angle = zima::sketcher::Sketch::create_default();
+        const auto disconnected_reference = disconnected_angle.add_segment(
+            0.0, 0.0, 10.0, 0.0);
+        const auto disconnected_driven = disconnected_angle.add_segment(
+            20.0, 5.0, 20.0, 15.0);
+        auto disconnected = disconnected_angle.create_line_pair_dimension(
+            disconnected_reference, disconnected_driven,
+            zima::sketcher::DimensionKind::AngleBetween);
+        disconnected.placement = std::array{14.0, 8.0};
+        disconnected_angle.apply_dimension(disconnected);
+        require(disconnected_angle.dimensions.size() == 1 &&
+                    disconnected_angle.viewer_mesh().dimensions.size() == 1 &&
+                    disconnected_angle.viewer_mesh().dimensions.front().kind ==
+                        zima::kernel::ViewerDimensionKind::Angular,
+                "Angular dimension between disconnected segments was not created");
+        auto supplementary_angle = zima::sketcher::Sketch::create_default();
+        const auto supplementary_reference = supplementary_angle.add_segment(
+            0.0, 0.0, 10.0, 0.0);
+        const auto supplementary_driven = supplementary_angle.add_segment(
+            0.0, 0.0, 5.0, 8.660254037844386);
+        auto supplementary = supplementary_angle.create_line_pair_dimension(
+            supplementary_reference, supplementary_driven,
+            zima::sketcher::DimensionKind::AngleBetween);
+        supplementary.value = 120.0;
+        supplementary.angle_sector = 1;
+        supplementary.placement = std::array{-5.0, 8.0};
+        supplementary_angle.apply_dimension(supplementary);
+        const auto supplementary_view = supplementary_angle.viewer_mesh();
+        require(std::abs(supplementary_angle.dimensions.front().value - 120.0) <
+                    1.0e-9 &&
+                    supplementary_angle.dimensions.front().angle_sector == 1 &&
+                    supplementary_view.dimensions.size() == 1 &&
+                    std::abs(supplementary_view.dimensions.front().value - 120.0) <
+                        1.0e-7,
+                "Supplementary angular sector disagreed between model and viewer");
+        require(supplementary_angle.set_dimension_placement(
+                    supplementary.id, 8.0, 3.0),
+                "Supplementary angular dimension could not be dragged");
+        const auto dragged_supplementary_view =
+            supplementary_angle.viewer_mesh();
+        require(dragged_supplementary_view.dimensions.size() == 1 &&
+                    std::abs(dragged_supplementary_view.dimensions.front().value -
+                        120.0) < 1.0e-7 &&
+                    std::abs(std::abs(
+                        dragged_supplementary_view.dimensions.front().sweep_degrees) -
+                        120.0) < 1.0e-7,
+                "Dragging a locked angular sector switched to its supplement");
+        auto point_line_angle = zima::sketcher::Sketch::create_default();
+        const auto direction_first = point_line_angle.add_point(4.0, 3.0);
+        const auto direction_second = point_line_angle.add_point(14.0, 3.0);
+        auto mixed_angle = point_line_angle.create_point_line_angle_dimension(
+            direction_first, direction_second, "sketch_axis:y");
+        mixed_angle.value = 30.0;
+        point_line_angle.apply_dimension(mixed_angle);
+        const auto mixed_measured = point_line_angle.dimensions.front();
+        const auto mixed_view = point_line_angle.viewer_mesh();
+        require(mixed_measured.first_point_id == direction_first &&
+                    mixed_measured.second_point_id == direction_second &&
+                    mixed_measured.geometry_id == "sketch_axis:y" &&
+                    mixed_measured.second_geometry_id.empty() &&
+                    mixed_view.dimensions.size() == 1 &&
+                    std::abs(mixed_view.dimensions.front().value - 30.0) < 1.0e-7,
+                "Two-point plus axis angle lost its point anchors or value");
+        auto four_point_angle = zima::sketcher::Sketch::create_default();
+        const auto a = four_point_angle.add_point(0.0, 0.0);
+        const auto b = four_point_angle.add_point(10.0, 0.0);
+        const auto c = four_point_angle.add_point(20.0, 5.0);
+        const auto d = four_point_angle.add_point(20.0, 15.0);
+        auto four = four_point_angle.create_four_point_angle_dimension(a, b, c, d);
+        four.value = 40.0;
+        four_point_angle.apply_dimension(four);
+        require(four_point_angle.dimensions.front().first_point_id == a &&
+                    four_point_angle.dimensions.front().second_point_id == b &&
+                    four_point_angle.dimensions.front().geometry_id == c &&
+                    four_point_angle.dimensions.front().second_geometry_id == d &&
+                    std::abs(four_point_angle.viewer_mesh().dimensions.front().value -
+                        40.0) < 1.0e-7,
+                "Four-point angle did not retain both point-defined directions");
 
         auto zero_origin_dimension = zima::sketcher::Sketch::create_default();
         const auto zero_origin_point =
@@ -1947,6 +2140,82 @@ int main() {
         require(loaded_tangent.constraints == tangent.constraints &&
                     loaded_tangent.points == tangent.points,
                 "Tangent constraint did not survive Sketch serialization");
+        auto axis_tangent = zima::sketcher::Sketch::create_default();
+        const auto axis_circle = axis_tangent.add_circle(0.0, 2.0, 2.0);
+        static_cast<void>(axis_tangent.add_tangent_constraint(
+            "sketch_axis:x", axis_circle));
+        const auto* axis_center = axis_tangent.find_point(
+            axis_tangent.circles.front().center_point_id);
+        require(axis_center != nullptr && std::abs(axis_center->y - 2.0) < 1.0e-8 &&
+                    axis_tangent.constraints.front().geometry_id == "sketch_axis:x" &&
+                    axis_tangent.solve().status !=
+                        zima::sketcher::SolveStatus::Conflicting,
+                "Circle tangent did not accept or solve against the base X axis");
+        auto contact = zima::sketcher::Sketch::create_point(0.0, 0.0);
+        const auto contact_id = contact.id;
+        axis_tangent.points.push_back(std::move(contact));
+        static_cast<void>(axis_tangent.add_point_on_circle_constraint(
+            contact_id, axis_circle));
+        static_cast<void>(axis_tangent.add_point_on_line_constraint(
+            contact_id, "sketch_axis:x"));
+        const auto* persisted_contact = axis_tangent.find_point(contact_id);
+        require(persisted_contact != nullptr &&
+                    std::abs(persisted_contact->x) < 1.0e-8 &&
+                    std::abs(persisted_contact->y) < 1.0e-8 &&
+                    std::ranges::count_if(axis_tangent.constraints,
+                        [&](const auto& value) {
+                            return value.first_point_id == contact_id;
+                        }) == 2,
+                "Circle C+T contact did not persist its own point on circle and axis");
+        auto ui_circle_tangent = zima::sketcher::Sketch::create_default();
+        const auto ui_circle = ui_circle_tangent.add_circle(0.0, 2.0, 2.0);
+        auto ui_contact = zima::sketcher::Sketch::create_point(0.0, 0.0);
+        const auto ui_contact_id = ui_contact.id;
+        ui_circle_tangent.points.push_back(std::move(ui_contact));
+        static_cast<void>(ui_circle_tangent.add_point_on_circle_constraint(
+            ui_contact_id, ui_circle));
+        static_cast<void>(ui_circle_tangent.add_point_on_line_constraint(
+            ui_contact_id, "sketch_axis:x"));
+        static_cast<void>(ui_circle_tangent.add_tangent_constraint(
+            "sketch_axis:x", ui_circle, ui_contact_id));
+        const auto ui_markers = ui_circle_tangent.viewer_mesh().constraint_markers;
+        const auto ui_tangent_marker = std::ranges::find_if(
+            ui_markers, [](const auto& marker) { return marker.label == "C T"; });
+        const auto persisted_tangent = std::ranges::find_if(
+            ui_circle_tangent.constraints, [](const auto& value) {
+                return value.kind == zima::sketcher::ConstraintKind::Tangent;
+            });
+        require(persisted_tangent != ui_circle_tangent.constraints.end() &&
+                    persisted_tangent->first_point_id == ui_contact_id &&
+                    ui_markers.size() == 1 &&
+                    ui_tangent_marker != ui_markers.end() &&
+                    std::abs(ui_tangent_marker->position.x) < 1.0e-8 &&
+                    std::abs(ui_tangent_marker->position.y) < 1.0e-8,
+                "Circle C+T did not bind and display one combined contact marker");
+        for (const double center_y : {-2.0, 2.0}) {
+            auto signed_axis_contact = zima::sketcher::Sketch::create_default();
+            const auto signed_circle = signed_axis_contact.add_circle(
+                0.0, center_y, 2.0);
+            auto signed_point = zima::sketcher::Sketch::create_point(0.0, 0.0);
+            const auto signed_point_id = signed_point.id;
+            signed_axis_contact.points.push_back(std::move(signed_point));
+            // This is the order used by interactive circle creation: the
+            // exact preview establishes T, then the persisted contact owns C
+            // on the new circle and C on the selected base axis.
+            static_cast<void>(signed_axis_contact.add_tangent_constraint(
+                "sketch_axis:x", signed_circle, signed_point_id));
+            static_cast<void>(signed_axis_contact.add_point_on_circle_constraint(
+                signed_point_id, signed_circle));
+            static_cast<void>(signed_axis_contact.add_point_on_line_constraint(
+                signed_point_id, "sketch_axis:x"));
+            require(signed_axis_contact.solve().status !=
+                        zima::sketcher::SolveStatus::Conflicting &&
+                    std::ranges::count_if(signed_axis_contact.constraints,
+                        [&](const auto& value) {
+                            return value.first_point_id == signed_point_id;
+                        }) == 3,
+                "Interactive circle C+T failed on one signed side of the base X axis");
+        }
         auto common_tangent = zima::sketcher::Sketch::create_default();
         const auto common_first = common_tangent.add_circle(0.0, 0.0, 2.0);
         const auto common_second = common_tangent.add_circle(10.0, 0.0, 3.0);
@@ -2029,15 +2298,20 @@ int main() {
             tangent_from_contact.segments.begin(),
             tangent_from_contact.segments.end(),
             [&](const auto& value) { return value.id == contact_line; });
+        const auto contact_point_id = contact_segment->first_point_id;
         static_cast<void>(tangent_from_contact.add_point_on_circle_constraint(
-            contact_segment->first_point_id, contact_circle));
+            contact_point_id, contact_circle));
         static_cast<void>(tangent_from_contact.add_tangent_constraint(
-            contact_circle, contact_line));
+            contact_circle, contact_line, contact_point_id));
+        const auto contact_markers =
+            tangent_from_contact.viewer_mesh().constraint_markers;
         require(tangent_from_contact.constraints.size() == 2 &&
                     tangent_from_contact.constraints[0].kind ==
                         zima::sketcher::ConstraintKind::PointOnCircle &&
                     tangent_from_contact.constraints[1].kind ==
                         zima::sketcher::ConstraintKind::Tangent &&
+                    contact_markers.size() == 1 &&
+                    contact_markers.front().label == "C T" &&
                     tangent_from_contact.solve().status !=
                         zima::sketcher::SolveStatus::Conflicting,
                 "Tangent continuation did not preserve its explicit C + T contact");

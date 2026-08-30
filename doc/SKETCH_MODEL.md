@@ -18,6 +18,17 @@ IDs.
 - Every ID is unique within the complete sketch.
 - References must resolve. A referenced point cannot be removed directly.
 - The solver may update points; rendered curves are derived from them.
+- Creating or editing a driving dimension is transactional. The candidate
+  state is solved and rank-checked before it replaces the committed sketch;
+  conflict or redundancy leaves points, constraints and dimensions unchanged.
+- Angular rank equations use a locally signed `atan2(cross, dot)` residual.
+  Unlike `acos(dot)`, it retains a usable derivative at 0 degrees, so a 0°
+  angle is correctly recognized as redundant with an existing Horizontal
+  relation (and equivalently at the vertical-axis cases).
+- A persisted angular sector is presentation state, not by itself the solver's
+  directed-line branch. For a supplementary display the solver keeps whichever
+  of `alpha` and `180-alpha` matches the current persisted directions. This
+  prevents editing an unrelated length from flipping the angular equation.
 
 ## Geometry definitions
 

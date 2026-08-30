@@ -294,13 +294,35 @@ spotřebovat kliknutí do prázdného View. Levý klik určí kotvu a okamžitě
 transientní obrys podle hodnot v interních Vlastnostech. `OK` jej uloží,
 `Cancel` nezmění skicu.
 
+## Automatická kóta
+
+Skicář vystavuje jeden příkaz **Automatická kóta**. První dva potvrzené body
+určují délkovou referenci; úsečka nebo osa předá své dva definiční body. Pohyb
+kurzoru zobrazuje délkovou, vodorovnou nebo svislou variantu podle polohy.
+Kliknutí do prázdného View potvrdí její umístění. Kliknutí na další nabízenou
+úsečku, osu nebo body pokračuje ve stejném příkazu směrem k úhlové kótě.
+
+Úhlová kóta se vytvoří až ze dvou úplných směrů, tedy ze čtyř bodů. Dvě
+úsečky, dvě osy nebo jejich kombinace jsou pouze zkratkou pro stejné čtyři
+body. Druhá reference musí zůstat před potvrzením oranžově zvýrazněná. Po
+získání obou směrů sleduje oblouk i text přesnou polohu kurzoru; poslední klik
+určí výseč, znaménko, poloměr a skutečné uložené umístění kóty. Tažení
+uloženého bodu kóty nesmí samo přepnout na sousední výseč.
+
+Při editaci hodnoty je změna transakční. Solver zachová zvolenou úhlovou
+větev a využije zbývající stupně volnosti navazující geometrie. Typický případ
+je řetěz dvou úseček: první má délku od pevného počátku, mezi úsečkami je úhel
+a vzdálený konec druhé leží na ose. Změna délky pohne společným bodem a solver
+dopočítá nový průsečík druhé úsečky s osou bez změny úhlu. Duplicitní nebo již
+jinou vazbou určená kóta se odmítne a skica zůstane beze změny.
+
 ## Otevřené případy pro příští testování
 
 Při příštím pokračování na Skicáři se mají jako první projít tyto případy:
 
-1. **Úhlové kóty** — úsečka–osa, úsečka–úsečka a tři body; ostrá, tupá a
-   reflexní větev podle třetího kliku; změna hodnoty bez nechtěného překlopení;
-   řídicí, zamknutá a referenční varianta; hover, výběr a odstranění.
+1. **Úhlové kóty** — dále rozšiřovat regresní kombinace pro řídicí, zamknutou
+   a referenční variantu, záporné hodnoty a odstranění ve složitějších
+   zavazbených řetězcích.
 2. **Obdélník přes osu** — při přejetí strany přes hlavní osu nebo konstrukční
    čáru nabídnout střed strany a po potvrzení uložit skutečnou vazbu `C` mezi
    středem úsečky a osou.

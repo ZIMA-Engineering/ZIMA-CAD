@@ -194,6 +194,12 @@ struct SketchDimension {
     // Built-in sketch axes use the stable IDs sketch_axis:x / sketch_axis:y.
     std::string second_geometry_id;
     std::optional<std::array<double, 2>> placement;
+    // -1 while interactively choosing a sector, 0 for the directed/base
+    // angle sectors, 1 for their supplementary sectors.
+    int angle_sector{-1};
+    // Solver storage may put a fixed Sketch axis first even when the user
+    // selected it second. Presentation preserves the user's input order.
+    bool angle_presentation_reversed{};
     // Presentation metadata belongs to the persisted ZIMA dimension, not to
     // a transient viewer label. Tolerance mode is: empty, symmetric,
     // single_deviation, or deviations.
@@ -372,7 +378,8 @@ public:
         const std::string& driven_geometry_id);
     [[nodiscard]] std::string add_tangent_constraint(
         const std::string& reference_geometry_id,
-        const std::string& driven_geometry_id);
+        const std::string& driven_geometry_id,
+        const std::string& contact_point_id = {});
     void remove_constraint(const std::string& constraint_id);
     void remove_dimension(const std::string& dimension_id);
     void remove_geometry(const std::string& geometry_id);
@@ -463,6 +470,13 @@ public:
     [[nodiscard]] SketchDimension create_three_point_angle_dimension(
         const std::string& first_point_id, const std::string& vertex_point_id,
         const std::string& second_point_id) const;
+    [[nodiscard]] SketchDimension create_point_line_angle_dimension(
+        const std::string& first_point_id, const std::string& second_point_id,
+        const std::string& reference_line_id) const;
+    [[nodiscard]] SketchDimension create_four_point_angle_dimension(
+        const std::string& first_point_id, const std::string& second_point_id,
+        const std::string& third_point_id,
+        const std::string& fourth_point_id) const;
     [[nodiscard]] SketchDimension create_axis_dimension(
         const std::string& point_id,
         const std::string& sketch_axis_id) const;

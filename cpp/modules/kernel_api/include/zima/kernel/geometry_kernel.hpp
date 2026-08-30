@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 #include <variant>
+#include <optional>
 #include <type_traits>
 
 namespace zima::kernel {
@@ -117,6 +118,10 @@ struct ViewerDimension {
     // only colours it; it never infers editability from geometry.
     bool driving{true};
     bool locked{};
+    // Explicit annotation anchor. Angular Sketch dimensions use the exact
+    // user-confirmed placement point instead of forcing text to the arc
+    // bisector.
+    std::optional<Vec3> label_position;
 };
 
 struct ViewerConstraintMarker {
