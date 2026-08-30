@@ -318,6 +318,10 @@ public:
     void set_segment_centerline(const std::string& segment_id, bool centerline);
     [[nodiscard]] bool move_point(
         const std::string& point_id, double x, double y);
+    [[nodiscard]] bool translate_selection(
+        const std::vector<std::string>& point_ids,
+        const std::vector<std::string>& geometry_ids,
+        double translation_x, double translation_y);
     [[nodiscard]] std::string add_point(
         double x, double y, double snap_tolerance = 1.0e-6,
         bool construction = false);
@@ -522,7 +526,7 @@ public:
 private:
     [[nodiscard]] SolveResult solve_impl(
         std::size_t maximum_iterations, bool calculate_degrees_of_freedom,
-        const std::string& preferred_point_id = {});
+        const std::vector<std::string>& preferred_point_ids = {});
     // Non-persisted exact-state cache. The key is the complete current ZIMA
     // Sketch serialization, so direct public-vector edits invalidate it too.
     std::string solved_rank_cache_key_;

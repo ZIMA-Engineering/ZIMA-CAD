@@ -1928,6 +1928,20 @@ int main() {
                     std::vector<std::string>{
                         "circle:" + tangent_circle, "segment:" + tangent_line},
                 "Tangent marker did not expose only its two geometries");
+        const auto tangent_center_before = *tangent.find_point(
+            tangent.circles.front().center_point_id);
+        const auto tangent_first_before = *tangent.find_point(
+            tangent.segments.front().first_point_id);
+        require(tangent.translate_selection({}, {tangent_circle, tangent_line},
+                    7.0, -2.0) &&
+                    std::abs(tangent.find_point(
+                        tangent.circles.front().center_point_id)->x -
+                        (tangent_center_before.x + 7.0)) < 1.0e-9 &&
+                    std::abs(tangent.find_point(
+                        tangent.segments.front().first_point_id)->y -
+                        (tangent_first_before.y - 2.0)) < 1.0e-9 &&
+                    std::abs(tangent.circles.front().radius - 2.0) < 1.0e-9,
+                "Rigid multi-selection drag changed shape or lost Tangent");
         const auto loaded_tangent = zima::sketcher::Sketch::from_serialized(
             tangent.serialized());
         require(loaded_tangent.constraints == tangent.constraints &&
@@ -3389,10 +3403,10 @@ int main() {
                     std::abs(moved_arc.arcs.front().radius - 10.0) < 1.0e-9,
                 "Moving an Arc center changed its radius or failed to translate endpoints");
         require(moved_arc.move_point(moved_arc_end, 5.0, 23.0) &&
-                    std::abs(moved_arc.arcs.front().radius - 10.0) < 1.0e-9 &&
-                    std::abs(moved_arc.find_point(moved_arc_start)->x - 15.0) < 1.0e-9 &&
-                    std::abs(moved_arc.find_point(moved_arc_end)->y - 13.0) < 1.0e-9,
-                "Moving an Arc endpoint changed its radius instead of only its sweep");
+                    std::abs(moved_arc.arcs.front().radius - 20.0) < 1.0e-9 &&
+                    std::abs(moved_arc.find_point(moved_arc_start)->x - 25.0) < 1.0e-9 &&
+                    std::abs(moved_arc.find_point(moved_arc_end)->y - 23.0) < 1.0e-9,
+                "Moving an Arc endpoint did not edit its radius and sweep");
         auto driven_arc = zima::sketcher::Sketch::create_default();
         const auto driven_arc_id = driven_arc.add_arc(
             0.0, 0.0, 10.0, 0.0, 0.0, 10.0);
@@ -3400,13 +3414,27 @@ int main() {
             driven_arc.create_arc_radius_dimension(driven_arc_id));
         const auto driven_arc_end = driven_arc.arcs.front().end_point_id;
         require(driven_arc.move_point(driven_arc_end, -20.0, 0.0) &&
-                    std::abs(driven_arc.find_point(driven_arc_end)->x + 10.0) < 1.0e-9 &&
-                    std::abs(driven_arc.arcs.front().radius - 10.0) < 1.0e-9,
-                "Dragging a dimensioned Arc endpoint did not preserve its radius");
+                    std::abs(driven_arc.find_point(driven_arc_end)->x + 20.0) < 1.0e-9 &&
+                    std::abs(driven_arc.arcs.front().radius - 20.0) < 1.0e-9 &&
+                    std::abs(driven_arc.dimensions.front().value - 20.0) < 1.0e-9,
+                "Dragging an unlocked dimensioned Arc endpoint did not edit its radius");
+        auto locked_arc = zima::sketcher::Sketch::create_default();
+        const auto locked_arc_id = locked_arc.add_arc(
+            0.0, 0.0, 10.0, 0.0, 0.0, 10.0);
+        auto locked_arc_radius = locked_arc.create_arc_radius_dimension(
+            locked_arc_id);
+        locked_arc_radius.locked = true;
+        locked_arc.apply_dimension(locked_arc_radius);
+        const auto locked_arc_end = locked_arc.arcs.front().end_point_id;
+        require(locked_arc.move_point(locked_arc_end, -20.0, 0.0) &&
+                    std::abs(locked_arc.find_point(locked_arc_end)->x + 10.0) <
+                        1.0e-9 &&
+                    std::abs(locked_arc.arcs.front().radius - 10.0) < 1.0e-9,
+                "Dragging a locked Arc radius did not reduce to angular motion");
         moved_arc.set_point_fixed(moved_arc_start, true);
         require(moved_arc.move_point(moved_arc_end, -15.0, 3.0) &&
-                    std::abs(moved_arc.find_point(moved_arc_start)->x - 15.0) < 1.0e-9 &&
-                    std::abs(moved_arc.arcs.front().radius - 10.0) < 1.0e-9,
+                    std::abs(moved_arc.find_point(moved_arc_start)->x - 25.0) < 1.0e-9 &&
+                    std::abs(moved_arc.arcs.front().radius - 20.0) < 1.0e-9,
                 "Arc sweep edit moved a fixed start point or changed radius");
         const auto arc_before_limit_error = arc_sketch;
         auto invalid_arc_radius = arc_sketch.dimensions.front();

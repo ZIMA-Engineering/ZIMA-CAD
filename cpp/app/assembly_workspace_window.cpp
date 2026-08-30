@@ -941,6 +941,41 @@ std::optional<std::string> sketch_keypoint_curve_id(
         quarter_separator - kind_separator - 1);
 }
 
+void apply_sketch_point_snap(zima::sketcher::Sketch& sketch,
+    const std::string& point_id, const std::string& support_id,
+    const std::optional<zima::sketcher::ConstraintKind>& kind) {
+    if (!kind || support_id.empty()) return;
+    try {
+        if (*kind == zima::sketcher::ConstraintKind::Coincident) {
+            static_cast<void>(sketch.add_coincident_constraint(point_id, support_id));
+        } else if (*kind == zima::sketcher::ConstraintKind::PointOnCircle) {
+            static_cast<void>(sketch.add_point_on_circle_constraint(
+                point_id, support_id));
+        } else if (*kind == zima::sketcher::ConstraintKind::PointOnLine) {
+            const auto separator = support_id.find("||");
+            if (separator == std::string::npos) {
+                static_cast<void>(sketch.add_point_on_line_constraint(
+                    point_id, support_id));
+            } else {
+                for (const auto& support : {support_id.substr(0, separator),
+                         support_id.substr(separator + 2)}) {
+                    const auto* point = sketch.find_point(point_id);
+                    if (point != nullptr && sketch.project_point_to_curve(
+                            support, point->x, point->y)) {
+                        static_cast<void>(sketch.add_point_on_circle_constraint(
+                            point_id, support));
+                    } else {
+                        static_cast<void>(sketch.add_point_on_line_constraint(
+                            point_id, support));
+                    }
+                }
+            }
+        }
+    } catch (const std::invalid_argument&) {
+        // Reusing a persisted point may already provide the same relation.
+    }
+}
+
 QString sketch_constraint_label(zima::sketcher::ConstraintKind kind) {
     using Kind = zima::sketcher::ConstraintKind;
     switch (kind) {
@@ -2014,7 +2049,9 @@ void AssemblyWorkspaceWindow::create_actions() {
     sketch_perpendicular_action_->setObjectName("sketchPerpendicularAction");
     sketch_equal_length_action_ = make_action(tr("Stejnost"));
     sketch_equal_length_action_->setObjectName("sketchEqualAction");
-    sketch_fix_point_action_ = make_action(tr("Fixace"));
+    sketch_fix_point_action_ = make_action(tr("Fixovat bod"));
+    sketch_fix_point_action_->setToolTip(tr(
+        "Uzamkne bod na jeho současných souřadnicích X a Y."));
     sketch_fix_point_action_->setObjectName("sketchFixPointAction");
     sketch_constraints_menu_ = new QMenu(tr("Vazby"), this);
     sketch_constraints_menu_->setObjectName("sketchConstraintsMenu");
@@ -3246,13 +3283,21 @@ void AssemblyWorkspaceWindow::create_layout() {
         bool related = cursor_snap.has_value();
         std::string label;
         if (cursor_snap && cursor_snap->relation) {
-            switch (*cursor_snap->relation) {
-            case zima::sketcher::ConstraintKind::Coincident: label = "C"; break;
-            case zima::sketcher::ConstraintKind::Midpoint:
-            case zima::sketcher::ConstraintKind::MidpointOnLine: label = "M"; break;
-            case zima::sketcher::ConstraintKind::PointOnCircle:
-            case zima::sketcher::ConstraintKind::PointOnLine: label = "C"; break;
-            default: label = "K"; break;
+            if (cursor_snap->support_geometry_id.starts_with("sketch_keypoint:")) {
+                label = "K";
+            } else {
+                switch (*cursor_snap->relation) {
+                case zima::sketcher::ConstraintKind::Coincident: label = "C"; break;
+                case zima::sketcher::ConstraintKind::Midpoint:
+                case zima::sketcher::ConstraintKind::MidpointOnLine:
+                    label = "M";
+                    break;
+                case zima::sketcher::ConstraintKind::PointOnCircle:
+                case zima::sketcher::ConstraintKind::PointOnLine:
+                    label = "C";
+                    break;
+                default: label = "K"; break;
+                }
             }
         }
         if (cursor && sketch_segment_active_ && pending_segment_start_ &&
@@ -3307,7 +3352,11 @@ void AssemblyWorkspaceWindow::create_layout() {
         return false;
     });
     viewer_->set_double_middle_click_callback(
-        [this] { return finish_current_sketch_tool(); });
+        [this] {
+            if (sketch_bspline_active_ && !pending_bspline_points_.empty())
+                return finish_sketch_bspline();
+            return finish_current_sketch_tool();
+        });
     viewer_->set_empty_right_click_callback(
         [this] { return cancel_current_sketch_step(true); });
     viewer_->set_single_candidate_right_click_callback({});
@@ -10252,6 +10301,7 @@ void AssemblyWorkspaceWindow::show_sketch_text_properties(
 
     cancel_sketch_segment();
     sketch_text_active_ = true;
+    set_sketch_placement_selection_contract();
     editing_sketch_text_id_ = text_id;
     selected_sketch_segment_id_.clear();
     selected_sketch_circle_id_.clear();
@@ -10958,6 +11008,7 @@ void AssemblyWorkspaceWindow::cancel_sketch_segment() {
     pending_elliptical_arc_minor_.reset();
     pending_elliptical_arc_start_.reset();
     pending_elliptical_arc_reversed_ = false;
+    pending_curve_point_snaps_.clear();
     pending_bspline_points_.clear();
     pending_coincident_point_id_.clear();
     pending_midpoint_point_id_.clear();
@@ -11750,6 +11801,7 @@ void AssemblyWorkspaceWindow::cancel_sketch_arc() {
     sketch_arc_clockwise_ = false;
     pending_arc_center_.reset();
     pending_arc_start_.reset();
+    pending_curve_point_snaps_.clear();
     viewer_->set_transient_edges({});
 }
 
@@ -11773,6 +11825,7 @@ void AssemblyWorkspaceWindow::cancel_sketch_ellipse() {
     sketch_ellipse_active_ = false;
     pending_ellipse_center_.reset();
     pending_ellipse_major_.reset();
+    pending_curve_point_snaps_.clear();
     viewer_->set_transient_edges({});
 }
 
@@ -11800,6 +11853,7 @@ void AssemblyWorkspaceWindow::cancel_sketch_elliptical_arc() {
     pending_elliptical_arc_minor_.reset();
     pending_elliptical_arc_start_.reset();
     pending_elliptical_arc_reversed_ = false;
+    pending_curve_point_snaps_.clear();
     viewer_->set_transient_edges({});
 }
 
@@ -11822,6 +11876,7 @@ void AssemblyWorkspaceWindow::start_sketch_bspline() {
 void AssemblyWorkspaceWindow::cancel_sketch_bspline() {
     sketch_bspline_active_ = false;
     pending_bspline_points_.clear();
+    pending_curve_point_snaps_.clear();
     viewer_->set_transient_edges({});
 }
 
@@ -11842,25 +11897,42 @@ bool AssemblyWorkspaceWindow::accept_sketch_bspline_ray(
         }
     }
     pending_bspline_points_.push_back(*position);
-    state_->setText(pending_bspline_points_.size() >= 4
+    pending_curve_point_snaps_.push_back({
+        std::exchange(pending_sketch_snap_geometry_id_, {}),
+        std::exchange(pending_sketch_snap_kind_, std::nullopt)});
+    state_->setText(pending_bspline_points_.size() >= 3
         ? tr("B-spline: %1 řídicích bodů; Enter dokončí.")
               .arg(pending_bspline_points_.size())
-        : tr("B-spline: %1 řídicích bodů; pro kubickou křivku jsou potřeba alespoň 4.")
+        : tr("B-spline: %1 řídicích bodů; pro křivku jsou potřeba alespoň 3.")
               .arg(pending_bspline_points_.size()));
     return true;
 }
 
 bool AssemblyWorkspaceWindow::finish_sketch_bspline() {
     if (!sketch_bspline_active_) return false;
-    if (pending_bspline_points_.size() < 4) {
-        state_->setText(tr("Kubická B-spline vyžaduje alespoň 4 řídicí body."));
+    if (pending_bspline_points_.size() < 3) {
+        state_->setText(tr("B-spline vyžaduje alespoň 3 řídicí body."));
         return true;
     }
     try {
         if (!mutate_active_sketch([&](auto& sketch) {
-                static_cast<void>(sketch.add_bspline(pending_bspline_points_));
+                const auto degree = std::min<unsigned>(3,
+                    static_cast<unsigned>(pending_bspline_points_.size() - 1));
+                const auto spline_id = sketch.add_bspline(
+                    pending_bspline_points_, degree);
+                const auto spline = std::ranges::find_if(sketch.bsplines,
+                    [&](const auto& value) { return value.id == spline_id; });
+                if (spline == sketch.bsplines.end()) return;
+                for (std::size_t index = 0;
+                     index < spline->control_point_ids.size() &&
+                         index < pending_curve_point_snaps_.size(); ++index) {
+                    apply_sketch_point_snap(sketch, spline->control_point_ids[index],
+                        pending_curve_point_snaps_[index].first,
+                        pending_curve_point_snaps_[index].second);
+                }
             })) return true;
         pending_bspline_points_.clear();
+        pending_curve_point_snaps_.clear();
         viewer_->set_transient_edges({});
         preserve_view_on_refresh_ = true;
         refresh_tabs();
@@ -11884,12 +11956,59 @@ void AssemblyWorkspaceWindow::preview_sketch_bspline_ray(
     }
     auto preview_points = pending_bspline_points_;
     preview_points.push_back(*position);
-    if (preview_points.size() < 4) {
+    if (preview_points.size() < 3) {
         zima::kernel::ViewerEdge preview;
         for (const auto& point : preview_points) {
             preview.points.push_back(sketch->world_point(point[0], point[1]));
         }
         viewer_->set_transient_edges({std::move(preview)});
+        std::vector<zima::kernel::Vec3> accepted;
+        for (const auto& point : pending_bspline_points_)
+            accepted.push_back(sketch->world_point(point[0], point[1]));
+        viewer_->set_transient_points(std::move(accepted));
+        return;
+    }
+    if (preview_points.size() == 3) {
+        const auto& a = preview_points[0];
+        const auto& b = preview_points[1];
+        const auto& c = preview_points[2];
+        const double determinant = 2.0 * (a[0] * (b[1] - c[1]) +
+            b[0] * (c[1] - a[1]) + c[0] * (a[1] - b[1]));
+        zima::kernel::ViewerEdge preview;
+        if (std::abs(determinant) <= 1.0e-12) {
+            for (const auto& point : preview_points)
+                preview.points.push_back(sketch->world_point(point[0], point[1]));
+        } else {
+            const double aa = a[0] * a[0] + a[1] * a[1];
+            const double bb = b[0] * b[0] + b[1] * b[1];
+            const double cc = c[0] * c[0] + c[1] * c[1];
+            const double cx = (aa * (b[1] - c[1]) + bb * (c[1] - a[1]) +
+                cc * (a[1] - b[1])) / determinant;
+            const double cy = (aa * (c[0] - b[0]) + bb * (a[0] - c[0]) +
+                cc * (b[0] - a[0])) / determinant;
+            const double radius = std::hypot(a[0] - cx, a[1] - cy);
+            double start = std::atan2(a[1] - cy, a[0] - cx);
+            double middle = std::atan2(b[1] - cy, b[0] - cx);
+            double end = std::atan2(c[1] - cy, c[0] - cx);
+            constexpr double turn = 2.0 * 3.14159265358979323846;
+            while (middle < start) middle += turn;
+            while (end < start) end += turn;
+            if (middle > end) {
+                while (end > start) end -= turn;
+            }
+            constexpr std::size_t samples = 48;
+            for (std::size_t index = 0; index <= samples; ++index) {
+                const double angle = start + (end - start) *
+                    static_cast<double>(index) / static_cast<double>(samples);
+                preview.points.push_back(sketch->world_point(
+                    cx + radius * std::cos(angle), cy + radius * std::sin(angle)));
+            }
+        }
+        viewer_->set_transient_edges({std::move(preview)});
+        std::vector<zima::kernel::Vec3> accepted;
+        for (const auto& point : pending_bspline_points_)
+            accepted.push_back(sketch->world_point(point[0], point[1]));
+        viewer_->set_transient_points(std::move(accepted));
         return;
     }
     auto preview_sketch = *sketch;
@@ -11902,6 +12021,10 @@ void AssemblyWorkspaceWindow::preview_sketch_bspline_ray(
     viewer_->set_transient_edges(edge == mesh.edges.rend()
         ? std::vector<zima::kernel::ViewerEdge>{}
         : std::vector<zima::kernel::ViewerEdge>{*edge});
+    std::vector<zima::kernel::Vec3> accepted;
+    for (const auto& point : pending_bspline_points_)
+        accepted.push_back(sketch->world_point(point[0], point[1]));
+    viewer_->set_transient_points(std::move(accepted));
 }
 
 bool AssemblyWorkspaceWindow::accept_sketch_point_ray(
@@ -12344,17 +12467,19 @@ bool AssemblyWorkspaceWindow::accept_sketch_external_snap(
     if (!snap) return false;
     pending_sketch_snap_geometry_id_ = snap->support_geometry_id;
     pending_sketch_snap_kind_ = snap->relation;
-    if (accept_sketch_point_ray(snap->origin, snap->direction)) return true;
-    if (accept_sketch_segment_ray(snap->origin, snap->direction)) return true;
-    if (accept_sketch_rectangle_ray(snap->origin, snap->direction)) return true;
+    const bool accepted =
+        accept_sketch_point_ray(snap->origin, snap->direction) ||
+        accept_sketch_segment_ray(snap->origin, snap->direction) ||
+        accept_sketch_rectangle_ray(snap->origin, snap->direction) ||
+        accept_sketch_polygon_ray(snap->origin, snap->direction) ||
+        accept_sketch_circle_ray(snap->origin, snap->direction) ||
+        accept_sketch_arc_ray(snap->origin, snap->direction) ||
+        accept_sketch_ellipse_ray(snap->origin, snap->direction) ||
+        accept_sketch_elliptical_arc_ray(snap->origin, snap->direction) ||
+        accept_sketch_bspline_ray(snap->origin, snap->direction);
     pending_sketch_snap_geometry_id_.clear();
     pending_sketch_snap_kind_.reset();
-    if (accept_sketch_polygon_ray(snap->origin, snap->direction)) return true;
-    if (accept_sketch_circle_ray(snap->origin, snap->direction)) return true;
-    if (accept_sketch_arc_ray(snap->origin, snap->direction)) return true;
-    if (accept_sketch_ellipse_ray(snap->origin, snap->direction)) return true;
-    if (accept_sketch_elliptical_arc_ray(snap->origin, snap->direction)) return true;
-    return accept_sketch_bspline_ray(snap->origin, snap->direction);
+    return accepted;
 }
 
 bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
@@ -13970,7 +14095,8 @@ bool AssemblyWorkspaceWindow::begin_sketch_point_drag(
             selected_segments.push_back(selected_id);
         }
     }
-    if (selected_segments.size() == 2) {
+    if (selected_segments.size() == 2 &&
+        viewer_->sketch_selection().size() == 2) {
         const auto first = std::find_if(sketch->segments.begin(), sketch->segments.end(),
             [&](const auto& value) { return value.id == selected_segments[0]; });
         const auto second = std::find_if(sketch->segments.begin(), sketch->segments.end(),
@@ -14043,6 +14169,87 @@ bool AssemblyWorkspaceWindow::begin_sketch_point_drag(
         assembly_sketch_drag_document_ = assembly->session.document();
     } else {
         return false;
+    }
+    const auto viewer_selection = viewer_->sketch_selection();
+    const bool pressed_selected = std::ranges::any_of(viewer_selection,
+        [&](const auto& selected) { return selected == candidate; });
+    if (pressed_selected && viewer_selection.size() > 1) {
+        const auto append_unique = [](auto& values, const std::string& value) {
+            if (!value.empty() && std::ranges::find(values, value) == values.end())
+                values.push_back(value);
+        };
+        for (const auto& selected : viewer_selection) {
+            if (selected.owner_id != active_sketch_id_) continue;
+            const auto& key = selected.semantic_key;
+            if (selected.kind == zima::viewer::CandidateKind::SketchPoint &&
+                key.starts_with("point:")) {
+                append_unique(sketch_group_drag_point_ids_, key.substr(6));
+            } else {
+                for (const std::string_view prefix : {
+                        "segment:", "circle:", "arc:", "ellipse:",
+                        "elliptical_arc:", "bspline:"}) {
+                    if (key.starts_with(prefix)) {
+                        append_unique(sketch_group_drag_geometry_ids_,
+                            key.substr(prefix.size()));
+                        break;
+                    }
+                }
+            }
+        }
+        append_unique(sketch_group_drag_point_ids_, point_id);
+        std::unordered_set<std::string> effective_points(
+            sketch_group_drag_point_ids_.begin(),
+            sketch_group_drag_point_ids_.end());
+        for (const auto& segment : sketch->segments) {
+            if (std::ranges::find(sketch_group_drag_geometry_ids_, segment.id) ==
+                sketch_group_drag_geometry_ids_.end()) continue;
+            effective_points.insert(segment.first_point_id);
+            effective_points.insert(segment.second_point_id);
+        }
+        for (const auto& circle : sketch->circles) {
+            if (std::ranges::find(sketch_group_drag_geometry_ids_, circle.id) !=
+                sketch_group_drag_geometry_ids_.end())
+                effective_points.insert(circle.center_point_id);
+        }
+        for (const auto& arc : sketch->arcs) {
+            if (std::ranges::find(sketch_group_drag_geometry_ids_, arc.id) ==
+                sketch_group_drag_geometry_ids_.end()) continue;
+            effective_points.insert(arc.center_point_id);
+            effective_points.insert(arc.start_point_id);
+            effective_points.insert(arc.end_point_id);
+        }
+        for (const auto& ellipse : sketch->ellipses) {
+            if (std::ranges::find(sketch_group_drag_geometry_ids_, ellipse.id) ==
+                sketch_group_drag_geometry_ids_.end()) continue;
+            effective_points.insert(ellipse.center_point_id);
+            effective_points.insert(ellipse.major_point_id);
+            effective_points.insert(ellipse.minor_point_id);
+        }
+        for (const auto& arc : sketch->elliptical_arcs) {
+            if (std::ranges::find(sketch_group_drag_geometry_ids_, arc.id) ==
+                sketch_group_drag_geometry_ids_.end()) continue;
+            effective_points.insert(arc.center_point_id);
+            effective_points.insert(arc.major_point_id);
+            effective_points.insert(arc.minor_point_id);
+            effective_points.insert(arc.start_point_id);
+            effective_points.insert(arc.end_point_id);
+        }
+        for (const auto& spline : sketch->bsplines) {
+            if (std::ranges::find(sketch_group_drag_geometry_ids_, spline.id) !=
+                sketch_group_drag_geometry_ids_.end())
+                effective_points.insert(spline.control_point_ids.begin(),
+                    spline.control_point_ids.end());
+        }
+        if (effective_points.size() > 1) {
+            sketch_group_drag_source_ = *sketch;
+            sketch_group_drag_anchor_ = {point->x, point->y};
+            sketch_drag_point_id_ = point_id;
+            sketch_drag_changed_ = false;
+            state_->setText(tr("Tažení výběru: všechny vybrané body se posunou společně."));
+            return true;
+        }
+        sketch_group_drag_point_ids_.clear();
+        sketch_group_drag_geometry_ids_.clear();
     }
     sketch_drag_point_id_ = point_id;
     if (qEnvironmentVariableIsSet("ZIMA_SKETCH_TRACE")) {
@@ -14151,8 +14358,19 @@ void AssemblyWorkspaceWindow::update_sketch_point_drag(
         state_->setText(tr("Zaoblení rohu: R %1 mm").arg(radius, 0, 'f', 3));
         return;
     }
-    if (next_sketch == sketches.end() || !next_sketch->move_point(
-            sketch_drag_point_id_, (*position)[0], (*position)[1])) {
+    if (next_sketch == sketches.end()) return;
+    bool moved = false;
+    if (sketch_group_drag_source_) {
+        *next_sketch = *sketch_group_drag_source_;
+        moved = next_sketch->translate_selection(
+            sketch_group_drag_point_ids_, sketch_group_drag_geometry_ids_,
+            (*position)[0] - sketch_group_drag_anchor_[0],
+            (*position)[1] - sketch_group_drag_anchor_[1]);
+    } else {
+        moved = next_sketch->move_point(
+            sketch_drag_point_id_, (*position)[0], (*position)[1]);
+    }
+    if (!moved) {
         state_->setText(tr("Bod nelze přesunout mimo vazby nebo absolutní meze."));
         return;
     }
@@ -14176,6 +14394,9 @@ void AssemblyWorkspaceWindow::end_sketch_point_drag() {
     if (!sketch_drag_document_ && !assembly_sketch_drag_document_) return;
     const bool corner_radius_drag = sketch_corner_drag_source_.has_value();
     sketch_drag_point_id_.clear();
+    sketch_group_drag_source_.reset();
+    sketch_group_drag_point_ids_.clear();
+    sketch_group_drag_geometry_ids_.clear();
     const bool changed = sketch_drag_changed_;
     sketch_drag_changed_ = false;
     if (changed) {
@@ -16431,6 +16652,9 @@ bool AssemblyWorkspaceWindow::accept_sketch_arc_ray(
     if (!position) return true;
     if (!pending_arc_center_) {
         pending_arc_center_ = *position;
+        pending_curve_point_snaps_.push_back({
+            std::exchange(pending_sketch_snap_geometry_id_, {}),
+            std::exchange(pending_sketch_snap_kind_, std::nullopt)});
         state_->setText(tr("Oblouk skici: určete počáteční bod."));
         return true;
     }
@@ -16441,6 +16665,9 @@ bool AssemblyWorkspaceWindow::accept_sketch_arc_ray(
             return true;
         }
         pending_arc_start_ = *position;
+        pending_curve_point_snaps_.push_back({
+            std::exchange(pending_sketch_snap_geometry_id_, {}),
+            std::exchange(pending_sketch_snap_kind_, std::nullopt)});
         state_->setText(tr(
             "Oblouk skici: určete koncový bod; RMB přepíná směr."));
         return true;
@@ -16464,17 +16691,33 @@ bool AssemblyWorkspaceWindow::accept_sketch_arc_ray(
     const std::array projected_end{
         (*pending_arc_center_)[0] + radius * end_dx / end_length,
         (*pending_arc_center_)[1] + radius * end_dy / end_length};
+    pending_curve_point_snaps_.push_back({
+        std::exchange(pending_sketch_snap_geometry_id_, {}),
+        std::exchange(pending_sketch_snap_kind_, std::nullopt)});
     try {
         if (!mutate_active_sketch([&](auto& target) {
-                static_cast<void>(target.add_arc(
+                const auto arc_id = target.add_arc(
                     (*pending_arc_center_)[0], (*pending_arc_center_)[1],
                     (*pending_arc_start_)[0], (*pending_arc_start_)[1],
                     projected_end[0], projected_end[1], false, 1.0e-6,
-                    sketch_arc_clockwise_));
+                    sketch_arc_clockwise_);
+                const auto arc = std::ranges::find_if(target.arcs,
+                    [&](const auto& value) { return value.id == arc_id; });
+                if (arc == target.arcs.end()) return;
+                const std::array point_ids{arc->center_point_id,
+                    arc->start_point_id, arc->end_point_id};
+                for (std::size_t index = 0;
+                     index < point_ids.size() &&
+                         index < pending_curve_point_snaps_.size(); ++index) {
+                    apply_sketch_point_snap(target, point_ids[index],
+                        pending_curve_point_snaps_[index].first,
+                        pending_curve_point_snaps_[index].second);
+                }
             })) return true;
         pending_arc_center_.reset();
         pending_arc_start_.reset();
         sketch_arc_clockwise_ = false;
+        pending_curve_point_snaps_.clear();
         viewer_->set_transient_edges({});
         preserve_view_on_refresh_ = true;
         refresh_tabs();
@@ -16497,6 +16740,8 @@ void AssemblyWorkspaceWindow::preview_sketch_arc_ray(
         viewer_->set_transient_edges({{{
             sketch->world_point((*pending_arc_center_)[0], (*pending_arc_center_)[1]),
             sketch->world_point((*position)[0], (*position)[1])}, {}}});
+        viewer_->set_transient_points({sketch->world_point(
+            (*pending_arc_center_)[0], (*pending_arc_center_)[1])});
         return;
     }
     const double radius = std::hypot(
@@ -16523,6 +16768,11 @@ void AssemblyWorkspaceWindow::preview_sketch_arc_ray(
             (*pending_arc_center_)[1] + radius * std::sin(angle)));
     }
     viewer_->set_transient_edges({std::move(preview)});
+    viewer_->set_transient_points({
+        sketch->world_point(
+            (*pending_arc_center_)[0], (*pending_arc_center_)[1]),
+        sketch->world_point(
+            (*pending_arc_start_)[0], (*pending_arc_start_)[1])});
 }
 
 bool AssemblyWorkspaceWindow::accept_sketch_ellipse_ray(
@@ -16534,6 +16784,9 @@ bool AssemblyWorkspaceWindow::accept_sketch_ellipse_ray(
     if (!position) return true;
     if (!pending_ellipse_center_) {
         pending_ellipse_center_ = *position;
+        pending_curve_point_snaps_.push_back({
+            std::exchange(pending_sketch_snap_geometry_id_, {}),
+            std::exchange(pending_sketch_snap_kind_, std::nullopt)});
         state_->setText(tr("Elipsa skici: určete konec hlavní poloosy."));
         return true;
     }
@@ -16544,18 +16797,37 @@ bool AssemblyWorkspaceWindow::accept_sketch_ellipse_ray(
             return true;
         }
         pending_ellipse_major_ = *position;
+        pending_curve_point_snaps_.push_back({
+            std::exchange(pending_sketch_snap_geometry_id_, {}),
+            std::exchange(pending_sketch_snap_kind_, std::nullopt)});
         state_->setText(tr("Elipsa skici: určete délku vedlejší poloosy."));
         return true;
     }
+    pending_curve_point_snaps_.push_back({
+        std::exchange(pending_sketch_snap_geometry_id_, {}),
+        std::exchange(pending_sketch_snap_kind_, std::nullopt)});
     try {
         if (!mutate_active_sketch([&](auto& target) {
-                static_cast<void>(target.add_ellipse(
+                const auto ellipse_id = target.add_ellipse(
                     (*pending_ellipse_center_)[0], (*pending_ellipse_center_)[1],
                     (*pending_ellipse_major_)[0], (*pending_ellipse_major_)[1],
-                    (*position)[0], (*position)[1]));
+                    (*position)[0], (*position)[1]);
+                const auto ellipse = std::ranges::find_if(target.ellipses,
+                    [&](const auto& value) { return value.id == ellipse_id; });
+                if (ellipse == target.ellipses.end()) return;
+                const std::array point_ids{ellipse->center_point_id,
+                    ellipse->major_point_id, ellipse->minor_point_id};
+                for (std::size_t index = 0;
+                     index < point_ids.size() &&
+                         index < pending_curve_point_snaps_.size(); ++index) {
+                    apply_sketch_point_snap(target, point_ids[index],
+                        pending_curve_point_snaps_[index].first,
+                        pending_curve_point_snaps_[index].second);
+                }
             })) return true;
         pending_ellipse_center_.reset();
         pending_ellipse_major_.reset();
+        pending_curve_point_snaps_.clear();
         viewer_->set_transient_edges({});
         preserve_view_on_refresh_ = true;
         refresh_tabs();
@@ -16578,6 +16850,8 @@ void AssemblyWorkspaceWindow::preview_sketch_ellipse_ray(
         viewer_->set_transient_edges({{{
             sketch->world_point((*pending_ellipse_center_)[0], (*pending_ellipse_center_)[1]),
             sketch->world_point((*position)[0], (*position)[1])}, {}}});
+        viewer_->set_transient_points({sketch->world_point(
+            (*pending_ellipse_center_)[0], (*pending_ellipse_center_)[1])});
         return;
     }
     const double dx = (*pending_ellipse_major_)[0] - (*pending_ellipse_center_)[0];
@@ -16603,6 +16877,11 @@ void AssemblyWorkspaceWindow::preview_sketch_ellipse_ray(
                 local_y * std::cos(rotation)));
     }
     viewer_->set_transient_edges({std::move(preview)});
+    viewer_->set_transient_points({
+        sketch->world_point(
+            (*pending_ellipse_center_)[0], (*pending_ellipse_center_)[1]),
+        sketch->world_point(
+            (*pending_ellipse_major_)[0], (*pending_ellipse_major_)[1])});
 }
 
 bool AssemblyWorkspaceWindow::accept_sketch_elliptical_arc_ray(
@@ -16614,6 +16893,9 @@ bool AssemblyWorkspaceWindow::accept_sketch_elliptical_arc_ray(
     if (!position) return true;
     if (!pending_elliptical_arc_center_) {
         pending_elliptical_arc_center_ = *position;
+        pending_curve_point_snaps_.push_back({
+            std::exchange(pending_sketch_snap_geometry_id_, {}),
+            std::exchange(pending_sketch_snap_kind_, std::nullopt)});
         state_->setText(tr(
             "Eliptický oblouk: určete konec hlavní poloosy."));
         return true;
@@ -16628,6 +16910,9 @@ bool AssemblyWorkspaceWindow::accept_sketch_elliptical_arc_ray(
             return true;
         }
         pending_elliptical_arc_major_ = *position;
+        pending_curve_point_snaps_.push_back({
+            std::exchange(pending_sketch_snap_geometry_id_, {}),
+            std::exchange(pending_sketch_snap_kind_, std::nullopt)});
         state_->setText(tr(
             "Eliptický oblouk: určete délku a stranu vedlejší poloosy."));
         return true;
@@ -16642,6 +16927,9 @@ bool AssemblyWorkspaceWindow::accept_sketch_elliptical_arc_ray(
             return true;
         }
         pending_elliptical_arc_minor_ = *minor;
+        pending_curve_point_snaps_.push_back({
+            std::exchange(pending_sketch_snap_geometry_id_, {}),
+            std::exchange(pending_sketch_snap_kind_, std::nullopt)});
         const double major_x =
             (*pending_elliptical_arc_major_)[0] -
             (*pending_elliptical_arc_center_)[0];
@@ -16670,6 +16958,9 @@ bool AssemblyWorkspaceWindow::accept_sketch_elliptical_arc_ray(
     }
     if (!pending_elliptical_arc_start_) {
         pending_elliptical_arc_start_ = projected->position;
+        pending_curve_point_snaps_.push_back({
+            std::exchange(pending_sketch_snap_geometry_id_, {}),
+            std::exchange(pending_sketch_snap_kind_, std::nullopt)});
         state_->setText(pending_elliptical_arc_reversed_
             ? tr("Eliptický oblouk: určete koncový bod ve směru hodinových ručiček.")
             : tr("Eliptický oblouk: určete koncový bod proti směru hodinových ručiček."));
@@ -16683,9 +16974,12 @@ bool AssemblyWorkspaceWindow::accept_sketch_elliptical_arc_ray(
             "Počáteční a koncový bod eliptického oblouku musí být odlišné."));
         return true;
     }
+    pending_curve_point_snaps_.push_back({
+        std::exchange(pending_sketch_snap_geometry_id_, {}),
+        std::exchange(pending_sketch_snap_kind_, std::nullopt)});
     try {
         if (!mutate_active_sketch([&](auto& target) {
-            static_cast<void>(target.add_elliptical_arc(
+            const auto arc_id = target.add_elliptical_arc(
             (*pending_elliptical_arc_center_)[0],
             (*pending_elliptical_arc_center_)[1],
             (*pending_elliptical_arc_major_)[0],
@@ -16695,13 +16989,27 @@ bool AssemblyWorkspaceWindow::accept_sketch_elliptical_arc_ray(
             (*pending_elliptical_arc_start_)[0],
             (*pending_elliptical_arc_start_)[1],
             projected->position[0], projected->position[1],
-            pending_elliptical_arc_reversed_));
+            pending_elliptical_arc_reversed_);
+            const auto arc = std::ranges::find_if(target.elliptical_arcs,
+                [&](const auto& value) { return value.id == arc_id; });
+            if (arc == target.elliptical_arcs.end()) return;
+            const std::array point_ids{arc->center_point_id,
+                arc->major_point_id, arc->minor_point_id,
+                arc->start_point_id, arc->end_point_id};
+            for (std::size_t index = 0;
+                 index < point_ids.size() &&
+                     index < pending_curve_point_snaps_.size(); ++index) {
+                apply_sketch_point_snap(target, point_ids[index],
+                    pending_curve_point_snaps_[index].first,
+                    pending_curve_point_snaps_[index].second);
+            }
         })) return true;
         pending_elliptical_arc_center_.reset();
         pending_elliptical_arc_major_.reset();
         pending_elliptical_arc_minor_.reset();
         pending_elliptical_arc_start_.reset();
         pending_elliptical_arc_reversed_ = false;
+        pending_curve_point_snaps_.clear();
         viewer_->set_transient_edges({});
         preserve_view_on_refresh_ = true;
         refresh_tabs();
@@ -16728,6 +17036,9 @@ void AssemblyWorkspaceWindow::preview_sketch_elliptical_arc_ray(
                 (*pending_elliptical_arc_center_)[0],
                 (*pending_elliptical_arc_center_)[1]),
             sketch->world_point((*cursor)[0], (*cursor)[1])}, {}}});
+        viewer_->set_transient_points({sketch->world_point(
+            (*pending_elliptical_arc_center_)[0],
+            (*pending_elliptical_arc_center_)[1])});
         return;
     }
     SketchPosition minor;
@@ -16758,11 +17069,27 @@ void AssemblyWorkspaceWindow::preview_sketch_elliptical_arc_ray(
             (*pending_elliptical_arc_center_)[1]),
         sketch->world_point(minor[0], minor[1])};
     preview.push_back(std::move(axes));
+    std::vector<zima::kernel::Vec3> accepted_points{
+        sketch->world_point(
+            (*pending_elliptical_arc_center_)[0],
+            (*pending_elliptical_arc_center_)[1]),
+        sketch->world_point(
+            (*pending_elliptical_arc_major_)[0],
+            (*pending_elliptical_arc_major_)[1])};
+    if (pending_elliptical_arc_minor_) {
+        accepted_points.push_back(sketch->world_point(minor[0], minor[1]));
+    }
+    if (pending_elliptical_arc_start_) {
+        accepted_points.push_back(sketch->world_point(
+            (*pending_elliptical_arc_start_)[0],
+            (*pending_elliptical_arc_start_)[1]));
+    }
     if (!pending_elliptical_arc_minor_) {
         preview.push_back(ellipse_preview_edge(
             *sketch, *pending_elliptical_arc_center_,
             *pending_elliptical_arc_major_, minor));
         viewer_->set_transient_edges(std::move(preview));
+        viewer_->set_transient_points(std::move(accepted_points));
         return;
     }
     const auto projected = projected_ellipse_position(
@@ -16770,6 +17097,7 @@ void AssemblyWorkspaceWindow::preview_sketch_elliptical_arc_ray(
         minor, *cursor);
     if (!projected) {
         viewer_->set_transient_edges(std::move(preview));
+        viewer_->set_transient_points(std::move(accepted_points));
         return;
     }
     if (!pending_elliptical_arc_start_) {
@@ -16786,6 +17114,7 @@ void AssemblyWorkspaceWindow::preview_sketch_elliptical_arc_ray(
                 projected->position[0], projected->position[1])};
         preview.push_back(std::move(radial));
         viewer_->set_transient_edges(std::move(preview));
+        viewer_->set_transient_points(std::move(accepted_points));
         return;
     }
     const auto start = projected_ellipse_position(
@@ -16824,6 +17153,7 @@ void AssemblyWorkspaceWindow::preview_sketch_elliptical_arc_ray(
     }
     preview.push_back(std::move(arc));
     viewer_->set_transient_edges(std::move(preview));
+    viewer_->set_transient_points(std::move(accepted_points));
 }
 
 void AssemblyWorkspaceWindow::keyPressEvent(QKeyEvent* event) {
@@ -19005,6 +19335,7 @@ void AssemblyWorkspaceWindow::configure_sketch_box_selection(
     const bool drawing_tool_active = sketch_point_active_ ||
         sketch_segment_active_ || sketch_rectangle_active_ ||
         sketch_polygon_active_ || sketch_trim_active_ ||
+        sketch_text_active_ ||
         sketch_external_reference_active_ || sketch_circle_active_ ||
         sketch_mirror_active_ || sketch_arc_active_ || sketch_ellipse_active_ ||
         sketch_elliptical_arc_active_ || sketch_bspline_active_ ||

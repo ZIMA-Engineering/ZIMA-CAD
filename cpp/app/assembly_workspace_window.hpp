@@ -344,6 +344,8 @@ private:
     std::optional<std::array<double, 2>> pending_elliptical_arc_minor_;
     std::optional<std::array<double, 2>> pending_elliptical_arc_start_;
     bool pending_elliptical_arc_reversed_{};
+    std::vector<std::pair<std::string,
+        std::optional<zima::sketcher::ConstraintKind>>> pending_curve_point_snaps_;
     bool sketch_bspline_active_{};
     std::vector<std::array<double, 2>> pending_bspline_points_;
     bool sketch_text_active_{};
@@ -392,6 +394,10 @@ private:
     std::optional<zima::document::PartDocument> sketch_drag_document_;
     std::optional<zima::assembly::AssemblyDocument> assembly_sketch_drag_document_;
     std::string sketch_drag_point_id_;
+    std::optional<zima::sketcher::Sketch> sketch_group_drag_source_;
+    std::vector<std::string> sketch_group_drag_point_ids_;
+    std::vector<std::string> sketch_group_drag_geometry_ids_;
+    std::array<double, 2> sketch_group_drag_anchor_{};
     std::string sketch_drag_dimension_id_;
     bool sketch_drag_changed_{};
     // Drag-to-adjust for an embedded placement_references row's dimension

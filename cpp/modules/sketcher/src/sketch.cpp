@@ -2579,9 +2579,17 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
         double angle = std::atan2(y - center->y, x - center->x);
         const double requested_radius = std::hypot(x - center->x, y - center->y);
         if (requested_radius <= 1.0e-12) return false;
-        // Arc endpoint dragging edits the sweep angle while preserving the
-        // stored radius. Radius editing is a separate explicit operation.
-        const double radius = arc.radius;
+        const bool radius_locked = std::ranges::any_of(next.dimensions,
+            [&](const auto& dimension) {
+                return !dimension.suppressed && dimension.driving &&
+                    dimension.locked && dimension.geometry_id == arc.id &&
+                    (dimension.kind == DimensionKind::Radius ||
+                     dimension.kind == DimensionKind::Diameter);
+            });
+        // An Arc endpoint is a radial handle: its distance from the center
+        // edits radius and its direction edits sweep. A locked radius keeps
+        // the old distance and turns the gesture into an angular slide.
+        const double radius = radius_locked ? arc.radius : requested_radius;
         if (moving_start) {
             while (angle > arc.start_angle + 3.14159265358979323846) angle -= full_turn;
             while (angle < arc.start_angle - 3.14159265358979323846) angle += full_turn;
@@ -2785,10 +2793,11 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
     // Point coordinates do not change the constraint graph or its rank.
     // Interactive dragging therefore needs equation convergence and final
     // residual verification, but not a fresh numerical DOF analysis.
-    const auto solved = next.solve_impl(100, false, point_id);
+    const auto solved = next.solve_impl(100, false, {point_id});
     if (solved.status == SolveStatus::Conflicting || solved.status == SolveStatus::Invalid) {
         return false;
     }
+    if (!refresh_reference_dimensions(next)) return false;
     for (auto& dimension : next.dimensions) {
         if (relaxed_dimension_ids.contains(dimension.id)) dimension.driving = true;
     }
@@ -2916,6 +2925,121 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
             return false;
         }
         dimension.value = measured;
+    }
+    try {
+        next.validate();
+    } catch (const std::exception&) {
+        return false;
+    }
+    *this = std::move(next);
+    return true;
+}
+
+bool Sketch::translate_selection(
+    const std::vector<std::string>& point_ids,
+    const std::vector<std::string>& geometry_ids,
+    double translation_x, double translation_y) {
+    if (!std::isfinite(translation_x) || !std::isfinite(translation_y)) return false;
+    auto next = *this;
+    std::unordered_set<std::string> selected_points(
+        point_ids.begin(), point_ids.end());
+    const std::unordered_set<std::string> selected_geometry(
+        geometry_ids.begin(), geometry_ids.end());
+    const auto include = [&](const std::string& point_id) {
+        if (!point_id.empty()) selected_points.insert(point_id);
+    };
+    for (const auto& segment : next.segments) {
+        if (!selected_geometry.contains(segment.id)) continue;
+        include(segment.first_point_id);
+        include(segment.second_point_id);
+    }
+    for (const auto& circle : next.circles) {
+        if (selected_geometry.contains(circle.id)) include(circle.center_point_id);
+    }
+    for (const auto& arc : next.arcs) {
+        if (!selected_geometry.contains(arc.id)) continue;
+        include(arc.center_point_id);
+        include(arc.start_point_id);
+        include(arc.end_point_id);
+    }
+    for (const auto& ellipse : next.ellipses) {
+        if (!selected_geometry.contains(ellipse.id)) continue;
+        include(ellipse.center_point_id);
+        include(ellipse.major_point_id);
+        include(ellipse.minor_point_id);
+    }
+    for (const auto& arc : next.elliptical_arcs) {
+        if (!selected_geometry.contains(arc.id)) continue;
+        include(arc.center_point_id);
+        include(arc.major_point_id);
+        include(arc.minor_point_id);
+        include(arc.start_point_id);
+        include(arc.end_point_id);
+    }
+    for (const auto& spline : next.bsplines) {
+        if (!selected_geometry.contains(spline.id)) continue;
+        selected_points.insert(
+            spline.control_point_ids.begin(), spline.control_point_ids.end());
+    }
+    if (selected_points.size() < 2) return false;
+    const auto linked = externally_linked_point_ids(next);
+    for (const auto& point_id : selected_points) {
+        auto* point = next.find_point(point_id);
+        if (point == nullptr || point->fixed || linked.contains(point_id)) return false;
+        point->x += translation_x;
+        point->y += translation_y;
+    }
+
+    std::unordered_set<std::string> relaxed_dimension_ids;
+    for (auto& dimension : next.dimensions) {
+        if (dimension.suppressed || !dimension.driving || dimension.locked) continue;
+        relaxed_dimension_ids.insert(dimension.id);
+        dimension.driving = false;
+    }
+    std::vector<std::string> transient_dimension_ids;
+    const auto preserve_parameter = [&](DimensionKind kind,
+                                        const std::string& geometry_id,
+                                        double value) {
+        SketchDimension dimension;
+        dimension.id = "selection-drag:" + make_id();
+        dimension.kind = kind;
+        dimension.geometry_id = geometry_id;
+        dimension.value = value;
+        dimension.driving = true;
+        dimension.locked = true;
+        transient_dimension_ids.push_back(dimension.id);
+        next.dimensions.push_back(std::move(dimension));
+    };
+    for (const auto& circle : next.circles) {
+        if (selected_geometry.contains(circle.id))
+            preserve_parameter(DimensionKind::Radius, circle.id, circle.radius);
+    }
+    for (const auto& arc : next.arcs) {
+        if (selected_geometry.contains(arc.id))
+            preserve_parameter(DimensionKind::Radius, arc.id, arc.radius);
+    }
+    for (const auto& ellipse : next.ellipses) {
+        if (!selected_geometry.contains(ellipse.id)) continue;
+        preserve_parameter(
+            DimensionKind::EllipseMajorRadius, ellipse.id, ellipse.major_radius);
+        preserve_parameter(
+            DimensionKind::EllipseMinorRadius, ellipse.id, ellipse.minor_radius);
+        preserve_parameter(DimensionKind::EllipseRotation, ellipse.id,
+            ellipse.rotation * 180.0 / 3.14159265358979323846);
+    }
+    std::vector<std::string> preferred_points(
+        selected_points.begin(), selected_points.end());
+    const auto solved = next.solve_impl(100, false, preferred_points);
+    if (solved.status == SolveStatus::Conflicting ||
+        solved.status == SolveStatus::Invalid) return false;
+    next.dimensions.erase(std::remove_if(next.dimensions.begin(), next.dimensions.end(),
+        [&](const auto& dimension) {
+            return std::ranges::find(transient_dimension_ids, dimension.id) !=
+                transient_dimension_ids.end();
+        }), next.dimensions.end());
+    if (!refresh_reference_dimensions(next)) return false;
+    for (auto& dimension : next.dimensions) {
+        if (relaxed_dimension_ids.contains(dimension.id)) dimension.driving = true;
     }
     try {
         next.validate();
@@ -6296,7 +6420,7 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
 
 SolveResult Sketch::solve_impl(
     std::size_t maximum_iterations, bool calculate_degrees_of_freedom,
-    const std::string& preferred_point_id) {
+    const std::vector<std::string>& preferred_point_ids) {
     point_lookup_indices_.clear();
     point_lookup_indices_.reserve(points.size());
     for (std::size_t index = 0; index < points.size(); ++index) {
@@ -6323,12 +6447,14 @@ SolveResult Sketch::solve_impl(
     constexpr double tolerance = 1.0e-8;
     double maximum_residual{};
     const auto linked_points = externally_linked_point_ids(*this);
+    const std::unordered_set<std::string> preferred_points(
+        preferred_point_ids.begin(), preferred_point_ids.end());
     const auto immutable = [&](const SketchPoint& point) {
         // During a drag the requested point is the interaction root. Treat it
         // as a temporary solver anchor so corrections propagate away from the
         // cursor into movable branches instead of pulling the handle back.
         return point.fixed || linked_points.contains(point.id) ||
-            (!preferred_point_id.empty() && point.id == preferred_point_id);
+            preferred_points.contains(point.id);
     };
     std::unordered_set<std::string> centerline_points;
     for (const auto& segment : segments) {
@@ -9059,7 +9185,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
     }
     for (const auto& point : points) {
         if (!point.fixed) continue;
-        result.constraint_markers.push_back({project(point), "K",
+        result.constraint_markers.push_back({project(point), "F",
             {id, "fixed:" + point.id, {}}, {"point:" + point.id}});
     }
     result.dimensions.reserve(dimensions.size());

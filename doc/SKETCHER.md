@@ -11,7 +11,7 @@ Zadávání geometrie používá jednotné ovládání. Levým tlačítkem se za
 počáteční a pomocné body. Poslední bod, který dokončuje právě kreslený objekt,
 se zadá jedním krátkým kliknutím prostředního tlačítka. Samostatný bod je
 výjimka a kvůli intuitivnímu ovládání se vytvoří jedním levým kliknutím.
-Textová kotva se potvrzuje prostředním tlačítkem. Rychlý
+Textová kotva se zadává levým tlačítkem ve View. Rychlý
 dvojklik prostředním tlačítkem prvním klikem okamžitě potvrdí případný poslední
 bod a druhým klikem ukončí aktivní nástroj a vrátí skicář na `Výběr`.
 
@@ -188,7 +188,11 @@ Nejprve se vybere referenční bod a potom řízený bod:
 Značka `H` nebo `V` se zobrazuje u řízeného, tedy druhého bodu. Výběr značky
 zvýrazní oba body. Odstranění vazby neodstraní žádný z bodů.
 
-Výběr geometrické značky `H/V` zvýrazní úsečku i oba její koncové body.
+Výběr geometrické značky `H/V` zvýrazní její dva řídicí koncové body, nikoli
+celou úsečku. Geometrii zvýrazňují pouze vztahy, jejichž význam skutečně patří
+ke křivkám: `C` ukazuje spojené body a navazující geometrii, `T` obě tečné
+geometrie. Fixovaný bod používá značku `F`; `K` je vyhrazeno významnému bodu
+křivky.
 Výběr bodové značky `H/V` zvýrazní pouze referenční a řízený bod. Při kreslení
 má kombinace totožnosti `C` a bodové `H/V` přednost před automatickou
 kolmostí i rovnoběžností. Značka `H/V` se v náhledu zobrazuje přímo u právě
@@ -257,6 +261,38 @@ odstraní osiřelé body a související vazby.
 Tažení bodu nebo kóty pracuje nad transientní kopií dokumentu. Náhled smí
 zobrazit pouze aktivní skicu a stejný pasivní modelový kontext jako běžný
 Skicář; ostatní skici Partu se během stisku myši nesmějí dočasně objevit.
+
+Tažení jednoho bodu respektuje jeho geometrický význam. Střed kružnice nebo
+oblouku překládá příslušnou křivku bez změny poloměru. Koncový bod kruhového
+oblouku je radiální rukojeť: jeho vzdálenost od středu mění poloměr a jeho směr
+mění rozsah oblouku. Zamknutá poloměrová kóta ponechá poloměr pevný a dovolí
+pouze úhlový pohyb konce. Nezamknutá řídicí poloměrová kóta převezme hodnotu
+dosaženou přímým tažením.
+
+Pokud View obsahuje více vybraných bodů nebo geometrií a tah začne na jednom
+z vybraných bodů, celý výběr se z původního stavu přeloží jedním společným
+`ΔX, ΔY`. Vnitřní délky, úhly, poloměry a vazby se zachovají. Vybraný bod
+slouží pouze jako rukojeť. Fixovaný nebo externě řízený bod a vazba vedoucí do
+nevybrané ukotvené části pohyb omezují; nesmějí se tiše odpojit.
+
+## Vícekrokové křivky
+
+U oblouku, elipsy, eliptického oblouku a B-spline zůstávají všechny již
+potvrzené zadávací body během dalšího kroku viditelné. Zachycení na běžnou
+geometrii se nabízí jako `C`, na charakteristický čtvrtinový bod kružnice,
+oblouku nebo elipsy jako `K`. Potvrzená nabídka se uloží jako skutečná vazba;
+náhled nesmí ukázat vazbu, která po dokončení zmizí.
+
+B-spline po prvním potvrzení zobrazuje bod. Po druhém potvrzeném bodu zobrazuje
+při pohybu kurzoru kruhový oblouk přes oba body a kurzor. Od třetího
+potvrzeného bodu se zobrazuje skutečný B-spline náhled. Křivka vyžaduje
+nejméně tři řídicí body a rychlý dvojklik prostředním tlačítkem ji dokončí;
+jednoduchý prostřední klik zůstává vyhrazen navigaci.
+
+Text je po dobu umístění kreslicí nástroj, takže obdélníkový výběr nesmí
+spotřebovat kliknutí do prázdného View. Levý klik určí kotvu a okamžitě zobrazí
+transientní obrys podle hodnot v interních Vlastnostech. `OK` jej uloží,
+`Cancel` nezmění skicu.
 
 Při zadávání druhého bodu úsečky nebo konstrukční čáry se v omezené obrazové
 toleranci nabízejí také délky existujících úseček. Kandidát přichytí nový

@@ -127,7 +127,8 @@ debug build. This is suitable as the next scaling baseline; interactive drag,
 dimension edit and constraint removal continue to avoid rank analysis and are
 therefore governed primarily by equation convergence rather than this figure.
 
-Point dragging now passes an explicit persisted point root into the solver.
+Point dragging now passes one or more explicit persisted point roots into the
+solver.
 That root is a temporary hard interaction target during the transaction: a
 dimension or constraint correction propagates outward into movable neighboring
 branches and may no longer pull the selected handle away from the cursor. This
@@ -136,7 +137,12 @@ equation. Construction-centerline points receive a contextual stability
 preference over ordinary profile points when neither side is the explicit drag
 root. Tests cover a free/free dimension, a two-branch fork, centerline/profile
 priority, locked dimensions, repeated forward/back motion, and circle/arc
-radius invariance. The corrected 100-branch drag fixture measures 3.021 ms in
+radius invariance. For a multi-selection every selected point is a temporary
+root and the gesture is evaluated from its press-time snapshot with one common
+translation. This prevents incremental cursor events from accumulating drift.
+Selected circular and elliptic geometry receives transient parameter equations
+so a rigid group translation cannot accidentally resize it. The corrected
+100-branch drag fixture measures 3.021 ms in
 the debug build.
 
 Large-Sketch interaction profiling exposed a separate quadratic lookup cost:
@@ -226,7 +232,7 @@ Weights are preferences, not universal prohibitions. A starting policy is:
 
 | Change | Ordinary point drag | Direct object drag/edit |
 |---|---:|---:|
-| dragged target error | hard | hard |
+| dragged target error (all selected roots) | hard | hard |
 | unrelated free point displacement | 1 | 1 |
 | ordinary profile deformation | 4 | 2 |
 | radius/diameter parameter | 1000 | 1 when directly edited |
@@ -279,8 +285,10 @@ dependent Part/Assembly regeneration.
 - chains, forks, loops and disconnected components;
 - rectangle and polygon dimensions from every endpoint order;
 - shared point used by segment, arc center/end and circle center;
-- point-on-circle/arc dragging with invariant radius;
+- point-on-circle dragging with invariant radius;
 - direct circle/arc center translation with invariant radius;
+- arc endpoint dragging with editable radius, and locked-radius angular motion;
+- rigid multi-selection translation with invariant internal shape;
 - explicit radius edit and equal-radius propagation;
 - construction axis versus ordinary profile branch;
 - redundant, conflicting, zero and near-degenerate equations;
