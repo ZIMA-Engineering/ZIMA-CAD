@@ -250,6 +250,7 @@ struct ExtrusionRequest {
         Vec3 end;
         std::vector<Vec3> control_points;
         unsigned degree{3};
+        bool interpolating{};
         bool periodic{};
     };
     struct CurvedProfile {

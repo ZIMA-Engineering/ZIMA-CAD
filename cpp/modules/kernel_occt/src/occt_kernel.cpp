@@ -44,6 +44,8 @@
 #include <GC_MakeArcOfCircle.hxx>
 #include <Geom_TrimmedCurve.hxx>
 #include <Geom_BSplineCurve.hxx>
+#include <GeomAPI_Interpolate.hxx>
+#include <TColgp_HArray1OfPnt.hxx>
 #include <TColgp_Array1OfPnt.hxx>
 #include <TColStd_Array1OfInteger.hxx>
 #include <TColStd_Array1OfReal.hxx>
@@ -1125,6 +1127,29 @@ TopoDS_Wire make_profile_wire(
                     } else {
                         const Standard_Integer pole_count =
                             static_cast<Standard_Integer>(exact_curve.control_points.size());
+                        if (exact_curve.interpolating) {
+                            Handle(TColgp_HArray1OfPnt) points =
+                                new TColgp_HArray1OfPnt(1, pole_count);
+                            for (Standard_Integer index = 1; index <= pole_count; ++index) {
+                                const auto& point = exact_curve.control_points[
+                                    static_cast<std::size_t>(index - 1)];
+                                points->SetValue(index,
+                                    gp_Pnt(point.x, point.y, point.z));
+                            }
+                            GeomAPI_Interpolate interpolation(
+                                points, exact_curve.periodic, 1.0e-9);
+                            interpolation.Perform();
+                            if (!interpolation.IsDone()) {
+                                throw std::runtime_error(
+                                    "OCCT profile interpolating spline failed");
+                            }
+                            BRepBuilderAPI_MakeEdge edge(interpolation.Curve());
+                            if (!edge.IsDone()) {
+                                throw std::runtime_error(
+                                    "OCCT profile interpolating spline edge failed");
+                            }
+                            return edge.Edge();
+                        }
                         TColgp_Array1OfPnt poles(1, pole_count);
                         for (Standard_Integer index = 1; index <= pole_count; ++index) {
                             const auto& point = exact_curve.control_points[

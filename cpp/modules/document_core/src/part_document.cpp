@@ -985,6 +985,7 @@ zima::kernel::ExtrusionRequest extrusion_request(
     const auto exact_spline = [&](const auto& spline) {
         zima::kernel::ExtrusionRequest::BSplineCurve curve;
         curve.degree = spline.degree;
+        curve.interpolating = spline.interpolating;
         curve.periodic = spline.closed;
         for (const auto& point_id : spline.control_point_ids) {
             const auto* point = sketch.find_point(point_id);

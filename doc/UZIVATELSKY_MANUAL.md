@@ -485,11 +485,15 @@ obnovení přesně stejné identity se automaticky opraví. Běžné překreslen
 přepnutí záložky a otevření vlastností tuto obnovu ani OCCT nespouští. Zdroje
 z jiné komponenty sestavy budou doplněny v navazujícím řezu.
 
-V novém C++ pracovním prostoru se **B-spline skici** zadává posloupností
-potvrzených bodů. Potřebuje nejméně tři body a rychlý dvojklik prostředním
-tlačítkem ji dokončí přesně na posledním bodu potvrzeném levým tlačítkem;
+V novém C++ pracovním prostoru jsou samostatné příkazy **B-spline – řídicí
+body** a **Interpolační spline**. První používá potvrzené body jako řídicí
+vrcholy, druhá všemi potvrzenými body prochází. Obě se zadávají posloupností
+bodů, potřebují nejméně tři body a rychlý dvojklik prostředním
+tlačítkem je dokončí přesně na posledním bodu potvrzeném levým tlačítkem;
 kurzor při dvojkliku další bod nepřidá. Dodatečná vazba tečnosti na konci
 upraví koncové rameno spline a nepohne připojenou úsečkou.
+Tři body nevytvářejí kruhový oblouk a spline proto nemá společnou radiusovou
+kótu.
 Dvojklikem na hotovou křivku se otevřou interní **Vlastnosti B-spline**, kde
 lze změnit stupeň, souřadnice řídicích bodů a přepnout uzavřenou periodickou
 křivku. `Delete`

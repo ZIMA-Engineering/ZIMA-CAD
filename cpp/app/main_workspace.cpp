@@ -128,6 +128,8 @@ int verify_startup_contract(
     auto* sketch_elliptical_arc =
         window.findChild<QAction*>("sketchEllipticalArcAction");
     auto* sketch_bspline = window.findChild<QAction*>("sketchBSplineAction");
+    auto* sketch_interpolating_spline =
+        window.findChild<QAction*>("sketchInterpolatingSplineAction");
     auto* sketch_midpoint = window.findChild<QAction*>("sketchMidpointAction");
     auto* sketch_symmetric = window.findChild<QAction*>("sketchSymmetricAction");
     auto* sketch_concentric = window.findChild<QAction*>("sketchConcentricAction");
@@ -1044,6 +1046,7 @@ int verify_startup_contract(
                     sketch_mirror->isEnabled() &&
                     sketch_elliptical_arc->isEnabled() &&
                     sketch_bspline->isEnabled() &&
+                    sketch_interpolating_spline->isEnabled() &&
                     sketch_midpoint->isEnabled() &&
                     sketch_symmetric->isEnabled() &&
                     sketch_concentric->isEnabled() &&
@@ -1167,6 +1170,8 @@ int verify_startup_contract(
         SketchFinishFixture{sketch_ellipse, "Ellipse", true},
         SketchFinishFixture{sketch_elliptical_arc, "Elliptical Arc", true},
         SketchFinishFixture{sketch_bspline, "B-spline", true},
+        SketchFinishFixture{sketch_interpolating_spline,
+            "Interpolating Spline", true},
         SketchFinishFixture{sketch_trim, "Trim", false},
         SketchFinishFixture{sketch_mirror, "Mirror", false},
         SketchFinishFixture{sketch_external_reference,
@@ -1206,7 +1211,8 @@ int verify_startup_contract(
         while (*item != nullptr) {
             if ((*item)->data(0, Qt::UserRole + 3).toString() ==
                     QStringLiteral("sketch-geometry") &&
-                (*item)->text(0).startsWith(QStringLiteral("Spline"))) {
+                (*item)->text(0).contains(
+                    QStringLiteral("spline"), Qt::CaseInsensitive)) {
                 ++count;
             }
             ++item;
@@ -1225,6 +1231,20 @@ int verify_startup_contract(
                     sketch_viewer->sketch_selection().empty() &&
                     workspace_state->text().contains(QStringLiteral("Výběr")),
                 "Three-point B-spline was not committed and cleanly finished")) {
+        return 1;
+    }
+    const int splines_before_interpolation = spline_tree_count();
+    sketch_interpolating_spline->trigger();
+    application.processEvents();
+    sketch_click(0.68, 0.30);
+    sketch_click(0.75, 0.40);
+    sketch_click(0.83, 0.29);
+    finish_sketch_tool_with_middle_double_click();
+    if (!verify(spline_tree_count() == splines_before_interpolation + 1 &&
+                    !sketch_interpolating_spline->isChecked() &&
+                    sketch_viewer->sketch_selection().empty() &&
+                    workspace_state->text().contains(QStringLiteral("Výběr")),
+                "Three-point interpolating spline was not committed and cleanly finished")) {
         return 1;
     }
     // Exact first-entity regression: a new Sketch point is created on the

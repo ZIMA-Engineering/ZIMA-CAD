@@ -975,6 +975,50 @@ std::vector<std::array<double, 2>> sampled_bspline_points(
     std::vector<std::array<double, 2>> result;
     if (count < degree + 1 || samples < 2) return result;
     result.reserve(samples + 1);
+    if (spline.interpolating) {
+        std::vector<std::array<double, 2>> points;
+        points.reserve(count);
+        for (const auto& point_id : spline.control_point_ids) {
+            const auto* point = sketch.find_point(point_id);
+            if (point == nullptr) return {};
+            points.push_back({point->x, point->y});
+        }
+        const std::size_t segment_count = spline.closed ? count : count - 1;
+        const auto at = [&](std::ptrdiff_t index) -> const std::array<double, 2>& {
+            if (spline.closed) {
+                const auto wrapped = (index % static_cast<std::ptrdiff_t>(count) +
+                    static_cast<std::ptrdiff_t>(count)) %
+                    static_cast<std::ptrdiff_t>(count);
+                return points[static_cast<std::size_t>(wrapped)];
+            }
+            return points[static_cast<std::size_t>(std::clamp<std::ptrdiff_t>(
+                index, 0, static_cast<std::ptrdiff_t>(count - 1)))];
+        };
+        const std::size_t samples_per_segment =
+            std::max<std::size_t>(2, samples / segment_count);
+        result.reserve(segment_count * samples_per_segment + 1);
+        for (std::size_t segment = 0; segment < segment_count; ++segment) {
+            const auto& p0 = at(static_cast<std::ptrdiff_t>(segment) - 1);
+            const auto& p1 = at(static_cast<std::ptrdiff_t>(segment));
+            const auto& p2 = at(static_cast<std::ptrdiff_t>(segment) + 1);
+            const auto& p3 = at(static_cast<std::ptrdiff_t>(segment) + 2);
+            for (std::size_t sample = 0; sample < samples_per_segment; ++sample) {
+                const double u = static_cast<double>(sample) /
+                    static_cast<double>(samples_per_segment);
+                const double u2 = u * u;
+                const double u3 = u2 * u;
+                result.push_back({
+                    0.5 * (2.0 * p1[0] + (-p0[0] + p2[0]) * u +
+                        (2.0 * p0[0] - 5.0 * p1[0] + 4.0 * p2[0] - p3[0]) * u2 +
+                        (-p0[0] + 3.0 * p1[0] - 3.0 * p2[0] + p3[0]) * u3),
+                    0.5 * (2.0 * p1[1] + (-p0[1] + p2[1]) * u +
+                        (2.0 * p0[1] - 5.0 * p1[1] + 4.0 * p2[1] - p3[1]) * u2 +
+                        (-p0[1] + 3.0 * p1[1] - 3.0 * p2[1] + p3[1]) * u3)});
+            }
+        }
+        result.push_back(spline.closed ? points.front() : points.back());
+        return result;
+    }
     if (spline.closed) {
         std::vector<std::array<double, 2>> controls;
         controls.reserve(count + degree);
@@ -5744,7 +5788,8 @@ std::string Sketch::add_elliptical_arc(
 
 std::string Sketch::add_bspline(
     const std::vector<std::array<double, 2>>& control_points,
-    unsigned degree, bool closed, bool construction, double snap_tolerance) {
+    unsigned degree, bool closed, bool construction, double snap_tolerance,
+    bool interpolating) {
     if (degree < 1 || control_points.size() < static_cast<std::size_t>(degree) + 1 ||
         !std::isfinite(snap_tolerance) || snap_tolerance < 0.0) {
         throw std::invalid_argument("Sketch B-spline degree or control points are invalid");
@@ -5753,6 +5798,7 @@ std::string Sketch::add_bspline(
     SketchBSpline spline;
     spline.id = make_id();
     spline.degree = degree;
+    spline.interpolating = interpolating;
     spline.closed = closed;
     spline.construction = construction;
     for (const auto& coordinate : control_points) {
@@ -9549,98 +9595,12 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         result.edges.push_back(std::move(edge));
     }
     for (const auto& spline : bsplines) {
-        const std::size_t count = spline.control_point_ids.size();
-        const std::size_t degree = spline.degree;
-        if (spline.closed) {
-            std::vector<std::array<double, 2>> controls;
-            controls.reserve(count + degree);
-            for (std::size_t index = 0; index < count + degree; ++index) {
-                const auto* point = find_point(spline.control_point_ids[index % count]);
-                controls.push_back({point->x, point->y});
-            }
-            zima::kernel::ViewerEdge edge;
-            edge.reference = {id, "bspline:" + spline.id, {}};
-            edge.construction = spline.construction;
-            edge.overlay = true;
-            constexpr std::size_t samples = 128;
-            edge.points.reserve(samples + 1);
-            for (std::size_t sample = 0; sample <= samples; ++sample) {
-                const double parameter = static_cast<double>(degree) +
-                    static_cast<double>(count) * static_cast<double>(sample) /
-                    static_cast<double>(samples);
-                const std::size_t span = sample == samples
-                    ? count + degree - 1
-                    : static_cast<std::size_t>(std::floor(parameter));
-                std::vector<std::array<double, 2>> values(degree + 1);
-                for (std::size_t index = 0; index <= degree; ++index) {
-                    values[index] = controls[span - degree + index];
-                }
-                for (std::size_t level = 1; level <= degree; ++level) {
-                    for (std::size_t index = degree; index >= level; --index) {
-                        const auto knot_index = span - degree + index;
-                        const double denominator = static_cast<double>(degree - level + 1);
-                        const double weight = (parameter -
-                            static_cast<double>(knot_index)) / denominator;
-                        values[index][0] = (1.0 - weight) * values[index - 1][0] +
-                            weight * values[index][0];
-                        values[index][1] = (1.0 - weight) * values[index - 1][1] +
-                            weight * values[index][1];
-                        if (index == level) break;
-                    }
-                }
-                edge.points.push_back(world_point(values[degree][0], values[degree][1]));
-            }
-            edge.points.back() = edge.points.front();
-            result.edges.push_back(std::move(edge));
-            continue;
-        }
-        std::vector<double> knots(count + degree + 1, 1.0);
-        for (std::size_t index = 0; index <= degree; ++index) knots[index] = 0.0;
-        const std::size_t spans = count - degree;
-        for (std::size_t index = degree + 1; index < count; ++index) {
-            knots[index] = static_cast<double>(index - degree) /
-                static_cast<double>(spans);
-        }
         zima::kernel::ViewerEdge edge;
         edge.reference = {id, "bspline:" + spline.id, {}};
         edge.construction = spline.construction;
         edge.overlay = true;
-        constexpr std::size_t samples = 128;
-        edge.points.reserve(samples + 1);
-        for (std::size_t sample = 0; sample <= samples; ++sample) {
-            const double parameter = static_cast<double>(sample) /
-                static_cast<double>(samples);
-            std::size_t span = count - 1;
-            if (parameter < 1.0) {
-                for (std::size_t candidate = degree; candidate < count; ++candidate) {
-                    if (parameter >= knots[candidate] &&
-                        parameter < knots[candidate + 1]) {
-                        span = candidate;
-                        break;
-                    }
-                }
-            }
-            std::vector<std::array<double, 2>> values(degree + 1);
-            for (std::size_t index = 0; index <= degree; ++index) {
-                const auto* point = find_point(
-                    spline.control_point_ids[span - degree + index]);
-                values[index] = {point->x, point->y};
-            }
-            for (std::size_t level = 1; level <= degree; ++level) {
-                for (std::size_t index = degree; index >= level; --index) {
-                    const std::size_t knot_index = span - degree + index;
-                    const double denominator =
-                        knots[knot_index + degree - level + 1] - knots[knot_index];
-                    const double weight = denominator <= 1.0e-15 ? 0.0
-                        : (parameter - knots[knot_index]) / denominator;
-                    values[index][0] = (1.0 - weight) * values[index - 1][0] +
-                        weight * values[index][0];
-                    values[index][1] = (1.0 - weight) * values[index - 1][1] +
-                        weight * values[index][1];
-                    if (index == level) break;
-                }
-            }
-            edge.points.push_back(world_point(values[degree][0], values[degree][1]));
+        for (const auto& point : sampled_bspline_points(*this, spline, 128)) {
+            edge.points.push_back(world_point(point[0], point[1]));
         }
         result.edges.push_back(std::move(edge));
     }
@@ -10703,7 +10663,8 @@ std::string Sketch::serialized() const {
     nlohmann::json spline_values = nlohmann::json::array();
     for (const auto& spline : bsplines) spline_values.push_back({
         {"id", spline.id}, {"control_points", spline.control_point_ids},
-        {"degree", spline.degree}, {"closed", spline.closed},
+        {"degree", spline.degree}, {"interpolating", spline.interpolating},
+        {"closed", spline.closed},
         {"construction", spline.construction}});
     nlohmann::json import_block_values = nlohmann::json::array();
     for (const auto& block : import_blocks) import_block_values.push_back({
@@ -10890,7 +10851,8 @@ Sketch Sketch::from_serialized(const std::string& value) {
     for (const auto& value : root.at("bsplines")) sketch.bsplines.push_back({
         value.at("id").get<std::string>(),
         value.at("control_points").get<std::vector<std::string>>(),
-        value.at("degree").get<unsigned>(), value.at("closed").get<bool>(),
+        value.at("degree").get<unsigned>(),
+        value.at("interpolating").get<bool>(), value.at("closed").get<bool>(),
         value.at("construction").get<bool>()});
     for (const auto& value : root.at("import_blocks")) sketch.import_blocks.push_back({
         value.at("id").get<std::string>(), value.at("name").get<std::string>(),

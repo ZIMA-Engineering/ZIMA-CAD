@@ -114,6 +114,9 @@ struct SketchBSpline {
     std::string id;
     std::vector<std::string> control_point_ids;
     unsigned degree{3};
+    // False: points are B-spline control vertices. True: the sampled curve
+    // interpolates every persisted point in order.
+    bool interpolating{};
     bool closed{};
     bool construction{};
     bool operator==(const SketchBSpline&) const = default;
@@ -434,7 +437,7 @@ public:
     [[nodiscard]] std::string add_bspline(
         const std::vector<std::array<double, 2>>& control_points,
         unsigned degree = 3, bool closed = false, bool construction = false,
-        double snap_tolerance = 1.0e-6);
+        double snap_tolerance = 1.0e-6, bool interpolating = false);
     [[nodiscard]] std::string add_import_block(
         std::string name, std::string source_path,
         std::vector<std::string> geometry_ids,

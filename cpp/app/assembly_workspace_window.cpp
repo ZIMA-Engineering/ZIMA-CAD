@@ -2055,14 +2055,20 @@ void AssemblyWorkspaceWindow::create_actions() {
     sketch_elliptical_arc_action_ = make_action(
         tr("Eliptický oblouk"), "sketch-elliptical-arc");
     sketch_elliptical_arc_action_->setObjectName("sketchEllipticalArcAction");
-    sketch_bspline_action_ = make_action(tr("B-spline"), "sketch-spline");
+    sketch_bspline_action_ = make_action(
+        tr("B-spline – řídicí body"), "sketch-spline");
     sketch_bspline_action_->setObjectName("sketchBSplineAction");
+    sketch_interpolating_spline_action_ = make_action(
+        tr("Interpolační spline"), "sketch-spline");
+    sketch_interpolating_spline_action_->setObjectName(
+        "sketchInterpolatingSplineAction");
     for (auto* action : {sketch_point_action_, sketch_construction_action_,
                          sketch_segment_action_, sketch_polyline_action_,
                          sketch_rectangle_action_, sketch_polygon_action_,
                          sketch_circle_action_, sketch_arc_action_,
                          sketch_ellipse_action_, sketch_elliptical_arc_action_,
-                         sketch_bspline_action_}) {
+                         sketch_bspline_action_,
+                         sketch_interpolating_spline_action_}) {
         action->setCheckable(true);
     }
     sketch_text_action_ = make_action(tr("Text"), "sketch-text");
@@ -2238,13 +2244,17 @@ void AssemblyWorkspaceWindow::create_actions() {
     connect(sketch_ellipse_action_, &QAction::triggered, this, [this] { start_sketch_ellipse(); });
     connect(sketch_elliptical_arc_action_, &QAction::triggered, this,
         [this] { start_sketch_elliptical_arc(); });
-    connect(sketch_bspline_action_, &QAction::triggered, this, [this] { start_sketch_bspline(); });
+    connect(sketch_bspline_action_, &QAction::triggered, this,
+        [this] { start_sketch_bspline(false); });
+    connect(sketch_interpolating_spline_action_, &QAction::triggered, this,
+        [this] { start_sketch_bspline(true); });
     for (auto* action : {sketch_point_action_, sketch_construction_action_,
                          sketch_segment_action_, sketch_polyline_action_,
                          sketch_rectangle_action_, sketch_polygon_action_,
                          sketch_circle_action_, sketch_arc_action_,
                          sketch_ellipse_action_, sketch_elliptical_arc_action_,
-                         sketch_bspline_action_}) {
+                         sketch_bspline_action_,
+                         sketch_interpolating_spline_action_}) {
         // The command starters first cancel the previous Sketch tool.  Sync
         // after that transition so the one command which actually remained
         // active owns the toolbar's green checked state.
@@ -4666,7 +4676,8 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
                              sketch_rectangle_action_, sketch_polygon_action_,
                              sketch_circle_action_, sketch_arc_action_,
                              sketch_ellipse_action_, sketch_elliptical_arc_action_,
-                             sketch_bspline_action_}) {
+                             sketch_bspline_action_,
+                             sketch_interpolating_spline_action_}) {
             add_command(action);
         }
         add_green_separator();
@@ -4747,7 +4758,10 @@ void AssemblyWorkspaceWindow::sync_sketch_tool_action_checks() {
     set_checked(sketch_ellipse_action_, sketch_ellipse_active_);
     set_checked(sketch_elliptical_arc_action_,
         sketch_elliptical_arc_active_);
-    set_checked(sketch_bspline_action_, sketch_bspline_active_);
+    set_checked(sketch_bspline_action_,
+        sketch_bspline_active_ && !sketch_bspline_interpolating_);
+    set_checked(sketch_interpolating_spline_action_,
+        sketch_bspline_active_ && sketch_bspline_interpolating_);
     set_checked(sketch_trim_action_, sketch_trim_active_);
     set_checked(sketch_universal_dimension_action_,
         sketch_universal_dimension_active_);
@@ -11130,6 +11144,7 @@ void AssemblyWorkspaceWindow::cancel_sketch_segment() {
     sketch_ellipse_active_ = false;
     sketch_elliptical_arc_active_ = false;
     sketch_bspline_active_ = false;
+    sketch_bspline_interpolating_ = false;
     sketch_coincident_active_ = false;
     sketch_midpoint_active_ = false;
     sketch_symmetric_active_ = false;
@@ -12080,11 +12095,12 @@ void AssemblyWorkspaceWindow::cancel_sketch_elliptical_arc() {
     viewer_->set_transient_edges({});
 }
 
-void AssemblyWorkspaceWindow::start_sketch_bspline() {
+void AssemblyWorkspaceWindow::start_sketch_bspline(bool interpolating) {
     if (properties_dialog_ != nullptr) return;
     if (active_sketch() == nullptr) return;
     cancel_sketch_segment();
     sketch_bspline_active_ = true;
+    sketch_bspline_interpolating_ = interpolating;
     set_sketch_placement_selection_contract();
     selected_sketch_segment_id_.clear();
     selected_sketch_point_id_.clear();
@@ -12093,13 +12109,16 @@ void AssemblyWorkspaceWindow::start_sketch_bspline() {
     selected_sketch_ellipse_id_.clear();
     selected_sketch_elliptical_arc_id_.clear();
     selected_sketch_bspline_id_.clear();
-    state_->setText(tr(
-        "B-spline: LMB potvrzuje body; dvojklik MMB dokončí na posledním "
-        "potvrzeném bodě. Tečnost zadejte následně samostatnou vazbou T."));
+    state_->setText(interpolating
+        ? tr("Interpolační spline: LMB potvrzuje body na křivce; dvojklik MMB "
+             "dokončí na posledním potvrzeném bodě.")
+        : tr("B-spline: LMB potvrzuje řídicí body; dvojklik MMB dokončí na "
+             "posledním potvrzeném bodě."));
 }
 
 void AssemblyWorkspaceWindow::cancel_sketch_bspline() {
     sketch_bspline_active_ = false;
+    sketch_bspline_interpolating_ = false;
     pending_bspline_points_.clear();
     pending_curve_point_snaps_.clear();
     viewer_->set_transient_edges({});
@@ -12117,7 +12136,7 @@ bool AssemblyWorkspaceWindow::accept_sketch_bspline_ray(
         const auto& previous = pending_bspline_points_.back();
         if (std::hypot((*position)[0] - previous[0], (*position)[1] - previous[1]) <=
             1.0e-9) {
-            state_->setText(tr("Po sobě jdoucí body B-spline musí být odlišné."));
+            state_->setText(tr("Po sobě jdoucí body spline musí být odlišné."));
             return true;
         }
     }
@@ -12125,26 +12144,30 @@ bool AssemblyWorkspaceWindow::accept_sketch_bspline_ray(
     pending_curve_point_snaps_.push_back({
         std::exchange(pending_sketch_snap_geometry_id_, {}),
         std::exchange(pending_sketch_snap_kind_, std::nullopt)});
+    const auto spline_name = sketch_bspline_interpolating_
+        ? tr("Interpolační spline") : tr("B-spline");
     state_->setText(pending_bspline_points_.size() >= 3
-        ? tr("B-spline: %1 potvrzených bodů; dvojklik MMB dokončí.")
-              .arg(pending_bspline_points_.size())
-        : tr("B-spline: %1 potvrzených bodů; pro křivku jsou potřeba alespoň 3.")
-              .arg(pending_bspline_points_.size()));
+        ? tr("%1: %2 potvrzených bodů; dvojklik MMB dokončí.")
+              .arg(spline_name).arg(pending_bspline_points_.size())
+        : tr("%1: %2 potvrzených bodů; pro křivku jsou potřeba alespoň 3.")
+              .arg(spline_name).arg(pending_bspline_points_.size()));
     return true;
 }
 
 bool AssemblyWorkspaceWindow::finish_sketch_bspline() {
     if (!sketch_bspline_active_) return false;
     if (pending_bspline_points_.size() < 3) {
-        state_->setText(tr("B-spline vyžaduje alespoň 3 potvrzené body."));
+        state_->setText(tr("Spline vyžaduje alespoň 3 potvrzené body."));
         return true;
     }
+    const bool interpolating = sketch_bspline_interpolating_;
     try {
         if (!mutate_active_sketch([&](auto& sketch) {
                 const auto degree = std::min<unsigned>(3,
                     static_cast<unsigned>(pending_bspline_points_.size() - 1));
                 const auto spline_id = sketch.add_bspline(
-                    pending_bspline_points_, degree);
+                    pending_bspline_points_, degree, false, false, 1.0e-6,
+                    interpolating);
                 const auto spline = std::ranges::find_if(sketch.bsplines,
                     [&](const auto& value) { return value.id == spline_id; });
                 if (spline == sketch.bsplines.end()) return;
@@ -12162,7 +12185,9 @@ bool AssemblyWorkspaceWindow::finish_sketch_bspline() {
         preserve_view_on_refresh_ = true;
         refresh_tabs();
         refresh_scene();
-        state_->setText(tr("B-spline vytvořena. Klikáním můžete vytvořit další."));
+        state_->setText(interpolating
+            ? tr("Interpolační spline vytvořena. Klikáním můžete vytvořit další.")
+            : tr("B-spline vytvořena. Klikáním můžete vytvořit další."));
     } catch (const std::exception& error) {
         state_->setText(QString::fromUtf8(error.what()));
     }
@@ -12193,51 +12218,12 @@ void AssemblyWorkspaceWindow::preview_sketch_bspline_ray(
         viewer_->set_transient_points(std::move(accepted));
         return;
     }
-    if (preview_points.size() == 3) {
-        const auto& a = preview_points[0];
-        const auto& b = preview_points[1];
-        const auto& c = preview_points[2];
-        const double determinant = 2.0 * (a[0] * (b[1] - c[1]) +
-            b[0] * (c[1] - a[1]) + c[0] * (a[1] - b[1]));
-        zima::kernel::ViewerEdge preview;
-        if (std::abs(determinant) <= 1.0e-12) {
-            for (const auto& point : preview_points)
-                preview.points.push_back(sketch->world_point(point[0], point[1]));
-        } else {
-            const double aa = a[0] * a[0] + a[1] * a[1];
-            const double bb = b[0] * b[0] + b[1] * b[1];
-            const double cc = c[0] * c[0] + c[1] * c[1];
-            const double cx = (aa * (b[1] - c[1]) + bb * (c[1] - a[1]) +
-                cc * (a[1] - b[1])) / determinant;
-            const double cy = (aa * (c[0] - b[0]) + bb * (a[0] - c[0]) +
-                cc * (b[0] - a[0])) / determinant;
-            const double radius = std::hypot(a[0] - cx, a[1] - cy);
-            double start = std::atan2(a[1] - cy, a[0] - cx);
-            double middle = std::atan2(b[1] - cy, b[0] - cx);
-            double end = std::atan2(c[1] - cy, c[0] - cx);
-            constexpr double turn = 2.0 * 3.14159265358979323846;
-            while (middle < start) middle += turn;
-            while (end < start) end += turn;
-            if (middle > end) {
-                while (end > start) end -= turn;
-            }
-            constexpr std::size_t samples = 48;
-            for (std::size_t index = 0; index <= samples; ++index) {
-                const double angle = start + (end - start) *
-                    static_cast<double>(index) / static_cast<double>(samples);
-                preview.points.push_back(sketch->world_point(
-                    cx + radius * std::cos(angle), cy + radius * std::sin(angle)));
-            }
-        }
-        viewer_->set_transient_edges({std::move(preview)});
-        std::vector<zima::kernel::Vec3> accepted;
-        for (const auto& point : pending_bspline_points_)
-            accepted.push_back(sketch->world_point(point[0], point[1]));
-        viewer_->set_transient_points(std::move(accepted));
-        return;
-    }
     auto preview_sketch = *sketch;
-    const auto preview_id = preview_sketch.add_bspline(preview_points);
+    const auto degree = std::min<unsigned>(3,
+        static_cast<unsigned>(preview_points.size() - 1));
+    const auto preview_id = preview_sketch.add_bspline(
+        preview_points, degree, false, false, 1.0e-6,
+        sketch_bspline_interpolating_);
     auto mesh = preview_sketch.viewer_mesh();
     const auto edge = std::find_if(mesh.edges.rbegin(), mesh.edges.rend(),
         [&](const auto& value) {
@@ -19702,7 +19688,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                              sketch_circle_action_,
                              sketch_arc_action_, sketch_ellipse_action_,
                              sketch_elliptical_arc_action_,
-                             sketch_bspline_action_, sketch_text_action_,
+                             sketch_bspline_action_,
+                             sketch_interpolating_spline_action_, sketch_text_action_,
                              sketch_constraints_action_,
                              sketch_dimensions_action_, finish_sketch_action_}) {
             action->setEnabled(false);
@@ -20358,6 +20345,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         sketch_ellipse_action_->setEnabled(!active_sketch_id_.empty());
         sketch_elliptical_arc_action_->setEnabled(!active_sketch_id_.empty());
         sketch_bspline_action_->setEnabled(!active_sketch_id_.empty());
+        sketch_interpolating_spline_action_->setEnabled(!active_sketch_id_.empty());
         sketch_text_action_->setEnabled(!active_sketch_id_.empty());
         sketch_constraints_action_->setEnabled(!active_sketch_id_.empty());
         sketch_dimensions_action_->setEnabled(!active_sketch_id_.empty());
@@ -20813,6 +20801,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     sketch_ellipse_action_->setEnabled(has_active_part_sketch);
     sketch_elliptical_arc_action_->setEnabled(has_active_part_sketch);
     sketch_bspline_action_->setEnabled(has_active_part_sketch);
+    sketch_interpolating_spline_action_->setEnabled(has_active_part_sketch);
     sketch_text_action_->setEnabled(has_active_part_sketch);
     sketch_constraints_action_->setEnabled(has_active_part_sketch);
     sketch_dimensions_action_->setEnabled(has_active_part_sketch);
@@ -21114,7 +21103,8 @@ void AssemblyWorkspaceWindow::populate_sketch_tree(
             ->setSelected(arc.id == selected_sketch_elliptical_arc_id_);
     int spline_index = 0;
     for (const auto& spline : sketch.bsplines) geometry_item(spline.id,
-        indexed_geometry_label(tr("Spline"), ++spline_index,
+        indexed_geometry_label(spline.interpolating
+                ? tr("Interpolační spline") : tr("B-spline"), ++spline_index,
             spline.construction), "sketch")
             ->setSelected(spline.id == selected_sketch_bspline_id_);
     int text_index = 0;

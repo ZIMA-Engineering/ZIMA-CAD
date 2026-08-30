@@ -2365,6 +2365,24 @@ int main() {
         spline_target_document.history.push_back(spline_target_feature);
         const auto spline_boundary = kernel.evaluate_history(
             spline_target_document.kernel_operations()).front();
+        auto interpolation_document = zima::document::PartDocument::create_default();
+        auto interpolation_sketch = zima::sketcher::Sketch::create_default();
+        static_cast<void>(interpolation_sketch.add_bspline({
+            {-18.0, 0.0}, {-9.0, 16.0}, {9.0, 16.0},
+            {18.0, 0.0}, {9.0, -16.0}, {-9.0, -16.0}},
+            3, true, false, 1.0e-6, true));
+        const auto interpolation_sketch_id = interpolation_sketch.id;
+        interpolation_document.sketches.push_back(std::move(interpolation_sketch));
+        auto interpolation_feature =
+            zima::document::PartDocument::create_extrusion_container(
+                interpolation_sketch_id);
+        interpolation_feature.extrusion.height = 8.0;
+        interpolation_document.history.push_back(interpolation_feature);
+        const auto interpolation_results = kernel.evaluate_history(
+            interpolation_document.kernel_operations());
+        require(interpolation_results.size() == 1 &&
+                    interpolation_results.front().volume > 1.0,
+                "Closed interpolating spline did not reach exact OCCT profile evaluation");
         std::vector<zima::kernel::Vec3> spline_side_triangles;
         std::string spline_side_key;
         const auto& spline_references = spline_boundary.mesh.original_references;

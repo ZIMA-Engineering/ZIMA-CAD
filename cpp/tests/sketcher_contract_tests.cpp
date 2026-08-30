@@ -4581,6 +4581,50 @@ int main() {
         require(loaded_spline.bsplines == spline_sketch.bsplines &&
                     loaded_spline.points == spline_sketch.points,
                 "B-spline did not survive current Sketch serialization");
+        auto interpolating_spline = zima::sketcher::Sketch::create_default();
+        const std::vector<std::array<double, 2>> interpolation_points{
+            {0.0, 0.0}, {7.0, 11.0}, {15.0, -4.0}, {24.0, 13.0}, {31.0, 2.0}};
+        const auto interpolating_id = interpolating_spline.add_bspline(
+            interpolation_points, 3, false, false, 1.0e-6, true);
+        const auto interpolation_packet = interpolating_spline.viewer_mesh();
+        const auto& interpolation_edge = interpolation_packet.edges.front();
+        const auto curve_contains = [&](const std::array<double, 2>& expected) {
+            return std::ranges::any_of(interpolation_edge.points,
+                [&](const auto& sampled) {
+                    return std::hypot(sampled.x - expected[0],
+                               sampled.y - expected[1]) < 1.0e-9;
+                });
+        };
+        require(interpolating_spline.bsplines.size() == 1 &&
+                    interpolating_spline.bsplines.front().interpolating &&
+                    std::ranges::all_of(interpolation_points, curve_contains) &&
+                    interpolation_edge.reference.semantic_key ==
+                        "bspline:" + interpolating_id,
+                "Interpolating spline did not pass through every persisted point");
+        const auto moved_interpolation_point =
+            interpolating_spline.bsplines.front().control_point_ids[2];
+        require(interpolating_spline.move_point(
+                    moved_interpolation_point, 15.0, 6.0),
+                "Interpolating spline point could not be moved");
+        const auto moved_interpolation_packet = interpolating_spline.viewer_mesh();
+        require(std::ranges::any_of(moved_interpolation_packet.edges.front().points,
+                    [](const auto& sampled) {
+                        return std::hypot(sampled.x - 15.0, sampled.y - 6.0) < 1.0e-9;
+                    }),
+                "Moved interpolation point no longer lay on its spline");
+        const auto loaded_interpolation = zima::sketcher::Sketch::from_serialized(
+            interpolating_spline.serialized());
+        require(loaded_interpolation.bsplines == interpolating_spline.bsplines &&
+                    loaded_interpolation.points == interpolating_spline.points,
+                "Interpolating spline did not survive current Sketch serialization");
+        auto three_point_interpolation = zima::sketcher::Sketch::create_default();
+        static_cast<void>(three_point_interpolation.add_bspline(
+            {{0.0, 0.0}, {5.0, 8.0}, {12.0, 0.0}},
+            2, false, false, 1.0e-6, true));
+        require(three_point_interpolation.bsplines.size() == 1 &&
+                    three_point_interpolation.arcs.empty() &&
+                    three_point_interpolation.dimensions.empty(),
+                "Three-point interpolation was incorrectly converted to a radius geometry");
         auto periodic_spline = zima::sketcher::Sketch::create_default();
         const auto periodic_id = periodic_spline.add_bspline({
             {-20.0, 0.0}, {-15.0, 15.0}, {0.0, 22.0}, {15.0, 15.0},

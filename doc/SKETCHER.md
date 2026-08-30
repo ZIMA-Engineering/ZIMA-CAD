@@ -276,17 +276,20 @@ nevybrané ukotvené části pohyb omezují; nesmějí se tiše odpojit.
 
 ## Vícekrokové křivky
 
-U oblouku, elipsy, eliptického oblouku a B-spline zůstávají všechny již
+U oblouku, elipsy, eliptického oblouku a obou typů spline zůstávají všechny již
 potvrzené zadávací body během dalšího kroku viditelné. Zachycení na běžnou
 geometrii se nabízí jako `C`, na charakteristický čtvrtinový bod kružnice,
 oblouku nebo elipsy jako `K`. Potvrzená nabídka se uloží jako skutečná vazba;
 náhled nesmí ukázat vazbu, která po dokončení zmizí.
 
-B-spline po prvním potvrzení zobrazuje bod. Po druhém potvrzeném bodu zobrazuje
-při pohybu kurzoru kruhový oblouk přes oba body a kurzor. Od třetího
-potvrzeného bodu se zobrazuje skutečný B-spline náhled. Křivka vyžaduje
-nejméně tři řídicí body a rychlý dvojklik prostředním tlačítkem ji dokončí;
-jednoduchý prostřední klik zůstává vyhrazen navigaci.
+Skicář nabízí dvě samostatné varianty nad stejným stabilním bodovým modelem.
+**B-spline – řídicí body** používá potvrzené body jako řídicí vrcholy;
+**Interpolační spline** všemi potvrzenými body skutečně prochází. Po prvním
+potvrzení se zobrazuje bod, po druhém lomený náhled a od třetího skutečný
+náhled zvoleného typu spline. Obě varianty vyžadují nejméně tři body a rychlý
+dvojklik prostředním tlačítkem je dokončí na posledním potvrzeném bodě;
+jednoduchý prostřední klik zůstává vyhrazen navigaci. Tříbodová spline zůstává
+spline a nenabízí společný kruhový radius.
 
 Dodatečná vazba `T` na konci otevřené B-spline zachová společný kontaktní bod
 i připojenou úsečku a upraví sousední řídicí bod spline. Koncová tečna se

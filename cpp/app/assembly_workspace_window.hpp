@@ -167,6 +167,7 @@ private:
     QAction* sketch_ellipse_action_{};
     QAction* sketch_elliptical_arc_action_{};
     QAction* sketch_bspline_action_{};
+    QAction* sketch_interpolating_spline_action_{};
     QAction* sketch_text_action_{};
     QAction* sketch_constraints_action_{};
     QMenu* sketch_constraints_menu_{};
@@ -348,6 +349,7 @@ private:
     std::vector<std::pair<std::string,
         std::optional<zima::sketcher::ConstraintKind>>> pending_curve_point_snaps_;
     bool sketch_bspline_active_{};
+    bool sketch_bspline_interpolating_{};
     std::vector<std::array<double, 2>> pending_bspline_points_;
     bool sketch_text_active_{};
     std::string editing_sketch_text_id_;
@@ -608,7 +610,7 @@ private:
     void cancel_sketch_ellipse();
     void start_sketch_elliptical_arc();
     void cancel_sketch_elliptical_arc();
-    void start_sketch_bspline();
+    void start_sketch_bspline(bool interpolating = false);
     void cancel_sketch_bspline();
     bool finish_sketch_bspline();
     bool finish_sketch_polyline();
