@@ -14492,11 +14492,12 @@ bool AssemblyWorkspaceWindow::begin_sketch_point_drag(
             "Radius rohu: tažením bílého tečného bodu změňte nebo skryjte radius."));
         return true;
     }
+    const auto viewer_selection = viewer_->sketch_selection();
     std::vector<std::string> selected_segments;
     // Only candidates which are still visibly selected in the View may arm
     // the corner gesture. The workspace mirror can outlive a viewer clear or
     // a Sketch switch; using that stale pair blocked every unrelated point.
-    for (const auto& selected : viewer_->sketch_selection()) {
+    for (const auto& selected : viewer_selection) {
         if (selected.owner_id != active_sketch_id_ ||
             selected.kind != zima::viewer::CandidateKind::SketchSegment ||
             !selected.semantic_key.starts_with("segment:")) continue;
@@ -14508,8 +14509,7 @@ bool AssemblyWorkspaceWindow::begin_sketch_point_drag(
             selected_segments.push_back(selected_id);
         }
     }
-    if (selected_segments.size() == 2 &&
-        viewer_->sketch_selection().size() == 2) {
+    if (selected_segments.size() == 2) {
         const auto first = std::find_if(sketch->segments.begin(), sketch->segments.end(),
             [&](const auto& value) { return value.id == selected_segments[0]; });
         const auto second = std::find_if(sketch->segments.begin(), sketch->segments.end(),
@@ -14527,11 +14527,30 @@ bool AssemblyWorkspaceWindow::begin_sketch_point_drag(
             const bool pressed_shared_point =
                 candidate.kind == zima::viewer::CandidateKind::SketchPoint &&
                 candidate.semantic_key == "point:" + shared_point_id;
+            const bool selection_contains_only_corner = std::ranges::all_of(
+                viewer_selection, [&](const auto& selected) {
+                    if (selected.kind ==
+                            zima::viewer::CandidateKind::SketchSegment &&
+                        selected.semantic_key.starts_with("segment:")) {
+                        return std::ranges::find(selected_segments,
+                            selected.semantic_key.substr(8)) !=
+                            selected_segments.end();
+                    }
+                    // On LMB press MeshView confirms the shared point before
+                    // asking the workspace which drag owns the gesture.  The
+                    // point is therefore legitimately the third selected
+                    // candidate; it must not demote the corner drag to the
+                    // ordinary group/point mover.
+                    return selected.kind ==
+                            zima::viewer::CandidateKind::SketchPoint &&
+                        selected.semantic_key == "point:" + shared_point_id;
+                });
             // Selecting the second segment is not the fillet gesture.  Start
             // only on the subsequent press of their shared persisted point;
             // otherwise the Ctrl-selection click itself consumes and clears
             // the just-completed pair before the user can drag the corner.
-            if (!shared_point_id.empty() && pressed_shared_point) {
+            if (!shared_point_id.empty() && pressed_shared_point &&
+                selection_contains_only_corner) {
                 if (qEnvironmentVariableIsSet("ZIMA_SKETCH_TRACE")) {
                     qInfo().noquote() << "SKETCH_TRACE|BRANCH|CORNER_FILLET|segments="
                         << QString::fromStdString(first->id) << ','
@@ -14583,7 +14602,6 @@ bool AssemblyWorkspaceWindow::begin_sketch_point_drag(
     } else {
         return false;
     }
-    const auto viewer_selection = viewer_->sketch_selection();
     const bool pressed_selected = std::ranges::any_of(viewer_selection,
         [&](const auto& selected) { return selected == candidate; });
     if (pressed_selected && viewer_selection.size() > 1) {
