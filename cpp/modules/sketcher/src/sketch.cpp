@@ -7652,7 +7652,15 @@ SolveResult Sketch::solve_impl(
                 std::set<std::string> reference_points;
                 double translation_x{};
                 double translation_y{};
-                if (reference_is_line) {
+                // Selection order must not make a persisted base axis the
+                // driven object. When the axis was selected second, the
+                // line/curve normalization above still identifies the same
+                // tangent pair, but the original ordering alone would try to
+                // translate the axis (which owns no movable points) and turn
+                // a valid radius edit into a conflict.
+                const bool translate_curve = reference_is_line ||
+                    is_base_sketch_axis(constraint.second_geometry_id);
+                if (translate_curve) {
                     translated = center_curve_translation_points(*this, curve_id);
                     if (!state->first_point_id.empty())
                         reference_points.insert(state->first_point_id);

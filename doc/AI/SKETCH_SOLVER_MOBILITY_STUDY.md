@@ -421,6 +421,37 @@ problem. The repeated debug benchmark measured 100 independent branches at
 at `42.774 ms`, 100-branch dimension edit at `1.029 ms` and 1,000-branch
 dimension edit at `25.282 ms`.
 
+### Axis C+T and radial-dimension batch 5 result
+
+The circle matrix combines an explicit persisted contact point, PointOnCircle,
+PointOnLine, Tangent and a driving radius. It covers both base axes, both signed
+sides and both geometry selection orders. Editing `R4` to `R7` moves the curve
+center to the correct signed offset, keeps the contact on the selected axis and
+returns every point within `1e-6 mm` when restored to `R4`. Constraint identity
+and serialization remain stable.
+
+The reversed `curve -> base axis` order exposed an ordering bug in Tangent
+correction. Line/curve geometry was normalized correctly for residual
+calculation, but the movement branch still used the original selection order
+and attempted to translate the second-selected immutable base axis. A base axis
+is now always treated as the fixed reference regardless of selection order, so
+the owned circle or ellipse moves instead. Native Segment/curve ownership keeps
+its established reference/driven behavior.
+
+The corresponding Ellipse matrix changes the minor radius from `2` to `3.5`
+and back across the same X/Y, signed-side and selection-order combinations. The
+ellipse center moves by the required normal offset while the independent
+contact remains coincident with both the ellipse and axis. A Circle with a
+fixed center verifies the opposite case: an incompatible radius edit is
+rejected atomically without partial point, curve, constraint or dimension
+changes.
+
+The post-change debug benchmark measured 100 independent branches at
+`9.310 ms`, a 100-Segment connected chain at `13.225 ms`, a 250-Segment chain
+at `46.893 ms`, 100-branch dimension edit at `1.126 ms` and 1,000-branch
+dimension edit at `33.151 ms`. The correction adds no new solver scan or
+scaling regime.
+
 ## Idle-time preparation
 
 Allowed background work is limited to Sketch data:

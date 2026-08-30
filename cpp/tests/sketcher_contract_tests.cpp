@@ -2371,6 +2371,172 @@ int main() {
                         }) == 3,
                 "Interactive circle C+T failed on one signed side of the base X axis");
         }
+        for (const std::string axis_id : {std::string{"sketch_axis:x"},
+                 std::string{"sketch_axis:y"}}) {
+            for (const double side : {-1.0, 1.0}) {
+                for (const bool reversed_order : {false, true}) {
+                    auto radial_axis_contact =
+                        zima::sketcher::Sketch::create_default();
+                    constexpr double initial_radius = 4.0;
+                    const double center_x = axis_id == "sketch_axis:x"
+                        ? 3.0 : side * initial_radius;
+                    const double center_y = axis_id == "sketch_axis:x"
+                        ? side * initial_radius : -3.0;
+                    const auto circle_id = radial_axis_contact.add_circle(
+                        center_x, center_y, initial_radius);
+                    auto contact = zima::sketcher::Sketch::create_point(
+                        axis_id == "sketch_axis:x" ? center_x : 0.0,
+                        axis_id == "sketch_axis:x" ? 0.0 : center_y);
+                    const auto contact_id = contact.id;
+                    radial_axis_contact.points.push_back(std::move(contact));
+                    static_cast<void>(reversed_order
+                        ? radial_axis_contact.add_tangent_constraint(
+                              circle_id, axis_id, contact_id)
+                        : radial_axis_contact.add_tangent_constraint(
+                              axis_id, circle_id, contact_id));
+                    static_cast<void>(radial_axis_contact
+                        .add_point_on_circle_constraint(contact_id, circle_id));
+                    static_cast<void>(radial_axis_contact
+                        .add_point_on_line_constraint(contact_id, axis_id));
+                    auto radius = radial_axis_contact
+                        .create_circle_radius_dimension(circle_id);
+                    radial_axis_contact.apply_dimension(radius);
+                    const auto radial_before = radial_axis_contact;
+                    const bool radius_edited =
+                        radial_axis_contact.set_dimension_value(radius.id, 7.0);
+                    require(radius_edited &&
+                                radial_axis_contact.solve().maximum_residual < 1.0e-7,
+                            "Circle C+T axis matrix rejected a radius edit");
+                    const auto* edited_center = radial_axis_contact.find_point(
+                        radial_axis_contact.circles.front().center_point_id);
+                    const auto* edited_contact =
+                        radial_axis_contact.find_point(contact_id);
+                    require(std::abs(radial_axis_contact.circles.front().radius - 7.0) <
+                                1.0e-9 &&
+                                std::abs(axis_id == "sketch_axis:x"
+                                    ? edited_center->y - side * 7.0
+                                    : edited_center->x - side * 7.0) < 1.0e-7 &&
+                                std::abs(axis_id == "sketch_axis:x"
+                                    ? edited_contact->y : edited_contact->x) < 1.0e-8,
+                            "Circle C+T radius edit lost its signed axis contact");
+                    require(radial_axis_contact.set_dimension_value(
+                                radius.id, initial_radius) &&
+                                radial_axis_contact.solve().maximum_residual < 1.0e-7,
+                            "Circle C+T axis matrix could not return its radius");
+                    for (const auto& original_point : radial_before.points) {
+                        const auto* returned =
+                            radial_axis_contact.find_point(original_point.id);
+                        require(returned != nullptr &&
+                                    std::hypot(returned->x - original_point.x,
+                                        returned->y - original_point.y) < 1.0e-6,
+                                "Circle C+T axis matrix accumulated coordinate drift");
+                    }
+                    require(radial_axis_contact.constraints ==
+                                radial_before.constraints &&
+                                zima::sketcher::Sketch::from_serialized(
+                                    radial_axis_contact.serialized()).constraints ==
+                                    radial_axis_contact.constraints,
+                            "Circle C+T axis matrix changed or lost its relations");
+                }
+            }
+        }
+        auto blocked_radial_contact = zima::sketcher::Sketch::create_default();
+        const auto blocked_radial_circle =
+            blocked_radial_contact.add_circle(0.0, 4.0, 4.0);
+        auto blocked_contact = zima::sketcher::Sketch::create_point(0.0, 0.0);
+        const auto blocked_contact_id = blocked_contact.id;
+        blocked_radial_contact.points.push_back(std::move(blocked_contact));
+        static_cast<void>(blocked_radial_contact.add_tangent_constraint(
+            blocked_radial_circle, "sketch_axis:x", blocked_contact_id));
+        static_cast<void>(blocked_radial_contact.add_point_on_circle_constraint(
+            blocked_contact_id, blocked_radial_circle));
+        static_cast<void>(blocked_radial_contact.add_point_on_line_constraint(
+            blocked_contact_id, "sketch_axis:x"));
+        auto blocked_radius = blocked_radial_contact.create_circle_radius_dimension(
+            blocked_radial_circle);
+        blocked_radial_contact.apply_dimension(blocked_radius);
+        blocked_radial_contact.find_point(
+            blocked_radial_contact.circles.front().center_point_id)->fixed = true;
+        const auto blocked_radial_before = blocked_radial_contact;
+        require(!blocked_radial_contact.set_dimension_value(
+                    blocked_radius.id, 7.0) &&
+                    blocked_radial_contact.points == blocked_radial_before.points &&
+                    blocked_radial_contact.circles == blocked_radial_before.circles &&
+                    blocked_radial_contact.constraints ==
+                        blocked_radial_before.constraints &&
+                    blocked_radial_contact.dimensions ==
+                        blocked_radial_before.dimensions,
+                "Blocked Circle C+T radius edit was not rejected atomically");
+        for (const std::string axis_id : {std::string{"sketch_axis:x"},
+                 std::string{"sketch_axis:y"}}) {
+            for (const double side : {-1.0, 1.0}) {
+                for (const bool reversed_order : {false, true}) {
+                    auto elliptic_axis_contact =
+                        zima::sketcher::Sketch::create_default();
+                    constexpr double major_radius = 5.0;
+                    constexpr double minor_radius = 2.0;
+                    const double center_x = axis_id == "sketch_axis:x"
+                        ? 3.0 : side * minor_radius;
+                    const double center_y = axis_id == "sketch_axis:x"
+                        ? side * minor_radius : -3.0;
+                    const auto ellipse_id = axis_id == "sketch_axis:x"
+                        ? elliptic_axis_contact.add_ellipse(
+                              center_x, center_y,
+                              center_x + major_radius, center_y,
+                              center_x, center_y + minor_radius)
+                        : elliptic_axis_contact.add_ellipse(
+                              center_x, center_y,
+                              center_x, center_y + major_radius,
+                              center_x - minor_radius, center_y);
+                    auto contact = zima::sketcher::Sketch::create_point(
+                        axis_id == "sketch_axis:x" ? center_x : 0.0,
+                        axis_id == "sketch_axis:x" ? 0.0 : center_y);
+                    const auto contact_id = contact.id;
+                    elliptic_axis_contact.points.push_back(std::move(contact));
+                    static_cast<void>(reversed_order
+                        ? elliptic_axis_contact.add_tangent_constraint(
+                              ellipse_id, axis_id, contact_id)
+                        : elliptic_axis_contact.add_tangent_constraint(
+                              axis_id, ellipse_id, contact_id));
+                    static_cast<void>(elliptic_axis_contact
+                        .add_point_on_circle_constraint(contact_id, ellipse_id));
+                    static_cast<void>(elliptic_axis_contact
+                        .add_point_on_line_constraint(contact_id, axis_id));
+                    auto minor_dimension = elliptic_axis_contact
+                        .create_ellipse_radius_dimension(ellipse_id, false);
+                    elliptic_axis_contact.apply_dimension(minor_dimension);
+                    const auto elliptic_before = elliptic_axis_contact;
+                    require(elliptic_axis_contact.set_dimension_value(
+                                minor_dimension.id, 3.5) &&
+                                elliptic_axis_contact.solve().maximum_residual < 1.0e-7,
+                            "Ellipse C+T axis matrix rejected a minor-radius edit");
+                    const auto* edited_center = elliptic_axis_contact.find_point(
+                        elliptic_axis_contact.ellipses.front().center_point_id);
+                    const auto* edited_contact =
+                        elliptic_axis_contact.find_point(contact_id);
+                    require(std::abs(elliptic_axis_contact.ellipses.front()
+                                    .minor_radius - 3.5) < 1.0e-9 &&
+                                std::abs(axis_id == "sketch_axis:x"
+                                    ? edited_center->y - side * 3.5
+                                    : edited_center->x - side * 3.5) < 1.0e-7 &&
+                                std::abs(axis_id == "sketch_axis:x"
+                                    ? edited_contact->y : edited_contact->x) < 1.0e-8,
+                            "Ellipse C+T minor-radius edit lost its axis contact");
+                    require(elliptic_axis_contact.set_dimension_value(
+                                minor_dimension.id, minor_radius) &&
+                                elliptic_axis_contact.solve().maximum_residual < 1.0e-7,
+                            "Ellipse C+T axis matrix could not return its minor radius");
+                    for (const auto& original_point : elliptic_before.points) {
+                        const auto* returned =
+                            elliptic_axis_contact.find_point(original_point.id);
+                        require(returned != nullptr &&
+                                    std::hypot(returned->x - original_point.x,
+                                        returned->y - original_point.y) < 1.0e-6,
+                                "Ellipse C+T axis matrix accumulated coordinate drift");
+                    }
+                }
+            }
+        }
         auto common_tangent = zima::sketcher::Sketch::create_default();
         const auto common_first = common_tangent.add_circle(0.0, 0.0, 2.0);
         const auto common_second = common_tangent.add_circle(10.0, 0.0, 3.0);
