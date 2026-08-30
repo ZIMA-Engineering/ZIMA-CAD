@@ -445,7 +445,11 @@ public:
     void resolve_constructions(
         zima::kernel::ViewerReferenceGeometry source_geometry = {});
     [[nodiscard]] std::vector<zima::kernel::ViewerEdge> extrusion_preview_edges(
-        const HistoryContainer& container, double through_all_span = 1000.0) const;
+        const HistoryContainer& container, double through_all_span = 1000.0,
+        double through_all_reverse_span = 0.0) const;
+    [[nodiscard]] std::vector<zima::kernel::ViewerEdge> extrusion_preview_edges(
+        const HistoryContainer& container,
+        const zima::kernel::ViewerMesh& through_all_input) const;
     [[nodiscard]] std::vector<zima::kernel::ViewerEdge> primitive_preview_edges(
         const HistoryContainer& container) const;
     [[nodiscard]] std::vector<zima::kernel::ViewerEdge> revolution_preview_edges(

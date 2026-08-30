@@ -406,6 +406,7 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
                 ? CandidateKind::SketchSegment
                 : edge.reference.semantic_key.starts_with("circle:") ||
                   edge.reference.semantic_key.starts_with("arc:") ||
+                  edge.reference.semantic_key.starts_with("corner_radius:") ||
                   edge.reference.semantic_key.starts_with("ellipse:") ||
                   edge.reference.semantic_key.starts_with("elliptical_arc:") ||
                   edge.reference.semantic_key.starts_with("bspline:")
@@ -453,7 +454,9 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
                     vertex.reference.semantic_key.starts_with("sketch_intersection:") ||
                     vertex.reference.semantic_key.starts_with("sketch_curve_keypoint:")
                 ? CandidateKind::SketchExternalReference
-                : vertex.reference.semantic_key.starts_with("point:")
+                : (vertex.reference.semantic_key.starts_with("point:") ||
+                   vertex.reference.semantic_key.starts_with(
+                       "corner_radius_handle:"))
                     ? CandidateKind::SketchPoint : CandidateKind::Vertex;
             result.push_back({kind, vertex.distance, vertex.point,
                               vertex.reference.owner_id, vertex.reference.semantic_key,
@@ -543,7 +546,11 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
         case CandidateKind::SketchExternalReference: return 1;
         case CandidateKind::SketchText: return 2;
         case CandidateKind::SketchCurve: return 2;
-        case CandidateKind::SketchPoint: return 0;
+        // A real editable Sketch point owns an ordinary LMB gesture wherever
+        // its marker overlaps annotations or reference geometry. Dimensions,
+        // constraints and axes remain in this same ordered list for RMB
+        // cycling, but may not prevent direct point dragging.
+        case CandidateKind::SketchPoint: return -1;
         case CandidateKind::Vertex: return 0;
         case CandidateKind::Axis: return 1;
         case CandidateKind::SketchAxis: return 1;
@@ -710,6 +717,7 @@ std::optional<ViewerCandidate> container_candidate(
                 edge.reference.instance_path == instance_path &&
                 (key.starts_with("segment:") || key.starts_with("circle:") ||
                  key.starts_with("arc:") || key.starts_with("ellipse:") ||
+                 key.starts_with("corner_radius:") ||
                  key.starts_with("elliptical_arc:") ||
                  key.starts_with("bspline:") || key.starts_with("text:"));
         });

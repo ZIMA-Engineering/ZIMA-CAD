@@ -71,9 +71,15 @@ SketchDimensionPropertiesDialog::SketchDimensionPropertiesDialog(
     driving_->setChecked(initial_.driving);
     value_->setEnabled(initial_.driving);
     form_->addRow(tr("Stav kóty"), driving_);
-    form_->addRow(tr("Prefix"), symbol_field(
+    locked_ = new QCheckBox(tr("Zamknout hodnotu"), this);
+    locked_->setObjectName("sketchDimensionLocked");
+    locked_->setChecked(initial_.locked);
+    locked_->setEnabled(initial_.driving);
+    value_->setEnabled(initial_.driving);
+    form_->addRow(tr("Ochrana hodnoty"), locked_);
+    form_->addRow(tr("Text před hodnotou"), symbol_field(
         prefix_, initial_.prefix, "sketchDimensionPrefix", this));
-    form_->addRow(tr("Suffix"), symbol_field(
+    form_->addRow(tr("Text za hodnotou"), symbol_field(
         suffix_, initial_.suffix, "sketchDimensionSuffix", this));
     tolerance_mode_ = new QComboBox(this);
     tolerance_mode_->setObjectName("sketchDimensionToleranceMode");
@@ -123,7 +129,15 @@ SketchDimensionPropertiesDialog::SketchDimensionPropertiesDialog(
         // Restore the last measured value if the user first typed a new
         // number and only then changed the dimension to reference mode.
         if (!driving) value_->setValue(initial_.value);
+        if (!driving) locked_->setChecked(false);
+        locked_->setEnabled(driving);
         value_->setEnabled(driving);
+        error_->clear();
+    });
+    connect(locked_, &QCheckBox::toggled, this, [this](bool) {
+        // Locked protects the value from direct geometry dragging. An
+        // intentional numeric edit in Properties remains available.
+        value_->setEnabled(driving_->isChecked());
         error_->clear();
     });
     refresh_tolerance_fields();
@@ -141,6 +155,7 @@ bool SketchDimensionPropertiesDialog::submit() {
     auto result = initial_;
     result.value = value_->value();
     result.driving = driving_->isChecked();
+    result.locked = locked_->isChecked();
     result.prefix = prefix_->text().toStdString();
     result.suffix = suffix_->text().toStdString();
     result.tolerance_mode = tolerance_mode_->currentData().toString().toStdString();

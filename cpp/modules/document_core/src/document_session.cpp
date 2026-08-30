@@ -70,6 +70,21 @@ std::optional<zima::kernel::BodyResult> DocumentSession::calculated_boundary(
     }
     result.mesh.original_references = references_for_owners(
         current_.calculated_boundaries.back().mesh.original_references, owners);
+    // Feature axes are persisted reference geometry, but they are also part
+    // of the ordinary Part presentation. A loaded or fully reused calculated
+    // boundary can legitimately contain them only in original_references;
+    // publish them into the display packet without invoking OCCT.
+    for (const auto& axis : result.mesh.original_references.axes) {
+        if (axis.reference.semantic_key != "axis:primary" &&
+            !axis.reference.semantic_key.starts_with("axis:profile:")) {
+            continue;
+        }
+        const bool already_visible = std::ranges::any_of(result.mesh.axes,
+            [&](const auto& visible) {
+                return visible.reference == axis.reference;
+            });
+        if (!already_visible) result.mesh.axes.push_back(axis);
+    }
     return result;
 }
 

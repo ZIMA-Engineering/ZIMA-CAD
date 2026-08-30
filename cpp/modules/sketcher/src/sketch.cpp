@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <charconv>
 #include <cmath>
 #include <fstream>
 #include <iomanip>
@@ -27,11 +28,15 @@ DimensionKind classify_linear_dimension(
     const double max_x = std::max(first[0], second[0]);
     const double min_y = std::min(first[1], second[1]);
     const double max_y = std::max(first[1], second[1]);
+    const double tolerance = std::max(1.0e-6,
+        std::hypot(max_x - min_x, max_y - min_y) * 0.05);
     const bool outside_x = cursor[0] < min_x || cursor[0] > max_x;
     const bool outside_y = cursor[1] < min_y || cursor[1] > max_y;
     if (!outside_x && !outside_y) return DimensionKind::Distance;
-    if (outside_y && !outside_x) return DimensionKind::DistanceX;
-    if (outside_x && !outside_y) return DimensionKind::DistanceY;
+    if (outside_y && cursor[0] >= min_x - tolerance &&
+        cursor[0] <= max_x + tolerance) return DimensionKind::DistanceX;
+    if (outside_x && cursor[1] >= min_y - tolerance &&
+        cursor[1] <= max_y + tolerance) return DimensionKind::DistanceY;
     const double horizontal_gap = std::min(
         std::abs(cursor[0] - min_x), std::abs(cursor[0] - max_x));
     const double vertical_gap = std::min(
@@ -70,6 +75,95 @@ std::optional<std::array<double, 2>> external_point_position(
     const Sketch& sketch, const std::string& reference_id) {
     if (reference_id == "sketch_origin") {
         return std::array{0.0, 0.0};
+    }
+    constexpr std::string_view keypoint_prefix{"sketch_keypoint:"};
+    if (reference_id.starts_with(keypoint_prefix)) {
+        const auto payload = std::string_view(reference_id).substr(
+            keypoint_prefix.size());
+        const auto kind_separator = payload.find(':');
+        const auto quarter_separator = payload.rfind(':');
+        if (kind_separator == std::string_view::npos ||
+            quarter_separator == kind_separator) return std::nullopt;
+        const auto kind = payload.substr(0, kind_separator);
+        const std::string geometry_id(payload.substr(
+            kind_separator + 1, quarter_separator - kind_separator - 1));
+        int quarter{};
+        const auto quarter_text = payload.substr(quarter_separator + 1);
+        const auto parsed = std::from_chars(quarter_text.data(),
+            quarter_text.data() + quarter_text.size(), quarter);
+        if (parsed.ec != std::errc{} || parsed.ptr !=
+                quarter_text.data() + quarter_text.size() ||
+            quarter < 0 || quarter > 3) return std::nullopt;
+        constexpr double half_pi = 1.57079632679489661923;
+        constexpr double two_pi = 6.28318530717958647692;
+        const double parameter = half_pi * static_cast<double>(quarter);
+        if (kind == "circle" || kind == "arc") {
+            std::string center_id;
+            double radius{};
+            if (kind == "circle") {
+                const auto curve = std::find_if(sketch.circles.begin(),
+                    sketch.circles.end(), [&](const auto& value) {
+                        return value.id == geometry_id;
+                    });
+                if (curve == sketch.circles.end()) return std::nullopt;
+                center_id = curve->center_point_id;
+                radius = curve->radius;
+            } else {
+                const auto curve = std::find_if(sketch.arcs.begin(),
+                    sketch.arcs.end(), [&](const auto& value) {
+                        return value.id == geometry_id;
+                    });
+                if (curve == sketch.arcs.end()) return std::nullopt;
+                double in_domain = parameter;
+                while (in_domain < curve->start_angle) in_domain += two_pi;
+                if (in_domain > curve->end_angle + 1.0e-12)
+                    return std::nullopt;
+                center_id = curve->center_point_id;
+                radius = curve->radius;
+            }
+            const auto* center = sketch.find_point(center_id);
+            if (center == nullptr) return std::nullopt;
+            return std::array{center->x + radius * std::cos(parameter),
+                              center->y + radius * std::sin(parameter)};
+        }
+        std::string center_id;
+        std::string major_id;
+        std::string minor_id;
+        if (kind == "ellipse") {
+            const auto curve = std::find_if(sketch.ellipses.begin(),
+                sketch.ellipses.end(), [&](const auto& value) {
+                    return value.id == geometry_id;
+                });
+            if (curve == sketch.ellipses.end()) return std::nullopt;
+            center_id = curve->center_point_id;
+            major_id = curve->major_point_id;
+            minor_id = curve->minor_point_id;
+        } else if (kind == "elliptical_arc") {
+            const auto curve = std::find_if(sketch.elliptical_arcs.begin(),
+                sketch.elliptical_arcs.end(), [&](const auto& value) {
+                    return value.id == geometry_id;
+                });
+            if (curve == sketch.elliptical_arcs.end()) return std::nullopt;
+            double in_domain = parameter;
+            while (in_domain < curve->start_parameter) in_domain += two_pi;
+            if (in_domain > curve->end_parameter + 1.0e-12)
+                return std::nullopt;
+            center_id = curve->center_point_id;
+            major_id = curve->major_point_id;
+            minor_id = curve->minor_point_id;
+        } else {
+            return std::nullopt;
+        }
+        const auto* center = sketch.find_point(center_id);
+        const auto* major = sketch.find_point(major_id);
+        const auto* minor = sketch.find_point(minor_id);
+        if (center == nullptr || major == nullptr || minor == nullptr)
+            return std::nullopt;
+        return std::array{
+            center->x + (major->x - center->x) * std::cos(parameter) +
+                (minor->x - center->x) * std::sin(parameter),
+            center->y + (major->y - center->y) * std::cos(parameter) +
+                (minor->y - center->y) * std::sin(parameter)};
     }
     const auto found = std::find_if(sketch.external_references.begin(),
         sketch.external_references.end(), [&](const auto& reference) {
@@ -169,7 +263,8 @@ std::optional<std::array<double, 2>> point_on_line_target(
                  !value.cached_paths.empty());
         });
     if (reference == sketch.external_references.end()) return std::nullopt;
-    if (reference->kind == ExternalReferenceKind::Axis) {
+    if (reference->kind == ExternalReferenceKind::Axis ||
+        reference->kind == ExternalReferenceKind::Face) {
         return project(reference->cached_points.front(),
             reference->cached_points.back(), false);
     }
@@ -187,11 +282,7 @@ std::optional<std::array<double, 2>> point_on_line_target(
             }
         }
     };
-    if (reference->kind == ExternalReferenceKind::Face) {
-        for (const auto& path : reference->cached_paths) consider_path(path);
-    } else {
-        consider_path(reference->cached_points);
-    }
+    consider_path(reference->cached_points);
     return closest;
 }
 
@@ -494,11 +585,18 @@ std::optional<double> measured_dimension_value(
             return dimension.kind == DimensionKind::Diameter
                 ? circle->radius * 2.0 : circle->radius;
         }
-        if (dimension.kind == DimensionKind::Diameter) return std::nullopt;
         const auto arc = std::find_if(sketch.arcs.begin(), sketch.arcs.end(),
             [&](const auto& value) { return value.id == dimension.geometry_id; });
-        return arc == sketch.arcs.end() ? std::nullopt
-                                        : std::optional<double>{arc->radius};
+        if (arc != sketch.arcs.end()) {
+            return dimension.kind == DimensionKind::Diameter
+                ? arc->radius * 2.0 : arc->radius;
+        }
+        const auto corner = std::find_if(
+            sketch.corner_radii.begin(), sketch.corner_radii.end(),
+            [&](const auto& value) { return value.id == dimension.geometry_id; });
+        return corner == sketch.corner_radii.end() ? std::nullopt
+            : std::optional<double>{dimension.kind == DimensionKind::Diameter
+                  ? corner->radius * 2.0 : corner->radius};
     }
     if (dimension.kind == DimensionKind::DistancePointLine ||
         dimension.kind == DimensionKind::DistanceSymmetric) {
@@ -1470,6 +1568,17 @@ SketchSegment Sketch::create_segment(
 }
 
 SketchPoint* Sketch::find_point(const std::string& point_id) {
+    if (point_lookup_active_) {
+        const auto indexed = point_lookup_indices_.find(point_id);
+        if (indexed == point_lookup_indices_.end()) return nullptr;
+        if (indexed->second < points.size() &&
+            points[indexed->second].id == point_id) {
+            return &points[indexed->second];
+        }
+        // A caller modified the public point vector while an indexed solver
+        // transaction was active. Fall back safely rather than dereferencing
+        // a stale position; normal solver code never takes this path.
+    }
     const auto found = std::find_if(points.begin(), points.end(),
         [&](const auto& point) { return point.id == point_id; });
     return found == points.end() ? nullptr : &*found;
@@ -1480,6 +1589,26 @@ const SketchPoint* Sketch::find_point(const std::string& point_id) const {
 }
 
 void Sketch::validate() const {
+    const bool owns_point_lookup = !point_lookup_active_;
+    if (owns_point_lookup) {
+        point_lookup_indices_.clear();
+        point_lookup_indices_.reserve(points.size());
+        for (std::size_t index = 0; index < points.size(); ++index) {
+            point_lookup_indices_.emplace(points[index].id, index);
+        }
+        point_lookup_active_ = true;
+    }
+    struct ValidationLookupGuard {
+        bool owns;
+        bool* active;
+        std::unordered_map<std::string, std::size_t>* indices;
+        ~ValidationLookupGuard() {
+            if (!owns) return;
+            *active = false;
+            indices->clear();
+        }
+    } validation_lookup_guard{owns_point_lookup, &point_lookup_active_,
+                              &point_lookup_indices_};
     if (id.empty() || name.empty()) throw std::runtime_error("Sketch identity is invalid");
     require_finite(plane_offset, "plane offset");
     std::unordered_set<std::string> ids;
@@ -1505,6 +1634,42 @@ void Sketch::validate() const {
         if (find_point(segment.second_point_id) == nullptr)
             throw std::runtime_error("Sketch segment " + segment.id +
                 " references missing second point " + segment.second_point_id);
+    }
+    std::unordered_map<std::string, const SketchSegment*> segments_by_id;
+    segments_by_id.reserve(segments.size());
+    for (const auto& segment : segments) {
+        segments_by_id.emplace(segment.id, &segment);
+    }
+    const auto segment_by_id = [&](const std::string& segment_id)
+        -> const SketchSegment* {
+        const auto found = segments_by_id.find(segment_id);
+        return found == segments_by_id.end() ? nullptr : found->second;
+    };
+    ids.clear();
+    for (const auto& radius : corner_radii) {
+        const auto first = std::find_if(segments.begin(), segments.end(),
+            [&](const auto& value) { return value.id == radius.first_segment_id; });
+        const auto second = std::find_if(segments.begin(), segments.end(),
+            [&](const auto& value) { return value.id == radius.second_segment_id; });
+        const bool first_owns_vertex = first != segments.end() &&
+            (first->first_point_id == radius.vertex_id ||
+             first->second_point_id == radius.vertex_id);
+        const bool second_owns_vertex = second != segments.end() &&
+            (second->first_point_id == radius.vertex_id ||
+             second->second_point_id == radius.vertex_id);
+        if (radius.id.empty() || !ids.insert(radius.id).second ||
+            radius.vertex_id.empty() || find_point(radius.vertex_id) == nullptr ||
+            first == segments.end() || second == segments.end() ||
+            first == second || !first_owns_vertex || !second_owns_vertex ||
+            !std::isfinite(radius.radius) || radius.radius < 0.0) {
+            throw std::runtime_error("Sketch corner radius is invalid");
+        }
+        if (radius.dimension_placement) {
+            require_finite((*radius.dimension_placement)[0],
+                "corner radius dimension placement x");
+            require_finite((*radius.dimension_placement)[1],
+                "corner radius dimension placement y");
+        }
     }
     ids.clear();
     for (const auto& circle : circles) {
@@ -1698,7 +1863,8 @@ void Sketch::validate() const {
               reference.kind == ExternalReferenceKind::Axis) &&
              (reference.cached_points.size() < 2 || !reference.cached_paths.empty())) ||
             (reference.kind == ExternalReferenceKind::Face &&
-             (!reference.cached_points.empty() || reference.cached_paths.empty()))) {
+             (reference.cached_points.size() != 2 ||
+              !reference.cached_paths.empty() || !reference.infinite))) {
             throw std::runtime_error("Sketch external reference geometry is invalid");
         }
         for (std::size_t index = 0; index < reference.cached_points.size(); ++index) {
@@ -1736,14 +1902,9 @@ void Sketch::validate() const {
     }
     ids.clear();
     for (const auto& constraint : constraints) {
-        const auto owned_segment = std::find_if(
-            segments.begin(), segments.end(), [&](const auto& segment) {
-                return segment.id == constraint.geometry_id;
-            });
-        const auto second_owned_segment = std::find_if(
-            segments.begin(), segments.end(), [&](const auto& segment) {
-                return segment.id == constraint.second_geometry_id;
-            });
+        const auto* owned_segment = segment_by_id(constraint.geometry_id);
+        const auto* second_owned_segment =
+            segment_by_id(constraint.second_geometry_id);
         const auto owned_point_curve = tangent_curve_data(
             *this, constraint.geometry_id);
         const auto owned_point_spline = std::find_if(
@@ -1785,8 +1946,8 @@ void Sketch::validate() const {
             ? circular_curve_radius(*this, constraint.geometry_id) : std::nullopt;
         const auto second_equal_radius = equal_radius
             ? circular_curve_radius(*this, constraint.second_geometry_id) : std::nullopt;
-        const bool first_is_segment = owned_segment != segments.end();
-        const bool second_is_segment = second_owned_segment != segments.end();
+        const bool first_is_segment = owned_segment != nullptr;
+        const bool second_is_segment = second_owned_segment != nullptr;
         const bool external_direction_pair = pair_constraint &&
             constraint.kind != ConstraintKind::EqualLength &&
             segment_or_external_line(*this, constraint.geometry_id).has_value() &&
@@ -1819,7 +1980,7 @@ void Sketch::validate() const {
                find_point(constraint.second_point_id) != nullptr);
         if (constraint.id.empty() || !ids.insert(constraint.id).second || !points_valid ||
             (segment_constraint && !constraint.geometry_id.empty() &&
-             (owned_segment == segments.end() ||
+             (owned_segment == nullptr ||
               owned_segment->first_point_id != constraint.first_point_id ||
               owned_segment->second_point_id != constraint.second_point_id)) ||
             (segment_constraint && !constraint.second_geometry_id.empty()) ||
@@ -1839,13 +2000,13 @@ void Sketch::validate() const {
                  constrained_native_point->x, constrained_native_point->y) ||
              !constraint.second_geometry_id.empty())) ||
             (midpoint_on_line &&
-             (owned_segment == segments.end() ||
+             (owned_segment == nullptr ||
               !segment_or_external_line(
                   *this, constraint.second_geometry_id).has_value() ||
               constraint.geometry_id == constraint.second_geometry_id)) ||
             (symmetric && (constraint.first_point_id == constraint.second_point_id ||
              !symmetry_axis_valid || !constraint.second_geometry_id.empty())) ||
-            (midpoint && (owned_segment == segments.end() ||
+            (midpoint && (owned_segment == nullptr ||
              owned_segment->first_point_id == constraint.first_point_id ||
              owned_segment->second_point_id == constraint.first_point_id ||
              !constraint.second_geometry_id.empty())) ||
@@ -1861,8 +2022,8 @@ void Sketch::validate() const {
             (!tangent && constraint.tangent_internal) ||
             (segment_constraint && !constraint.second_geometry_id.empty()) ||
             (pair_constraint && !external_direction_pair &&
-             (owned_segment == segments.end() ||
-              second_owned_segment == segments.end() ||
+             (owned_segment == nullptr ||
+              second_owned_segment == nullptr ||
               constraint.geometry_id == constraint.second_geometry_id))) {
             throw std::runtime_error("Sketch constraint is invalid");
         }
@@ -1888,27 +2049,26 @@ void Sketch::validate() const {
             dimension.second_point_id.empty() &&
             dimension.second_geometry_id.empty() &&
             find_point(dimension.first_point_id) != nullptr;
-        const bool circle_geometry = std::any_of(
+        const bool circle_geometry = radial_dimension && std::any_of(
             circles.begin(), circles.end(), [&](const auto& circle) {
                 return circle.id == dimension.geometry_id;
             });
         const bool geometry_valid = radial_dimension &&
-            (circle_geometry || (dimension.kind == DimensionKind::Radius &&
-             std::any_of(arcs.begin(), arcs.end(), [&](const auto& arc) {
+            (circle_geometry || std::any_of(arcs.begin(), arcs.end(), [&](const auto& arc) {
                 return arc.id == dimension.geometry_id;
-             })));
+             }) || radial_dimension && std::any_of(
+                 corner_radii.begin(), corner_radii.end(), [&](const auto& radius) {
+                     return radius.id == dimension.geometry_id;
+                 }));
         const bool ellipse_geometry_valid = ellipse_dimension && std::any_of(
             ellipses.begin(), ellipses.end(), [&](const auto& ellipse) {
                 return ellipse.id == dimension.geometry_id;
             });
-        const auto owned_segment = std::find_if(
-            segments.begin(), segments.end(), [&](const auto& segment) {
-                return segment.id == dimension.geometry_id;
-            });
+        const auto* owned_segment = segment_by_id(dimension.geometry_id);
         const bool segment_geometry_valid = !radial_dimension && !ellipse_dimension &&
             !three_point_angle &&
             !point_line_dimension &&
-            owned_segment != segments.end() &&
+            owned_segment != nullptr &&
             owned_segment->first_point_id == dimension.first_point_id &&
             owned_segment->second_point_id == dimension.second_point_id;
         const bool point_pair_geometry_valid = !radial_dimension &&
@@ -1966,6 +2126,10 @@ void Sketch::validate() const {
                 : !segment_geometry_valid && !point_pair_geometry_valid &&
                   !coordinate_axis_dimension)) {
             throw std::runtime_error("Sketch dimension is invalid");
+        }
+        if (dimension.locked && !dimension.driving) {
+            throw std::runtime_error(
+                "A reference Sketch dimension cannot lock its measured value");
         }
         require_finite(dimension.value, "dimension value");
         if ((dimension.kind == DimensionKind::Distance ||
@@ -2144,10 +2308,62 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
     if (!std::isfinite(x) || !std::isfinite(y)) return false;
     auto next = *this;
     auto* point = next.find_point(point_id);
+    const auto externally_linked = externally_linked_point_ids(next);
     if (point == nullptr || point->fixed ||
-        externally_linked_point_ids(next).contains(point_id)) return false;
+        externally_linked.contains(point_id)) return false;
     const double original_x = point->x;
     const double original_y = point->y;
+    // A mouse ray almost never lands numerically exactly on an axis. If the
+    // dragged point's X or Y coordinate is already tied through a directional
+    // relation to an anchored point, project that coordinate before making
+    // the dragged point the solver root. Otherwise the root and the axis
+    // relation demand two incompatible values and an otherwise valid slide
+    // along the axis is rejected.
+    const auto anchored_coordinate = [&](bool x_coordinate)
+        -> std::optional<double> {
+        std::vector<std::string> pending{point_id};
+        std::unordered_set<std::string> visited;
+        while (!pending.empty()) {
+            const auto current_id = std::move(pending.back());
+            pending.pop_back();
+            if (!visited.insert(current_id).second) continue;
+            const auto* current = next.find_point(current_id);
+            if (current == nullptr) continue;
+            if (current_id != point_id &&
+                (current->fixed || externally_linked.contains(current_id))) {
+                return x_coordinate ? current->x : current->y;
+            }
+            for (const auto& constraint : next.constraints) {
+                if (constraint.suppressed) continue;
+                if (constraint.kind == ConstraintKind::Coincident &&
+                    constraint.first_point_id == current_id &&
+                    constraint.second_point_id == "sketch_origin") {
+                    return 0.0;
+                }
+                if (constraint.kind == ConstraintKind::PointOnLine &&
+                    constraint.first_point_id == current_id &&
+                    ((x_coordinate && constraint.geometry_id == "sketch_axis:y") ||
+                     (!x_coordinate && constraint.geometry_id == "sketch_axis:x"))) {
+                    return 0.0;
+                }
+                const bool transfers_coordinate =
+                    constraint.kind == ConstraintKind::Coincident ||
+                    (x_coordinate && constraint.kind == ConstraintKind::Vertical) ||
+                    (!x_coordinate && constraint.kind == ConstraintKind::Horizontal);
+                if (!transfers_coordinate) continue;
+                if (constraint.first_point_id == current_id &&
+                    !constraint.second_point_id.empty()) {
+                    pending.push_back(constraint.second_point_id);
+                } else if (constraint.second_point_id == current_id &&
+                           !constraint.first_point_id.empty()) {
+                    pending.push_back(constraint.first_point_id);
+                }
+            }
+        }
+        return std::nullopt;
+    };
+    if (const auto anchored_x = anchored_coordinate(true)) x = *anchored_x;
+    if (const auto anchored_y = anchored_coordinate(false)) y = *anchored_y;
     point->x = x;
     point->y = y;
     const double translation_x = x - original_x;
@@ -2188,16 +2404,13 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
             continue;
         }
         const auto* center = next.find_point(circle->center_point_id);
-        const double requested_radius = std::hypot(x - center->x, y - center->y);
-        if (requested_radius <= 1.0e-12) return false;
-        const bool driven = std::any_of(
-            next.dimensions.begin(), next.dimensions.end(), [&](const auto& dimension) {
-                return !dimension.suppressed && dimension.driving &&
-                    (dimension.kind == DimensionKind::Radius ||
-                     dimension.kind == DimensionKind::Diameter) &&
-                    dimension.geometry_id == circle->id;
-            });
-        if (!driven) circle->radius = requested_radius;
+        const double cursor_radius = std::hypot(x - center->x, y - center->y);
+        if (cursor_radius <= 1.0e-12 || circle->radius <= 1.0e-12) return false;
+        // Dragging an attached point changes its angular position only. A
+        // circle radius is changed exclusively by its radius/diameter
+        // parameter operation, never as a side effect of point movement.
+        point->x = center->x + (x - center->x) * circle->radius / cursor_radius;
+        point->y = center->y + (y - center->y) * circle->radius / cursor_radius;
     }
     for (const auto& constraint : next.constraints) {
         if (constraint.suppressed ||
@@ -2211,14 +2424,6 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
         attached->y = (*target)[1];
     }
     constexpr double full_turn = 2.0 * 3.14159265358979323846;
-    const auto driving_radius = [&](const SketchArc& arc) {
-        return std::find_if(next.dimensions.begin(), next.dimensions.end(),
-            [&](const auto& dimension) {
-                return !dimension.suppressed && dimension.driving &&
-                    dimension.kind == DimensionKind::Radius &&
-                    dimension.geometry_id == arc.id;
-            });
-    };
     for (auto& arc : next.arcs) {
         auto* center = next.find_point(arc.center_point_id);
         auto* start = next.find_point(arc.start_point_id);
@@ -2254,11 +2459,11 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
         const bool moving_end = arc.end_point_id == point_id;
         if (!moving_start && !moving_end) continue;
         double angle = std::atan2(y - center->y, x - center->x);
-        const auto driver = driving_radius(arc);
         const double requested_radius = std::hypot(x - center->x, y - center->y);
         if (requested_radius <= 1.0e-12) return false;
-        const double radius = driver == next.dimensions.end()
-            ? requested_radius : driver->value;
+        // Arc endpoint dragging edits the sweep angle while preserving the
+        // stored radius. Radius editing is a separate explicit operation.
+        const double radius = arc.radius;
         if (moving_start) {
             while (angle > arc.start_angle + 3.14159265358979323846) angle -= full_turn;
             while (angle < arc.start_angle - 3.14159265358979323846) angle += full_turn;
@@ -2447,9 +2652,25 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
             end->y = position[1];
         }
     }
-    const auto solved = next.solve();
+    // During direct manipulation an unlocked driving dimension is an editable
+    // parameter, not a hidden immovable wall. Temporarily measure it like a
+    // reference dimension, then restore its driving role with the value
+    // reached by the drag. Locked dimensions remain hard equations.
+    std::unordered_set<std::string> relaxed_dimension_ids;
+    for (auto& dimension : next.dimensions) {
+        if (dimension.suppressed || !dimension.driving || dimension.locked) continue;
+        relaxed_dimension_ids.insert(dimension.id);
+        dimension.driving = false;
+    }
+    // Point coordinates do not change the constraint graph or its rank.
+    // Interactive dragging therefore needs equation convergence and final
+    // residual verification, but not a fresh numerical DOF analysis.
+    const auto solved = next.solve_impl(100, false, point_id);
     if (solved.status == SolveStatus::Conflicting || solved.status == SolveStatus::Invalid) {
         return false;
+    }
+    for (auto& dimension : next.dimensions) {
+        if (relaxed_dimension_ids.contains(dimension.id)) dimension.driving = true;
     }
     for (auto& dimension : next.dimensions) {
         if (dimension.suppressed || dimension.driving) continue;
@@ -2472,10 +2693,21 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
                 measured = dimension.kind == DimensionKind::Diameter
                     ? circle->radius * 2.0 : circle->radius;
             } else {
-                if (dimension.kind == DimensionKind::Diameter) return false;
                 const auto arc = std::find_if(next.arcs.begin(), next.arcs.end(),
                     [&](const auto& value) { return value.id == dimension.geometry_id; });
-                measured = arc->radius;
+                if (arc != next.arcs.end()) {
+                    measured = dimension.kind == DimensionKind::Diameter
+                        ? arc->radius * 2.0 : arc->radius;
+                } else {
+                    const auto corner = std::find_if(
+                        next.corner_radii.begin(), next.corner_radii.end(),
+                        [&](const auto& value) {
+                            return value.id == dimension.geometry_id;
+                        });
+                    if (corner == next.corner_radii.end()) return false;
+                    measured = dimension.kind == DimensionKind::Diameter
+                        ? corner->radius * 2.0 : corner->radius;
+                }
             }
         } else if (dimension.kind == DimensionKind::DistancePointLine ||
                    dimension.kind == DimensionKind::DistanceSymmetric) {
@@ -2758,8 +2990,13 @@ std::string Sketch::add_coincident_constraint(
     if (result.status == SolveStatus::Conflicting || result.status == SolveStatus::Invalid) {
         throw std::runtime_error("Coincident constraint conflicts with existing geometry");
     }
-    require_constraint_dof_reduction(
-        *this, result, "Coincident constraint is redundant");
+    const bool curve_keypoint =
+        first_point_id.starts_with("sketch_keypoint:") ||
+        second_point_id.starts_with("sketch_keypoint:");
+    if (!curve_keypoint) {
+        require_constraint_dof_reduction(
+            *this, result, "Coincident constraint is redundant");
+    }
     *this = std::move(next);
     return id;
 }
@@ -3471,7 +3708,10 @@ void Sketch::remove_constraint(const std::string& constraint_id) {
         throw std::invalid_argument("Sketch constraint does not exist");
     }
     next.validate();
-    const auto solved = next.solve();
+    // Removing a constraint changes rank, but this transaction only needs to
+    // prove that the remaining equations are valid. A later explicit solve
+    // reports the newly available DOF when the UI requests it.
+    const auto solved = next.solve_impl(100, false);
     if (solved.status == SolveStatus::Invalid ||
         solved.status == SolveStatus::Conflicting) {
         throw std::runtime_error("Sketch is invalid after constraint removal");
@@ -3581,9 +3821,16 @@ void Sketch::remove_geometry(const std::string& geometry_id) {
         [&](const auto& value) { return value.id == geometry_id; });
     const auto external_reference_count = std::erase_if(next.external_references,
         [&](const auto& value) { return value.id == geometry_id; });
+    const auto corner_radius_count = std::erase_if(next.corner_radii,
+        [&](const auto& value) {
+        return value.id == geometry_id ||
+            value.first_segment_id == geometry_id ||
+            value.second_segment_id == geometry_id;
+    });
     if (segment_count + circle_count + arc_count + ellipse_count +
             elliptical_arc_count + spline_count + text_count +
-            external_reference_count != 1) {
+            external_reference_count +
+            (corner_radius_count != 0 && segment_count == 0 ? 1 : 0) != 1) {
         throw std::invalid_argument("Sketch geometry does not exist");
     }
     const auto point_has_geometry_owner = [&](const std::string& point_id) {
@@ -3622,6 +3869,9 @@ void Sketch::remove_geometry(const std::string& geometry_id) {
         [&](const auto& value) {
             return value.geometry_id == geometry_id ||
                 value.second_geometry_id == geometry_id ||
+                (value.second_point_id.starts_with("sketch_keypoint:") &&
+                 value.second_point_id.find(":" + geometry_id + ":") !=
+                     std::string::npos) ||
                 (external_reference_count != 0 &&
                  (value.first_point_id == geometry_id ||
                   value.second_point_id == geometry_id)) ||
@@ -3688,6 +3938,8 @@ void Sketch::remove_point(const std::string& point_id) {
         throw std::invalid_argument("Sketch point does not exist");
     }
     auto next = *this;
+    std::erase_if(next.corner_radii,
+        [&](const auto& value) { return value.vertex_id == point_id; });
     std::set<std::string> removed_geometry_ids;
     std::set<std::string> candidate_point_ids{point_id};
     const auto collect_geometry = [&](const std::string& geometry_id,
@@ -4371,7 +4623,8 @@ std::string Sketch::add_tangent_arc(
     return arc_id;
 }
 
-CornerFilletResult Sketch::add_corner_fillet(
+static CornerFilletResult materialize_corner_fillet(
+    Sketch& source,
     const std::string& first_segment_id,
     const std::string& second_segment_id,
     double radius, double snap_tolerance) {
@@ -4381,7 +4634,7 @@ CornerFilletResult Sketch::add_corner_fillet(
         first_segment_id == second_segment_id) {
         throw std::invalid_argument("Corner fillet input is invalid");
     }
-    auto next = *this;
+    auto next = source;
     auto first_segment = std::find_if(next.segments.begin(), next.segments.end(),
         [&](const auto& value) { return value.id == first_segment_id; });
     auto second_segment = std::find_if(next.segments.begin(), next.segments.end(),
@@ -4517,8 +4770,11 @@ CornerFilletResult Sketch::add_corner_fillet(
         return dimension.first_point_id == corner_id ||
             dimension.second_point_id == corner_id;
     });
-    std::erase_if(next.points,
-        [&](const auto& point) { return point.id == corner_id; });
+    // Keep the original corner as the persistent radius handle.  A Sketch
+    // fillet trims the two displayed/profile legs, but it must not destroy
+    // the design vertex which defined their intersection.  Besides matching
+    // the Python interaction contract, retaining this stable ZIMA point is
+    // what makes the corner available for later radius editing.
     const double cross = ux * vy - uy * vx;
     result.arc_id = cross > 0.0
         ? next.add_arc(center[0], center[1],
@@ -4535,7 +4791,197 @@ CornerFilletResult Sketch::add_corner_fillet(
         solved.status == SolveStatus::Invalid) {
         throw std::runtime_error("Corner fillet conflicts with existing Sketch geometry");
     }
+    source = std::move(next);
+    return result;
+}
+
+CornerFilletResult Sketch::add_corner_fillet(
+    const std::string& first_segment_id,
+    const std::string& second_segment_id,
+    double radius, double snap_tolerance) {
+    require_finite(radius, "corner radius");
+    require_finite(snap_tolerance, "corner radius snap tolerance");
+    if (radius < 0.0 || snap_tolerance < 0.0 ||
+        first_segment_id == second_segment_id) {
+        throw std::invalid_argument("Corner radius input is invalid");
+    }
+    const auto first = std::find_if(segments.begin(), segments.end(),
+        [&](const auto& value) { return value.id == first_segment_id; });
+    const auto second = std::find_if(segments.begin(), segments.end(),
+        [&](const auto& value) { return value.id == second_segment_id; });
+    if (first == segments.end() || second == segments.end()) {
+        throw std::invalid_argument("Corner radius segments do not exist");
+    }
+    std::string vertex_id;
+    for (const auto& point_id : {first->first_point_id, first->second_point_id}) {
+        if (point_id == second->first_point_id || point_id == second->second_point_id) {
+            vertex_id = point_id;
+            break;
+        }
+    }
+    if (vertex_id.empty()) {
+        throw std::invalid_argument("Corner radius segments do not share a vertex");
+    }
+    auto next = *this;
+    auto existing = std::find_if(next.corner_radii.begin(), next.corner_radii.end(),
+        [&](const auto& value) {
+            return value.vertex_id == vertex_id &&
+                ((value.first_segment_id == first_segment_id &&
+                  value.second_segment_id == second_segment_id) ||
+                 (value.first_segment_id == second_segment_id &&
+                  value.second_segment_id == first_segment_id));
+        });
+    if (radius <= 1.0e-9) {
+        if (existing == next.corner_radii.end()) return {{}, {}, {}};
+        const auto id = existing->id;
+        existing->radius = 0.0;
+        existing->suppressed = false;
+        for (auto& dimension : next.dimensions) {
+            if (dimension.geometry_id == id &&
+                (dimension.kind == DimensionKind::Radius ||
+                 dimension.kind == DimensionKind::Diameter)) {
+                dimension.value = 0.0;
+            }
+        }
+        next.validate();
+        *this = std::move(next);
+        return {id, {}, {}};
+    }
+    // Validate the value by evaluating it transactionally, without modifying
+    // the persisted source graph.
+    auto evaluated = next;
+    evaluated.corner_radii.clear();
+    const auto materialized = materialize_corner_fillet(
+        evaluated, first_segment_id, second_segment_id, radius, snap_tolerance);
+    const std::string id = existing == next.corner_radii.end()
+        ? make_id() : existing->id;
+    if (existing == next.corner_radii.end()) {
+        next.corner_radii.push_back({id, vertex_id, first_segment_id,
+            second_segment_id, radius, false});
+    } else {
+        existing->radius = radius;
+        existing->suppressed = false;
+    }
+    for (auto& dimension : next.dimensions) {
+        if (dimension.geometry_id == id &&
+            (dimension.kind == DimensionKind::Radius ||
+             dimension.kind == DimensionKind::Diameter)) {
+            dimension.value = dimension.kind == DimensionKind::Diameter
+                ? radius * 2.0 : radius;
+        }
+    }
+    next.validate();
     *this = std::move(next);
+    return {id, {}, {}};
+}
+
+Sketch Sketch::evaluated_profile_sketch() const {
+    auto result = *this;
+    const auto records = result.corner_radii;
+    std::erase_if(result.corner_radii, [](const auto& record) {
+        return !record.suppressed && record.radius > 1.0e-9;
+    });
+    for (const auto& record : records) {
+        if (record.suppressed || record.radius <= 1.0e-9) continue;
+        const auto materialized = materialize_corner_fillet(result,
+            record.first_segment_id, record.second_segment_id, record.radius,
+            1.0e-7);
+        const auto arc = std::find_if(result.arcs.begin(), result.arcs.end(),
+            [&](const auto& value) { return value.id == materialized.arc_id; });
+        const auto rename_point = [&](const std::string& old_id,
+                                      const std::string& role) {
+            const std::string new_id = record.id + ":" + role + ":parent:" +
+                record.vertex_id;
+            if (auto* point = result.find_point(old_id)) point->id = new_id;
+            for (auto& segment : result.segments) {
+                if (segment.first_point_id == old_id) segment.first_point_id = new_id;
+                if (segment.second_point_id == old_id) segment.second_point_id = new_id;
+            }
+            for (auto& value : result.arcs) {
+                if (value.center_point_id == old_id) value.center_point_id = new_id;
+                if (value.start_point_id == old_id) value.start_point_id = new_id;
+                if (value.end_point_id == old_id) value.end_point_id = new_id;
+            }
+            for (auto& constraint : result.constraints) {
+                if (constraint.first_point_id == old_id)
+                    constraint.first_point_id = new_id;
+                if (constraint.second_point_id == old_id)
+                    constraint.second_point_id = new_id;
+            }
+            for (auto& dimension : result.dimensions) {
+                if (dimension.first_point_id == old_id)
+                    dimension.first_point_id = new_id;
+                if (dimension.second_point_id == old_id)
+                    dimension.second_point_id = new_id;
+            }
+        };
+        rename_point(materialized.first_tangent_point_id, "tangent:first");
+        rename_point(materialized.second_tangent_point_id, "tangent:second");
+        if (arc != result.arcs.end()) {
+            rename_point(arc->center_point_id, "center");
+            arc->id = record.id;
+        }
+        for (auto& constraint : result.constraints) {
+            if (constraint.geometry_id == materialized.arc_id)
+                constraint.geometry_id = record.id;
+            if (constraint.second_geometry_id == materialized.arc_id)
+                constraint.second_geometry_id = record.id;
+        }
+    }
+    result.validate();
+    return result;
+}
+
+std::optional<std::pair<std::array<double, 2>, std::array<double, 2>>>
+Sketch::visible_segment_endpoints(const std::string& segment_id) const {
+    const auto segment = std::find_if(segments.begin(), segments.end(),
+        [&](const auto& value) { return value.id == segment_id; });
+    if (segment == segments.end()) return std::nullopt;
+    const auto* first = find_point(segment->first_point_id);
+    const auto* second = find_point(segment->second_point_id);
+    if (first == nullptr || second == nullptr) return std::nullopt;
+    std::pair result{
+        std::array{first->x, first->y}, std::array{second->x, second->y}};
+    const auto trim_endpoint = [&](const std::string& vertex_id,
+                                   std::array<double, 2>& endpoint) {
+        const auto radius = std::find_if(corner_radii.begin(), corner_radii.end(),
+            [&](const auto& value) {
+                return !value.suppressed && value.vertex_id == vertex_id &&
+                    (value.first_segment_id == segment_id ||
+                     value.second_segment_id == segment_id);
+            });
+        if (radius == corner_radii.end()) return;
+        const auto other_segment_id = radius->first_segment_id == segment_id
+            ? radius->second_segment_id : radius->first_segment_id;
+        const auto other_segment = std::find_if(segments.begin(), segments.end(),
+            [&](const auto& value) { return value.id == other_segment_id; });
+        const auto* vertex = find_point(vertex_id);
+        if (other_segment == segments.end() || vertex == nullptr) return;
+        const auto outer_point = [&](const SketchSegment& value) {
+            return find_point(value.first_point_id == vertex_id
+                ? value.second_point_id : value.first_point_id);
+        };
+        const auto* this_outer = outer_point(*segment);
+        const auto* other_outer = outer_point(*other_segment);
+        if (this_outer == nullptr || other_outer == nullptr) return;
+        const double ax = this_outer->x - vertex->x;
+        const double ay = this_outer->y - vertex->y;
+        const double bx = other_outer->x - vertex->x;
+        const double by = other_outer->y - vertex->y;
+        const double al = std::hypot(ax, ay);
+        const double bl = std::hypot(bx, by);
+        if (al <= 1.0e-12 || bl <= 1.0e-12) return;
+        const double angle = std::acos(std::clamp(
+            (ax * bx + ay * by) / (al * bl), -1.0, 1.0));
+        const double tangent = std::tan(angle * 0.5);
+        if (tangent <= 1.0e-12) return;
+        const double distance = radius->radius / tangent;
+        if (distance >= al) return;
+        endpoint = {vertex->x + ax / al * distance,
+                    vertex->y + ay / al * distance};
+    };
+    trim_endpoint(segment->first_point_id, result.first);
+    trim_endpoint(segment->second_point_id, result.second);
     return result;
 }
 
@@ -4866,6 +5312,100 @@ std::optional<std::vector<std::array<double, 2>>> Sketch::project_external_axis(
     return std::vector<std::array<double, 2>>{first, second};
 }
 
+std::optional<std::vector<std::array<double, 2>>>
+Sketch::project_external_face_plane(
+    const zima::kernel::ViewerReferenceGeometry& source_geometry,
+    const zima::kernel::FaceReference& face) const {
+    if (!face.valid() || source_geometry.triangles.size() % 3 != 0 ||
+        source_geometry.triangle_references.size() !=
+            source_geometry.triangles.size() / 3) return std::nullopt;
+    const auto subtract = [](const auto& left, const auto& right) {
+        return zima::kernel::Vec3{left.x - right.x, left.y - right.y,
+            left.z - right.z};
+    };
+    const auto cross = [](const auto& left, const auto& right) {
+        return zima::kernel::Vec3{
+            left.y * right.z - left.z * right.y,
+            left.z * right.x - left.x * right.z,
+            left.x * right.y - left.y * right.x};
+    };
+    const auto dot = [](const auto& left, const auto& right) {
+        return left.x * right.x + left.y * right.y + left.z * right.z;
+    };
+    const auto length = [&](const auto& value) {
+        return std::sqrt(dot(value, value));
+    };
+    std::optional<zima::kernel::Vec3> face_point;
+    std::optional<zima::kernel::Vec3> face_normal;
+    for (std::size_t triangle = 0;
+         triangle < source_geometry.triangle_references.size(); ++triangle) {
+        if (source_geometry.triangle_references[triangle] != face) continue;
+        const std::array<std::uint32_t, 3> indices{
+            source_geometry.triangles[triangle * 3],
+            source_geometry.triangles[triangle * 3 + 1],
+            source_geometry.triangles[triangle * 3 + 2]};
+        if (std::ranges::any_of(indices, [&](const auto index) {
+                return index >= source_geometry.vertices.size();
+            })) return std::nullopt;
+        const auto& first = source_geometry.vertices[indices[0]];
+        const auto normal = cross(
+            subtract(source_geometry.vertices[indices[1]], first),
+            subtract(source_geometry.vertices[indices[2]], first));
+        const double normal_length = length(normal);
+        if (normal_length <= 1.0e-12) continue;
+        face_point = first;
+        face_normal = {normal.x / normal_length, normal.y / normal_length,
+            normal.z / normal_length};
+        break;
+    }
+    if (!face_point || !face_normal) return std::nullopt;
+    for (std::size_t triangle = 0;
+         triangle < source_geometry.triangle_references.size(); ++triangle) {
+        if (source_geometry.triangle_references[triangle] != face) continue;
+        for (std::size_t corner = 0; corner < 3; ++corner) {
+            const auto index = source_geometry.triangles[triangle * 3 + corner];
+            if (index >= source_geometry.vertices.size() ||
+                std::abs(dot(*face_normal,
+                    subtract(source_geometry.vertices[index], *face_point))) >
+                    1.0e-6) return std::nullopt;
+        }
+    }
+    const auto sketch_origin = world_point(0.0, 0.0);
+    const auto sketch_x = subtract(world_point(1.0, 0.0), sketch_origin);
+    const auto sketch_y = subtract(world_point(0.0, 1.0), sketch_origin);
+    auto sketch_normal = cross(sketch_x, sketch_y);
+    const double sketch_normal_length = length(sketch_normal);
+    if (sketch_normal_length <= 1.0e-12) return std::nullopt;
+    sketch_normal = {sketch_normal.x / sketch_normal_length,
+        sketch_normal.y / sketch_normal_length,
+        sketch_normal.z / sketch_normal_length};
+    auto direction = cross(*face_normal, sketch_normal);
+    const double direction_squared = dot(direction, direction);
+    if (direction_squared <= 1.0e-20) return std::nullopt;
+    const double first_distance = dot(*face_normal, *face_point);
+    const double second_distance = dot(sketch_normal, sketch_origin);
+    const auto second_cross_direction = cross(sketch_normal, direction);
+    const auto direction_cross_first = cross(direction, *face_normal);
+    const zima::kernel::Vec3 point{
+        (first_distance * second_cross_direction.x +
+            second_distance * direction_cross_first.x) / direction_squared,
+        (first_distance * second_cross_direction.y +
+            second_distance * direction_cross_first.y) / direction_squared,
+        (first_distance * second_cross_direction.z +
+            second_distance * direction_cross_first.z) / direction_squared};
+    const double direction_length = std::sqrt(direction_squared);
+    direction = {direction.x / direction_length, direction.y / direction_length,
+        direction.z / direction_length};
+    const auto first = local_point({point.x - direction.x,
+        point.y - direction.y, point.z - direction.z});
+    const auto second = local_point({point.x + direction.x,
+        point.y + direction.y, point.z + direction.z});
+    if (std::hypot(second[0] - first[0], second[1] - first[1]) <= 1.0e-9) {
+        return std::nullopt;
+    }
+    return std::vector<std::array<double, 2>>{first, second};
+}
+
 std::optional<std::vector<std::vector<std::array<double, 2>>>>
 Sketch::project_external_face(
     const zima::kernel::ViewerReferenceGeometry& source_geometry,
@@ -5013,8 +5553,6 @@ bool Sketch::refresh_external_references(
     for (auto& reference : next.external_references) {
         if (reference.source_document_id != source_document_id) continue;
         std::optional<std::vector<std::array<double, 2>>> resolved;
-        std::optional<std::vector<std::vector<std::array<double, 2>>>>
-            resolved_paths;
         if (reference.kind == ExternalReferenceKind::Edge) {
             const zima::kernel::ViewerEdge* match = nullptr;
             std::size_t match_count{};
@@ -5067,19 +5605,17 @@ bool Sketch::refresh_external_references(
                 if (match_count == 0) match = candidate;
                 ++match_count;
             }
-            if (match_count > 0) {
-                resolved_paths = next.project_external_face(
-                    source_geometry, match);
-            }
+            if (match_count > 0) resolved =
+                next.project_external_face_plane(source_geometry, match);
         }
-        const bool broken = reference.kind == ExternalReferenceKind::Face
-            ? !resolved_paths.has_value() : !resolved.has_value();
+        const bool broken = !resolved.has_value();
         if (resolved && reference.cached_points != *resolved) {
             reference.cached_points = std::move(*resolved);
             changed = true;
         }
-        if (resolved_paths && reference.cached_paths != *resolved_paths) {
-            reference.cached_paths = std::move(*resolved_paths);
+        if (reference.kind == ExternalReferenceKind::Face &&
+            !reference.cached_paths.empty()) {
+            reference.cached_paths.clear();
             changed = true;
         }
         if (reference.broken != broken) {
@@ -5202,7 +5738,11 @@ SketchDimension Sketch::create_segment_dimension(
             : std::hypot(dx, dy);
     SketchDimension result{
         make_id(), kind, first->id, second->id, value};
-    result.geometry_id = segment->id;
+    // A length/projection dimension selected through a segment is still a
+    // point-to-point relation. The segment is only the UI selection proxy.
+    // Directional angle dimensions retain the segment identity because they
+    // describe the line direction itself.
+    if (kind == DimensionKind::Angle) result.geometry_id = segment->id;
     return result;
 }
 
@@ -5420,12 +5960,24 @@ SketchDimension Sketch::create_circle_diameter_dimension(
 SketchDimension Sketch::create_arc_radius_dimension(const std::string& arc_id) const {
     const auto arc = std::find_if(arcs.begin(), arcs.end(),
         [&](const auto& value) { return value.id == arc_id; });
-    if (arc == arcs.end()) throw std::invalid_argument("Sketch arc does not exist");
+    const auto corner = std::find_if(corner_radii.begin(), corner_radii.end(),
+        [&](const auto& value) { return value.id == arc_id; });
+    if (arc == arcs.end() && corner == corner_radii.end()) {
+        throw std::invalid_argument("Sketch arc does not exist");
+    }
     SketchDimension result;
     result.id = make_id();
     result.kind = DimensionKind::Radius;
-    result.value = arc->radius;
-    result.geometry_id = arc->id;
+    result.value = arc != arcs.end() ? arc->radius : corner->radius;
+    result.geometry_id = arc_id;
+    return result;
+}
+
+SketchDimension Sketch::create_arc_diameter_dimension(
+    const std::string& arc_id) const {
+    auto result = create_arc_radius_dimension(arc_id);
+    result.kind = DimensionKind::Diameter;
+    result.value *= 2.0;
     return result;
 }
 
@@ -5531,22 +6083,31 @@ void Sketch::apply_dimension(SketchDimension dimension) {
             circle->radius = dimension_kind == DimensionKind::Diameter
                 ? dimension_value * 0.5 : dimension_value;
         } else {
-            if (dimension_kind == DimensionKind::Diameter) {
-                throw std::invalid_argument("Diameter dimension circle does not exist");
-            }
             const auto arc = std::find_if(next.arcs.begin(), next.arcs.end(),
                 [&](const auto& value) { return value.id == dimension_geometry_id; });
             if (arc == next.arcs.end()) {
-                throw std::invalid_argument("Radius dimension geometry does not exist");
+                const auto corner = std::find_if(
+                    next.corner_radii.begin(), next.corner_radii.end(),
+                    [&](const auto& value) {
+                        return value.id == dimension_geometry_id;
+                    });
+                if (corner == next.corner_radii.end()) {
+                    throw std::invalid_argument(
+                        "Radius dimension geometry does not exist");
+                }
+                corner->radius = dimension_kind == DimensionKind::Diameter
+                    ? dimension_value * 0.5 : dimension_value;
+            } else {
+                arc->radius = dimension_kind == DimensionKind::Diameter
+                    ? dimension_value * 0.5 : dimension_value;
+                const auto* center = next.find_point(arc->center_point_id);
+                auto* start = next.find_point(arc->start_point_id);
+                auto* end = next.find_point(arc->end_point_id);
+                start->x = center->x + arc->radius * std::cos(arc->start_angle);
+                start->y = center->y + arc->radius * std::sin(arc->start_angle);
+                end->x = center->x + arc->radius * std::cos(arc->end_angle);
+                end->y = center->y + arc->radius * std::sin(arc->end_angle);
             }
-            arc->radius = dimension_value;
-            const auto* center = next.find_point(arc->center_point_id);
-            auto* start = next.find_point(arc->start_point_id);
-            auto* end = next.find_point(arc->end_point_id);
-            start->x = center->x + arc->radius * std::cos(arc->start_angle);
-            start->y = center->y + arc->radius * std::sin(arc->start_angle);
-            end->x = center->x + arc->radius * std::cos(arc->end_angle);
-            end->y = center->y + arc->radius * std::sin(arc->end_angle);
         }
     } else if (dimension_kind == DimensionKind::EllipseMajorRadius ||
                dimension_kind == DimensionKind::EllipseMinorRadius) {
@@ -5589,7 +6150,13 @@ void Sketch::apply_dimension(SketchDimension dimension) {
             std::cos(ellipse->rotation);
     }
     next.validate();
-    const auto result = next.solve();
+    const bool needs_rank_for_redundancy = inserting_driving_dimension &&
+        dimension_kind != DimensionKind::EllipseMajorRadius &&
+        dimension_kind != DimensionKind::EllipseMinorRadius &&
+        dimension_kind != DimensionKind::EllipseRotation;
+    // Editing a value leaves the equation graph unchanged. Recompute rank
+    // only when inserting a driver whose redundancy must be diagnosed.
+    const auto result = next.solve_impl(100, needs_rank_for_redundancy);
     if (result.status == SolveStatus::Conflicting || result.status == SolveStatus::Invalid) {
         throw std::runtime_error("Sketch dimension conflicts with existing geometry");
     }
@@ -5604,11 +6171,32 @@ void Sketch::apply_dimension(SketchDimension dimension) {
 }
 
 SolveResult Sketch::solve(std::size_t maximum_iterations) {
+    return solve_impl(maximum_iterations, true);
+}
+
+SolveResult Sketch::solve_impl(
+    std::size_t maximum_iterations, bool calculate_degrees_of_freedom,
+    const std::string& preferred_point_id) {
+    point_lookup_indices_.clear();
+    point_lookup_indices_.reserve(points.size());
+    for (std::size_t index = 0; index < points.size(); ++index) {
+        point_lookup_indices_.emplace(points[index].id, index);
+    }
+    point_lookup_active_ = true;
+    struct PointLookupGuard {
+        bool* active;
+        std::unordered_map<std::string, std::size_t>* indices;
+        ~PointLookupGuard() {
+            *active = false;
+            indices->clear();
+        }
+    } point_lookup_guard{&point_lookup_active_, &point_lookup_indices_};
     try { validate(); } catch (const std::exception&) { return {SolveStatus::Invalid, 0, 0.0}; }
     if (maximum_iterations == 0) return {SolveStatus::Invalid, 0, 0.0};
     const auto original_points = points;
     const auto original_circles = circles;
     const auto original_arcs = arcs;
+    const auto original_corner_radii = corner_radii;
     const auto original_ellipses = ellipses;
     const auto original_elliptical_arcs = elliptical_arcs;
     const auto original_dimensions = dimensions;
@@ -5616,13 +6204,32 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
     double maximum_residual{};
     const auto linked_points = externally_linked_point_ids(*this);
     const auto immutable = [&](const SketchPoint& point) {
-        return point.fixed || linked_points.contains(point.id);
+        // During a drag the requested point is the interaction root. Treat it
+        // as a temporary solver anchor so corrections propagate away from the
+        // cursor into movable branches instead of pulling the handle back.
+        return point.fixed || linked_points.contains(point.id) ||
+            (!preferred_point_id.empty() && point.id == preferred_point_id);
     };
+    std::unordered_set<std::string> centerline_points;
+    for (const auto& segment : segments) {
+        if (!segment.centerline) continue;
+        centerline_points.insert(segment.first_point_id);
+        centerline_points.insert(segment.second_point_id);
+    }
     const auto move_pair = [&](SketchPoint& first, SketchPoint& second,
                               double dx, double dy) {
         if (immutable(first) && immutable(second)) return false;
         if (immutable(first)) { second.x += dx; second.y += dy; }
         else if (immutable(second)) { first.x -= dx; first.y -= dy; }
+        else if (centerline_points.contains(first.id) &&
+                 !centerline_points.contains(second.id)) {
+            second.x += dx;
+            second.y += dy;
+        } else if (centerline_points.contains(second.id) &&
+                   !centerline_points.contains(first.id)) {
+            first.x -= dx;
+            first.y -= dy;
+        }
         else {
             first.x -= dx * 0.5; first.y -= dy * 0.5;
             second.x += dx * 0.5; second.y += dy * 0.5;
@@ -5655,6 +6262,98 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
             return true;
         }
         return false;
+    };
+    const auto directional_translation_closure = [&](
+            const std::string& root_id, DimensionKind kind) {
+        std::set<std::string> result;
+        if (find_point(root_id) == nullptr) return result;
+        result.insert(root_id);
+        bool changed = true;
+        while (changed) {
+            changed = false;
+            for (const auto& constraint : constraints) {
+                if (constraint.suppressed) continue;
+                const bool transfers_coordinate =
+                    constraint.kind == ConstraintKind::Coincident ||
+                    (kind == DimensionKind::DistanceX &&
+                     constraint.kind == ConstraintKind::Vertical) ||
+                    (kind == DimensionKind::DistanceY &&
+                     constraint.kind == ConstraintKind::Horizontal);
+                if (!transfers_coordinate ||
+                    find_point(constraint.first_point_id) == nullptr ||
+                    find_point(constraint.second_point_id) == nullptr) {
+                    continue;
+                }
+                if (result.contains(constraint.first_point_id) &&
+                    result.insert(constraint.second_point_id).second) {
+                    changed = true;
+                }
+                if (result.contains(constraint.second_point_id) &&
+                    result.insert(constraint.first_point_id).second) {
+                    changed = true;
+                }
+            }
+        }
+        return result;
+    };
+    const auto directional_group_anchored = [&](
+            const std::set<std::string>& group) {
+        if (std::any_of(group.begin(), group.end(), [&](const auto& point_id) {
+                const auto* point = find_point(point_id);
+                return point == nullptr || immutable(*point);
+            })) return true;
+        return std::any_of(constraints.begin(), constraints.end(),
+            [&](const auto& constraint) {
+                if (constraint.suppressed ||
+                    constraint.kind != ConstraintKind::Coincident) return false;
+                const bool first_native =
+                    find_point(constraint.first_point_id) != nullptr;
+                const bool second_native =
+                    find_point(constraint.second_point_id) != nullptr;
+                return (first_native &&
+                        group.contains(constraint.first_point_id) &&
+                        !second_native && external_point_position(
+                            *this, constraint.second_point_id)) ||
+                    (second_native &&
+                     group.contains(constraint.second_point_id) &&
+                     !first_native && external_point_position(
+                         *this, constraint.first_point_id));
+            });
+    };
+    const auto move_directional_pair = [&](const std::string& first_id,
+            const std::string& second_id, DimensionKind kind,
+            double correction) {
+        const auto first_group = directional_translation_closure(first_id, kind);
+        const auto second_group = directional_translation_closure(second_id, kind);
+        const bool first_external = first_group.empty() &&
+            external_point_position(*this, first_id).has_value();
+        const bool second_external = second_group.empty() &&
+            external_point_position(*this, second_id).has_value();
+        if ((!first_external && first_group.empty()) ||
+            (!second_external && second_group.empty()) ||
+            std::any_of(first_group.begin(), first_group.end(),
+                [&](const auto& point_id) {
+                    return second_group.contains(point_id);
+                })) return false;
+        const bool first_anchored = first_external ||
+            directional_group_anchored(first_group);
+        const bool second_anchored = second_external ||
+            directional_group_anchored(second_group);
+        if (first_anchored && second_anchored) return false;
+        const double first_shift = second_anchored ? -correction
+            : first_anchored ? 0.0 : -correction * 0.5;
+        const double second_shift = first_anchored ? correction
+            : second_anchored ? 0.0 : correction * 0.5;
+        const auto shift = [&](const std::set<std::string>& group, double value) {
+            for (const auto& point_id : group) {
+                auto* point = find_point(point_id);
+                if (kind == DimensionKind::DistanceX) point->x += value;
+                else point->y += value;
+            }
+        };
+        shift(first_group, first_shift);
+        shift(second_group, second_shift);
+        return true;
     };
     const auto synchronize_curves = [&]() {
         constexpr double full_turn = 2.0 * 3.14159265358979323846;
@@ -6104,10 +6803,17 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
                 auto* point = find_point(constraint.first_point_id);
                 auto* first = find_point(segment->first_point_id);
                 auto* second = find_point(segment->second_point_id);
+                const auto visible = visible_segment_endpoints(segment->id);
+                const double target_x = visible
+                    ? (visible->first[0] + visible->second[0]) * 0.5
+                    : (first->x + second->x) * 0.5;
+                const double target_y = visible
+                    ? (visible->first[1] + visible->second[1]) * 0.5
+                    : (first->y + second->y) * 0.5;
                 const double residual_x =
-                    point->x - (first->x + second->x) * 0.5;
+                    point->x - target_x;
                 const double residual_y =
-                    point->y - (first->y + second->y) * 0.5;
+                    point->y - target_y;
                 const double residual = std::hypot(residual_x, residual_y);
                 maximum_residual = std::max(maximum_residual, residual);
                 if (residual > tolerance) {
@@ -6341,7 +7047,21 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
                 } else {
                     auto arc = std::find_if(arcs.begin(), arcs.end(),
                         [&](const auto& value) { return value.id == dimension.geometry_id; });
-                    radius = &arc->radius;
+                    if (arc != arcs.end()) {
+                        radius = &arc->radius;
+                    } else {
+                        auto corner = std::find_if(
+                            corner_radii.begin(), corner_radii.end(),
+                            [&](const auto& value) {
+                                return value.id == dimension.geometry_id;
+                            });
+                        if (corner == corner_radii.end()) {
+                            maximum_residual = std::max(maximum_residual, 1.0);
+                            immovable_conflict = true;
+                            continue;
+                        }
+                        radius = &corner->radius;
+                    }
                 }
                 const double measured = dimension.kind == DimensionKind::Diameter
                     ? *radius * 2.0 : *radius;
@@ -6568,16 +7288,33 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
                 }
             }
             maximum_residual = std::max(maximum_residual, std::abs(residual));
-            if (std::abs(residual) > tolerance &&
-                !move_point_pair(dimension.first_point_id,
-                    dimension.second_point_id, correction_x, correction_y)) {
-                immovable_conflict = true;
+            if (std::abs(residual) > tolerance) {
+                const bool axis_aligned_distance_x =
+                    dimension.kind == DimensionKind::Distance &&
+                    std::abs(dy) <= tolerance && std::abs(dx) > tolerance;
+                const bool axis_aligned_distance_y =
+                    dimension.kind == DimensionKind::Distance &&
+                    std::abs(dx) <= tolerance && std::abs(dy) > tolerance;
+                const bool moved = dimension.kind == DimensionKind::DistanceX ||
+                        axis_aligned_distance_x
+                    ? move_directional_pair(dimension.first_point_id,
+                        dimension.second_point_id, DimensionKind::DistanceX,
+                        correction_x)
+                    : dimension.kind == DimensionKind::DistanceY ||
+                            axis_aligned_distance_y
+                    ? move_directional_pair(dimension.first_point_id,
+                        dimension.second_point_id, DimensionKind::DistanceY,
+                        correction_y)
+                    : move_point_pair(dimension.first_point_id,
+                        dimension.second_point_id, correction_x, correction_y);
+                if (!moved) immovable_conflict = true;
             }
         }
         if (immovable_conflict) {
             points = original_points;
             circles = original_circles;
             arcs = original_arcs;
+            corner_radii = original_corner_radii;
             ellipses = original_ellipses;
             elliptical_arcs = original_elliptical_arcs;
             return {SolveStatus::Conflicting, 0, maximum_residual};
@@ -6588,6 +7325,7 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
         points = original_points;
         circles = original_circles;
         arcs = original_arcs;
+        corner_radii = original_corner_radii;
         ellipses = original_ellipses;
         elliptical_arcs = original_elliptical_arcs;
         return {SolveStatus::Conflicting, 0, maximum_residual};
@@ -6599,10 +7337,46 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
             points = original_points;
             circles = original_circles;
             arcs = original_arcs;
+            corner_radii = original_corner_radii;
             ellipses = original_ellipses;
             elliptical_arcs = original_elliptical_arcs;
             return {SolveStatus::Conflicting, 0, 0.0};
         }
+    }
+    if (!calculate_degrees_of_freedom) {
+        if (!refresh_reference_dimensions(*this)) {
+            points = original_points;
+            circles = original_circles;
+            arcs = original_arcs;
+            corner_radii = original_corner_radii;
+            ellipses = original_ellipses;
+            elliptical_arcs = original_elliptical_arcs;
+            dimensions = original_dimensions;
+            return {SolveStatus::Conflicting, 0, maximum_residual};
+        }
+        // This mode is private and its callers only accept/reject the
+        // transaction. Do not pretend that an uncomputed DOF count is zero.
+        return {SolveStatus::UnderConstrained, 0, maximum_residual};
+    }
+    // Rank is considerably more expensive than equation convergence. Reuse
+    // it only for a byte-identical, already solved ZIMA state. This also makes
+    // the baseline half of a constraint-insertion transaction effectively
+    // free after the preceding committed solve.
+    if (!refresh_reference_dimensions(*this)) {
+        points = original_points;
+        circles = original_circles;
+        arcs = original_arcs;
+        corner_radii = original_corner_radii;
+        ellipses = original_ellipses;
+        elliptical_arcs = original_elliptical_arcs;
+        dimensions = original_dimensions;
+        return {SolveStatus::Conflicting, 0, maximum_residual};
+    }
+    const auto rank_cache_key = serialized();
+    if (solved_rank_cache_result_ && rank_cache_key == solved_rank_cache_key_) {
+        auto cached = *solved_rank_cache_result_;
+        cached.maximum_residual = maximum_residual;
+        return cached;
     }
     const auto residuals = [&]() {
         std::vector<double> result;
@@ -6718,8 +7492,15 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
                 const auto* point = find_point(constraint.first_point_id);
                 const auto* first = find_point(segment->first_point_id);
                 const auto* second = find_point(segment->second_point_id);
-                result.push_back(point->x - (first->x + second->x) * 0.5);
-                result.push_back(point->y - (first->y + second->y) * 0.5);
+                const auto visible = visible_segment_endpoints(segment->id);
+                const double target_x = visible
+                    ? (visible->first[0] + visible->second[0]) * 0.5
+                    : (first->x + second->x) * 0.5;
+                const double target_y = visible
+                    ? (visible->first[1] + visible->second[1]) * 0.5
+                    : (first->y + second->y) * 0.5;
+                result.push_back(point->x - target_x);
+                result.push_back(point->y - target_y);
                 continue;
             }
             if (constraint.kind == ConstraintKind::Symmetric) {
@@ -6807,12 +7588,23 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
                     result.push_back((dimension.kind == DimensionKind::Diameter
                         ? circle->radius * 2.0 : circle->radius) - dimension.value);
                 } else {
-                    if (dimension.kind == DimensionKind::Diameter) {
-                        throw std::runtime_error("Diameter dimension arc is invalid");
-                    }
                     const auto arc = std::find_if(arcs.begin(), arcs.end(),
                         [&](const auto& value) { return value.id == dimension.geometry_id; });
-                    result.push_back(arc->radius - dimension.value);
+                    if (arc != arcs.end()) {
+                        result.push_back((dimension.kind == DimensionKind::Diameter
+                            ? arc->radius * 2.0 : arc->radius) - dimension.value);
+                    } else {
+                        const auto corner = std::find_if(
+                            corner_radii.begin(), corner_radii.end(),
+                            [&](const auto& value) {
+                                return value.id == dimension.geometry_id;
+                            });
+                        result.push_back(corner == corner_radii.end()
+                            ? std::numeric_limits<double>::infinity()
+                            : (dimension.kind == DimensionKind::Diameter
+                                ? corner->radius * 2.0 : corner->radius) -
+                                  dimension.value);
+                    }
                 }
                 continue;
             }
@@ -6905,66 +7697,436 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
         return result;
     };
     std::vector<double*> variables;
+    std::unordered_map<std::string, std::vector<std::size_t>> entity_columns;
     for (auto& point : points) {
         if (!immutable(point)) {
+            const auto first_column = variables.size();
             variables.push_back(&point.x);
             variables.push_back(&point.y);
+            entity_columns[point.id] = {first_column, first_column + 1};
         }
     }
-    for (auto& circle : circles) variables.push_back(&circle.radius);
-    for (auto& arc : arcs) variables.push_back(&arc.radius);
+    for (auto& circle : circles) {
+        entity_columns[circle.id] = entity_columns[circle.center_point_id];
+        entity_columns[circle.id].push_back(variables.size());
+        variables.push_back(&circle.radius);
+    }
+    for (auto& arc : arcs) {
+        auto& columns = entity_columns[arc.id];
+        for (const auto& point_id : {arc.center_point_id, arc.start_point_id,
+                                    arc.end_point_id}) {
+            const auto& point_columns = entity_columns[point_id];
+            columns.insert(columns.end(), point_columns.begin(), point_columns.end());
+        }
+        columns.push_back(variables.size());
+        variables.push_back(&arc.radius);
+    }
+    for (auto& radius : corner_radii) {
+        // The owned visible radius dimension is a driving parameter. Unlike
+        // a generic geometric dimension it needs no residual equation; the
+        // value itself is authoritative and therefore is not a free solver
+        // variable.
+        auto& columns = entity_columns[radius.id];
+        columns = entity_columns[radius.vertex_id];
+        if (!radius.dimension_visible) {
+            columns.push_back(variables.size());
+            variables.push_back(&radius.radius);
+        }
+    }
+    const auto append_entity = [&](const std::string& target,
+                                   const std::string& source) {
+        const auto found = entity_columns.find(source);
+        if (found == entity_columns.end()) return;
+        auto& columns = entity_columns[target];
+        columns.insert(columns.end(), found->second.begin(), found->second.end());
+    };
+    for (const auto& segment : segments) {
+        append_entity(segment.id, segment.first_point_id);
+        append_entity(segment.id, segment.second_point_id);
+    }
+    for (const auto& radius : corner_radii) {
+        append_entity(radius.id, radius.first_segment_id);
+        append_entity(radius.id, radius.second_segment_id);
+    }
+    for (const auto& ellipse : ellipses) {
+        for (const auto& point_id : {ellipse.center_point_id,
+                                    ellipse.major_point_id,
+                                    ellipse.minor_point_id}) {
+            append_entity(ellipse.id, point_id);
+        }
+    }
+    for (const auto& arc : elliptical_arcs) {
+        for (const auto& point_id : {arc.center_point_id, arc.major_point_id,
+                                    arc.minor_point_id, arc.start_point_id,
+                                    arc.end_point_id}) {
+            append_entity(arc.id, point_id);
+        }
+    }
+    for (const auto& spline : bsplines) {
+        for (const auto& point_id : spline.control_point_ids) {
+            append_entity(spline.id, point_id);
+        }
+    }
+
+    std::vector<std::size_t> structural_parents(variables.size());
+    std::iota(structural_parents.begin(), structural_parents.end(), std::size_t{});
+    const auto structural_root = [&](std::size_t item) {
+        while (structural_parents[item] != item) {
+            structural_parents[item] = structural_parents[structural_parents[item]];
+            item = structural_parents[item];
+        }
+        return item;
+    };
+    const auto structural_unite = [&](std::size_t first, std::size_t second) {
+        first = structural_root(first);
+        second = structural_root(second);
+        if (first != second) structural_parents[second] = first;
+    };
+    const auto unite_entities = [&](std::initializer_list<std::string> ids) {
+        std::optional<std::size_t> first;
+        for (const auto& id : ids) {
+            const auto found = entity_columns.find(id);
+            if (found == entity_columns.end()) continue;
+            for (const auto column : found->second) {
+                if (first) structural_unite(*first, column);
+                else first = column;
+            }
+        }
+    };
+    for (const auto& [_, columns] : entity_columns) {
+        if (columns.empty()) continue;
+        for (std::size_t index = 1; index < columns.size(); ++index) {
+            structural_unite(columns.front(), columns[index]);
+        }
+    }
+    for (const auto& constraint : constraints) {
+        if (constraint.suppressed) continue;
+        unite_entities({constraint.first_point_id, constraint.second_point_id,
+                        constraint.geometry_id, constraint.second_geometry_id});
+    }
+    for (const auto& dimension : dimensions) {
+        if (dimension.suppressed || !dimension.driving) continue;
+        unite_entities({dimension.first_point_id, dimension.second_point_id,
+                        dimension.geometry_id, dimension.second_geometry_id});
+    }
+
+    std::vector<std::vector<std::size_t>> equation_columns;
+    const auto append_equations = [&](std::size_t count,
+                                      std::initializer_list<std::string> ids) {
+        std::vector<std::size_t> columns;
+        for (const auto& id : ids) {
+            const auto found = entity_columns.find(id);
+            if (found == entity_columns.end()) continue;
+            columns.insert(columns.end(),
+                found->second.begin(), found->second.end());
+        }
+        std::ranges::sort(columns);
+        columns.erase(std::unique(columns.begin(), columns.end()), columns.end());
+        equation_columns.insert(equation_columns.end(), count, columns);
+    };
+    for (const auto& constraint : constraints) {
+        if (constraint.suppressed) continue;
+        const std::size_t count =
+            constraint.kind == ConstraintKind::Concentric ||
+            constraint.kind == ConstraintKind::Midpoint ||
+            constraint.kind == ConstraintKind::Symmetric ||
+            constraint.kind == ConstraintKind::Coincident ? 2 : 1;
+        append_equations(count,
+            {constraint.first_point_id, constraint.second_point_id,
+             constraint.geometry_id, constraint.second_geometry_id});
+    }
+    for (const auto& dimension : dimensions) {
+        if (dimension.suppressed || !dimension.driving) continue;
+        const std::size_t count =
+            dimension.kind == DimensionKind::DistanceSymmetric &&
+                    !dimension.second_point_id.empty() ? 2 : 1;
+        append_equations(count,
+            {dimension.first_point_id, dimension.second_point_id,
+             dimension.geometry_id, dimension.second_geometry_id});
+    }
     const auto base = residuals();
+    if (equation_columns.size() != base.size()) {
+        throw std::runtime_error("Sketch equation ownership is inconsistent");
+    }
     std::vector<std::vector<double>> jacobian(
         base.size(), std::vector<double>(variables.size()));
     constexpr double step = 1.0e-6;
+    std::vector<std::size_t> column_colors(
+        variables.size(), std::numeric_limits<std::size_t>::max());
+    std::size_t color_count{};
+    std::unordered_map<std::size_t, std::vector<std::size_t>> structural_columns;
     for (std::size_t column = 0; column < variables.size(); ++column) {
-        *variables[column] += step;
+        structural_columns[structural_root(column)].push_back(column);
+    }
+    std::size_t largest_component{};
+    for (const auto& [_, columns] : structural_columns) {
+        largest_component = std::max(largest_component, columns.size());
+    }
+    if (largest_component <= 8) {
+        // Many tiny independent branches: local position is already a valid
+        // colouring and avoids constructing a general conflict graph.
+        for (const auto& [_, columns] : structural_columns) {
+            for (std::size_t color = 0; color < columns.size(); ++color) {
+                column_colors[columns[color]] = color;
+            }
+            color_count = std::max(color_count, columns.size());
+        }
+    } else {
+        // Large connected component: greedy column-intersection colouring.
+        // Columns sharing an equation differ; distant variables in the same
+        // chain may still be differentiated simultaneously.
+        std::vector<std::unordered_set<std::size_t>> conflicts(variables.size());
+        for (const auto& columns : equation_columns) {
+            for (std::size_t first = 0; first < columns.size(); ++first) {
+                for (std::size_t second = first + 1;
+                     second < columns.size(); ++second) {
+                    conflicts[columns[first]].insert(columns[second]);
+                    conflicts[columns[second]].insert(columns[first]);
+                }
+            }
+        }
+        for (std::size_t column = 0; column < variables.size(); ++column) {
+            std::unordered_set<std::size_t> used;
+            for (const auto neighbor : conflicts[column]) {
+                if (column_colors[neighbor] !=
+                    std::numeric_limits<std::size_t>::max()) {
+                    used.insert(column_colors[neighbor]);
+                }
+            }
+            std::size_t color{};
+            while (used.contains(color)) ++color;
+            column_colors[column] = color;
+            color_count = std::max(color_count, color + 1);
+        }
+    }
+    for (std::size_t color = 0; color < color_count; ++color) {
+        std::vector<std::pair<std::size_t, double>> shifted_columns;
+        for (std::size_t column = 0; column < variables.size(); ++column) {
+            if (column_colors[column] != color) continue;
+            shifted_columns.emplace_back(column, *variables[column]);
+            *variables[column] = shifted_columns.back().second + step;
+        }
         const auto shifted = residuals();
-        *variables[column] -= step;
-        for (std::size_t row = 0; row < base.size(); ++row) {
-            jacobian[row][column] = (shifted[row] - base[row]) / step;
+        for (const auto& [column, original_value] : shifted_columns) {
+            *variables[column] = original_value;
+            for (std::size_t row = 0; row < base.size(); ++row) {
+                if (std::ranges::binary_search(equation_columns[row], column)) {
+                    jacobian[row][column] = (shifted[row] - base[row]) / step;
+                }
+            }
+        }
+    }
+    // The numerical Jacobian is naturally block diagonal for disconnected
+    // Sketch branches. Eliminating the full dense matrix made unrelated
+    // geometry cubic work during every drag and dimension edit. Discover the
+    // blocks from the evaluated Jacobian itself, so every current and future
+    // constraint kind is partitioned by its actual dependencies rather than
+    // by a second hand-maintained topology model.
+    std::vector<std::size_t> parents(variables.size());
+    std::iota(parents.begin(), parents.end(), std::size_t{});
+    const auto root_of = [&](std::size_t item) {
+        while (parents[item] != item) {
+            parents[item] = parents[parents[item]];
+            item = parents[item];
+        }
+        return item;
+    };
+    const auto unite = [&](std::size_t first, std::size_t second) {
+        first = root_of(first);
+        second = root_of(second);
+        if (first != second) parents[second] = first;
+    };
+    constexpr double dependency_tolerance = 1.0e-10;
+    for (const auto& row : jacobian) {
+        std::optional<std::size_t> first_column;
+        for (std::size_t column = 0; column < row.size(); ++column) {
+            if (std::abs(row[column]) <= dependency_tolerance) continue;
+            if (first_column) unite(*first_column, column);
+            else first_column = column;
+        }
+    }
+    std::unordered_map<std::size_t, std::vector<std::size_t>> component_columns;
+    for (std::size_t column = 0; column < variables.size(); ++column) {
+        component_columns[root_of(column)].push_back(column);
+    }
+    std::unordered_map<std::size_t, std::vector<std::size_t>> component_rows;
+    for (std::size_t row_index = 0; row_index < jacobian.size(); ++row_index) {
+        for (std::size_t column = 0; column < variables.size(); ++column) {
+            if (std::abs(jacobian[row_index][column]) > dependency_tolerance) {
+                component_rows[root_of(column)].push_back(row_index);
+                break;
+            }
         }
     }
     std::size_t rank{};
-    for (std::size_t column = 0; column < variables.size() && rank < jacobian.size();
-         ++column) {
-        auto pivot = rank;
-        for (std::size_t row = rank + 1; row < jacobian.size(); ++row) {
-            if (std::abs(jacobian[row][column]) > std::abs(jacobian[pivot][column])) {
-                pivot = row;
+    for (const auto& [component, columns] : component_columns) {
+        const auto rows_found = component_rows.find(component);
+        if (rows_found == component_rows.end()) continue;
+        std::vector<std::vector<double>> block(
+            rows_found->second.size(), std::vector<double>(columns.size()));
+        std::size_t nonzero_count{};
+        for (std::size_t local_row = 0; local_row < rows_found->second.size();
+             ++local_row) {
+            for (std::size_t local_column = 0; local_column < columns.size();
+                 ++local_column) {
+                block[local_row][local_column] =
+                    jacobian[rows_found->second[local_row]][columns[local_column]];
+                if (std::abs(block[local_row][local_column]) >
+                    dependency_tolerance) ++nonzero_count;
             }
         }
-        if (std::abs(jacobian[pivot][column]) < 1.0e-7) continue;
-        std::swap(jacobian[rank], jacobian[pivot]);
-        const double divisor = jacobian[rank][column];
-        for (std::size_t index = column; index < variables.size(); ++index) {
-            jacobian[rank][index] /= divisor;
-        }
-        for (std::size_t row = 0; row < jacobian.size(); ++row) {
-            if (row == rank) continue;
-            const double factor = jacobian[row][column];
-            for (std::size_t index = column; index < variables.size(); ++index) {
-                jacobian[row][index] -= factor * jacobian[rank][index];
+        std::size_t block_rank{};
+        const double density = block.empty() || columns.empty() ? 0.0
+            : static_cast<double>(nonzero_count) /
+                static_cast<double>(block.size() * columns.size());
+        if (columns.size() >= 64 && density < 0.15) {
+            std::vector<std::map<std::size_t, double>> sparse(block.size());
+            for (std::size_t row = 0; row < block.size(); ++row) {
+                for (std::size_t column = 0; column < columns.size(); ++column) {
+                    if (std::abs(block[row][column]) > dependency_tolerance) {
+                        sparse[row][column] = block[row][column];
+                    }
+                }
+            }
+            block.clear();
+            for (std::size_t column = 0;
+                 column < columns.size() && block_rank < sparse.size(); ++column) {
+                std::optional<std::size_t> pivot;
+                double pivot_value{};
+                for (std::size_t row = block_rank; row < sparse.size(); ++row) {
+                    const auto found = sparse[row].find(column);
+                    if (found != sparse[row].end() &&
+                        std::abs(found->second) > std::abs(pivot_value)) {
+                        pivot = row;
+                        pivot_value = found->second;
+                    }
+                }
+                if (!pivot || std::abs(pivot_value) < 1.0e-7) continue;
+                std::swap(sparse[block_rank], sparse[*pivot]);
+                const double divisor = sparse[block_rank].at(column);
+                for (auto& [_, value] : sparse[block_rank]) value /= divisor;
+                for (std::size_t row = 0; row < sparse.size(); ++row) {
+                    if (row == block_rank) continue;
+                    const auto factor_found = sparse[row].find(column);
+                    if (factor_found == sparse[row].end()) continue;
+                    const double factor = factor_found->second;
+                    for (const auto& [index, pivot_entry] : sparse[block_rank]) {
+                        const double updated = sparse[row][index] -
+                            factor * pivot_entry;
+                        if (std::abs(updated) <= dependency_tolerance) {
+                            sparse[row].erase(index);
+                        } else {
+                            sparse[row][index] = updated;
+                        }
+                    }
+                }
+                ++block_rank;
+            }
+        } else {
+            for (std::size_t column = 0;
+                 column < columns.size() && block_rank < block.size(); ++column) {
+                auto pivot = block_rank;
+                for (std::size_t row = block_rank + 1; row < block.size(); ++row) {
+                    if (std::abs(block[row][column]) >
+                        std::abs(block[pivot][column])) pivot = row;
+                }
+                if (std::abs(block[pivot][column]) < 1.0e-7) continue;
+                std::swap(block[block_rank], block[pivot]);
+                const double divisor = block[block_rank][column];
+                for (std::size_t index = column; index < columns.size(); ++index) {
+                    block[block_rank][index] /= divisor;
+                }
+                for (std::size_t row = 0; row < block.size(); ++row) {
+                    if (row == block_rank) continue;
+                    const double factor = block[row][column];
+                    for (std::size_t index = column; index < columns.size(); ++index) {
+                        block[row][index] -= factor * block[block_rank][index];
+                    }
+                }
+                ++block_rank;
             }
         }
-        ++rank;
+        rank += block_rank;
     }
     const std::size_t dof = variables.size() > rank ? variables.size() - rank : 0;
-    if (!refresh_reference_dimensions(*this)) {
-        points = original_points;
-        circles = original_circles;
-        arcs = original_arcs;
-        ellipses = original_ellipses;
-        elliptical_arcs = original_elliptical_arcs;
-        dimensions = original_dimensions;
-        return {SolveStatus::Conflicting, 0, maximum_residual};
-    }
-    return {dof == 0 ? SolveStatus::Solved : SolveStatus::UnderConstrained,
-            dof, maximum_residual};
+    const SolveResult solved{
+        dof == 0 ? SolveStatus::Solved : SolveStatus::UnderConstrained,
+        dof, maximum_residual};
+    solved_rank_cache_key_ = rank_cache_key;
+    solved_rank_cache_result_ = solved;
+    return solved;
 }
 
 zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
     validate();
+    if (std::any_of(corner_radii.begin(), corner_radii.end(),
+            [](const auto& value) {
+                return !value.suppressed && value.radius > 1.0e-9;
+            })) {
+        auto evaluated = evaluated_profile_sketch();
+        // A corner radius owns its parameter and annotation. Feed a transient
+        // render adapter to the evaluated profile; never persist a generic
+        // dimension against the derived arc.
+        for (const auto& radius : corner_radii) {
+            if (radius.suppressed || radius.radius <= 1.0e-9 ||
+                !radius.dimension_visible) continue;
+            SketchDimension display;
+            display.id = "corner-display:" + radius.id;
+            display.kind = DimensionKind::Radius;
+            display.value = radius.radius;
+            display.geometry_id = radius.id;
+            display.driving = false;
+            display.placement = radius.dimension_placement;
+            evaluated.dimensions.push_back(std::move(display));
+        }
+        auto result = evaluated.viewer_mesh();
+        for (auto& edge : result.edges) {
+            constexpr std::string_view arc_prefix{"arc:"};
+            if (!edge.reference.semantic_key.starts_with(arc_prefix)) continue;
+            const auto arc_id = edge.reference.semantic_key.substr(arc_prefix.size());
+            if (std::any_of(corner_radii.begin(), corner_radii.end(),
+                    [&](const auto& radius) { return radius.id == arc_id; })) {
+                edge.reference.semantic_key = "corner_radius:" + arc_id;
+            }
+        }
+        for (auto& dimension : result.dimensions) {
+            constexpr std::string_view prefix{"dimension:corner-display:"};
+            if (dimension.reference.semantic_key.starts_with(prefix)) {
+                dimension.reference.semantic_key = "corner_dimension:" +
+                    dimension.reference.semantic_key.substr(prefix.size());
+            }
+        }
+        for (auto& point : result.points) {
+            constexpr std::string_view point_prefix{"point:"};
+            if (!point.reference.semantic_key.starts_with(point_prefix)) continue;
+            const auto derived_id = point.reference.semantic_key.substr(
+                point_prefix.size());
+            for (const auto& radius : corner_radii) {
+                const auto base = radius.id + ":";
+                if (derived_id.starts_with(base + "tangent:first:parent:")) {
+                    point.reference.semantic_key =
+                        "corner_radius_handle:" + radius.id + ":first";
+                    break;
+                }
+                if (derived_id.starts_with(base + "tangent:second:parent:")) {
+                    point.reference.semantic_key =
+                        "corner_radius_handle:" + radius.id + ":second";
+                    break;
+                }
+            }
+        }
+        const auto source_point = [&](const auto& viewer_point) {
+            if (viewer_point.reference.semantic_key.starts_with(
+                    "corner_radius_handle:")) return true;
+            constexpr std::string_view prefix{"point:"};
+            if (!viewer_point.reference.semantic_key.starts_with(prefix)) return true;
+            return find_point(viewer_point.reference.semantic_key.substr(
+                prefix.size())) != nullptr;
+        };
+        std::erase_if(result.points,
+            [&](const auto& point) { return !source_point(point); });
+        return result;
+    }
     const auto project = [&](const SketchPoint& point) {
         return world_point(point.x, point.y);
     };
@@ -7374,33 +8536,17 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
     }
     for (const auto& reference : external_references) {
         if (reference.kind != ExternalReferenceKind::Face) continue;
-        for (const auto& path : reference.cached_paths) {
-            zima::kernel::ViewerEdge edge;
-            edge.reference = {id, "external_face:" + reference.id +
-                (reference.broken ? ":broken" : ""), {}};
-            edge.construction = true;
-            edge.overlay = true;
-            edge.infinite = reference.infinite;
-            if (reference.infinite && path.size() >= 2) {
-                const auto farthest = std::max_element(
-                    std::next(path.begin()), path.end(), [&](const auto& left,
-                                                            const auto& right) {
-                        return std::hypot(left[0] - path.front()[0],
-                                          left[1] - path.front()[1]) <
-                            std::hypot(right[0] - path.front()[0],
-                                       right[1] - path.front()[1]);
-                    });
-                edge.points = {
-                    world_point(path.front()[0], path.front()[1]),
-                    world_point((*farthest)[0], (*farthest)[1])};
-            } else {
-                edge.points.reserve(path.size());
-                for (const auto& point : path) {
-                    edge.points.push_back(world_point(point[0], point[1]));
-                }
-            }
-            result.edges.push_back(std::move(edge));
+        zima::kernel::ViewerEdge edge;
+        edge.reference = {id, "external_face:" + reference.id +
+            (reference.broken ? ":broken" : ""), {}};
+        edge.construction = true;
+        edge.overlay = true;
+        edge.infinite = true;
+        edge.points.reserve(reference.cached_points.size());
+        for (const auto& point : reference.cached_points) {
+            edge.points.push_back(world_point(point[0], point[1]));
         }
+        result.edges.push_back(std::move(edge));
     }
     const auto geometry_anchor = [&](const std::string& geometry_id)
             -> std::optional<zima::kernel::Vec3> {
@@ -7513,17 +8659,22 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         }
         const bool directional = constraint.kind == ConstraintKind::Horizontal ||
             constraint.kind == ConstraintKind::Vertical;
+        const auto point_anchor = [&](const std::string& point_id)
+                -> std::optional<zima::kernel::Vec3> {
+            if (point_id == "sketch_origin") return world_point(0.0, 0.0);
+            if (const auto* point = find_point(point_id)) return project(*point);
+            return std::nullopt;
+        };
         if (!anchor && directional && !constraint.geometry_id.empty()) {
             anchor = geometry_anchor(constraint.geometry_id);
-        } else if ((directional || constraint.kind == ConstraintKind::Coincident) &&
-                   !constraint.second_point_id.empty()) {
-            if (const auto* point = find_point(constraint.second_point_id)) {
-                anchor = project(*point);
-            }
-        } else if (!constraint.first_point_id.empty()) {
-            if (const auto* point = find_point(constraint.first_point_id)) {
-                anchor = project(*point);
-            }
+        }
+        if (!anchor &&
+            (directional || constraint.kind == ConstraintKind::Coincident) &&
+            !constraint.second_point_id.empty()) {
+            anchor = point_anchor(constraint.second_point_id);
+        }
+        if (!anchor && !constraint.first_point_id.empty()) {
+            anchor = point_anchor(constraint.first_point_id);
         }
         if (!anchor && !constraint.second_geometry_id.empty()) {
             anchor = geometry_anchor(constraint.second_geometry_id);
@@ -7535,7 +8686,22 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         std::vector<std::string> participants;
         for (const auto& point_id : {constraint.first_point_id,
                                      constraint.second_point_id}) {
-            if (!point_id.empty()) participants.push_back("point:" + point_id);
+            if (point_id.empty()) continue;
+            if (point_id.starts_with("sketch_keypoint:")) {
+                const auto kind_separator = point_id.find(':', 16);
+                const auto quarter_separator = point_id.rfind(':');
+                if (kind_separator != std::string::npos &&
+                    quarter_separator != kind_separator) {
+                    if (const auto key = geometry_semantic_key(point_id.substr(
+                            kind_separator + 1,
+                            quarter_separator - kind_separator - 1));
+                        !key.empty()) participants.push_back(key);
+                }
+            } else {
+                participants.push_back(
+                    point_id == "sketch_origin" ? "origin:point"
+                                                 : "point:" + point_id);
+            }
         }
         for (const auto& geometry_id : {constraint.geometry_id,
                                         constraint.second_geometry_id}) {
@@ -7601,15 +8767,37 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         if (dimension.kind == DimensionKind::Diameter) {
             const auto circle = std::find_if(circles.begin(), circles.end(),
                 [&](const auto& value) { return value.id == dimension.geometry_id; });
-            if (circle == circles.end()) continue;
-            const auto* center = find_point(circle->center_point_id);
+            const SketchPoint* center{};
+            double radius{};
+            double default_angle{};
+            if (circle != circles.end()) {
+                center = find_point(circle->center_point_id);
+                radius = circle->radius;
+            } else {
+                const auto arc = std::find_if(arcs.begin(), arcs.end(),
+                    [&](const auto& value) { return value.id == dimension.geometry_id; });
+                if (arc != arcs.end()) {
+                    center = find_point(arc->center_point_id);
+                    radius = arc->radius;
+                    default_angle = (arc->start_angle + arc->end_angle) * 0.5;
+                } else {
+                    const auto corner = std::find_if(
+                        corner_radii.begin(), corner_radii.end(),
+                        [&](const auto& value) {
+                            return value.id == dimension.geometry_id;
+                        });
+                    if (corner == corner_radii.end()) continue;
+                    center = find_point(corner->vertex_id);
+                    radius = corner->radius;
+                }
+            }
             const double angle = dimension.placement
                 ? std::atan2((*dimension.placement)[1] - center->y,
                              (*dimension.placement)[0] - center->x)
-                : 0.0;
+                : default_angle;
             const auto rim = world_point(
-                center->x + circle->radius * std::cos(angle),
-                center->y + circle->radius * std::sin(angle));
+                center->x + radius * std::cos(angle),
+                center->y + radius * std::sin(angle));
             result.dimensions.push_back({
                 project(*center), rim, project(*center), rim, dimension.value,
                 {id, "dimension:" + dimension.id, {}}, "Ø"});
@@ -7629,10 +8817,20 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
             } else {
                 const auto arc = std::find_if(arcs.begin(), arcs.end(),
                     [&](const auto& value) { return value.id == dimension.geometry_id; });
-                if (arc == arcs.end()) continue;
-                center = find_point(arc->center_point_id);
-                radius = arc->radius;
-                angle = (arc->start_angle + arc->end_angle) * 0.5;
+                if (arc != arcs.end()) {
+                    center = find_point(arc->center_point_id);
+                    radius = arc->radius;
+                    angle = (arc->start_angle + arc->end_angle) * 0.5;
+                } else {
+                    const auto corner = std::find_if(
+                        corner_radii.begin(), corner_radii.end(),
+                        [&](const auto& value) {
+                            return value.id == dimension.geometry_id;
+                        });
+                    if (corner == corner_radii.end()) continue;
+                    center = find_point(corner->vertex_id);
+                    radius = corner->radius;
+                }
             }
             if (dimension.placement) {
                 angle = std::atan2((*dimension.placement)[1] - center->y,
@@ -7816,14 +9014,14 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
                 result.dimensions.push_back({
                     world_point(0.0, point->y), world_point(point->x, point->y),
                     world_point(0.0, line_y), world_point(point->x, line_y),
-                    dimension.value, {id, "dimension:" + dimension.id, {}}, "X "});
+                    dimension.value, {id, "dimension:" + dimension.id, {}}, {}});
             } else {
                 const double line_x = dimension.placement
                     ? (*dimension.placement)[0] : point->x + offset;
                 result.dimensions.push_back({
                     world_point(point->x, 0.0), world_point(point->x, point->y),
                     world_point(line_x, 0.0), world_point(line_x, point->y),
-                    dimension.value, {id, "dimension:" + dimension.id, {}}, "Y "});
+                    dimension.value, {id, "dimension:" + dimension.id, {}}, {}});
             }
             continue;
         }
@@ -7871,7 +9069,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
                 world_point((*first)[0], (*first)[1]),
                 world_point((*second)[0], (*second)[1]),
                 world_point((*first)[0], line_y), world_point((*second)[0], line_y),
-                dimension.value, {id, "dimension:" + dimension.id, {}}, "X "});
+                dimension.value, {id, "dimension:" + dimension.id, {}}, {}});
             continue;
         }
         if (dimension.kind == DimensionKind::DistanceY) {
@@ -7882,7 +9080,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
                 world_point((*first)[0], (*first)[1]),
                 world_point((*second)[0], (*second)[1]),
                 world_point(line_x, (*first)[1]), world_point(line_x, (*second)[1]),
-                dimension.value, {id, "dimension:" + dimension.id, {}}, "Y "});
+                dimension.value, {id, "dimension:" + dimension.id, {}}, {}});
             continue;
         }
         const double nx = magnitude > 1.0e-12 ? -dy / magnitude : 0.0;
@@ -7906,6 +9104,8 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         const auto dimension = std::find_if(dimensions.begin(), dimensions.end(),
             [&](const auto& value) { return value.id == dimension_id; });
         if (dimension == dimensions.end()) continue;
+        rendered.driving = dimension->driving;
+        rendered.locked = dimension->locked;
         rendered.label_prefix = dimension->prefix + rendered.label_prefix;
         if (!dimension->suffix.empty()) rendered.unit_suffix = dimension->suffix;
         if (dimension->tolerance_mode == "symmetric" &&
@@ -7939,6 +9139,24 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
                 dimension->second_geometry_id}) {
             if (const auto key = geometry_semantic_key(geometry_id); !key.empty())
                 rendered.participant_semantic_keys.push_back(key);
+        }
+    }
+    // R0 intentionally has no evaluated arc, but its owned annotation remains
+    // visible and editable at the persisted corner vertex.
+    for (const auto& radius : corner_radii) {
+        if (radius.suppressed || radius.radius > 1.0e-9 ||
+            !radius.dimension_visible) continue;
+        const auto* vertex = find_point(radius.vertex_id);
+        if (vertex == nullptr) continue;
+        const auto center = project(*vertex);
+        result.dimensions.push_back({center, center, center, center, 0.0,
+            {id, "corner_dimension:" + radius.id, {}}, "R"});
+        result.dimensions.back().kind =
+            zima::kernel::ViewerDimensionKind::Radius;
+        if (radius.dimension_placement) {
+            result.dimensions.back().line_second = world_point(
+                (*radius.dimension_placement)[0],
+                (*radius.dimension_placement)[1]);
         }
     }
     return result;
@@ -8041,6 +9259,16 @@ std::string Sketch::serialized() const {
         {"id", segment.id}, {"first", segment.first_point_id},
         {"second", segment.second_point_id}, {"construction", segment.construction},
         {"centerline", segment.centerline}});
+    nlohmann::json corner_radius_values = nlohmann::json::array();
+    for (const auto& radius : corner_radii) corner_radius_values.push_back({
+        {"id", radius.id}, {"vertex", radius.vertex_id},
+        {"first_segment", radius.first_segment_id},
+        {"second_segment", radius.second_segment_id},
+        {"radius", radius.radius}, {"suppressed", radius.suppressed},
+        {"dimension_visible", radius.dimension_visible},
+        {"dimension_placement", radius.dimension_placement
+            ? nlohmann::json(*radius.dimension_placement) : nlohmann::json(nullptr)},
+        {"equal_radius_group", radius.equal_radius_group}});
     nlohmann::json circle_values = nlohmann::json::array();
     for (const auto& circle : circles) circle_values.push_back({
         {"id", circle.id}, {"center", circle.center_point_id},
@@ -8153,9 +9381,10 @@ std::string Sketch::serialized() const {
         value["single_tolerance"] = dimension.single_tolerance;
         value["upper_tolerance"] = dimension.upper_tolerance;
         value["lower_tolerance"] = dimension.lower_tolerance;
+        value["locked"] = dimension.locked;
         dimension_values.push_back(std::move(value));
     }
-    const nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 27},
+    const nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 30},
         {"id", id}, {"owner_container_id", owner_container_id},
         {"name", name}, {"suppressed", suppressed},
         {"plane", plane_name(plane)},
@@ -8167,6 +9396,7 @@ std::string Sketch::serialized() const {
         {"resolved_normal", {resolved_normal.x, resolved_normal.y, resolved_normal.z}},
         {"points", std::move(point_values)},
         {"segments", std::move(segment_values)},
+        {"corner_radii", std::move(corner_radius_values)},
         {"circles", std::move(circle_values)},
         {"arcs", std::move(arc_values)},
         {"ellipses", std::move(ellipse_values)},
@@ -8182,7 +9412,7 @@ std::string Sketch::serialized() const {
 
 Sketch Sketch::from_serialized(const std::string& value) {
     const auto root = nlohmann::json::parse(value);
-    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 27) {
+    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 30) {
         throw std::runtime_error("Unsupported sketch format");
     }
     Sketch sketch;
@@ -8210,6 +9440,18 @@ Sketch Sketch::from_serialized(const std::string& value) {
         value.at("id").get<std::string>(), value.at("first").get<std::string>(),
         value.at("second").get<std::string>(), value.at("construction").get<bool>(),
         value.at("centerline").get<bool>()});
+    for (const auto& value : root.at("corner_radii")) sketch.corner_radii.push_back({
+        value.at("id").get<std::string>(),
+        value.at("vertex").get<std::string>(),
+        value.at("first_segment").get<std::string>(),
+        value.at("second_segment").get<std::string>(),
+        value.at("radius").get<double>(), value.at("suppressed").get<bool>(),
+        value.at("dimension_visible").get<bool>(),
+        value.at("dimension_placement").is_null()
+            ? std::optional<std::array<double, 2>>{}
+            : std::optional{value.at("dimension_placement")
+                  .get<std::array<double, 2>>()},
+        value.at("equal_radius_group").get<std::string>()});
     for (const auto& value : root.at("circles")) sketch.circles.push_back({
         value.at("id").get<std::string>(), value.at("center").get<std::string>(),
         value.at("radius").get<double>(), value.at("construction").get<bool>()});
@@ -8342,6 +9584,7 @@ Sketch Sketch::from_serialized(const std::string& value) {
             value.value("upper_tolerance", std::string{});
         dimension.lower_tolerance =
             value.value("lower_tolerance", std::string{});
+        dimension.locked = value.at("locked").get<bool>();
         sketch.dimensions.push_back(std::move(dimension));
     }
     sketch.validate();

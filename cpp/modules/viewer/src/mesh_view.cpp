@@ -8,6 +8,7 @@
 #include <QOpenGLShaderProgram>
 #include <QOpenGLVertexArrayObject>
 #include <QPainter>
+#include <QDebug>
 #include <QRectF>
 #include <QQuaternion>
 #include <QEasingCurve>
@@ -452,6 +453,7 @@ MeshView::~MeshView() {
 }
 
 void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
+    const auto previous_confirmation = impl_->confirmed_candidate;
     impl_->mesh = std::move(mesh);
     impl_->candidates.clear();
     impl_->confirmed_candidate.reset();
@@ -459,6 +461,20 @@ void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
     impl_->gpu_dirty = true;
     if (fit_view) fit_all();
     impl_->rebuild_persisted_reference_mesh();
+    if (previous_confirmation &&
+        (previous_confirmation->kind == CandidateKind::Dimension ||
+         previous_confirmation->kind == CandidateKind::SketchConstraint ||
+         previous_confirmation->kind == CandidateKind::SketchPoint ||
+         previous_confirmation->kind == CandidateKind::SketchSegment ||
+         previous_confirmation->kind == CandidateKind::SketchCurve ||
+         previous_confirmation->kind == CandidateKind::SketchText ||
+         previous_confirmation->kind ==
+             CandidateKind::SketchExternalReference)) {
+        confirm_reference(previous_confirmation->owner_id,
+            previous_confirmation->semantic_key,
+            previous_confirmation->instance_path,
+            previous_confirmation->kind);
+    }
     update();
 }
 
@@ -650,7 +666,15 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
             return candidate.kind == CandidateKind::Dimension &&
                 candidate.geometry_index == index;
         });
-        candidates.insert(candidates.begin(), ViewerCandidate{
+        // A dimension witness commonly terminates exactly on a Sketch point.
+        // Keep the point first so a normal press can drag geometry; the same
+        // Dimension remains immediately behind it for RMB cycling and can be
+        // selected directly on its line, leader or text away from the point.
+        const auto insertion = std::find_if(candidates.begin(), candidates.end(),
+            [](const auto& candidate) {
+                return candidate.kind != CandidateKind::SketchPoint;
+            });
+        candidates.insert(insertion, ViewerCandidate{
             CandidateKind::Dimension, 0.0, index,
             dimension.reference.owner_id, dimension.reference.semantic_key,
             dimension.reference.instance_path});
@@ -1163,6 +1187,22 @@ void MeshView::set_candidate_drag_callbacks(
     impl_->drag_begin_callback = std::move(begin);
     impl_->drag_update_callback = std::move(update);
     impl_->drag_end_callback = std::move(end);
+}
+
+std::vector<ViewerCandidate> MeshView::sketch_selection() const {
+    auto result = impl_->sketch_box_selected_candidates;
+    if (impl_->confirmed_candidate &&
+        (impl_->confirmed_candidate->kind == CandidateKind::SketchSegment ||
+         impl_->confirmed_candidate->kind == CandidateKind::SketchCurve ||
+         impl_->confirmed_candidate->kind == CandidateKind::SketchPoint ||
+         impl_->confirmed_candidate->kind == CandidateKind::SketchText ||
+         impl_->confirmed_candidate->kind ==
+             CandidateKind::SketchExternalReference) &&
+        std::find(result.begin(), result.end(), *impl_->confirmed_candidate) ==
+            result.end()) {
+        result.push_back(*impl_->confirmed_candidate);
+    }
+    return result;
 }
 
 void MeshView::set_transient_edges(std::vector<zima::kernel::ViewerEdge> edges) {
@@ -2421,6 +2461,7 @@ if (impl_->show_planes) {
                 edge.reference.semantic_key.starts_with("trim_piece:") ||
                 edge.reference.semantic_key.starts_with("circle:") ||
                 edge.reference.semantic_key.starts_with("arc:") ||
+                edge.reference.semantic_key.starts_with("corner_radius:") ||
                 edge.reference.semantic_key.starts_with("ellipse:") ||
                 edge.reference.semantic_key.starts_with("elliptical_arc:") ||
                 edge.reference.semantic_key.starts_with("bspline:") ||
@@ -2482,7 +2523,7 @@ if (impl_->show_planes) {
         // Occurrence hover completely invisible whenever datum overlays were
         // hidden.  The picker had found the Box face, but the user received
         // no orange feedback and it looked unselectable.
-        highlighted.has_value()) {
+        highlighted.has_value() || impl_->sketch_box_start.has_value()) {
         const QMatrix4x4 mvp = impl_->projection(width(), height()) * view;
         const auto project = [&](const zima::kernel::Vec3& point) {
             QVector4D clip = mvp * QVector4D(
@@ -2653,6 +2694,7 @@ if (impl_->show_planes) {
                     !edge.reference.semantic_key.starts_with("trim_piece:") &&
                     !edge.reference.semantic_key.starts_with("circle:") &&
                     !edge.reference.semantic_key.starts_with("arc:") &&
+                    !edge.reference.semantic_key.starts_with("corner_radius:") &&
                     !edge.reference.semantic_key.starts_with("ellipse:") &&
                     !edge.reference.semantic_key.starts_with("elliptical_arc:") &&
                     !edge.reference.semantic_key.starts_with("bspline:") &&
@@ -2876,11 +2918,19 @@ if (impl_->show_planes) {
                 const bool selected = highlighted &&
                     highlighted->kind == CandidateKind::Dimension &&
                     highlighted->geometry_index == index;
+                const QColor idle_color = !dimension.driving
+                    ? QColor(173, 110, 46)  // measured; same as Sketch axes
+                    : dimension.locked
+                        ? QColor(216, 138, 216)  // locked driver
+                        : QColor(245, 205, 80);  // editable driver
                 const QColor color = selected
                     ? (impl_->confirmed_candidate ? QColor(30, 220, 240)
                                                   : QColor(255, 140, 12))
-                    : QColor(245, 205, 80);
-                painter.setPen(QPen(color, selected ? 3.0 : 1.5));
+                    : idle_color;
+                // Selection is represented by colour only. Drawing the same
+                // dimension thicker made Tree selection look like several
+                // dimension graphics stacked on top of one another.
+                painter.setPen(QPen(color, 1.5));
                 painter.setBrush(color);
                 const QString text =
                     QString::fromStdString(dimension.label_prefix) +
@@ -3247,6 +3297,8 @@ if (impl_->show_planes) {
                         (impl_->confirmed_candidate &&
                          (impl_->confirmed_candidate->kind == CandidateKind::Vertex ||
                           impl_->confirmed_candidate->kind ==
+                              CandidateKind::SketchPoint ||
+                          impl_->confirmed_candidate->kind ==
                               CandidateKind::SketchExternalReference) &&
                          impl_->confirmed_candidate->owner_id ==
                             point.reference.owner_id &&
@@ -3262,6 +3314,7 @@ if (impl_->show_planes) {
                           point.reference.owner_id ==
                             highlighted->owner_id + ":origin") ||
                          ((highlighted->kind == CandidateKind::Vertex ||
+                           highlighted->kind == CandidateKind::SketchPoint ||
                            highlighted->kind ==
                                CandidateKind::SketchExternalReference) &&
                           highlighted->semantic_key == point.reference.semantic_key &&
@@ -3303,6 +3356,9 @@ if (impl_->show_planes) {
                             ? point.construction
                                 ? QColor(77, 216, 17)
                                 : QColor(255, 255, 255)
+                        : point.reference.semantic_key.starts_with(
+                                "corner_radius_handle:")
+                            ? QColor(255, 255, 255)
                             : QColor(0, 0, 0);
                     painter.setPen(QPen(marker_color, 1.0));
                     painter.setBrush(marker_color);
@@ -3346,6 +3402,65 @@ if (impl_->show_planes) {
                     painter.drawText(center + QPointF(8.5, -6.5),
                                      QString::fromStdString(point.label));
                 }
+            }
+        }
+        // A populated placement-reference row can identify a persisted Face.
+        // Faces live in triangle reference data, whereas the normal cyan
+        // reference state above colours ViewerEdges.  Draw the exact semantic
+        // face boundary from the persisted original-reference tessellation so
+        // selecting such a row has the same cyan feedback as Plane/Axis/Point
+        // rows.  Internal tessellation diagonals occur twice and are removed;
+        // no whole-body tint or OCCT topology lookup is involved.
+        {
+            using RoundedPoint = std::array<long long, 3>;
+            struct FaceBoundarySegment {
+                zima::kernel::Vec3 first;
+                zima::kernel::Vec3 second;
+                std::size_t uses{};
+            };
+            std::map<std::pair<RoundedPoint, RoundedPoint>, FaceBoundarySegment>
+                boundary;
+            const auto rounded = [](const zima::kernel::Vec3& point) {
+                constexpr double scale = 1.0e7;
+                return RoundedPoint{std::llround(point.x * scale),
+                    std::llround(point.y * scale),
+                    std::llround(point.z * scale)};
+            };
+            const auto& original = impl_->mesh.original_references;
+            for (std::size_t triangle = 0;
+                 triangle < original.triangle_references.size(); ++triangle) {
+                const auto& reference = original.triangle_references[triangle];
+                if (!impl_->constraint_reference_edges.contains(EdgeKey{
+                        reference.owner_id, reference.semantic_key,
+                        reference.instance_path}) ||
+                    reference.semantic_key == "plane" ||
+                    reference.semantic_key.starts_with("origin:plane:") ||
+                    triangle * 3 + 2 >= original.triangles.size()) continue;
+                const std::array<std::uint32_t, 3> indices{
+                    original.triangles[triangle * 3],
+                    original.triangles[triangle * 3 + 1],
+                    original.triangles[triangle * 3 + 2]};
+                if (std::ranges::any_of(indices, [&](const auto index) {
+                        return index >= original.vertices.size();
+                    })) continue;
+                for (std::size_t side = 0; side < 3; ++side) {
+                    const auto& first = original.vertices[indices[side]];
+                    const auto& second = original.vertices[indices[(side + 1) % 3]];
+                    auto first_key = rounded(first);
+                    auto second_key = rounded(second);
+                    if (second_key < first_key) std::swap(first_key, second_key);
+                    auto& segment = boundary[{first_key, second_key}];
+                    if (segment.uses++ == 0) {
+                        segment.first = first;
+                        segment.second = second;
+                    }
+                }
+            }
+            for (const auto& [key, segment] : boundary) {
+                static_cast<void>(key);
+                if (segment.uses != 1) continue;
+                draw_reference_segment(project(segment.first),
+                    project(segment.second), QColor(0, 209, 255), 1.5);
             }
         }
         if (highlighted) {
@@ -3419,6 +3534,7 @@ if (impl_->show_planes) {
                     if (!key.starts_with("segment:") &&
                         !key.starts_with("circle:") &&
                         !key.starts_with("arc:") &&
+                        !key.starts_with("corner_radius:") &&
                         !key.starts_with("ellipse:") &&
                         !key.starts_with("elliptical_arc:") &&
                         !key.starts_with("bspline:") &&
@@ -3727,24 +3843,35 @@ if (impl_->show_planes) {
         for (const auto& selected : impl_->sketch_box_selected_candidates) {
             if ((selected.kind == CandidateKind::SketchSegment ||
                  selected.kind == CandidateKind::SketchCurve ||
-                 selected.kind == CandidateKind::SketchText) &&
+                 selected.kind == CandidateKind::SketchText ||
+                 (selected.kind == CandidateKind::SketchExternalReference &&
+                  !selected.semantic_key.starts_with("external_point:"))) &&
                 selected.geometry_index < impl_->mesh.edges.size()) {
                 const auto& edge = impl_->mesh.edges[selected.geometry_index];
                 for (std::size_t index = 1; index < edge.points.size(); ++index) {
-                    painter.drawLine(project(edge.points[index - 1]),
-                                     project(edge.points[index]));
+                    draw_reference_segment(project(edge.points[index - 1]),
+                        project(edge.points[index]), QColor(30, 220, 240), 2.0);
                 }
-            } else if (selected.kind == CandidateKind::SketchPoint &&
+            } else if ((selected.kind == CandidateKind::SketchPoint ||
+                        (selected.kind == CandidateKind::SketchExternalReference &&
+                         selected.semantic_key.starts_with("external_point:"))) &&
                        selected.geometry_index < impl_->mesh.points.size()) {
                 painter.drawEllipse(project(
                     impl_->mesh.points[selected.geometry_index].position), 5.0, 5.0);
             }
         }
         if (impl_->sketch_box_start && impl_->sketch_box_end) {
-            painter.setPen(QPen(QColor("#43B9FF"), 1.0));
+            const QRectF box = QRectF(*impl_->sketch_box_start,
+                                      *impl_->sketch_box_end).normalized();
+            painter.setPen(Qt::NoPen);
             painter.setBrush(QColor(67, 185, 255, 35));
-            painter.drawRect(QRectF(*impl_->sketch_box_start,
-                                    *impl_->sketch_box_end).normalized());
+            painter.drawPolygon(QPolygonF{box.topLeft(), box.topRight(),
+                                          box.bottomRight(), box.bottomLeft()});
+            const QColor border("#43B9FF");
+            draw_reference_segment(box.topLeft(), box.topRight(), border, 1.0);
+            draw_reference_segment(box.topRight(), box.bottomRight(), border, 1.0);
+            draw_reference_segment(box.bottomRight(), box.bottomLeft(), border, 1.0);
+            draw_reference_segment(box.bottomLeft(), box.topLeft(), border, 1.0);
         }
     }
 }
@@ -3866,7 +3993,48 @@ void MeshView::mousePressEvent(QMouseEvent* event) {
     // list produced for the click position. A preceding mouse move is not a
     // precondition for selecting or clearing a selection.
     if (event->button() == Qt::LeftButton) {
+        const bool replacing_confirmed_selection =
+            impl_->confirmed_candidate.has_value();
         update_candidates(event->position());
+        if (replacing_confirmed_selection && !impl_->candidates.empty()) {
+            // RMB cycling chooses the candidate for the immediately following
+            // confirmation only. Once an object is confirmed, a new LMB
+            // gesture starts again from the viewer's first offered candidate.
+            // Otherwise a Dimension selected behind an axis-owned point kept
+            // stealing every later attempt to drag that point.
+            impl_->active_candidate = 0;
+        }
+        if (qEnvironmentVariableIsSet("ZIMA_SKETCH_TRACE")) {
+            QStringList offered;
+            for (const auto& item : impl_->candidates) {
+                offered.push_back(QString::fromStdString(item.semantic_key));
+            }
+            QStringList selected;
+            for (const auto& item : impl_->sketch_box_selected_candidates) {
+                selected.push_back(QString::fromStdString(item.semantic_key));
+            }
+            qInfo().noquote() << "SKETCH_TRACE|PRESS|ctrl="
+                << additive_sketch_click << "|offered=" << offered.join(',')
+                << "|viewer_selected=" << selected.join(',');
+        }
+        // Match Python Sketcher: with exactly two selected segments, the
+        // coincident point under the pointer owns the corner-radius drag even
+        // when the common picker ordered a Segment before that Point.
+        const auto selected_segment_count = std::count_if(
+            impl_->sketch_box_selected_candidates.begin(),
+            impl_->sketch_box_selected_candidates.end(), [](const auto& candidate) {
+                return candidate.kind == CandidateKind::SketchSegment;
+            });
+        if (selected_segment_count == 2) {
+            const auto point = std::find_if(impl_->candidates.begin(),
+                impl_->candidates.end(), [](const auto& candidate) {
+                    return candidate.kind == CandidateKind::SketchPoint;
+                });
+            if (point != impl_->candidates.end()) {
+                impl_->active_candidate = static_cast<std::size_t>(
+                    std::distance(impl_->candidates.begin(), point));
+            }
+        }
     }
     // RMB cycles the exact same ordered list used by hover and LMB.  Refresh
     // it at the click position so cycling also works immediately after a
@@ -3903,6 +4071,13 @@ void MeshView::mousePressEvent(QMouseEvent* event) {
             event->accept();
             return;
         }
+    }
+    if (event->button() == Qt::LeftButton &&
+        impl_->sketch_box_selection_enabled) {
+        // A confirmed Sketch entity deliberately suppresses ordinary hover,
+        // so the cached candidate list may still describe the previous
+        // click. Box selection must decide from the exact press position.
+        update_candidates(event->position());
     }
     if (event->button() == Qt::LeftButton &&
         impl_->sketch_box_selection_enabled && impl_->candidates.empty()) {
@@ -3945,6 +4120,11 @@ void MeshView::mousePressEvent(QMouseEvent* event) {
             ? impl_->drag_begin_callback(
                   pressed_candidate, drag_ray->first, drag_ray->second)
             : false;
+        if (qEnvironmentVariableIsSet("ZIMA_SKETCH_TRACE")) {
+            qInfo().noquote() << "SKETCH_TRACE|VIEW_DRAG_BEGIN|candidate="
+                << QString::fromStdString(pressed_candidate.semantic_key)
+                << "|accepted=" << drag_started;
+        }
         notify_confirmation();
         if (additive_sketch_click && multi_selectable(pressed_candidate.kind)) {
             const auto selected = std::find(
@@ -3961,6 +4141,14 @@ void MeshView::mousePressEvent(QMouseEvent* event) {
             impl_->sketch_box_selected_candidates.clear();
         }
         impl_->drag_active = drag_started;
+        if (qEnvironmentVariableIsSet("ZIMA_SKETCH_TRACE")) {
+            QStringList selected;
+            for (const auto& item : impl_->sketch_box_selected_candidates) {
+                selected.push_back(QString::fromStdString(item.semantic_key));
+            }
+            qInfo().noquote() << "SKETCH_TRACE|AFTER_CONFIRM|viewer_selected="
+                << selected.join(',');
+        }
         update();
     } else if (event->button() == Qt::LeftButton) {
         clear_selection();
@@ -4170,12 +4358,17 @@ void MeshView::mouseReleaseEvent(QMouseEvent* event) {
                     kind = CandidateKind::SketchSegment;
                 else if (edge.reference.semantic_key.starts_with("circle:") ||
                          edge.reference.semantic_key.starts_with("arc:") ||
+                         edge.reference.semantic_key.starts_with("corner_radius:") ||
                          edge.reference.semantic_key.starts_with("ellipse:") ||
                          edge.reference.semantic_key.starts_with("elliptical_arc:") ||
                          edge.reference.semantic_key.starts_with("bspline:"))
                     kind = CandidateKind::SketchCurve;
                 else if (edge.reference.semantic_key.starts_with("text:"))
                     kind = CandidateKind::SketchText;
+                else if (edge.reference.semantic_key.starts_with("external_edge:") ||
+                         edge.reference.semantic_key.starts_with("external_axis:") ||
+                         edge.reference.semantic_key.starts_with("external_face:"))
+                    kind = CandidateKind::SketchExternalReference;
                 else
                     continue;
                 std::vector<QPointF> screen;
@@ -4210,9 +4403,15 @@ void MeshView::mouseReleaseEvent(QMouseEvent* event) {
                 if (!impl_->active_sketch_owner_id.empty() &&
                     point.reference.owner_id !=
                         impl_->active_sketch_owner_id) continue;
-                if (!point.reference.semantic_key.starts_with("point:")) continue;
+                const bool external_point =
+                    point.reference.semantic_key.starts_with("external_point:");
+                if (!point.reference.semantic_key.starts_with("point:") &&
+                    !external_point) continue;
                 if (normalized.contains(project(point.position))) {
-                    selected.push_back({CandidateKind::SketchPoint, 0.0, point_index,
+                    selected.push_back({external_point
+                            ? CandidateKind::SketchExternalReference
+                            : CandidateKind::SketchPoint,
+                        0.0, point_index,
                         point.reference.owner_id, point.reference.semantic_key,
                         point.reference.instance_path, CandidateGeometry::Display});
                 }
@@ -4228,11 +4427,13 @@ void MeshView::mouseReleaseEvent(QMouseEvent* event) {
                 impl_->sketch_box_selected_candidates = selected;
             } else {
                 for (const auto& candidate : selected) {
-                    if (std::find(impl_->sketch_box_selected_candidates.begin(),
-                                  impl_->sketch_box_selected_candidates.end(),
-                                  candidate) ==
-                        impl_->sketch_box_selected_candidates.end()) {
+                    const auto existing = std::find(
+                        impl_->sketch_box_selected_candidates.begin(),
+                        impl_->sketch_box_selected_candidates.end(), candidate);
+                    if (existing == impl_->sketch_box_selected_candidates.end()) {
                         impl_->sketch_box_selected_candidates.push_back(candidate);
+                    } else {
+                        impl_->sketch_box_selected_candidates.erase(existing);
                     }
                 }
             }

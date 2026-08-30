@@ -4,6 +4,7 @@
 #include <zima/document/part_document.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <iostream>
@@ -64,6 +65,13 @@ int main() {
                     {0.0, 0.0}, {10.0, 6.0}, {18.0, 3.0}) ==
                     DimensionKind::DistanceY,
                 "cursor beside point bounds did not select vertical distance");
+        require(zima::sketcher::classify_linear_dimension(
+                    {0.0, 0.0}, {10.0, 6.0}, {10.2, 12.0}) ==
+                    DimensionKind::DistanceX &&
+                zima::sketcher::classify_linear_dimension(
+                    {0.0, 0.0}, {10.0, 6.0}, {18.0, 6.2}) ==
+                    DimensionKind::DistanceY,
+                "linear dimension boundary tolerance did not stabilize axis zones");
         auto sketch = zima::sketcher::Sketch::create_default();
         auto first = zima::sketcher::Sketch::create_point(0.0, 0.0);
         auto second = zima::sketcher::Sketch::create_point(13.0, 4.0);
@@ -87,12 +95,31 @@ int main() {
                     std::abs(sketch.points.back().x - 20.0) < 1.0e-7 &&
                     std::abs(sketch.points.back().y) < 1.0e-7,
                 "Horizontal dimension did not solve deterministically");
+        const auto solved_serialization = sketch.serialized();
+        const auto repeated_solve = sketch.solve();
+        require(repeated_solve.status == solved.status &&
+                    repeated_solve.remaining_degrees_of_freedom ==
+                        solved.remaining_degrees_of_freedom &&
+                    sketch.serialized() == solved_serialization,
+                "Read-only repeated DOF solve changed the exact Sketch state");
         require(!sketch.set_dimension_value("length", 35.0) &&
                     sketch.set_dimension_value("length", 25.0),
                 "Absolute dimension limits did not reject an out-of-range edit");
         require(sketch.solve().status == zima::sketcher::SolveStatus::Solved &&
                     std::abs(sketch.points.back().x - 25.0) < 1.0e-7,
                 "Edited dimension did not drive sketch geometry");
+        sketch.dimensions.front().locked = true;
+        require(sketch.set_dimension_value("length", 20.0) &&
+                    std::abs(sketch.points.back().x - 20.0) < 1.0e-7 &&
+                    sketch.solve().status == zima::sketcher::SolveStatus::Solved,
+                "Locked driving dimension rejected an intentional numeric edit");
+        auto bypass_attempt = sketch.dimensions.front();
+        bypass_attempt.value = 22.0;
+        sketch.apply_dimension(std::move(bypass_attempt));
+        require(std::abs(sketch.points.back().x - 22.0) < 1.0e-7,
+                "Locked driving dimension Properties edit did not drive geometry");
+        require(sketch.set_dimension_value("length", 25.0),
+                "Locked dimension could not be restored by a numeric edit");
         const auto path = std::filesystem::temp_directory_path() /
             "zima-cad-cpp-sketch-contract.zcs.json";
         sketch.save(path);
@@ -103,6 +130,13 @@ int main() {
                     loaded.constraints == sketch.constraints &&
                     loaded.dimensions == sketch.dimensions,
                 "Sketch did not round-trip its stable graph and limits");
+        auto unlocked = loaded;
+        auto unlocked_dimension = unlocked.dimensions.front();
+        unlocked_dimension.locked = false;
+        unlocked.apply_dimension(std::move(unlocked_dimension));
+        require(unlocked.set_dimension_value("length", 20.0) &&
+                    std::abs(unlocked.points.back().x - 20.0) < 1.0e-7,
+                "Explicitly unlocked driving dimension remained immutable");
         const auto mesh = sketch.viewer_mesh();
         require(mesh.triangles.empty() && mesh.edges.size() == 1 &&
                     mesh.points.size() >= 4 && mesh.axes.size() == 2 &&
@@ -346,8 +380,8 @@ int main() {
         external_face.source_document_id = "part-source";
         external_face.source_owner_id = "container-source";
         external_face.source_semantic_key = "face:stable-source";
-        external_face.cached_paths = {{{0.0, 0.0}, {2.0, 0.0},
-            {2.0, 2.0}, {0.0, 2.0}, {0.0, 0.0}}};
+        external_face.cached_points = {{2.0, -1.0}, {2.0, 1.0}};
+        external_face.infinite = true;
         const auto external_face_id = external_face.id;
         text_sketch.add_external_reference(external_face);
         const auto external_face_boundary_point = text_sketch.add_point(1.0, 1.0);
@@ -356,11 +390,8 @@ int main() {
         const auto* face_boundary = text_sketch.find_point(
             external_face_boundary_point);
         require(face_boundary != nullptr &&
-                    (std::abs(face_boundary->x) < 1.0e-8 ||
-                     std::abs(face_boundary->x - 2.0) < 1.0e-8 ||
-                     std::abs(face_boundary->y) < 1.0e-8 ||
-                     std::abs(face_boundary->y - 2.0) < 1.0e-8),
-                "Point-on-line did not use a persisted external Face boundary");
+                    std::abs(face_boundary->x - 2.0) < 1.0e-8,
+                "Point-on-line did not use the external Face intersection line");
         auto external_roundtrip = zima::sketcher::Sketch::from_serialized(
             text_sketch.serialized());
         require(external_roundtrip.external_references ==
@@ -646,10 +677,12 @@ int main() {
                     ambiguous_face_geometry,
                     {"container-source", "face:stable-source", {}}),
                 "Disconnected faces with one identity were guessed as one reference");
-        refreshed_sources.vertices = face_with_hole.vertices;
-        refreshed_sources.triangles = face_with_hole.triangles;
-        refreshed_sources.triangle_references =
-            face_with_hole.triangle_references;
+        refreshed_sources.vertices = {
+            {2.0, -3.0, -2.0}, {2.0, 3.0, -2.0},
+            {2.0, 3.0, 2.0}, {2.0, -3.0, 2.0}};
+        refreshed_sources.triangles = {0, 1, 2, 0, 2, 3};
+        refreshed_sources.triangle_references.assign(2,
+            {"container-source", "face:stable-source", {}});
         require(text_sketch.refresh_external_references(
                     "part-source", refreshed_sources) &&
                     text_sketch.external_references[0].cached_points ==
@@ -658,7 +691,8 @@ int main() {
                         std::vector<std::array<double, 2>>{{6.0, 7.0}} &&
                     text_sketch.external_references[2].cached_points ==
                         std::vector<std::array<double, 2>>{{-7.0, 8.0}, {13.0, 8.0}} &&
-                    text_sketch.external_references[3].cached_paths.size() == 2 &&
+                    text_sketch.external_references[3].cached_points.size() == 2 &&
+                    text_sketch.external_references[3].infinite &&
                     !text_sketch.external_references[0].broken &&
                     !text_sketch.external_references[1].broken &&
                     !text_sketch.external_references[2].broken &&
@@ -685,8 +719,8 @@ int main() {
                         valid_external_cache[1].cached_points &&
                     text_sketch.external_references[2].cached_points ==
                         valid_external_cache[2].cached_points &&
-                    text_sketch.external_references[3].cached_paths ==
-                        valid_external_cache[3].cached_paths &&
+                    text_sketch.external_references[3].cached_points ==
+                        valid_external_cache[3].cached_points &&
                     !text_sketch.refresh_external_references(
                         "part-source", missing_sources),
                 "Broken external references did not preserve their last valid cache");
@@ -725,15 +759,13 @@ int main() {
                 "External axis did not recover after its projection became valid");
         auto edge_on_face_sources = refreshed_sources;
         edge_on_face_sources.vertices = {
-            {-2.0, 0.0, -2.0}, {2.0, 0.0, -2.0},
-            {2.0, 0.0, 2.0}, {-2.0, 0.0, 2.0},
-            {-1.0, 0.0, -1.0}, {1.0, 0.0, -1.0},
-            {1.0, 0.0, 1.0}, {-1.0, 0.0, 1.0}};
+            {-2.0, -2.0, 0.0}, {2.0, -2.0, 0.0},
+            {2.0, 2.0, 0.0}, {-2.0, 2.0, 0.0}};
         require(text_sketch.refresh_external_references(
                     "part-source", edge_on_face_sources) &&
                     text_sketch.external_references[3].broken &&
-                    text_sketch.external_references[3].cached_paths ==
-                        valid_external_cache[3].cached_paths,
+                    text_sketch.external_references[3].cached_points ==
+                        valid_external_cache[3].cached_points,
                 "Degenerate external face projection did not preserve its cache");
         require(text_sketch.refresh_external_references(
                     "part-source", refreshed_sources) &&
@@ -759,8 +791,8 @@ int main() {
                 "Sketch external axis did not use the common viewer candidate list");
         const auto external_face_candidates = zima::viewer::filter_candidates(
             zima::viewer::ordered_viewer_candidates(
-                text_sketch.viewer_mesh(), {0.0, -2.0, 10.0},
-                {0.0, 0.0, -1.0}, 1.1),
+                text_sketch.viewer_mesh(), {2.0, 0.0, 10.0},
+                {0.0, 0.0, -1.0}, 0.2),
             {zima::viewer::CandidateKind::SketchExternalReference});
         require(external_face_candidates.size() == 1 &&
                     external_face_candidates.front().semantic_key ==
@@ -771,7 +803,7 @@ int main() {
         try {
             external_face.id.clear();
             external_face.source_semantic_key = "face:open-path";
-            external_face.cached_paths.front().pop_back();
+            external_face.cached_points.pop_back();
             text_sketch.add_external_reference(std::move(external_face));
         } catch (const std::runtime_error&) {
             invalid_face_rejected = true;
@@ -848,6 +880,39 @@ int main() {
         require(!under_constrained.points.front().fixed &&
                     under_constrained.solve().remaining_degrees_of_freedom == 2,
                 "Released point did not restore both coordinate degrees of freedom");
+        auto solver_stress = zima::sketcher::Sketch::create_default();
+        for (int index = 0; index < 40; ++index) {
+            auto anchor = zima::sketcher::Sketch::create_point(
+                index * 3.0, index * 2.0);
+            anchor.fixed = true;
+            auto moving = zima::sketcher::Sketch::create_point(
+                index * 3.0 + 3.0, index * 2.0 + 0.75);
+            const auto anchor_id = anchor.id;
+            const auto moving_id = moving.id;
+            solver_stress.points.push_back(std::move(anchor));
+            solver_stress.points.push_back(std::move(moving));
+            auto segment = zima::sketcher::Sketch::create_segment(
+                anchor_id, moving_id);
+            const auto segment_id = segment.id;
+            solver_stress.segments.push_back(std::move(segment));
+            solver_stress.constraints.push_back({
+                "stress-h:" + std::to_string(index),
+                zima::sketcher::ConstraintKind::Horizontal,
+                anchor_id, moving_id, false, segment_id});
+            solver_stress.dimensions.push_back({
+                "stress-d:" + std::to_string(index), DimensionKind::Distance,
+                anchor_id, moving_id, 5.0});
+        }
+        const auto stress_started = std::chrono::steady_clock::now();
+        const auto stress_result = solver_stress.solve();
+        const auto stress_elapsed = std::chrono::duration_cast<
+            std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - stress_started);
+        require(stress_result.status == zima::sketcher::SolveStatus::Solved &&
+                    stress_result.remaining_degrees_of_freedom == 0 &&
+                    stress_result.maximum_residual < 1.0e-7 &&
+                    stress_elapsed < std::chrono::seconds(2),
+                "Solver stress matrix was slow, inaccurate, or reported wrong DOF");
         auto point_tools = zima::sketcher::Sketch::create_default();
         const auto standalone_point = point_tools.add_point(100.0, 100.0);
         const auto snapped_point = point_tools.add_point(100.0 + 1.0e-8, 100.0);
@@ -900,6 +965,26 @@ int main() {
                     constrained_packet.constraint_markers.front().reference.semantic_key ==
                         "constraint:" + loaded_point_tools.constraints.front().id,
                 "Sketch constraint did not publish its persistent View marker");
+        auto origin_marker_sketch = zima::sketcher::Sketch::create_default();
+        origin_marker_sketch.owner_container_id = "origin-marker-extrusion";
+        origin_marker_sketch.resolved_origin = {11.0, -7.0, 3.0};
+        const auto marker_origin_bound_point =
+            origin_marker_sketch.add_point(4.0, 5.0);
+        const auto origin_constraint = origin_marker_sketch.add_coincident_constraint(
+            marker_origin_bound_point, "sketch_origin");
+        const auto origin_marker_packet = origin_marker_sketch.viewer_mesh();
+        const auto origin_marker = std::find_if(
+            origin_marker_packet.constraint_markers.begin(),
+            origin_marker_packet.constraint_markers.end(), [&](const auto& marker) {
+                return marker.reference.semantic_key ==
+                    "constraint:" + origin_constraint;
+            });
+        require(origin_marker != origin_marker_packet.constraint_markers.end() &&
+                    origin_marker->label == "C" &&
+                    std::abs(origin_marker->position.x - 11.0) < 1.0e-9 &&
+                    std::abs(origin_marker->position.y + 7.0) < 1.0e-9 &&
+                    std::abs(origin_marker->position.z - 3.0) < 1.0e-9,
+                "Coincident-to-Origin constraint did not publish C at Sketch origin");
         point_tools.remove_point(point_tools.segments.front().first_point_id);
         require(point_tools.find_point(standalone_point) != nullptr &&
                     point_tools.points.size() == 1 && point_tools.segments.empty() &&
@@ -924,8 +1009,8 @@ int main() {
                 "Projected X/Y dimensions did not independently drive the segment");
         const auto projected_mesh = projected.viewer_mesh();
         require(projected_mesh.dimensions.size() == 2 &&
-                    projected_mesh.dimensions[0].label_prefix == "X " &&
-                    projected_mesh.dimensions[1].label_prefix == "Y " &&
+                    projected_mesh.dimensions[0].label_prefix.empty() &&
+                    projected_mesh.dimensions[1].label_prefix.empty() &&
                     std::abs(projected_mesh.dimensions[0].line_first.y -
                         projected_mesh.dimensions[0].line_second.y) < 1.0e-9 &&
                     std::abs(projected_mesh.dimensions[1].line_first.x -
@@ -1278,7 +1363,7 @@ int main() {
                         zero_origin_point &&
                     zero_origin_dimension.dimensions.front().geometry_id.empty() &&
                     std::abs(zero_origin_view.dimensions.front().value) < 1.0e-12 &&
-                    zero_origin_view.dimensions.front().label_prefix == "Y " &&
+                    zero_origin_view.dimensions.front().label_prefix.empty() &&
                     std::abs(zero_origin_view.dimensions.front().line_first.x -
                         zero_origin_view.dimensions.front().line_second.x) < 1.0e-12 &&
                     std::abs(zero_origin_view.dimensions.front().line_first.y -
@@ -1334,6 +1419,134 @@ int main() {
         require(!dragged.move_point(dragged_point_id, 8.0, 0.0) &&
                     dragged.points == dragged_before_fixed_move.points,
                 "Fixed Sketch point accepted a drag move");
+        auto rooted_drag = zima::sketcher::Sketch::create_default();
+        const auto rooted_segment = rooted_drag.add_segment(0.0, 0.0, 10.0, 0.0);
+        auto rooted_length = rooted_drag.create_segment_dimension(rooted_segment);
+        rooted_drag.apply_dimension(std::move(rooted_length));
+        rooted_drag.dimensions.front().locked = true;
+        const auto rooted_first = rooted_drag.segments.front().first_point_id;
+        const auto rooted_second = rooted_drag.segments.front().second_point_id;
+        require(rooted_drag.move_point(rooted_second, 15.0, 0.0) &&
+                    std::abs(rooted_drag.find_point(rooted_second)->x - 15.0) < 1.0e-8 &&
+                    std::abs(rooted_drag.find_point(rooted_first)->x - 5.0) < 1.0e-8,
+                "Locked dimension correction pulled the dragged root off the cursor instead of moving its free branch");
+        auto axis_priority = zima::sketcher::Sketch::create_default();
+        const auto axis_segment = axis_priority.add_segment(-10.0, 0.0, 10.0, 0.0);
+        axis_priority.set_segment_centerline(axis_segment, true);
+        const auto profile_point = axis_priority.add_point(0.0, 5.0);
+        const auto axis_first = axis_priority.segments.front().first_point_id;
+        auto axis_distance = axis_priority.create_point_dimension(
+            axis_first, profile_point, zima::sketcher::DimensionKind::Distance);
+        axis_priority.apply_dimension(axis_distance);
+        const auto axis_before = *axis_priority.find_point(axis_first);
+        require(axis_priority.set_dimension_value(axis_distance.id, 20.0) &&
+                    *axis_priority.find_point(axis_first) == axis_before &&
+                    std::abs(std::hypot(
+                        axis_priority.find_point(profile_point)->x - axis_before.x,
+                        axis_priority.find_point(profile_point)->y - axis_before.y) -
+                        20.0) < 1.0e-8,
+                "Ordinary profile correction moved a construction centerline instead of the profile branch");
+        auto fork_drag = zima::sketcher::Sketch::create_default();
+        const auto fork_left_segment = fork_drag.add_segment(-10.0, 0.0, 0.0, 0.0);
+        const auto fork_right_segment = fork_drag.add_segment(0.0, 0.0, 10.0, 0.0);
+        auto fork_left_length = fork_drag.create_segment_dimension(fork_left_segment);
+        auto fork_right_length = fork_drag.create_segment_dimension(fork_right_segment);
+        fork_drag.apply_dimension(std::move(fork_left_length));
+        fork_drag.apply_dimension(std::move(fork_right_length));
+        for (auto& dimension : fork_drag.dimensions) dimension.locked = true;
+        const auto fork_root = fork_drag.segments.front().second_point_id;
+        const auto fork_left = fork_drag.segments.front().first_point_id;
+        const auto fork_right = fork_drag.segments.back().second_point_id;
+        require(fork_drag.move_point(fork_root, 5.0, 3.0) &&
+                    std::abs(fork_drag.find_point(fork_root)->x - 5.0) < 1.0e-8 &&
+                    std::abs(fork_drag.find_point(fork_root)->y - 3.0) < 1.0e-8 &&
+                    std::abs(std::hypot(
+                        fork_drag.find_point(fork_left)->x - 5.0,
+                        fork_drag.find_point(fork_left)->y - 3.0) - 10.0) < 1.0e-8 &&
+                    std::abs(std::hypot(
+                        fork_drag.find_point(fork_right)->x - 5.0,
+                        fork_drag.find_point(fork_right)->y - 3.0) - 10.0) < 1.0e-8,
+                "Dragging a fork root did not propagate into both free branches");
+        require(fork_drag.move_point(fork_root, 0.0, 0.0) &&
+                    fork_drag.move_point(fork_root, 5.0, 3.0) &&
+                    std::abs(fork_drag.find_point(fork_root)->x - 5.0) < 1.0e-8 &&
+                    std::abs(fork_drag.find_point(fork_root)->y - 3.0) < 1.0e-8 &&
+                    std::abs(std::hypot(
+                        fork_drag.find_point(fork_left)->x - 5.0,
+                        fork_drag.find_point(fork_left)->y - 3.0) - 10.0) < 1.0e-8 &&
+                    std::abs(std::hypot(
+                        fork_drag.find_point(fork_right)->x - 5.0,
+                        fork_drag.find_point(fork_right)->y - 3.0) - 10.0) < 1.0e-8 &&
+                    fork_drag.solve().maximum_residual < 1.0e-8,
+                "Repeated forward/back fork dragging accumulated constraint drift");
+        auto origin_rectangle = zima::sketcher::Sketch::create_default();
+        const auto origin_rectangle_segments =
+            origin_rectangle.add_rectangle(0.0, 0.0, 10.0, 10.0);
+        const auto origin_corner =
+            origin_rectangle.segments.front().first_point_id;
+        static_cast<void>(origin_rectangle.add_coincident_constraint(
+            origin_corner, "sketch_origin"));
+        const auto x_axis_corner =
+            origin_rectangle.segments.front().second_point_id;
+        const auto opposite_x_corner =
+            origin_rectangle.segments[1].second_point_id;
+        require(origin_rectangle.move_point(x_axis_corner, 15.0, 0.37) &&
+                    std::abs(origin_rectangle.find_point(x_axis_corner)->x - 15.0) < 1.0e-8 &&
+                    std::abs(origin_rectangle.find_point(x_axis_corner)->y) < 1.0e-8 &&
+                    std::abs(origin_rectangle.find_point(opposite_x_corner)->x - 15.0) < 1.0e-8,
+                "Origin-based rectangle corner could not move along the main X axis");
+        const auto y_axis_corner =
+            origin_rectangle.segments[2].second_point_id;
+        const auto opposite_y_corner =
+            origin_rectangle.segments[1].second_point_id;
+        require(origin_rectangle.move_point(y_axis_corner, -0.42, 14.0) &&
+                    std::abs(origin_rectangle.find_point(y_axis_corner)->x) < 1.0e-8 &&
+                    std::abs(origin_rectangle.find_point(y_axis_corner)->y - 14.0) < 1.0e-8 &&
+                    std::abs(origin_rectangle.find_point(opposite_y_corner)->y - 14.0) < 1.0e-8,
+                "Origin-based rectangle corner could not move along the main Y axis");
+        auto dimensioned_origin_rectangle = zima::sketcher::Sketch::create_default();
+        static_cast<void>(dimensioned_origin_rectangle.add_rectangle(
+            0.0, 0.0, 10.0, 10.0));
+        static_cast<void>(dimensioned_origin_rectangle.add_coincident_constraint(
+            dimensioned_origin_rectangle.segments.front().first_point_id,
+            "sketch_origin"));
+        auto rectangle_height = dimensioned_origin_rectangle.create_segment_dimension(
+            dimensioned_origin_rectangle.segments[1].id);
+        const auto rectangle_height_id = rectangle_height.id;
+        dimensioned_origin_rectangle.apply_dimension(std::move(rectangle_height));
+        auto rectangle_width = dimensioned_origin_rectangle.create_segment_dimension(
+            dimensioned_origin_rectangle.segments[2].id);
+        const auto rectangle_width_id = rectangle_width.id;
+        dimensioned_origin_rectangle.apply_dimension(std::move(rectangle_width));
+        const auto dimensioned_x_corner =
+            dimensioned_origin_rectangle.segments.front().second_point_id;
+        require(dimensioned_origin_rectangle.move_point(
+                    dimensioned_x_corner, 15.0, 0.31) &&
+                    std::abs(dimensioned_origin_rectangle.find_point(
+                        dimensioned_x_corner)->x - 15.0) < 1.0e-8 &&
+                    std::abs(std::find_if(
+                        dimensioned_origin_rectangle.dimensions.begin(),
+                        dimensioned_origin_rectangle.dimensions.end(),
+                        [&](const auto& value) {
+                            return value.id == rectangle_width_id;
+                        })->value - 15.0) < 1.0e-8 &&
+                    std::abs(std::find_if(
+                        dimensioned_origin_rectangle.dimensions.begin(),
+                        dimensioned_origin_rectangle.dimensions.end(),
+                        [&](const auto& value) {
+                            return value.id == rectangle_height_id;
+                        })->value - 10.0) < 1.0e-8,
+                "Unlocked driving rectangle dimensions blocked an axis drag instead of updating their values");
+        auto locked_origin_rectangle = dimensioned_origin_rectangle;
+        for (auto& dimension : locked_origin_rectangle.dimensions) {
+            dimension.locked = true;
+        }
+        const auto locked_before = locked_origin_rectangle;
+        require(!locked_origin_rectangle.move_point(
+                    dimensioned_x_corner, 20.0, 0.0) &&
+                    locked_origin_rectangle.points == locked_before.points &&
+                    locked_origin_rectangle.dimensions == locked_before.dimensions,
+                "Locked driving rectangle dimensions allowed a point drag");
         auto connected = zima::sketcher::Sketch::create_default();
         static_cast<void>(connected.add_segment(0.0, 0.0, 10.0, 0.0));
         static_cast<void>(connected.add_segment(10.0 + 1.0e-8, 0.0, 10.0, 10.0));
@@ -2342,6 +2555,96 @@ int main() {
                     rectangle.constraints[3].second_point_id ==
                         rectangle.segments[2].second_point_id,
                 "Rectangle directions were not persisted as ordered point-pair H/V relations");
+        auto axis_snapped_rectangle = zima::sketcher::Sketch::create_default();
+        const auto axis_snapped_ids = axis_snapped_rectangle.add_rectangle(
+            5.0, 0.0, 30.0, 20.0);
+        const auto& axis_snapped_first = *std::find_if(
+            axis_snapped_rectangle.segments.begin(),
+            axis_snapped_rectangle.segments.end(), [&](const auto& segment) {
+                return segment.id == axis_snapped_ids.front();
+            });
+        static_cast<void>(axis_snapped_rectangle.add_point_on_line_constraint(
+            axis_snapped_first.first_point_id, "sketch_axis:x"));
+        require(std::count_if(axis_snapped_rectangle.constraints.begin(),
+                    axis_snapped_rectangle.constraints.end(), [](const auto& value) {
+                        return value.kind ==
+                                zima::sketcher::ConstraintKind::PointOnLine &&
+                            value.geometry_id == "sketch_axis:x";
+                    }) == 1,
+                "Rectangle first corner did not retain its axis coincidence");
+        auto vertically_dimensioned_rectangle =
+            zima::sketcher::Sketch::create_default();
+        const auto vertically_dimensioned_ids =
+            vertically_dimensioned_rectangle.add_rectangle(
+                0.0, 0.0, 30.0, -20.0);
+        const auto& initially_vertical_segment = *std::find_if(
+            vertically_dimensioned_rectangle.segments.begin(),
+            vertically_dimensioned_rectangle.segments.end(),
+            [&](const auto& segment) {
+                return segment.id == vertically_dimensioned_ids.front();
+            });
+        static_cast<void>(
+            vertically_dimensioned_rectangle.add_coincident_constraint(
+                initially_vertical_segment.first_point_id, "sketch_origin"));
+        auto vertical_dimension =
+            vertically_dimensioned_rectangle.create_segment_dimension(
+                vertically_dimensioned_ids[3],
+                zima::sketcher::DimensionKind::DistanceY);
+        vertically_dimensioned_rectangle.apply_dimension(vertical_dimension);
+        const auto vertical_dimension_id = vertical_dimension.id;
+        require(vertically_dimensioned_rectangle.set_dimension_value(
+                    vertical_dimension_id, 35.0),
+                "Rectangle vertical dimension rejected an edited value");
+        const auto& resized_vertical_segment = *std::find_if(
+            vertically_dimensioned_rectangle.segments.begin(),
+            vertically_dimensioned_rectangle.segments.end(),
+            [&](const auto& segment) {
+                return segment.id == vertically_dimensioned_ids[3];
+            });
+        const auto* resized_vertical_first =
+            vertically_dimensioned_rectangle.find_point(
+                resized_vertical_segment.first_point_id);
+        const auto* resized_vertical_second =
+            vertically_dimensioned_rectangle.find_point(
+                resized_vertical_segment.second_point_id);
+        require(resized_vertical_first != nullptr &&
+                    resized_vertical_second != nullptr &&
+                    std::abs((resized_vertical_second->y -
+                    resized_vertical_first->y) - 35.0) < 1.0e-7,
+                "Editing a rectangle vertical dimension did not resize it");
+        auto doubly_dimensioned_rectangle =
+            zima::sketcher::Sketch::create_default();
+        const auto doubly_dimensioned_ids =
+            doubly_dimensioned_rectangle.add_rectangle(
+                0.0, 0.0, 121.26486206054688, -70.0);
+        auto height_dimension =
+            doubly_dimensioned_rectangle.create_segment_dimension(
+                doubly_dimensioned_ids[1]);
+        height_dimension.value = 70.0;
+        doubly_dimensioned_rectangle.apply_dimension(height_dimension);
+        auto width_dimension =
+            doubly_dimensioned_rectangle.create_segment_dimension(
+                doubly_dimensioned_ids[2]);
+        doubly_dimensioned_rectangle.apply_dimension(width_dimension);
+        require(doubly_dimensioned_rectangle.set_dimension_value(
+                    width_dimension.id, 100.0),
+                "Rectangle width rejected an edited ordinary length dimension");
+        const auto& resized_width_segment = *std::find_if(
+            doubly_dimensioned_rectangle.segments.begin(),
+            doubly_dimensioned_rectangle.segments.end(),
+            [&](const auto& segment) {
+                return segment.id == doubly_dimensioned_ids[2];
+            });
+        const auto* resized_width_first = doubly_dimensioned_rectangle.find_point(
+            resized_width_segment.first_point_id);
+        const auto* resized_width_second = doubly_dimensioned_rectangle.find_point(
+            resized_width_segment.second_point_id);
+        require(resized_width_first != nullptr && resized_width_second != nullptr &&
+                    std::abs(std::hypot(
+                        resized_width_second->x - resized_width_first->x,
+                        resized_width_second->y - resized_width_first->y) -
+                        100.0) < 1.0e-7,
+                "Editing the 121.265 mm rectangle width did not resize it");
         const auto rectangle_before_invalid = rectangle;
         bool flat_rectangle_rejected = false;
         try {
@@ -2427,39 +2730,147 @@ int main() {
             corner_fillet.segments.front().second_point_id;
         const auto fillet = corner_fillet.add_corner_fillet(
             fillet_first, fillet_second, 2.0);
-        const auto* fillet_first_point = corner_fillet.find_point(
-            fillet.first_tangent_point_id);
-        const auto* fillet_second_point = corner_fillet.find_point(
-            fillet.second_tangent_point_id);
+        const auto free_corner_dof = corner_fillet.solve();
+        require(free_corner_dof.status ==
+                    zima::sketcher::SolveStatus::UnderConstrained &&
+                    free_corner_dof.remaining_degrees_of_freedom == 7,
+                "Unannotated corner radius did not expose its seven source/parameter DOF");
+        const auto evaluated_fillet = corner_fillet.evaluated_profile_sketch();
         const auto trimmed_first = std::find_if(
-            corner_fillet.segments.begin(), corner_fillet.segments.end(),
+            evaluated_fillet.segments.begin(), evaluated_fillet.segments.end(),
             [&](const auto& segment) { return segment.id == fillet_first; });
         const auto trimmed_second = std::find_if(
-            corner_fillet.segments.begin(), corner_fillet.segments.end(),
+            evaluated_fillet.segments.begin(), evaluated_fillet.segments.end(),
             [&](const auto& segment) { return segment.id == fillet_second; });
-        require(!fillet.arc_id.empty() && corner_fillet.arcs.size() == 1 &&
+        const auto first_tangent_id = trimmed_first->first_point_id ==
+                corner_fillet.segments[0].first_point_id
+            ? trimmed_first->second_point_id : trimmed_first->first_point_id;
+        const auto second_tangent_id = trimmed_second->first_point_id ==
+                corner_fillet.segments[1].second_point_id
+            ? trimmed_second->second_point_id : trimmed_second->first_point_id;
+        const auto* fillet_first_point =
+            evaluated_fillet.find_point(first_tangent_id);
+        const auto* fillet_second_point =
+            evaluated_fillet.find_point(second_tangent_id);
+        require(!fillet.arc_id.empty() && corner_fillet.arcs.empty() &&
+                    corner_fillet.corner_radii.size() == 1 &&
+                    corner_fillet.corner_radii.front().id == fillet.arc_id &&
+                    corner_fillet.corner_radii.front().vertex_id ==
+                        fillet_corner_id &&
+                    corner_fillet.segments.front().second_point_id ==
+                        fillet_corner_id &&
+                    corner_fillet.segments[1].first_point_id ==
+                        fillet_corner_id &&
+                    evaluated_fillet.arcs.size() == 1 &&
+                    evaluated_fillet.arcs.front().id == fillet.arc_id &&
                     fillet_first_point != nullptr && fillet_second_point != nullptr &&
-                    trimmed_first != corner_fillet.segments.end() &&
-                    trimmed_second != corner_fillet.segments.end() &&
-                    (trimmed_first->first_point_id == fillet.first_tangent_point_id ||
-                     trimmed_first->second_point_id == fillet.first_tangent_point_id) &&
-                    (trimmed_second->first_point_id == fillet.second_tangent_point_id ||
-                     trimmed_second->second_point_id == fillet.second_tangent_point_id) &&
-                    corner_fillet.find_point(fillet_corner_id) == nullptr &&
+                    trimmed_first != evaluated_fillet.segments.end() &&
+                    trimmed_second != evaluated_fillet.segments.end() &&
+                    first_tangent_id != fillet_corner_id &&
+                    second_tangent_id != fillet_corner_id &&
+                    corner_fillet.find_point(fillet_corner_id) != nullptr &&
                     std::abs(std::hypot(fillet_first_point->x, fillet_first_point->y) -
                         2.0) < 1.0e-7 &&
                     std::abs(std::hypot(fillet_second_point->x, fillet_second_point->y) -
                         2.0) < 1.0e-7 &&
-                    std::count_if(corner_fillet.constraints.begin(),
-                        corner_fillet.constraints.end(), [](const auto& value) {
+                    std::count_if(evaluated_fillet.constraints.begin(),
+                        evaluated_fillet.constraints.end(), [](const auto& value) {
                             return value.kind == zima::sketcher::ConstraintKind::Tangent;
                         }) == 2,
-                "Sketch corner fillet did not trim both segments and persist tangency");
+                "Sketch corner radius did not preserve its source graph and "
+                "evaluate stable trimmed tangent geometry");
         const auto loaded_fillet = zima::sketcher::Sketch::from_serialized(
             corner_fillet.serialized());
-        require(loaded_fillet.arcs == corner_fillet.arcs &&
-                    loaded_fillet.constraints == corner_fillet.constraints,
-                "Sketch corner fillet did not survive persistence");
+        require(loaded_fillet.corner_radii == corner_fillet.corner_radii &&
+                    loaded_fillet.points == corner_fillet.points &&
+                    loaded_fillet.segments == corner_fillet.segments,
+                "Sketch corner radius did not survive persistence");
+        const auto fillet_mesh = corner_fillet.viewer_mesh();
+        const auto visible_first = corner_fillet.visible_segment_endpoints(
+            fillet_first);
+        require(std::count_if(fillet_mesh.points.begin(), fillet_mesh.points.end(),
+                    [&](const auto& point) {
+                        return point.reference.semantic_key ==
+                            "point:" + fillet_corner_id;
+                    }) == 1 &&
+                    std::count_if(fillet_mesh.points.begin(), fillet_mesh.points.end(),
+                        [](const auto& point) {
+                            return point.reference.semantic_key.starts_with(
+                                "corner_radius_handle:");
+                        }) == 2 &&
+                    std::none_of(fillet_mesh.points.begin(), fillet_mesh.points.end(),
+                        [&](const auto& point) {
+                            return point.reference.semantic_key.starts_with("point:") &&
+                                corner_fillet.find_point(
+                                    point.reference.semantic_key.substr(6)) == nullptr;
+                        }) &&
+                    std::any_of(fillet_mesh.edges.begin(), fillet_mesh.edges.end(),
+                        [&](const auto& edge) {
+                            return edge.reference.semantic_key ==
+                                "corner_radius:" + fillet.arc_id;
+                        }) &&
+                    visible_first &&
+                    std::abs((visible_first->first[0] +
+                        visible_first->second[0]) * 0.5 - 6.0) < 1.0e-7 &&
+                    std::any_of(fillet_mesh.points.begin(), fillet_mesh.points.end(),
+                        [&](const auto& point) {
+                            return point.reference.semantic_key ==
+                                    "sketch_midpoint:" + fillet_first &&
+                                std::abs(point.position.x - 6.0) < 1.0e-7;
+                        }),
+                "Corner radius View exposed derived points or lost its child arc");
+        const auto handle_candidates = zima::viewer::filter_candidates(
+            zima::viewer::ordered_viewer_candidates(
+                fillet_mesh, {2.0, 0.0, 10.0}, {0.0, 0.0, -1.0}, 0.2),
+            {zima::viewer::CandidateKind::SketchPoint});
+        require(std::any_of(handle_candidates.begin(), handle_candidates.end(),
+                    [](const auto& candidate) {
+                        return candidate.semantic_key.starts_with(
+                            "corner_radius_handle:");
+                    }),
+                "Corner radius tangent handle was not offered as a Sketch control point");
+        corner_fillet.corner_radii.front().dimension_visible = true;
+        corner_fillet.corner_radii.front().dimension_placement =
+            std::array{3.0, 3.0};
+        const auto radius_dimension_mesh = corner_fillet.viewer_mesh();
+        const auto driven_corner_dof = corner_fillet.solve();
+        require(std::any_of(radius_dimension_mesh.dimensions.begin(),
+                    radius_dimension_mesh.dimensions.end(), [&](const auto& dimension) {
+                        return dimension.reference.semantic_key ==
+                                "corner_dimension:" + fillet.arc_id &&
+                            std::abs(dimension.value - 2.0) < 1.0e-9;
+                    }) && corner_fillet.dimensions.empty() &&
+                    driven_corner_dof.remaining_degrees_of_freedom == 6,
+                "Corner radius annotation was mixed into generic Sketch dimensions");
+        static_cast<void>(corner_fillet.add_corner_fillet(
+            fillet_first, fillet_second, 0.0));
+        const auto sharp_mesh = corner_fillet.viewer_mesh();
+        require(corner_fillet.corner_radii.size() == 1 &&
+                    corner_fillet.corner_radii.front().id == fillet.arc_id &&
+                    corner_fillet.corner_radii.front().radius == 0.0 &&
+                    corner_fillet.dimensions.empty() &&
+                    corner_fillet.corner_radii.front().dimension_visible &&
+                    corner_fillet.arcs.empty() &&
+                    corner_fillet.points.size() == 3 &&
+                    corner_fillet.segments[0].second_point_id == fillet_corner_id &&
+                    corner_fillet.segments[1].first_point_id == fillet_corner_id &&
+                    std::none_of(sharp_mesh.edges.begin(), sharp_mesh.edges.end(),
+                        [&](const auto& edge) {
+                            return edge.reference.semantic_key ==
+                                "corner_radius:" + fillet.arc_id;
+                        }) &&
+                    std::none_of(sharp_mesh.points.begin(), sharp_mesh.points.end(),
+                        [](const auto& point) {
+                            return point.reference.semantic_key.starts_with(
+                                "corner_radius_handle:");
+                        }) &&
+                    std::any_of(sharp_mesh.dimensions.begin(),
+                        sharp_mesh.dimensions.end(), [&](const auto& dimension) {
+                            return dimension.reference.semantic_key ==
+                                    "corner_dimension:" + fillet.arc_id &&
+                                dimension.value == 0.0;
+                        }),
+                "R0 did not preserve its dimension and restore the sharp source corner");
         auto polygon = zima::sketcher::Sketch::create_default();
         const auto polygon_result = polygon.add_regular_polygon(
             0.0, 0.0, 10.0, 0.0, 6);
@@ -2569,7 +2980,7 @@ int main() {
                                 constraint.second_geometry_id == mirrored_second->id;
                         }),
                 "Sketch mirror copied source constraints instead of creating symmetry");
-        const auto source_circle = mirrored.add_circle(3.0, 2.0, 4.0, true);
+        const auto source_circle = mirrored.add_circle(10.0, 10.0, 4.0, true);
         const auto source_arc = mirrored.add_arc(
             3.0, 0.0, 5.0, 0.0, 3.0, 2.0);
         const auto source_ellipse = mirrored.add_ellipse(
@@ -2626,7 +3037,7 @@ int main() {
                 return value.id == source_ellipse;
             });
         require(reflected_circle->construction &&
-                    std::abs(reflected_circle_center->x + 3.0) < 1.0e-9 &&
+                    std::abs(reflected_circle_center->x + 10.0) < 1.0e-9 &&
                     std::abs(reflected_arc_start->x + 3.0) < 1.0e-9 &&
                     std::abs(reflected_arc_start->y - 2.0) < 1.0e-9 &&
                     std::abs(reflected_ellipse_center->x + 4.0) < 1.0e-9 &&
@@ -2702,9 +3113,14 @@ int main() {
         removable_rectangle.remove_geometry(removed_segment_id);
         require(removable_rectangle.segments.size() == 3 &&
                     removable_rectangle.constraints.size() == 4 &&
-                    removable_rectangle.dimensions.empty() &&
+                    removable_rectangle.dimensions.size() == 1 &&
+                    removable_rectangle.dimensions.front().geometry_id.empty() &&
+                    removable_rectangle.dimensions.front().first_point_id ==
+                        removable_dimension.first_point_id &&
+                    removable_rectangle.dimensions.front().second_point_id ==
+                        removable_dimension.second_point_id &&
                     removable_rectangle.points.size() == 4,
-                "Segment deletion lost shared corners or point-owned relations");
+                "Segment deletion lost shared corners or its point-owned dimension");
         auto circle_sketch = zima::sketcher::Sketch::create_default();
         const auto circle_id = circle_sketch.add_circle(5.0, 7.0, 10.0);
         auto radius_dimension =
@@ -2759,6 +3175,22 @@ int main() {
         require(loaded_circle.circles == circle_sketch.circles &&
                     loaded_circle.dimensions == circle_sketch.dimensions,
                 "Circle and radius dimension did not survive serialization");
+        auto cardinal_lock = zima::sketcher::Sketch::create_default();
+        const auto cardinal_circle = cardinal_lock.add_circle(0.0, 0.0, 10.0);
+        const auto cardinal_point = cardinal_lock.add_point(10.0, 0.0);
+        static_cast<void>(cardinal_lock.add_coincident_constraint(
+            cardinal_point,
+            "sketch_keypoint:circle:" + cardinal_circle + ":0"));
+        cardinal_lock.circles.front().radius = 14.0;
+        require(cardinal_lock.solve().status !=
+                    zima::sketcher::SolveStatus::Conflicting &&
+                    std::abs(cardinal_lock.find_point(cardinal_point)->x - 14.0) <
+                        1.0e-8 &&
+                    std::abs(cardinal_lock.find_point(cardinal_point)->y) < 1.0e-8 &&
+                    zima::sketcher::Sketch::from_serialized(
+                        cardinal_lock.serialized()).constraints ==
+                        cardinal_lock.constraints,
+                "Persisted curve keypoint did not retain its circle quadrant");
         bool zero_circle_rejected = false;
         try {
             static_cast<void>(circle_sketch.add_circle(0.0, 0.0, 0.0));
@@ -2807,6 +3239,17 @@ int main() {
         require(diameter_sketch.move_point(diameter_center_id, 7.0, -3.0) &&
                     std::abs(diameter_sketch.circles.front().radius - 15.0) < 1.0e-9,
                 "Moving a Circle center changed its radius");
+        auto sliding_circle = zima::sketcher::Sketch::create_default();
+        const auto sliding_circle_id = sliding_circle.add_circle(0.0, 0.0, 10.0);
+        const auto sliding_point_id = sliding_circle.add_point(10.0, 0.0);
+        static_cast<void>(sliding_circle.add_point_on_circle_constraint(
+            sliding_point_id, sliding_circle_id));
+        require(sliding_circle.move_point(sliding_point_id, 30.0, 40.0) &&
+                    std::abs(sliding_circle.circles.front().radius - 10.0) < 1.0e-9 &&
+                    std::abs(std::hypot(
+                        sliding_circle.find_point(sliding_point_id)->x,
+                        sliding_circle.find_point(sliding_point_id)->y) - 10.0) < 1.0e-8,
+                "Dragging a point on an undimensioned Circle changed its radius");
         const auto loaded_diameter = zima::sketcher::Sketch::from_serialized(
             diameter_sketch.serialized());
         require(loaded_diameter.circles == diameter_sketch.circles &&
@@ -2876,6 +3319,19 @@ int main() {
                     dimensioned_arc_packet.dimensions.front().label_prefix == "R" &&
                     std::abs(dimensioned_arc_packet.dimensions.front().value - 18.0) < 1.0e-9,
                 "Arc radius dimension did not produce stable viewer data");
+        auto arc_diameter_sketch = zima::sketcher::Sketch::create_default();
+        const auto arc_diameter_id = arc_diameter_sketch.add_arc(
+            0.0, 0.0, 6.0, 0.0, 0.0, 6.0);
+        auto arc_diameter = arc_diameter_sketch.create_arc_diameter_dimension(
+            arc_diameter_id);
+        arc_diameter.value = 20.0;
+        arc_diameter_sketch.apply_dimension(arc_diameter);
+        const auto arc_diameter_packet = arc_diameter_sketch.viewer_mesh();
+        require(std::abs(arc_diameter_sketch.arcs.front().radius - 10.0) < 1.0e-9 &&
+                    arc_diameter_packet.dimensions.size() == 1 &&
+                    arc_diameter_packet.dimensions.front().label_prefix == "Ø" &&
+                    std::abs(arc_diameter_packet.dimensions.front().value - 20.0) < 1.0e-9,
+                "Diameter dimension did not drive or display its stable arc");
         auto moved_arc = zima::sketcher::Sketch::create_default();
         static_cast<void>(moved_arc.add_arc(
             0.0, 0.0, 10.0, 0.0, 0.0, 10.0));
@@ -2888,9 +3344,10 @@ int main() {
                     std::abs(moved_arc.arcs.front().radius - 10.0) < 1.0e-9,
                 "Moving an Arc center changed its radius or failed to translate endpoints");
         require(moved_arc.move_point(moved_arc_end, 5.0, 23.0) &&
-                    std::abs(moved_arc.arcs.front().radius - 20.0) < 1.0e-9 &&
-                    std::abs(moved_arc.find_point(moved_arc_start)->x - 25.0) < 1.0e-9,
-                "Moving an undimensioned Arc endpoint did not update its radius");
+                    std::abs(moved_arc.arcs.front().radius - 10.0) < 1.0e-9 &&
+                    std::abs(moved_arc.find_point(moved_arc_start)->x - 15.0) < 1.0e-9 &&
+                    std::abs(moved_arc.find_point(moved_arc_end)->y - 13.0) < 1.0e-9,
+                "Moving an Arc endpoint changed its radius instead of only its sweep");
         auto driven_arc = zima::sketcher::Sketch::create_default();
         const auto driven_arc_id = driven_arc.add_arc(
             0.0, 0.0, 10.0, 0.0, 0.0, 10.0);
@@ -2902,11 +3359,10 @@ int main() {
                     std::abs(driven_arc.arcs.front().radius - 10.0) < 1.0e-9,
                 "Dragging a dimensioned Arc endpoint did not preserve its radius");
         moved_arc.set_point_fixed(moved_arc_start, true);
-        const auto fixed_arc_before_move = moved_arc;
-        require(!moved_arc.move_point(moved_arc_end, 5.0, 33.0) &&
-                    moved_arc.points == fixed_arc_before_move.points &&
-                    moved_arc.arcs == fixed_arc_before_move.arcs,
-                "Arc drag moved a fixed dependent endpoint");
+        require(moved_arc.move_point(moved_arc_end, -15.0, 3.0) &&
+                    std::abs(moved_arc.find_point(moved_arc_start)->x - 15.0) < 1.0e-9 &&
+                    std::abs(moved_arc.arcs.front().radius - 10.0) < 1.0e-9,
+                "Arc sweep edit moved a fixed start point or changed radius");
         const auto arc_before_limit_error = arc_sketch;
         auto invalid_arc_radius = arc_sketch.dimensions.front();
         invalid_arc_radius.value = 30.0;

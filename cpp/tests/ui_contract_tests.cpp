@@ -251,6 +251,11 @@ int main(int argc, char* argv[]) {
         zero_dimension_mesh.axes.push_back({
             {0.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, 20.0,
             {"sketch", "sketch_axis:y", {}}});
+        zero_dimension_mesh.points.push_back({
+            {0.0, 0.0, 0.0}, {"sketch", "point:dimension-owner", {}}});
+        zero_dimension_mesh.constraint_markers.push_back({
+            {0.0, 0.0, 0.0}, "C", {"sketch", "constraint:on-axis", {}},
+            {"point:dimension-owner", "sketch_axis:y"}});
         zero_dimension_mesh.dimensions.push_back({
             {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0},
             {15.0, 0.0, 0.0}, {15.0, 0.0, 0.0}, 0.0,
@@ -277,7 +282,11 @@ int main(int argc, char* argv[]) {
             : std::nullopt;
         require(zero_dimension_label.has_value(),
                 "Zero-valued point dimension lost its numeric label position");
-        zero_dimension_view.clear_selection();
+        // Keep a Dimension confirmed while beginning the next gesture. This
+        // reproduces dragging its owning point after selecting the Dimension
+        // (including a Dimension reached through RMB candidate cycling).
+        zero_dimension_view.confirm_reference("sketch", "dimension:zero-y", {},
+            zima::viewer::CandidateKind::Dimension);
         zero_dimension_view.set_selection_contract(
             {zima::viewer::CandidateKind::Dimension});
         QMouseEvent zero_dimension_select(
@@ -326,6 +335,57 @@ int main(int argc, char* argv[]) {
         application.processEvents();
         require(zero_dimension_edits == 1,
                 "Zero-valued point dimension label could not be double-click edited");
+        zero_dimension_view.clear_selection();
+        zero_dimension_view.set_selection_contract({
+            zima::viewer::CandidateKind::SketchPoint,
+            zima::viewer::CandidateKind::Dimension,
+            zima::viewer::CandidateKind::SketchConstraint,
+            zima::viewer::CandidateKind::SketchAxis});
+        std::optional<QPointF> point_dimension_overlap;
+        for (int y = 0; y < zero_dimension_view.height() && !point_dimension_overlap;
+             ++y) {
+            for (int x = 0; x < zero_dimension_view.width(); ++x) {
+                const auto candidates = zero_dimension_view.selection_candidates_at(
+                    QPointF(x, y));
+                const bool point = std::ranges::any_of(candidates,
+                    [](const auto& candidate) {
+                        return candidate.kind ==
+                                zima::viewer::CandidateKind::SketchPoint &&
+                            candidate.semantic_key == "point:dimension-owner";
+                    });
+                const bool dimension = std::ranges::any_of(candidates,
+                    [](const auto& candidate) {
+                        return candidate.kind ==
+                                zima::viewer::CandidateKind::Dimension &&
+                            candidate.semantic_key == "dimension:zero-y";
+                    });
+                if (point && dimension) {
+                    point_dimension_overlap = QPointF(x, y);
+                    break;
+                }
+            }
+        }
+        require(point_dimension_overlap.has_value(),
+                "Dimension witness did not overlap its owning Sketch point in the test view");
+        std::optional<zima::viewer::ViewerCandidate> overlap_drag;
+        zero_dimension_view.set_candidate_drag_callbacks(
+            [&](const auto& candidate, const auto&, const auto&) {
+                overlap_drag = candidate;
+                return true;
+            }, [](const auto&, const auto&) {}, [] {});
+        QMouseEvent overlap_press(QEvent::MouseButtonPress,
+            *point_dimension_overlap, *point_dimension_overlap,
+            *point_dimension_overlap, Qt::LeftButton, Qt::LeftButton,
+            Qt::NoModifier);
+        QApplication::sendEvent(&zero_dimension_view, &overlap_press);
+        require(overlap_drag && overlap_drag->kind ==
+                    zima::viewer::CandidateKind::SketchPoint,
+                "Overlapping Dimension stole the owning Sketch point drag");
+        QMouseEvent overlap_release(QEvent::MouseButtonRelease,
+            *point_dimension_overlap, *point_dimension_overlap,
+            *point_dimension_overlap, Qt::LeftButton, Qt::NoButton,
+            Qt::NoModifier);
+        QApplication::sendEvent(&zero_dimension_view, &overlap_release);
 
         auto cylinder_initial =
             zima::document::PartDocument::create_cylinder_container();
@@ -876,9 +936,9 @@ int main(int argc, char* argv[]) {
                 zima::viewer::CandidateGeometry::OriginalReference};
             require(zima::app::placement_reference_candidate_has_stable_geometry(
                         body_face) &&
-                    !zima::app::placement_reference_candidate_has_stable_geometry(
+                    zima::app::placement_reference_candidate_has_stable_geometry(
                         body_edge),
-                "Placement contract did not distinguish persisted Face from Edge");
+                "Placement contract rejected a persisted original Edge");
         }
 
         auto point_initial = zima::document::PartDocument::create_construction(
@@ -1464,27 +1524,45 @@ int main(int argc, char* argv[]) {
             dimension_dialog->findChild<QDoubleSpinBox*>("sketchDimensionValue");
         auto* dimension_driving =
             dimension_dialog->findChild<QCheckBox*>("sketchDimensionDriving");
+        auto* dimension_locked =
+            dimension_dialog->findChild<QCheckBox*>("sketchDimensionLocked");
         auto* dimension_prefix =
             dimension_dialog->findChild<QLineEdit*>("sketchDimensionPrefix");
         auto* tolerance_mode =
             dimension_dialog->findChild<QComboBox*>("sketchDimensionToleranceMode");
         auto* symmetric_tolerance =
             dimension_dialog->findChild<QLineEdit*>("sketchSymmetricTolerance");
-        require(dimension_value && dimension_driving && dimension_prefix &&
+        const auto dimension_labels = dimension_dialog->findChildren<QLabel*>();
+        const auto has_dimension_label = [&](const QString& text) {
+            return std::any_of(dimension_labels.cbegin(), dimension_labels.cend(),
+                [&](const QLabel* label) { return label->text() == text; });
+        };
+        require(dimension_value && dimension_driving && dimension_locked &&
+                    dimension_prefix &&
                     tolerance_mode && symmetric_tolerance &&
-                    dimension_dialog->findChild<QCheckBox*>("sketchLowerEnabled") == nullptr,
+                    dimension_dialog->findChild<QCheckBox*>("sketchLowerEnabled") == nullptr &&
+                    has_dimension_label(QStringLiteral("Text před hodnotou")) &&
+                    has_dimension_label(QStringLiteral("Text za hodnotou")) &&
+                    !has_dimension_label(QStringLiteral("Prefix")) &&
+                    !has_dimension_label(QStringLiteral("Suffix")),
                 "Sketch dimension Properties is missing style/tolerance fields or retained limits");
         dimension_value->setValue(35.0);
         dimension_driving->setChecked(false);
         require(!dimension_value->isEnabled() && dimension_value->value() == 20.0,
                 "Reference dimension remained editable or retained a pending driver value");
         dimension_driving->setChecked(true);
+        dimension_locked->setChecked(true);
+        require(dimension_value->isEnabled(),
+                "Locked driving dimension disabled intentional numeric editing");
+        dimension_value->setValue(25.0);
         dimension_prefix->setText(QStringLiteral("⌀"));
         tolerance_mode->setCurrentIndex(
             tolerance_mode->findData(QStringLiteral("symmetric")));
         symmetric_tolerance->setText(QStringLiteral("0.1"));
         dimension_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
-        require(dimension_commits == 1 && committed_dimension.prefix == "⌀" &&
+        require(dimension_commits == 1 && committed_dimension.locked &&
+                    std::abs(committed_dimension.value - 25.0) < 1.0e-9 &&
+                    committed_dimension.prefix == "⌀" &&
                     committed_dimension.tolerance_mode == "symmetric" &&
                     committed_dimension.symmetric_tolerance == "0.1",
                 "Sketch dimension Properties did not commit display/tolerance style");
@@ -1708,6 +1786,104 @@ int main(int argc, char* argv[]) {
         QApplication::sendEvent(&gesture_view, &gesture_middle_release);
         require(double_middle_finishes == 1 && short_middle_confirmations == 1,
                 "Middle double-click did not finish exactly once or leaked a short click");
+
+        zima::viewer::MeshView box_selection_view(&parent);
+        box_selection_view.resize(320, 240);
+        box_selection_view.show();
+        zima::kernel::ViewerMesh box_selection_mesh;
+        box_selection_mesh.edges.push_back({
+            {{-10.0, -5.0, 0.0}, {0.0, 0.0, 0.0}},
+            {"box-selection-sketch", "segment:box-selection-first"},
+            false, true});
+        box_selection_mesh.edges.push_back({
+            {{0.0, 0.0, 0.0}, {10.0, -5.0, 0.0}},
+            {"box-selection-sketch", "segment:box-selection-second"},
+            false, true});
+        box_selection_mesh.points.push_back({{0.0, 0.0, 0.0},
+            {"box-selection-sketch", "point:shared-corner"}});
+        // A passive outer edge establishes a larger camera extent, leaving
+        // the active Sketch segment wholly inside the drag rectangle.
+        box_selection_mesh.edges.push_back({
+            {{-100.0, -60.0, 0.0}, {100.0, 60.0, 0.0}},
+            {"passive-context", "segment:passive-context"}, false, true});
+        box_selection_view.set_mesh(std::move(box_selection_mesh));
+        box_selection_view.set_active_sketch_owner("box-selection-sketch");
+        box_selection_view.set_selection_contract(
+            {zima::viewer::CandidateKind::SketchSegment});
+        std::vector<zima::viewer::ViewerCandidate> box_selected;
+        bool box_callback_called = false;
+        box_selection_view.set_sketch_box_selection(true,
+            [&](auto candidates, bool) {
+                box_callback_called = true;
+                box_selected = std::move(candidates);
+            });
+        application.processEvents();
+        QMouseEvent box_press(QEvent::MouseButtonPress,
+            QPointF(4.0, 4.0), QPointF(4.0, 4.0), QPointF(4.0, 4.0),
+            Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(&box_selection_view, &box_press);
+        QMouseEvent box_move(QEvent::MouseMove,
+            QPointF(316.0, 236.0), QPointF(316.0, 236.0),
+            QPointF(316.0, 236.0), Qt::NoButton, Qt::LeftButton,
+            Qt::NoModifier);
+        QApplication::sendEvent(&box_selection_view, &box_move);
+        QMouseEvent box_release(QEvent::MouseButtonRelease,
+            QPointF(316.0, 236.0), QPointF(316.0, 236.0),
+            QPointF(316.0, 236.0), Qt::LeftButton, Qt::NoButton,
+            Qt::NoModifier);
+        QApplication::sendEvent(&box_selection_view, &box_release);
+        require(box_callback_called,
+                "Sketch View did not complete the drag rectangle gesture");
+        require(box_selected.size() == 3 &&
+                    std::count_if(box_selected.begin(), box_selected.end(),
+                        [](const auto& candidate) {
+                            return candidate.kind ==
+                                zima::viewer::CandidateKind::SketchSegment;
+                        }) == 2,
+                "Sketch View drag rectangle did not select its enclosed geometry");
+        box_selection_view.set_selection_contract({
+            zima::viewer::CandidateKind::SketchSegment,
+            zima::viewer::CandidateKind::SketchPoint});
+        std::optional<QPointF> shared_corner_position;
+        for (int y = 0; y < box_selection_view.height() && !shared_corner_position;
+             ++y) {
+            for (int x = 0; x < box_selection_view.width(); ++x) {
+                const QPointF position(x, y);
+                const auto candidates =
+                    box_selection_view.selection_candidates_at(position);
+                if (std::any_of(candidates.begin(), candidates.end(),
+                        [](const auto& candidate) {
+                            return candidate.kind ==
+                                    zima::viewer::CandidateKind::SketchPoint &&
+                                candidate.semantic_key == "point:shared-corner";
+                        })) {
+                    shared_corner_position = position;
+                    break;
+                }
+            }
+        }
+        require(shared_corner_position.has_value(),
+                "Shared Sketch corner was not a View candidate");
+        std::optional<zima::viewer::ViewerCandidate> drag_candidate;
+        box_selection_view.set_candidate_drag_callbacks(
+            [&](const auto& candidate, const auto&, const auto&) {
+                drag_candidate = candidate;
+                return true;
+            }, [](const auto&, const auto&) {}, [] {});
+        QMouseEvent corner_press(QEvent::MouseButtonPress,
+            *shared_corner_position, *shared_corner_position,
+            *shared_corner_position, Qt::LeftButton, Qt::LeftButton,
+            Qt::NoModifier);
+        QApplication::sendEvent(&box_selection_view, &corner_press);
+        require(drag_candidate && drag_candidate->kind ==
+                    zima::viewer::CandidateKind::SketchPoint &&
+                    drag_candidate->semantic_key == "point:shared-corner",
+                "Two selected segments did not prioritize their shared corner drag");
+        QMouseEvent corner_release(QEvent::MouseButtonRelease,
+            *shared_corner_position, *shared_corner_position,
+            *shared_corner_position, Qt::LeftButton, Qt::NoButton,
+            Qt::NoModifier);
+        QApplication::sendEvent(&box_selection_view, &corner_release);
 
         std::cout << "C++ properties-window contracts passed\n";
         return 0;

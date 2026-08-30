@@ -311,6 +311,9 @@ private:
     bool sketch_rectangle_axis_selecting_{};
     std::string pending_rectangle_axis_id_;
     std::optional<std::array<double, 2>> pending_rectangle_corner_;
+    std::string pending_rectangle_corner_snap_geometry_id_;
+    std::optional<zima::sketcher::ConstraintKind>
+        pending_rectangle_corner_snap_kind_;
     bool sketch_polygon_active_{};
     unsigned sketch_polygon_sides_{6};
     std::optional<std::array<double, 2>> pending_polygon_center_;
@@ -383,6 +386,7 @@ private:
     zima::sketcher::DimensionKind pending_line_dimension_kind_{
         zima::sketcher::DimensionKind::DistanceLine};
     std::optional<zima::sketcher::SketchDimension> pending_sketch_dimension_;
+    std::string pending_corner_radius_dimension_id_;
     bool preserve_view_on_refresh_{};
     std::map<std::string, std::array<float, 8>> document_camera_states_;
     std::optional<zima::document::PartDocument> sketch_drag_document_;
@@ -438,6 +442,7 @@ private:
     void insert_component_from_file();
     void insert_component(const std::string& source_document_id);
     void rebuild_application_toolbar();
+    void sync_sketch_tool_action_checks();
     void update_application_actions();
     void set_active_application(ApplicationMode mode);
     void update_document_area_visibility();
@@ -752,6 +757,10 @@ private:
     void redo();
     [[nodiscard]] std::vector<zima::kernel::BodyResult> calculate_part(
         const zima::document::PartDocument& document,
+        const std::vector<zima::kernel::BodyResult>* previous = nullptr) const;
+    [[nodiscard]] std::vector<zima::kernel::BodyResult>
+    calculate_part_with_resolved_references(
+        zima::document::PartDocument& document,
         const std::vector<zima::kernel::BodyResult>* previous = nullptr) const;
     void calculate_assembly_cuts(
         zima::assembly::AssemblyDocument& document) const;

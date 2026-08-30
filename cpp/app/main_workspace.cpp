@@ -97,6 +97,7 @@ bool contains_cyan_selection(const QImage& image) {
 
 int verify_startup_contract(
     QApplication& application, zima::app::AssemblyWorkspaceWindow& window,
+    const std::filesystem::path& test_directory,
     const QString& part_capture_path = {}, const QString& drawing_capture_path = {}) {
     window.show();
     application.processEvents();
@@ -1168,7 +1169,7 @@ int verify_startup_contract(
         if (group->text(0) != QStringLiteral("Vazby")) continue;
         for (int child = 0; child < group->childCount(); ++child) {
             if (group->child(child)->text(0).startsWith(
-                    QStringLiteral("Shodnost bodů"))) {
+                    QStringLiteral("Shodnost"))) {
                 first_entity_snapped_to_origin = true;
                 break;
             }
@@ -1267,7 +1268,7 @@ int verify_startup_contract(
     const bool has_inferred_horizontal = constraint_group != nullptr && [&] {
         for (int index = 0; index < constraint_group->childCount(); ++index) {
             if (constraint_group->child(index)->text(0).startsWith(
-                    QStringLiteral("Vodorovná vazba"))) return true;
+                    QStringLiteral("Vodorovnost"))) return true;
         }
         return false;
     }();
@@ -1683,7 +1684,7 @@ int verify_startup_contract(
                     QStringLiteral("part-container")) ++saved_history_items;
         }
     }
-    const auto saved_part_path = std::filesystem::current_path() /
+    const auto saved_part_path = test_directory /
         (part_name.toStdString() + ".prtz");
     save->trigger();
     application.processEvents();
@@ -2082,7 +2083,7 @@ int verify_startup_contract(
         // Save/close/reopen must preserve the outer Assembly's nested
         // subassembly structure through the real window, matching the
         // existing Part save/reopen coverage above.
-        const auto saved_nested_assembly_path = std::filesystem::current_path() /
+        const auto saved_nested_assembly_path = test_directory /
             (nested_assembly_name.toStdString() + ".asmz");
         save->trigger();
         application.processEvents();
@@ -2553,7 +2554,7 @@ int verify_startup_contract(
     // coverage above.
     const int sheet_count_before_reopen = tree->topLevelItemCount() == 1
         ? tree->topLevelItem(0)->childCount() : -1;
-    const auto saved_drawing_path = std::filesystem::current_path() /
+    const auto saved_drawing_path = test_directory /
         (drawing_name.toStdString() + ".drwz");
     save->trigger();
     application.processEvents();
@@ -2915,7 +2916,7 @@ int verify_startup_contract(
             std::filesystem::copy_options::overwrite_existing);
         std::filesystem::copy_file(renamed_again_path, renamed_archive_two,
             std::filesystem::copy_options::overwrite_existing);
-        const auto part_saved_path = std::filesystem::current_path() /
+        const auto part_saved_path = test_directory /
             (part_name.toStdString() + ".prtz");
         std::filesystem::path part_archive_one;
         std::filesystem::path part_archive_two;
@@ -3022,11 +3023,24 @@ int main(int argc, char* argv[]) {
             break;
         }
     }
-    // Keep the startup UI contract isolated from the user's configured
-    // project directory and any files stored there.
-    if (startup_directory.isEmpty() &&
-        arguments.contains(QStringLiteral("--verify-startup"))) {
-        startup_directory = QDir::currentPath();
+    // Keep automated UI artifacts out of the repository root and out of the
+    // user's configured project directory.  The contract intentionally uses
+    // one stable, user-approved test workspace so interrupted runs are easy
+    // to inspect and clean up.
+    const bool runs_startup_contract =
+        arguments.contains(QStringLiteral("--verify-startup")) ||
+        std::any_of(arguments.cbegin(), arguments.cend(), [](const QString& argument) {
+            return argument.startsWith(QStringLiteral("--capture-part=")) ||
+                argument.startsWith(QStringLiteral("--capture-drawing="));
+        });
+    if (startup_directory.isEmpty() && runs_startup_contract) {
+        const QString test_directory =
+            QDir::current().absoluteFilePath(QStringLiteral("Projects/test"));
+        if (!QDir().mkpath(test_directory)) {
+            std::cerr << "Cannot prepare Projects/test for startup verification\n";
+            return 1;
+        }
+        startup_directory = test_directory;
     }
     zima::app::AssemblyWorkspaceWindow window(startup_directory);
     QString part_capture_path;
@@ -3043,7 +3057,8 @@ int main(int argc, char* argv[]) {
     if (application.arguments().contains("--verify-startup") ||
         !part_capture_path.isEmpty() || !drawing_capture_path.isEmpty()) {
         return verify_startup_contract(
-            application, window, part_capture_path, drawing_capture_path);
+            application, window, std::filesystem::path(startup_directory.toStdString()),
+            part_capture_path, drawing_capture_path);
     }
     for (const auto& argument : application.arguments().mid(1)) {
         if (argument.startsWith('-')) continue;

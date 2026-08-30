@@ -491,6 +491,18 @@ int main() {
         });
         require(std::abs(separated.volume - 2000.0) < 1e-6,
                 "Placed and rotated boxes produced incorrect union volume");
+        zima::kernel::BoxRequest touching_second{10.0, 10.0, 10.0};
+        touching_second.translation = {10.0, 0.0, 0.0};
+        const auto touching = kernel.evaluate_history({
+            {"touching-first", zima::kernel::BoxRequest{10.0, 10.0, 10.0},
+             zima::kernel::BooleanOperation::Add, false, 0.001},
+            {"touching-second", touching_second,
+             zima::kernel::BooleanOperation::Add, false, 0.001},
+        }).back();
+        require(std::abs(touching.volume - 2000.0) < 1.0e-6 &&
+                    std::abs(touching.surface_area - 1000.0) < 1.0e-6 &&
+                    touching.mesh.edges.size() == 12,
+                "Touching additive solids retained redundant coplanar seams");
         zima::kernel::CylinderRequest cylinder;
         cylinder.radius = 10.0;
         cylinder.height = 25.0;
@@ -536,7 +548,10 @@ int main() {
             (100.0 + 50.0 + 25.0) / 3.0;
         require(cone_boundaries.size() == 1 &&
                     std::abs(cone_boundaries.front().volume - cone_volume) < 1e-5 &&
-                    cone_boundaries.front().mesh.original_references.axes.size() == 1,
+                    cone_boundaries.front().mesh.original_references.axes.size() == 1 &&
+                    cone_boundaries.front().mesh.axes.size() == 1 &&
+                    cone_boundaries.front().mesh.axes.front().reference.semantic_key ==
+                        "axis:primary",
                 "Cone geometry or stable axis is incorrect");
         zima::kernel::PyramidRequest pyramid;
         pyramid.length = 30.0; pyramid.width = 20.0; pyramid.height = 40.0;
@@ -574,9 +589,11 @@ int main() {
                     "circle:z_max", "circle:z_min", "seam"} && sampled_circle,
                 "Cylinder edges are not stable selectable viewer polylines");
         require(cylinder_boundaries.front().mesh.original_references.axes.size() == 1 &&
+                    cylinder_boundaries.front().mesh.axes.size() == 1 &&
                     cylinder_boundaries.front().mesh.original_references.axes.front()
-                        .reference.semantic_key == "axis",
-                "Cylinder does not expose its stable center axis");
+                        .reference.semantic_key == "axis:primary" &&
+                    cylinder_boundaries.front().mesh.axes.front().display_length > 20.0,
+                "Cylinder does not expose its fitted visible primary axis");
 
         auto document = zima::document::PartDocument::create_default();
         require(document.history.empty(), "New Part must have empty history");
@@ -1130,6 +1147,39 @@ int main() {
                     constructions.constructions.back().direction.x == 1.0 &&
                     constructions.constructions.back().direction.y == 0.0,
                 "Two-point datum axis did not resolve from stable point identities");
+        zima::kernel::ViewerReferenceGeometry bounded_axis_geometry;
+        bounded_axis_geometry.edges.push_back({{{5.0, 0.0, 0.0},
+            {0.0, 5.0, 0.0}, {-5.0, 0.0, 0.0}, {0.0, -5.0, 0.0},
+            {5.0, 0.0, 0.0}}, {"radius-owner", "circle", {}}});
+        const auto append_limit_plane = [&](const std::string& owner, double z) {
+            const auto offset = static_cast<std::uint32_t>(
+                bounded_axis_geometry.vertices.size());
+            bounded_axis_geometry.vertices.insert(
+                bounded_axis_geometry.vertices.end(),
+                {{-10.0, -10.0, z}, {10.0, -10.0, z},
+                 {10.0, 10.0, z}, {-10.0, 10.0, z}});
+            bounded_axis_geometry.triangles.insert(
+                bounded_axis_geometry.triangles.end(),
+                {offset, offset+1, offset+2, offset, offset+2, offset+3});
+            bounded_axis_geometry.triangle_references.insert(
+                bounded_axis_geometry.triangle_references.end(), 2,
+                {owner, "surface", {}});
+        };
+        append_limit_plane("limit-start", -5.0);
+        append_limit_plane("limit-end", 15.0);
+        auto bounded_datum_axis =
+            zima::document::PartDocument::create_construction(
+                zima::document::ConstructionKind::Axis);
+        bounded_datum_axis.references = {
+            {{}, "radius-owner", "circle"},
+            {{}, "limit-start", "surface"},
+            {{}, "limit-end", "surface"}};
+        require(zima::document::resolve_construction(
+                    bounded_datum_axis, bounded_axis_geometry) &&
+                    std::abs(bounded_datum_axis.origin.z - 5.0) < 1.0e-8 &&
+                    std::abs(bounded_datum_axis.direction.z - 1.0) < 1.0e-8 &&
+                    std::abs(bounded_datum_axis.display_size - 20.0) < 1.0e-8,
+                "Circular edge plus from/to faces did not define a bounded Axis");
         auto referenced_plane = zima::document::PartDocument::create_construction(
             zima::document::ConstructionKind::Plane);
         referenced_plane.definition =
@@ -1576,14 +1626,36 @@ int main() {
         require(!constructions.constructions.back().reference_valid,
                 "Construction dependency accepted a self-cycle");
         constructions.constructions.pop_back();
+        auto retained_axis = zima::document::PartDocument::create_construction(
+            zima::document::ConstructionKind::Axis);
+        zima::document::ConstructionReference retained_reference;
+        retained_reference.owner_id = constructions.document_id + ":origin";
+        retained_reference.semantic_key = "origin:axis:x";
+        retained_reference.orientation_role = "front";
+        retained_reference.orientation_drives_rotation = true;
+        retained_axis.references = {retained_reference};
+        require(zima::document::resolve_construction(
+                    retained_axis, document_origin_geometry),
+                "Retained-axis fixture did not initially resolve");
+        const auto retained_origin = retained_axis.origin;
+        const auto retained_direction = retained_axis.direction;
+        require(!zima::document::resolve_construction(
+                    retained_axis, zima::kernel::ViewerReferenceGeometry{}) &&
+                    retained_axis.origin == retained_origin &&
+                    retained_axis.direction == retained_direction,
+                "Construction lost its last valid frame with a missing reference");
+        zima::document::PartDocument retained_document;
+        retained_document.constructions.push_back(retained_axis);
+        const auto retained_mesh = retained_document.construction_viewer_mesh();
+        require(retained_mesh.axes.size() == 1 &&
+                    retained_mesh.axes.front().point == retained_origin &&
+                    retained_mesh.axes.front().direction == retained_direction,
+                "Invalid-reference Axis disappeared from normal View");
         auto construction_reference_sketch = zima::sketcher::Sketch::create_default();
-        // A freshly created Plane container's zero-rotation normal is
-        // along GLOBAL X (Plane's local frame maps X to the normal, Y to
-        // FRONT, Z to TOP -- see construction_viewer_mesh()'s comment), so
-        // its quad lies in the YZ plane, not XY. The sketch must match that
-        // orientation, otherwise the quad projects edge-on (degenerate,
-        // zero-area) onto the sketch and is rejected as broken.
-        construction_reference_sketch.plane = zima::sketcher::SketchPlane::YZ;
+        // The Plane lies in global YZ. An external Face reference stores its
+        // intersection with the Sketch plane, so XZ produces the global-Z
+        // infinite line and also keeps the referenced Z axis projectable.
+        construction_reference_sketch.plane = zima::sketcher::SketchPlane::XZ;
         auto point_reference = zima::sketcher::Sketch::create_external_reference(
             zima::sketcher::ExternalReferenceKind::Point);
         point_reference.source_document_id = constructions.document_id;
@@ -1603,14 +1675,14 @@ int main() {
         plane_reference.source_document_id = constructions.document_id;
         plane_reference.source_owner_id = plane.entity_id;
         plane_reference.source_semantic_key = "plane";
-        plane_reference.cached_paths = {{{-1.0, -1.0}, {1.0, -1.0},
-            {1.0, 1.0}, {-1.0, 1.0}, {-1.0, -1.0}}};
+        plane_reference.cached_points = {{0.0, -1.0}, {0.0, 1.0}};
+        plane_reference.infinite = true;
         construction_reference_sketch.add_external_reference(plane_reference);
         const bool refreshed = construction_reference_sketch.refresh_external_references(
             constructions.document_id, construction_mesh.original_references);
         require(refreshed &&
                     construction_reference_sketch.external_references[0].cached_points ==
-                        std::vector<std::array<double, 2>>{{2.0, 3.0}} &&
+                        std::vector<std::array<double, 2>>{{1.0, -3.0}} &&
                     !construction_reference_sketch.external_references[0].broken &&
                     !construction_reference_sketch.external_references[1].broken &&
                     !construction_reference_sketch.external_references[2].broken,
@@ -1767,6 +1839,34 @@ int main() {
         require(extrusion_results.size() == 1 &&
                     std::abs(extrusion_results.front().volume - 6000.0) < 1.0e-6,
                 "Closed Sketch extrusion produced an incorrect solid volume");
+        auto rounded_document = zima::document::PartDocument::create_default();
+        auto rounded_sketch = zima::sketcher::Sketch::create_default();
+        const auto rounded_segments =
+            rounded_sketch.add_rectangle(0.0, 0.0, 30.0, 20.0);
+        const auto rounded_corner = rounded_sketch.segments[0].second_point_id;
+        const auto rounded_point_count = rounded_sketch.points.size();
+        const auto rounded_radius = rounded_sketch.add_corner_fillet(
+            rounded_segments[0], rounded_segments[1], 2.0);
+        const auto rounded_sketch_id = rounded_sketch.id;
+        rounded_document.sketches.push_back(rounded_sketch);
+        auto rounded_extrusion =
+            zima::document::PartDocument::create_extrusion_container(
+                rounded_sketch_id);
+        rounded_extrusion.extrusion.height = 10.0;
+        rounded_document.history.push_back(std::move(rounded_extrusion));
+        const auto rounded_results =
+            kernel.evaluate_history(rounded_document.kernel_operations());
+        require(rounded_results.size() == 1 &&
+                    std::abs(rounded_results.front().volume -
+                        (600.0 - 4.0 + std::numbers::pi) * 10.0) < 1.0e-5 &&
+                    rounded_document.sketches.front().points.size() ==
+                        rounded_point_count &&
+                    rounded_document.sketches.front().find_point(
+                        rounded_corner) != nullptr &&
+                    rounded_document.sketches.front().corner_radii.size() == 1 &&
+                    rounded_document.sketches.front().corner_radii.front().id ==
+                        rounded_radius.arc_id,
+                "Corner radius did not remain non-destructive or reach Extrusion");
         const auto solid_only_preview =
             extrusion_document.extrusion_preview_edges(
                 extrusion_document.history.front());
@@ -1933,11 +2033,8 @@ int main() {
                     .external_references ==
                 extrusion_reference_sketch.external_references,
                 "Inherited Extrusion reference did not survive Sketch persistence");
-        require(extrusion_results.front().mesh.original_references.axes.size() == 1 &&
-                    extrusion_results.front().mesh.original_references.axes.front().reference.semantic_key ==
-                        "axis" &&
-                    extrusion_results.front().mesh.original_references.axes.front().direction.z > 0.999,
-                "Extrusion did not persist its normal axis");
+        require(extrusion_results.front().mesh.original_references.axes.empty(),
+                "Non-circular Extrusion invented a center axis");
         const auto z_bounds = [](const zima::kernel::BodyResult& result) {
             double minimum = std::numeric_limits<double>::infinity();
             double maximum = -std::numeric_limits<double>::infinity();
@@ -2344,6 +2441,119 @@ int main() {
         require(through_results.size() == 2 &&
                     std::abs(through_results.back().volume - 3750.0) < 1e-6,
                 "Through-all subtractive Extrusion did not cross the complete body");
+        double longest_through_reference_edge{};
+        for (const auto& edge :
+             through_results.back().mesh.original_references.edges) {
+            if (edge.reference.owner_id != through.id || edge.points.size() < 2)
+                continue;
+            for (std::size_t index = 1; index < edge.points.size(); ++index) {
+                const auto& first = edge.points[index - 1];
+                const auto& second = edge.points[index];
+                longest_through_reference_edge = std::max(
+                    longest_through_reference_edge,
+                    std::hypot(std::hypot(second.x - first.x,
+                                         second.y - first.y),
+                               second.z - first.z));
+            }
+        }
+        require(longest_through_reference_edge > 10.0 &&
+                    longest_through_reference_edge < 100.0,
+                "Through-all persisted reference wire is not finite around the input body");
+        auto two_sided_calculation = through_document;
+        auto& two_sided_container = two_sided_calculation.history.back();
+        two_sided_container.extrusion.extent =
+            zima::document::ExtrusionExtent::Blind;
+        two_sided_container.extrusion.extent_mode =
+            zima::document::ProfileExtentMode::TwoSides;
+        two_sided_container.extrusion.end_condition_forward =
+            zima::document::EndCondition::ThroughAll;
+        two_sided_container.extrusion.end_condition_reverse =
+            zima::document::EndCondition::ThroughAll;
+        // A stale/manual reverse length must not translate a Through-all
+        // operand away from its persisted Sketch plane.
+        two_sided_container.extrusion.length_reverse = 80.0;
+        const auto two_sided_through_results = kernel.evaluate_history(
+            two_sided_calculation.kernel_operations());
+        require(two_sided_through_results.size() == 2 &&
+                    std::abs(two_sided_through_results.back().volume - 3750.0) < 1e-6,
+                "Two-sided Through-all operand moved away from the input body");
+        const auto through_preview = through_document.extrusion_preview_edges(
+            through, through_results.front().mesh);
+        const auto preview_request = through_document.kernel_operations().back();
+        const auto preview_direction =
+            std::get<zima::kernel::ExtrusionRequest>(
+                preview_request.primitive).direction;
+        const double preview_direction_length = std::hypot(std::hypot(
+            preview_direction.x, preview_direction.y), preview_direction.z);
+        const zima::kernel::Vec3 preview_unit{
+            preview_direction.x / preview_direction_length,
+            preview_direction.y / preview_direction_length,
+            preview_direction.z / preview_direction_length};
+        const auto projection = [&](const auto& point) {
+            return point.x * preview_unit.x + point.y * preview_unit.y +
+                point.z * preview_unit.z;
+        };
+        double preview_min = std::numeric_limits<double>::infinity();
+        double preview_max = -std::numeric_limits<double>::infinity();
+        for (const auto& edge : through_preview) {
+            for (const auto& point : edge.points) {
+                preview_min = std::min(preview_min, projection(point));
+                preview_max = std::max(preview_max, projection(point));
+            }
+        }
+        double input_max = -std::numeric_limits<double>::infinity();
+        for (const auto& point : through_results.front().mesh.vertices) {
+            input_max = std::max(input_max, projection(point));
+        }
+        require(!through_preview.empty() && preview_min >= -1.0e-8 &&
+                    preview_max > input_max && preview_max < input_max + 2.0,
+                "Through-all preview is not a finite forward wire just beyond input body");
+        auto two_sided_through = through;
+        two_sided_through.extrusion.extent =
+            zima::document::ExtrusionExtent::Blind;
+        two_sided_through.extrusion.extent_mode =
+            zima::document::ProfileExtentMode::TwoSides;
+        two_sided_through.extrusion.end_condition_forward =
+            zima::document::EndCondition::ThroughAll;
+        two_sided_through.extrusion.end_condition_reverse =
+            zima::document::EndCondition::ThroughAll;
+        double profile_min = std::numeric_limits<double>::infinity();
+        for (const auto& edge : through_document.sketches.front().viewer_mesh().edges) {
+            if (edge.construction) continue;
+            for (const auto& point : edge.points) {
+                profile_min = std::min(profile_min, projection(point));
+            }
+        }
+        auto surface_input = through_results.front().mesh;
+        double surface_input_min = std::numeric_limits<double>::infinity();
+        for (const auto& point : surface_input.vertices) {
+            surface_input_min = std::min(surface_input_min, projection(point));
+        }
+        const double surface_shift = profile_min - surface_input_min;
+        for (auto& point : surface_input.vertices) {
+            point.x += preview_unit.x * surface_shift;
+            point.y += preview_unit.y * surface_shift;
+            point.z += preview_unit.z * surface_shift;
+        }
+        double surface_input_max = -std::numeric_limits<double>::infinity();
+        for (const auto& point : surface_input.vertices) {
+            surface_input_max = std::max(surface_input_max, projection(point));
+        }
+        const auto two_sided_through_preview = through_document.extrusion_preview_edges(
+            two_sided_through, surface_input);
+        double two_sided_min = std::numeric_limits<double>::infinity();
+        double two_sided_max = -std::numeric_limits<double>::infinity();
+        for (const auto& edge : two_sided_through_preview) {
+            for (const auto& point : edge.points) {
+                two_sided_min = std::min(two_sided_min, projection(point));
+                two_sided_max = std::max(two_sided_max, projection(point));
+            }
+        }
+        require(!two_sided_through_preview.empty() &&
+                    std::abs(two_sided_min - (profile_min - 1.0)) < 1.0e-8 &&
+                    two_sided_max > surface_input_max &&
+                    two_sided_max < surface_input_max + 2.0,
+                "Two-sided Through-all preview did not keep a short empty-side tail");
         auto placed_extrusion = extrusion_document;
         placed_extrusion.history.front().placement.x = 5.0;
         const auto placed_extrusion_results =
@@ -2431,6 +2641,35 @@ int main() {
         }
         require(circular_side_found,
                 "Circular extrusion lost its stable cylindrical side reference");
+        const auto& circular_axes = circular_results.back().mesh.original_references.axes;
+        const auto circular_axis = std::find_if(circular_axes.begin(), circular_axes.end(),
+            [&](const auto& value) {
+                return value.reference.owner_id == circular_cut_id;
+            });
+        require(circular_axis != circular_axes.end() &&
+                    std::count_if(circular_axes.begin(), circular_axes.end(),
+                        [&](const auto& value) {
+                            return value.reference.owner_id == circular_cut_id;
+                        }) == 1 &&
+                    circular_axis->reference.semantic_key == "axis:primary" &&
+                    circular_axis->display_length > 10.0 &&
+                    circular_axis->display_length < 13.0,
+                "Circular Extrusion did not publish one fitted primary axis");
+        require(circular_results.back().mesh.axes.size() == 1 &&
+                    circular_results.back().mesh.axes.front().reference.owner_id ==
+                        circular_cut_id &&
+                    circular_results.back().mesh.axes.front().reference.semantic_key ==
+                        "axis:primary",
+                "Circular subtract Extrusion did not expose its primary axis in View");
+        auto persisted_circular_results = circular_results;
+        persisted_circular_results.back().mesh.axes.clear();
+        zima::document::DocumentSession circular_session(
+            circular_document, std::move(persisted_circular_results));
+        const auto circular_display = circular_session.calculated_boundary(2);
+        require(circular_display && circular_display->mesh.axes.size() == 1 &&
+                    circular_display->mesh.axes.front().reference.owner_id ==
+                        circular_cut_id,
+                "Loaded circular subtract did not republish its persisted axis in View");
         const auto circular_fingerprint = zima::kernel::history_fingerprint(
             circular_document.kernel_operations(), 2);
         auto resized_circle_document = circular_document;
@@ -2463,7 +2702,13 @@ int main() {
         const auto multiple_circle_results = kernel.evaluate_history(
             multiple_circle_document.kernel_operations());
         require(std::abs(multiple_circle_results.back().volume -
-                    (16000.0 - 290.0 * std::numbers::pi)) < 1.0e-6,
+                    (16000.0 - 290.0 * std::numbers::pi)) < 1.0e-6 &&
+                    std::count_if(multiple_circle_results.back().mesh
+                            .original_references.axes.begin(),
+                        multiple_circle_results.back().mesh.original_references
+                            .axes.end(), [&](const auto& value) {
+                            return value.reference.owner_id == circular_cut_id;
+                        }) == 2,
                 "Disjoint circular profile regions did not share one feature");
 
         auto holed_profile_document = zima::document::PartDocument::create_default();
@@ -2644,8 +2889,12 @@ int main() {
         const auto annulus_results =
             kernel.evaluate_history(annulus_document.kernel_operations());
         require(std::abs(annulus_results.front().volume -
-                    420.0 * std::numbers::pi) < 1.0e-6,
-                "Nested circular profile did not produce an exact annulus");
+                    420.0 * std::numbers::pi) < 1.0e-6 &&
+                    annulus_results.front().mesh.original_references.axes.size() == 1 &&
+                    annulus_results.front().mesh.axes.size() == 1 &&
+                    annulus_results.front().mesh.original_references.axes.front()
+                        .reference.semantic_key == "axis:primary",
+                "Nested circular profile did not produce one visible primary axis");
 
         auto crossing_hole_document = holed_profile_document;
         crossing_hole_document.sketches.front().circles.front().radius = 16.0;
@@ -2754,8 +3003,13 @@ int main() {
         const auto ellipse_profile_results = kernel.evaluate_history(
             ellipse_profile_document.kernel_operations());
         require(std::abs(ellipse_profile_results.front().volume -
-                    400.0 * std::numbers::pi) < 1.0e-6,
-                "Exact Ellipse extrusion has an incorrect volume");
+                    400.0 * std::numbers::pi) < 1.0e-6 &&
+                    ellipse_profile_results.front().mesh.original_references
+                        .axes.size() == 1 &&
+                    ellipse_profile_results.front().mesh.axes.size() == 1 &&
+                    ellipse_profile_results.front().mesh.original_references
+                        .axes.front().reference.semantic_key == "axis:primary",
+                "Exact Ellipse extrusion has an incorrect volume or visible axis");
         auto trimmed_ellipse_document =
             zima::document::PartDocument::create_default();
         auto trimmed_ellipse_sketch = zima::sketcher::Sketch::create_default();
@@ -2941,7 +3195,10 @@ int main() {
                     std::abs(revolution_results.front().volume -
                         390.0 * std::numbers::pi) < 1.0e-6 &&
                     revolution_results.front().mesh.original_references.axes.size() == 1 &&
-                    revolution_results.front().mesh.original_references.axes.front().direction.x > 0.999,
+                    revolution_results.front().mesh.axes.size() == 1 &&
+                    revolution_results.front().mesh.original_references.axes.front().direction.x > 0.999 &&
+                    revolution_results.front().mesh.original_references.axes.front()
+                        .reference.semantic_key == "axis:primary",
                 "Full Sketch Revolution has an incorrect volume or axis");
         std::set<std::string> full_revolution_faces;
         for (const auto& reference : revolution_results.front().mesh

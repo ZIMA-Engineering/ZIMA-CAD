@@ -15,7 +15,9 @@ namespace zima::app {
 // in the display packet (it needs no OCCT body), so admit its point/axis/plane
 // entities alongside Document Origin. Persisted original solid Faces are
 // stable placement references as well; transient/result-body faces are not.
-// Edges remain outside this placement contract.
+// Persisted original edges are admitted as well: linear edges define an
+// axis directly and closed planar circle/ellipse edges define their normal
+// axis through the curve centre. Result-body/transient edges remain barred.
 [[nodiscard]] inline bool placement_reference_candidate_has_stable_geometry(
     const zima::viewer::ViewerCandidate& candidate) {
     using zima::viewer::CandidateGeometry;
@@ -32,6 +34,7 @@ namespace zima::app {
     if (candidate.geometry != CandidateGeometry::OriginalReference) return false;
     return candidate.kind == CandidateKind::Vertex ||
         candidate.kind == CandidateKind::Axis ||
+        candidate.kind == CandidateKind::Edge ||
         candidate.kind == CandidateKind::Face ||
         (candidate.kind == CandidateKind::Plane &&
          (candidate.semantic_key == "plane" ||

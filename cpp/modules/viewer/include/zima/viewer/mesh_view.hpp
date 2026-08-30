@@ -126,6 +126,7 @@ public:
     void set_sketch_box_selection(
         bool enabled,
         std::function<void(std::vector<ViewerCandidate>, bool)> callback = {});
+    [[nodiscard]] std::vector<ViewerCandidate> sketch_selection() const;
     // Executes the same command confirmation path as a short middle click at
     // the last View pointer position. Used by view-focused Enter.
     bool confirm_current_pointer();

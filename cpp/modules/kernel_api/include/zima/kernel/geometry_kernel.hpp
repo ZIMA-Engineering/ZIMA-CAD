@@ -113,6 +113,10 @@ struct ViewerDimension {
     // as center and witness_second as the rim point.
     Vec3 plane_normal{0.0, 0.0, 1.0};
     double sweep_degrees{};
+    // Presentation state comes from the persisted ZIMA dimension. The viewer
+    // only colours it; it never infers editability from geometry.
+    bool driving{true};
+    bool locked{};
 };
 
 struct ViewerConstraintMarker {
@@ -341,6 +345,9 @@ struct HistoryOperation {
     PrimitiveRequest primitive;
     BooleanOperation operation{BooleanOperation::Add};
     bool suppressed{};
+    // Explicit model resolution used only by the requested OCCT Boolean.
+    // Geometry coordinates remain unchanged binary64 values.
+    double boolean_tolerance{1.0e-7};
 };
 
 struct BodyResult {
@@ -420,6 +427,7 @@ struct PlacedBody {
         for (const unsigned char value : operation.owner_id) byte(value);
         byte(static_cast<std::uint8_t>(operation.operation));
         byte(operation.suppressed ? 1U : 0U);
+        u64(std::bit_cast<std::uint64_t>(operation.boolean_tolerance));
         byte(static_cast<std::uint8_t>(operation.primitive.index()));
         std::visit([&](const auto& primitive) {
             using Request = std::decay_t<decltype(primitive)>;

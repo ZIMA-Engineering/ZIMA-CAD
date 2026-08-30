@@ -162,7 +162,8 @@ target_link_libraries(zima-cad-drawing-harness PRIVATE
 add_executable(zima_cpp_performance_benchmark
     tests/performance_benchmark.cpp)
 target_link_libraries(zima_cpp_performance_benchmark PRIVATE
-    zima_workspace zima_assembly zima_document_core zima_kernel_occt zima_viewer)
+    zima_workspace zima_assembly zima_document_core zima_kernel_occt zima_viewer
+    zima_sketcher)
 
 if(ZIMA_BUILD_TESTS)
     enable_testing()

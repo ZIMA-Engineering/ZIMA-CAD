@@ -1,6 +1,7 @@
 #include <zima/kernel/occt_kernel.hpp>
 
 #include <BRepGProp.hxx>
+#include <BRepBndLib.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepAlgoAPI_Common.hxx>
@@ -26,6 +27,8 @@
 #include <BRepFilletAPI_MakeChamfer.hxx>
 #include <BRep_Builder.hxx>
 #include <BRepTools.hxx>
+#include <BRepTools_History.hxx>
+#include <ShapeUpgrade_UnifySameDomain.hxx>
 #include <STEPControl_Reader.hxx>
 #include <STEPControl_Writer.hxx>
 #include <StlAPI_Writer.hxx>
@@ -175,6 +178,41 @@ gp_Trsf primitive_transform(const Vec3& translation, const Vec3& rotation_degree
     return transform;
 }
 
+template <typename Owned>
+std::vector<Owned> propagate_topology(
+    const Handle(BRepTools_History)& history,
+    const std::vector<Owned>& existing) {
+    if (history.IsNull()) return existing;
+    std::vector<Owned> propagated;
+    const auto append_unique = [&](const TopoDS_Shape& shape,
+                                   const auto& reference) {
+        if (std::none_of(propagated.begin(), propagated.end(),
+                [&](const auto& value) {
+                    return value.shape.IsSame(shape) &&
+                        value.reference == reference;
+                })) {
+            propagated.push_back({shape, reference});
+        }
+    };
+    for (const auto& source : existing) {
+        bool has_descendant = false;
+        for (const auto* list : {
+                &history->Modified(source.shape),
+                &history->Generated(source.shape)}) {
+            for (TopTools_ListIteratorOfListOfShape iterator(*list);
+                 iterator.More(); iterator.Next()) {
+                if (iterator.Value().ShapeType() != source.shape.ShapeType()) continue;
+                append_unique(iterator.Value(), source.reference);
+                has_descendant = true;
+            }
+        }
+        if (!has_descendant && !history->IsRemoved(source.shape)) {
+            append_unique(source.shape, source.reference);
+        }
+    }
+    return propagated;
+}
+
 ViewerAxis transformed_axis(
     const std::string& owner_id,
     const std::string& key,
@@ -191,7 +229,44 @@ ViewerAxis transformed_axis(
             {owner_id, key}};
 }
 
-std::vector<ViewerAxis> axes_for_operation(const HistoryOperation& operation) {
+std::vector<ViewerAxis> axes_for_operation(
+    const HistoryOperation& operation, const TopoDS_Shape& calculated_operand) {
+    const auto fitted_axis = [&](Vec3 point, Vec3 direction,
+            std::string semantic_key, double fallback_length) {
+        const double magnitude = std::hypot(
+            std::hypot(direction.x, direction.y), direction.z);
+        direction = {direction.x / magnitude, direction.y / magnitude,
+                     direction.z / magnitude};
+        if (!calculated_operand.IsNull()) {
+            Bnd_Box bounds;
+            BRepBndLib::Add(calculated_operand, bounds);
+            if (!bounds.IsVoid()) {
+                Standard_Real xmin{}, ymin{}, zmin{}, xmax{}, ymax{}, zmax{};
+                bounds.Get(xmin, ymin, zmin, xmax, ymax, zmax);
+                double minimum = std::numeric_limits<double>::infinity();
+                double maximum = -std::numeric_limits<double>::infinity();
+                for (unsigned mask = 0; mask < 8; ++mask) {
+                    const Vec3 corner{mask & 1 ? xmax : xmin,
+                        mask & 2 ? ymax : ymin, mask & 4 ? zmax : zmin};
+                    const double projection = (corner.x-point.x)*direction.x +
+                        (corner.y-point.y)*direction.y +
+                        (corner.z-point.z)*direction.z;
+                    minimum = std::min(minimum, projection);
+                    maximum = std::max(maximum, projection);
+                }
+                const double diagonal = std::hypot(
+                    std::hypot(xmax-xmin, ymax-ymin), zmax-zmin);
+                const double margin = std::max(1.0, diagonal * 1.0e-4);
+                const double middle = (minimum + maximum) * 0.5;
+                point = {point.x + direction.x * middle,
+                         point.y + direction.y * middle,
+                         point.z + direction.z * middle};
+                fallback_length = maximum - minimum + 2.0 * margin;
+            }
+        }
+        return ViewerAxis{point, direction, std::max(1.0, fallback_length),
+            {operation.owner_id, std::move(semantic_key)}};
+    };
     return std::visit([&](const auto& primitive) {
         using Request = std::decay_t<decltype(primitive)>;
         if constexpr (std::is_same_v<Request, BoxRequest>) {
@@ -209,10 +284,10 @@ std::vector<ViewerAxis> axes_for_operation(const HistoryOperation& operation) {
         } else if constexpr (std::is_same_v<Request, CylinderRequest>) {
             const auto transform = primitive_transform(
                 primitive.translation, primitive.rotation_degrees);
-            const double length = std::max(primitive.height, primitive.radius * 2.0);
-            return std::vector<ViewerAxis>{
-                transformed_axis(operation.owner_id, "axis", {0.0, 0.0, 1.0},
-                                 length, transform)};
+            const auto transformed = transformed_axis(operation.owner_id,
+                "axis:primary", {0.0, 0.0, 1.0}, primitive.height, transform);
+            return std::vector<ViewerAxis>{fitted_axis(transformed.point,
+                transformed.direction, "axis:primary", primitive.height)};
         } else if constexpr (std::is_same_v<Request, SphereRequest>) {
             const auto transform = primitive_transform(
                 primitive.translation, primitive.rotation_degrees);
@@ -226,10 +301,10 @@ std::vector<ViewerAxis> axes_for_operation(const HistoryOperation& operation) {
         } else if constexpr (std::is_same_v<Request, ConeRequest>) {
             const auto transform = primitive_transform(
                 primitive.translation, primitive.rotation_degrees);
-            return std::vector<ViewerAxis>{transformed_axis(operation.owner_id,
-                "axis", {0.0, 0.0, 1.0},
-                std::max({primitive.height, primitive.bottom_radius * 2.0,
-                          primitive.top_radius * 2.0}), transform)};
+            const auto transformed = transformed_axis(operation.owner_id,
+                "axis:primary", {0.0, 0.0, 1.0}, primitive.height, transform);
+            return std::vector<ViewerAxis>{fitted_axis(transformed.point,
+                transformed.direction, "axis:primary", primitive.height)};
         } else if constexpr (std::is_same_v<Request, PyramidRequest> ||
                              std::is_same_v<Request, WedgeRequest>) {
             const auto transform = primitive_transform(
@@ -245,28 +320,41 @@ std::vector<ViewerAxis> axes_for_operation(const HistoryOperation& operation) {
                 primitive.direction.x * primitive.direction.x +
                 primitive.direction.y * primitive.direction.y +
                 primitive.direction.z * primitive.direction.z);
-            const Vec3 origin = std::visit([](const auto& profile) {
+            const Vec3 direction{primitive.direction.x / length,
+                primitive.direction.y / length, primitive.direction.z / length};
+            std::vector<Vec3> centers;
+            const auto append_center = [&](const auto& profile) {
                 using Profile = std::decay_t<decltype(profile)>;
                 if constexpr (std::is_same_v<Profile,
-                                  ExtrusionRequest::PolygonProfile>) {
-                    return profile.vertices.front();
-                } else if constexpr (std::is_same_v<Profile,
-                                         ExtrusionRequest::CircleProfile>) {
-                    return profile.center;
-                } else if constexpr (std::is_same_v<Profile,
-                                         ExtrusionRequest::EllipseProfile>) {
-                    return profile.center;
-                } else {
-                    return std::visit([](const auto& curve) {
-                        return curve.start;
-                    }, profile.curves.front());
+                                  ExtrusionRequest::CircleProfile> ||
+                              std::is_same_v<Profile,
+                                  ExtrusionRequest::EllipseProfile>) {
+                    if (std::none_of(centers.begin(), centers.end(),
+                            [&](const auto& center) {
+                                return std::hypot(std::hypot(
+                                    center.x-profile.center.x,
+                                    center.y-profile.center.y),
+                                    center.z-profile.center.z) <= 1.0e-7;
+                            })) centers.push_back(profile.center);
                 }
-            }, primitive.outer_profile);
-            return std::vector<ViewerAxis>{{
-                origin,
-                {primitive.direction.x / length, primitive.direction.y / length,
-                 primitive.direction.z / length},
-                length, {operation.owner_id, "axis"}}};
+            };
+            const auto append_loop = [&](const ExtrusionRequest::ProfileLoop& loop) {
+                std::visit(append_center, loop);
+            };
+            append_loop(primitive.outer_profile);
+            for (const auto& loop : primitive.inner_profiles) append_loop(loop);
+            for (const auto& region : primitive.additional_profile_regions) {
+                append_loop(region.outer_profile);
+                for (const auto& loop : region.inner_profiles) append_loop(loop);
+            }
+            std::vector<ViewerAxis> axes;
+            for (std::size_t index = 0; index < centers.size(); ++index) {
+                axes.push_back(fitted_axis(centers[index], direction,
+                    index == 0 ? "axis:primary"
+                               : "axis:profile:" + std::to_string(index + 1),
+                    length));
+            }
+            return axes;
         } else if constexpr (std::is_same_v<Request, RevolutionRequest>) {
             const double length = std::max(10.0, std::sqrt(
                 primitive.axis_direction.x * primitive.axis_direction.x +
@@ -276,12 +364,11 @@ std::vector<ViewerAxis> axes_for_operation(const HistoryOperation& operation) {
                 primitive.axis_direction.x * primitive.axis_direction.x +
                 primitive.axis_direction.y * primitive.axis_direction.y +
                 primitive.axis_direction.z * primitive.axis_direction.z);
-            return std::vector<ViewerAxis>{{
-                primitive.axis_point,
+            return std::vector<ViewerAxis>{fitted_axis(primitive.axis_point,
                 {primitive.axis_direction.x / direction_length,
                  primitive.axis_direction.y / direction_length,
                  primitive.axis_direction.z / direction_length},
-                length, {operation.owner_id, "axis"}}};
+                "axis:primary", length)};
         } else {
             return std::vector<ViewerAxis>{};
         }
@@ -1079,7 +1166,9 @@ TopoDS_Wire make_profile_wire(
 
 PrimitiveData make_extrusion_data(
     const ExtrusionRequest& request, const std::string& owner_id,
-    const std::optional<TopoDS_Face>& exact_target = std::nullopt) {
+    const std::optional<TopoDS_Face>& exact_target = std::nullopt,
+    double through_all_forward_span = 2'000'000.0,
+    double through_all_reverse_span = 2'000'000.0) {
     std::vector<TopoDS_Wire> wires{
         make_profile_wire(request.outer_profile, request.direction)};
     BRepBuilderAPI_MakeFace face_builder(wires.front(), true);
@@ -1198,11 +1287,16 @@ PrimitiveData make_extrusion_data(
             std::max(1.0, maximum_distance * 0.01);
         prism_direction = {unit.x * overrun, unit.y * overrun, unit.z * overrun};
     } else if (request.extent == ExtrusionRequest::Extent::ThroughAll) {
-        constexpr double half_span = 2'000'000.0;
+        const double forward_span = std::max(1.0, through_all_forward_span);
+        const double reverse_span = std::max(1.0, through_all_reverse_span);
         gp_Trsf shift;
-        shift.SetTranslation(gp_Vec(-unit.x * half_span,
-                                    -unit.y * half_span,
-                                    -unit.z * half_span));
+        // The wires already contain start_offset.  Through-all is bounded
+        // relative to the persisted Sketch plane, so cancel that earlier
+        // shift before moving to the finite reverse endpoint.
+        const double offset = -(reverse_span + request.start_offset);
+        shift.SetTranslation(gp_Vec(unit.x * offset,
+                                    unit.y * offset,
+                                    unit.z * offset));
         for (auto& wire : wires) {
             wire = TopoDS::Wire(BRepBuilderAPI_Transform(wire, shift, true).Shape());
         }
@@ -1214,9 +1308,9 @@ PrimitiveData make_extrusion_data(
             throw std::runtime_error("OCCT Through-all profile shift failed");
         }
         face = shifted_face.Face();
-        prism_direction = {unit.x * 2.0 * half_span,
-                           unit.y * 2.0 * half_span,
-                           unit.z * 2.0 * half_span};
+        prism_direction = {unit.x * (forward_span + reverse_span),
+                           unit.y * (forward_span + reverse_span),
+                           unit.z * (forward_span + reverse_span)};
     }
     BRepPrimAPI_MakePrism prism(face, gp_Vec(
         prism_direction.x, prism_direction.y, prism_direction.z), true, true);
@@ -1378,7 +1472,8 @@ PrimitiveData make_extrusion_data(
                 request.additional_profile_regions[index].inner_vertex_source_ids;
             additional_request.additional_profile_regions.clear();
             auto additional = make_extrusion_data(
-                additional_request, owner_id, exact_target);
+                additional_request, owner_id, exact_target,
+                through_all_forward_span, through_all_reverse_span);
             builder.Add(compound, additional.shape);
             result.faces.insert(result.faces.end(),
                 std::make_move_iterator(additional.faces.begin()),
@@ -1633,6 +1728,16 @@ std::vector<Owned> propagate_topology(
     const std::vector<Owned>& existing,
     const std::vector<Owned>& operand) {
     std::vector<Owned> propagated;
+    const auto append_unique = [&](const TopoDS_Shape& shape,
+                                   const auto& reference) {
+        if (std::none_of(propagated.begin(), propagated.end(),
+                [&](const auto& value) {
+                    return value.shape.IsSame(shape) &&
+                        value.reference == reference;
+                })) {
+            propagated.push_back({shape, reference});
+        }
+    };
     auto propagate_one = [&](const Owned& source) {
         bool has_descendant = false;
         for (const auto* list : {
@@ -1640,12 +1745,12 @@ std::vector<Owned> propagate_topology(
             for (TopTools_ListIteratorOfListOfShape iterator(*list);
                  iterator.More(); iterator.Next()) {
                 if (iterator.Value().ShapeType() != source.shape.ShapeType()) continue;
-                propagated.push_back({iterator.Value(), source.reference});
+                append_unique(iterator.Value(), source.reference);
                 has_descendant = true;
             }
         }
         if (!has_descendant && !algorithm.IsDeleted(source.shape)) {
-            propagated.push_back(source);
+            append_unique(source.shape, source.reference);
         }
     };
     for (const auto& source : existing) propagate_one(source);
@@ -2269,8 +2374,61 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                         }
                         exact_target = TopoDS::Face(matching_faces.front()->shape);
                     }
+                    double through_all_forward_span = 2'000'000.0;
+                    double through_all_reverse_span = 2'000'000.0;
+                    if (primitive.extent == ExtrusionRequest::Extent::ThroughAll &&
+                        !result_shape.IsNull()) {
+                        const Vec3 profile_origin = std::visit([](const auto& profile) {
+                            using Profile = std::decay_t<decltype(profile)>;
+                            if constexpr (std::is_same_v<Profile,
+                                              ExtrusionRequest::PolygonProfile>) {
+                                return profile.vertices.front();
+                            } else if constexpr (std::is_same_v<Profile,
+                                                     ExtrusionRequest::CircleProfile> ||
+                                                 std::is_same_v<Profile,
+                                                     ExtrusionRequest::EllipseProfile>) {
+                                return profile.center;
+                            } else {
+                                return std::visit([](const auto& curve) {
+                                    return curve.start;
+                                }, profile.curves.front());
+                            }
+                        }, primitive.outer_profile);
+                        const double direction_length = std::hypot(std::hypot(
+                            primitive.direction.x, primitive.direction.y),
+                            primitive.direction.z);
+                        const Vec3 unit{primitive.direction.x / direction_length,
+                            primitive.direction.y / direction_length,
+                            primitive.direction.z / direction_length};
+                        Bnd_Box bounds;
+                        BRepBndLib::Add(result_shape, bounds);
+                        Standard_Real xmin{}, ymin{}, zmin{}, xmax{}, ymax{}, zmax{};
+                        bounds.Get(xmin, ymin, zmin, xmax, ymax, zmax);
+                        double maximum_forward_projection{};
+                        double maximum_reverse_projection{};
+                        for (unsigned mask = 0; mask < 8; ++mask) {
+                            const Vec3 corner{mask & 1 ? xmax : xmin,
+                                mask & 2 ? ymax : ymin, mask & 4 ? zmax : zmin};
+                            const double projection =
+                                (corner.x-profile_origin.x)*unit.x +
+                                (corner.y-profile_origin.y)*unit.y +
+                                (corner.z-profile_origin.z)*unit.z;
+                            maximum_forward_projection = std::max(
+                                maximum_forward_projection, projection);
+                            maximum_reverse_projection = std::max(
+                                maximum_reverse_projection, -projection);
+                        }
+                        const double diagonal = std::hypot(std::hypot(
+                            xmax-xmin, ymax-ymin), zmax-zmin);
+                        const double margin = std::max(1.0, diagonal * 1.0e-4);
+                        through_all_forward_span =
+                            std::max(0.0, maximum_forward_projection) + margin;
+                        through_all_reverse_span =
+                            std::max(0.0, maximum_reverse_projection) + margin;
+                    }
                     return make_extrusion_data(
-                        primitive, operation.owner_id, exact_target);
+                        primitive, operation.owner_id, exact_target,
+                        through_all_forward_span, through_all_reverse_span);
                 } else if constexpr (std::is_same_v<Request, RevolutionRequest>) {
                     validate_revolution(primitive);
                     return make_revolution_data(primitive, operation.owner_id);
@@ -2298,7 +2456,7 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                 auto operand_result = make_result(
                     operand.shape, operand.faces, operand.edges,
                     operand.vertices, true, false);
-                operand_result.mesh.axes = axes_for_operation(operation);
+                operand_result.mesh.axes = axes_for_operation(operation, operand.shape);
                 operand_mesh = std::move(operand_result.mesh);
                 if (cache_reference_mesh) {
                     live_cache_->reference_meshes.emplace(
@@ -2340,9 +2498,14 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
             } else if (operation.operation == BooleanOperation::Add) {
                 BRepAlgoAPI_Fuse algorithm(result_shape, operand.shape);
                 algorithm.SetToFillHistory(true);
+                algorithm.SetFuzzyValue(
+                    std::max(1.0e-7, operation.boolean_tolerance));
                 algorithm.Build();
-                if (!algorithm.IsDone()) throw std::runtime_error("OCCT fuse failed");
-                owned_topology = std::make_shared<LiveCache::Topology>(
+                if (!algorithm.IsDone() || algorithm.Shape().IsNull() ||
+                    !BRepCheck_Analyzer(algorithm.Shape()).IsValid()) {
+                    throw std::runtime_error("OCCT fuse failed");
+                }
+                auto fused_topology = std::make_shared<LiveCache::Topology>(
                     LiveCache::Topology{
                         propagate_topology(algorithm, owned_topology->faces,
                             operand.faces),
@@ -2351,9 +2514,30 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                         propagate_topology(algorithm, owned_topology->vertices,
                             operand.vertices)});
                 result_shape = algorithm.Shape();
+                ShapeUpgrade_UnifySameDomain unifier(
+                    result_shape, true, true, false);
+                unifier.SetLinearTolerance(
+                    std::max(1.0e-7, operation.boolean_tolerance));
+                unifier.Build();
+                if (!unifier.Shape().IsNull() &&
+                    BRepCheck_Analyzer(unifier.Shape()).IsValid()) {
+                    owned_topology = std::make_shared<LiveCache::Topology>(
+                        LiveCache::Topology{
+                            propagate_topology(
+                                unifier.History(), fused_topology->faces),
+                            propagate_topology(
+                                unifier.History(), fused_topology->edges),
+                            propagate_topology(
+                                unifier.History(), fused_topology->vertices)});
+                    result_shape = unifier.Shape();
+                } else {
+                    owned_topology = std::move(fused_topology);
+                }
             } else {
                 BRepAlgoAPI_Cut algorithm(result_shape, operand.shape);
                 algorithm.SetToFillHistory(true);
+                algorithm.SetFuzzyValue(
+                    std::max(1.0e-7, operation.boolean_tolerance));
                 algorithm.Build();
                 if (!algorithm.IsDone()) throw std::runtime_error("OCCT cut failed");
                 owned_topology = std::make_shared<LiveCache::Topology>(
@@ -2378,6 +2562,17 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
         if (!boundaries.empty()) {
             boundaries.back().mesh.original_references =
                 std::move(original_references);
+            // Feature-generated axes are both persisted references and
+            // ordinary visible construction geometry. Keeping them only in
+            // original_references made the kernel contract pass while the
+            // user saw no axis in normal View.
+            for (const auto& axis :
+                 boundaries.back().mesh.original_references.axes) {
+                if (axis.reference.semantic_key == "axis:primary" ||
+                    axis.reference.semantic_key.starts_with("axis:profile:")) {
+                    boundaries.back().mesh.axes.push_back(axis);
+                }
+            }
         }
         compact_history_reference_geometry(boundaries);
         return boundaries;

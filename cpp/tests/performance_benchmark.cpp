@@ -1,6 +1,7 @@
 #include <zima/assembly/assembly_document.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/document/part_document.hpp>
+#include <zima/sketcher/sketch.hpp>
 #include <zima/viewer/picking.hpp>
 #include <zima/workspace/workspace.hpp>
 
@@ -11,6 +12,7 @@
 #include <iostream>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace {
@@ -52,6 +54,98 @@ zima::document::PartDocument part_fixture(std::size_t feature_count) {
                                   feature.id);
     }
     return part;
+}
+
+zima::sketcher::Sketch solver_fixture(std::size_t branch_count) {
+    auto sketch = zima::sketcher::Sketch::create_default();
+    for (std::size_t index = 0; index < branch_count; ++index) {
+        auto anchor = zima::sketcher::Sketch::create_point(
+            static_cast<double>(index) * 3.0,
+            static_cast<double>(index) * 2.0);
+        anchor.fixed = true;
+        auto moving = zima::sketcher::Sketch::create_point(
+            anchor.x + 3.0, anchor.y + 0.75);
+        const auto anchor_id = anchor.id;
+        const auto moving_id = moving.id;
+        sketch.points.push_back(std::move(anchor));
+        sketch.points.push_back(std::move(moving));
+        auto segment = zima::sketcher::Sketch::create_segment(
+            anchor_id, moving_id);
+        const auto segment_id = segment.id;
+        sketch.segments.push_back(std::move(segment));
+        sketch.constraints.push_back({
+            "perf-h:" + std::to_string(index),
+            zima::sketcher::ConstraintKind::Horizontal,
+            anchor_id, moving_id, false, segment_id});
+        sketch.dimensions.push_back({
+            "perf-d:" + std::to_string(index),
+            zima::sketcher::DimensionKind::Distance,
+            anchor_id, moving_id, 5.0});
+    }
+    return sketch;
+}
+
+zima::sketcher::Sketch connected_solver_fixture(std::size_t segment_count) {
+    auto sketch = zima::sketcher::Sketch::create_default();
+    auto first = zima::sketcher::Sketch::create_point(0.0, 0.0);
+    first.fixed = true;
+    sketch.points.push_back(std::move(first));
+    for (std::size_t index = 0; index < segment_count; ++index) {
+        auto point = zima::sketcher::Sketch::create_point(
+            static_cast<double>(index + 1) * 3.0,
+            index % 2 == 0 ? 0.5 : -0.5);
+        const auto first_id = sketch.points.back().id;
+        const auto second_id = point.id;
+        sketch.points.push_back(std::move(point));
+        auto segment = zima::sketcher::Sketch::create_segment(first_id, second_id);
+        const auto segment_id = segment.id;
+        sketch.segments.push_back(std::move(segment));
+        sketch.constraints.push_back({
+            "chain-h:" + std::to_string(index),
+            zima::sketcher::ConstraintKind::Horizontal,
+            first_id, second_id, false, segment_id});
+        sketch.dimensions.push_back({
+            "chain-d:" + std::to_string(index),
+            zima::sketcher::DimensionKind::Distance,
+            first_id, second_id, 3.0});
+    }
+    return sketch;
+}
+
+std::size_t mobility_component_count(const zima::sketcher::Sketch& sketch) {
+    std::unordered_map<std::string, std::vector<std::string>> neighbors;
+    for (const auto& point : sketch.points) neighbors[point.id];
+    const auto connect = [&](const std::string& first, const std::string& second) {
+        if (first.empty() || second.empty() || first == second ||
+            !neighbors.contains(first) || !neighbors.contains(second)) return;
+        neighbors[first].push_back(second);
+        neighbors[second].push_back(first);
+    };
+    for (const auto& segment : sketch.segments) {
+        connect(segment.first_point_id, segment.second_point_id);
+    }
+    for (const auto& constraint : sketch.constraints) {
+        connect(constraint.first_point_id, constraint.second_point_id);
+    }
+    for (const auto& dimension : sketch.dimensions) {
+        connect(dimension.first_point_id, dimension.second_point_id);
+    }
+    std::unordered_set<std::string> visited;
+    std::size_t components{};
+    for (const auto& [root, _] : neighbors) {
+        if (visited.contains(root)) continue;
+        ++components;
+        std::vector<std::string> pending{root};
+        while (!pending.empty()) {
+            auto point = std::move(pending.back());
+            pending.pop_back();
+            if (!visited.insert(point).second) continue;
+            for (const auto& neighbor : neighbors.at(point)) {
+                if (!visited.contains(neighbor)) pending.push_back(neighbor);
+            }
+        }
+    }
+    return components;
 }
 
 }  // namespace
@@ -210,6 +304,110 @@ int main() {
         workspace.regenerate_assembly_from_open_dependencies(top_id);
     }, repetitions);
 
+    const auto sketch_solve_ms = [&](std::size_t branches) {
+        const auto fixture = solver_fixture(branches);
+        return milliseconds([&] {
+            auto candidate = fixture;
+            const auto solved = candidate.solve();
+            if (solved.status != zima::sketcher::SolveStatus::Solved ||
+                solved.remaining_degrees_of_freedom != 0 ||
+                solved.maximum_residual > 1.0e-7) std::abort();
+        }, repetitions);
+    };
+    const auto sketch_10_ms = sketch_solve_ms(10);
+    const auto sketch_40_ms = sketch_solve_ms(40);
+    const auto sketch_100_ms = sketch_solve_ms(100);
+    const auto connected_solve_ms = [&](std::size_t segments) {
+        const auto fixture = connected_solver_fixture(segments);
+        return milliseconds([&] {
+            auto candidate = fixture;
+            const auto solved = candidate.solve();
+            if (solved.status != zima::sketcher::SolveStatus::Solved ||
+                solved.remaining_degrees_of_freedom != 0 ||
+                solved.maximum_residual > 1.0e-7) std::abort();
+        }, repetitions);
+    };
+    const auto chain_10_ms = connected_solve_ms(10);
+    const auto chain_40_ms = connected_solve_ms(40);
+    const auto chain_100_ms = connected_solve_ms(100);
+    const auto chain_250_ms = connected_solve_ms(250);
+    const auto graph_fixture = solver_fixture(1000);
+    std::size_t graph_components{};
+    const auto graph_1000_ms = milliseconds([&] {
+        graph_components = mobility_component_count(graph_fixture);
+        if (graph_components != 1000) std::abort();
+    }, 25);
+    auto drag_fixture = solver_fixture(100);
+    if (drag_fixture.solve().status != zima::sketcher::SolveStatus::Solved) {
+        std::abort();
+    }
+    const auto drag_point_id = drag_fixture.dimensions.back().second_point_id;
+    drag_fixture.dimensions.pop_back();
+    const auto drag_100_ms = milliseconds([&] {
+        auto candidate = drag_fixture;
+        const auto* point = candidate.find_point(drag_point_id);
+        if (point == nullptr ||
+            !candidate.move_point(drag_point_id, point->x + 1.0, point->y)) {
+            std::abort();
+        }
+    }, repetitions);
+    const auto dimension_fixture = solver_fixture(100);
+    const auto dimension_edit_100_ms = milliseconds([&] {
+        auto candidate = dimension_fixture;
+        if (!candidate.set_dimension_value("perf-d:99", 6.0)) std::abort();
+    }, repetitions);
+    const auto constraint_fixture = solver_fixture(100);
+    const auto constraint_remove_100_ms = milliseconds([&] {
+        auto candidate = constraint_fixture;
+        candidate.remove_constraint("perf-h:99");
+    }, repetitions);
+    auto cached_solve_fixture = solver_fixture(100);
+    if (cached_solve_fixture.solve().status !=
+        zima::sketcher::SolveStatus::Solved) std::abort();
+    const auto cached_full_solve_100_ms = milliseconds([&] {
+        auto candidate = cached_solve_fixture;
+        if (candidate.solve().status != zima::sketcher::SolveStatus::Solved) {
+            std::abort();
+        }
+    }, repetitions);
+    auto constraint_add_fixture = solver_fixture(100);
+    const auto added_segment_id = constraint_add_fixture.segments.back().id;
+    constraint_add_fixture.constraints.pop_back();
+    if (constraint_add_fixture.solve().remaining_degrees_of_freedom != 1) {
+        std::abort();
+    }
+    const auto constraint_add_100_ms = milliseconds([&] {
+        auto candidate = constraint_add_fixture;
+        static_cast<void>(candidate.add_segment_constraint(
+            added_segment_id, zima::sketcher::ConstraintKind::Horizontal));
+    }, repetitions);
+    auto large_drag_fixture = solver_fixture(1000);
+    if (large_drag_fixture.solve().status != zima::sketcher::SolveStatus::Solved) {
+        std::abort();
+    }
+    const auto large_drag_point_id =
+        large_drag_fixture.dimensions.back().second_point_id;
+    large_drag_fixture.dimensions.pop_back();
+    const auto drag_1000_ms = milliseconds([&] {
+        auto candidate = large_drag_fixture;
+        const auto* point = candidate.find_point(large_drag_point_id);
+        if (point == nullptr ||
+            !candidate.move_point(
+                large_drag_point_id, point->x + 1.0, point->y)) std::abort();
+    }, 1);
+    const auto large_dimension_fixture = solver_fixture(1000);
+    const auto dimension_edit_1000_ms = milliseconds([&] {
+        auto candidate = large_dimension_fixture;
+        if (!candidate.set_dimension_value("perf-d:999", 6.0)) std::abort();
+    }, 1);
+    const auto copy_1000_ms = milliseconds([&] {
+        auto candidate = large_dimension_fixture;
+        if (candidate.points.size() != 2000) std::abort();
+    }, 3);
+    const auto validate_1000_ms = milliseconds([&] {
+        large_dimension_fixture.validate();
+    }, 3);
+
     std::cout << std::fixed << std::setprecision(3)
               << "ZIMA_PERF_V1 repetitions=" << repetitions << '\n'
               << "part_history features=" << part_features
@@ -240,6 +438,40 @@ int main() {
               << " candidates=" << picking_candidates
               << " mean_ms=" << picking_ms << '\n'
               << "nested_regeneration levels=" << nested_levels
-              << " mean_ms=" << regeneration_ms << '\n';
+              << " mean_ms=" << regeneration_ms << '\n'
+              << "sketch_solver branches=10 variables=20 equations=20"
+              << " mean_ms=" << sketch_10_ms << '\n'
+              << "sketch_solver branches=40 variables=80 equations=80"
+              << " mean_ms=" << sketch_40_ms << '\n'
+              << "sketch_solver branches=100 variables=200 equations=200"
+              << " mean_ms=" << sketch_100_ms << '\n'
+              << "sketch_solver_chain segments=10 components=1 mean_ms="
+              << chain_10_ms << '\n'
+              << "sketch_solver_chain segments=40 components=1 mean_ms="
+              << chain_40_ms << '\n'
+              << "sketch_solver_chain segments=100 components=1 mean_ms="
+              << chain_100_ms << '\n'
+              << "sketch_solver_chain segments=250 components=1 mean_ms="
+              << chain_250_ms << '\n'
+              << "sketch_mobility_graph points=2000 components="
+              << graph_components << " mean_ms=" << graph_1000_ms << '\n'
+              << "sketch_interaction operation=drag branches=100 mean_ms="
+              << drag_100_ms << '\n'
+              << "sketch_interaction operation=dimension_edit branches=100 mean_ms="
+              << dimension_edit_100_ms << '\n'
+              << "sketch_interaction operation=constraint_remove branches=100 mean_ms="
+              << constraint_remove_100_ms << '\n'
+              << "sketch_interaction operation=cached_full_solve branches=100 mean_ms="
+              << cached_full_solve_100_ms << '\n'
+              << "sketch_interaction operation=constraint_add branches=100 mean_ms="
+              << constraint_add_100_ms << '\n'
+              << "sketch_interaction operation=drag branches=1000 mean_ms="
+              << drag_1000_ms << '\n'
+              << "sketch_interaction operation=dimension_edit branches=1000 mean_ms="
+              << dimension_edit_1000_ms << '\n'
+              << "sketch_interaction operation=copy branches=1000 mean_ms="
+              << copy_1000_ms << '\n'
+              << "sketch_interaction operation=validate branches=1000 mean_ms="
+              << validate_1000_ms << '\n';
     return EXIT_SUCCESS;
 }

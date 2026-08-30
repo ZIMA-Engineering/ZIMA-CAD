@@ -33,6 +33,7 @@ private:
     QDoubleSpinBox* value_{};
     QFormLayout* form_{};
     QCheckBox* driving_{};
+    QCheckBox* locked_{};
     QLineEdit* prefix_{};
     QLineEdit* suffix_{};
     QComboBox* tolerance_mode_{};

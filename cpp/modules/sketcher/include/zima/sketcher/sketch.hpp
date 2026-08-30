@@ -6,6 +6,7 @@
 #include <array>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -203,6 +204,10 @@ struct SketchDimension {
     std::string single_tolerance;
     std::string upper_tolerance;
     std::string lower_tolerance;
+    // Locked is an editing policy, independent of solver ownership. Both
+    // locked and unlocked driving dimensions constrain geometry; a locked
+    // value cannot be changed until explicitly unlocked.
+    bool locked{};
     bool operator==(const SketchDimension&) const = default;
 };
 
@@ -227,6 +232,22 @@ struct CornerFilletResult {
     std::string arc_id;
     std::string first_tangent_point_id;
     std::string second_tangent_point_id;
+};
+
+// A non-destructive corner treatment.  The source segments keep sharing the
+// original vertex; viewer/body evaluation derives their tangent trims and the
+// child arc from this persisted record.
+struct SketchCornerRadius {
+    std::string id;
+    std::string vertex_id;
+    std::string first_segment_id;
+    std::string second_segment_id;
+    double radius{};
+    bool suppressed{};
+    bool dimension_visible{};
+    std::optional<std::array<double, 2>> dimension_placement;
+    std::string equal_radius_group;
+    bool operator==(const SketchCornerRadius&) const = default;
 };
 
 class Sketch {
@@ -276,6 +297,7 @@ public:
     std::vector<SketchExternalReference> external_references;
     std::vector<SketchConstraint> constraints;
     std::vector<SketchDimension> dimensions;
+    std::vector<SketchCornerRadius> corner_radii;
 
     [[nodiscard]] static Sketch create_default();
     [[nodiscard]] static SketchPoint create_point(double x, double y);
@@ -384,6 +406,10 @@ public:
         const std::string& second_segment_id,
         double radius,
         double snap_tolerance = 1.0e-6);
+    [[nodiscard]] Sketch evaluated_profile_sketch() const;
+    [[nodiscard]] std::optional<std::pair<std::array<double, 2>,
+        std::array<double, 2>>> visible_segment_endpoints(
+            const std::string& segment_id) const;
     [[nodiscard]] std::string add_ellipse(
         double center_x, double center_y, double major_x, double major_y,
         double minor_x, double minor_y, bool construction = false,
@@ -414,6 +440,10 @@ public:
         const zima::kernel::ViewerReferenceGeometry& source_geometry);
     [[nodiscard]] std::optional<std::vector<std::array<double, 2>>>
         project_external_axis(const zima::kernel::ViewerAxis& axis) const;
+    [[nodiscard]] std::optional<std::vector<std::array<double, 2>>>
+        project_external_face_plane(
+            const zima::kernel::ViewerReferenceGeometry& source_geometry,
+            const zima::kernel::FaceReference& face) const;
     [[nodiscard]] std::optional<std::vector<std::vector<std::array<double, 2>>>>
         project_external_face(
             const zima::kernel::ViewerReferenceGeometry& source_geometry,
@@ -449,6 +479,8 @@ public:
     [[nodiscard]] SketchDimension create_circle_diameter_dimension(
         const std::string& circle_id) const;
     [[nodiscard]] SketchDimension create_arc_radius_dimension(
+        const std::string& arc_id) const;
+    [[nodiscard]] SketchDimension create_arc_diameter_dimension(
         const std::string& arc_id) const;
     [[nodiscard]] SketchDimension create_ellipse_radius_dimension(
         const std::string& ellipse_id, bool major) const;
@@ -486,6 +518,17 @@ public:
     [[nodiscard]] static Sketch from_serialized(const std::string& value);
     void save(const std::filesystem::path& path) const;
     [[nodiscard]] static Sketch load(const std::filesystem::path& path);
+
+private:
+    [[nodiscard]] SolveResult solve_impl(
+        std::size_t maximum_iterations, bool calculate_degrees_of_freedom,
+        const std::string& preferred_point_id = {});
+    // Non-persisted exact-state cache. The key is the complete current ZIMA
+    // Sketch serialization, so direct public-vector edits invalidate it too.
+    std::string solved_rank_cache_key_;
+    std::optional<SolveResult> solved_rank_cache_result_;
+    mutable bool point_lookup_active_{};
+    mutable std::unordered_map<std::string, std::size_t> point_lookup_indices_;
 };
 
 }  // namespace zima::sketcher
