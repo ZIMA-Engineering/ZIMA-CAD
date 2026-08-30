@@ -1487,8 +1487,11 @@ public:
         auto* description = new QLabel(
             QObject::tr(
                 "ZIMA-CAD\nNativní CAD aplikace pro parametrické modelování, "
-                "sestavy a technické výkresy."),
+                "sestavy a technické výkresy.\n\n"
+                "Vydání: ZIMA-CAD-%1")
+                .arg(QStringLiteral(ZIMA_RELEASE_DATE)),
             this);
+        description->setObjectName(QStringLiteral("aboutDescription"));
         description->setAlignment(Qt::AlignCenter);
         description->setWordWrap(true);
         content_layout()->addWidget(description);

@@ -1,5 +1,10 @@
 # Windows runtime and release packaging
 
+The product-level portable distribution layout and settings contract are
+defined in [`PORTABLE_RELEASE.md`](PORTABLE_RELEASE.md). The preferred release
+is one self-contained archive carrying both the Linux and Windows launchers,
+runtimes and shared portable data.
+
 The active application is now the C++ `zima-cad-cpp` target. A supported C++
 Windows portable-build pipeline has not yet been established.
 

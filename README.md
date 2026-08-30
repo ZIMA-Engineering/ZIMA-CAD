@@ -14,6 +14,11 @@ cmake --build build/cpp-debug --target zima-cad-cpp
 The root launchers `zima-cad` and `zima-cad.bat` start the C++ application.
 They prefer a Release build and fall back to the Debug build.
 
+The planned release form is one self-contained portable Linux and Windows
+archive with its complete runtime, resources, directory layout and portable
+settings. The distribution contract is documented in
+[`doc/PORTABLE_RELEASE.md`](doc/PORTABLE_RELEASE.md).
+
 ## Frozen Python reference
 
 The former Python implementation is frozen in [`archive/python/`](archive/python/).

@@ -2,6 +2,12 @@ cmake_minimum_required(VERSION 3.24)
 
 project(ZimaCadCpp VERSION 0.1.0 LANGUAGES CXX)
 
+file(READ "${CMAKE_SOURCE_DIR}/../RELEASE_DATE" ZIMA_RELEASE_DATE)
+string(STRIP "${ZIMA_RELEASE_DATE}" ZIMA_RELEASE_DATE)
+if(NOT ZIMA_RELEASE_DATE MATCHES "^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$")
+    message(FATAL_ERROR "RELEASE_DATE must use the YYYY-MM-DD format")
+endif()
+
 include(GNUInstallDirs)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -118,6 +124,8 @@ add_executable(zima-cad-cpp
     app/sketch_text_properties_dialog.cpp
     app/sketch_dimension_properties_dialog.cpp)
 target_include_directories(zima-cad-cpp PRIVATE app)
+target_compile_definitions(zima-cad-cpp PRIVATE
+    ZIMA_RELEASE_DATE="${ZIMA_RELEASE_DATE}")
 target_link_libraries(zima-cad-cpp PRIVATE
     zima_workspace zima_assembly zima_document_core zima_drawing zima_kernel_occt zima_viewer zima_ui
     zima_interchange nlohmann_json::nlohmann_json
