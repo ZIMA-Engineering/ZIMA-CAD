@@ -694,6 +694,19 @@ SketchTrimResult apply_sketch_trim(
         }
 
         std::vector<ConstraintKind> reusable_segment_constraints;
+        std::vector<SketchConstraint> reusable_contact_constraints;
+        for (const auto& constraint : sketch.constraints) {
+            if (constraint.suppressed) continue;
+            const bool references_curve =
+                constraint.geometry_id == geometry_id ||
+                constraint.second_geometry_id == geometry_id;
+            if (references_curve &&
+                (constraint.kind == ConstraintKind::PointOnCircle ||
+                 constraint.kind == ConstraintKind::PointOnLine ||
+                 constraint.kind == ConstraintKind::Tangent)) {
+                reusable_contact_constraints.push_back(constraint);
+            }
+        }
         if (curve.kind == SampledKind::Segment) {
             for (const auto& constraint : next.constraints) {
                 if (!constraint.suppressed && constraint.geometry_id == geometry_id &&
@@ -904,6 +917,80 @@ SketchTrimResult apply_sketch_trim(
             if (curve.kind != SampledKind::Segment) break;
             for (const auto kind : reusable_segment_constraints) {
                 static_cast<void>(next.add_segment_constraint(generated_id, kind));
+            }
+        }
+        const auto survivor_for_parameter = [&](double parameter)
+                -> std::optional<std::string> {
+            for (std::size_t index = 0;
+                 index < domains.size() && index < generated.size(); ++index) {
+                for (const double candidate :
+                     {parameter, parameter + 1.0, parameter - 1.0}) {
+                    if (candidate >= domains[index][0] - 1.0e-6 &&
+                        candidate <= domains[index][1] + 1.0e-6) {
+                        return generated[index];
+                    }
+                }
+            }
+            return std::nullopt;
+        };
+        const auto contact_parameter_for_constraint =
+            [&](const SketchConstraint& constraint) -> std::optional<double> {
+                std::string point_id;
+                if (constraint.kind == ConstraintKind::PointOnCircle ||
+                    constraint.kind == ConstraintKind::PointOnLine) {
+                    point_id = constraint.first_point_id;
+                } else if (constraint.kind == ConstraintKind::Tangent) {
+                    const std::string other_geometry =
+                        constraint.geometry_id == geometry_id
+                        ? constraint.second_geometry_id
+                        : constraint.geometry_id;
+                    const auto segment = std::find_if(sketch.segments.begin(),
+                        sketch.segments.end(), [&](const auto& value) {
+                            return value.id == other_geometry;
+                        });
+                    if (segment != sketch.segments.end()) {
+                        const auto owns_contact = [&](const auto& contact) {
+                            return contact.geometry_id == geometry_id &&
+                                (contact.point_id == segment->first_point_id ||
+                                 contact.point_id == segment->second_point_id);
+                        };
+                        if (const auto contact = std::find_if(
+                                persisted_contacts.begin(),
+                                persisted_contacts.end(), owns_contact);
+                            contact != persisted_contacts.end()) {
+                            return contact->parameter;
+                        }
+                    }
+                }
+                if (!point_id.empty()) {
+                    if (const auto contact = std::find_if(
+                            persisted_contacts.begin(), persisted_contacts.end(),
+                            [&](const auto& value) {
+                                return value.geometry_id == geometry_id &&
+                                    value.point_id == point_id;
+                            }); contact != persisted_contacts.end()) {
+                        return contact->parameter;
+                    }
+                }
+                return std::nullopt;
+            };
+        for (auto constraint : reusable_contact_constraints) {
+            const auto parameter = contact_parameter_for_constraint(constraint);
+            const auto survivor = parameter
+                ? survivor_for_parameter(*parameter)
+                : generated.size() == 1
+                    ? std::optional<std::string>{generated.front()}
+                    : std::nullopt;
+            if (!survivor) continue;
+            if (constraint.geometry_id == geometry_id) {
+                constraint.geometry_id = *survivor;
+            }
+            if (constraint.second_geometry_id == geometry_id) {
+                constraint.second_geometry_id = *survivor;
+            }
+            if (std::none_of(next.constraints.begin(), next.constraints.end(),
+                    [&](const auto& value) { return value.id == constraint.id; })) {
+                next.constraints.push_back(std::move(constraint));
             }
         }
         result.geometry_mapping.emplace(geometry_id, std::move(generated));

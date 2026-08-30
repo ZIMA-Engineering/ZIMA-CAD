@@ -3759,6 +3759,68 @@ int main() {
                           right_contact)),
                 "Trim reconstruction lost persisted contact point identities");
 
+        auto tangent_bridge_trim = zima::sketcher::Sketch::create_default();
+        const auto left_bridge_circle =
+            tangent_bridge_trim.add_circle(-15.0, 0.0, 5.0);
+        const auto right_bridge_circle =
+            tangent_bridge_trim.add_circle(15.0, 0.0, 5.0);
+        const auto upper_bridge =
+            tangent_bridge_trim.add_segment(-15.0, 5.0, 15.0, 5.0);
+        const auto lower_bridge =
+            tangent_bridge_trim.add_segment(-15.0, -5.0, 15.0, -5.0);
+        const auto upper_left_contact =
+            tangent_bridge_trim.segments[0].first_point_id;
+        const auto upper_right_contact =
+            tangent_bridge_trim.segments[0].second_point_id;
+        const auto lower_left_contact =
+            tangent_bridge_trim.segments[1].first_point_id;
+        const auto lower_right_contact =
+            tangent_bridge_trim.segments[1].second_point_id;
+        static_cast<void>(tangent_bridge_trim.add_point_on_circle_constraint(
+            upper_left_contact, left_bridge_circle));
+        static_cast<void>(tangent_bridge_trim.add_point_on_circle_constraint(
+            upper_right_contact, right_bridge_circle));
+        static_cast<void>(tangent_bridge_trim.add_tangent_constraint(
+            left_bridge_circle, upper_bridge));
+        static_cast<void>(tangent_bridge_trim.add_tangent_constraint(
+            right_bridge_circle, upper_bridge));
+        static_cast<void>(tangent_bridge_trim.add_point_on_circle_constraint(
+            lower_left_contact, left_bridge_circle));
+        static_cast<void>(tangent_bridge_trim.add_point_on_circle_constraint(
+            lower_right_contact, right_bridge_circle));
+        static_cast<void>(tangent_bridge_trim.add_tangent_constraint(
+            left_bridge_circle, lower_bridge));
+        static_cast<void>(tangent_bridge_trim.add_tangent_constraint(
+            right_bridge_circle, lower_bridge));
+        const auto bridge_topology = zima::sketcher::sketch_trim_topology(
+            tangent_bridge_trim, false);
+        const auto left_outer_bridge_piece =
+            zima::sketcher::nearest_sketch_trim_piece(
+                bridge_topology, {-20.0, 0.0}, 0.5);
+        const auto right_outer_bridge_piece =
+            zima::sketcher::nearest_sketch_trim_piece(
+                bridge_topology, {20.0, 0.0}, 0.5);
+        require(left_outer_bridge_piece && right_outer_bridge_piece &&
+                    left_outer_bridge_piece->geometry_id == left_bridge_circle &&
+                    right_outer_bridge_piece->geometry_id == right_bridge_circle,
+                "Two-circle tangent bridge did not expose both Trim pieces");
+        static_cast<void>(zima::sketcher::apply_sketch_trim(
+            tangent_bridge_trim,
+            {*left_outer_bridge_piece, *right_outer_bridge_piece}));
+        require(tangent_bridge_trim.arcs.size() == 2 &&
+                    std::count_if(tangent_bridge_trim.constraints.begin(),
+                        tangent_bridge_trim.constraints.end(), [](const auto& value) {
+                            return value.kind ==
+                                zima::sketcher::ConstraintKind::PointOnCircle;
+                        }) == 4 &&
+                    std::count_if(tangent_bridge_trim.constraints.begin(),
+                        tangent_bridge_trim.constraints.end(), [](const auto& value) {
+                            return value.kind ==
+                                zima::sketcher::ConstraintKind::Tangent;
+                        }) == 4,
+                "Two-circle Trim did not preserve all four C+T contacts");
+        tangent_bridge_trim.validate();
+
         auto split_trim = zima::sketcher::Sketch::create_default();
         const auto split_target = split_trim.add_segment(-10.0, 2.0, 10.0, 2.0);
         static_cast<void>(split_trim.add_segment(
