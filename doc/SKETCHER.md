@@ -294,6 +294,22 @@ spotřebovat kliknutí do prázdného View. Levý klik určí kotvu a okamžitě
 transientní obrys podle hodnot v interních Vlastnostech. `OK` jej uloží,
 `Cancel` nezmění skicu.
 
+## Otevřené případy pro příští testování
+
+Při příštím pokračování na Skicáři se mají jako první projít tyto případy:
+
+1. **Úhlové kóty** — úsečka–osa, úsečka–úsečka a tři body; ostrá, tupá a
+   reflexní větev podle třetího kliku; změna hodnoty bez nechtěného překlopení;
+   řídicí, zamknutá a referenční varianta; hover, výběr a odstranění.
+2. **Obdélník přes osu** — při přejetí strany přes hlavní osu nebo konstrukční
+   čáru nabídnout střed strany a po potvrzení uložit skutečnou vazbu `C` mezi
+   středem úsečky a osou.
+3. **Orientovaný a souosý obdélník** — první LMB určí výchozí bod, RMB přepne
+   do výběru osy, LMB vybere hlavní osu nebo konstrukční čáru, náhled dále drží
+   její orientaci i souosost a poslední potvrzený bod určí výsledné rozměry.
+4. Každý případ ověřit prakticky v C++ aplikaci a převést jeho posloupnost
+   kliknutí, zobrazené inference a persistované vazby na regresní test.
+
 Při zadávání druhého bodu úsečky nebo konstrukční čáry se v omezené obrazové
 toleranci nabízejí také délky existujících úseček. Kandidát přichytí nový
 konec na stejnou délku, zobrazí `=`, oranžově zvýrazní referenční úsečku a po
