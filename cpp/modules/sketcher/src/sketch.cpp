@@ -8913,6 +8913,12 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         }
         if (!anchor) continue;
         std::vector<std::string> participants;
+        const bool coincident_relation =
+            constraint.kind == ConstraintKind::Coincident ||
+            constraint.kind == ConstraintKind::PointOnCircle ||
+            constraint.kind == ConstraintKind::PointOnLine;
+        const bool geometry_relation =
+            coincident_relation || constraint.kind == ConstraintKind::Tangent;
         const auto append_point_geometry = [&](const std::string& point_id) {
             for (const auto& segment : segments) {
                 if (segment.first_point_id == point_id ||
@@ -8954,6 +8960,56 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
                 }
             }
         };
+        const auto append_geometry_points = [&](const std::string& geometry_id) {
+            const auto append_point = [&](const std::string& point_id) {
+                if (!point_id.empty()) participants.push_back("point:" + point_id);
+            };
+            if (const auto segment = std::ranges::find_if(segments,
+                    [&](const auto& value) { return value.id == geometry_id; });
+                segment != segments.end()) {
+                append_point(segment->first_point_id);
+                append_point(segment->second_point_id);
+                return;
+            }
+            if (const auto circle = std::ranges::find_if(circles,
+                    [&](const auto& value) { return value.id == geometry_id; });
+                circle != circles.end()) {
+                append_point(circle->center_point_id);
+                return;
+            }
+            if (const auto arc = std::ranges::find_if(arcs,
+                    [&](const auto& value) { return value.id == geometry_id; });
+                arc != arcs.end()) {
+                append_point(arc->center_point_id);
+                append_point(arc->start_point_id);
+                append_point(arc->end_point_id);
+                return;
+            }
+            if (const auto ellipse = std::ranges::find_if(ellipses,
+                    [&](const auto& value) { return value.id == geometry_id; });
+                ellipse != ellipses.end()) {
+                append_point(ellipse->center_point_id);
+                append_point(ellipse->major_point_id);
+                append_point(ellipse->minor_point_id);
+                return;
+            }
+            if (const auto arc = std::ranges::find_if(elliptical_arcs,
+                    [&](const auto& value) { return value.id == geometry_id; });
+                arc != elliptical_arcs.end()) {
+                append_point(arc->center_point_id);
+                append_point(arc->major_point_id);
+                append_point(arc->minor_point_id);
+                append_point(arc->start_point_id);
+                append_point(arc->end_point_id);
+                return;
+            }
+            if (const auto spline = std::ranges::find_if(bsplines,
+                    [&](const auto& value) { return value.id == geometry_id; });
+                spline != bsplines.end()) {
+                for (const auto& point_id : spline->control_point_ids)
+                    append_point(point_id);
+            }
+        };
         for (const auto& point_id : {constraint.first_point_id,
                                      constraint.second_point_id}) {
             if (point_id.empty()) continue;
@@ -8971,18 +9027,23 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
                 participants.push_back(
                     point_id == "sketch_origin" ? "origin:point"
                                                  : "point:" + point_id);
-                if (point_id != "sketch_origin") append_point_geometry(point_id);
+                if (coincident_relation && point_id != "sketch_origin")
+                    append_point_geometry(point_id);
+            }
+        }
+        for (const auto& geometry_id : {constraint.geometry_id,
+                                        constraint.second_geometry_id}) {
+            if (geometry_relation) {
+                if (const auto key = geometry_semantic_key(geometry_id); !key.empty())
+                    participants.push_back(key);
+            } else {
+                append_geometry_points(geometry_id);
             }
         }
         std::sort(participants.begin(), participants.end());
         participants.erase(
             std::unique(participants.begin(), participants.end()),
             participants.end());
-        for (const auto& geometry_id : {constraint.geometry_id,
-                                        constraint.second_geometry_id}) {
-            if (const auto key = geometry_semantic_key(geometry_id); !key.empty())
-                participants.push_back(key);
-        }
         const auto marker_reference = zima::kernel::EdgeReference{
             id, "constraint:" + constraint.id, {}};
         result.constraint_markers.push_back({*anchor, marker_label(constraint.kind),
@@ -8999,7 +9060,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
     for (const auto& point : points) {
         if (!point.fixed) continue;
         result.constraint_markers.push_back({project(point), "K",
-            {id, "fixed:" + point.id, {}}});
+            {id, "fixed:" + point.id, {}}, {"point:" + point.id}});
     }
     result.dimensions.reserve(dimensions.size());
     for (const auto& dimension : dimensions) {

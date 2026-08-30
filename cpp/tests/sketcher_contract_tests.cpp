@@ -963,8 +963,33 @@ int main() {
         require(constrained_packet.constraint_markers.size() == 1 &&
                     constrained_packet.constraint_markers.front().label == "H" &&
                     constrained_packet.constraint_markers.front().reference.semantic_key ==
-                        "constraint:" + loaded_point_tools.constraints.front().id,
+                        "constraint:" + loaded_point_tools.constraints.front().id &&
+                    constrained_packet.constraint_markers.front()
+                        .participant_semantic_keys ==
+                        std::vector<std::string>{
+                            "point:" + loaded_point_tools.segments.front().first_point_id,
+                            "point:" + loaded_point_tools.segments.front().second_point_id},
                 "Sketch constraint did not publish its persistent View marker");
+        auto coincident_marker_sketch = zima::sketcher::Sketch::create_default();
+        const auto coincident_first_segment =
+            coincident_marker_sketch.add_segment(0.0, 0.0, 5.0, 0.0);
+        const auto coincident_second_segment =
+            coincident_marker_sketch.add_segment(7.0, 2.0, 12.0, 2.0);
+        const auto coincident_marker_first = coincident_marker_sketch.segments[0];
+        const auto coincident_marker_second = coincident_marker_sketch.segments[1];
+        static_cast<void>(coincident_marker_sketch.add_coincident_constraint(
+            coincident_marker_first.second_point_id,
+            coincident_marker_second.first_point_id));
+        const auto coincident_marker =
+            coincident_marker_sketch.viewer_mesh().constraint_markers.front();
+        require(coincident_marker.label == "C" &&
+                    std::ranges::find(coincident_marker.participant_semantic_keys,
+                        "segment:" + coincident_first_segment) !=
+                        coincident_marker.participant_semantic_keys.end() &&
+                    std::ranges::find(coincident_marker.participant_semantic_keys,
+                        "segment:" + coincident_second_segment) !=
+                        coincident_marker.participant_semantic_keys.end(),
+                "Coincident marker did not expose both connected geometries");
         auto origin_marker_sketch = zima::sketcher::Sketch::create_default();
         origin_marker_sketch.owner_container_id = "origin-marker-extrusion";
         origin_marker_sketch.resolved_origin = {11.0, -7.0, 3.0};
@@ -1898,6 +1923,11 @@ int main() {
                     std::abs(tangent_line_second->y - 3.0) < 1.0e-8 &&
                     std::abs(tangent.circles.front().radius - 2.0) < 1.0e-8,
                 "Tangent did not translate the driven segment rigidly");
+        require(tangent.viewer_mesh().constraint_markers.front()
+                    .participant_semantic_keys ==
+                    std::vector<std::string>{
+                        "circle:" + tangent_circle, "segment:" + tangent_line},
+                "Tangent marker did not expose only its two geometries");
         const auto loaded_tangent = zima::sketcher::Sketch::from_serialized(
             tangent.serialized());
         require(loaded_tangent.constraints == tangent.constraints &&
