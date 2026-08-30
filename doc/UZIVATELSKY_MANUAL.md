@@ -544,6 +544,12 @@ Kliknutím se vybere první úsečka a `Ctrl`+kliknutím se k ní přidá druhá
 Tažením jejich společného bodu podél některého ramene vzniká živý tečný
 oblouk. Původní ostrý roh zůstává virtuálně zachovaný. Tažením některého
 tečného konce zpět do tohoto rohu se poloměr zmenší na nulu a rádius odstraní.
+Napojené úsečky přitom sdílejí jeden skutečný bod; nabídka `C` nevytváří dva
+překryté body. Gesto společného vrcholu má přednost před posunem bodu a
+skupinový posun více vybraných geometrií se nepoužívá. Kóta radiusu je při
+editaci skici žlutá, řídicí a měnitelná dvojklikem. Po ukončení skici se stejně
+jako ostatní skicové kóty ve výsledném view skryje, zatímco oblouk zaoblení
+zůstane součástí profilu.
 
 Řídicí souřadnicová kóta se vytvoří příkazem **Kóty → Vodorovná vzdálenost**
 nebo **Kóty → Svislá vzdálenost** a následným výběrem bodu. Teprve takto

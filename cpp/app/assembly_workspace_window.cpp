@@ -597,6 +597,7 @@ void keep_only_inactive_sketch_profile(
         const auto& key = edge.reference.semantic_key;
         const bool native_profile = key.starts_with("segment:") ||
             key.starts_with("circle:") || key.starts_with("arc:") ||
+            key.starts_with("corner_radius:") ||
             key.starts_with("ellipse:") ||
             key.starts_with("elliptical_arc:") ||
             key.starts_with("bspline:") || key.starts_with("text:");
@@ -3533,7 +3534,8 @@ void AssemblyWorkspaceWindow::create_layout() {
             candidate.semantic_key.starts_with("parameter:")) {
             edit_dimension_inline(candidate);
         } else if (candidate.kind == zima::viewer::CandidateKind::Dimension &&
-            candidate.semantic_key.starts_with("dimension:")) {
+            (candidate.semantic_key.starts_with("dimension:") ||
+             candidate.semantic_key.starts_with("corner_dimension:"))) {
             edit_dimension_inline(candidate);
         } else if (candidate.kind == zima::viewer::CandidateKind::Dimension &&
                    candidate.semantic_key.starts_with("placement-reference:") &&
@@ -12967,11 +12969,7 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
                 created_geometry_id = target.add_segment(
                     (*pending_segment_start_)[0], (*pending_segment_start_)[1],
                     confirmed_position[0], confirmed_position[1], 1.0e-6,
-                    sketch_segment_construction_,
-                    pending_segment_start_snap_kind_ !=
-                        zima::sketcher::ConstraintKind::Coincident,
-                    end_snap_kind !=
-                        zima::sketcher::ConstraintKind::Coincident);
+                    sketch_segment_construction_, true, true);
                 if (sketch_segment_construction_) {
                     target.set_segment_centerline(created_geometry_id, true);
                 }
@@ -14529,17 +14527,45 @@ bool AssemblyWorkspaceWindow::begin_sketch_point_drag(
             [&](const auto& value) { return value.id == selected_segments[1]; });
         if (first != sketch->segments.end() && second != sketch->segments.end()) {
             std::string shared_point_id;
-            for (const auto& first_point_id : {
-                    first->first_point_id, first->second_point_id}) {
-                if (first_point_id == second->first_point_id ||
-                    first_point_id == second->second_point_id) {
-                    shared_point_id = first_point_id;
-                    break;
+            std::string offered_corner_point_id;
+            const auto coincident = [&](const std::string& start,
+                                        const std::string& target) {
+                std::vector<std::string> pending{start};
+                std::unordered_set<std::string> visited;
+                while (!pending.empty()) {
+                    auto point_id = std::move(pending.back());
+                    pending.pop_back();
+                    if (!visited.insert(point_id).second) continue;
+                    if (point_id == target) return true;
+                    for (const auto& constraint : sketch->constraints) {
+                        if (constraint.suppressed || constraint.kind !=
+                                zima::sketcher::ConstraintKind::Coincident) continue;
+                        if (constraint.first_point_id == point_id)
+                            pending.push_back(constraint.second_point_id);
+                        else if (constraint.second_point_id == point_id)
+                            pending.push_back(constraint.first_point_id);
+                    }
                 }
+                return false;
+            };
+            for (const auto& first_point_id : {
+                     first->first_point_id, first->second_point_id}) {
+                for (const auto& second_point_id : {
+                         second->first_point_id, second->second_point_id}) {
+                    if (coincident(first_point_id, second_point_id)) {
+                        shared_point_id = first_point_id;
+                        if (candidate.semantic_key == "point:" + first_point_id)
+                            offered_corner_point_id = first_point_id;
+                        else if (candidate.semantic_key == "point:" + second_point_id)
+                            offered_corner_point_id = second_point_id;
+                        break;
+                    }
+                }
+                if (!shared_point_id.empty()) break;
             }
             const bool pressed_shared_point =
                 candidate.kind == zima::viewer::CandidateKind::SketchPoint &&
-                candidate.semantic_key == "point:" + shared_point_id;
+                !offered_corner_point_id.empty();
             // Selecting the second segment is not the fillet gesture.  Start
             // only on the subsequent press of their shared persisted point;
             // otherwise the Ctrl-selection click itself consumes and clears
@@ -14561,6 +14587,28 @@ bool AssemblyWorkspaceWindow::begin_sketch_point_drag(
                     return false;
                 }
                 sketch_corner_drag_source_ = *sketch;
+                // Normalize a C-connected pair to one persisted vertex in
+                // the transient source. The same normalization is committed
+                // transactionally by add_corner_fillet during the drag.
+                static_cast<void>(sketch_corner_drag_source_->add_corner_fillet(
+                    first->id, second->id, 0.0));
+                const auto normalized_first = std::ranges::find_if(
+                    sketch_corner_drag_source_->segments,
+                    [&](const auto& value) { return value.id == first->id; });
+                const auto normalized_second = std::ranges::find_if(
+                    sketch_corner_drag_source_->segments,
+                    [&](const auto& value) { return value.id == second->id; });
+                if (normalized_first == sketch_corner_drag_source_->segments.end() ||
+                    normalized_second == sketch_corner_drag_source_->segments.end())
+                    return false;
+                for (const auto& point_id : {normalized_first->first_point_id,
+                                             normalized_first->second_point_id}) {
+                    if (point_id == normalized_second->first_point_id ||
+                        point_id == normalized_second->second_point_id) {
+                        shared_point_id = point_id;
+                        break;
+                    }
+                }
                 sketch_corner_drag_first_segment_id_ = first->id;
                 sketch_corner_drag_second_segment_id_ = second->id;
                 sketch_corner_drag_vertex_id_ = shared_point_id;
@@ -21719,6 +21767,27 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                 changed = sketch != next.sketches.end() &&
                     sketch->set_dimension_value(
                         candidate.semantic_key.substr(10), next_value);
+            } else if (candidate.semantic_key.starts_with("corner_dimension:")) {
+                if (next_value <= 1.0e-9)
+                    throw std::runtime_error("Corner radius must be positive");
+                const auto sketch = std::find_if(next.sketches.begin(),
+                    next.sketches.end(), [&](const auto& value) {
+                        return value.id == candidate.owner_id;
+                    });
+                if (sketch != next.sketches.end()) {
+                    const auto radius_id = candidate.semantic_key.substr(17);
+                    const auto radius = std::ranges::find_if(
+                        sketch->corner_radii, [&](const auto& value) {
+                            return value.id == radius_id;
+                        });
+                    if (radius != sketch->corner_radii.end()) {
+                        const auto first_segment_id = radius->first_segment_id;
+                        const auto second_segment_id = radius->second_segment_id;
+                        static_cast<void>(sketch->add_corner_fillet(
+                            first_segment_id, second_segment_id, next_value));
+                        changed = true;
+                    }
+                }
             } else if (candidate.semantic_key.starts_with("parameter:")) {
                 const auto container = std::find_if(next.history.begin(),
                     next.history.end(), [&](const auto& value) {

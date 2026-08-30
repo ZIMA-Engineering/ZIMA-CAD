@@ -3575,6 +3575,10 @@ int main() {
             0.0, 0.0, 0.0, 10.0);
         const auto fillet_corner_id =
             corner_fillet.segments.front().second_point_id;
+        require(corner_fillet.points.size() == 3 &&
+                    corner_fillet.segments.front().second_point_id ==
+                        corner_fillet.segments[1].first_point_id,
+                "Connected segments created two points at one Sketch position");
         const auto fillet = corner_fillet.add_corner_fillet(
             fillet_first, fillet_second, 2.0);
         const auto free_corner_dof = corner_fillet.solve();
@@ -3632,6 +3636,34 @@ int main() {
                     loaded_fillet.points == corner_fillet.points &&
                     loaded_fillet.segments == corner_fillet.segments,
                 "Sketch corner radius did not survive persistence");
+        auto coincident_corner_fillet = zima::sketcher::Sketch::create_default();
+        const auto coincident_fillet_first = coincident_corner_fillet.add_segment(
+            10.0, 0.0, 0.0, 0.0);
+        const auto coincident_fillet_second = coincident_corner_fillet.add_segment(
+            0.01, 0.0, 0.0, 10.0);
+        const auto first_corner_point =
+            coincident_corner_fillet.segments[0].second_point_id;
+        const auto second_corner_point =
+            coincident_corner_fillet.segments[1].first_point_id;
+        require(first_corner_point != second_corner_point,
+                "Coincident-corner fixture unexpectedly reused one point ID");
+        static_cast<void>(coincident_corner_fillet.add_coincident_constraint(
+            first_corner_point, second_corner_point));
+        static_cast<void>(coincident_corner_fillet.add_corner_fillet(
+            coincident_fillet_first, coincident_fillet_second, 2.0));
+        require(coincident_corner_fillet.corner_radii.size() == 1 &&
+                    coincident_corner_fillet.segments[0].second_point_id ==
+                        coincident_corner_fillet.segments[1].first_point_id &&
+                    coincident_corner_fillet.find_point(second_corner_point) == nullptr &&
+                    std::none_of(coincident_corner_fillet.constraints.begin(),
+                        coincident_corner_fillet.constraints.end(),
+                        [](const auto& constraint) {
+                            return constraint.kind ==
+                                    zima::sketcher::ConstraintKind::Coincident &&
+                                constraint.first_point_id ==
+                                    constraint.second_point_id;
+                        }),
+                "Corner fillet did not normalize two C-connected segment endpoints");
         const auto fillet_mesh = corner_fillet.viewer_mesh();
         const auto visible_first = corner_fillet.visible_segment_endpoints(
             fillet_first);

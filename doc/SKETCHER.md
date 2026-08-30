@@ -72,6 +72,18 @@ Při kreslení vícebodové geometrie platí:
 3. Potvrzením se vybraná inference uloží jako skutečná vazba.
 4. Pokud žádná inference neplatí, bod se uloží volně.
 
+V jedné poloze skici existuje pouze jeden interní bod. Potvrzení nabídky `C`
+na existujícím bodě znovu použije jeho stabilní ID; nesmí vytvořit druhý bod
+ve stejné poloze a teprve jej spojit duplicitní vazbou. Navazující úsečky proto
+sdílejí jeden skutečný koncový bod.
+
+Vratný radius společného rohu vzniká výběrem dvou napojených úseček a tažením
+jejich společného bodu. Toto přesné gesto má přednost před běžným tažením
+bodu. Skupinový přesun více vybraných geometrií není podporován; jinak se
+přesouvá pouze přímo uchopený bod v mezích solveru. Radiusová kóta je při
+editaci skici řídicí a měnitelná dvojklikem. V běžném výsledném view je stejně
+jako ostatní skicové kóty skrytá, samotný oblouk zůstává součástí profilu.
+
 U kreslené úsečky nebo konstrukční čáry se automatická směrová inference
 ukládá jako bodová vazba `H/V` na druhém bodu, nikoli jako další vazba celé
 čáry. Pokud jsou oba konce už totožně připojené k počátku nebo ke stejné ose,

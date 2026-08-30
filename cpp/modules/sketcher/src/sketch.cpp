@@ -5482,11 +5482,12 @@ CornerFilletResult Sketch::add_corner_fillet(
         first_segment_id == second_segment_id) {
         throw std::invalid_argument("Corner radius input is invalid");
     }
-    const auto first = std::find_if(segments.begin(), segments.end(),
+    auto next = *this;
+    auto first = std::find_if(next.segments.begin(), next.segments.end(),
         [&](const auto& value) { return value.id == first_segment_id; });
-    const auto second = std::find_if(segments.begin(), segments.end(),
+    auto second = std::find_if(next.segments.begin(), next.segments.end(),
         [&](const auto& value) { return value.id == second_segment_id; });
-    if (first == segments.end() || second == segments.end()) {
+    if (first == next.segments.end() || second == next.segments.end()) {
         throw std::invalid_argument("Corner radius segments do not exist");
     }
     std::string vertex_id;
@@ -5497,9 +5498,87 @@ CornerFilletResult Sketch::add_corner_fillet(
         }
     }
     if (vertex_id.empty()) {
-        throw std::invalid_argument("Corner radius segments do not share a vertex");
+        const auto coincident = [&](const std::string& start,
+                                    const std::string& target) {
+            std::vector<std::string> pending{start};
+            std::unordered_set<std::string> visited;
+            while (!pending.empty()) {
+                auto point_id = std::move(pending.back());
+                pending.pop_back();
+                if (!visited.insert(point_id).second) continue;
+                if (point_id == target) return true;
+                for (const auto& constraint : next.constraints) {
+                    if (constraint.suppressed ||
+                        constraint.kind != ConstraintKind::Coincident) continue;
+                    if (constraint.first_point_id == point_id)
+                        pending.push_back(constraint.second_point_id);
+                    else if (constraint.second_point_id == point_id)
+                        pending.push_back(constraint.first_point_id);
+                }
+            }
+            return false;
+        };
+        std::string merged_point_id;
+        for (const auto& first_point_id : {
+                 first->first_point_id, first->second_point_id}) {
+            for (const auto& second_point_id : {
+                     second->first_point_id, second->second_point_id}) {
+                if (coincident(first_point_id, second_point_id)) {
+                    vertex_id = first_point_id;
+                    merged_point_id = second_point_id;
+                    break;
+                }
+            }
+            if (!vertex_id.empty()) break;
+        }
+        if (vertex_id.empty()) {
+            throw std::invalid_argument(
+                "Corner radius segments do not share a coincident vertex");
+        }
+        const auto replace = [&](std::string& point_id) {
+            if (point_id == merged_point_id) point_id = vertex_id;
+        };
+        for (auto& segment : next.segments) {
+            replace(segment.first_point_id);
+            replace(segment.second_point_id);
+        }
+        for (auto& circle : next.circles) replace(circle.center_point_id);
+        for (auto& arc : next.arcs) {
+            replace(arc.center_point_id); replace(arc.start_point_id);
+            replace(arc.end_point_id);
+        }
+        for (auto& ellipse : next.ellipses) {
+            replace(ellipse.center_point_id); replace(ellipse.major_point_id);
+            replace(ellipse.minor_point_id);
+        }
+        for (auto& arc : next.elliptical_arcs) {
+            replace(arc.center_point_id); replace(arc.major_point_id);
+            replace(arc.minor_point_id); replace(arc.start_point_id);
+            replace(arc.end_point_id);
+        }
+        for (auto& spline : next.bsplines)
+            for (auto& point_id : spline.control_point_ids) replace(point_id);
+        for (auto& constraint : next.constraints) {
+            replace(constraint.first_point_id);
+            replace(constraint.second_point_id);
+        }
+        std::erase_if(next.constraints, [](const auto& constraint) {
+            return constraint.kind == ConstraintKind::Coincident &&
+                constraint.first_point_id == constraint.second_point_id;
+        });
+        for (auto& dimension : next.dimensions) {
+            replace(dimension.first_point_id);
+            replace(dimension.second_point_id);
+        }
+        for (auto& corner : next.corner_radii) replace(corner.vertex_id);
+        std::erase_if(next.points, [&](const auto& point) {
+            return point.id == merged_point_id;
+        });
+        first = std::find_if(next.segments.begin(), next.segments.end(),
+            [&](const auto& value) { return value.id == first_segment_id; });
+        second = std::find_if(next.segments.begin(), next.segments.end(),
+            [&](const auto& value) { return value.id == second_segment_id; });
     }
-    auto next = *this;
     auto existing = std::find_if(next.corner_radii.begin(), next.corner_radii.end(),
         [&](const auto& value) {
             return value.vertex_id == vertex_id &&
@@ -5509,7 +5588,11 @@ CornerFilletResult Sketch::add_corner_fillet(
                   value.second_segment_id == first_segment_id));
         });
     if (radius <= 1.0e-9) {
-        if (existing == next.corner_radii.end()) return {{}, {}, {}};
+        if (existing == next.corner_radii.end()) {
+            next.validate();
+            *this = std::move(next);
+            return {{}, {}, {}};
+        }
         const auto id = existing->id;
         existing->radius = 0.0;
         existing->suppressed = false;
@@ -9323,7 +9406,10 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
             display.kind = DimensionKind::Radius;
             display.value = radius.radius;
             display.geometry_id = radius.id;
-            display.driving = false;
+            // This transient adapter represents the persisted
+            // SketchCornerRadius parameter. It is not a reference-only
+            // measurement: editing it drives the source radius.
+            display.driving = true;
             display.placement = radius.dimension_placement;
             evaluated.dimensions.push_back(std::move(display));
         }
