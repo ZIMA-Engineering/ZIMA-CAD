@@ -62,6 +62,10 @@ int main() {
                     step_boundaries.back().mesh.original_references
                         .triangle_references.empty(),
                 "Imported STEP exposed traversal indices as persistent references");
+        require(!step_boundaries.back().kernel_shape.empty(),
+                "Imported STEP did not produce a frozen body");
+        step_document.history.front().imported_step.frozen_brep =
+            std::make_shared<const std::string>(step_boundaries.back().kernel_shape);
         const auto step_document_path = std::filesystem::temp_directory_path() /
             "zima-cad-imported-step-contract.prtz";
         step_document.save(step_document_path, step_boundaries);
@@ -70,11 +74,15 @@ int main() {
             step_document_path, &loaded_step_boundaries);
         std::filesystem::remove(step_document_path);
         std::filesystem::remove(step_path);
+        const auto recalculated_frozen_step = kernel.evaluate_history(
+            loaded_step_document.kernel_operations());
         require(loaded_step_document.history.size() == 1 &&
                     loaded_step_document.history.front().feature_kind ==
                         zima::document::FeatureKind::ImportedStep &&
-                    loaded_step_boundaries.size() == 1,
-                "Imported STEP container did not survive Part save/load");
+                    loaded_step_boundaries.size() == 1 &&
+                    recalculated_frozen_step.size() == 1 &&
+                    std::abs(recalculated_frozen_step.back().volume - 480.0) < 1.0e-6,
+                "Frozen imported STEP did not survive source-free Part recalculation");
 
         // Edit/regenerate/reopen: the Python-produced fixture starts with an
         // empty history. Append a native feature, calculate it, save and

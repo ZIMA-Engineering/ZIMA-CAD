@@ -7,6 +7,7 @@
 #include <vector>
 #include <variant>
 #include <optional>
+#include <memory>
 #include <type_traits>
 
 namespace zima::kernel {
@@ -317,6 +318,14 @@ struct RevolutionRequest {
 struct StepRequest {
     std::string source_path;
     std::string component_path;
+    // Immutable B-Rep captured by the explicit STEP import.  Once present,
+    // ordinary history evaluation must never reopen or translate the source
+    // STEP file.  Shared ownership keeps Part/document preview copies cheap.
+    std::shared_ptr<const std::string> frozen_brep;
+    // Optional runtime boundary identity used by explicit import to hand the
+    // already translated OCCT shape directly to later history evaluation.
+    // It is deliberately excluded from persisted parameter identity.
+    std::string live_cache_fingerprint;
 };
 
 enum class EdgeSelectionOrigin { OriginalEntity, OperationalBody };

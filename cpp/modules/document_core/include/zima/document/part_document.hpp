@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <limits>
 #include <map>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -306,7 +307,14 @@ struct EdgeTreatmentParameters {
 struct ImportedStepParameters {
     std::string source_path;
     std::string component_path;
-    bool operator==(const ImportedStepParameters&) const = default;
+    std::shared_ptr<const std::string> frozen_brep;
+    bool operator==(const ImportedStepParameters& other) const {
+        if (source_path != other.source_path ||
+            component_path != other.component_path) return false;
+        if (frozen_brep == other.frozen_brep) return true;
+        return frozen_brep && other.frozen_brep &&
+            *frozen_brep == *other.frozen_brep;
+    }
 };
 
 struct Placement {

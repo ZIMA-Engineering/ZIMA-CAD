@@ -6734,32 +6734,54 @@ void AssemblyWorkspaceWindow::import_file() {
         try {
             auto next = part->session.document();
             const auto absolute = std::filesystem::absolute(path.toStdString());
-            const auto imported_parts = zima::interchange::inspect_step_parts(absolute);
-            if (imported_parts.empty()) {
-                throw std::runtime_error("STEP neobsahuje žádný samostatný díl");
+            // A STEP imported into a Part is one immutable compound feature.
+            // Do not inspect the XCAF product tree first and then translate
+            // every component again: that multiplied both STEP traversal and
+            // cumulative history meshing. Assembly import is the explicit
+            // workflow that preserves and expands product structure.
+            auto container =
+                zima::document::PartDocument::create_imported_step_container(absolute);
+            const auto container_id = container.id;
+            next.insert_history_entry(
+                zima::document::PartHistoryKind::Feature, container_id);
+            next.history.push_back(container);
+            const auto operations = next.kernel_operations();
+            const auto imported_fingerprint = zima::kernel::history_fingerprint(
+                operations, operations.size());
+            const bool direct_frozen_boundary =
+                part->session.calculated_boundaries().empty() &&
+                operations.size() == 1;
+            auto frozen = kernel_.import_step_components({
+                zima::kernel::StepRequest{
+                    absolute.string(), {}, {},
+                    direct_frozen_boundary ? imported_fingerprint : std::string{}}});
+            if (frozen.size() != 1 || frozen.front().kernel_shape.empty()) {
+                throw std::runtime_error("STEP nebyl zmrazen kompletně");
             }
-            std::size_t part_count{};
-            for (const auto& imported : imported_parts) {
-                if (imported.assembly) continue;
-                auto container =
-                    zima::document::PartDocument::create_imported_step_container(
-                        absolute, imported.definition_id, imported.name);
-                container.placement = {imported.global_x, imported.global_y,
-                    imported.global_z, imported.global_rotation_x,
-                    imported.global_rotation_y, imported.global_rotation_z};
-                next.insert_history_entry(
-                    zima::document::PartHistoryKind::Feature, container.id);
-                next.history.push_back(std::move(container));
-                ++part_count;
+            container.imported_step.frozen_brep =
+                std::make_shared<const std::string>(frozen.front().kernel_shape);
+            next.history.back() = std::move(container);
+
+            // import_step_components() already produced the final B-Rep,
+            // triangulation and persisted viewer packet. Turn it directly
+            // into the new history boundary instead of deserializing,
+            // remeshing and serializing the same body through calculate_part.
+            auto calculated = part->session.calculated_boundaries();
+            if (direct_frozen_boundary) {
+                auto imported_boundary = std::move(frozen.front());
+                imported_boundary.source_fingerprint =
+                    imported_fingerprint;
+                calculated.push_back(std::move(imported_boundary));
+            } else {
+                // Importing into a non-empty Part must still form the real
+                // cumulative history boundary. The existing prefix is reused,
+                // while the new operand comes from its frozen B-Rep.
+                calculated = calculate_part(next);
             }
-            if (part_count == 0) throw std::runtime_error("STEP neobsahuje žádný díl");
-            auto calculated = calculate_part(next);
-            static_cast<void>(refresh_sketch_external_references(next, calculated));
             part->session.commit(std::move(next), std::move(calculated));
             refresh_tabs();
             refresh_scene();
-            state_->setText(tr("STEP importován: %1 samostatných kontejnerů")
-                .arg(part_count));
+            state_->setText(tr("STEP importován jako zmrazené těleso"));
         } catch (const std::exception& error) {
             QMessageBox::warning(this, tr("Import STEP selhal"), error.what());
         }
@@ -6810,6 +6832,11 @@ void AssemblyWorkspaceWindow::import_step_into_assembly(
         document.name = node->name;
         auto container = zima::document::PartDocument::create_imported_step_container(
             source, node->definition_id, node->name);
+        if (calculated[index].kernel_shape.empty()) {
+            throw std::runtime_error("STEP díl nemá zmrazený B-Rep");
+        }
+        container.imported_step.frozen_brep =
+            std::make_shared<const std::string>(calculated[index].kernel_shape);
         container.id = "step-import:" + std::to_string(index);
         container.feature_parent_id = container.id;
         container.container_origin =
@@ -7862,7 +7889,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         // the same persisted reference rows and the same DOF solver.
         zima::kernel::ViewerReferenceGeometry reference_geometry;
         if (part != nullptr) {
-            const auto calculated = part->session.calculated_boundaries();
+            const auto& calculated = part->session.calculated_boundaries();
             reference_geometry = construction_reference_source_geometry(calculated);
             const auto& document = part->session.document();
             append_reference_geometry(reference_geometry,
@@ -20191,9 +20218,22 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                     }
                 }
             }
-            const auto cursor_body = part->session.calculated_boundary(
-                std::min(feature_count, calculated.size()));
-            zima::kernel::ViewerMesh display = cursor_body
+            const auto displayed_count = std::min(feature_count, calculated.size());
+            // The final boundary already contains the complete persisted
+            // reference packet. Asking DocumentSession for it returned a full
+            // BodyResult copy merely to filter nothing, then copied its mesh
+            // once more below. Large imported bodies made every preview scene
+            // refresh pay both copies.
+            std::optional<zima::kernel::BodyResult> filtered_cursor_body;
+            const zima::kernel::BodyResult* cursor_body = nullptr;
+            if (displayed_count == calculated.size() && !calculated.empty()) {
+                cursor_body = &calculated.back();
+            } else if (displayed_count > 0) {
+                filtered_cursor_body = part->session.calculated_boundary(
+                    displayed_count);
+                if (filtered_cursor_body) cursor_body = &*filtered_cursor_body;
+            }
+            zima::kernel::ViewerMesh display = cursor_body != nullptr
                 ? cursor_body->mesh : zima::kernel::ViewerMesh{};
             for (const auto& sketch : document.sketches) {
                 if (sketch.id == sketch_properties_preview_id_) continue;

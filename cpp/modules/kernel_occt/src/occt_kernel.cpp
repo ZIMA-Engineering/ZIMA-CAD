@@ -1518,9 +1518,17 @@ PrimitiveData make_extrusion_data(
 PrimitiveData make_step_data(
     const StepRequest& request, const std::string& owner_id,
     std::unordered_map<std::string, Handle(TDocStd_Document)>& documents) {
-    if (request.source_path.empty()) throw std::invalid_argument("STEP source path is empty");
     TopoDS_Shape imported;
-    if (request.component_path.empty()) {
+    if (request.frozen_brep && !request.frozen_brep->empty()) {
+        std::istringstream stream(*request.frozen_brep);
+        BRep_Builder builder;
+        BRepTools::Read(imported, stream, builder);
+        if (imported.IsNull()) {
+            throw std::runtime_error("Frozen STEP body is invalid");
+        }
+    } else if (request.source_path.empty()) {
+        throw std::invalid_argument("STEP source path is empty");
+    } else if (request.component_path.empty()) {
         STEPControl_Reader reader;
         if (reader.ReadFile(request.source_path.c_str()) != IFSelect_RetDone ||
             reader.TransferRoots() == 0) {
@@ -1835,7 +1843,21 @@ BodyResult make_result(
     const std::vector<OwnedVertex>& owned_vertices,
     bool original_reference_geometry = false,
     bool persist_kernel_shape = true) {
-    BRepMesh_IncrementalMesh(shape, 0.1, false, 0.5, true).Perform();
+    Bnd_Box mesh_bounds;
+    BRepBndLib::Add(shape, mesh_bounds);
+    Standard_Real xmin{}, ymin{}, zmin{}, xmax{}, ymax{}, zmax{};
+    double linear_deflection = 0.1;
+    if (!mesh_bounds.IsVoid()) {
+        mesh_bounds.Get(xmin, ymin, zmin, xmax, ymax, zmax);
+        const double diagonal = std::hypot(
+            std::hypot(xmax - xmin, ymax - ymin), zmax - zmin);
+        // 0.1 mm is appropriate for ordinary parts but pathological for a
+        // machine/plant-sized STEP compound. Keep roughly 1e-4 of the scene
+        // diagonal while retaining the existing detail floor for small work.
+        linear_deflection = std::max(0.1, diagonal * 1.0e-4);
+    }
+    BRepMesh_IncrementalMesh(
+        shape, linear_deflection, false, 0.5, true).Perform();
     BodyResult result;
     GProp_GProps volume_properties;
     GProp_GProps surface_properties;
@@ -2033,10 +2055,30 @@ std::vector<BodyResult> OcctKernel::import_step_components(
         const std::string owner = "step-import:" + std::to_string(index);
         const auto data = make_step_data(requests[index], owner, documents);
         auto result = make_result(data.shape, data.faces, data.edges, data.vertices);
-        auto references = make_result(
-            data.shape, data.faces, data.edges, data.vertices, true);
-        append_original_reference_geometry(
-            result.mesh.original_references, std::move(references.mesh));
+        // Imported STEP currently has no persisted per-face ancestry. Running
+        // make_result() a second time could therefore produce no selectable
+        // references and only repeated the complete meshing pass.
+        if (!data.faces.empty() || !data.edges.empty() || !data.vertices.empty()) {
+            auto references = make_result(
+                data.shape, data.faces, data.edges, data.vertices, true, false);
+            append_original_reference_geometry(
+                result.mesh.original_references, std::move(references.mesh));
+        }
+        if (!requests[index].live_cache_fingerprint.empty()) {
+            result.source_fingerprint = requests[index].live_cache_fingerprint;
+            live_cache_->boundaries.insert_or_assign(
+                requests[index].live_cache_fingerprint,
+                LiveCache::Boundary{data.shape,
+                    std::make_shared<LiveCache::Topology>(LiveCache::Topology{
+                        data.faces, data.edges, data.vertices})});
+            live_cache_->insertion_order.push_back(
+                requests[index].live_cache_fingerprint);
+            while (live_cache_->insertion_order.size() > kLiveShapeCacheLimit) {
+                live_cache_->boundaries.erase(
+                    live_cache_->insertion_order.front());
+                live_cache_->insertion_order.pop_front();
+            }
+        }
         results.push_back(std::move(result));
     }
     return results;

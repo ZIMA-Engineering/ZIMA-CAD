@@ -291,7 +291,11 @@ void add_json_parameters(
     for (auto it = value.begin(); it != value.end(); ++it) {
         if (it.key() == "id" || it.key() == "name" || it.key() == "type" ||
             it.key() == "combine" || it.key() == "suppressed" ||
-            it.key() == "container_origin" || it.key() == "placement") {
+            it.key() == "container_origin" || it.key() == "placement" ||
+            // Large immutable payloads live in param.cpp_history only.  A raw
+            // B-Rep is multiline and is neither an editable feature parameter
+            // nor valid as a duplicate INI scalar.
+            it.key() == "frozen_brep") {
             continue;
         }
         section["param." + it.key()] = json_text(it.value());
@@ -5273,7 +5277,9 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
         } else if (container.feature_kind == FeatureKind::ImportedStep) {
             zima::kernel::StepRequest step{
                 container.imported_step.source_path,
-                container.imported_step.component_path};
+                container.imported_step.component_path,
+                container.imported_step.frozen_brep,
+                {}};
             primitive = std::move(step);
         } else if (container.feature_kind == FeatureKind::Fillet) {
             require_default_sketch_feature_placement(container.placement);
@@ -5644,7 +5650,10 @@ PartDocument PartDocument::load(
             container.imported_step.source_path = source.at("source_path").get<std::string>();
             container.imported_step.component_path =
                 source.at("component_path").get<std::string>();
+            container.imported_step.frozen_brep = std::make_shared<const std::string>(
+                source.at("frozen_brep").get<std::string>());
             if (container.imported_step.source_path.empty() ||
+                container.imported_step.frozen_brep->empty() ||
                 container.combine_mode != CombineMode::Add) {
                 throw std::runtime_error("Invalid imported STEP parameters");
             }
@@ -6102,6 +6111,8 @@ void PartDocument::save(
             }
         } else if (container.feature_kind == FeatureKind::ImportedStep) {
             if (container.imported_step.source_path.empty() ||
+                !container.imported_step.frozen_brep ||
+                container.imported_step.frozen_brep->empty() ||
                 container.combine_mode != CombineMode::Add) {
                 throw std::runtime_error("Invalid imported STEP parameters");
             }
@@ -6330,6 +6341,11 @@ void PartDocument::save(
         } else if (container.feature_kind == FeatureKind::ImportedStep) {
             serialized["source_path"] = container.imported_step.source_path;
             serialized["component_path"] = container.imported_step.component_path;
+            if (!container.imported_step.frozen_brep ||
+                container.imported_step.frozen_brep->empty()) {
+                throw std::runtime_error("Imported STEP has no frozen body");
+            }
+            serialized["frozen_brep"] = *container.imported_step.frozen_brep;
         } else {
             serialized["edges"] = nlohmann::json::array();
             for (const auto& edge : container.edge_treatment.edges) {
