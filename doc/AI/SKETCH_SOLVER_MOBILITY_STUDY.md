@@ -310,6 +310,55 @@ Sanity measurement for every generated family must include residual magnitude,
 reported DOF, coordinate drift after a forward/back cycle and debug-build
 latency. A visually plausible result is not sufficient verification.
 
+### Connected-arc batch 1 result
+
+The first four-orientation tangent-arc matrix exposed two missing mobility
+transitions. A Tangent between a Segment and an Arc with one persisted shared
+endpoint could only translate the complete driven curve; the shared endpoint
+correctly blocked that translation, but the solver then reported a conflict
+instead of rotating the free Segment arm onto the exact endpoint tangent.
+Endpoint ownership now selects that analytic branch before nearest-contact
+search. A fixed opposite Segment endpoint still rejects transactionally.
+
+Dragging the other Arc endpoint may also change radius and move the shared
+contact as a dependent point. Previously the connected Segment's opposite end
+did not receive the same translation, so the subsequent tangent correction
+preserved a newly enlarged length and a forward/back cycle accumulated
+`1.489 mm` drift in the reproducing fixture. Dependent Arc endpoint motion now
+propagates the same translation into connected free Segment arms before the
+constraint solve. The reproducer returns below `1e-6 mm`, preserves constraint
+identity, survives serialization, and covers both base axes and both sides.
+
+The post-change debug baseline remains within run-to-run noise for connected
+chains: 100 Segments measured `11.362 ms` (previous `11.820 ms`) and 250
+Segments `47.229 ms` (previous `47.603 ms`). The generic 100-branch full solve
+measured `9.966 ms` versus `8.959 ms`; no scaling-regime change was observed.
+
+### Connected elliptical-arc and B-spline batch 2 result
+
+An exactly tangent Segment sharing an Elliptical Arc endpoint was initially
+reported as redundant. The endpoint tangent residual used an absolute cross
+product; symmetric numerical differentiation of `|f|` at the valid state
+`f = 0` produced a zero Jacobian column and hid the constraint rank. Persisted
+endpoint tangency now contributes the signed normalized cross product to the
+equation system. Absolute magnitude remains only a convergence criterion.
+
+Rotating an Elliptical Arc major handle exposed a second ownership alias: the
+major/minor characteristic point may also be the persisted start/end point.
+Dependent endpoint propagation may therefore not skip a point merely because
+the same ID is the drag root. Connected Tangent arms now preserve their
+original orientation sign relative to the press-time exact tangent and map
+that sign onto the new tangent. This prevents an ambiguous 90-degree rotation
+from selecting the opposite branch on return. The four-step rotation/return
+fixture now has less than `1e-6 mm` drift.
+
+The B-spline matrix verifies the complementary ownership direction: moving a
+free Segment end rotates the adjacent spline handle, preserves the shared
+contact, returns without drift, and rejects atomically when that handle is
+fixed. A repeated debug benchmark measured 100 connected Segments at
+`13.024 ms` and 250 at `44.128 ms`; the earlier slower run (`15.158/66.002 ms`)
+tracked whole-system load and was not reproducible as a scaling regression.
+
 ## Idle-time preparation
 
 Allowed background work is limited to Sketch data:

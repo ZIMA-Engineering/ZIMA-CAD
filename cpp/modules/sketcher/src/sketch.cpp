@@ -1261,6 +1261,47 @@ std::optional<SegmentCurveTangentState> segment_curve_tangent_state(
         contact_on_segment, contact_on_curve};
 }
 
+std::optional<double> segment_curve_endpoint_tangent_residual(
+    const Sketch& sketch, const std::string& segment_id,
+    const std::string& curve_id) {
+    const auto segment = std::ranges::find_if(
+        sketch.segments, [&](const auto& value) {
+            return value.id == segment_id;
+        });
+    if (segment == sketch.segments.end()) return std::nullopt;
+    std::string shared_id;
+    const auto offer_shared = [&](const std::string& id) {
+        if (id == segment->first_point_id || id == segment->second_point_id)
+            shared_id = id;
+    };
+    if (const auto arc = std::ranges::find_if(sketch.arcs,
+            [&](const auto& value) { return value.id == curve_id; });
+        arc != sketch.arcs.end()) {
+        offer_shared(arc->start_point_id);
+        offer_shared(arc->end_point_id);
+    }
+    if (const auto arc = std::ranges::find_if(sketch.elliptical_arcs,
+            [&](const auto& value) { return value.id == curve_id; });
+        arc != sketch.elliptical_arcs.end()) {
+        offer_shared(arc->start_point_id);
+        offer_shared(arc->end_point_id);
+    }
+    if (shared_id.empty()) return std::nullopt;
+    const auto* contact = sketch.find_point(shared_id);
+    const auto* other = sketch.find_point(
+        segment->first_point_id == shared_id
+            ? segment->second_point_id : segment->first_point_id);
+    if (contact == nullptr || other == nullptr) return std::nullopt;
+    const auto tangent = sketch.curve_tangent_at_point(
+        curve_id, contact->x, contact->y);
+    const double length = std::hypot(
+        other->x - contact->x, other->y - contact->y);
+    if (!tangent || length <= 1.0e-12) return std::nullopt;
+    const double segment_x = (other->x - contact->x) / length;
+    const double segment_y = (other->y - contact->y) / length;
+    return segment_x * (*tangent)[1] - segment_y * (*tangent)[0];
+}
+
 struct SegmentSplineTangentState {
     std::string contact_point_id;
     std::string other_point_id;
@@ -2699,6 +2740,63 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
         attached->y = (*target)[1];
     }
     constexpr double full_turn = 2.0 * 3.14159265358979323846;
+    const auto propagate_connected_segment_endpoint = [&]
+            (const std::string& endpoint_id,
+             const std::array<double, 2>& original,
+             const SketchPoint* current,
+             const std::string& curve_id) {
+        if (current == nullptr) return true;
+        const double dx = current->x - original[0];
+        const double dy = current->y - original[1];
+        if (std::hypot(dx, dy) <= 1.0e-12) return true;
+        std::set<std::string> translated;
+        for (const auto& segment : next.segments) {
+            if (segment.first_point_id != endpoint_id &&
+                segment.second_point_id != endpoint_id) continue;
+            const auto& other_id = segment.first_point_id == endpoint_id
+                ? segment.second_point_id : segment.first_point_id;
+            if (!translated.insert(other_id).second) continue;
+            auto* other = next.find_point(other_id);
+            if (other == nullptr || other->fixed ||
+                externally_linked.contains(other_id)) return false;
+            const bool tangent_connected = std::ranges::any_of(
+                next.constraints, [&](const auto& constraint) {
+                    return !constraint.suppressed &&
+                        constraint.kind == ConstraintKind::Tangent &&
+                        ((constraint.geometry_id == segment.id &&
+                          constraint.second_geometry_id == curve_id) ||
+                         (constraint.second_geometry_id == segment.id &&
+                          constraint.geometry_id == curve_id));
+                });
+            const auto* old_endpoint = find_point(endpoint_id);
+            const auto* old_other = find_point(other_id);
+            const auto old_tangent = tangent_connected && old_endpoint != nullptr
+                ? curve_tangent_at_point(
+                      curve_id, old_endpoint->x, old_endpoint->y)
+                : std::nullopt;
+            const auto new_tangent = tangent_connected
+                ? next.curve_tangent_at_point(
+                      curve_id, current->x, current->y)
+                : std::nullopt;
+            if (old_tangent && new_tangent && old_other != nullptr) {
+                const double length = std::hypot(
+                    old_other->x - old_endpoint->x,
+                    old_other->y - old_endpoint->y);
+                const double orientation_sign =
+                    (old_other->x - old_endpoint->x) * (*old_tangent)[0] +
+                        (old_other->y - old_endpoint->y) * (*old_tangent)[1] < 0.0
+                    ? -1.0 : 1.0;
+                other->x = current->x +
+                    orientation_sign * length * (*new_tangent)[0];
+                other->y = current->y +
+                    orientation_sign * length * (*new_tangent)[1];
+            } else {
+                other->x += dx;
+                other->y += dy;
+            }
+        }
+        return true;
+    };
     for (auto& arc : next.arcs) {
         auto* center = next.find_point(arc.center_point_id);
         auto* start = next.find_point(arc.start_point_id);
@@ -2734,6 +2832,12 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
         const bool moving_start = arc.start_point_id == point_id;
         const bool moving_end = arc.end_point_id == point_id;
         if (!moving_start && !moving_end) continue;
+        const std::array original_start = arc.start_point_id == point_id
+            ? std::array{original_x, original_y}
+            : std::array{start->x, start->y};
+        const std::array original_end = arc.end_point_id == point_id
+            ? std::array{original_x, original_y}
+            : std::array{end->x, end->y};
         double angle = std::atan2(y - center->y, x - center->x);
         const double requested_radius = std::hypot(x - center->x, y - center->y);
         if (requested_radius <= 1.0e-12) return false;
@@ -2772,6 +2876,16 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
             end->x = center->x + radius * std::cos(angle);
             end->y = center->y + radius * std::sin(angle);
         }
+        // Editing one Arc endpoint may change the radius and therefore move
+        // the opposite endpoint as a dependent handle. If that endpoint is
+        // shared with a connected segment, translate the segment's other end
+        // by the same delta before solving. This preserves its length and
+        // direction and prevents a forward/back radius gesture from
+        // accumulating branch drift in a tangent polyline chain.
+        if (!propagate_connected_segment_endpoint(
+                arc.start_point_id, original_start, start, arc.id) ||
+            !propagate_connected_segment_endpoint(
+                arc.end_point_id, original_end, end, arc.id)) return false;
     }
     for (auto& ellipse : next.ellipses) {
         auto* center = next.find_point(ellipse.center_point_id);
@@ -2827,6 +2941,12 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
         auto* minor = next.find_point(arc.minor_point_id);
         auto* start = next.find_point(arc.start_point_id);
         auto* end = next.find_point(arc.end_point_id);
+        const std::array original_start = arc.start_point_id == point_id
+            ? std::array{original_x, original_y}
+            : std::array{start->x, start->y};
+        const std::array original_end = arc.end_point_id == point_id
+            ? std::array{original_x, original_y}
+            : std::array{end->x, end->y};
         const double orientation = arc.reversed ? -1.0 : 1.0;
         const auto assign_position = [&](SketchPoint* target,
                                          const std::array<double, 2>& position) {
@@ -2887,6 +3007,10 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
                 !assign_position(end, end_position)) return false;
             arc.major_radius = radius;
             arc.rotation = rotation;
+            if (!propagate_connected_segment_endpoint(
+                    arc.start_point_id, original_start, start, arc.id) ||
+                !propagate_connected_segment_endpoint(
+                    arc.end_point_id, original_end, end, arc.id)) return false;
             continue;
         }
         if (arc.minor_point_id == point_id) {
@@ -2908,6 +3032,10 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
                 !assign_position(start, start_position) ||
                 !assign_position(end, end_position)) return false;
             arc.minor_radius = radius;
+            if (!propagate_connected_segment_endpoint(
+                    arc.start_point_id, original_start, start, arc.id) ||
+                !propagate_connected_segment_endpoint(
+                    arc.end_point_id, original_end, end, arc.id)) return false;
             continue;
         }
         const bool moving_start = arc.start_point_id == point_id;
@@ -7311,6 +7439,81 @@ SolveResult Sketch::solve_impl(
                     other->y = desired[1];
                     continue;
                 }
+                // Persisted endpoint ownership is stronger evidence than a
+                // nearest-contact search. After an arc endpoint/radius edit,
+                // the old line may no longer touch the new supporting circle;
+                // a generic contact search then reports an out-of-domain
+                // state before it gets a chance to restore endpoint tangency.
+                if (const auto segment = std::ranges::find_if(segments,
+                        [&](const auto& value) {
+                            return value.id == segment_id;
+                        }); segment != segments.end()) {
+                    std::string shared_id;
+                    const auto offer_shared = [&](const std::string& id) {
+                        if (id == segment->first_point_id ||
+                            id == segment->second_point_id) shared_id = id;
+                    };
+                    if (const auto arc = std::ranges::find_if(arcs,
+                            [&](const auto& value) {
+                                return value.id == curve_id;
+                            }); arc != arcs.end()) {
+                        offer_shared(arc->start_point_id);
+                        offer_shared(arc->end_point_id);
+                    }
+                    if (const auto arc = std::ranges::find_if(elliptical_arcs,
+                            [&](const auto& value) {
+                                return value.id == curve_id;
+                            }); arc != elliptical_arcs.end()) {
+                        offer_shared(arc->start_point_id);
+                        offer_shared(arc->end_point_id);
+                    }
+                    if (!shared_id.empty()) {
+                        auto* contact = find_point(shared_id);
+                        auto* other = find_point(
+                            segment->first_point_id == shared_id
+                                ? segment->second_point_id
+                                : segment->first_point_id);
+                        const auto tangent = contact == nullptr
+                            ? std::optional<std::array<double, 2>>{}
+                            : curve_tangent_at_point(
+                                  curve_id, contact->x, contact->y);
+                        const double segment_length = contact == nullptr ||
+                                other == nullptr ? 0.0 : std::hypot(
+                            other->x - contact->x, other->y - contact->y);
+                        if (!tangent || segment_length <= 1.0e-12) {
+                            maximum_residual = std::max(maximum_residual, 1.0);
+                            immovable_conflict = true;
+                            continue;
+                        }
+                        const double segment_x =
+                            (other->x - contact->x) / segment_length;
+                        const double segment_y =
+                            (other->y - contact->y) / segment_length;
+                        const double residual = std::abs(
+                            segment_x * (*tangent)[1] -
+                            segment_y * (*tangent)[0]);
+                        maximum_residual = std::max(maximum_residual, residual);
+                        if (residual <= tolerance) continue;
+                        if (immutable(*other)) {
+                            immovable_conflict = true;
+                            continue;
+                        }
+                        const std::array forward{
+                            contact->x + segment_length * (*tangent)[0],
+                            contact->y + segment_length * (*tangent)[1]};
+                        const std::array reverse{
+                            contact->x - segment_length * (*tangent)[0],
+                            contact->y - segment_length * (*tangent)[1]};
+                        const auto& desired = std::hypot(
+                            other->x - forward[0], other->y - forward[1]) <=
+                            std::hypot(other->x - reverse[0],
+                                       other->y - reverse[1])
+                            ? forward : reverse;
+                        other->x = desired[0];
+                        other->y = desired[1];
+                        continue;
+                    }
+                }
                 const auto state = segment_curve_tangent_state(
                     *this, segment_id, curve_id);
                 if (!state || !state->contact_on_segment || !state->contact_on_curve) {
@@ -7323,6 +7526,57 @@ SolveResult Sketch::solve_impl(
                 maximum_residual = std::max(
                     maximum_residual, std::abs(correction));
                 if (std::abs(correction) <= tolerance) continue;
+                // A curve translated against a line cannot move as one rigid
+                // body when their tangent contact is also a shared endpoint.
+                // That is the normal polyline/connected-curve state, not an
+                // immovable conflict: preserve the contact and curve, and
+                // rotate the free segment arm onto the exact curve tangent.
+                // This is the analytic-curve equivalent of the endpoint
+                // B-spline branch above.
+                if (!state->first_point_id.empty() &&
+                    !state->second_point_id.empty()) {
+                    auto* first = find_point(state->first_point_id);
+                    auto* second = find_point(state->second_point_id);
+                    SketchPoint* contact = nullptr;
+                    SketchPoint* other = nullptr;
+                    if (first != nullptr && std::hypot(
+                            first->x - state->contact_x,
+                            first->y - state->contact_y) <= 1.0e-6) {
+                        contact = first;
+                        other = second;
+                    } else if (second != nullptr && std::hypot(
+                            second->x - state->contact_x,
+                            second->y - state->contact_y) <= 1.0e-6) {
+                        contact = second;
+                        other = first;
+                    }
+                    if (contact != nullptr && other != nullptr) {
+                        const auto tangent = curve_tangent_at_point(
+                            curve_id, contact->x, contact->y);
+                        const double segment_length = std::hypot(
+                            other->x - contact->x,
+                            other->y - contact->y);
+                        if (!tangent || segment_length <= 1.0e-12 ||
+                            immutable(*other)) {
+                            immovable_conflict = true;
+                            continue;
+                        }
+                        const std::array forward{
+                            contact->x + segment_length * (*tangent)[0],
+                            contact->y + segment_length * (*tangent)[1]};
+                        const std::array reverse{
+                            contact->x - segment_length * (*tangent)[0],
+                            contact->y - segment_length * (*tangent)[1]};
+                        const auto& desired = std::hypot(
+                            other->x - forward[0], other->y - forward[1]) <=
+                            std::hypot(other->x - reverse[0],
+                                       other->y - reverse[1])
+                            ? forward : reverse;
+                        other->x = desired[0];
+                        other->y = desired[1];
+                        continue;
+                    }
+                }
                 std::set<std::string> translated;
                 std::set<std::string> reference_points;
                 double translation_x{};
@@ -8220,12 +8474,19 @@ SolveResult Sketch::solve_impl(
                 } else {
                     const auto& curve_id = reference_is_line
                         ? constraint.second_geometry_id : constraint.geometry_id;
+                    const auto& segment_id = reference_is_line
+                        ? constraint.geometry_id : constraint.second_geometry_id;
+                    if (const auto endpoint_residual =
+                            segment_curve_endpoint_tangent_residual(
+                                *this, segment_id, curve_id)) {
+                        result.push_back(*endpoint_residual);
+                        continue;
+                    }
                     if (std::ranges::any_of(bsplines,
                             [&](const auto& value) { return value.id == curve_id; })) {
                         const auto state = segment_spline_tangent_state(
                             *this,
-                            reference_is_line ? constraint.geometry_id
-                                                 : constraint.second_geometry_id,
+                            segment_id,
                             curve_id);
                         result.push_back(state ? state->residual : 1.0e12);
                         continue;

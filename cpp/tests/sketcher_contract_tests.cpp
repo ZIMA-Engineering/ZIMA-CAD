@@ -2647,6 +2647,8 @@ int main() {
             spline_tangent_segment->first_point_id);
         const auto* spline_tangent_second = spline_tangent.find_point(
             spline_tangent_segment->second_point_id);
+        const auto spline_tangent_line_end_id =
+            spline_tangent_segment->second_point_id;
         const auto* spline_tangent_handle = spline_tangent.find_point(
             spline_tangent_handle_id);
         const double tangent_segment_length = std::hypot(
@@ -2678,6 +2680,41 @@ int main() {
                     loaded_spline_tangent.constraints.front().kind ==
                         zima::sketcher::ConstraintKind::Tangent,
                 "B-spline Tangent did not solve or survive serialization");
+        const auto spline_tangent_before_drag = spline_tangent;
+        require(spline_tangent.move_point(
+                    spline_tangent_line_end_id, 10.0, 10.0) &&
+                spline_tangent.solve().status !=
+                    zima::sketcher::SolveStatus::Conflicting,
+            "Connected line could not drive an open B-spline endpoint tangent");
+        const auto* rotated_spline_handle = spline_tangent.find_point(
+            spline_tangent_handle_id);
+        const auto* rotated_line_end = spline_tangent.find_point(
+            spline_tangent_line_end_id);
+        require(rotated_spline_handle != nullptr && rotated_line_end != nullptr &&
+                    std::abs((rotated_spline_handle->x) * rotated_line_end->y -
+                        (rotated_spline_handle->y) * rotated_line_end->x) < 1.0e-6,
+            "Line-driven B-spline endpoint handle lost Tangent");
+        require(spline_tangent.move_point(
+                    spline_tangent_line_end_id, 10.0, 0.0),
+            "Connected B-spline tangent could not return to its initial branch");
+        double spline_tangent_drift{};
+        for (const auto& original : spline_tangent_before_drag.points) {
+            const auto* restored = spline_tangent.find_point(original.id);
+            spline_tangent_drift = std::max(spline_tangent_drift,
+                restored == nullptr
+                    ? std::numeric_limits<double>::infinity()
+                    : std::hypot(restored->x - original.x,
+                                 restored->y - original.y));
+        }
+        require(spline_tangent_drift < 1.0e-6,
+            "Connected B-spline tangent accumulated forward/back branch drift");
+        auto fixed_spline_handle = spline_tangent_before_drag;
+        fixed_spline_handle.find_point(spline_tangent_handle_id)->fixed = true;
+        const auto fixed_spline_before = fixed_spline_handle.serialized();
+        require(!fixed_spline_handle.move_point(
+                    spline_tangent_line_end_id, 10.0, 10.0) &&
+                fixed_spline_handle.serialized() == fixed_spline_before,
+            "Fixed B-spline tangent handle did not reject the driven line atomically");
         auto parallel = zima::sketcher::Sketch::create_default();
         const auto reference_segment = parallel.add_segment(0.0, 0.0, 10.0, 0.0);
         const auto driven_segment = parallel.add_segment(0.0, 5.0, 3.0, 9.0);
@@ -3112,6 +3149,143 @@ int main() {
             25.0, 5.0, tangent_arc_id, true);
         require(!reversed_arc.empty() && polyline_arc.arcs.size() == 2,
                 "Reversed tangent polyline arc did not continue an arc chain");
+
+        // Solver-training matrix for the new interactive polyline-arc states.
+        // Exercise both horizontal/vertical base axes and both tangent
+        // orientations so the result cannot depend on one favorable side.
+        for (const bool vertical_axis : {false, true}) {
+            for (const double side : {-1.0, 1.0}) {
+                auto trained_arc = zima::sketcher::Sketch::create_default();
+                const std::array segment_start = vertical_axis
+                    ? std::array{10.0 * side, 0.0}
+                    : std::array{0.0, 10.0 * side};
+                const std::array contact = vertical_axis
+                    ? std::array{10.0 * side, 10.0}
+                    : std::array{10.0, 10.0 * side};
+                const std::array endpoint = vertical_axis
+                    ? std::array{0.0, 20.0}
+                    : std::array{20.0, 0.0};
+                const auto source = trained_arc.add_segment(
+                    segment_start[0], segment_start[1],
+                    contact[0], contact[1]);
+                const auto source_geometry = trained_arc.segments.front();
+                const auto arc_id = trained_arc.add_tangent_arc(
+                    source_geometry.second_point_id,
+                    endpoint[0], endpoint[1], source);
+                const auto arc = std::ranges::find_if(
+                    trained_arc.arcs, [&](const auto& value) {
+                        return value.id == arc_id;
+                    });
+                require(arc != trained_arc.arcs.end(),
+                    "Training tangent arc was not created");
+                const auto trained_center_id = arc->center_point_id;
+                static_cast<void>(trained_arc.add_point_on_line_constraint(
+                    trained_center_id,
+                    vertical_axis ? "sketch_axis:y" : "sketch_axis:x"));
+                const auto before_round_trip = trained_arc.serialized();
+                const auto solved_training_arc = trained_arc.solve();
+                const auto* center = trained_arc.find_point(trained_center_id);
+                require(solved_training_arc.status !=
+                            zima::sketcher::SolveStatus::Conflicting &&
+                        center != nullptr &&
+                        std::abs(vertical_axis ? center->x : center->y) < 1.0e-7 &&
+                        zima::sketcher::Sketch::from_serialized(
+                            before_round_trip).solve().status ==
+                            solved_training_arc.status,
+                    "Tangent polyline arc center-on-axis training state is unstable");
+            }
+        }
+
+        auto aligned_arc = zima::sketcher::Sketch::create_default();
+        const auto aligned_source = aligned_arc.add_segment(0.0, 0.0, 10.0, 0.0);
+        const auto aligned_contact =
+            aligned_arc.segments.front().second_point_id;
+        const auto aligned_reference = aligned_arc.add_point(30.0, 10.0);
+        const auto aligned_arc_id = aligned_arc.add_tangent_arc(
+            aligned_contact, 20.0, 10.0, aligned_source);
+        const auto aligned_geometry = std::ranges::find_if(
+            aligned_arc.arcs, [&](const auto& value) {
+                return value.id == aligned_arc_id;
+            });
+        const auto aligned_end_id = aligned_geometry->end_point_id;
+        static_cast<void>(aligned_arc.add_point_pair_constraint(
+            aligned_reference, aligned_end_id,
+            zima::sketcher::ConstraintKind::Horizontal));
+        const auto aligned_before_drag = aligned_arc;
+        auto free_reference_drag = aligned_arc;
+        require(free_reference_drag.move_point(aligned_end_id, 24.0, 13.0) &&
+                    std::abs(free_reference_drag.find_point(
+                        aligned_reference)->y - 13.0) < 1.0e-7,
+            "Free H reference did not follow the dragged tangent arc endpoint");
+        const bool aligned_forward = aligned_arc.move_point(
+            aligned_end_id, 24.0, 10.0);
+        const auto* aligned_after_forward = aligned_arc.find_point(aligned_end_id);
+        const double aligned_forward_y = aligned_after_forward
+            ? aligned_after_forward->y : 9999.0;
+        const auto aligned_forward_status = aligned_arc.solve().status;
+        const bool aligned_back = aligned_arc.move_point(
+            aligned_end_id, 20.0, 10.0);
+        double aligned_round_trip_drift{};
+        for (const auto& original : aligned_before_drag.points) {
+            const auto* restored = aligned_arc.find_point(original.id);
+            aligned_round_trip_drift = std::max(aligned_round_trip_drift,
+                restored == nullptr
+                    ? std::numeric_limits<double>::infinity()
+                    : std::hypot(restored->x - original.x,
+                                 restored->y - original.y));
+        }
+        require(aligned_forward &&
+                aligned_after_forward != nullptr &&
+                std::abs(aligned_forward_y - 10.0) < 1.0e-7 &&
+                aligned_forward_status !=
+                    zima::sketcher::SolveStatus::Conflicting &&
+                aligned_back &&
+                aligned_round_trip_drift < 1.0e-6 &&
+                aligned_arc.constraints == aligned_before_drag.constraints,
+            "H-aligned tangent arc endpoint did not preserve its solver branch");
+        auto fixed_connected_arc = aligned_before_drag;
+        fixed_connected_arc.find_point(
+            fixed_connected_arc.segments.front().first_point_id)->fixed = true;
+        const auto fixed_connected_before = fixed_connected_arc.serialized();
+        require(!fixed_connected_arc.move_point(
+                    aligned_end_id, 24.0, 10.0) &&
+                fixed_connected_arc.serialized() == fixed_connected_before,
+            "Fixed connected tangent arm did not reject radius propagation atomically");
+
+        auto connected_elliptical_arc =
+            zima::sketcher::Sketch::create_default();
+        const auto connected_ellipse_id =
+            connected_elliptical_arc.add_elliptical_arc(
+                0.0, 0.0, 10.0, 0.0, 0.0, 5.0,
+                10.0, 0.0, 0.0, 5.0);
+        const auto connected_ellipse_geometry =
+            connected_elliptical_arc.elliptical_arcs.front();
+        const auto connected_ellipse_line =
+            connected_elliptical_arc.add_segment(
+                10.0, -10.0, 10.0, 0.0);
+        static_cast<void>(connected_elliptical_arc.add_tangent_constraint(
+            connected_ellipse_id, connected_ellipse_line));
+        const auto connected_ellipse_before = connected_elliptical_arc;
+        require(connected_elliptical_arc.move_point(
+                    connected_ellipse_geometry.major_point_id, 0.0, 12.0) &&
+                connected_elliptical_arc.solve().status !=
+                    zima::sketcher::SolveStatus::Conflicting &&
+                connected_elliptical_arc.move_point(
+                    connected_ellipse_geometry.major_point_id, 10.0, 0.0),
+            "Connected elliptical-arc major handle could not rotate and return");
+        double connected_ellipse_drift{};
+        for (const auto& original : connected_ellipse_before.points) {
+            const auto* restored = connected_elliptical_arc.find_point(original.id);
+            connected_ellipse_drift = std::max(connected_ellipse_drift,
+                restored == nullptr
+                    ? std::numeric_limits<double>::infinity()
+                    : std::hypot(restored->x - original.x,
+                                 restored->y - original.y));
+        }
+        require(connected_ellipse_drift < 1.0e-6 &&
+                    connected_elliptical_arc.constraints ==
+                        connected_ellipse_before.constraints,
+            "Connected elliptical-arc handle accumulated branch drift");
         auto corner_fillet = zima::sketcher::Sketch::create_default();
         const auto fillet_first = corner_fillet.add_segment(
             10.0, 0.0, 0.0, 0.0);
