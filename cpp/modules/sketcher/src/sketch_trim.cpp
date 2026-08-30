@@ -375,6 +375,34 @@ struct PersistedCurveContact {
     double parameter{};
 };
 
+double persisted_contact_parameter(
+    const Sketch& sketch, const SampledCurve& curve, const SketchPoint& point) {
+    constexpr double turn = 2.0 * 3.14159265358979323846;
+    if (curve.kind == SampledKind::Circle) {
+        const auto circle = std::find_if(sketch.circles.begin(), sketch.circles.end(),
+            [&](const auto& value) { return value.id == curve.geometry_id; });
+        const auto* center = sketch.find_point(circle->center_point_id);
+        double angle = std::atan2(point.y - center->y, point.x - center->x);
+        if (angle < 0.0) angle += turn;
+        return angle / turn;
+    }
+    if (curve.kind == SampledKind::Arc) {
+        const auto arc = std::find_if(sketch.arcs.begin(), sketch.arcs.end(),
+            [&](const auto& value) { return value.id == curve.geometry_id; });
+        const auto* center = sketch.find_point(arc->center_point_id);
+        double angle = std::atan2(point.y - center->y, point.x - center->x);
+        while (angle < arc->start_angle) angle += turn;
+        while (angle > arc->end_angle && angle - turn >= arc->start_angle) {
+            angle -= turn;
+        }
+        const double sweep = arc->end_angle - arc->start_angle;
+        if (sweep > 1.0e-12) {
+            return std::clamp((angle - arc->start_angle) / sweep, 0.0, 1.0);
+        }
+    }
+    return nearest_curve_parameter(curve, {point.x, point.y});
+}
+
 std::vector<PersistedCurveContact> persisted_curve_contacts(
     const Sketch& sketch, const std::vector<SampledCurve>& curves) {
     std::vector<PersistedCurveContact> result;
@@ -390,8 +418,14 @@ std::vector<PersistedCurveContact> persisted_curve_contacts(
             });
         const auto* point = sketch.find_point(constraint.first_point_id);
         if (curve == curves.end() || point == nullptr) continue;
-        const double parameter = nearest_curve_parameter(
-            *curve, {point->x, point->y});
+        // Persisted C contacts are exact ZIMA topology. In particular, a
+        // common tangent supplies the exact circle contact used by both C and
+        // T. Deriving an Arc boundary from the sampled display polyline moves
+        // it slightly past that contact; the resulting closed two-circle/two-
+        // tangent loop is inconsistent and the global solver then rejects
+        // dragging even unrelated points.
+        const double parameter = persisted_contact_parameter(
+            sketch, *curve, *point);
         if (std::none_of(result.begin(), result.end(), [&](const auto& old) {
                 return old.geometry_id == curve->geometry_id &&
                     old.point_id == point->id;

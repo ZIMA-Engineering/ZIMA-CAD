@@ -3851,6 +3851,35 @@ int main() {
                     upper_left_contact, -15.0, 5.9),
                 "Preserved C+T contacts blocked dragging a tangent endpoint");
 
+        // Reproduce the interactive command exactly: unequal circles and two
+        // segments created by Common tangent, followed by trimming both outer
+        // circle pieces into one closed C+T loop.
+        auto commanded_bridge_trim = zima::sketcher::Sketch::create_default();
+        const auto commanded_left =
+            commanded_bridge_trim.add_circle(-15.0, 0.0, 7.0);
+        const auto commanded_right =
+            commanded_bridge_trim.add_circle(15.0, 0.0, 5.0);
+        static_cast<void>(commanded_bridge_trim.add_common_tangent_segment(
+            commanded_left, {-15.0, 7.0}, commanded_right, {15.0, 5.0}));
+        static_cast<void>(commanded_bridge_trim.add_common_tangent_segment(
+            commanded_left, {-15.0, -7.0}, commanded_right, {15.0, -5.0}));
+        const auto commanded_topology =
+            zima::sketcher::sketch_trim_topology(commanded_bridge_trim, false);
+        const auto commanded_left_outer =
+            zima::sketcher::nearest_sketch_trim_piece(
+                commanded_topology, {-22.0, 0.0}, 1.0);
+        const auto commanded_right_outer =
+            zima::sketcher::nearest_sketch_trim_piece(
+                commanded_topology, {20.0, 0.0}, 1.0);
+        require(commanded_left_outer && commanded_right_outer,
+            "Command-created tangent bridge did not expose outer Trim pieces");
+        static_cast<void>(zima::sketcher::apply_sketch_trim(
+            commanded_bridge_trim,
+            {*commanded_left_outer, *commanded_right_outer}));
+        const auto commanded_free = commanded_bridge_trim.add_point(40.0, 20.0);
+        require(commanded_bridge_trim.move_point(commanded_free, 42.0, 21.0),
+            "Command-created trimmed C+T loop blocked an unrelated point");
+
         auto split_trim = zima::sketcher::Sketch::create_default();
         const auto split_target = split_trim.add_segment(-10.0, 2.0, 10.0, 2.0);
         static_cast<void>(split_trim.add_segment(

@@ -523,7 +523,13 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
             if (ray_parameter < 0.0) continue;
             const auto ray_point = add_scaled(
                 ray_origin, ray_direction, ray_parameter);
-            if (length(subtract(marker.position, ray_point)) <= world_tolerance) {
+            // The visible relation glyph is deliberately offset from its
+            // geometric anchor so it does not cover the constrained point.
+            // Give that same glyph a slightly wider hit corridor; otherwise
+            // hovering the visible C/T/H/V letter misses the common candidate
+            // list while hovering the invisible anchor succeeds.
+            if (length(subtract(marker.position, ray_point)) <=
+                    world_tolerance * 2.0) {
                 result.push_back({CandidateKind::SketchConstraint, ray_parameter,
                     index, marker.reference.owner_id,
                     marker.reference.semantic_key,

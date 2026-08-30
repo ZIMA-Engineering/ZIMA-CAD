@@ -1172,8 +1172,14 @@ std::optional<SegmentCurveTangentState> segment_curve_tangent_state(
         double relative = std::fmod(
             parameter - curve->parameter_domain->first, circle_turn);
         if (relative < 0.0) relative += circle_turn;
+        constexpr double angular_tolerance = 1.0e-8;
         contact_on_curve = relative <=
-            curve->parameter_domain->second - curve->parameter_domain->first + 1.0e-8;
+                curve->parameter_domain->second -
+                    curve->parameter_domain->first + angular_tolerance ||
+            // A contact infinitesimally below the Arc start wraps to almost
+            // 2*pi. It is the same persisted boundary point, not a contact on
+            // the removed side of the source circle.
+            relative >= circle_turn - angular_tolerance;
     }
     return SegmentCurveTangentState{
         segment->first_point_id, segment->second_point_id,

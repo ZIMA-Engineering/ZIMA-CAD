@@ -225,6 +225,12 @@ int main() {
                     constraint_contract.front().semantic_key ==
                         "constraint:horizontal",
                 "Constraint marker did not use the common hover/click candidate list");
+        const auto visible_glyph_constraint = zima::viewer::filter_candidates(
+            zima::viewer::ordered_viewer_candidates(
+                mesh, {0.015, 2.0, 0.0}, {0.0, 0.0, 1.0}, 0.01),
+            {zima::viewer::CandidateKind::SketchConstraint});
+        require(visible_glyph_constraint.size() == 1,
+            "Visible offset constraint glyph was not offered on hover");
         zima::kernel::ViewerMesh trim_mesh;
         trim_mesh.edges.push_back({
             {{-2.0, 0.0, 5.0}, {2.0, 0.0, 5.0}},
