@@ -1403,6 +1403,29 @@ int main() {
                         std::hypot(near_sector.line_first.x,
                             near_sector.line_first.y),
                 "Angular dimension preview did not follow cursor radius and opposite sector");
+        auto reversed_axis_angle = zima::sketcher::Sketch::create_default();
+        const auto reversed_axis_segment = reversed_axis_angle.add_segment(
+            0.0, 0.0, 8.0, 8.0);
+        auto reversed_axis_dimension = reversed_axis_angle.create_line_pair_dimension(
+            "sketch_axis:x", reversed_axis_segment,
+            zima::sketcher::DimensionKind::AngleBetween);
+        reversed_axis_dimension.angle_presentation_reversed = true;
+        reversed_axis_dimension.angle_sector = 0;
+        reversed_axis_dimension.placement = std::array{6.0, -4.0};
+        reversed_axis_dimension.value = -35.0;
+        reversed_axis_angle.apply_dimension(reversed_axis_dimension);
+        require(std::abs(reversed_axis_angle.viewer_mesh().dimensions.front().value +
+                    35.0) < 1.0e-7 &&
+                    reversed_axis_angle.dimensions.front()
+                        .angle_presentation_reversed,
+                "Reversed line-axis presentation lost its negative angular value");
+        require(reversed_axis_angle.set_dimension_value(
+                    reversed_axis_dimension.id, -60.0) &&
+                    std::abs(reversed_axis_angle.viewer_mesh().dimensions.front().value +
+                        60.0) < 1.0e-7 &&
+                    reversed_axis_angle.dimensions.front().placement ==
+                        reversed_axis_dimension.placement,
+                "Negative line-axis angle could not be edited in presentation order");
         auto duplicate_angle = zima::sketcher::Sketch::create_default();
         const auto duplicate_first = duplicate_angle.add_segment(
             0.0, 0.0, 10.0, 0.0);
@@ -1502,6 +1525,62 @@ int main() {
                     edited_chain_second->y - edited_chain_first->y) - 350.0) <
                     1.0e-7,
                 "Existing length dimension in the part.prtz chain could not be edited");
+        auto shared_angles = zima::sketcher::Sketch::create_default();
+        const auto shared_reference = shared_angles.add_segment(
+            0.0, 0.0, 10.0, 0.0);
+        const auto shared_middle = shared_angles.add_segment(
+            0.0, 0.0, 7.66044443118978, 6.42787609686539);
+        const auto shared_last = shared_angles.add_segment(
+            0.0, 0.0, 0.0, 10.0);
+        const auto shared_origin = shared_angles.segments.front().first_point_id;
+        const auto shared_reference_end =
+            shared_angles.segments.front().second_point_id;
+        shared_angles.find_point(shared_origin)->fixed = true;
+        shared_angles.find_point(shared_reference_end)->fixed = true;
+        for (const auto& segment_id : {shared_middle, shared_last}) {
+            auto length = shared_angles.create_segment_dimension(segment_id);
+            shared_angles.apply_dimension(std::move(length));
+            shared_angles.dimensions.back().locked = true;
+        }
+        auto shared_first_angle = shared_angles.create_line_pair_dimension(
+            shared_reference, shared_middle,
+            zima::sketcher::DimensionKind::AngleBetween);
+        shared_first_angle.value = 40.0;
+        shared_angles.apply_dimension(shared_first_angle);
+        auto shared_second_angle = shared_angles.create_line_pair_dimension(
+            shared_middle, shared_last,
+            zima::sketcher::DimensionKind::AngleBetween);
+        shared_second_angle.value = 50.0;
+        shared_angles.apply_dimension(shared_second_angle);
+        const auto shared_before = shared_angles;
+        require(shared_angles.set_dimension_value(shared_first_angle.id, 30.0) &&
+                    shared_angles.solve().maximum_residual < 1.0e-7,
+                "First of two shared angular dimensions could not be edited");
+        require(shared_angles.set_dimension_value(shared_second_angle.id, 70.0) &&
+                    shared_angles.solve().maximum_residual < 1.0e-7,
+                "Second of two shared angular dimensions could not be edited");
+        require(shared_angles.set_dimension_value(shared_first_angle.id, 40.0) &&
+                    shared_angles.set_dimension_value(shared_second_angle.id, 50.0) &&
+                    shared_angles.solve().maximum_residual < 1.0e-7,
+                "Shared angular dimensions could not return to their initial values");
+        for (const auto& original_point : shared_before.points) {
+            const auto* returned = shared_angles.find_point(original_point.id);
+            require(returned != nullptr &&
+                        std::hypot(returned->x - original_point.x,
+                            returned->y - original_point.y) < 1.0e-6,
+                    "Two shared angular dimensions accumulated coordinate drift");
+        }
+        require(zima::sketcher::Sketch::from_serialized(
+                    shared_angles.serialized()).dimensions == shared_angles.dimensions,
+                "Shared angular dimensions did not survive serialization");
+        auto blocked_angle_edit = shared_before;
+        for (auto& point : blocked_angle_edit.points) point.fixed = true;
+        const auto blocked_angle_before = blocked_angle_edit;
+        require(!blocked_angle_edit.set_dimension_value(shared_first_angle.id, 25.0) &&
+                    blocked_angle_edit.points == blocked_angle_before.points &&
+                    blocked_angle_edit.dimensions == blocked_angle_before.dimensions &&
+                    blocked_angle_edit.constraints == blocked_angle_before.constraints,
+                "Over-constrained angular edit partially changed fixed geometry");
         auto disconnected_angle = zima::sketcher::Sketch::create_default();
         const auto disconnected_reference = disconnected_angle.add_segment(
             0.0, 0.0, 10.0, 0.0);
@@ -1511,12 +1590,33 @@ int main() {
             disconnected_reference, disconnected_driven,
             zima::sketcher::DimensionKind::AngleBetween);
         disconnected.placement = std::array{14.0, 8.0};
+        disconnected.angle_sector = 0;
         disconnected_angle.apply_dimension(disconnected);
         require(disconnected_angle.dimensions.size() == 1 &&
                     disconnected_angle.viewer_mesh().dimensions.size() == 1 &&
                     disconnected_angle.viewer_mesh().dimensions.front().kind ==
                         zima::kernel::ViewerDimensionKind::Angular,
                 "Angular dimension between disconnected segments was not created");
+        const auto disconnected_before = disconnected_angle;
+        require(disconnected_angle.set_dimension_value(disconnected.id, 55.0),
+                "Disconnected angular dimension rejected its value edit");
+        require(disconnected_angle.dimensions.front().placement ==
+                    disconnected.placement,
+                "Disconnected angular dimension edit lost its placement");
+        require(std::abs(disconnected_angle.viewer_mesh().dimensions.front().value -
+                    55.0) < 1.0e-7,
+                "Disconnected angular dimension viewer did not show its edited value");
+        require(disconnected_angle.set_dimension_value(disconnected.id, 90.0),
+                "Disconnected angular dimension rejected its return value");
+        require(disconnected_angle.solve().maximum_residual < 1.0e-7,
+                "Disconnected angular dimension retained residual after return");
+        for (const auto& original_point : disconnected_before.points) {
+            const auto* returned = disconnected_angle.find_point(original_point.id);
+            require(returned != nullptr &&
+                        std::hypot(returned->x - original_point.x,
+                            returned->y - original_point.y) < 1.0e-6,
+                    "Disconnected angular dimension accumulated coordinate drift");
+        }
         auto supplementary_angle = zima::sketcher::Sketch::create_default();
         const auto supplementary_reference = supplementary_angle.add_segment(
             0.0, 0.0, 10.0, 0.0);

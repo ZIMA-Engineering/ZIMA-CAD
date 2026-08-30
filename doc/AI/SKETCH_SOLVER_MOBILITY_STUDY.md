@@ -390,6 +390,37 @@ at `48.638 ms`, 100-branch drag at `1.205 ms` and 1,000-branch drag at
 `30.569 ms`. These remain in the established debug-build range and show no new
 scaling regime.
 
+### Angular-dimension batch 4 result
+
+The angular matrix now covers two driving angles that share their middle
+Segment while the two driven Segment lengths and the reference ray remain
+fixed. Editing each angle independently, then returning both to their original
+values, preserves every equation and returns every point within `1e-6 mm`.
+The same state survives serialization. Fully fixing the dependent points makes
+an incompatible angle edit fail atomically without changing geometry,
+dimensions or constraints.
+
+Disconnected Segment directions also edit and return without drift while
+retaining their persisted label placement. A dimension with `angle_sector ==
+-1` is still an interactive sector preview: cursor position may deliberately
+select an equivalent reflex representation such as `-305°` for a `55°`
+geometric angle. Once the interaction commits sector `0` or `1`, subsequent
+numeric edits preserve that sector and show the stored value. This distinction
+is required for cursor-driven angular placement and must not be interpreted as
+a solver error.
+
+The main-axis matrix additionally covers reversed presentation order and
+negative stored angles. Editing `-35°` to `-60°` retains the selected Sketch
+axis, presentation order and placement. The existing `part.prtz` regression
+continues to verify that changing a length beside an angular driver rotates the
+free connected branch instead of producing a spurious conflict.
+
+No solver correction was required for this batch; the missing coverage was the
+problem. The repeated debug benchmark measured 100 independent branches at
+`10.224 ms`, a 100-Segment connected chain at `11.623 ms`, a 250-Segment chain
+at `42.774 ms`, 100-branch dimension edit at `1.029 ms` and 1,000-branch
+dimension edit at `25.282 ms`.
+
 ## Idle-time preparation
 
 Allowed background work is limited to Sketch data:
