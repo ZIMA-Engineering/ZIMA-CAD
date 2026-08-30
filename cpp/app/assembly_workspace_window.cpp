@@ -12389,7 +12389,32 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
             // perpendicularity only when the cursor also expresses a clear
             // directional intent.  Making it unconditional prevented an
             // ordinary oblique segment from starting or ending on an axis.
-            if (const auto support_direction =
+            if (end_snap_geometry_id == "sketch_axis:x" ||
+                end_snap_geometry_id == "sketch_axis:y") {
+                const bool vertical = end_snap_geometry_id == "sketch_axis:x";
+                const double segment_x =
+                    confirmed_position[0] - (*pending_segment_start_)[0];
+                const double segment_y =
+                    confirmed_position[1] - (*pending_segment_start_)[1];
+                const double segment_length = std::hypot(segment_x, segment_y);
+                const double direction_error = vertical
+                    ? std::abs(segment_x) : std::abs(segment_y);
+                const double intent_tolerance = std::max(
+                    viewer_->world_tolerance_for_pixels(
+                        3.0 * viewer_->devicePixelRatioF()),
+                    segment_length * std::sin(
+                        8.0 * std::numbers::pi / 180.0));
+                if (direction_error <= intent_tolerance) {
+                    direction_inference = vertical
+                        ? zima::sketcher::ConstraintKind::Vertical
+                        : zima::sketcher::ConstraintKind::Horizontal;
+                    if (vertical) {
+                        confirmed_position[0] = (*pending_segment_start_)[0];
+                    } else {
+                        confirmed_position[1] = (*pending_segment_start_)[1];
+                    }
+                }
+            } else if (const auto support_direction =
                     sketch_line_support_direction(end_snap_geometry_id)) {
                 const double support_length = std::hypot(
                     (*support_direction)[0], (*support_direction)[1]);
@@ -12401,9 +12426,11 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
                     segment_x * (*support_direction)[0] +
                     segment_y * (*support_direction)[1]) /
                     std::max(support_length, 1.0e-12);
-                const double intent_tolerance =
+                const double segment_length = std::hypot(segment_x, segment_y);
+                const double intent_tolerance = std::max(
                     viewer_->world_tolerance_for_pixels(
-                        3.0 * viewer_->devicePixelRatioF());
+                        3.0 * viewer_->devicePixelRatioF()),
+                    segment_length * std::sin(8.0 * std::numbers::pi / 180.0));
                 if (perpendicular_error <= intent_tolerance) {
                     inferred_end.perpendicular_reference_id =
                         end_snap_geometry_id;
@@ -12635,7 +12662,9 @@ AssemblyWorkspaceWindow::inferred_sketch_segment_end(
         }
         if (pending_segment_start_snap_kind_ ==
                 zima::sketcher::ConstraintKind::PointOnLine &&
-            !pending_segment_start_snap_geometry_id_.empty()) {
+            !pending_segment_start_snap_geometry_id_.empty() &&
+            pending_segment_start_snap_geometry_id_ != "sketch_axis:x" &&
+            pending_segment_start_snap_geometry_id_ != "sketch_axis:y") {
             const auto support_id = pending_segment_start_snap_geometry_id_;
             const auto support_direction =
                 sketch_line_support_direction(support_id);
@@ -12652,9 +12681,12 @@ AssemblyWorkspaceWindow::inferred_sketch_segment_end(
                     const double perpendicular_error = std::abs(
                         cursor_x * (*support_direction)[0] +
                         cursor_y * (*support_direction)[1]) / length;
-                    const double intent_tolerance =
+                    const double cursor_length = std::hypot(cursor_x, cursor_y);
+                    const double intent_tolerance = std::max(
                         viewer_->world_tolerance_for_pixels(
-                            3.0 * viewer_->devicePixelRatioF());
+                            3.0 * viewer_->devicePixelRatioF()),
+                        cursor_length *
+                            std::sin(8.0 * std::numbers::pi / 180.0));
                     if (perpendicular_error <= intent_tolerance) {
                         double along = cursor_x * normal_x + cursor_y * normal_y;
                         if (std::abs(along) <= 1.0e-9) {
@@ -15646,7 +15678,9 @@ void AssemblyWorkspaceWindow::preview_sketch_segment_ray(
          endpoint_keypoint_curve.has_value());
     const bool endpoint_perpendicular = pending_sketch_snap_kind_ ==
             zima::sketcher::ConstraintKind::PointOnLine &&
-        !pending_sketch_snap_geometry_id_.empty();
+        !pending_sketch_snap_geometry_id_.empty() &&
+        pending_sketch_snap_geometry_id_ != "sketch_axis:x" &&
+        pending_sketch_snap_geometry_id_ != "sketch_axis:y";
     if (endpoint_tangent) {
         inference.tangent_reference_id = endpoint_keypoint_curve
             ? *endpoint_keypoint_curve : pending_sketch_snap_geometry_id_;
@@ -15807,7 +15841,13 @@ void AssemblyWorkspaceWindow::preview_sketch_segment_ray(
     }
     if (endpoint_tangent) marker = "C  T";
     else if (endpoint_perpendicular) marker = "C  ⊥";
-    if (marker.empty() && inference.kind ==
+    if (marker == "C" && inference.kind ==
+            zima::sketcher::ConstraintKind::Horizontal) {
+        marker = "C  H";
+    } else if (marker == "C" && inference.kind ==
+            zima::sketcher::ConstraintKind::Vertical) {
+        marker = "C  V";
+    } else if (marker.empty() && inference.kind ==
                zima::sketcher::ConstraintKind::Horizontal) {
         marker = "H";
     } else if (marker.empty() && inference.kind ==
