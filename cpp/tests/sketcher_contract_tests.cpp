@@ -3822,9 +3822,27 @@ int main() {
                         }) == 4,
                 "Two-circle Trim did not preserve all four C+T contacts");
         tangent_bridge_trim.validate();
+        // A solved/imported Trim may retain a distinct persisted line-contact
+        // point and Arc boundary point at the same position. Mobility must
+        // cross their PointOnCircle relation rather than relying on shared IDs.
+        for (auto& arc : tangent_bridge_trim.arcs) {
+            const auto split_boundary = [&](std::string& boundary_id,
+                                             const char* suffix) {
+                auto duplicate = *tangent_bridge_trim.find_point(boundary_id);
+                duplicate.id += suffix;
+                boundary_id = duplicate.id;
+                tangent_bridge_trim.points.push_back(std::move(duplicate));
+            };
+            split_boundary(arc.start_point_id, ":trim-start");
+            split_boundary(arc.end_point_id, ":trim-end");
+        }
+        tangent_bridge_trim.validate();
         require(tangent_bridge_trim.move_point(
                     left_bridge_center, -16.0, 1.0),
                 "Preserved C+T contacts made the trimmed bridge immovable");
+        require(tangent_bridge_trim.move_point(
+                    upper_left_contact, -15.0, 5.9),
+                "Preserved C+T contacts blocked dragging a tangent endpoint");
 
         auto split_trim = zima::sketcher::Sketch::create_default();
         const auto split_target = split_trim.add_segment(-10.0, 2.0, 10.0, 2.0);

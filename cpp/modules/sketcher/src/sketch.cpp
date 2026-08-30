@@ -2375,8 +2375,33 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
             [&](const auto& value) { return value.center_point_id == point_id; }) ||
         std::any_of(next.elliptical_arcs.begin(), next.elliptical_arcs.end(),
             [&](const auto& value) { return value.center_point_id == point_id; });
-    bool translated_center_component = false;
-    if (dragging_curve_center &&
+    const bool dragging_tangent_contact = std::any_of(
+        next.constraints.begin(), next.constraints.end(),
+        [&](const auto& support) {
+            if (support.suppressed ||
+                support.kind != ConstraintKind::PointOnCircle ||
+                support.first_point_id != point_id) return false;
+            return std::any_of(next.constraints.begin(), next.constraints.end(),
+                [&](const auto& tangent) {
+                    if (tangent.suppressed ||
+                        tangent.kind != ConstraintKind::Tangent ||
+                        (tangent.geometry_id != support.geometry_id &&
+                         tangent.second_geometry_id != support.geometry_id)) {
+                        return false;
+                    }
+                    const auto segment_id = tangent.geometry_id == support.geometry_id
+                        ? tangent.second_geometry_id : tangent.geometry_id;
+                    const auto segment = std::find_if(next.segments.begin(),
+                        next.segments.end(), [&](const auto& value) {
+                            return value.id == segment_id;
+                        });
+                    return segment != next.segments.end() &&
+                        (segment->first_point_id == point_id ||
+                         segment->second_point_id == point_id);
+                });
+        });
+    bool translated_drag_component = false;
+    if ((dragging_curve_center || dragging_tangent_contact) &&
         std::hypot(requested_translation_x, requested_translation_y) > 1.0e-12) {
         auto component = point_translation_closure(next, point_id);
         bool expanded = true;
@@ -2392,9 +2417,18 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
                 insert(segment.second_point_id);
             }
             for (const auto& arc : next.arcs) {
-                if (!component.contains(arc.center_point_id) &&
-                    !component.contains(arc.start_point_id) &&
-                    !component.contains(arc.end_point_id)) continue;
+                bool connected = component.contains(arc.center_point_id) ||
+                    component.contains(arc.start_point_id) ||
+                    component.contains(arc.end_point_id);
+                for (const auto& constraint : next.constraints) {
+                    if (!constraint.suppressed &&
+                        constraint.kind == ConstraintKind::PointOnCircle &&
+                        constraint.geometry_id == arc.id &&
+                        component.contains(constraint.first_point_id)) {
+                        connected = true;
+                    }
+                }
+                if (!connected) continue;
                 insert(arc.center_point_id);
                 insert(arc.start_point_id);
                 insert(arc.end_point_id);
@@ -2438,7 +2472,7 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
             dependent->x += requested_translation_x;
             dependent->y += requested_translation_y;
         }
-        translated_center_component = true;
+        translated_drag_component = true;
     }
     point->x = x;
     point->y = y;
@@ -2447,7 +2481,7 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
     std::set<std::string> translated_circle_points;
     for (const auto& circle : next.circles) {
         if (circle.center_point_id != point_id) continue;
-        if (translated_center_component) continue;
+        if (translated_drag_component) continue;
         for (const auto& constraint : next.constraints) {
             if (constraint.suppressed ||
                 constraint.kind != ConstraintKind::PointOnCircle ||
@@ -2506,7 +2540,7 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
         auto* start = next.find_point(arc.start_point_id);
         auto* end = next.find_point(arc.end_point_id);
         if (arc.center_point_id == point_id) {
-            if (translated_center_component) continue;
+            if (translated_drag_component) continue;
             const double dx = x - original_x;
             const double dy = y - original_y;
             if ((start->fixed && (std::abs(dx) > 1.0e-12 || std::abs(dy) > 1.0e-12)) ||
@@ -2573,7 +2607,7 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
         auto* minor = next.find_point(ellipse.minor_point_id);
         const double orientation = ellipse.reversed ? -1.0 : 1.0;
         if (ellipse.center_point_id == point_id) {
-            if (translated_center_component) continue;
+            if (translated_drag_component) continue;
             const double dx = x - original_x;
             const double dy = y - original_y;
             if ((major->fixed || minor->fixed) &&
@@ -2634,7 +2668,7 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
             return true;
         };
         if (arc.center_point_id == point_id) {
-            if (translated_center_component) continue;
+            if (translated_drag_component) continue;
             std::set<std::string> translated;
             for (const auto& dependent_id : {
                     arc.major_point_id, arc.minor_point_id,
