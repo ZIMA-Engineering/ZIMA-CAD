@@ -12376,12 +12376,38 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
         // line endpoint confirmed on a curve/line owns both its support
         // relation and the natural tangent/perpendicular relation.
         if (*end_snap_kind == zima::sketcher::ConstraintKind::PointOnCircle) {
-            inferred_end.tangent_reference_id = end_snap_geometry_id;
+            if (const auto tangent = sketch->curve_tangent_at_point(
+                    end_snap_geometry_id, confirmed_position[0],
+                    confirmed_position[1])) {
+                const double segment_x =
+                    confirmed_position[0] - (*pending_segment_start_)[0];
+                const double segment_y =
+                    confirmed_position[1] - (*pending_segment_start_)[1];
+                const double tangent_error = std::abs(
+                    segment_x * (*tangent)[1] - segment_y * (*tangent)[0]);
+                if (tangent_error <= viewer_->world_tolerance_for_pixels(
+                        3.0 * viewer_->devicePixelRatioF())) {
+                    inferred_end.tangent_reference_id = end_snap_geometry_id;
+                }
+            }
         } else if (*end_snap_kind ==
                        zima::sketcher::ConstraintKind::Coincident) {
             if (const auto curve_id =
                     sketch_keypoint_curve_id(end_snap_geometry_id)) {
-                inferred_end.tangent_reference_id = *curve_id;
+                if (const auto tangent = sketch->curve_tangent_at_point(
+                        *curve_id, confirmed_position[0], confirmed_position[1])) {
+                    const double segment_x =
+                        confirmed_position[0] - (*pending_segment_start_)[0];
+                    const double segment_y =
+                        confirmed_position[1] - (*pending_segment_start_)[1];
+                    const double tangent_error = std::abs(
+                        segment_x * (*tangent)[1] -
+                        segment_y * (*tangent)[0]);
+                    if (tangent_error <= viewer_->world_tolerance_for_pixels(
+                            3.0 * viewer_->devicePixelRatioF())) {
+                        inferred_end.tangent_reference_id = *curve_id;
+                    }
+                }
             }
         } else if (*end_snap_kind ==
                    zima::sketcher::ConstraintKind::PointOnLine) {
@@ -12396,14 +12422,11 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
                     confirmed_position[0] - (*pending_segment_start_)[0];
                 const double segment_y =
                     confirmed_position[1] - (*pending_segment_start_)[1];
-                const double segment_length = std::hypot(segment_x, segment_y);
                 const double direction_error = vertical
                     ? std::abs(segment_x) : std::abs(segment_y);
-                const double intent_tolerance = std::max(
+                const double intent_tolerance =
                     viewer_->world_tolerance_for_pixels(
-                        3.0 * viewer_->devicePixelRatioF()),
-                    segment_length * std::sin(
-                        8.0 * std::numbers::pi / 180.0));
+                        3.0 * viewer_->devicePixelRatioF());
                 if (direction_error <= intent_tolerance) {
                     direction_inference = vertical
                         ? zima::sketcher::ConstraintKind::Vertical
@@ -12426,11 +12449,9 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
                     segment_x * (*support_direction)[0] +
                     segment_y * (*support_direction)[1]) /
                     std::max(support_length, 1.0e-12);
-                const double segment_length = std::hypot(segment_x, segment_y);
-                const double intent_tolerance = std::max(
+                const double intent_tolerance =
                     viewer_->world_tolerance_for_pixels(
-                        3.0 * viewer_->devicePixelRatioF()),
-                    segment_length * std::sin(8.0 * std::numbers::pi / 180.0));
+                        3.0 * viewer_->devicePixelRatioF());
                 if (perpendicular_error <= intent_tolerance) {
                     inferred_end.perpendicular_reference_id =
                         end_snap_geometry_id;
@@ -12622,6 +12643,11 @@ AssemblyWorkspaceWindow::inferred_sketch_segment_end(
     const double dy = std::abs(position[1] - (*pending_segment_start_)[1]);
     const double tolerance = viewer_->world_tolerance_for_pixels(
         9.0 * viewer_->devicePixelRatioF());
+    // H/V is a screen-space alignment with the accepted first endpoint.
+    // Its capture band must stay a few pixels wide regardless of segment
+    // length; an angular tolerance becomes enormous on long geometry.
+    const double direction_tolerance = viewer_->world_tolerance_for_pixels(
+        3.0 * viewer_->devicePixelRatioF());
     std::vector<std::pair<double, SketchSegmentInference>> point_alignments;
     std::vector<std::pair<double, SketchSegmentInference>> directions;
     std::vector<std::pair<double, SketchSegmentInference>> symmetries;
@@ -12645,19 +12671,23 @@ AssemblyWorkspaceWindow::inferred_sketch_segment_end(
                         position[0] - (*pending_segment_start_)[0];
                     const double cursor_y =
                         position[1] - (*pending_segment_start_)[1];
-                    double along = cursor_x * tangent_x + cursor_y * tangent_y;
-                    if (std::abs(along) <= 1.0e-9) {
-                        along = std::copysign(
-                            std::max(std::hypot(cursor_x, cursor_y), tolerance),
-                            along == 0.0 ? 1.0 : along);
+                    const double tangent_error = std::abs(
+                        cursor_x * tangent_y - cursor_y * tangent_x);
+                    if (tangent_error <= direction_tolerance) {
+                        double along = cursor_x * tangent_x + cursor_y * tangent_y;
+                        if (std::abs(along) <= 1.0e-9) {
+                            along = std::copysign(
+                                std::max(std::hypot(cursor_x, cursor_y), tolerance),
+                                along == 0.0 ? 1.0 : along);
+                        }
+                        SketchSegmentInference tangent_candidate{{
+                            (*pending_segment_start_)[0] + along * tangent_x,
+                            (*pending_segment_start_)[1] + along * tangent_y},
+                            std::nullopt, {}};
+                        tangent_candidate.tangent_reference_id =
+                            pending_segment_start_snap_geometry_id_;
+                        tangencies.push_back(std::move(tangent_candidate));
                     }
-                    SketchSegmentInference tangent_candidate{{
-                        (*pending_segment_start_)[0] + along * tangent_x,
-                        (*pending_segment_start_)[1] + along * tangent_y},
-                        std::nullopt, {}};
-                    tangent_candidate.tangent_reference_id =
-                        pending_segment_start_snap_geometry_id_;
-                    tangencies.push_back(std::move(tangent_candidate));
             }
         }
         if (pending_segment_start_snap_kind_ ==
@@ -12681,12 +12711,7 @@ AssemblyWorkspaceWindow::inferred_sketch_segment_end(
                     const double perpendicular_error = std::abs(
                         cursor_x * (*support_direction)[0] +
                         cursor_y * (*support_direction)[1]) / length;
-                    const double cursor_length = std::hypot(cursor_x, cursor_y);
-                    const double intent_tolerance = std::max(
-                        viewer_->world_tolerance_for_pixels(
-                            3.0 * viewer_->devicePixelRatioF()),
-                        cursor_length *
-                            std::sin(8.0 * std::numbers::pi / 180.0));
+                    const double intent_tolerance = direction_tolerance;
                     if (perpendicular_error <= intent_tolerance) {
                         double along = cursor_x * normal_x + cursor_y * normal_y;
                         if (std::abs(along) <= 1.0e-9) {
@@ -12706,8 +12731,8 @@ AssemblyWorkspaceWindow::inferred_sketch_segment_end(
         }
         const zima::sketcher::SketchPoint* horizontal_reference = nullptr;
         const zima::sketcher::SketchPoint* vertical_reference = nullptr;
-        double horizontal_distance = tolerance;
-        double vertical_distance = tolerance;
+        double horizontal_distance = direction_tolerance;
+        double vertical_distance = direction_tolerance;
         for (const auto& point : sketch->points) {
             if (std::hypot(point.x - (*pending_segment_start_)[0],
                            point.y - (*pending_segment_start_)[1]) <= 1.0e-9) {
@@ -12756,9 +12781,11 @@ AssemblyWorkspaceWindow::inferred_sketch_segment_end(
             const std::array mirrored{
                 2.0 * foot_x - (*pending_segment_start_)[0],
                 2.0 * foot_y - (*pending_segment_start_)[1]};
-            const double distance = std::hypot(
-                position[0] - mirrored[0], position[1] - mirrored[1]);
-            if (distance <= tolerance) {
+            const double difference_x = std::abs(position[0] - mirrored[0]);
+            const double difference_y = std::abs(position[1] - mirrored[1]);
+            if (difference_x <= direction_tolerance &&
+                difference_y <= direction_tolerance) {
+                const double distance = std::hypot(difference_x, difference_y);
                 SketchSegmentInference candidate{mirrored, std::nullopt, {}};
                 candidate.symmetry_axis_id = axis.id;
                 symmetries.push_back({distance, std::move(candidate)});
@@ -12810,7 +12837,8 @@ AssemblyWorkspaceWindow::inferred_sketch_segment_end(
             const double uy = ry / length;
             const double along = cursor_x * ux + cursor_y * uy;
             const double normal_distance = std::abs(cursor_x * uy - cursor_y * ux);
-            if (std::abs(along) <= 1.0e-9 || normal_distance > tolerance) continue;
+            if (std::abs(along) <= 1.0e-9 ||
+                normal_distance > direction_tolerance) continue;
             SketchSegmentInference candidate{{
                 (*pending_segment_start_)[0] + along * ux,
                 (*pending_segment_start_)[1] + along * uy},
@@ -12819,13 +12847,13 @@ AssemblyWorkspaceWindow::inferred_sketch_segment_end(
             parallels.push_back({normal_distance, std::move(candidate)});
         }
     }
-    if (dy <= tolerance) {
+    if (dy <= direction_tolerance) {
         auto aligned = position;
         aligned[1] = (*pending_segment_start_)[1];
         directions.push_back({dy,
             {aligned, zima::sketcher::ConstraintKind::Horizontal, {}}});
     }
-    if (dx <= tolerance) {
+    if (dx <= direction_tolerance) {
         auto aligned = position;
         aligned[0] = (*pending_segment_start_)[0];
         directions.push_back({dx,
@@ -15669,21 +15697,47 @@ void AssemblyWorkspaceWindow::preview_sketch_segment_ray(
     auto inference = inferred_sketch_segment_end(*position);
     const auto endpoint_keypoint_curve =
         sketch_keypoint_curve_id(pending_sketch_snap_geometry_id_);
-    const bool endpoint_tangent =
+    const auto endpoint_tangent_curve =
         (pending_sketch_snap_kind_ ==
              zima::sketcher::ConstraintKind::PointOnCircle &&
          !pending_sketch_snap_geometry_id_.empty()) ||
         (pending_sketch_snap_kind_ ==
              zima::sketcher::ConstraintKind::Coincident &&
-         endpoint_keypoint_curve.has_value());
-    const bool endpoint_perpendicular = pending_sketch_snap_kind_ ==
+         endpoint_keypoint_curve.has_value())
+        ? std::optional<std::string>{endpoint_keypoint_curve
+              ? *endpoint_keypoint_curve : pending_sketch_snap_geometry_id_}
+        : std::nullopt;
+    const double direction_tolerance = viewer_->world_tolerance_for_pixels(
+        3.0 * viewer_->devicePixelRatioF());
+    const double cursor_x = (*position)[0] - (*pending_segment_start_)[0];
+    const double cursor_y = (*position)[1] - (*pending_segment_start_)[1];
+    bool endpoint_tangent = false;
+    if (endpoint_tangent_curve) {
+        if (const auto tangent = sketch->curve_tangent_at_point(
+                *endpoint_tangent_curve, (*position)[0], (*position)[1])) {
+            endpoint_tangent = std::abs(
+                cursor_x * (*tangent)[1] - cursor_y * (*tangent)[0]) <=
+                direction_tolerance;
+        }
+    }
+    bool endpoint_perpendicular = pending_sketch_snap_kind_ ==
             zima::sketcher::ConstraintKind::PointOnLine &&
         !pending_sketch_snap_geometry_id_.empty() &&
         pending_sketch_snap_geometry_id_ != "sketch_axis:x" &&
         pending_sketch_snap_geometry_id_ != "sketch_axis:y";
+    if (endpoint_perpendicular) {
+        if (const auto support = sketch_line_support_direction(
+                pending_sketch_snap_geometry_id_)) {
+            const double length = std::hypot((*support)[0], (*support)[1]);
+            endpoint_perpendicular = length > 1.0e-12 && std::abs(
+                cursor_x * (*support)[0] + cursor_y * (*support)[1]) / length <=
+                direction_tolerance;
+        } else {
+            endpoint_perpendicular = false;
+        }
+    }
     if (endpoint_tangent) {
-        inference.tangent_reference_id = endpoint_keypoint_curve
-            ? *endpoint_keypoint_curve : pending_sketch_snap_geometry_id_;
+        inference.tangent_reference_id = *endpoint_tangent_curve;
     } else if (endpoint_perpendicular) {
         inference.perpendicular_reference_id = pending_sketch_snap_geometry_id_;
     }
