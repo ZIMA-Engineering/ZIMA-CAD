@@ -2895,11 +2895,9 @@ void AssemblyWorkspaceWindow::create_layout() {
                  sketch_angle_dimension_action_}) {
             action->setEnabled(sketch_tools_available);
         }
-        sketch_trim_action_->setEnabled(
-            !active_sketch_id_.empty() && !sketch_trim_active_);
+        sketch_trim_action_->setEnabled(!active_sketch_id_.empty());
         sketch_mirror_action_->setEnabled(
-            !active_sketch_id_.empty() && !sketch_mirror_active_ &&
-            !sketch_trim_active_);
+            !active_sketch_id_.empty() && !sketch_mirror_active_);
     });
     viewer_->set_empty_confirmation_callback([this] {
         clear_selected_sketch_geometry();
@@ -10877,6 +10875,13 @@ void AssemblyWorkspaceWindow::start_sketch_polyline() {
 }
 
 void AssemblyWorkspaceWindow::cancel_sketch_segment() {
+    // Switching directly from Trim to another Sketch command commits the
+    // accumulated preview as one revision. Escape cancels Trim explicitly in
+    // cancel_current_sketch_step() before it reaches this general reset path.
+    if (sketch_trim_active_) {
+        static_cast<void>(finish_sketch_trim());
+        return;
+    }
     sketch_external_reference_active_ = false;
     selected_sketch_external_reference_id_.clear();
     if (sketch_external_reference_action_ != nullptr) {
@@ -11498,6 +11503,7 @@ void AssemblyWorkspaceWindow::end_sketch_trim_gesture() {
 bool AssemblyWorkspaceWindow::finish_sketch_trim() {
     if (!sketch_trim_active_) return false;
     if (active_sketch() == nullptr || !sketch_trim_preview_) {
+        cancel_sketch_trim();
         cancel_sketch_segment();
         preserve_view_on_refresh_ = true;
         refresh_scene();
@@ -11506,6 +11512,7 @@ bool AssemblyWorkspaceWindow::finish_sketch_trim() {
         return true;
     }
     if (!sketch_trim_changed_) {
+        cancel_sketch_trim();
         cancel_sketch_segment();
         preserve_view_on_refresh_ = true;
         refresh_scene();
@@ -11515,6 +11522,7 @@ bool AssemblyWorkspaceWindow::finish_sketch_trim() {
     try {
         if (!mutate_active_sketch(
                 [&](auto& sketch) { sketch = *sketch_trim_preview_; })) {
+            cancel_sketch_trim();
             cancel_sketch_segment();
             preserve_view_on_refresh_ = true;
             refresh_scene();
@@ -11526,6 +11534,7 @@ bool AssemblyWorkspaceWindow::finish_sketch_trim() {
         // Sketch command. Merely clearing sketch_trim_active_ left the viewer
         // candidate contract and toolbar state in Trim mode, so points and
         // Dimensions stopped responding after a successful Trim.
+        cancel_sketch_trim();
         cancel_sketch_segment();
         clear_selected_sketch_geometry();
         viewer_->clear_selection();
@@ -11534,6 +11543,7 @@ bool AssemblyWorkspaceWindow::finish_sketch_trim() {
         refresh_scene();
         state_->setText(tr("Ořezání skici bylo potvrzeno jako jedna Part revize."));
     } catch (const std::exception& error) {
+        cancel_sketch_trim();
         cancel_sketch_segment();
         clear_selected_sketch_geometry();
         preserve_view_on_refresh_ = true;
@@ -18472,11 +18482,9 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         sketch_polyline_action_->setEnabled(!active_sketch_id_.empty());
         sketch_rectangle_action_->setEnabled(!active_sketch_id_.empty());
         sketch_polygon_action_->setEnabled(!active_sketch_id_.empty());
-        sketch_trim_action_->setEnabled(
-            !active_sketch_id_.empty() && !sketch_trim_active_);
+        sketch_trim_action_->setEnabled(!active_sketch_id_.empty());
         sketch_mirror_action_->setEnabled(
-            !active_sketch_id_.empty() && !sketch_mirror_active_ &&
-            !sketch_trim_active_);
+            !active_sketch_id_.empty() && !sketch_mirror_active_);
         sketch_circle_action_->setEnabled(!active_sketch_id_.empty());
         sketch_arc_action_->setEnabled(!active_sketch_id_.empty());
         sketch_ellipse_action_->setEnabled(!active_sketch_id_.empty());
@@ -18526,46 +18534,6 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         regenerate_part_action_->setEnabled(true);
         undo_action_->setEnabled(part->session.can_undo());
         redo_action_->setEnabled(part->session.can_redo());
-        if (sketch_trim_active_) {
-            for (auto* action : {
-                    box_action_, cylinder_action_, sphere_action_, cone_action_,
-                    pyramid_action_, wedge_action_, construction_point_action_,
-                    construction_axis_action_, construction_plane_action_,
-                    extrusion_action_, revolution_action_, fillet_action_,
-                    chamfer_action_, sketch_action_, sketch_point_action_,
-                    sketch_construction_action_, sketch_segment_action_,
-                    sketch_common_tangent_action_,
-                    sketch_polyline_action_, sketch_rectangle_action_,
-                    sketch_polygon_action_, sketch_trim_action_, sketch_mirror_action_,
-                    sketch_circle_action_, sketch_arc_action_, sketch_ellipse_action_,
-                    sketch_elliptical_arc_action_,
-                    sketch_bspline_action_, sketch_text_action_,
-                    sketch_external_reference_action_, sketch_external_profile_action_,
-                    sketch_constraints_action_,
-                    sketch_dimensions_action_, sketch_horizontal_action_,
-                    sketch_vertical_action_, sketch_coincident_action_,
-                    sketch_midpoint_action_,
-                    sketch_symmetric_action_,
-                    sketch_concentric_action_,
-                    sketch_tangent_action_,
-                    sketch_parallel_action_, sketch_perpendicular_action_,
-                    sketch_equal_length_action_, sketch_dimension_action_,
-                    sketch_dimension_x_action_, sketch_dimension_y_action_,
-                    sketch_point_line_dimension_action_,
-                    sketch_symmetric_dimension_action_,
-                    sketch_three_point_angle_dimension_action_,
-                    sketch_angle_dimension_action_, sketch_radius_dimension_action_,
-                    sketch_diameter_dimension_action_,
-                    sketch_ellipse_major_dimension_action_,
-                    sketch_ellipse_minor_dimension_action_,
-                    sketch_ellipse_rotation_dimension_action_,
-                    sketch_fix_point_action_, finish_sketch_action_,
-                    regenerate_part_action_, regenerate_document_action_,
-                    save_action_, save_as_action_, close_document_action_,
-                    undo_action_, redo_action_}) {
-                action->setEnabled(false);
-            }
-        }
         update_application_actions();
         rebuild_application_toolbar();
         return;
@@ -18966,9 +18934,9 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     sketch_polyline_action_->setEnabled(has_active_part_sketch);
     sketch_rectangle_action_->setEnabled(has_active_part_sketch);
     sketch_polygon_action_->setEnabled(has_active_part_sketch);
-    sketch_trim_action_->setEnabled(has_active_part_sketch && !sketch_trim_active_);
+    sketch_trim_action_->setEnabled(has_active_part_sketch);
     sketch_mirror_action_->setEnabled(
-        has_active_part_sketch && !sketch_mirror_active_ && !sketch_trim_active_);
+        has_active_part_sketch && !sketch_mirror_active_);
     sketch_circle_action_->setEnabled(has_active_part_sketch);
     sketch_arc_action_->setEnabled(has_active_part_sketch);
     sketch_ellipse_action_->setEnabled(has_active_part_sketch);

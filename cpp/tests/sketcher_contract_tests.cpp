@@ -3822,6 +3822,13 @@ int main() {
                         }) == 4,
                 "Two-circle Trim did not preserve all four C+T contacts");
         tangent_bridge_trim.validate();
+        const auto unrelated_drag_point = tangent_bridge_trim.add_point(42.0, 17.0);
+        require(tangent_bridge_trim.move_point(
+                    unrelated_drag_point, 44.0, 19.0),
+                "Fresh Trim blocked a point in an unrelated Sketch branch");
+        require(tangent_bridge_trim.move_point(
+                    left_bridge_center, -16.0, 1.0),
+                "Freshly trimmed C+T bridge made the whole Sketch immovable");
         // A solved/imported Trim may retain a distinct persisted line-contact
         // point and Arc boundary point at the same position. Mobility must
         // cross their PointOnCircle relation rather than relying on shared IDs.
