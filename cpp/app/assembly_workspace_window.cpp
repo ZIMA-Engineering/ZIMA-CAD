@@ -89,6 +89,13 @@
 namespace zima::app {
 namespace {
 
+// Tangency expresses a less visually obvious intent than point coincidence
+// or H/V alignment.  Give it a wider screen-space capture band while keeping
+// all stored geometry exact.  The conversion through MeshView makes this
+// independent of model zoom.
+constexpr double sketch_tangent_intent_pixels = 8.0;
+constexpr double sketch_circle_tangent_contact_pixels = 18.0;
+
 std::optional<std::array<double, 2>> exact_circle_tangent_contact(
     const zima::sketcher::Sketch& sketch,
     const std::array<double, 2>& start,
@@ -3382,7 +3389,12 @@ void AssemblyWorkspaceWindow::create_layout() {
             else if (inference.kind == zima::sketcher::ConstraintKind::Vertical)
                 label = "V";
             else if (!inference.midpoint_line_reference_id.empty()) label = "M";
-            else if (related) label = "K";
+            // Other segment inferences draw their own marker at the actual
+            // relation anchor in preview_sketch_segment_ray().  K is reserved
+            // exclusively for a real characteristic-point candidate and must
+            // never be used as a generic fallback for T, perpendicular,
+            // parallel, equal-length or symmetry inference.
+            else label.clear();
         }
         if (cursor && sketch_arc_active_ && pending_arc_center_ &&
             pending_arc_start_) {
@@ -3408,7 +3420,9 @@ void AssemblyWorkspaceWindow::create_layout() {
         }
         if (cursor && sketch_elliptical_arc_active_ &&
             pending_elliptical_arc_center_ && pending_elliptical_arc_major_ &&
-            !pending_elliptical_arc_minor_) {
+            !pending_elliptical_arc_minor_ &&
+            !(cursor_snap && cursor_snap->support_geometry_id.starts_with(
+                "sketch_keypoint:"))) {
             if (const auto minor = projected_ellipse_minor(
                     *pending_elliptical_arc_center_,
                     *pending_elliptical_arc_major_, *cursor)) {
@@ -3417,7 +3431,9 @@ void AssemblyWorkspaceWindow::create_layout() {
         }
         if (cursor && sketch_elliptical_arc_active_ &&
             pending_elliptical_arc_center_ && pending_elliptical_arc_major_ &&
-            pending_elliptical_arc_minor_) {
+            pending_elliptical_arc_minor_ &&
+            !(cursor_snap && cursor_snap->support_geometry_id.starts_with(
+                "sketch_keypoint:"))) {
             if (const auto projected = projected_ellipse_position(
                     *pending_elliptical_arc_center_,
                     *pending_elliptical_arc_major_,
@@ -10404,7 +10420,6 @@ void AssemblyWorkspaceWindow::show_sketch_text_properties(
         anchor = std::array{text->anchor_x, text->anchor_y};
     } else {
         initial = zima::sketcher::Sketch::create_text();
-        initial.angle_degrees = 180.0;
     }
 
     cancel_sketch_segment();
@@ -11219,6 +11234,24 @@ bool AssemblyWorkspaceWindow::finish_current_sketch_tool() {
         sketch_line_pair_dimension_active_ || pending_sketch_dimension_ ||
         sketch_corner_fillet_active_;
     if (active) {
+        // A B-spline is the one drawing command whose object is intentionally
+        // accumulated across an arbitrary number of LMB confirmations.  The
+        // universal MMB double-click therefore has two jobs here: commit the
+        // points that were already confirmed, then leave the command.  It
+        // must never sample the cursor position belonging to the finishing
+        // gesture (MeshView does not route MMB through world_click_callback).
+        if (sketch_bspline_active_ && !pending_bspline_points_.empty()) {
+            if (pending_bspline_points_.size() < 3) {
+                state_->setText(tr(
+                    "B-spline vyžaduje alespoň 3 potvrzené body; "
+                    "dvojklik nic nepřidal."));
+                return true;
+            }
+            static_cast<void>(finish_sketch_bspline());
+            // A failed model mutation deliberately leaves the pending input
+            // intact so the user can correct or cancel it explicitly.
+            if (!pending_bspline_points_.empty()) return true;
+        }
         if (sketch_trim_active_ && sketch_trim_changed_) {
             static_cast<void>(finish_sketch_trim());
             state_->setText(tr("Ořezání bylo dokončeno; aktivní je Výběr."));
@@ -11440,6 +11473,7 @@ bool AssemblyWorkspaceWindow::cancel_current_sketch_step(
     pending_elliptical_arc_minor_.reset();
     pending_elliptical_arc_start_.reset();
     pending_bspline_points_.clear();
+    pending_curve_point_snaps_.clear();
     viewer_->set_transient_edges({});
     state_->setText(tr("Aktuální rozpracovaná geometrie byla zrušena; nástroj zůstává aktivní."));
     return true;
@@ -12056,7 +12090,9 @@ void AssemblyWorkspaceWindow::start_sketch_bspline() {
     selected_sketch_ellipse_id_.clear();
     selected_sketch_elliptical_arc_id_.clear();
     selected_sketch_bspline_id_.clear();
-    state_->setText(tr("B-spline: přidávejte řídicí body; Enter dokončí, Escape zruší."));
+    state_->setText(tr(
+        "B-spline: LMB potvrzuje body; dvojklik MMB dokončí na posledním "
+        "potvrzeném bodě. Tečnost zadejte následně samostatnou vazbou T."));
 }
 
 void AssemblyWorkspaceWindow::cancel_sketch_bspline() {
@@ -12078,7 +12114,7 @@ bool AssemblyWorkspaceWindow::accept_sketch_bspline_ray(
         const auto& previous = pending_bspline_points_.back();
         if (std::hypot((*position)[0] - previous[0], (*position)[1] - previous[1]) <=
             1.0e-9) {
-            state_->setText(tr("Řídicí body B-spline musí být navzájem odlišné."));
+            state_->setText(tr("Po sobě jdoucí body B-spline musí být odlišné."));
             return true;
         }
     }
@@ -12087,9 +12123,9 @@ bool AssemblyWorkspaceWindow::accept_sketch_bspline_ray(
         std::exchange(pending_sketch_snap_geometry_id_, {}),
         std::exchange(pending_sketch_snap_kind_, std::nullopt)});
     state_->setText(pending_bspline_points_.size() >= 3
-        ? tr("B-spline: %1 řídicích bodů; Enter dokončí.")
+        ? tr("B-spline: %1 potvrzených bodů; dvojklik MMB dokončí.")
               .arg(pending_bspline_points_.size())
-        : tr("B-spline: %1 řídicích bodů; pro křivku jsou potřeba alespoň 3.")
+        : tr("B-spline: %1 potvrzených bodů; pro křivku jsou potřeba alespoň 3.")
               .arg(pending_bspline_points_.size()));
     return true;
 }
@@ -12097,7 +12133,7 @@ bool AssemblyWorkspaceWindow::accept_sketch_bspline_ray(
 bool AssemblyWorkspaceWindow::finish_sketch_bspline() {
     if (!sketch_bspline_active_) return false;
     if (pending_bspline_points_.size() < 3) {
-        state_->setText(tr("B-spline vyžaduje alespoň 3 řídicí body."));
+        state_->setText(tr("B-spline vyžaduje alespoň 3 potvrzené body."));
         return true;
     }
     try {
@@ -12634,6 +12670,34 @@ AssemblyWorkspaceWindow::sketch_candidate_snap_ray(
         }
     }
     if (!position) return std::nullopt;
+    if (support_geometry_id.starts_with("sketch_keypoint:") &&
+        sketch_elliptical_arc_active_ && pending_elliptical_arc_center_ &&
+        pending_elliptical_arc_major_) {
+        // Never advertise K and then silently project the confirmed point to
+        // another location. Only exact keypoints compatible with the current
+        // elliptical-arc definition are valid candidates for steps 3 and 4.
+        constexpr double exact_tolerance = 1.0e-7;
+        if (!pending_elliptical_arc_minor_) {
+            const auto projected = projected_ellipse_minor(
+                *pending_elliptical_arc_center_,
+                *pending_elliptical_arc_major_, *position);
+            if (!projected || std::hypot(
+                    (*projected)[0] - (*position)[0],
+                    (*projected)[1] - (*position)[1]) > exact_tolerance) {
+                return std::nullopt;
+            }
+        } else if (!pending_elliptical_arc_start_) {
+            const auto projected = projected_ellipse_position(
+                *pending_elliptical_arc_center_,
+                *pending_elliptical_arc_major_,
+                *pending_elliptical_arc_minor_, *position);
+            if (!projected || std::hypot(
+                    projected->position[0] - (*position)[0],
+                    projected->position[1] - (*position)[1]) > exact_tolerance) {
+                return std::nullopt;
+            }
+        }
+    }
     // A Sketch may be placed or reference an arbitrary Plane. The enum is
     // only its base convention; snapping must use the resolved frame that is
     // also consumed by world_point() and intersect_ray().
@@ -12723,8 +12787,10 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
                 const double tangent_error = std::abs(
                     segment_x * (*tangent)[1] - segment_y * (*tangent)[0]);
                 if (tangent_error <= viewer_->world_tolerance_for_pixels(
-                        2.0 * viewer_->devicePixelRatioF())) {
+                        sketch_tangent_intent_pixels *
+                        viewer_->devicePixelRatioF())) {
                     inferred_end.tangent_reference_id = end_snap_geometry_id;
+                    inferred_end.tangent_at_start = false;
                     if (const auto exact = exact_circle_tangent_contact(
                             *sketch, *pending_segment_start_,
                             end_snap_geometry_id, confirmed_position)) {
@@ -12746,8 +12812,10 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
                         segment_x * (*tangent)[1] -
                         segment_y * (*tangent)[0]);
                     if (tangent_error <= viewer_->world_tolerance_for_pixels(
-                            2.0 * viewer_->devicePixelRatioF())) {
+                            sketch_tangent_intent_pixels *
+                            viewer_->devicePixelRatioF())) {
                         inferred_end.tangent_reference_id = *curve_id;
+                        inferred_end.tangent_at_start = false;
                         if (const auto exact = exact_circle_tangent_contact(
                                 *sketch, *pending_segment_start_, *curve_id,
                                 confirmed_position)) {
@@ -12823,9 +12891,29 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
             }
         }
     }
-    if (sketch_polyline_active_ && sketch_polyline_arc_mode_) {
-        confirmed_position = *position;
-        direction_inference.reset();
+    const bool polyline_arc = sketch_polyline_active_ && sketch_polyline_arc_mode_;
+    const bool polyline_arc_endpoint_snap = polyline_arc && end_snap_kind.has_value();
+    const bool polyline_arc_point_alignment = polyline_arc &&
+        !polyline_arc_endpoint_snap && direction_inference.has_value() &&
+        !inferred_end.reference_point_id.empty();
+    const auto polyline_arc_center_snap =
+        polyline_arc && !polyline_arc_endpoint_snap &&
+            !polyline_arc_point_alignment
+        ? inferred_sketch_polyline_arc_center_snap(*position)
+        : std::nullopt;
+    if (polyline_arc) {
+        if (polyline_arc_center_snap) {
+            confirmed_position = polyline_arc_center_snap->end;
+            direction_inference.reset();
+        } else if (polyline_arc_endpoint_snap) {
+            // An explicitly offered K/C candidate owns the endpoint exactly.
+            // Center-on-axis inference is lower priority and must not move it.
+            confirmed_position = *position;
+            direction_inference.reset();
+        } else if (!polyline_arc_point_alignment) {
+            confirmed_position = *position;
+            direction_inference.reset();
+        }
     }
     const double dx = confirmed_position[0] - (*pending_segment_start_)[0];
     const double dy = confirmed_position[1] - (*pending_segment_start_)[1];
@@ -12851,11 +12939,50 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
                 created_geometry_id = target.add_tangent_arc(
                     start->id, confirmed_position[0], confirmed_position[1],
                     pending_polyline_tangent_geometry_id_);
+                const auto created_arc = std::ranges::find_if(
+                    target.arcs, [&](const auto& value) {
+                        return value.id == created_geometry_id;
+                    });
+                if (created_arc == target.arcs.end()) {
+                    throw std::runtime_error(
+                        "Created tangent arc cannot be resolved");
+                }
+                if (polyline_arc_center_snap) {
+                    static_cast<void>(target.add_point_on_line_constraint(
+                        created_arc->center_point_id,
+                        polyline_arc_center_snap->axis_id));
+                }
+                if (polyline_arc_point_alignment && direction_inference) {
+                    static_cast<void>(target.add_point_pair_constraint(
+                        inferred_end.reference_point_id,
+                        created_arc->end_point_id, *direction_inference));
+                }
+                if (end_snap_kind && !end_snap_geometry_id.empty()) {
+                    if (*end_snap_kind ==
+                            zima::sketcher::ConstraintKind::PointOnLine) {
+                        static_cast<void>(target.add_point_on_line_constraint(
+                            created_arc->end_point_id, end_snap_geometry_id));
+                    } else if (*end_snap_kind ==
+                            zima::sketcher::ConstraintKind::PointOnCircle) {
+                        static_cast<void>(target.add_point_on_circle_constraint(
+                            created_arc->end_point_id, end_snap_geometry_id));
+                    } else if (*end_snap_kind ==
+                            zima::sketcher::ConstraintKind::Midpoint) {
+                        static_cast<void>(target.add_midpoint_constraint(
+                            created_arc->end_point_id, end_snap_geometry_id));
+                    }
+                    // Coincident K reuses the exact persisted point in
+                    // add_arc(), so no duplicate C relation is required.
+                }
             } else {
                 created_geometry_id = target.add_segment(
                     (*pending_segment_start_)[0], (*pending_segment_start_)[1],
                     confirmed_position[0], confirmed_position[1], 1.0e-6,
-                    sketch_segment_construction_);
+                    sketch_segment_construction_,
+                    pending_segment_start_snap_kind_ !=
+                        zima::sketcher::ConstraintKind::Coincident,
+                    end_snap_kind !=
+                        zima::sketcher::ConstraintKind::Coincident);
                 if (sketch_segment_construction_) {
                     target.set_segment_centerline(created_geometry_id, true);
                 }
@@ -12928,7 +13055,9 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
                 if (!inferred_end.tangent_reference_id.empty()) {
                     static_cast<void>(target.add_tangent_constraint(
                         inferred_end.tangent_reference_id,
-                        created_geometry_id, second_point_id));
+                        created_geometry_id,
+                        inferred_end.tangent_at_start
+                            ? first_point_id : second_point_id));
                 }
                 if (!inferred_end.perpendicular_reference_id.empty()) {
                     static_cast<void>(target.add_segment_pair_constraint(
@@ -13018,6 +13147,8 @@ AssemblyWorkspaceWindow::inferred_sketch_segment_end(
     // length; an angular tolerance becomes enormous on long geometry.
     const double direction_tolerance = viewer_->world_tolerance_for_pixels(
         2.0 * viewer_->devicePixelRatioF());
+    const double tangent_tolerance = viewer_->world_tolerance_for_pixels(
+        sketch_tangent_intent_pixels * viewer_->devicePixelRatioF());
     std::vector<std::pair<double, SketchSegmentInference>> point_alignments;
     std::vector<std::pair<double, SketchSegmentInference>> directions;
     std::vector<std::pair<double, SketchSegmentInference>> symmetries;
@@ -13029,11 +13160,49 @@ AssemblyWorkspaceWindow::inferred_sketch_segment_end(
     // segment's own first point. The perpendicular screen distance selects
     // the closest guide, while the other coordinate remains cursor-driven.
     if (const auto* sketch = active_sketch()) {
+        std::vector<std::string> start_tangent_curves;
         if (pending_segment_start_snap_kind_ ==
                 zima::sketcher::ConstraintKind::PointOnCircle &&
             !pending_segment_start_snap_geometry_id_.empty()) {
+            start_tangent_curves.push_back(
+                pending_segment_start_snap_geometry_id_);
+        } else if (pending_segment_start_snap_kind_ ==
+                zima::sketcher::ConstraintKind::Coincident &&
+            !pending_segment_start_snap_geometry_id_.empty()) {
+            if (const auto keypoint_curve = sketch_keypoint_curve_id(
+                    pending_segment_start_snap_geometry_id_)) {
+                start_tangent_curves.push_back(*keypoint_curve);
+            } else {
+                const auto& point_id = pending_segment_start_snap_geometry_id_;
+                for (const auto& arc : sketch->arcs) {
+                    if (arc.start_point_id == point_id ||
+                        arc.end_point_id == point_id) {
+                        start_tangent_curves.push_back(arc.id);
+                    }
+                }
+                for (const auto& ellipse : sketch->ellipses) {
+                    if (ellipse.major_point_id == point_id ||
+                        ellipse.minor_point_id == point_id) {
+                        start_tangent_curves.push_back(ellipse.id);
+                    }
+                }
+                for (const auto& arc : sketch->elliptical_arcs) {
+                    if (arc.start_point_id == point_id ||
+                        arc.end_point_id == point_id ||
+                        arc.major_point_id == point_id ||
+                        arc.minor_point_id == point_id) {
+                        start_tangent_curves.push_back(arc.id);
+                    }
+                }
+            }
+        }
+        std::ranges::sort(start_tangent_curves);
+        start_tangent_curves.erase(std::unique(
+            start_tangent_curves.begin(), start_tangent_curves.end()),
+            start_tangent_curves.end());
+        for (const auto& tangent_curve_id : start_tangent_curves) {
             if (const auto tangent = sketch->curve_tangent_at_point(
-                    pending_segment_start_snap_geometry_id_,
+                    tangent_curve_id,
                     (*pending_segment_start_)[0], (*pending_segment_start_)[1])) {
                     const double tangent_x = (*tangent)[0];
                     const double tangent_y = (*tangent)[1];
@@ -13043,7 +13212,7 @@ AssemblyWorkspaceWindow::inferred_sketch_segment_end(
                         position[1] - (*pending_segment_start_)[1];
                     const double tangent_error = std::abs(
                         cursor_x * tangent_y - cursor_y * tangent_x);
-                    if (tangent_error <= direction_tolerance) {
+                    if (tangent_error <= tangent_tolerance) {
                         double along = cursor_x * tangent_x + cursor_y * tangent_y;
                         if (std::abs(along) <= 1.0e-9) {
                             along = std::copysign(
@@ -13055,7 +13224,8 @@ AssemblyWorkspaceWindow::inferred_sketch_segment_end(
                             (*pending_segment_start_)[1] + along * tangent_y},
                             std::nullopt, {}};
                         tangent_candidate.tangent_reference_id =
-                            pending_segment_start_snap_geometry_id_;
+                            tangent_curve_id;
+                        tangent_candidate.tangent_at_start = true;
                         tangencies.push_back(std::move(tangent_candidate));
                     }
             }
@@ -16801,6 +16971,26 @@ void AssemblyWorkspaceWindow::preview_sketch_segment_ray(
         !pending_polyline_tangent_geometry_id_.empty()) {
         try {
             auto preview = *sketch;
+            const auto endpoint_inference =
+                inferred_sketch_segment_end(*position);
+            std::optional<SketchCandidateSnap> endpoint_snap;
+            if (!sketch_skip_candidate_snap_) {
+                if (const auto candidate = viewer_->hovered_candidate()) {
+                    endpoint_snap = sketch_candidate_snap_ray(
+                        *candidate, origin, direction);
+                }
+            }
+            const bool exact_endpoint = endpoint_snap.has_value() ||
+                pending_sketch_snap_kind_.has_value();
+            const bool point_alignment = !exact_endpoint &&
+                endpoint_inference.kind.has_value() &&
+                !endpoint_inference.reference_point_id.empty();
+            const auto center_snap = !exact_endpoint && !point_alignment
+                ? inferred_sketch_polyline_arc_center_snap(*position)
+                : std::nullopt;
+            const auto preview_end = exact_endpoint ? *position
+                : point_alignment ? endpoint_inference.position
+                : center_snap ? center_snap->end : *position;
             const auto start = std::find_if(
                 preview.points.begin(), preview.points.end(), [&](const auto& point) {
                     return std::hypot(
@@ -16812,7 +17002,7 @@ void AssemblyWorkspaceWindow::preview_sketch_segment_ray(
                 return;
             }
             const auto arc_id = preview.add_tangent_arc(
-                start->id, (*position)[0], (*position)[1],
+                start->id, preview_end[0], preview_end[1],
                 pending_polyline_tangent_geometry_id_);
             auto mesh = preview.viewer_mesh();
             const auto edge = std::find_if(mesh.edges.begin(), mesh.edges.end(),
@@ -16823,10 +17013,48 @@ void AssemblyWorkspaceWindow::preview_sketch_segment_ray(
                 auto transient = *edge;
                 transient.reference = {};
                 viewer_->set_transient_edges({std::move(transient)});
+                const auto arc = std::ranges::find_if(
+                    preview.arcs, [&](const auto& value) {
+                        return value.id == arc_id;
+                    });
+                if (arc != preview.arcs.end()) {
+                    const auto* center = preview.find_point(
+                        arc->center_point_id);
+                    const auto* start_point = preview.find_point(
+                        arc->start_point_id);
+                    std::vector<zima::kernel::Vec3> characteristic_points;
+                    if (center != nullptr) {
+                        characteristic_points.push_back(sketch->world_point(
+                            center->x, center->y));
+                        if (center_snap) {
+                            viewer_->set_transient_labels({{
+                                sketch->world_point(center->x, center->y),
+                                "M"}});
+                        } else if (point_alignment) {
+                            viewer_->set_transient_labels({{
+                                sketch->world_point(
+                                    preview_end[0], preview_end[1]),
+                                *endpoint_inference.kind ==
+                                        zima::sketcher::ConstraintKind::Horizontal
+                                    ? "H" : "V"}});
+                        } else {
+                            viewer_->set_transient_labels({});
+                        }
+                    }
+                    if (start_point != nullptr) {
+                        characteristic_points.push_back(sketch->world_point(
+                            start_point->x, start_point->y));
+                    }
+                    viewer_->set_transient_points(
+                        std::move(characteristic_points));
+                } else {
+                    viewer_->set_transient_points({});
+                }
                 return;
             }
         } catch (const std::exception&) {
             viewer_->set_transient_edges({});
+            viewer_->set_transient_points({});
             return;
         }
     }
@@ -16893,6 +17121,8 @@ void AssemblyWorkspaceWindow::preview_sketch_segment_ray(
         : std::nullopt;
     const double direction_tolerance = viewer_->world_tolerance_for_pixels(
         2.0 * viewer_->devicePixelRatioF());
+    const double tangent_tolerance = viewer_->world_tolerance_for_pixels(
+        sketch_tangent_intent_pixels * viewer_->devicePixelRatioF());
     const double cursor_x = (*position)[0] - (*pending_segment_start_)[0];
     const double cursor_y = (*position)[1] - (*pending_segment_start_)[1];
     bool endpoint_tangent = false;
@@ -16901,7 +17131,7 @@ void AssemblyWorkspaceWindow::preview_sketch_segment_ray(
                 *endpoint_tangent_curve, (*position)[0], (*position)[1])) {
             endpoint_tangent = std::abs(
                 cursor_x * (*tangent)[1] - cursor_y * (*tangent)[0]) <=
-                direction_tolerance;
+                tangent_tolerance;
         }
     }
     bool endpoint_perpendicular = endpoint_snap_kind ==
@@ -16937,6 +17167,7 @@ void AssemblyWorkspaceWindow::preview_sketch_segment_ray(
         inference.parallel_reference_id.clear();
         inference.midpoint_line_reference_id.clear();
         inference.tangent_reference_id = *endpoint_tangent_curve;
+        inference.tangent_at_start = false;
     } else if (endpoint_perpendicular) {
         inference.perpendicular_reference_id = endpoint_snap_geometry;
     }
@@ -17151,6 +17382,67 @@ void AssemblyWorkspaceWindow::preview_sketch_segment_ray(
     if (!markers.empty()) viewer_->set_transient_labels(std::move(markers));
 }
 
+std::optional<AssemblyWorkspaceWindow::SketchPolylineArcCenterSnap>
+AssemblyWorkspaceWindow::inferred_sketch_polyline_arc_center_snap(
+    const std::array<double, 2>& end) const {
+    const auto* sketch = active_sketch();
+    if (sketch == nullptr || viewer_ == nullptr || !pending_segment_start_ ||
+        pending_polyline_tangent_geometry_id_.empty()) {
+        return std::nullopt;
+    }
+    try {
+        auto provisional = *sketch;
+        const auto start = std::ranges::find_if(
+            provisional.points, [&](const auto& point) {
+                return std::hypot(
+                    point.x - (*pending_segment_start_)[0],
+                    point.y - (*pending_segment_start_)[1]) <= 1.0e-6;
+            });
+        if (start == provisional.points.end()) return std::nullopt;
+        const auto arc_id = provisional.add_tangent_arc(
+            start->id, end[0], end[1], pending_polyline_tangent_geometry_id_);
+        const auto arc = std::ranges::find_if(
+            provisional.arcs, [&](const auto& value) {
+                return value.id == arc_id;
+            });
+        if (arc == provisional.arcs.end()) return std::nullopt;
+        const auto* center = provisional.find_point(arc->center_point_id);
+        if (center == nullptr) return std::nullopt;
+        const double tolerance = viewer_->world_tolerance_for_pixels(
+            10.0 * viewer_->devicePixelRatioF());
+        std::string axis_id;
+        if (std::abs(center->y) <= tolerance) axis_id = "sketch_axis:x";
+        if (std::abs(center->x) <= tolerance &&
+            (axis_id.empty() || std::abs(center->x) < std::abs(center->y))) {
+            axis_id = "sketch_axis:y";
+        }
+        if (axis_id.empty()) return std::nullopt;
+
+        const double radial_x = center->x - start->x;
+        const double radial_y = center->y - start->y;
+        const double denominator = axis_id == "sketch_axis:x"
+            ? radial_y : radial_x;
+        if (std::abs(denominator) <= 1.0e-12) return std::nullopt;
+        const double scale = axis_id == "sketch_axis:x"
+            ? -start->y / denominator : -start->x / denominator;
+        const std::array snapped_center{
+            start->x + scale * radial_x,
+            start->y + scale * radial_y};
+        const double radius = std::hypot(
+            snapped_center[0] - start->x,
+            snapped_center[1] - start->y);
+        const double end_dx = end[0] - snapped_center[0];
+        const double end_dy = end[1] - snapped_center[1];
+        const double end_length = std::hypot(end_dx, end_dy);
+        if (radius <= 1.0e-9 || end_length <= 1.0e-9) return std::nullopt;
+        return SketchPolylineArcCenterSnap{{
+            snapped_center[0] + radius * end_dx / end_length,
+            snapped_center[1] + radius * end_dy / end_length}, axis_id};
+    } catch (const std::exception&) {
+        return std::nullopt;
+    }
+}
+
 bool AssemblyWorkspaceWindow::accept_sketch_rectangle_ray(
     const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction) {
     if (!sketch_rectangle_active_) return false;
@@ -17168,13 +17460,18 @@ bool AssemblyWorkspaceWindow::accept_sketch_rectangle_ray(
         state_->setText(tr("Obdélník skici: určete protilehlý roh."));
         return true;
     }
+    const auto midpoint_snap = pending_rectangle_axis_id_.empty()
+        ? inferred_sketch_rectangle_midpoint_snap(*position)
+        : std::nullopt;
+    const auto confirmed_opposite = midpoint_snap
+        ? midpoint_snap->opposite : *position;
     const auto opposite_snap_geometry_id = std::exchange(
         pending_sketch_snap_geometry_id_, {});
     const auto opposite_snap_kind = std::exchange(
         pending_sketch_snap_kind_, std::nullopt);
     if (pending_rectangle_axis_id_.empty() &&
-        (std::abs((*position)[0] - (*pending_rectangle_corner_)[0]) <= 1.0e-9 ||
-         std::abs((*position)[1] - (*pending_rectangle_corner_)[1]) <= 1.0e-9)) {
+        (std::abs(confirmed_opposite[0] - (*pending_rectangle_corner_)[0]) <= 1.0e-9 ||
+         std::abs(confirmed_opposite[1] - (*pending_rectangle_corner_)[1]) <= 1.0e-9)) {
         state_->setText(tr("Obdélník musí mít nenulovou šířku i výšku."));
         return true;
     }
@@ -17182,7 +17479,7 @@ bool AssemblyWorkspaceWindow::accept_sketch_rectangle_ray(
             if (pending_rectangle_axis_id_.empty()) {
                 const auto rectangle_ids = target.add_rectangle(
                     (*pending_rectangle_corner_)[0], (*pending_rectangle_corner_)[1],
-                    (*position)[0], (*position)[1]);
+                    confirmed_opposite[0], confirmed_opposite[1]);
                 const auto first_segment = std::find_if(
                     target.segments.begin(), target.segments.end(),
                     [&](const auto& segment) {
@@ -17234,6 +17531,11 @@ bool AssemblyWorkspaceWindow::accept_sketch_rectangle_ray(
                     pending_rectangle_corner_snap_kind_);
                 apply_snap(opposite_corner_point_id,
                     opposite_snap_geometry_id, opposite_snap_kind);
+                if (midpoint_snap) {
+                    static_cast<void>(target.add_midpoint_on_line_constraint(
+                        rectangle_ids[midpoint_snap->side_index],
+                        midpoint_snap->axis_id));
+                }
             } else {
                 static_cast<void>(target.add_oriented_rectangle(
                     (*pending_rectangle_corner_)[0], (*pending_rectangle_corner_)[1],
@@ -17261,8 +17563,14 @@ void AssemblyWorkspaceWindow::preview_sketch_rectangle_ray(
     if (!position) return;
     const double x0 = (*pending_rectangle_corner_)[0];
     const double y0 = (*pending_rectangle_corner_)[1];
-    const double x1 = (*position)[0];
-    const double y1 = (*position)[1];
+    const auto midpoint_snap = pending_rectangle_axis_id_.empty()
+        ? inferred_sketch_rectangle_midpoint_snap(*position)
+        : std::nullopt;
+    const auto preview_opposite = midpoint_snap
+        ? midpoint_snap->opposite : *position;
+    const double x1 = preview_opposite[0];
+    const double y1 = preview_opposite[1];
+    viewer_->set_transient_labels({});
     if (!pending_rectangle_axis_id_.empty()) {
         double axis_x{};
         double axis_y{};
@@ -17313,9 +17621,98 @@ void AssemblyWorkspaceWindow::preview_sketch_rectangle_ray(
     const auto b = sketch->world_point(x1, y0);
     const auto c = sketch->world_point(x1, y1);
     const auto d = sketch->world_point(x0, y1);
-    viewer_->set_transient_edges({
-        {{a, b}, {}}, {{b, c}, {}}, {{c, d}, {}}, {{d, a}, {}}});
+    std::vector<zima::kernel::ViewerEdge> preview_edges{
+        {{a, b}, {}}, {{b, c}, {}}, {{c, d}, {}}, {{d, a}, {}}};
+    if (midpoint_snap) {
+        if (midpoint_snap->axis_id == "sketch_axis:x") {
+            preview_edges.push_back({{
+                sketch->world_point(std::min(x0, x1) - std::abs(x1 - x0), 0.0),
+                sketch->world_point(std::max(x0, x1) + std::abs(x1 - x0), 0.0)},
+                {active_sketch_id_, "inference:reference", {}}});
+        } else if (midpoint_snap->axis_id == "sketch_axis:y") {
+            preview_edges.push_back({{
+                sketch->world_point(0.0, std::min(y0, y1) - std::abs(y1 - y0)),
+                sketch->world_point(0.0, std::max(y0, y1) + std::abs(y1 - y0))},
+                {active_sketch_id_, "inference:reference", {}}});
+        } else if (const auto axis = std::ranges::find_if(sketch->segments,
+                [&](const auto& value) {
+                    return value.id == midpoint_snap->axis_id;
+                }); axis != sketch->segments.end()) {
+            const auto* first = sketch->find_point(axis->first_point_id);
+            const auto* second = sketch->find_point(axis->second_point_id);
+            if (first != nullptr && second != nullptr) {
+                preview_edges.push_back({{
+                    sketch->world_point(first->x, first->y),
+                    sketch->world_point(second->x, second->y)},
+                    {active_sketch_id_, "inference:reference", {}}});
+            }
+        }
+    }
+    viewer_->set_transient_edges(std::move(preview_edges));
     viewer_->set_transient_points({b, d});
+    if (midpoint_snap) {
+        const std::array midpoint = midpoint_snap->side_index == 0
+            ? std::array{(x0 + x1) * 0.5, y0}
+            : std::array{x1, (y0 + y1) * 0.5};
+        viewer_->set_transient_labels({{
+            sketch->world_point(midpoint[0], midpoint[1]), "M"}});
+    }
+}
+
+std::optional<AssemblyWorkspaceWindow::SketchRectangleMidpointSnap>
+AssemblyWorkspaceWindow::inferred_sketch_rectangle_midpoint_snap(
+    const std::array<double, 2>& opposite) const {
+    const auto* sketch = active_sketch();
+    if (sketch == nullptr || viewer_ == nullptr || !pending_rectangle_corner_) {
+        return std::nullopt;
+    }
+    const auto& first = *pending_rectangle_corner_;
+    const double tolerance = viewer_->world_tolerance_for_pixels(
+        10.0 * viewer_->devicePixelRatioF());
+    std::optional<SketchRectangleMidpointSnap> best;
+    double best_distance = tolerance;
+    const auto offer = [&](const std::string& axis_id,
+            const std::array<double, 2>& axis_origin,
+            const std::array<double, 2>& axis_direction) {
+        const double length = std::hypot(
+            axis_direction[0], axis_direction[1]);
+        if (length <= 1.0e-12) return;
+        const double ux = axis_direction[0] / length;
+        const double uy = axis_direction[1] / length;
+        SketchRectangleMidpointSnap candidate{opposite, axis_id, 0};
+        double distance{};
+        if (std::abs(uy) <= 1.0e-8) {
+            const double axis_y = axis_origin[1];
+            distance = std::abs((first[1] + opposite[1]) * 0.5 - axis_y);
+            candidate.opposite[1] = 2.0 * axis_y - first[1];
+            candidate.side_index = 1;
+        } else if (std::abs(ux) <= 1.0e-8) {
+            const double axis_x = axis_origin[0];
+            distance = std::abs((first[0] + opposite[0]) * 0.5 - axis_x);
+            candidate.opposite[0] = 2.0 * axis_x - first[0];
+            candidate.side_index = 0;
+        } else {
+            return;
+        }
+        if (distance <= best_distance &&
+            std::abs(candidate.opposite[0] - first[0]) > 1.0e-9 &&
+            std::abs(candidate.opposite[1] - first[1]) > 1.0e-9) {
+            best_distance = distance;
+            best = std::move(candidate);
+        }
+    };
+    offer("sketch_axis:x", {0.0, 0.0}, {1.0, 0.0});
+    offer("sketch_axis:y", {0.0, 0.0}, {0.0, 1.0});
+    for (const auto& segment : sketch->segments) {
+        if (!segment.construction) continue;
+        const auto* axis_first = sketch->find_point(segment.first_point_id);
+        const auto* axis_second = sketch->find_point(segment.second_point_id);
+        if (axis_first == nullptr || axis_second == nullptr) continue;
+        offer(segment.id, {axis_first->x, axis_first->y},
+            {axis_second->x - axis_first->x,
+             axis_second->y - axis_first->y});
+    }
+    return best;
 }
 
 void AssemblyWorkspaceWindow::accept_sketch_rectangle_axis(
@@ -17620,7 +18017,7 @@ AssemblyWorkspaceWindow::inferred_sketch_circle_tangent(
         return std::nullopt;
     }
     const double tolerance = viewer_->world_tolerance_for_pixels(
-        12.0 * viewer_->devicePixelRatioF());
+        sketch_circle_tangent_contact_pixels * viewer_->devicePixelRatioF());
     std::optional<SketchCircleTangentInference> best;
     double best_distance = tolerance;
     const auto offer_line = [&](const std::array<double, 2>& first,
@@ -17934,9 +18331,13 @@ bool AssemblyWorkspaceWindow::accept_sketch_elliptical_arc_ray(
         return true;
     }
     if (!pending_elliptical_arc_minor_) {
-        const auto minor = projected_ellipse_minor(
-            *pending_elliptical_arc_center_, *pending_elliptical_arc_major_,
-            *position);
+        const bool exact_keypoint =
+            pending_sketch_snap_geometry_id_.starts_with("sketch_keypoint:");
+        const auto minor = exact_keypoint
+            ? std::optional{*position}
+            : projected_ellipse_minor(
+                *pending_elliptical_arc_center_,
+                *pending_elliptical_arc_major_, *position);
         if (!minor) {
             state_->setText(tr(
                 "Vedlejší poloosa eliptického oblouku musí mít nenulovou délku."));
@@ -17972,8 +18373,12 @@ bool AssemblyWorkspaceWindow::accept_sketch_elliptical_arc_ray(
             "Bod eliptického oblouku nesmí ležet ve středu."));
         return true;
     }
+    const bool exact_keypoint =
+        pending_sketch_snap_geometry_id_.starts_with("sketch_keypoint:");
+    const auto confirmed_position = exact_keypoint
+        ? *position : projected->position;
     if (!pending_elliptical_arc_start_) {
-        pending_elliptical_arc_start_ = projected->position;
+        pending_elliptical_arc_start_ = confirmed_position;
         pending_curve_point_snaps_.push_back({
             std::exchange(pending_sketch_snap_geometry_id_, {}),
             std::exchange(pending_sketch_snap_kind_, std::nullopt)});
@@ -17983,8 +18388,8 @@ bool AssemblyWorkspaceWindow::accept_sketch_elliptical_arc_ray(
         return true;
     }
     if (std::hypot(
-            projected->position[0] - (*pending_elliptical_arc_start_)[0],
-            projected->position[1] - (*pending_elliptical_arc_start_)[1]) <=
+            confirmed_position[0] - (*pending_elliptical_arc_start_)[0],
+            confirmed_position[1] - (*pending_elliptical_arc_start_)[1]) <=
         1.0e-9) {
         state_->setText(tr(
             "Počáteční a koncový bod eliptického oblouku musí být odlišné."));
@@ -18004,7 +18409,7 @@ bool AssemblyWorkspaceWindow::accept_sketch_elliptical_arc_ray(
             (*pending_elliptical_arc_minor_)[1],
             (*pending_elliptical_arc_start_)[0],
             (*pending_elliptical_arc_start_)[1],
-            projected->position[0], projected->position[1],
+            confirmed_position[0], confirmed_position[1],
             pending_elliptical_arc_reversed_);
             const auto arc = std::ranges::find_if(target.elliptical_arcs,
                 [&](const auto& value) { return value.id == arc_id; });

@@ -1088,7 +1088,7 @@ int verify_startup_contract(
     auto* text_angle = text_dialog == nullptr
         ? nullptr : text_dialog->findChild<QDoubleSpinBox*>("sketchTextAngle");
     if (!verify(text_dialog != nullptr && text_buttons != nullptr &&
-                    text_angle != nullptr && text_angle->value() == 180.0 &&
+                    text_angle != nullptr && text_angle->value() == 0.0 &&
                     text_dialog->windowFlags().testFlag(Qt::SubWindow) &&
                     text_buttons->button(QDialogButtonBox::Ok) != nullptr &&
                     text_buttons->button(QDialogButtonBox::Cancel) != nullptr &&

@@ -258,11 +258,57 @@ as the final deterministic tie-breaker, never as geometric identity.
 3. Find affected graph components from the action root.
 4. Enumerate useful free-branch candidates; do not enumerate anchored branches.
 5. Solve each local candidate with hard equations and weighted displacement.
+
 6. Reject non-finite, degenerate or rank-inconsistent candidates.
 7. Verify every active equation and protected parameter against the current
    uncached Sketch state.
 8. Commit the lowest-cost verified candidate atomically; otherwise restore the
    exact input state and report a conflict.
+
+## Next training batch: connected curve endpoints
+
+The interaction layer now produces several persisted states that were not part
+of the original mobility fixtures. The next solver-training pass must treat
+them as first-class graph patterns rather than UI special cases.
+
+INPUTS:
+
+- line, circular-arc, elliptical-arc and open-B-spline endpoints connected by
+  independent Coincident and Tangent constraints;
+- a tangent polyline arc whose derived center is constrained to a base or
+  construction axis;
+- an arc endpoint coincident with a characteristic point or aligned H/V to an
+  unrelated persisted point;
+- rectangles whose side midpoint lies on an axis and polygons whose size and
+  rotation remain simultaneously free;
+- driving length, radius and angular dimensions added to each useful free,
+  partially anchored and fully anchored variant.
+
+MEANS:
+
+- persisted point/geometry ownership and the existing mobility graph;
+- exact endpoint derivatives for analytic curves and clamped B-splines;
+- explicit drag roots and transactional full-residual verification;
+- deterministic fixtures generated in at least the four cardinal orientations
+  and both endpoint orders, so behavior cannot depend on vector order or one
+  favorable side of an axis.
+
+OUTPUTS:
+
+- the dragged or dimension-driven root reaches its requested value whenever a
+  valid branch exists;
+- Coincident contacts and Tangent directions remain exact and independently
+  removable;
+- derived centers stay on their axes while movement propagates through the
+  genuinely free neighboring branch;
+- fixed or over-constrained variants reject transactionally without partial
+  coordinate, constraint or dimension changes;
+- serialization round trips preserve the same branch, constraint identities,
+  DOF and solver status.
+
+Sanity measurement for every generated family must include residual magnitude,
+reported DOF, coordinate drift after a forward/back cycle and debug-build
+latency. A visually plausible result is not sufficient verification.
 
 ## Idle-time preparation
 

@@ -7,19 +7,16 @@ také v `UZIVATELSKY_MANUAL.md`.
 
 ## Potvrzování nástrojů
 
-Zadávání geometrie používá jednotné ovládání. Levým tlačítkem se zadávají
-počáteční a pomocné body. Poslední bod, který dokončuje právě kreslený objekt,
-se zadá jedním krátkým kliknutím prostředního tlačítka. Samostatný bod je
-výjimka a kvůli intuitivnímu ovládání se vytvoří jedním levým kliknutím.
-Textová kotva se zadává levým tlačítkem ve View. Rychlý
-dvojklik prostředním tlačítkem prvním klikem okamžitě potvrdí případný poslední
-bod a druhým klikem ukončí aktivní nástroj a vrátí skicář na `Výběr`.
+Zadávání geometrie používá jednotné ovládání. Levým tlačítkem se potvrzují
+všechny definiční body včetně bodu, který dokončuje běžný objekt. Krátký klik
+prostředním tlačítkem geometrii nikdy nevytváří ani nepotvrzuje; je vyhrazený
+navigaci. Textová kotva se zadává levým tlačítkem ve View. Rychlý dvojklik
+prostředním tlačítkem ukončí aktivní nástroj a vrátí skicář na `Výběr`.
+U vícebodové B-spline před ukončením uloží pouze již potvrzené LMB body;
+poloha kurzoru při dvojkliku se nikdy nepřidá jako další bod.
 
-Pokud má fokus Sketch view, klávesa `Enter` vyvolá tutéž centrální akci
-**Potvrdit** jako krátký klik prostředním tlačítkem: potvrdí právě zobrazený
-bod, kandidáta nebo rozpracovanou geometrii a opakovatelný nástroj ponechá
-aktivní. `Enter` uvnitř číselného nebo textového editoru potvrzuje pouze jeho
-hodnotu; nesmí zároveň odeslat geometrii, zavřít Vlastnosti ani vyvolat **OK**.
+`Enter` uvnitř číselného nebo textového editoru potvrzuje pouze jeho hodnotu;
+nesmí zároveň odeslat geometrii, zavřít Vlastnosti ani vyvolat **OK**.
 
 Po dokončení geometrie, vazby, kóty nebo jiné opakovatelné operace zůstává
 zvolený nástroj aktivní a je připravený k dalšímu zadání. Samovolně se na
@@ -58,6 +55,8 @@ Po potvrzení kotevního bodu textu se otevřou společné interní
 nesmí přijmout další bod textu. Editor používá víceřádkové
 pole přibližně pro pět řádků a ukládá zalomení řádků. Stejný dialog a stejné
 ovládání se používají při vytvoření i pozdější editaci textu.
+Výchozí natočení je `0°` a obrys je čitelný zleva doprava bez implicitního
+zrcadlení. Zrcadlení provádí pouze výslovná volba **Převrátit vodorovně**.
 
 ## Základní princip
 
@@ -289,6 +288,18 @@ potvrzeného bodu se zobrazuje skutečný B-spline náhled. Křivka vyžaduje
 nejméně tři řídicí body a rychlý dvojklik prostředním tlačítkem ji dokončí;
 jednoduchý prostřední klik zůstává vyhrazen navigaci.
 
+Dodatečná vazba `T` na konci otevřené B-spline zachová společný kontaktní bod
+i připojenou úsečku a upraví sousední řídicí bod spline. Koncová tečna se
+vyhodnocuje z přesné derivace koncového ramene, nikoli z obrazově vzorkované
+polyčáry. `C` a `T` zůstávají samostatně zobrazitelné a odstranitelné vazby.
+
+Tečný oblouk v **Lomené čáře** zobrazuje svůj odvozený střed a společný
+počáteční bod. Přiblížení středu k hlavní ose X/Y nabídne `M`; potvrzení uloží
+střed oblouku vazbou na danou osu. Koncový bod oblouku současně používá běžné
+významné body `K` a bodové zarovnání `H/V` vůči existujícím bodům. Přesný `K`
+má přednost před odvozeným přichycením středu k ose a potvrzené `H/V` se uloží
+jako skutečná bodová vazba.
+
 Text je po dobu umístění kreslicí nástroj, takže obdélníkový výběr nesmí
 spotřebovat kliknutí do prázdného View. Levý klik určí kotvu a okamžitě zobrazí
 transientní obrys podle hodnot v interních Vlastnostech. `OK` jej uloží,
@@ -316,20 +327,23 @@ a vzdálený konec druhé leží na ose. Změna délky pohne společným bodem a
 dopočítá nový průsečík druhé úsečky s osou bez změny úhlu. Duplicitní nebo již
 jinou vazbou určená kóta se odmítne a skica zůstane beze změny.
 
-## Otevřené případy pro příští testování
+## Další solverové výukové scénáře
 
 Při příštím pokračování na Skicáři se mají jako první projít tyto případy:
 
 1. **Úhlové kóty** — dále rozšiřovat regresní kombinace pro řídicí, zamknutou
    a referenční variantu, záporné hodnoty a odstranění ve složitějších
    zavazbených řetězcích.
-2. **Obdélník přes osu** — při přejetí strany přes hlavní osu nebo konstrukční
-   čáru nabídnout střed strany a po potvrzení uložit skutečnou vazbu `C` mezi
-   středem úsečky a osou.
-3. **Orientovaný a souosý obdélník** — první LMB určí výchozí bod, RMB přepne
-   do výběru osy, LMB vybere hlavní osu nebo konstrukční čáru, náhled dále drží
-   její orientaci i souosost a poslední potvrzený bod určí výsledné rozměry.
-4. Každý případ ověřit prakticky v C++ aplikaci a převést jeho posloupnost
+2. **Navazující křivky** — učit mobilitu řetězců úsečka–oblouk,
+   oblouk–úsečka, eliptický oblouk–úsečka a úsečka–B-spline se samostatnými
+   kombinacemi `C`, `T`, `H/V`, pevného bodu a řídicí kóty.
+3. **Středy na osách** — tažení všech čtyř rohů obdélníku se středem strany na
+   hlavní nebo konstrukční ose a tečný oblouk lomené čáry se středem na ose.
+   Solver musí pohyb propagovat do volné větve a nesmí odtáhnout aktivní bod.
+4. **Křivkové parametry** — současně měnit poloměr/natočení kruhových a
+   eliptických objektů, velikost a natočení mnohoúhelníku a koncové rameno
+   B-spline bez porušení kontaktního bodu.
+5. Každý případ ověřit prakticky v C++ aplikaci a převést jeho posloupnost
    kliknutí, zobrazené inference a persistované vazby na regresní test.
 
 Při zadávání druhého bodu úsečky nebo konstrukční čáry se v omezené obrazové

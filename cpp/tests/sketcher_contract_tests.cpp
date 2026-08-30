@@ -1870,6 +1870,42 @@ int main() {
         require(loaded_midpoint_on_axis.constraints ==
                     midpoint_on_axis.constraints,
                 "Midpoint-on-line constraint did not survive serialization");
+        auto centered_rectangle = zima::sketcher::Sketch::create_default();
+        const auto centered_rectangle_edges = centered_rectangle.add_rectangle(
+            2.0, 3.0, 12.0, -3.0);
+        static_cast<void>(centered_rectangle.add_midpoint_on_line_constraint(
+            centered_rectangle_edges[1], "sketch_axis:x"));
+        const auto& centered_side = centered_rectangle.segments[1];
+        const auto* centered_side_first = centered_rectangle.find_point(
+            centered_side.first_point_id);
+        const auto* centered_side_second = centered_rectangle.find_point(
+            centered_side.second_point_id);
+        require(centered_rectangle.constraints.back().kind ==
+                    zima::sketcher::ConstraintKind::MidpointOnLine &&
+                    std::abs((centered_side_first->y +
+                        centered_side_second->y) * 0.5) < 1.0e-8,
+                "Rectangle side midpoint did not remain attached to the Sketch axis");
+        const std::array centered_rectangle_points{
+            centered_rectangle.segments[0].first_point_id,
+            centered_rectangle.segments[0].second_point_id,
+            centered_rectangle.segments[1].second_point_id,
+            centered_rectangle.segments[2].second_point_id};
+        for (std::size_t handle_index = 0;
+             handle_index < centered_rectangle_points.size(); ++handle_index) {
+            const auto& point_id = centered_rectangle_points[handle_index];
+            auto dragged_rectangle = centered_rectangle;
+            const auto* before = dragged_rectangle.find_point(point_id);
+            const double target_x = before->x + 1.0;
+            const double target_y = before->y + (before->y > 0.0 ? 1.0 : -1.0);
+            const bool moved = dragged_rectangle.move_point(
+                point_id, target_x, target_y);
+            require(moved &&
+                        std::abs(dragged_rectangle.find_point(point_id)->x -
+                            target_x) < 1.0e-8 &&
+                        std::abs(dragged_rectangle.find_point(point_id)->y -
+                            target_y) < 1.0e-8,
+                    "Rectangle midpoint-on-axis blocked one of its corner handles");
+        }
         bool duplicate_midpoint_rejected = false;
         try {
             static_cast<void>(midpoint.add_midpoint_constraint(
@@ -2180,18 +2216,21 @@ int main() {
             "sketch_axis:x", ui_circle, ui_contact_id));
         const auto ui_markers = ui_circle_tangent.viewer_mesh().constraint_markers;
         const auto ui_tangent_marker = std::ranges::find_if(
-            ui_markers, [](const auto& marker) { return marker.label == "C T"; });
+            ui_markers, [](const auto& marker) { return marker.label == "T"; });
         const auto persisted_tangent = std::ranges::find_if(
             ui_circle_tangent.constraints, [](const auto& value) {
                 return value.kind == zima::sketcher::ConstraintKind::Tangent;
             });
         require(persisted_tangent != ui_circle_tangent.constraints.end() &&
                     persisted_tangent->first_point_id == ui_contact_id &&
-                    ui_markers.size() == 1 &&
+                    ui_markers.size() == 3 &&
+                    std::ranges::count_if(ui_markers, [](const auto& marker) {
+                        return marker.label == "C";
+                    }) == 2 &&
                     ui_tangent_marker != ui_markers.end() &&
                     std::abs(ui_tangent_marker->position.x) < 1.0e-8 &&
                     std::abs(ui_tangent_marker->position.y) < 1.0e-8,
-                "Circle C+T did not bind and display one combined contact marker");
+                "Circle C+T did not expose its individual selectable relations");
         for (const double center_y : {-2.0, 2.0}) {
             auto signed_axis_contact = zima::sketcher::Sketch::create_default();
             const auto signed_circle = signed_axis_contact.add_circle(
@@ -2310,8 +2349,15 @@ int main() {
                         zima::sketcher::ConstraintKind::PointOnCircle &&
                     tangent_from_contact.constraints[1].kind ==
                         zima::sketcher::ConstraintKind::Tangent &&
-                    contact_markers.size() == 1 &&
-                    contact_markers.front().label == "C T" &&
+                    contact_markers.size() == 2 &&
+                    contact_markers[0].label == "C" &&
+                    contact_markers[1].label == "T" &&
+                    contact_markers[0].reference.semantic_key !=
+                        contact_markers[1].reference.semantic_key &&
+                    std::abs(contact_markers[0].position.x - 5.0) < 1.0e-9 &&
+                    std::abs(contact_markers[0].position.y) < 1.0e-9 &&
+                    std::abs(contact_markers[1].position.x - 5.0) < 1.0e-9 &&
+                    std::abs(contact_markers[1].position.y) < 1.0e-9 &&
                     tangent_from_contact.solve().status !=
                         zima::sketcher::SolveStatus::Conflicting,
                 "Tangent continuation did not preserve its explicit C + T contact");
@@ -2585,6 +2631,8 @@ int main() {
         auto spline_tangent = zima::sketcher::Sketch::create_default();
         const auto tangent_spline = spline_tangent.add_bspline({
             {0.0, 0.0}, {10.0, 20.0}, {20.0, -10.0}, {30.0, 0.0}});
+        const auto spline_tangent_handle_id =
+            spline_tangent.bsplines.front().control_point_ids[1];
         const auto spline_tangent_line = spline_tangent.add_segment(
             0.0, 0.0, 10.0, 0.0);
         const auto spline_tangent_id = spline_tangent.add_tangent_constraint(
@@ -2599,6 +2647,8 @@ int main() {
             spline_tangent_segment->first_point_id);
         const auto* spline_tangent_second = spline_tangent.find_point(
             spline_tangent_segment->second_point_id);
+        const auto* spline_tangent_handle = spline_tangent.find_point(
+            spline_tangent_handle_id);
         const double tangent_segment_length = std::hypot(
             spline_tangent_second->x - spline_tangent_first->x,
             spline_tangent_second->y - spline_tangent_first->y);
@@ -2612,6 +2662,14 @@ int main() {
         const auto loaded_spline_tangent =
             zima::sketcher::Sketch::from_serialized(spline_tangent.serialized());
         require(spline_tangent_direction && spline_tangent_cross < 1.0e-6 &&
+                    spline_tangent_first != nullptr &&
+                    spline_tangent_second != nullptr &&
+                    std::abs(spline_tangent_first->x) < 1.0e-9 &&
+                    std::abs(spline_tangent_first->y) < 1.0e-9 &&
+                    std::abs(spline_tangent_second->x - 10.0) < 1.0e-9 &&
+                    std::abs(spline_tangent_second->y) < 1.0e-9 &&
+                    spline_tangent_handle != nullptr &&
+                    std::abs(spline_tangent_handle->y) < 1.0e-6 &&
                     spline_tangent.solve().status !=
                         zima::sketcher::SolveStatus::Conflicting &&
                     loaded_spline_tangent.constraints.size() == 1 &&

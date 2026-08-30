@@ -486,7 +486,10 @@ přepnutí záložky a otevření vlastností tuto obnovu ani OCCT nespouští. 
 z jiné komponenty sestavy budou doplněny v navazujícím řezu.
 
 V novém C++ pracovním prostoru se **B-spline skici** zadává posloupností
-řídicích bodů; kubická křivka potřebuje nejméně čtyři a `Enter` ji dokončí.
+potvrzených bodů. Potřebuje nejméně tři body a rychlý dvojklik prostředním
+tlačítkem ji dokončí přesně na posledním bodu potvrzeném levým tlačítkem;
+kurzor při dvojkliku další bod nepřidá. Dodatečná vazba tečnosti na konci
+upraví koncové rameno spline a nepohne připojenou úsečkou.
 Dvojklikem na hotovou křivku se otevřou interní **Vlastnosti B-spline**, kde
 lze změnit stupeň, souřadnice řídicích bodů a přepnout uzavřenou periodickou
 křivku. `Delete`
@@ -511,8 +514,15 @@ je pro rotační výpočet matematicky prodloužený. Obecné přepnutí kružni
 oblouku nebo jiné geometrie mimo výsledný profil se terminologicky označuje
 jako **konstrukční geometrie**. Tvar takového prvku se přepnutím nemění.
 
-Jeden klik prostředním tlačítkem potvrdí právě zadávanou entitu. Tažení
-prostředním tlačítkem nadále pouze otáčí pohled a zadání nepotvrdí.
+Definiční body geometrie se potvrzují levým tlačítkem. Krátký klik ani tažení
+prostředním tlačítkem zadání nepotvrdí; prostřední tlačítko zůstává vyhrazené
+navigaci a jeho rychlý dvojklik ukončuje aktivní nástroj.
+
+V **Lomené čáře** přepne RMB po prvním úseku následující část mezi úsečkou a
+tečným obloukem. Náhled oblouku zobrazuje také jeho odvozený střed. Střed lze
+přichytit na hlavní osu X/Y; koncový bod lze přichytit na významný bod `K`
+nebo vodorovně/svisle zarovnat s jiným bodem. Zobrazená nabídka se po potvrzení
+uloží jako skutečná vazba.
 
 Každý bod má interní souřadnice X/Y, ty ale bez explicitní uživatelské kóty
 nejsou podmínkou a nezobrazují se. Solver je používá jako aktuální polohu a smí

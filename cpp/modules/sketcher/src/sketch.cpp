@@ -1264,6 +1264,7 @@ std::optional<SegmentCurveTangentState> segment_curve_tangent_state(
 struct SegmentSplineTangentState {
     std::string contact_point_id;
     std::string other_point_id;
+    std::string spline_tangent_point_id;
     double tangent_x{};
     double tangent_y{};
     double segment_length{};
@@ -1289,6 +1290,41 @@ std::optional<SegmentSplineTangentState> segment_spline_tangent_state(
     const double segment_length = std::hypot(
         second->x - first->x, second->y - first->y);
     if (segment_length <= 1.0e-12) return std::nullopt;
+    if (spline->control_point_ids.size() >= 2) {
+        for (const auto [line_point, line_other] : {
+                std::pair{first, second}, std::pair{second, first}}) {
+            for (const auto [endpoint_index, handle_index] : {
+                    std::pair<std::size_t, std::size_t>{0, 1},
+                    {spline->control_point_ids.size() - 1,
+                     spline->control_point_ids.size() - 2}}) {
+                const auto* endpoint = sketch.find_point(
+                    spline->control_point_ids[endpoint_index]);
+                const auto* handle = sketch.find_point(
+                    spline->control_point_ids[handle_index]);
+                if (endpoint == nullptr || handle == nullptr || std::hypot(
+                        line_point->x - endpoint->x,
+                        line_point->y - endpoint->y) > 1.0e-6) {
+                    continue;
+                }
+                const double handle_length = std::hypot(
+                    handle->x - endpoint->x, handle->y - endpoint->y);
+                if (handle_length <= 1.0e-12) continue;
+                const double tangent_x =
+                    (handle->x - endpoint->x) / handle_length;
+                const double tangent_y =
+                    (handle->y - endpoint->y) / handle_length;
+                const double segment_x =
+                    (line_other->x - line_point->x) / segment_length;
+                const double segment_y =
+                    (line_other->y - line_point->y) / segment_length;
+                return SegmentSplineTangentState{
+                    line_point->id, line_other->id, handle->id,
+                    tangent_x, tangent_y, segment_length,
+                    std::abs(segment_x * tangent_y -
+                        segment_y * tangent_x)};
+            }
+        }
+    }
     struct Contact {
         const SketchPoint* point{};
         const SketchPoint* other{};
@@ -1320,10 +1356,28 @@ std::optional<SegmentSplineTangentState> segment_spline_tangent_state(
         }
     }
     if (best.point == nullptr || best.distance > 1.0e-6) return std::nullopt;
+    std::string spline_tangent_point_id;
+    if (spline->control_point_ids.size() >= 2) {
+        const auto* spline_first = sketch.find_point(
+            spline->control_point_ids.front());
+        const auto* spline_last = sketch.find_point(
+            spline->control_point_ids.back());
+        if (spline_first != nullptr && std::hypot(
+                best.point->x - spline_first->x,
+                best.point->y - spline_first->y) <= 1.0e-6) {
+            spline_tangent_point_id = spline->control_point_ids[1];
+        } else if (spline_last != nullptr && std::hypot(
+                best.point->x - spline_last->x,
+                best.point->y - spline_last->y) <= 1.0e-6) {
+            spline_tangent_point_id =
+                spline->control_point_ids[spline->control_point_ids.size() - 2];
+        }
+    }
     const double segment_x = (best.other->x - best.point->x) / segment_length;
     const double segment_y = (best.other->y - best.point->y) / segment_length;
     return SegmentSplineTangentState{
-        best.point->id, best.other->id, best.tangent_x, best.tangent_y,
+        best.point->id, best.other->id, std::move(spline_tangent_point_id),
+        best.tangent_x, best.tangent_y,
         segment_length,
         std::abs(segment_x * best.tangent_y - segment_y * best.tangent_x)};
 }
@@ -3186,7 +3240,8 @@ std::string Sketch::add_point(
 
 std::string Sketch::add_segment(
     double first_x, double first_y, double second_x, double second_y,
-    double snap_tolerance, bool construction) {
+    double snap_tolerance, bool construction,
+    bool reuse_first_point, bool reuse_second_point) {
     for (const double value : {first_x, first_y, second_x, second_y, snap_tolerance}) {
         require_finite(value, "segment coordinate");
     }
@@ -3195,13 +3250,16 @@ std::string Sketch::add_segment(
         throw std::invalid_argument("Sketch segment length or snap tolerance is invalid");
     }
     auto next = *this;
-    const auto endpoint = [&](double x, double y) {
-        const auto found = std::find_if(next.points.begin(), next.points.end(),
-            [&](const auto& point) {
-                return std::hypot(point.x - x, point.y - y) <= snap_tolerance;
-            });
-        if (found != next.points.end()) return found->id;
-        const auto external = external_snap_point(next, x, y, snap_tolerance);
+    const auto endpoint = [&](double x, double y, bool reuse_existing) {
+        if (reuse_existing) {
+            const auto found = std::find_if(next.points.begin(), next.points.end(),
+                [&](const auto& point) {
+                    return std::hypot(point.x - x, point.y - y) <= snap_tolerance;
+                });
+            if (found != next.points.end()) return found->id;
+        }
+        const auto external = reuse_existing
+            ? external_snap_point(next, x, y, snap_tolerance) : std::nullopt;
         auto point = create_point(
             external ? external->second[0] : x,
             external ? external->second[1] : y);
@@ -3213,8 +3271,8 @@ std::string Sketch::add_segment(
         }
         return id;
     };
-    const auto first_id = endpoint(first_x, first_y);
-    const auto second_id = endpoint(second_x, second_y);
+    const auto first_id = endpoint(first_x, first_y, reuse_first_point);
+    const auto second_id = endpoint(second_x, second_y, reuse_second_point);
     if (first_id == second_id) {
         throw std::invalid_argument("Sketch segment collapses to one snapped point");
     }
@@ -3493,6 +3551,27 @@ std::optional<std::array<double, 2>> Sketch::curve_tangent_at_point(
             bsplines.begin(), bsplines.end(),
             [&](const auto& value) { return value.id == geometry_id; });
         if (spline == bsplines.end()) return std::nullopt;
+        if (spline->control_point_ids.size() >= 2) {
+            for (const auto [endpoint_index, handle_index] : {
+                    std::pair<std::size_t, std::size_t>{0, 1},
+                    {spline->control_point_ids.size() - 1,
+                     spline->control_point_ids.size() - 2}}) {
+                const auto* endpoint = find_point(
+                    spline->control_point_ids[endpoint_index]);
+                const auto* handle = find_point(
+                    spline->control_point_ids[handle_index]);
+                if (endpoint == nullptr || handle == nullptr || std::hypot(
+                        target->position[0] - endpoint->x,
+                        target->position[1] - endpoint->y) > 1.0e-7) {
+                    continue;
+                }
+                const double dx = handle->x - endpoint->x;
+                const double dy = handle->y - endpoint->y;
+                const double length = std::hypot(dx, dy);
+                if (length > 1.0e-12)
+                    return std::array{dx / length, dy / length};
+            }
+        }
         const auto path = sampled_bspline_points(*this, *spline);
         double best_distance = std::numeric_limits<double>::infinity();
         std::optional<std::array<double, 2>> tangent;
@@ -7171,7 +7250,50 @@ SolveResult Sketch::solve_impl(
                     if (state->residual <= tolerance) continue;
                     auto* contact = find_point(state->contact_point_id);
                     auto* other = find_point(state->other_point_id);
-                    if (contact == nullptr || other == nullptr || immutable(*other)) {
+                    if (contact == nullptr || other == nullptr) {
+                        immovable_conflict = true;
+                        continue;
+                    }
+                    // For an endpoint-connected line, Tangent is a shape
+                    // constraint on the spline. Preserve both the shared
+                    // contact and the selected line, and rotate the adjacent
+                    // spline control point around that contact. Interior
+                    // contacts retain the established line correction because
+                    // they do not have one unambiguous endpoint handle.
+                    if (!state->spline_tangent_point_id.empty()) {
+                        auto* tangent_point = find_point(
+                            state->spline_tangent_point_id);
+                        if (tangent_point == nullptr || immutable(*tangent_point)) {
+                            immovable_conflict = true;
+                            continue;
+                        }
+                        const double handle_length = std::hypot(
+                            tangent_point->x - contact->x,
+                            tangent_point->y - contact->y);
+                        if (handle_length <= 1.0e-12) {
+                            immovable_conflict = true;
+                            continue;
+                        }
+                        const double segment_x =
+                            (other->x - contact->x) / state->segment_length;
+                        const double segment_y =
+                            (other->y - contact->y) / state->segment_length;
+                        const std::array forward{
+                            contact->x + handle_length * segment_x,
+                            contact->y + handle_length * segment_y};
+                        const std::array reverse{
+                            contact->x - handle_length * segment_x,
+                            contact->y - handle_length * segment_y};
+                        const auto& desired = std::hypot(
+                            tangent_point->x - forward[0],
+                            tangent_point->y - forward[1]) <= std::hypot(
+                            tangent_point->x - reverse[0],
+                            tangent_point->y - reverse[1]) ? forward : reverse;
+                        tangent_point->x = desired[0];
+                        tangent_point->y = desired[1];
+                        continue;
+                    }
+                    if (immutable(*other)) {
                         immovable_conflict = true;
                         continue;
                     }
@@ -7323,15 +7445,56 @@ SolveResult Sketch::solve_impl(
                     const bool second_movable = !immutable(*second);
                     if (!first_movable && !second_movable) {
                         immovable_conflict = true;
-                    } else if (first_movable && second_movable) {
-                        first->x += dx;
-                        first->y += dy;
-                        second->x += dx;
-                        second->y += dy;
                     } else {
-                        auto* movable = first_movable ? first : second;
-                        movable->x += 2.0 * dx;
-                        movable->y += 2.0 * dy;
+                        const auto correct_coordinate = [&](DimensionKind kind,
+                                double correction) {
+                            if (std::abs(correction) <= tolerance) return true;
+                            const auto first_group = directional_translation_closure(
+                                first->id, kind);
+                            const auto second_group = directional_translation_closure(
+                                second->id, kind);
+                            const auto available = [&](const auto& group) {
+                                return !group.empty() && !std::any_of(
+                                    group.begin(), group.end(), [&](const auto& id) {
+                                        const auto* point = find_point(id);
+                                        return point == nullptr || immutable(*point);
+                                    });
+                            };
+                            const auto shift = [&](const auto& group, double amount) {
+                            for (const auto& id : group) {
+                                auto* point = find_point(id);
+                                if (kind == DimensionKind::DistanceX)
+                                    point->x += amount;
+                                else
+                                    point->y += amount;
+                            }
+                            };
+                            const bool same_group = std::any_of(
+                                first_group.begin(), first_group.end(),
+                                [&](const auto& id) {
+                                    return second_group.contains(id);
+                                });
+                            const bool first_available = available(first_group);
+                            const bool second_available = available(second_group);
+                            if (same_group) {
+                                if (!first_available) return false;
+                                shift(first_group, correction);
+                            } else if (first_available && second_available) {
+                                shift(first_group, correction);
+                                shift(second_group, correction);
+                            } else if (first_available) {
+                                shift(first_group, 2.0 * correction);
+                            } else if (second_available) {
+                                shift(second_group, 2.0 * correction);
+                            } else {
+                                return false;
+                            }
+                            return true;
+                        };
+                        const bool shifted = correct_coordinate(
+                                DimensionKind::DistanceX, dx) &&
+                            correct_coordinate(DimensionKind::DistanceY, dy);
+                        if (!shifted) immovable_conflict = true;
                     }
                 }
                 continue;
@@ -9335,27 +9498,8 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         }
         return std::string{};
     };
-    const auto contact_relation_owned_by_tangent = [&](const auto& relation) {
-        if ((relation.kind != ConstraintKind::PointOnCircle &&
-             relation.kind != ConstraintKind::PointOnLine) ||
-            relation.first_point_id.empty()) {
-            return false;
-        }
-        return std::ranges::any_of(constraints, [&](const auto& tangent) {
-            return !tangent.suppressed &&
-                tangent.kind == ConstraintKind::Tangent &&
-                tangent.first_point_id == relation.first_point_id &&
-                (relation.geometry_id == tangent.geometry_id ||
-                 relation.geometry_id == tangent.second_geometry_id);
-        });
-    };
     for (const auto& constraint : constraints) {
         if (constraint.suppressed) continue;
-        // A persisted tangent contact necessarily owns two incidence
-        // relations: point-on-curve and point-on-support. They are solver
-        // inputs, not three independent user-facing markers. The Tangent
-        // marker below represents the complete contact as one "C T" label.
-        if (contact_relation_owned_by_tangent(constraint)) continue;
         std::optional<zima::kernel::Vec3> anchor;
         if (constraint.kind == ConstraintKind::Tangent &&
             !constraint.first_point_id.empty()) {
@@ -9542,9 +9686,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         const auto marker_reference = zima::kernel::EdgeReference{
             id, "constraint:" + constraint.id, {}};
         result.constraint_markers.push_back({*anchor,
-            constraint.kind == ConstraintKind::Tangent &&
-                    !constraint.first_point_id.empty()
-                ? "C T" : marker_label(constraint.kind),
+            marker_label(constraint.kind),
             marker_reference, participants});
         if (constraint.kind == ConstraintKind::Symmetric &&
             !constraint.second_point_id.empty()) {

@@ -1492,9 +1492,19 @@ int main(int argc, char* argv[]) {
         text_value->setPlainText(QStringLiteral("OI"));
         text_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
         application.processEvents();
+        double text_min_y = std::numeric_limits<double>::infinity();
+        double text_max_y = -std::numeric_limits<double>::infinity();
+        for (const auto& contour : committed_text.contours) {
+            for (const auto& point : contour) {
+                text_min_y = std::min(text_min_y, point[1]);
+                text_max_y = std::max(text_max_y, point[1]);
+            }
+        }
         require(text_commits == 1 && committed_text.value == "OI" &&
-                    !committed_text.contours.empty(),
-                "Sketch Text OK did not retain text and calculate profile contours");
+                    !committed_text.contours.empty() &&
+                    text_min_y < committed_text.anchor_y &&
+                    text_max_y <= committed_text.anchor_y + 1.0e-6,
+                "Sketch Text OK did not retain upright bottom-aligned profile contours");
 
         auto* cancel_text_dialog = new zima::app::SketchTextPropertiesDialog(
             committed_text, std::nullopt,

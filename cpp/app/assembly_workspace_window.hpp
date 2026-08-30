@@ -624,6 +624,13 @@ private:
         std::string support_geometry_id;
         std::optional<zima::sketcher::ConstraintKind> relation;
     };
+    struct SketchPolylineArcCenterSnap {
+        std::array<double, 2> end;
+        std::string axis_id;
+    };
+    [[nodiscard]] std::optional<SketchPolylineArcCenterSnap>
+        inferred_sketch_polyline_arc_center_snap(
+            const std::array<double, 2>& end) const;
     [[nodiscard]] std::optional<SketchCandidateSnap> sketch_candidate_snap_ray(
         const zima::viewer::ViewerCandidate& candidate,
         const zima::kernel::Vec3& origin,
@@ -637,6 +644,7 @@ private:
         std::string equal_length_reference_id;
         std::string symmetry_axis_id;
         std::string tangent_reference_id;
+        bool tangent_at_start{};
         std::string perpendicular_reference_id;
         std::string parallel_reference_id;
         std::string midpoint_line_reference_id;
@@ -654,6 +662,14 @@ private:
         const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
     void preview_sketch_rectangle_ray(
         const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
+    struct SketchRectangleMidpointSnap {
+        std::array<double, 2> opposite;
+        std::string axis_id;
+        std::size_t side_index{};
+    };
+    [[nodiscard]] std::optional<SketchRectangleMidpointSnap>
+    inferred_sketch_rectangle_midpoint_snap(
+        const std::array<double, 2>& opposite) const;
     void accept_sketch_rectangle_axis(
         const zima::viewer::ViewerCandidate& candidate);
     bool accept_sketch_polygon_ray(

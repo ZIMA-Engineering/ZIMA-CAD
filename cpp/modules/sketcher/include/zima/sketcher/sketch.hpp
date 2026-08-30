@@ -333,7 +333,8 @@ public:
         bool construction = false);
     [[nodiscard]] std::string add_segment(
         double first_x, double first_y, double second_x, double second_y,
-        double snap_tolerance = 1.0e-6, bool construction = false);
+        double snap_tolerance = 1.0e-6, bool construction = false,
+        bool reuse_first_point = true, bool reuse_second_point = true);
     [[nodiscard]] std::string add_segment_constraint(
         const std::string& segment_id, ConstraintKind kind);
     [[nodiscard]] std::string add_point_pair_constraint(

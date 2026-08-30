@@ -170,8 +170,14 @@ zima::sketcher::SketchText SketchTextPropertiesDialog::build_text() const {
         std::vector<std::array<double, 2>> contour;
         contour.reserve(static_cast<std::size_t>(polygon.size()));
         for (const auto& point : polygon) {
+            // QPainterPath glyphs use a downward-positive Y axis. The
+            // default Sketch view uses that same on-screen handedness, so
+            // reflecting the glyph around its baseline here made every new
+            // text appear upside down. Keep the baseline at local Y=0 and
+            // place the glyph body on its negative-Y side; the explicit
+            // horizontal flip remains the only mirroring operation.
             const std::array candidate{
-                point.x() - scaled_left, scaled_bottom - point.y()};
+                point.x() - scaled_left, point.y() - scaled_bottom};
             if (contour.empty() || std::hypot(
                     candidate[0] - contour.back()[0],
                     candidate[1] - contour.back()[1]) > 1.0e-9) {
@@ -203,9 +209,9 @@ zima::sketcher::SketchText SketchTextPropertiesDialog::build_text() const {
         : 0.0;
     const double vertical_offset = vertical ==
             zima::sketcher::TextVerticalAlignment::Middle
-            ? -0.5 * height_->value()
+            ? 0.5 * height_->value()
         : vertical == zima::sketcher::TextVerticalAlignment::Top
-            ? -height_->value() : 0.0;
+            ? height_->value() : 0.0;
     constexpr double pi = 3.14159265358979323846;
     const double angle = angle_->value() * pi / 180.0;
     const double cosine = std::cos(angle);

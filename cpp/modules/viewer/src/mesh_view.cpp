@@ -3844,45 +3844,9 @@ if (impl_->show_planes) {
                 painter.drawEllipse(project(
                     selectable_points[highlighted->geometry_index].position), 5.0, 5.0);
             }
-            if (highlighted->kind == CandidateKind::SketchConstraint &&
-                highlighted->geometry_index <
-                    impl_->mesh.constraint_markers.size()) {
-                const auto& marker = impl_->mesh.constraint_markers[
-                    highlighted->geometry_index];
-                const auto participates = [&](const std::string& semantic_key) {
-                    return std::find(marker.participant_semantic_keys.begin(),
-                               marker.participant_semantic_keys.end(), semantic_key) !=
-                        marker.participant_semantic_keys.end();
-                };
-                painter.setPen(QPen(color, 2.0, Qt::SolidLine, Qt::RoundCap));
-                painter.setBrush(color);
-                for (const auto& edge : impl_->mesh.edges) {
-                    if (edge.reference.owner_id != highlighted->owner_id ||
-                        !participates(edge.reference.semantic_key)) continue;
-                    for (std::size_t index = 1; index < edge.points.size(); ++index) {
-                        painter.drawLine(project(edge.points[index - 1]),
-                                         project(edge.points[index]));
-                    }
-                }
-                for (const auto& point : impl_->mesh.points) {
-                    if (point.reference.owner_id == highlighted->owner_id &&
-                        participates(point.reference.semantic_key)) {
-                        painter.drawEllipse(project(point.position), 5.0, 5.0);
-                    }
-                }
-                for (const auto& axis : impl_->mesh.axes) {
-                    if (axis.reference.owner_id != highlighted->owner_id ||
-                        !participates(axis.reference.semantic_key)) continue;
-                    const double half = axis.display_length * 0.5;
-                    painter.drawLine(project({
-                        axis.point.x - axis.direction.x * half,
-                        axis.point.y - axis.direction.y * half,
-                        axis.point.z - axis.direction.z * half}), project({
-                        axis.point.x + axis.direction.x * half,
-                        axis.point.y + axis.direction.y * half,
-                        axis.point.z + axis.direction.z * half}));
-                }
-            }
+            // A constraint marker is an independently selectable record.
+            // Selecting it colours only its glyph (drawn above); participant
+            // geometry must not look selected or join the deletion target.
             // A Dimension is an independent selectable annotation. Its own
             // witness/main/leader lines and text are recoloured in the
             // dimension pass above; recolouring participant geometry here
