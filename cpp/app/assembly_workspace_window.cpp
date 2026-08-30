@@ -8298,6 +8298,11 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         // camera to the just-committed (or reverted) feature geometry.
         preserve_view_on_refresh_ = true;
         refresh_scene();
+        if (entering_owned_profile_sketch) {
+            clear_selected_sketch_geometry();
+            tree_->clearSelection();
+            viewer_->clear_selection();
+        }
     });
     dialog->show();
     // Every placement-capable history container starts with its first
@@ -10152,7 +10157,15 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
         sketch_properties_preview_id_.clear();
         refresh_tabs();
         refresh_scene();
-        if (!active_sketch_id_.empty()) align_active_sketch_view();
+        if (!active_sketch_id_.empty()) {
+            // The final dialog-teardown refresh can restore the cyan
+            // Container confirmation which opened Properties. Clear after
+            // that refresh so Sketcher always starts with bare geometry.
+            clear_selected_sketch_geometry();
+            tree_->clearSelection();
+            viewer_->clear_selection();
+            align_active_sketch_view();
+        }
     });
     dialog->show();
     if (primitive_reference_dialog_ == dialog &&
