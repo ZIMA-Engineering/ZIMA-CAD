@@ -359,6 +359,37 @@ fixed. A repeated debug benchmark measured 100 connected Segments at
 `13.024 ms` and 250 at `44.128 ms`; the earlier slower run (`15.158/66.002 ms`)
 tracked whole-system load and was not reproducible as a scaling regression.
 
+### Rectangle and regular-polygon batch 3 result
+
+The rectangle midpoint-on-axis fixture now drags every corner forward and back,
+verifies the axis residual after each cycle and compares every persisted point
+against its initial position. All four handles remain available and return with
+less than `1e-6 mm` coordinate drift while retaining the same constraint IDs.
+
+A regular polygon exposed a distinct branch-selection failure. Its persisted
+equations (all vertices on one circle plus equal chord lengths) admit folded or
+reordered equal-chord configurations as well as the intended ordered polygon.
+Dragging one vertex by 90 degrees therefore reached the requested root and a
+near-zero equation residual, but the adjacent side collapsed from `15 mm` to
+`7.38515 mm`. This state is algebraically admissible but violates the persisted
+polygon topology and the user's rotation intent.
+
+Point dragging now recognizes only the complete regular-polygon ownership
+pattern: a construction support circle, a closed Segment ring, one
+PointOnCircle relation per vertex and the full EqualLength relation set. A rim
+drag rotates that complete ring around its persisted center while a radius or
+diameter dimension remains the exclusive size driver. Arbitrary construction
+circles and incomplete rings continue through the general solver path. The
+4/6/8-side matrix covers clockwise rotation, return, fixed centers, locked
+radius dimensions, shape residuals and fully fixed atomic rejection; every
+return is below `1e-6 mm` drift.
+
+The post-change debug benchmark measured 100 independent branches at
+`9.415 ms`, a 100-Segment connected chain at `14.307 ms`, a 250-Segment chain
+at `48.638 ms`, 100-branch drag at `1.205 ms` and 1,000-branch drag at
+`30.569 ms`. These remain in the established debug-build range and show no new
+scaling regime.
+
 ## Idle-time preparation
 
 Allowed background work is limited to Sketch data:

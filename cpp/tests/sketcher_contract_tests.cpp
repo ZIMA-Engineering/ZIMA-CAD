@@ -1894,7 +1894,11 @@ int main() {
              handle_index < centered_rectangle_points.size(); ++handle_index) {
             const auto& point_id = centered_rectangle_points[handle_index];
             auto dragged_rectangle = centered_rectangle;
+            const auto original_points = dragged_rectangle.points;
+            const auto original_constraints = dragged_rectangle.constraints;
             const auto* before = dragged_rectangle.find_point(point_id);
+            const double original_x = before->x;
+            const double original_y = before->y;
             const double target_x = before->x + 1.0;
             const double target_y = before->y + (before->y > 0.0 ? 1.0 : -1.0);
             const bool moved = dragged_rectangle.move_point(
@@ -1905,6 +1909,18 @@ int main() {
                         std::abs(dragged_rectangle.find_point(point_id)->y -
                             target_y) < 1.0e-8,
                     "Rectangle midpoint-on-axis blocked one of its corner handles");
+            require(dragged_rectangle.move_point(
+                        point_id, original_x, original_y) &&
+                        dragged_rectangle.constraints == original_constraints &&
+                        dragged_rectangle.solve().maximum_residual < 1.0e-8,
+                    "Rectangle midpoint-on-axis did not survive a forward/back drag");
+            for (const auto& original_point : original_points) {
+                const auto* returned = dragged_rectangle.find_point(original_point.id);
+                require(returned != nullptr &&
+                            std::hypot(returned->x - original_point.x,
+                                returned->y - original_point.y) < 1.0e-6,
+                        "Rectangle midpoint-on-axis accumulated coordinate drift");
+            }
         }
         bool duplicate_midpoint_rejected = false;
         try {
@@ -3480,6 +3496,114 @@ int main() {
                     loaded_polygon.circles == polygon.circles &&
                     loaded_polygon.segments == polygon.segments,
                 "Regular polygon constraints did not survive serialization");
+        auto rotating_polygon = zima::sketcher::Sketch::create_default();
+        const auto rotating_polygon_result = rotating_polygon.add_regular_polygon(
+            0.0, 0.0, 10.0, 0.0, 6);
+        const auto rotating_center_id =
+            rotating_polygon.circles.front().center_point_id;
+        rotating_polygon.find_point(rotating_center_id)->fixed = true;
+        auto rotating_radius = rotating_polygon.create_circle_radius_dimension(
+            rotating_polygon_result.support_circle_id);
+        rotating_radius.value = 15.0;
+        rotating_polygon.apply_dimension(std::move(rotating_radius));
+        rotating_polygon.dimensions.front().locked = true;
+        const auto rotating_before = rotating_polygon;
+        const auto rotating_vertex_id = rotating_polygon_result.vertex_ids.front();
+        require(rotating_polygon.move_point(rotating_vertex_id, 0.0, 15.0) &&
+                    std::abs(rotating_polygon.find_point(rotating_vertex_id)->x) <
+                        1.0e-7 &&
+                    std::abs(rotating_polygon.find_point(rotating_vertex_id)->y -
+                        15.0) < 1.0e-7 &&
+                    std::abs(rotating_polygon.circles.front().radius - 15.0) <
+                        1.0e-9 &&
+                    rotating_polygon.solve().maximum_residual < 1.0e-7,
+                "Regular polygon could not rotate while preserving its driven size");
+        const auto* rotating_center = rotating_polygon.find_point(rotating_center_id);
+        for (std::size_t index = 0;
+             index < rotating_polygon_result.vertex_ids.size(); ++index) {
+            const auto* vertex = rotating_polygon.find_point(
+                rotating_polygon_result.vertex_ids[index]);
+            const auto* next_vertex = rotating_polygon.find_point(
+                rotating_polygon_result.vertex_ids[
+                    (index + 1) % rotating_polygon_result.vertex_ids.size()]);
+            require(std::abs(std::hypot(vertex->x - rotating_center->x,
+                                vertex->y - rotating_center->y) - 15.0) < 1.0e-7 &&
+                        std::abs(std::hypot(next_vertex->x - vertex->x,
+                                next_vertex->y - vertex->y) - 15.0) < 1.0e-7,
+                    "Rotated regular polygon lost radius or equal side length");
+        }
+        require(rotating_polygon.move_point(rotating_vertex_id, 15.0, 0.0) &&
+                    rotating_polygon.solve().maximum_residual < 1.0e-7,
+                "Regular polygon could not return from a rotation drag");
+        for (const auto& original_point : rotating_before.points) {
+            const auto* returned = rotating_polygon.find_point(original_point.id);
+            require(returned != nullptr &&
+                        std::hypot(returned->x - original_point.x,
+                            returned->y - original_point.y) < 1.0e-6,
+                    "Regular polygon accumulated drift after rotation and return");
+        }
+        require(rotating_polygon.constraints == rotating_before.constraints &&
+                    rotating_polygon.dimensions == rotating_before.dimensions,
+                "Regular polygon rotation changed persisted relations");
+        auto blocked_polygon = rotating_before;
+        for (const auto& vertex_id : rotating_polygon_result.vertex_ids) {
+            blocked_polygon.find_point(vertex_id)->fixed = true;
+        }
+        const auto blocked_polygon_before = blocked_polygon;
+        require(!blocked_polygon.move_point(rotating_vertex_id, 0.0, 15.0) &&
+                    blocked_polygon.points == blocked_polygon_before.points &&
+                    blocked_polygon.constraints == blocked_polygon_before.constraints &&
+                    blocked_polygon.dimensions == blocked_polygon_before.dimensions,
+                "Fully anchored polygon drag was not rejected atomically");
+        for (const unsigned side_count : {4U, 6U, 8U}) {
+            auto polygon_matrix = zima::sketcher::Sketch::create_default();
+            constexpr double center_x = 3.0;
+            constexpr double center_y = -2.0;
+            constexpr double radius = 12.0;
+            const auto matrix_result = polygon_matrix.add_regular_polygon(
+                center_x, center_y, center_x + radius, center_y, side_count);
+            polygon_matrix.find_point(
+                polygon_matrix.circles.front().center_point_id)->fixed = true;
+            auto matrix_radius = polygon_matrix.create_circle_radius_dimension(
+                matrix_result.support_circle_id);
+            matrix_radius.value = radius;
+            polygon_matrix.apply_dimension(std::move(matrix_radius));
+            polygon_matrix.dimensions.front().locked = true;
+            const auto matrix_before = polygon_matrix;
+            const auto matrix_root = matrix_result.vertex_ids.front();
+            require(polygon_matrix.move_point(
+                        matrix_root, center_x, center_y - radius) &&
+                        polygon_matrix.solve().maximum_residual < 1.0e-7,
+                    "Regular polygon orientation matrix rejected a valid rotation");
+            const auto* matrix_center = polygon_matrix.find_point(
+                polygon_matrix.circles.front().center_point_id);
+            for (std::size_t index = 0; index < matrix_result.vertex_ids.size(); ++index) {
+                const auto* vertex = polygon_matrix.find_point(
+                    matrix_result.vertex_ids[index]);
+                const auto* next_vertex = polygon_matrix.find_point(
+                    matrix_result.vertex_ids[
+                        (index + 1) % matrix_result.vertex_ids.size()]);
+                const double expected_side = 2.0 * radius * std::sin(
+                    3.14159265358979323846 / static_cast<double>(side_count));
+                require(std::abs(std::hypot(vertex->x - matrix_center->x,
+                                    vertex->y - matrix_center->y) - radius) < 1.0e-7 &&
+                            std::abs(std::hypot(next_vertex->x - vertex->x,
+                                    next_vertex->y - vertex->y) - expected_side) <
+                                1.0e-7,
+                        "Regular polygon orientation matrix changed its shape");
+            }
+            require(polygon_matrix.move_point(
+                        matrix_root, center_x + radius, center_y) &&
+                        polygon_matrix.solve().maximum_residual < 1.0e-7,
+                    "Regular polygon orientation matrix could not return");
+            for (const auto& original_point : matrix_before.points) {
+                const auto* returned = polygon_matrix.find_point(original_point.id);
+                require(returned != nullptr &&
+                            std::hypot(returned->x - original_point.x,
+                                returned->y - original_point.y) < 1.0e-6,
+                        "Regular polygon orientation matrix accumulated drift");
+            }
+        }
         const auto polygon_before_invalid = polygon;
         bool invalid_polygon_rejected = false;
         try {

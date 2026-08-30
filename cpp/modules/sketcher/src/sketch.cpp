@@ -2679,6 +2679,77 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
         }
         translated_drag_component = true;
     }
+    // A regular polygon is persisted as a construction support circle, a
+    // closed ring of Segments, PointOnCircle relations for every vertex and
+    // EqualLength relations from one reference side. Dragging one rim vertex
+    // expresses polygon rotation, not an independent angular move that leaves
+    // the nonlinear solver free to select a folded equal-chord branch.
+    for (const auto& support : next.constraints) {
+        if (support.suppressed ||
+            support.kind != ConstraintKind::PointOnCircle ||
+            support.first_point_id != point_id) continue;
+        const auto circle = std::find_if(next.circles.begin(), next.circles.end(),
+            [&](const auto& value) {
+                return value.id == support.geometry_id && value.construction;
+            });
+        if (circle == next.circles.end()) continue;
+        std::set<std::string> vertex_ids;
+        for (const auto& candidate : next.constraints) {
+            if (!candidate.suppressed &&
+                candidate.kind == ConstraintKind::PointOnCircle &&
+                candidate.geometry_id == circle->id) {
+                vertex_ids.insert(candidate.first_point_id);
+            }
+        }
+        if (vertex_ids.size() < 4) continue;
+        std::set<std::string> ring_segment_ids;
+        std::map<std::string, unsigned> vertex_degree;
+        for (const auto& segment : next.segments) {
+            if (!vertex_ids.contains(segment.first_point_id) ||
+                !vertex_ids.contains(segment.second_point_id)) continue;
+            ring_segment_ids.insert(segment.id);
+            ++vertex_degree[segment.first_point_id];
+            ++vertex_degree[segment.second_point_id];
+        }
+        const auto equal_count = std::count_if(next.constraints.begin(),
+            next.constraints.end(), [&](const auto& candidate) {
+                return !candidate.suppressed &&
+                    candidate.kind == ConstraintKind::EqualLength &&
+                    ring_segment_ids.contains(candidate.geometry_id) &&
+                    ring_segment_ids.contains(candidate.second_geometry_id);
+            });
+        const bool closed_ring = ring_segment_ids.size() == vertex_ids.size() &&
+            std::ranges::all_of(vertex_ids, [&](const auto& vertex_id) {
+                return vertex_degree[vertex_id] == 2;
+            });
+        if (!closed_ring ||
+            equal_count + 1 < static_cast<std::ptrdiff_t>(vertex_ids.size())) {
+            continue;
+        }
+        const auto* center = next.find_point(circle->center_point_id);
+        if (center == nullptr) return false;
+        const double requested_radius = std::hypot(x - center->x, y - center->y);
+        if (requested_radius <= 1.0e-12) return false;
+        const double original_angle = std::atan2(
+            original_y - center->y, original_x - center->x);
+        const double requested_angle = std::atan2(y - center->y, x - center->x);
+        const double rotation = requested_angle - original_angle;
+        const double cosine = std::cos(rotation);
+        const double sine = std::sin(rotation);
+        for (const auto& vertex_id : vertex_ids) {
+            if (vertex_id == point_id) continue;
+            auto* vertex = next.find_point(vertex_id);
+            if (vertex == nullptr || vertex->fixed ||
+                externally_linked.contains(vertex_id)) return false;
+            const double relative_x = vertex->x - center->x;
+            const double relative_y = vertex->y - center->y;
+            vertex->x = center->x + relative_x * cosine - relative_y * sine;
+            vertex->y = center->y + relative_x * sine + relative_y * cosine;
+        }
+        x = center->x + circle->radius * std::cos(requested_angle);
+        y = center->y + circle->radius * std::sin(requested_angle);
+        break;
+    }
     point->x = x;
     point->y = y;
     const double translation_x = x - original_x;
