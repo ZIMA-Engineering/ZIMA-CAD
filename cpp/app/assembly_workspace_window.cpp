@@ -21253,8 +21253,23 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
             parent->insertChild(insertion++, item);
         }
     }
-    const int cursor_position = 1 + static_cast<int>(
-        document.effective_history_cursor());
+    std::size_t displayed_cursor = document.effective_history_cursor();
+    if (part_rollback_ &&
+        part_rollback_->part_document_id == document.document_id &&
+        part_rollback_->history_limit < document.history.size()) {
+        const auto& edited_id =
+            document.history[part_rollback_->history_limit].id;
+        const auto edited = std::find_if(document.history_order.begin(),
+            document.history_order.end(), [&](const auto& entry) {
+                return entry.kind == zima::document::PartHistoryKind::Feature &&
+                    entry.id == edited_id;
+            });
+        if (edited != document.history_order.end()) {
+            displayed_cursor = static_cast<std::size_t>(
+                std::distance(document.history_order.begin(), edited));
+        }
+    }
+    const int cursor_position = 1 + static_cast<int>(displayed_cursor);
     auto* body = new QTreeWidgetItem({tr("Těleso")});
     body->setIcon(0, resource_icon("result-body"));
     body->setData(0, Qt::UserRole, QString::fromStdString(document.document_id));
