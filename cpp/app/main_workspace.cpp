@@ -3380,7 +3380,8 @@ int main(int argc, char* argv[]) {
     QSurfaceFormat::setDefaultFormat(format);
     QApplication application(argc, argv);
 #ifdef Q_OS_WIN
-    if (QGuiApplication::platformName() == QStringLiteral("windows")) {
+    if (QGuiApplication::platformName() == QStringLiteral("windows") &&
+        qEnvironmentVariableIsEmpty("QT_STYLE_OVERRIDE")) {
         if (auto* windows_style = QStyleFactory::create(QStringLiteral("windows11"))) {
             application.setStyle(windows_style);
         }

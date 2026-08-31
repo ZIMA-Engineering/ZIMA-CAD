@@ -56,6 +56,7 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
     // properties. The reference table stretches inside this width; the old
     // 460 px minimum only left a needlessly wide empty middle column.
     setMinimumWidth(340);
+    setMaximumWidth(360);
     auto compact_font = font();
     compact_font.setPixelSize(10);
     setFont(compact_font);

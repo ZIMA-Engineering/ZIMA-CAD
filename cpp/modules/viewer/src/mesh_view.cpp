@@ -732,6 +732,9 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
     // slots to the right (for example C T). Pick those actual visible slots,
     // not only the common invisible anchor, so the second and later relation
     // can be hovered and selected directly.
+    auto constraint_font = font();
+    constraint_font.setBold(true);
+    const QFontMetricsF constraint_metrics(constraint_font);
     std::map<std::pair<int, int>, int> constraint_slots;
     for (std::size_t index = 0;
          index < impl_->mesh.constraint_markers.size(); ++index) {
@@ -742,9 +745,15 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
             static_cast<int>(std::lround(anchor.y()))};
         const int slot = constraint_slots[key]++;
         const QPointF baseline = anchor + QPointF(7.0 + slot * 16.0, -7.0);
-        QRectF bounds = metrics.boundingRect(QString::fromStdString(marker.label));
-        bounds.moveTopLeft(baseline + QPointF(0.0, -metrics.ascent()));
-        bounds.adjust(-5.0, -5.0, 5.0, 5.0);
+        QRectF bounds = constraint_metrics.boundingRect(
+            QString::fromStdString(marker.label));
+        bounds.moveTopLeft(
+            baseline + QPointF(0.0, -constraint_metrics.ascent()));
+        // Match the same 9 px ordinary picking radius, with a small allowance
+        // for the anchor having first been located anywhere inside its own
+        // point marker. This keeps every visibly separated relation slot
+        // directly selectable instead of making only the first one reliable.
+        bounds.adjust(-12.0, -12.0, 12.0, 12.0);
         if (!bounds.contains(position)) continue;
         std::erase_if(candidates, [index](const auto& candidate) {
             return candidate.kind == CandidateKind::SketchConstraint &&
@@ -4094,6 +4103,21 @@ void MeshView::mousePressEvent(QMouseEvent* event) {
             // Otherwise a Dimension selected behind an axis-owned point kept
             // stealing every later attempt to drag that point.
             impl_->active_candidate = 0;
+        }
+        // Screen-space annotations may be inserted ahead of world-space
+        // candidates after the common ray ordering. At an exact overlap an
+        // editable Sketch point still owns the LMB drag gesture; Dimension,
+        // Constraint and Axis remain in the same list for RMB cycling and
+        // can be selected directly on their visible geometry away from it.
+        if (impl_->drag_begin_callback) {
+            const auto point = std::find_if(impl_->candidates.begin(),
+                impl_->candidates.end(), [](const auto& candidate) {
+                    return candidate.kind == CandidateKind::SketchPoint;
+                });
+            if (point != impl_->candidates.end()) {
+                impl_->active_candidate = static_cast<std::size_t>(
+                    std::distance(impl_->candidates.begin(), point));
+            }
         }
         if (qEnvironmentVariableIsSet("ZIMA_SKETCH_TRACE")) {
             QStringList offered;

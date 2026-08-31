@@ -142,8 +142,8 @@ protected:
 
 class LeftAlignedToolButtonStyle final : public QProxyStyle {
 public:
-    explicit LeftAlignedToolButtonStyle(QStyle* base, QObject* parent)
-        : QProxyStyle(base) {
+    explicit LeftAlignedToolButtonStyle(QObject* parent)
+        : QProxyStyle() {
         setParent(parent);
     }
 
@@ -4605,8 +4605,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         if (auto* button = qobject_cast<QToolButton*>(
                 tools_toolbar_->widgetForAction(action))) {
             button->setObjectName("applicationCommandButton");
-            button->setStyle(new LeftAlignedToolButtonStyle(
-                button->style(), button));
+            button->setStyle(new LeftAlignedToolButtonStyle(button));
             if (action->menu() != nullptr) {
                 button->setPopupMode(QToolButton::InstantPopup);
             }
