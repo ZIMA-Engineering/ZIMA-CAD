@@ -2,8 +2,14 @@
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
+#include <array>
+#include <bit>
+#include <cstdint>
 #include <cmath>
+#include <limits>
 #include <stdexcept>
+#include <string_view>
 
 namespace zima::document {
 namespace {
@@ -29,6 +35,137 @@ zima::kernel::Vec3 load_vec3(const nlohmann::json& source) {
     require_finite(point.y, "viewer y");
     require_finite(point.z, "viewer z");
     return point;
+}
+
+constexpr std::string_view kBase64Alphabet =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+std::string base64_encode(const std::vector<std::uint8_t>& bytes) {
+    std::string result;
+    result.reserve((bytes.size() + 2) / 3 * 4);
+    for (std::size_t index = 0; index < bytes.size(); index += 3) {
+        const std::uint32_t value =
+            static_cast<std::uint32_t>(bytes[index]) << 16 |
+            (index + 1 < bytes.size()
+                ? static_cast<std::uint32_t>(bytes[index + 1]) << 8 : 0U) |
+            (index + 2 < bytes.size()
+                ? static_cast<std::uint32_t>(bytes[index + 2]) : 0U);
+        result.push_back(kBase64Alphabet[(value >> 18) & 63U]);
+        result.push_back(kBase64Alphabet[(value >> 12) & 63U]);
+        result.push_back(index + 1 < bytes.size()
+            ? kBase64Alphabet[(value >> 6) & 63U] : '=');
+        result.push_back(index + 2 < bytes.size()
+            ? kBase64Alphabet[value & 63U] : '=');
+    }
+    return result;
+}
+
+std::vector<std::uint8_t> base64_decode(std::string_view text) {
+    if (text.size() % 4 != 0) {
+        throw std::runtime_error("Packed viewer data have invalid base64 length");
+    }
+    std::array<std::int16_t, 256> values;
+    values.fill(-1);
+    for (std::size_t index = 0; index < kBase64Alphabet.size(); ++index) {
+        values[static_cast<unsigned char>(kBase64Alphabet[index])] =
+            static_cast<std::int16_t>(index);
+    }
+    std::vector<std::uint8_t> result;
+    result.reserve(text.size() / 4 * 3);
+    for (std::size_t index = 0; index < text.size(); index += 4) {
+        const bool third_padding = text[index + 2] == '=';
+        const bool fourth_padding = text[index + 3] == '=';
+        if ((third_padding && !fourth_padding) ||
+            (index + 4 != text.size() && (third_padding || fourth_padding))) {
+            throw std::runtime_error("Packed viewer data have invalid base64 padding");
+        }
+        const auto decode = [&](std::size_t offset) -> std::uint32_t {
+            const auto character = static_cast<unsigned char>(text[index + offset]);
+            if (text[index + offset] == '=' && offset >= 2) return 0U;
+            if (values[character] < 0) {
+                throw std::runtime_error("Packed viewer data contain invalid base64");
+            }
+            return static_cast<std::uint32_t>(values[character]);
+        };
+        const std::uint32_t value = decode(0) << 18 | decode(1) << 12 |
+            decode(2) << 6 | decode(3);
+        result.push_back(static_cast<std::uint8_t>((value >> 16) & 255U));
+        if (!third_padding) {
+            result.push_back(static_cast<std::uint8_t>((value >> 8) & 255U));
+        }
+        if (!fourth_padding) result.push_back(static_cast<std::uint8_t>(value & 255U));
+    }
+    return result;
+}
+
+template <typename Integer>
+void append_little_endian(std::vector<std::uint8_t>& bytes, Integer value) {
+    for (std::size_t byte = 0; byte < sizeof(Integer); ++byte) {
+        bytes.push_back(static_cast<std::uint8_t>(value >> (byte * 8)));
+    }
+}
+
+template <typename Integer>
+Integer read_little_endian(const std::vector<std::uint8_t>& bytes,
+                           std::size_t offset) {
+    Integer result{};
+    for (std::size_t byte = 0; byte < sizeof(Integer); ++byte) {
+        result |= static_cast<Integer>(bytes[offset + byte]) << (byte * 8);
+    }
+    return result;
+}
+
+std::string pack_vertices(const std::vector<zima::kernel::Vec3>& vertices) {
+    static_assert(sizeof(double) == sizeof(std::uint64_t));
+    static_assert(std::numeric_limits<double>::is_iec559);
+    std::vector<std::uint8_t> bytes;
+    bytes.reserve(vertices.size() * 3 * sizeof(double));
+    for (const auto& point : vertices) {
+        append_little_endian(bytes, std::bit_cast<std::uint64_t>(point.x));
+        append_little_endian(bytes, std::bit_cast<std::uint64_t>(point.y));
+        append_little_endian(bytes, std::bit_cast<std::uint64_t>(point.z));
+    }
+    return base64_encode(bytes);
+}
+
+std::vector<zima::kernel::Vec3> unpack_vertices(std::string_view encoded) {
+    const auto bytes = base64_decode(encoded);
+    if (bytes.size() % (3 * sizeof(double)) != 0) {
+        throw std::runtime_error("Packed viewer vertices have invalid length");
+    }
+    std::vector<zima::kernel::Vec3> result;
+    result.reserve(bytes.size() / (3 * sizeof(double)));
+    for (std::size_t offset = 0; offset < bytes.size(); offset += 24) {
+        zima::kernel::Vec3 point{
+            std::bit_cast<double>(read_little_endian<std::uint64_t>(bytes, offset)),
+            std::bit_cast<double>(read_little_endian<std::uint64_t>(bytes, offset + 8)),
+            std::bit_cast<double>(read_little_endian<std::uint64_t>(bytes, offset + 16))};
+        require_finite(point.x, "viewer x");
+        require_finite(point.y, "viewer y");
+        require_finite(point.z, "viewer z");
+        result.push_back(point);
+    }
+    return result;
+}
+
+std::string pack_indices(const std::vector<std::uint32_t>& indices) {
+    std::vector<std::uint8_t> bytes;
+    bytes.reserve(indices.size() * sizeof(std::uint32_t));
+    for (const auto index : indices) append_little_endian(bytes, index);
+    return base64_encode(bytes);
+}
+
+std::vector<std::uint32_t> unpack_indices(std::string_view encoded) {
+    const auto bytes = base64_decode(encoded);
+    if (bytes.size() % sizeof(std::uint32_t) != 0) {
+        throw std::runtime_error("Packed viewer indices have invalid length");
+    }
+    std::vector<std::uint32_t> result;
+    result.reserve(bytes.size() / sizeof(std::uint32_t));
+    for (std::size_t offset = 0; offset < bytes.size(); offset += 4) {
+        result.push_back(read_little_endian<std::uint32_t>(bytes, offset));
+    }
+    return result;
 }
 
 }  // namespace
@@ -121,13 +258,16 @@ zima::kernel::ViewerReferenceGeometry load_reference_geometry(
 }  // namespace
 
 nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result) {
-    nlohmann::json vertices = nlohmann::json::array();
-    for (const auto& point : result.mesh.vertices) vertices.push_back(serialize_vec3(point));
     nlohmann::json faces = nlohmann::json::array();
-    for (const auto& reference : result.mesh.triangle_references) {
-        faces.push_back({
-            {"owner", reference.owner_id}, {"key", reference.semantic_key},
-            {"instance_path", reference.instance_path}});
+    const bool has_face_references = std::ranges::any_of(
+        result.mesh.triangle_references,
+        [](const auto& reference) { return reference.valid(); });
+    if (has_face_references) {
+        for (const auto& reference : result.mesh.triangle_references) {
+            faces.push_back({
+                {"owner", reference.owner_id}, {"key", reference.semantic_key},
+                {"instance_path", reference.instance_path}});
+        }
     }
     nlohmann::json edges = nlohmann::json::array();
     for (const auto& edge : result.mesh.edges) {
@@ -185,7 +325,9 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result) {
         {"volume", result.volume}, {"surface_area", result.surface_area},
         {"source_fingerprint", result.source_fingerprint},
         {"kernel_shape", result.kernel_shape},
-        {"vertices", std::move(vertices)}, {"triangles", result.mesh.triangles},
+        {"viewer_binary_encoding", "f64le-u32le-base64-v1"},
+        {"vertices_binary", pack_vertices(result.mesh.vertices)},
+        {"triangles_binary", pack_indices(result.mesh.triangles)},
         {"triangle_references", std::move(faces)},
         {"edges", std::move(edges)}, {"points", std::move(points)},
         {"axes", std::move(axes)}, {"dimensions", std::move(dimensions)},
@@ -214,10 +356,14 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source) {
         source.at("original_references"));
     require_finite(result.volume, "calculated volume");
     require_finite(result.surface_area, "calculated surface area");
-    for (const auto& point : source.at("vertices")) {
-        result.mesh.vertices.push_back(load_vec3(point));
+    if (source.value("viewer_binary_encoding", "") !=
+            "f64le-u32le-base64-v1") {
+        throw std::runtime_error("Unsupported calculated viewer mesh encoding");
     }
-    result.mesh.triangles = source.at("triangles").get<std::vector<std::uint32_t>>();
+    result.mesh.vertices = unpack_vertices(
+        source.at("vertices_binary").get_ref<const std::string&>());
+    result.mesh.triangles = unpack_indices(
+        source.at("triangles_binary").get_ref<const std::string&>());
     for (const auto index : result.mesh.triangles) {
         if (index >= result.mesh.vertices.size()) {
             throw std::runtime_error("Viewer triangle index is out of range");
@@ -229,6 +375,9 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source) {
             reference.at("key").get<std::string>(),
             reference.at("instance_path").get<std::string>(),
         });
+    }
+    if (result.mesh.triangle_references.empty()) {
+        result.mesh.triangle_references.resize(result.mesh.triangles.size() / 3);
     }
     if (result.mesh.triangles.size() % 3 != 0 ||
         result.mesh.triangle_references.size() != result.mesh.triangles.size() / 3) {

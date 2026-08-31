@@ -5921,9 +5921,33 @@ PartDocument PartDocument::load(
         first_active->combine_mode == CombineMode::Subtract) {
         throw std::runtime_error("The first history container cannot subtract");
     }
+    const auto expected_operations = document.kernel_operations();
     std::vector<zima::kernel::BodyResult> loaded_boundaries;
+    std::size_t loaded_boundary_index{};
     for (const auto& boundary : root.at("calculated_boundaries")) {
-        auto loaded = load_body_result(boundary);
+        const bool previous_body =
+            boundary.value("body_source", "") == "previous_boundary";
+        if (previous_body && loaded_boundaries.empty()) {
+            throw std::runtime_error(
+                "First calculated boundary cannot reuse a previous body");
+        }
+        auto loaded = previous_body
+            ? loaded_boundaries.back() : load_body_result(boundary);
+        if (previous_body) {
+            loaded.source_fingerprint =
+                boundary.at("source_fingerprint").get<std::string>();
+        }
+        if (loaded.kernel_shape.empty() &&
+            boundary.value("kernel_shape_source", "") == "step_parameter" &&
+            loaded_boundary_index < expected_operations.size()) {
+            const auto* step = std::get_if<zima::kernel::StepRequest>(
+                &expected_operations[loaded_boundary_index].primitive);
+            if (step == nullptr || !step->frozen_brep || step->frozen_brep->empty()) {
+                throw std::runtime_error(
+                    "Calculated STEP boundary has no frozen kernel source");
+            }
+            loaded.kernel_shape = *step->frozen_brep;
+        }
         if (boundary.value("original_references_mode", "full") == "append") {
             auto references = loaded_boundaries.empty()
                 ? zima::kernel::ViewerReferenceGeometry{}
@@ -5933,8 +5957,8 @@ PartDocument PartDocument::load(
             loaded.mesh.original_references = std::move(references);
         }
         loaded_boundaries.push_back(std::move(loaded));
+        ++loaded_boundary_index;
     }
-    const auto expected_operations = document.kernel_operations();
     if (!loaded_boundaries.empty() &&
         loaded_boundaries.size() != expected_operations.size()) {
         throw std::runtime_error(
@@ -6382,8 +6406,29 @@ void PartDocument::save(
     const zima::kernel::ViewerReferenceGeometry empty_references;
     const zima::kernel::ViewerReferenceGeometry* previous_references =
         &empty_references;
-    for (const auto& boundary : calculated_boundaries) {
-        auto serialized = serialize_body_result(boundary);
+    for (std::size_t boundary_index = 0;
+         boundary_index < calculated_boundaries.size(); ++boundary_index) {
+        const auto& boundary = calculated_boundaries[boundary_index];
+        const bool reuses_previous_body = boundary_index > 0 &&
+            expected_operations[boundary_index].suppressed;
+        auto serialized = reuses_previous_body
+            ? nlohmann::json{{"body_source", "previous_boundary"},
+                  {"source_fingerprint", boundary.source_fingerprint}}
+            : serialize_body_result(boundary);
+        if (reuses_previous_body) {
+            serialized_boundaries.push_back(std::move(serialized));
+            previous_references = &boundary.mesh.original_references;
+            continue;
+        }
+        if (boundary_index < expected_operations.size()) {
+            const auto* step = std::get_if<zima::kernel::StepRequest>(
+                &expected_operations[boundary_index].primitive);
+            if (step != nullptr && step->frozen_brep &&
+                boundary.kernel_shape == *step->frozen_brep) {
+                serialized["kernel_shape"] = "";
+                serialized["kernel_shape_source"] = "step_parameter";
+            }
+        }
         const auto delta = reference_geometry_delta(
             boundary.mesh.original_references, *previous_references);
         serialized["original_references"] =

@@ -1,6 +1,7 @@
 #include <zima/assembly/assembly_document.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/document/part_document.hpp>
+#include <zima/document/document_session.hpp>
 #include <zima/sketcher/sketch.hpp>
 #include <zima/viewer/picking.hpp>
 #include <zima/workspace/workspace.hpp>
@@ -8,9 +9,11 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
+#include <filesystem>
 #include <iomanip>
 #include <iostream>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -20,7 +23,130 @@ namespace {
 using Clock = std::chrono::steady_clock;
 
 template <typename Function>
-double milliseconds(Function&& function, int repetitions = 3) {
+double milliseconds(Function&& function, int repetitions = 3);
+
+int step_benchmark(const std::filesystem::path& source) {
+    if (!std::filesystem::is_regular_file(source)) {
+        std::cerr << "STEP benchmark input does not exist: " << source << '\n';
+        return EXIT_FAILURE;
+    }
+
+    zima::kernel::OcctKernel kernel;
+    zima::kernel::BodyResult imported;
+    const auto import_ms = milliseconds([&] {
+        auto results = kernel.import_step_components(
+            {{std::filesystem::absolute(source).string(), {}, {}}});
+        if (results.size() != 1 || results.front().kernel_shape.empty()) {
+            std::abort();
+        }
+        imported = std::move(results.front());
+    }, 1);
+
+    auto document = zima::document::PartDocument::create_default();
+    document.history.clear();
+    document.history_order.clear();
+    auto step = zima::document::PartDocument::create_imported_step_container(
+        std::filesystem::absolute(source));
+    step.name = "STEP benchmark";
+    step.imported_step.frozen_brep =
+        std::make_shared<const std::string>(imported.kernel_shape);
+    document.history.push_back(step);
+    document.insert_history_entry(
+        zima::document::PartHistoryKind::Feature, step.id);
+
+    auto marker = zima::document::PartDocument::create_box_container();
+    marker.name = "Rollback marker";
+    marker.suppressed = true;
+    document.history.push_back(marker);
+    document.insert_history_entry(
+        zima::document::PartHistoryKind::Feature, marker.id);
+
+    const auto document_operations = document.kernel_operations();
+    auto boundaries = std::vector<zima::kernel::BodyResult>{imported, imported};
+    for (std::size_t index = 0; index < boundaries.size(); ++index) {
+        boundaries[index].source_fingerprint = zima::kernel::history_fingerprint(
+            document_operations, index + 1);
+    }
+    zima::document::DocumentSession session(document, std::move(boundaries));
+    const auto body_copy_ms = milliseconds([&] {
+        auto copy = imported;
+        if (copy.mesh.vertices.size() != imported.mesh.vertices.size()) std::abort();
+    });
+    const auto rollback_ms = milliseconds([&] {
+        const auto boundary = session.rollback_boundary(marker.id);
+        if (!boundary || !boundary->input_body) std::abort();
+    });
+
+    zima::kernel::Vec3 minimum{}, maximum{};
+    if (!imported.mesh.vertices.empty()) {
+        minimum = maximum = imported.mesh.vertices.front();
+        for (const auto& point : imported.mesh.vertices) {
+            minimum.x = std::min(minimum.x, point.x);
+            minimum.y = std::min(minimum.y, point.y);
+            minimum.z = std::min(minimum.z, point.z);
+            maximum.x = std::max(maximum.x, point.x);
+            maximum.y = std::max(maximum.y, point.y);
+            maximum.z = std::max(maximum.z, point.z);
+        }
+    }
+    const zima::kernel::Vec3 ray_origin{
+        (minimum.x + maximum.x) * 0.5,
+        (minimum.y + maximum.y) * 0.5,
+        minimum.z - std::max(1.0, maximum.z - minimum.z)};
+    std::size_t candidate_count{};
+    const auto picking_ms = milliseconds([&] {
+        const auto candidates = zima::viewer::ordered_viewer_candidates(
+            imported.mesh, ray_origin, {0.0, 0.0, 1.0},
+            std::max(1.0e-6, (maximum.x - minimum.x) * 1.0e-4));
+        candidate_count = candidates.size();
+    });
+
+    auto operations = document_operations;
+    operations.resize(1);
+    const auto explicit_recalculate_ms = milliseconds([&] {
+        const auto result = kernel.evaluate_history(operations);
+        if (result.size() != operations.size()) std::abort();
+    }, 1);
+
+    const auto temporary = std::filesystem::temp_directory_path() /
+        "zima-step-performance-benchmark.prtz";
+    const auto save_ms = milliseconds([&] {
+        document.save(temporary, session.calculated_boundaries());
+    }, 1);
+    std::vector<zima::kernel::BodyResult> loaded_boundaries;
+    const auto load_ms = milliseconds([&] {
+        loaded_boundaries.clear();
+        const auto loaded = zima::document::PartDocument::load(
+            temporary, &loaded_boundaries);
+        if (loaded.history.empty() || loaded_boundaries.empty()) std::abort();
+    }, 1);
+    const auto part_file_bytes = std::filesystem::file_size(temporary);
+    std::error_code remove_error;
+    std::filesystem::remove(temporary, remove_error);
+
+    const auto& references = imported.mesh.original_references;
+    std::cout << std::fixed << std::setprecision(3)
+              << "ZIMA_STEP_PERF_V1 path=\"" << source.string() << "\"\n"
+              << "input bytes=" << std::filesystem::file_size(source) << '\n'
+              << "geometry vertices=" << imported.mesh.vertices.size()
+              << " triangles=" << imported.mesh.triangles.size() / 3
+              << " brep_bytes=" << imported.kernel_shape.size()
+              << " reference_triangles=" << references.triangle_references.size()
+              << " reference_edges=" << references.edges.size() << '\n'
+              << "step_import mean_ms=" << import_ms << '\n'
+              << "body_copy mean_ms=" << body_copy_ms << '\n'
+              << "properties_rollback mean_ms=" << rollback_ms << '\n'
+              << "viewer_picking candidates=" << candidate_count
+              << " mean_ms=" << picking_ms << '\n'
+              << "explicit_recalculate mean_ms=" << explicit_recalculate_ms << '\n'
+              << "part_save mean_ms=" << save_ms << '\n'
+              << "part_load bytes=" << part_file_bytes
+              << " mean_ms=" << load_ms << '\n';
+    return EXIT_SUCCESS;
+}
+
+template <typename Function>
+double milliseconds(Function&& function, int repetitions) {
     std::vector<double> samples;
     samples.reserve(static_cast<std::size_t>(repetitions));
     for (int index = 0; index < repetitions; ++index) {
@@ -150,7 +276,15 @@ std::size_t mobility_component_count(const zima::sketcher::Sketch& sketch) {
 
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
+    if (argc == 3 && std::string_view(argv[1]) == "--step") {
+        try {
+            return step_benchmark(argv[2]);
+        } catch (const std::exception& error) {
+            std::cerr << "STEP benchmark failed: " << error.what() << '\n';
+            return EXIT_FAILURE;
+        }
+    }
     constexpr std::size_t part_features = 24;
     constexpr std::size_t assembly_components = 256;
     constexpr std::size_t nested_levels = 3;
