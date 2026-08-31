@@ -154,6 +154,11 @@ public:
     void set_transient_point_transform(
         std::function<zima::kernel::Vec3(const zima::kernel::Vec3&)> transform);
     void set_transient_edges(std::vector<zima::kernel::ViewerEdge> edges);
+    // Live feature dimensions are a lightweight overlay. Updating them must
+    // not invalidate or upload the (potentially very large) base body mesh.
+    void set_transient_dimensions(
+        std::vector<zima::kernel::ViewerDimension> dimensions);
+    [[nodiscard]] std::size_t base_mesh_revision() const;
     // Active Sketch input points are deliberately separate from model points:
     // they are transient, non-pickable and always rendered in inference orange.
     void set_transient_points(std::vector<zima::kernel::Vec3> points);

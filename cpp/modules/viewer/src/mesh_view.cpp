@@ -170,6 +170,15 @@ struct MeshView::Impl {
     // when the scene changes instead of copying all persisted geometry for
     // every hover sample.
     zima::kernel::ViewerMesh persisted_reference_mesh;
+    // Active Sketcher picking never needs to traverse the displayed result
+    // body's faces/edges. Keep a tiny owner-filtered packet with maps back to
+    // the base mesh so candidate identities remain unchanged.
+    zima::kernel::ViewerMesh sketch_interaction_mesh;
+    std::vector<std::size_t> sketch_edge_indices;
+    std::vector<std::size_t> sketch_point_indices;
+    std::vector<std::size_t> sketch_axis_indices;
+    std::vector<std::size_t> sketch_dimension_indices;
+    std::vector<std::size_t> sketch_constraint_indices;
     QOpenGLShaderProgram program;
     QOpenGLBuffer vertices{QOpenGLBuffer::VertexBuffer};
     QOpenGLBuffer triangles{QOpenGLBuffer::IndexBuffer};
@@ -181,6 +190,7 @@ struct MeshView::Impl {
     // upload_mesh's line_data build) purely so paintGL can resolve each
     // edge's highlight-priority colour before its individual draw call.
     std::vector<zima::kernel::ViewerEdge> line_edges;
+    GLsizei line_vertex_count{};
     // Candidate internal triangulation edges eligible to become silhouettes
     // (shared by exactly two triangles of the same owning face, not already
     // a real topological edge). Rebuilt only when the mesh changes; the
@@ -247,6 +257,7 @@ struct MeshView::Impl {
     bool middle_double_clicked{};
     QPoint middle_press_position;
     std::vector<zima::kernel::ViewerEdge> transient_edges;
+    std::vector<zima::kernel::ViewerDimension> transient_dimensions;
     std::vector<zima::kernel::Vec3> transient_points;
     std::vector<std::pair<zima::kernel::Vec3, std::string>> transient_labels;
     std::optional<zima::kernel::Vec3> sketch_cursor;
@@ -312,6 +323,47 @@ struct MeshView::Impl {
     bool show_sketches{true};
     bool editing_origin_visible{};
     bool gpu_dirty{true};
+    std::size_t base_mesh_revision{};
+
+    void rebuild_sketch_interaction_mesh() {
+        sketch_interaction_mesh = {};
+        sketch_edge_indices.clear();
+        sketch_point_indices.clear();
+        sketch_axis_indices.clear();
+        sketch_dimension_indices.clear();
+        sketch_constraint_indices.clear();
+        if (active_sketch_owner_id.empty()) return;
+        const auto owned = [&](const auto& value) {
+            return value.reference.owner_id == active_sketch_owner_id;
+        };
+        for (std::size_t index = 0; index < mesh.edges.size(); ++index) {
+            if (!owned(mesh.edges[index])) continue;
+            sketch_edge_indices.push_back(index);
+            sketch_interaction_mesh.edges.push_back(mesh.edges[index]);
+        }
+        for (std::size_t index = 0; index < mesh.points.size(); ++index) {
+            if (!owned(mesh.points[index])) continue;
+            sketch_point_indices.push_back(index);
+            sketch_interaction_mesh.points.push_back(mesh.points[index]);
+        }
+        for (std::size_t index = 0; index < mesh.axes.size(); ++index) {
+            if (!owned(mesh.axes[index])) continue;
+            sketch_axis_indices.push_back(index);
+            sketch_interaction_mesh.axes.push_back(mesh.axes[index]);
+        }
+        for (std::size_t index = 0; index < mesh.dimensions.size(); ++index) {
+            if (!owned(mesh.dimensions[index])) continue;
+            sketch_dimension_indices.push_back(index);
+            sketch_interaction_mesh.dimensions.push_back(mesh.dimensions[index]);
+        }
+        for (std::size_t index = 0;
+             index < mesh.constraint_markers.size(); ++index) {
+            if (!owned(mesh.constraint_markers[index])) continue;
+            sketch_constraint_indices.push_back(index);
+            sketch_interaction_mesh.constraint_markers.push_back(
+                mesh.constraint_markers[index]);
+        }
+    }
 
     void rebuild_persisted_reference_mesh() {
         auto& target = persisted_reference_mesh;
@@ -461,6 +513,8 @@ void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
     impl_->confirmed_candidate.reset();
     impl_->selected_container_origin_id.clear();
     impl_->gpu_dirty = true;
+    ++impl_->base_mesh_revision;
+    impl_->rebuild_sketch_interaction_mesh();
     if (fit_view) fit_all();
     impl_->rebuild_persisted_reference_mesh();
     if (previous_confirmation &&
@@ -530,6 +584,7 @@ void MeshView::set_selection_contract(std::vector<CandidateKind> allowed_kinds) 
 void MeshView::set_active_sketch_owner(std::string owner_id) {
     if (impl_->active_sketch_owner_id == owner_id) return;
     impl_->active_sketch_owner_id = std::move(owner_id);
+    impl_->rebuild_sketch_interaction_mesh();
     impl_->candidates.clear();
     impl_->active_candidate = 0;
     impl_->confirmed_candidate.reset();
@@ -591,7 +646,9 @@ std::optional<ViewerCandidate> MeshView::offered_candidate() const {
 
 std::vector<ViewerCandidate> MeshView::selection_candidates_at(
     const QPointF& position) const {
-    if (width() <= 0 || height() <= 0) return {};
+    if (width() <= 0 || height() <= 0 || impl_->allowed_kinds.empty()) {
+        return {};
+    }
     const auto ray = ray_at(position);
     if (!ray) return {};
     const auto& [ray_origin, ray_direction] = *ray;
@@ -601,9 +658,64 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
     // consistent at every zoom and DPI.
     const double world_tolerance =
         world_tolerance_for_pixels(9.0 * devicePixelRatioF());
-    auto candidates = ordered_viewer_candidates(
-        impl_->mesh, impl_->persisted_reference_mesh,
-        ray_origin, ray_direction, world_tolerance);
+    const auto sketch_owned_kind = [](CandidateKind kind) {
+        return kind == CandidateKind::SketchPoint ||
+            kind == CandidateKind::SketchSegment ||
+            kind == CandidateKind::SketchCurve ||
+            kind == CandidateKind::SketchAxis ||
+            kind == CandidateKind::SketchConstraint ||
+            kind == CandidateKind::SketchText ||
+            kind == CandidateKind::SketchExternalReference ||
+            kind == CandidateKind::SketchTrimPiece ||
+            kind == CandidateKind::Dimension;
+    };
+    const bool sketch_only = !impl_->active_sketch_owner_id.empty() &&
+        std::ranges::all_of(impl_->allowed_kinds, sketch_owned_kind);
+    auto candidates = sketch_only
+        ? ordered_viewer_candidates(
+            impl_->sketch_interaction_mesh, zima::kernel::ViewerMesh{},
+            ray_origin, ray_direction, world_tolerance)
+        : ordered_viewer_candidates(
+            impl_->mesh, impl_->persisted_reference_mesh,
+            ray_origin, ray_direction, world_tolerance);
+    if (sketch_only) {
+        for (auto& candidate : candidates) {
+            const std::vector<std::size_t>* indices = nullptr;
+            switch (candidate.kind) {
+                case CandidateKind::SketchPoint:
+                    indices = &impl_->sketch_point_indices;
+                    break;
+                case CandidateKind::SketchAxis:
+                    indices = &impl_->sketch_axis_indices;
+                    break;
+                case CandidateKind::Dimension:
+                    indices = &impl_->sketch_dimension_indices;
+                    break;
+                case CandidateKind::SketchConstraint:
+                    indices = &impl_->sketch_constraint_indices;
+                    break;
+                case CandidateKind::SketchExternalReference:
+                    indices = candidate.semantic_key.starts_with(
+                            "external_point:") ||
+                        candidate.semantic_key.starts_with(
+                            "sketch_midpoint:") ||
+                        candidate.semantic_key.starts_with(
+                            "sketch_intersection:") ||
+                        candidate.semantic_key.starts_with(
+                            "sketch_curve_keypoint:")
+                        ? &impl_->sketch_point_indices
+                        : &impl_->sketch_edge_indices;
+                    break;
+                default:
+                    indices = &impl_->sketch_edge_indices;
+                    break;
+            }
+            if (candidate.geometry_index < indices->size()) {
+                candidate.geometry_index =
+                    (*indices)[candidate.geometry_index];
+            }
+        }
+    }
 
     // Dimensions are painted as a screen-space annotation. Their text,
     // witness lines and leaders therefore cannot be picked reliably by the
@@ -765,17 +877,6 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
             marker.reference.instance_path});
     }
     if (!impl_->active_sketch_owner_id.empty()) {
-        const auto sketch_owned_kind = [](CandidateKind kind) {
-            return kind == CandidateKind::SketchPoint ||
-                kind == CandidateKind::SketchSegment ||
-                kind == CandidateKind::SketchCurve ||
-                kind == CandidateKind::SketchAxis ||
-                kind == CandidateKind::SketchConstraint ||
-                kind == CandidateKind::SketchText ||
-                kind == CandidateKind::SketchExternalReference ||
-                kind == CandidateKind::SketchTrimPiece ||
-                kind == CandidateKind::Dimension;
-        };
         std::erase_if(candidates, [&](const auto& candidate) {
             return sketch_owned_kind(candidate.kind) &&
                 candidate.owner_id != impl_->active_sketch_owner_id;
@@ -1344,6 +1445,16 @@ void MeshView::set_transient_edges(std::vector<zima::kernel::ViewerEdge> edges) 
     impl_->transient_points.clear();
     impl_->transient_labels.clear();
     update();
+}
+
+void MeshView::set_transient_dimensions(
+    std::vector<zima::kernel::ViewerDimension> dimensions) {
+    impl_->transient_dimensions = std::move(dimensions);
+    update();
+}
+
+std::size_t MeshView::base_mesh_revision() const {
+    return impl_->base_mesh_revision;
 }
 
 void MeshView::set_transient_points(std::vector<zima::kernel::Vec3> points) {
@@ -2053,15 +2164,24 @@ void MeshView::upload_mesh() {
         if (edge.overlay || is_screen_constant_plane(edge.reference.semantic_key) ||
             edge.points.size() < 2) continue;
         const auto first = static_cast<GLint>(line_data.size() / 6);
-        const auto count = static_cast<GLsizei>(edge.points.size());
+        const auto count = static_cast<GLsizei>(
+            (edge.points.size() - 1) * 2);
         impl_->line_ranges.emplace_back(first, count);
         impl_->line_edges.push_back(edge);
-        for (const auto& point : edge.points) {
-            line_data.insert(line_data.end(), {
-                static_cast<float>(point.x), static_cast<float>(point.y),
-                static_cast<float>(point.z), 0.0F, 0.0F, 1.0F});
+        // GL_LINES permits the complete ordinary wire to be rendered in one
+        // draw call.  GL_LINE_STRIP required one call per persisted edge,
+        // which meant about 29,000 driver calls per frame for the large STEP
+        // reference model.
+        for (std::size_t index = 1; index < edge.points.size(); ++index) {
+            for (const auto& point :
+                    {edge.points[index - 1], edge.points[index]}) {
+                line_data.insert(line_data.end(), {
+                    static_cast<float>(point.x), static_cast<float>(point.y),
+                    static_cast<float>(point.z), 0.0F, 0.0F, 1.0F});
+            }
         }
     }
+    impl_->line_vertex_count = static_cast<GLsizei>(line_data.size() / 6);
     impl_->lines.bind();
     impl_->lines.allocate(line_data.data(),
         static_cast<int>(line_data.size() * sizeof(float)));
@@ -2455,22 +2575,73 @@ if (impl_->show_planes) {
         if (!highlighted && !impl_->candidates.empty()) {
             highlighted = impl_->candidates[impl_->active_candidate];
         }
-        for (std::size_t index = 0; index < impl_->line_ranges.size(); ++index) {
-            const auto& [first, count] = impl_->line_ranges[index];
-            const auto& edge = impl_->line_edges[index];
-            if (force_black_if_not_highlighted) {
-                // Matches Python's hidden_edges black underlay pass: only
-                // real body edges not already highlighted are dimmed here,
-                // so the depth-tested colour pass afterwards can cleanly
-                // overwrite their visible portions.
-                if (edge_is_highlighted(edge, highlighted)) continue;
-                impl_->program.setUniformValue(
-                    "color", QVector4D(0.0F, 0.0F, 0.0F, 1.0F));
-            } else {
-                impl_->program.setUniformValue(
-                    "color", edge_display_color(edge, highlighted, confirmed));
+        const auto draw_ranges = [&](const std::vector<GLint>& first,
+                                     const std::vector<GLsizei>& count) {
+            for (std::size_t index = 0; index < first.size(); ++index) {
+                glDrawArrays(GL_LINES, first[index], count[index]);
             }
-            glDrawArrays(GL_LINE_STRIP, first, count);
+        };
+        if (force_black_if_not_highlighted) {
+            impl_->program.setUniformValue(
+                "color", QVector4D(0.0F, 0.0F, 0.0F, 1.0F));
+            std::vector<GLint> first;
+            std::vector<GLsizei> count;
+            first.reserve(impl_->line_ranges.size());
+            count.reserve(impl_->line_ranges.size());
+            for (std::size_t index = 0;
+                 index < impl_->line_ranges.size(); ++index) {
+                if (edge_is_highlighted(
+                        impl_->line_edges[index], highlighted)) continue;
+                first.push_back(impl_->line_ranges[index].first);
+                count.push_back(impl_->line_ranges[index].second);
+            }
+            if (first.size() == impl_->line_ranges.size()) {
+                glDrawArrays(GL_LINES, 0, impl_->line_vertex_count);
+            } else {
+                draw_ranges(first, count);
+            }
+            return;
+        }
+
+        const QVector4D base_color = impl_->edge_color_override
+            ? QVector4D(static_cast<float>(impl_->edge_color_override->redF()),
+                  static_cast<float>(impl_->edge_color_override->greenF()),
+                  static_cast<float>(impl_->edge_color_override->blueF()), 1.0F)
+            : QVector4D(1.0F, 1.0F, 1.0F, 1.0F);
+        struct ColorBatch {
+            QVector4D color;
+            std::vector<GLint> first;
+            std::vector<GLsizei> count;
+        };
+        std::vector<ColorBatch> batches;
+        for (std::size_t index = 0; index < impl_->line_ranges.size(); ++index) {
+            const auto& edge = impl_->line_edges[index];
+            if (!edge_is_highlighted(edge, highlighted)) continue;
+            const auto color = edge_display_color(edge, highlighted, confirmed);
+            auto batch = std::find_if(batches.begin(), batches.end(),
+                [&](const auto& value) { return value.color == color; });
+            if (batch == batches.end()) {
+                batches.push_back({color, {}, {}});
+                batch = std::prev(batches.end());
+            }
+            batch->first.push_back(impl_->line_ranges[index].first);
+            batch->count.push_back(impl_->line_ranges[index].second);
+        }
+        if (batches.size() == 1 &&
+            batches.front().first.size() == impl_->line_ranges.size()) {
+            // The complete ordinary/hovered/selected wire has one colour.
+            // This is the common large-STEP case and remains one basic
+            // glDrawArrays call without requiring glMultiDrawArrays or a
+            // newer OpenGL profile on Linux/Wayland.
+            impl_->program.setUniformValue("color", batches.front().color);
+            glDrawArrays(GL_LINES, 0, impl_->line_vertex_count);
+            return;
+        }
+        impl_->program.setUniformValue("color", base_color);
+        glDrawArrays(GL_LINES, 0, impl_->line_vertex_count);
+        for (const auto& batch : batches) {
+            impl_->program.setUniformValue("color", batch.color);
+            draw_ranges(batch.first, batch.count);
         }
     };
     const auto depth_prepass = [&] {
@@ -2631,7 +2802,8 @@ if (impl_->show_planes) {
             return edge.reference.semantic_key == "border" ||
                 edge.reference.semantic_key.starts_with("origin:plane:");
         });
-    const bool dimensions_visible = !impl_->mesh.dimensions.empty();
+    const bool dimensions_visible = !impl_->mesh.dimensions.empty() ||
+        !impl_->transient_dimensions.empty();
     if (axes_visible || points_visible || planes_visible ||
         sketch_geometry_visible || dimensions_visible ||
         !impl_->transient_edges.empty() || !impl_->transient_points.empty() ||
@@ -3043,9 +3215,18 @@ if (impl_->show_planes) {
             }
         }
         if (dimensions_visible) {
-            for (std::size_t index = 0; index < impl_->mesh.dimensions.size(); ++index) {
-                const auto& dimension = impl_->mesh.dimensions[index];
-                const bool selected = highlighted &&
+            const std::size_t persisted_dimension_count =
+                impl_->mesh.dimensions.size();
+            const std::size_t displayed_dimension_count =
+                persisted_dimension_count + impl_->transient_dimensions.size();
+            for (std::size_t index = 0;
+                 index < displayed_dimension_count; ++index) {
+                const auto& dimension = index < persisted_dimension_count
+                    ? impl_->mesh.dimensions[index]
+                    : impl_->transient_dimensions[
+                        index - persisted_dimension_count];
+                const bool selected = index < persisted_dimension_count &&
+                    highlighted &&
                     highlighted->kind == CandidateKind::Dimension &&
                     highlighted->geometry_index == index;
                 const QColor idle_color = !dimension.driving

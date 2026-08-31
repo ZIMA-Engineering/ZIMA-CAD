@@ -30,6 +30,7 @@
 #include <QCursor>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
+#include <QEventLoop>
 #include <QFont>
 #include <QFormLayout>
 #include <QHeaderView>
@@ -54,6 +55,7 @@
 #include <QDebug>
 #include <QPushButton>
 #include <QProxyStyle>
+#include <QProgressBar>
 #include <QRadioButton>
 #include <QScopedValueRollback>
 #include <QSignalBlocker>
@@ -67,6 +69,7 @@
 #include <QToolBar>
 #include <QToolButton>
 #include <QStyleOptionToolButton>
+#include <QStyleOptionProgressBar>
 #include <QTreeWidget>
 #include <QVBoxLayout>
 
@@ -74,6 +77,7 @@
 #include <cctype>
 #include <cmath>
 #include <functional>
+#include <future>
 #include <limits>
 #include <map>
 #include <numbers>
@@ -82,6 +86,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <type_traits>
+#include <thread>
 #include <utility>
 
 #include <nlohmann/json.hpp>
@@ -95,6 +100,43 @@ namespace {
 // independent of model zoom.
 constexpr double sketch_tangent_intent_pixels = 8.0;
 constexpr double sketch_circle_tangent_contact_pixels = 18.0;
+
+class StatusOperationProgressBar final : public QProgressBar {
+public:
+    using QProgressBar::QProgressBar;
+
+protected:
+    void paintEvent(QPaintEvent*) override {
+        QStyleOptionProgressBar option;
+        initStyleOption(&option);
+        // Native styles commonly suppress text for an indeterminate 0..0
+        // progress bar. The status contract always shows the current phase.
+        option.text = format();
+        option.textVisible = true;
+        QPainter painter(this);
+        style()->drawControl(
+            QStyle::CE_ProgressBar, &option, &painter, this);
+    }
+};
+
+template <typename Function>
+auto run_background_task(Function&& function) {
+    using Result = std::invoke_result_t<std::decay_t<Function>>;
+    auto future = std::async(
+        std::launch::async, std::forward<Function>(function));
+    using namespace std::chrono_literals;
+    while (future.wait_for(0ms) != std::future_status::ready) {
+        QApplication::processEvents(
+            QEventLoop::ExcludeUserInputEvents, 16);
+        std::this_thread::sleep_for(4ms);
+    }
+    QApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 1);
+    if constexpr (std::is_void_v<Result>) {
+        future.get();
+    } else {
+        return future.get();
+    }
+}
 
 std::optional<std::array<double, 2>> exact_circle_tangent_contact(
     const zima::sketcher::Sketch& sketch,
@@ -3660,6 +3702,14 @@ void AssemblyWorkspaceWindow::create_layout() {
     state_->setObjectName("workspaceState");
     state_->setText(tr("Připraveno."));
     statusBar()->addWidget(state_, 1);
+    operation_progress_ = new StatusOperationProgressBar(this);
+    operation_progress_->setObjectName("fileOperationProgress");
+    operation_progress_->setMinimumWidth(360);
+    operation_progress_->setMaximumWidth(620);
+    operation_progress_->setFixedHeight(20);
+    operation_progress_->setTextVisible(true);
+    operation_progress_->hide();
+    statusBar()->addPermanentWidget(operation_progress_);
     connect(tabs_, &QTabBar::tabCloseRequested, this,
         [this](int index) { close_document(index); });
     connect(tabs_, &QTabBar::currentChanged, this, [this](int index) {
@@ -5006,31 +5056,52 @@ void AssemblyWorkspaceWindow::open_document() {
 
 bool AssemblyWorkspaceWindow::open_document_path(const QString& path) {
     const std::filesystem::path opened_path = path.toStdString();
+    begin_status_operation(tr("Otevírám %1…").arg(
+        QString::fromStdString(opened_path.filename().string())));
     try {
         std::string id;
         if (const auto already_open = workspace_.document_id_for_path(opened_path)) {
+            update_status_operation(tr("Aktivuji již otevřený dokument…"));
             id = *already_open;
         } else if (path.endsWith(".prtz", Qt::CaseInsensitive)) {
-            std::vector<zima::kernel::BodyResult> calculated;
-            auto document = zima::document::PartDocument::load(
-                path.toStdString(), &calculated);
-            id = document.document_id;
+            update_status_operation(
+                tr("Čtu Part, parametry a uloženou geometrii…"), -1, 0);
+            auto loaded = run_background_task([opened_path] {
+                std::vector<zima::kernel::BodyResult> calculated;
+                auto document = zima::document::PartDocument::load(
+                    opened_path, &calculated);
+                return std::pair{
+                    std::move(document), std::move(calculated)};
+            });
+            id = loaded.first.document_id;
+            update_status_operation(tr("Vkládám Part do pracovního prostoru…"));
             workspace_.add_part(
-                std::move(document), std::move(calculated), path.toStdString());
+                std::move(loaded.first), std::move(loaded.second), opened_path);
         } else if (path.endsWith(".asmz", Qt::CaseInsensitive)) {
-            auto document = zima::assembly::AssemblyDocument::load(path.toStdString());
+            update_status_operation(
+                tr("Čtu sestavu a její uložené výskyty…"), -1, 0);
+            auto document = run_background_task([opened_path] {
+                return zima::assembly::AssemblyDocument::load(opened_path);
+            });
             id = document.document_id;
-            workspace_.add_assembly(std::move(document), path.toStdString());
+            update_status_operation(tr("Vkládám sestavu do pracovního prostoru…"));
+            workspace_.add_assembly(std::move(document), opened_path);
         } else if (path.endsWith(".drwz", Qt::CaseInsensitive)) {
-            auto document = zima::drawing::DrawingDocument::load(path.toStdString());
+            update_status_operation(
+                tr("Čtu výkres, listy a pohledy…"), -1, 0);
+            auto document = run_background_task([opened_path] {
+                return zima::drawing::DrawingDocument::load(opened_path);
+            });
             id = document.document_id;
-            workspace_.add_drawing(std::move(document), path.toStdString());
+            update_status_operation(tr("Vkládám výkres do pracovního prostoru…"));
+            workspace_.add_drawing(std::move(document), opened_path);
         } else {
             throw std::runtime_error("Nepodporovaná přípona dokumentu ZIMA-CAD.");
         }
         workspace_.activate(id);
         workspace_.display_top_level(id);
     } catch (const std::exception& error) {
+        finish_status_operation(tr("Otevření dokumentu selhalo"), false);
         QMessageBox::critical(this, tr("Otevření dokumentu selhalo"), error.what());
         return false;
     }
@@ -5049,8 +5120,11 @@ bool AssemblyWorkspaceWindow::open_document_path(const QString& path) {
     selected_sketch_bspline_id_.clear();
     selected_sketch_text_id_.clear();
     cancel_sketch_segment();
+    update_status_operation(tr("Připravuji strom a View…"));
     refresh_tabs();
     refresh_scene();
+    finish_status_operation(tr("Otevřeno: %1").arg(
+        QString::fromStdString(opened_path.filename().string())));
     return true;
 }
 
@@ -5577,13 +5651,8 @@ void AssemblyWorkspaceWindow::finish_extrusion_target_selection() {
     // after an explicit click in its own reference table.
     pending_primitive_reference_index_.reset();
     tree_->setProperty("commandSelectionActive", false);
-    viewer_->set_selection_contract({zima::viewer::CandidateKind::Dimension});
-    viewer_->set_candidate_filter([this](const auto& candidate) {
-        return primitive_reference_dialog_ != nullptr &&
-            candidate.kind == zima::viewer::CandidateKind::Dimension &&
-            primitive_reference_dialog_->owns_reference_owner(candidate.owner_id) &&
-            candidate.semantic_key.starts_with("parameter:");
-    });
+    viewer_->set_selection_contract({});
+    viewer_->set_candidate_filter([](const auto&) { return false; });
 }
 
 
@@ -5892,6 +5961,54 @@ void AssemblyWorkspaceWindow::accept_orientation_reference(
     viewer_->clear_selection();
 }
 
+void AssemblyWorkspaceWindow::begin_status_operation(
+    const QString& message) {
+    ++operation_progress_generation_;
+    operation_progress_->setRange(0, 0);
+    operation_progress_->setFormat(message);
+    operation_progress_->show();
+    state_->setText(message);
+    QApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 1);
+}
+
+void AssemblyWorkspaceWindow::update_status_operation(
+    const QString& message, int value, int maximum) {
+    if (!operation_progress_->isVisible()) {
+        begin_status_operation(message);
+    }
+    if (maximum == 0) {
+        operation_progress_->setRange(0, 0);
+    } else if (maximum > 0) {
+        operation_progress_->setRange(0, maximum);
+    }
+    if (value >= 0 && operation_progress_->maximum() > 0) {
+        operation_progress_->setValue(
+            std::clamp(value, operation_progress_->minimum(),
+                       operation_progress_->maximum()));
+    }
+    const bool percentage = operation_progress_->maximum() > 0;
+    operation_progress_->setFormat(
+        percentage ? message + QStringLiteral(" — %p%") : message);
+    state_->setText(message);
+    QApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 1);
+}
+
+void AssemblyWorkspaceWindow::finish_status_operation(
+    const QString& message, bool success) {
+    operation_progress_->setRange(0, 100);
+    operation_progress_->setValue(success ? 100 : 0);
+    operation_progress_->setFormat(message);
+    operation_progress_->show();
+    state_->setText(message);
+    const int generation = ++operation_progress_generation_;
+    QApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 1);
+    QTimer::singleShot(1400, this, [this, generation] {
+        if (generation == operation_progress_generation_) {
+            operation_progress_->hide();
+        }
+    });
+}
+
 void AssemblyWorkspaceWindow::save_active_assembly() {
     auto* assembly = workspace_.open_assembly(workspace_.active_document_id());
     if (assembly == nullptr) return;
@@ -5908,13 +6025,28 @@ void AssemblyWorkspaceWindow::save_active_assembly() {
         normalized.replace_extension(".asmz");
         path = QString::fromStdString(normalized.string());
     }
+    begin_status_operation(tr("Ukládám sestavu %1…").arg(
+        QFileInfo(path).fileName()));
     try {
-        assembly->session.document().save(path.toStdString());
+        update_status_operation(
+            tr("Zapisuji komponenty, vazby a uloženou geometrii…"), -1, 0);
+        const auto saved_revision = assembly->session.revision();
+        auto snapshot = assembly->session.document();
+        run_background_task(
+            [snapshot = std::move(snapshot), target = path.toStdString()] {
+                snapshot.save(target);
+            });
         assembly->path = path.toStdString();
         working_directory_ = assembly->path.parent_path();
-        assembly->session.mark_saved();
+        if (assembly->session.revision() == saved_revision) {
+            assembly->session.mark_saved();
+        }
+        update_status_operation(tr("Aktualizuji stav dokumentu…"));
         refresh_tabs();
+        finish_status_operation(tr("Sestava uložena: %1").arg(
+            QFileInfo(path).fileName()));
     } catch (const std::exception& error) {
+        finish_status_operation(tr("Uložení sestavy selhalo"), false);
         QMessageBox::critical(this,
             application_settings_.text("message.save_failed", tr("Uložení se nezdařilo")),
             error.what());
@@ -5936,11 +6068,26 @@ void AssemblyWorkspaceWindow::save_active_document() {
             normalized.replace_extension(".drwz");
             path = QString::fromStdString(normalized.string());
         }
-        try { drawing->document.save(path.toStdString()); drawing->path=path.toStdString();
+        begin_status_operation(tr("Ukládám výkres %1…").arg(
+            QFileInfo(path).fileName()));
+        try {
+            update_status_operation(
+                tr("Zapisuji listy, pohledy a popisové pole…"), -1, 0);
+            auto snapshot = drawing->document;
+            run_background_task(
+                [snapshot = std::move(snapshot), target = path.toStdString()] {
+                    snapshot.save(target);
+                });
+            drawing->path=path.toStdString();
             working_directory_ = drawing->path.parent_path();
             drawing_workspace_->edit_workspace_document(drawing->document.document_id);
-            refresh_tabs(); }
+            update_status_operation(tr("Aktualizuji stav dokumentu…"));
+            refresh_tabs();
+            finish_status_operation(tr("Výkres uložen: %1").arg(
+                QFileInfo(path).fileName()));
+        }
         catch(const std::exception& error) {
+            finish_status_operation(tr("Uložení výkresu selhalo"), false);
             QMessageBox::critical(this,
                 application_settings_.text("message.save_failed", tr("Uložení se nezdařilo")),
                 error.what()); }
@@ -5965,17 +6112,36 @@ void AssemblyWorkspaceWindow::save_active_document() {
         normalized.replace_extension(".prtz");
         path = QString::fromStdString(normalized.string());
     }
+    begin_status_operation(tr("Ukládám Part %1…").arg(
+        QFileInfo(path).fileName()));
     try {
-        part->session.document().save(path.toStdString(),
-                                      part->session.calculated_boundaries());
+        update_status_operation(
+            tr("Připravuji neměnný snímek dokumentu…"));
+        const auto saved_revision = part->session.revision();
+        auto document_snapshot = part->session.document();
+        auto boundary_snapshot = part->session.calculated_boundaries();
+        update_status_operation(
+            tr("Zapisuji parametry, B-Rep a data pro View…"), -1, 0);
+        run_background_task([
+                document = std::move(document_snapshot),
+                boundaries = std::move(boundary_snapshot),
+                target = path.toStdString()] {
+            document.save(target, boundaries);
+        });
         part->path = path.toStdString();
         working_directory_ = part->path.parent_path();
-        part->session.mark_saved();
+        if (part->session.revision() == saved_revision) {
+            part->session.mark_saved();
+        }
+        update_status_operation(tr("Aktualizuji stav dokumentu…"));
         refresh_tabs();
         // Saving changes persistence state and the tab's dirty marker only.
         // Rebuilding an unchanged scene would invoke the viewer's automatic
         // fit and unexpectedly move the user's camera.
+        finish_status_operation(tr("Part uložen: %1").arg(
+            QFileInfo(path).fileName()));
     } catch (const std::exception& error) {
+        finish_status_operation(tr("Uložení Partu selhalo"), false);
         QMessageBox::critical(this,
             application_settings_.text("message.save_failed", tr("Uložení se nezdařilo")),
             error.what());
@@ -6034,27 +6200,58 @@ void AssemblyWorkspaceWindow::save_active_document_as() {
             tr("Cílový soubor již používá jiný otevřený dokument."));
         return;
     }
+    begin_status_operation(tr("Ukládám dokument jako %1…").arg(
+        QString::fromStdString(target.filename().string())));
     try {
         if (auto* drawing = workspace_.open_drawing(document_id)) {
-            drawing->document.save(target);
+            update_status_operation(
+                tr("Zapisuji listy, pohledy a popisové pole…"), -1, 0);
+            auto snapshot = drawing->document;
+            run_background_task(
+                [snapshot = std::move(snapshot), target] {
+                    snapshot.save(target);
+                });
             drawing->path = target;
             drawing_workspace_->edit_workspace_document(document_id);
         } else if (auto* assembly = workspace_.open_assembly(document_id)) {
-            assembly->session.document().save(target);
+            update_status_operation(
+                tr("Zapisuji komponenty, vazby a uloženou geometrii…"), -1, 0);
+            const auto saved_revision = assembly->session.revision();
+            auto snapshot = assembly->session.document();
+            run_background_task(
+                [snapshot = std::move(snapshot), target] {
+                    snapshot.save(target);
+                });
             assembly->path = target;
-            assembly->session.mark_saved();
+            if (assembly->session.revision() == saved_revision) {
+                assembly->session.mark_saved();
+            }
         } else if (auto* part = workspace_.open_part(document_id)) {
-            part->session.document().save(
-                target, part->session.calculated_boundaries());
+            update_status_operation(
+                tr("Připravuji neměnný snímek Partu…"));
+            const auto saved_revision = part->session.revision();
+            auto document_snapshot = part->session.document();
+            auto boundary_snapshot = part->session.calculated_boundaries();
+            update_status_operation(
+                tr("Zapisuji parametry, B-Rep a data pro View…"), -1, 0);
+            run_background_task([
+                    document = std::move(document_snapshot),
+                    boundaries = std::move(boundary_snapshot), target] {
+                document.save(target, boundaries);
+            });
             part->path = target;
-            part->session.mark_saved();
+            if (part->session.revision() == saved_revision) {
+                part->session.mark_saved();
+            }
         }
         if (!target.parent_path().empty()) working_directory_ = target.parent_path();
+        update_status_operation(tr("Aktualizuji cestu a stav dokumentu…"));
         refresh_tabs();
         // Save As changes the path/tab label, not displayed geometry. Keep
         // the exact current camera and avoid an unnecessary scene rebuild.
-        state_->setText(tr("Dokument uložen jako %1").arg(selected));
+        finish_status_operation(tr("Dokument uložen jako %1").arg(selected));
     } catch (const std::exception& error) {
+        finish_status_operation(tr("Uložení dokumentu selhalo"), false);
         QMessageBox::critical(this,
             application_settings_.text("message.save_failed", tr("Uložení se nezdařilo")),
             error.what());
@@ -6664,7 +6861,8 @@ void AssemblyWorkspaceWindow::import_file() {
         application_settings_.text("menu.file.import", tr("Importovat")),
         QString::fromStdString(working_directory_.string()),
         application_settings_.text("file.filter.import",
-            tr("Podporované importní formáty (*.step *.stp);;STEP (*.step *.stp)")),
+            tr("Podporované importní formáty (*.step *.stp *.dxf);;"
+               "STEP (*.step *.stp);;DXF (*.dxf)")),
         application_settings_.translations);
     if (path.isEmpty()) return;
     const auto context = !active_sketch_id_.empty()
@@ -6686,20 +6884,33 @@ void AssemblyWorkspaceWindow::import_file() {
                 tr("Nejprve vytvořte nebo aktivujte skicu, která určí rovinu DXF."));
             return;
         }
+        begin_status_operation(tr("Importuji DXF %1…").arg(
+            QFileInfo(path).fileName()));
         try {
             auto next = part->session.document();
-            auto sketch = std::find_if(next.sketches.begin(), next.sketches.end(),
-                [&](const auto& value) { return value.id == active_sketch_id_; });
-            if (sketch == next.sketches.end()) return;
-            const auto imported = zima::interchange::import_dxf(
-                path.toStdString(), *sketch);
+            update_status_operation(
+                tr("Čtu DXF a převádím entity do aktivní skici…"), -1, 0);
+            const auto imported = run_background_task([
+                    &next, source = path.toStdString(),
+                    sketch_id = active_sketch_id_] {
+                auto sketch = std::find_if(
+                    next.sketches.begin(), next.sketches.end(),
+                    [&](const auto& value) { return value.id == sketch_id; });
+                if (sketch == next.sketches.end()) {
+                    throw std::runtime_error("Aktivní skica pro DXF nebyla nalezena");
+                }
+                return zima::interchange::import_dxf(source, *sketch);
+            });
+            update_status_operation(tr("Vkládám DXF entity do dokumentu…"));
             part->session.commit(std::move(next), part->session.calculated_boundaries());
+            update_status_operation(tr("Připravuji strom a View…"));
             refresh_tabs();
             refresh_scene();
-            state_->setText(tr("DXF importováno: %1 entit, blok %2")
+            finish_status_operation(tr("DXF importováno: %1 entit, blok %2")
                 .arg(imported.imported_entities)
                 .arg(QString::fromStdString(imported.import_block_id)));
         } catch (const std::exception& error) {
+            finish_status_operation(tr("Import DXF selhal"), false);
             QMessageBox::warning(this, tr("Import DXF selhal"), error.what());
         }
         return;
@@ -6708,13 +6919,18 @@ void AssemblyWorkspaceWindow::import_file() {
         auto* part = workspace_.open_part(workspace_.active_document_id());
         if (part == nullptr) {
             if (workspace_.open_assembly(workspace_.active_document_id()) != nullptr) {
+                begin_status_operation(tr("Importuji STEP sestavu %1…").arg(
+                    QFileInfo(path).fileName()));
                 try { import_step_into_assembly(path.toStdString()); }
                 catch (const std::exception& error) {
+                    finish_status_operation(tr("Import STEP sestavy selhal"), false);
                     QMessageBox::warning(this, tr("Import STEP selhal"), error.what());
                 }
             }
             return;
         }
+        begin_status_operation(tr("Importuji STEP %1…").arg(
+            QFileInfo(path).fileName()));
         try {
             auto next = part->session.document();
             const auto absolute = std::filesystem::absolute(path.toStdString());
@@ -6735,14 +6951,22 @@ void AssemblyWorkspaceWindow::import_file() {
             const bool direct_frozen_boundary =
                 part->session.calculated_boundaries().empty() &&
                 operations.size() == 1;
-            auto frozen = kernel_.import_step_components({
-                zima::kernel::StepRequest{
-                    absolute.string(), {}, {},
-                    direct_frozen_boundary ? imported_fingerprint : std::string{},
-                    container_id}});
+            update_status_operation(
+                tr("OCCT čte STEP, převádí topologii a vytváří síť…"), -1, 0);
+            auto frozen = run_background_task([
+                    request = zima::kernel::StepRequest{
+                        absolute.string(), {}, {},
+                        direct_frozen_boundary
+                            ? imported_fingerprint : std::string{},
+                        container_id}] {
+                zima::kernel::OcctKernel worker_kernel;
+                return worker_kernel.import_step_components({request});
+            });
             if (frozen.size() != 1 || frozen.front().kernel_shape.empty()) {
                 throw std::runtime_error("STEP nebyl zmrazen kompletně");
             }
+            update_status_operation(
+                tr("Ukládám původní plochy, hrany a zmrazený B-Rep…"));
             container.imported_step.frozen_brep =
                 std::make_shared<const std::string>(frozen.front().kernel_shape);
             container.imported_step.topology = frozen.front().imported_step_topology;
@@ -6762,13 +6986,27 @@ void AssemblyWorkspaceWindow::import_file() {
                 // Importing into a non-empty Part must still form the real
                 // cumulative history boundary. The existing prefix is reused,
                 // while the new operand comes from its frozen B-Rep.
-                calculated = calculate_part(next);
+                update_status_operation(
+                    tr("Spojuji STEP s dosavadním tělesem Partu…"), -1, 0);
+                auto previous = std::move(calculated);
+                auto cumulative_operations = next.kernel_operations();
+                calculated = run_background_task([
+                        operations = std::move(cumulative_operations),
+                        previous = std::move(previous)] {
+                    zima::kernel::OcctKernel worker_kernel;
+                    return worker_kernel.evaluate_history_incremental(
+                        operations, previous);
+                });
             }
+            update_status_operation(tr("Vkládám STEP kontejner do dokumentu…"));
             part->session.commit(std::move(next), std::move(calculated));
+            update_status_operation(tr("Připravuji strom a View…"));
             refresh_tabs();
             refresh_scene();
-            state_->setText(tr("STEP importován jako zmrazené těleso"));
+            finish_status_operation(
+                tr("STEP importován jako zmrazené těleso"));
         } catch (const std::exception& error) {
+            finish_status_operation(tr("Import STEP selhal"), false);
             QMessageBox::warning(this, tr("Import STEP selhal"), error.what());
         }
         return;
@@ -6783,8 +7021,13 @@ void AssemblyWorkspaceWindow::import_step_into_assembly(
         throw std::runtime_error("Aktivní dokument není sestava");
     }
     const auto source = std::filesystem::absolute(source_path);
-    const auto nodes = zima::interchange::inspect_step_parts(source);
+    update_status_operation(
+        tr("Čtu produktovou strukturu STEP sestavy…"), -1, 0);
+    const auto nodes = run_background_task([source] {
+        return zima::interchange::inspect_step_parts(source);
+    });
     if (nodes.empty()) throw std::runtime_error("STEP neobsahuje produktovou strukturu");
+    update_status_operation(tr("Rozděluji unikátní Party a podsestavy…"));
     const auto safe_name = [](std::string name) {
         for (auto& value : name) {
             const unsigned char byte = static_cast<unsigned char>(value);
@@ -6809,13 +7052,25 @@ void AssemblyWorkspaceWindow::import_step_into_assembly(
         requests.push_back({source.string(), part_definitions[index], {}, {},
             "step-import:" + std::to_string(index)});
     }
-    const auto calculated = kernel_.import_step_components(requests);
+    update_status_operation(
+        tr("OCCT převádí %1 unikátních Partů a vytváří jejich sítě…")
+            .arg(part_definitions.size()), -1, 0);
+    const auto calculated = run_background_task(
+        [requests = std::move(requests)] {
+            zima::kernel::OcctKernel worker_kernel;
+            return worker_kernel.import_step_components(requests);
+        });
     if (calculated.size() != part_definitions.size()) {
         throw std::runtime_error("STEP díly nebyly vypočteny kompletně");
     }
     std::unordered_map<std::string, std::string> source_documents;
     std::unordered_map<std::string, std::filesystem::path> source_paths;
     for (std::size_t index = 0; index < part_definitions.size(); ++index) {
+        update_status_operation(
+            tr("Ukládám STEP Part %1 z %2…")
+                .arg(index + 1).arg(part_definitions.size()),
+            static_cast<int>(index),
+            static_cast<int>(std::max<std::size_t>(1, part_definitions.size())));
         const auto* node = part_nodes.at(part_definitions[index]);
         auto document = zima::document::PartDocument::create_default();
         document.name = node->name;
@@ -6836,7 +7091,13 @@ void AssemblyWorkspaceWindow::import_step_into_assembly(
         document.history.push_back(std::move(container));
         const auto path = output_directory /
             (safe_name(node->name) + "_" + std::to_string(index + 1) + ".prtz");
-        document.save(path, {calculated[index]});
+        auto document_snapshot = document;
+        auto body_snapshot = calculated[index];
+        run_background_task([
+                document = std::move(document_snapshot),
+                body = std::move(body_snapshot), path] {
+            document.save(path, {body});
+        });
         source_documents[node->definition_id] = document.document_id;
         source_paths[node->definition_id] = path;
         workspace_.add_part(std::move(document), {calculated[index]}, path);
@@ -6852,7 +7113,14 @@ void AssemblyWorkspaceWindow::import_step_into_assembly(
         return std::ranges::count(left->component_path, '/') >
                std::ranges::count(right->component_path, '/');
     });
-    for (const auto* assembly_node : assemblies) {
+    for (std::size_t assembly_index = 0;
+         assembly_index < assemblies.size(); ++assembly_index) {
+        const auto* assembly_node = assemblies[assembly_index];
+        update_status_operation(
+            tr("Sestavuji a ukládám podsestavu %1 z %2…")
+                .arg(assembly_index + 1).arg(assemblies.size()),
+            static_cast<int>(assembly_index),
+            static_cast<int>(std::max<std::size_t>(1, assemblies.size())));
         auto document = zima::assembly::AssemblyDocument::create_default();
         document.name = assembly_node->name;
         for (const auto& child : nodes) {
@@ -6878,12 +7146,17 @@ void AssemblyWorkspaceWindow::import_step_into_assembly(
         const auto path = output_directory /
             (safe_name(assembly_node->name) + "_assembly_" +
              std::to_string(source_documents.size() + 1) + ".asmz");
-        document.save(path);
+        auto snapshot = document;
+        run_background_task([snapshot = std::move(snapshot), path] {
+            snapshot.save(path);
+        });
         source_documents[assembly_node->definition_id] = document.document_id;
         source_paths[assembly_node->definition_id] = path;
         workspace_.add_assembly(std::move(document), path);
     }
 
+    update_status_operation(
+        tr("Vkládám kořenové výskyty do cílové sestavy…"), -1, 0);
     auto next = workspace_.open_assembly(target_id)->session.document();
     for (const auto& root : nodes) {
         if (!root.parent_path.empty()) continue;
@@ -6906,10 +7179,12 @@ void AssemblyWorkspaceWindow::import_step_into_assembly(
         next.components.push_back(std::move(occurrence));
     }
     workspace_.open_assembly(target_id)->session.commit(std::move(next));
+    update_status_operation(tr("Připravuji strom a View…"), -1, 0);
     refresh_tabs();
     refresh_scene();
-    state_->setText(tr("STEP sestava importována: %1 unikátních Partů, %2 podsestav")
-        .arg(part_definitions.size()).arg(assemblies.size()));
+    finish_status_operation(
+        tr("STEP sestava importována: %1 unikátních Partů, %2 podsestav")
+            .arg(part_definitions.size()).arg(assemblies.size()));
 }
 
 void AssemblyWorkspaceWindow::export_file() {
@@ -6937,27 +7212,45 @@ void AssemblyWorkspaceWindow::export_file() {
             part->session.document().sketches.end(),
             [&](const auto& value) { return value.id == active_sketch_id_; });
         if (sketch == part->session.document().sketches.end()) return;
+        begin_status_operation(tr("Exportuji aktivní skicu do DXF…"));
         try {
-            zima::interchange::export_dxf(path.toStdString(), *sketch);
-            state_->setText(tr("Aktivní skica exportována do DXF: %1").arg(path));
+            update_status_operation(
+                tr("Převádím entity skici a zapisuji DXF…"), -1, 0);
+            auto sketch_snapshot = *sketch;
+            run_background_task([
+                    sketch = std::move(sketch_snapshot),
+                    target = path.toStdString()] {
+                zima::interchange::export_dxf(target, sketch);
+            });
+            finish_status_operation(
+                tr("Aktivní skica exportována do DXF: %1").arg(path));
         } catch (const std::exception& error) {
+            finish_status_operation(tr("Export DXF selhal"), false);
             QMessageBox::warning(this, tr("Export DXF selhal"), error.what());
         }
         return;
     }
     if (format == zima::interchange::Format::Png ||
         format == zima::interchange::Format::Jpeg) {
+        begin_status_operation(tr("Exportuji aktuální 3D pohled…"));
+        update_status_operation(tr("Snímám framebuffer View…"));
         const auto image = viewer_->grabFramebuffer();
-        if (image.isNull() || !image.save(path)) {
+        update_status_operation(tr("Zapisuji obrazový soubor…"), -1, 0);
+        const bool saved = !image.isNull() && run_background_task(
+            [image, target = path] { return image.save(target); });
+        if (!saved) {
+            finish_status_operation(tr("Export obrázku selhal"), false);
             QMessageBox::warning(this, tr("Export obrázku selhal"),
                 tr("Aktuální 3D pohled se nepodařilo uložit."));
             return;
         }
-        state_->setText(tr("Aktuální 3D pohled exportován: %1").arg(path));
+        finish_status_operation(
+            tr("Aktuální 3D pohled exportován: %1").arg(path));
         return;
     }
     if (format == zima::interchange::Format::Step ||
         format == zima::interchange::Format::Stl) {
+        begin_status_operation(tr("Připravuji model pro export…"));
         try {
             std::vector<zima::kernel::PlacedBody> bodies;
             if (const auto* part = workspace_.open_part(
@@ -6989,13 +7282,24 @@ void AssemblyWorkspaceWindow::export_file() {
                          component.placement.rotation_z}});
                 }
             }
-            if (format == zima::interchange::Format::Step) {
-                kernel_.export_step(bodies, path.toStdString());
-            } else {
-                kernel_.export_stl(bodies, path.toStdString());
-            }
-            state_->setText(tr("Model exportován: %1").arg(path));
+            update_status_operation(
+                format == zima::interchange::Format::Step
+                    ? tr("OCCT převádí a zapisuje STEP…")
+                    : tr("OCCT vytváří síť a zapisuje STL…"),
+                -1, 0);
+            run_background_task([
+                    bodies = std::move(bodies), target = path.toStdString(),
+                    format] {
+                zima::kernel::OcctKernel worker_kernel;
+                if (format == zima::interchange::Format::Step) {
+                    worker_kernel.export_step(bodies, target);
+                } else {
+                    worker_kernel.export_stl(bodies, target);
+                }
+            });
+            finish_status_operation(tr("Model exportován: %1").arg(path));
         } catch (const std::exception& error) {
+            finish_status_operation(tr("Export modelu selhal"), false);
             QMessageBox::warning(this, tr("Export modelu selhal"), error.what());
         }
         return;
@@ -7491,7 +7795,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             // placement references against the geometry that existed before
             // this edit, exactly like ConstructionObject editing does, before
             // the kernel evaluates the (possibly placement-dependent) history.
-            const auto calculated_before = target_part->session.calculated_boundaries();
+            const auto& calculated_before =
+                target_part->session.calculated_boundaries();
             auto reference_geometry =
                 construction_reference_source_geometry(calculated_before);
             append_reference_geometry(reference_geometry,
@@ -7499,7 +7804,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             append_reference_geometry(reference_geometry,
                 next.construction_viewer_mesh().original_references);
             next.resolve_constructions(reference_geometry);
-            auto calculated = calculate_part(next);
+            auto calculated = calculate_part(next, &calculated_before);
             static_cast<void>(refresh_sketch_external_references(next, calculated));
             const bool completes_pending_profile = pending_profile_feature_ &&
                 pending_profile_feature_->id == committed_container->id;
@@ -7971,6 +8276,13 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             if (!defer_profile_scene_refresh) {
                 preserve_view_on_refresh_ = true;
                 refresh_scene();
+                if (!pending_primitive_reference_index_ &&
+                    extrusion_target_dialog_ == nullptr) {
+                    tree_->setProperty("commandSelectionActive", false);
+                    viewer_->set_selection_contract({});
+                    viewer_->set_candidate_filter(
+                        [](const auto&) { return false; });
+                }
                 if (fit_new_basic_preview) viewer_->fit_all();
             }
             return resolved_preview;
@@ -7983,6 +8295,85 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             dialog->set_preview_callback(placement_preview);
         }
     }
+    const auto profile_scene_signature =
+        std::make_shared<std::optional<std::vector<double>>>();
+    const auto publish_profile_preview_scene =
+        [this, profile_scene_signature](
+            const zima::document::PartDocument* preview_document,
+            const zima::document::HistoryContainer& preview) {
+        std::vector<zima::kernel::ViewerDimension> live_dimensions;
+        if (primitive_origin_preview_mesh_) {
+            live_dimensions =
+                std::move(primitive_origin_preview_mesh_->dimensions);
+            primitive_origin_preview_mesh_->dimensions.clear();
+        }
+        viewer_->set_transient_dimensions(std::move(live_dimensions));
+
+        const auto& placement = preview.placement;
+        std::vector<double> signature{
+            placement.x, placement.y, placement.z,
+            placement.rotation_x, placement.rotation_y, placement.rotation_z,
+            placement.absolute_rotation_x, placement.absolute_rotation_y,
+            placement.absolute_rotation_z,
+            placement.orientation_back ? 1.0 : 0.0,
+            static_cast<double>(placement.orientation_quarter_turns)};
+        if (preview.feature_kind ==
+                zima::document::FeatureKind::Extrusion) {
+            signature.push_back(preview.extrusion.profile_plane_offset);
+        } else {
+            signature.push_back(preview.revolution.profile_plane_offset);
+        }
+        if (preview_document != nullptr) {
+            const auto& sketch_id = preview.feature_kind ==
+                    zima::document::FeatureKind::Extrusion
+                ? preview.extrusion.sketch_id : preview.revolution.sketch_id;
+            const auto sketch = std::find_if(
+                preview_document->sketches.begin(),
+                preview_document->sketches.end(), [&](const auto& value) {
+                    return value.id == sketch_id;
+                });
+            if (sketch != preview_document->sketches.end()) {
+                for (const auto& value : {
+                        sketch->resolved_origin, sketch->resolved_normal,
+                        sketch->resolved_x_axis, sketch->resolved_y_axis}) {
+                    signature.insert(signature.end(),
+                        {value.x, value.y, value.z});
+                }
+            }
+        }
+        if (*profile_scene_signature &&
+            **profile_scene_signature == signature) {
+            return;
+        }
+        *profile_scene_signature = std::move(signature);
+        // The base body and static work-plane frame change only when the
+        // placement/profile frame changes. Length/angle edits update the
+        // transient wire, manipulators and live dimensions without sending
+        // the complete STEP mesh through set_mesh()/upload_mesh().
+        preserve_view_on_refresh_ = true;
+        refresh_scene();
+        if (!pending_primitive_reference_index_ &&
+            extrusion_target_dialog_ == nullptr) {
+            tree_->setProperty("commandSelectionActive", false);
+            viewer_->set_selection_contract({});
+            viewer_->set_candidate_filter(
+                [](const auto&) { return false; });
+        }
+    };
+    const auto extrusion_needs_input_bounds = [](
+            const zima::document::HistoryContainer& preview) {
+        const auto& parameters = preview.extrusion;
+        return parameters.extent ==
+                zima::document::ExtrusionExtent::ThroughAll ||
+            parameters.end_condition_forward ==
+                zima::document::EndCondition::ThroughAll ||
+            (parameters.extent_mode !=
+                    zima::document::ProfileExtentMode::OneSide &&
+             parameters.extent_mode !=
+                    zima::document::ProfileExtentMode::Symmetric &&
+             parameters.end_condition_reverse ==
+                    zima::document::EndCondition::ThroughAll);
+    };
     if (feature_kind == zima::document::FeatureKind::Extrusion) {
         dialog->set_extrusion_target_request([this, dialog, assembly_cut] {
             // Placement auto-arms its next empty row, but Up-to is a
@@ -8018,7 +8409,9 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                                       pending_owned_sketch, placement_preview,
                                       prepare_owned_profile_preview,
                                       update_owned_profile_context_preview,
-                                      publish_extrusion_extent](
+                                      publish_extrusion_extent,
+                                      publish_profile_preview_scene,
+                                      extrusion_needs_input_bounds](
                                           const auto& preview) {
             const auto resolved_preview = placement_preview
                 ? placement_preview(preview) : preview;
@@ -8041,10 +8434,33 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                         preview_document, resolved_preview);
                     publish_extrusion_extent(
                         preview_document, resolved_preview);
-                    const auto input_scene = owner->session.document().build_scene();
-                    viewer_->set_transient_edges(
-                        preview_document.extrusion_preview_edges(
-                            resolved_preview, input_scene));
+                    if (extrusion_needs_input_bounds(resolved_preview)) {
+                        auto input_document = owner->session.document();
+                        if (assembly_cut_rollback_ &&
+                            assembly_cut_rollback_->assembly_document_id ==
+                                input_document.document_id) {
+                            for (auto& component : input_document.components) {
+                                const auto found =
+                                    assembly_cut_rollback_->
+                                        input_component_bodies.find(
+                                            component.occurrence_id);
+                                if (found != assembly_cut_rollback_->
+                                        input_component_bodies.end()) {
+                                    component.calculated_source = found->second;
+                                }
+                            }
+                        }
+                        const auto input_scene = input_document.build_scene();
+                        viewer_->set_transient_edges(
+                            preview_document.extrusion_preview_edges(
+                                resolved_preview, input_scene));
+                    } else {
+                        viewer_->set_transient_edges(
+                            preview_document.extrusion_preview_edges(
+                                resolved_preview));
+                    }
+                    publish_profile_preview_scene(
+                        &preview_document, resolved_preview);
                 } else {
                     const auto* owner = workspace_.open_part(owner_id);
                     if (owner == nullptr) return;
@@ -8062,18 +8478,32 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                         preview_document, resolved_preview);
                     publish_extrusion_extent(
                         preview_document, resolved_preview);
-                    const auto& boundaries = owner->session.calculated_boundaries();
-                    viewer_->set_transient_edges(boundaries.empty()
-                        ? preview_document.extrusion_preview_edges(resolved_preview)
-                        : preview_document.extrusion_preview_edges(
-                            resolved_preview, boundaries.back().mesh));
+                    if (extrusion_needs_input_bounds(resolved_preview)) {
+                        const zima::kernel::ViewerMesh* input_mesh = nullptr;
+                        if (part_rollback_ &&
+                            part_rollback_->part_document_id == owner_id &&
+                            part_rollback_->input_body) {
+                            input_mesh = &part_rollback_->input_body->mesh;
+                        } else {
+                            const auto& boundaries =
+                                owner->session.calculated_boundaries();
+                            if (!boundaries.empty()) {
+                                input_mesh = &boundaries.back().mesh;
+                            }
+                        }
+                        viewer_->set_transient_edges(input_mesh == nullptr
+                            ? preview_document.extrusion_preview_edges(
+                                resolved_preview)
+                            : preview_document.extrusion_preview_edges(
+                                resolved_preview, *input_mesh));
+                    } else {
+                        viewer_->set_transient_edges(
+                            preview_document.extrusion_preview_edges(
+                                resolved_preview));
+                    }
+                    publish_profile_preview_scene(
+                        &preview_document, resolved_preview);
                 }
-                // placement_preview refreshed the scene before the owned
-                // profile Plane had been rebuilt. Publish that new cyan
-                // Plane/point now, preserving the user's camera; the
-                // transient extrusion wire survives refresh_scene().
-                preserve_view_on_refresh_ = true;
-                refresh_scene();
                 state_->setText(tr("Azurový drát zobrazuje náhled vytažení."));
             } catch (const std::exception& error) {
                 // An empty/incomplete owned Sketch prevents only the body
@@ -8083,8 +8513,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 // frame. Skipping this refresh was why a new Extrusion did
                 // not react until after returning from Sketcher.
                 viewer_->set_transient_edges({});
-                preserve_view_on_refresh_ = true;
-                refresh_scene();
+                publish_profile_preview_scene(nullptr, resolved_preview);
                 state_->setText(QString::fromUtf8(error.what()));
             }
         });
@@ -8093,7 +8522,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                                       pending_owned_sketch, placement_preview,
                                       prepare_owned_profile_preview,
                                       update_owned_profile_context_preview,
-                                      publish_revolution_direction](
+                                      publish_revolution_direction,
+                                      publish_profile_preview_scene](
                                           const auto& preview) {
             const auto resolved_preview = placement_preview
                 ? placement_preview(preview) : preview;
@@ -8119,6 +8549,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                     viewer_->set_transient_edges(
                         preview_document.revolution_preview_edges(
                             resolved_preview));
+                    publish_profile_preview_scene(
+                        &preview_document, resolved_preview);
                 } else {
                     const auto* owner = workspace_.open_part(owner_id);
                     if (owner == nullptr) return;
@@ -8139,20 +8571,16 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                     viewer_->set_transient_edges(
                         preview_document.revolution_preview_edges(
                             resolved_preview));
+                    publish_profile_preview_scene(
+                        &preview_document, resolved_preview);
                 }
-                // Same ordering contract as Extrusion: the live offset Plane
-                // is calculated after the generic placement preview, so the
-                // final scene refresh must happen here.
-                preserve_view_on_refresh_ = true;
-                refresh_scene();
                 state_->setText(tr("Azurový drát zobrazuje náhled rotace."));
             } catch (const std::exception& error) {
                 // Revolution has the same partial-preview contract as
                 // Extrusion: a missing closed profile/axis may suppress the
                 // operation wire, never its live work plane and dimensions.
                 viewer_->set_transient_edges({});
-                preserve_view_on_refresh_ = true;
-                refresh_scene();
+                publish_profile_preview_scene(nullptr, resolved_preview);
                 state_->setText(QString::fromUtf8(error.what()));
             }
         });
@@ -8485,6 +8913,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         primitive_translation_dof_ = 3;
         tree_->setProperty("commandSelectionActive", false);
         viewer_->set_transient_edges({});
+        viewer_->set_transient_dimensions({});
         viewer_->set_extent_manipulator(std::nullopt);
         viewer_->set_operation_direction_indicator(std::nullopt);
         viewer_->set_extent_manipulator_callbacks({}, {}, {});
@@ -8509,13 +8938,14 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         }
     });
     dialog->show();
-    // Every placement-capable history container starts with its first
-    // reference row armed, just like Point/Axis/Plane. This makes clicking
-    // the whole document Origin in the Tree an immediate bulk-fill action;
-    // the user must not first click an otherwise empty table cell.
-    if (primitive_reference_dialog_ == dialog) {
-        start_primitive_reference_selection(0);
-    }
+    // Properties is not a picking command by itself. Keep all model hover
+    // disabled until the user explicitly requests one placement/Up-to
+    // reference field; that command installs its own exact selection
+    // contract and returns here after one confirmed pick.
+    tree_->setProperty("commandSelectionActive", false);
+    viewer_->clear_selection();
+    viewer_->set_selection_contract({});
+    viewer_->set_candidate_filter([](const auto&) { return false; });
 }
 
 void AssemblyWorkspaceWindow::transform_sketch_container(
@@ -8771,6 +9201,12 @@ void AssemblyWorkspaceWindow::show_construction_properties(
             viewer_->set_transient_edges({});
             preserve_view_on_refresh_ = true;
             refresh_scene();
+            if (!pending_construction_reference_index_) {
+                tree_->setProperty("commandSelectionActive", false);
+                viewer_->set_selection_contract({});
+                viewer_->set_candidate_filter(
+                    [](const auto&) { return false; });
+            }
             if (preview.kind == zima::document::ConstructionKind::Plane) {
                 viewer_->set_extent_manipulator(zima::viewer::ExtentManipulator{
                     "plane_offset", {}, resolved_entity_origin,
@@ -8815,11 +9251,10 @@ void AssemblyWorkspaceWindow::show_construction_properties(
         refresh_scene();
     });
     dialog->show();
-    // Construction commands own their viewer selection contract.  Match the
-    // Python workflow: opening Point/Axis/Plane immediately arms the first
-    // reference row; the user must not have to discover and press a separate
-    // "pick" button before orange hover and RMB cycling become available.
-    start_construction_reference_selection(0);
+    tree_->setProperty("commandSelectionActive", false);
+    viewer_->clear_selection();
+    viewer_->set_selection_contract({});
+    viewer_->set_candidate_filter([](const auto&) { return false; });
 }
 
 void AssemblyWorkspaceWindow::start_construction_reference_selection(
@@ -8868,15 +9303,8 @@ void AssemblyWorkspaceWindow::start_construction_reference_selection(
     if ((baseline_dof == 0 || shortcut_satisfied) && !axis_extent_row) {
         pending_construction_reference_index_.reset();
         tree_->setProperty("commandSelectionActive", false);
-        viewer_->set_selection_contract(
-            {zima::viewer::CandidateKind::Dimension});
-        viewer_->set_candidate_filter([this](const auto& candidate) {
-            return construction_reference_dialog_ != nullptr &&
-                candidate.kind == zima::viewer::CandidateKind::Dimension &&
-                candidate.owner_id ==
-                    construction_reference_dialog_->construction_id() &&
-                candidate.semantic_key.starts_with("parameter:");
-        });
+        viewer_->set_selection_contract({});
+        viewer_->set_candidate_filter([](const auto&) { return false; });
         viewer_->clear_selection();
         state_->setText(tr("Konstrukce je již plně určená."));
         return;
@@ -9195,32 +9623,14 @@ void AssemblyWorkspaceWindow::accept_construction_reference(
     // entered, even though the Origin's own world-space size never changes.
     preserve_view_on_refresh_ = true;
     refresh_scene();
-    // Keep offering the next row for as long as ANY DOF (position or
-    // rotation) remains open, matching the "1st point = origin, 2nd = axis
-    // direction, 3rd = plane-completing point" history-order contract: a
-    // single point already fully fixes translation, but a 2nd/3rd point
-    // still carries orientation information and must remain enterable.
-    if ((construction_translation_dof_ + construction_rotation_dof_) > 0 &&
-        selected_index + 1 < 3) {
-        start_construction_reference_selection(selected_index + 1);
-    } else {
-        // The accepted reference completed the placement (or exhausted the
-        // three placement rows). Do not leave the previous row's candidate
-        // predicate alive: it would keep painting orange offers although no
-        // reference input is armed. Clicking an existing row installs a fresh
-        // replacement contract with that row removed from the rank baseline.
-        tree_->setProperty("commandSelectionActive", false);
-        viewer_->set_selection_contract(
-            {zima::viewer::CandidateKind::Dimension});
-        viewer_->set_candidate_filter([this](const auto& candidate) {
-            return construction_reference_dialog_ != nullptr &&
-                candidate.kind == zima::viewer::CandidateKind::Dimension &&
-                candidate.owner_id ==
-                    construction_reference_dialog_->construction_id() &&
-                candidate.semantic_key.starts_with("parameter:");
-        });
-        viewer_->clear_selection();
-    }
+    // The dialog's DOF state tells the user whether another reference would
+    // be useful, but it does not silently turn that next row into a command.
+    // A field click arms exactly one pick; after confirmation Properties is
+    // idle again and performs no 3D hover work.
+    tree_->setProperty("commandSelectionActive", false);
+    viewer_->set_selection_contract({});
+    viewer_->set_candidate_filter([](const auto&) { return false; });
+    viewer_->clear_selection();
 }
 
 void AssemblyWorkspaceWindow::start_primitive_reference_selection(
@@ -9237,15 +9647,8 @@ void AssemblyWorkspaceWindow::start_primitive_reference_selection(
     if (baseline_dof == 0) {
         pending_primitive_reference_index_.reset();
         tree_->setProperty("commandSelectionActive", false);
-        viewer_->set_selection_contract(
-            {zima::viewer::CandidateKind::Dimension});
-        viewer_->set_candidate_filter([this](const auto& candidate) {
-            return primitive_reference_dialog_ != nullptr &&
-                candidate.kind == zima::viewer::CandidateKind::Dimension &&
-                primitive_reference_dialog_->owns_reference_owner(
-                    candidate.owner_id) &&
-                candidate.semantic_key.starts_with("parameter:");
-        });
+        viewer_->set_selection_contract({});
+        viewer_->set_candidate_filter([](const auto&) { return false; });
         viewer_->clear_selection();
         state_->setText(tr("Umístění kontejneru je již plně určené."));
         return;
@@ -9520,21 +9923,13 @@ void AssemblyWorkspaceWindow::accept_primitive_reference(
     // implicit Fit All and make the model jump/shrink after every reference.
     preserve_view_on_refresh_ = true;
     refresh_scene();
-    if (primitive_translation_dof_ > 0 && selected_index + 1 < 3) {
-        start_primitive_reference_selection(selected_index + 1);
-    } else {
-        tree_->setProperty("commandSelectionActive", false);
-        viewer_->set_selection_contract(
-            {zima::viewer::CandidateKind::Dimension});
-        viewer_->set_candidate_filter([this](const auto& dimension) {
-            return primitive_reference_dialog_ != nullptr &&
-                dimension.kind == zima::viewer::CandidateKind::Dimension &&
-                primitive_reference_dialog_->owns_reference_owner(
-                    dimension.owner_id) &&
-                dimension.semantic_key.starts_with("parameter:");
-        });
-        viewer_->clear_selection();
-    }
+    // One explicit field click owns one explicit reference pick. Do not arm a
+    // different row automatically: while Properties is otherwise idle, the
+    // 3D model must not be traversed for hover candidates at all.
+    tree_->setProperty("commandSelectionActive", false);
+    viewer_->set_selection_contract({});
+    viewer_->set_candidate_filter([](const auto&) { return false; });
+    viewer_->clear_selection();
 }
 
 bool AssemblyWorkspaceWindow::accept_primitive_tree_reference(
@@ -10341,6 +10736,12 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                 {plane.entity_id, sketch.id});
             preserve_view_on_refresh_ = true;
             refresh_scene();
+            if (!pending_primitive_reference_index_) {
+                tree_->setProperty("commandSelectionActive", false);
+                viewer_->set_selection_contract({});
+                viewer_->set_candidate_filter(
+                    [](const auto&) { return false; });
+            }
         });
     }
     properties_dialog_ = dialog;
@@ -10372,11 +10773,10 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
         }
     });
     dialog->show();
-    if (primitive_reference_dialog_ == dialog &&
-        dialog->first_empty_position_index() < 3) {
-        start_primitive_reference_selection(
-            dialog->first_empty_position_index());
-    }
+    tree_->setProperty("commandSelectionActive", false);
+    viewer_->clear_selection();
+    viewer_->set_selection_contract({});
+    viewer_->set_candidate_filter([](const auto&) { return false; });
 }
 
 void AssemblyWorkspaceWindow::show_sketch_bspline_properties(

@@ -104,11 +104,13 @@ target_link_libraries(zima_interchange PUBLIC zima_sketcher
 
 add_executable(zima-cad-part-harness
     app/main.cpp app/main_window.cpp app/file_dialog.cpp
+    app/resource_icon.cpp app/zima_resources.qrc
     app/primitive_properties_dialog.cpp)
 target_include_directories(zima-cad-part-harness PRIVATE app)
 target_link_libraries(zima-cad-part-harness PRIVATE
     zima_document_core zima_kernel_occt zima_viewer zima_ui
-    Qt6::Core Qt6::Gui Qt6::Widgets)
+    Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg)
+set_target_properties(zima-cad-part-harness PROPERTIES AUTORCC ON)
 
 add_executable(zima-cad-cpp
     app/main_workspace.cpp app/assembly_workspace_window.cpp
@@ -131,6 +133,12 @@ target_link_libraries(zima-cad-cpp PRIVATE
     zima_interchange nlohmann_json::nlohmann_json
     Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg)
 set_target_properties(zima-cad-cpp PROPERTIES AUTORCC ON)
+if(MSVC)
+    # assembly_workspace_window.cpp intentionally owns the integrated UI
+    # contracts. Background file-operation lambdas push its section count
+    # past COFF's legacy limit in optimized Windows builds.
+    target_compile_options(zima-cad-cpp PRIVATE /bigobj)
+endif()
 if(WIN32)
     target_sources(zima-cad-cpp PRIVATE app/windows/zima-cad.rc)
 endif()
@@ -161,11 +169,13 @@ if(UNIX AND NOT APPLE)
 endif()
 
 add_executable(zima-cad-drawing-harness
-    app/main_drawing.cpp app/drawing_window.cpp app/file_dialog.cpp)
+    app/main_drawing.cpp app/drawing_window.cpp app/file_dialog.cpp
+    app/resource_icon.cpp app/zima_resources.qrc)
 target_include_directories(zima-cad-drawing-harness PRIVATE app)
 target_link_libraries(zima-cad-drawing-harness PRIVATE
     zima_workspace zima_drawing zima_document_core zima_assembly zima_ui
-    Qt6::Core Qt6::Gui Qt6::Widgets)
+    Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg)
+set_target_properties(zima-cad-drawing-harness PROPERTIES AUTORCC ON)
 
 add_executable(zima_cpp_performance_benchmark
     tests/performance_benchmark.cpp)
@@ -192,14 +202,17 @@ if(ZIMA_BUILD_TESTS)
         app/construction_properties_dialog.cpp
         app/orientation_dialog.cpp
         app/component_properties_dialog.cpp
-        app/file_dialog.cpp app/application_settings.cpp
+        app/file_dialog.cpp app/resource_icon.cpp app/zima_resources.qrc
+        app/application_settings.cpp
         app/document_tools_dialogs.cpp)
     target_sources(zima_cpp_ui_contract_tests PRIVATE app/sketch_properties_dialog.cpp)
     target_sources(zima_cpp_ui_contract_tests PRIVATE app/sketch_dimension_properties_dialog.cpp)
     target_sources(zima_cpp_ui_contract_tests PRIVATE app/sketch_text_properties_dialog.cpp)
     target_include_directories(zima_cpp_ui_contract_tests PRIVATE app)
     target_link_libraries(zima_cpp_ui_contract_tests PRIVATE
-        zima_document_core zima_assembly zima_ui zima_viewer Qt6::Widgets nlohmann_json::nlohmann_json)
+        zima_document_core zima_assembly zima_ui zima_viewer
+        Qt6::Widgets Qt6::Svg nlohmann_json::nlohmann_json)
+    set_target_properties(zima_cpp_ui_contract_tests PROPERTIES AUTORCC ON)
     add_test(NAME zima_cpp_ui_contract_tests COMMAND zima_cpp_ui_contract_tests)
     set_tests_properties(zima_cpp_ui_contract_tests PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}")

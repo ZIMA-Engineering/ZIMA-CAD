@@ -19,6 +19,7 @@
 #include <QFileDialog>
 #include <QFileSystemModel>
 #include <QHeaderView>
+#include <QIcon>
 #include <QMouseEvent>
 #include <QListWidget>
 #include <QLabel>
@@ -1734,13 +1735,22 @@ int main(int argc, char* argv[]) {
             const auto sorted_root = proxy->mapFromSource(source_root);
             bool file_seen = false;
             bool directories_first = true;
+            bool document_icon_visible = false;
             for (int row = 0; row < proxy->rowCount(sorted_root); ++row) {
-                const bool directory = files->fileInfo(
-                    proxy->mapToSource(proxy->index(row, 0, sorted_root))).isDir();
+                const auto index = proxy->index(row, 0, sorted_root);
+                const auto source_index = proxy->mapToSource(index);
+                const bool directory = files->fileInfo(source_index).isDir();
                 if (!directory) file_seen = true;
                 else if (file_seen) directories_first = false;
+                if (index.data().toString() == QStringLiteral("visible.prtz")) {
+                    const auto icon = qvariant_cast<QIcon>(
+                        index.data(Qt::DecorationRole));
+                    document_icon_visible = !icon.isNull() &&
+                        !icon.pixmap(QSize(20, 20)).isNull();
+                }
             }
-            file_dialog_contents_valid = hidden_index && directories_first;
+            file_dialog_contents_valid = hidden_index && directories_first &&
+                document_icon_visible;
             file_dialog_inspected = true;
             dialog->reject();
         });
@@ -1762,10 +1772,23 @@ int main(int argc, char* argv[]) {
         require(selected_file.isEmpty(),
                 "Rejected file dialog unexpectedly returned a selection");
         require(file_dialog_inspected && file_dialog_contents_valid,
-                "File dialog did not hide 0000-index or keep directories first");
+                "File dialog did not show its document icon, hide 0000-index, "
+                "or keep directories first");
 
         zima::viewer::MeshView gesture_view(&parent);
         gesture_view.resize(320, 240);
+        gesture_view.set_mesh({});
+        const auto base_revision = gesture_view.base_mesh_revision();
+        zima::kernel::ViewerDimension live_dimension;
+        live_dimension.reference = {
+            "preview-container", "parameter:length_forward", {}};
+        live_dimension.value = 25.0;
+        gesture_view.set_transient_dimensions({live_dimension});
+        require(gesture_view.base_mesh_revision() == base_revision,
+                "Live feature dimension invalidated the base Viewer mesh");
+        gesture_view.set_selection_contract({});
+        require(gesture_view.selection_candidates_at({160.0, 120.0}).empty(),
+                "Idle Properties selection contract still invoked 3D picking");
         int short_middle_confirmations{};
         int double_middle_finishes{};
         gesture_view.set_short_middle_click_callback([&] {

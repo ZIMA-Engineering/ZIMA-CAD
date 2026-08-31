@@ -30,6 +30,7 @@
 #include <QPushButton>
 #include <QPixmap>
 #include <QPlainTextEdit>
+#include <QProgressBar>
 #include <QRadioButton>
 #include <QSplitter>
 #include <QStackedWidget>
@@ -151,6 +152,7 @@ int verify_startup_contract(
     auto* sketch_fix_point =
         window.findChild<QAction*>("sketchFixPointAction");
     auto* workspace_state = window.findChild<QLabel*>("workspaceState");
+    auto* file_progress = window.findChild<QProgressBar*>("fileOperationProgress");
     auto* finish_sketch = window.findChild<QAction*>("finishSketchAction");
     auto* extrusion = window.findChild<QAction*>("extrusionAction");
     auto* about = window.findChild<QAction*>("aboutAction");
@@ -216,6 +218,7 @@ int verify_startup_contract(
                     sketch_horizontal != nullptr &&
                     sketch_fix_point != nullptr &&
                     workspace_state != nullptr &&
+                    file_progress != nullptr && !file_progress->isVisible() &&
                     finish_sketch != nullptr &&
                     extrusion != nullptr && about != nullptr && save_as != nullptr &&
                     rename_document != nullptr && delete_file_menu != nullptr &&
@@ -654,6 +657,17 @@ int verify_startup_contract(
         }
         return 1;
     }
+    if (!verify(point_references != nullptr &&
+                    point_viewer->selection_candidates_at(
+                        QPointF(point_viewer->width() / 2.0,
+                                point_viewer->height() / 2.0)).empty(),
+                "Idle Point Properties still offered 3D hover candidates")) {
+        return 1;
+    }
+    // Properties itself is not a picking command. Explicitly activate the
+    // requested field before validating the reference candidate universe.
+    emit point_references->cellClicked(0, 1);
+    application.processEvents();
     std::optional<QPointF> origin_axis_hover_position;
     if (point_viewer != nullptr) {
         for (int y = 2; y < point_viewer->height() && !origin_axis_hover_position; y += 4) {
@@ -2084,7 +2098,12 @@ int verify_startup_contract(
         (part_name.toStdString() + ".prtz");
     save->trigger();
     application.processEvents();
-    if (!verify(std::filesystem::exists(saved_part_path),
+    if (!verify(std::filesystem::exists(saved_part_path) &&
+                    file_progress->isVisible() &&
+                    file_progress->format().contains(QStringLiteral("uložen"),
+                        Qt::CaseInsensitive),
+                "Save did not expose its completed status progress") ||
+        !verify(std::filesystem::exists(saved_part_path),
                 "Save did not persist the edited Part")) {
         return 1;
     }
@@ -2100,7 +2119,11 @@ int verify_startup_contract(
                     QStringLiteral("part-container")) ++reopened_history_items;
         }
     }
-    if (!verify(reopened && tabs->count() == 1 && saved_history_items > 0 &&
+    if (!verify(reopened && file_progress->isVisible() &&
+                    file_progress->format().startsWith(
+                        QStringLiteral("Otevřeno")),
+                "Open did not expose its completed status progress") ||
+        !verify(reopened && tabs->count() == 1 && saved_history_items > 0 &&
                     reopened_history_items == saved_history_items,
                 "saved Part did not close and reopen through the application")) {
         return 1;
@@ -3457,6 +3480,12 @@ int main(int argc, char* argv[]) {
             application, window, std::filesystem::path(startup_directory.toStdString()),
             part_capture_path, drawing_capture_path);
     }
+    // A document supplied by Windows file association/double-click must show
+    // the same live status progress as File > Open.  The old order loaded it
+    // while the window was still hidden, so even a responsive worker had no
+    // visible surface to paint into.
+    window.showMaximized();
+    application.processEvents();
     for (const auto& argument : application.arguments().mid(1)) {
         if (argument.startsWith('-')) continue;
         if (argument.endsWith(".prtz", Qt::CaseInsensitive) ||
@@ -3465,6 +3494,5 @@ int main(int argc, char* argv[]) {
             if (!window.open_document_path(argument)) return 1;
         }
     }
-    window.showMaximized();
     return application.exec();
 }

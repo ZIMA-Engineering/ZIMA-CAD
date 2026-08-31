@@ -25,6 +25,7 @@ class QLabel;
 class QKeyEvent;
 class QLineEdit;
 class QMenu;
+class QProgressBar;
 class QString;
 class QTabBar;
 class QToolBar;
@@ -86,6 +87,8 @@ private:
     QWidget* model_workspace_{};
     DrawingWindow* drawing_workspace_{};
     QLabel* state_{};
+    QProgressBar* operation_progress_{};
+    int operation_progress_generation_{};
     QToolBar* main_toolbar_{};
     QToolBar* view_toolbar_{};
     QToolBar* tools_toolbar_{};
@@ -490,6 +493,10 @@ private:
     void save_active_assembly();
     void save_active_document();
     void save_active_document_as();
+    void begin_status_operation(const QString& message);
+    void update_status_operation(
+        const QString& message, int value = -1, int maximum = -1);
+    void finish_status_operation(const QString& message, bool success = true);
     void rename_document_file();
     void delete_current_document_file();
     void delete_all_file_versions();

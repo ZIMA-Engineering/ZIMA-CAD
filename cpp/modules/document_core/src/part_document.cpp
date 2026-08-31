@@ -4745,6 +4745,16 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
 std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
     const HistoryContainer& container,
     const zima::kernel::ViewerMesh& through_all_input) const {
+    const auto& parameters = container.extrusion;
+    const bool needs_input_bounds =
+        parameters.extent == ExtrusionExtent::ThroughAll ||
+        parameters.end_condition_forward == EndCondition::ThroughAll ||
+        (parameters.extent_mode != ProfileExtentMode::OneSide &&
+         parameters.extent_mode != ProfileExtentMode::Symmetric &&
+         parameters.end_condition_reverse == EndCondition::ThroughAll);
+    if (!needs_input_bounds) {
+        return extrusion_preview_edges(container);
+    }
     if (through_all_input.vertices.empty()) {
         return extrusion_preview_edges(container);
     }

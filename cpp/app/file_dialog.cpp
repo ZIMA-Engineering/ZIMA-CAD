@@ -1,4 +1,5 @@
 #include "file_dialog.hpp"
+#include "resource_icon.hpp"
 #include <QFileIconProvider>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -72,9 +73,7 @@ public:
         else if (suffix == QStringLiteral("drwz")) icon_name = QStringLiteral("drawing");
         else if (suffix == QStringLiteral("frmz")) icon_name = QStringLiteral("drawing-format");
         else if (suffix == QStringLiteral("tblz")) icon_name = QStringLiteral("title-block");
-        if (!icon_name.isEmpty())
-            return QIcon(QStringLiteral(":/zima/icons/") + icon_name +
-                         QStringLiteral(".svg"));
+        if (!icon_name.isEmpty()) return resource_icon(icon_name);
         return QFileIconProvider::icon(info);
     }
 };
