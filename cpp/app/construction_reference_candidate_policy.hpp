@@ -13,9 +13,10 @@ namespace zima::app {
 // Placement/reference commands consume persisted ZIMA entities, never live
 // result-body topology. Construction datum geometry is intentionally stored
 // in the display packet (it needs no OCCT body), so admit its point/axis/plane
-// entities alongside Document Origin. Persisted original solid Faces are
-// stable placement references as well; transient/result-body faces are not.
-// Persisted original edges are admitted as well: linear edges define an
+// entities alongside Document Origin. A calculated Part Body carries the
+// same persisted source identity on every surviving visible Face, Edge and
+// Vertex fragment; those Display candidates are stable rather than anonymous
+// OCCT result topology. Persisted original edges are admitted as well: linear edges define an
 // axis directly and closed planar circle/ellipse edges define their normal
 // axis through the curve centre. Result-body/transient edges remain barred.
 [[nodiscard]] inline bool placement_reference_candidate_has_stable_geometry(
@@ -23,7 +24,11 @@ namespace zima::app {
     using zima::viewer::CandidateGeometry;
     using zima::viewer::CandidateKind;
     if (candidate.geometry == CandidateGeometry::Display) {
-        return candidate.semantic_key.starts_with("origin:") ||
+        return ((candidate.kind == CandidateKind::Face ||
+                 candidate.kind == CandidateKind::Edge ||
+                 candidate.kind == CandidateKind::Vertex) &&
+                !candidate.owner_id.empty() && !candidate.semantic_key.empty()) ||
+            candidate.semantic_key.starts_with("origin:") ||
             (candidate.kind == CandidateKind::Plane &&
              candidate.semantic_key == "plane") ||
             (candidate.kind == CandidateKind::Axis &&

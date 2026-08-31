@@ -380,6 +380,11 @@ struct MeshView::Impl {
             });
         target.points = mesh.original_references.points;
         target.axes = mesh.original_references.axes;
+        const bool has_local_display_faces = std::any_of(
+            mesh.triangle_references.begin(), mesh.triangle_references.end(),
+            [](const auto& reference) {
+                return reference.valid() && reference.instance_path.empty();
+            });
         const double scale = view_scale /
             std::max(reference_view_scale, 1.0e-6F);
         for (auto& axis : target.axes) {
@@ -420,6 +425,7 @@ struct MeshView::Impl {
              ++triangle) {
             const auto& reference =
                 mesh.original_references.triangle_references[triangle];
+            if (has_local_display_faces && reference.instance_path.empty()) continue;
             if (reference.semantic_key.starts_with("origin:plane:") ||
                 reference.semantic_key == "plane") continue;
             if (triangle * 3 + 2 >= mesh.original_references.triangles.size()) continue;
@@ -1200,7 +1206,33 @@ void MeshView::confirm_reference(const std::string& owner_id,
         if (found == impl_->mesh.constraint_markers.end()) return clear_selection();
         candidate.geometry_index = static_cast<std::size_t>(
             std::distance(impl_->mesh.constraint_markers.begin(), found));
-    } else if (kind == CandidateKind::Plane || kind == CandidateKind::Face) {
+    } else if (kind == CandidateKind::Face) {
+        const auto& display_references = impl_->mesh.triangle_references;
+        const auto display = std::find_if(
+            display_references.begin(), display_references.end(),
+            [&](const auto& value) {
+                return value.owner_id == owner_id &&
+                    value.semantic_key == semantic_key &&
+                    value.instance_path == instance_path;
+            });
+        if (display != display_references.end()) {
+            candidate.geometry_index = static_cast<std::size_t>(
+                std::distance(display_references.begin(), display));
+        } else {
+            const auto& original =
+                impl_->mesh.original_references.triangle_references;
+            const auto found = std::find_if(original.begin(), original.end(),
+                [&](const auto& value) {
+                    return value.owner_id == owner_id &&
+                        value.semantic_key == semantic_key &&
+                        value.instance_path == instance_path;
+                });
+            if (found == original.end()) return clear_selection();
+            candidate.geometry = CandidateGeometry::OriginalReference;
+            candidate.geometry_index = static_cast<std::size_t>(
+                std::distance(original.begin(), found));
+        }
+    } else if (kind == CandidateKind::Plane) {
         const auto& references = impl_->mesh.original_references.triangle_references;
         const auto found = std::find_if(references.begin(), references.end(),
             [&](const auto& value) {

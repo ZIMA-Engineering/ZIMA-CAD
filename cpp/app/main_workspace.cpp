@@ -1,4 +1,5 @@
 #include "assembly_workspace_window.hpp"
+#include "construction_reference_candidate_policy.hpp"
 #include "construction_properties_dialog.hpp"
 #include "drawing_window.hpp"
 #include "resource_icon.hpp"
@@ -765,9 +766,8 @@ int verify_startup_contract(
     }
     if (!verify(point_dialog != nullptr && point_references != nullptr &&
                     point_viewer != nullptr && point_hover.has_value() &&
-                    (point_hover->geometry ==
-                         zima::viewer::CandidateGeometry::OriginalReference ||
-                     point_hover->semantic_key.starts_with("origin:")),
+                    zima::app::placement_reference_candidate_has_stable_geometry(
+                        *point_hover),
                 "Point command did not offer a persisted viewer candidate on hover")) {
         return 1;
     }

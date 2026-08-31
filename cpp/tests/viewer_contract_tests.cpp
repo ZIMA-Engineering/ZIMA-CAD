@@ -352,7 +352,7 @@ int main() {
         separated.original_references.triangle_references = {
             {"original-box", "z_max", "8:assembly4:part"}};
         separated.triangle_references = {
-            {"result-body", "result-face", "8:assembly4:part"}};
+            {"original-box", "z_max", "8:assembly4:part"}};
         const auto separated_candidates = zima::viewer::ordered_viewer_candidates(
             separated, {0.0, 0.0, 0.0}, {0.0, 0.0, 1.0}, 0.01);
         const auto separated_faces = zima::viewer::filter_candidates(
@@ -385,8 +385,8 @@ int main() {
         require(local_part_containers.size() == 1 &&
                     local_part_containers.front().owner_id == "original-box" &&
                     local_part_containers.front().geometry ==
-                        zima::viewer::CandidateGeometry::OriginalReference,
-                "Part hover offered the result Body instead of its leaf Container");
+                        zima::viewer::CandidateGeometry::Display,
+                "Part hover did not use its clipped visible source fragment");
         std::cout << "C++ viewer picking contracts passed\n";
         return 0;
     } catch (const std::exception& error) {

@@ -64,6 +64,7 @@
 #include <TopExp_Explorer.hxx>
 #include <TopExp.hxx>
 #include <TopTools_ListOfShape.hxx>
+#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Face.hxx>
@@ -90,6 +91,7 @@
 #include <optional>
 #include <sstream>
 #include <stdexcept>
+#include <string_view>
 #include <utility>
 #include <unordered_map>
 #include <unordered_set>
@@ -2055,6 +2057,197 @@ private:
     std::vector<bool> ambiguous_;
 };
 
+template <typename Algorithm>
+std::vector<TopoDS_Shape> propagate_display_edges(
+    Algorithm& algorithm, const std::vector<TopoDS_Shape>& existing) {
+    std::vector<TopoDS_Shape> propagated;
+    const auto append_unique = [&](const TopoDS_Shape& shape) {
+        if (shape.ShapeType() != TopAbs_EDGE ||
+            std::any_of(propagated.begin(), propagated.end(),
+                [&](const auto& value) { return value.IsSame(shape); })) {
+            return;
+        }
+        propagated.push_back(shape);
+    };
+    for (const auto& source : existing) {
+        bool has_descendant = false;
+        for (const auto* list : {
+                &algorithm.Modified(source), &algorithm.Generated(source)}) {
+            for (TopTools_ListIteratorOfListOfShape iterator(*list);
+                 iterator.More(); iterator.Next()) {
+                if (iterator.Value().ShapeType() != TopAbs_EDGE) continue;
+                append_unique(iterator.Value());
+                has_descendant = true;
+            }
+        }
+        if (!has_descendant && !algorithm.IsDeleted(source)) {
+            append_unique(source);
+        }
+    }
+    return propagated;
+}
+
+std::vector<TopoDS_Shape> propagate_display_edges(
+    const Handle(BRepTools_History)& history,
+    const std::vector<TopoDS_Shape>& existing) {
+    if (history.IsNull()) return existing;
+    std::vector<TopoDS_Shape> propagated;
+    const auto append_unique = [&](const TopoDS_Shape& shape) {
+        if (shape.ShapeType() != TopAbs_EDGE ||
+            std::any_of(propagated.begin(), propagated.end(),
+                [&](const auto& value) { return value.IsSame(shape); })) {
+            return;
+        }
+        propagated.push_back(shape);
+    };
+    for (const auto& source : existing) {
+        bool has_descendant = false;
+        for (const auto* list : {
+                &history->Modified(source), &history->Generated(source)}) {
+            for (TopTools_ListIteratorOfListOfShape iterator(*list);
+                 iterator.More(); iterator.Next()) {
+                if (iterator.Value().ShapeType() != TopAbs_EDGE) continue;
+                append_unique(iterator.Value());
+                has_descendant = true;
+            }
+        }
+        if (!has_descendant && !history->IsRemoved(source)) append_unique(source);
+    }
+    return propagated;
+}
+
+std::vector<TopoDS_Shape> cross_reference_face_edges(
+    const TopoDS_Shape& shape, const std::vector<OwnedFace>& owned_faces) {
+    const TopologyReferenceIndex<FaceReference, OwnedFace> references(owned_faces);
+    TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+    TopExp::MapShapesAndAncestors(
+        shape, TopAbs_EDGE, TopAbs_FACE, edge_faces);
+    std::vector<TopoDS_Shape> result;
+    for (int index = 1; index <= edge_faces.Extent(); ++index) {
+        const auto& adjacent = edge_faces.FindFromIndex(index);
+        if (adjacent.Extent() != 2) continue;
+        TopTools_ListIteratorOfListOfShape iterator(adjacent);
+        const auto first = references.reference_for(iterator.Value());
+        iterator.Next();
+        const auto second = references.reference_for(iterator.Value());
+        if (!first.valid() || !second.valid() || first == second) continue;
+        result.push_back(edge_faces.FindKey(index));
+    }
+    return result;
+}
+
+bool history_edge_survives(const Handle(BRepTools_History)& history,
+    const TopoDS_Shape& edge, const TopTools_IndexedMapOfShape& result_edges) {
+    if (result_edges.Contains(edge)) return true;
+    if (history.IsNull()) return false;
+    for (const auto* list : {
+            &history->Modified(edge), &history->Generated(edge)}) {
+        for (TopTools_ListIteratorOfListOfShape iterator(*list);
+             iterator.More(); iterator.Next()) {
+            if (iterator.Value().ShapeType() == TopAbs_EDGE &&
+                result_edges.Contains(iterator.Value())) return true;
+        }
+    }
+    return false;
+}
+
+struct ProvenanceUnifyResult {
+    TopoDS_Shape shape;
+    std::vector<OwnedFace> faces;
+    std::vector<OwnedEdge> edges;
+    std::vector<OwnedVertex> vertices;
+    std::vector<TopoDS_Shape> hidden_display_edges;
+};
+
+ProvenanceUnifyResult unify_preserving_face_provenance(
+    const TopoDS_Shape& shape,
+    const std::vector<OwnedFace>& faces,
+    const std::vector<OwnedEdge>& edges,
+    const std::vector<OwnedVertex>& vertices,
+    double tolerance) {
+    ShapeUpgrade_UnifySameDomain probe(shape, true, true, false);
+    probe.SetLinearTolerance(tolerance);
+    probe.Build();
+    if (probe.Shape().IsNull() ||
+        !BRepCheck_Analyzer(probe.Shape()).IsValid()) {
+        return {shape, faces, edges, vertices, {}};
+    }
+
+    TopTools_IndexedMapOfShape probe_edges;
+    TopExp::MapShapes(probe.Shape(), TopAbs_EDGE, probe_edges);
+    std::vector<TopoDS_Shape> protected_edges;
+    for (const auto& edge : cross_reference_face_edges(shape, faces)) {
+        if (!history_edge_survives(probe.History(), edge, probe_edges)) {
+            protected_edges.push_back(edge);
+        }
+    }
+
+    if (protected_edges.empty()) {
+        return {probe.Shape(),
+            propagate_topology(probe.History(), faces),
+            propagate_topology(probe.History(), edges),
+            propagate_topology(probe.History(), vertices), {}};
+    }
+
+    ShapeUpgrade_UnifySameDomain protected_unifier(shape, true, true, false);
+    protected_unifier.SetLinearTolerance(tolerance);
+    for (const auto& edge : protected_edges) {
+        protected_unifier.KeepShape(edge);
+    }
+    protected_unifier.Build();
+    if (protected_unifier.Shape().IsNull() ||
+        !BRepCheck_Analyzer(protected_unifier.Shape()).IsValid()) {
+        return {shape, faces, edges, vertices, protected_edges};
+    }
+    const auto history = protected_unifier.History();
+    return {protected_unifier.Shape(),
+        propagate_topology(history, faces),
+        propagate_topology(history, edges),
+        propagate_topology(history, vertices),
+        propagate_display_edges(history, protected_edges)};
+}
+
+template <typename Algorithm>
+std::vector<OwnedFace> generated_edge_treatment_faces(
+    Algorithm& algorithm,
+    const std::vector<std::pair<TopoDS_Edge, EdgeReference>>& selected,
+    const std::string& treatment_owner,
+    std::string_view role) {
+    TopTools_IndexedMapOfShape generated_shapes;
+    std::vector<std::set<std::string>> parents(1);
+    for (const auto& [edge, reference] : selected) {
+        const std::string parent = std::to_string(reference.owner_id.size()) +
+            ":" + reference.owner_id + std::to_string(reference.semantic_key.size()) +
+            ":" + reference.semantic_key;
+        const auto& generated = algorithm.Generated(edge);
+        for (TopTools_ListIteratorOfListOfShape iterator(generated);
+             iterator.More(); iterator.Next()) {
+            if (iterator.Value().ShapeType() != TopAbs_FACE) continue;
+            int index = generated_shapes.FindIndex(iterator.Value());
+            if (index == 0) {
+                index = generated_shapes.Add(iterator.Value());
+                parents.resize(static_cast<std::size_t>(index) + 1);
+            }
+            parents[static_cast<std::size_t>(index)].insert(parent);
+        }
+    }
+    std::vector<OwnedFace> result;
+    result.reserve(static_cast<std::size_t>(generated_shapes.Extent()));
+    for (int index = 1; index <= generated_shapes.Extent(); ++index) {
+        std::string key(role);
+        key += ":from:";
+        bool first = true;
+        for (const auto& parent : parents[static_cast<std::size_t>(index)]) {
+            if (!first) key += "|";
+            key += parent;
+            first = false;
+        }
+        result.push_back({generated_shapes.FindKey(index),
+            FaceReference{treatment_owner, std::move(key), {}}});
+    }
+    return result;
+}
+
 std::string serialize_kernel_shape(const TopoDS_Shape& shape) {
     std::ostringstream serialized_shape;
     // Viewer triangles are persisted separately in ViewerMesh. The kernel
@@ -2073,7 +2266,8 @@ BodyResult make_result(
     const std::vector<OwnedVertex>& owned_vertices,
     bool original_reference_geometry = false,
     bool persist_kernel_shape = true,
-    bool collect_original_references = false) {
+    bool collect_original_references = false,
+    const std::vector<TopoDS_Shape>& hidden_display_edges = {}) {
     Bnd_Box mesh_bounds;
     BRepBndLib::Add(shape, mesh_bounds);
     Standard_Real xmin{}, ymin{}, zmin{}, xmax{}, ymax{}, zmax{};
@@ -2159,9 +2353,11 @@ BodyResult make_result(
         }
     }
     TopTools_IndexedMapOfShape sampled_edges;
+    TopTools_IndexedMapOfShape hidden_edges;
+    for (const auto& edge : hidden_display_edges) hidden_edges.Add(edge);
     for (TopExp_Explorer explorer(shape, TopAbs_EDGE); explorer.More(); explorer.Next()) {
         const TopoDS_Edge edge = TopoDS::Edge(explorer.Current());
-        if (sampled_edges.Contains(edge)) continue;
+        if (sampled_edges.Contains(edge) || hidden_edges.Contains(edge)) continue;
         sampled_edges.Add(edge);
         const EdgeReference reference = edge_references->reference_for(edge);
         BRepAdaptor_Curve curve(edge);
@@ -2291,6 +2487,9 @@ struct OcctKernel::LiveCache {
         std::vector<OwnedFace> faces;
         std::vector<OwnedEdge> edges;
         std::vector<OwnedVertex> vertices;
+        // Same-domain seams kept only to retain distinct persisted face
+        // ancestry. They are topology, not visible model edges.
+        std::vector<TopoDS_Shape> hidden_display_edges;
     };
 
     struct Boundary {
@@ -2351,7 +2550,7 @@ std::vector<BodyResult> OcctKernel::import_step_components(
                 requests[index].live_cache_fingerprint,
                 LiveCache::Boundary{data.shape,
                     std::make_shared<LiveCache::Topology>(LiveCache::Topology{
-                        data.faces, data.edges, data.vertices})});
+                        data.faces, data.edges, data.vertices, {}})});
             live_cache_->insertion_order.push_back(
                 requests[index].live_cache_fingerprint);
             while (live_cache_->insertion_order.size() > kLiveShapeCacheLimit) {
@@ -2514,23 +2713,12 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
         const bool reusable_prefix_has_live_ancestry = reusable_prefix > 0 &&
             live_cache_->boundaries.contains(
                 previous_boundaries[reusable_prefix - 1].source_fingerprint);
-        // A persisted B-Rep alone is sufficient for ordinary Boolean
-        // primitives. Exact face/edge operations additionally require the
-        // in-memory ZIMA-to-OCCT ancestry stored with the live boundary.
-        const bool suffix_requires_live_ancestry = std::any_of(
-            operations.begin() + static_cast<std::ptrdiff_t>(reusable_prefix),
-            operations.end(), [](const auto& operation) {
-                if (std::holds_alternative<FilletRequest>(operation.primitive) ||
-                    std::holds_alternative<ChamferRequest>(operation.primitive)) {
-                    return true;
-                }
-                const auto* extrusion =
-                    std::get_if<ExtrusionRequest>(&operation.primitive);
-                return extrusion != nullptr &&
-                    extrusion->extent != ExtrusionRequest::Extent::Blind;
-            });
-        if (suffix_requires_live_ancestry &&
-            !reusable_prefix_has_live_ancestry) {
+        // A persisted B-Rep is enough to reproduce geometry, but not to map
+        // its runtime OCCT faces back to persisted ZIMA source identities.
+        // Any explicitly requested calculation after a cold load therefore
+        // rebuilds the history once; unchanged display/open paths still reuse
+        // the saved Body without invoking OCCT at all.
+        if (reusable_prefix > 0 && !reusable_prefix_has_live_ancestry) {
             reusable_prefix = 0;
         }
         if (reusable_prefix > 0) {
@@ -2605,13 +2793,14 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                     throw std::invalid_argument(
                         "Fillet/Chamfer size must be finite and positive");
                 }
-                std::vector<TopoDS_Edge> selected;
+                std::vector<std::pair<TopoDS_Edge, EdgeReference>> selected;
                 for (const auto& requested : treatment.edges) {
                     bool found = false;
                     for (const auto& owned : owned_topology->edges) {
                         if (owned.reference.owner_id == requested.owner_id &&
                             owned.reference.semantic_key == requested.semantic_key) {
-                            selected.push_back(TopoDS::Edge(owned.shape));
+                            selected.emplace_back(
+                                TopoDS::Edge(owned.shape), owned.reference);
                             found = true;
                         }
                     }
@@ -2623,37 +2812,62 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                 using Treatment = std::decay_t<decltype(treatment)>;
                 if constexpr (std::is_same_v<Treatment, FilletRequest>) {
                     BRepFilletAPI_MakeFillet algorithm(result_shape);
-                    for (const auto& edge : selected) algorithm.Add(size, edge);
+                    for (const auto& [edge, reference] : selected) {
+                        static_cast<void>(reference);
+                        algorithm.Add(size, edge);
+                    }
                     algorithm.Build();
                     if (!algorithm.IsDone()) throw std::runtime_error("OCCT Fillet failed");
+                    auto treatment_faces = propagate_topology(
+                        algorithm, owned_topology->faces,
+                        std::vector<OwnedFace>{});
+                    auto generated_faces = generated_edge_treatment_faces(
+                        algorithm, selected, operation.owner_id, "fillet:face");
+                    treatment_faces.insert(treatment_faces.end(),
+                        std::make_move_iterator(generated_faces.begin()),
+                        std::make_move_iterator(generated_faces.end()));
                     owned_topology = std::make_shared<LiveCache::Topology>(
                         LiveCache::Topology{
-                            propagate_topology(algorithm, owned_topology->faces,
-                                std::vector<OwnedFace>{}),
+                            std::move(treatment_faces),
                             propagate_topology(algorithm, owned_topology->edges,
                                 std::vector<OwnedEdge>{}),
                             propagate_topology(algorithm, owned_topology->vertices,
-                                std::vector<OwnedVertex>{})});
+                                std::vector<OwnedVertex>{}),
+                            propagate_display_edges(
+                                algorithm, owned_topology->hidden_display_edges)});
                     result_shape = algorithm.Shape();
                 } else {
                     BRepFilletAPI_MakeChamfer algorithm(result_shape);
-                    for (const auto& edge : selected) algorithm.Add(size, edge);
+                    for (const auto& [edge, reference] : selected) {
+                        static_cast<void>(reference);
+                        algorithm.Add(size, edge);
+                    }
                     algorithm.Build();
                     if (!algorithm.IsDone()) throw std::runtime_error("OCCT Chamfer failed");
+                    auto treatment_faces = propagate_topology(
+                        algorithm, owned_topology->faces,
+                        std::vector<OwnedFace>{});
+                    auto generated_faces = generated_edge_treatment_faces(
+                        algorithm, selected, operation.owner_id, "chamfer:face");
+                    treatment_faces.insert(treatment_faces.end(),
+                        std::make_move_iterator(generated_faces.begin()),
+                        std::make_move_iterator(generated_faces.end()));
                     owned_topology = std::make_shared<LiveCache::Topology>(
                         LiveCache::Topology{
-                            propagate_topology(algorithm, owned_topology->faces,
-                                std::vector<OwnedFace>{}),
+                            std::move(treatment_faces),
                             propagate_topology(algorithm, owned_topology->edges,
                                 std::vector<OwnedEdge>{}),
                             propagate_topology(algorithm, owned_topology->vertices,
-                                std::vector<OwnedVertex>{})});
+                                std::vector<OwnedVertex>{}),
+                            propagate_display_edges(
+                                algorithm, owned_topology->hidden_display_edges)});
                     result_shape = algorithm.Shape();
                 }
                 boundaries.push_back(
                     make_result(result_shape, owned_topology->faces,
                         owned_topology->edges, owned_topology->vertices,
-                        false, persist_boundary_shape));
+                        true, persist_boundary_shape, false,
+                        owned_topology->hidden_display_edges));
                 boundaries.back().source_fingerprint =
                     history_fingerprint(operations, boundaries.size());
                 remember_live_boundary(boundaries.back().source_fingerprint,
@@ -2805,7 +3019,7 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
             } else if (imported_step) {
                 auto operand_result = make_result(
                     operand.shape, operand.faces, operand.edges,
-                    operand.vertices, false,
+                    operand.vertices, standalone_import,
                     standalone_import && persist_boundary_shape, true);
                 append_reference_geometry(original_references,
                     std::move(operand_result.mesh.original_references));
@@ -2839,7 +3053,7 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                 result_shape = operand.shape;
                 owned_topology = std::make_shared<LiveCache::Topology>(
                     LiveCache::Topology{
-                        operand.faces, operand.edges, operand.vertices});
+                        operand.faces, operand.edges, operand.vertices, {}});
             } else if (imported_step && operation.operation == BooleanOperation::Add) {
                 TopoDS_Compound compound;
                 BRep_Builder builder;
@@ -2874,27 +3088,19 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                         propagate_topology(algorithm, owned_topology->edges,
                             operand.edges),
                         propagate_topology(algorithm, owned_topology->vertices,
-                            operand.vertices)});
+                            operand.vertices),
+                        propagate_display_edges(
+                            algorithm, owned_topology->hidden_display_edges)});
                 result_shape = algorithm.Shape();
-                ShapeUpgrade_UnifySameDomain unifier(
-                    result_shape, true, true, false);
-                unifier.SetLinearTolerance(
+                auto unified = unify_preserving_face_provenance(result_shape,
+                    fused_topology->faces, fused_topology->edges,
+                    fused_topology->vertices,
                     std::max(1.0e-7, operation.boolean_tolerance));
-                unifier.Build();
-                if (!unifier.Shape().IsNull() &&
-                    BRepCheck_Analyzer(unifier.Shape()).IsValid()) {
-                    owned_topology = std::make_shared<LiveCache::Topology>(
-                        LiveCache::Topology{
-                            propagate_topology(
-                                unifier.History(), fused_topology->faces),
-                            propagate_topology(
-                                unifier.History(), fused_topology->edges),
-                            propagate_topology(
-                                unifier.History(), fused_topology->vertices)});
-                    result_shape = unifier.Shape();
-                } else {
-                    owned_topology = std::move(fused_topology);
-                }
+                result_shape = std::move(unified.shape);
+                owned_topology = std::make_shared<LiveCache::Topology>(
+                    LiveCache::Topology{std::move(unified.faces),
+                        std::move(unified.edges), std::move(unified.vertices),
+                        std::move(unified.hidden_display_edges)});
             } else {
                 BRepAlgoAPI_Cut algorithm(result_shape, operand.shape);
                 algorithm.SetToFillHistory(true);
@@ -2909,7 +3115,9 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                         propagate_topology(algorithm, owned_topology->edges,
                             operand.edges),
                         propagate_topology(algorithm, owned_topology->vertices,
-                            operand.vertices)});
+                            operand.vertices),
+                        propagate_display_edges(
+                            algorithm, owned_topology->hidden_display_edges)});
                 result_shape = algorithm.Shape();
             }
             if (standalone_import_result) {
@@ -2918,7 +3126,8 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                 boundaries.push_back(make_result(
                     result_shape, owned_topology->faces, owned_topology->edges,
                     owned_topology->vertices,
-                    false, persist_boundary_shape));
+                    true, persist_boundary_shape, false,
+                    owned_topology->hidden_display_edges));
             }
             if (imported_step) {
                 boundaries.back().imported_step_topology =

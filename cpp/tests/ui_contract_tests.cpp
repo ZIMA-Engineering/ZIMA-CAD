@@ -7,6 +7,7 @@
 #include "file_dialog.hpp"
 #include "document_tools_dialogs.hpp"
 #include "construction_reference_candidate_policy.hpp"
+#include "extrusion_dimension_policy.hpp"
 
 #include <zima/viewer/mesh_view.hpp>
 
@@ -259,8 +260,10 @@ int main(int argc, char* argv[]) {
             0, 1, 2, 0, 2, 3,
             4, 5, 6, 4, 6, 7};
         face_cycle_mesh.triangle_references = {
-            {"result", "front", {}}, {"result", "front", {}},
-            {"result", "back", {}}, {"result", "back", {}}};
+            {"front-owner", "front-face", {}},
+            {"front-owner", "front-face", {}},
+            {"back-owner", "back-face", {}},
+            {"back-owner", "back-face", {}}};
         face_cycle_mesh.original_references.vertices =
             face_cycle_mesh.vertices;
         face_cycle_mesh.original_references.triangles =
@@ -277,7 +280,7 @@ int main(int argc, char* argv[]) {
             {zima::viewer::CandidateKind::Face});
         face_cycle_view.set_candidate_filter([](const auto& candidate) {
             return candidate.geometry ==
-                zima::viewer::CandidateGeometry::OriginalReference;
+                zima::viewer::CandidateGeometry::Display;
         });
         face_cycle_view.show();
         face_cycle_view.fit_all();
@@ -986,12 +989,24 @@ int main(int argc, char* argv[]) {
                 zima::viewer::CandidateKind::Face, 0.0, 0u,
                 "box", "z_max", {},
                 zima::viewer::CandidateGeometry::OriginalReference};
+            const zima::viewer::ViewerCandidate visible_body_face{
+                zima::viewer::CandidateKind::Face, 0.0, 0u,
+                "box", "z_max", {},
+                zima::viewer::CandidateGeometry::Display};
+            const zima::viewer::ViewerCandidate visible_body_vertex{
+                zima::viewer::CandidateKind::Vertex, 0.0, 0u,
+                "box", "x_min:y_min:z_max", {},
+                zima::viewer::CandidateGeometry::Display};
             const zima::viewer::ViewerCandidate body_edge{
                 zima::viewer::CandidateKind::Edge, 0.0, 0u,
                 "box", "edge", {},
                 zima::viewer::CandidateGeometry::OriginalReference};
             require(zima::app::placement_reference_candidate_has_stable_geometry(
                         body_face) &&
+                    zima::app::placement_reference_candidate_has_stable_geometry(
+                        visible_body_face) &&
+                    zima::app::placement_reference_candidate_has_stable_geometry(
+                        visible_body_vertex) &&
                     zima::app::placement_reference_candidate_has_stable_geometry(
                         body_edge),
                 "Placement contract rejected a persisted original Edge");
@@ -1195,6 +1210,46 @@ int main(int argc, char* argv[]) {
                 "change offset and length with one preview rebuild");
         extrusion_dialog->set_profile_offset_and_forward_length(-7.5, 48.0);
         forward_end->setCurrentIndex(forward_end->findData("up_to"));
+        require(!zima::app::extrusion_length_dimension_value(
+                    extrusion_preview.extrusion, false) &&
+                    !extrusion_height->isVisible(),
+                "Up-to still exposes its stored fallback length as an active "
+                "numeric dimension");
+        auto dimension_policy = extrusion_preview.extrusion;
+        dimension_policy.end_condition_forward =
+            zima::document::EndCondition::Length;
+        dimension_policy.extent_mode =
+            zima::document::ProfileExtentMode::OneSide;
+        dimension_policy.length_forward = 0.0;
+        require(!zima::app::extrusion_length_dimension_value(
+                    dimension_policy, false),
+                "A zero Container Properties value still created a dimension");
+        dimension_policy.length_forward = 25.0;
+        dimension_policy.extent_mode =
+            zima::document::ProfileExtentMode::Symmetric;
+        require(zima::app::extrusion_length_dimension_value(
+                    dimension_policy, false) == 25.0 &&
+                    zima::app::extrusion_length_dimension_value(
+                        dimension_policy, true) == 25.0,
+                "Symmetric Container Properties dimensions do not share the "
+                "active forward value");
+        dimension_policy.extent =
+            zima::document::ExtrusionExtent::ThroughAll;
+        require(!zima::app::extrusion_length_dimension_value(
+                    dimension_policy, false) &&
+                    !zima::app::extrusion_length_dimension_value(
+                        dimension_policy, true),
+                "Through-all still exposes a stored fallback length as an "
+                "active numeric dimension");
+        dimension_policy.extent = zima::document::ExtrusionExtent::Blind;
+        dimension_policy.extent_mode =
+            zima::document::ProfileExtentMode::TwoSides;
+        dimension_policy.length_reverse = 12.0;
+        dimension_policy.end_condition_reverse =
+            zima::document::EndCondition::UpTo;
+        require(!zima::app::extrusion_length_dimension_value(
+                    dimension_policy, true),
+                "Two-sided Up-to still exposes its reverse fallback length");
         int target_requests = 0;
         int target_highlight_updates = 0;
         extrusion_dialog->set_extrusion_target_request(

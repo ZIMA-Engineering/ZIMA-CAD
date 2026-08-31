@@ -182,11 +182,13 @@ int main() {
                     std::ranges::all_of(
                         loaded_step_boundaries.back().mesh.edges,
                         [&](const auto& edge) {
-                            return !edge.reference.valid() &&
+                            return edge.reference.valid() &&
+                                edge.reference.owner_id ==
+                                    loaded_step_document.history.front().id &&
                                 edge.display_owner_id ==
                                     loaded_step_document.history.front().id;
                         }),
-                "Saved STEP display wire lost its viewer-only Container owner");
+                "Saved STEP display wire lost its stable source owner");
         const auto recalculated_frozen_step = kernel.evaluate_history(
             loaded_step_document.kernel_operations());
         require(loaded_step_document.history.size() == 1 &&
@@ -408,11 +410,16 @@ int main() {
                 "Viewer triangles and face references are not aligned");
         require(std::all_of(body.mesh.triangle_references.begin(),
                     body.mesh.triangle_references.end(),
-                    [](const auto& reference) { return !reference.valid(); }),
-                "Calculated result body still owns selectable face references");
+                    [](const auto& reference) {
+                        return reference.valid() && reference.owner_id == "box";
+                    }),
+                "Calculated body fragments lost stable source-face references");
         require(std::all_of(body.mesh.edges.begin(), body.mesh.edges.end(),
-                    [](const auto& edge) { return !edge.reference.valid(); }),
-                "Calculated result body still owns selectable edge references");
+                    [](const auto& edge) {
+                        return edge.reference.valid() &&
+                            edge.reference.owner_id == "box";
+                    }),
+                "Calculated body edges lost stable input-body references");
         std::set<std::string> box_face_keys;
         for (const auto& reference : body.mesh.original_references.triangle_references) {
             require(reference.owner_id == "box" && reference.valid(),
@@ -422,6 +429,68 @@ int main() {
         require(box_face_keys == std::set<std::string>{
                     "x_min", "x_max", "y_min", "y_max", "z_min", "z_max"},
                 "Primitive semantic face keys are incomplete");
+        std::set<std::string> display_box_face_keys;
+        for (const auto& reference : body.mesh.triangle_references) {
+            display_box_face_keys.insert(reference.semantic_key);
+        }
+        require(display_box_face_keys == box_face_keys,
+                "Visible Box fragments changed stable semantic face identities");
+
+        zima::kernel::BoxRequest adjacent_second{10.0, 10.0, 10.0};
+        adjacent_second.translation = {10.0, 0.0, 0.0};
+        const auto adjacent_boxes = kernel.evaluate_history({
+            {"adjacent-a", zima::kernel::BoxRequest{10.0, 10.0, 10.0},
+             zima::kernel::BooleanOperation::Add},
+            {"adjacent-b", adjacent_second,
+             zima::kernel::BooleanOperation::Add},
+        }).back();
+        std::set<std::string> adjacent_top_owners;
+        for (std::size_t triangle = 0;
+             triangle < adjacent_boxes.mesh.triangle_references.size(); ++triangle) {
+            if (triangle * 3 + 2 >= adjacent_boxes.mesh.triangles.size()) continue;
+            bool top = true;
+            for (std::size_t corner = 0; corner < 3; ++corner) {
+                const auto vertex = adjacent_boxes.mesh.triangles[triangle * 3 + corner];
+                top = top && vertex < adjacent_boxes.mesh.vertices.size() &&
+                    std::abs(adjacent_boxes.mesh.vertices[vertex].z - 10.0) < 1.0e-7;
+            }
+            if (top) {
+                adjacent_top_owners.insert(
+                    adjacent_boxes.mesh.triangle_references[triangle].owner_id);
+            }
+        }
+        const bool draws_provenance_seam = std::any_of(
+            adjacent_boxes.mesh.edges.begin(), adjacent_boxes.mesh.edges.end(),
+            [](const auto& edge) {
+                return edge.points.size() >= 2 &&
+                    std::all_of(edge.points.begin(), edge.points.end(),
+                        [](const auto& point) {
+                            return std::abs(point.x - 10.0) < 1.0e-7 &&
+                                std::abs(point.z - 10.0) < 1.0e-7;
+                        });
+            });
+        require(adjacent_top_owners ==
+                    std::set<std::string>{"adjacent-a", "adjacent-b"} &&
+                    !draws_provenance_seam,
+                "Same-domain fuse merged source-face identities or drew their logical seam");
+
+        zima::kernel::BoxRequest through_cutter{10.0, 10.0, 12.0};
+        through_cutter.translation = {5.0, 5.0, -1.0};
+        const auto clipped_box = kernel.evaluate_history({
+            {"clipped-base", zima::kernel::BoxRequest{20.0, 20.0, 10.0},
+             zima::kernel::BooleanOperation::Add},
+            {"clipping-tool", through_cutter,
+             zima::kernel::BooleanOperation::Subtract},
+        }).back();
+        std::set<std::string> clipped_face_owners;
+        for (const auto& reference : clipped_box.mesh.triangle_references) {
+            require(reference.valid(),
+                "Subtract produced an anonymous visible Body fragment");
+            clipped_face_owners.insert(reference.owner_id);
+        }
+        require(clipped_face_owners ==
+                    std::set<std::string>{"clipped-base", "clipping-tool"},
+                "Subtract did not map surviving and cut-wall fragments to their sources");
         std::set<std::string> box_edge_keys;
         for (const auto& edge : body.mesh.original_references.edges) {
             require(edge.reference.owner_id == "box" && edge.points.size() == 2,
@@ -463,7 +532,15 @@ int main() {
         });
         require(fillet_boundaries.size() == 2 &&
                     fillet_boundaries.back().volume < body.volume &&
-                    fillet_boundaries.back().volume > body.volume - 1000.0,
+                    fillet_boundaries.back().volume > body.volume - 1000.0 &&
+                    std::any_of(
+                        fillet_boundaries.back().mesh.triangle_references.begin(),
+                        fillet_boundaries.back().mesh.triangle_references.end(),
+                        [](const auto& reference) {
+                            return reference.owner_id == "fillet" &&
+                                reference.semantic_key.starts_with(
+                                    "fillet:face:from:");
+                        }),
                 "Original-edge Fillet did not produce a valid bounded solid");
         const std::vector<zima::kernel::HistoryOperation> edited_fillet_history{
             {"box", zima::kernel::BoxRequest{100.0, 80.0, 50.0},
@@ -495,7 +572,15 @@ int main() {
         });
         require(chamfer_boundaries.size() == 2 &&
                     chamfer_boundaries.back().volume < body.volume &&
-                    chamfer_boundaries.back().volume > body.volume - 1000.0,
+                    chamfer_boundaries.back().volume > body.volume - 1000.0 &&
+                    std::any_of(
+                        chamfer_boundaries.back().mesh.triangle_references.begin(),
+                        chamfer_boundaries.back().mesh.triangle_references.end(),
+                        [](const auto& reference) {
+                            return reference.owner_id == "chamfer" &&
+                                reference.semantic_key.starts_with(
+                                    "chamfer:face:from:");
+                        }),
                 "Original-edge Chamfer did not produce a valid bounded solid");
         const auto multi_fillet_boundaries = kernel.evaluate_history({
             {"box", zima::kernel::BoxRequest{100.0, 80.0, 50.0},
@@ -579,8 +664,10 @@ int main() {
                     cold_incremental_result.back().mesh.vertices ==
                         incremental_full.back().mesh.vertices &&
                     cold_incremental_result.back().mesh.triangles ==
-                        incremental_full.back().mesh.triangles,
-                "Cold incremental regeneration did not fall back to persisted BRep");
+                        incremental_full.back().mesh.triangles &&
+                    cold_incremental_result.back().mesh.triangle_references ==
+                        incremental_full.back().mesh.triangle_references,
+                "Cold regeneration did not rebuild stable source ancestry");
         auto appended_document = incremental_document;
         appended_document.history.back().box.height = 20.0;
         auto appended_feature =
@@ -600,8 +687,10 @@ int main() {
                     appended_incremental.back().mesh.vertices ==
                         appended_full.back().mesh.vertices &&
                     appended_incremental.back().mesh.triangles ==
-                        appended_full.back().mesh.triangles,
-                "Final persisted BRep did not resume an appended operation");
+                        appended_full.back().mesh.triangles &&
+                    appended_incremental.back().mesh.triangle_references ==
+                        appended_full.back().mesh.triangle_references,
+                "Cold appended operation did not rebuild stable source ancestry");
         require(std::equal(incremental_result.begin(),
                     incremental_result.end() - 1, incremental_original.begin(),
                     [](const auto& reused, const auto& original) {
@@ -707,9 +796,8 @@ int main() {
              zima::kernel::BooleanOperation::Add, false, 0.001},
         }).back();
         require(std::abs(touching.volume - 2000.0) < 1.0e-6 &&
-                    std::abs(touching.surface_area - 1000.0) < 1.0e-6 &&
-                    touching.mesh.edges.size() == 12,
-                "Touching additive solids retained redundant coplanar seams");
+                    std::abs(touching.surface_area - 1000.0) < 1.0e-6,
+                "Touching additive solids changed their unified body measure");
         zima::kernel::CylinderRequest cylinder;
         cylinder.radius = 10.0;
         cylinder.height = 25.0;

@@ -10,6 +10,7 @@
 #include "drawing_window.hpp"
 #include "document_tools_dialogs.hpp"
 #include "construction_reference_candidate_policy.hpp"
+#include "extrusion_dimension_policy.hpp"
 #include "file_dialog.hpp"
 #include "global_settings_dialog.hpp"
 #include "resource_icon.hpp"
@@ -78,6 +79,7 @@
 #include <cmath>
 #include <functional>
 #include <future>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <numbers>
@@ -100,6 +102,19 @@ namespace {
 // independent of model zoom.
 constexpr double sketch_tangent_intent_pixels = 8.0;
 constexpr double sketch_circle_tangent_contact_pixels = 18.0;
+constexpr double visible_parameter_dimension_epsilon = 1.0e-9;
+
+void append_nonzero_parameter_dimensions(
+    std::vector<zima::kernel::ViewerDimension>& target,
+    std::vector<zima::kernel::ViewerDimension> source) {
+    std::erase_if(source, [](const auto& dimension) {
+        return std::abs(dimension.value) <=
+            visible_parameter_dimension_epsilon;
+    });
+    target.insert(target.end(),
+        std::make_move_iterator(source.begin()),
+        std::make_move_iterator(source.end()));
+}
 
 class StatusOperationProgressBar final : public QProgressBar {
 public:
@@ -5542,9 +5557,16 @@ void AssemblyWorkspaceWindow::accept_extrusion_target(
     const bool construction_plane =
         candidate.kind == zima::viewer::CandidateKind::Plane &&
         candidate.semantic_key == "plane";
+    const bool stable_solid_face = solid_face &&
+        (candidate.geometry == zima::viewer::CandidateGeometry::Display ||
+         (candidate.geometry ==
+              zima::viewer::CandidateGeometry::OriginalReference &&
+          !candidate.instance_path.empty()));
     if (extrusion_target_dialog_ == nullptr ||
         (!solid_face && !construction_plane) ||
-        candidate.geometry != zima::viewer::CandidateGeometry::OriginalReference ||
+        (solid_face ? !stable_solid_face
+                    : candidate.geometry !=
+                          zima::viewer::CandidateGeometry::OriginalReference) ||
         candidate.owner_id.empty() || candidate.semantic_key.empty()) {
         state_->setText(tr("Vyberte rovinnou plochu nebo konstrukční rovinu Partu."));
         return;
@@ -8034,20 +8056,16 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                     start.y + direction.y * distance,
                     start.z + direction.z * distance};
             };
-            if (preview.extrusion.end_condition_forward ==
-                    zima::document::EndCondition::Length) {
+            if (const auto length = extrusion_length_dimension_value(
+                    preview.extrusion, false)) {
                 append_dimension(start,
-                    along(preview.extrusion.length_forward),
-                    preview.extrusion.length_forward,
+                    along(*length), *length,
                     "parameter:length_forward", -1.0);
             }
-            if (preview.extrusion.extent_mode ==
-                    zima::document::ProfileExtentMode::TwoSides &&
-                preview.extrusion.end_condition_reverse ==
-                    zima::document::EndCondition::Length) {
+            if (const auto length = extrusion_length_dimension_value(
+                    preview.extrusion, true)) {
                 append_dimension(start,
-                    along(-preview.extrusion.length_reverse),
-                    preview.extrusion.length_reverse,
+                    along(-*length), *length,
                     "parameter:length_reverse", -1.0);
             }
         }
@@ -8081,18 +8099,12 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 zima::document::ExtrusionDirection::Reverse) {
             direction = {-direction.x, -direction.y, -direction.z};
         }
-        const bool editable_length =
-            preview.extrusion.extent == zima::document::ExtrusionExtent::Blind &&
-            preview.extrusion.end_condition_forward ==
-                zima::document::EndCondition::Length;
+        const bool editable_length = extrusion_length_dimension_value(
+            preview.extrusion, false).has_value();
         const bool second_side = preview.extrusion.extent_mode !=
             zima::document::ProfileExtentMode::OneSide;
-        const bool editable_reverse = second_side &&
-            preview.extrusion.extent == zima::document::ExtrusionExtent::Blind &&
-            (preview.extrusion.extent_mode ==
-                    zima::document::ProfileExtentMode::Symmetric ||
-             preview.extrusion.end_condition_reverse ==
-                    zima::document::EndCondition::Length);
+        const bool editable_reverse = extrusion_length_dimension_value(
+            preview.extrusion, true).has_value();
         std::vector<zima::viewer::ExtentManipulator> manipulators;
         // Up-to and Through-all have no editable numeric length.  They show
         // only the direction arrow; a fixed endpoint would look like a
@@ -8337,6 +8349,10 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         if (preview.feature_kind ==
                 zima::document::FeatureKind::Extrusion) {
             signature.push_back(preview.extrusion.profile_plane_offset);
+            signature.push_back(extrusion_length_dimension_value(
+                preview.extrusion, false).has_value() ? 1.0 : 0.0);
+            signature.push_back(extrusion_length_dimension_value(
+                preview.extrusion, true).has_value() ? 1.0 : 0.0);
         } else {
             signature.push_back(preview.revolution.profile_plane_offset);
         }
@@ -8422,10 +8438,16 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                         (candidate.kind ==
                              zima::viewer::CandidateKind::Plane &&
                          candidate.semantic_key == "plane");
-                    return target_kind &&
-                        candidate.geometry ==
-                            zima::viewer::CandidateGeometry::OriginalReference &&
-                        owned_path;
+                    const bool stable_geometry =
+                        candidate.kind == zima::viewer::CandidateKind::Face
+                            ? assembly_cut
+                                ? candidate.geometry == zima::viewer::
+                                      CandidateGeometry::OriginalReference
+                                : candidate.geometry == zima::viewer::
+                                      CandidateGeometry::Display
+                            : candidate.geometry ==
+                                  zima::viewer::CandidateGeometry::OriginalReference;
+                    return target_kind && stable_geometry && owned_path;
                 });
             state_->setText(tr("Vyberte cílovou rovinnou plochu ve view."));
         });
@@ -10704,10 +10726,9 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                     zima::document::container_placement_dimensions(
                         sketch.owner_container_id, geometric_placement,
                         primitive_reference_geometry_);
-                primitive_origin_preview_mesh_->dimensions.insert(
-                    primitive_origin_preview_mesh_->dimensions.end(),
-                    std::make_move_iterator(placement_dimensions.begin()),
-                    std::make_move_iterator(placement_dimensions.end()));
+                append_nonzero_parameter_dimensions(
+                    primitive_origin_preview_mesh_->dimensions,
+                    std::move(placement_dimensions));
             }
             sketch_offset_drag->current_offset =
                 resolved_sketch.plane_offset;
@@ -10996,7 +11017,12 @@ void AssemblyWorkspaceWindow::accept_sketch_external_reference(
     if (!sketch_external_reference_active_ ||
         (sketch_external_profile_active_ &&
          candidate.kind != zima::viewer::CandidateKind::Edge) ||
-        candidate.geometry != zima::viewer::CandidateGeometry::OriginalReference ||
+        (candidate.kind == zima::viewer::CandidateKind::Face
+             ? candidate.geometry != zima::viewer::CandidateGeometry::Display &&
+                   candidate.geometry !=
+                       zima::viewer::CandidateGeometry::OriginalReference
+             : candidate.geometry !=
+                   zima::viewer::CandidateGeometry::OriginalReference) ||
         (candidate.kind != zima::viewer::CandidateKind::Edge &&
          candidate.kind != zima::viewer::CandidateKind::Vertex &&
          candidate.kind != zima::viewer::CandidateKind::Axis &&
@@ -19561,6 +19587,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                 zima::kernel::Vec3 witness_first,
                 zima::kernel::Vec3 witness_second,
                 zima::kernel::Vec3 offset, double value) {
+            if (std::abs(value) <= visible_parameter_dimension_epsilon) return;
             // Keep every non-degenerate linear dimension in one modeling
             // plane.  The measured segment supplies the first in-plane
             // direction; project the preferred offset perpendicular to it so
@@ -19680,12 +19707,12 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                 : stored_container != document.history.end()
                     ? &*stored_container : nullptr;
             if (container != nullptr) {
-                const auto placement_dimensions =
+                auto placement_dimensions =
                     zima::document::container_placement_dimensions(
                         container->id, container->placement,
                         reference_geometry);
-                mesh.dimensions.insert(mesh.dimensions.end(),
-                    placement_dimensions.begin(), placement_dimensions.end());
+                append_nonzero_parameter_dimensions(
+                    mesh.dimensions, std::move(placement_dimensions));
                 const auto origin = zima::kernel::Vec3{
                     container->placement.x, container->placement.y,
                     container->placement.z};
@@ -19722,6 +19749,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                 const auto radius = [&](const char* key,
                         zima::kernel::Vec3 center, zima::kernel::Vec3 rim,
                         zima::kernel::Vec3 offset, double value) {
+                    if (std::abs(value) <=
+                            visible_parameter_dimension_epsilon) return;
                     append_dimension(container->id, key, "", center, rim,
                         offset, value);
                     mesh.dimensions.back().kind =
@@ -19824,18 +19853,19 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                                 start.y + direction.y * distance,
                                 start.z + direction.z * distance};
                         };
-                        if (!primitive_origin_preview_mesh_) {
+                        if (const auto length =
+                                extrusion_length_dimension_value(
+                                    container->extrusion, false);
+                            !primitive_origin_preview_mesh_ && length) {
                             linear("length_forward", "Délka = ", start,
-                                along(container->extrusion.length_forward),
-                                {8,8,0},
-                                container->extrusion.length_forward);
+                                along(*length), {8,8,0}, *length);
                         }
-                        if (!primitive_origin_preview_mesh_ &&
-                            container->extrusion.extent_mode ==
-                                zima::document::ProfileExtentMode::TwoSides) {
+                        if (const auto length =
+                                extrusion_length_dimension_value(
+                                    container->extrusion, true);
+                            !primitive_origin_preview_mesh_ && length) {
                             linear("length_reverse", "Délka 2 = ", start,
-                                along(-container->extrusion.length_reverse),
-                                {-8,-8,0}, container->extrusion.length_reverse);
+                                along(-*length), {-8,-8,0}, *length);
                         }
                         const auto base = origin;
                         if (std::abs(
@@ -19880,6 +19910,10 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                             const auto append_angle_dimension =
                                 [&](double degrees, double sign,
                                     const char* parameter_key) {
+                                if (std::abs(degrees) <=
+                                        visible_parameter_dimension_epsilon) {
+                                    return;
+                                }
                                 const double signed_angle = degrees * sign;
                                 const double angle = signed_angle *
                                     std::numbers::pi / 180.0;
@@ -19959,36 +19993,48 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                         });
                     if (sketch != document.sketches.end()) {
                         const auto start = sketch->resolved_origin;
-                        const auto end = zima::kernel::Vec3{
-                            start.x + sketch->resolved_normal.x *
-                                definition.extrusion.length_forward,
-                            start.y + sketch->resolved_normal.y *
-                                definition.extrusion.length_forward,
-                            start.z + sketch->resolved_normal.z *
-                                definition.extrusion.length_forward};
-                        append_dimension(definition.id, "length_forward", "Délka = ",
-                            start, end, {8,8,0},
-                            definition.extrusion.length_forward);
+                        if (const auto length =
+                                extrusion_length_dimension_value(
+                                    definition.extrusion, false);
+                            !primitive_origin_preview_mesh_ && length) {
+                            auto direction = sketch->resolved_normal;
+                            if (definition.extrusion.direction ==
+                                    zima::document::ExtrusionDirection::Reverse) {
+                                direction = {-direction.x, -direction.y,
+                                    -direction.z};
+                            }
+                            const auto end = zima::kernel::Vec3{
+                                start.x + direction.x * *length,
+                                start.y + direction.y * *length,
+                                start.z + direction.z * *length};
+                            append_dimension(definition.id, "length_forward", "Délka = ",
+                                start, end, {8,8,0},
+                                *length);
+                        }
                     }
                 } else if (definition.feature_kind == FeatureKind::Revolution) {
                     // Assembly cuts share the same editable angular value;
                     // keep its inspection dimension independent of OCCT body
                     // topology just like Part history containers.
-                    zima::kernel::ViewerDimension angle{
-                        {definition.placement.x, definition.placement.y,
-                         definition.placement.z},
-                        {definition.placement.x, definition.placement.y,
-                         definition.placement.z},
-                        {definition.placement.x + 25.0, definition.placement.y,
-                         definition.placement.z},
-                        {definition.placement.x,
-                         definition.placement.y + 25.0,
-                         definition.placement.z},
-                        definition.revolution.angle_degrees,
-                        {definition.id, "parameter:angle", {}}, "", "°"};
-                    angle.kind = zima::kernel::ViewerDimensionKind::Angular;
-                    angle.sweep_degrees = definition.revolution.angle_degrees;
-                    mesh.dimensions.push_back(std::move(angle));
+                    if (std::abs(definition.revolution.angle_degrees) >
+                            visible_parameter_dimension_epsilon) {
+                        zima::kernel::ViewerDimension angle{
+                            {definition.placement.x, definition.placement.y,
+                             definition.placement.z},
+                            {definition.placement.x, definition.placement.y,
+                             definition.placement.z},
+                            {definition.placement.x + 25.0, definition.placement.y,
+                             definition.placement.z},
+                            {definition.placement.x,
+                             definition.placement.y + 25.0,
+                             definition.placement.z},
+                            definition.revolution.angle_degrees,
+                            {definition.id, "parameter:angle", {}}, "", "°"};
+                        angle.kind = zima::kernel::ViewerDimensionKind::Angular;
+                        angle.sweep_degrees =
+                            definition.revolution.angle_degrees;
+                        mesh.dimensions.push_back(std::move(angle));
+                    }
                 } else if (definition.feature_kind == FeatureKind::Fillet ||
                            definition.feature_kind == FeatureKind::Chamfer) {
                     const zima::kernel::Vec3 start{
@@ -20360,9 +20406,13 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                 document, active_sketch_id_);
             viewer_->set_candidate_filter(
                 [source_owners](const auto& candidate) {
-                    return candidate.geometry ==
-                            zima::viewer::CandidateGeometry::OriginalReference &&
-                        candidate.instance_path.empty() &&
+                    const bool stable_geometry =
+                        candidate.kind == zima::viewer::CandidateKind::Face
+                            ? candidate.geometry ==
+                                  zima::viewer::CandidateGeometry::Display
+                            : candidate.geometry == zima::viewer::
+                                  CandidateGeometry::OriginalReference;
+                    return stable_geometry && candidate.instance_path.empty() &&
                         source_owners.contains(candidate.owner_id) &&
                         (candidate.kind == zima::viewer::CandidateKind::Edge ||
                          candidate.kind == zima::viewer::CandidateKind::Vertex ||

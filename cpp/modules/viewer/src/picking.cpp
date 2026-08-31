@@ -96,13 +96,14 @@ bool candidate_recolors_wire_edge(
     const ViewerCandidate& candidate,
     const zima::kernel::ViewerEdge& edge) {
     if (candidate.kind == CandidateKind::Occurrence) {
-        return !edge.reference.valid() && !edge.construction && !edge.overlay &&
+        return !edge.construction && !edge.overlay &&
+            (!edge.reference.valid() || !edge.display_owner_id.empty()) &&
             (candidate.instance_path.empty() ||
              candidate.instance_path == edge.reference.instance_path);
     }
     if (candidate.kind == CandidateKind::Container &&
         candidate.semantic_key.empty()) {
-        return !edge.reference.valid() && !edge.construction && !edge.overlay &&
+        return !edge.construction && !edge.overlay &&
             edge.display_owner_id == candidate.owner_id &&
             edge.reference.instance_path == candidate.instance_path;
     }
@@ -319,12 +320,25 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
     const Vec3& ray_direction,
     double world_tolerance) {
     std::vector<ViewerCandidate> result;
+    const bool has_local_display_faces = std::any_of(
+        mesh.triangle_references.begin(), mesh.triangle_references.end(),
+        [](const auto& reference) {
+            return reference.valid() && reference.instance_path.empty();
+        });
     const auto persisted_face_hits = ordered_ray_candidates(
         references, ray_origin, ray_direction);
     const auto append_geometry = [&](const zima::kernel::ViewerMesh& source,
                                      CandidateGeometry geometry) {
         const auto faces = ordered_ray_candidates(source, ray_origin, ray_direction);
         for (const auto& face : faces) {
+            // In a Part, valid display-face identities are the persisted
+            // source identities carried by the actually visible Body
+            // fragments. The full untrimmed source faces remain stored for
+            // dependency resolution, but must not become a second picker.
+            if (geometry == CandidateGeometry::OriginalReference &&
+                has_local_display_faces && face.reference.instance_path.empty()) {
+                continue;
+            }
             // A Plane's filled interior quad (built-in Origin XY/YZ/XZ, or a
             // user construction Plane's entity quad) is display/hit-test
             // geometry for its rectangular border only; the interior itself
@@ -336,6 +350,7 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
             const bool origin_reference =
                 face.reference.semantic_key.starts_with("origin:");
             const bool persisted_occurrence = geometry == CandidateGeometry::Display &&
+                !face.reference.instance_path.empty() &&
                 std::any_of(persisted_face_hits.begin(), persisted_face_hits.end(),
                     [&](const auto& persisted) {
                         return persisted.reference.instance_path ==
@@ -679,11 +694,11 @@ std::optional<ViewerCandidate> container_candidate(
             owner_id, {}, triangle->instance_path, geometry,
         };
     };
+    if (auto display = find_in(
+            mesh.triangle_references, CandidateGeometry::Display)) return display;
     if (auto original = find_in(
             mesh.original_references.triangle_references,
             CandidateGeometry::OriginalReference)) return original;
-    if (auto display = find_in(
-            mesh.triangle_references, CandidateGeometry::Display)) return display;
     const auto find_point = [&](const auto& points, CandidateGeometry geometry)
         -> std::optional<ViewerCandidate> {
         constexpr std::string_view origin_suffix{":origin"};

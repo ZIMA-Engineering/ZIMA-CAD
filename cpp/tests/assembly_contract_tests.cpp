@@ -105,9 +105,9 @@ int main() {
             if (!expected_instance_paths.contains(edge.reference.instance_path))
                 continue;
             ++component_wire_count;
-            require(!edge.reference.valid(),
-                    "Assembly display wire gained persistent topology ownership "
-                    "or lost occurrence identity");
+            require(edge.reference.valid() &&
+                        edge.reference.owner_id == "same-source-container",
+                    "Assembly display wire lost its stable Part source identity");
             require(edge.display_owner_id == "same-source-container",
                     "Assembly display wire lost its viewer-only source owner");
             display_wire_paths.insert(edge.reference.instance_path);
@@ -121,9 +121,9 @@ int main() {
             if (!expected_instance_paths.contains(reference.instance_path))
                 continue;
             ++component_triangle_count;
-            require(!reference.valid(),
-                    "Assembly display triangles gained persistent topology ownership "
-                    "or lost occurrence identity");
+            require(reference.valid() &&
+                        reference.owner_id == "same-source-container",
+                    "Assembly display fragment lost its stable Part source identity");
             display_triangle_paths.insert(reference.instance_path);
         }
         require(component_triangle_count ==
