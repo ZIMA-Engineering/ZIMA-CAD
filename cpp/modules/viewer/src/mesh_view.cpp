@@ -3604,8 +3604,6 @@ if (impl_->show_planes) {
                 ? QColor("#D05CFF")
                 : impl_->confirmed_candidate
                     ? QColor(30, 220, 240) : QColor(255, 140, 12);
-            const bool origin_group = highlighted->kind == CandidateKind::Container &&
-                highlighted->semantic_key == "origin";
             const bool sketch_container =
                 highlighted->kind == CandidateKind::Container &&
                 highlighted->semantic_key == "sketch";
@@ -3700,8 +3698,7 @@ if (impl_->show_planes) {
                     draw_circular_marker(painter, project(point.position), color);
                 }
             }
-            if (((highlighted->kind == CandidateKind::Container && !origin_group) ||
-                  highlighted->kind == CandidateKind::Face)) {
+            if (candidate_uses_face_boundary_overlay(*highlighted)) {
                 painter.setPen(QPen(color, 1.5));
                 painter.setBrush(Qt::NoBrush);
                 const bool original = highlighted->geometry ==

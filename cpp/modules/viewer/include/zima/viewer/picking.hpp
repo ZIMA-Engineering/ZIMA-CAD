@@ -93,6 +93,12 @@ struct EdgeKey {
     const ViewerCandidate& candidate,
     const zima::kernel::ViewerEdge& edge);
 
+// Only an exact Face candidate needs a derived screen-space boundary and
+// silhouette. Whole solid Containers recolour their already-calculated GL
+// wire instead, avoiding duplicate geometry and an O(triangle-count) paint.
+[[nodiscard]] bool candidate_uses_face_boundary_overlay(
+    const ViewerCandidate& candidate);
+
 [[nodiscard]] std::vector<PickCandidate> ordered_ray_candidates(
     const zima::kernel::ViewerMesh& mesh,
     const zima::kernel::Vec3& ray_origin,

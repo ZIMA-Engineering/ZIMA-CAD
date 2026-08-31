@@ -71,6 +71,10 @@ struct ViewerEdge {
     // as an unbounded line in the active Sketch plane.
     bool infinite{};
     bool dash_dot{};
+    // Viewer-only ownership of an already calculated body wire. It never
+    // forms a persistent topology reference; it only lets a Container hover
+    // recolour the existing GL edge instead of drawing a second overlay.
+    std::string display_owner_id;
 };
 
 struct ViewerPoint {

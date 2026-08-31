@@ -86,6 +86,26 @@ int main() {
         require(!zima::viewer::candidate_recolors_wire_edge(
                     face_overlay, first_occurrence_wire),
                 "Face overlay incorrectly entered the cheap whole-body wire path");
+        auto imported_step_wire = first_occurrence_wire;
+        imported_step_wire.reference.instance_path.clear();
+        imported_step_wire.display_owner_id = "step-container";
+        const zima::viewer::ViewerCandidate imported_step_container{
+            zima::viewer::CandidateKind::Container, 0.0, 0,
+            "step-container", {}, {},
+            zima::viewer::CandidateGeometry::OriginalReference};
+        const zima::viewer::ViewerCandidate different_solid_container{
+            zima::viewer::CandidateKind::Container, 0.0, 0,
+            "different-container", {}, {},
+            zima::viewer::CandidateGeometry::OriginalReference};
+        require(zima::viewer::candidate_recolors_wire_edge(
+                    imported_step_container, imported_step_wire) &&
+                    !zima::viewer::candidate_recolors_wire_edge(
+                        different_solid_container, imported_step_wire),
+                "Imported STEP Container did not recolour only its existing wire");
+        require(!zima::viewer::candidate_uses_face_boundary_overlay(
+                    imported_step_container) &&
+                    zima::viewer::candidate_uses_face_boundary_overlay(face_overlay),
+                "Whole STEP Container still entered the derived face-boundary overlay");
         zima::kernel::ViewerMesh infinite_line_mesh;
         infinite_line_mesh.edges.push_back({
             {{-1.0, 0.0, 5.0}, {1.0, 0.0, 5.0}},

@@ -2,8 +2,11 @@
 #include <zima/document/document_session.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/sketcher/sketch_trim.hpp>
+#include <BRepBuilderAPI_MakeFace.hxx>
+#include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <STEPControl_Writer.hxx>
+#include <gp_Pnt.hxx>
 
 #include <cmath>
 #include <algorithm>
@@ -29,6 +32,26 @@ std::string add_revolution_axis(
         : sketch.add_segment(-100.0, 0.0, 100.0, 0.0, true);
     sketch.set_segment_centerline(id, true);
     return id;
+}
+
+double viewer_triangle_area(const zima::kernel::ViewerMesh& mesh) {
+    double area = 0.0;
+    for (std::size_t index = 0; index + 2 < mesh.triangles.size(); index += 3) {
+        const auto& first = mesh.vertices.at(mesh.triangles[index]);
+        const auto& second = mesh.vertices.at(mesh.triangles[index + 1]);
+        const auto& third = mesh.vertices.at(mesh.triangles[index + 2]);
+        const std::array<double, 3> first_edge{
+            second.x - first.x, second.y - first.y, second.z - first.z};
+        const std::array<double, 3> second_edge{
+            third.x - first.x, third.y - first.y, third.z - first.z};
+        const std::array<double, 3> cross{
+            first_edge[1] * second_edge[2] - first_edge[2] * second_edge[1],
+            first_edge[2] * second_edge[0] - first_edge[0] * second_edge[2],
+            first_edge[0] * second_edge[1] - first_edge[1] * second_edge[0]};
+        area += 0.5 * std::sqrt(
+            cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2]);
+    }
+    return area;
 }
 
 }  // namespace
@@ -61,6 +84,15 @@ int main() {
                     std::abs(explicitly_imported_step.back().volume - 480.0) < 1.0e-6 &&
                     !explicitly_imported_step.back().kernel_shape.empty(),
                 "Explicit STEP import did not calculate the expected frozen box");
+        require(!explicitly_imported_step.back().mesh.edges.empty() &&
+                    std::ranges::all_of(
+                        explicitly_imported_step.back().mesh.edges,
+                        [&](const auto& edge) {
+                            return !edge.reference.valid() &&
+                                edge.display_owner_id == step_container.id;
+                        }),
+                "Imported STEP display wire cannot be recoloured without "
+                "becoming persistent topology");
         const auto& imported_step_topology =
             explicitly_imported_step.back().imported_step_topology;
         std::set<std::string> imported_step_face_ids;
@@ -145,6 +177,16 @@ int main() {
         const auto loaded_step_document = zima::document::PartDocument::load(
             step_document_path, &loaded_step_boundaries);
         std::filesystem::remove(step_document_path);
+        require(loaded_step_boundaries.size() == 1 &&
+                    !loaded_step_boundaries.back().mesh.edges.empty() &&
+                    std::ranges::all_of(
+                        loaded_step_boundaries.back().mesh.edges,
+                        [&](const auto& edge) {
+                            return !edge.reference.valid() &&
+                                edge.display_owner_id ==
+                                    loaded_step_document.history.front().id;
+                        }),
+                "Saved STEP display wire lost its viewer-only Container owner");
         const auto recalculated_frozen_step = kernel.evaluate_history(
             loaded_step_document.kernel_operations());
         require(loaded_step_document.history.size() == 1 &&
@@ -180,6 +222,66 @@ int main() {
                             point.reference.semantic_key),
                     "Frozen imported STEP restored a different vertex identity");
         }
+
+        // An imported STEP need not be a closed solid.  Keep the original
+        // open sheet as one immutable Part container and prove that a later
+        // explicit history Cut operates on that sheet itself.  The expected
+        // area also guards against accidentally displaying/returning both the
+        // uncut source sheet and the cut result as ordinary result geometry.
+        const auto sheet_step_path = std::filesystem::temp_directory_path() /
+            "zima-cad-imported-step-sheet-cut-contract.step";
+        BRepBuilderAPI_MakePolygon sheet_boundary;
+        sheet_boundary.Add(gp_Pnt(0.0, 0.0, 0.0));
+        sheet_boundary.Add(gp_Pnt(20.0, 0.0, 0.0));
+        sheet_boundary.Add(gp_Pnt(20.0, 10.0, 0.0));
+        sheet_boundary.Add(gp_Pnt(0.0, 10.0, 0.0));
+        sheet_boundary.Close();
+        BRepBuilderAPI_MakeFace sheet_face(sheet_boundary.Wire());
+        require(sheet_boundary.IsDone() && sheet_face.IsDone(),
+                "Open STEP sheet fixture could not be constructed");
+        STEPControl_Writer sheet_step_writer;
+        require(sheet_step_writer.Transfer(sheet_face.Face(), STEPControl_AsIs) ==
+                        IFSelect_RetDone &&
+                    sheet_step_writer.Write(sheet_step_path.string().c_str()) ==
+                        IFSelect_RetDone,
+                "Open STEP sheet fixture could not be written");
+
+        auto sheet_document = zima::document::PartDocument::create_default();
+        auto sheet_container =
+            zima::document::PartDocument::create_imported_step_container(
+                sheet_step_path);
+        const auto imported_sheet = kernel.import_step_components({{
+            sheet_step_path.generic_string(), {}, {}, {}, sheet_container.id, {}}});
+        require(imported_sheet.size() == 1 &&
+                    std::abs(imported_sheet.front().volume) < 1.0e-9 &&
+                    std::abs(imported_sheet.front().surface_area - 200.0) < 1.0e-6 &&
+                    !imported_sheet.front().kernel_shape.empty(),
+                "Explicit STEP import did not preserve the open sheet");
+        sheet_container.imported_step.frozen_brep =
+            std::make_shared<const std::string>(imported_sheet.front().kernel_shape);
+        sheet_container.imported_step.topology =
+            imported_sheet.front().imported_step_topology;
+        sheet_document.history.push_back(std::move(sheet_container));
+
+        auto sheet_cutter =
+            zima::document::PartDocument::create_box_container();
+        sheet_cutter.name = "Sheet Cut";
+        sheet_cutter.combine_mode = zima::document::CombineMode::Subtract;
+        sheet_cutter.box = {4.0, 4.0, 2.0};
+        sheet_cutter.placement.x = 5.0;
+        sheet_cutter.placement.y = 5.0;
+        sheet_document.history.push_back(std::move(sheet_cutter));
+        const auto cut_sheet_boundaries = kernel.evaluate_history(
+            sheet_document.kernel_operations());
+        std::filesystem::remove(sheet_step_path);
+        require(cut_sheet_boundaries.size() == 2 &&
+                    std::abs(cut_sheet_boundaries.back().volume) < 1.0e-9 &&
+                    std::abs(cut_sheet_boundaries.back().surface_area - 184.0) <
+                        1.0e-6 &&
+                    std::abs(viewer_triangle_area(
+                                 cut_sheet_boundaries.back().mesh) - 184.0) <
+                        1.0e-6,
+                "Cutting an imported open STEP sheet duplicated or failed to cut the result");
 
         // Edit/regenerate/reopen: the Python-produced fixture starts with an
         // empty history. Append a native feature, calculate it, save and

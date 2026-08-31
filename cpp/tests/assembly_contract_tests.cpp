@@ -108,6 +108,8 @@ int main() {
             require(!edge.reference.valid(),
                     "Assembly display wire gained persistent topology ownership "
                     "or lost occurrence identity");
+            require(edge.display_owner_id == "same-source-container",
+                    "Assembly display wire lost its viewer-only source owner");
             display_wire_paths.insert(edge.reference.instance_path);
         }
         require(component_wire_count == source.back().mesh.edges.size() * 2 &&

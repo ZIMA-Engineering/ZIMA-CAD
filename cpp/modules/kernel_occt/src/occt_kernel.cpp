@@ -2103,9 +2103,11 @@ BodyResult make_result(
         vertex_references;
     if (original_reference_geometry || collect_original_references) {
         face_references.emplace(owned_faces);
-        edge_references.emplace(owned_edges);
         vertex_references.emplace(owned_vertices);
     }
+    // Display body edges remain non-reference geometry, but retain their
+    // owning history container solely for cheap wire recolouring.
+    edge_references.emplace(owned_edges);
 
     for (TopExp_Explorer explorer(shape, TopAbs_FACE); explorer.More(); explorer.Next()) {
         const TopoDS_Face face = TopoDS::Face(explorer.Current());
@@ -2161,10 +2163,7 @@ BodyResult make_result(
         const TopoDS_Edge edge = TopoDS::Edge(explorer.Current());
         if (sampled_edges.Contains(edge)) continue;
         sampled_edges.Add(edge);
-        const EdgeReference reference =
-            (original_reference_geometry || collect_original_references)
-            ? edge_references->reference_for(edge)
-            : EdgeReference{};
+        const EdgeReference reference = edge_references->reference_for(edge);
         BRepAdaptor_Curve curve(edge);
         const int sample_count = curve.GetType() == GeomAbs_Line ? 2 : 33;
         GCPnts_UniformAbscissa samples(curve, sample_count);
@@ -2172,6 +2171,7 @@ BodyResult make_result(
         ViewerEdge viewer_edge;
         viewer_edge.reference = original_reference_geometry
             ? reference : EdgeReference{};
+        viewer_edge.display_owner_id = reference.owner_id;
         viewer_edge.points.reserve(static_cast<std::size_t>(samples.NbPoints()));
         for (int index = 1; index <= samples.NbPoints(); ++index) {
             const gp_Pnt point = curve.Value(samples.Parameter(index));

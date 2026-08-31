@@ -100,10 +100,21 @@ bool candidate_recolors_wire_edge(
             (candidate.instance_path.empty() ||
              candidate.instance_path == edge.reference.instance_path);
     }
+    if (candidate.kind == CandidateKind::Container &&
+        candidate.semantic_key.empty()) {
+        return !edge.reference.valid() && !edge.construction && !edge.overlay &&
+            edge.display_owner_id == candidate.owner_id &&
+            edge.reference.instance_path == candidate.instance_path;
+    }
     return candidate.kind == CandidateKind::Edge &&
         candidate.owner_id == edge.reference.owner_id &&
         candidate.semantic_key == edge.reference.semantic_key &&
         candidate.instance_path == edge.reference.instance_path;
+}
+
+bool candidate_uses_face_boundary_overlay(
+    const ViewerCandidate& candidate) {
+    return candidate.kind == CandidateKind::Face;
 }
 
 std::vector<EdgePickCandidate> ordered_edge_candidates(
