@@ -6738,12 +6738,14 @@ void AssemblyWorkspaceWindow::import_file() {
             auto frozen = kernel_.import_step_components({
                 zima::kernel::StepRequest{
                     absolute.string(), {}, {},
-                    direct_frozen_boundary ? imported_fingerprint : std::string{}}});
+                    direct_frozen_boundary ? imported_fingerprint : std::string{},
+                    container_id}});
             if (frozen.size() != 1 || frozen.front().kernel_shape.empty()) {
                 throw std::runtime_error("STEP nebyl zmrazen kompletně");
             }
             container.imported_step.frozen_brep =
                 std::make_shared<const std::string>(frozen.front().kernel_shape);
+            container.imported_step.topology = frozen.front().imported_step_topology;
             next.history.back() = std::move(container);
 
             // import_step_components() already produced the final B-Rep,
@@ -6803,7 +6805,10 @@ void AssemblyWorkspaceWindow::import_step_into_assembly(
         part_definitions.push_back(node.definition_id);
     }
     std::vector<zima::kernel::StepRequest> requests;
-    for (const auto& definition : part_definitions) requests.push_back({source.string(), definition});
+    for (std::size_t index = 0; index < part_definitions.size(); ++index) {
+        requests.push_back({source.string(), part_definitions[index], {}, {},
+            "step-import:" + std::to_string(index)});
+    }
     const auto calculated = kernel_.import_step_components(requests);
     if (calculated.size() != part_definitions.size()) {
         throw std::runtime_error("STEP díly nebyly vypočteny kompletně");
@@ -6821,6 +6826,7 @@ void AssemblyWorkspaceWindow::import_step_into_assembly(
         }
         container.imported_step.frozen_brep =
             std::make_shared<const std::string>(calculated[index].kernel_shape);
+        container.imported_step.topology = calculated[index].imported_step_topology;
         container.id = "step-import:" + std::to_string(index);
         container.feature_parent_id = container.id;
         container.container_origin =

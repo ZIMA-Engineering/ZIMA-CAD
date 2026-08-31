@@ -6,6 +6,7 @@
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepAlgoAPI_Common.hxx>
 #include <BRepAdaptor_Curve.hxx>
+#include <BRepAdaptor_Surface.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
@@ -28,9 +29,17 @@
 #include <BRep_Builder.hxx>
 #include <BRepTools.hxx>
 #include <BRepTools_History.hxx>
+#include <BRep_Tool.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
 #include <STEPControl_Reader.hxx>
 #include <STEPControl_Writer.hxx>
+#include <XSControl_TransferReader.hxx>
+#include <XSControl_WorkSession.hxx>
+#include <TransferBRep.hxx>
+#include <Interface_InterfaceModel.hxx>
+#include <StepShape_FaceSurface.hxx>
+#include <StepShape_EdgeCurve.hxx>
+#include <StepShape_VertexPoint.hxx>
 #include <StlAPI_Writer.hxx>
 #include <STEPCAFControl_Reader.hxx>
 #include <TDocStd_Document.hxx>
@@ -74,6 +83,7 @@
 #include <gp_Vec.hxx>
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <array>
 #include <numbers>
@@ -85,6 +95,9 @@
 #include <unordered_set>
 #include <vector>
 #include <deque>
+#include <map>
+#include <set>
+#include <memory>
 
 namespace zima::kernel {
 
@@ -162,6 +175,7 @@ struct PrimitiveData {
     std::vector<OwnedFace> faces;
     std::vector<OwnedEdge> edges;
     std::vector<OwnedVertex> vertices;
+    std::vector<StepRequest::TopologyIdentity> imported_step_topology;
 };
 
 gp_Trsf primitive_transform(const Vec3& translation, const Vec3& rotation_degrees) {
@@ -1515,17 +1529,232 @@ PrimitiveData make_extrusion_data(
     return result;
 }
 
+std::string step_shape_locator(const TopoDS_Shape& shape) {
+    std::uint64_t hash = 1469598103934665603ULL;
+    const auto append_integer = [&](std::uint64_t value) {
+        for (std::size_t byte = 0; byte < sizeof(value); ++byte) {
+            hash ^= static_cast<unsigned char>(value >> (byte * 8));
+            hash *= 1099511628211ULL;
+        }
+    };
+    const auto append_real = [&](double value) {
+        append_integer(std::bit_cast<std::uint64_t>(value));
+    };
+    const auto append_point = [&](const gp_Pnt& point) {
+        append_real(point.X());
+        append_real(point.Y());
+        append_real(point.Z());
+    };
+    append_integer(static_cast<std::uint64_t>(shape.ShapeType()));
+    append_integer(static_cast<std::uint64_t>(shape.Orientation()));
+    const gp_Trsf placement = shape.Location().Transformation();
+    for (int row = 1; row <= 3; ++row) {
+        for (int column = 1; column <= 4; ++column) {
+            append_real(placement.Value(row, column));
+        }
+    }
+    Bnd_Box bounds;
+    BRepBndLib::Add(shape, bounds);
+    if (!bounds.IsVoid()) {
+        Standard_Real xmin{}, ymin{}, zmin{}, xmax{}, ymax{}, zmax{};
+        bounds.Get(xmin, ymin, zmin, xmax, ymax, zmax);
+        for (const double value : {xmin, ymin, zmin, xmax, ymax, zmax}) {
+            append_real(value);
+        }
+    }
+    if (shape.ShapeType() == TopAbs_VERTEX) {
+        append_point(BRep_Tool::Pnt(TopoDS::Vertex(shape)));
+    } else if (shape.ShapeType() == TopAbs_EDGE) {
+        const TopoDS_Edge edge = TopoDS::Edge(shape);
+        BRepAdaptor_Curve curve(edge);
+        append_integer(static_cast<std::uint64_t>(curve.GetType()));
+        const double first = curve.FirstParameter();
+        const double last = curve.LastParameter();
+        append_real(first);
+        append_real(last);
+        for (const double fraction : {0.0, 0.25, 0.5, 0.75, 1.0}) {
+            append_point(curve.Value(first + (last - first) * fraction));
+        }
+        GProp_GProps properties;
+        BRepGProp::LinearProperties(edge, properties);
+        append_real(properties.Mass());
+        append_point(properties.CentreOfMass());
+    } else if (shape.ShapeType() == TopAbs_FACE) {
+        const TopoDS_Face face = TopoDS::Face(shape);
+        BRepAdaptor_Surface surface(face);
+        append_integer(static_cast<std::uint64_t>(surface.GetType()));
+        Standard_Real u_min{}, u_max{}, v_min{}, v_max{};
+        BRepTools::UVBounds(face, u_min, u_max, v_min, v_max);
+        for (const double value : {u_min, u_max, v_min, v_max}) {
+            append_real(value);
+        }
+        GProp_GProps properties;
+        BRepGProp::SurfaceProperties(face, properties);
+        append_real(properties.Mass());
+        append_point(properties.CentreOfMass());
+        const gp_Mat inertia = properties.MatrixOfInertia();
+        for (int row = 1; row <= 3; ++row) {
+            for (int column = 1; column <= 3; ++column) {
+                append_real(inertia.Value(row, column));
+            }
+        }
+    }
+    constexpr char digits[] = "0123456789abcdef";
+    std::string result(16, '0');
+    for (int index = 15; index >= 0; --index) {
+        result[static_cast<std::size_t>(index)] = digits[hash & 0xfU];
+        hash >>= 4;
+    }
+    return result;
+}
+
+template <typename Owned>
+void capture_step_topology_kind(
+    const STEPControl_Reader& reader, const TopoDS_Shape& imported,
+    TopAbs_ShapeEnum shape_kind, StepRequest::TopologyIdentity::Kind identity_kind,
+    const Handle(Standard_Type)& source_type, const char* semantic_prefix,
+    const std::string& owner_id,
+    std::vector<Owned>& owned,
+    std::vector<StepRequest::TopologyIdentity>& identities) {
+    const auto transfer = reader.WS()->TransferReader()->TransientProcess();
+    const auto model = reader.Model();
+    struct Candidate {
+        TopoDS_Shape shape;
+        std::string semantic_key;
+        std::string locator;
+    };
+    TopTools_IndexedMapOfShape runtime_shapes;
+    for (TopExp_Explorer explorer(imported, shape_kind);
+         explorer.More(); explorer.Next()) {
+        const TopoDS_Shape shape = explorer.Current();
+        if (!runtime_shapes.Contains(shape)) runtime_shapes.Add(shape);
+    }
+    std::map<int, std::vector<Candidate>> by_runtime_shape;
+    for (int index = 1; index <= model->NbEntities(); ++index) {
+        const auto entity = model->Value(index);
+        if (entity.IsNull() || !entity->IsKind(source_type)) continue;
+        const TopoDS_Shape shape = TransferBRep::ShapeResult(transfer, entity);
+        if (shape.IsNull()) continue;
+        if (shape.ShapeType() != shape_kind) continue;
+        std::vector<int> runtime_indices;
+        const int exact_runtime_index = runtime_shapes.FindIndex(shape);
+        if (exact_runtime_index != 0) {
+            runtime_indices.push_back(exact_runtime_index);
+        } else {
+            // STEP assemblies transfer one definition subshape and place the
+            // same TShape into one or more product occurrences. IsPartner()
+            // follows that source relation without using traversal position.
+            for (int runtime_index = 1;
+                 runtime_index <= runtime_shapes.Size(); ++runtime_index) {
+                if (runtime_shapes.FindKey(runtime_index).IsPartner(shape)) {
+                    runtime_indices.push_back(runtime_index);
+                }
+            }
+        }
+        if (runtime_indices.empty()) continue;
+        const int source_entity_number = model->Number(entity);
+        if (source_entity_number <= 0) continue;
+        const std::string source_label =
+            "#" + std::to_string(source_entity_number);
+        for (const int runtime_index : runtime_indices) {
+            const TopoDS_Shape runtime_shape =
+                runtime_shapes.FindKey(runtime_index);
+            const std::string locator = step_shape_locator(runtime_shape);
+            std::string semantic_key =
+                std::string(semantic_prefix) + source_label;
+            if (runtime_indices.size() > 1) {
+                // One STEP definition can appear many times in an assembly.
+                // The parent remains the source STEP entity; the occurrence
+                // role comes from its persisted placement/shape locator.
+                semantic_key += "@occ:" + locator;
+            }
+            by_runtime_shape[runtime_index].push_back({runtime_shape,
+                std::move(semantic_key), locator});
+        }
+    }
+    std::set<std::string> semantic_keys;
+    for (auto& [runtime_index, candidates] : by_runtime_shape) {
+        static_cast<void>(runtime_index);
+        // A runtime subshape must come from exactly one canonical STEP
+        // topological entity. Ambiguous transfer results remain display-only.
+        if (candidates.size() != 1) continue;
+        auto& candidate = candidates.front();
+        if (!semantic_keys.insert(candidate.semantic_key).second) continue;
+        owned.push_back({candidate.shape,
+            {owner_id, candidate.semantic_key, {}}});
+        identities.push_back({identity_kind, std::move(candidate.semantic_key),
+            std::move(candidate.locator)});
+    }
+}
+
+void capture_step_topology(const STEPControl_Reader& reader,
+    const TopoDS_Shape& imported, const std::string& owner_id,
+    PrimitiveData& result) {
+    using Kind = StepRequest::TopologyIdentity::Kind;
+    capture_step_topology_kind(reader, imported, TopAbs_FACE, Kind::Face,
+        STANDARD_TYPE(StepShape_FaceSurface), "step:face:", owner_id,
+        result.faces, result.imported_step_topology);
+    capture_step_topology_kind(reader, imported, TopAbs_EDGE, Kind::Edge,
+        STANDARD_TYPE(StepShape_EdgeCurve), "step:edge:", owner_id,
+        result.edges, result.imported_step_topology);
+    capture_step_topology_kind(reader, imported, TopAbs_VERTEX, Kind::Vertex,
+        STANDARD_TYPE(StepShape_VertexPoint), "step:vertex:", owner_id,
+        result.vertices, result.imported_step_topology);
+}
+
+template <typename Owned, typename Reference>
+void restore_step_topology_kind(const TopoDS_Shape& imported,
+    TopAbs_ShapeEnum shape_kind, StepRequest::TopologyIdentity::Kind identity_kind,
+    const std::vector<StepRequest::TopologyIdentity>& identities,
+    const std::string& owner_id, std::vector<Owned>& owned) {
+    std::unordered_map<std::string, std::vector<TopoDS_Shape>> by_locator;
+    TopTools_IndexedMapOfShape visited;
+    for (TopExp_Explorer explorer(imported, shape_kind);
+         explorer.More(); explorer.Next()) {
+        const TopoDS_Shape shape = explorer.Current();
+        if (visited.Contains(shape)) continue;
+        visited.Add(shape);
+        by_locator[step_shape_locator(shape)].push_back(shape);
+    }
+    for (const auto& identity : identities) {
+        if (identity.kind != identity_kind) continue;
+        const auto found = by_locator.find(identity.shape_locator);
+        if (found == by_locator.end() || found->second.size() != 1) continue;
+        owned.push_back({found->second.front(),
+            Reference{owner_id, identity.semantic_key, {}}});
+    }
+}
+
+void restore_step_topology(const StepRequest& request,
+    const TopoDS_Shape& imported, const std::string& owner_id,
+    PrimitiveData& result) {
+    using Kind = StepRequest::TopologyIdentity::Kind;
+    restore_step_topology_kind<OwnedFace, FaceReference>(imported, TopAbs_FACE,
+        Kind::Face, request.topology, owner_id, result.faces);
+    restore_step_topology_kind<OwnedEdge, EdgeReference>(imported, TopAbs_EDGE,
+        Kind::Edge, request.topology, owner_id, result.edges);
+    restore_step_topology_kind<OwnedVertex, VertexReference>(imported, TopAbs_VERTEX,
+        Kind::Vertex, request.topology, owner_id, result.vertices);
+}
+
+struct StepDocumentCache {
+    Handle(TDocStd_Document) document;
+    std::unique_ptr<STEPCAFControl_Reader> reader;
+};
+
 PrimitiveData make_step_data(
     const StepRequest& request, const std::string& owner_id,
-    std::unordered_map<std::string, Handle(TDocStd_Document)>& documents) {
-    TopoDS_Shape imported;
+    std::unordered_map<std::string, StepDocumentCache>& documents) {
+    PrimitiveData result;
     if (request.frozen_brep && !request.frozen_brep->empty()) {
         std::istringstream stream(*request.frozen_brep);
         BRep_Builder builder;
-        BRepTools::Read(imported, stream, builder);
-        if (imported.IsNull()) {
+        BRepTools::Read(result.shape, stream, builder);
+        if (result.shape.IsNull()) {
             throw std::runtime_error("Frozen STEP body is invalid");
         }
+        restore_step_topology(request, result.shape, owner_id, result);
+        result.imported_step_topology = request.topology;
     } else if (request.source_path.empty()) {
         throw std::invalid_argument("STEP source path is empty");
     } else if (request.component_path.empty()) {
@@ -1534,31 +1763,32 @@ PrimitiveData make_step_data(
             reader.TransferRoots() == 0) {
             throw std::runtime_error("OCCT STEP import failed");
         }
-        imported = reader.OneShape();
+        result.shape = reader.OneShape();
+        capture_step_topology(reader, result.shape, owner_id, result);
     } else {
-        auto& document = documents[request.source_path];
-        if (document.IsNull()) {
-            XCAFApp_Application::GetApplication()->NewDocument("BinXCAF", document);
-            STEPCAFControl_Reader reader;
-            if (reader.ReadFile(request.source_path.c_str()) != IFSelect_RetDone ||
-                !reader.Transfer(document)) {
+        auto& cached = documents[request.source_path];
+        if (cached.document.IsNull()) {
+            XCAFApp_Application::GetApplication()->NewDocument(
+                "BinXCAF", cached.document);
+            cached.reader = std::make_unique<STEPCAFControl_Reader>();
+            if (cached.reader->ReadFile(request.source_path.c_str()) !=
+                    IFSelect_RetDone ||
+                !cached.reader->Transfer(cached.document)) {
                 throw std::runtime_error("OCCT STEP product structure import failed");
             }
         }
         TDF_Label definition;
         TDF_Tool::Label(
-            document->GetData(), request.component_path.c_str(), definition, false);
-        imported = definition.IsNull() ? TopoDS_Shape{}
-            : XCAFDoc_DocumentTool::ShapeTool(document->Main())->GetShape(definition);
-        if (imported.IsNull()) throw std::runtime_error("STEP component is missing");
+            cached.document->GetData(), request.component_path.c_str(), definition, false);
+        result.shape = definition.IsNull() ? TopoDS_Shape{}
+            : XCAFDoc_DocumentTool::ShapeTool(cached.document->Main())->GetShape(definition);
+        if (result.shape.IsNull()) throw std::runtime_error("STEP component is missing");
+        capture_step_topology(
+            cached.reader->Reader(), result.shape, owner_id, result);
     }
-    PrimitiveData result{std::move(imported), {}, {}, {}};
     if (result.shape.IsNull() || !BRepCheck_Analyzer(result.shape).IsValid()) {
         throw std::runtime_error("STEP did not produce a valid shape");
     }
-    // A STEP traversal index is not persistent identity. Imported topology is
-    // displayed, but is not referenceable until import has supplied persisted
-    // source IDs independent of OCCT enumeration order.
     return result;
 }
 
@@ -1842,7 +2072,8 @@ BodyResult make_result(
     const std::vector<OwnedEdge>& owned_edges,
     const std::vector<OwnedVertex>& owned_vertices,
     bool original_reference_geometry = false,
-    bool persist_kernel_shape = true) {
+    bool persist_kernel_shape = true,
+    bool collect_original_references = false) {
     Bnd_Box mesh_bounds;
     BRepBndLib::Add(shape, mesh_bounds);
     Standard_Real xmin{}, ymin{}, zmin{}, xmax{}, ymax{}, zmax{};
@@ -1870,7 +2101,7 @@ BodyResult make_result(
     std::optional<TopologyReferenceIndex<EdgeReference, OwnedEdge>> edge_references;
     std::optional<TopologyReferenceIndex<VertexReference, OwnedVertex>>
         vertex_references;
-    if (original_reference_geometry) {
+    if (original_reference_geometry || collect_original_references) {
         face_references.emplace(owned_faces);
         edge_references.emplace(owned_edges);
         vertex_references.emplace(owned_vertices);
@@ -1882,15 +2113,24 @@ BodyResult make_result(
         const Handle(Poly_Triangulation) triangulation =
             BRep_Tool::Triangulation(face, location);
         if (triangulation.IsNull()) continue;
-        const FaceReference reference = original_reference_geometry
+        const FaceReference reference =
+            (original_reference_geometry || collect_original_references)
             ? face_references->reference_for(face)
             : FaceReference{};
         const std::uint32_t base =
             static_cast<std::uint32_t>(result.mesh.vertices.size());
         const gp_Trsf transform = location.Transformation();
+        const bool collect_face =
+            collect_original_references && reference.valid();
+        const std::uint32_t reference_base = static_cast<std::uint32_t>(
+            result.mesh.original_references.vertices.size());
         for (int node = 1; node <= triangulation->NbNodes(); ++node) {
             const gp_Pnt point = triangulation->Node(node).Transformed(transform);
-            result.mesh.vertices.push_back({point.X(), point.Y(), point.Z()});
+            const Vec3 viewer_point{point.X(), point.Y(), point.Z()};
+            result.mesh.vertices.push_back(viewer_point);
+            if (collect_face) {
+                result.mesh.original_references.vertices.push_back(viewer_point);
+            }
         }
         for (int triangle = 1; triangle <= triangulation->NbTriangles(); ++triangle) {
             int first{};
@@ -1903,7 +2143,17 @@ BodyResult make_result(
                 base + static_cast<std::uint32_t>(second - 1),
                 base + static_cast<std::uint32_t>(third - 1),
             });
-            result.mesh.triangle_references.push_back(reference);
+            result.mesh.triangle_references.push_back(
+                original_reference_geometry ? reference : FaceReference{});
+            if (collect_face) {
+                result.mesh.original_references.triangles.insert(
+                    result.mesh.original_references.triangles.end(), {
+                        reference_base + static_cast<std::uint32_t>(first - 1),
+                        reference_base + static_cast<std::uint32_t>(second - 1),
+                        reference_base + static_cast<std::uint32_t>(third - 1)});
+                result.mesh.original_references.triangle_references.push_back(
+                    reference);
+            }
         }
     }
     TopTools_IndexedMapOfShape sampled_edges;
@@ -1911,7 +2161,8 @@ BodyResult make_result(
         const TopoDS_Edge edge = TopoDS::Edge(explorer.Current());
         if (sampled_edges.Contains(edge)) continue;
         sampled_edges.Add(edge);
-        const EdgeReference reference = original_reference_geometry
+        const EdgeReference reference =
+            (original_reference_geometry || collect_original_references)
             ? edge_references->reference_for(edge)
             : EdgeReference{};
         BRepAdaptor_Curve curve(edge);
@@ -1919,16 +2170,23 @@ BodyResult make_result(
         GCPnts_UniformAbscissa samples(curve, sample_count);
         if (!samples.IsDone() || samples.NbPoints() < 2) continue;
         ViewerEdge viewer_edge;
-        viewer_edge.reference = reference;
+        viewer_edge.reference = original_reference_geometry
+            ? reference : EdgeReference{};
         viewer_edge.points.reserve(static_cast<std::size_t>(samples.NbPoints()));
         for (int index = 1; index <= samples.NbPoints(); ++index) {
             const gp_Pnt point = curve.Value(samples.Parameter(index));
             viewer_edge.points.push_back({point.X(), point.Y(), point.Z()});
         }
+        if (collect_original_references && reference.valid()) {
+            auto reference_edge = viewer_edge;
+            reference_edge.reference = reference;
+            result.mesh.original_references.edges.push_back(
+                std::move(reference_edge));
+        }
         result.mesh.edges.push_back(std::move(viewer_edge));
     }
     TopTools_IndexedMapOfShape sampled_vertices;
-    if (original_reference_geometry) for (
+    if (original_reference_geometry || collect_original_references) for (
         TopExp_Explorer explorer(shape, TopAbs_VERTEX); explorer.More(); explorer.Next()) {
         const TopoDS_Vertex vertex = TopoDS::Vertex(explorer.Current());
         if (sampled_vertices.Contains(vertex)) continue;
@@ -1937,10 +2195,37 @@ BodyResult make_result(
             vertex_references->reference_for(vertex);
         if (!reference.valid()) continue;
         const gp_Pnt point = BRep_Tool::Pnt(vertex);
-        result.mesh.points.push_back({
-            {point.X(), point.Y(), point.Z()}, reference});
+        const ViewerPoint viewer_point{
+            {point.X(), point.Y(), point.Z()}, reference};
+        if (original_reference_geometry) result.mesh.points.push_back(viewer_point);
+        if (collect_original_references) {
+            result.mesh.original_references.points.push_back(viewer_point);
+        }
     }
     return result;
+}
+
+void append_reference_geometry(
+    ViewerReferenceGeometry& target, ViewerReferenceGeometry source) {
+    const auto offset = static_cast<std::uint32_t>(target.vertices.size());
+    target.vertices.insert(target.vertices.end(),
+        std::make_move_iterator(source.vertices.begin()),
+        std::make_move_iterator(source.vertices.end()));
+    for (const auto index : source.triangles) {
+        target.triangles.push_back(offset + index);
+    }
+    target.triangle_references.insert(target.triangle_references.end(),
+        std::make_move_iterator(source.triangle_references.begin()),
+        std::make_move_iterator(source.triangle_references.end()));
+    target.edges.insert(target.edges.end(),
+        std::make_move_iterator(source.edges.begin()),
+        std::make_move_iterator(source.edges.end()));
+    target.points.insert(target.points.end(),
+        std::make_move_iterator(source.points.begin()),
+        std::make_move_iterator(source.points.end()));
+    target.axes.insert(target.axes.end(),
+        std::make_move_iterator(source.axes.begin()),
+        std::make_move_iterator(source.axes.end()));
 }
 
 void append_original_reference_geometry(
@@ -2048,22 +2333,18 @@ std::vector<BodyResult> OcctKernel::evaluate_box_boundaries(
 
 std::vector<BodyResult> OcctKernel::import_step_components(
     const std::vector<StepRequest>& requests) const {
-    std::unordered_map<std::string, Handle(TDocStd_Document)> documents;
+    std::unordered_map<std::string, StepDocumentCache> documents;
     std::vector<BodyResult> results;
     results.reserve(requests.size());
     for (std::size_t index = 0; index < requests.size(); ++index) {
-        const std::string owner = "step-import:" + std::to_string(index);
+        const std::string owner = requests[index].reference_owner_id.empty()
+            ? "step-import:" + std::to_string(index)
+            : requests[index].reference_owner_id;
         const auto data = make_step_data(requests[index], owner, documents);
-        auto result = make_result(data.shape, data.faces, data.edges, data.vertices);
-        // Imported STEP currently has no persisted per-face ancestry. Running
-        // make_result() a second time could therefore produce no selectable
-        // references and only repeated the complete meshing pass.
-        if (!data.faces.empty() || !data.edges.empty() || !data.vertices.empty()) {
-            auto references = make_result(
-                data.shape, data.faces, data.edges, data.vertices, true, false);
-            append_original_reference_geometry(
-                result.mesh.original_references, std::move(references.mesh));
-        }
+        auto result = make_result(data.shape, data.faces, data.edges, data.vertices,
+            false, true,
+            !data.faces.empty() || !data.edges.empty() || !data.vertices.empty());
+        result.imported_step_topology = data.imported_step_topology;
         if (!requests[index].live_cache_fingerprint.empty()) {
             result.source_fingerprint = requests[index].live_cache_fingerprint;
             live_cache_->boundaries.insert_or_assign(
@@ -2186,7 +2467,7 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
         std::shared_ptr<const LiveCache::Topology> owned_topology =
             std::make_shared<LiveCache::Topology>();
         ViewerReferenceGeometry original_references;
-        std::unordered_map<std::string, Handle(TDocStd_Document)> step_documents;
+        std::unordered_map<std::string, StepDocumentCache> step_documents;
         std::vector<BodyResult> boundaries;
         boundaries.reserve(operations.size());
         const auto remember_live_boundary = [this](
@@ -2513,12 +2794,24 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                 !imported_step &&
                 (extrusion_request == nullptr ||
                  extrusion_request->extent == ExtrusionRequest::Extent::Blind);
+            const bool standalone_import = imported_step && result_shape.IsNull();
+            std::optional<BodyResult> standalone_import_result;
             ViewerMesh operand_mesh;
             const auto cached_reference = cache_reference_mesh
                 ? live_cache_->reference_meshes.find(reference_cache_key)
                 : live_cache_->reference_meshes.end();
             if (cached_reference != live_cache_->reference_meshes.end()) {
                 operand_mesh = cached_reference->second;
+            } else if (imported_step) {
+                auto operand_result = make_result(
+                    operand.shape, operand.faces, operand.edges,
+                    operand.vertices, false,
+                    standalone_import && persist_boundary_shape, true);
+                append_reference_geometry(original_references,
+                    std::move(operand_result.mesh.original_references));
+                if (standalone_import) {
+                    standalone_import_result = std::move(operand_result);
+                }
             } else {
                 auto operand_result = make_result(
                     operand.shape, operand.faces, operand.edges,
@@ -2538,8 +2831,10 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                     }
                 }
             }
-            append_original_reference_geometry(
-                original_references, std::move(operand_mesh));
+            if (!imported_step) {
+                append_original_reference_geometry(
+                    original_references, std::move(operand_mesh));
+            }
             if (result_shape.IsNull()) {
                 result_shape = operand.shape;
                 owned_topology = std::make_shared<LiveCache::Topology>(
@@ -2617,10 +2912,18 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                             operand.vertices)});
                 result_shape = algorithm.Shape();
             }
-            boundaries.push_back(make_result(
-                result_shape, owned_topology->faces, owned_topology->edges,
-                owned_topology->vertices,
-                false, persist_boundary_shape));
+            if (standalone_import_result) {
+                boundaries.push_back(std::move(*standalone_import_result));
+            } else {
+                boundaries.push_back(make_result(
+                    result_shape, owned_topology->faces, owned_topology->edges,
+                    owned_topology->vertices,
+                    false, persist_boundary_shape));
+            }
+            if (imported_step) {
+                boundaries.back().imported_step_topology =
+                    operand.imported_step_topology;
+            }
             boundaries.back().source_fingerprint =
                 history_fingerprint(operations, boundaries.size());
             remember_live_boundary(boundaries.back().source_fingerprint,

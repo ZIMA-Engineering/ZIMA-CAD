@@ -308,9 +308,11 @@ struct ImportedStepParameters {
     std::string source_path;
     std::string component_path;
     std::shared_ptr<const std::string> frozen_brep;
+    std::vector<zima::kernel::StepRequest::TopologyIdentity> topology;
     bool operator==(const ImportedStepParameters& other) const {
         if (source_path != other.source_path ||
-            component_path != other.component_path) return false;
+            component_path != other.component_path ||
+            topology != other.topology) return false;
         if (frozen_brep == other.frozen_brep) return true;
         return frozen_brep && other.frozen_brep &&
             *frozen_brep == *other.frozen_brep;

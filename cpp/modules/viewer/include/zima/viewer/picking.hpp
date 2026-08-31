@@ -84,6 +84,15 @@ struct EdgeKey {
     return EdgeKey{reference.owner_id, reference.semantic_key, reference.instance_path};
 }
 
+// True when the current hover/confirmation candidate should recolour this
+// already-persisted display wire.  A Tree-only empty occurrence path denotes
+// the whole local Part body; Assembly occurrences match only their exact
+// stable instance path.  Keeping this decision on ViewerEdge metadata avoids
+// deriving a second face-boundary overlay for whole-body highlighting.
+[[nodiscard]] bool candidate_recolors_wire_edge(
+    const ViewerCandidate& candidate,
+    const zima::kernel::ViewerEdge& edge);
+
 [[nodiscard]] std::vector<PickCandidate> ordered_ray_candidates(
     const zima::kernel::ViewerMesh& mesh,
     const zima::kernel::Vec3& ray_origin,

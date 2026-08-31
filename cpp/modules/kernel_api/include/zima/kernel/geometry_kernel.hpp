@@ -326,6 +326,22 @@ struct StepRequest {
     // already translated OCCT shape directly to later history evaluation.
     // It is deliberately excluded from persisted parameter identity.
     std::string live_cache_fingerprint;
+    // Runtime owner supplied by the importing/history container. It does not
+    // participate in parameter identity; it is the persisted ZIMA parent of
+    // source STEP topology offered by the viewer.
+    std::string reference_owner_id;
+    // Source-defined identities plus deterministic geometry locators captured
+    // by the explicit import. The STEP entity number defines identity; the
+    // locator is used only to recover that already-defined identity from the
+    // frozen B-Rep during a later explicit calculation.
+    struct TopologyIdentity {
+        enum class Kind { Face, Edge, Vertex };
+        Kind kind{Kind::Face};
+        std::string semantic_key;
+        std::string shape_locator;
+        bool operator==(const TopologyIdentity&) const = default;
+    };
+    std::vector<TopologyIdentity> topology;
 };
 
 enum class EdgeSelectionOrigin { OriginalEntity, OperationalBody };
@@ -373,6 +389,9 @@ struct BodyResult {
     // Opaque calculation snapshot. Only the solid kernel may consume it
     // during an explicit body calculation; viewer/reference code uses mesh.
     std::string kernel_shape;
+    // Returned only by explicit STEP import so the owning Part container can
+    // persist the source topology map with its parameters.
+    std::vector<StepRequest::TopologyIdentity> imported_step_topology;
 };
 
 struct PlacedBody {

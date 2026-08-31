@@ -2400,10 +2400,7 @@ if (impl_->show_planes) {
              impl_->display_mode == DisplayMode::HiddenEdges ||
              impl_->display_mode == DisplayMode::NoHiddenEdges);
         const bool candidate_match = highlighted &&
-            (highlighted->kind == CandidateKind::Edge) &&
-            highlighted->owner_id == edge.reference.owner_id &&
-            highlighted->semantic_key == edge.reference.semantic_key &&
-            highlighted->instance_path == edge.reference.instance_path;
+            candidate_recolors_wire_edge(*highlighted, edge);
         return candidate_match ||
             impl_->edge_treatment_selection_edges.contains(key) ||
             impl_->feature_selected_edges.contains(key) ||
@@ -2420,11 +2417,9 @@ if (impl_->show_planes) {
             bool candidate_is_confirmed) {
         const auto key = edge_key(edge.reference);
         const bool candidate_match = highlighted &&
-            highlighted->kind == CandidateKind::Edge &&
-            highlighted->owner_id == edge.reference.owner_id &&
-            highlighted->semantic_key == edge.reference.semantic_key &&
-            highlighted->instance_path == edge.reference.instance_path;
-        const bool selected = (candidate_match && candidate_is_confirmed) ||
+            candidate_recolors_wire_edge(*highlighted, edge);
+        const bool selected =
+            (candidate_match && candidate_is_confirmed) ||
             impl_->edge_treatment_selection_edges.contains(key) ||
             impl_->feature_selected_edges.contains(key) ||
             impl_->constraint_reference_edges.contains(key) ||
@@ -2435,7 +2430,8 @@ if (impl_->show_planes) {
         if (impl_->object_overlay_main_edge_keys.contains(key)) {
             return QVector4D(1.0F, 0.48F, 0.0F, 1.0F);
         }
-        const bool hovered = (candidate_match && !candidate_is_confirmed) ||
+        const bool hovered =
+            (candidate_match && !candidate_is_confirmed) ||
             impl_->feature_hover_edges.contains(key);
         if (hovered) return QVector4D(1.0F, 0.48F, 0.0F, 1.0F);
         const bool preview = impl_->feature_preview_owner_ids.contains(edge.reference.owner_id) &&
@@ -3704,9 +3700,8 @@ if (impl_->show_planes) {
                     draw_circular_marker(painter, project(point.position), color);
                 }
             }
-            if ((highlighted->kind == CandidateKind::Occurrence ||
-                 (highlighted->kind == CandidateKind::Container && !origin_group) ||
-                 highlighted->kind == CandidateKind::Face)) {
+            if (((highlighted->kind == CandidateKind::Container && !origin_group) ||
+                  highlighted->kind == CandidateKind::Face)) {
                 painter.setPen(QPen(color, 1.5));
                 painter.setBrush(Qt::NoBrush);
                 const bool original = highlighted->geometry ==
@@ -3818,19 +3813,6 @@ if (impl_->show_planes) {
                     if (segment.uses == 1 || silhouette) {
                         painter.drawLine(project(segment.first),
                                          project(segment.second));
-                    }
-                }
-                // The empty-path Occurrence token is created only by the
-                // Tree item "Těleso". Draw the persisted result topology as
-                // its cyan wire in addition to the computed silhouette.
-                if (highlighted->kind == CandidateKind::Occurrence &&
-                    highlighted->instance_path.empty() && !original) {
-                    for (const auto& edge : impl_->mesh.edges) {
-                        if (edge.overlay) continue;
-                        for (std::size_t index = 1; index < edge.points.size(); ++index) {
-                            painter.drawLine(project(edge.points[index - 1]),
-                                             project(edge.points[index]));
-                        }
                     }
                 }
             }

@@ -92,6 +92,20 @@ std::size_t next_candidate_index(
     return candidate_count == 0 ? 0 : (current + 1) % candidate_count;
 }
 
+bool candidate_recolors_wire_edge(
+    const ViewerCandidate& candidate,
+    const zima::kernel::ViewerEdge& edge) {
+    if (candidate.kind == CandidateKind::Occurrence) {
+        return !edge.reference.valid() && !edge.construction && !edge.overlay &&
+            (candidate.instance_path.empty() ||
+             candidate.instance_path == edge.reference.instance_path);
+    }
+    return candidate.kind == CandidateKind::Edge &&
+        candidate.owner_id == edge.reference.owner_id &&
+        candidate.semantic_key == edge.reference.semantic_key &&
+        candidate.instance_path == edge.reference.instance_path;
+}
+
 std::vector<EdgePickCandidate> ordered_edge_candidates(
     const zima::kernel::ViewerMesh& mesh,
     const Vec3& ray_origin,

@@ -96,6 +96,38 @@ int main() {
         assembly.components.push_back(std::move(first));
         assembly.components.push_back(std::move(second));
         const auto scene = assembly.build_scene();
+        const std::set<std::string> expected_instance_paths{
+            zima::assembly::InstancePath{}.child(first_id).encoded(),
+            zima::assembly::InstancePath{}.child(second_id).encoded()};
+        std::set<std::string> display_wire_paths;
+        std::size_t component_wire_count = 0;
+        for (const auto& edge : scene.edges) {
+            if (!expected_instance_paths.contains(edge.reference.instance_path))
+                continue;
+            ++component_wire_count;
+            require(!edge.reference.valid(),
+                    "Assembly display wire gained persistent topology ownership "
+                    "or lost occurrence identity");
+            display_wire_paths.insert(edge.reference.instance_path);
+        }
+        require(component_wire_count == source.back().mesh.edges.size() * 2 &&
+                    display_wire_paths == expected_instance_paths,
+                "Assembly display wires do not carry their exact occurrence paths");
+        std::set<std::string> display_triangle_paths;
+        std::size_t component_triangle_count = 0;
+        for (const auto& reference : scene.triangle_references) {
+            if (!expected_instance_paths.contains(reference.instance_path))
+                continue;
+            ++component_triangle_count;
+            require(!reference.valid(),
+                    "Assembly display triangles gained persistent topology ownership "
+                    "or lost occurrence identity");
+            display_triangle_paths.insert(reference.instance_path);
+        }
+        require(component_triangle_count ==
+                    source.back().mesh.triangle_references.size() * 2 &&
+                    display_triangle_paths == expected_instance_paths,
+                "Assembly display triangles do not carry their exact occurrence paths");
         std::set<std::string> instance_paths;
         for (const auto& reference : scene.original_references.triangle_references) {
             if (reference.owner_id == assembly.document_id + ":origin") continue;
@@ -126,7 +158,7 @@ int main() {
         require(instance_paths.contains(
                     zima::assembly::InstancePath{}.child(first_id).encoded()) &&
                     instance_paths.contains(
-                    zima::assembly::InstancePath{}.child(second_id).encoded()),
+                        zima::assembly::InstancePath{}.child(second_id).encoded()),
                 "Assembly scene does not use stable occurrence paths");
         const auto candidates = zima::viewer::filter_candidates(
             zima::viewer::ordered_viewer_candidates(

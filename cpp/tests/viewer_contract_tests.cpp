@@ -50,6 +50,42 @@ int main() {
                 "Edge candidates do not use stable owners in depth order");
         require(mesh.edges.size() == 3,
                 "Viewer packet did not retain an unowned display-only result edge");
+        const zima::kernel::ViewerEdge first_occurrence_wire{
+            {{-1.0, 0.0, 5.0}, {1.0, 0.0, 5.0}},
+            {{}, {}, "5:first"}};
+        const zima::kernel::ViewerEdge second_occurrence_wire{
+            {{-1.0, 0.0, 10.0}, {1.0, 0.0, 10.0}},
+            {{}, {}, "6:second"}};
+        const zima::viewer::ViewerCandidate first_occurrence{
+            zima::viewer::CandidateKind::Occurrence, 0.0, 0, {}, {},
+            "5:first", zima::viewer::CandidateGeometry::Display};
+        const zima::viewer::ViewerCandidate local_part_body{
+            zima::viewer::CandidateKind::Occurrence, 0.0, 0, {}, {}, {},
+            zima::viewer::CandidateGeometry::Display};
+        require(zima::viewer::candidate_recolors_wire_edge(
+                    first_occurrence, first_occurrence_wire) &&
+                    !zima::viewer::candidate_recolors_wire_edge(
+                        first_occurrence, second_occurrence_wire),
+                "Assembly body selection did not recolour only its existing "
+                "occurrence wire");
+        require(zima::viewer::candidate_recolors_wire_edge(
+                    local_part_body, first_occurrence_wire) &&
+                    zima::viewer::candidate_recolors_wire_edge(
+                        local_part_body, second_occurrence_wire),
+                "Part Body Tree selection did not recolour its existing full wire");
+        const zima::kernel::ViewerEdge sketch_wire{
+            {{-1.0, 0.0, 7.0}, {1.0, 0.0, 7.0}},
+            {"sketch", "segment:profile", {}}};
+        require(!zima::viewer::candidate_recolors_wire_edge(
+                    local_part_body, sketch_wire),
+                "Part Body Tree selection also recoloured Sketch geometry");
+        const zima::viewer::ViewerCandidate face_overlay{
+            zima::viewer::CandidateKind::Face, 0.0, 0,
+            "source", "step:face:#42", "5:first",
+            zima::viewer::CandidateGeometry::OriginalReference};
+        require(!zima::viewer::candidate_recolors_wire_edge(
+                    face_overlay, first_occurrence_wire),
+                "Face overlay incorrectly entered the cheap whole-body wire path");
         zima::kernel::ViewerMesh infinite_line_mesh;
         infinite_line_mesh.edges.push_back({
             {{-1.0, 0.0, 5.0}, {1.0, 0.0, 5.0}},

@@ -16,6 +16,7 @@
 #include <limits>
 #include <numbers>
 #include <random>
+#include <set>
 #include <stdexcept>
 #include <sstream>
 #include <string_view>
@@ -206,6 +207,26 @@ std::string feature_entity_kind(const std::string& type) {
     if (type == "extrusion") return "protrusion";
     if (type == "revolution") return "revolve";
     return type;
+}
+
+const char* step_topology_kind_name(
+    zima::kernel::StepRequest::TopologyIdentity::Kind kind) {
+    using Kind = zima::kernel::StepRequest::TopologyIdentity::Kind;
+    switch (kind) {
+    case Kind::Face: return "face";
+    case Kind::Edge: return "edge";
+    case Kind::Vertex: return "vertex";
+    }
+    throw std::invalid_argument("Invalid STEP topology kind");
+}
+
+zima::kernel::StepRequest::TopologyIdentity::Kind step_topology_kind(
+    const std::string& name) {
+    using Kind = zima::kernel::StepRequest::TopologyIdentity::Kind;
+    if (name == "face") return Kind::Face;
+    if (name == "edge") return Kind::Edge;
+    if (name == "vertex") return Kind::Vertex;
+    throw std::runtime_error("Invalid persisted STEP topology kind");
 }
 
 // The persisted `combine_mode` field must match Python's `CombineMode` enum
@@ -5279,7 +5300,7 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 container.imported_step.source_path,
                 container.imported_step.component_path,
                 container.imported_step.frozen_brep,
-                {}};
+                {}, container.id, container.imported_step.topology};
             primitive = std::move(step);
         } else if (container.feature_kind == FeatureKind::Fillet) {
             require_default_sketch_feature_placement(container.placement);
@@ -5652,8 +5673,23 @@ PartDocument PartDocument::load(
                 source.at("component_path").get<std::string>();
             container.imported_step.frozen_brep = std::make_shared<const std::string>(
                 source.at("frozen_brep").get<std::string>());
+            for (const auto& identity : source.at("topology")) {
+                container.imported_step.topology.push_back({
+                    step_topology_kind(identity.at("kind").get<std::string>()),
+                    identity.at("semantic_key").get<std::string>(),
+                    identity.at("shape_locator").get<std::string>()});
+            }
+            std::set<std::pair<int, std::string>> topology_ids;
             if (container.imported_step.source_path.empty() ||
                 container.imported_step.frozen_brep->empty() ||
+                std::any_of(container.imported_step.topology.begin(),
+                    container.imported_step.topology.end(), [&](const auto& identity) {
+                        return identity.semantic_key.empty() ||
+                            identity.shape_locator.empty() ||
+                            !topology_ids.emplace(
+                                static_cast<int>(identity.kind),
+                                identity.semantic_key).second;
+                    }) ||
                 container.combine_mode != CombineMode::Add) {
                 throw std::runtime_error("Invalid imported STEP parameters");
             }
@@ -6370,6 +6406,16 @@ void PartDocument::save(
                 throw std::runtime_error("Imported STEP has no frozen body");
             }
             serialized["frozen_brep"] = *container.imported_step.frozen_brep;
+            serialized["topology"] = nlohmann::json::array();
+            for (const auto& identity : container.imported_step.topology) {
+                if (identity.semantic_key.empty() || identity.shape_locator.empty()) {
+                    throw std::runtime_error("Imported STEP has invalid topology identity");
+                }
+                serialized["topology"].push_back({
+                    {"kind", step_topology_kind_name(identity.kind)},
+                    {"semantic_key", identity.semantic_key},
+                    {"shape_locator", identity.shape_locator}});
+            }
         } else {
             serialized["edges"] = nlohmann::json::array();
             for (const auto& edge : container.edge_treatment.edges) {

@@ -304,7 +304,11 @@ void rotate_occurrence_about(
 
 template <typename Reference>
 void assign_instance(Reference& reference, const std::string& instance_path) {
-    if (reference.valid()) reference.instance_path = instance_path + reference.instance_path;
+    // Display-body triangles and edges deliberately have no persistent
+    // owner/semantic identity, but still belong to one exact occurrence.
+    // Carry that viewer-only occurrence path as well so whole-body colour and
+    // wire selection never have to rebuild geometry to discover ownership.
+    reference.instance_path = instance_path + reference.instance_path;
 }
 
 const char* source_kind_name(ComponentSourceKind kind) {

@@ -31,25 +31,28 @@ int step_benchmark(const std::filesystem::path& source) {
         return EXIT_FAILURE;
     }
 
-    zima::kernel::OcctKernel kernel;
-    zima::kernel::BodyResult imported;
-    const auto import_ms = milliseconds([&] {
-        auto results = kernel.import_step_components(
-            {{std::filesystem::absolute(source).string(), {}, {}}});
-        if (results.size() != 1 || results.front().kernel_shape.empty()) {
-            std::abort();
-        }
-        imported = std::move(results.front());
-    }, 1);
-
     auto document = zima::document::PartDocument::create_default();
     document.history.clear();
     document.history_order.clear();
     auto step = zima::document::PartDocument::create_imported_step_container(
         std::filesystem::absolute(source));
     step.name = "STEP benchmark";
+
+    zima::kernel::OcctKernel kernel;
+    zima::kernel::BodyResult imported;
+    const auto import_ms = milliseconds([&] {
+        auto results = kernel.import_step_components(
+            {{std::filesystem::absolute(source).string(), {}, {}, {},
+              step.id, {}}});
+        if (results.size() != 1 || results.front().kernel_shape.empty()) {
+            std::abort();
+        }
+        imported = std::move(results.front());
+    }, 1);
+
     step.imported_step.frozen_brep =
         std::make_shared<const std::string>(imported.kernel_shape);
+    step.imported_step.topology = imported.imported_step_topology;
     document.history.push_back(step);
     document.insert_history_entry(
         zima::document::PartHistoryKind::Feature, step.id);
@@ -94,11 +97,20 @@ int step_benchmark(const std::filesystem::path& source) {
         (minimum.y + maximum.y) * 0.5,
         minimum.z - std::max(1.0, maximum.z - minimum.z)};
     std::size_t candidate_count{};
+    bool source_face_candidate{};
     const auto picking_ms = milliseconds([&] {
         const auto candidates = zima::viewer::ordered_viewer_candidates(
             imported.mesh, ray_origin, {0.0, 0.0, 1.0},
             std::max(1.0e-6, (maximum.x - minimum.x) * 1.0e-4));
         candidate_count = candidates.size();
+        source_face_candidate = std::ranges::any_of(candidates,
+            [&](const auto& candidate) {
+                return candidate.kind == zima::viewer::CandidateKind::Face &&
+                    candidate.geometry ==
+                        zima::viewer::CandidateGeometry::OriginalReference &&
+                    candidate.owner_id == step.id &&
+                    candidate.semantic_key.starts_with("step:face:#");
+            });
     });
 
     auto operations = document_operations;
@@ -114,17 +126,46 @@ int step_benchmark(const std::filesystem::path& source) {
         document.save(temporary, session.calculated_boundaries());
     }, 1);
     std::vector<zima::kernel::BodyResult> loaded_boundaries;
+    std::size_t loaded_topology_count{};
     const auto load_ms = milliseconds([&] {
         loaded_boundaries.clear();
         const auto loaded = zima::document::PartDocument::load(
             temporary, &loaded_boundaries);
         if (loaded.history.empty() || loaded_boundaries.empty()) std::abort();
+        loaded_topology_count = loaded.history.front().imported_step.topology.size();
+        if (loaded_topology_count != imported.imported_step_topology.size()) {
+            std::abort();
+        }
     }, 1);
     const auto part_file_bytes = std::filesystem::file_size(temporary);
     std::error_code remove_error;
     std::filesystem::remove(temporary, remove_error);
 
     const auto& references = imported.mesh.original_references;
+    std::size_t topology_faces{};
+    std::size_t topology_edges{};
+    std::size_t topology_vertices{};
+    for (const auto& identity : imported.imported_step_topology) {
+        using Kind = zima::kernel::StepRequest::TopologyIdentity::Kind;
+        if (identity.semantic_key.find("step:") != 0 ||
+            identity.semantic_key.find(":#") == std::string::npos) {
+            std::cerr << "STEP topology does not use source entity identity\n";
+            return EXIT_FAILURE;
+        }
+        switch (identity.kind) {
+            case Kind::Face: ++topology_faces; break;
+            case Kind::Edge: ++topology_edges; break;
+            case Kind::Vertex: ++topology_vertices; break;
+        }
+    }
+    if (topology_faces == 0 || references.triangle_references.empty()) {
+        std::cerr << "STEP import produced no persistent source faces\n";
+        return EXIT_FAILURE;
+    }
+    if (!source_face_candidate) {
+        std::cerr << "Viewer did not offer an imported STEP source face\n";
+        return EXIT_FAILURE;
+    }
     std::cout << std::fixed << std::setprecision(3)
               << "ZIMA_STEP_PERF_V1 path=\"" << source.string() << "\"\n"
               << "input bytes=" << std::filesystem::file_size(source) << '\n'
@@ -132,15 +173,20 @@ int step_benchmark(const std::filesystem::path& source) {
               << " triangles=" << imported.mesh.triangles.size() / 3
               << " brep_bytes=" << imported.kernel_shape.size()
               << " reference_triangles=" << references.triangle_references.size()
-              << " reference_edges=" << references.edges.size() << '\n'
+              << " reference_edges=" << references.edges.size()
+              << " topology_faces=" << topology_faces
+              << " topology_edges=" << topology_edges
+              << " topology_vertices=" << topology_vertices << '\n'
               << "step_import mean_ms=" << import_ms << '\n'
               << "body_copy mean_ms=" << body_copy_ms << '\n'
               << "properties_rollback mean_ms=" << rollback_ms << '\n'
               << "viewer_picking candidates=" << candidate_count
+              << " source_face=1"
               << " mean_ms=" << picking_ms << '\n'
               << "explicit_recalculate mean_ms=" << explicit_recalculate_ms << '\n'
               << "part_save mean_ms=" << save_ms << '\n'
               << "part_load bytes=" << part_file_bytes
+              << " topology=" << loaded_topology_count
               << " mean_ms=" << load_ms << '\n';
     return EXIT_SUCCESS;
 }

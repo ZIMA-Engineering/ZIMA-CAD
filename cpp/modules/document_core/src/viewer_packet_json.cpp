@@ -8,8 +8,10 @@
 #include <cstdint>
 #include <cmath>
 #include <limits>
+#include <map>
 #include <stdexcept>
 #include <string_view>
+#include <tuple>
 
 namespace zima::document {
 namespace {
@@ -174,80 +176,188 @@ namespace {
 
 nlohmann::json serialize_reference_geometry(
     const zima::kernel::ViewerReferenceGeometry& geometry) {
-    nlohmann::json vertices = nlohmann::json::array();
-    for (const auto& value : geometry.vertices) vertices.push_back(serialize_vec3(value));
-    nlohmann::json faces = nlohmann::json::array();
-    for (const auto& reference : geometry.triangle_references) faces.push_back({
-        {"owner", reference.owner_id}, {"key", reference.semantic_key},
-        {"instance_path", reference.instance_path}});
-    nlohmann::json edges = nlohmann::json::array();
-    for (const auto& edge : geometry.edges) {
-        nlohmann::json edge_points = nlohmann::json::array();
-        for (const auto& point : edge.points) edge_points.push_back(serialize_vec3(point));
-        edges.push_back({{"owner", edge.reference.owner_id},
-            {"key", edge.reference.semantic_key},
-            {"instance_path", edge.reference.instance_path},
-            {"points", std::move(edge_points)}});
+    nlohmann::json references = nlohmann::json::array();
+    std::map<std::tuple<std::string, std::string, std::string>, std::uint32_t>
+        reference_indices;
+    const auto reference_index = [&](const auto& reference) {
+        if (!reference.valid()) {
+            throw std::runtime_error("Original reference is invalid");
+        }
+        const auto key = std::tuple{reference.owner_id,
+            reference.semantic_key, reference.instance_path};
+        const auto found = reference_indices.find(key);
+        if (found != reference_indices.end()) return found->second;
+        if (reference_indices.size() >=
+            std::numeric_limits<std::uint32_t>::max()) {
+            throw std::runtime_error("Too many original references");
+        }
+        const auto index = static_cast<std::uint32_t>(
+            reference_indices.size());
+        reference_indices.emplace(key, index);
+        references.push_back({{"owner", reference.owner_id},
+            {"key", reference.semantic_key},
+            {"instance_path", reference.instance_path}});
+        return index;
+    };
+
+    std::vector<std::uint32_t> triangle_reference_runs;
+    for (const auto& reference : geometry.triangle_references) {
+        const auto index = reference_index(reference);
+        if (triangle_reference_runs.size() >= 2 &&
+            triangle_reference_runs[triangle_reference_runs.size() - 2] == index &&
+            triangle_reference_runs.back() <
+                std::numeric_limits<std::uint32_t>::max()) {
+            ++triangle_reference_runs.back();
+        } else {
+            triangle_reference_runs.push_back(index);
+            triangle_reference_runs.push_back(1);
+        }
     }
-    nlohmann::json points = nlohmann::json::array();
-    for (const auto& point : geometry.points) points.push_back({
-        {"owner", point.reference.owner_id}, {"key", point.reference.semantic_key},
-        {"instance_path", point.reference.instance_path},
-        {"position", serialize_vec3(point.position)}});
+
+    std::vector<zima::kernel::Vec3> edge_points;
+    std::vector<std::uint32_t> edge_offsets{0};
+    std::vector<std::uint32_t> edge_references;
+    for (const auto& edge : geometry.edges) {
+        if (edge.points.size() < 2 ||
+            edge_points.size() + edge.points.size() >
+                std::numeric_limits<std::uint32_t>::max()) {
+            throw std::runtime_error("Original reference edge is invalid");
+        }
+        edge_points.insert(edge_points.end(), edge.points.begin(), edge.points.end());
+        edge_offsets.push_back(static_cast<std::uint32_t>(edge_points.size()));
+        edge_references.push_back(reference_index(edge.reference));
+    }
+
+    std::vector<zima::kernel::Vec3> point_positions;
+    std::vector<std::uint32_t> point_references;
+    point_positions.reserve(geometry.points.size());
+    point_references.reserve(geometry.points.size());
+    for (const auto& point : geometry.points) {
+        point_positions.push_back(point.position);
+        point_references.push_back(reference_index(point.reference));
+    }
+
     nlohmann::json axes = nlohmann::json::array();
     for (const auto& axis : geometry.axes) axes.push_back({
-        {"owner", axis.reference.owner_id}, {"key", axis.reference.semantic_key},
-        {"instance_path", axis.reference.instance_path},
+        {"reference", reference_index(axis.reference)},
         {"point", serialize_vec3(axis.point)},
         {"direction", serialize_vec3(axis.direction)},
         {"display_length", axis.display_length}});
-    return {{"vertices", std::move(vertices)}, {"triangles", geometry.triangles},
-        {"triangle_references", std::move(faces)}, {"edges", std::move(edges)},
-        {"points", std::move(points)}, {"axes", std::move(axes)}};
+    return {{"encoding", "f64le-u32le-base64-v1"},
+        {"references", std::move(references)},
+        {"vertices_binary", pack_vertices(geometry.vertices)},
+        {"triangles_binary", pack_indices(geometry.triangles)},
+        {"triangle_reference_runs_binary", pack_indices(triangle_reference_runs)},
+        {"edge_points_binary", pack_vertices(edge_points)},
+        {"edge_offsets_binary", pack_indices(edge_offsets)},
+        {"edge_references_binary", pack_indices(edge_references)},
+        {"point_positions_binary", pack_vertices(point_positions)},
+        {"point_references_binary", pack_indices(point_references)},
+        {"axes", std::move(axes)}};
 }
 
 zima::kernel::ViewerReferenceGeometry load_reference_geometry(
     const nlohmann::json& source) {
+    if (source.at("encoding").get<std::string>() !=
+            "f64le-u32le-base64-v1") {
+        throw std::runtime_error("Unsupported original reference encoding");
+    }
     zima::kernel::ViewerReferenceGeometry result;
-    for (const auto& value : source.at("vertices")) result.vertices.push_back(load_vec3(value));
-    result.triangles = source.at("triangles").get<std::vector<std::uint32_t>>();
+    std::vector<zima::kernel::FaceReference> references;
+    for (const auto& value : source.at("references")) {
+        zima::kernel::FaceReference reference{
+            value.at("owner").get<std::string>(),
+            value.at("key").get<std::string>(),
+            value.at("instance_path").get<std::string>()};
+        if (!reference.valid()) {
+            throw std::runtime_error("Persisted original reference is invalid");
+        }
+        references.push_back(std::move(reference));
+    }
+    const auto reference_at = [&](std::uint32_t index)
+        -> const zima::kernel::FaceReference& {
+        if (index >= references.size()) {
+            throw std::runtime_error("Original reference index is out of range");
+        }
+        return references[index];
+    };
+
+    result.vertices = unpack_vertices(
+        source.at("vertices_binary").get_ref<const std::string&>());
+    result.triangles = unpack_indices(
+        source.at("triangles_binary").get_ref<const std::string&>());
     for (const auto index : result.triangles) {
         if (index >= result.vertices.size()) {
             throw std::runtime_error("Reference triangle index is out of range");
         }
     }
-    for (const auto& value : source.at("triangle_references")) {
-        result.triangle_references.push_back({value.at("owner").get<std::string>(),
-            value.at("key").get<std::string>(),
-            value.at("instance_path").get<std::string>()});
+    const auto triangle_runs = unpack_indices(
+        source.at("triangle_reference_runs_binary")
+            .get_ref<const std::string&>());
+    if (triangle_runs.size() % 2 != 0) {
+        throw std::runtime_error("Reference triangle runs are invalid");
+    }
+    for (std::size_t run = 0; run < triangle_runs.size(); run += 2) {
+        const auto& reference = reference_at(triangle_runs[run]);
+        const auto count = triangle_runs[run + 1];
+        if (count == 0 || result.triangle_references.size() + count >
+                result.triangles.size() / 3) {
+            throw std::runtime_error("Reference triangle run is invalid");
+        }
+        result.triangle_references.insert(result.triangle_references.end(), count,
+            reference);
     }
     if (result.triangles.size() % 3 != 0 ||
         result.triangle_references.size() != result.triangles.size() / 3) {
         throw std::runtime_error("Reference triangle data are not aligned");
     }
-    for (const auto& value : source.at("edges")) {
-        zima::kernel::ViewerEdge edge;
-        edge.reference = {value.at("owner").get<std::string>(),
-            value.at("key").get<std::string>(),
-            value.at("instance_path").get<std::string>()};
-        for (const auto& point : value.at("points")) edge.points.push_back(load_vec3(point));
-        if (!edge.reference.valid() || edge.points.size() < 2) {
+
+    const auto edge_points = unpack_vertices(
+        source.at("edge_points_binary").get_ref<const std::string&>());
+    const auto edge_offsets = unpack_indices(
+        source.at("edge_offsets_binary").get_ref<const std::string&>());
+    const auto edge_references = unpack_indices(
+        source.at("edge_references_binary").get_ref<const std::string&>());
+    if (edge_offsets.size() != edge_references.size() + 1 ||
+        edge_offsets.empty() || edge_offsets.front() != 0 ||
+        edge_offsets.back() != edge_points.size()) {
+        throw std::runtime_error("Persisted reference edge arrays are invalid");
+    }
+    for (std::size_t index = 0; index < edge_references.size(); ++index) {
+        if (edge_offsets[index] > edge_offsets[index + 1] ||
+            edge_offsets[index + 1] - edge_offsets[index] < 2) {
             throw std::runtime_error("Persisted reference edge is invalid");
         }
+        const auto& reference = reference_at(edge_references[index]);
+        zima::kernel::ViewerEdge edge;
+        edge.reference = {reference.owner_id, reference.semantic_key,
+            reference.instance_path};
+        edge.points.insert(edge.points.end(),
+            edge_points.begin() + edge_offsets[index],
+            edge_points.begin() + edge_offsets[index + 1]);
         result.edges.push_back(std::move(edge));
     }
-    for (const auto& value : source.at("points")) {
-        zima::kernel::ViewerPoint point{load_vec3(value.at("position")),
-            {value.at("owner").get<std::string>(), value.at("key").get<std::string>(),
-             value.at("instance_path").get<std::string>()}};
-        if (!point.reference.valid()) throw std::runtime_error("Reference point is invalid");
-        result.points.push_back(std::move(point));
+
+    const auto point_positions = unpack_vertices(
+        source.at("point_positions_binary").get_ref<const std::string&>());
+    const auto point_references = unpack_indices(
+        source.at("point_references_binary").get_ref<const std::string&>());
+    if (point_positions.size() != point_references.size()) {
+        throw std::runtime_error("Persisted reference point arrays are invalid");
+    }
+    for (std::size_t index = 0; index < point_positions.size(); ++index) {
+        const auto& reference = reference_at(point_references[index]);
+        result.points.push_back({point_positions[index],
+            {reference.owner_id, reference.semantic_key,
+             reference.instance_path}});
     }
     for (const auto& value : source.at("axes")) {
+        const auto& reference = reference_at(
+            value.at("reference").get<std::uint32_t>());
         zima::kernel::ViewerAxis axis{load_vec3(value.at("point")),
             load_vec3(value.at("direction")), value.at("display_length").get<double>(),
-            {value.at("owner").get<std::string>(), value.at("key").get<std::string>(),
-             value.at("instance_path").get<std::string>()}};
+            {reference.owner_id, reference.semantic_key,
+             reference.instance_path}};
         if (!axis.reference.valid() || !std::isfinite(axis.display_length) ||
             axis.display_length <= 0.0) throw std::runtime_error("Reference axis is invalid");
         result.axes.push_back(std::move(axis));
@@ -259,10 +369,12 @@ zima::kernel::ViewerReferenceGeometry load_reference_geometry(
 
 nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result) {
     nlohmann::json faces = nlohmann::json::array();
-    const bool has_face_references = std::ranges::any_of(
+    const bool has_triangle_tags = std::ranges::any_of(
         result.mesh.triangle_references,
-        [](const auto& reference) { return reference.valid(); });
-    if (has_face_references) {
+        [](const auto& reference) {
+            return reference.valid() || !reference.instance_path.empty();
+        });
+    if (has_triangle_tags) {
         for (const auto& reference : result.mesh.triangle_references) {
             faces.push_back({
                 {"owner", reference.owner_id}, {"key", reference.semantic_key},
@@ -383,6 +495,11 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source) {
         result.mesh.triangle_references.size() != result.mesh.triangles.size() / 3) {
         throw std::runtime_error("Viewer triangle references are not aligned");
     }
+    for (const auto& reference : result.mesh.triangle_references) {
+        if (reference.owner_id.empty() != reference.semantic_key.empty()) {
+            throw std::runtime_error("Persisted viewer triangle tag is invalid");
+        }
+    }
     for (const auto& edge : source.at("edges")) {
         zima::kernel::ViewerEdge loaded;
         loaded.reference = {
@@ -391,9 +508,10 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source) {
         for (const auto& point : edge.at("points")) loaded.points.push_back(load_vec3(point));
         const bool owner_empty = loaded.reference.owner_id.empty();
         const bool key_empty = loaded.reference.semantic_key.empty();
-        if (owner_empty != key_empty ||
-            (owner_empty && !loaded.reference.instance_path.empty()) ||
-            loaded.points.size() < 2) {
+        // Viewer-only body edges deliberately carry an occurrence path without
+        // becoming persistent topology references. This lets selection recolour
+        // the existing wire for one exact nested occurrence.
+        if (owner_empty != key_empty || loaded.points.size() < 2) {
             throw std::runtime_error("Persisted viewer edge is invalid");
         }
         result.mesh.edges.push_back(std::move(loaded));

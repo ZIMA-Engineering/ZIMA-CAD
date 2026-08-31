@@ -53,19 +53,91 @@ int main() {
                     step_writer.Write(step_path.string().c_str()) == IFSelect_RetDone,
                 "STEP contract fixture could not be written");
         auto step_document = zima::document::PartDocument::create_default();
-        step_document.history.push_back(
-            zima::document::PartDocument::create_imported_step_container(step_path));
+        auto step_container =
+            zima::document::PartDocument::create_imported_step_container(step_path);
+        const auto explicitly_imported_step = kernel.import_step_components({{
+            step_path.generic_string(), {}, {}, {}, step_container.id, {}}});
+        require(explicitly_imported_step.size() == 1 &&
+                    std::abs(explicitly_imported_step.back().volume - 480.0) < 1.0e-6 &&
+                    !explicitly_imported_step.back().kernel_shape.empty(),
+                "Explicit STEP import did not calculate the expected frozen box");
+        const auto& imported_step_topology =
+            explicitly_imported_step.back().imported_step_topology;
+        std::set<std::string> imported_step_face_ids;
+        std::set<std::string> imported_step_edge_ids;
+        std::set<std::string> imported_step_vertex_ids;
+        for (const auto& identity : imported_step_topology) {
+            require(!identity.semantic_key.empty() &&
+                        !identity.shape_locator.empty(),
+                    "Imported STEP topology identity is incomplete");
+            auto* identities = &imported_step_face_ids;
+            auto expected_prefix = std::string{"step:face:#"};
+            if (identity.kind == zima::kernel::StepRequest::TopologyIdentity::Kind::Edge) {
+                identities = &imported_step_edge_ids;
+                expected_prefix = "step:edge:#";
+            } else if (identity.kind ==
+                    zima::kernel::StepRequest::TopologyIdentity::Kind::Vertex) {
+                identities = &imported_step_vertex_ids;
+                expected_prefix = "step:vertex:#";
+            }
+            require(identity.semantic_key.starts_with(expected_prefix),
+                    "Imported STEP identity was not defined by a source STEP entity");
+            require(identities->insert(identity.semantic_key).second,
+                    "Imported STEP contains a duplicate source topology identity");
+        }
+        if (imported_step_face_ids.size() != 6 ||
+            imported_step_edge_ids.size() != 12 ||
+            imported_step_vertex_ids.size() != 8) {
+            std::cerr << "STEP topology identities: faces="
+                      << imported_step_face_ids.size() << " edges="
+                      << imported_step_edge_ids.size() << " vertices="
+                      << imported_step_vertex_ids.size() << '\n';
+        }
+        require(imported_step_face_ids.size() == 6 &&
+                    imported_step_edge_ids.size() == 12 &&
+                    imported_step_vertex_ids.size() == 8,
+                "Imported STEP box did not preserve its source face/edge/vertex identities");
+
+        const auto& imported_step_references =
+            explicitly_imported_step.back().mesh.original_references;
+        require(!imported_step_references.triangle_references.empty() &&
+                    !imported_step_references.edges.empty() &&
+                    !imported_step_references.points.empty(),
+                "Imported STEP source topology is missing viewer reference geometry");
+        for (const auto& reference :
+             imported_step_references.triangle_references) {
+            require(reference.owner_id == step_container.id &&
+                        imported_step_face_ids.contains(reference.semantic_key) &&
+                        !reference.semantic_key.starts_with("face:"),
+                    "Imported STEP face reference used a synthetic traversal identity");
+        }
+        for (const auto& edge : imported_step_references.edges) {
+            require(edge.reference.owner_id == step_container.id &&
+                        imported_step_edge_ids.contains(
+                            edge.reference.semantic_key) &&
+                        !edge.reference.semantic_key.starts_with("edge:"),
+                    "Imported STEP edge reference used a synthetic traversal identity");
+        }
+        for (const auto& point : imported_step_references.points) {
+            require(point.reference.owner_id == step_container.id &&
+                        imported_step_vertex_ids.contains(
+                            point.reference.semantic_key) &&
+                        !point.reference.semantic_key.starts_with("vertex:"),
+                    "Imported STEP vertex reference used a synthetic traversal identity");
+        }
+        step_container.imported_step.frozen_brep =
+            std::make_shared<const std::string>(
+                explicitly_imported_step.back().kernel_shape);
+        step_container.imported_step.topology = imported_step_topology;
+        step_document.history.push_back(std::move(step_container));
+        std::filesystem::remove(step_path);
         const auto step_boundaries = kernel.evaluate_history(
             step_document.kernel_operations());
         require(step_boundaries.size() == 1 &&
                     std::abs(step_boundaries.back().volume - 480.0) < 1.0e-6 &&
-                    step_boundaries.back().mesh.original_references
+                    !step_boundaries.back().mesh.original_references
                         .triangle_references.empty(),
-                "Imported STEP exposed traversal indices as persistent references");
-        require(!step_boundaries.back().kernel_shape.empty(),
-                "Imported STEP did not produce a frozen body");
-        step_document.history.front().imported_step.frozen_brep =
-            std::make_shared<const std::string>(step_boundaries.back().kernel_shape);
+                "Frozen imported STEP did not restore source topology without its file");
         const auto step_document_path = std::filesystem::temp_directory_path() /
             "zima-cad-imported-step-contract.prtz";
         step_document.save(step_document_path, step_boundaries);
@@ -73,16 +145,41 @@ int main() {
         const auto loaded_step_document = zima::document::PartDocument::load(
             step_document_path, &loaded_step_boundaries);
         std::filesystem::remove(step_document_path);
-        std::filesystem::remove(step_path);
         const auto recalculated_frozen_step = kernel.evaluate_history(
             loaded_step_document.kernel_operations());
         require(loaded_step_document.history.size() == 1 &&
                     loaded_step_document.history.front().feature_kind ==
                         zima::document::FeatureKind::ImportedStep &&
+                    loaded_step_document.history.front().imported_step.topology ==
+                        imported_step_topology &&
                     loaded_step_boundaries.size() == 1 &&
                     recalculated_frozen_step.size() == 1 &&
                     std::abs(recalculated_frozen_step.back().volume - 480.0) < 1.0e-6,
                 "Frozen imported STEP did not survive source-free Part recalculation");
+        const auto& recalculated_step_references =
+            recalculated_frozen_step.back().mesh.original_references;
+        require(!recalculated_step_references.triangle_references.empty() &&
+                    !recalculated_step_references.edges.empty() &&
+                    !recalculated_step_references.points.empty(),
+                "Frozen imported STEP did not restore persisted source references");
+        for (const auto& reference :
+             recalculated_step_references.triangle_references) {
+            require(reference.owner_id == step_document.history.front().id &&
+                        imported_step_face_ids.contains(reference.semantic_key),
+                    "Frozen imported STEP restored a different face identity");
+        }
+        for (const auto& edge : recalculated_step_references.edges) {
+            require(edge.reference.owner_id == step_document.history.front().id &&
+                        imported_step_edge_ids.contains(
+                            edge.reference.semantic_key),
+                    "Frozen imported STEP restored a different edge identity");
+        }
+        for (const auto& point : recalculated_step_references.points) {
+            require(point.reference.owner_id == step_document.history.front().id &&
+                        imported_step_vertex_ids.contains(
+                            point.reference.semantic_key),
+                    "Frozen imported STEP restored a different vertex identity");
+        }
 
         // Edit/regenerate/reopen: the Python-produced fixture starts with an
         // empty history. Append a native feature, calculate it, save and
