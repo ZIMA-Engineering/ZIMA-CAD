@@ -948,6 +948,35 @@ std::optional<zima::kernel::Vec3> MeshView::candidate_face_normal(
         ? resolve(impl_->mesh.original_references) : resolve(impl_->mesh);
 }
 
+std::vector<zima::kernel::Vec3> MeshView::candidate_face_triangles(
+    const ViewerCandidate& candidate) const {
+    if (candidate.kind != CandidateKind::Face) return {};
+    const auto resolve = [&](const auto& mesh) {
+        std::vector<zima::kernel::Vec3> result;
+        for (std::size_t triangle = 0;
+             triangle < mesh.triangle_references.size(); ++triangle) {
+            if (mesh.triangle_references[triangle].owner_id != candidate.owner_id ||
+                mesh.triangle_references[triangle].semantic_key !=
+                    candidate.semantic_key ||
+                mesh.triangle_references[triangle].instance_path !=
+                    candidate.instance_path ||
+                triangle * 3 + 2 >= mesh.triangles.size()) {
+                continue;
+            }
+            for (std::size_t corner = 0; corner < 3; ++corner) {
+                const auto vertex = mesh.triangles[triangle * 3 + corner];
+                if (vertex >= mesh.vertices.size()) {
+                    return std::vector<zima::kernel::Vec3>{};
+                }
+                result.push_back(mesh.vertices[vertex]);
+            }
+        }
+        return result;
+    };
+    return candidate.geometry == CandidateGeometry::OriginalReference
+        ? resolve(impl_->mesh.original_references) : resolve(impl_->mesh);
+}
+
 void MeshView::confirm_container(const std::string& owner_id) {
     auto candidate = container_candidate(impl_->mesh, owner_id);
     if (!candidate) {

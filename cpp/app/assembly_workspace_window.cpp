@@ -5494,42 +5494,34 @@ void AssemblyWorkspaceWindow::accept_extrusion_target(
     zima::kernel::Vec3 origin;
     zima::kernel::Vec3 normal;
     bool resolved = false;
-    bool construction_plane = false;
     std::vector<zima::kernel::Vec3> surface_triangles;
+    QString target_label = tr("Plocha");
+    if (part != nullptr) {
+        if (const auto* container =
+                part->session.document().find_container(candidate.owner_id)) {
+            target_label = tr("%1 / plocha").arg(
+                QString::fromStdString(container->name));
+        }
+    }
     const auto* construction = part == nullptr ? nullptr
         : part->session.document().find_construction(candidate.owner_id);
     if (construction != nullptr &&
         construction->kind == zima::document::ConstructionKind::Plane) {
+        target_label = QString::fromStdString(construction->name);
         origin = construction->origin;
         normal = construction->direction;
         resolved = true;
-        construction_plane = true;
     } else {
-        const auto scene = assembly == nullptr
-            ? zima::kernel::ViewerMesh{}
-            : assembly->session.document().build_scene();
-        const auto* references = assembly != nullptr
-            ? &scene.original_references
-            : part->session.calculated_boundaries().empty()
-                ? nullptr
-                : &part->session.calculated_boundaries().back()
-                    .mesh.original_references;
-        if (references == nullptr) {
-            state_->setText(tr("Vybraná plocha nemá uloženou geometrii."));
-            return;
-        }
+        // Consume the exact persisted Face packet which produced the offered
+        // viewer candidate. Re-resolving it from a document's final body can
+        // disagree with creation/rollback presentation and prevented a new
+        // additive Extrusion from accepting a source-solid face.
+        surface_triangles = viewer_->candidate_face_triangles(candidate);
         for (std::size_t triangle = 0;
-             triangle < references->triangle_references.size(); ++triangle) {
-            const auto& reference = references->triangle_references[triangle];
-            if (reference.owner_id != candidate.owner_id ||
-                reference.semantic_key != candidate.semantic_key ||
-                reference.instance_path != candidate.instance_path) continue;
-            const auto first = references->vertices[
-                references->triangles[triangle * 3]];
-            const auto second = references->vertices[
-                references->triangles[triangle * 3 + 1]];
-            const auto third = references->vertices[
-                references->triangles[triangle * 3 + 2]];
+             triangle + 2 < surface_triangles.size(); triangle += 3) {
+            const auto& first = surface_triangles[triangle];
+            const auto& second = surface_triangles[triangle + 1];
+            const auto& third = surface_triangles[triangle + 2];
             const zima::kernel::Vec3 a{second.x - first.x, second.y - first.y,
                                        second.z - first.z};
             const zima::kernel::Vec3 b{third.x - first.x, third.y - first.y,
@@ -5544,43 +5536,36 @@ void AssemblyWorkspaceWindow::accept_extrusion_target(
             normal = {normal.x / length, normal.y / length, normal.z / length};
             origin = first;
             resolved = true;
-            for (std::size_t other = 0;
-                 other < references->triangle_references.size(); ++other) {
-                if (references->triangle_references[other] != reference) continue;
-                for (int corner = 0; corner < 3; ++corner) {
-                    const auto& point = references->vertices[
-                        references->triangles[other * 3 + corner]];
-                    surface_triangles.push_back(point);
-                    const double distance = (point.x - origin.x) * normal.x +
-                        (point.y - origin.y) * normal.y +
-                        (point.z - origin.z) * normal.z;
-                    if (std::abs(distance) > 1e-6) resolved = false;
-                }
+            for (const auto& point : surface_triangles) {
+                const double distance = (point.x - origin.x) * normal.x +
+                    (point.y - origin.y) * normal.y +
+                    (point.z - origin.z) * normal.z;
+                if (std::abs(distance) > 1e-6) resolved = false;
             }
             break;
         }
     }
-    // A planar face of an original solid is still a finite persisted Face,
-    // not a datum Plane.  Turning it into an infinite fallback plane loses
-    // the selected face boundary and makes Up-to terminate against geometry
-    // other than the object the user actually picked.  Only a real
-    // construction plane follows the plane-target path; every solid face
-    // retains its persisted identity and triangle packet.
-    if (!construction_plane && !surface_triangles.empty()) {
+    // Up-to a planar solid face follows its underlying geometric plane. The
+    // selected face remains the persisted reference owner, but its trimmed
+    // boundary must not reject a profile which crosses an edge of that face.
+    // This is the expected CAD interaction for e.g. a cylinder whose projected
+    // circle only partly overlaps the selected planar face. Curved faces keep
+    // their finite persisted triangle packet and exact OCCT target surface.
+    if (!resolved && !surface_triangles.empty()) {
         extrusion_target_dialog_->set_extrusion_surface_target(
             {candidate.owner_id, candidate.semantic_key, candidate.instance_path},
-            std::move(surface_triangles));
+            std::move(surface_triangles), target_label.toStdString());
         finish_extrusion_target_selection();
         state_->setText(tr("Cílová plocha vytažení byla nastavena."));
         return;
     }
     if (!resolved) {
-        state_->setText(tr("Vybraná plocha není rovinná."));
+        state_->setText(tr("Vybraná plocha nemá použitelnou geometrii."));
         return;
     }
     extrusion_target_dialog_->set_extrusion_target(
         {candidate.owner_id, candidate.semantic_key, candidate.instance_path},
-        origin, normal);
+        origin, normal, target_label.toStdString());
     finish_extrusion_target_selection();
     state_->setText(tr("Cílová plocha vytažení byla nastavena."));
 }

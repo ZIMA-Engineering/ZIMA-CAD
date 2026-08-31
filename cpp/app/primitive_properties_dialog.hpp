@@ -56,10 +56,10 @@ public:
         QWidget* parent);
     void set_extrusion_target(
         zima::kernel::FaceReference reference, zima::kernel::Vec3 origin,
-        zima::kernel::Vec3 normal);
+        zima::kernel::Vec3 normal, std::string label = {});
     void set_extrusion_surface_target(
         zima::kernel::FaceReference reference,
-        std::vector<zima::kernel::Vec3> triangles);
+        std::vector<zima::kernel::Vec3> triangles, std::string label = {});
     void set_extrusion_target_request(std::function<void()> callback);
     void set_profile_pick_request(std::function<void(bool)> callback);
     void set_edit_sketch_callback(

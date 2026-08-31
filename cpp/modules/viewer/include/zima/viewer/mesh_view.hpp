@@ -211,6 +211,8 @@ public:
     // the perpendicular-to-face ("Pohled kolmo") view orientation command.
     [[nodiscard]] std::optional<zima::kernel::Vec3> candidate_face_normal(
         const ViewerCandidate& candidate) const;
+    [[nodiscard]] std::vector<zima::kernel::Vec3> candidate_face_triangles(
+        const ViewerCandidate& candidate) const;
     [[nodiscard]] double world_tolerance_for_pixels(double pixels) const;
 
 protected:

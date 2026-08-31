@@ -841,11 +841,13 @@ void PrimitivePropertiesDialog::set_edge_group_callbacks(
 
 void PrimitivePropertiesDialog::set_extrusion_target(
     zima::kernel::FaceReference reference, zima::kernel::Vec3 origin,
-    zima::kernel::Vec3 normal) {
+    zima::kernel::Vec3 normal, std::string label) {
     zima::document::ExtrusionParameters::EndTarget target;
     target.kind = zima::document::EndTargetKind::Plane;
     target.reference = std::move(reference);
-    target.label = target.reference.owner_id + " / " + target.reference.semantic_key;
+    target.label = label.empty()
+        ? target.reference.owner_id + " / " + target.reference.semantic_key
+        : std::move(label);
     target.fallback_origin = origin;
     target.fallback_normal = normal;
     auto& targets = active_end_target_side_ == "reverse"
@@ -860,11 +862,13 @@ void PrimitivePropertiesDialog::set_extrusion_target(
 
 void PrimitivePropertiesDialog::set_extrusion_surface_target(
     zima::kernel::FaceReference reference,
-    std::vector<zima::kernel::Vec3> triangles) {
+    std::vector<zima::kernel::Vec3> triangles, std::string label) {
     zima::document::ExtrusionParameters::EndTarget target;
     target.kind = zima::document::EndTargetKind::Face;
     target.reference = std::move(reference);
-    target.label = target.reference.owner_id + " / " + target.reference.semantic_key;
+    target.label = label.empty()
+        ? target.reference.owner_id + " / " + target.reference.semantic_key
+        : std::move(label);
     target.fallback_triangles = std::move(triangles);
     auto& targets = active_end_target_side_ == "reverse"
         ? initial_.extrusion.end_targets_reverse
