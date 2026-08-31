@@ -553,7 +553,6 @@ int verify_startup_contract(
                 selection_viewer->mapToGlobal(multi_candidate_position->toPoint()),
                 Qt::RightButton, Qt::RightButton, Qt::NoModifier);
             QApplication::sendEvent(selection_viewer, &press);
-            application.processEvents();
         };
         send_rmb_press();
         const auto after_first_cycle = selection_viewer->hovered_candidate();

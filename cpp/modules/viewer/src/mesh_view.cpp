@@ -3602,11 +3602,14 @@ if (impl_->show_planes) {
                     point.reference.semantic_key !=
                         "external_point:sketch_origin";
                 const bool origin = point.reference.semantic_key == "origin:point";
+                const bool point_container_candidate =
+                    point_containers_selectable &&
+                    point.reference.semantic_key == "point";
                 if (origin) continue;
                 if ((origin && !impl_->show_origins && !points_selectable) ||
                     (!origin && !external && !point.always_visible &&
                      !impl_->show_points &&
-                     !points_selectable && !point_containers_selectable) ||
+                     !points_selectable && !point_container_candidate) ||
                     (external && !impl_->show_sketches)) continue;
                 if (external) {
                     const QColor color = point.reference.semantic_key.ends_with(

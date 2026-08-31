@@ -420,6 +420,13 @@ int main() {
                             edge.reference.owner_id == "box";
                     }),
                 "Calculated body edges lost stable input-body references");
+        require(!body.mesh.points.empty() &&
+                    std::all_of(body.mesh.points.begin(), body.mesh.points.end(),
+                        [](const auto& point) {
+                            return point.reference.valid() &&
+                                !point.always_visible;
+                        }),
+                "Calculated body vertices became permanent visible markers");
         std::set<std::string> box_face_keys;
         for (const auto& reference : body.mesh.original_references.triangle_references) {
             require(reference.owner_id == "box" && reference.valid(),

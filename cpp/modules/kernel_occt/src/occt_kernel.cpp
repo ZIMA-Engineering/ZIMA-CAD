@@ -2391,8 +2391,12 @@ BodyResult make_result(
             vertex_references->reference_for(vertex);
         if (!reference.valid()) continue;
         const gp_Pnt point = BRep_Tool::Pnt(vertex);
-        const ViewerPoint viewer_point{
+        ViewerPoint viewer_point{
             {point.X(), point.Y(), point.Z()}, reference};
+        // Result-body vertices are reference targets, not permanent screen
+        // markers. The viewer reveals them only while a Vertex-taking
+        // command is active (or when explicitly highlighted).
+        viewer_point.always_visible = false;
         if (original_reference_geometry) result.mesh.points.push_back(viewer_point);
         if (collect_original_references) {
             result.mesh.original_references.points.push_back(viewer_point);
