@@ -13,8 +13,10 @@
 #include <string_view>
 #include <QString>
 
+class QAction;
 class QComboBox;
 class QDoubleSpinBox;
+class QEvent;
 class QLabel;
 class QLineEdit;
 class QListWidget;
@@ -122,6 +124,7 @@ public:
 
 protected:
     bool submit() override;
+    bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
     zima::document::HistoryContainer initial_;
@@ -165,6 +168,8 @@ private:
     QComboBox* reverse_end_condition_{};
     QLineEdit* forward_end_target_{};
     QLineEdit* reverse_end_target_{};
+    QAction* forward_end_target_clear_action_{};
+    QAction* reverse_end_target_clear_action_{};
     QPushButton* forward_end_targets_button_{};
     QPushButton* reverse_end_targets_button_{};
     QWidget* reverse_end_row_{};
@@ -172,11 +177,14 @@ private:
         {{360.0, 360.0}}, {{45.0, 45.0}}, {{45.0, 45.0}}}};
     int revolution_previous_extent_index_{};
     std::string active_end_target_side_{"forward"};
+    bool forward_end_target_highlighted_{};
+    bool reverse_end_target_highlighted_{};
+    bool forward_end_target_pick_active_{};
+    bool reverse_end_target_pick_active_{};
     std::function<void()> extrusion_target_request_;
     std::function<void(bool)> profile_pick_request_;
     std::function<void(zima::document::HistoryContainer)> edit_sketch_;
     std::function<void(const zima::document::HistoryContainer&)> preview_;
-    QDoubleSpinBox* angle_{};
     QDoubleSpinBox* treatment_size_{};
     QTreeWidget* edge_list_{};
     QPushButton* remove_edge_button_{};
@@ -196,6 +204,10 @@ private:
     QListWidget* assembly_targets_{};
     ReferenceHighlightsChangedCallback reference_highlights_changed_;
     [[nodiscard]] zima::document::HistoryContainer values() const;
+    void request_extrusion_target(const std::string& side);
+    void clear_extrusion_target(const std::string& side);
+    void toggle_extrusion_target_highlight(const std::string& side);
+    void refresh_extrusion_target_styles();
     void notify_preview();
 };
 

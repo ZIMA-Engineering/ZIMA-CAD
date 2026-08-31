@@ -10,6 +10,7 @@
 
 #include <zima/viewer/mesh_view.hpp>
 
+#include <QAction>
 #include <QApplication>
 #include <QAbstractProxyModel>
 #include <QDialogButtonBox>
@@ -247,6 +248,60 @@ int main(int argc, char* argv[]) {
                 "Empty LMB click left stale view selection confirmed");
         require(empty_selection_callbacks == 1,
                 "Empty LMB click did not notify tree/view selection clearing");
+
+        zima::kernel::ViewerMesh face_cycle_mesh;
+        face_cycle_mesh.vertices = {
+            {-1.0, -1.0, 1.0}, {1.0, -1.0, 1.0},
+            {1.0, 1.0, 1.0}, {-1.0, 1.0, 1.0},
+            {-1.0, -1.0, -1.0}, {1.0, -1.0, -1.0},
+            {1.0, 1.0, -1.0}, {-1.0, 1.0, -1.0}};
+        face_cycle_mesh.triangles = {
+            0, 1, 2, 0, 2, 3,
+            4, 5, 6, 4, 6, 7};
+        face_cycle_mesh.triangle_references = {
+            {"result", "front", {}}, {"result", "front", {}},
+            {"result", "back", {}}, {"result", "back", {}}};
+        face_cycle_mesh.original_references.vertices =
+            face_cycle_mesh.vertices;
+        face_cycle_mesh.original_references.triangles =
+            face_cycle_mesh.triangles;
+        face_cycle_mesh.original_references.triangle_references = {
+            {"front-owner", "front-face", {}},
+            {"front-owner", "front-face", {}},
+            {"back-owner", "back-face", {}},
+            {"back-owner", "back-face", {}}};
+        zima::viewer::MeshView face_cycle_view(&parent);
+        face_cycle_view.setGeometry(0, 0, 500, 360);
+        face_cycle_view.set_mesh(std::move(face_cycle_mesh));
+        face_cycle_view.set_selection_contract(
+            {zima::viewer::CandidateKind::Face});
+        face_cycle_view.set_candidate_filter([](const auto& candidate) {
+            return candidate.geometry ==
+                zima::viewer::CandidateGeometry::OriginalReference;
+        });
+        face_cycle_view.show();
+        face_cycle_view.fit_all();
+        application.processEvents();
+        const QPointF face_pointer(250.0, 180.0);
+        const auto face_candidates =
+            face_cycle_view.selection_candidates_at(face_pointer);
+        require(face_candidates.size() == 2,
+                "Face command did not retain front and hidden back faces in "
+                "one ordered candidate list");
+        QMouseEvent face_hover(
+            QEvent::MouseMove, face_pointer, face_pointer, face_pointer,
+            Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+        QApplication::sendEvent(&face_cycle_view, &face_hover);
+        const auto first_face = face_cycle_view.hovered_candidate();
+        QMouseEvent next_face(
+            QEvent::MouseButtonPress, face_pointer, face_pointer, face_pointer,
+            Qt::RightButton, Qt::RightButton, Qt::NoModifier);
+        QApplication::sendEvent(&face_cycle_view, &next_face);
+        const auto second_face = face_cycle_view.hovered_candidate();
+        require(first_face && second_face &&
+                    first_face->owner_id != second_face->owner_id &&
+                    second_face->owner_id == face_candidates[1].owner_id,
+                "RMB did not advance hover to the face behind the front face");
 
         zima::kernel::ViewerMesh zero_dimension_mesh;
         zero_dimension_mesh.axes.push_back({
@@ -1140,6 +1195,48 @@ int main(int argc, char* argv[]) {
                 "change offset and length with one preview rebuild");
         extrusion_dialog->set_profile_offset_and_forward_length(-7.5, 48.0);
         forward_end->setCurrentIndex(forward_end->findData("up_to"));
+        int target_requests = 0;
+        int target_highlight_updates = 0;
+        extrusion_dialog->set_extrusion_target_request(
+            [&] { ++target_requests; });
+        extrusion_dialog->set_reference_highlights_changed_callback(
+            [&] { ++target_highlight_updates; });
+        extrusion_dialog->set_extrusion_target(
+            {"datum-plane", "plane", {}}, {0.0, 0.0, 30.0}, {0.0, 0.0, 1.0});
+        auto* forward_target = extrusion_dialog->findChild<QLineEdit*>(
+            "extrusionForwardEndTarget");
+        auto* clear_forward_target = extrusion_dialog->findChild<QAction*>(
+            "extrusionForwardEndTargetClear");
+        require(forward_target != nullptr && clear_forward_target != nullptr &&
+                    clear_forward_target->isEnabled(),
+                "Up-to target does not expose its reference field and clear action");
+        QMouseEvent highlight_target(
+            QEvent::MouseButtonPress, QPointF(8.0, 8.0),
+            Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(forward_target, &highlight_target);
+        const auto highlighted_targets =
+            extrusion_dialog->highlighted_reference_entries();
+        require(target_highlight_updates == 1 &&
+                    forward_target->styleSheet().contains("#00d1ff") &&
+                    std::any_of(highlighted_targets.begin(),
+                        highlighted_targets.end(), [](const auto& reference) {
+                            return reference.owner_id == "datum-plane" &&
+                                reference.semantic_key == "plane";
+                        }),
+                "Clicking a populated Up-to field did not highlight the exact "
+                "stored target reference");
+        clear_forward_target->trigger();
+        require(forward_target->text().isEmpty() &&
+                    !clear_forward_target->isEnabled() &&
+                    extrusion_preview.extrusion.end_targets_forward.empty(),
+                "Up-to context action did not clear its stored target");
+        QMouseEvent request_target(
+            QEvent::MouseButtonPress, QPointF(8.0, 8.0),
+            Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(forward_target, &request_target);
+        require(target_requests == 1 &&
+                    forward_target->styleSheet().contains("#00d1ff"),
+                "Clicking an empty Up-to field did not arm explicit face picking");
         extrusion_dialog->set_extrusion_target(
             {"datum-plane", "plane", {}}, {0.0, 0.0, 30.0}, {0.0, 0.0, 1.0});
         extrusion_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
@@ -1204,6 +1301,9 @@ int main(int argc, char* argv[]) {
                     revolution_angle != nullptr &&
                     revolution_plane_offset != nullptr,
                 "Revolution dialog does not explain its Sketch centerline axis");
+        require(revolution_dialog->set_inline_parameter_value("angle", 210.0) &&
+                    revolution_angle->value() == 210.0,
+                "Inline Revolution angle edit did not reach the live angle field");
         require(!revolution_dialog->findChildren<QDoubleSpinBox*>(
                     "primitiveTranslation").empty() &&
                     revolution_dialog->findChild<QTableWidget*>(

@@ -2,8 +2,10 @@
 
 #include <zima/ui/reference_cell.hpp>
 
+#include <QAction>
 #include <QComboBox>
 #include <QDoubleSpinBox>
+#include <QEvent>
 #include <QFormLayout>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -12,6 +14,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QMouseEvent>
 #include <QPalette>
 #include <QPushButton>
 #include <QSignalBlocker>
@@ -416,9 +419,28 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
                 side == std::string_view("forward")
                     ? "extrusionForwardEndCondition" : "extrusionReverseEndCondition");
             target = new QLineEdit(this);
+            target->setObjectName(side == std::string_view("forward")
+                ? "extrusionForwardEndTarget" : "extrusionReverseEndTarget");
             target->setReadOnly(true);
             target->setPlaceholderText(tr("Vyberte bod, rovinu nebo rovinnou plochu…"));
             if (!targets.empty()) target->setText(QString::fromStdString(targets.front().label));
+            target->installEventFilter(this);
+            target->setContextMenuPolicy(Qt::ActionsContextMenu);
+            auto* clear_action = new QAction(tr("Vymazat referenci"), target);
+            clear_action->setObjectName(side == std::string_view("forward")
+                ? "extrusionForwardEndTargetClear"
+                : "extrusionReverseEndTargetClear");
+            clear_action->setEnabled(!targets.empty());
+            target->addAction(clear_action);
+            connect(clear_action, &QAction::triggered, this,
+                [this, side = std::string(side)] {
+                    clear_extrusion_target(side);
+                });
+            if (side == std::string_view("forward")) {
+                forward_end_target_clear_action_ = clear_action;
+            } else {
+                reverse_end_target_clear_action_ = clear_action;
+            }
             collection = new QPushButton(QStringLiteral("…"), this);
             layout->addWidget(combo, 1);
             layout->addWidget(length, 1);
@@ -432,15 +454,11 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
             };
             connect(combo, &QComboBox::currentIndexChanged, this,
                 [this, refresh](int) { refresh(); notify_preview(); });
-            connect(target, &QLineEdit::selectionChanged, this, [this, side] {
-                active_end_target_side_ = side;
-                if (extrusion_target_request_) extrusion_target_request_();
-            });
             connect(collection, &QPushButton::clicked, this, [this, side] {
-                active_end_target_side_ = side;
-                if (extrusion_target_request_) extrusion_target_request_();
+                request_extrusion_target(std::string(side));
             });
             refresh();
+            refresh_extrusion_target_styles();
             return row;
         };
         if (!revolve) {
@@ -857,6 +875,16 @@ void PrimitivePropertiesDialog::set_extrusion_target(
     auto* edit = active_end_target_side_ == "reverse"
         ? reverse_end_target_ : forward_end_target_;
     if (edit != nullptr) edit->setText(QString::fromStdString(target.label));
+    if (active_end_target_side_ == "reverse") {
+        reverse_end_target_pick_active_ = false;
+        if (reverse_end_target_clear_action_)
+            reverse_end_target_clear_action_->setEnabled(true);
+    } else {
+        forward_end_target_pick_active_ = false;
+        if (forward_end_target_clear_action_)
+            forward_end_target_clear_action_->setEnabled(true);
+    }
+    refresh_extrusion_target_styles();
     notify_preview();
 }
 
@@ -877,7 +905,102 @@ void PrimitivePropertiesDialog::set_extrusion_surface_target(
     auto* edit = active_end_target_side_ == "reverse"
         ? reverse_end_target_ : forward_end_target_;
     if (edit != nullptr) edit->setText(QString::fromStdString(target.label));
+    if (active_end_target_side_ == "reverse") {
+        reverse_end_target_pick_active_ = false;
+        if (reverse_end_target_clear_action_)
+            reverse_end_target_clear_action_->setEnabled(true);
+    } else {
+        forward_end_target_pick_active_ = false;
+        if (forward_end_target_clear_action_)
+            forward_end_target_clear_action_->setEnabled(true);
+    }
+    refresh_extrusion_target_styles();
     notify_preview();
+}
+
+bool PrimitivePropertiesDialog::eventFilter(QObject* watched, QEvent* event) {
+    if ((watched == forward_end_target_ || watched == reverse_end_target_) &&
+        event->type() == QEvent::MouseButtonPress) {
+        const auto* mouse = static_cast<QMouseEvent*>(event);
+        if (mouse->button() == Qt::LeftButton) {
+            const std::string side = watched == reverse_end_target_
+                ? "reverse" : "forward";
+            const auto& targets = side == "reverse"
+                ? initial_.extrusion.end_targets_reverse
+                : initial_.extrusion.end_targets_forward;
+            if (targets.empty() || !targets.front().reference.valid()) {
+                request_extrusion_target(side);
+            } else {
+                toggle_extrusion_target_highlight(side);
+            }
+            event->accept();
+            return true;
+        }
+    }
+    return PropertiesSubWindow::eventFilter(watched, event);
+}
+
+void PrimitivePropertiesDialog::request_extrusion_target(
+    const std::string& side) {
+    active_end_target_side_ = side;
+    forward_end_target_pick_active_ = side == "forward";
+    reverse_end_target_pick_active_ = side == "reverse";
+    forward_end_target_highlighted_ = false;
+    reverse_end_target_highlighted_ = false;
+    refresh_extrusion_target_styles();
+    if (reference_highlights_changed_) reference_highlights_changed_();
+    if (extrusion_target_request_) extrusion_target_request_();
+}
+
+void PrimitivePropertiesDialog::clear_extrusion_target(
+    const std::string& side) {
+    auto& targets = side == "reverse"
+        ? initial_.extrusion.end_targets_reverse
+        : initial_.extrusion.end_targets_forward;
+    targets.clear();
+    auto* edit = side == "reverse" ? reverse_end_target_ : forward_end_target_;
+    if (edit != nullptr) edit->clear();
+    if (side == "reverse") {
+        reverse_end_target_highlighted_ = false;
+        reverse_end_target_pick_active_ = false;
+        if (reverse_end_target_clear_action_)
+            reverse_end_target_clear_action_->setEnabled(false);
+    } else {
+        forward_end_target_highlighted_ = false;
+        forward_end_target_pick_active_ = false;
+        if (forward_end_target_clear_action_)
+            forward_end_target_clear_action_->setEnabled(false);
+    }
+    refresh_extrusion_target_styles();
+    if (reference_highlights_changed_) reference_highlights_changed_();
+    notify_preview();
+}
+
+void PrimitivePropertiesDialog::toggle_extrusion_target_highlight(
+    const std::string& side) {
+    if (side == "reverse") {
+        reverse_end_target_highlighted_ = !reverse_end_target_highlighted_;
+        reverse_end_target_pick_active_ = false;
+    } else {
+        forward_end_target_highlighted_ = !forward_end_target_highlighted_;
+        forward_end_target_pick_active_ = false;
+    }
+    refresh_extrusion_target_styles();
+    if (reference_highlights_changed_) reference_highlights_changed_();
+}
+
+void PrimitivePropertiesDialog::refresh_extrusion_target_styles() {
+    const auto apply = [](QLineEdit* edit, bool active) {
+        if (edit == nullptr) return;
+        edit->setStyleSheet(active
+            ? QStringLiteral("QLineEdit{background:#00d1ff;color:#102027;"
+                             "border:1px solid #00a9d1;padding:2px 5px}")
+            : QString{});
+    };
+    apply(forward_end_target_, forward_end_target_highlighted_ ||
+        forward_end_target_pick_active_);
+    apply(reverse_end_target_, reverse_end_target_highlighted_ ||
+        reverse_end_target_pick_active_);
 }
 
 void PrimitivePropertiesDialog::set_extrusion_target_request(
@@ -1056,14 +1179,35 @@ void PrimitivePropertiesDialog::set_reference_highlights_changed_callback(
 
 std::set<std::string>
 PrimitivePropertiesDialog::highlighted_reference_owner_ids() const {
-    return placement_ ? placement_->highlighted_reference_owner_ids()
-                       : std::set<std::string>{};
+    auto result = placement_ ? placement_->highlighted_reference_owner_ids()
+                             : std::set<std::string>{};
+    const auto append_target = [&](bool highlighted, const auto& targets) {
+        if (highlighted && !targets.empty() && targets.front().reference.valid())
+            result.insert(targets.front().reference.owner_id);
+    };
+    append_target(forward_end_target_highlighted_,
+        initial_.extrusion.end_targets_forward);
+    append_target(reverse_end_target_highlighted_,
+        initial_.extrusion.end_targets_reverse);
+    return result;
 }
 
 std::vector<zima::document::ConstructionReference>
 PrimitivePropertiesDialog::highlighted_reference_entries() const {
-    return placement_ ? placement_->highlighted_reference_entries()
-                       : std::vector<zima::document::ConstructionReference>{};
+    auto result = placement_ ? placement_->highlighted_reference_entries()
+                             : std::vector<zima::document::ConstructionReference>{};
+    const auto append_target = [&](bool highlighted, const auto& targets) {
+        if (!highlighted || targets.empty() ||
+            !targets.front().reference.valid()) return;
+        const auto& reference = targets.front().reference;
+        result.push_back({reference.instance_path, reference.owner_id,
+            reference.semantic_key});
+    };
+    append_target(forward_end_target_highlighted_,
+        initial_.extrusion.end_targets_forward);
+    append_target(reverse_end_target_highlighted_,
+        initial_.extrusion.end_targets_reverse);
+    return result;
 }
 
 bool PrimitivePropertiesDialog::set_reference(std::size_t index,
@@ -1157,7 +1301,7 @@ bool PrimitivePropertiesDialog::set_inline_parameter_value(
     if (key == "length_forward") return set_field(forward_length_);
     if (key == "length_reverse") return set_field(reverse_length_);
     if (key == "profile_offset") return set_field(profile_plane_offset_);
-    if (key == "angle") return set_field(angle_);
+    if (key == "angle") return set_field(forward_length_);
     if (key == "size") return set_field(treatment_size_);
     return false;
 }

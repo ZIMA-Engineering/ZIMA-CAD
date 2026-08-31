@@ -5537,8 +5537,13 @@ bool AssemblyWorkspaceWindow::finish_edge_treatment_selection() {
 
 void AssemblyWorkspaceWindow::accept_extrusion_target(
     const zima::viewer::ViewerCandidate& candidate) {
+    const bool solid_face =
+        candidate.kind == zima::viewer::CandidateKind::Face;
+    const bool construction_plane =
+        candidate.kind == zima::viewer::CandidateKind::Plane &&
+        candidate.semantic_key == "plane";
     if (extrusion_target_dialog_ == nullptr ||
-        candidate.kind != zima::viewer::CandidateKind::Face ||
+        (!solid_face && !construction_plane) ||
         candidate.geometry != zima::viewer::CandidateGeometry::OriginalReference ||
         candidate.owner_id.empty() || candidate.semantic_key.empty()) {
         state_->setText(tr("Vyberte rovinnou plochu nebo konstrukční rovinu Partu."));
@@ -5576,8 +5581,20 @@ void AssemblyWorkspaceWindow::accept_extrusion_target(
                 QString::fromStdString(container->name));
         }
     }
-    const auto* construction = part == nullptr ? nullptr
-        : part->session.document().find_construction(candidate.owner_id);
+    const zima::document::ConstructionObject* construction =
+        part != nullptr
+        ? part->session.document().find_construction(candidate.owner_id)
+        : assembly->session.document().find_construction(candidate.owner_id);
+    if (construction == nullptr && construction_plane) {
+        const auto& constructions = part != nullptr
+            ? part->session.document().constructions
+            : assembly->session.document().constructions;
+        const auto found = std::find_if(
+            constructions.begin(), constructions.end(), [&](const auto& value) {
+                return value.entity_id == candidate.owner_id;
+            });
+        if (found != constructions.end()) construction = &*found;
+    }
     if (construction != nullptr &&
         construction->kind == zima::document::ConstructionKind::Plane) {
         target_label = QString::fromStdString(construction->name);
@@ -8383,7 +8400,9 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             extrusion_target_dialog_ = dialog;
             tree_->setProperty("commandSelectionActive", true);
             viewer_->clear_selection();
-            viewer_->set_selection_contract({zima::viewer::CandidateKind::Face});
+            viewer_->set_selection_contract({
+                zima::viewer::CandidateKind::Face,
+                zima::viewer::CandidateKind::Plane});
             const auto* part =
                 workspace_.open_part(workspace_.active_document_id());
             const auto expected_path = part == nullptr
@@ -8398,7 +8417,12 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                             candidate.instance_path);
                         owned_path = !decoded.occurrence_ids.empty();
                     }
-                    return candidate.kind == zima::viewer::CandidateKind::Face &&
+                    const bool target_kind =
+                        candidate.kind == zima::viewer::CandidateKind::Face ||
+                        (candidate.kind ==
+                             zima::viewer::CandidateKind::Plane &&
+                         candidate.semantic_key == "plane");
+                    return target_kind &&
                         candidate.geometry ==
                             zima::viewer::CandidateGeometry::OriginalReference &&
                         owned_path;
@@ -19982,9 +20006,16 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         if constexpr (requires { document.sketches; }) {
             const auto sketch = std::find_if(document.sketches.begin(),
                 document.sketches.end(), [&](const auto& value) {
+                    // An owned profile is a child of Extrusion/Revolution,
+                    // but its Sketch constraints are not parameters of that
+                    // feature Properties window. While a live feature
+                    // preview exists, show only the feature's own editable
+                    // dimensions; the Sketch dimensions return when the
+                    // actual Sketch is inspected/edited.
                     return value.id == construction_dimension_object_id_ ||
-                        value.owner_container_id ==
-                            construction_dimension_object_id_;
+                        (!parameter_dimension_preview_ &&
+                         value.owner_container_id ==
+                            construction_dimension_object_id_);
                 });
             if (sketch != document.sketches.end()) {
                 const auto sketch_mesh = sketch->viewer_mesh();
