@@ -211,6 +211,9 @@ public:
     [[nodiscard]] std::vector<zima::kernel::EdgeReference> tangent_edge_route(
         const ViewerCandidate& seed,
         double angular_tolerance_degrees = 35.0) const;
+    [[nodiscard]] std::set<EdgeKey> edge_treatment_boundary_edges(
+        const std::string& owner_id,
+        const std::string& instance_path = {}) const;
     // Outward unit normal of a Face candidate's triangle, in the same
     // document-space coordinates as candidate_edge/candidate_point. Used by
     // the perpendicular-to-face ("Pohled kolmo") view orientation command.

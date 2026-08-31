@@ -75,6 +75,12 @@ struct ViewerEdge {
     // forms a persistent topology reference; it only lets a Container hover
     // recolour the existing GL edge instead of drawing a second overlay.
     std::string display_owner_id;
+    // Persisted viewer-only relation from this calculated Body edge to every
+    // Fillet/Chamfer surface whose visible boundary it forms. The relation is
+    // resolved during the explicit OCCT calculation and lets ordinary hover,
+    // selection and dimension inspection highlight only the treatment wire
+    // without traversing or reconstructing topology in the viewer.
+    std::vector<std::string> edge_treatment_owner_ids;
 };
 
 struct ViewerPoint {
@@ -348,17 +354,13 @@ struct StepRequest {
     std::vector<TopologyIdentity> topology;
 };
 
-enum class EdgeSelectionOrigin { OriginalEntity, OperationalBody };
-
 struct FilletRequest {
     std::vector<EdgeReference> edges;
-    EdgeSelectionOrigin origin{EdgeSelectionOrigin::OriginalEntity};
     double radius{1.0};
 };
 
 struct ChamferRequest {
     std::vector<EdgeReference> edges;
-    EdgeSelectionOrigin origin{EdgeSelectionOrigin::OriginalEntity};
     double distance{1.0};
 };
 
@@ -817,7 +819,6 @@ struct PlacedBody {
                     u64(edge.semantic_key.size());
                     for (const unsigned char value : edge.semantic_key) byte(value);
                 }
-                byte(static_cast<std::uint8_t>(primitive.origin));
                 if constexpr (std::is_same_v<Request, FilletRequest>) {
                     u64(std::bit_cast<std::uint64_t>(primitive.radius));
                 } else {

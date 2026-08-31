@@ -325,7 +325,7 @@ void add_json_parameters(
 
 nlohmann::json read_part_ini(const std::filesystem::path& path) {
     const auto ini = read_ini(path);
-    if (ini_value(ini, "Document", "format_version") != "11") {
+    if (ini_value(ini, "Document", "format_version") != "12") {
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
     nlohmann::json root = {
@@ -474,7 +474,7 @@ void write_part_ini(
     const nlohmann::json& root, const std::filesystem::path& path) {
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "11"},
+        {"format_version", "12"},
         {"type", "part"},
         {"document_id", root.at("document_id").get<std::string>()},
         {"name", root.at("name").get<std::string>()},
@@ -5316,13 +5316,11 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             require_default_sketch_feature_placement(container.placement);
             primitive = zima::kernel::FilletRequest{
                 container.edge_treatment.edges,
-                container.edge_treatment.origin,
                 container.edge_treatment.size};
         } else {
             require_default_sketch_feature_placement(container.placement);
             primitive = zima::kernel::ChamferRequest{
                 container.edge_treatment.edges,
-                container.edge_treatment.origin,
                 container.edge_treatment.size};
         }
         operations.push_back({
@@ -5708,16 +5706,6 @@ PartDocument PartDocument::load(
                 container.edge_treatment.edges.push_back({
                     edge.at("owner").get<std::string>(),
                     edge.at("key").get<std::string>(), {}});
-            }
-            const std::string origin = source.at("edge_origin").get<std::string>();
-            if (origin == "original_entity") {
-                container.edge_treatment.origin =
-                    zima::kernel::EdgeSelectionOrigin::OriginalEntity;
-            } else if (origin == "operational_body") {
-                container.edge_treatment.origin =
-                    zima::kernel::EdgeSelectionOrigin::OperationalBody;
-            } else {
-                throw std::runtime_error("Invalid edge treatment origin");
             }
             container.edge_treatment.size = source.at("size").get<double>();
             if (container.edge_treatment.edges.empty() ||
@@ -6432,9 +6420,6 @@ void PartDocument::save(
                 serialized["edges"].push_back({
                     {"owner", edge.owner_id}, {"key", edge.semantic_key}});
             }
-            serialized["edge_origin"] = container.edge_treatment.origin ==
-                    zima::kernel::EdgeSelectionOrigin::OriginalEntity
-                ? "original_entity" : "operational_body";
             serialized["size"] = container.edge_treatment.size;
         }
         serialized_history.push_back(std::move(serialized));

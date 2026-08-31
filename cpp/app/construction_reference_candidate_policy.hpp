@@ -2,7 +2,16 @@
 
 #include <zima/viewer/picking.hpp>
 
+#include <vector>
+
 namespace zima::app {
+
+[[nodiscard]] inline std::vector<zima::viewer::CandidateKind>
+placement_reference_candidate_kinds() {
+    using zima::viewer::CandidateKind;
+    return {CandidateKind::Vertex, CandidateKind::Axis, CandidateKind::Edge,
+        CandidateKind::Plane, CandidateKind::Face, CandidateKind::Dimension};
+}
 
 [[nodiscard]] inline bool construction_reference_candidate_is_persisted_origin_display(
     const zima::viewer::ViewerCandidate& candidate) {

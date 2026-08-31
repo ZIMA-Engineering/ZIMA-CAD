@@ -153,6 +153,26 @@ auto run_background_task(Function&& function) {
     }
 }
 
+std::optional<std::array<double, 2>> sketch_point_reference_position(
+    const zima::sketcher::Sketch& sketch, const std::string& reference_id) {
+    if (const auto* point = sketch.find_point(reference_id)) {
+        return std::array{point->x, point->y};
+    }
+    if (reference_id == "sketch_origin") {
+        return std::array{0.0, 0.0};
+    }
+    const auto external = std::ranges::find_if(
+        sketch.external_references, [&](const auto& reference) {
+            return reference.id == reference_id &&
+                reference.kind == zima::sketcher::ExternalReferenceKind::Point &&
+                reference.cached_points.size() == 1;
+        });
+    return external == sketch.external_references.end()
+        ? std::nullopt
+        : std::optional<std::array<double, 2>>{
+              external->cached_points.front()};
+}
+
 std::optional<std::array<double, 2>> exact_circle_tangent_contact(
     const zima::sketcher::Sketch& sketch,
     const std::array<double, 2>& start,
@@ -2806,6 +2826,9 @@ void AssemblyWorkspaceWindow::create_layout() {
             select_occurrence(candidate.instance_path);
         } else if (candidate.kind == zima::viewer::CandidateKind::Container) {
             select_container(candidate.owner_id);
+            viewer_->set_feature_selected_edges(
+                edge_treatment_feature_edges(
+                    candidate.owner_id, candidate.instance_path));
         } else if (candidate.kind == zima::viewer::CandidateKind::SketchSegment &&
                    candidate.owner_id == active_sketch_id_ &&
                    candidate.semantic_key.starts_with("segment:")) {
@@ -3061,6 +3084,7 @@ void AssemblyWorkspaceWindow::create_layout() {
     });
     viewer_->set_empty_confirmation_callback([this] {
         clear_selected_sketch_geometry();
+        viewer_->set_feature_selected_edges({});
         tree_->clearSelection();
         tree_->setCurrentItem(nullptr);
         if (properties_dialog_ == nullptr &&
@@ -3341,6 +3365,41 @@ void AssemblyWorkspaceWindow::create_layout() {
         return accept_sketch_bspline_ray(local_origin, local_direction);
     });
     viewer_->set_world_pointer_callback([this](const auto& origin, const auto& direction) {
+        // Fillet/Chamfer click already expands one persisted edge into its
+        // complete unambiguous tangent route. Preview that exact same route
+        // from the viewer's current offered candidate so hover, RMB cycling
+        // and LMB confirmation never describe different operations.
+        if (edge_treatment_selection_) {
+            std::optional<zima::viewer::EdgeKey> hover_seed;
+            if (const auto candidate = viewer_->offered_candidate();
+                candidate &&
+                candidate->kind == zima::viewer::CandidateKind::Edge &&
+                candidate->geometry ==
+                    zima::viewer::CandidateGeometry::Display) {
+                hover_seed = zima::viewer::EdgeKey{candidate->owner_id,
+                    candidate->semantic_key, candidate->instance_path};
+                if (hover_seed != edge_treatment_hover_seed_) {
+                    std::set<zima::viewer::EdgeKey> hovered_route;
+                    for (const auto& edge :
+                         viewer_->tangent_edge_route(*candidate)) {
+                        hovered_route.insert(zima::viewer::edge_key(edge));
+                    }
+                    viewer_->set_feature_hover_edges(std::move(hovered_route));
+                }
+            }
+            if (!hover_seed) viewer_->set_feature_hover_edges({});
+            edge_treatment_hover_seed_ = std::move(hover_seed);
+        } else {
+            edge_treatment_hover_seed_.reset();
+            std::set<zima::viewer::EdgeKey> hovered_feature;
+            if (const auto candidate = viewer_->offered_candidate();
+                candidate &&
+                candidate->kind == zima::viewer::CandidateKind::Container) {
+                hovered_feature = edge_treatment_feature_edges(
+                    candidate->owner_id, candidate->instance_path);
+            }
+            viewer_->set_feature_hover_edges(std::move(hovered_feature));
+        }
         if (!sketch_inference_cycle_refresh_) {
             sketch_segment_inference_cycle_ = 0;
             sketch_skip_candidate_snap_ = false;
@@ -3761,6 +3820,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                     construction_dimension_object_id_.clear();
                 }
                 clear_selected_sketch_geometry();
+                viewer_->set_feature_selected_edges({});
                 viewer_->clear_selection();
                 return;
             }
@@ -3797,6 +3857,7 @@ void AssemblyWorkspaceWindow::create_layout() {
             // to any ordinary Tree item must release the previous Sketch
             // geometry latch before the new item is synchronized below.
             clear_selected_sketch_geometry();
+            viewer_->set_feature_selected_edges({});
             if (item->data(0, Qt::UserRole + 3).toString() ==
                     "part-sketch-dimension" ||
                 item->data(0, Qt::UserRole + 3).toString() ==
@@ -3980,8 +4041,11 @@ void AssemblyWorkspaceWindow::create_layout() {
                 return;
             }
             if (item->data(0, Qt::UserRole + 3).toString() == "part-container") {
-                viewer_->confirm_container(
-                    item->data(0, Qt::UserRole).toString().toStdString());
+                const auto owner_id =
+                    item->data(0, Qt::UserRole).toString().toStdString();
+                viewer_->confirm_container(owner_id);
+                viewer_->set_feature_selected_edges(
+                    edge_treatment_feature_edges(owner_id));
             } else if (item->data(0, Qt::UserRole + 3).toString() ==
                            "part-result-body") {
                 viewer_->confirm_result_body();
@@ -5363,6 +5427,8 @@ void AssemblyWorkspaceWindow::start_edge_treatment(
         return;
     }
     edge_treatment_selection_ = kind;
+    edge_treatment_hover_seed_.reset();
+    viewer_->set_feature_hover_edges({});
     pending_edge_treatment_edges_.clear();
     pending_edge_treatment_groups_.clear();
     pending_edge_treatment_seeds_.clear();
@@ -5411,10 +5477,12 @@ void AssemblyWorkspaceWindow::start_edge_treatment(
         properties_dialog_ = nullptr;
         edge_treatment_dialog_ = nullptr;
         edge_treatment_selection_.reset();
+        edge_treatment_hover_seed_.reset();
         pending_edge_treatment_edges_.clear();
         pending_edge_treatment_groups_.clear();
         pending_edge_treatment_seeds_.clear();
         viewer_->set_edge_treatment_selection_edges({});
+        viewer_->set_feature_hover_edges({});
         viewer_->set_candidate_filter({});
         viewer_->set_constraint_reference_highlights({}, {});
         refresh_tabs();
@@ -5998,6 +6066,31 @@ void AssemblyWorkspaceWindow::accept_orientation_reference(
         : tr("Plocha");
     orientation_dialog_->accept_reference(descriptor, label);
     viewer_->clear_selection();
+}
+
+bool AssemblyWorkspaceWindow::is_edge_treatment_feature(
+    const std::string& owner_id) const {
+    const auto* part = workspace_.open_part(workspace_.active_document_id());
+    const auto* container = part == nullptr
+        ? nullptr : part->session.document().find_container(owner_id);
+    return container != nullptr &&
+        (container->feature_kind == zima::document::FeatureKind::Fillet ||
+         container->feature_kind == zima::document::FeatureKind::Chamfer);
+}
+
+std::set<zima::viewer::EdgeKey>
+AssemblyWorkspaceWindow::edge_treatment_feature_edges(
+    const std::string& owner_id,
+    std::string instance_path) const {
+    if (!is_edge_treatment_feature(owner_id) || viewer_ == nullptr) return {};
+    if (instance_path.empty()) {
+        const auto* part = workspace_.open_part(workspace_.active_document_id());
+        if (part != nullptr) {
+            instance_path = resolve_active_occurrence(
+                part->session.document().document_id).value_or(std::string{});
+        }
+    }
+    return viewer_->edge_treatment_boundary_edges(owner_id, instance_path);
 }
 
 void AssemblyWorkspaceWindow::begin_status_operation(
@@ -8819,6 +8912,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         (feature_kind == zima::document::FeatureKind::Fillet ||
          feature_kind == zima::document::FeatureKind::Chamfer)) {
         edge_treatment_selection_ = feature_kind;
+        edge_treatment_hover_seed_.reset();
+        viewer_->set_feature_hover_edges({});
         edge_treatment_dialog_ = dialog;
         pending_edge_treatment_edges_ = initial.edge_treatment.edges;
         pending_edge_treatment_groups_.clear();
@@ -8943,6 +9038,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         properties_dialog_ = nullptr;
         edge_treatment_dialog_ = nullptr;
         edge_treatment_selection_.reset();
+        edge_treatment_hover_seed_.reset();
         pending_edge_treatment_edges_.clear();
         pending_edge_treatment_groups_.clear();
         pending_edge_treatment_seeds_.clear();
@@ -8967,6 +9063,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         viewer_->set_candidate_filter({});
         viewer_->set_constraint_reference_highlights({}, {});
         viewer_->set_edge_treatment_selection_edges({});
+        viewer_->set_feature_hover_edges({});
         if (!entering_owned_profile_sketch) {
             part_rollback_.reset();
             assembly_cut_rollback_.reset();
@@ -9360,12 +9457,7 @@ void AssemblyWorkspaceWindow::start_construction_reference_selection(
     // Every container consumes the same complete persisted candidate universe.
     // The active container contract interprets a candidate after hover/RMB
     // cycling instead of prematurely hiding valid placement references here.
-    viewer_->set_selection_contract({zima::viewer::CandidateKind::Vertex,
-        zima::viewer::CandidateKind::Axis,
-        zima::viewer::CandidateKind::Edge,
-        zima::viewer::CandidateKind::Plane,
-        zima::viewer::CandidateKind::Face,
-        zima::viewer::CandidateKind::Dimension});
+    viewer_->set_selection_contract(placement_reference_candidate_kinds());
     const auto prefix = active_occurrence_path_.empty()
         ? zima::assembly::InstancePath{}
         : zima::assembly::InstancePath::decode(active_occurrence_path_);
@@ -9701,11 +9793,7 @@ void AssemblyWorkspaceWindow::start_primitive_reference_selection(
     }
     pending_primitive_reference_index_ = index;
     tree_->setProperty("commandSelectionActive", true);
-    viewer_->set_selection_contract({zima::viewer::CandidateKind::Vertex,
-        zima::viewer::CandidateKind::Axis,
-        zima::viewer::CandidateKind::Plane,
-        zima::viewer::CandidateKind::Face,
-        zima::viewer::CandidateKind::Dimension});
+    viewer_->set_selection_contract(placement_reference_candidate_kinds());
     const auto prefix = active_occurrence_path_.empty()
         ? zima::assembly::InstancePath{}
         : zima::assembly::InstancePath::decode(active_occurrence_path_);
@@ -9942,6 +10030,7 @@ void AssemblyWorkspaceWindow::accept_primitive_reference(
         : candidate.kind == zima::viewer::CandidateKind::Vertex ? tr("Bod")
         : candidate.kind == zima::viewer::CandidateKind::Axis ? tr("Osa")
         : candidate.kind == zima::viewer::CandidateKind::Plane ? tr("Rovina")
+        : candidate.kind == zima::viewer::CandidateKind::Edge ? tr("Hrana")
         : tr("Plocha");
     reference_label = reference_label.isEmpty()
         ? semantic_label : reference_label + QStringLiteral(" — ") + semantic_label;
@@ -11298,14 +11387,13 @@ zima::kernel::ViewerMesh AssemblyWorkspaceWindow::sketch_viewer_mesh(
             universal_dimension_references_[1].kind ==
                 UniversalDimensionReferenceKind::Point &&
             dimension.kind == zima::sketcher::DimensionKind::Distance) {
-            const auto* first = sketch.find_point(
+            const auto first = sketch_point_reference_position(sketch,
                 universal_dimension_references_[0].id);
-            const auto* second = sketch.find_point(
+            const auto second = sketch_point_reference_position(sketch,
                 universal_dimension_references_[1].id);
-            if (first != nullptr && second != nullptr) {
+            if (first && second) {
                 const auto kind = zima::sketcher::classify_linear_dimension(
-                    {first->x, first->y}, {second->x, second->y},
-                    *universal_dimension_cursor_);
+                    *first, *second, *universal_dimension_cursor_);
                 dimension = sketch.create_point_dimension(
                     universal_dimension_references_[0].id,
                     universal_dimension_references_[1].id, kind);
@@ -11336,31 +11424,10 @@ zima::kernel::ViewerMesh AssemblyWorkspaceWindow::sketch_viewer_mesh(
         } else if (sketch_point_dimension_active_ &&
                    !pending_point_dimension_first_id_.empty() &&
                    !pending_point_dimension_second_id_.empty()) {
-            const auto reference_position = [&](const std::string& reference_id)
-                -> std::optional<std::array<double, 2>> {
-                if (const auto* point = sketch.find_point(reference_id)) {
-                    return std::array{point->x, point->y};
-                }
-                if (reference_id == "sketch_origin") {
-                    return std::array{0.0, 0.0};
-                }
-                const auto external = std::find_if(
-                    sketch.external_references.begin(),
-                    sketch.external_references.end(), [&](const auto& reference) {
-                        return reference.id == reference_id &&
-                            reference.kind ==
-                                zima::sketcher::ExternalReferenceKind::Point &&
-                            reference.cached_points.size() == 1;
-                    });
-                return external == sketch.external_references.end()
-                    ? std::nullopt
-                    : std::optional<std::array<double, 2>>{
-                          external->cached_points.front()};
-            };
             auto kind = zima::sketcher::DimensionKind::Distance;
-            const auto first = reference_position(
+            const auto first = sketch_point_reference_position(sketch,
                 pending_point_dimension_first_id_);
-            const auto second = reference_position(
+            const auto second = sketch_point_reference_position(sketch,
                 pending_point_dimension_second_id_);
             if (first && second) {
                 kind = zima::sketcher::classify_linear_dimension(
@@ -16083,16 +16150,19 @@ void AssemblyWorkspaceWindow::set_sketch_universal_dimension_contract() {
         kinds = {zima::viewer::CandidateKind::SketchPoint,
                  zima::viewer::CandidateKind::SketchSegment,
                  zima::viewer::CandidateKind::SketchAxis,
+                 zima::viewer::CandidateKind::SketchExternalReference,
                  zima::viewer::CandidateKind::Dimension};
     } else if (refs.size() == 1 &&
                refs[0].kind == UniversalDimensionReferenceKind::Point) {
         kinds = {zima::viewer::CandidateKind::SketchPoint,
                  zima::viewer::CandidateKind::SketchSegment,
-                 zima::viewer::CandidateKind::SketchAxis};
+                 zima::viewer::CandidateKind::SketchAxis,
+                 zima::viewer::CandidateKind::SketchExternalReference};
     } else if (refs.size() == 1) {
         kinds = {zima::viewer::CandidateKind::SketchPoint,
                  zima::viewer::CandidateKind::SketchSegment,
-                 zima::viewer::CandidateKind::SketchAxis};
+                 zima::viewer::CandidateKind::SketchAxis,
+                 zima::viewer::CandidateKind::SketchExternalReference};
     } else if (refs.size() == 2) {
         const bool point_pair = refs[0].kind ==
                 UniversalDimensionReferenceKind::Point &&
@@ -16148,8 +16218,21 @@ void AssemblyWorkspaceWindow::set_sketch_universal_dimension_contract() {
                            zima::viewer::CandidateKind::SketchAxis &&
                        (candidate.semantic_key == "sketch_axis:x" ||
                         candidate.semantic_key == "sketch_axis:y")) {
-                id = candidate.semantic_key;
-                kind = UniversalDimensionReferenceKind::Line;
+                const bool axis_is_origin_point = references.empty() ||
+                    (references.size() == 1 &&
+                     references[0].kind ==
+                         UniversalDimensionReferenceKind::Point);
+                id = axis_is_origin_point
+                    ? "sketch_origin" : candidate.semantic_key;
+                kind = axis_is_origin_point
+                    ? UniversalDimensionReferenceKind::Point
+                    : UniversalDimensionReferenceKind::Line;
+            } else if (candidate.kind == zima::viewer::CandidateKind::
+                           SketchExternalReference &&
+                       candidate.semantic_key ==
+                           "external_point:sketch_origin") {
+                id = "sketch_origin";
+                kind = UniversalDimensionReferenceKind::Point;
             } else if (initial && candidate.kind ==
                            zima::viewer::CandidateKind::Dimension &&
                        candidate.semantic_key.starts_with("dimension:")) {
@@ -16255,8 +16338,22 @@ void AssemblyWorkspaceWindow::accept_sketch_universal_dimension(
         } else if (candidate.kind == zima::viewer::CandidateKind::SketchAxis &&
                    (candidate.semantic_key == "sketch_axis:x" ||
                     candidate.semantic_key == "sketch_axis:y")) {
-            next = {UniversalDimensionReferenceKind::Line,
-                    candidate.semantic_key};
+            const bool axis_is_origin_point =
+                universal_dimension_references_.empty() ||
+                (universal_dimension_references_.size() == 1 &&
+                 universal_dimension_references_[0].kind ==
+                     UniversalDimensionReferenceKind::Point);
+            next = {axis_is_origin_point
+                    ? UniversalDimensionReferenceKind::Point
+                    : UniversalDimensionReferenceKind::Line,
+                axis_is_origin_point
+                    ? std::string{"sketch_origin"}
+                    : candidate.semantic_key};
+        } else if (candidate.kind == zima::viewer::CandidateKind::
+                       SketchExternalReference &&
+                   candidate.semantic_key ==
+                       "external_point:sketch_origin") {
+            next = {UniversalDimensionReferenceKind::Point, "sketch_origin"};
         } else return;
 
         if (std::ranges::any_of(universal_dimension_references_,
@@ -16404,13 +16501,13 @@ bool AssemblyWorkspaceWindow::accept_sketch_universal_dimension_ray(
                 universal_dimension_references_[1].kind ==
                     UniversalDimensionReferenceKind::Point &&
                 dimension.kind == zima::sketcher::DimensionKind::Distance) {
-                const auto* first = sketch->find_point(
+                const auto first = sketch_point_reference_position(*sketch,
                     universal_dimension_references_[0].id);
-                const auto* second = sketch->find_point(
+                const auto second = sketch_point_reference_position(*sketch,
                     universal_dimension_references_[1].id);
-                if (first != nullptr && second != nullptr) {
+                if (first && second) {
                     const auto kind = zima::sketcher::classify_linear_dimension(
-                        {first->x, first->y}, {second->x, second->y}, *cursor);
+                        *first, *second, *cursor);
                     dimension = sketch->create_point_dimension(
                         universal_dimension_references_[0].id,
                         universal_dimension_references_[1].id, kind);
@@ -16478,7 +16575,9 @@ void AssemblyWorkspaceWindow::start_sketch_point_dimension(
         ? kind == zima::sketcher::DimensionKind::Distance
             ? std::vector{zima::viewer::CandidateKind::SketchPoint,
                           zima::viewer::CandidateKind::SketchSegment,
-                          zima::viewer::CandidateKind::SketchCurve}
+                          zima::viewer::CandidateKind::SketchCurve,
+                          zima::viewer::CandidateKind::SketchAxis,
+                          zima::viewer::CandidateKind::SketchExternalReference}
             : std::vector{zima::viewer::CandidateKind::SketchPoint}
         : point_to_line
         ? std::vector{zima::viewer::CandidateKind::SketchSegment,
@@ -16499,6 +16598,17 @@ void AssemblyWorkspaceWindow::start_sketch_point_dimension(
         if (first_id.empty()) {
             if (candidate.kind == zima::viewer::CandidateKind::SketchPoint)
                 return candidate.semantic_key.starts_with("point:");
+            if (kind == zima::sketcher::DimensionKind::Distance &&
+                candidate.kind == zima::viewer::CandidateKind::SketchAxis) {
+                return candidate.semantic_key == "sketch_axis:x" ||
+                    candidate.semantic_key == "sketch_axis:y";
+            }
+            if (kind == zima::sketcher::DimensionKind::Distance &&
+                candidate.kind ==
+                    zima::viewer::CandidateKind::SketchExternalReference) {
+                return candidate.semantic_key ==
+                    "external_point:sketch_origin";
+            }
             return kind == zima::sketcher::DimensionKind::Distance &&
                 ((candidate.kind == zima::viewer::CandidateKind::SketchSegment &&
                   candidate.semantic_key.starts_with("segment:")) ||
@@ -16526,8 +16636,9 @@ void AssemblyWorkspaceWindow::start_sketch_point_dimension(
         }
         if (candidate.kind == zima::viewer::CandidateKind::SketchAxis) {
             if (kind == zima::sketcher::DimensionKind::Distance) {
-                return candidate.semantic_key == "sketch_axis:x" ||
-                    candidate.semantic_key == "sketch_axis:y";
+                return first_id != "sketch_origin" &&
+                    (candidate.semantic_key == "sketch_axis:x" ||
+                     candidate.semantic_key == "sketch_axis:y");
             }
             return (kind == zima::sketcher::DimensionKind::DistanceX &&
                     candidate.semantic_key == "sketch_axis:y") ||
@@ -16536,10 +16647,13 @@ void AssemblyWorkspaceWindow::start_sketch_point_dimension(
         }
         return candidate.kind ==
                 zima::viewer::CandidateKind::SketchExternalReference &&
-            candidate.semantic_key.starts_with("external_point:");
+            candidate.semantic_key.starts_with("external_point:") &&
+            !(first_id == "sketch_origin" &&
+              candidate.semantic_key == "external_point:sketch_origin");
     });
     state_->setText(first_id.empty()
-        ? tr("Kóta: vyberte první bod. Escape příkaz zruší.")
+        ? tr("Kóta: vyberte první bod nebo lokální počátek. "
+             "Escape příkaz zruší.")
         : kind == zima::sketcher::DimensionKind::AngleThreePoint
         ? tr("Tříbodový úhel: vyberte vrchol a potom druhé rameno.")
         : point_to_line
@@ -16693,6 +16807,22 @@ void AssemblyWorkspaceWindow::accept_sketch_point_dimension(
     if (pending_point_dimension_first_id_.empty()) {
         if (pending_point_dimension_kind_ ==
                 zima::sketcher::DimensionKind::Distance &&
+            ((candidate.kind == zima::viewer::CandidateKind::SketchAxis &&
+              (candidate.semantic_key == "sketch_axis:x" ||
+               candidate.semantic_key == "sketch_axis:y")) ||
+             (candidate.kind ==
+                  zima::viewer::CandidateKind::SketchExternalReference &&
+              candidate.semantic_key ==
+                  "external_point:sketch_origin"))) {
+            pending_point_dimension_first_id_ = "sketch_origin";
+            clear_sketch_confirmed_selection();
+            preserve_view_on_refresh_ = true;
+            refresh_scene();
+            state_->setText(tr("Kóta: vyberte druhý bod."));
+            return;
+        }
+        if (pending_point_dimension_kind_ ==
+                zima::sketcher::DimensionKind::Distance &&
             candidate.kind == zima::viewer::CandidateKind::SketchCurve) {
             const auto* sketch = active_sketch();
             if (sketch == nullptr) return;
@@ -16831,24 +16961,21 @@ void AssemblyWorkspaceWindow::accept_sketch_point_dimension(
                candidate.semantic_key.starts_with("external_point:")) {
         second_id = candidate.semantic_key.substr(15);
     } else if (candidate.kind == zima::viewer::CandidateKind::SketchAxis &&
+               pending_point_dimension_kind_ ==
+                   zima::sketcher::DimensionKind::Distance &&
+               (candidate.semantic_key == "sketch_axis:x" ||
+                candidate.semantic_key == "sketch_axis:y")) {
+        second_id = "sketch_origin";
+    } else if (candidate.kind == zima::viewer::CandidateKind::SketchAxis &&
                ((pending_point_dimension_kind_ ==
-                    zima::sketcher::DimensionKind::Distance &&
-                 (candidate.semantic_key == "sketch_axis:x" ||
-                  candidate.semantic_key == "sketch_axis:y")) ||
-                (pending_point_dimension_kind_ ==
                     zima::sketcher::DimensionKind::DistanceX &&
                  candidate.semantic_key == "sketch_axis:y") ||
                 (pending_point_dimension_kind_ ==
                     zima::sketcher::DimensionKind::DistanceY &&
-                 candidate.semantic_key == "sketch_axis:x"))) {
+                  candidate.semantic_key == "sketch_axis:x"))) {
         const auto point_id = pending_point_dimension_first_id_;
         const auto axis_id = candidate.semantic_key;
-        const auto kind = pending_point_dimension_kind_ ==
-                zima::sketcher::DimensionKind::Distance
-            ? axis_id == "sketch_axis:x"
-                ? zima::sketcher::DimensionKind::DistanceY
-                : zima::sketcher::DimensionKind::DistanceX
-            : pending_point_dimension_kind_;
+        const auto kind = pending_point_dimension_kind_;
         sketch_point_dimension_active_ = false;
         pending_point_dimension_first_id_.clear();
         pending_point_dimension_vertex_id_.clear();
@@ -16884,6 +17011,13 @@ void AssemblyWorkspaceWindow::accept_sketch_point_dimension(
 bool AssemblyWorkspaceWindow::accept_sketch_dimension_placement_ray(
     const zima::kernel::Vec3& origin,
     const zima::kernel::Vec3& direction) {
+    // MeshView dispatches the command-local world click before confirming the
+    // exact candidate from the same LMB press. A provisional dimension must
+    // therefore leave offered axes/segments/points to the common candidate
+    // state machine; only a genuinely empty hit means dimension placement.
+    if ((!pending_corner_radius_dimension_id_.empty() ||
+         pending_sketch_dimension_) &&
+        viewer_ != nullptr && viewer_->offered_candidate()) return false;
     if (!pending_corner_radius_dimension_id_.empty()) {
         const auto* sketch = active_sketch();
         if (sketch == nullptr) return false;
@@ -17004,30 +17138,9 @@ void AssemblyWorkspaceWindow::finish_pending_linear_dimension(
     const auto* sketch = active_sketch();
     if (sketch == nullptr || pending_point_dimension_first_id_.empty() ||
         pending_point_dimension_second_id_.empty()) return;
-    const auto point_reference_position = [&](const std::string& reference_id)
-        -> std::optional<std::array<double, 2>> {
-        if (const auto* point = sketch->find_point(reference_id)) {
-            return std::array{point->x, point->y};
-        }
-        if (reference_id == "sketch_origin") {
-            return std::array{0.0, 0.0};
-        }
-        const auto external = std::find_if(
-            sketch->external_references.begin(),
-            sketch->external_references.end(), [&](const auto& reference) {
-                return reference.id == reference_id &&
-                    reference.kind ==
-                        zima::sketcher::ExternalReferenceKind::Point &&
-                    reference.cached_points.size() == 1;
-            });
-        return external == sketch->external_references.end()
-            ? std::nullopt
-            : std::optional<std::array<double, 2>>{
-                  external->cached_points.front()};
-    };
-    const auto first = point_reference_position(
+    const auto first = sketch_point_reference_position(*sketch,
         pending_point_dimension_first_id_);
-    const auto second = point_reference_position(
+    const auto second = sketch_point_reference_position(*sketch,
         pending_point_dimension_second_id_);
     auto kind = zima::sketcher::DimensionKind::Distance;
     if (first && second) {
@@ -19034,7 +19147,9 @@ void AssemblyWorkspaceWindow::keyPressEvent(QKeyEvent* event) {
             return;
         }
         edge_treatment_selection_.reset();
+        edge_treatment_hover_seed_.reset();
         pending_edge_treatment_edges_.clear();
+        viewer_->set_feature_hover_edges({});
         preserve_view_on_refresh_ = true;
         refresh_scene();
         state_->setText(tr("Zaoblení nebo sražení zrušeno."));
@@ -19970,10 +20085,15 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                     }
                 } else if (container->feature_kind == FeatureKind::Fillet ||
                            container->feature_kind == FeatureKind::Chamfer) {
-                    linear("size", container->feature_kind == FeatureKind::Fillet
-                            ? "Poloměr = " : "Vzdálenost = ",
-                        origin, local(container->edge_treatment.size,0,0),
-                        {0,6,0}, container->edge_treatment.size);
+                    if (container->feature_kind == FeatureKind::Fillet) {
+                        radius("size", origin,
+                            local(container->edge_treatment.size,0,0),
+                            {0,6,0}, container->edge_treatment.size);
+                    } else {
+                        linear("size", "Vzdálenost = ", origin,
+                            local(container->edge_treatment.size,0,0),
+                            {0,6,0}, container->edge_treatment.size);
+                    }
                 }
             }
         }
@@ -20316,7 +20436,9 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                         ? std::vector{
                               zima::viewer::CandidateKind::SketchPoint,
                               zima::viewer::CandidateKind::SketchSegment,
-                              zima::viewer::CandidateKind::SketchCurve}
+                              zima::viewer::CandidateKind::SketchCurve,
+                              zima::viewer::CandidateKind::SketchAxis,
+                              zima::viewer::CandidateKind::SketchExternalReference}
                         : std::vector{
                               zima::viewer::CandidateKind::SketchPoint}
                 : !pending_point_dimension_second_id_.empty()
@@ -20372,11 +20494,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                 ? std::vector{zima::viewer::CandidateKind::Face}
             : pending_construction_reference_index_ ||
                     pending_primitive_reference_index_
-                ? std::vector{zima::viewer::CandidateKind::Vertex,
-                              zima::viewer::CandidateKind::Axis,
-                              zima::viewer::CandidateKind::Plane,
-                              zima::viewer::CandidateKind::Face,
-                              zima::viewer::CandidateKind::Dimension}
+                ? placement_reference_candidate_kinds()
             : active_sketch_id_.empty()
                 ? [this] {
                     switch (selection_filter_combo_->currentIndex()) {
@@ -20566,6 +20684,18 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                                 zima::viewer::CandidateKind::SketchPoint) {
                             return candidate.semantic_key.starts_with("point:");
                         }
+                        if (kind == zima::sketcher::DimensionKind::Distance &&
+                            candidate.kind ==
+                                zima::viewer::CandidateKind::SketchAxis) {
+                            return candidate.semantic_key == "sketch_axis:x" ||
+                                candidate.semantic_key == "sketch_axis:y";
+                        }
+                        if (kind == zima::sketcher::DimensionKind::Distance &&
+                            candidate.kind == zima::viewer::CandidateKind::
+                                SketchExternalReference) {
+                            return candidate.semantic_key ==
+                                "external_point:sketch_origin";
+                        }
                         return kind ==
                                 zima::sketcher::DimensionKind::Distance &&
                             ((candidate.kind == zima::viewer::CandidateKind::
@@ -20609,8 +20739,9 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                     if (candidate.kind ==
                             zima::viewer::CandidateKind::SketchAxis) {
                         if (kind == zima::sketcher::DimensionKind::Distance) {
-                            return candidate.semantic_key == "sketch_axis:x" ||
-                                candidate.semantic_key == "sketch_axis:y";
+                            return first_id != "sketch_origin" &&
+                                (candidate.semantic_key == "sketch_axis:x" ||
+                                 candidate.semantic_key == "sketch_axis:y");
                         }
                         return (kind == zima::sketcher::DimensionKind::DistanceX &&
                                 candidate.semantic_key == "sketch_axis:y") ||
@@ -20619,7 +20750,10 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                     }
                     return candidate.kind == zima::viewer::CandidateKind::
                                SketchExternalReference &&
-                        candidate.semantic_key.starts_with("external_point:");
+                        candidate.semantic_key.starts_with("external_point:") &&
+                        !(first_id == "sketch_origin" &&
+                          candidate.semantic_key ==
+                              "external_point:sketch_origin");
                 });
         } else if (sketch_line_pair_dimension_active_) {
             const auto owner_id = active_sketch_id_;
@@ -20781,6 +20915,9 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         // restore its cyan confirmation after the rebuilt scene is installed.
         if (!construction_dimension_object_id_.empty()) {
             viewer_->confirm_container(construction_dimension_object_id_);
+            viewer_->set_feature_selected_edges(
+                edge_treatment_feature_edges(
+                    construction_dimension_object_id_));
         }
         state_->setText(document.history.empty()
             ? tr("Nový Part: začněte příkazem Kvádr, jiným tělesem nebo Skica.")
@@ -20988,11 +21125,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             ? std::vector{zima::viewer::CandidateKind::Face}
         : pending_construction_reference_index_ ||
                 pending_primitive_reference_index_
-            ? std::vector{zima::viewer::CandidateKind::Vertex,
-                          zima::viewer::CandidateKind::Axis,
-                          zima::viewer::CandidateKind::Plane,
-                          zima::viewer::CandidateKind::Face,
-                          zima::viewer::CandidateKind::Dimension}
+            ? placement_reference_candidate_kinds()
         : (active_part != nullptr && !active_sketch_id_.empty()) ||
                 active_top_assembly_sketch
             ? std::vector{zima::viewer::CandidateKind::SketchSegment,

@@ -414,7 +414,7 @@ int main(int argc, char** argv) {
     auto fillet_operations = fillet_base_operations;
     fillet_operations.push_back({"benchmark-fillet",
         zima::kernel::FilletRequest{{fillet_edge->reference},
-            zima::kernel::EdgeSelectionOrigin::OriginalEntity, 1.0},
+            1.0},
         zima::kernel::BooleanOperation::Add});
     const auto fillet_boundaries = kernel.evaluate_history(fillet_operations);
     auto changed_fillet_operations = fillet_operations;

@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <functional>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -93,11 +94,28 @@ struct EdgeKey {
     const ViewerCandidate& candidate,
     const zima::kernel::ViewerEdge& edge);
 
+// Ordinary Part history hover/selection presents a native container through
+// its complete persisted source wire, not through the few result-body edges
+// that survived later operations. Imported STEP containers deliberately stay
+// on the cheap result-wire path because replaying their complete source wire
+// would make hover proportional to the full import size.
+[[nodiscard]] bool candidate_uses_original_container_wire_edge(
+    const ViewerCandidate& candidate,
+    const zima::kernel::ViewerEdge& edge);
+
 // Only an exact Face candidate needs a derived screen-space boundary and
 // silhouette. Whole solid Containers recolour their already-calculated GL
 // wire instead, avoiding duplicate geometry and an O(triangle-count) paint.
 [[nodiscard]] bool candidate_uses_face_boundary_overlay(
     const ViewerCandidate& candidate);
+
+// Returns the already-calculated Body wire bounding every visible generated
+// face of one Fillet/Chamfer feature. Treatment faces remain hit targets only;
+// callers colour these exact persisted edges instead of a face overlay.
+[[nodiscard]] std::set<EdgeKey> edge_treatment_boundary_edges(
+    const zima::kernel::ViewerMesh& mesh,
+    const std::string& owner_id,
+    const std::string& instance_path = {});
 
 [[nodiscard]] std::vector<PickCandidate> ordered_ray_candidates(
     const zima::kernel::ViewerMesh& mesh,

@@ -20,6 +20,7 @@
 #include <BRepPrimAPI_MakeCone.hxx>
 #include <BRepPrimAPI_MakeWedge.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
+#include <BRepClass_FaceClassifier.hxx>
 #include <BRepOffsetAPI_ThruSections.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <BRepPrimAPI_MakeHalfSpace.hxx>
@@ -53,7 +54,9 @@
 #include <GC_MakeArcOfCircle.hxx>
 #include <Geom_TrimmedCurve.hxx>
 #include <Geom_BSplineCurve.hxx>
+#include <Geom_Surface.hxx>
 #include <GeomAPI_Interpolate.hxx>
+#include <GeomAPI_ProjectPointOnSurf.hxx>
 #include <TColgp_HArray1OfPnt.hxx>
 #include <TColgp_Array1OfPnt.hxx>
 #include <TColStd_Array1OfInteger.hxx>
@@ -79,6 +82,7 @@
 #include <gp_Dir.hxx>
 #include <gp_Elips.hxx>
 #include <gp_Pnt.hxx>
+#include <gp_Pnt2d.hxx>
 #include <gp_Pln.hxx>
 #include <gp_Trsf.hxx>
 #include <gp_Vec.hxx>
@@ -2248,6 +2252,280 @@ std::vector<OwnedFace> generated_edge_treatment_faces(
     return result;
 }
 
+void append_unmapped_edge_treatment_faces(
+    const TopoDS_Shape& result_shape,
+    const std::vector<std::pair<TopoDS_Edge, EdgeReference>>& selected,
+    const std::vector<OwnedFace>& input_faces,
+    const std::string& treatment_owner,
+    std::string_view role,
+    double tolerance,
+    std::vector<OwnedFace>& faces) {
+    std::set<std::string> parents;
+    for (const auto& [edge, reference] : selected) {
+        static_cast<void>(edge);
+        parents.insert(std::to_string(reference.owner_id.size()) + ":" +
+            reference.owner_id + std::to_string(reference.semantic_key.size()) +
+            ":" + reference.semantic_key);
+    }
+    std::string key(role);
+    key += ":from:";
+    bool first = true;
+    for (const auto& parent : parents) {
+        if (!first) key += "|";
+        key += parent;
+        first = false;
+    }
+    const FaceReference fallback_reference{
+        treatment_owner, std::move(key), {}};
+    TopTools_IndexedMapOfShape mapped_faces;
+    for (const auto& face : faces) mapped_faces.Add(face.shape);
+    const double geometric_tolerance = std::max(1.0e-6, tolerance * 10.0);
+    const auto inherited_input_reference = [&](const TopoDS_Face& fragment)
+            -> std::optional<FaceReference> {
+        double u_min{}, u_max{}, v_min{}, v_max{};
+        BRepTools::UVBounds(fragment, u_min, u_max, v_min, v_max);
+        if (!std::isfinite(u_min) || !std::isfinite(u_max) ||
+            !std::isfinite(v_min) || !std::isfinite(v_max)) return std::nullopt;
+        TopLoc_Location fragment_location;
+        const auto& fragment_surface =
+            BRep_Tool::Surface(fragment, fragment_location);
+        if (fragment_surface.IsNull()) return std::nullopt;
+
+        // UV midpoints are not necessarily inside a concave trimmed face.
+        // Sample a small, deterministic grid and retain only points classified
+        // on the actual fragment. This is part of the explicit body calculation,
+        // never a viewer/picking path.
+        constexpr std::array<double, 5> fractions{
+            0.5, 0.25, 0.75, 0.125, 0.875};
+        std::vector<gp_Pnt> samples;
+        samples.reserve(9);
+        for (const double u_fraction : fractions) {
+            for (const double v_fraction : fractions) {
+                const double u = u_min + (u_max - u_min) * u_fraction;
+                const double v = v_min + (v_max - v_min) * v_fraction;
+                BRepClass_FaceClassifier classifier(
+                    fragment, gp_Pnt2d(u, v), geometric_tolerance);
+                if (classifier.State() != TopAbs_IN &&
+                    classifier.State() != TopAbs_ON) continue;
+                auto point = fragment_surface->Value(u, v);
+                point.Transform(fragment_location.Transformation());
+                samples.push_back(point);
+                if (samples.size() == 9) break;
+            }
+            if (samples.size() == 9) break;
+        }
+        if (samples.empty()) return std::nullopt;
+
+        int best_inside_count{};
+        std::vector<FaceReference> best_references;
+        for (const auto& input : input_faces) {
+            if (!input.reference.valid() ||
+                input.shape.ShapeType() != TopAbs_FACE) continue;
+            const auto input_face = TopoDS::Face(input.shape);
+            TopLoc_Location input_location;
+            const auto& input_surface =
+                BRep_Tool::Surface(input_face, input_location);
+            if (input_surface.IsNull()) continue;
+            const auto inverse_location =
+                input_location.Transformation().Inverted();
+            bool same_support = true;
+            int inside_count{};
+            for (auto point : samples) {
+                point.Transform(inverse_location);
+                GeomAPI_ProjectPointOnSurf projection(
+                    point, input_surface, geometric_tolerance);
+                if (!projection.IsDone() || projection.NbPoints() == 0 ||
+                    projection.LowerDistance() > geometric_tolerance) {
+                    same_support = false;
+                    break;
+                }
+                double u{}, v{};
+                projection.LowerDistanceParameters(u, v);
+                BRepClass_FaceClassifier classifier(
+                    input_face, gp_Pnt2d(u, v), geometric_tolerance);
+                if (classifier.State() == TopAbs_IN ||
+                    classifier.State() == TopAbs_ON) ++inside_count;
+            }
+            if (!same_support || inside_count == 0 ||
+                inside_count < best_inside_count) continue;
+            if (inside_count > best_inside_count) {
+                best_inside_count = inside_count;
+                best_references.clear();
+            }
+            if (std::find(best_references.begin(), best_references.end(),
+                    input.reference) == best_references.end()) {
+                best_references.push_back(input.reference);
+            }
+        }
+        // Never invent an owner when two different persisted source faces are
+        // geometrically indistinguishable. A unique support/trim match inherits
+        // its already-defined ZIMA identity; only truly new or ambiguous faces
+        // fall through to the treatment identity below.
+        return best_references.size() == 1
+            ? std::optional<FaceReference>{best_references.front()}
+            : std::nullopt;
+    };
+    for (TopExp_Explorer explorer(result_shape, TopAbs_FACE);
+         explorer.More(); explorer.Next()) {
+        if (mapped_faces.Contains(explorer.Current())) continue;
+        mapped_faces.Add(explorer.Current());
+        if (const auto inherited = inherited_input_reference(
+                TopoDS::Face(explorer.Current()))) {
+            faces.push_back({explorer.Current(), *inherited});
+            continue;
+        }
+        // The identity is defined exclusively by the treatment feature,
+        // semantic role and persisted selected parents. OCCT traversal only
+        // locates every runtime fragment belonging to that already-defined
+        // identity; its enumeration position never enters the key.
+        faces.push_back({explorer.Current(), fallback_reference});
+    }
+}
+
+template <typename Reference>
+std::string encoded_topology_reference(const Reference& reference) {
+    return std::to_string(reference.owner_id.size()) + ":" +
+        reference.owner_id + std::to_string(reference.semantic_key.size()) +
+        ":" + reference.semantic_key +
+        std::to_string(reference.instance_path.size()) + ":" +
+        reference.instance_path;
+}
+
+std::string encoded_topology_reference_set(
+    const std::set<std::string>& references) {
+    std::string encoded;
+    for (const auto& reference : references) {
+        encoded += std::to_string(reference.size()) + ":" + reference;
+    }
+    return encoded;
+}
+
+template <typename Reference, typename Owned>
+std::set<std::string> referenced_ancestor_tokens(
+    const TopTools_IndexedDataMapOfShapeListOfShape& ancestors,
+    const TopoDS_Shape& child,
+    const TopologyReferenceIndex<Reference, Owned>& references) {
+    std::set<std::string> result;
+    const int child_index = ancestors.FindIndex(child);
+    if (child_index == 0) return result;
+    for (TopTools_ListIteratorOfListOfShape iterator(
+            ancestors.FindFromIndex(child_index));
+         iterator.More(); iterator.Next()) {
+        const auto reference = references.reference_for(iterator.Value());
+        if (reference.valid()) {
+            result.insert(encoded_topology_reference(reference));
+        }
+    }
+    return result;
+}
+
+std::set<std::string> selected_edge_parent_tokens(
+    const std::vector<std::pair<TopoDS_Edge, EdgeReference>>& selected) {
+    std::set<std::string> result;
+    for (const auto& [edge, reference] : selected) {
+        static_cast<void>(edge);
+        result.insert(encoded_topology_reference(reference));
+    }
+    return result;
+}
+
+std::vector<OwnedEdge> complete_edge_treatment_edges(
+    const TopoDS_Shape& result_shape,
+    const std::vector<OwnedFace>& faces,
+    const std::vector<OwnedEdge>& propagated_edges,
+    const std::vector<std::pair<TopoDS_Edge, EdgeReference>>& selected,
+    const std::string& treatment_owner,
+    std::string_view role) {
+    const TopologyReferenceIndex<FaceReference, OwnedFace> face_references(faces);
+    const TopologyReferenceIndex<EdgeReference, OwnedEdge> edge_references(
+        propagated_edges);
+    TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+    TopExp::MapShapesAndAncestors(
+        result_shape, TopAbs_EDGE, TopAbs_FACE, edge_faces);
+    TopTools_IndexedDataMapOfShapeListOfShape vertex_faces;
+    TopExp::MapShapesAndAncestors(
+        result_shape, TopAbs_VERTEX, TopAbs_FACE, vertex_faces);
+    const auto selected_parents = selected_edge_parent_tokens(selected);
+
+    std::vector<OwnedEdge> result;
+    TopTools_IndexedMapOfShape visited;
+    for (TopExp_Explorer explorer(result_shape, TopAbs_EDGE);
+         explorer.More(); explorer.Next()) {
+        const auto edge = explorer.Current();
+        if (visited.Contains(edge)) continue;
+        visited.Add(edge);
+        if (const auto inherited = edge_references.reference_for(edge);
+            inherited.valid()) {
+            result.push_back({edge, inherited});
+            continue;
+        }
+
+        const auto adjacent_faces = referenced_ancestor_tokens(
+            edge_faces, edge, face_references);
+        std::set<std::string> endpoint_supports;
+        TopTools_IndexedMapOfShape vertices;
+        TopExp::MapShapes(edge, TopAbs_VERTEX, vertices);
+        for (int index = 1; index <= vertices.Extent(); ++index) {
+            const auto support = referenced_ancestor_tokens(
+                vertex_faces, vertices.FindKey(index), face_references);
+            if (!support.empty()) {
+                endpoint_supports.insert(
+                    encoded_topology_reference_set(support));
+            }
+        }
+        std::string semantic_key(role);
+        semantic_key += ":from:" +
+            encoded_topology_reference_set(selected_parents);
+        semantic_key += ":between:" +
+            encoded_topology_reference_set(adjacent_faces);
+        semantic_key += ":ends:" +
+            encoded_topology_reference_set(endpoint_supports);
+        result.push_back({edge,
+            EdgeReference{treatment_owner, std::move(semantic_key), {}}});
+    }
+    return result;
+}
+
+std::vector<OwnedVertex> complete_edge_treatment_vertices(
+    const TopoDS_Shape& result_shape,
+    const std::vector<OwnedEdge>& edges,
+    const std::vector<OwnedVertex>& propagated_vertices,
+    const std::vector<std::pair<TopoDS_Edge, EdgeReference>>& selected,
+    const std::string& treatment_owner,
+    std::string_view role) {
+    const TopologyReferenceIndex<EdgeReference, OwnedEdge> edge_references(edges);
+    const TopologyReferenceIndex<VertexReference, OwnedVertex> vertex_references(
+        propagated_vertices);
+    TopTools_IndexedDataMapOfShapeListOfShape vertex_edges;
+    TopExp::MapShapesAndAncestors(
+        result_shape, TopAbs_VERTEX, TopAbs_EDGE, vertex_edges);
+    const auto selected_parents = selected_edge_parent_tokens(selected);
+
+    std::vector<OwnedVertex> result;
+    TopTools_IndexedMapOfShape visited;
+    for (TopExp_Explorer explorer(result_shape, TopAbs_VERTEX);
+         explorer.More(); explorer.Next()) {
+        const auto vertex = explorer.Current();
+        if (visited.Contains(vertex)) continue;
+        visited.Add(vertex);
+        if (const auto inherited = vertex_references.reference_for(vertex);
+            inherited.valid()) {
+            result.push_back({vertex, inherited});
+            continue;
+        }
+        const auto incident_edges = referenced_ancestor_tokens(
+            vertex_edges, vertex, edge_references);
+        std::string semantic_key(role);
+        semantic_key += ":from:" +
+            encoded_topology_reference_set(selected_parents);
+        semantic_key += ":at:" +
+            encoded_topology_reference_set(incident_edges);
+        result.push_back({vertex,
+            VertexReference{treatment_owner, std::move(semantic_key), {}}});
+    }
+    return result;
+}
+
 std::string serialize_kernel_shape(const TopoDS_Shape& shape) {
     std::ostringstream serialized_shape;
     // Viewer triangles are persisted separately in ViewerMesh. The kernel
@@ -2302,6 +2580,11 @@ BodyResult make_result(
     // Display body edges remain non-reference geometry, but retain their
     // owning history container solely for cheap wire recolouring.
     edge_references.emplace(owned_edges);
+    TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+    if (face_references) {
+        TopExp::MapShapesAndAncestors(
+            shape, TopAbs_EDGE, TopAbs_FACE, edge_faces);
+    }
 
     for (TopExp_Explorer explorer(shape, TopAbs_FACE); explorer.More(); explorer.Next()) {
         const TopoDS_Face face = TopoDS::Face(explorer.Current());
@@ -2368,6 +2651,27 @@ BodyResult make_result(
         viewer_edge.reference = original_reference_geometry
             ? reference : EdgeReference{};
         viewer_edge.display_owner_id = reference.owner_id;
+        if (face_references) {
+            std::set<std::string> treatment_owners;
+            const int edge_index = edge_faces.FindIndex(edge);
+            if (edge_index != 0) {
+                for (TopTools_ListIteratorOfListOfShape iterator(
+                         edge_faces.FindFromIndex(edge_index));
+                     iterator.More(); iterator.Next()) {
+                    const auto face_reference =
+                        face_references->reference_for(iterator.Value());
+                    if (face_reference.valid() &&
+                        (face_reference.semantic_key.starts_with(
+                             "fillet:face") ||
+                         face_reference.semantic_key.starts_with(
+                             "chamfer:face"))) {
+                        treatment_owners.insert(face_reference.owner_id);
+                    }
+                }
+            }
+            viewer_edge.edge_treatment_owner_ids.assign(
+                treatment_owners.begin(), treatment_owners.end());
+        }
         viewer_edge.points.reserve(static_cast<std::size_t>(samples.NbPoints()));
         for (int index = 1; index <= samples.NbPoints(); ++index) {
             const gp_Pnt point = curve.Value(samples.Parameter(index));
@@ -2780,8 +3084,7 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                     std::any_of(treatment.edges.begin(), treatment.edges.end(),
                         [](const auto& edge) {
                             return !edge.valid() || !edge.instance_path.empty();
-                        }) ||
-                    treatment.origin != EdgeSelectionOrigin::OriginalEntity) {
+                        })) {
                     throw std::invalid_argument(
                         "Fillet/Chamfer original edge reference is invalid");
                 }
@@ -2818,7 +3121,13 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                     BRepFilletAPI_MakeFillet algorithm(result_shape);
                     for (const auto& [edge, reference] : selected) {
                         static_cast<void>(reference);
-                        algorithm.Add(size, edge);
+                        // OCCT expands one seed to its tangent contour. The
+                        // document nevertheless persists every stable ZIMA
+                        // edge in that route so generated topology can retain
+                        // all parents. Do not add the same OCCT contour twice.
+                        if (algorithm.Contour(edge) == 0) {
+                            algorithm.Add(size, edge);
+                        }
                     }
                     algorithm.Build();
                     if (!algorithm.IsDone()) throw std::runtime_error("OCCT Fillet failed");
@@ -2830,7 +3139,12 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                     treatment_faces.insert(treatment_faces.end(),
                         std::make_move_iterator(generated_faces.begin()),
                         std::make_move_iterator(generated_faces.end()));
-                    owned_topology = std::make_shared<LiveCache::Topology>(
+                    append_unmapped_edge_treatment_faces(
+                        algorithm.Shape(), selected, owned_topology->faces,
+                        operation.owner_id, "fillet:face",
+                        std::max(1.0e-7, operation.boolean_tolerance),
+                        treatment_faces);
+                    auto treatment_topology = std::make_shared<LiveCache::Topology>(
                         LiveCache::Topology{
                             std::move(treatment_faces),
                             propagate_topology(algorithm, owned_topology->edges,
@@ -2840,11 +3154,29 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                             propagate_display_edges(
                                 algorithm, owned_topology->hidden_display_edges)});
                     result_shape = algorithm.Shape();
+                    auto unified = unify_preserving_face_provenance(result_shape,
+                        treatment_topology->faces, treatment_topology->edges,
+                        treatment_topology->vertices,
+                        std::max(1.0e-7, operation.boolean_tolerance));
+                    result_shape = std::move(unified.shape);
+                    auto completed_edges = complete_edge_treatment_edges(
+                        result_shape, unified.faces, unified.edges, selected,
+                        operation.owner_id, "fillet:edge");
+                    auto completed_vertices = complete_edge_treatment_vertices(
+                        result_shape, completed_edges, unified.vertices, selected,
+                        operation.owner_id, "fillet:vertex");
+                    owned_topology = std::make_shared<LiveCache::Topology>(
+                        LiveCache::Topology{std::move(unified.faces),
+                            std::move(completed_edges),
+                            std::move(completed_vertices),
+                            std::move(unified.hidden_display_edges)});
                 } else {
                     BRepFilletAPI_MakeChamfer algorithm(result_shape);
                     for (const auto& [edge, reference] : selected) {
                         static_cast<void>(reference);
-                        algorithm.Add(size, edge);
+                        if (algorithm.Contour(edge) == 0) {
+                            algorithm.Add(size, edge);
+                        }
                     }
                     algorithm.Build();
                     if (!algorithm.IsDone()) throw std::runtime_error("OCCT Chamfer failed");
@@ -2856,7 +3188,12 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                     treatment_faces.insert(treatment_faces.end(),
                         std::make_move_iterator(generated_faces.begin()),
                         std::make_move_iterator(generated_faces.end()));
-                    owned_topology = std::make_shared<LiveCache::Topology>(
+                    append_unmapped_edge_treatment_faces(
+                        algorithm.Shape(), selected, owned_topology->faces,
+                        operation.owner_id, "chamfer:face",
+                        std::max(1.0e-7, operation.boolean_tolerance),
+                        treatment_faces);
+                    auto treatment_topology = std::make_shared<LiveCache::Topology>(
                         LiveCache::Topology{
                             std::move(treatment_faces),
                             propagate_topology(algorithm, owned_topology->edges,
@@ -2866,6 +3203,22 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                             propagate_display_edges(
                                 algorithm, owned_topology->hidden_display_edges)});
                     result_shape = algorithm.Shape();
+                    auto unified = unify_preserving_face_provenance(result_shape,
+                        treatment_topology->faces, treatment_topology->edges,
+                        treatment_topology->vertices,
+                        std::max(1.0e-7, operation.boolean_tolerance));
+                    result_shape = std::move(unified.shape);
+                    auto completed_edges = complete_edge_treatment_edges(
+                        result_shape, unified.faces, unified.edges, selected,
+                        operation.owner_id, "chamfer:edge");
+                    auto completed_vertices = complete_edge_treatment_vertices(
+                        result_shape, completed_edges, unified.vertices, selected,
+                        operation.owner_id, "chamfer:vertex");
+                    owned_topology = std::make_shared<LiveCache::Topology>(
+                        LiveCache::Topology{std::move(unified.faces),
+                            std::move(completed_edges),
+                            std::move(completed_vertices),
+                            std::move(unified.hidden_display_edges)});
                 }
                 boundaries.push_back(
                     make_result(result_shape, owned_topology->faces,

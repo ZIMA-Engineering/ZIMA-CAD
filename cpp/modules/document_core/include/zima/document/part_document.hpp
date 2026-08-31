@@ -298,8 +298,6 @@ struct RevolutionParameters {
 
 struct EdgeTreatmentParameters {
     std::vector<zima::kernel::EdgeReference> edges;
-    zima::kernel::EdgeSelectionOrigin origin{
-        zima::kernel::EdgeSelectionOrigin::OriginalEntity};
     double size{1.0};
     bool operator==(const EdgeTreatmentParameters&) const = default;
 };

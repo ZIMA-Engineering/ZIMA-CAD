@@ -113,9 +113,37 @@ bool candidate_recolors_wire_edge(
         candidate.instance_path == edge.reference.instance_path;
 }
 
+bool candidate_uses_original_container_wire_edge(
+    const ViewerCandidate& candidate,
+    const zima::kernel::ViewerEdge& edge) {
+    return candidate.kind == CandidateKind::Container &&
+        (candidate.semantic_key.empty() || candidate.semantic_key == "solid") &&
+        !edge.construction && !edge.overlay && edge.reference.valid() &&
+        !edge.reference.semantic_key.starts_with("step:edge:") &&
+        edge.reference.owner_id == candidate.owner_id &&
+        edge.reference.instance_path == candidate.instance_path;
+}
+
 bool candidate_uses_face_boundary_overlay(
     const ViewerCandidate& candidate) {
     return candidate.kind == CandidateKind::Face;
+}
+
+std::set<EdgeKey> edge_treatment_boundary_edges(
+    const zima::kernel::ViewerMesh& mesh,
+    const std::string& owner_id,
+    const std::string& instance_path) {
+    std::set<EdgeKey> result;
+    if (owner_id.empty()) return result;
+    for (const auto& edge : mesh.edges) {
+        if (!edge.reference.valid() ||
+            edge.reference.instance_path != instance_path ||
+            std::find(edge.edge_treatment_owner_ids.begin(),
+                edge.edge_treatment_owner_ids.end(), owner_id) ==
+                edge.edge_treatment_owner_ids.end()) continue;
+        result.insert(edge_key(edge.reference));
+    }
+    return result;
 }
 
 std::vector<EdgePickCandidate> ordered_edge_candidates(

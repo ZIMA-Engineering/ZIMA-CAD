@@ -306,6 +306,30 @@ int main(int argc, char* argv[]) {
                     second_face->owner_id == face_candidates[1].owner_id,
                 "RMB did not advance hover to the face behind the front face");
 
+        zima::kernel::ViewerMesh tangent_route_mesh;
+        tangent_route_mesh.edges = {
+            {{{-10.0, 0.0, 0.0}, {0.0, 0.0, 0.0}},
+             {"route-owner-a", "edge:left", {}}},
+            {{{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}},
+             {"route-owner-b", "edge:right", {}}},
+            {{{0.0, 0.0, 0.0}, {0.0, 10.0, 0.0}},
+             {"route-owner-c", "edge:branch", {}}},
+        };
+        zima::viewer::MeshView tangent_route_view(&parent);
+        tangent_route_view.setGeometry(0, 0, 500, 360);
+        tangent_route_view.set_mesh(std::move(tangent_route_mesh));
+        const zima::viewer::ViewerCandidate tangent_seed{
+            zima::viewer::CandidateKind::Edge, 0.0, 0,
+            "route-owner-a", "edge:left", {},
+            zima::viewer::CandidateGeometry::Display};
+        const auto tangent_route =
+            tangent_route_view.tangent_edge_route(tangent_seed);
+        require(tangent_route.size() == 2 &&
+                    tangent_route.front().owner_id == "route-owner-a" &&
+                    tangent_route.back().owner_id == "route-owner-b",
+                "Fillet/Chamfer tangent route stopped at a container provenance "
+                "boundary or followed a non-tangent branch");
+
         zima::kernel::ViewerMesh zero_dimension_mesh;
         zero_dimension_mesh.axes.push_back({
             {0.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, 20.0,
@@ -1001,7 +1025,11 @@ int main(int argc, char* argv[]) {
                 zima::viewer::CandidateKind::Edge, 0.0, 0u,
                 "box", "edge", {},
                 zima::viewer::CandidateGeometry::OriginalReference};
-            require(zima::app::placement_reference_candidate_has_stable_geometry(
+            const auto placement_kinds =
+                zima::app::placement_reference_candidate_kinds();
+            require(std::find(placement_kinds.begin(), placement_kinds.end(),
+                        zima::viewer::CandidateKind::Edge) != placement_kinds.end() &&
+                    zima::app::placement_reference_candidate_has_stable_geometry(
                         body_face) &&
                     zima::app::placement_reference_candidate_has_stable_geometry(
                         visible_body_face) &&
@@ -1009,7 +1037,7 @@ int main(int argc, char* argv[]) {
                         visible_body_vertex) &&
                     zima::app::placement_reference_candidate_has_stable_geometry(
                         body_edge),
-                "Placement contract rejected a persisted original Edge");
+                "Placement contract did not offer or accept a persisted Edge");
         }
 
         auto point_initial = zima::document::PartDocument::create_construction(

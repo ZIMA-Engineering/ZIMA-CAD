@@ -389,6 +389,7 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result) {
             {"owner", edge.reference.owner_id}, {"key", edge.reference.semantic_key},
             {"instance_path", edge.reference.instance_path},
             {"display_owner", edge.display_owner_id},
+            {"edge_treatment_owners", edge.edge_treatment_owner_ids},
             {"points", std::move(points)},
         });
     }
@@ -508,6 +509,8 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source) {
             edge.at("instance_path").get<std::string>()};
         loaded.display_owner_id =
             edge.at("display_owner").get<std::string>();
+        loaded.edge_treatment_owner_ids =
+            edge.at("edge_treatment_owners").get<std::vector<std::string>>();
         for (const auto& point : edge.at("points")) loaded.points.push_back(load_vec3(point));
         const bool owner_empty = loaded.reference.owner_id.empty();
         const bool key_empty = loaded.reference.semantic_key.empty();
@@ -525,6 +528,12 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source) {
             point.at("owner").get<std::string>(), point.at("key").get<std::string>(),
             point.at("instance_path").get<std::string>()};
         loaded.position = load_vec3(point.at("position"));
+        // BodyResult points are solid vertices used as exact reference
+        // targets. They are never standalone visible Point entities. The
+        // explicit kernel calculation applies the same invariant; restore it
+        // after cache loading instead of accepting ViewerPoint's general
+        // purpose always-visible default.
+        loaded.always_visible = false;
         if (!loaded.reference.valid()) {
             throw std::runtime_error("Persisted viewer point is invalid");
         }

@@ -102,10 +102,53 @@ int main() {
                     !zima::viewer::candidate_recolors_wire_edge(
                         different_solid_container, imported_step_wire),
                 "Imported STEP Container did not recolour only its existing wire");
+        auto native_original_wire = imported_step_wire;
+        native_original_wire.reference.owner_id = "native-container";
+        native_original_wire.reference.semantic_key = "x_min:y_min";
+        const zima::viewer::ViewerCandidate native_container{
+            zima::viewer::CandidateKind::Container, 0.0, 0,
+            "native-container", {}, {},
+            zima::viewer::CandidateGeometry::Display};
+        require(zima::viewer::candidate_uses_original_container_wire_edge(
+                    native_container, native_original_wire) &&
+                    !zima::viewer::candidate_uses_original_container_wire_edge(
+                        imported_step_container, imported_step_wire) &&
+                    !zima::viewer::candidate_uses_original_container_wire_edge(
+                        face_overlay, native_original_wire),
+                "Native history Container did not choose its complete original "
+                "wire independently of Face references and large STEP hover");
         require(!zima::viewer::candidate_uses_face_boundary_overlay(
                     imported_step_container) &&
                     zima::viewer::candidate_uses_face_boundary_overlay(face_overlay),
                 "Whole STEP Container still entered the derived face-boundary overlay");
+        zima::kernel::ViewerMesh treatment_wire_mesh;
+        auto fillet_boundary = native_original_wire;
+        fillet_boundary.reference = {"box", "x_min:y_min", {}};
+        fillet_boundary.edge_treatment_owner_ids = {"fillet-a"};
+        auto shared_treatment_boundary = fillet_boundary;
+        shared_treatment_boundary.reference.semantic_key = "x_min:z_min";
+        shared_treatment_boundary.edge_treatment_owner_ids = {
+            "fillet-a", "chamfer-b"};
+        auto unrelated_boundary = fillet_boundary;
+        unrelated_boundary.reference.semantic_key = "y_min:z_min";
+        unrelated_boundary.edge_treatment_owner_ids = {"fillet-other"};
+        treatment_wire_mesh.edges = {fillet_boundary,
+            shared_treatment_boundary, unrelated_boundary};
+        const auto fillet_wire =
+            zima::viewer::edge_treatment_boundary_edges(
+                treatment_wire_mesh, "fillet-a");
+        const auto chamfer_wire =
+            zima::viewer::edge_treatment_boundary_edges(
+                treatment_wire_mesh, "chamfer-b");
+        require(fillet_wire.size() == 2 && chamfer_wire.size() == 1 &&
+                    fillet_wire.contains(zima::viewer::edge_key(
+                        fillet_boundary.reference)) &&
+                    fillet_wire.contains(zima::viewer::edge_key(
+                        shared_treatment_boundary.reference)) &&
+                    !fillet_wire.contains(zima::viewer::edge_key(
+                        unrelated_boundary.reference)),
+                "Fillet/Chamfer face hit did not resolve only its persisted "
+                "boundary wire");
         zima::kernel::ViewerMesh infinite_line_mesh;
         infinite_line_mesh.edges.push_back({
             {{-1.0, 0.0, 5.0}, {1.0, 0.0, 5.0}},
@@ -386,7 +429,7 @@ int main() {
                     local_part_containers.front().owner_id == "original-box" &&
                     local_part_containers.front().geometry ==
                         zima::viewer::CandidateGeometry::Display,
-                "Part hover did not use its clipped visible source fragment");
+                "Part hover did not use its visible persisted source face");
         std::cout << "C++ viewer picking contracts passed\n";
         return 0;
     } catch (const std::exception& error) {

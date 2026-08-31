@@ -481,6 +481,69 @@ int main() {
                     !draws_provenance_seam,
                 "Same-domain fuse merged source-face identities or drew their logical seam");
 
+        std::vector<zima::kernel::EdgeReference> adjacent_top_front_route;
+        std::set<std::string> adjacent_route_owners;
+        for (const auto& edge : adjacent_boxes.mesh.edges) {
+            if (!edge.reference.valid() || edge.points.size() < 2 ||
+                !std::all_of(edge.points.begin(), edge.points.end(),
+                    [](const auto& point) {
+                        return std::abs(point.y) < 1.0e-7 &&
+                            std::abs(point.z - 10.0) < 1.0e-7;
+                    })) continue;
+            adjacent_top_front_route.push_back(edge.reference);
+            adjacent_route_owners.insert(edge.reference.owner_id);
+        }
+        require(adjacent_top_front_route.size() == 2 &&
+                    adjacent_route_owners ==
+                        std::set<std::string>{"adjacent-a", "adjacent-b"},
+                "Fused Body did not retain both stable members of its tangent route");
+        const auto tangent_route_fillet = kernel.evaluate_history({
+            {"adjacent-a", zima::kernel::BoxRequest{10.0, 10.0, 10.0},
+             zima::kernel::BooleanOperation::Add},
+            {"adjacent-b", adjacent_second,
+             zima::kernel::BooleanOperation::Add},
+            {"route-fillet", zima::kernel::FilletRequest{
+                adjacent_top_front_route,
+                1.0},
+             zima::kernel::BooleanOperation::Add},
+        }).back();
+        std::set<std::string> tangent_fillet_owners;
+        for (const auto& reference :
+                tangent_route_fillet.mesh.triangle_references) {
+            tangent_fillet_owners.insert(reference.owner_id);
+        }
+        require(std::all_of(
+                    tangent_route_fillet.mesh.triangle_references.begin(),
+                    tangent_route_fillet.mesh.triangle_references.end(),
+                    [](const auto& reference) { return reference.valid(); }) &&
+                    tangent_fillet_owners == std::set<std::string>{
+                        "adjacent-a", "adjacent-b", "route-fillet"},
+                "Cross-container tangent Fillet lost source face ownership or "
+                "left anonymous result faces");
+        const auto tangent_route_chamfer = kernel.evaluate_history({
+            {"adjacent-a", zima::kernel::BoxRequest{10.0, 10.0, 10.0},
+             zima::kernel::BooleanOperation::Add},
+            {"adjacent-b", adjacent_second,
+             zima::kernel::BooleanOperation::Add},
+            {"route-chamfer", zima::kernel::ChamferRequest{
+                adjacent_top_front_route,
+                1.0},
+             zima::kernel::BooleanOperation::Add},
+        }).back();
+        std::set<std::string> tangent_chamfer_owners;
+        for (const auto& reference :
+                tangent_route_chamfer.mesh.triangle_references) {
+            tangent_chamfer_owners.insert(reference.owner_id);
+        }
+        require(std::all_of(
+                    tangent_route_chamfer.mesh.triangle_references.begin(),
+                    tangent_route_chamfer.mesh.triangle_references.end(),
+                    [](const auto& reference) { return reference.valid(); }) &&
+                    tangent_chamfer_owners == std::set<std::string>{
+                        "adjacent-a", "adjacent-b", "route-chamfer"},
+                "Cross-container tangent Chamfer lost source face ownership or "
+                "left anonymous result faces");
+
         zima::kernel::BoxRequest through_cutter{10.0, 10.0, 12.0};
         through_cutter.translation = {5.0, 5.0, -1.0};
         const auto clipped_box = kernel.evaluate_history({
@@ -529,12 +592,21 @@ int main() {
                 "Box does not expose three stable local axes");
         const auto selected_box_edge =
             body.mesh.original_references.edges.front().reference;
+        const auto require_stable_body_edges = [](const auto& result,
+                                                   std::string_view operation) {
+            for (const auto& edge : result.mesh.edges) {
+                const auto anonymous_message = std::string(operation) +
+                    " left an anonymous operational-body edge";
+                require(edge.reference.valid(),
+                    anonymous_message.c_str());
+            }
+        };
         const auto fillet_boundaries = kernel.evaluate_history({
             {"box", zima::kernel::BoxRequest{100.0, 80.0, 50.0},
              zima::kernel::BooleanOperation::Add},
             {"fillet", zima::kernel::FilletRequest{
                 {selected_box_edge},
-                zima::kernel::EdgeSelectionOrigin::OriginalEntity, 3.0},
+                3.0},
              zima::kernel::BooleanOperation::Add},
         });
         require(fillet_boundaries.size() == 2 &&
@@ -549,12 +621,20 @@ int main() {
                                     "fillet:face:from:");
                         }),
                 "Original-edge Fillet did not produce a valid bounded solid");
+        require_stable_body_edges(fillet_boundaries.back(), "Fillet");
+        require(std::ranges::any_of(fillet_boundaries.back().mesh.edges,
+                    [](const auto& edge) {
+                        return std::ranges::find(
+                            edge.edge_treatment_owner_ids, "fillet") !=
+                            edge.edge_treatment_owner_ids.end();
+                    }),
+                "Fillet did not persist its visible treatment boundary wire");
         const std::vector<zima::kernel::HistoryOperation> edited_fillet_history{
             {"box", zima::kernel::BoxRequest{100.0, 80.0, 50.0},
              zima::kernel::BooleanOperation::Add},
             {"fillet", zima::kernel::FilletRequest{
                 {selected_box_edge},
-                zima::kernel::EdgeSelectionOrigin::OriginalEntity, 4.0},
+                4.0},
              zima::kernel::BooleanOperation::Add},
         };
         const auto incremental_fillet = kernel.evaluate_history_incremental(
@@ -574,7 +654,7 @@ int main() {
              zima::kernel::BooleanOperation::Add},
             {"chamfer", zima::kernel::ChamferRequest{
                 {selected_box_edge},
-                zima::kernel::EdgeSelectionOrigin::OriginalEntity, 3.0},
+                3.0},
              zima::kernel::BooleanOperation::Add},
         });
         require(chamfer_boundaries.size() == 2 &&
@@ -589,13 +669,99 @@ int main() {
                                     "chamfer:face:from:");
                         }),
                 "Original-edge Chamfer did not produce a valid bounded solid");
+        require_stable_body_edges(chamfer_boundaries.back(), "Chamfer");
+        require(std::ranges::any_of(chamfer_boundaries.back().mesh.edges,
+                    [](const auto& edge) {
+                        return std::ranges::find(
+                            edge.edge_treatment_owner_ids, "chamfer") !=
+                            edge.edge_treatment_owner_ids.end();
+                    }),
+                "Chamfer did not persist its visible treatment boundary wire");
+        const auto generated_fillet_edge = std::find_if(
+            fillet_boundaries.back().mesh.edges.begin(),
+            fillet_boundaries.back().mesh.edges.end(), [](const auto& edge) {
+                return edge.reference.owner_id == "fillet";
+            });
+        require(generated_fillet_edge != fillet_boundaries.back().mesh.edges.end(),
+                "Fillet did not expose a generated operational-body edge");
+        std::optional<zima::kernel::EdgeReference> chained_chamfer_edge;
+        std::optional<std::vector<zima::kernel::BodyResult>>
+            chained_chamfer_boundaries;
+        for (const auto& candidate : fillet_boundaries.back().mesh.edges) {
+            try {
+                auto calculated = kernel.evaluate_history({
+                    {"box", zima::kernel::BoxRequest{100.0, 80.0, 50.0},
+                     zima::kernel::BooleanOperation::Add},
+                    {"fillet", zima::kernel::FilletRequest{
+                        {selected_box_edge},
+                        3.0},
+                     zima::kernel::BooleanOperation::Add},
+                    {"chained-chamfer", zima::kernel::ChamferRequest{
+                        {candidate.reference},
+                        1.0},
+                     zima::kernel::BooleanOperation::Add},
+                });
+                if (calculated.size() == 3) {
+                    chained_chamfer_edge = candidate.reference;
+                    chained_chamfer_boundaries = std::move(calculated);
+                    break;
+                }
+            } catch (const std::exception&) {
+                // Some rounded-body edges cannot accept this distance.
+            }
+        }
+        require(chained_chamfer_edge && chained_chamfer_boundaries,
+                "Fillet body exposed no stable edge suitable for a second treatment");
+        require_stable_body_edges(
+            chained_chamfer_boundaries->back(), "Chained Chamfer");
+        const auto generated_chamfer_edge = std::find_if(
+            chained_chamfer_boundaries->back().mesh.edges.begin(),
+            chained_chamfer_boundaries->back().mesh.edges.end(), [](const auto& edge) {
+                return edge.reference.owner_id == "chained-chamfer";
+            });
+        require(generated_chamfer_edge !=
+                    chained_chamfer_boundaries->back().mesh.edges.end(),
+                "Chained Chamfer did not expose its generated body edge");
+        std::optional<std::vector<zima::kernel::BodyResult>> third_treatment;
+        for (const auto& candidate :
+                chained_chamfer_boundaries->back().mesh.edges) {
+            try {
+                auto calculated = kernel.evaluate_history({
+                    {"box", zima::kernel::BoxRequest{100.0, 80.0, 50.0},
+                     zima::kernel::BooleanOperation::Add},
+                    {"fillet", zima::kernel::FilletRequest{
+                        {selected_box_edge},
+                        3.0},
+                     zima::kernel::BooleanOperation::Add},
+                    {"chained-chamfer", zima::kernel::ChamferRequest{
+                        {*chained_chamfer_edge},
+                        1.0},
+                     zima::kernel::BooleanOperation::Add},
+                    {"third-fillet", zima::kernel::FilletRequest{
+                        {candidate.reference},
+                        0.4},
+                     zima::kernel::BooleanOperation::Add},
+                });
+                if (calculated.size() == 4) {
+                    third_treatment = std::move(calculated);
+                    break;
+                }
+            } catch (const std::exception&) {
+                // Not every geometrically valid edge admits the requested
+                // radius. The contract is that the post-Chamfer body still
+                // exposes at least one stable edge for a third operation.
+            }
+        }
+        require(third_treatment && third_treatment->size() == 4,
+                "Third edge treatment could not consume a generated Chamfer edge");
+        require_stable_body_edges(third_treatment->back(), "Third Fillet");
         const auto multi_fillet_boundaries = kernel.evaluate_history({
             {"box", zima::kernel::BoxRequest{100.0, 80.0, 50.0},
              zima::kernel::BooleanOperation::Add},
             {"multi-fillet", zima::kernel::FilletRequest{{
                 body.mesh.original_references.edges[0].reference,
                 body.mesh.original_references.edges[1].reference},
-                zima::kernel::EdgeSelectionOrigin::OriginalEntity, 2.0},
+                2.0},
              zima::kernel::BooleanOperation::Add},
         });
         require(multi_fillet_boundaries.size() == 2 &&
@@ -918,7 +1084,7 @@ int main() {
             (std::istreambuf_iterator<char>(empty_serialized)),
             std::istreambuf_iterator<char>());
         require(empty_text.find("[Document]\n") != std::string::npos &&
-                    empty_text.find("format_version=11\n") != std::string::npos &&
+                    empty_text.find("format_version=12\n") != std::string::npos &&
                     empty_text.find("[DocumentUnits]\n") != std::string::npos &&
                     empty_text.find("[UserParameterValues]\n") != std::string::npos,
                 "Part persistence did not write the Python-compatible INI sections");
@@ -1011,6 +1177,13 @@ int main() {
                     std::abs(loaded_boundaries.back().volume -
                              persisted_boundaries.back().volume) < 1e-6,
                 "Calculated viewer packets were not preserved");
+        require(!loaded_boundaries.back().mesh.points.empty() &&
+                    std::ranges::all_of(
+                        loaded_boundaries.back().mesh.points,
+                        [](const auto& point) {
+                            return !point.always_visible;
+                        }),
+                "Part save/load turned solid reference vertices into visible points");
         require(loaded_boundaries.back().mesh.dimensions.size() == 1 &&
                     loaded_boundaries.back().mesh.dimensions.front().value == 10.0 &&
                     loaded_boundaries.back().mesh.dimensions.front().reference.owner_id ==
@@ -2481,7 +2654,15 @@ int main() {
         require(loaded_parity.history.size() == 2 &&
                     loaded_parity_results.size() == 2 &&
                     loaded_parity.history.back().feature_kind ==
-                        zima::document::FeatureKind::Fillet,
+                        zima::document::FeatureKind::Fillet &&
+                    std::ranges::any_of(
+                        loaded_parity_results.back().mesh.edges,
+                        [&](const auto& edge) {
+                            return std::ranges::find(
+                                edge.edge_treatment_owner_ids,
+                                parity_fillet.id) !=
+                                edge.edge_treatment_owner_ids.end();
+                        }),
                 "Complete Part parity workflow did not survive save/reload");
         auto up_to_document = zima::document::PartDocument::create_default();
         auto up_to_base = zima::document::PartDocument::create_box_container();

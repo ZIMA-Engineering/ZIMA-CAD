@@ -170,6 +170,10 @@ struct MeshView::Impl {
     // when the scene changes instead of copying all persisted geometry for
     // every hover sample.
     zima::kernel::ViewerMesh persisted_reference_mesh;
+    std::map<std::pair<std::string, std::string>, std::vector<std::size_t>>
+        original_container_edge_indices;
+    std::map<std::pair<std::string, std::string>, std::vector<std::size_t>>
+        edge_treatment_boundary_edge_indices;
     // Active Sketcher picking never needs to traverse the displayed result
     // body's faces/edges. Keep a tiny owner-filtered packet with maps back to
     // the base mesh so candidate identities remain unchanged.
@@ -368,6 +372,8 @@ struct MeshView::Impl {
     void rebuild_persisted_reference_mesh() {
         auto& target = persisted_reference_mesh;
         target = {};
+        original_container_edge_indices.clear();
+        edge_treatment_boundary_edge_indices.clear();
         // Screen-constant datum-plane borders are rebuilt below from the
         // displayed rectangle. Do not retain their unscaled model-space
         // originals as a second pick target: that produced exactly the two
@@ -378,6 +384,25 @@ struct MeshView::Impl {
             std::back_inserter(target.edges), [](const auto& edge) {
                 return !is_screen_constant_plane(edge.reference.semantic_key);
             });
+        for (std::size_t index = 0;
+             index < mesh.original_references.edges.size(); ++index) {
+            const auto& edge = mesh.original_references.edges[index];
+            ViewerCandidate candidate{CandidateKind::Container, 0.0, 0,
+                edge.reference.owner_id, {}, edge.reference.instance_path,
+                CandidateGeometry::OriginalReference};
+            if (!candidate_uses_original_container_wire_edge(candidate, edge))
+                continue;
+            original_container_edge_indices[
+                {edge.reference.owner_id, edge.reference.instance_path}]
+                    .push_back(index);
+        }
+        for (std::size_t index = 0; index < mesh.edges.size(); ++index) {
+            const auto& edge = mesh.edges[index];
+            for (const auto& owner_id : edge.edge_treatment_owner_ids) {
+                edge_treatment_boundary_edge_indices[
+                    {owner_id, edge.reference.instance_path}].push_back(index);
+            }
+        }
         target.points = mesh.original_references.points;
         target.axes = mesh.original_references.axes;
         const bool has_local_display_faces = std::any_of(
@@ -517,6 +542,8 @@ void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
     impl_->mesh = std::move(mesh);
     impl_->candidates.clear();
     impl_->confirmed_candidate.reset();
+    impl_->feature_hover_edges.clear();
+    impl_->feature_selected_edges.clear();
     impl_->selected_container_origin_id.clear();
     impl_->gpu_dirty = true;
     ++impl_->base_mesh_revision;
@@ -960,12 +987,20 @@ std::vector<zima::kernel::EdgeReference> MeshView::tangent_edge_route(
     std::optional<std::size_t> seed_index;
     for (std::size_t index = 0; index < edges.size(); ++index) {
         const auto& edge = edges[index];
-        if (edge.reference.owner_id != seed.owner_id ||
+        // A geometrically continuous result edge can cross the persisted
+        // provenance boundary between two additive containers. Fillet and
+        // Chamfer operate on the real input body, so their tangent route must
+        // cross that boundary as well. The stable owner remains attached to
+        // every member returned below; only the occurrence path is common.
+        if (!edge.reference.valid() ||
             edge.reference.instance_path != seed.instance_path ||
             edge.points.size() < 2) continue;
         endpoints[key(edge.points.front())].push_back({index, 0});
         endpoints[key(edge.points.back())].push_back({index, 1});
-        if (edge.reference.semantic_key == seed.semantic_key) seed_index = index;
+        if (edge.reference.owner_id == seed.owner_id &&
+            edge.reference.semantic_key == seed.semantic_key) {
+            seed_index = index;
+        }
     }
     if (!seed_index) return {};
     const auto direction = [&](std::size_t index, int end)
@@ -1017,6 +1052,13 @@ std::vector<zima::kernel::EdgeReference> MeshView::tangent_edge_route(
     result.reserve(selected.size());
     for (const auto index : selected) result.push_back(edges[index].reference);
     return result;
+}
+
+std::set<EdgeKey> MeshView::edge_treatment_boundary_edges(
+    const std::string& owner_id,
+    const std::string& instance_path) const {
+    return zima::viewer::edge_treatment_boundary_edges(
+        impl_->mesh, owner_id, instance_path);
 }
 
 std::optional<zima::kernel::Vec3> MeshView::candidate_face_normal(
@@ -2544,6 +2586,30 @@ if (impl_->show_planes) {
     // by the existing single-candidate hover/confirm mechanism rather than
     // Python's separate _hovered_edge/_selected_edge fields, since C++ has
     // one shared candidate-cycling model instead of a dedicated edge cursor.
+    const auto original_container_wire = [&](const auto& highlighted)
+            -> const std::vector<std::size_t>* {
+        if (!highlighted || highlighted->kind != CandidateKind::Container ||
+            (!highlighted->semantic_key.empty() &&
+             highlighted->semantic_key != "solid")) return nullptr;
+        if (impl_->edge_treatment_boundary_edge_indices.contains(
+                {highlighted->owner_id, highlighted->instance_path})) {
+            return nullptr;
+        }
+        const auto found = impl_->original_container_edge_indices.find(
+            {highlighted->owner_id, highlighted->instance_path});
+        return found == impl_->original_container_edge_indices.end()
+            ? nullptr : &found->second;
+    };
+    const auto treatment_container_wire = [&](const auto& highlighted)
+            -> const std::vector<std::size_t>* {
+        if (!highlighted || highlighted->kind != CandidateKind::Container ||
+            (!highlighted->semantic_key.empty() &&
+             highlighted->semantic_key != "solid")) return nullptr;
+        const auto found = impl_->edge_treatment_boundary_edge_indices.find(
+            {highlighted->owner_id, highlighted->instance_path});
+        return found == impl_->edge_treatment_boundary_edge_indices.end()
+            ? nullptr : &found->second;
+    };
     const auto edge_is_highlighted = [&](const zima::kernel::ViewerEdge& edge,
             const std::optional<ViewerCandidate>& highlighted) {
         const auto key = edge_key(edge.reference);
@@ -2552,6 +2618,8 @@ if (impl_->show_planes) {
              impl_->display_mode == DisplayMode::HiddenEdges ||
              impl_->display_mode == DisplayMode::NoHiddenEdges);
         const bool candidate_match = highlighted &&
+            original_container_wire(highlighted) == nullptr &&
+            treatment_container_wire(highlighted) == nullptr &&
             candidate_recolors_wire_edge(*highlighted, edge);
         return candidate_match ||
             impl_->edge_treatment_selection_edges.contains(key) ||
@@ -2569,6 +2637,8 @@ if (impl_->show_planes) {
             bool candidate_is_confirmed) {
         const auto key = edge_key(edge.reference);
         const bool candidate_match = highlighted &&
+            original_container_wire(highlighted) == nullptr &&
+            treatment_container_wire(highlighted) == nullptr &&
             candidate_recolors_wire_edge(*highlighted, edge);
         const bool selected =
             (candidate_match && candidate_is_confirmed) ||
@@ -3899,6 +3969,24 @@ if (impl_->show_planes) {
                             "sketch:origin-marker")) {
                         draw_circular_marker(
                             painter, project(point.position), color);
+                    }
+                }
+            }
+            if (const auto* edge_indices = original_container_wire(highlighted)) {
+                // This is the persisted source object itself. Draw its wire
+                // once in screen space, with no thicker duplicate result-body
+                // overlay and no OCCT work on hover.
+                painter.setPen(QPen(color, 1.0, Qt::SolidLine, Qt::RoundCap));
+                painter.setBrush(Qt::NoBrush);
+                for (const auto edge_index : *edge_indices) {
+                    if (edge_index >=
+                        impl_->mesh.original_references.edges.size()) continue;
+                    const auto& edge =
+                        impl_->mesh.original_references.edges[edge_index];
+                    for (std::size_t index = 1;
+                         index < edge.points.size(); ++index) {
+                        painter.drawLine(project(edge.points[index - 1]),
+                                         project(edge.points[index]));
                     }
                 }
             }
