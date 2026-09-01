@@ -2433,6 +2433,7 @@ std::vector<OwnedEdge> complete_edge_treatment_edges(
     const TopoDS_Shape& result_shape,
     const std::vector<OwnedFace>& faces,
     const std::vector<OwnedEdge>& propagated_edges,
+    const std::vector<OwnedEdge>& input_edges,
     const std::vector<std::pair<TopoDS_Edge, EdgeReference>>& selected,
     const std::string& treatment_owner,
     std::string_view role) {
@@ -2447,6 +2448,62 @@ std::vector<OwnedEdge> complete_edge_treatment_edges(
         result_shape, TopAbs_VERTEX, TopAbs_FACE, vertex_faces);
     const auto selected_parents = selected_edge_parent_tokens(selected);
 
+    using EdgeEndpointKey = std::array<double, 6>;
+    const auto endpoint_key = [](const TopoDS_Edge& edge)
+            -> std::optional<EdgeEndpointKey> {
+        const auto first = TopExp::FirstVertex(edge, true);
+        const auto last = TopExp::LastVertex(edge, true);
+        if (first.IsNull() || last.IsNull()) return std::nullopt;
+        const auto first_point = BRep_Tool::Pnt(first);
+        const auto last_point = BRep_Tool::Pnt(last);
+        std::array<double, 3> first_coordinates{
+            first_point.X(), first_point.Y(), first_point.Z()};
+        std::array<double, 3> last_coordinates{
+            last_point.X(), last_point.Y(), last_point.Z()};
+        for (auto* coordinates : {&first_coordinates, &last_coordinates}) {
+            for (auto& value : *coordinates) {
+                if (value == 0.0) value = 0.0;
+            }
+        }
+        if (last_coordinates < first_coordinates) {
+            std::swap(first_coordinates, last_coordinates);
+        }
+        return EdgeEndpointKey{first_coordinates[0], first_coordinates[1],
+            first_coordinates[2], last_coordinates[0], last_coordinates[1],
+            last_coordinates[2]};
+    };
+    std::map<EdgeEndpointKey, std::vector<const OwnedEdge*>> input_by_endpoints;
+    for (const auto& input : input_edges) {
+        if (!input.reference.valid() || input.shape.ShapeType() != TopAbs_EDGE) {
+            continue;
+        }
+        if (const auto key = endpoint_key(TopoDS::Edge(input.shape))) {
+            input_by_endpoints[*key].push_back(&input);
+        }
+    }
+    const auto inherited_input_reference = [&](const TopoDS_Edge& edge)
+            -> std::optional<EdgeReference> {
+        const auto key = endpoint_key(edge);
+        if (!key) return std::nullopt;
+        const auto candidates = input_by_endpoints.find(*key);
+        if (candidates == input_by_endpoints.end()) return std::nullopt;
+        std::vector<EdgeReference> matching_references;
+        for (const auto* input : candidates->second) {
+            if (!BRepTools::Compare(TopoDS::Edge(input->shape), edge)) continue;
+            if (std::find(matching_references.begin(), matching_references.end(),
+                    input->reference) == matching_references.end()) {
+                matching_references.push_back(input->reference);
+            }
+        }
+        // OCCT may rebuild an untouched edge without reporting it through
+        // Modified/Generated. The exact geometric comparison only locates
+        // the already-defined input identity. Coincident edges with different
+        // persisted parents remain deliberately ambiguous.
+        return matching_references.size() == 1
+            ? std::optional<EdgeReference>{matching_references.front()}
+            : std::nullopt;
+    };
+
     std::vector<OwnedEdge> result;
     TopTools_IndexedMapOfShape visited;
     for (TopExp_Explorer explorer(result_shape, TopAbs_EDGE);
@@ -2457,6 +2514,11 @@ std::vector<OwnedEdge> complete_edge_treatment_edges(
         if (const auto inherited = edge_references.reference_for(edge);
             inherited.valid()) {
             result.push_back({edge, inherited});
+            continue;
+        }
+        if (const auto inherited = inherited_input_reference(
+                TopoDS::Edge(edge))) {
+            result.push_back({edge, *inherited});
             continue;
         }
 
@@ -2537,6 +2599,106 @@ std::string serialize_kernel_shape(const TopoDS_Shape& shape) {
     return serialized_shape.str();
 }
 
+std::optional<Vec3> inward_face_direction(const TopoDS_Face& face,
+    const gp_Pnt& edge_point, const gp_Vec& edge_tangent,
+    double probe_distance, double tolerance) {
+    TopLoc_Location location;
+    const Handle(Geom_Surface) surface = BRep_Tool::Surface(face, location);
+    if (surface.IsNull() || edge_tangent.SquareMagnitude() <= 1.0e-18) {
+        return std::nullopt;
+    }
+    const gp_Trsf inverse = location.Transformation().Inverted();
+    auto local_edge_point = edge_point.Transformed(inverse);
+    GeomAPI_ProjectPointOnSurf projection(
+        local_edge_point, surface, std::max(1.0e-9, tolerance));
+    if (!projection.IsDone() || projection.NbPoints() == 0) {
+        return std::nullopt;
+    }
+    double u{}, v{};
+    projection.LowerDistanceParameters(u, v);
+    gp_Pnt surface_point;
+    gp_Vec du;
+    gp_Vec dv;
+    surface->D1(u, v, surface_point, du, dv);
+    du.Transform(location.Transformation());
+    dv.Transform(location.Transformation());
+    auto normal = du.Crossed(dv);
+    if (normal.SquareMagnitude() <= 1.0e-18) return std::nullopt;
+    normal.Normalize();
+    auto tangent = edge_tangent;
+    tangent.Normalize();
+    auto candidate = normal.Crossed(tangent);
+    if (candidate.SquareMagnitude() <= 1.0e-18) return std::nullopt;
+    candidate.Normalize();
+    const auto is_inside = [&](const gp_Vec& direction) {
+        auto test = edge_point.Translated(direction * probe_distance);
+        test.Transform(inverse);
+        GeomAPI_ProjectPointOnSurf projected(
+            test, surface, std::max(1.0e-9, tolerance));
+        if (!projected.IsDone() || projected.NbPoints() == 0 ||
+            projected.LowerDistance() > probe_distance * 0.25 + tolerance) {
+            return false;
+        }
+        double test_u{}, test_v{};
+        projected.LowerDistanceParameters(test_u, test_v);
+        BRepClass_FaceClassifier classifier(
+            face, gp_Pnt2d(test_u, test_v), std::max(1.0e-9, tolerance));
+        return classifier.State() == TopAbs_IN ||
+            classifier.State() == TopAbs_ON;
+    };
+    if (!is_inside(candidate)) {
+        candidate.Reverse();
+        if (!is_inside(candidate)) return std::nullopt;
+    }
+    return Vec3{candidate.X(), candidate.Y(), candidate.Z()};
+}
+
+std::vector<Vec3> sampled_inward_face_directions(const TopoDS_Edge& edge,
+    const TopoDS_Face& face, const std::vector<double>& parameters) {
+    if (parameters.empty()) return {};
+    BRepAdaptor_Curve curve(edge);
+    GProp_GProps properties;
+    BRepGProp::LinearProperties(edge, properties);
+    const double edge_length = std::max(properties.Mass(), 1.0e-6);
+    const double tolerance = std::max(BRep_Tool::Tolerance(edge), 1.0e-8);
+    const double probe = std::clamp(
+        std::max(tolerance * 25.0, edge_length * 1.0e-4),
+        edge_length * 1.0e-6, edge_length * 0.02);
+    std::vector<std::optional<Vec3>> sampled;
+    sampled.reserve(parameters.size());
+    for (const double parameter : parameters) {
+        gp_Pnt point;
+        gp_Vec tangent;
+        curve.D1(parameter, point, tangent);
+        sampled.push_back(inward_face_direction(
+            face, point, tangent, probe, tolerance * 10.0));
+    }
+    if (std::none_of(sampled.begin(), sampled.end(),
+            [](const auto& value) { return value.has_value(); })) return {};
+    std::vector<Vec3> result;
+    result.reserve(sampled.size());
+    for (std::size_t index = 0; index < sampled.size(); ++index) {
+        if (sampled[index]) {
+            result.push_back(*sampled[index]);
+            continue;
+        }
+        auto nearest = sampled.size();
+        for (std::size_t distance = 1; distance < sampled.size(); ++distance) {
+            if (index >= distance && sampled[index - distance]) {
+                nearest = index - distance;
+                break;
+            }
+            if (index + distance < sampled.size() &&
+                sampled[index + distance]) {
+                nearest = index + distance;
+                break;
+            }
+        }
+        result.push_back(*sampled[nearest]);
+    }
+    return result;
+}
+
 BodyResult make_result(
     const TopoDS_Shape& shape,
     const std::vector<OwnedFace>& owned_faces,
@@ -2581,10 +2743,8 @@ BodyResult make_result(
     // owning history container solely for cheap wire recolouring.
     edge_references.emplace(owned_edges);
     TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
-    if (face_references) {
-        TopExp::MapShapesAndAncestors(
-            shape, TopAbs_EDGE, TopAbs_FACE, edge_faces);
-    }
+    TopExp::MapShapesAndAncestors(
+        shape, TopAbs_EDGE, TopAbs_FACE, edge_faces);
 
     for (TopExp_Explorer explorer(shape, TopAbs_FACE); explorer.More(); explorer.Next()) {
         const TopoDS_Face face = TopoDS::Face(explorer.Current());
@@ -2651,9 +2811,9 @@ BodyResult make_result(
         viewer_edge.reference = original_reference_geometry
             ? reference : EdgeReference{};
         viewer_edge.display_owner_id = reference.owner_id;
+        const int edge_index = edge_faces.FindIndex(edge);
         if (face_references) {
             std::set<std::string> treatment_owners;
-            const int edge_index = edge_faces.FindIndex(edge);
             if (edge_index != 0) {
                 for (TopTools_ListIteratorOfListOfShape iterator(
                          edge_faces.FindFromIndex(edge_index));
@@ -2672,10 +2832,36 @@ BodyResult make_result(
             viewer_edge.edge_treatment_owner_ids.assign(
                 treatment_owners.begin(), treatment_owners.end());
         }
+        std::vector<double> sample_parameters;
+        sample_parameters.reserve(
+            static_cast<std::size_t>(samples.NbPoints()));
         viewer_edge.points.reserve(static_cast<std::size_t>(samples.NbPoints()));
         for (int index = 1; index <= samples.NbPoints(); ++index) {
-            const gp_Pnt point = curve.Value(samples.Parameter(index));
+            const double parameter = samples.Parameter(index);
+            sample_parameters.push_back(parameter);
+            const gp_Pnt point = curve.Value(parameter);
             viewer_edge.points.push_back({point.X(), point.Y(), point.Z()});
+        }
+        if (edge_index != 0) {
+            for (TopTools_ListIteratorOfListOfShape iterator(
+                     edge_faces.FindFromIndex(edge_index));
+                 iterator.More() &&
+                     viewer_edge.edge_treatment_side_directions.size() < 2;
+                 iterator.Next()) {
+                auto directions = sampled_inward_face_directions(
+                    edge, TopoDS::Face(iterator.Value()), sample_parameters);
+                if (!directions.empty()) {
+                    viewer_edge.edge_treatment_side_directions.push_back(
+                        std::move(directions));
+                }
+            }
+        }
+        // A treatment cross-section is defined only when both adjacent face
+        // sides were resolved. Never persist a misleading half-pair: sheet
+        // boundaries and degenerate seams remain valid display edges, but
+        // simply do not offer the fake two-sided preview.
+        if (viewer_edge.edge_treatment_side_directions.size() != 2) {
+            viewer_edge.edge_treatment_side_directions.clear();
         }
         if (collect_original_references && reference.valid()) {
             auto reference_edge = viewer_edge;
@@ -3160,8 +3346,9 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                         std::max(1.0e-7, operation.boolean_tolerance));
                     result_shape = std::move(unified.shape);
                     auto completed_edges = complete_edge_treatment_edges(
-                        result_shape, unified.faces, unified.edges, selected,
-                        operation.owner_id, "fillet:edge");
+                        result_shape, unified.faces, unified.edges,
+                        owned_topology->edges, selected, operation.owner_id,
+                        "fillet:edge");
                     auto completed_vertices = complete_edge_treatment_vertices(
                         result_shape, completed_edges, unified.vertices, selected,
                         operation.owner_id, "fillet:vertex");
@@ -3209,8 +3396,9 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                         std::max(1.0e-7, operation.boolean_tolerance));
                     result_shape = std::move(unified.shape);
                     auto completed_edges = complete_edge_treatment_edges(
-                        result_shape, unified.faces, unified.edges, selected,
-                        operation.owner_id, "chamfer:edge");
+                        result_shape, unified.faces, unified.edges,
+                        owned_topology->edges, selected, operation.owner_id,
+                        "chamfer:edge");
                     auto completed_vertices = complete_edge_treatment_vertices(
                         result_shape, completed_edges, unified.vertices, selected,
                         operation.owner_id, "chamfer:vertex");

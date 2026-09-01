@@ -385,11 +385,20 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result) {
     for (const auto& edge : result.mesh.edges) {
         nlohmann::json points = nlohmann::json::array();
         for (const auto& point : edge.points) points.push_back(serialize_vec3(point));
+        nlohmann::json side_directions = nlohmann::json::array();
+        for (const auto& side : edge.edge_treatment_side_directions) {
+            nlohmann::json samples = nlohmann::json::array();
+            for (const auto& direction : side) {
+                samples.push_back(serialize_vec3(direction));
+            }
+            side_directions.push_back(std::move(samples));
+        }
         edges.push_back({
             {"owner", edge.reference.owner_id}, {"key", edge.reference.semantic_key},
             {"instance_path", edge.reference.instance_path},
             {"display_owner", edge.display_owner_id},
             {"edge_treatment_owners", edge.edge_treatment_owner_ids},
+            {"edge_treatment_side_directions", std::move(side_directions)},
             {"points", std::move(points)},
         });
     }
@@ -512,6 +521,23 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source) {
         loaded.edge_treatment_owner_ids =
             edge.at("edge_treatment_owners").get<std::vector<std::string>>();
         for (const auto& point : edge.at("points")) loaded.points.push_back(load_vec3(point));
+        for (const auto& side : edge.at("edge_treatment_side_directions")) {
+            std::vector<zima::kernel::Vec3> samples;
+            for (const auto& direction : side) {
+                samples.push_back(load_vec3(direction));
+            }
+            if (samples.size() != loaded.points.size()) {
+                throw std::runtime_error(
+                    "Persisted viewer edge side directions are not aligned");
+            }
+            loaded.edge_treatment_side_directions.push_back(
+                std::move(samples));
+        }
+        if (!loaded.edge_treatment_side_directions.empty() &&
+            loaded.edge_treatment_side_directions.size() != 2) {
+            throw std::runtime_error(
+                "Persisted viewer edge must have exactly two treatment sides");
+        }
         const bool owner_empty = loaded.reference.owner_id.empty();
         const bool key_empty = loaded.reference.semantic_key.empty();
         // Viewer-only body edges deliberately carry an occurrence path without

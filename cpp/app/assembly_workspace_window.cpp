@@ -1408,6 +1408,432 @@ zima::kernel::ViewerEdge ellipse_preview_edge(
     return edge;
 }
 
+double edge_preview_length(const zima::kernel::Vec3& value) {
+    return std::hypot(std::hypot(value.x, value.y), value.z);
+}
+
+zima::kernel::Vec3 edge_preview_difference(
+    const zima::kernel::Vec3& left, const zima::kernel::Vec3& right) {
+    return {left.x - right.x, left.y - right.y, left.z - right.z};
+}
+
+double edge_preview_dot(
+    const zima::kernel::Vec3& left, const zima::kernel::Vec3& right) {
+    return left.x * right.x + left.y * right.y + left.z * right.z;
+}
+
+std::optional<zima::kernel::Vec3> edge_preview_normalized(
+    const zima::kernel::Vec3& value) {
+    const double length = edge_preview_length(value);
+    if (length <= 1.0e-9) return std::nullopt;
+    return zima::kernel::Vec3{
+        value.x / length, value.y / length, value.z / length};
+}
+
+zima::kernel::Vec3 edge_preview_offset(const zima::kernel::Vec3& point,
+    const zima::kernel::Vec3& direction, double distance) {
+    return {point.x + direction.x * distance,
+            point.y + direction.y * distance,
+            point.z + direction.z * distance};
+}
+
+bool edge_preview_same_point(
+    const zima::kernel::Vec3& first, const zima::kernel::Vec3& second) {
+    return edge_preview_length(edge_preview_difference(first, second)) <= 1.0e-6;
+}
+
+bool viewer_edges_same_geometry(
+    const zima::kernel::ViewerEdge& first,
+    const zima::kernel::ViewerEdge& second) {
+    if (first.points.empty() || first.points.size() != second.points.size()) {
+        return false;
+    }
+    const auto same_order = [&](bool reverse) {
+        for (std::size_t index = 0; index < first.points.size(); ++index) {
+            const auto second_index = reverse
+                ? second.points.size() - index - 1
+                : index;
+            if (!edge_preview_same_point(
+                    first.points[index], second.points[second_index])) {
+                return false;
+            }
+        }
+        return true;
+    };
+    return same_order(false) || same_order(true);
+}
+
+std::size_t restore_surviving_edge_references_after_history_delete(
+    zima::document::PartDocument& document,
+    const std::string& deleted_owner,
+    const zima::kernel::BodyResult& input_before_deleted,
+    const std::vector<zima::kernel::BodyResult>& old_boundaries) {
+    const auto old_edge = [&](const zima::kernel::EdgeReference& reference)
+            -> const zima::kernel::ViewerEdge* {
+        for (const auto& boundary : old_boundaries) {
+            const auto found = std::ranges::find_if(
+                boundary.mesh.edges, [&](const auto& edge) {
+                    return edge.reference == reference;
+                });
+            if (found != boundary.mesh.edges.end()) return &*found;
+        }
+        return nullptr;
+    };
+    const auto surviving_reference =
+        [&](const zima::kernel::EdgeReference& reference)
+            -> std::optional<zima::kernel::EdgeReference> {
+        const auto* stale_edge = old_edge(reference);
+        if (stale_edge == nullptr) return std::nullopt;
+        std::vector<zima::kernel::EdgeReference> matches;
+        for (const auto& candidate : input_before_deleted.mesh.edges) {
+            if (!candidate.reference.valid() ||
+                candidate.reference.owner_id == deleted_owner ||
+                !viewer_edges_same_geometry(*stale_edge, candidate)) {
+                continue;
+            }
+            if (std::ranges::find(matches, candidate.reference) == matches.end()) {
+                matches.push_back(candidate.reference);
+            }
+        }
+        // Repair only the unambiguous case: the referenced operational edge
+        // was already present, geometrically unchanged, before the deleted
+        // feature. A truly generated/modified edge remains dependent and the
+        // normal calculation rejects its deletion.
+        return matches.size() == 1
+            ? std::optional<zima::kernel::EdgeReference>{matches.front()}
+            : std::nullopt;
+    };
+
+    std::size_t restored{};
+    for (auto& container : document.history) {
+        if (container.feature_kind != zima::document::FeatureKind::Fillet &&
+            container.feature_kind != zima::document::FeatureKind::Chamfer) {
+            continue;
+        }
+        for (auto& route : container.edge_treatment.routes) {
+            for (auto& reference : route) {
+                if (reference.owner_id != deleted_owner) continue;
+                if (const auto replacement = surviving_reference(reference)) {
+                    reference = *replacement;
+                    ++restored;
+                }
+            }
+        }
+    }
+    return restored;
+}
+
+struct EdgeTreatmentPreviewPath {
+    std::vector<zima::kernel::ViewerEdge> edges;
+};
+
+struct EdgeTreatmentPreviewGeometry {
+    std::vector<zima::kernel::ViewerEdge> edges;
+    std::optional<zima::kernel::ViewerDimension> dimension;
+};
+
+bool edge_preview_has_face_guides(const zima::kernel::ViewerEdge& edge) {
+    return edge.points.size() >= 2 &&
+        edge.edge_treatment_side_directions.size() == 2 &&
+        edge.edge_treatment_side_directions[0].size() == edge.points.size() &&
+        edge.edge_treatment_side_directions[1].size() == edge.points.size();
+}
+
+void edge_preview_reverse(zima::kernel::ViewerEdge& edge) {
+    std::ranges::reverse(edge.points);
+    for (auto& directions : edge.edge_treatment_side_directions) {
+        std::ranges::reverse(directions);
+    }
+}
+
+std::vector<EdgeTreatmentPreviewPath> ordered_edge_treatment_preview_paths(
+    std::vector<zima::kernel::ViewerEdge> edges) {
+    std::erase_if(edges, [](const auto& edge) {
+        return !edge_preview_has_face_guides(edge);
+    });
+    std::vector<EdgeTreatmentPreviewPath> paths;
+    while (!edges.empty()) {
+        const auto connection_count = [&](const zima::kernel::Vec3& point,
+                                           std::size_t excluded) {
+            std::size_t count{};
+            for (std::size_t index = 0; index < edges.size(); ++index) {
+                if (index == excluded) continue;
+                if (edge_preview_same_point(point, edges[index].points.front()) ||
+                    edge_preview_same_point(point, edges[index].points.back())) {
+                    ++count;
+                }
+            }
+            return count;
+        };
+        std::size_t seed{};
+        bool reverse_seed{};
+        for (std::size_t index = 0; index < edges.size(); ++index) {
+            const bool front_free =
+                connection_count(edges[index].points.front(), index) == 0;
+            const bool back_free =
+                connection_count(edges[index].points.back(), index) == 0;
+            if (!front_free && !back_free) continue;
+            seed = index;
+            reverse_seed = !front_free && back_free;
+            break;
+        }
+        auto seed_edge = std::move(edges[seed]);
+        edges.erase(edges.begin() + static_cast<std::ptrdiff_t>(seed));
+        if (reverse_seed) edge_preview_reverse(seed_edge);
+        EdgeTreatmentPreviewPath path{{std::move(seed_edge)}};
+        while (!edges.empty()) {
+            const auto end = path.edges.back().points.back();
+            std::optional<std::pair<std::size_t, bool>> continuation;
+            for (std::size_t index = 0; index < edges.size(); ++index) {
+                const bool front = edge_preview_same_point(
+                    end, edges[index].points.front());
+                const bool back = edge_preview_same_point(
+                    end, edges[index].points.back());
+                if (!front && !back) continue;
+                if (continuation) {
+                    // A branch is not one unambiguous route. Finish this path;
+                    // the remaining branch becomes its own preview cage.
+                    continuation.reset();
+                    break;
+                }
+                continuation = std::pair{index, back};
+            }
+            if (!continuation) break;
+            auto next = std::move(edges[continuation->first]);
+            edges.erase(edges.begin() +
+                static_cast<std::ptrdiff_t>(continuation->first));
+            if (continuation->second) edge_preview_reverse(next);
+            path.edges.push_back(std::move(next));
+        }
+        paths.push_back(std::move(path));
+    }
+    return paths;
+}
+
+zima::kernel::Vec3 edge_preview_blend_direction(
+    const zima::kernel::Vec3& first, const zima::kernel::Vec3& second,
+    double ratio) {
+    const auto normalized_first = edge_preview_normalized(first);
+    const auto normalized_second = edge_preview_normalized(second);
+    if (!normalized_first || !normalized_second) return first;
+    const double cosine = std::clamp(edge_preview_dot(
+        *normalized_first, *normalized_second), -1.0, 1.0);
+    if (cosine > 0.9995 || cosine < -0.9995) {
+        const zima::kernel::Vec3 blended{
+            normalized_first->x * (1.0 - ratio) + normalized_second->x * ratio,
+            normalized_first->y * (1.0 - ratio) + normalized_second->y * ratio,
+            normalized_first->z * (1.0 - ratio) + normalized_second->z * ratio};
+        return edge_preview_normalized(blended).value_or(*normalized_first);
+    }
+    const double angle = std::acos(cosine);
+    const double denominator = std::sin(angle);
+    const double first_weight = std::sin((1.0 - ratio) * angle) / denominator;
+    const double second_weight = std::sin(ratio * angle) / denominator;
+    return {normalized_first->x * first_weight +
+                normalized_second->x * second_weight,
+            normalized_first->y * first_weight +
+                normalized_second->y * second_weight,
+            normalized_first->z * first_weight +
+                normalized_second->z * second_weight};
+}
+
+struct EdgeTreatmentSection {
+    zima::kernel::ViewerEdge wire;
+    zima::kernel::Vec3 first_tangent;
+    zima::kernel::Vec3 second_tangent;
+    std::optional<zima::kernel::Vec3> radius_center;
+    std::optional<zima::kernel::Vec3> radius_rim;
+};
+
+std::optional<EdgeTreatmentSection> edge_treatment_section(
+    const zima::kernel::Vec3& point,
+    const zima::kernel::Vec3& raw_first_direction,
+    const zima::kernel::Vec3& raw_second_direction,
+    double size, bool fillet) {
+    const auto first_direction = edge_preview_normalized(raw_first_direction);
+    const auto second_direction = edge_preview_normalized(raw_second_direction);
+    if (!first_direction || !second_direction) return std::nullopt;
+    const double cosine = std::clamp(edge_preview_dot(
+        *first_direction, *second_direction), -0.999999, 0.999999);
+    const double half_angle = std::acos(cosine) * 0.5;
+    if (half_angle <= 1.0e-5 ||
+        std::abs(std::tan(half_angle)) <= 1.0e-9) return std::nullopt;
+    const double tangent_distance = fillet
+        ? size / std::tan(half_angle) : size;
+    EdgeTreatmentSection result;
+    result.wire.overlay = true;
+    result.first_tangent = edge_preview_offset(
+        point, *first_direction, tangent_distance);
+    result.second_tangent = edge_preview_offset(
+        point, *second_direction, tangent_distance);
+    if (!fillet) {
+        result.wire.points = {result.first_tangent, result.second_tangent};
+        return result;
+    }
+    const auto bisector = edge_preview_normalized({
+        first_direction->x + second_direction->x,
+        first_direction->y + second_direction->y,
+        first_direction->z + second_direction->z});
+    if (!bisector || std::sin(half_angle) <= 1.0e-9) return std::nullopt;
+    const auto center = edge_preview_offset(
+        point, *bisector, size / std::sin(half_angle));
+    const auto first_radius = edge_preview_difference(
+        result.first_tangent, center);
+    const auto second_radius = edge_preview_difference(
+        result.second_tangent, center);
+    constexpr std::size_t samples = 12;
+    result.wire.points.reserve(samples + 1);
+    for (std::size_t sample = 0; sample <= samples; ++sample) {
+        const double ratio = static_cast<double>(sample) /
+            static_cast<double>(samples);
+        const auto direction = edge_preview_blend_direction(
+            first_radius, second_radius, ratio);
+        result.wire.points.push_back(edge_preview_offset(
+            center, direction, size));
+    }
+    result.radius_center = center;
+    result.radius_rim = result.wire.points[samples / 2];
+    return result;
+}
+
+void edge_preview_append_corner(std::vector<zima::kernel::Vec3>& rail,
+    const zima::kernel::Vec3& corner,
+    const zima::kernel::Vec3& target) {
+    if (rail.empty() || edge_preview_same_point(rail.back(), target)) return;
+    const auto previous_vector = edge_preview_difference(rail.back(), corner);
+    const auto target_vector = edge_preview_difference(target, corner);
+    const double previous_length = edge_preview_length(previous_vector);
+    const double target_length = edge_preview_length(target_vector);
+    constexpr std::size_t samples = 6;
+    for (std::size_t sample = 1; sample <= samples; ++sample) {
+        const double ratio = static_cast<double>(sample) /
+            static_cast<double>(samples);
+        const auto direction = edge_preview_blend_direction(
+            previous_vector, target_vector, ratio);
+        const double distance = previous_length * (1.0 - ratio) +
+            target_length * ratio;
+        rail.push_back(edge_preview_offset(corner, direction, distance));
+    }
+}
+
+EdgeTreatmentPreviewGeometry edge_treatment_preview_wire(
+    const std::vector<std::vector<zima::kernel::ViewerEdge>>& groups,
+    double size, bool fillet, const std::string& owner_id) {
+    EdgeTreatmentPreviewGeometry result;
+    if (!std::isfinite(size) || size <= 1.0e-9) return result;
+    for (const auto& group : groups) {
+        for (auto path : ordered_edge_treatment_preview_paths(group)) {
+            if (path.edges.empty()) continue;
+            zima::kernel::ViewerEdge first_rail;
+            zima::kernel::ViewerEdge second_rail;
+            first_rail.overlay = true;
+            second_rail.overlay = true;
+            std::optional<EdgeTreatmentSection> first_section;
+            std::optional<EdgeTreatmentSection> last_section;
+            bool rails_valid = true;
+            for (std::size_t edge_index = 0;
+                 edge_index < path.edges.size(); ++edge_index) {
+                auto& edge = path.edges[edge_index];
+                auto start = edge_treatment_section(edge.points.front(),
+                    edge.edge_treatment_side_directions[0].front(),
+                    edge.edge_treatment_side_directions[1].front(), size, fillet);
+                if (!start) {
+                    rails_valid = false;
+                    break;
+                }
+                if (!first_rail.points.empty()) {
+                    const double straight = edge_preview_length(
+                            edge_preview_difference(first_rail.points.back(),
+                                start->first_tangent)) +
+                        edge_preview_length(edge_preview_difference(
+                            second_rail.points.back(), start->second_tangent));
+                    const double swapped = edge_preview_length(
+                            edge_preview_difference(first_rail.points.back(),
+                                start->second_tangent)) +
+                        edge_preview_length(edge_preview_difference(
+                            second_rail.points.back(), start->first_tangent));
+                    if (swapped < straight) {
+                        std::swap(edge.edge_treatment_side_directions[0],
+                                  edge.edge_treatment_side_directions[1]);
+                        start = edge_treatment_section(edge.points.front(),
+                            edge.edge_treatment_side_directions[0].front(),
+                            edge.edge_treatment_side_directions[1].front(),
+                            size, fillet);
+                    }
+                }
+                if (!start) {
+                    rails_valid = false;
+                    break;
+                }
+                if (!first_section) first_section = *start;
+                if (edge_index != 0) {
+                    edge_preview_append_corner(first_rail.points,
+                        edge.points.front(), start->first_tangent);
+                    edge_preview_append_corner(second_rail.points,
+                        edge.points.front(), start->second_tangent);
+                }
+                for (std::size_t point_index = edge_index == 0 ? 0 : 1;
+                     point_index < edge.points.size(); ++point_index) {
+                    auto section = edge_treatment_section(edge.points[point_index],
+                        edge.edge_treatment_side_directions[0][point_index],
+                        edge.edge_treatment_side_directions[1][point_index],
+                        size, fillet);
+                    if (!section) {
+                        rails_valid = false;
+                        break;
+                    }
+                    first_rail.points.push_back(section->first_tangent);
+                    second_rail.points.push_back(section->second_tangent);
+                    last_section = std::move(section);
+                }
+                if (!rails_valid) break;
+            }
+            if (!rails_valid || !first_section || !last_section ||
+                first_rail.points.size() < 2 || second_rail.points.size() < 2) {
+                continue;
+            }
+            result.edges.push_back(std::move(first_rail));
+            result.edges.push_back(std::move(second_rail));
+            result.edges.push_back(std::move(first_section->wire));
+            result.edges.push_back(std::move(last_section->wire));
+            if (!result.dimension) {
+                zima::kernel::ViewerDimension dimension;
+                dimension.value = size;
+                dimension.reference = {owner_id, "parameter:size", {}};
+                if (fillet && first_section->radius_center &&
+                    first_section->radius_rim) {
+                    dimension.kind = zima::kernel::ViewerDimensionKind::Radius;
+                    dimension.witness_first = *first_section->radius_center;
+                    dimension.witness_second = *first_section->radius_rim;
+                    dimension.line_first = dimension.witness_first;
+                    dimension.line_second = dimension.witness_second;
+                    dimension.label_prefix = "R";
+                } else {
+                    dimension.kind = zima::kernel::ViewerDimensionKind::Linear;
+                    dimension.witness_first = path.edges.front().points.front();
+                    dimension.witness_second = first_section->first_tangent;
+                    const auto shift = edge_preview_difference(
+                        first_section->second_tangent,
+                        path.edges.front().points.front());
+                    const auto shift_direction = edge_preview_normalized(shift);
+                    const double shift_distance = std::max(0.5, size * 0.35);
+                    dimension.line_first = shift_direction
+                        ? edge_preview_offset(dimension.witness_first,
+                              *shift_direction, shift_distance)
+                        : dimension.witness_first;
+                    dimension.line_second = shift_direction
+                        ? edge_preview_offset(dimension.witness_second,
+                              *shift_direction, shift_distance)
+                        : dimension.witness_second;
+                    dimension.label_prefix.clear();
+                }
+                result.dimension = std::move(dimension);
+            }
+        }
+    }
+    return result;
+}
+
 class BodyColorDialog final : public zima::ui::PropertiesSubWindow {
 public:
     BodyColorDialog(QColor initial, std::function<void(QColor)> accepted,
@@ -3648,7 +4074,13 @@ void AssemblyWorkspaceWindow::create_layout() {
     viewer_->set_double_confirmation_callback([this](const auto& candidate) {
         if (candidate.kind == zima::viewer::CandidateKind::Dimension &&
             candidate.semantic_key.starts_with("parameter:")) {
-            edit_dimension_inline(candidate);
+            if (edge_treatment_dialog_ != nullptr &&
+                candidate.owner_id == edge_treatment_preview_owner_id_ &&
+                candidate.semantic_key == "parameter:size") {
+                focus_parameter_dimension_field(candidate.semantic_key);
+            } else {
+                edit_dimension_inline(candidate);
+            }
         } else if (candidate.kind == zima::viewer::CandidateKind::Dimension &&
             (candidate.semantic_key.starts_with("dimension:") ||
              candidate.semantic_key.starts_with("corner_dimension:"))) {
@@ -5436,13 +5868,15 @@ void AssemblyWorkspaceWindow::start_edge_treatment(
     initial.feature_kind = kind;
     initial.name = kind == zima::document::FeatureKind::Fillet
         ? tr("Zaoblení").toStdString() : tr("Sražení").toStdString();
-    initial.edge_treatment.edges.clear();
+    initial.edge_treatment.routes.clear();
+    edge_treatment_preview_size_ = initial.edge_treatment.size;
+    edge_treatment_preview_owner_id_ = initial.id;
     const std::string part_id = part->session.document().document_id;
     auto* dialog = new PrimitivePropertiesDialog(
         initial, false, false,
         [this, part_id](zima::document::HistoryContainer committed,
                         std::vector<std::string>) {
-            if (committed.edge_treatment.edges.empty()) {
+            if (committed.edge_treatment.flattened_edges().empty()) {
                 throw std::runtime_error("Vyberte alespoň jednu hranu Tělesa");
             }
             auto* target = workspace_.open_part(part_id);
@@ -5462,17 +5896,11 @@ void AssemblyWorkspaceWindow::start_edge_treatment(
             remove_edge_treatment_member(group, member);
         },
         [this](std::size_t group) { restore_edge_treatment_route(group); });
-    viewer_->set_selection_contract({zima::viewer::CandidateKind::Edge});
-    const auto active_occurrence = resolve_active_occurrence(
-        part->session.document().document_id);
-    viewer_->set_candidate_filter(
-        [expected_path = active_occurrence.value_or(std::string{})](
-            const auto& candidate) {
-            return candidate.kind == zima::viewer::CandidateKind::Edge &&
-                candidate.geometry ==
-                    zima::viewer::CandidateGeometry::Display &&
-                candidate.instance_path == expected_path;
-        });
+    dialog->set_preview_callback([this](const auto& preview) {
+        edge_treatment_preview_size_ = preview.edge_treatment.size;
+        refresh_edge_treatment_preview();
+    });
+    refresh_edge_treatment_selection_ui();
     connect(dialog, &QObject::destroyed, this, [this] {
         properties_dialog_ = nullptr;
         edge_treatment_dialog_ = nullptr;
@@ -5481,6 +5909,10 @@ void AssemblyWorkspaceWindow::start_edge_treatment(
         pending_edge_treatment_edges_.clear();
         pending_edge_treatment_groups_.clear();
         pending_edge_treatment_seeds_.clear();
+        edge_treatment_preview_owner_id_.clear();
+        tree_->setProperty("commandSelectionActive", false);
+        viewer_->set_transient_edges({});
+        viewer_->set_transient_dimensions({});
         viewer_->set_edge_treatment_selection_edges({});
         viewer_->set_feature_hover_edges({});
         viewer_->set_candidate_filter({});
@@ -5556,6 +5988,24 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_selection_ui() {
     const std::string instance_path = part == nullptr ? std::string{}
         : resolve_active_occurrence(part->session.document().document_id)
             .value_or(std::string{});
+    if (edge_treatment_selection_ && part != nullptr) {
+        tree_->setProperty("commandSelectionActive", true);
+        viewer_->set_selection_contract({zima::viewer::CandidateKind::Edge,
+                                         zima::viewer::CandidateKind::Dimension});
+        viewer_->set_candidate_filter(
+            [expected_path = instance_path,
+             preview_owner = edge_treatment_preview_owner_id_](
+                const auto& candidate) {
+                if (candidate.kind == zima::viewer::CandidateKind::Dimension) {
+                    return candidate.owner_id == preview_owner &&
+                        candidate.semantic_key == "parameter:size";
+                }
+                return candidate.kind == zima::viewer::CandidateKind::Edge &&
+                    candidate.geometry ==
+                        zima::viewer::CandidateGeometry::Display &&
+                    candidate.instance_path == expected_path;
+            });
+    }
     for (const auto& group : pending_edge_treatment_groups_) {
         for (const auto& edge : group) {
             if (std::find(pending_edge_treatment_edges_.begin(),
@@ -5570,6 +6020,64 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_selection_ui() {
         edge_treatment_dialog_->set_edge_groups(pending_edge_treatment_groups_);
     }
     viewer_->set_edge_treatment_selection_edges(std::move(highlighted));
+    refresh_edge_treatment_preview();
+}
+
+void AssemblyWorkspaceWindow::refresh_edge_treatment_preview() {
+    if (viewer_ == nullptr) return;
+    const auto* part = workspace_.open_part(workspace_.active_document_id());
+    if (!edge_treatment_selection_ || part == nullptr ||
+        pending_edge_treatment_groups_.empty()) {
+        viewer_->set_transient_edges({});
+        viewer_->set_transient_dimensions({});
+        return;
+    }
+    const std::string instance_path = resolve_active_occurrence(
+        part->session.document().document_id).value_or(std::string{});
+    const auto* displayed_assembly =
+        workspace_.open_assembly(workspace_.displayed_document_id());
+    const auto decoded_path = instance_path.empty()
+        ? std::optional<zima::assembly::InstancePath>{}
+        : std::optional{zima::assembly::InstancePath::decode(instance_path)};
+    std::vector<std::vector<zima::kernel::ViewerEdge>> display_groups;
+    display_groups.reserve(pending_edge_treatment_groups_.size());
+    for (const auto& group : pending_edge_treatment_groups_) {
+        std::vector<zima::kernel::ViewerEdge> display_group;
+        display_group.reserve(group.size());
+        for (const auto& stored : group) {
+            auto displayed_reference = stored;
+            displayed_reference.instance_path = instance_path;
+            auto edge = viewer_->display_edge(displayed_reference);
+            if (!edge) continue;
+            if (displayed_assembly != nullptr && decoded_path) {
+                for (auto& point : edge->points) {
+                    point = workspace_.occurrence_point_from_scene(
+                        displayed_assembly->session.document().document_id,
+                        *decoded_path, point);
+                }
+                for (auto& side : edge->edge_treatment_side_directions) {
+                    for (auto& direction : side) {
+                        direction = workspace_.occurrence_direction_from_scene(
+                            displayed_assembly->session.document().document_id,
+                            *decoded_path, direction);
+                    }
+                }
+            }
+            display_group.push_back(std::move(*edge));
+        }
+        if (!display_group.empty()) {
+            display_groups.push_back(std::move(display_group));
+        }
+    }
+    auto preview = edge_treatment_preview_wire(
+        display_groups, edge_treatment_preview_size_,
+        *edge_treatment_selection_ == zima::document::FeatureKind::Fillet,
+        edge_treatment_preview_owner_id_);
+    viewer_->set_transient_edges(std::move(preview.edges));
+    viewer_->set_transient_dimensions(preview.dimension
+        ? std::vector<zima::kernel::ViewerDimension>{
+              std::move(*preview.dimension)}
+        : std::vector<zima::kernel::ViewerDimension>{});
 }
 
 void AssemblyWorkspaceWindow::remove_edge_treatment_member(
@@ -8912,15 +9420,17 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         (feature_kind == zima::document::FeatureKind::Fillet ||
          feature_kind == zima::document::FeatureKind::Chamfer)) {
         edge_treatment_selection_ = feature_kind;
+        edge_treatment_preview_size_ = initial.edge_treatment.size;
+        edge_treatment_preview_owner_id_ = initial.id;
         edge_treatment_hover_seed_.reset();
         viewer_->set_feature_hover_edges({});
         edge_treatment_dialog_ = dialog;
-        pending_edge_treatment_edges_ = initial.edge_treatment.edges;
-        pending_edge_treatment_groups_.clear();
+        pending_edge_treatment_edges_ =
+            initial.edge_treatment.flattened_edges();
+        pending_edge_treatment_groups_ = initial.edge_treatment.routes;
         pending_edge_treatment_seeds_.clear();
-        for (const auto& edge : initial.edge_treatment.edges) {
-            pending_edge_treatment_groups_.push_back({edge});
-            pending_edge_treatment_seeds_.push_back(edge);
+        for (const auto& route : pending_edge_treatment_groups_) {
+            if (!route.empty()) pending_edge_treatment_seeds_.push_back(route.front());
         }
         dialog->set_edge_groups(pending_edge_treatment_groups_);
         dialog->set_edge_group_callbacks(
@@ -8928,17 +9438,10 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 remove_edge_treatment_member(group, member);
             },
             [this](std::size_t group) { restore_edge_treatment_route(group); });
-        viewer_->set_selection_contract({zima::viewer::CandidateKind::Edge});
-        const auto active_occurrence = resolve_active_occurrence(
-            part->session.document().document_id);
-        viewer_->set_candidate_filter(
-            [expected_path = active_occurrence.value_or(std::string{})](
-                const auto& candidate) {
-                return candidate.kind == zima::viewer::CandidateKind::Edge &&
-                    candidate.geometry ==
-                        zima::viewer::CandidateGeometry::Display &&
-                    candidate.instance_path == expected_path;
-            });
+        dialog->set_preview_callback([this](const auto& preview) {
+            edge_treatment_preview_size_ = preview.edge_treatment.size;
+            refresh_edge_treatment_preview();
+        });
         refresh_edge_treatment_selection_ui();
     }
     if (pending_profile_edit) {
@@ -9042,6 +9545,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         pending_edge_treatment_edges_.clear();
         pending_edge_treatment_groups_.clear();
         pending_edge_treatment_seeds_.clear();
+        edge_treatment_preview_owner_id_.clear();
         extrusion_target_dialog_ = nullptr;
         primitive_reference_dialog_ = nullptr;
         pending_primitive_reference_index_.reset();
@@ -9085,10 +9589,14 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     // disabled until the user explicitly requests one placement/Up-to
     // reference field; that command installs its own exact selection
     // contract and returns here after one confirmed pick.
-    tree_->setProperty("commandSelectionActive", false);
-    viewer_->clear_selection();
-    viewer_->set_selection_contract({});
-    viewer_->set_candidate_filter([](const auto&) { return false; });
+    if (edge_treatment_selection_) {
+        refresh_edge_treatment_selection_ui();
+    } else {
+        tree_->setProperty("commandSelectionActive", false);
+        viewer_->clear_selection();
+        viewer_->set_selection_contract({});
+        viewer_->set_candidate_filter([](const auto&) { return false; });
+    }
 }
 
 void AssemblyWorkspaceWindow::transform_sketch_container(
@@ -16055,6 +16563,9 @@ void AssemblyWorkspaceWindow::delete_part_object(
                 std::erase_if(next.constructions,
                     [&](const auto& object) { return object.id == object_id; });
             } else {
+                const auto rollback =
+                    part->session.rollback_boundary(object_id);
+                const auto old_history_size = next.history.size();
                 // An internal profile Sketch is owned by its history
                 // container and must disappear with that container. Keeping
                 // it would leave an unreachable orphan after either single
@@ -16064,6 +16575,13 @@ void AssemblyWorkspaceWindow::delete_part_object(
                 });
                 std::erase_if(next.history,
                     [&](const auto& container) { return container.id == object_id; });
+                if (next.history.size() != old_history_size && rollback &&
+                    rollback->input_body) {
+                    static_cast<void>(
+                        restore_surviving_edge_references_after_history_delete(
+                            next, object_id, *rollback->input_body,
+                            part->session.calculated_boundaries()));
+                }
             }
             const auto deleted_order = std::find_if(next.history_order.begin(),
                 next.history_order.end(),
@@ -19149,6 +19667,9 @@ void AssemblyWorkspaceWindow::keyPressEvent(QKeyEvent* event) {
         edge_treatment_selection_.reset();
         edge_treatment_hover_seed_.reset();
         pending_edge_treatment_edges_.clear();
+        pending_edge_treatment_groups_.clear();
+        pending_edge_treatment_seeds_.clear();
+        edge_treatment_preview_owner_id_.clear();
         viewer_->set_feature_hover_edges({});
         preserve_view_on_refresh_ = true;
         refresh_scene();
@@ -20085,14 +20606,46 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                     }
                 } else if (container->feature_kind == FeatureKind::Fillet ||
                            container->feature_kind == FeatureKind::Chamfer) {
-                    if (container->feature_kind == FeatureKind::Fillet) {
-                        radius("size", origin,
-                            local(container->edge_treatment.size,0,0),
-                            {0,6,0}, container->edge_treatment.size);
-                    } else {
-                        linear("size", "Vzdálenost = ", origin,
-                            local(container->edge_treatment.size,0,0),
-                            {0,6,0}, container->edge_treatment.size);
+                    // Anchor the inspection dimension to the first selected
+                    // operational edge at this feature's real input boundary.
+                    // The adjacent-face directions were persisted by the
+                    // explicit body calculation, so opening/double-clicking
+                    // the feature never invokes OCCT or enumerates topology.
+                    const auto* part_state =
+                        workspace_.open_part(document.document_id);
+                    std::size_t calculated_before{};
+                    for (auto history = document.history.begin();
+                         history != stored_container; ++history) {
+                        if (history->feature_kind != FeatureKind::Sketch) {
+                            ++calculated_before;
+                        }
+                    }
+                    const auto& routes = container->edge_treatment.routes;
+                    if (part_state != nullptr && calculated_before > 0 &&
+                        part_state->session.calculated_boundaries().size() >=
+                            calculated_before &&
+                        !routes.empty() && !routes.front().empty()) {
+                        const auto& input_mesh =
+                            part_state->session.calculated_boundaries()
+                                [calculated_before - 1].mesh;
+                        const auto& reference = routes.front().front();
+                        const auto edge = std::find_if(input_mesh.edges.begin(),
+                            input_mesh.edges.end(), [&](const auto& value) {
+                                return value.reference.owner_id ==
+                                        reference.owner_id &&
+                                    value.reference.semantic_key ==
+                                        reference.semantic_key;
+                            });
+                        if (edge != input_mesh.edges.end()) {
+                            auto geometry = edge_treatment_preview_wire(
+                                {{*edge}}, container->edge_treatment.size,
+                                container->feature_kind == FeatureKind::Fillet,
+                                container->id);
+                            if (geometry.dimension) {
+                                mesh.dimensions.push_back(
+                                    std::move(*geometry.dimension));
+                            }
+                        }
                     }
                 }
             }
@@ -20914,10 +21467,18 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         // inspection, however, still owns this exact persisted container, so
         // restore its cyan confirmation after the rebuilt scene is installed.
         if (!construction_dimension_object_id_.empty()) {
-            viewer_->confirm_container(construction_dimension_object_id_);
-            viewer_->set_feature_selected_edges(
-                edge_treatment_feature_edges(
-                    construction_dimension_object_id_));
+            if (is_edge_treatment_feature(
+                    construction_dimension_object_id_)) {
+                viewer_->set_feature_selected_edges({});
+                // Inspection reveals the feature dimension but does not
+                // select it. The shared dimension colour contract therefore
+                // keeps this ordinary, editable dimension yellow; it turns
+                // cyan only after an explicit LMB selection.
+                viewer_->clear_selection();
+            } else {
+                viewer_->confirm_container(construction_dimension_object_id_);
+                viewer_->set_feature_selected_edges({});
+            }
         }
         state_->setText(document.history.empty()
             ? tr("Nový Part: začněte příkazem Kvádr, jiným tělesem nebo Skica.")
@@ -21466,6 +22027,12 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     update_application_actions();
     rebuild_application_toolbar();
 
+    if (edge_treatment_selection_) {
+        // set_mesh() rebuilds the common candidate stream. Restore the exact
+        // active edge command and regenerate its analytical wire from the
+        // newly displayed rollback/input body, never from stale final output.
+        refresh_edge_treatment_selection_ui();
+    }
     configure_sketch_box_selection(has_active_part_sketch);
 }
 

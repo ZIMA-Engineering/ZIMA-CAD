@@ -204,6 +204,11 @@ public:
         const QPointF& position) const;
     [[nodiscard]] std::optional<zima::kernel::ViewerEdge> candidate_edge(
         const ViewerCandidate& candidate) const;
+    // Returns an already-calculated display edge by its stable ZIMA identity.
+    // Used by lightweight analytical previews; it never reconstructs OCCT
+    // topology or changes the common picking candidate list.
+    [[nodiscard]] std::optional<zima::kernel::ViewerEdge> display_edge(
+        const zima::kernel::EdgeReference& reference) const;
     [[nodiscard]] std::optional<zima::kernel::ViewerPoint> candidate_point(
         const ViewerCandidate& candidate) const;
     [[nodiscard]] std::optional<zima::kernel::ViewerAxis> candidate_axis(

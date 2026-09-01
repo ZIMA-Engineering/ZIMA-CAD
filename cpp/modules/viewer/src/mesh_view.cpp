@@ -765,8 +765,13 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
     };
     const QFontMetricsF metrics(font());
     constexpr double hit_radius = 9.0;
-    for (std::size_t index = 0; index < impl_->mesh.dimensions.size(); ++index) {
-        const auto& dimension = impl_->mesh.dimensions[index];
+    const std::size_t persisted_dimension_count = impl_->mesh.dimensions.size();
+    const std::size_t displayed_dimension_count =
+        persisted_dimension_count + impl_->transient_dimensions.size();
+    for (std::size_t index = 0; index < displayed_dimension_count; ++index) {
+        const auto& dimension = index < persisted_dimension_count
+            ? impl_->mesh.dimensions[index]
+            : impl_->transient_dimensions[index - persisted_dimension_count];
         const QPointF witness_first = project(dimension.witness_first);
         const QPointF witness_second = project(dimension.witness_second);
         const QPointF line_first = project(dimension.line_first);
@@ -939,6 +944,16 @@ std::optional<zima::kernel::ViewerEdge> MeshView::candidate_edge(
         return std::nullopt;
     }
     return edge;
+}
+
+std::optional<zima::kernel::ViewerEdge> MeshView::display_edge(
+    const zima::kernel::EdgeReference& reference) const {
+    if (!reference.valid()) return std::nullopt;
+    const auto found = std::ranges::find_if(impl_->mesh.edges,
+        [&](const auto& edge) { return edge.reference == reference; });
+    return found == impl_->mesh.edges.end()
+        ? std::nullopt
+        : std::optional<zima::kernel::ViewerEdge>{*found};
 }
 
 std::optional<zima::kernel::ViewerPoint> MeshView::candidate_point(
@@ -1235,9 +1250,24 @@ void MeshView::confirm_reference(const std::string& owner_id,
                     value.reference.semantic_key == semantic_key &&
                     value.reference.instance_path == instance_path;
             });
-        if (found == impl_->mesh.dimensions.end()) return clear_selection();
-        candidate.geometry_index = static_cast<std::size_t>(
-            std::distance(impl_->mesh.dimensions.begin(), found));
+        if (found != impl_->mesh.dimensions.end()) {
+            candidate.geometry_index = static_cast<std::size_t>(
+                std::distance(impl_->mesh.dimensions.begin(), found));
+        } else {
+            const auto transient = std::find_if(
+                impl_->transient_dimensions.begin(),
+                impl_->transient_dimensions.end(), [&](const auto& value) {
+                    return value.reference.owner_id == owner_id &&
+                        value.reference.semantic_key == semantic_key &&
+                        value.reference.instance_path == instance_path;
+                });
+            if (transient == impl_->transient_dimensions.end()) {
+                return clear_selection();
+            }
+            candidate.geometry_index = impl_->mesh.dimensions.size() +
+                static_cast<std::size_t>(std::distance(
+                    impl_->transient_dimensions.begin(), transient));
+        }
     } else if (kind == CandidateKind::SketchConstraint) {
         const auto found = std::find_if(impl_->mesh.constraint_markers.begin(),
             impl_->mesh.constraint_markers.end(), [&](const auto& value) {
@@ -1386,20 +1416,36 @@ QPoint MeshView::last_pointer_position() const { return impl_->last_pointer; }
 
 std::optional<double> MeshView::candidate_dimension_value(
     const ViewerCandidate& candidate) const {
-    if (candidate.kind != CandidateKind::Dimension ||
-        candidate.geometry_index >= impl_->mesh.dimensions.size()) return std::nullopt;
-    const auto& dimension = impl_->mesh.dimensions[candidate.geometry_index];
-    if (dimension.reference.owner_id != candidate.owner_id ||
-        dimension.reference.semantic_key != candidate.semantic_key) return std::nullopt;
-    return dimension.value;
+    if (candidate.kind != CandidateKind::Dimension) return std::nullopt;
+    const auto* dimension = candidate.geometry_index < impl_->mesh.dimensions.size()
+        ? &impl_->mesh.dimensions[candidate.geometry_index]
+        : candidate.geometry_index - impl_->mesh.dimensions.size() <
+                impl_->transient_dimensions.size()
+            ? &impl_->transient_dimensions[
+                  candidate.geometry_index - impl_->mesh.dimensions.size()]
+            : nullptr;
+    if (dimension == nullptr) return std::nullopt;
+    if (dimension->reference.owner_id != candidate.owner_id ||
+        dimension->reference.semantic_key != candidate.semantic_key) {
+        return std::nullopt;
+    }
+    return dimension->value;
 }
 
 std::optional<QPoint> MeshView::candidate_dimension_label_position(
     const ViewerCandidate& candidate) const {
     if (candidate.kind != CandidateKind::Dimension ||
-        candidate.geometry_index >= impl_->mesh.dimensions.size() ||
         width() <= 0 || height() <= 0) return std::nullopt;
-    const auto& dimension = impl_->mesh.dimensions[candidate.geometry_index];
+    const auto* selected_dimension =
+        candidate.geometry_index < impl_->mesh.dimensions.size()
+        ? &impl_->mesh.dimensions[candidate.geometry_index]
+        : candidate.geometry_index - impl_->mesh.dimensions.size() <
+                impl_->transient_dimensions.size()
+            ? &impl_->transient_dimensions[
+                  candidate.geometry_index - impl_->mesh.dimensions.size()]
+            : nullptr;
+    if (selected_dimension == nullptr) return std::nullopt;
+    const auto& dimension = *selected_dimension;
     if (dimension.reference.owner_id != candidate.owner_id ||
         dimension.reference.semantic_key != candidate.semantic_key) return std::nullopt;
     const QMatrix4x4 mvp = impl_->projection(width(), height()) * impl_->view();
@@ -1523,6 +1569,39 @@ void MeshView::set_transient_edges(std::vector<zima::kernel::ViewerEdge> edges) 
 
 void MeshView::set_transient_dimensions(
     std::vector<zima::kernel::ViewerDimension> dimensions) {
+    if (impl_->transient_point_transform) {
+        const auto origin = impl_->transient_point_transform({});
+        for (auto& dimension : dimensions) {
+            dimension.witness_first =
+                impl_->transient_point_transform(dimension.witness_first);
+            dimension.witness_second =
+                impl_->transient_point_transform(dimension.witness_second);
+            dimension.line_first =
+                impl_->transient_point_transform(dimension.line_first);
+            dimension.line_second =
+                impl_->transient_point_transform(dimension.line_second);
+            if (dimension.label_position) {
+                dimension.label_position =
+                    impl_->transient_point_transform(*dimension.label_position);
+            }
+            const auto normal_endpoint =
+                impl_->transient_point_transform(dimension.plane_normal);
+            dimension.plane_normal = {
+                normal_endpoint.x - origin.x,
+                normal_endpoint.y - origin.y,
+                normal_endpoint.z - origin.z};
+        }
+    }
+    const std::size_t persisted_count = impl_->mesh.dimensions.size();
+    if (impl_->confirmed_candidate &&
+        impl_->confirmed_candidate->kind == CandidateKind::Dimension &&
+        impl_->confirmed_candidate->geometry_index >= persisted_count) {
+        impl_->confirmed_candidate.reset();
+    }
+    std::erase_if(impl_->candidates, [persisted_count](const auto& candidate) {
+        return candidate.kind == CandidateKind::Dimension &&
+            candidate.geometry_index >= persisted_count;
+    });
     impl_->transient_dimensions = std::move(dimensions);
     update();
 }
@@ -3327,8 +3406,7 @@ if (impl_->show_planes) {
                     ? impl_->mesh.dimensions[index]
                     : impl_->transient_dimensions[
                         index - persisted_dimension_count];
-                const bool selected = index < persisted_dimension_count &&
-                    highlighted &&
+                const bool selected = highlighted &&
                     highlighted->kind == CandidateKind::Dimension &&
                     highlighted->geometry_index == index;
                 const QColor idle_color = !dimension.driving

@@ -297,8 +297,19 @@ struct RevolutionParameters {
 };
 
 struct EdgeTreatmentParameters {
-    std::vector<zima::kernel::EdgeReference> edges;
+    // One persisted user route contains every original edge selected by one
+    // contour operation. Keeping the grouping in ZIMA data means reopening
+    // Properties never has to guess it from current OCCT topology.
+    std::vector<std::vector<zima::kernel::EdgeReference>> routes;
     double size{1.0};
+    [[nodiscard]] std::vector<zima::kernel::EdgeReference>
+    flattened_edges() const {
+        std::vector<zima::kernel::EdgeReference> result;
+        for (const auto& route : routes) {
+            result.insert(result.end(), route.begin(), route.end());
+        }
+        return result;
+    }
     bool operator==(const EdgeTreatmentParameters&) const = default;
 };
 

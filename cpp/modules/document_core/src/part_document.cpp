@@ -5050,7 +5050,7 @@ HistoryContainer PartDocument::create_fillet_container(
     container.container_origin = create_container_origin(container.id);
     container.name = "Zaoblení";
     container.feature_kind = FeatureKind::Fillet;
-    container.edge_treatment.edges = std::move(edges);
+    container.edge_treatment.routes.push_back(std::move(edges));
     return container;
 }
 
@@ -5068,7 +5068,7 @@ HistoryContainer PartDocument::create_chamfer_container(
     container.container_origin = create_container_origin(container.id);
     container.name = "Sražení";
     container.feature_kind = FeatureKind::Chamfer;
-    container.edge_treatment.edges = std::move(edges);
+    container.edge_treatment.routes.push_back(std::move(edges));
     return container;
 }
 
@@ -5315,12 +5315,12 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
         } else if (container.feature_kind == FeatureKind::Fillet) {
             require_default_sketch_feature_placement(container.placement);
             primitive = zima::kernel::FilletRequest{
-                container.edge_treatment.edges,
+                container.edge_treatment.flattened_edges(),
                 container.edge_treatment.size};
         } else {
             require_default_sketch_feature_placement(container.placement);
             primitive = zima::kernel::ChamferRequest{
-                container.edge_treatment.edges,
+                container.edge_treatment.flattened_edges(),
                 container.edge_treatment.size};
         }
         operations.push_back({
@@ -5702,15 +5702,26 @@ PartDocument PartDocument::load(
                 throw std::runtime_error("Invalid imported STEP parameters");
             }
         } else {
-            for (const auto& edge : source.at("edges")) {
-                container.edge_treatment.edges.push_back({
-                    edge.at("owner").get<std::string>(),
-                    edge.at("key").get<std::string>(), {}});
+            for (const auto& route : source.at("routes")) {
+                std::vector<zima::kernel::EdgeReference> loaded_route;
+                for (const auto& edge : route) {
+                    loaded_route.push_back({
+                        edge.at("owner").get<std::string>(),
+                        edge.at("key").get<std::string>(), {}});
+                }
+                container.edge_treatment.routes.push_back(
+                    std::move(loaded_route));
             }
             container.edge_treatment.size = source.at("size").get<double>();
-            if (container.edge_treatment.edges.empty() ||
-                std::any_of(container.edge_treatment.edges.begin(),
-                    container.edge_treatment.edges.end(), [](const auto& edge) {
+            const auto treatment_edges =
+                container.edge_treatment.flattened_edges();
+            if (container.edge_treatment.routes.empty() ||
+                std::any_of(container.edge_treatment.routes.begin(),
+                    container.edge_treatment.routes.end(),
+                    [](const auto& route) { return route.empty(); }) ||
+                treatment_edges.empty() ||
+                std::any_of(treatment_edges.begin(), treatment_edges.end(),
+                    [](const auto& edge) {
                         return !edge.valid() || !edge.instance_path.empty();
                     }) ||
                 !std::isfinite(container.edge_treatment.size) ||
@@ -6174,10 +6185,17 @@ void PartDocument::save(
                 container.combine_mode != CombineMode::Add) {
                 throw std::runtime_error("Invalid imported STEP parameters");
             }
-        } else if (container.edge_treatment.edges.empty() ||
-                   std::any_of(container.edge_treatment.edges.begin(),
-                       container.edge_treatment.edges.end(), [](const auto& edge) {
-                           return !edge.valid() || !edge.instance_path.empty();
+        } else if (container.edge_treatment.routes.empty() ||
+                   std::any_of(container.edge_treatment.routes.begin(),
+                       container.edge_treatment.routes.end(),
+                       [](const auto& route) { return route.empty(); }) ||
+                   std::any_of(container.edge_treatment.routes.begin(),
+                       container.edge_treatment.routes.end(), [](const auto& route) {
+                           return std::any_of(route.begin(), route.end(),
+                               [](const auto& edge) {
+                                   return !edge.valid() ||
+                                       !edge.instance_path.empty();
+                               });
                        }) ||
                    !std::isfinite(container.edge_treatment.size) ||
                    container.edge_treatment.size <= 0.0 ||
@@ -6415,10 +6433,14 @@ void PartDocument::save(
                     {"shape_locator", identity.shape_locator}});
             }
         } else {
-            serialized["edges"] = nlohmann::json::array();
-            for (const auto& edge : container.edge_treatment.edges) {
-                serialized["edges"].push_back({
-                    {"owner", edge.owner_id}, {"key", edge.semantic_key}});
+            serialized["routes"] = nlohmann::json::array();
+            for (const auto& route : container.edge_treatment.routes) {
+                nlohmann::json serialized_route = nlohmann::json::array();
+                for (const auto& edge : route) {
+                    serialized_route.push_back({
+                        {"owner", edge.owner_id}, {"key", edge.semantic_key}});
+                }
+                serialized["routes"].push_back(std::move(serialized_route));
             }
             serialized["size"] = container.edge_treatment.size;
         }

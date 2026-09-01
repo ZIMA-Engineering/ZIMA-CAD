@@ -1254,6 +1254,11 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
             for (auto& point : edge.points) {
                 point = transform_point(point, component.placement);
             }
+            for (auto& side : edge.edge_treatment_side_directions) {
+                for (auto& direction : side) {
+                    direction = transform_direction(direction, component.placement);
+                }
+            }
             scene.edges.push_back(std::move(edge));
         }
         for (auto point : source_mesh.points) {
@@ -1298,6 +1303,11 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
             assign_instance(edge.reference, path);
             for (auto& point : edge.points) {
                 point = transform_point(point, component.placement);
+            }
+            for (auto& side : edge.edge_treatment_side_directions) {
+                for (auto& direction : side) {
+                    direction = transform_direction(direction, component.placement);
+                }
             }
             target_references.edges.push_back(std::move(edge));
         }

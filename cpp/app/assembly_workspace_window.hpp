@@ -256,6 +256,8 @@ private:
         pending_edge_treatment_groups_;
     std::vector<zima::kernel::EdgeReference> pending_edge_treatment_seeds_;
     std::optional<zima::viewer::EdgeKey> edge_treatment_hover_seed_;
+    double edge_treatment_preview_size_{1.0};
+    std::string edge_treatment_preview_owner_id_;
     PrimitivePropertiesDialog* extrusion_target_dialog_{};
     ConstructionPropertiesDialog* construction_reference_dialog_{};
     std::optional<zima::kernel::ViewerMesh> construction_preview_mesh_;
@@ -487,6 +489,7 @@ private:
             std::string instance_path = {}) const;
     void accept_edge_treatment(const zima::viewer::ViewerCandidate& candidate);
     void refresh_edge_treatment_selection_ui();
+    void refresh_edge_treatment_preview();
     void remove_edge_treatment_member(
         std::size_t group, std::optional<std::size_t> member);
     void restore_edge_treatment_route(std::size_t group);

@@ -592,6 +592,23 @@ int main() {
                 "Box does not expose three stable local axes");
         const auto selected_box_edge =
             body.mesh.original_references.edges.front().reference;
+        const auto selected_box_display_edge = std::find_if(
+            body.mesh.edges.begin(), body.mesh.edges.end(),
+            [&](const auto& edge) {
+                return edge.reference == selected_box_edge;
+            });
+        require(selected_box_display_edge != body.mesh.edges.end() &&
+                    selected_box_display_edge->
+                        edge_treatment_side_directions.size() == 2 &&
+                    std::ranges::all_of(
+                        selected_box_display_edge->
+                            edge_treatment_side_directions,
+                        [&](const auto& side) {
+                            return side.size() ==
+                                selected_box_display_edge->points.size();
+                        }),
+                "Calculated solid edge did not persist two aligned adjacent-face "
+                "directions for the Fillet/Chamfer preview");
         const auto require_stable_body_edges = [](const auto& result,
                                                    std::string_view operation) {
             for (const auto& edge : result.mesh.edges) {
@@ -677,6 +694,81 @@ int main() {
                             edge.edge_treatment_owner_ids.end();
                     }),
                 "Chamfer did not persist its visible treatment boundary wire");
+
+        const zima::kernel::EdgeReference first_fillet_edge{
+            "box",
+            "edge:x_max:y_max:z_max--x_min:y_max:z_max",
+            {}};
+        const auto identity_fillet_boundaries = kernel.evaluate_history({
+            {"box", zima::kernel::BoxRequest{100.0, 80.0, 50.0},
+             zima::kernel::BooleanOperation::Add},
+            {"identity-fillet", zima::kernel::FilletRequest{
+                {first_fillet_edge}, 7.0},
+             zima::kernel::BooleanOperation::Add},
+        });
+        const auto end_fillet_edge = [&](double expected_x) {
+            return std::find_if(
+                identity_fillet_boundaries.back().mesh.edges.begin(),
+                identity_fillet_boundaries.back().mesh.edges.end(),
+                [&](const auto& edge) {
+                    return edge.reference.owner_id == "identity-fillet" &&
+                        !edge.points.empty() &&
+                        std::ranges::all_of(edge.points,
+                            [&](const auto& point) {
+                                return std::abs(point.x - expected_x) < 1.0e-7;
+                            });
+                });
+        };
+        const auto positive_end_fillet = end_fillet_edge(100.0);
+        const auto negative_end_fillet = end_fillet_edge(0.0);
+        require(positive_end_fillet !=
+                    identity_fillet_boundaries.back().mesh.edges.end() &&
+                    negative_end_fillet !=
+                        identity_fillet_boundaries.back().mesh.edges.end(),
+                "Fillet did not expose both generated end edges for the identity test");
+        const std::vector<zima::kernel::EdgeReference> identity_chamfer_route{
+            {"box",
+             "edge:x_max:y_max:z_max--x_max:y_min:z_max", {}},
+            positive_end_fillet->reference,
+            {"box",
+             "edge:x_max:y_max:z_max--x_max:y_max:z_min", {}}};
+        const std::vector<zima::kernel::EdgeReference> unaffected_opposite_route{
+            {"box",
+             "edge:x_min:y_max:z_max--x_min:y_min:z_max", {}},
+            negative_end_fillet->reference,
+            {"box",
+             "edge:x_min:y_max:z_max--x_min:y_max:z_min", {}}};
+        const auto separated_treatments = kernel.evaluate_history({
+            {"box", zima::kernel::BoxRequest{100.0, 80.0, 50.0},
+             zima::kernel::BooleanOperation::Add},
+            {"identity-fillet", zima::kernel::FilletRequest{
+                {first_fillet_edge}, 7.0},
+             zima::kernel::BooleanOperation::Add},
+            {"separate-chamfer", zima::kernel::ChamferRequest{
+                identity_chamfer_route, 5.0},
+             zima::kernel::BooleanOperation::Add},
+        });
+        require(std::ranges::all_of(unaffected_opposite_route,
+                    [&](const auto& expected) {
+                        return std::ranges::any_of(
+                            separated_treatments.back().mesh.edges,
+                            [&](const auto& edge) {
+                                return edge.reference == expected;
+                            });
+                    }),
+                "Geometrically separate Chamfer stole unchanged opposite-edge identities");
+        const auto after_deleting_separate_chamfer = kernel.evaluate_history({
+            {"box", zima::kernel::BoxRequest{100.0, 80.0, 50.0},
+             zima::kernel::BooleanOperation::Add},
+            {"identity-fillet", zima::kernel::FilletRequest{
+                {first_fillet_edge}, 7.0},
+             zima::kernel::BooleanOperation::Add},
+            {"opposite-fillet", zima::kernel::FilletRequest{
+                unaffected_opposite_route, 4.0},
+             zima::kernel::BooleanOperation::Add},
+        });
+        require(after_deleting_separate_chamfer.size() == 3,
+                "Deleting an unrelated Chamfer broke the opposite Fillet route");
         const auto generated_fillet_edge = std::find_if(
             fillet_boundaries.back().mesh.edges.begin(),
             fillet_boundaries.back().mesh.edges.end(), [](const auto& edge) {

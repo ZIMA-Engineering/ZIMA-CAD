@@ -451,6 +451,9 @@ Workspace::authoritative_external_reference_geometry(
     for (auto edge : source.edges) {
         if (!belongs_to_source(edge.reference.instance_path)) continue;
         for (auto& point : edge.points) point = local_point(point);
+        for (auto& side : edge.edge_treatment_side_directions) {
+            for (auto& direction : side) direction = local_direction(direction);
+        }
         result.edges.push_back(std::move(edge));
     }
     for (auto point : source.points) {

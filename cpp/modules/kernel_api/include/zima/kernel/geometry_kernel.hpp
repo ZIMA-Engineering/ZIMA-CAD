@@ -81,6 +81,12 @@ struct ViewerEdge {
     // selection and dimension inspection highlight only the treatment wire
     // without traversing or reconstructing topology in the viewer.
     std::vector<std::string> edge_treatment_owner_ids;
+    // Two already-calculated inward directions, one for each face adjacent
+    // to this body edge. Each direction row is sampled at the same positions
+    // as points. Fillet/Chamfer previews consume this persisted viewer packet
+    // directly; opening Properties or changing the size never asks OCCT to
+    // recover face adjacency or material side.
+    std::vector<std::vector<Vec3>> edge_treatment_side_directions;
 };
 
 struct ViewerPoint {

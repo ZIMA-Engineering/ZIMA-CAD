@@ -111,7 +111,7 @@ int main(int argc, char* argv[]) {
         auto fillet = initial;
         fillet.feature_kind = zima::document::FeatureKind::Fillet;
         fillet.name = "Zaoblení";
-        fillet.edge_treatment.edges.clear();
+        fillet.edge_treatment.routes.clear();
         zima::document::HistoryContainer committed_fillet;
         auto* fillet_dialog = new zima::app::PrimitivePropertiesDialog(
             fillet, false, false,
@@ -119,21 +119,28 @@ int main(int argc, char* argv[]) {
                 committed_fillet = std::move(value);
             }, &parent);
         fillet_dialog->show();
-        fillet_dialog->set_edge_references({{"body-owner", "edge:stable", {}}});
+        const std::vector<zima::kernel::EdgeReference> grouped_fillet_edges{
+            {"body-owner", "edge:first", {}},
+            {"body-owner", "edge:second", {}},
+            {"body-owner", "edge:third", {}}};
+        fillet_dialog->set_edge_groups({grouped_fillet_edges});
         require(fillet_dialog->windowTitle() == QStringLiteral("Zaoblení"),
                 "Fillet create/edit dialog title is not feature-only");
         auto* fillet_routes = fillet_dialog->findChild<QTreeWidget*>(
             "edgeTreatmentEdges");
         require(fillet_routes != nullptr && fillet_routes->columnCount() == 2 &&
                     fillet_routes->topLevelItemCount() == 1 &&
-                    fillet_routes->topLevelItem(0)->childCount() == 1,
-                "Fillet dialog did not expose the Python-style route/object tree");
+                    fillet_routes->topLevelItem(0)->childCount() == 3,
+                "One Fillet route was split into separate one-object routes");
         require(fillet_dialog->findChild<QLineEdit*>()->isHidden(),
                 "Fillet dialog retained the unrelated container-name editor");
         fillet_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
         application.processEvents();
-        require(committed_fillet.edge_treatment.edges.size() == 1,
-                "Fillet dialog did not retain edges selected while it was open");
+        require(committed_fillet.edge_treatment.flattened_edges() ==
+                    grouped_fillet_edges &&
+                    committed_fillet.edge_treatment.routes.size() == 1 &&
+                    committed_fillet.edge_treatment.routes.front().size() == 3,
+                "Fillet dialog did not persist one three-object route");
 
         int middle_commits = 0;
         zima::document::CombineMode middle_operation =
@@ -329,6 +336,14 @@ int main(int argc, char* argv[]) {
                     tangent_route.back().owner_id == "route-owner-b",
                 "Fillet/Chamfer tangent route stopped at a container provenance "
                 "boundary or followed a non-tangent branch");
+        const auto stable_display_edge = tangent_route_view.display_edge(
+            {"route-owner-a", "edge:left", {}});
+        require(stable_display_edge && stable_display_edge->points.size() == 2 &&
+                    stable_display_edge->points.front().x == -10.0 &&
+                    !tangent_route_view.display_edge(
+                        {"missing-owner", "edge:missing", {}}),
+                "Viewer could not resolve a calculated display edge by its "
+                "stable ZIMA identity for an analytical preview");
 
         zima::kernel::ViewerMesh zero_dimension_mesh;
         zero_dimension_mesh.axes.push_back({
@@ -579,12 +594,26 @@ int main(int argc, char* argv[]) {
                 "edgeTreatmentSize");
             require(treatment_size != nullptr,
                     "Fillet/Chamfer edit did not reuse Primitive Properties");
+            int treatment_preview_updates = 0;
+            double previewed_treatment_size = 0.0;
+            treatment_dialog->set_preview_callback(
+                [&](const zima::document::HistoryContainer& preview) {
+                    ++treatment_preview_updates;
+                    previewed_treatment_size = preview.edge_treatment.size;
+                });
             treatment_size->setValue(kind == zima::document::FeatureKind::Fillet
                 ? 2.5 : 3.5);
+            require(treatment_preview_updates >= 2 &&
+                        previewed_treatment_size ==
+                            (kind == zima::document::FeatureKind::Fillet
+                                ? 2.5 : 3.5),
+                    "Changing Fillet/Chamfer size did not update its live "
+                    "analytical wire preview");
             treatment_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
             application.processEvents();
             require(committed_treatment.feature_kind == kind &&
-                        committed_treatment.edge_treatment.edges == treatment_edges &&
+                        committed_treatment.edge_treatment.flattened_edges() ==
+                            treatment_edges &&
                         committed_treatment.edge_treatment.size ==
                             (kind == zima::document::FeatureKind::Fillet ? 2.5 : 3.5),
                     "Fillet/Chamfer Properties lost its input edge identity or size");
@@ -1966,9 +1995,40 @@ int main(int argc, char* argv[]) {
         live_dimension.reference = {
             "preview-container", "parameter:length_forward", {}};
         live_dimension.value = 25.0;
+        // A degenerate anchor at the view centre isolates the picker
+        // contract from camera scale; the production treatment dimension is
+        // non-degenerate and uses the same combined persistent/transient list.
+        live_dimension.witness_first = {};
+        live_dimension.witness_second = {};
+        live_dimension.line_first = {};
+        live_dimension.line_second = {};
         gesture_view.set_transient_dimensions({live_dimension});
         require(gesture_view.base_mesh_revision() == base_revision,
                 "Live feature dimension invalidated the base Viewer mesh");
+        gesture_view.set_selection_contract(
+            {zima::viewer::CandidateKind::Dimension});
+        const zima::viewer::ViewerCandidate expected_live_candidate{
+            zima::viewer::CandidateKind::Dimension, 0.0, 0,
+            "preview-container", "parameter:length_forward", {},
+            zima::viewer::CandidateGeometry::Display};
+        const auto live_label_position =
+            gesture_view.candidate_dimension_label_position(
+                expected_live_candidate);
+        const auto live_candidates =
+            live_label_position
+            ? gesture_view.selection_candidates_at(*live_label_position)
+            : std::vector<zima::viewer::ViewerCandidate>{};
+        const auto live_candidate = std::find_if(live_candidates.begin(),
+            live_candidates.end(), [](const auto& candidate) {
+                return candidate.kind ==
+                        zima::viewer::CandidateKind::Dimension &&
+                    candidate.owner_id == "preview-container";
+            });
+        require(live_candidate != live_candidates.end() &&
+                    gesture_view.candidate_dimension_value(*live_candidate) ==
+                        std::optional<double>{25.0},
+                "Live feature dimension was painted but not offered by the "
+                "common Viewer picker");
         gesture_view.set_selection_contract({});
         require(gesture_view.selection_candidates_at({160.0, 120.0}).empty(),
                 "Idle Properties selection contract still invoked 3D picking");

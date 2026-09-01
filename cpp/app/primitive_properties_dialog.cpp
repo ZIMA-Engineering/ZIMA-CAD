@@ -585,11 +585,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
             if (item != nullptr && restore_route_)
                 restore_route_(item->data(0, Qt::UserRole).toUInt());
         });
-        set_edge_groups([&] {
-            std::vector<EdgeGroup> groups;
-            for (const auto& edge : initial.edge_treatment.edges) groups.push_back({edge});
-            return groups;
-        }());
+        set_edge_groups(initial.edge_treatment.routes);
     }
 
     content_layout()->addLayout(form);
@@ -673,6 +669,10 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
     // The OCCT body is still calculated only when OK commits the dialog.
     for (auto* input : {length_, width_, height_, radius_, top_radius_, top_offset_}) {
         if (input != nullptr) connect(input, &QDoubleSpinBox::valueChanged,
+            this, [this] { notify_preview(); });
+    }
+    if (treatment_size_ != nullptr) {
+        connect(treatment_size_, &QDoubleSpinBox::valueChanged,
             this, [this] { notify_preview(); });
     }
     for (auto* input : translation_) {
@@ -798,33 +798,28 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
 void PrimitivePropertiesDialog::add_edge_reference(
     const zima::kernel::EdgeReference& edge) {
     if (!edge.valid()) return;
-    auto& edges = initial_.edge_treatment.edges;
+    auto edges = initial_.edge_treatment.flattened_edges();
     if (std::find(edges.begin(), edges.end(), edge) == edges.end()) {
         edges.push_back(edge);
     }
-    if (edge_list_ != nullptr) set_edge_groups([&] {
-        std::vector<EdgeGroup> groups;
-        for (const auto& selected : edges) groups.push_back({selected});
-        return groups;
-    }());
+    if (edge_list_ != nullptr) set_edge_groups({std::move(edges)});
     notify_preview();
 }
 
 void PrimitivePropertiesDialog::set_edge_references(
     std::vector<zima::kernel::EdgeReference> edges) {
-    initial_.edge_treatment.edges = std::move(edges);
-    if (edge_list_ != nullptr && edge_groups_.empty()) set_edge_groups([&] {
-        std::vector<EdgeGroup> groups;
-        for (const auto& selected : initial_.edge_treatment.edges)
-            groups.push_back({selected});
-        return groups;
-    }());
+    initial_.edge_treatment.routes = edges.empty()
+        ? std::vector<EdgeGroup>{}
+        : std::vector<EdgeGroup>{std::move(edges)};
+    if (edge_list_ != nullptr && edge_groups_.empty()) {
+        set_edge_groups(initial_.edge_treatment.routes);
+    }
     notify_preview();
 }
 
 void PrimitivePropertiesDialog::set_edge_groups(std::vector<EdgeGroup> groups) {
     edge_groups_ = std::move(groups);
-    initial_.edge_treatment.edges.clear();
+    initial_.edge_treatment.routes = edge_groups_;
     if (edge_list_ == nullptr) return;
     edge_list_->clear();
     for (std::size_t group_index = 0; group_index < edge_groups_.size(); ++group_index) {
@@ -836,7 +831,6 @@ void PrimitivePropertiesDialog::set_edge_groups(std::vector<EdgeGroup> groups) {
         route->setData(0, Qt::UserRole, static_cast<uint>(group_index));
         for (std::size_t member = 0; member < group.size(); ++member) {
             const auto& edge = group[member];
-            initial_.edge_treatment.edges.push_back(edge);
             auto* child = new QTreeWidgetItem(route, {QString{},
                 QString::fromStdString(edge.owner_id + " / " + edge.semantic_key)});
             child->setData(0, Qt::UserRole, static_cast<uint>(group_index));
@@ -844,7 +838,8 @@ void PrimitivePropertiesDialog::set_edge_groups(std::vector<EdgeGroup> groups) {
         }
         route->setExpanded(true);
     }
-    const bool available = !initial_.edge_treatment.edges.empty();
+    const bool available =
+        !initial_.edge_treatment.flattened_edges().empty();
     if (remove_edge_button_) remove_edge_button_->setEnabled(available);
     if (restore_route_button_) restore_route_button_->setEnabled(available);
     notify_preview();
