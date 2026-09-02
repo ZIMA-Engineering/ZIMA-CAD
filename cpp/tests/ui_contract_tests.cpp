@@ -8,6 +8,7 @@
 #include "document_tools_dialogs.hpp"
 #include "construction_reference_candidate_policy.hpp"
 #include "extrusion_dimension_policy.hpp"
+#include "resource_icon.hpp"
 
 #include <zima/viewer/mesh_view.hpp>
 #include <zima/ui/reference_cell.hpp>
@@ -91,6 +92,11 @@ int main(int argc, char* argv[]) {
     const auto initial = zima::document::PartDocument::create_box_container();
 
     try {
+        require(!zima::app::resource_icon("sketch-3d").isNull(),
+                "3D-Curve icon is missing from Qt resources");
+        require(!zima::app::resource_icon("sweep").isNull(),
+                "3D-Sweep icon is missing from Qt resources");
+
         bool cancel_committed = false;
         auto* cancel_dialog = new zima::app::PrimitivePropertiesDialog(
             initial, false, false,

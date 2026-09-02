@@ -7156,6 +7156,424 @@ nlohmann::json serialize_curve_point(
 
 }  // namespace
 
+std::vector<ConstructionObject> deserialize_construction_objects(
+    std::string_view serialized) {
+    const auto sources = nlohmann::json::parse(serialized);
+    if (!sources.is_array()) {
+        throw std::runtime_error("Construction objects must be an array");
+    }
+    std::vector<ConstructionObject> objects;
+    std::unordered_set<std::string> construction_ids;
+    for (const auto& source : sources) {
+        ConstructionObject object;
+        object.id = source.at("id").get<std::string>();
+        object.entity_id = source.at("entity_id").get<std::string>();
+        object.entity_parent_id =
+            source.at("entity_parent_id").get<std::string>();
+        object.parent_construction_id =
+            source.value("parent_construction_id", std::string{});
+        object.name = source.at("name").get<std::string>();
+        const auto type = source.at("type").get<std::string>();
+        object.kind = type == "point" ? ConstructionKind::Point
+            : type == "curve3d" ? ConstructionKind::Curve3D
+            : type == "curve3d_experimental"
+                ? ConstructionKind::Curve3DExperimental
+            : type == "axis" ? ConstructionKind::Axis
+            : type == "plane" ? ConstructionKind::Plane
+                               : throw std::runtime_error(
+                                     "Invalid construction type");
+        const auto& serialized_origin = source.at("container_origin");
+        object.container_origin.id =
+            serialized_origin.at("id").get<std::string>();
+        object.container_origin.parent_id =
+            serialized_origin.at("parent_id").get<std::string>();
+        object.container_origin.name =
+            serialized_origin.at("name").get<std::string>();
+        object.container_origin.locked =
+            serialized_origin.at("locked").get<bool>();
+        for (const auto& serialized_child :
+             serialized_origin.at("children")) {
+            const auto kind = serialized_child.at("kind").get<std::string>();
+            object.container_origin.children.push_back({
+                serialized_child.at("id").get<std::string>(),
+                serialized_child.at("parent_id").get<std::string>(),
+                serialized_child.at("name").get<std::string>(),
+                kind == "point" ? OriginChildKind::Point
+                    : kind == "axis" ? OriginChildKind::Axis
+                    : kind == "plane" ? OriginChildKind::Plane
+                    : throw std::runtime_error(
+                          "Invalid Container Origin child kind"),
+                serialized_child.at("key").get<std::string>(),
+                serialized_child.at("locked").get<bool>()});
+        }
+        if (object.container_origin != create_container_origin(object.id) ||
+            object.entity_id.empty() || object.entity_id == object.id ||
+            (object.kind == ConstructionKind::Point &&
+             object.entity_id != object.container_origin.id + ":point") ||
+            (object.kind != ConstructionKind::Point &&
+             object.entity_id != object.id + ":entity") ||
+            object.entity_parent_id != (object.kind == ConstructionKind::Point
+                ? object.container_origin.id : object.id)) {
+            throw std::runtime_error("Invalid construction Container Origin");
+        }
+        object.origin = {source.at("x").get<double>(),
+                         source.at("y").get<double>(),
+                         source.at("z").get<double>()};
+        object.rotation = {source.at("rotation_x").get<double>(),
+                           source.at("rotation_y").get<double>(),
+                           source.at("rotation_z").get<double>()};
+        object.rotation_offset_x = source.value("rotation_offset_x", 0.0);
+        object.rotation_offset_y = source.value("rotation_offset_y", 0.0);
+        object.rotation_offset_z = source.value("rotation_offset_z", 0.0);
+        object.absolute_rotation = {
+            source.value("absolute_rotation_x", object.rotation.x),
+            source.value("absolute_rotation_y", object.rotation.y),
+            source.value("absolute_rotation_z", object.rotation.z)};
+        object.orientation_back = source.value("orientation_back", false);
+        object.orientation_quarter_turns = source.value(
+            "orientation_quarter_turns", 0);
+        object.direction = {source.at("direction_x").get<double>(),
+                            source.at("direction_y").get<double>(),
+                            source.at("direction_z").get<double>()};
+        object.direction_axis = source.value("direction_axis", "y");
+        if (object.direction_axis != "x" && object.direction_axis != "y" &&
+            object.direction_axis != "z") {
+            throw std::runtime_error("Invalid construction direction_axis");
+        }
+        object.display_size = source.at("display_size").get<double>();
+        const auto base_plane = source.value("base_plane", "yz");
+        object.base_plane = base_plane == "xy" ? LocalDatumPlane::XY
+            : base_plane == "xz" ? LocalDatumPlane::XZ
+            : base_plane == "yz" ? LocalDatumPlane::YZ
+            : throw std::runtime_error("Invalid construction base_plane");
+        const auto definition = source.at("definition").get<std::string>();
+        object.definition = definition == "absolute"
+            ? ConstructionDefinition::Absolute
+            : definition == "point_reference"
+                ? ConstructionDefinition::PointReference
+            : definition == "two_point_axis"
+                ? ConstructionDefinition::TwoPointAxis
+            : definition == "axis_reference"
+                ? ConstructionDefinition::AxisReference
+            : definition == "three_point_plane"
+                ? ConstructionDefinition::ThreePointPlane
+            : definition == "plane_reference"
+                ? ConstructionDefinition::PlaneReference
+            : throw std::runtime_error("Invalid construction definition");
+        object.offset = source.at("offset").get<double>();
+        object.reference_valid = source.at("reference_valid").get<bool>();
+        object.suppressed = source.at("suppressed").get<bool>();
+        for (const auto& value : source.at("references")) {
+            object.references.push_back({
+                value.at("instance_path").get<std::string>(),
+                value.at("owner_id").get<std::string>(),
+                value.at("semantic_key").get<std::string>(),
+                value.at("offset").get<double>(),
+                value.at("supports_offset").get<bool>(),
+                value.at("orientation_role").get<std::string>(),
+                value.at("orientation_drives_rotation").get<bool>(),
+                value.value("orientation_only", false),
+                value.value("flip", false)});
+        }
+        const auto curve_type = source.value("curve_type", "polyline");
+        object.curve_type = curve_type == "polyline" ? Curve3DType::Polyline
+            : curve_type == "interpolating_spline"
+                ? Curve3DType::InterpolatingSpline
+                : throw std::runtime_error("Invalid 3D-Curve type");
+        object.curve_tangent = curve_tangent_from_key(
+            source.value("curve_tangent", "automatic"));
+        for (const auto& point :
+             source.value("curve_points", nlohmann::json::array())) {
+            object.curve_points.push_back(deserialize_curve_point(
+                point, object.id, construction_ids));
+        }
+        if (object.kind == ConstructionKind::Curve3DExperimental) {
+            std::unordered_set<std::string> connection_ids;
+            for (const auto& value : source.at("curve_connections")) {
+                Curve3DConnection connection;
+                connection.id = value.at("id").get<std::string>();
+                connection.generator_id =
+                    value.at("generator_id").get<std::string>();
+                connection.parent_construction_id =
+                    value.at("parent_construction_id").get<std::string>();
+                connection.start_point_id =
+                    value.at("start_point_id").get<std::string>();
+                connection.end_point_id =
+                    value.at("end_point_id").get<std::string>();
+                connection.type = curve_connection_type_from_key(
+                    value.at("type").get<std::string>());
+                connection.start_tangent = curve_tangent_from_key(
+                    value.at("start_tangent").get<std::string>());
+                connection.end_tangent = curve_tangent_from_key(
+                    value.at("end_tangent").get<std::string>());
+                connection.start_tangent_enabled =
+                    value.at("start_tangent_enabled").get<bool>();
+                connection.end_tangent_enabled =
+                    value.at("end_tangent_enabled").get<bool>();
+                connection.weight = value.at("weight").get<double>();
+                connection.sketch_plane_mode =
+                    curve_sketch_plane_mode_from_key(
+                        value.at("sketch_plane_mode").get<std::string>());
+                connection.sketch_id =
+                    value.at("sketch_id").get<std::string>();
+                connection.sketch_start_point_id =
+                    value.at("sketch_start_point_id").get<std::string>();
+                connection.sketch_end_point_id =
+                    value.at("sketch_end_point_id").get<std::string>();
+                connection.sketch_serialized =
+                    value.at("sketch_serialized").get<std::string>();
+                connection.sketch_plane_reference_owner_id = value.at(
+                    "sketch_plane_reference_owner_id").get<std::string>();
+                connection.sketch_plane_reference_semantic_key = value.at(
+                    "sketch_plane_reference_semantic_key").get<std::string>();
+                connection.sketch_plane_valid =
+                    value.at("sketch_plane_valid").get<bool>();
+                if (connection.id.empty() || connection.generator_id.empty() ||
+                    connection.parent_construction_id != object.id ||
+                    !connection_ids.insert(connection.id).second ||
+                    !std::isfinite(connection.weight) ||
+                    connection.weight <= 0.0 || connection.weight >= 1.0) {
+                    throw std::runtime_error(
+                        "Invalid experimental 3D-Curve connection");
+                }
+                object.curve_connections.push_back(std::move(connection));
+            }
+        } else if (!source.value(
+                       "curve_connections", nlohmann::json::array()).empty()) {
+            throw std::runtime_error(
+                "Only an experimental 3D-Curve may own connections");
+        }
+        const double direction_length = std::sqrt(
+            object.direction.x * object.direction.x +
+            object.direction.y * object.direction.y +
+            object.direction.z * object.direction.z);
+        if (object.id.empty() || object.entity_id.empty() ||
+            object.entity_id == object.id || object.name.empty() ||
+            !object.parent_construction_id.empty() ||
+            !construction_ids.insert(object.id).second ||
+            !std::isfinite(object.origin.x) || !std::isfinite(object.origin.y) ||
+            !std::isfinite(object.origin.z) ||
+            !std::isfinite(object.rotation.x) ||
+            !std::isfinite(object.rotation.y) ||
+            !std::isfinite(object.rotation.z) ||
+            !std::isfinite(object.absolute_rotation.x) ||
+            !std::isfinite(object.absolute_rotation.y) ||
+            !std::isfinite(object.absolute_rotation.z) ||
+            object.orientation_quarter_turns < 0 ||
+            object.orientation_quarter_turns > 3 ||
+            !std::isfinite(direction_length) ||
+            ((object.kind == ConstructionKind::Axis ||
+              object.kind == ConstructionKind::Plane) &&
+             direction_length <= 0.0) ||
+            !std::isfinite(object.display_size) || object.display_size <= 0.0) {
+            throw std::runtime_error("Invalid construction object");
+        }
+        if (object.kind != ConstructionKind::Curve3D &&
+            object.kind != ConstructionKind::Curve3DExperimental &&
+            !object.curve_points.empty()) {
+            throw std::runtime_error(
+                "Only a 3D-Curve may own nested Point containers");
+        }
+        if (object.kind != ConstructionKind::Curve3DExperimental &&
+            !object.curve_connections.empty()) {
+            throw std::runtime_error(
+                "Only an experimental 3D-Curve may own connections");
+        }
+        if (object.kind == ConstructionKind::Curve3DExperimental) {
+            const auto solution = solve_experimental_curve3d(object);
+            if (!solution.valid) {
+                throw std::runtime_error(
+                    "Invalid experimental 3D-Curve: " + solution.error);
+            }
+        }
+        objects.push_back(std::move(object));
+    }
+    return objects;
+}
+
+std::string serialize_construction_objects(
+    const std::vector<ConstructionObject>& objects) {
+    nlohmann::json serialized = nlohmann::json::array();
+    std::unordered_set<std::string> construction_ids;
+    for (const auto& object : objects) {
+        const double direction_length = std::sqrt(
+            object.direction.x * object.direction.x +
+            object.direction.y * object.direction.y +
+            object.direction.z * object.direction.z);
+        if (object.id.empty() || object.entity_id.empty() || object.name.empty() ||
+            !object.parent_construction_id.empty() ||
+            !construction_ids.insert(object.id).second ||
+            !std::isfinite(object.origin.x) || !std::isfinite(object.origin.y) ||
+            !std::isfinite(object.origin.z) ||
+            !std::isfinite(object.rotation.x) ||
+            !std::isfinite(object.rotation.y) ||
+            !std::isfinite(object.rotation.z) ||
+            !std::isfinite(object.absolute_rotation.x) ||
+            !std::isfinite(object.absolute_rotation.y) ||
+            !std::isfinite(object.absolute_rotation.z) ||
+            object.orientation_quarter_turns < 0 ||
+            object.orientation_quarter_turns > 3 ||
+            !std::isfinite(direction_length) ||
+            ((object.kind == ConstructionKind::Axis ||
+              object.kind == ConstructionKind::Plane) &&
+             direction_length <= 0.0) ||
+            !std::isfinite(object.display_size) || object.display_size <= 0.0) {
+            throw std::runtime_error("Invalid construction object");
+        }
+        if (object.kind != ConstructionKind::Curve3D &&
+            object.kind != ConstructionKind::Curve3DExperimental &&
+            !object.curve_points.empty()) {
+            throw std::runtime_error(
+                "Only a 3D-Curve may own nested Point containers");
+        }
+        if (object.kind != ConstructionKind::Curve3DExperimental &&
+            !object.curve_connections.empty()) {
+            throw std::runtime_error(
+                "Only an experimental 3D-Curve may own connections");
+        }
+        if (object.container_origin != create_container_origin(object.id) ||
+            (object.kind == ConstructionKind::Point &&
+             object.entity_id != object.container_origin.id + ":point") ||
+            (object.kind != ConstructionKind::Point &&
+             object.entity_id != object.id + ":entity") ||
+            object.entity_parent_id != (object.kind == ConstructionKind::Point
+                ? object.container_origin.id : object.id)) {
+            throw std::runtime_error("Invalid construction Container Origin");
+        }
+        nlohmann::json origin_children = nlohmann::json::array();
+        for (const auto& child : object.container_origin.children) {
+            origin_children.push_back({
+                {"id", child.id}, {"parent_id", child.parent_id},
+                {"name", child.name},
+                {"kind", child.kind == OriginChildKind::Point ? "point"
+                    : child.kind == OriginChildKind::Axis ? "axis" : "plane"},
+                {"key", child.key}, {"locked", child.locked}});
+        }
+        nlohmann::json references = nlohmann::json::array();
+        for (const auto& reference : object.references) {
+            if (reference.owner_id.empty() || reference.semantic_key.empty()) {
+                throw std::runtime_error("Invalid construction reference");
+            }
+            references.push_back({{"instance_path", reference.instance_path},
+                {"owner_id", reference.owner_id},
+                {"semantic_key", reference.semantic_key},
+                {"offset", reference.offset},
+                {"supports_offset", reference.supports_offset},
+                {"orientation_role", reference.orientation_role},
+                {"orientation_drives_rotation",
+                    reference.orientation_drives_rotation},
+                {"orientation_only", reference.orientation_only},
+                {"flip", reference.flip}});
+        }
+        nlohmann::json curve_points = nlohmann::json::array();
+        for (const auto& point : object.curve_points) {
+            curve_points.push_back(serialize_curve_point(
+                point, object.id, construction_ids));
+        }
+        nlohmann::json curve_connections = nlohmann::json::array();
+        std::unordered_set<std::string> connection_ids;
+        for (const auto& connection : object.curve_connections) {
+            if (connection.id.empty() || connection.generator_id.empty() ||
+                connection.parent_construction_id != object.id ||
+                !connection_ids.insert(connection.id).second ||
+                !std::isfinite(connection.weight) ||
+                connection.weight <= 0.0 || connection.weight >= 1.0) {
+                throw std::runtime_error(
+                    "Invalid experimental 3D-Curve connection");
+            }
+            curve_connections.push_back({
+                {"id", connection.id},
+                {"generator_id", connection.generator_id},
+                {"parent_construction_id",
+                    connection.parent_construction_id},
+                {"start_point_id", connection.start_point_id},
+                {"end_point_id", connection.end_point_id},
+                {"type", curve_connection_type_key(connection.type)},
+                {"start_tangent",
+                    curve_tangent_key(connection.start_tangent)},
+                {"end_tangent", curve_tangent_key(connection.end_tangent)},
+                {"start_tangent_enabled",
+                    connection.start_tangent_enabled},
+                {"end_tangent_enabled",
+                    connection.end_tangent_enabled},
+                {"weight", connection.weight},
+                {"sketch_plane_mode", curve_sketch_plane_mode_key(
+                    connection.sketch_plane_mode)},
+                {"sketch_id", connection.sketch_id},
+                {"sketch_start_point_id", connection.sketch_start_point_id},
+                {"sketch_end_point_id", connection.sketch_end_point_id},
+                {"sketch_serialized", connection.sketch_serialized},
+                {"sketch_plane_reference_owner_id",
+                    connection.sketch_plane_reference_owner_id},
+                {"sketch_plane_reference_semantic_key",
+                    connection.sketch_plane_reference_semantic_key},
+                {"sketch_plane_valid", connection.sketch_plane_valid}});
+        }
+        if (object.kind == ConstructionKind::Curve3DExperimental) {
+            const auto solution = solve_experimental_curve3d(object);
+            if (!solution.valid) {
+                throw std::runtime_error(
+                    "Invalid experimental 3D-Curve: " + solution.error);
+            }
+        }
+        const auto definition = object.definition ==
+                ConstructionDefinition::Absolute ? "absolute"
+            : object.definition == ConstructionDefinition::PointReference
+                ? "point_reference"
+            : object.definition == ConstructionDefinition::TwoPointAxis
+                ? "two_point_axis"
+            : object.definition == ConstructionDefinition::AxisReference
+                ? "axis_reference"
+            : object.definition == ConstructionDefinition::ThreePointPlane
+                ? "three_point_plane" : "plane_reference";
+        serialized.push_back({
+            {"id", object.id}, {"entity_id", object.entity_id},
+            {"entity_parent_id", object.entity_parent_id},
+            {"parent_construction_id", object.parent_construction_id},
+            {"name", object.name},
+            {"type", object.kind == ConstructionKind::Point ? "point"
+                : object.kind == ConstructionKind::Curve3D ? "curve3d"
+                : object.kind == ConstructionKind::Curve3DExperimental
+                    ? "curve3d_experimental"
+                : object.kind == ConstructionKind::Axis ? "axis" : "plane"},
+            {"container_origin", {
+                {"id", object.container_origin.id},
+                {"parent_id", object.container_origin.parent_id},
+                {"name", object.container_origin.name},
+                {"locked", object.container_origin.locked},
+                {"children", std::move(origin_children)}}},
+            {"x", object.origin.x}, {"y", object.origin.y},
+            {"z", object.origin.z},
+            {"rotation_x", object.rotation.x},
+            {"rotation_y", object.rotation.y},
+            {"rotation_z", object.rotation.z},
+            {"rotation_offset_x", object.rotation_offset_x},
+            {"rotation_offset_y", object.rotation_offset_y},
+            {"rotation_offset_z", object.rotation_offset_z},
+            {"absolute_rotation_x", object.absolute_rotation.x},
+            {"absolute_rotation_y", object.absolute_rotation.y},
+            {"absolute_rotation_z", object.absolute_rotation.z},
+            {"orientation_back", object.orientation_back},
+            {"orientation_quarter_turns", object.orientation_quarter_turns},
+            {"direction_x", object.direction.x},
+            {"direction_y", object.direction.y},
+            {"direction_z", object.direction.z},
+            {"direction_axis", object.direction_axis},
+            {"base_plane", object.base_plane == LocalDatumPlane::XY ? "xy"
+                : object.base_plane == LocalDatumPlane::XZ ? "xz" : "yz"},
+            {"display_size", object.display_size}, {"definition", definition},
+            {"references", std::move(references)}, {"offset", object.offset},
+            {"reference_valid", object.reference_valid},
+            {"suppressed", object.suppressed},
+            {"curve_type", object.curve_type == Curve3DType::Polyline
+                ? "polyline" : "interpolating_spline"},
+            {"curve_tangent", curve_tangent_key(object.curve_tangent)},
+            {"curve_points", std::move(curve_points)},
+            {"curve_connections", std::move(curve_connections)}});
+    }
+    return serialized.dump();
+}
+
 PartDocument PartDocument::load(
     const std::filesystem::path& path,
     std::vector<zima::kernel::BodyResult>* calculated_boundaries) {
@@ -7710,217 +8128,8 @@ PartDocument PartDocument::load(
         }
         document.sketches.push_back(std::move(sketch));
     }
-    for (const auto& source : root.at("constructions")) {
-        ConstructionObject object;
-        object.id = source.at("id").get<std::string>();
-        object.entity_id = source.at("entity_id").get<std::string>();
-        object.entity_parent_id =
-            source.at("entity_parent_id").get<std::string>();
-        object.parent_construction_id =
-            source.value("parent_construction_id", std::string{});
-        object.name = source.at("name").get<std::string>();
-        const auto type = source.at("type").get<std::string>();
-        object.kind = type == "point" ? ConstructionKind::Point
-            : type == "curve3d" ? ConstructionKind::Curve3D
-            : type == "curve3d_experimental"
-                ? ConstructionKind::Curve3DExperimental
-            : type == "axis" ? ConstructionKind::Axis
-            : type == "plane" ? ConstructionKind::Plane
-                               : throw std::runtime_error("Invalid construction type");
-        const auto& serialized_origin = source.at("container_origin");
-        object.container_origin.id = serialized_origin.at("id").get<std::string>();
-        object.container_origin.parent_id =
-            serialized_origin.at("parent_id").get<std::string>();
-        object.container_origin.name = serialized_origin.at("name").get<std::string>();
-        object.container_origin.locked = serialized_origin.at("locked").get<bool>();
-        for (const auto& serialized_child : serialized_origin.at("children")) {
-            const auto kind = serialized_child.at("kind").get<std::string>();
-            object.container_origin.children.push_back({
-                serialized_child.at("id").get<std::string>(),
-                serialized_child.at("parent_id").get<std::string>(),
-                serialized_child.at("name").get<std::string>(),
-                kind == "point" ? OriginChildKind::Point
-                    : kind == "axis" ? OriginChildKind::Axis
-                    : kind == "plane" ? OriginChildKind::Plane
-                    : throw std::runtime_error("Invalid Container Origin child kind"),
-                serialized_child.at("key").get<std::string>(),
-                serialized_child.at("locked").get<bool>()});
-        }
-        if (object.container_origin != create_container_origin(object.id) ||
-            object.entity_id.empty() || object.entity_id == object.id ||
-            (object.kind == ConstructionKind::Point &&
-             object.entity_id != object.container_origin.id + ":point") ||
-            (object.kind != ConstructionKind::Point &&
-             object.entity_id != object.id + ":entity") ||
-            object.entity_parent_id != (object.kind == ConstructionKind::Point
-                ? object.container_origin.id : object.id)) {
-            throw std::runtime_error("Invalid construction Container Origin");
-        }
-        object.origin = {source.at("x").get<double>(),
-                         source.at("y").get<double>(),
-                         source.at("z").get<double>()};
-        object.rotation = {source.at("rotation_x").get<double>(),
-                           source.at("rotation_y").get<double>(),
-                           source.at("rotation_z").get<double>()};
-        object.rotation_offset_x = source.value("rotation_offset_x", 0.0);
-        object.rotation_offset_y = source.value("rotation_offset_y", 0.0);
-        object.rotation_offset_z = source.value("rotation_offset_z", 0.0);
-        object.absolute_rotation = {
-            source.value("absolute_rotation_x", object.rotation.x),
-            source.value("absolute_rotation_y", object.rotation.y),
-            source.value("absolute_rotation_z", object.rotation.z)};
-        object.orientation_back = source.value("orientation_back", false);
-        object.orientation_quarter_turns = source.value(
-            "orientation_quarter_turns", 0);
-        object.direction = {source.at("direction_x").get<double>(),
-                            source.at("direction_y").get<double>(),
-                            source.at("direction_z").get<double>()};
-        object.direction_axis = source.value("direction_axis", "y");
-        if (object.direction_axis != "x" && object.direction_axis != "y" &&
-            object.direction_axis != "z") {
-            throw std::runtime_error("Invalid construction direction_axis");
-        }
-        object.display_size = source.at("display_size").get<double>();
-        const auto base_plane = source.value("base_plane", "yz");
-        object.base_plane = base_plane == "xy" ? LocalDatumPlane::XY
-            : base_plane == "xz" ? LocalDatumPlane::XZ
-            : base_plane == "yz" ? LocalDatumPlane::YZ
-            : throw std::runtime_error("Invalid construction base_plane");
-        const auto definition = source.at("definition").get<std::string>();
-        object.definition = definition == "absolute" ? ConstructionDefinition::Absolute
-            : definition == "point_reference" ? ConstructionDefinition::PointReference
-            : definition == "two_point_axis" ? ConstructionDefinition::TwoPointAxis
-            : definition == "axis_reference" ? ConstructionDefinition::AxisReference
-            : definition == "three_point_plane" ? ConstructionDefinition::ThreePointPlane
-            : definition == "plane_reference" ? ConstructionDefinition::PlaneReference
-            : throw std::runtime_error("Invalid construction definition");
-        object.offset = source.at("offset").get<double>();
-        object.reference_valid = source.at("reference_valid").get<bool>();
-        object.suppressed = source.at("suppressed").get<bool>();
-        for (const auto& serialized : source.at("references")) {
-            object.references.push_back({
-                serialized.at("instance_path").get<std::string>(),
-                serialized.at("owner_id").get<std::string>(),
-                serialized.at("semantic_key").get<std::string>(),
-                serialized.at("offset").get<double>(),
-                serialized.at("supports_offset").get<bool>(),
-                serialized.at("orientation_role").get<std::string>(),
-                serialized.at("orientation_drives_rotation").get<bool>(),
-                serialized.value("orientation_only", false),
-                serialized.value("flip", false)});
-        }
-        const auto curve_type = source.value("curve_type", "polyline");
-        object.curve_type = curve_type == "polyline" ? Curve3DType::Polyline
-            : curve_type == "interpolating_spline"
-                ? Curve3DType::InterpolatingSpline
-                : throw std::runtime_error("Invalid 3D-Curve type");
-        object.curve_tangent = curve_tangent_from_key(
-            source.value("curve_tangent", "automatic"));
-        for (const auto& serialized :
-             source.value("curve_points", nlohmann::json::array())) {
-            object.curve_points.push_back(deserialize_curve_point(
-                serialized, object.id, construction_ids));
-        }
-        if (object.kind == ConstructionKind::Curve3DExperimental) {
-            std::unordered_set<std::string> connection_ids;
-            for (const auto& serialized : source.at("curve_connections")) {
-                Curve3DConnection connection;
-                connection.id = serialized.at("id").get<std::string>();
-                connection.generator_id =
-                    serialized.at("generator_id").get<std::string>();
-                connection.parent_construction_id =
-                    serialized.at("parent_construction_id").get<std::string>();
-                connection.start_point_id =
-                    serialized.at("start_point_id").get<std::string>();
-                connection.end_point_id =
-                    serialized.at("end_point_id").get<std::string>();
-                connection.type = curve_connection_type_from_key(
-                    serialized.at("type").get<std::string>());
-                connection.start_tangent = curve_tangent_from_key(
-                    serialized.at("start_tangent").get<std::string>());
-                connection.end_tangent = curve_tangent_from_key(
-                    serialized.at("end_tangent").get<std::string>());
-                connection.start_tangent_enabled =
-                    serialized.at("start_tangent_enabled").get<bool>();
-                connection.end_tangent_enabled =
-                    serialized.at("end_tangent_enabled").get<bool>();
-                connection.weight = serialized.at("weight").get<double>();
-                connection.sketch_plane_mode = curve_sketch_plane_mode_from_key(
-                    serialized.at("sketch_plane_mode").get<std::string>());
-                connection.sketch_id =
-                    serialized.at("sketch_id").get<std::string>();
-                connection.sketch_start_point_id =
-                    serialized.at("sketch_start_point_id").get<std::string>();
-                connection.sketch_end_point_id =
-                    serialized.at("sketch_end_point_id").get<std::string>();
-                connection.sketch_serialized =
-                    serialized.at("sketch_serialized").get<std::string>();
-                connection.sketch_plane_reference_owner_id = serialized.at(
-                    "sketch_plane_reference_owner_id").get<std::string>();
-                connection.sketch_plane_reference_semantic_key = serialized.at(
-                    "sketch_plane_reference_semantic_key").get<std::string>();
-                connection.sketch_plane_valid =
-                    serialized.at("sketch_plane_valid").get<bool>();
-                if (connection.id.empty() || connection.generator_id.empty() ||
-                    connection.parent_construction_id != object.id ||
-                    !connection_ids.insert(connection.id).second ||
-                    !std::isfinite(connection.weight) ||
-                    connection.weight <= 0.0 || connection.weight >= 1.0) {
-                    throw std::runtime_error(
-                        "Invalid experimental 3D-Curve connection");
-                }
-                object.curve_connections.push_back(std::move(connection));
-            }
-        } else if (!source.value(
-                       "curve_connections", nlohmann::json::array()).empty()) {
-            throw std::runtime_error(
-                "Only an experimental 3D-Curve may own connections");
-        }
-        const double direction_length = std::sqrt(
-            object.direction.x * object.direction.x +
-            object.direction.y * object.direction.y +
-            object.direction.z * object.direction.z);
-        if (object.id.empty() || object.entity_id.empty() ||
-            object.entity_id == object.id || object.name.empty() ||
-            !object.parent_construction_id.empty() ||
-            !construction_ids.insert(object.id).second ||
-            !std::isfinite(object.origin.x) || !std::isfinite(object.origin.y) ||
-            !std::isfinite(object.origin.z) ||
-            !std::isfinite(object.rotation.x) ||
-            !std::isfinite(object.rotation.y) ||
-            !std::isfinite(object.rotation.z) ||
-            !std::isfinite(object.absolute_rotation.x) ||
-            !std::isfinite(object.absolute_rotation.y) ||
-            !std::isfinite(object.absolute_rotation.z) ||
-            object.orientation_quarter_turns < 0 ||
-            object.orientation_quarter_turns > 3 ||
-            !std::isfinite(direction_length) ||
-            ((object.kind == ConstructionKind::Axis ||
-              object.kind == ConstructionKind::Plane) &&
-             direction_length <= 0.0) ||
-            !std::isfinite(object.display_size) || object.display_size <= 0.0) {
-            throw std::runtime_error("Invalid construction object");
-        }
-        if (object.kind != ConstructionKind::Curve3D &&
-            object.kind != ConstructionKind::Curve3DExperimental &&
-            !object.curve_points.empty()) {
-            throw std::runtime_error(
-                "Only a 3D-Curve may own nested Point containers");
-        }
-        if (object.kind != ConstructionKind::Curve3DExperimental &&
-            !object.curve_connections.empty()) {
-            throw std::runtime_error(
-                "Only an experimental 3D-Curve may own connections");
-        }
-        if (object.kind == ConstructionKind::Curve3DExperimental) {
-            const auto solution = solve_experimental_curve3d(object);
-            if (!solution.valid) {
-                throw std::runtime_error(
-                    "Invalid experimental 3D-Curve: " + solution.error);
-            }
-        }
-        document.constructions.push_back(std::move(object));
-    }
+    document.constructions = deserialize_construction_objects(
+        root.at("constructions").dump());
     std::unordered_set<std::string> ordered_ids;
     for (const auto& serialized : root.at("history_order")) {
         const std::string kind = serialized.at("kind").get<std::string>();
@@ -8604,183 +8813,8 @@ void PartDocument::save(
         }
         serialized_sketches.push_back(nlohmann::json::parse(sketch.serialized()));
     }
-    nlohmann::json serialized_constructions = nlohmann::json::array();
-    std::unordered_set<std::string> construction_ids;
-    for (const auto& object : constructions) {
-        const double direction_length = std::sqrt(
-            object.direction.x * object.direction.x +
-            object.direction.y * object.direction.y +
-            object.direction.z * object.direction.z);
-        if (object.id.empty() || object.entity_id.empty() || object.name.empty() ||
-            !object.parent_construction_id.empty() ||
-            !construction_ids.insert(object.id).second ||
-            !std::isfinite(object.origin.x) || !std::isfinite(object.origin.y) ||
-            !std::isfinite(object.origin.z) ||
-            !std::isfinite(object.rotation.x) ||
-            !std::isfinite(object.rotation.y) ||
-            !std::isfinite(object.rotation.z) ||
-            !std::isfinite(object.absolute_rotation.x) ||
-            !std::isfinite(object.absolute_rotation.y) ||
-            !std::isfinite(object.absolute_rotation.z) ||
-            object.orientation_quarter_turns < 0 ||
-            object.orientation_quarter_turns > 3 ||
-            !std::isfinite(direction_length) ||
-            ((object.kind == ConstructionKind::Axis ||
-              object.kind == ConstructionKind::Plane) &&
-             direction_length <= 0.0) ||
-            !std::isfinite(object.display_size) || object.display_size <= 0.0) {
-            throw std::runtime_error("Invalid construction object");
-        }
-        if (object.kind != ConstructionKind::Curve3D &&
-            object.kind != ConstructionKind::Curve3DExperimental &&
-            !object.curve_points.empty()) {
-            throw std::runtime_error(
-                "Only a 3D-Curve may own nested Point containers");
-        }
-        if (object.kind != ConstructionKind::Curve3DExperimental &&
-            !object.curve_connections.empty()) {
-            throw std::runtime_error(
-                "Only an experimental 3D-Curve may own connections");
-        }
-        if (object.container_origin != create_container_origin(object.id) ||
-            (object.kind == ConstructionKind::Point &&
-             object.entity_id != object.container_origin.id + ":point") ||
-            (object.kind != ConstructionKind::Point &&
-             object.entity_id != object.id + ":entity") ||
-            object.entity_parent_id != (object.kind == ConstructionKind::Point
-                ? object.container_origin.id : object.id)) {
-            throw std::runtime_error("Invalid construction Container Origin");
-        }
-        nlohmann::json origin_children = nlohmann::json::array();
-        for (const auto& child : object.container_origin.children) {
-            origin_children.push_back({
-                {"id", child.id}, {"parent_id", child.parent_id},
-                {"name", child.name},
-                {"kind", child.kind == OriginChildKind::Point ? "point"
-                    : child.kind == OriginChildKind::Axis ? "axis" : "plane"},
-                {"key", child.key}, {"locked", child.locked}});
-        }
-        nlohmann::json references = nlohmann::json::array();
-        for (const auto& reference : object.references) {
-            if (reference.owner_id.empty() || reference.semantic_key.empty()) {
-                throw std::runtime_error("Invalid construction reference");
-            }
-            references.push_back({{"instance_path", reference.instance_path},
-                {"owner_id", reference.owner_id},
-                {"semantic_key", reference.semantic_key},
-                {"offset", reference.offset},
-                {"supports_offset", reference.supports_offset},
-                {"orientation_role", reference.orientation_role},
-                {"orientation_drives_rotation",
-                    reference.orientation_drives_rotation},
-                {"orientation_only", reference.orientation_only},
-                {"flip", reference.flip}});
-        }
-        nlohmann::json curve_points = nlohmann::json::array();
-        for (const auto& point : object.curve_points) {
-            curve_points.push_back(serialize_curve_point(
-                point, object.id, construction_ids));
-        }
-        nlohmann::json curve_connections = nlohmann::json::array();
-        std::unordered_set<std::string> connection_ids;
-        for (const auto& connection : object.curve_connections) {
-            if (connection.id.empty() || connection.generator_id.empty() ||
-                connection.parent_construction_id != object.id ||
-                !connection_ids.insert(connection.id).second ||
-                !std::isfinite(connection.weight) ||
-                connection.weight <= 0.0 || connection.weight >= 1.0) {
-                throw std::runtime_error(
-                    "Invalid experimental 3D-Curve connection");
-            }
-            curve_connections.push_back({
-                {"id", connection.id},
-                {"generator_id", connection.generator_id},
-                {"parent_construction_id",
-                    connection.parent_construction_id},
-                {"start_point_id", connection.start_point_id},
-                {"end_point_id", connection.end_point_id},
-                {"type", curve_connection_type_key(connection.type)},
-                {"start_tangent",
-                    curve_tangent_key(connection.start_tangent)},
-                {"end_tangent", curve_tangent_key(connection.end_tangent)},
-                {"start_tangent_enabled",
-                    connection.start_tangent_enabled},
-                {"end_tangent_enabled",
-                    connection.end_tangent_enabled},
-                {"weight", connection.weight},
-                {"sketch_plane_mode", curve_sketch_plane_mode_key(
-                    connection.sketch_plane_mode)},
-                {"sketch_id", connection.sketch_id},
-                {"sketch_start_point_id", connection.sketch_start_point_id},
-                {"sketch_end_point_id", connection.sketch_end_point_id},
-                {"sketch_serialized", connection.sketch_serialized},
-                {"sketch_plane_reference_owner_id",
-                    connection.sketch_plane_reference_owner_id},
-                {"sketch_plane_reference_semantic_key",
-                    connection.sketch_plane_reference_semantic_key},
-                {"sketch_plane_valid", connection.sketch_plane_valid}});
-        }
-        if (object.kind == ConstructionKind::Curve3DExperimental) {
-            const auto solution = solve_experimental_curve3d(object);
-            if (!solution.valid) {
-                throw std::runtime_error(
-                    "Invalid experimental 3D-Curve: " + solution.error);
-            }
-        }
-        const auto definition = object.definition == ConstructionDefinition::Absolute
-            ? "absolute"
-            : object.definition == ConstructionDefinition::PointReference
-                ? "point_reference"
-            : object.definition == ConstructionDefinition::TwoPointAxis
-                ? "two_point_axis"
-            : object.definition == ConstructionDefinition::AxisReference
-                ? "axis_reference"
-            : object.definition == ConstructionDefinition::ThreePointPlane
-                ? "three_point_plane" : "plane_reference";
-        serialized_constructions.push_back({
-            {"id", object.id}, {"entity_id", object.entity_id},
-            {"entity_parent_id", object.entity_parent_id},
-            {"parent_construction_id", object.parent_construction_id},
-            {"name", object.name},
-            {"type", object.kind == ConstructionKind::Point ? "point"
-                : object.kind == ConstructionKind::Curve3D ? "curve3d"
-                : object.kind == ConstructionKind::Curve3DExperimental
-                    ? "curve3d_experimental"
-                : object.kind == ConstructionKind::Axis ? "axis" : "plane"},
-            {"container_origin", {
-                {"id", object.container_origin.id},
-                {"parent_id", object.container_origin.parent_id},
-                {"name", object.container_origin.name},
-                {"locked", object.container_origin.locked},
-                {"children", std::move(origin_children)}}},
-            {"x", object.origin.x}, {"y", object.origin.y}, {"z", object.origin.z},
-            {"rotation_x", object.rotation.x},
-            {"rotation_y", object.rotation.y},
-            {"rotation_z", object.rotation.z},
-            {"rotation_offset_x", object.rotation_offset_x},
-            {"rotation_offset_y", object.rotation_offset_y},
-            {"rotation_offset_z", object.rotation_offset_z},
-            {"absolute_rotation_x", object.absolute_rotation.x},
-            {"absolute_rotation_y", object.absolute_rotation.y},
-            {"absolute_rotation_z", object.absolute_rotation.z},
-            {"orientation_back", object.orientation_back},
-            {"orientation_quarter_turns", object.orientation_quarter_turns},
-            {"direction_x", object.direction.x},
-            {"direction_y", object.direction.y},
-            {"direction_z", object.direction.z},
-            {"direction_axis", object.direction_axis},
-            {"base_plane", object.base_plane == LocalDatumPlane::XY ? "xy"
-                : object.base_plane == LocalDatumPlane::XZ ? "xz" : "yz"},
-            {"display_size", object.display_size}, {"definition", definition},
-            {"references", std::move(references)}, {"offset", object.offset},
-            {"reference_valid", object.reference_valid},
-            {"suppressed", object.suppressed},
-            {"curve_type", object.curve_type == Curve3DType::Polyline
-                ? "polyline" : "interpolating_spline"},
-            {"curve_tangent", curve_tangent_key(object.curve_tangent)},
-            {"curve_points", std::move(curve_points)},
-            {"curve_connections", std::move(curve_connections)}});
-    }
+    auto serialized_constructions = nlohmann::json::parse(
+        serialize_construction_objects(constructions));
     nlohmann::json serialized_relations = nlohmann::json::array();
     for (const auto& relation : relations) serialized_relations.push_back(
         {{"target", relation.target}, {"expression", relation.expression}});

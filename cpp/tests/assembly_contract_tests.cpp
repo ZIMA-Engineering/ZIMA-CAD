@@ -164,6 +164,87 @@ int main() {
         }
         require(assembly_axis_paths == instance_paths,
                 "Assembly did not transform and distinguish occurrence axes");
+
+        // A circular Sketch extrusion publishes a persisted primary axis.
+        // Insert two occurrences of that Part into an Assembly and mate the
+        // published axes end-to-end, proving the complete Part insertion ->
+        // Assembly scene -> stable axis reference -> solver path.
+        auto extruded_part = zima::document::PartDocument::create_default();
+        auto circular_profile = zima::sketcher::Sketch::create_default();
+        static_cast<void>(circular_profile.add_circle(0.0, 0.0, 4.0));
+        const auto circular_profile_id = circular_profile.id;
+        extruded_part.sketches.push_back(std::move(circular_profile));
+        auto circular_extrusion =
+            zima::document::PartDocument::create_extrusion_container(
+                circular_profile_id);
+        circular_extrusion.extrusion.height = 20.0;
+        const auto circular_extrusion_id = circular_extrusion.id;
+        extruded_part.history.push_back(std::move(circular_extrusion));
+        const auto extruded_boundaries =
+            kernel.evaluate_history(extruded_part.kernel_operations());
+        require(extruded_boundaries.size() == 1 &&
+                    std::any_of(extruded_boundaries.back().mesh
+                            .original_references.axes.begin(),
+                        extruded_boundaries.back().mesh
+                            .original_references.axes.end(),
+                        [&](const auto& axis) {
+                            return axis.reference.owner_id ==
+                                    circular_extrusion_id &&
+                                axis.reference.semantic_key == "axis:primary";
+                        }),
+                "Circular Part extrusion did not publish its stable primary axis");
+        auto extruded_assembly =
+            zima::assembly::AssemblyDocument::create_default();
+        auto extruded_first =
+            zima::assembly::AssemblyDocument::create_part_occurrence(
+                "Vytažení A", extruded_part.document_id,
+                "extruded.prtz", extruded_boundaries.back());
+        auto extruded_second =
+            zima::assembly::AssemblyDocument::create_part_occurrence(
+                "Vytažení B", extruded_part.document_id,
+                "extruded.prtz", extruded_boundaries.back());
+        const auto extruded_first_id = extruded_first.occurrence_id;
+        const auto extruded_second_id = extruded_second.occurrence_id;
+        extruded_second.placement.x = 35.0;
+        extruded_assembly.components.push_back(std::move(extruded_first));
+        extruded_assembly.components.push_back(std::move(extruded_second));
+        extruded_assembly.components.back().placement_references.push_back(
+            {zima::assembly::MateKind::AxisCoincident,
+             {zima::assembly::MateReferenceKind::Axis,
+              zima::assembly::InstancePath{}.child(extruded_second_id),
+              circular_extrusion_id, "axis:primary"},
+             {zima::assembly::MateReferenceKind::Axis,
+              zima::assembly::InstancePath{}.child(extruded_first_id),
+              circular_extrusion_id, "axis:primary"},
+             0.0, false});
+        extruded_assembly.calculate_placement_references();
+        const auto extruded_dependent = extruded_assembly.resolve_axis(
+            extruded_assembly.components.back().placement_references.front()
+                .component_reference);
+        const auto extruded_target = extruded_assembly.resolve_axis(
+            extruded_assembly.components.back().placement_references.front()
+                .target_reference);
+        require(extruded_dependent.status == zima::assembly::MateStatus::Valid &&
+                    extruded_target.status == zima::assembly::MateStatus::Valid &&
+                    std::abs(extruded_dependent.axis.point.x -
+                        extruded_target.axis.point.x) < 1.0e-7 &&
+                    std::abs(extruded_dependent.axis.point.y -
+                        extruded_target.axis.point.y) < 1.0e-7,
+                "Inserted circular-extrusion Parts could not mate by their "
+                "published primary axes");
+        const auto extruded_assembly_path =
+            std::filesystem::temp_directory_path() /
+            "zima-cad-cpp-extruded-axis-assembly-contract.asmz";
+        extruded_assembly.save(extruded_assembly_path);
+        const auto loaded_extruded_assembly =
+            zima::assembly::AssemblyDocument::load(extruded_assembly_path);
+        std::filesystem::remove(extruded_assembly_path);
+        require(loaded_extruded_assembly.components.size() == 2 &&
+                    loaded_extruded_assembly.resolve_axis(
+                        loaded_extruded_assembly.components.back()
+                            .placement_references.front().component_reference)
+                            .status == zima::assembly::MateStatus::Valid,
+                "Inserted Part primary-axis mate did not survive Assembly save/load");
         const auto rollback_scene = assembly.build_scene_with_part_override(
             first_id, zima::kernel::BodyResult{});
         std::set<std::string> rollback_paths;
@@ -622,6 +703,18 @@ int main() {
                     std::abs(placement_dimension_it->value - 45.0) < 1.0e-7,
                 "build_scene() did not emit a dimension overlay for the "
                 "embedded AxisAngle placement reference");
+        placement_angle_component_it->placement_references.front().offset = 0.0;
+        placement_reference_angle_assembly.calculate_placement_references();
+        const auto zero_angle_scene =
+            placement_reference_angle_assembly.build_scene();
+        require(std::none_of(zero_angle_scene.dimensions.begin(),
+                    zero_angle_scene.dimensions.end(),
+                    [&](const auto& dimension) {
+                        return dimension.reference.semantic_key ==
+                            expected_placement_dimension_key;
+                    }),
+                "Zero-valued angular Assembly placement reference still "
+                "created a viewer dimension");
 
         auto angled_assembly = loaded;
         auto angled_component_it = std::find_if(
@@ -837,6 +930,15 @@ int main() {
             flipped_dependent.plane.normal.z * flipped_prerequisite.plane.normal.z;
         require(std::abs(flipped_alignment + 1.0) < 1.0e-7,
                 "Flipped plane placement reference did not preserve opposite face orientation");
+        const auto zero_offset_scene = flipped_plane_assembly.build_scene();
+        require(std::none_of(zero_offset_scene.dimensions.begin(),
+                    zero_offset_scene.dimensions.end(),
+                    [&](const auto& dimension) {
+                        return dimension.reference.semantic_key ==
+                            "placement-reference:" + second_id + ":0";
+                    }),
+                "Zero-valued linear Assembly placement reference still "
+                "created a viewer dimension");
         const auto flipped_mate_path = std::filesystem::temp_directory_path() /
             "zima-cad-cpp-flipped-mate-contract.asmz";
         flipped_plane_assembly.save(flipped_mate_path);
@@ -1227,6 +1329,84 @@ int main() {
                                 axis.reference.owner_id == datum_axis_entity_id;
                         }),
                 "Assembly-owned point, axis or plane lost viewer identity");
+
+        auto datum_axis_mate = assembly;
+        datum_axis_mate.constructions = {datum_axis};
+        datum_axis_mate.components.back().placement.x = 27.0;
+        datum_axis_mate.components.back().placement.y = 13.0;
+        datum_axis_mate.components.back().placement_references.push_back(
+            {zima::assembly::MateKind::AxisCoincident,
+             {zima::assembly::MateReferenceKind::Axis,
+              zima::assembly::InstancePath{}.child(second_id),
+              "same-source-container", "axis:z"},
+             {zima::assembly::MateReferenceKind::Axis, {},
+              datum_axis_entity_id, "axis"},
+             0.0, false});
+        datum_axis_mate.calculate_placement_references();
+        const auto resolved_component_axis = datum_axis_mate.resolve_axis(
+            datum_axis_mate.components.back().placement_references.back()
+                .component_reference);
+        const auto resolved_assembly_axis = datum_axis_mate.resolve_axis(
+            datum_axis_mate.components.back().placement_references.back()
+                .target_reference);
+        require(resolved_component_axis.status ==
+                    zima::assembly::MateStatus::Valid &&
+                    resolved_assembly_axis.status ==
+                    zima::assembly::MateStatus::Valid &&
+                    std::abs(resolved_component_axis.axis.point.x -
+                        resolved_assembly_axis.axis.point.x) < 1.0e-7 &&
+                    std::abs(resolved_component_axis.axis.point.y -
+                        resolved_assembly_axis.axis.point.y) < 1.0e-7,
+                "Component axis could not mate to an Assembly-owned Axis container");
+
+        auto assembly_curve =
+            zima::assembly::AssemblyDocument::create_construction(
+                zima::document::ConstructionKind::Curve3D);
+        assembly_curve.curve_type =
+            zima::document::Curve3DType::InterpolatingSpline;
+        auto assembly_curve_first =
+            zima::assembly::AssemblyDocument::create_construction(
+                zima::document::ConstructionKind::Point);
+        auto assembly_curve_second =
+            zima::assembly::AssemblyDocument::create_construction(
+                zima::document::ConstructionKind::Point);
+        assembly_curve_first.parent_construction_id = assembly_curve.id;
+        assembly_curve_second.parent_construction_id = assembly_curve.id;
+        assembly_curve_first.origin = {0.0, 0.0, 0.0};
+        assembly_curve_second.origin = {30.0, 10.0, 5.0};
+        const auto assembly_curve_id = assembly_curve.id;
+        const auto assembly_curve_first_id = assembly_curve_first.id;
+        assembly_curve.curve_points = {
+            std::move(assembly_curve_first), std::move(assembly_curve_second)};
+        auto curve_assembly =
+            zima::assembly::AssemblyDocument::create_default();
+        curve_assembly.constructions.push_back(std::move(assembly_curve));
+        curve_assembly.resolve_constructions();
+        const auto curve_assembly_scene = curve_assembly.build_scene();
+        require(curve_assembly.find_construction(assembly_curve_first_id) != nullptr &&
+                    std::any_of(curve_assembly_scene.edges.begin(),
+                        curve_assembly_scene.edges.end(),
+                        [&](const auto& edge) {
+                            return edge.display_owner_id == assembly_curve_id;
+                        }),
+                "Assembly 3D-Curve did not expose its nested Point or viewer path");
+        const auto curve_assembly_path =
+            std::filesystem::temp_directory_path() /
+            "zima-cad-cpp-assembly-curve3d-contract.asmz";
+        curve_assembly.save(curve_assembly_path);
+        auto loaded_curve_assembly =
+            zima::assembly::AssemblyDocument::load(curve_assembly_path);
+        std::filesystem::remove(curve_assembly_path);
+        loaded_curve_assembly.resolve_constructions();
+        const auto* loaded_assembly_curve =
+            loaded_curve_assembly.find_construction(assembly_curve_id);
+        require(loaded_assembly_curve != nullptr &&
+                    loaded_assembly_curve->kind ==
+                        zima::document::ConstructionKind::Curve3D &&
+                    loaded_assembly_curve->curve_points.size() == 2 &&
+                    loaded_curve_assembly.find_construction(
+                        assembly_curve_first_id) != nullptr,
+                "Shared construction codec did not round-trip an Assembly 3D-Curve");
         const auto dependent_face = *std::find_if(
             datum_scene.original_references.triangle_references.begin(),
             datum_scene.original_references.triangle_references.end(),

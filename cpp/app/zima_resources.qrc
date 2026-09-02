@@ -23,6 +23,7 @@
     <file alias="icons/axis.svg">../../resources/icons/axis.svg</file>
     <file alias="icons/plane.svg">../../resources/icons/plane.svg</file>
     <file alias="icons/sketch.svg">../../resources/icons/sketch.svg</file>
+    <file alias="icons/sketch-3d.svg">../../resources/icons/sketch-3d.svg</file>
     <file alias="icons/sketch-segment.svg">../../resources/icons/sketch-segment.svg</file>
     <file alias="icons/sketch-common-tangent.svg">../../resources/icons/sketch-common-tangent.svg</file>
     <file alias="icons/sketch-construction.svg">../../resources/icons/sketch-construction.svg</file>
@@ -42,6 +43,7 @@
     <file alias="icons/sketch-dimensions.svg">../../resources/icons/sketch-dimensions.svg</file>
     <file alias="icons/protrusion.svg">../../resources/icons/protrusion.svg</file>
     <file alias="icons/revolve.svg">../../resources/icons/revolve.svg</file>
+    <file alias="icons/sweep.svg">../../resources/icons/sweep.svg</file>
     <file alias="icons/fillet.svg">../../resources/icons/fillet.svg</file>
     <file alias="icons/chamfer.svg">../../resources/icons/chamfer.svg</file>
     <file alias="icons/box.svg">../../resources/icons/box.svg</file>

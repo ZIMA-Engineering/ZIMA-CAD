@@ -23,6 +23,11 @@ namespace {
 
 using IniSections = std::map<std::string, std::map<std::string, std::string>>;
 
+// Keep Assembly placement-reference dimensions consistent with Part feature
+// parameters: a numerically zero value is still a valid stored constraint,
+// but it must not paint a meaningless dimension in the 3D view.
+constexpr double visible_placement_dimension_epsilon = 1.0e-9;
+
 std::string trim_ini(std::string value) {
     const auto first = value.find_first_not_of(" \t\r");
     if (first == std::string::npos) return {};
@@ -650,16 +655,26 @@ zima::document::ConstructionObject AssemblyDocument::create_construction(
 
 zima::document::ConstructionObject* AssemblyDocument::find_construction(
     const std::string& id) {
-    const auto found = std::find_if(constructions.begin(), constructions.end(),
-        [&](const auto& object) { return object.id == id; });
-    return found == constructions.end() ? nullptr : &*found;
+    for (auto& object : constructions) {
+        if (object.id == id) return &object;
+        const auto child = std::find_if(object.curve_points.begin(),
+            object.curve_points.end(),
+            [&](const auto& point) { return point.id == id; });
+        if (child != object.curve_points.end()) return &*child;
+    }
+    return nullptr;
 }
 
 const zima::document::ConstructionObject* AssemblyDocument::find_construction(
     const std::string& id) const {
-    const auto found = std::find_if(constructions.begin(), constructions.end(),
-        [&](const auto& object) { return object.id == id; });
-    return found == constructions.end() ? nullptr : &*found;
+    for (const auto& object : constructions) {
+        if (object.id == id) return &object;
+        const auto child = std::find_if(object.curve_points.begin(),
+            object.curve_points.end(),
+            [&](const auto& point) { return point.id == id; });
+        if (child != object.curve_points.end()) return &*child;
+    }
+    return nullptr;
 }
 
 zima::kernel::ViewerMesh AssemblyDocument::construction_viewer_mesh(
@@ -1365,6 +1380,8 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
         for (std::size_t index = 0; index < component.placement_references.size();
              ++index) {
             const auto& row = component.placement_references[index];
+            if (std::abs(row.offset) <=
+                visible_placement_dimension_epsilon) continue;
             zima::kernel::ViewerDimension dimension;
             dimension.reference = {document_id,
                 "placement-reference:" + component.occurrence_id + ":" +
@@ -1606,106 +1623,9 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
         }
         document.cuts.push_back(std::move(cut));
     }
-    std::unordered_set<std::string> construction_ids;
-    for (const auto& source : root.at("constructions")) {
-        zima::document::ConstructionObject object;
-        object.id = source.at("id").get<std::string>();
-        object.entity_id = source.at("entity_id").get<std::string>();
-        object.entity_parent_id =
-            source.at("entity_parent_id").get<std::string>();
-        object.name = source.at("name").get<std::string>();
-        const auto type = source.at("type").get<std::string>();
-        object.kind = type == "point" ? zima::document::ConstructionKind::Point
-            : type == "axis" ? zima::document::ConstructionKind::Axis
-            : type == "plane" ? zima::document::ConstructionKind::Plane
-            : throw std::runtime_error("Assembly construction type is invalid");
-        const auto& origin = source.at("origin");
-        const auto& direction = source.at("direction");
-        const auto& serialized_origin = source.at("container_origin");
-        object.container_origin.id = serialized_origin.at("id").get<std::string>();
-        object.container_origin.parent_id =
-            serialized_origin.at("parent_id").get<std::string>();
-        object.container_origin.name = serialized_origin.at("name").get<std::string>();
-        object.container_origin.locked = serialized_origin.at("locked").get<bool>();
-        for (const auto& serialized_child : serialized_origin.at("children")) {
-            const auto child_kind = serialized_child.at("kind").get<std::string>();
-            object.container_origin.children.push_back({
-                serialized_child.at("id").get<std::string>(),
-                serialized_child.at("parent_id").get<std::string>(),
-                serialized_child.at("name").get<std::string>(),
-                child_kind == "point" ? zima::document::OriginChildKind::Point
-                    : child_kind == "axis" ? zima::document::OriginChildKind::Axis
-                    : child_kind == "plane" ? zima::document::OriginChildKind::Plane
-                    : throw std::runtime_error("Assembly Container Origin child kind is invalid"),
-                serialized_child.at("key").get<std::string>(),
-                serialized_child.at("locked").get<bool>()});
-        }
-        if (object.container_origin !=
-                zima::document::create_container_origin(object.id) ||
-            object.entity_id.empty() || object.entity_id == object.id ||
-            object.entity_parent_id != (object.kind == zima::document::ConstructionKind::Point
-                    ? object.container_origin.id : object.id) ||
-            (object.kind == zima::document::ConstructionKind::Point &&
-             object.entity_id != object.container_origin.id + ":point") ||
-            (object.kind != zima::document::ConstructionKind::Point &&
-             object.entity_id != object.id + ":entity")) {
-            throw std::runtime_error("Assembly construction Container Origin is invalid");
-        }
-        object.origin = {origin.at("x").get<double>(), origin.at("y").get<double>(),
-                         origin.at("z").get<double>()};
-        const auto& rotation = source.at("rotation");
-        object.rotation = {rotation.at("x").get<double>(),
-                           rotation.at("y").get<double>(),
-                           rotation.at("z").get<double>()};
-        object.direction = {direction.at("x").get<double>(),
-                            direction.at("y").get<double>(),
-                            direction.at("z").get<double>()};
-        object.display_size = source.at("display_size").get<double>();
-        const auto definition = source.at("definition").get<std::string>();
-        object.definition = definition == "absolute"
-            ? zima::document::ConstructionDefinition::Absolute
-            : definition == "point_reference"
-                ? zima::document::ConstructionDefinition::PointReference
-            : definition == "two_point_axis"
-                ? zima::document::ConstructionDefinition::TwoPointAxis
-            : definition == "axis_reference"
-                ? zima::document::ConstructionDefinition::AxisReference
-            : definition == "three_point_plane"
-                ? zima::document::ConstructionDefinition::ThreePointPlane
-            : definition == "plane_reference"
-                ? zima::document::ConstructionDefinition::PlaneReference
-            : throw std::runtime_error("Assembly construction definition is invalid");
-        object.offset = source.at("offset").get<double>();
-        object.reference_valid = source.at("reference_valid").get<bool>();
-        object.suppressed = source.at("suppressed").get<bool>();
-        for (const auto& serialized : source.at("references")) {
-            object.references.push_back({
-                serialized.at("instance_path").get<std::string>(),
-                serialized.at("owner_id").get<std::string>(),
-                serialized.at("semantic_key").get<std::string>(),
-                serialized.at("offset").get<double>(),
-                serialized.at("supports_offset").get<bool>(),
-                serialized.at("orientation_role").get<std::string>(),
-                serialized.at("orientation_drives_rotation").get<bool>()});
-        }
-        const double direction_length = length(object.direction);
-        if (object.id.empty() || object.name.empty() ||
-            !construction_ids.insert(object.id).second ||
-            !std::isfinite(object.origin.x) || !std::isfinite(object.origin.y) ||
-            !std::isfinite(object.origin.z) ||
-            object.entity_id.empty() || object.entity_id == object.id ||
-            !std::isfinite(object.rotation.x) ||
-            !std::isfinite(object.rotation.y) ||
-            !std::isfinite(object.rotation.z) ||
-            !std::isfinite(object.direction.x) ||
-            !std::isfinite(object.direction.y) || !std::isfinite(object.direction.z) ||
-            !std::isfinite(object.display_size) || object.display_size <= 0.0 ||
-            (object.kind != zima::document::ConstructionKind::Point &&
-             direction_length <= 1.0e-12)) {
-            throw std::runtime_error("Assembly construction object is invalid");
-        }
-        document.constructions.push_back(std::move(object));
-    }
+    document.constructions =
+        zima::document::deserialize_construction_objects(
+            root.at("constructions").dump());
     std::unordered_set<std::string> occurrence_ids;
     for (const auto& source : root.at("components")) {
         PartOccurrence component;
@@ -1798,92 +1718,8 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
 
 void AssemblyDocument::save(const std::filesystem::path& path) const {
     static_cast<void>(build_scene());
-    nlohmann::json constructions_json = nlohmann::json::array();
-    std::unordered_set<std::string> construction_ids;
-    for (const auto& object : constructions) {
-        const double direction_length = length(object.direction);
-        if (object.id.empty() || object.name.empty() ||
-            !construction_ids.insert(object.id).second ||
-            !std::isfinite(object.origin.x) || !std::isfinite(object.origin.y) ||
-            !std::isfinite(object.origin.z) ||
-            !std::isfinite(object.rotation.x) ||
-            !std::isfinite(object.rotation.y) ||
-            !std::isfinite(object.rotation.z) ||
-            !std::isfinite(object.direction.x) ||
-            !std::isfinite(object.direction.y) || !std::isfinite(object.direction.z) ||
-            !std::isfinite(object.display_size) || object.display_size <= 0.0 ||
-            (object.kind != zima::document::ConstructionKind::Point &&
-             direction_length <= 1.0e-12)) {
-            throw std::runtime_error("Assembly construction object is invalid");
-        }
-        if (object.container_origin !=
-                zima::document::create_container_origin(object.id) ||
-            object.entity_parent_id != (object.kind == zima::document::ConstructionKind::Point
-                    ? object.container_origin.id : object.id) ||
-            (object.kind == zima::document::ConstructionKind::Point &&
-             object.entity_id != object.container_origin.id + ":point") ||
-            (object.kind != zima::document::ConstructionKind::Point &&
-             object.entity_id != object.id + ":entity")) {
-            throw std::runtime_error("Assembly construction Container Origin is invalid");
-        }
-        nlohmann::json origin_children = nlohmann::json::array();
-        for (const auto& child : object.container_origin.children) {
-            origin_children.push_back({
-                {"id", child.id}, {"parent_id", child.parent_id},
-                {"name", child.name},
-                {"kind", child.kind == zima::document::OriginChildKind::Point ? "point"
-                    : child.kind == zima::document::OriginChildKind::Axis ? "axis" : "plane"},
-                {"key", child.key}, {"locked", child.locked}});
-        }
-        nlohmann::json references = nlohmann::json::array();
-        for (const auto& reference : object.references) {
-            if (reference.owner_id.empty() || reference.semantic_key.empty()) {
-                throw std::runtime_error("Assembly construction reference is invalid");
-            }
-            references.push_back({{"instance_path", reference.instance_path},
-                {"owner_id", reference.owner_id},
-                {"semantic_key", reference.semantic_key},
-                {"offset", reference.offset},
-                {"supports_offset", reference.supports_offset},
-                {"orientation_role", reference.orientation_role},
-                {"orientation_drives_rotation",
-                    reference.orientation_drives_rotation}});
-        }
-        const auto definition = object.definition ==
-                zima::document::ConstructionDefinition::Absolute ? "absolute"
-            : object.definition == zima::document::ConstructionDefinition::PointReference
-                ? "point_reference"
-            : object.definition == zima::document::ConstructionDefinition::TwoPointAxis
-                ? "two_point_axis"
-            : object.definition == zima::document::ConstructionDefinition::AxisReference
-                ? "axis_reference"
-            : object.definition == zima::document::ConstructionDefinition::ThreePointPlane
-                ? "three_point_plane" : "plane_reference";
-        constructions_json.push_back({
-            {"id", object.id}, {"entity_id", object.entity_id},
-            {"entity_parent_id", object.entity_parent_id},
-            {"name", object.name},
-            {"type", object.kind == zima::document::ConstructionKind::Point
-                ? "point" : object.kind == zima::document::ConstructionKind::Axis
-                    ? "axis" : "plane"},
-            {"container_origin", {
-                {"id", object.container_origin.id},
-                {"parent_id", object.container_origin.parent_id},
-                {"name", object.container_origin.name},
-                {"locked", object.container_origin.locked},
-                {"children", std::move(origin_children)}}},
-            {"origin", {{"x", object.origin.x}, {"y", object.origin.y},
-                        {"z", object.origin.z}}},
-            {"rotation", {{"x", object.rotation.x}, {"y", object.rotation.y},
-                          {"z", object.rotation.z}}},
-            {"direction", {{"x", object.direction.x}, {"y", object.direction.y},
-                           {"z", object.direction.z}}},
-            {"display_size", object.display_size}, {"definition", definition},
-            {"references", std::move(references)}, {"offset", object.offset},
-            {"reference_valid", object.reference_valid},
-            {"suppressed", object.suppressed},
-        });
-    }
+    auto constructions_json = nlohmann::json::parse(
+        zima::document::serialize_construction_objects(constructions));
     nlohmann::json components_json = nlohmann::json::array();
     for (const auto& component : components) {
         validate_snapshot_list(component.nested_snapshot);

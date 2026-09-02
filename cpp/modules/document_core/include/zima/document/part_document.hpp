@@ -10,6 +10,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace zima::document {
@@ -247,6 +248,15 @@ struct ConstructionObject {
     bool suppressed{};
     bool operator==(const ConstructionObject&) const = default;
 };
+
+// Canonical persistence for construction containers shared by Part and
+// Assembly documents. Keeping one codec is essential because 3D-Curves own
+// nested Point containers and experimental interval/sketch data that must not
+// diverge between the two document types.
+[[nodiscard]] std::string serialize_construction_objects(
+    const std::vector<ConstructionObject>& objects);
+[[nodiscard]] std::vector<ConstructionObject> deserialize_construction_objects(
+    std::string_view serialized);
 
 [[nodiscard]] bool resolve_construction(
     ConstructionObject& object,

@@ -785,7 +785,7 @@ QString feature_icon_name(zima::document::FeatureKind kind) {
         case FeatureKind::Wedge: return QStringLiteral("wedge");
         case FeatureKind::Extrusion: return QStringLiteral("protrusion");
         case FeatureKind::Revolution: return QStringLiteral("revolve");
-        case FeatureKind::Sweep3D: return QStringLiteral("sketch-3d");
+        case FeatureKind::Sweep3D: return QStringLiteral("sweep");
         case FeatureKind::ImportedStep: return QStringLiteral("import-step");
         case FeatureKind::Fillet: return QStringLiteral("fillet");
         case FeatureKind::Chamfer: return QStringLiteral("chamfer");
@@ -2654,7 +2654,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     curve_3d_action_ = make_action(tr("3D křivka"), "sketch-3d");
     curve_3d_experimental_action_ =
         make_action(tr("3D trajektorie EXP"), "sketch-3d");
-    sweep_3d_action_ = make_action(tr("3D Sweep"), "sketch-3d");
+    sweep_3d_action_ = make_action(tr("3D Sweep"), "sweep");
     construction_axis_action_ = make_action(tr("Osa"), "axis");
     construction_plane_action_ = make_action(tr("Rovina"), "plane");
     construction_point_action_->setObjectName("constructionPointAction");
@@ -5497,7 +5497,9 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         tools_toolbar_->addSeparator();
         add_command(insert_action_);
         add_green_separator();
-        for (auto* action : {construction_point_action_, construction_axis_action_,
+        for (auto* action : {construction_point_action_, curve_3d_action_,
+                             curve_3d_experimental_action_,
+                             construction_axis_action_,
                              construction_plane_action_}) {
             add_command(action);
         }
@@ -10206,9 +10208,6 @@ void AssemblyWorkspaceWindow::show_construction_properties(
     auto* part = workspace_.open_part(workspace_.active_document_id());
     auto* assembly = workspace_.open_assembly(workspace_.active_document_id());
     if (part == nullptr && assembly == nullptr) return;
-    if ((kind == zima::document::ConstructionKind::Curve3D ||
-         kind == zima::document::ConstructionKind::Curve3DExperimental) &&
-        part == nullptr) return;
     const auto* edited = object_id.empty() ? nullptr : part != nullptr
         ? part->session.document().find_construction(object_id)
         : assembly->session.document().find_construction(object_id);
@@ -10502,8 +10501,10 @@ void AssemblyWorkspaceWindow::start_curve_axis_selection(
     ConstructionPropertiesDialog* curve_dialog, std::size_t point_index) {
     if (curve_dialog == nullptr || properties_dialog_ != curve_dialog) return;
     auto* part = workspace_.open_part(workspace_.active_document_id());
+    auto* assembly = workspace_.open_assembly(workspace_.active_document_id());
     const auto curve = curve_dialog->pending_value();
-    if (part == nullptr || point_index >= curve.curve_points.size()) return;
+    if ((part == nullptr && assembly == nullptr) ||
+        point_index >= curve.curve_points.size()) return;
     const auto& point = curve.curve_points[point_index];
 
     // One green reference field owns the common Viewer picker at a time.
@@ -10515,14 +10516,26 @@ void AssemblyWorkspaceWindow::start_curve_axis_selection(
     construction_reference_auto_advance_ = false;
     curve_dialog->set_active_reference_index(std::nullopt);
 
-    auto next = part->session.document();
+    zima::document::PartDocument next;
+    zima::kernel::ViewerReferenceGeometry reference_geometry;
+    if (part != nullptr) {
+        next = part->session.document();
+        reference_geometry = construction_reference_source_geometry(
+            part->session.calculated_boundaries());
+    } else {
+        auto source = assembly->session.document();
+        next.document_id = source.document_id;
+        next.name = source.name;
+        next.constructions = source.constructions;
+        source.constructions.clear();
+        reference_geometry = source.build_scene().original_references;
+    }
     if (auto* target = next.find_construction(curve.id)) {
         *target = curve;
     } else {
         next.constructions.push_back(curve);
     }
-    next.resolve_constructions(construction_reference_source_geometry(
-        part->session.calculated_boundaries()));
+    next.resolve_constructions(std::move(reference_geometry));
     construction_preview_mesh_ = next.construction_viewer_mesh(point.id);
     construction_dimension_object_id_ = point.id;
     curve_axis_dialog_ = curve_dialog;
@@ -10716,7 +10729,8 @@ void AssemblyWorkspaceWindow::show_curve_point_properties(
     std::optional<std::size_t> point_index) {
     if (curve_dialog == nullptr || properties_dialog_ != curve_dialog) return;
     auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
+    auto* assembly = workspace_.open_assembly(workspace_.active_document_id());
+    if (part == nullptr && assembly == nullptr) return;
 
     const auto curve_value = curve_dialog->pending_value();
     const auto* existing = point_index
@@ -10736,7 +10750,9 @@ void AssemblyWorkspaceWindow::show_curve_point_properties(
     }
 
     const std::string document_id = workspace_.active_document_id();
-    const int decimal_places = document_decimal_places(part->session.document());
+    const int decimal_places = part != nullptr
+        ? document_decimal_places(part->session.document())
+        : document_decimal_places(assembly->session.document());
     auto committed = std::make_shared<bool>(false);
     QPointer<ConstructionPropertiesDialog> parent_guard(curve_dialog);
     auto* point_dialog = new ConstructionPropertiesDialog(
@@ -10764,8 +10780,9 @@ void AssemblyWorkspaceWindow::show_curve_point_properties(
         [this, document_id, parent_guard, slot](
                 zima::document::ConstructionObject preview) {
             if (parent_guard == nullptr) return;
-            auto* source = workspace_.open_part(document_id);
-            if (source == nullptr) return;
+            auto* source_part = workspace_.open_part(document_id);
+            auto* source_assembly = workspace_.open_assembly(document_id);
+            if (source_part == nullptr && source_assembly == nullptr) return;
 
             auto curve_preview = parent_guard->pending_value();
             preview.parent_construction_id = curve_preview.id;
@@ -10777,23 +10794,37 @@ void AssemblyWorkspaceWindow::show_curve_point_properties(
                 return;
             }
 
-            auto next = source->session.document();
+            zima::document::PartDocument next;
+            zima::kernel::ViewerReferenceGeometry reference_geometry;
+            const bool part_document = source_part != nullptr;
+            if (part_document) {
+                next = source_part->session.document();
+                reference_geometry = construction_reference_source_geometry(
+                    source_part->session.calculated_boundaries());
+            } else {
+                auto source = source_assembly->session.document();
+                next.document_id = source.document_id;
+                next.name = source.name;
+                next.constructions = source.constructions;
+                source.constructions.clear();
+                reference_geometry =
+                    source.build_scene().original_references;
+            }
             if (auto* target = next.find_construction(curve_preview.id)) {
                 *target = curve_preview;
             } else {
                 next.constructions.push_back(curve_preview);
             }
-            const auto& calculated = source->session.calculated_boundaries();
-            auto reference_geometry =
-                construction_reference_source_geometry(calculated);
             next.resolve_constructions(reference_geometry);
             const auto* resolved = next.find_construction(preview.id);
             if (resolved == nullptr) return;
 
             construction_parameter_preview_ = *resolved;
             construction_preview_mesh_ = next.construction_viewer_mesh(preview.id);
-            append_reference_geometry(reference_geometry,
-                next.origin_viewer_mesh().original_references);
+            if (part_document) {
+                append_reference_geometry(reference_geometry,
+                    next.origin_viewer_mesh().original_references);
+            }
             append_reference_geometry(reference_geometry,
                 next.construction_viewer_mesh().original_references);
             construction_reference_geometry_ =
@@ -10887,7 +10918,8 @@ void AssemblyWorkspaceWindow::show_curve_connection_sketch(
     if (curve_dialog == nullptr || properties_dialog_ != curve_dialog ||
         trajectory_sketch_draft_) return;
     auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
+    auto* assembly = workspace_.open_assembly(workspace_.active_document_id());
+    if (part == nullptr && assembly == nullptr) return;
 
     auto curve = curve_dialog->pending_value();
     if (curve.kind !=
@@ -10898,15 +10930,26 @@ void AssemblyWorkspaceWindow::show_curve_connection_sketch(
     // Resolve the pending child Points through the same persisted ZIMA
     // construction graph used by the preview. No OCCT calculation belongs to
     // choosing or editing a trajectory work plane.
-    auto preview_document = part->session.document();
+    zima::document::PartDocument preview_document;
+    zima::kernel::ViewerReferenceGeometry reference_geometry;
+    if (part != nullptr) {
+        preview_document = part->session.document();
+        reference_geometry = construction_reference_source_geometry(
+            part->session.calculated_boundaries());
+    } else {
+        auto source = assembly->session.document();
+        preview_document.document_id = source.document_id;
+        preview_document.name = source.name;
+        preview_document.constructions = source.constructions;
+        source.constructions.clear();
+        reference_geometry = source.build_scene().original_references;
+    }
     if (auto* existing = preview_document.find_construction(curve.id)) {
         *existing = curve;
     } else {
         preview_document.constructions.push_back(curve);
     }
-    preview_document.resolve_constructions(
-        construction_reference_source_geometry(
-            part->session.calculated_boundaries()));
+    preview_document.resolve_constructions(std::move(reference_geometry));
     const auto* resolved_curve = preview_document.find_construction(curve.id);
     if (resolved_curve == nullptr ||
         connection_index + 1 >= resolved_curve->curve_points.size()) return;
@@ -11554,23 +11597,31 @@ void AssemblyWorkspaceWindow::start_component_placement_reference_selection(
         [prefix, component_side, occurrence_id](const auto& candidate) {
         if (candidate.geometry !=
                 zima::viewer::CandidateGeometry::OriginalReference ||
-            candidate.instance_path.empty() || candidate.owner_id.empty() ||
-            candidate.semantic_key.empty()) return false;
+            candidate.owner_id.empty() || candidate.semantic_key.empty()) {
+            return false;
+        }
         try {
             const auto path = zima::assembly::InstancePath::decode(
                 candidate.instance_path);
-            if (path.occurrence_ids.size() != prefix.occurrence_ids.size() + 1 ||
-                !std::equal(prefix.occurrence_ids.begin(),
-                    prefix.occurrence_ids.end(), path.occurrence_ids.begin())) {
+            const bool direct_component =
+                path.occurrence_ids.size() ==
+                    prefix.occurrence_ids.size() + 1 &&
+                std::equal(prefix.occurrence_ids.begin(),
+                    prefix.occurrence_ids.end(), path.occurrence_ids.begin());
+            const bool owning_assembly_datum = path == prefix;
+            if (!direct_component && !owning_assembly_datum) {
                 return false;
             }
             // Component-side picks are restricted to geometry that belongs
             // to the very occurrence being edited (this dialog's own
             // component); target-side picks accept geometry on any OTHER
-            // direct sibling occurrence, matching Python's "this díl" vs.
-            // "cíl" (any other already-placed component/assembly datum)
-            // column semantics.
-            const bool is_own_occurrence = path.occurrence_ids.back() == occurrence_id;
+            // direct sibling occurrence or on the immediately owning
+            // Assembly itself. This keeps an Assembly-owned Point/Axis/Plane
+            // usable as a target even though its local instance path is the
+            // parent prefix (empty for a top-level Assembly).
+            if (owning_assembly_datum) return !component_side;
+            const bool is_own_occurrence =
+                path.occurrence_ids.back() == occurrence_id;
             return component_side ? is_own_occurrence : !is_own_occurrence;
         } catch (const std::invalid_argument&) {
             return false;
@@ -23448,8 +23499,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     const bool supports_constructions = active_part != nullptr ||
         workspace_.open_assembly(workspace_.active_document_id()) != nullptr;
     construction_point_action_->setEnabled(supports_constructions);
-    curve_3d_action_->setEnabled(active_part != nullptr);
-    curve_3d_experimental_action_->setEnabled(active_part != nullptr);
+    curve_3d_action_->setEnabled(supports_constructions);
+    curve_3d_experimental_action_->setEnabled(supports_constructions);
     sweep_3d_action_->setEnabled(active_part != nullptr);
     construction_axis_action_->setEnabled(supports_constructions);
     construction_plane_action_->setEnabled(supports_constructions);
