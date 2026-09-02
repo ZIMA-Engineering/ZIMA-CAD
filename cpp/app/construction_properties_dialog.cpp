@@ -395,22 +395,33 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
         const auto selected_curve_point = [this] {
             return selected_curve_point_index();
         };
-        connect(add_curve_point_, &QPushButton::clicked, this, [this] {
+        const auto finish_curve_axis_selection = [this] {
+            if (!active_curve_axis_index_) return;
+            active_curve_axis_index_.reset();
+            if (curve_axis_cycle_) curve_axis_cycle_();
+            refresh_curve_points();
+        };
+        connect(add_curve_point_, &QPushButton::clicked, this,
+            [this, finish_curve_axis_selection] {
+            finish_curve_axis_selection();
             if (curve_point_edit_request_) curve_point_edit_request_(std::nullopt);
         });
         connect(edit_curve_point_, &QPushButton::clicked, this,
-            [this, selected_curve_point] {
+            [this, selected_curve_point, finish_curve_axis_selection] {
                 if (const auto index = selected_curve_point();
                     index && curve_point_edit_request_) {
+                    finish_curve_axis_selection();
                     curve_point_edit_request_(index);
                 }
             });
         connect(curve_points_table_, &QTableWidget::cellDoubleClicked, this,
-            [this](int row, int column) {
+            [this, finish_curve_axis_selection](int row, int column) {
                 if (row < 0 || column != 0 || !curve_point_edit_request_) return;
                 curve_points_table_->setCurrentCell(row, column);
-                if (const auto index = selected_curve_point_index())
+                if (const auto index = selected_curve_point_index()) {
+                    finish_curve_axis_selection();
                     curve_point_edit_request_(index);
+                }
             });
         connect(curve_points_table_, &QTableWidget::cellClicked, this,
             [this](int row, int column) {

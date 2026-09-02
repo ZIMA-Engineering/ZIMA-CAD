@@ -10506,6 +10506,15 @@ void AssemblyWorkspaceWindow::start_curve_axis_selection(
     if (part == nullptr || point_index >= curve.curve_points.size()) return;
     const auto& point = curve.curve_points[point_index];
 
+    // One green reference field owns the common Viewer picker at a time.
+    // The Curve dialog may still have its automatic placement row armed when
+    // the user clicks a Point's direction-axis field. Leaving that pending
+    // row alive makes the next nested Point Properties dialog compete with
+    // this axis picker for the same LMB confirmation.
+    pending_construction_reference_index_.reset();
+    construction_reference_auto_advance_ = false;
+    curve_dialog->set_active_reference_index(std::nullopt);
+
     auto next = part->session.document();
     if (auto* target = next.find_construction(curve.id)) {
         *target = curve;
@@ -11017,6 +11026,15 @@ void AssemblyWorkspaceWindow::show_curve_connection_sketch(
 void AssemblyWorkspaceWindow::start_construction_reference_selection(
     std::size_t index, bool auto_advance) {
     if (construction_reference_dialog_ == nullptr) return;
+    // A construction placement field and a Curve Point direction field share
+    // one Viewer candidate stream. Switching to a placement/reference field
+    // must retire the old axis mode first; otherwise hover follows the new
+    // contract while LMB is intercepted by accept_curve_axis_reference().
+    if (curve_axis_dialog_ != nullptr) {
+        curve_axis_dialog_->set_curve_axis_active(std::nullopt);
+        curve_axis_dialog_ = nullptr;
+        pending_curve_axis_index_.reset();
+    }
     construction_reference_auto_advance_ = auto_advance;
     construction_reference_dialog_->set_active_reference_index(index);
     const bool orientation_reference = index >= 3;

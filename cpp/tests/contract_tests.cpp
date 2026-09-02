@@ -2164,9 +2164,21 @@ int main() {
                                     face.semantic_key.starts_with(
                                         "origin:plane:");
                             });
-                        return has_axis && has_plane;
+                        const bool has_point = std::ranges::any_of(
+                            experimental_point_references.points,
+                            [&](const auto& point) {
+                                return point.reference.owner_id == origin_id &&
+                                    point.reference.semantic_key == "point";
+                            });
+                        return has_point && has_axis && has_plane;
                     }),
-                "Sibling Point Origins were visible but not available to the reference picker");
+                "Sibling Point Origins were visible but their Point was not "
+                "available to the reference picker");
+        require(zima::document::point_constraint_remaining_dof({
+                    {{}, experimental_point_origins[0], "point"}},
+                    experimental_point_references) == 0,
+                "A picked experimental-trajectory Point did not fully define "
+                "the nested Point Properties position");
         const auto experimental_path =
             std::filesystem::temp_directory_path() /
             "zima-cad-cpp-experimental-curve3d-contract.prtz";

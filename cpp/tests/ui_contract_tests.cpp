@@ -1532,6 +1532,24 @@ int main(int argc, char* argv[]) {
                         "curve3DDeletePoint")->isEnabled(),
                 "3D Curve direction-axis field did not arm Viewer picking "
                 "or select its Point row");
+        bool curve_axis_finished_before_point_edit = false;
+        bool requested_new_curve_point = false;
+        curve_dialog->set_curve_axis_cycle_callback([&] {
+            curve_axis_finished_before_point_edit = true;
+        });
+        curve_dialog->set_curve_point_edit_request_callback(
+            [&](std::optional<std::size_t> index) {
+                require(curve_axis_finished_before_point_edit,
+                    "Point Properties opened before the old direction-axis "
+                    "selection was retired");
+                requested_new_curve_point = !index.has_value();
+            });
+        curve_dialog->set_curve_axis_active(0);
+        curve_dialog->findChild<QPushButton*>("curve3DAddPoint")->click();
+        require(curve_axis_finished_before_point_edit &&
+                    requested_new_curve_point,
+                "Opening a new Curve Point did not transfer Viewer ownership "
+                "from the direction-axis field to Point Properties");
         curve_dialog->set_curve_point_tangent(
             1, zima::document::Curve3DTangentMode::PositiveZ);
         curve_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
