@@ -1945,6 +1945,44 @@ int main() {
                             return std::abs(point.y - 6.0) < 1.0e-9;
                         }),
                 "Disabled 3D Curve directions still constrained interpolation tangents");
+        auto natural_curve_document =
+            zima::document::PartDocument::create_default();
+        auto natural_curve =
+            zima::document::PartDocument::create_construction(
+                zima::document::ConstructionKind::Curve3D);
+        natural_curve.curve_type =
+            zima::document::Curve3DType::InterpolatingSpline;
+        for (const auto position : std::array{
+                 zima::kernel::Vec3{0.0, 100.0, 26.353700913074114},
+                 zima::kernel::Vec3{-100.0, 0.0, 60.0},
+                 zima::kernel::Vec3{0.0, 0.0, 60.0}}) {
+            auto child = zima::document::PartDocument::create_construction(
+                zima::document::ConstructionKind::Point);
+            child.parent_construction_id = natural_curve.id;
+            child.origin = position;
+            child.curve_tangent_enabled = false;
+            natural_curve.curve_points.push_back(std::move(child));
+        }
+        natural_curve_document.constructions.push_back(natural_curve);
+        natural_curve_document.resolve_constructions();
+        const auto natural_curve_mesh =
+            natural_curve_document.construction_viewer_mesh();
+        const auto& natural_last_span = natural_curve_mesh.edges.back().points;
+        const auto& natural_last_point =
+            natural_curve.curve_points.back().origin;
+        require(natural_curve_mesh.edges.size() == 2 &&
+                    natural_last_span.size() == 25 &&
+                    std::abs(natural_last_span.back().x -
+                        natural_last_point.x) < 1.0e-9 &&
+                    std::abs(natural_last_span.back().y -
+                        natural_last_point.y) < 1.0e-9 &&
+                    std::abs(natural_last_span.back().z -
+                        natural_last_point.z) < 1.0e-9 &&
+                    std::abs(natural_last_span.back().y -
+                        natural_last_span[natural_last_span.size()-2].y) >
+                        1.0e-4,
+                "Automatic 3D spline did not terminate exactly at the last "
+                "Point with its global natural end condition");
         curve_document.find_construction(curve_id)
             ->curve_points[1].curve_tangent_enabled = false;
         const auto curve_path = std::filesystem::temp_directory_path() /
@@ -3432,6 +3470,44 @@ int main() {
         require(up_to_results.size() == 2 &&
                     std::abs(up_to_results.back().volume - 6000.0) < 1e-6,
                 "Up-to-plane Extrusion did not clip at the datum plane");
+        // Boolean intersection edges are created by Up-to Extrusion whenever
+        // its clipped prism joins an existing body. They must carry a stable
+        // ZIMA identity so a following Fillet/Chamfer can select them.
+        zima::kernel::CylinderRequest joining_cylinder;
+        joining_cylinder.radius = 5.0;
+        joining_cylinder.height = 20.0;
+        joining_cylinder.translation = {10.0, 10.0, 5.0};
+        const auto joined_results = kernel.evaluate_history({
+            {"joined-box",
+                zima::kernel::BoxRequest{20.0, 20.0, 10.0},
+                zima::kernel::BooleanOperation::Add},
+            {"joined-cylinder", joining_cylinder,
+                zima::kernel::BooleanOperation::Add}});
+        const auto boolean_intersection_edge = std::find_if(
+            joined_results.back().mesh.edges.begin(),
+            joined_results.back().mesh.edges.end(), [](const auto& edge) {
+                return edge.reference.owner_id == "joined-cylinder" &&
+                    edge.reference.semantic_key.starts_with(
+                        "boolean:add:intersection:") &&
+                    edge.edge_treatment_side_references.size() == 2;
+            });
+        require(boolean_intersection_edge !=
+                    joined_results.back().mesh.edges.end(),
+                "Boolean result left its generated intersection edge "
+                "anonymous and unavailable to Fillet");
+        zima::kernel::FilletRequest joined_fillet{
+            {boolean_intersection_edge->reference}, 0.75};
+        const auto joined_fillet_results = kernel.evaluate_history({
+            {"joined-box",
+                zima::kernel::BoxRequest{20.0, 20.0, 10.0},
+                zima::kernel::BooleanOperation::Add},
+            {"joined-cylinder", joining_cylinder,
+                zima::kernel::BooleanOperation::Add},
+            {"joined-fillet", joined_fillet,
+                zima::kernel::BooleanOperation::Add}});
+        require(joined_fillet_results.size() == 3 &&
+                    !joined_fillet_results.back().mesh.triangles.empty(),
+                "Fillet could not consume a stable generated Boolean edge");
         auto inclined_document = up_to_document;
         inclined_document.constructions.front().direction = {-0.5, 0.0, 1.0};
         inclined_document.history.back().extrusion.target_plane_normal =

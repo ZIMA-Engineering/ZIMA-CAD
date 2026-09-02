@@ -2598,6 +2598,75 @@ std::set<std::string> referenced_ancestor_tokens(
     return result;
 }
 
+std::vector<OwnedEdge> complete_boolean_edges(
+    const TopoDS_Shape& result_shape,
+    const std::vector<OwnedFace>& faces,
+    const std::vector<OwnedEdge>& propagated_edges,
+    const std::string& operation_owner,
+    std::string_view operation_role) {
+    const TopologyReferenceIndex<FaceReference, OwnedFace> face_references(faces);
+    TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+    TopExp::MapShapesAndAncestors(
+        result_shape, TopAbs_EDGE, TopAbs_FACE, edge_faces);
+    TopTools_IndexedDataMapOfShapeListOfShape vertex_faces;
+    TopExp::MapShapesAndAncestors(
+        result_shape, TopAbs_VERTEX, TopAbs_FACE, vertex_faces);
+
+    std::vector<OwnedEdge> result;
+    TopTools_IndexedMapOfShape visited;
+    for (TopExp_Explorer explorer(result_shape, TopAbs_EDGE);
+         explorer.More(); explorer.Next()) {
+        const auto edge = explorer.Current();
+        if (visited.Contains(edge)) continue;
+        visited.Add(edge);
+
+        bool inherited = false;
+        for (const auto& candidate : propagated_edges) {
+            if (!candidate.shape.IsSame(edge)) continue;
+            if (std::none_of(result.begin(), result.end(),
+                    [&](const auto& value) {
+                        return value.shape.IsSame(edge) &&
+                            value.reference == candidate.reference;
+                    })) {
+                result.push_back({edge, candidate.reference});
+            }
+            inherited = true;
+        }
+        // Preserve every inherited parent, including deliberate ambiguity.
+        // A new Boolean identity is only defined when OCCT produced a shape
+        // that has no propagated ZIMA parent at all.
+        if (inherited) continue;
+
+        const auto adjacent_faces = referenced_ancestor_tokens(
+            edge_faces, edge, face_references);
+        if (adjacent_faces.size() != 2) continue;
+        std::set<std::string> endpoint_supports;
+        TopTools_IndexedMapOfShape vertices;
+        TopExp::MapShapes(edge, TopAbs_VERTEX, vertices);
+        for (int index = 1; index <= vertices.Extent(); ++index) {
+            const auto support = referenced_ancestor_tokens(
+                vertex_faces, vertices.FindKey(index), face_references);
+            if (!support.empty()) {
+                endpoint_supports.insert(
+                    encoded_topology_reference_set(support));
+            }
+        }
+        // Identity is defined exclusively by the Boolean feature, semantic
+        // role and persisted face ancestry. OCCT traversal only locates the
+        // runtime edge; its enumeration order and coordinates never enter
+        // the persisted key.
+        std::string semantic_key = "boolean:";
+        semantic_key += operation_role;
+        semantic_key += ":intersection:between:" +
+            encoded_topology_reference_set(adjacent_faces);
+        semantic_key += ":ends:" +
+            encoded_topology_reference_set(endpoint_supports);
+        result.push_back({edge,
+            EdgeReference{operation_owner, std::move(semantic_key), {}}});
+    }
+    return result;
+}
+
 std::set<std::string> selected_edge_parent_tokens(
     const std::vector<std::pair<TopoDS_Edge, EdgeReference>>& selected) {
     std::set<std::string> result;
@@ -3998,6 +4067,9 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                     fused_topology->vertices,
                     std::max(1.0e-7, operation.boolean_tolerance));
                 result_shape = std::move(unified.shape);
+                unified.edges = complete_boolean_edges(
+                    result_shape, unified.faces, unified.edges,
+                    operation.owner_id, "add");
                 owned_topology = std::make_shared<LiveCache::Topology>(
                     LiveCache::Topology{std::move(unified.faces),
                         std::move(unified.edges), std::move(unified.vertices),
@@ -4009,8 +4081,7 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                     std::max(1.0e-7, operation.boolean_tolerance));
                 algorithm.Build();
                 if (!algorithm.IsDone()) throw std::runtime_error("OCCT cut failed");
-                owned_topology = std::make_shared<LiveCache::Topology>(
-                    LiveCache::Topology{
+                auto cut_topology = LiveCache::Topology{
                         propagate_topology(algorithm, owned_topology->faces,
                             operand.faces),
                         propagate_topology(algorithm, owned_topology->edges,
@@ -4018,8 +4089,13 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                         propagate_topology(algorithm, owned_topology->vertices,
                             operand.vertices),
                         propagate_display_edges(
-                            algorithm, owned_topology->hidden_display_edges)});
+                            algorithm, owned_topology->hidden_display_edges)};
                 result_shape = algorithm.Shape();
+                cut_topology.edges = complete_boolean_edges(
+                    result_shape, cut_topology.faces, cut_topology.edges,
+                    operation.owner_id, "subtract");
+                owned_topology = std::make_shared<LiveCache::Topology>(
+                    std::move(cut_topology));
             }
             if (standalone_import_result) {
                 boundaries.push_back(std::move(*standalone_import_result));

@@ -130,58 +130,122 @@ zima::kernel::Vec3 rotated_vector(
         sz * value.x + cz * value.y, value.z};
 }
 
-// Exact local derivative used by every consumer of the ordinary Curve3D:
-// its View wire, Sweep Bezier path and Sweep profile plane. Keeping one
-// implementation prevents a visually offered spline from acquiring a
-// different tangent when it reaches the body kernel.
+// Derivatives of one global, chord-length-parameterized cubic interpolation.
+// Automatic end conditions are natural (zero curvature), so the last span is
+// influenced by the complete point sequence instead of being forced onto the
+// last point-to-point chord. A checked point direction replaces only that
+// point's derivative equation with its persisted local Origin axis.
+//
+// View, Sweep Bezier controls and Sweep profile planes all consume this one
+// result. The displayed trajectory therefore reaches every selected Point
+// exactly and cannot acquire a different terminal direction in the kernel.
+std::vector<zima::kernel::Vec3> ordinary_curve3d_spline_derivatives(
+    const ConstructionObject& curve) {
+    using Vec3 = zima::kernel::Vec3;
+    const std::size_t count = curve.curve_points.size();
+    if (count < 2) return std::vector<Vec3>(count);
+    const auto subtract = [](const Vec3& first, const Vec3& second) {
+        return Vec3{first.x-second.x, first.y-second.y, first.z-second.z};
+    };
+    const auto add = [](const Vec3& first, const Vec3& second) {
+        return Vec3{first.x+second.x, first.y+second.y, first.z+second.z};
+    };
+    const auto scale = [](const Vec3& value, double factor) {
+        return Vec3{value.x*factor, value.y*factor, value.z*factor};
+    };
+    const auto explicit_direction = [&](std::size_t index)
+            -> std::optional<Vec3> {
+        const auto& point = curve.curve_points[index];
+        if (!point.curve_tangent_enabled ||
+            point.curve_tangent == Curve3DTangentMode::Automatic) {
+            return std::nullopt;
+        }
+        Vec3 axis;
+        double sign = 1.0;
+        switch (point.curve_tangent) {
+            case Curve3DTangentMode::PositiveX: axis = {1,0,0}; break;
+            case Curve3DTangentMode::NegativeX:
+                axis = {1,0,0}; sign = -1.0; break;
+            case Curve3DTangentMode::PositiveY: axis = {0,1,0}; break;
+            case Curve3DTangentMode::NegativeY:
+                axis = {0,1,0}; sign = -1.0; break;
+            case Curve3DTangentMode::PositiveZ: axis = {0,0,1}; break;
+            case Curve3DTangentMode::NegativeZ:
+                axis = {0,0,1}; sign = -1.0; break;
+            case Curve3DTangentMode::Automatic: return std::nullopt;
+        }
+        return scale(rotated_vector(axis, point.rotation), sign);
+    };
+
+    std::vector<double> intervals(count - 1);
+    std::vector<Vec3> slopes(count - 1);
+    for (std::size_t index = 0; index + 1 < count; ++index) {
+        const auto delta = subtract(curve.curve_points[index + 1].origin,
+            curve.curve_points[index].origin);
+        intervals[index] = std::hypot(std::hypot(delta.x, delta.y), delta.z);
+        if (!std::isfinite(intervals[index]) || intervals[index] <= 1.0e-12) {
+            return std::vector<Vec3>(count);
+        }
+        slopes[index] = scale(delta, 1.0 / intervals[index]);
+    }
+
+    std::vector<double> lower(count), diagonal(count), upper(count);
+    std::vector<Vec3> right(count);
+    for (std::size_t index = 0; index < count; ++index) {
+        if (const auto direction = explicit_direction(index)) {
+            diagonal[index] = 1.0;
+            right[index] = *direction;
+        } else if (index == 0) {
+            diagonal[index] = 2.0;
+            upper[index] = 1.0;
+            right[index] = scale(slopes.front(), 3.0);
+        } else if (index + 1 == count) {
+            lower[index] = 1.0;
+            diagonal[index] = 2.0;
+            right[index] = scale(slopes.back(), 3.0);
+        } else {
+            const double previous = intervals[index - 1];
+            const double next = intervals[index];
+            lower[index] = next;
+            diagonal[index] = 2.0 * (previous + next);
+            upper[index] = previous;
+            right[index] = scale(add(
+                scale(slopes[index - 1], next),
+                scale(slopes[index], previous)), 3.0);
+        }
+    }
+
+    for (std::size_t index = 1; index < count; ++index) {
+        if (std::abs(diagonal[index - 1]) <= 1.0e-15) {
+            return std::vector<Vec3>(count);
+        }
+        const double factor = lower[index] / diagonal[index - 1];
+        diagonal[index] -= factor * upper[index - 1];
+        right[index] = subtract(
+            right[index], scale(right[index - 1], factor));
+    }
+    if (std::abs(diagonal.back()) <= 1.0e-15) {
+        return std::vector<Vec3>(count);
+    }
+    std::vector<Vec3> derivatives(count);
+    derivatives.back() = scale(right.back(), 1.0 / diagonal.back());
+    for (std::size_t reverse = count - 1; reverse > 0; --reverse) {
+        const std::size_t index = reverse - 1;
+        if (std::abs(diagonal[index]) <= 1.0e-15) {
+            return std::vector<Vec3>(count);
+        }
+        derivatives[index] = scale(subtract(right[index],
+            scale(derivatives[index + 1], upper[index])),
+            1.0 / diagonal[index]);
+    }
+    return derivatives;
+}
+
 zima::kernel::Vec3 ordinary_curve3d_spline_tangent(
     const ConstructionObject& curve, std::size_t index) {
-    if (curve.curve_points.size() < 2 || index >= curve.curve_points.size())
-        return {};
-    const auto subtract = [](const auto& first, const auto& second) {
-        return zima::kernel::Vec3{first.x-second.x, first.y-second.y,
-            first.z-second.z};
-    };
-    const auto scale = [](const auto& value, double factor) {
-        return zima::kernel::Vec3{value.x*factor, value.y*factor,
-            value.z*factor};
-    };
-    const auto length = [&](std::size_t first, std::size_t second) {
-        const auto delta = subtract(curve.curve_points[second].origin,
-            curve.curve_points[first].origin);
-        return std::hypot(std::hypot(delta.x, delta.y), delta.z);
-    };
-    const auto& point = curve.curve_points[index];
-    if (!point.curve_tangent_enabled ||
-        point.curve_tangent == Curve3DTangentMode::Automatic) {
-        if (index == 0) {
-            return subtract(curve.curve_points[1].origin,
-                curve.curve_points[0].origin);
-        }
-        if (index + 1 == curve.curve_points.size()) {
-            return subtract(point.origin,
-                curve.curve_points[index - 1].origin);
-        }
-        return scale(subtract(curve.curve_points[index + 1].origin,
-            curve.curve_points[index - 1].origin), 0.5);
-    }
-    zima::kernel::Vec3 axis;
-    double sign = 1.0;
-    switch (point.curve_tangent) {
-        case Curve3DTangentMode::PositiveX: axis = {1,0,0}; break;
-        case Curve3DTangentMode::NegativeX: axis = {1,0,0}; sign = -1; break;
-        case Curve3DTangentMode::PositiveY: axis = {0,1,0}; break;
-        case Curve3DTangentMode::NegativeY: axis = {0,1,0}; sign = -1; break;
-        case Curve3DTangentMode::PositiveZ: axis = {0,0,1}; break;
-        case Curve3DTangentMode::NegativeZ: axis = {0,0,1}; sign = -1; break;
-        case Curve3DTangentMode::Automatic: break;
-    }
-    axis = rotated_vector(axis, point.rotation);
-    const double magnitude = index == 0 ? length(0, 1)
-        : index + 1 == curve.curve_points.size()
-            ? length(index - 1, index)
-            : (length(index - 1, index) + length(index, index + 1)) * 0.5;
-    return scale(axis, sign * magnitude);
+    const auto derivatives = ordinary_curve3d_spline_derivatives(curve);
+    return index < derivatives.size()
+        ? derivatives[index] : zima::kernel::Vec3{};
 }
 
 zima::kernel::Vec3 ordinary_curve3d_profile_tangent(
@@ -5155,6 +5219,10 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
                 continue;
             }
             if (local_points.size() >= 2) {
+                const auto spline_derivatives =
+                    object.curve_type == Curve3DType::InterpolatingSpline
+                    ? ordinary_curve3d_spline_derivatives(object)
+                    : std::vector<zima::kernel::Vec3>{};
                 for (std::size_t segment = 1;
                      segment < local_points.size(); ++segment) {
                     std::vector<zima::kernel::Vec3> path;
@@ -5162,10 +5230,19 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
                         path = {world_point(local_points[segment-1]),
                                 world_point(local_points[segment])};
                     } else {
+                        const auto& a = local_points[segment-1];
+                        const auto& b = local_points[segment];
+                        const double interval = std::hypot(
+                            std::hypot(b.x-a.x, b.y-a.y), b.z-a.z);
+                        const auto scaled = [interval](const auto& value) {
+                            return zima::kernel::Vec3{
+                                value.x*interval, value.y*interval,
+                                value.z*interval};
+                        };
                         const auto first_tangent =
-                            ordinary_curve3d_spline_tangent(object, segment-1);
+                            scaled(spline_derivatives[segment-1]);
                         const auto second_tangent =
-                            ordinary_curve3d_spline_tangent(object, segment);
+                            scaled(spline_derivatives[segment]);
                         constexpr int samples = 24;
                         path.reserve(samples + 1);
                         for (int sample = 0; sample <= samples; ++sample) {
@@ -5176,8 +5253,6 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
                             const double h10 = t3 - 2*t2 + t;
                             const double h01 = -2*t3 + 3*t2;
                             const double h11 = t3 - t2;
-                            const auto& a = local_points[segment-1];
-                            const auto& b = local_points[segment];
                             path.push_back(world_point({
                                 h00*a.x + h10*first_tangent.x +
                                     h01*b.x + h11*second_tangent.x,
@@ -6699,6 +6774,10 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 sweep.path_points.push_back(world_point(point.origin));
                 sweep.path_point_ids.push_back(point.id);
             }
+            const auto spline_derivatives =
+                path.curve_type == Curve3DType::InterpolatingSpline
+                ? ordinary_curve3d_spline_derivatives(path)
+                : std::vector<zima::kernel::Vec3>{};
             for (std::size_t index = 1;
                  index < path.curve_points.size(); ++index) {
                 zima::kernel::Sweep3DRequest::PathSegment segment;
@@ -6708,10 +6787,22 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 segment.start = sweep.path_points[index-1];
                 segment.end = sweep.path_points[index];
                 if (path.curve_type == Curve3DType::InterpolatingSpline) {
+                    const auto& local_start =
+                        path.curve_points[index-1].origin;
+                    const auto& local_end = path.curve_points[index].origin;
+                    const double interval = std::hypot(std::hypot(
+                        local_end.x-local_start.x,
+                        local_end.y-local_start.y),
+                        local_end.z-local_start.z);
+                    const auto scaled = [interval](const auto& value) {
+                        return zima::kernel::Vec3{
+                            value.x*interval, value.y*interval,
+                            value.z*interval};
+                    };
                     const auto first_tangent = world_vector(
-                        ordinary_curve3d_spline_tangent(path, index-1));
+                        scaled(spline_derivatives[index-1]));
                     const auto second_tangent = world_vector(
-                        ordinary_curve3d_spline_tangent(path, index));
+                        scaled(spline_derivatives[index]));
                     segment.bezier_control_points = {
                         segment.start,
                         {segment.start.x + first_tangent.x / 3.0,

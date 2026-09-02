@@ -8953,6 +8953,10 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         resolved_plane.reference_valid = true;
         primitive_origin_preview_mesh_ =
             preview_document.construction_viewer_mesh(plane.id);
+        // The temporary Plane publishes its own generic offset dimension.
+        // Feature Properties rebuild the operation dimensions below from the
+        // feature policy; retaining both sources painted the same value twice.
+        primitive_origin_preview_mesh_->dimensions.clear();
         const double profile_offset = extrusion
             ? preview.extrusion.profile_plane_offset
             : preview.revolution.profile_plane_offset;
@@ -8990,7 +8994,11 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             primitive_origin_preview_mesh_->dimensions.push_back(
                 std::move(dimension));
         };
-        if (std::abs(profile_offset) > 1.0e-12) {
+        const bool display_profile_offset = extrusion
+            ? extrusion_profile_offset_dimension_value(
+                  preview.extrusion).has_value()
+            : std::abs(profile_offset) > 1.0e-12;
+        if (display_profile_offset) {
             append_dimension(base, start, profile_offset,
                 "parameter:profile_offset", 1.0);
         }
@@ -9558,7 +9566,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     if (feature_kind == zima::document::FeatureKind::Extrusion ||
         feature_kind == zima::document::FeatureKind::Revolution) {
         dialog->set_edit_sketch_callback(
-            [this, owner_id, edit_mode, assembly_cut, pending_owned_sketch](
+            [this, owner_id, edit_mode, pending_profile_edit, assembly_cut,
+             pending_owned_sketch](
                 zima::document::HistoryContainer pending_feature) {
             const bool extrusion = pending_feature.feature_kind ==
                 zima::document::FeatureKind::Extrusion;
@@ -9627,6 +9636,14 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                     next.resolve_constructions();
                     target_assembly->session.commit(std::move(next));
                 }
+            }
+            // A standalone Sketch transformed into its first Extrusion/
+            // Revolution already exists in History, so edit_mode is true.
+            // It is nevertheless still the same pending profile transaction:
+            // preserve every live field (length/end condition/direction and
+            // placement orientation) before entering Sketcher, exactly like
+            // a brand-new owned profile.
+            if (!edit_mode || pending_profile_edit) {
                 pending_profile_feature_ = std::move(pending_feature);
             }
             active_sketch_id_ = sketch_id;
@@ -21878,9 +21895,9 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                                 along(-*length), {-8,-8,0}, *length);
                         }
                         const auto base = origin;
-                        if (std::abs(
-                                container->extrusion.profile_plane_offset) >
-                                1.0e-12 && !primitive_origin_preview_mesh_) {
+                        if (extrusion_profile_offset_dimension_value(
+                                container->extrusion) &&
+                            !primitive_origin_preview_mesh_) {
                             linear("profile_offset", "Odsazení = ", base, start,
                                 {5,5,0},
                                 container->extrusion.profile_plane_offset);

@@ -1832,7 +1832,9 @@ int main(int argc, char* argv[]) {
         require(!zima::app::extrusion_length_dimension_value(
                     dimension_policy, false) &&
                     !zima::app::extrusion_length_dimension_value(
-                        dimension_policy, true),
+                        dimension_policy, true) &&
+                    !zima::app::extrusion_profile_offset_dimension_value(
+                        dimension_policy),
                 "Through-all still exposes a stored fallback length as an "
                 "active numeric dimension");
         dimension_policy.extent = zima::document::ExtrusionExtent::Blind;
@@ -1842,8 +1844,18 @@ int main(int argc, char* argv[]) {
         dimension_policy.end_condition_reverse =
             zima::document::EndCondition::UpTo;
         require(!zima::app::extrusion_length_dimension_value(
-                    dimension_policy, true),
+                    dimension_policy, true) &&
+                    !zima::app::extrusion_profile_offset_dimension_value(
+                        dimension_policy),
                 "Two-sided Up-to still exposes its reverse fallback length");
+        dimension_policy.extent_mode =
+            zima::document::ProfileExtentMode::OneSide;
+        dimension_policy.end_condition_forward =
+            zima::document::EndCondition::UpTo;
+        dimension_policy.profile_plane_offset = 17.552;
+        require(!zima::app::extrusion_profile_offset_dimension_value(
+                    dimension_policy),
+                "Up-to still exposes the stored axial profile offset");
         int target_requests = 0;
         int target_highlight_updates = 0;
         extrusion_dialog->set_extrusion_target_request(
