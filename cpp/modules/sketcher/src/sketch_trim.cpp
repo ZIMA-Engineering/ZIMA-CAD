@@ -507,6 +507,48 @@ void rename_geometry(Values& values, const std::string& from, const std::string&
     found->id = to;
 }
 
+bool geometry_owns_point(
+    const Sketch& sketch, const std::string& geometry_id,
+    const std::string& point_id) {
+    if (const auto item = std::ranges::find_if(sketch.segments,
+            [&](const auto& value) { return value.id == geometry_id; });
+        item != sketch.segments.end()) {
+        return item->first_point_id == point_id ||
+            item->second_point_id == point_id;
+    }
+    if (const auto item = std::ranges::find_if(sketch.circles,
+            [&](const auto& value) { return value.id == geometry_id; });
+        item != sketch.circles.end()) {
+        return item->center_point_id == point_id;
+    }
+    if (const auto item = std::ranges::find_if(sketch.arcs,
+            [&](const auto& value) { return value.id == geometry_id; });
+        item != sketch.arcs.end()) {
+        return item->center_point_id == point_id ||
+            item->start_point_id == point_id || item->end_point_id == point_id;
+    }
+    if (const auto item = std::ranges::find_if(sketch.ellipses,
+            [&](const auto& value) { return value.id == geometry_id; });
+        item != sketch.ellipses.end()) {
+        return item->center_point_id == point_id ||
+            item->major_point_id == point_id || item->minor_point_id == point_id;
+    }
+    if (const auto item = std::ranges::find_if(sketch.elliptical_arcs,
+            [&](const auto& value) { return value.id == geometry_id; });
+        item != sketch.elliptical_arcs.end()) {
+        return item->center_point_id == point_id ||
+            item->major_point_id == point_id || item->minor_point_id == point_id ||
+            item->start_point_id == point_id || item->end_point_id == point_id;
+    }
+    if (const auto item = std::ranges::find_if(sketch.bsplines,
+            [&](const auto& value) { return value.id == geometry_id; });
+        item != sketch.bsplines.end()) {
+        return std::ranges::find(item->control_point_ids, point_id) !=
+            item->control_point_ids.end();
+    }
+    return false;
+}
+
 }  // namespace
 
 std::vector<SketchTrimPiece> sketch_trim_topology(
@@ -1029,6 +1071,16 @@ SketchTrimResult apply_sketch_trim(
         }
         result.geometry_mapping.emplace(geometry_id, std::move(generated));
     }
+    // A restored contact becomes pure topology when the reconstructed
+    // survivor owns that exact point as an endpoint/control point. Keep the
+    // one shared native point and remove only the now-redundant C equation;
+    // tangent and other geometric relations remain persisted.
+    std::erase_if(next.constraints, [&](const auto& constraint) {
+        return (constraint.kind == ConstraintKind::PointOnCircle ||
+                constraint.kind == ConstraintKind::PointOnLine) &&
+            geometry_owns_point(
+                next, constraint.geometry_id, constraint.first_point_id);
+    });
     next.validate();
     sketch = std::move(next);
     return result;

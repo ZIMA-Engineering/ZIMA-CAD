@@ -17,6 +17,7 @@
 #include <QSizePolicy>
 #include <QStyle>
 #include <QTableWidget>
+#include <QToolButton>
 #include <QVBoxLayout>
 #include <QWidget>
 
@@ -51,7 +52,7 @@ ContainerPlacementSection::ContainerPlacementSection(
       with_orientation_(with_orientation),
       position_rows_can_define_rotation_(position_rows_can_define_rotation),
       decimal_places_(std::clamp(decimal_places, 0, 12)) {
-    // A section without its own orientation table (e.g. Point) never has
+    // A section without orientation support never has
     // set_remaining_rotation_dof() called on it by its owning dialog -- the
     // member's {3} default initializer would then permanently keep
     // refresh_reference_table()'s "(translation + rotation) > 0" check true
@@ -70,23 +71,24 @@ ContainerPlacementSection::ContainerPlacementSection(
     placement_heading->setFont(heading_font);
     layout->addWidget(placement_heading);
 
-    reference_table_ = new QTableWidget(0, 3, parent_widget_);
+    reference_table_ = new QTableWidget(0, 4, parent_widget_);
     reference_table_->setObjectName("containerPlacementReferenceTable");
     reference_table_->setHorizontalHeaderLabels(
-        {QString(), tr("Reference"), tr("Odsazení")});
+        {QString(), tr("Reference"), tr("Odsazení"), QString()});
     reference_table_->horizontalHeader()->setSectionResizeMode(
         0, QHeaderView::ResizeToContents);
     reference_table_->horizontalHeader()->setSectionResizeMode(
         1, QHeaderView::Stretch);
     reference_table_->horizontalHeader()->setSectionResizeMode(
         2, QHeaderView::ResizeToContents);
+    reference_table_->horizontalHeader()->setSectionResizeMode(
+        3, QHeaderView::ResizeToContents);
     reference_table_->verticalHeader()->setDefaultSectionSize(34);
     reference_table_->verticalHeader()->setMinimumSectionSize(34);
     reference_table_->setFixedHeight(
         reference_table_->horizontalHeader()->sizeHint().height() + 3 * 34 +
         reference_table_->frameWidth() * 2);
-    reference_table_->setStyleSheet(
-        "QTableWidget::item:selected{background:#00d1ff;color:#102027}");
+    zima::ui::install_reference_cell_delegate(reference_table_);
     layout->addWidget(reference_table_);
     connect(reference_table_, &QTableWidget::cellClicked, this,
         [this](int row, int column) {
@@ -95,22 +97,16 @@ ContainerPlacementSection::ContainerPlacementSection(
                 return;
             auto* item = reference_items_[static_cast<std::size_t>(row)];
             if (item == nullptr) return;
-            if (!item->has_reference()) {
-                if (reference_request_) reference_request_(static_cast<std::size_t>(row));
-            } else {
-                // A populated reference is a persistent value, not an on/off
-                // control; clicking it only toggles its viewer highlight,
-                // matching Python's `_reference_cell_clicked`.
-                toggle_reference_highlight(static_cast<std::size_t>(row));
-            }
-            reference_table_->clearSelection();
+            if (reference_request_)
+                reference_request_(static_cast<std::size_t>(row));
         });
 
     if (with_orientation_) {
-        orientation_table_ = new QTableWidget(2, 4, parent_widget_);
+        orientation_table_ = new QTableWidget(2, 5, parent_widget_);
         orientation_table_->setObjectName("containerPlacementOrientationTable");
         orientation_table_->setHorizontalHeaderLabels(
-            {QString(), tr("Reference"), tr("Rovina kontejneru"), tr("Obrátit")});
+            {QString(), tr("Reference"), tr("Rovina kontejneru"),
+             tr("Obrátit"), QString()});
         orientation_table_->horizontalHeader()->setSectionResizeMode(
             0, QHeaderView::ResizeToContents);
         orientation_table_->horizontalHeader()->setSectionResizeMode(
@@ -119,6 +115,8 @@ ContainerPlacementSection::ContainerPlacementSection(
             2, QHeaderView::ResizeToContents);
         orientation_table_->horizontalHeader()->setSectionResizeMode(
             3, QHeaderView::ResizeToContents);
+        orientation_table_->horizontalHeader()->setSectionResizeMode(
+            4, QHeaderView::ResizeToContents);
         orientation_table_->verticalHeader()->setDefaultSectionSize(34);
         orientation_table_->setFixedHeight(
             orientation_table_->horizontalHeader()->sizeHint().height() + 2 * 34 +
@@ -130,14 +128,10 @@ ContainerPlacementSection::ContainerPlacementSection(
                     return;
                 auto* item = orientation_items_[static_cast<std::size_t>(row)];
                 if (item == nullptr) return;
-                if (!item->has_reference()) {
-                    if (reference_request_)
-                        reference_request_(static_cast<std::size_t>(row) + 3);
-                } else {
-                    toggle_orientation_highlight(static_cast<std::size_t>(row));
-                }
-                orientation_table_->clearSelection();
+                if (reference_request_)
+                    reference_request_(static_cast<std::size_t>(row) + 3);
             });
+        zima::ui::install_reference_cell_delegate(orientation_table_);
         // Kept as an internal value adapter while old call sites are removed;
         // it is deliberately not presented to the user anymore.
         orientation_table_->hide();
@@ -361,6 +355,55 @@ void ContainerPlacementSection::set_highlights_changed_callback(
     highlights_changed_ = std::move(callback);
 }
 
+void ContainerPlacementSection::set_active_reference_index(
+    std::optional<std::size_t> index) {
+    active_reference_index_ = index;
+    apply_reference_visual_states();
+}
+
+void ContainerPlacementSection::set_reference_inspected(
+    std::size_t index, bool inspected) {
+    auto& rows = index < 3 ? highlighted_reference_rows_
+                           : highlighted_orientation_rows_;
+    const std::size_t row = index < 3 ? index : index - 3;
+    if (inspected) rows.insert(row);
+    else rows.erase(row);
+    apply_reference_visual_states();
+    if (highlights_changed_) highlights_changed_();
+}
+
+void ContainerPlacementSection::clear_reference_highlights() {
+    if (highlighted_reference_rows_.empty() &&
+        highlighted_orientation_rows_.empty()) return;
+    highlighted_reference_rows_.clear();
+    highlighted_orientation_rows_.clear();
+    apply_reference_visual_states();
+    if (highlights_changed_) highlights_changed_();
+}
+
+void ContainerPlacementSection::apply_reference_visual_states() {
+    for (std::size_t index = 0; index < reference_items_.size(); ++index) {
+        if (auto* item = reference_items_[index]) {
+            item->set_active_input(active_reference_index_ == index);
+            item->set_inspected(highlighted_reference_rows_.contains(index));
+        }
+        if (auto* button = reference_inspection_buttons_[index]) {
+            const QSignalBlocker blocked(button);
+            button->setChecked(highlighted_reference_rows_.contains(index));
+        }
+    }
+    for (std::size_t row = 0; row < orientation_items_.size(); ++row) {
+        if (auto* item = orientation_items_[row]) {
+            item->set_active_input(active_reference_index_ == row + 3);
+            item->set_inspected(highlighted_orientation_rows_.contains(row));
+        }
+        if (auto* button = orientation_inspection_buttons_[row]) {
+            const QSignalBlocker blocked(button);
+            button->setChecked(highlighted_orientation_rows_.contains(row));
+        }
+    }
+}
+
 void ContainerPlacementSection::initialize_from_references(
     const std::vector<zima::document::ConstructionReference>& references,
     const std::function<QString(const std::string&)>& label_for_semantic) {
@@ -483,11 +526,6 @@ bool ContainerPlacementSection::set_reference(std::size_t index,
     }
     refresh_reference_table();
     notify_changed();
-    // Removing a populated row is itself an explicit request to replace
-    // that reference. notify_changed() may rebuild the shared View and thus
-    // clears its command filter; arm the same row afterwards so hover works
-    // immediately for the replacement pick.
-    if (reference_request_) reference_request_(index);
     return true;
 }
 
@@ -605,37 +643,15 @@ ContainerPlacementSection::highlighted_reference_entries() const {
 void ContainerPlacementSection::toggle_reference_highlight(std::size_t row) {
     if (highlighted_reference_rows_.count(row)) highlighted_reference_rows_.erase(row);
     else highlighted_reference_rows_.insert(row);
-    update_reference_highlight_styles();
+    apply_reference_visual_states();
     if (highlights_changed_) highlights_changed_();
 }
 
 void ContainerPlacementSection::toggle_orientation_highlight(std::size_t row) {
     if (highlighted_orientation_rows_.count(row)) highlighted_orientation_rows_.erase(row);
     else highlighted_orientation_rows_.insert(row);
-    update_reference_highlight_styles();
+    apply_reference_visual_states();
     if (highlights_changed_) highlights_changed_();
-}
-
-void ContainerPlacementSection::update_reference_highlight_styles() {
-    const auto palette = parent_widget_->palette();
-    for (std::size_t index = 0; index < reference_items_.size(); ++index) {
-        auto* item = reference_items_[index];
-        if (item == nullptr) continue;
-        const bool highlighted = highlighted_reference_rows_.count(index) != 0;
-        item->setBackground(highlighted ? QBrush(QColor("#00d1ff")) : QBrush());
-        item->setForeground(highlighted
-            ? QBrush(QColor("#102027"))
-            : (item->has_reference() ? QBrush() : QBrush(palette.color(QPalette::Mid))));
-    }
-    for (std::size_t index = 0; index < orientation_items_.size(); ++index) {
-        auto* item = orientation_items_[index];
-        if (item == nullptr) continue;
-        const bool highlighted = highlighted_orientation_rows_.count(index) != 0;
-        item->setBackground(highlighted ? QBrush(QColor("#00d1ff")) : QBrush());
-        item->setForeground(highlighted
-            ? QBrush(QColor("#102027"))
-            : (item->has_reference() ? QBrush() : QBrush(palette.color(QPalette::Mid))));
-    }
 }
 
 void ContainerPlacementSection::notify_changed() {
@@ -644,6 +660,7 @@ void ContainerPlacementSection::notify_changed() {
 
 void ContainerPlacementSection::remove_reference(std::size_t index) {
     if (index >= references_.size()) return;
+    highlighted_reference_rows_.erase(index);
     const auto removed = references_[index];
     // Empty the row in place instead of erase()-ing it: shifting every
     // later row up by one silently changes their meaning. Row order is
@@ -685,6 +702,11 @@ void ContainerPlacementSection::remove_reference(std::size_t index) {
     }
     refresh_reference_table();
     notify_changed();
+    // Removing a populated row is itself an explicit request to replace
+    // that reference. notify_changed() may rebuild the shared View and thus
+    // clears its command filter; arm the same row afterwards so hover works
+    // immediately for the replacement pick.
+    if (reference_request_) reference_request_(index);
 }
 
 void ContainerPlacementSection::refresh_reference_table() {
@@ -692,7 +714,7 @@ void ContainerPlacementSection::refresh_reference_table() {
     reference_items_.fill(nullptr);
     reference_indicators_.fill(nullptr);
     reference_offset_fields_.fill(nullptr);
-    highlighted_reference_rows_.clear();
+    reference_inspection_buttons_.fill(nullptr);
     reference_table_->setRowCount(0);
     // Offer another empty row whenever ANY degree of freedom (position OR
     // rotation) is still open, not only translation: a plain point reference
@@ -767,6 +789,12 @@ void ContainerPlacementSection::refresh_reference_table() {
         }
         reference_offset_fields_[index] = offset;
         reference_table_->setCellWidget(static_cast<int>(index), 2, offset);
+        auto* inspection = zima::ui::build_reference_inspection_button(
+            populated, highlighted_reference_rows_.contains(index),
+            [this, index](bool) { toggle_reference_highlight(index); });
+        reference_inspection_buttons_[index] = inspection;
+        reference_table_->setCellWidget(static_cast<int>(index), 3,
+            zima::ui::centered_cell_widget(inspection));
         const int header_width = reference_table_->horizontalHeader()
             ->fontMetrics().horizontalAdvance(tr("Odsazení")) + 14;
         reference_table_->horizontalHeader()->setSectionResizeMode(
@@ -775,6 +803,7 @@ void ContainerPlacementSection::refresh_reference_table() {
             2, std::max(spin_width + 2, header_width));
         zima::ui::set_reference_row_populated(indicator, populated);
     }
+    apply_reference_visual_states();
 }
 
 bool ContainerPlacementSection::set_reference_offset(
@@ -795,7 +824,7 @@ bool ContainerPlacementSection::set_reference_offset(
 
 void ContainerPlacementSection::refresh_orientation_table() {
     if (orientation_table_ == nullptr) return;
-    highlighted_orientation_rows_.clear();
+    orientation_inspection_buttons_.fill(nullptr);
     // The table is always enabled and clickable -- matching Python's
     // `_container_orientation_references`/`_activate_container_orientation_row()`,
     // which never disables the FRONT/TOP table just because row 0 of
@@ -820,6 +849,7 @@ void ContainerPlacementSection::refresh_orientation_table() {
         auto* indicator = zima::ui::build_reference_row_indicator(
             populated
                 ? std::function<void()>([this, index] {
+                      highlighted_orientation_rows_.erase(index);
                       orientation_references_[index] = {};
                       if (index < orientation_labels_.size())
                           orientation_labels_[index].clear();
@@ -887,8 +917,15 @@ void ContainerPlacementSection::refresh_orientation_table() {
             });
         orientation_table_->setCellWidget(static_cast<int>(index), 3,
             zima::ui::centered_cell_widget(flip_button));
+        auto* inspection = zima::ui::build_reference_inspection_button(
+            populated, highlighted_orientation_rows_.contains(index),
+            [this, index](bool) { toggle_orientation_highlight(index); });
+        orientation_inspection_buttons_[index] = inspection;
+        orientation_table_->setCellWidget(static_cast<int>(index), 4,
+            zima::ui::centered_cell_widget(inspection));
     }
     set_remaining_translation_dof(remaining_translation_dof_);
+    apply_reference_visual_states();
 }
 
 }  // namespace zima::ui

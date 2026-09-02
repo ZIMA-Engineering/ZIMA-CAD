@@ -189,7 +189,7 @@ int main() {
                 "Segment midpoint was not offered as a stable placement candidate");
         auto origin_bound = zima::sketcher::Sketch::create_default();
         const auto origin_bound_point = origin_bound.add_point(3.0, 4.0);
-        static_cast<void>(origin_bound.add_coincident_constraint(
+        static_cast<void>(origin_bound.add_point_reference_constraint(
             origin_bound_point, "sketch_origin"));
         require(std::abs(origin_bound.find_point(origin_bound_point)->x) < 1.0e-9 &&
                     std::abs(origin_bound.find_point(origin_bound_point)->y) < 1.0e-9,
@@ -326,7 +326,7 @@ int main() {
                     std::any_of(external_snap_sketch.constraints.begin(),
                         external_snap_sketch.constraints.end(), [&](const auto& value) {
                             return value.kind ==
-                                    zima::sketcher::ConstraintKind::Coincident &&
+                                    zima::sketcher::ConstraintKind::PointReference &&
                                 value.first_point_id ==
                                     snapped_geometry.first_point_id &&
                                 value.second_point_id == external_point_id;
@@ -345,14 +345,14 @@ int main() {
                     std::any_of(external_snap_sketch.constraints.begin(),
                         external_snap_sketch.constraints.end(), [&](const auto& value) {
                             return value.kind ==
-                                    zima::sketcher::ConstraintKind::Coincident &&
+                                    zima::sketcher::ConstraintKind::PointReference &&
                                 value.first_point_id ==
                                     snapped_circle_geometry->center_point_id &&
                                 value.second_point_id == external_point_id;
                         }),
                 "Curve control point did not snap and bind to external point");
         const auto externally_coincident_point = text_sketch.add_point(20.0, 20.0);
-        static_cast<void>(text_sketch.add_coincident_constraint(
+        static_cast<void>(text_sketch.add_point_reference_constraint(
             externally_coincident_point, external_point_id));
         require(text_sketch.find_point(externally_coincident_point)->x == 2.0 &&
                     text_sketch.find_point(externally_coincident_point)->y == 3.0,
@@ -571,6 +571,78 @@ int main() {
                     std::abs(arc_support_sketch.find_point(point_on_arc)->y -
                         (3.0 + std::sqrt(50.0))) < 1.0e-8,
                 "Moving an arc center did not carry its point-on-arc dependants");
+        auto constrained_curve_centers =
+            zima::sketcher::Sketch::create_default();
+        const auto centered_arc = constrained_curve_centers.add_arc(
+            0.0, 5.0, 5.0, 5.0, 0.0, 10.0);
+        const auto centered_arc_it = std::ranges::find_if(
+            constrained_curve_centers.arcs, [&](const auto& value) {
+                return value.id == centered_arc;
+            });
+        const auto centered_arc_center = centered_arc_it->center_point_id;
+        const auto centered_arc_start = centered_arc_it->start_point_id;
+        const auto centered_arc_end = centered_arc_it->end_point_id;
+        static_cast<void>(constrained_curve_centers
+            .add_point_on_line_constraint(
+                centered_arc_center, "sketch_axis:x"));
+        require(std::abs(constrained_curve_centers.find_point(
+                    centered_arc_center)->y) < 1.0e-8 &&
+                    std::abs(constrained_curve_centers.find_point(
+                        centered_arc_start)->x - 5.0) < 1.0e-8 &&
+                    std::abs(constrained_curve_centers.find_point(
+                        centered_arc_start)->y) < 1.0e-8 &&
+                    std::abs(constrained_curve_centers.find_point(
+                        centered_arc_end)->x) < 1.0e-8 &&
+                    std::abs(constrained_curve_centers.find_point(
+                        centered_arc_end)->y - 5.0) < 1.0e-8 &&
+                    std::abs(constrained_curve_centers.arcs.front().radius -
+                        5.0) < 1.0e-8,
+                "Constraining an Arc centre to an axis distorted the Arc");
+        auto merged_curve_centers = zima::sketcher::Sketch::create_default();
+        const auto merged_circle = merged_curve_centers.add_circle(
+            10.0, 5.0, 2.0);
+        const auto merged_arc = merged_curve_centers.add_arc(
+            20.0, 5.0, 25.0, 5.0, 20.0, 10.0);
+        const auto center_target_segment = merged_curve_centers.add_segment(
+            0.0, 0.0, 5.0, 0.0);
+        const auto center_target = std::ranges::find_if(
+            merged_curve_centers.segments, [&](const auto& value) {
+                return value.id == center_target_segment;
+            });
+        const auto first_target = center_target->first_point_id;
+        const auto second_target = center_target->second_point_id;
+        const auto circle_before = std::ranges::find_if(
+            merged_curve_centers.circles, [&](const auto& value) {
+                return value.id == merged_circle;
+            });
+        const auto arc_before = std::ranges::find_if(
+            merged_curve_centers.arcs, [&](const auto& value) {
+                return value.id == merged_arc;
+            });
+        const auto circle_center_before = circle_before->center_point_id;
+        const auto arc_center_before = arc_before->center_point_id;
+        static_cast<void>(merged_curve_centers.merge_points(
+            first_target, circle_center_before));
+        static_cast<void>(merged_curve_centers.merge_points(
+            second_target, arc_center_before));
+        const auto merged_arc_after = std::ranges::find_if(
+            merged_curve_centers.arcs, [&](const auto& value) {
+                return value.id == merged_arc;
+            });
+        require(merged_curve_centers.circles.front().center_point_id ==
+                    first_target &&
+                    merged_arc_after->center_point_id == second_target &&
+                    std::abs(merged_curve_centers.find_point(
+                        merged_arc_after->start_point_id)->x - 10.0) < 1.0e-8 &&
+                    std::abs(merged_curve_centers.find_point(
+                        merged_arc_after->start_point_id)->y) < 1.0e-8 &&
+                    std::abs(merged_curve_centers.find_point(
+                        merged_arc_after->end_point_id)->x - 5.0) < 1.0e-8 &&
+                    std::abs(merged_curve_centers.find_point(
+                        merged_arc_after->end_point_id)->y - 5.0) < 1.0e-8 &&
+                    merged_curve_centers.solve().status !=
+                        zima::sketcher::SolveStatus::Conflicting,
+                "Merging a curve centre with a Segment endpoint distorted its curve");
         auto loaded_arc_support = zima::sketcher::Sketch::from_serialized(
             arc_support_sketch.serialized());
         require(loaded_arc_support.constraints == arc_support_sketch.constraints &&
@@ -623,7 +695,7 @@ int main() {
         const auto fixed_external_before = fixed_external_conflict;
         bool fixed_external_rejected = false;
         try {
-            static_cast<void>(fixed_external_conflict.add_coincident_constraint(
+            static_cast<void>(fixed_external_conflict.add_point_reference_constraint(
                 fixed_external_point, external_point_id));
         } catch (const std::runtime_error&) {
             fixed_external_rejected = true;
@@ -977,25 +1049,25 @@ int main() {
             coincident_marker_sketch.add_segment(7.0, 2.0, 12.0, 2.0);
         const auto coincident_marker_first = coincident_marker_sketch.segments[0];
         const auto coincident_marker_second = coincident_marker_sketch.segments[1];
-        static_cast<void>(coincident_marker_sketch.add_coincident_constraint(
+        const auto merged_marker_point = coincident_marker_sketch.merge_points(
             coincident_marker_first.second_point_id,
-            coincident_marker_second.first_point_id));
-        const auto coincident_marker =
-            coincident_marker_sketch.viewer_mesh().constraint_markers.front();
-        require(coincident_marker.label == "C" &&
-                    std::ranges::find(coincident_marker.participant_semantic_keys,
-                        "segment:" + coincident_first_segment) !=
-                        coincident_marker.participant_semantic_keys.end() &&
-                    std::ranges::find(coincident_marker.participant_semantic_keys,
-                        "segment:" + coincident_second_segment) !=
-                        coincident_marker.participant_semantic_keys.end(),
-                "Coincident marker did not expose both connected geometries");
+            coincident_marker_second.first_point_id);
+        require(coincident_marker_sketch.points.size() == 3 &&
+                    coincident_marker_sketch.constraints.empty() &&
+                    coincident_marker_sketch.segments[0].second_point_id ==
+                        merged_marker_point &&
+                    coincident_marker_sketch.segments[1].first_point_id ==
+                        merged_marker_point &&
+                    coincident_marker_sketch.viewer_mesh()
+                        .constraint_markers.empty(),
+                "Point merge did not create one unmarked topology vertex");
         auto origin_marker_sketch = zima::sketcher::Sketch::create_default();
         origin_marker_sketch.owner_container_id = "origin-marker-extrusion";
         origin_marker_sketch.resolved_origin = {11.0, -7.0, 3.0};
         const auto marker_origin_bound_point =
             origin_marker_sketch.add_point(4.0, 5.0);
-        const auto origin_constraint = origin_marker_sketch.add_coincident_constraint(
+        const auto origin_constraint =
+            origin_marker_sketch.add_point_reference_constraint(
             marker_origin_bound_point, "sketch_origin");
         const auto origin_marker_packet = origin_marker_sketch.viewer_mesh();
         const auto origin_marker = std::find_if(
@@ -1004,12 +1076,41 @@ int main() {
                 return marker.reference.semantic_key ==
                     "constraint:" + origin_constraint;
             });
-        require(origin_marker != origin_marker_packet.constraint_markers.end() &&
-                    origin_marker->label == "C" &&
-                    std::abs(origin_marker->position.x - 11.0) < 1.0e-9 &&
-                    std::abs(origin_marker->position.y + 7.0) < 1.0e-9 &&
-                    std::abs(origin_marker->position.z - 3.0) < 1.0e-9,
-                "Coincident-to-Origin constraint did not publish C at Sketch origin");
+        require(origin_marker == origin_marker_packet.constraint_markers.end() &&
+                    origin_marker_sketch.constraints.size() == 1 &&
+                    origin_marker_sketch.constraints.front().kind ==
+                        zima::sketcher::ConstraintKind::PointReference &&
+                    std::abs(origin_marker_sketch.find_point(
+                        marker_origin_bound_point)->x) < 1.0e-9 &&
+                    std::abs(origin_marker_sketch.find_point(
+                        marker_origin_bound_point)->y) < 1.0e-9,
+                "Origin point reference was not solved or leaked a C marker");
+        auto keypoint_marker_sketch = zima::sketcher::Sketch::create_default();
+        const auto keypoint_circle =
+            keypoint_marker_sketch.add_circle(0.0, 0.0, 5.0);
+        const auto keypoint_segment =
+            keypoint_marker_sketch.add_segment(5.0, 0.0, 9.0, 0.0);
+        const auto keypoint_contact =
+            keypoint_marker_sketch.segments.front().first_point_id;
+        const auto keypoint_constraint =
+            keypoint_marker_sketch.add_point_reference_constraint(
+                keypoint_contact,
+                "sketch_keypoint:circle:" + keypoint_circle + ":0");
+        const auto keypoint_markers =
+            keypoint_marker_sketch.viewer_mesh().constraint_markers;
+        require(keypoint_markers.size() == 1 &&
+                    keypoint_markers.front().label == "K" &&
+                    keypoint_markers.front().reference.semantic_key ==
+                        "constraint:" + keypoint_constraint &&
+                    std::ranges::find(
+                        keypoint_markers.front().participant_semantic_keys,
+                        "circle:" + keypoint_circle) !=
+                        keypoint_markers.front().participant_semantic_keys.end() &&
+                    std::ranges::find(
+                        keypoint_markers.front().participant_semantic_keys,
+                        "segment:" + keypoint_segment) !=
+                        keypoint_markers.front().participant_semantic_keys.end(),
+                "Exact curve keypoint reference did not expose one K marker");
         point_tools.remove_point(point_tools.segments.front().first_point_id);
         require(point_tools.find_point(standalone_point) != nullptr &&
                     point_tools.points.size() == 1 && point_tools.segments.empty() &&
@@ -1164,8 +1265,41 @@ int main() {
             parallel_dimensioned.segments[1].second_point_id);
         require(std::abs(parallel_first->y - 8.0) < 1.0e-7 &&
                     std::abs(parallel_second->y - 8.0) < 1.0e-7 &&
-                    parallel_dimensioned.viewer_mesh().dimensions.size() == 1,
+                    parallel_dimensioned.viewer_mesh().dimensions.size() == 1 &&
+                    parallel_dimensioned.dimensions.front().solution_side == 1,
                 "Parallel-line distance did not translate the driven line");
+        require(parallel_dimensioned.set_dimension_placement(
+                    line_distance.id, 4.0, 11.0) &&
+                    parallel_dimensioned.dimensions.front().solution_side == 1,
+                "Moving a line-distance label changed its solution branch");
+        require(parallel_dimensioned.set_dimension_value(
+                    line_distance.id, -6.0) &&
+                    std::abs(parallel_dimensioned.find_point(
+                        parallel_dimensioned.segments[1].first_point_id)->y +
+                        6.0) < 1.0e-7 &&
+                    std::abs(parallel_dimensioned.find_point(
+                        parallel_dimensioned.segments[1].second_point_id)->y +
+                        6.0) < 1.0e-7 &&
+                    parallel_dimensioned.dimensions.front().value == 6.0 &&
+                    parallel_dimensioned.dimensions.front().solution_side == -1 &&
+                    parallel_dimensioned.viewer_mesh().dimensions.front().value ==
+                        6.0,
+                "Negative line-distance input did not flip to the opposite side");
+        require(parallel_dimensioned.set_dimension_value(
+                    line_distance.id, 4.0) &&
+                    std::abs(parallel_dimensioned.find_point(
+                        parallel_dimensioned.segments[1].first_point_id)->y +
+                        4.0) < 1.0e-7 &&
+                    parallel_dimensioned.dimensions.front().solution_side == -1,
+                "Positive line-distance edit unexpectedly changed its side");
+        require(parallel_dimensioned.set_dimension_value(
+                    line_distance.id, -3.0) &&
+                    std::abs(parallel_dimensioned.find_point(
+                        parallel_dimensioned.segments[1].first_point_id)->y -
+                        3.0) < 1.0e-7 &&
+                    parallel_dimensioned.dimensions.front().value == 3.0 &&
+                    parallel_dimensioned.dimensions.front().solution_side == 1,
+                "Repeated negative line-distance input did not flip the branch again");
         const auto loaded_line_distance = zima::sketcher::Sketch::from_serialized(
             parallel_dimensioned.serialized());
         require(loaded_line_distance.dimensions == parallel_dimensioned.dimensions,
@@ -1199,8 +1333,35 @@ int main() {
                     *point_line_dimensioned.find_point(
                         point_line_dimensioned.segments.front().second_point_id) ==
                         reference_before[1] &&
-                    point_line_dimensioned.viewer_mesh().dimensions.size() == 1,
+                    point_line_dimensioned.viewer_mesh().dimensions.size() == 1 &&
+                    point_line_dimensioned.dimensions.front().solution_side == 1,
                 "Point-line distance did not move only the driven point normally");
+        require(point_line_dimensioned.set_dimension_placement(
+                    point_line_dimension.id, 6.0, 10.0) &&
+                    point_line_dimensioned.dimensions.front().solution_side == 1,
+                "Moving a point-line label changed its solution branch");
+        require(point_line_dimensioned.set_dimension_value(
+                    point_line_dimension.id, -20.0) &&
+                    std::abs(point_line_dimensioned.find_point(
+                        point_line_point)->y + 20.0) < 1.0e-7 &&
+                    point_line_dimensioned.dimensions.front().value == 20.0 &&
+                    point_line_dimensioned.dimensions.front().solution_side == -1 &&
+                    point_line_dimensioned.viewer_mesh().dimensions.front().value ==
+                        20.0,
+                "Negative point-line input did not flip to the opposite side");
+        require(point_line_dimensioned.set_dimension_value(
+                    point_line_dimension.id, 15.0) &&
+                    std::abs(point_line_dimensioned.find_point(
+                        point_line_point)->y + 15.0) < 1.0e-7 &&
+                    point_line_dimensioned.dimensions.front().solution_side == -1,
+                "Positive point-line edit unexpectedly changed its side");
+        require(point_line_dimensioned.set_dimension_value(
+                    point_line_dimension.id, -12.0) &&
+                    std::abs(point_line_dimensioned.find_point(
+                        point_line_point)->y - 12.0) < 1.0e-7 &&
+                    point_line_dimensioned.dimensions.front().value == 12.0 &&
+                    point_line_dimensioned.dimensions.front().solution_side == 1,
+                "Repeated negative point-line input did not flip the branch again");
         auto loaded_point_line_dimension =
             zima::sketcher::Sketch::from_serialized(
                 point_line_dimensioned.serialized());
@@ -1219,6 +1380,19 @@ int main() {
         require(std::abs(point_axis_dimensioned.find_point(
                     point_axis_point)->x + 7.0) < 1.0e-8,
                 "Point-line distance did not support a built-in Sketch axis");
+        auto signed_coordinate = zima::sketcher::Sketch::create_default();
+        const auto signed_coordinate_point = signed_coordinate.add_point(-4.0, 3.0);
+        auto signed_coordinate_dimension = signed_coordinate.create_axis_dimension(
+            signed_coordinate_point, "sketch_axis:y");
+        require(signed_coordinate_dimension.value == -4.0,
+                "Coordinate dimension lost its genuine signed value");
+        signed_coordinate.apply_dimension(signed_coordinate_dimension);
+        require(signed_coordinate.set_dimension_value(
+                    signed_coordinate_dimension.id, -7.0) &&
+                    std::abs(signed_coordinate.find_point(
+                        signed_coordinate_point)->x + 7.0) < 1.0e-8 &&
+                    signed_coordinate.dimensions.front().value == -7.0,
+                "Negative coordinate dimension was mistaken for a side flip");
         auto symmetric_dimensioned = zima::sketcher::Sketch::create_default();
         const auto symmetric_first = symmetric_dimensioned.add_point(0.0, 4.0);
         const auto symmetric_second = symmetric_dimensioned.add_point(10.0, 4.0);
@@ -1327,7 +1501,7 @@ int main() {
         auto redundant_direction = zima::sketcher::Sketch::create_default();
         const auto redundant_first = redundant_direction.add_point(2.0, 2.0);
         const auto redundant_second = redundant_direction.add_point(3.0, 3.0);
-        static_cast<void>(redundant_direction.add_coincident_constraint(
+        static_cast<void>(redundant_direction.merge_points(
             redundant_first, redundant_second));
         bool rejected_redundant_direction{};
         try {
@@ -1338,7 +1512,8 @@ int main() {
             rejected_redundant_direction = true;
         }
         require(rejected_redundant_direction &&
-                    redundant_direction.constraints.size() == 1,
+                    redundant_direction.constraints.empty() &&
+                    redundant_direction.points.size() == 1,
                 "Redundant point-pair constraint was not rejected transactionally");
         auto combined_axis_snap = zima::sketcher::Sketch::create_default();
         static_cast<void>(combined_axis_snap.add_segment(3.0, 5.0, 3.0, 0.0));
@@ -1485,7 +1660,7 @@ int main() {
         const auto chain_second = editable_chain.add_segment(
             261.996337890625, -318.6537628174258, 576.8365734371087, 0.0);
         const auto chain_geometry = editable_chain.segments;
-        static_cast<void>(editable_chain.add_coincident_constraint(
+        static_cast<void>(editable_chain.add_point_reference_constraint(
             chain_geometry.front().first_point_id, "sketch_origin"));
         static_cast<void>(editable_chain.add_point_on_line_constraint(
             chain_geometry.back().second_point_id, "sketch_axis:x"));
@@ -1817,7 +1992,7 @@ int main() {
             origin_rectangle.add_rectangle(0.0, 0.0, 10.0, 10.0);
         const auto origin_corner =
             origin_rectangle.segments.front().first_point_id;
-        static_cast<void>(origin_rectangle.add_coincident_constraint(
+        static_cast<void>(origin_rectangle.add_point_reference_constraint(
             origin_corner, "sketch_origin"));
         const auto x_axis_corner =
             origin_rectangle.segments.front().second_point_id;
@@ -1840,7 +2015,7 @@ int main() {
         auto dimensioned_origin_rectangle = zima::sketcher::Sketch::create_default();
         static_cast<void>(dimensioned_origin_rectangle.add_rectangle(
             0.0, 0.0, 10.0, 10.0));
-        static_cast<void>(dimensioned_origin_rectangle.add_coincident_constraint(
+        static_cast<void>(dimensioned_origin_rectangle.add_point_reference_constraint(
             dimensioned_origin_rectangle.segments.front().first_point_id,
             "sketch_origin"));
         auto rectangle_height = dimensioned_origin_rectangle.create_segment_dimension(
@@ -1908,25 +2083,156 @@ int main() {
         const auto coincident_second_id = coincident_second.id;
         coincident.points.push_back(std::move(coincident_first));
         coincident.points.push_back(std::move(coincident_second));
-        static_cast<void>(coincident.add_coincident_constraint(
-            coincident_first_id, coincident_second_id));
-        require(coincident.constraints.size() == 1 &&
-                    coincident.constraints.front().kind ==
-                        zima::sketcher::ConstraintKind::Coincident &&
-                    std::hypot(coincident.points[0].x - coincident.points[1].x,
-                               coincident.points[0].y - coincident.points[1].y) < 1.0e-8,
-                "Coincident point constraint did not solve through the model API");
+        const auto merged_point = coincident.merge_points(
+            coincident_first_id, coincident_second_id);
+        require(merged_point == coincident_first_id &&
+                    coincident.points.size() == 1 &&
+                    coincident.constraints.empty() &&
+                    coincident.find_point(coincident_second_id) == nullptr,
+                "Point merge did not replace two points with one topology node");
         const auto coincident_before_duplicate = coincident;
         bool duplicate_coincident_rejected = false;
         try {
-            static_cast<void>(coincident.add_coincident_constraint(
+            static_cast<void>(coincident.merge_points(
                 coincident_second_id, coincident_first_id));
         } catch (const std::invalid_argument&) {
             duplicate_coincident_rejected = true;
         }
         require(duplicate_coincident_rejected &&
-                    coincident.constraints == coincident_before_duplicate.constraints,
-                "Reversed duplicate coincident constraint was accepted");
+                    coincident.serialized() ==
+                        coincident_before_duplicate.serialized(),
+                "A repeated point merge changed the committed Sketch");
+        auto anchored_merge = zima::sketcher::Sketch::create_default();
+        const auto externally_anchored = anchored_merge.add_point(2.0, 3.0);
+        static_cast<void>(anchored_merge.add_point_reference_constraint(
+            externally_anchored, "sketch_origin"));
+        const auto unanchored = anchored_merge.add_point(8.0, 6.0);
+        const auto anchored_survivor = anchored_merge.merge_points(
+            unanchored, externally_anchored);
+        require(anchored_survivor == externally_anchored &&
+                    anchored_merge.find_point(unanchored) == nullptr &&
+                    anchored_merge.find_point(externally_anchored) != nullptr &&
+                    std::abs(anchored_merge.find_point(
+                        externally_anchored)->x) < 1.0e-9 &&
+                    std::abs(anchored_merge.find_point(
+                        externally_anchored)->y) < 1.0e-9,
+                "Point merge did not preserve the externally anchored topology node");
+        auto fixed_merge = zima::sketcher::Sketch::create_default();
+        auto free_node = zima::sketcher::Sketch::create_point(1.0, 2.0);
+        auto fixed_node = zima::sketcher::Sketch::create_point(7.0, 9.0);
+        fixed_node.fixed = true;
+        const auto free_node_id = free_node.id;
+        const auto fixed_node_id = fixed_node.id;
+        fixed_merge.points.push_back(std::move(free_node));
+        fixed_merge.points.push_back(std::move(fixed_node));
+        const auto fixed_survivor = fixed_merge.merge_points(
+            free_node_id, fixed_node_id);
+        require(fixed_survivor == fixed_node_id &&
+                    fixed_merge.find_point(free_node_id) == nullptr &&
+                    fixed_merge.find_point(fixed_node_id)->fixed &&
+                    std::abs(fixed_merge.find_point(fixed_node_id)->x - 7.0) <
+                        1.0e-9 &&
+                    std::abs(fixed_merge.find_point(fixed_node_id)->y - 9.0) <
+                        1.0e-9,
+                "Point merge did not preserve the fixed topology node");
+        auto collapsing_merge = zima::sketcher::Sketch::create_default();
+        const auto collapsing_segment =
+            collapsing_merge.add_segment(0.0, 0.0, 5.0, 0.0);
+        const auto collapsing_first =
+            collapsing_merge.segments.front().first_point_id;
+        const auto collapsing_second =
+            collapsing_merge.segments.front().second_point_id;
+        static_cast<void>(collapsing_merge.add_segment_constraint(
+            collapsing_segment, zima::sketcher::ConstraintKind::Horizontal));
+        auto collapsing_dimension =
+            collapsing_merge.create_segment_dimension(collapsing_segment);
+        collapsing_merge.apply_dimension(std::move(collapsing_dimension));
+        static_cast<void>(collapsing_merge.add_import_block(
+            "Collapsing Segment", "memory:collapsing-segment",
+            {collapsing_segment}, {collapsing_first, collapsing_second}));
+        const auto collapsed_survivor = collapsing_merge.merge_points(
+            collapsing_first, collapsing_second);
+        require(collapsed_survivor == collapsing_first &&
+                    collapsing_merge.points.size() == 1 &&
+                    collapsing_merge.find_point(collapsing_second) == nullptr &&
+                    collapsing_merge.segments.empty() &&
+                    collapsing_merge.constraints.empty() &&
+                    collapsing_merge.dimensions.empty() &&
+                    collapsing_merge.import_blocks.empty(),
+                "Merging one Segment's endpoints did not consume the Segment and retain one point");
+        auto dependent_merge = zima::sketcher::Sketch::create_default();
+        const auto merge_reference_segment = dependent_merge.add_segment(
+            0.0, 0.0, 5.0, 0.0);
+        const auto merge_dependent_segment = dependent_merge.add_segment(
+            8.0, 2.0, 12.0, 2.0);
+        const auto merge_reference_id =
+            dependent_merge.segments.front().second_point_id;
+        const auto merge_absorbed_id =
+            dependent_merge.segments[1].first_point_id;
+        const auto merge_other_id =
+            dependent_merge.segments[1].second_point_id;
+        static_cast<void>(dependent_merge.add_segment_constraint(
+            merge_dependent_segment,
+            zima::sketcher::ConstraintKind::Horizontal));
+        auto merged_length = dependent_merge.create_segment_dimension(
+            merge_dependent_segment);
+        merged_length.driving = false;
+        const auto merged_length_id = merged_length.id;
+        dependent_merge.apply_dimension(std::move(merged_length));
+        const auto merge_direction_first = dependent_merge.add_point(20.0, 0.0);
+        const auto merge_direction_second = dependent_merge.add_point(24.0, 4.0);
+        auto merged_angle = dependent_merge.create_four_point_angle_dimension(
+            merge_direction_first, merge_direction_second,
+            merge_absorbed_id, merge_other_id);
+        merged_angle.driving = false;
+        const auto merged_angle_id = merged_angle.id;
+        dependent_merge.apply_dimension(std::move(merged_angle));
+        const auto merge_block = dependent_merge.add_import_block(
+            "Merge dependencies", "memory:merge-dependencies",
+            {merge_dependent_segment}, {merge_absorbed_id, merge_other_id});
+        static_cast<void>(dependent_merge.merge_points(
+            merge_reference_id, merge_absorbed_id));
+        const auto reference_segment_after_merge = std::ranges::find_if(
+            dependent_merge.segments, [&](const auto& value) {
+                return value.id == merge_reference_segment;
+            });
+        const auto dependent_segment = std::ranges::find_if(
+            dependent_merge.segments, [&](const auto& value) {
+                return value.id == merge_dependent_segment;
+            });
+        const auto horizontal_after_merge = std::ranges::find_if(
+            dependent_merge.constraints, [&](const auto& value) {
+                return value.geometry_id == merge_dependent_segment;
+            });
+        const auto length_after_merge = std::ranges::find_if(
+            dependent_merge.dimensions, [&](const auto& value) {
+                return value.id == merged_length_id;
+            });
+        const auto angle_after_merge = std::ranges::find_if(
+            dependent_merge.dimensions, [&](const auto& value) {
+                return value.id == merged_angle_id;
+            });
+        const auto block_after_merge = std::ranges::find_if(
+            dependent_merge.import_blocks, [&](const auto& value) {
+                return value.id == merge_block;
+            });
+        require(dependent_segment != dependent_merge.segments.end() &&
+                    reference_segment_after_merge !=
+                        dependent_merge.segments.end() &&
+                    dependent_segment->first_point_id == merge_reference_id &&
+                    horizontal_after_merge != dependent_merge.constraints.end() &&
+                    horizontal_after_merge->first_point_id == merge_reference_id &&
+                    length_after_merge != dependent_merge.dimensions.end() &&
+                    length_after_merge->first_point_id == merge_reference_id &&
+                    angle_after_merge != dependent_merge.dimensions.end() &&
+                    angle_after_merge->geometry_id == merge_reference_id &&
+                    block_after_merge != dependent_merge.import_blocks.end() &&
+                    std::ranges::find(block_after_merge->point_ids,
+                        merge_reference_id) != block_after_merge->point_ids.end() &&
+                    std::ranges::find(block_after_merge->point_ids,
+                        merge_absorbed_id) == block_after_merge->point_ids.end() &&
+                    dependent_merge.find_point(merge_absorbed_id) == nullptr,
+                "Point merge did not rewire every dependent Sketch identity");
         auto midpoint = zima::sketcher::Sketch::create_default();
         const auto midpoint_segment = midpoint.add_segment(0.0, 0.0, 8.0, 4.0);
         midpoint.find_point(midpoint.segments.front().first_point_id)->fixed = true;
@@ -2643,6 +2949,240 @@ int main() {
                     tangent_from_contact.solve().status !=
                         zima::sketcher::SolveStatus::Conflicting,
                 "Tangent continuation did not preserve its explicit C + T contact");
+
+        // A point is the shared topological node of the Segment and its C
+        // relation to the Circle.  Editing either geometric parameter must
+        // drive the remaining dependency graph instead of treating that
+        // shared node as two competing endpoints.
+        auto dimensioned_tangent_chain =
+            zima::sketcher::Sketch::create_default();
+        const auto dimensioned_tangent_circle =
+            dimensioned_tangent_chain.add_circle(0.0, 0.0, 5.0);
+        const auto dimensioned_tangent_segment =
+            dimensioned_tangent_chain.add_segment(5.0, 0.0, 5.0, 10.0);
+        const auto dimensioned_tangent_contact =
+            dimensioned_tangent_chain.segments.front().first_point_id;
+        static_cast<void>(dimensioned_tangent_chain
+            .add_point_on_circle_constraint(
+                dimensioned_tangent_contact, dimensioned_tangent_circle));
+        static_cast<void>(dimensioned_tangent_chain.add_tangent_constraint(
+            dimensioned_tangent_circle, dimensioned_tangent_segment,
+            dimensioned_tangent_contact));
+        auto tangent_radius = dimensioned_tangent_chain
+            .create_circle_radius_dimension(dimensioned_tangent_circle);
+        dimensioned_tangent_chain.apply_dimension(tangent_radius);
+        static_cast<void>(dimensioned_tangent_chain
+            .add_point_reference_constraint(
+                dimensioned_tangent_chain.circles.front().center_point_id,
+                "sketch_origin"));
+        const bool tangent_radius_edited =
+            dimensioned_tangent_chain.set_dimension_value(
+                tangent_radius.id, 7.0);
+        if (!tangent_radius_edited) {
+            auto diagnostic = dimensioned_tangent_chain;
+            diagnostic.circles.front().radius = 7.0;
+            diagnostic.dimensions.front().value = 7.0;
+            const auto diagnostic_result = diagnostic.solve();
+            throw std::runtime_error(
+                "Circle C+T radius dimension did not drive its Segment contact; "
+                "manual solve status=" +
+                std::to_string(static_cast<int>(diagnostic_result.status)) +
+                ", residual=" +
+                std::to_string(diagnostic_result.maximum_residual));
+        }
+        const auto* radius_center = dimensioned_tangent_chain.find_point(
+            dimensioned_tangent_chain.circles.front().center_point_id);
+        const auto* radius_contact = dimensioned_tangent_chain.find_point(
+            dimensioned_tangent_contact);
+        const auto radius_other_id =
+            dimensioned_tangent_chain.segments.front().second_point_id;
+        const auto* radius_other = dimensioned_tangent_chain.find_point(
+            radius_other_id);
+        const double radial_x = radius_contact->x - radius_center->x;
+        const double radial_y = radius_contact->y - radius_center->y;
+        const double tangent_x = radius_other->x - radius_contact->x;
+        const double tangent_y = radius_other->y - radius_contact->y;
+        require(std::abs(std::hypot(radial_x, radial_y) - 7.0) < 1.0e-7 &&
+                    std::abs(radial_x * tangent_x + radial_y * tangent_y) <
+                        1.0e-7 &&
+                    dimensioned_tangent_chain.solve().status !=
+                        zima::sketcher::SolveStatus::Conflicting,
+            "Circle radius edit lost its one-point C+T topology");
+        auto tangent_length = dimensioned_tangent_chain
+            .create_segment_dimension(dimensioned_tangent_segment);
+        dimensioned_tangent_chain.apply_dimension(tangent_length);
+        require(dimensioned_tangent_chain.set_dimension_value(
+                    tangent_length.id, 14.0),
+            "C+T Segment length dimension did not drive the free endpoint");
+        const auto* length_contact = dimensioned_tangent_chain.find_point(
+            dimensioned_tangent_contact);
+        const auto* length_other = dimensioned_tangent_chain.find_point(
+            radius_other_id);
+        require(std::abs(std::hypot(
+                    length_other->x - length_contact->x,
+                    length_other->y - length_contact->y) - 14.0) < 1.0e-7 &&
+                    dimensioned_tangent_chain.solve().status !=
+                        zima::sketcher::SolveStatus::Conflicting,
+            "Edited C+T Segment length did not converge");
+        auto dragged_tangent_chain = dimensioned_tangent_chain;
+        require(dragged_tangent_chain.move_point(
+                    radius_other_id, 12.0, 15.0),
+            "Dragging the free C+T Segment endpoint did not move its contact");
+        const auto* dragged_center = dragged_tangent_chain.find_point(
+            dragged_tangent_chain.circles.front().center_point_id);
+        const auto* dragged_contact = dragged_tangent_chain.find_point(
+            dimensioned_tangent_contact);
+        const auto* dragged_other = dragged_tangent_chain.find_point(
+            radius_other_id);
+        const double dragged_radial_x =
+            dragged_contact->x - dragged_center->x;
+        const double dragged_radial_y =
+            dragged_contact->y - dragged_center->y;
+        const double dragged_line_x = dragged_other->x - dragged_contact->x;
+        const double dragged_line_y = dragged_other->y - dragged_contact->y;
+        require(std::hypot(dragged_other->x - 12.0,
+                    dragged_other->y - 15.0) < 1.0e-7 &&
+                    std::abs(std::hypot(
+                        dragged_radial_x, dragged_radial_y) - 7.0) < 1.0e-7 &&
+                    std::abs(dragged_radial_x * dragged_line_x +
+                        dragged_radial_y * dragged_line_y) < 1.0e-7,
+            "Dragged C+T chain lost its cursor point, radius, or tangency");
+
+        auto radial_contact_drag = zima::sketcher::Sketch::create_default();
+        const auto radial_circle =
+            radial_contact_drag.add_circle(0.0, 0.0, 5.0);
+        const auto radial_segment =
+            radial_contact_drag.add_segment(5.0, 0.0, 5.0, 10.0);
+        const auto radial_contact =
+            radial_contact_drag.segments.front().first_point_id;
+        const auto radial_other =
+            radial_contact_drag.segments.front().second_point_id;
+        static_cast<void>(radial_contact_drag.add_point_on_circle_constraint(
+            radial_contact, radial_circle));
+        static_cast<void>(radial_contact_drag.add_tangent_constraint(
+            radial_circle, radial_segment, radial_contact));
+        require(radial_contact_drag.move_point(radial_contact, 8.0, 0.0),
+            "Dragging a C+T contact did not resize its free Circle");
+        const auto* radial_center = radial_contact_drag.find_point(
+            radial_contact_drag.circles.front().center_point_id);
+        const auto* moved_radial_contact =
+            radial_contact_drag.find_point(radial_contact);
+        const auto* moved_radial_other =
+            radial_contact_drag.find_point(radial_other);
+        require(std::hypot(radial_center->x, radial_center->y) < 1.0e-7 &&
+                    std::abs(radial_contact_drag.circles.front().radius - 8.0) <
+                        1.0e-7 &&
+                    std::hypot(moved_radial_contact->x - 8.0,
+                        moved_radial_contact->y) < 1.0e-7 &&
+                    std::hypot(moved_radial_other->x - 8.0,
+                        moved_radial_other->y - 10.0) < 1.0e-7,
+            "C+T contact drag moved the Circle centre or lost its tangent arm");
+
+        auto angular_tangent = zima::sketcher::Sketch::create_default();
+        const auto angular_circle = angular_tangent.add_circle(0.0, 0.0, 5.0);
+        const auto angular_segment =
+            angular_tangent.add_segment(5.0, 0.0, 5.0, 10.0);
+        const auto angular_contact =
+            angular_tangent.segments.front().first_point_id;
+        static_cast<void>(angular_tangent.add_point_on_circle_constraint(
+            angular_contact, angular_circle));
+        static_cast<void>(angular_tangent.add_tangent_constraint(
+            angular_circle, angular_segment, angular_contact));
+        auto angular_dimension = angular_tangent.create_segment_dimension(
+            angular_segment, zima::sketcher::DimensionKind::Angle);
+        angular_tangent.apply_dimension(angular_dimension);
+        require(angular_tangent.set_dimension_value(
+                    angular_dimension.id, 45.0),
+            "Angular dimension did not drive a Circle C+T Segment");
+        const auto* angular_center = angular_tangent.find_point(
+            angular_tangent.circles.front().center_point_id);
+        const auto* moved_angular_contact =
+            angular_tangent.find_point(angular_contact);
+        const auto* moved_angular_first = angular_tangent.find_point(
+            angular_tangent.segments.front().first_point_id);
+        const auto* moved_angular_second = angular_tangent.find_point(
+            angular_tangent.segments.front().second_point_id);
+        const double angular_dx =
+            moved_angular_second->x - moved_angular_first->x;
+        const double angular_dy =
+            moved_angular_second->y - moved_angular_first->y;
+        const double angular_radial_x =
+            moved_angular_contact->x - angular_center->x;
+        const double angular_radial_y =
+            moved_angular_contact->y - angular_center->y;
+        require(std::hypot(angular_center->x, angular_center->y) < 1.0e-7 &&
+                    std::abs(angular_tangent.circles.front().radius - 5.0) <
+                        1.0e-7 &&
+                    std::abs(std::atan2(angular_dy, angular_dx) *
+                            180.0 / 3.14159265358979323846 - 45.0) < 1.0e-7 &&
+                    std::abs(angular_radial_x * angular_dx +
+                        angular_radial_y * angular_dy) < 1.0e-7 &&
+                    angular_tangent.solve().status !=
+                        zima::sketcher::SolveStatus::Conflicting,
+            "Edited C+T angle moved the Circle or lost angle/tangency");
+        for (const double side : {-1.0, 1.0}) {
+            for (const bool contact_is_first : {false, true}) {
+                auto ordered_chain = zima::sketcher::Sketch::create_default();
+                const auto ordered_circle =
+                    ordered_chain.add_circle(0.0, 0.0, 4.0);
+                const std::array contact{side * 4.0, 0.0};
+                const std::array other{side * 4.0, 6.0};
+                const auto ordered_segment = contact_is_first
+                    ? ordered_chain.add_segment(
+                          contact[0], contact[1], other[0], other[1])
+                    : ordered_chain.add_segment(
+                          other[0], other[1], contact[0], contact[1]);
+                const auto& ordered_geometry = ordered_chain.segments.front();
+                const auto ordered_contact = contact_is_first
+                    ? ordered_geometry.first_point_id
+                    : ordered_geometry.second_point_id;
+                const auto ordered_other = contact_is_first
+                    ? ordered_geometry.second_point_id
+                    : ordered_geometry.first_point_id;
+                static_cast<void>(ordered_chain.add_point_on_circle_constraint(
+                    ordered_contact, ordered_circle));
+                static_cast<void>(contact_is_first
+                    ? ordered_chain.add_tangent_constraint(
+                          ordered_circle, ordered_segment, ordered_contact)
+                    : ordered_chain.add_tangent_constraint(
+                          ordered_segment, ordered_circle, ordered_contact));
+                auto ordered_radius =
+                    ordered_chain.create_circle_radius_dimension(ordered_circle);
+                ordered_chain.apply_dimension(ordered_radius);
+                static_cast<void>(ordered_chain.add_point_reference_constraint(
+                    ordered_chain.circles.front().center_point_id,
+                    "sketch_origin"));
+                auto ordered_length =
+                    ordered_chain.create_segment_dimension(ordered_segment);
+                ordered_chain.apply_dimension(ordered_length);
+                require(ordered_chain.set_dimension_value(
+                            ordered_radius.id, 6.0) &&
+                            ordered_chain.set_dimension_value(
+                                ordered_length.id, 9.0),
+                    "C+T radius/length edit depends on selection or endpoint order");
+                const auto* ordered_center = ordered_chain.find_point(
+                    ordered_chain.circles.front().center_point_id);
+                const auto* ordered_contact_point =
+                    ordered_chain.find_point(ordered_contact);
+                const auto* ordered_other_point =
+                    ordered_chain.find_point(ordered_other);
+                const double ordered_rx =
+                    ordered_contact_point->x - ordered_center->x;
+                const double ordered_ry =
+                    ordered_contact_point->y - ordered_center->y;
+                const double ordered_tx =
+                    ordered_other_point->x - ordered_contact_point->x;
+                const double ordered_ty =
+                    ordered_other_point->y - ordered_contact_point->y;
+                require(std::abs(std::hypot(ordered_rx, ordered_ry) - 6.0) <
+                            1.0e-7 &&
+                            std::abs(std::hypot(ordered_tx, ordered_ty) - 9.0) <
+                                1.0e-7 &&
+                            std::abs(ordered_rx * ordered_tx +
+                                ordered_ry * ordered_ty) < 1.0e-7,
+                    "Ordered C+T matrix lost radius, length, or tangency");
+            }
+        }
         auto tangent_after_delete = loaded_tangent;
         tangent_after_delete.remove_geometry(tangent_circle);
         require(tangent_after_delete.constraints.empty() &&
@@ -2678,6 +3218,52 @@ int main() {
                     tangent_arc.solve().status !=
                         zima::sketcher::SolveStatus::Conflicting,
                 "Tangent did not preserve a driven circular arc");
+        auto endpoint_tangent_arc = zima::sketcher::Sketch::create_default();
+        const auto endpoint_arc = endpoint_tangent_arc.add_arc(
+            0.0, 0.0, 0.0, -5.0, 5.0, 0.0);
+        const auto endpoint_segment = endpoint_tangent_arc.add_segment(
+            5.0, 0.0, 5.0, 5.0);
+        const auto endpoint_arc_value = std::ranges::find_if(
+            endpoint_tangent_arc.arcs, [&](const auto& value) {
+                return value.id == endpoint_arc;
+            });
+        const auto endpoint_segment_value = std::ranges::find_if(
+            endpoint_tangent_arc.segments, [&](const auto& value) {
+                return value.id == endpoint_segment;
+            });
+        require(endpoint_arc_value->end_point_id ==
+                    endpoint_segment_value->first_point_id,
+                "Endpoint Tangent fixture did not share one topology point");
+        const auto tangent_free_endpoint =
+            endpoint_segment_value->second_point_id;
+        static_cast<void>(endpoint_tangent_arc.add_tangent_constraint(
+            endpoint_arc, endpoint_segment));
+        require(endpoint_tangent_arc.move_point(
+                    tangent_free_endpoint, 7.0, 8.0),
+                "Dragging a Segment tangent to an Arc endpoint was rejected");
+        const auto* dragged_endpoint_arc_center = endpoint_tangent_arc.find_point(
+            endpoint_tangent_arc.arcs.front().center_point_id);
+        const auto* dragged_endpoint_arc_contact = endpoint_tangent_arc.find_point(
+            endpoint_tangent_arc.arcs.front().end_point_id);
+        const auto* dragged_endpoint_tangent_end = endpoint_tangent_arc.find_point(
+            tangent_free_endpoint);
+        const double moved_radius_x =
+            dragged_endpoint_arc_contact->x - dragged_endpoint_arc_center->x;
+        const double moved_radius_y =
+            dragged_endpoint_arc_contact->y - dragged_endpoint_arc_center->y;
+        const double moved_tangent_x =
+            dragged_endpoint_tangent_end->x - dragged_endpoint_arc_contact->x;
+        const double moved_tangent_y =
+            dragged_endpoint_tangent_end->y - dragged_endpoint_arc_contact->y;
+        require(std::abs(dragged_endpoint_tangent_end->x - 7.0) < 1.0e-8 &&
+                    std::abs(dragged_endpoint_tangent_end->y - 8.0) < 1.0e-8 &&
+                    std::abs(std::hypot(moved_radius_x, moved_radius_y) -
+                        5.0) < 1.0e-7 &&
+                    std::abs(moved_radius_x * moved_tangent_x +
+                        moved_radius_y * moved_tangent_y) < 1.0e-7 &&
+                    endpoint_tangent_arc.solve().status !=
+                        zima::sketcher::SolveStatus::Conflicting,
+                "Dragged Segment endpoint lost its Arc endpoint tangency");
         auto outside_tangent_arc = zima::sketcher::Sketch::create_default();
         const auto outside_tangent_line = outside_tangent_arc.add_segment(
             -5.0, 0.0, 5.0, 0.0);
@@ -3294,7 +3880,7 @@ int main() {
                 return segment.id == vertically_dimensioned_ids.front();
             });
         static_cast<void>(
-            vertically_dimensioned_rectangle.add_coincident_constraint(
+            vertically_dimensioned_rectangle.add_point_reference_constraint(
                 initially_vertical_segment.first_point_id, "sketch_origin"));
         auto vertical_dimension =
             vertically_dimensioned_rectangle.create_segment_dimension(
@@ -3424,8 +4010,42 @@ int main() {
                     std::count_if(polyline_arc.constraints.begin(),
                         polyline_arc.constraints.end(), [](const auto& value) {
                             return value.kind == zima::sketcher::ConstraintKind::Tangent;
-                        }) == 1,
+                        }) == 1 &&
+                    std::ranges::find_if(polyline_arc.constraints,
+                        [](const auto& value) {
+                            return value.kind ==
+                                zima::sketcher::ConstraintKind::Tangent;
+                        })->first_point_id == tangent_start,
                 "Polyline arc did not start tangentially from its preceding segment");
+        auto tangent_source_length =
+            polyline_arc.create_segment_dimension(tangent_segment);
+        polyline_arc.apply_dimension(tangent_source_length);
+        const bool tangent_source_length_edited =
+            polyline_arc.set_dimension_value(
+                tangent_source_length.id, 15.0);
+        if (!tangent_source_length_edited) {
+            auto diagnostic = polyline_arc;
+            diagnostic.dimensions.front().value = 15.0;
+            const auto diagnostic_result = diagnostic.solve();
+            throw std::runtime_error(
+                "Segment length at a shared Arc T contact was not editable; "
+                "manual solve status=" +
+                std::to_string(static_cast<int>(diagnostic_result.status)) +
+                ", residual=" +
+                std::to_string(diagnostic_result.maximum_residual));
+        }
+        const auto* resized_tangent_source_first = polyline_arc.find_point(
+            polyline_arc.segments.front().first_point_id);
+        const auto* resized_tangent_source_contact = polyline_arc.find_point(
+            tangent_start);
+        require(std::abs(std::hypot(
+                    resized_tangent_source_contact->x -
+                        resized_tangent_source_first->x,
+                    resized_tangent_source_contact->y -
+                        resized_tangent_source_first->y) - 15.0) < 1.0e-7 &&
+                    polyline_arc.solve().status !=
+                        zima::sketcher::SolveStatus::Conflicting,
+            "Edited Segment length at the Arc T contact did not converge");
         const auto reversed_arc = polyline_arc.add_tangent_arc(
             polyline_arc.arcs.front().end_point_id,
             25.0, 5.0, tangent_arc_id, true);
@@ -3647,7 +4267,7 @@ int main() {
             coincident_corner_fillet.segments[1].first_point_id;
         require(first_corner_point != second_corner_point,
                 "Coincident-corner fixture unexpectedly reused one point ID");
-        static_cast<void>(coincident_corner_fillet.add_coincident_constraint(
+        static_cast<void>(coincident_corner_fillet.merge_points(
             first_corner_point, second_corner_point));
         static_cast<void>(coincident_corner_fillet.add_corner_fillet(
             coincident_fillet_first, coincident_fillet_second, 2.0));
@@ -3659,9 +4279,7 @@ int main() {
                         coincident_corner_fillet.constraints.end(),
                         [](const auto& constraint) {
                             return constraint.kind ==
-                                    zima::sketcher::ConstraintKind::Coincident &&
-                                constraint.first_point_id ==
-                                    constraint.second_point_id;
+                                zima::sketcher::ConstraintKind::Coincident;
                         }),
                 "Corner fillet did not normalize two C-connected segment endpoints");
         const auto fillet_mesh = corner_fillet.viewer_mesh();
@@ -3698,6 +4316,141 @@ int main() {
                                 std::abs(point.position.x - 6.0) < 1.0e-7;
                         }),
                 "Corner radius View exposed derived points or lost its child arc");
+        auto ordinary_segment_sketch =
+            zima::sketcher::Sketch::create_default();
+        const auto ordinary_segment_id = ordinary_segment_sketch.add_segment(
+            10.0, 0.0, 0.0, 0.0);
+        const auto ordinary_segment_dimension =
+            ordinary_segment_sketch.create_segment_dimension(
+                ordinary_segment_id, DimensionKind::Distance);
+        auto inactive_corner = corner_fillet;
+        inactive_corner.corner_radii.front().suppressed = true;
+        const auto inactive_corner_dimension =
+            inactive_corner.create_segment_dimension(
+                fillet_first, DimensionKind::Distance);
+        const auto trimmed_distance = corner_fillet.create_segment_dimension(
+            fillet_first, DimensionKind::Distance);
+        const auto trimmed_x = corner_fillet.create_segment_dimension(
+            fillet_first, DimensionKind::DistanceX);
+        const auto trimmed_y = corner_fillet.create_segment_dimension(
+            fillet_second, DimensionKind::DistanceY);
+        require(ordinary_segment_dimension.geometry_id.empty() &&
+                    std::abs(ordinary_segment_dimension.value - 10.0) < 1.0e-9 &&
+                    inactive_corner_dimension.geometry_id.empty() &&
+                    std::abs(inactive_corner_dimension.value - 10.0) < 1.0e-9 &&
+                    trimmed_distance.geometry_id == fillet_first &&
+                    std::abs(trimmed_distance.value - 8.0) < 1.0e-9 &&
+                    trimmed_x.geometry_id == fillet_first &&
+                    std::abs(trimmed_x.value + 8.0) < 1.0e-9 &&
+                    trimmed_y.geometry_id == fillet_second &&
+                    std::abs(trimmed_y.value - 8.0) < 1.0e-9,
+                "Segment dimensions did not distinguish active trimmed length "
+                "from ordinary point-to-point geometry");
+
+        auto dimensioned_corner = corner_fillet;
+        dimensioned_corner.find_point(fillet_corner_id)->fixed = true;
+        auto driving_trimmed = dimensioned_corner.create_segment_dimension(
+            fillet_first, DimensionKind::Distance);
+        driving_trimmed.value = 7.0;
+        driving_trimmed.placement = std::array{5.0, -3.0};
+        const auto driving_trimmed_id = driving_trimmed.id;
+        dimensioned_corner.apply_dimension(driving_trimmed);
+        const auto applied_visible =
+            dimensioned_corner.visible_segment_endpoints(fillet_first);
+        require(applied_visible &&
+                    std::abs(std::hypot(
+                        applied_visible->second[0] - applied_visible->first[0],
+                        applied_visible->second[1] - applied_visible->first[1]) -
+                        7.0) < 1.0e-7 &&
+                    dimensioned_corner.set_dimension_value(
+                        driving_trimmed_id, 6.0),
+                "Visible corner-segment length did not converge on apply/edit");
+        const auto edited_visible =
+            dimensioned_corner.visible_segment_endpoints(fillet_first);
+        require(edited_visible.has_value(),
+                "Edited corner segment lost its visible endpoints");
+        const auto edited_solve = dimensioned_corner.solve();
+        const auto dimensioned_mesh = dimensioned_corner.viewer_mesh();
+        const auto rendered_trimmed = std::find_if(
+            dimensioned_mesh.dimensions.begin(),
+            dimensioned_mesh.dimensions.end(), [&](const auto& dimension) {
+                return dimension.reference.semantic_key ==
+                    "dimension:" + driving_trimmed_id;
+            });
+        const auto expected_first = dimensioned_corner.world_point(
+            edited_visible->first[0], edited_visible->first[1]);
+        const auto expected_second = dimensioned_corner.world_point(
+            edited_visible->second[0], edited_visible->second[1]);
+        const auto world_distance = [](const auto& first, const auto& second) {
+            return std::hypot(
+                std::hypot(first.x - second.x, first.y - second.y),
+                first.z - second.z);
+        };
+        require(edited_solve.status !=
+                    zima::sketcher::SolveStatus::Conflicting &&
+                    edited_solve.maximum_residual < 1.0e-7 &&
+                    std::abs(std::hypot(
+                        edited_visible->second[0] - edited_visible->first[0],
+                        edited_visible->second[1] - edited_visible->first[1]) -
+                        6.0) < 1.0e-7 &&
+                    rendered_trimmed != dimensioned_mesh.dimensions.end() &&
+                    std::abs(rendered_trimmed->value - 6.0) < 1.0e-7 &&
+                    world_distance(rendered_trimmed->witness_first,
+                        expected_first) < 1.0e-7 &&
+                    world_distance(rendered_trimmed->witness_second,
+                        expected_second) < 1.0e-7,
+                "Edited visible corner-segment dimension disappeared or used "
+                "the virtual sharp corner in the Viewer");
+
+        auto signed_x_corner = corner_fillet;
+        signed_x_corner.find_point(fillet_corner_id)->fixed = true;
+        auto signed_x = signed_x_corner.create_segment_dimension(
+            fillet_first, DimensionKind::DistanceX);
+        signed_x.value = -7.0;
+        const auto signed_x_id = signed_x.id;
+        signed_x_corner.apply_dimension(signed_x);
+        require(signed_x_corner.set_dimension_value(signed_x_id, -6.0),
+                "Negative visible X dimension did not accept an edit");
+        const auto signed_x_visible =
+            signed_x_corner.visible_segment_endpoints(fillet_first);
+        auto signed_y_corner = corner_fillet;
+        signed_y_corner.find_point(fillet_corner_id)->fixed = true;
+        auto signed_y = signed_y_corner.create_segment_dimension(
+            fillet_second, DimensionKind::DistanceY);
+        signed_y.value = 7.0;
+        const auto signed_y_id = signed_y.id;
+        signed_y_corner.apply_dimension(signed_y);
+        require(signed_y_corner.set_dimension_value(signed_y_id, 6.0),
+                "Positive visible Y dimension did not accept an edit");
+        const auto signed_y_visible =
+            signed_y_corner.visible_segment_endpoints(fillet_second);
+        require(signed_x_visible && signed_y_visible &&
+                    std::abs(signed_x_visible->second[0] -
+                        signed_x_visible->first[0] + 6.0) < 1.0e-7 &&
+                    std::abs(signed_y_visible->second[1] -
+                        signed_y_visible->first[1] - 6.0) < 1.0e-7,
+                "Visible corner-segment X/Y dimensions lost their signed orientation");
+
+        auto reference_corner = corner_fillet;
+        auto reference_trimmed = reference_corner.create_segment_dimension(
+            fillet_first, DimensionKind::Distance);
+        reference_trimmed.driving = false;
+        const auto reference_trimmed_id = reference_trimmed.id;
+        reference_corner.apply_dimension(reference_trimmed);
+        const auto reference_outer_id =
+            reference_corner.segments.front().first_point_id;
+        require(reference_corner.move_point(reference_outer_id, 12.0, 0.0),
+                "Reference visible corner-segment fixture could not be moved");
+        const auto refreshed_reference = std::find_if(
+            reference_corner.dimensions.begin(),
+            reference_corner.dimensions.end(), [&](const auto& dimension) {
+                return dimension.id == reference_trimmed_id;
+            });
+        require(refreshed_reference != reference_corner.dimensions.end() &&
+                    !refreshed_reference->driving &&
+                    refreshed_reference->geometry_id == fillet_first &&
+                    std::abs(refreshed_reference->value - 10.0) < 1.0e-7,
+                "Reference dimension did not refresh from the visible trimmed length");
         const auto handle_candidates = zima::viewer::filter_candidates(
             zima::viewer::ordered_viewer_candidates(
                 fillet_mesh, {2.0, 0.0, 10.0}, {0.0, 0.0, -1.0}, 0.2),
@@ -4165,7 +4918,7 @@ int main() {
         auto cardinal_lock = zima::sketcher::Sketch::create_default();
         const auto cardinal_circle = cardinal_lock.add_circle(0.0, 0.0, 10.0);
         const auto cardinal_point = cardinal_lock.add_point(10.0, 0.0);
-        static_cast<void>(cardinal_lock.add_coincident_constraint(
+        static_cast<void>(cardinal_lock.add_point_reference_constraint(
             cardinal_point,
             "sketch_keypoint:circle:" + cardinal_circle + ":0"));
         cardinal_lock.circles.front().radius = 14.0;
@@ -4801,8 +5554,62 @@ int main() {
                      (attached_contact_trim.arcs.front().start_point_id ==
                           left_contact &&
                       attached_contact_trim.arcs.front().end_point_id ==
-                          right_contact)),
+                          right_contact)) &&
+                    attached_contact_trim.constraints.empty(),
                 "Trim reconstruction lost persisted contact point identities");
+
+        auto tangent_line_trim = zima::sketcher::Sketch::create_default();
+        const auto tangent_line_circle =
+            tangent_line_trim.add_circle(0.0, 0.0, 10.0);
+        const auto trim_tangent_line_id =
+            tangent_line_trim.add_segment(-15.0, 10.0, 15.0, 10.0);
+        const auto trim_tangent_contact_id =
+            tangent_line_trim.add_point(0.0, 10.0);
+        static_cast<void>(tangent_line_trim.add_tangent_constraint(
+            tangent_line_circle, trim_tangent_line_id,
+            trim_tangent_contact_id));
+        static_cast<void>(tangent_line_trim.add_point_on_circle_constraint(
+            trim_tangent_contact_id, tangent_line_circle));
+        const auto tangent_line_topology =
+            zima::sketcher::sketch_trim_topology(tangent_line_trim, false);
+        const auto tangent_line_left_piece =
+            zima::sketcher::nearest_sketch_trim_piece(
+                tangent_line_topology, {-8.0, 10.0}, 0.25);
+        require(tangent_line_left_piece &&
+                    tangent_line_left_piece->geometry_id == trim_tangent_line_id,
+                "Tangent C+T contact did not split the line trim topology");
+        static_cast<void>(zima::sketcher::apply_sketch_trim(
+            tangent_line_trim, {*tangent_line_left_piece}));
+        const auto trimmed_tangent_line = std::ranges::find_if(
+            tangent_line_trim.segments,
+            [&](const auto& value) {
+                return value.id == trim_tangent_line_id;
+            });
+        require(trimmed_tangent_line != tangent_line_trim.segments.end() &&
+                    (trimmed_tangent_line->first_point_id ==
+                         trim_tangent_contact_id ||
+                     trimmed_tangent_line->second_point_id ==
+                         trim_tangent_contact_id) &&
+                    std::count_if(tangent_line_trim.points.begin(),
+                        tangent_line_trim.points.end(), [&](const auto& point) {
+                            return std::hypot(point.x, point.y - 10.0) < 1.0e-8;
+                        }) == 1 &&
+                    std::count_if(tangent_line_trim.constraints.begin(),
+                        tangent_line_trim.constraints.end(), [](const auto& value) {
+                            return value.kind ==
+                                zima::sketcher::ConstraintKind::PointOnCircle;
+                        }) == 1 &&
+                    std::none_of(tangent_line_trim.constraints.begin(),
+                        tangent_line_trim.constraints.end(), [](const auto& value) {
+                            return value.kind ==
+                                zima::sketcher::ConstraintKind::PointOnLine;
+                        }) &&
+                    std::count_if(tangent_line_trim.constraints.begin(),
+                        tangent_line_trim.constraints.end(), [](const auto& value) {
+                            return value.kind ==
+                                zima::sketcher::ConstraintKind::Tangent;
+                        }) == 1,
+                "Trimming a tangent line did not retain one shared endpoint on the circle");
 
         auto tangent_bridge_trim = zima::sketcher::Sketch::create_default();
         const auto left_bridge_circle =
@@ -4854,18 +5661,31 @@ int main() {
         static_cast<void>(zima::sketcher::apply_sketch_trim(
             tangent_bridge_trim,
             {*left_outer_bridge_piece, *right_outer_bridge_piece}));
+        const std::array bridge_contact_ids{
+            upper_left_contact, upper_right_contact,
+            lower_left_contact, lower_right_contact};
         require(tangent_bridge_trim.arcs.size() == 2 &&
                     std::count_if(tangent_bridge_trim.constraints.begin(),
                         tangent_bridge_trim.constraints.end(), [](const auto& value) {
                             return value.kind ==
                                 zima::sketcher::ConstraintKind::PointOnCircle;
-                        }) == 4 &&
+                        }) == 0 &&
                     std::count_if(tangent_bridge_trim.constraints.begin(),
                         tangent_bridge_trim.constraints.end(), [](const auto& value) {
                             return value.kind ==
                                 zima::sketcher::ConstraintKind::Tangent;
-                        }) == 4,
-                "Two-circle Trim did not preserve all four C+T contacts");
+                        }) == 4 &&
+                    tangent_bridge_trim.points.size() == 6 &&
+                    std::ranges::all_of(tangent_bridge_trim.arcs,
+                        [&](const auto& arc) {
+                            return std::ranges::find(
+                                    bridge_contact_ids, arc.start_point_id) !=
+                                    bridge_contact_ids.end() &&
+                                std::ranges::find(
+                                    bridge_contact_ids, arc.end_point_id) !=
+                                    bridge_contact_ids.end();
+                        }),
+                "Two-circle Trim did not preserve four single shared C+T topology points");
         tangent_bridge_trim.validate();
         const auto unrelated_drag_point = tangent_bridge_trim.add_point(42.0, 17.0);
         require(tangent_bridge_trim.move_point(
@@ -4874,28 +5694,6 @@ int main() {
         require(tangent_bridge_trim.move_point(
                     left_bridge_center, -16.0, 1.0),
                 "Freshly trimmed C+T bridge made the whole Sketch immovable");
-        // A solved/imported Trim may retain a distinct persisted line-contact
-        // point and Arc boundary point at the same position. Mobility must
-        // cross their PointOnCircle relation rather than relying on shared IDs.
-        for (auto& arc : tangent_bridge_trim.arcs) {
-            const auto split_boundary = [&](std::string& boundary_id,
-                                             const char* suffix) {
-                auto duplicate = *tangent_bridge_trim.find_point(boundary_id);
-                duplicate.id += suffix;
-                boundary_id = duplicate.id;
-                tangent_bridge_trim.points.push_back(std::move(duplicate));
-            };
-            split_boundary(arc.start_point_id, ":trim-start");
-            split_boundary(arc.end_point_id, ":trim-end");
-        }
-        tangent_bridge_trim.validate();
-        require(tangent_bridge_trim.move_point(
-                    left_bridge_center, -16.0, 1.0),
-                "Preserved C+T contacts made the trimmed bridge immovable");
-        require(tangent_bridge_trim.move_point(
-                    upper_left_contact, -15.0, 5.9),
-                "Preserved C+T contacts blocked dragging a tangent endpoint");
-
         // Reproduce the interactive command exactly: unequal circles and two
         // segments created by Common tangent, followed by trimming both outer
         // circle pieces into one closed C+T loop.

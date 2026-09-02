@@ -14,6 +14,28 @@ The circumference click used while drawing is an input gesture, not a
 persistent sketch point. Points on a circle are separate entities connected
 by an explicit constraint.
 
+## Point topology and relation markers
+
+A native Sketch point is the only owner of positional X/Y state. Geometry
+references stable point IDs. When two native points are made coincident, their
+topology is merged into one surviving point ID; this is not a stored
+constraint and it has no persistent `C` marker.
+
+Use the relation markers consistently:
+
+- `C` — a native point lies at an arbitrary position on another geometry;
+- `K` — a native point is anchored to an exact generated curve keypoint,
+  currently the characteristic quarter points of supported curves;
+- `T` — two geometries are tangent at the identified contact.
+
+Therefore an ordinary line-to-circle or line-to-Arc contact is `C + T`.
+`K + T` is valid only when that same contact is exactly the selected generated
+keypoint. The fact that a support is curved does not by itself imply `K`.
+
+In the Czech UI, **Shodnost** means the interaction command. Its result is
+either the point-topology merge above or the explicit point-on-geometry `C`
+relation, depending on the selected candidate types.
+
 ## Geometry role
 
 The geometry role describes how the geometry is used:

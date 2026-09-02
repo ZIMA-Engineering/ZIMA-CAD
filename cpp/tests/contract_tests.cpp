@@ -1,6 +1,7 @@
 #include <zima/document/part_document.hpp>
 #include <zima/document/document_session.hpp>
 #include <zima/kernel/occt_kernel.hpp>
+#include <zima/kernel/stable_id.hpp>
 #include <zima/sketcher/sketch_trim.hpp>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
@@ -58,6 +59,38 @@ double viewer_triangle_area(const zima::kernel::ViewerMesh& mesh) {
 
 int main() {
     try {
+        std::set<std::string> generated_stable_ids;
+        std::string previous_stable_id;
+        for (int index = 0; index < 4096; ++index) {
+            const auto id = zima::kernel::make_stable_id();
+            require(id.size() == 32 && id[12] == '7' &&
+                        std::string("89ab").find(id[16]) != std::string::npos &&
+                        std::ranges::all_of(id, [](char value) {
+                            return (value >= '0' && value <= '9') ||
+                                (value >= 'a' && value <= 'f');
+                        }),
+                    "Stable ID is not a compact RFC UUIDv7");
+            require(previous_stable_id.empty() || previous_stable_id < id,
+                    "Stable UUID generator lost monotonic creation order");
+            previous_stable_id = id;
+            generated_stable_ids.insert(id);
+        }
+        require(generated_stable_ids.size() == 4096,
+                "Stable UUID generator produced a collision");
+        const auto start_part_template =
+            zima::document::PartDocument::load(
+                std::filesystem::current_path() /
+                "config/templates/start_part.prtz");
+        require(start_part_template.document_id == "template-start-part" &&
+                    start_part_template.history.empty() &&
+                    start_part_template.sketches.empty() &&
+                    start_part_template.constructions.empty() &&
+                    start_part_template.physical_parameters.at("MATERIAL_NAME") ==
+                        "S235JR" &&
+                    start_part_template.physical_parameters.contains("YOUNG_MODULUS") &&
+                    start_part_template.physical_parameters.contains(
+                        "STRESS_LIMIT_FOR_TENSION"),
+                "Start Part template is stale or has no complete S235JR assignment");
         const auto fixture_dir = std::filesystem::current_path() /
             "tests/fixtures/cross_language";
         std::vector<zima::kernel::BodyResult> fixture_boundaries;
@@ -600,6 +633,18 @@ int main() {
         require(selected_box_display_edge != body.mesh.edges.end() &&
                     selected_box_display_edge->
                         edge_treatment_side_directions.size() == 2 &&
+                    selected_box_display_edge->
+                        edge_treatment_side_references.size() == 2 &&
+                    selected_box_display_edge->
+                        edge_treatment_endpoint_references.size() == 2 &&
+                    std::tie(selected_box_display_edge->
+                            edge_treatment_side_references[0].owner_id,
+                        selected_box_display_edge->
+                            edge_treatment_side_references[0].semantic_key) <
+                        std::tie(selected_box_display_edge->
+                            edge_treatment_side_references[1].owner_id,
+                        selected_box_display_edge->
+                            edge_treatment_side_references[1].semantic_key) &&
                     std::ranges::all_of(
                         selected_box_display_edge->
                             edge_treatment_side_directions,
@@ -694,6 +739,125 @@ int main() {
                             edge.edge_treatment_owner_ids.end();
                     }),
                 "Chamfer did not persist its visible treatment boundary wire");
+
+        const auto two_distance_chamfer = kernel.evaluate_history({
+            {"box", zima::kernel::BoxRequest{100.0, 80.0, 50.0},
+             zima::kernel::BooleanOperation::Add},
+            {"chamfer-a-b", zima::kernel::ChamferRequest{
+                {selected_box_edge},
+                zima::kernel::ChamferRequest::Mode::TwoDistances,
+                2.0, 5.0, std::numbers::pi / 4.0, false},
+             zima::kernel::BooleanOperation::Add},
+        });
+        const auto flipped_two_distance_chamfer = kernel.evaluate_history({
+            {"box", zima::kernel::BoxRequest{100.0, 80.0, 50.0},
+             zima::kernel::BooleanOperation::Add},
+            {"chamfer-a-b", zima::kernel::ChamferRequest{
+                {selected_box_edge},
+                zima::kernel::ChamferRequest::Mode::TwoDistances,
+                2.0, 5.0, std::numbers::pi / 4.0, true},
+             zima::kernel::BooleanOperation::Add},
+        });
+        require(two_distance_chamfer.size() == 2 &&
+                    flipped_two_distance_chamfer.size() == 2 &&
+                    two_distance_chamfer.back().volume < body.volume &&
+                    flipped_two_distance_chamfer.back().volume < body.volume &&
+                    two_distance_chamfer.back().mesh.vertices !=
+                        flipped_two_distance_chamfer.back().mesh.vertices,
+                "A x B Chamfer or FLIP did not select a stable opposite support face");
+        const auto distance_angle_chamfer = kernel.evaluate_history({
+            {"box", zima::kernel::BoxRequest{100.0, 80.0, 50.0},
+             zima::kernel::BooleanOperation::Add},
+            {"chamfer-a-angle", zima::kernel::ChamferRequest{
+                {selected_box_edge},
+                zima::kernel::ChamferRequest::Mode::DistanceAngle,
+                3.0, 1.0, std::numbers::pi / 6.0, false},
+             zima::kernel::BooleanOperation::Add},
+        });
+        require(distance_angle_chamfer.size() == 2 &&
+                    distance_angle_chamfer.back().volume < body.volume,
+                "A + angle Chamfer did not produce a valid bounded solid");
+        const auto linear_fillet = kernel.evaluate_history({
+            {"box", zima::kernel::BoxRequest{100.0, 80.0, 50.0},
+             zima::kernel::BooleanOperation::Add},
+            {"linear-fillet", zima::kernel::FilletRequest{
+                {selected_box_edge},
+                zima::kernel::FilletRequest::Mode::Linear,
+                2.0, 5.0, false,
+                {selected_box_display_edge->
+                    edge_treatment_endpoint_references.front()}},
+             zima::kernel::BooleanOperation::Add},
+        });
+        const auto reversed_linear_fillet = kernel.evaluate_history({
+            {"box", zima::kernel::BoxRequest{100.0, 80.0, 50.0},
+             zima::kernel::BooleanOperation::Add},
+            {"linear-fillet", zima::kernel::FilletRequest{
+                {selected_box_edge},
+                zima::kernel::FilletRequest::Mode::Linear,
+                2.0, 5.0, true,
+                {selected_box_display_edge->
+                    edge_treatment_endpoint_references.front()}},
+             zima::kernel::BooleanOperation::Add},
+        });
+        require(linear_fillet.size() == 2 &&
+                    reversed_linear_fillet.size() == 2 &&
+                    linear_fillet.back().volume < body.volume &&
+                    reversed_linear_fillet.back().volume < body.volume &&
+                    linear_fillet.back().mesh.vertices !=
+                        reversed_linear_fillet.back().mesh.vertices,
+                "Linear R1 -> R2 Fillet or direction reversal did not affect geometry");
+        const auto fillet_radius_at_endpoint = [](const auto& result,
+                                                   std::string_view owner_id,
+                                                   const auto& endpoint,
+                                                   const auto& opposite) {
+            const auto axis_x = opposite.x - endpoint.x;
+            const auto axis_y = opposite.y - endpoint.y;
+            const auto axis_z = opposite.z - endpoint.z;
+            const auto axis_length =
+                std::hypot(std::hypot(axis_x, axis_y), axis_z);
+            double radius = -1.0;
+            for (const auto& edge : result.mesh.edges) {
+                if (edge.reference.owner_id != owner_id || edge.points.empty())
+                    continue;
+                const bool lies_in_endpoint_plane =
+                    std::ranges::all_of(edge.points, [&](const auto& point) {
+                        const auto projection =
+                            ((point.x - endpoint.x) * axis_x +
+                             (point.y - endpoint.y) * axis_y +
+                             (point.z - endpoint.z) * axis_z) /
+                            axis_length;
+                        return std::abs(projection) < 1.0e-6;
+                    });
+                if (!lies_in_endpoint_plane) continue;
+                radius = std::max(radius, 0.0);
+                for (const auto& point : edge.points) {
+                    radius = std::max(radius,
+                        std::hypot(
+                            std::hypot(point.x - endpoint.x,
+                                       point.y - endpoint.y),
+                            point.z - endpoint.z));
+                }
+            }
+            return radius;
+        };
+        const auto& visual_start = selected_box_display_edge->points.front();
+        const auto& visual_end = selected_box_display_edge->points.back();
+        const auto start_radius = fillet_radius_at_endpoint(
+            linear_fillet.back(), "linear-fillet", visual_start, visual_end);
+        const auto end_radius = fillet_radius_at_endpoint(
+            linear_fillet.back(), "linear-fillet", visual_end, visual_start);
+        const auto reversed_start_radius = fillet_radius_at_endpoint(
+            reversed_linear_fillet.back(), "linear-fillet", visual_start,
+            visual_end);
+        const auto reversed_end_radius = fillet_radius_at_endpoint(
+            reversed_linear_fillet.back(), "linear-fillet", visual_end,
+            visual_start);
+        require(std::abs(start_radius - 2.0) < 0.1 &&
+                    std::abs(end_radius - 5.0) < 0.1 &&
+                    std::abs(reversed_start_radius - 5.0) < 0.1 &&
+                    std::abs(reversed_end_radius - 2.0) < 0.1,
+                "Variable Fillet R1/R2 did not follow the displayed route "
+                "direction and Reverse contract");
 
         const zima::kernel::EdgeReference first_fillet_edge{
             "box",
@@ -1415,6 +1579,28 @@ int main() {
                     constructions.constructions.front().origin ==
                         zima::kernel::Vec3{},
                 "Construction Point did not resolve the persisted document Origin");
+        const auto document_origin_mesh = constructions.origin_viewer_mesh();
+        const auto document_origin_xy = std::find_if(
+            document_origin_mesh.edges.begin(), document_origin_mesh.edges.end(),
+            [](const auto& edge) {
+                return edge.reference.semantic_key == "origin:plane:xy";
+            });
+        const auto polyline_segment_length = [](const auto& edge) {
+            const auto& first = edge.points[0];
+            const auto& second = edge.points[1];
+            return std::hypot(std::hypot(second.x - first.x,
+                                         second.y - first.y),
+                              second.z - first.z);
+        };
+        require(document_origin_xy != document_origin_mesh.edges.end() &&
+                    document_origin_mesh.axes.size() == 3 &&
+                    std::all_of(document_origin_mesh.axes.begin(),
+                        document_origin_mesh.axes.end(), [&](const auto& axis) {
+                            return std::abs(axis.display_length * 2.0 -
+                                polyline_segment_length(*document_origin_xy)) <
+                                1.0e-12;
+                        }),
+                "Document Origin axis arrows do not terminate on the plane edge");
         auto plane_constrained_point =
             zima::document::PartDocument::create_construction(
                 zima::document::ConstructionKind::Point);
@@ -1568,6 +1754,35 @@ int main() {
                     container_dimensions[2].label_prefix.empty(),
                 "Universal container placement did not expose numeric-only "
                 "editable coordinate dimensions");
+        auto rotated_container_placement = container_placement;
+        rotated_container_placement.absolute_rotation_y = 35.0;
+        rotated_container_placement.rotation_y = 35.0;
+        const auto rotated_container_dimensions =
+            zima::document::container_placement_dimensions(
+                "container", rotated_container_placement,
+                document_origin_geometry);
+        const auto& rotation_dimension =
+            rotated_container_dimensions.back();
+        const double rotation_radius = std::hypot(std::hypot(
+            rotation_dimension.line_first.x -
+                rotation_dimension.witness_first.x,
+            rotation_dimension.line_first.y -
+                rotation_dimension.witness_first.y),
+            rotation_dimension.line_first.z -
+                rotation_dimension.witness_first.z);
+        require(rotated_container_dimensions.size() == 4 &&
+                    rotation_dimension.reference.semantic_key ==
+                        "parameter:placement:rotation_y" &&
+                    rotation_dimension.kind ==
+                        zima::kernel::ViewerDimensionKind::Angular &&
+                    rotation_dimension.label_prefix == "RY = " &&
+                    rotation_dimension.unit_suffix == " °" &&
+                    std::abs(rotation_dimension.value - 35.0) < 1.0e-9 &&
+                    std::abs(rotation_dimension.sweep_degrees - 35.0) <
+                        1.0e-9 &&
+                    std::abs(rotation_radius - 22.0) < 1.0e-9,
+                "Universal container placement did not expose its nonzero "
+                "angle in the separated angular dimension band");
         container_placement.references = dimensioned_point.references;
         container_placement.x = dimensioned_point.origin.x;
         container_placement.y = dimensioned_point.origin.y;
@@ -1653,6 +1868,287 @@ int main() {
                         axis.entity_id &&
                     construction_mesh.original_references.triangle_references.size() == 2,
                 "Construction objects did not produce persisted ZIMA references");
+        auto curve_document = zima::document::PartDocument::create_default();
+        auto curve = zima::document::PartDocument::create_construction(
+            zima::document::ConstructionKind::Curve3D);
+        curve.origin = {5.0, 6.0, 7.0};
+        curve.curve_type =
+            zima::document::Curve3DType::InterpolatingSpline;
+        auto curve_first = zima::document::PartDocument::create_construction(
+            zima::document::ConstructionKind::Point);
+        curve_first.parent_construction_id = curve.id;
+        curve_first.origin = {0.0, 0.0, 0.0};
+        curve_first.curve_tangent =
+            zima::document::Curve3DTangentMode::PositiveY;
+        curve_first.curve_tangent_enabled = true;
+        auto curve_second = zima::document::PartDocument::create_construction(
+            zima::document::ConstructionKind::Point);
+        curve_second.parent_construction_id = curve.id;
+        curve_second.origin = {10.0, 0.0, 0.0};
+        curve_second.curve_tangent =
+            zima::document::Curve3DTangentMode::NegativeY;
+        curve_second.curve_tangent_enabled = true;
+        const auto curve_id = curve.id;
+        const auto curve_first_id = curve_first.id;
+        const auto curve_second_id = curve_second.id;
+        curve.curve_points = {curve_first, curve_second};
+        curve_document.constructions.push_back(curve);
+        curve_document.insert_history_entry(
+            zima::document::PartHistoryKind::Construction, curve.id);
+        curve_document.resolve_constructions();
+        const auto curve_mesh = curve_document.construction_viewer_mesh();
+        const auto edited_curve_mesh =
+            curve_document.construction_viewer_mesh(curve_id);
+        const auto edited_curve_point_mesh =
+            curve_document.construction_viewer_mesh(curve_first_id);
+        const auto has_editing_axis = [](const auto& mesh,
+                                         const std::string& owner_id) {
+            return std::ranges::any_of(mesh.axes, [&](const auto& axis) {
+                return axis.reference.owner_id == owner_id &&
+                    axis.reference.semantic_key == "origin:axis:x";
+            }) && std::ranges::any_of(
+                mesh.original_references.axes, [&](const auto& axis) {
+                    return axis.reference.owner_id == owner_id &&
+                        axis.reference.semantic_key == "origin:axis:x";
+                });
+        };
+        require(curve_mesh.points.empty() && curve_mesh.edges.size() == 1 &&
+                    curve_mesh.edges.front().points.size() == 25 &&
+                    std::abs(curve_mesh.edges.front().points.front().x - 5.0) < 1.0e-9 &&
+                    std::abs(curve_mesh.edges.front().points.front().y - 6.0) < 1.0e-9 &&
+                    std::abs(curve_mesh.edges.front().points.back().x - 15.0) < 1.0e-9 &&
+                    curve_mesh.edges.front().points[1].y > 6.0 &&
+                    !curve_mesh.edges.front().construction &&
+                    curve_mesh.edges.front().overlay &&
+                    curve_mesh.edges.front().display_owner_id == curve_id &&
+                    curve_mesh.edges.front().reference.semantic_key ==
+                        "curve:segment:" + curve_first_id + ":" + curve_second_id &&
+                    edited_curve_mesh.points.size() == 3 &&
+                    has_editing_axis(
+                        edited_curve_point_mesh, curve.container_origin.id) &&
+                    has_editing_axis(edited_curve_point_mesh,
+                        curve_first.container_origin.id),
+                "3D Curve did not keep normal View leaf-only while exposing editing Points");
+        auto automatic_curve_document = curve_document;
+        auto* automatic_curve = automatic_curve_document.find_construction(curve_id);
+        require(automatic_curve != nullptr,
+            "3D Curve disappeared before automatic-tangent verification");
+        for (auto& point : automatic_curve->curve_points)
+            point.curve_tangent_enabled = false;
+        automatic_curve_document.resolve_constructions();
+        const auto automatic_curve_mesh =
+            automatic_curve_document.construction_viewer_mesh();
+        require(automatic_curve_mesh.edges.size() == 1 &&
+                    std::ranges::all_of(
+                        automatic_curve_mesh.edges.front().points,
+                        [](const auto& point) {
+                            return std::abs(point.y - 6.0) < 1.0e-9;
+                        }),
+                "Disabled 3D Curve directions still constrained interpolation tangents");
+        curve_document.find_construction(curve_id)
+            ->curve_points[1].curve_tangent_enabled = false;
+        const auto curve_path = std::filesystem::temp_directory_path() /
+            "zima-cad-cpp-curve3d-contract.prtz";
+        curve_document.save(curve_path);
+        const auto loaded_curve_document =
+            zima::document::PartDocument::load(curve_path);
+        std::filesystem::remove(curve_path);
+        const auto* loaded_curve =
+            loaded_curve_document.find_construction(curve_id);
+        require(loaded_curve != nullptr &&
+                    loaded_curve->kind ==
+                        zima::document::ConstructionKind::Curve3D &&
+                    loaded_curve->curve_type ==
+                        zima::document::Curve3DType::InterpolatingSpline &&
+                    loaded_curve->curve_points.size() == 2 &&
+                    loaded_curve->curve_points[0].id == curve_first_id &&
+                    loaded_curve->curve_points[1].id == curve_second_id &&
+                    loaded_curve->curve_points[0].parent_construction_id == curve_id &&
+                    loaded_curve->curve_points[0].curve_tangent ==
+                        zima::document::Curve3DTangentMode::PositiveY &&
+                    loaded_curve->curve_points[0].curve_tangent_enabled &&
+                    loaded_curve->curve_points[1].curve_tangent ==
+                        zima::document::Curve3DTangentMode::NegativeY &&
+                    !loaded_curve->curve_points[1].curve_tangent_enabled,
+                "3D Curve did not preserve point order, ownership, tangent axes and switches");
+
+        auto experimental_document =
+            zima::document::PartDocument::create_default();
+        auto experimental_curve =
+            zima::document::PartDocument::create_construction(
+                zima::document::ConstructionKind::Curve3DExperimental);
+        experimental_curve.curve_type =
+            zima::document::Curve3DType::InterpolatingSpline;
+        for (const auto& position : std::array{
+                 zima::kernel::Vec3{0.0, 0.0, 0.0},
+                 zima::kernel::Vec3{10.0, 10.0, 0.0},
+                 zima::kernel::Vec3{20.0, 0.0, 5.0}}) {
+            auto child = zima::document::PartDocument::create_construction(
+                zima::document::ConstructionKind::Point);
+            child.parent_construction_id = experimental_curve.id;
+            child.origin = position;
+            experimental_curve.curve_points.push_back(std::move(child));
+        }
+        const auto experimental_generator = zima::kernel::make_stable_id();
+        for (std::size_t index = 0; index + 1 <
+                experimental_curve.curve_points.size(); ++index) {
+            zima::document::Curve3DConnection connection;
+            connection.id = zima::kernel::make_stable_id();
+            connection.generator_id = experimental_generator;
+            connection.parent_construction_id = experimental_curve.id;
+            connection.start_point_id =
+                experimental_curve.curve_points[index].id;
+            connection.end_point_id =
+                experimental_curve.curve_points[index + 1].id;
+            connection.type = zima::document::Curve3DConnectionType::
+                InterpolatingSpline;
+            experimental_curve.curve_connections.push_back(
+                std::move(connection));
+        }
+        const auto experimental_solution =
+            zima::document::solve_experimental_curve3d(experimental_curve);
+        require(experimental_solution.valid &&
+                    experimental_solution.primitives.size() == 2 &&
+                    experimental_solution.primitives[0].generator_id ==
+                        experimental_generator &&
+                    experimental_solution.primitives[1].generator_id ==
+                        experimental_generator &&
+                    experimental_solution.primitives[0].points.size() == 25,
+                "Experimental global spline did not solve as one persisted generator");
+        auto influenced_curve = experimental_curve;
+        influenced_curve.curve_points.back().origin.y = 20.0;
+        const auto influenced_solution =
+            zima::document::solve_experimental_curve3d(influenced_curve);
+        require(influenced_solution.valid &&
+                    std::abs(influenced_solution.primitives[0].points[12].y -
+                        experimental_solution.primitives[0].points[12].y) >
+                        1.0e-6,
+                "Experimental spline was calculated per interval instead of globally");
+
+        auto sketch_curve = experimental_curve;
+        sketch_curve.curve_points.resize(2);
+        sketch_curve.curve_connections.resize(1);
+        auto& sketch_connection = sketch_curve.curve_connections.front();
+        sketch_connection.type =
+            zima::document::Curve3DConnectionType::Sketch;
+        sketch_connection.generator_id = sketch_connection.id;
+        auto trajectory_sketch = zima::sketcher::Sketch::create_default();
+        trajectory_sketch.owner_container_id = sketch_curve.id;
+        trajectory_sketch.plane_reference_owner_id =
+            "trajectory-frame:" + sketch_connection.id;
+        const double diagonal = std::sqrt(200.0);
+        trajectory_sketch.resolved_origin = {0.0, 0.0, 0.0};
+        trajectory_sketch.resolved_x_axis = {
+            1.0 / std::sqrt(2.0), 1.0 / std::sqrt(2.0), 0.0};
+        trajectory_sketch.resolved_y_axis = {0.0, 0.0, 1.0};
+        trajectory_sketch.resolved_normal = {
+            1.0 / std::sqrt(2.0), -1.0 / std::sqrt(2.0), 0.0};
+        const auto trajectory_start = trajectory_sketch.add_point(0.0, 0.0);
+        const auto trajectory_end = trajectory_sketch.add_point(diagonal, 0.0);
+        trajectory_sketch.set_point_fixed(trajectory_start, true);
+        trajectory_sketch.set_point_fixed(trajectory_end, true);
+        static_cast<void>(trajectory_sketch.add_segment(
+            0.0, 0.0, diagonal, 0.0));
+        sketch_connection.sketch_id = trajectory_sketch.id;
+        sketch_connection.sketch_start_point_id = trajectory_start;
+        sketch_connection.sketch_end_point_id = trajectory_end;
+        sketch_connection.sketch_plane_valid = true;
+        sketch_connection.sketch_serialized = trajectory_sketch.serialized();
+        const auto trajectory_sketch_solution =
+            zima::document::solve_experimental_curve3d(sketch_curve);
+        require(trajectory_sketch_solution.valid &&
+                    trajectory_sketch_solution.primitives.size() == 1 &&
+                    trajectory_sketch_solution.primitives.front().semantic_key ==
+                        "trajectory:sketch:" + sketch_connection.generator_id,
+                "A connected START-END trajectory Sketch was not solved");
+
+        auto branched_sketch = zima::sketcher::Sketch::create_default();
+        branched_sketch.owner_container_id = sketch_curve.id;
+        branched_sketch.plane_reference_owner_id =
+            trajectory_sketch.plane_reference_owner_id;
+        branched_sketch.resolved_origin = trajectory_sketch.resolved_origin;
+        branched_sketch.resolved_x_axis = trajectory_sketch.resolved_x_axis;
+        branched_sketch.resolved_y_axis = trajectory_sketch.resolved_y_axis;
+        branched_sketch.resolved_normal = trajectory_sketch.resolved_normal;
+        const auto branch_start = branched_sketch.add_point(0.0, 0.0);
+        static_cast<void>(branched_sketch.add_point(diagonal * 0.5, 0.0));
+        const auto branch_end = branched_sketch.add_point(diagonal, 0.0);
+        static_cast<void>(branched_sketch.add_point(diagonal * 0.5, 5.0));
+        branched_sketch.set_point_fixed(branch_start, true);
+        branched_sketch.set_point_fixed(branch_end, true);
+        static_cast<void>(branched_sketch.add_segment(
+            0.0, 0.0, diagonal * 0.5, 0.0));
+        static_cast<void>(branched_sketch.add_segment(
+            diagonal * 0.5, 0.0, diagonal, 0.0));
+        static_cast<void>(branched_sketch.add_segment(
+            diagonal * 0.5, 0.0, diagonal * 0.5, 5.0));
+        sketch_connection.sketch_id = branched_sketch.id;
+        sketch_connection.sketch_start_point_id = branch_start;
+        sketch_connection.sketch_end_point_id = branch_end;
+        sketch_connection.sketch_serialized = branched_sketch.serialized();
+        require(!zima::document::solve_experimental_curve3d(sketch_curve).valid,
+                "A branched trajectory Sketch was accepted as one path");
+        const auto experimental_id = experimental_curve.id;
+        const auto experimental_point_origins =
+            std::array{experimental_curve.curve_points[0].container_origin.id,
+                experimental_curve.curve_points[1].container_origin.id,
+                experimental_curve.curve_points[2].container_origin.id};
+        experimental_document.constructions.push_back(experimental_curve);
+        experimental_document.insert_history_entry(
+            zima::document::PartHistoryKind::Construction, experimental_id);
+        experimental_document.resolve_constructions();
+        const auto experimental_edit_mesh =
+            experimental_document.construction_viewer_mesh(experimental_id);
+        require(std::ranges::all_of(experimental_point_origins,
+                    [&](const auto& origin_id) {
+                        return std::ranges::any_of(
+                            experimental_edit_mesh.axes, [&](const auto& axis) {
+                                return axis.reference.owner_id == origin_id &&
+                                    axis.reference.semantic_key ==
+                                        "origin:axis:x";
+                            });
+                    }),
+                "3D trajectory Properties did not expose every child Point Origin");
+        const auto experimental_point_references =
+            experimental_document.construction_reference_geometry_for(
+                experimental_curve.curve_points[1].id, {});
+        require(std::ranges::all_of(experimental_point_origins,
+                    [&](const auto& origin_id) {
+                        const bool has_axis = std::ranges::any_of(
+                            experimental_point_references.axes,
+                            [&](const auto& axis) {
+                                return axis.reference.owner_id == origin_id;
+                            });
+                        const bool has_plane = std::ranges::any_of(
+                            experimental_point_references.triangle_references,
+                            [&](const auto& face) {
+                                return face.owner_id == origin_id &&
+                                    face.semantic_key.starts_with(
+                                        "origin:plane:");
+                            });
+                        return has_axis && has_plane;
+                    }),
+                "Sibling Point Origins were visible but not available to the reference picker");
+        const auto experimental_path =
+            std::filesystem::temp_directory_path() /
+            "zima-cad-cpp-experimental-curve3d-contract.prtz";
+        experimental_document.save(experimental_path);
+        const auto loaded_experimental_document =
+            zima::document::PartDocument::load(experimental_path);
+        std::filesystem::remove(experimental_path);
+        const auto* loaded_experimental =
+            loaded_experimental_document.find_construction(experimental_id);
+        require(loaded_experimental != nullptr &&
+                    loaded_experimental->kind ==
+                        zima::document::ConstructionKind::Curve3DExperimental &&
+                    loaded_experimental->curve_type ==
+                        zima::document::Curve3DType::InterpolatingSpline &&
+                    loaded_experimental->curve_connections.size() == 2 &&
+                    loaded_experimental->curve_connections[0].generator_id ==
+                        experimental_generator &&
+                    loaded_experimental->curve_connections[1].generator_id ==
+                        experimental_generator,
+                "Experimental 3D trajectory lost its stable interval model on save/load");
         auto solid_origin_document =
             zima::document::PartDocument::create_default();
         auto solid_origin_box =
@@ -1673,6 +2169,12 @@ int main() {
                 "Basic solid did not publish its persisted placement-origin marker");
         const auto edited_point_mesh =
             constructions.construction_viewer_mesh(point.id);
+        const auto edited_point_origin_xy = std::find_if(
+            edited_point_mesh.edges.begin(), edited_point_mesh.edges.end(),
+            [&](const auto& edge) {
+                return edge.reference.owner_id == point.id + ":origin" &&
+                    edge.reference.semantic_key == "origin:plane:xy";
+            });
         // Editing the Point adds its origin frame, but not a duplicate of
         // the Point entity itself; Axis and Plane keep their own markers.
         require(edited_point_mesh.points.size() == 3 &&
@@ -1687,11 +2189,12 @@ int main() {
                         }) &&
                     std::all_of(edited_point_mesh.axes.begin(),
                         edited_point_mesh.axes.begin() + 3,
-                        [](const auto& value) {
-                            // Matches kContainerOriginAxisLength: a fixed
-                            // constant, independent of scene/model size or
-                            // camera zoom (see construction_viewer_mesh()).
-                            return std::abs(value.display_length - 5.0) < 1.0e-12;
+                        [&](const auto& value) {
+                            return edited_point_origin_xy !=
+                                    edited_point_mesh.edges.end() &&
+                                std::abs(value.display_length * 2.0 -
+                                    polyline_segment_length(
+                                        *edited_point_origin_xy)) < 1.0e-12;
                         }),
                 "Edited Point did not expose its distinct Container Origin");
         auto second_point = zima::document::PartDocument::create_construction(
@@ -2086,6 +2589,59 @@ int main() {
                     "Container placement without a FRONT/TOP reference did not "
                     "preserve absolute RX/RY/RZ or incorrectly applied correction");
 
+            // A point is a complete positional constraint, not an orientation
+            // constraint.  One/two following planes therefore describe only
+            // the local frame and must not demand that the selected point lies
+            // on either plane.
+            auto point_plane_geometry = document_origin_geometry;
+            point_plane_geometry.points.push_back(
+                {{10.0, 20.0, 30.0}, {"fixture-point", "point"}});
+            zima::document::Placement point_only_placement;
+            point_only_placement.absolute_rotation_x = 11.0;
+            point_only_placement.absolute_rotation_y = 22.0;
+            point_only_placement.absolute_rotation_z = 33.0;
+            point_only_placement.references = {{{}, "fixture-point", "point"}};
+            bool point_only_oriented = true;
+            require(zima::document::resolve_placement(point_only_placement,
+                        point_plane_geometry, nullptr, &point_only_oriented) &&
+                        !point_only_oriented &&
+                        std::abs(point_only_placement.x - 10.0) < 1.0e-7 &&
+                        std::abs(point_only_placement.y - 20.0) < 1.0e-7 &&
+                        std::abs(point_only_placement.z - 30.0) < 1.0e-7 &&
+                        std::abs(point_only_placement.rotation_x - 11.0) < 1.0e-9 &&
+                        std::abs(point_only_placement.rotation_y - 22.0) < 1.0e-9 &&
+                        std::abs(point_only_placement.rotation_z - 33.0) < 1.0e-9,
+                    "Point placement consumed or replaced editable absolute rotation");
+
+            auto point_one_plane = point_only_placement;
+            point_one_plane.references.push_back({{},
+                constructions.document_id + ":origin", "origin:plane:xz",
+                0.0, false, "direction", true, true});
+            require(zima::document::orientation_constraint_remaining_dof(
+                        point_one_plane.references, point_plane_geometry, true,
+                        {10.0, 20.0, 30.0}) == 1 &&
+                        zima::document::resolve_placement(
+                            point_one_plane, point_plane_geometry) &&
+                        std::abs(point_one_plane.x - 10.0) < 1.0e-7 &&
+                        std::abs(point_one_plane.y - 20.0) < 1.0e-7 &&
+                        std::abs(point_one_plane.z - 30.0) < 1.0e-7,
+                    "Point plus one orientation-only plane relocated the container");
+
+            auto point_two_planes = point_one_plane;
+            point_two_planes.references.push_back({{},
+                constructions.document_id + ":origin", "origin:plane:xy",
+                0.0, false, "direction", true, true});
+            require(zima::document::orientation_constraint_remaining_dof(
+                        point_two_planes.references, point_plane_geometry, true,
+                        {10.0, 20.0, 30.0}) == 0 &&
+                        zima::document::resolve_placement(
+                            point_two_planes, point_plane_geometry) &&
+                        std::abs(point_two_planes.x - 10.0) < 1.0e-7 &&
+                        std::abs(point_two_planes.y - 20.0) < 1.0e-7 &&
+                        std::abs(point_two_planes.z - 30.0) < 1.0e-7,
+                    "Point plus two orientation-only planes did not fully orient "
+                    "the same fixed container origin");
+
             zima::document::Placement composed_placement;
             composed_placement.rotation_offset_z = 15.0;
             composed_placement.references = {
@@ -2341,7 +2897,7 @@ int main() {
                             displayed_plane->points[1].x -
                                 displayed_plane->points[0].x,
                             displayed_plane->points[1].y -
-                                displayed_plane->points[0].y) - 7.5) < 1.0e-9,
+                                displayed_plane->points[0].y) - 5.0) < 1.0e-9,
                     "Displayed Plane quad ignored its selected local XY plane");
             const auto edge_length = [](const auto& edge) {
                 const auto& first = edge.points[0];
@@ -2363,8 +2919,8 @@ int main() {
             };
             require(std::abs(edge_length(*displayed_plane) -
                              edge_length(*local_origin_xy)) < 1.0e-9 &&
-                        std::abs(border_length(tiny_scene_plane) - 7.5) < 1.0e-9 &&
-                        std::abs(border_length(huge_scene_plane) - 7.5) < 1.0e-9,
+                        std::abs(border_length(tiny_scene_plane) - 5.0) < 1.0e-9 &&
+                        std::abs(border_length(huge_scene_plane) - 5.0) < 1.0e-9,
                     "Work Plane and Container Origin planes do not share one fixed display size");
             require(std::any_of(local_plane_mesh.points.begin(),
                         local_plane_mesh.points.end(), [](const auto& point) {
@@ -2434,6 +2990,75 @@ int main() {
                     rounded_document.sketches.front().corner_radii.front().id ==
                         rounded_radius.arc_id,
                 "Corner radius did not remain non-destructive or reach Extrusion");
+        const auto rounded_preview_matches_evaluated_profile = [](
+                const zima::sketcher::Sketch& source,
+                const std::vector<zima::kernel::ViewerEdge>& preview) {
+            const auto evaluated = source.evaluated_profile_sketch();
+            const auto evaluated_mesh = evaluated.viewer_mesh();
+            const auto is_profile_edge = [](const auto& edge) {
+                if (edge.construction || edge.points.size() < 2) return false;
+                const auto& key = edge.reference.semantic_key;
+                return key.starts_with("segment:") ||
+                    key.starts_with("circle:") || key.starts_with("arc:") ||
+                    key.starts_with("ellipse:") ||
+                    key.starts_with("elliptical_arc:") ||
+                    key.starts_with("bspline:") || key.starts_with("text:");
+            };
+            const auto expected = std::count_if(
+                evaluated_mesh.edges.begin(), evaluated_mesh.edges.end(),
+                is_profile_edge);
+            const auto count_role = [&](std::string_view role) {
+                return std::count_if(preview.begin(), preview.end(),
+                    [&](const auto& edge) {
+                        return edge.reference.semantic_key == role;
+                    });
+            };
+            const auto has_sampled_role = [&](std::string_view role) {
+                return std::any_of(preview.begin(), preview.end(),
+                    [&](const auto& edge) {
+                        return edge.reference.semantic_key == role &&
+                            edge.points.size() > 2;
+                    });
+            };
+            return expected > 0 &&
+                count_role("preview:start") == expected &&
+                count_role("preview:end") == expected &&
+                has_sampled_role("preview:start") &&
+                has_sampled_role("preview:end");
+        };
+        const auto rounded_extrusion_preview =
+            rounded_document.extrusion_preview_edges(
+                rounded_document.history.front());
+        require(rounded_preview_matches_evaluated_profile(
+                    rounded_document.sketches.front(),
+                    rounded_extrusion_preview),
+                "Rounded Extrusion cyan wire diverged from its evaluated profile");
+        auto rounded_thin_extrusion = rounded_document;
+        rounded_thin_extrusion.history.front().extrusion.result_type =
+            zima::document::ProfileResultType::Thin;
+        rounded_thin_extrusion.history.front().extrusion.thin_thickness = 2.0;
+        rounded_thin_extrusion.history.front().extrusion.thin_mode =
+            zima::document::ThinMode::Symmetric;
+        const auto rounded_thin_preview =
+            rounded_thin_extrusion.extrusion_preview_edges(
+                rounded_thin_extrusion.history.front());
+        const auto has_closed_thin_role = [](const auto& preview,
+                                             std::string_view role) {
+            return std::any_of(preview.begin(), preview.end(),
+                [&](const auto& edge) {
+                    if (edge.reference.semantic_key != role ||
+                        edge.points.size() < 4) return false;
+                    const auto& first = edge.points.front();
+                    const auto& last = edge.points.back();
+                    return std::hypot(std::hypot(
+                        first.x-last.x, first.y-last.y), first.z-last.z) < 1.0e-7;
+                });
+        };
+        require(has_closed_thin_role(
+                    rounded_thin_preview, "preview:start:thin:inside") &&
+                    has_closed_thin_role(
+                        rounded_thin_preview, "preview:start:thin:outside"),
+                "Rounded Thin Extrusion cyan wire lost its corner-radius arc");
         const auto solid_only_preview =
             extrusion_document.extrusion_preview_edges(
                 extrusion_document.history.front());
@@ -2713,7 +3338,15 @@ int main() {
         auto parity_fillet =
             zima::document::PartDocument::create_fillet_container(
                 {parity_edge->reference});
-        parity_fillet.edge_treatment.size = 1.5;
+        parity_fillet.edge_treatment.primary_size = 1.5;
+        parity_fillet.edge_treatment.fillet_mode =
+            zima::document::EdgeTreatmentParameters::FilletMode::Linear;
+        parity_fillet.edge_treatment.secondary_size = 2.25;
+        parity_fillet.edge_treatment.reverse = true;
+        require(parity_edge->edge_treatment_endpoint_references.size() == 2,
+            "Parity workflow edge has no stable variable-Fillet endpoints");
+        parity_fillet.edge_treatment.route_start_vertices = {
+            parity_edge->edge_treatment_endpoint_references.front()};
         parity_document.history.push_back(parity_fillet);
         const auto parity_filleted = kernel.evaluate_history(
             parity_document.kernel_operations());
@@ -2747,6 +3380,14 @@ int main() {
                     loaded_parity_results.size() == 2 &&
                     loaded_parity.history.back().feature_kind ==
                         zima::document::FeatureKind::Fillet &&
+                    loaded_parity.history.back().edge_treatment.fillet_mode ==
+                        zima::document::EdgeTreatmentParameters::FilletMode::Linear &&
+                    loaded_parity.history.back().edge_treatment.primary_size == 1.5 &&
+                    loaded_parity.history.back().edge_treatment.secondary_size == 2.25 &&
+                    loaded_parity.history.back().edge_treatment.reverse &&
+                    loaded_parity.history.back().edge_treatment.
+                        route_start_vertices ==
+                        parity_fillet.edge_treatment.route_start_vertices &&
                     std::ranges::any_of(
                         loaded_parity_results.back().mesh.edges,
                         [&](const auto& edge) {
@@ -3793,6 +4434,38 @@ int main() {
                     revolution_results.front().mesh.original_references.axes.front()
                         .reference.semantic_key == "axis:primary",
                 "Full Sketch Revolution has an incorrect volume or axis");
+        auto rounded_revolution_document =
+            zima::document::PartDocument::create_default();
+        auto rounded_revolution_sketch =
+            zima::sketcher::Sketch::create_default();
+        const auto rounded_revolution_segments =
+            rounded_revolution_sketch.add_rectangle(10.0, 5.0, 20.0, 8.0);
+        static_cast<void>(rounded_revolution_sketch.add_corner_fillet(
+            rounded_revolution_segments[0],
+            rounded_revolution_segments[1], 1.0));
+        const auto rounded_revolution_axis =
+            add_revolution_axis(rounded_revolution_sketch);
+        const auto rounded_revolution_sketch_id =
+            rounded_revolution_sketch.id;
+        rounded_revolution_document.sketches.push_back(
+            std::move(rounded_revolution_sketch));
+        auto rounded_revolution_container =
+            zima::document::PartDocument::create_revolution_container(
+                rounded_revolution_sketch_id);
+        rounded_revolution_container.revolution.axis_segment_id =
+            rounded_revolution_axis;
+        rounded_revolution_document.history.push_back(
+            std::move(rounded_revolution_container));
+        const auto rounded_revolution_results = kernel.evaluate_history(
+            rounded_revolution_document.kernel_operations());
+        const auto rounded_revolution_preview =
+            rounded_revolution_document.revolution_preview_edges(
+                rounded_revolution_document.history.front());
+        require(rounded_revolution_results.size() == 1 &&
+                    rounded_preview_matches_evaluated_profile(
+                        rounded_revolution_document.sketches.front(),
+                        rounded_revolution_preview),
+                "Rounded Revolution cyan wire diverged from its evaluated profile");
         std::set<std::string> full_revolution_faces;
         for (const auto& reference : revolution_results.front().mesh
                  .original_references.triangle_references) {
@@ -4210,6 +4883,239 @@ int main() {
         require(zima::document::orientation_constraint_remaining_dof(
                     orientation_refs, orientation_geometry, true) == 0,
                 "Independent second direction did not fully constrain orientation");
+
+        auto sweep_document = zima::document::PartDocument::create_default();
+        auto sweep_container =
+            zima::document::PartDocument::create_sweep3d_container();
+        auto sweep_first = zima::document::PartDocument::create_construction(
+            zima::document::ConstructionKind::Point);
+        sweep_first.name = "Bod 1";
+        sweep_first.parent_construction_id = sweep_container.sweep3d.path.id;
+        sweep_first.origin = {0.0, 0.0, 0.0};
+        auto sweep_second = zima::document::PartDocument::create_construction(
+            zima::document::ConstructionKind::Point);
+        sweep_second.name = "Bod 2";
+        sweep_second.parent_construction_id = sweep_container.sweep3d.path.id;
+        sweep_second.origin = {0.0, 0.0, 20.0};
+        const auto sweep_first_id = sweep_first.id;
+        const auto sweep_second_id = sweep_second.id;
+        sweep_container.sweep3d.path.curve_points = {
+            sweep_first, sweep_second};
+        auto sweep_profile = zima::sketcher::Sketch::create_default();
+        sweep_profile.owner_container_id = sweep_container.id;
+        static_cast<void>(sweep_profile.add_rectangle(-2.0, -3.0, 2.0, 3.0));
+        const auto sweep_profile_sketch_id = sweep_profile.id;
+        sweep_container.sweep3d.profiles.push_back({
+            "sweep-profile-contract", sweep_first_id,
+            sweep_profile_sketch_id, sweep_profile.serialized()});
+        require(zima::document::PartDocument::reframe_sweep3d_profile(
+                    sweep_container, 0),
+                "3D Sweep did not resolve its first profile frame");
+        const auto first_profile_geometry =
+            zima::sketcher::Sketch::from_serialized(
+                sweep_container.sweep3d.profiles.front().sketch_serialized);
+        sweep_container.sweep3d.profiles.front().point_id = sweep_second_id;
+        require(zima::document::PartDocument::reframe_sweep3d_profile(
+                    sweep_container, 0),
+                "3D Sweep profile could not be reassigned to another Point");
+        const auto reassigned_profile = zima::sketcher::Sketch::from_serialized(
+            sweep_container.sweep3d.profiles.front().sketch_serialized);
+        require(reassigned_profile.id == first_profile_geometry.id &&
+                    reassigned_profile.points == first_profile_geometry.points &&
+                    reassigned_profile.segments == first_profile_geometry.segments &&
+                    std::abs(reassigned_profile.resolved_origin.z - 20.0) < 1.0e-9,
+                "Reassigning a 3D Sweep profile changed its Sketch geometry or identity");
+        sweep_container.sweep3d.profiles.front().point_id = sweep_first_id;
+        require(zima::document::PartDocument::reframe_sweep3d_profile(
+                    sweep_container, 0),
+                "3D Sweep profile could not return to its first Point");
+        auto sweep_end_profile = zima::sketcher::Sketch::create_default();
+        sweep_end_profile.owner_container_id = sweep_container.id;
+        static_cast<void>(
+            sweep_end_profile.add_rectangle(-2.0, -3.0, 2.0, 3.0));
+        sweep_container.sweep3d.profiles.push_back({
+            "sweep-profile-contract-end", sweep_second_id,
+            sweep_end_profile.id, sweep_end_profile.serialized()});
+        require(zima::document::PartDocument::reframe_sweep3d_profile(
+                    sweep_container, 1),
+                "3D Sweep did not resolve its second profile frame");
+        sweep_document.history.push_back(sweep_container);
+        sweep_document.resolve_constructions();
+        const auto once_resolved_sweep_history = sweep_document.history;
+        sweep_document.resolve_constructions();
+        require(sweep_document.history == once_resolved_sweep_history,
+                "3D Sweep Point/profile resolution is not idempotent");
+        const auto sweep_boundaries = kernel.evaluate_history(
+            sweep_document.kernel_operations());
+        require(sweep_boundaries.size() == 1 &&
+                    std::abs(sweep_boundaries.front().volume - 480.0) < 1.0e-5,
+                "Straight polyline 3D Sweep through two profiles produced an "
+                "incorrect solid volume");
+
+        auto one_profile_sweep = sweep_container;
+        one_profile_sweep.sweep3d.profiles.resize(1);
+        auto one_profile_document =
+            zima::document::PartDocument::create_default();
+        one_profile_document.history.push_back(one_profile_sweep);
+        const auto one_profile_boundaries = kernel.evaluate_history(
+            one_profile_document.kernel_operations());
+        require(one_profile_boundaries.size() == 1 &&
+                    std::abs(one_profile_boundaries.back().volume - 480.0) <
+                        1.0e-5 &&
+                    !one_profile_boundaries.back().mesh.triangles.empty(),
+                "3D Sweep with one start profile did not create a visible solid");
+
+        auto sweep_boolean_box =
+            zima::document::PartDocument::create_box_container();
+        sweep_boolean_box.box = {10.0, 10.0, 20.0};
+        sweep_boolean_box.placement.x = -5.0;
+        sweep_boolean_box.placement.y = -5.0;
+        auto additive_sweep_document =
+            zima::document::PartDocument::create_default();
+        additive_sweep_document.history = {
+            sweep_boolean_box, one_profile_sweep};
+        const auto additive_sweep_boundaries = kernel.evaluate_history(
+            additive_sweep_document.kernel_operations());
+        require(additive_sweep_boundaries.size() == 2 &&
+                    additive_sweep_boundaries.back().volume > 2000.0 + 1.0e-5 &&
+                    additive_sweep_boundaries.back().volume < 2480.0 - 1.0e-5 &&
+                    !additive_sweep_boundaries.back().mesh.triangles.empty(),
+                "Additive 3D Sweep removed the existing visible solid");
+
+        auto subtractive_sweep = one_profile_sweep;
+        subtractive_sweep.combine_mode =
+            zima::document::CombineMode::Subtract;
+        auto subtractive_sweep_document =
+            zima::document::PartDocument::create_default();
+        subtractive_sweep_document.history = {
+            sweep_boolean_box, subtractive_sweep};
+        const auto subtractive_sweep_boundaries = kernel.evaluate_history(
+            subtractive_sweep_document.kernel_operations());
+        require(subtractive_sweep_boundaries.size() == 2 &&
+                    std::abs(subtractive_sweep_boundaries.back().volume -
+                        (additive_sweep_boundaries.back().volume - 480.0)) <
+                        1.0e-5 &&
+                    !subtractive_sweep_boundaries.back().mesh.triangles.empty(),
+                "Subtractive 3D Sweep did not cut the existing visible solid");
+
+        auto spline_sweep_document = zima::document::PartDocument::create_default();
+        auto spline_sweep_container = sweep_container;
+        spline_sweep_container.sweep3d.path.curve_type =
+            zima::document::Curve3DType::InterpolatingSpline;
+        spline_sweep_document.history.push_back(spline_sweep_container);
+        const auto spline_sweep_boundaries = kernel.evaluate_history(
+            spline_sweep_document.kernel_operations());
+        require(spline_sweep_boundaries.size() == 1 &&
+                    std::abs(spline_sweep_boundaries.front().volume - 480.0) <
+                        1.0e-5,
+                "Interpolating-spline 3D Sweep did not execute its exact "
+                "Bezier path through two profiles");
+
+        // A vertical polygon concealed two independent Sweep frame defects:
+        // exact Circle/Ellipse profiles need their Sketch-plane normal, and
+        // the profile plane must use the very same Bezier derivative as the
+        // visible ordinary Curve3D. Exercise both on a genuinely oblique,
+        // non-collinear spatial spline.
+        auto oblique_sweep_document =
+            zima::document::PartDocument::create_default();
+        auto oblique_sweep =
+            zima::document::PartDocument::create_sweep3d_container();
+        oblique_sweep.sweep3d.path.curve_type =
+            zima::document::Curve3DType::InterpolatingSpline;
+        for (const auto position : std::array{
+                 zima::kernel::Vec3{0.0, 0.0, 0.0},
+                 zima::kernel::Vec3{15.0, 4.0, 8.0},
+                 zima::kernel::Vec3{30.0, 0.0, 16.0}}) {
+            auto point = zima::document::PartDocument::create_construction(
+                zima::document::ConstructionKind::Point);
+            point.parent_construction_id = oblique_sweep.sweep3d.path.id;
+            point.origin = position;
+            oblique_sweep.sweep3d.path.curve_points.push_back(
+                std::move(point));
+        }
+        auto oblique_profile = zima::sketcher::Sketch::create_default();
+        oblique_profile.owner_container_id = oblique_sweep.id;
+        static_cast<void>(oblique_profile.add_circle(0.0, 0.0, 0.75));
+        oblique_sweep.sweep3d.profiles.push_back({
+            "oblique-sweep-circle-profile",
+            oblique_sweep.sweep3d.path.curve_points.front().id,
+            oblique_profile.id, oblique_profile.serialized()});
+        oblique_sweep_document.history.push_back(std::move(oblique_sweep));
+        const auto oblique_operations =
+            oblique_sweep_document.kernel_operations();
+        const auto* oblique_request =
+            std::get_if<zima::kernel::Sweep3DRequest>(
+                &oblique_operations.front().primitive);
+        require(oblique_request != nullptr &&
+                    oblique_request->sections.size() == 1 &&
+                    oblique_request->path_segments.size() == 2 &&
+                    oblique_request->path_segments.front()
+                        .bezier_control_points.size() == 4,
+                "Oblique 3D Sweep did not preserve its exact spline request");
+        const auto& oblique_section = oblique_request->sections.front();
+        const auto& oblique_controls = oblique_request->path_segments.front()
+            .bezier_control_points;
+        const zima::kernel::Vec3 oblique_derivative{
+            oblique_controls[1].x - oblique_controls[0].x,
+            oblique_controls[1].y - oblique_controls[0].y,
+            oblique_controls[1].z - oblique_controls[0].z};
+        const double derivative_length = std::hypot(
+            std::hypot(oblique_derivative.x, oblique_derivative.y),
+            oblique_derivative.z);
+        const double section_normal_length = std::hypot(
+            std::hypot(oblique_section.profile_normal.x,
+                       oblique_section.profile_normal.y),
+            oblique_section.profile_normal.z);
+        const double frame_alignment =
+            (oblique_derivative.x * oblique_section.profile_normal.x +
+             oblique_derivative.y * oblique_section.profile_normal.y +
+             oblique_derivative.z * oblique_section.profile_normal.z) /
+            (derivative_length * section_normal_length);
+        require(frame_alignment > 0.999999 &&
+                    std::abs(oblique_section.profile_normal.z) < 0.999 &&
+                    std::get_if<
+                        zima::kernel::ExtrusionRequest::CircleProfile>(
+                        &oblique_section.profile.outer_profile) != nullptr,
+                "3D Sweep profile plane diverged from the visible spline "
+                "tangent or lost its exact circular profile");
+        auto differently_framed_operations = oblique_operations;
+        auto& differently_framed_request =
+            std::get<zima::kernel::Sweep3DRequest>(
+                differently_framed_operations.front().primitive);
+        differently_framed_request.sections.front().profile_normal =
+            {0.0, 0.0, 1.0};
+        require(zima::kernel::history_fingerprint(oblique_operations, 1) !=
+                    zima::kernel::history_fingerprint(
+                        differently_framed_operations, 1),
+                "3D Sweep Sketch-plane normal is missing from the body "
+                "calculation fingerprint");
+        const auto oblique_sweep_boundaries = kernel.evaluate_history(
+            oblique_operations);
+        require(oblique_sweep_boundaries.size() == 1 &&
+                    std::isfinite(oblique_sweep_boundaries.front().volume) &&
+                    oblique_sweep_boundaries.front().volume > 1.0 &&
+                    !oblique_sweep_boundaries.front().mesh.triangles.empty(),
+                "OCCT did not build the circular profile in its oblique "
+                "ZIMA Sketch plane");
+        const auto sweep_path = std::filesystem::temp_directory_path() /
+            "zima-cad-sweep3d-contract.prtz";
+        sweep_document.save(sweep_path, sweep_boundaries);
+        std::vector<zima::kernel::BodyResult> loaded_sweep_boundaries;
+        const auto loaded_sweep = zima::document::PartDocument::load(
+            sweep_path, &loaded_sweep_boundaries);
+        std::filesystem::remove(sweep_path);
+        require(loaded_sweep.history.size() == 1 &&
+                    loaded_sweep.history.front().feature_kind ==
+                        zima::document::FeatureKind::Sweep3D &&
+                    loaded_sweep.history.front().sweep3d.profiles.size() == 2 &&
+                    loaded_sweep.history.front().sweep3d.profiles.front().point_id ==
+                        sweep_first_id &&
+                    loaded_sweep.history.front().sweep3d.profiles.back().point_id ==
+                        sweep_second_id &&
+                    loaded_sweep_boundaries.size() == 1 &&
+                    std::abs(loaded_sweep_boundaries.front().volume - 480.0) <
+                        1.0e-5,
+                "3D Sweep path/profile relation did not survive save and reopen");
         std::cout << "C++ document and OCCT contracts passed\n";
         return 0;
     } catch (const std::exception& error) {

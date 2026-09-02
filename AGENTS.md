@@ -181,6 +181,16 @@
   not a general persisted placement reference.
 - Highlight only the exact candidate geometry. Do not colour, tint, or add a
   coloured overlay for an entire body when offering a topology reference.
+- Reference-entry controls expose two independent visual states through one
+  shared implementation. Exactly one reference field in the active dialog may
+  own input at a time; draw that field with a green outline and never express
+  input ownership through `QTableWidget` selection. Zero or more already stored
+  references may be inspected independently; draw only their exact fields with
+  an azure background and highlight only their exact persisted geometry in the
+  View. An eye control toggles inspection and clicking the reference text arms
+  input/replacement. A short middle-button click ends reference entry, removes
+  the green outline and clears temporary inspection highlights without deleting
+  pending reference values. Adjacent cells must never inherit either state.
 
 ## Engineering Reasoning
 

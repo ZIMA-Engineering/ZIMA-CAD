@@ -4,6 +4,7 @@
 
 #include <array>
 #include <functional>
+#include <optional>
 #include <set>
 #include <vector>
 
@@ -16,6 +17,7 @@ class QTableWidget;
 class QVBoxLayout;
 class QDoubleSpinBox;
 class QPushButton;
+class QToolButton;
 
 namespace zima::ui {
 
@@ -167,6 +169,12 @@ public:
     // dialog-specific name.
     [[nodiscard]] QTableWidget* reference_table() const { return reference_table_; }
     [[nodiscard]] QTableWidget* orientation_table() const { return orientation_table_; }
+    // Marks the exact reference row currently owned by the viewer picking
+    // command. The selected-cell palette is the shared cyan command cue used
+    // by both automatic sequential entry and explicit one-shot replacement.
+    void set_active_reference_index(std::optional<std::size_t> index);
+    void set_reference_inspected(std::size_t index, bool inspected);
+    void clear_reference_highlights();
 
     void refresh_reference_table();
     void refresh_orientation_table();
@@ -187,9 +195,11 @@ private:
     QPushButton* orientation_rotate_button_{};
     std::array<ReferenceCellItem*, 3> reference_items_{};
     std::array<QWidget*, 3> reference_indicators_{};
+    std::array<QToolButton*, 3> reference_inspection_buttons_{};
     std::array<QDoubleSpinBox*, 3> reference_offset_fields_{};
     std::array<ReferenceCellItem*, 2> orientation_items_{};
     std::array<QWidget*, 2> orientation_indicators_{};
+    std::array<QToolButton*, 2> orientation_inspection_buttons_{};
     std::array<QDoubleSpinBox*, 3> translation_{};
     std::array<QDoubleSpinBox*, 3> rotation_{};
     std::array<QDoubleSpinBox*, 3> rotation_offset_{};
@@ -203,6 +213,7 @@ private:
     int remaining_rotation_dof_{3};
     std::set<std::size_t> highlighted_reference_rows_;
     std::set<std::size_t> highlighted_orientation_rows_;
+    std::optional<std::size_t> active_reference_index_;
     bool orientation_inherited_{false};
     QString orientation_inherited_label_;
     ReferenceRequestCallback reference_request_;
@@ -210,9 +221,9 @@ private:
     HighlightsChangedCallback highlights_changed_;
 
     void remove_reference(std::size_t index);
+    void apply_reference_visual_states();
     void toggle_reference_highlight(std::size_t row);
     void toggle_orientation_highlight(std::size_t row);
-    void update_reference_highlight_styles();
     void refresh_orientation_controls();
     void notify_changed();
 };

@@ -3,7 +3,7 @@
 ## Kompatibilita dokumentů
 
 Každý nativní typ dokumentu má vlastní verzi: C++ Part `.prtz` nyní používá
-`format_version` 21, Assembly `.asmz` verzi 5 a Drawing `.drwz` verzi 2.
+`format_version` 12, Assembly `.asmz` verzi 11 a Drawing `.drwz` verzi 11.
 ZIMA-CAD během vývoje nepoužívá tiché fallbacky pro starší experimentální
 formáty: nepodporovanou verzi odmítne. Budoucí nekompatibilní změna formátu
 musí zvýšit příslušnou verzi a případně nabídnout samostatnou řízenou migraci.
@@ -22,22 +22,27 @@ dokumentů. Porovnání názvu nerozlišuje velikost písmen, takže stejné pra
 platí například také pro `0000-INDEX`. Skrytí v dialogu adresář ani jeho obsah
 z disku nemaže.
 
-## Výchozí šablona dílu
+## Výchozí šablony dílu a sestavy
 
-Nový dokument typu **Díl** se nezakládá jako pevně naprogramovaný prázdný
-model. Načte se ze šablony `config/templates/start_part.prtz`, která je
-zvolená v hlavní konfiguraci:
+Nový dokument typu **Díl** ani **Sestava** se nezakládá jako pevně
+naprogramovaný prázdný model. Načte se ze skutečného nativního dokumentu
+`config/templates/start_part.prtz` nebo
+`config/templates/start_assembly.asmz`, který je zvolený v hlavní
+konfiguraci:
 
 ```ini
 [Templates]
 Part = start_part.prtz
+Assembly = start_assembly.asmz
 ```
 
-Nový díl převezme geometrii, materiál, uživatelské parametry a relace ze
-šablony, ale dostane nové ID dokumentu a název zadaný v dialogu nového
-souboru. Projektový `config.ini` může sekci `[Templates]` přepsat a používat
-vlastní startovací díl. Relativní název se hledá v adresáři určeném hodnotou
-`Paths/Templates`.
+Nový dokument převezme jednotky, přesnost, materiálová data, uživatelské
+parametry a relace ze své šablony, ale vždy dostane nové unikátní ID dokumentu
+a název zadaný v dialogu nového souboru. Startovací šablony jsou záměrně čisté
+dokumentové vzory bez modelovacích kontejnerů a komponent; tím nemohou přenést
+ID vnitřních objektů do více dokumentů. Projektový `config.ini` může sekci
+`[Templates]` přepsat a používat vlastní startovací dokumenty. Relativní
+názvy se hledají v adresáři určeném hodnotou `Paths/Templates`.
 
 ## Parametry, relace a hmotnost
 
@@ -56,13 +61,15 @@ jednotky hustoty jsou `kg/mm^3`, `kg/m^3`, `g/cm^3` a `lb/in^3`. Výsledek se
 zapíše jako obyčejný text do parametru `mass`; razítko ani další uživatel
 parametru nemusí znát jeho vzorec.
 
+Výchozí startovací díl má přiřazený materiál **S235JR** včetně jeho
+materiálových vlastností, jednotek a popisů z knihovny materiálů.
+
 Výchozí klíče v prvním sloupci tabulky Parametry jsou stabilní anglické
 identifikátory, například `name`, `standard`, `drawn_by`, `revision` a `mass`.
 Viditelné názvy a hodnoty zůstávají jazykové. Český název `Název` a anglický
 název `Name` proto odkazují na stejný klíč `name`, ale mohou mít různé hodnoty.
-Nová sestava používá stejnou sadu parametrů. V aktuálním datovém modelu se
-zakládá generátorem, nikoliv samostatným souborem `start_assembly.asmz`, a
-generátor jí nastaví také relaci `mass = model.mass`.
+Nová sestava používá stejnou sadu parametrů ze souboru
+`start_assembly.asmz`, včetně relace `mass = model.mass`.
 
 Výrazy používají omezený pythonovský zápis, nikoliv spustitelný Python.
 Podporují čísla, odkazy na dříve dostupné parametry, operátory
@@ -534,10 +541,39 @@ je měnit při řešení vazeb. Konstrukční čára i další geometrie odkazuj
 řídicí body; kliknutí do volného místa bod vytvoří a kliknutí poblíž
 existujícího bodu jej znovu použije.
 
+Příkaz **Vazby → Shodnost** rozlišuje body a nosnou geometrii. Dva nativní
+body se po potvrzení skutečně sloučí do jednoho stabilního bodu; nezůstává mezi
+nimi pomocná vazba ani značka `C`. Vyberete-li bod a potom hlavní osu X/Y,
+úsečku nebo křivku, vznikne místo toho asociativní vazba bodu na geometrii
+označená `C`. Hlavní osu lze zvolit také jako první a poté vybrat bod. Středy
+kružnic a oblouků jsou běžné nativní body a lze je stejným příkazem spojit s
+koncem úsečky nebo umístit na osu.
+
+Přesun či navázání středu překládá celou kružnici nebo oblouk rigidně. U
+oblouku se stejným rozdílem přesunou oba konce a navázané kontaktní body;
+poloměr a úhlový rozsah se tím nemění. Pokud by přesun vyžadoval pohnout pevným
+nebo externě ukotveným bodem, celá operace se odmítne bez částečné změny.
+
 Vazba **Tečná** se vytvoří postupným výběrem úsečky (nebo konstrukční čáry)
 a kružnice v libovolném pořadí. Bod dotyku musí ležet v rozsahu vybrané
-úsečky. V místě dotyku vznikne odvozený bod označený značkou **T**. Solver
-zachová stranu kružnice vůči čáře z okamžiku vytvoření vazby.
+úsečky. Běžný uložený bod dotyku je označen kombinací **C + T**: `C` určuje
+polohu bodu na křivce a `T` tečný vztah geometrií. Pokud byl potvrzen přesný
+charakteristický bod křivky po 90°, používá se **K + T**. Samotná skutečnost,
+že jde o kružnici nebo oblouk, značku `K` nevytváří. Solver zachová stranu
+kružnice vůči čáře z okamžiku vytvoření vazby.
+
+Při tažení uloženého bodu **C + T** na kružnici zůstává střed kružnice na
+místě. Není-li poloměr ani průměr zamčený, bod sleduje kurzor, poloměr se
+změní a tečná úsečka si zachová délku i tečný směr. Zamčený poloměr nebo
+průměr dovolí místo toho pouze posun bodu po obvodu. Úhlová kóta tečné úsečky
+se stejným jedním kontaktem otáčí úsečku k odpovídajícímu bodu tečnosti;
+střed, poloměr a délku úsečky nemění.
+
+Přímé tažení koncového bodu oblouku funguje jako radiální rukojeť a mění jeho
+poloměr nebo úhlový rozsah podle aktivních kót. Známé omezení se týká jiné
+cesty: volný konec úsečky tečně napojené na konec oblouku lze táhnout dopředu,
+ale návrat po stejné tečné větvi může klást odpor. Tento vratný případ
+`A → B → A` je veden jako otevřená chyba solveru.
 
 Vratný rádius společného rohu dvou úseček se vytváří v režimu výběru.
 Kliknutím se vybere první úsečka a `Ctrl`+kliknutím se k ní přidá druhá.

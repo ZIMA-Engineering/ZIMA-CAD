@@ -83,6 +83,13 @@ editaci zavádějí interní `SubWindow`, pouze OK/Cancel, transakční Cancel a
 potvrzení dvojklikem prostředního tlačítka i nad hlavním oknem. GUI kontrakt je
 automaticky testovaný; OCCT výpočet kvádru proběhne až po úspěšném OK.
 
+Otevřené Properties základního tělesa ponechávají ve View aktivní pouze
+persistované parametrické kóty přesně upravovaného kontejneru. Lze proto
+přepsat například délku, šířku a výšku Boxu přímo přes viditelnou kótu, zatímco
+běžný hover 3D topologie zůstává vypnutý, dokud uživatel výslovně neaktivuje
+referenční pole. Filtr Properties tak neblokuje kóty a současně nespouští
+nákladný výběr ploch a hran.
+
 Part implementace nyní vlastní obecnou uspořádanou historii kontejnerů místo
 jednoho speciálního kvádru. Kontejnery mají stabilní unikátní ID a explicitní
 operaci Add/Subtract; první Subtract, duplicitní ID a neplatné rozměry jsou
@@ -489,10 +496,16 @@ Vybraný oblouk používá stejnou interní Properties třídu kóty poloměru j
 kružnice. Kóta řídí persistovaný poloměr v absolutních mezích, vstupuje do
 solveru a zobrazuje se radiálně přes střed úhlového intervalu oblouku.
 
-Příkaz Shodnost bodů vlastní explicitní výběrový kontrakt pouze pro Sketch body.
-Dva potvrzené kandidáty `point:<id>` vytvoří jednu transakční vazbu; solver
-pohybuje jen nefixovanými souřadnicemi, odmítá duplicitu i konflikt a Escape
-vrátí běžný výběr geometrie skici.
+Příkaz **Shodnost** používá explicitní výběrový kontrakt nad nativními Sketch
+body, hlavními osami a podporovanou geometrií. Dva potvrzené kandidáty
+`point:<id>` provedou topologické sloučení: všechny odkazy se přepojí na jeden
+přeživší bod, absorbovaný bod zmizí a nevznikne solverová vazba ani značka `C`.
+Pokud by se sloučily oba konce jedné úsečky, nulová úsečka zanikne. Bod s osou,
+úsečkou nebo křivkou naopak vytvoří explicitní bod-na-geometrii vztah `C`.
+Hlavní osu X/Y lze vybrat před bodem i po něm. Je-li slučovaný nebo řízený bod
+středem kružnice či oblouku, jeho celý závislý bodový uzávěr se přeloží rigidně;
+poloměr a parametrický rozsah zůstávají zachované. Pevný nebo externě ukotvený
+konflikt odmítne celou operaci transakčně.
 
 Běžně potvrzený Sketch bod lze jednou modelovou operací fixovat nebo uvolnit.
 Fixace je persistovaná vlastnost stabilního bodu, odebere jeho dvě souřadnicové

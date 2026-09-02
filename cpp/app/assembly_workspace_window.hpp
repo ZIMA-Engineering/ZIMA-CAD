@@ -54,7 +54,6 @@ public:
     ~AssemblyWorkspaceWindow() override;
     [[nodiscard]] bool open_document_path(const QString& path);
     void show_tree_item_properties(QTreeWidgetItem* item);
-    void focus_parameter_dimension_field(const std::string& semantic_key);
     void edit_dimension_inline(const zima::viewer::ViewerCandidate& candidate);
     // Exposed for regression coverage of nested Assembly occurrence
     // activation through the real window (no context-menu interaction).
@@ -143,6 +142,9 @@ private:
     QAction* pyramid_action_{};
     QAction* wedge_action_{};
     QAction* construction_point_action_{};
+    QAction* curve_3d_action_{};
+    QAction* curve_3d_experimental_action_{};
+    QAction* sweep_3d_action_{};
     QAction* construction_axis_action_{};
     QAction* construction_plane_action_{};
     QAction* extrusion_action_{};
@@ -256,10 +258,13 @@ private:
         pending_edge_treatment_groups_;
     std::vector<zima::kernel::EdgeReference> pending_edge_treatment_seeds_;
     std::optional<zima::viewer::EdgeKey> edge_treatment_hover_seed_;
-    double edge_treatment_preview_size_{1.0};
+    zima::document::EdgeTreatmentParameters edge_treatment_preview_parameters_;
     std::string edge_treatment_preview_owner_id_;
     PrimitivePropertiesDialog* extrusion_target_dialog_{};
+    bool extrusion_target_assembly_cut_{};
     ConstructionPropertiesDialog* construction_reference_dialog_{};
+    ConstructionPropertiesDialog* curve_axis_dialog_{};
+    std::optional<std::size_t> pending_curve_axis_index_;
     std::optional<zima::kernel::ViewerMesh> construction_preview_mesh_;
     std::optional<zima::kernel::ViewerMesh> primitive_origin_preview_mesh_;
     std::string sketch_properties_preview_id_;
@@ -271,16 +276,37 @@ private:
     std::optional<zima::document::ConstructionObject>
         construction_parameter_preview_;
     std::optional<std::size_t> pending_construction_reference_index_;
+    bool construction_reference_auto_advance_{};
     int construction_translation_dof_{3};
     int construction_rotation_dof_{3};
     // Universal container placement (Box PoC): mirrors the
     // construction_reference_* state above but for HistoryContainer.placement
     // reference picking in PrimitivePropertiesDialog.
     PlacementReferenceDialog* primitive_reference_dialog_{};
+    std::string primitive_parameter_owner_id_;
     zima::kernel::ViewerReferenceGeometry primitive_reference_geometry_;
     std::optional<std::size_t> pending_primitive_reference_index_;
+    bool primitive_reference_auto_advance_{};
     int primitive_translation_dof_{3};
     std::string active_sketch_id_;
+    // A Sketch interval of the experimental 3D trajectory is edited by the
+    // regular Sketcher, but remains a dialog-owned draft until the parent
+    // trajectory dialog commits. It must never be inserted into Part history.
+    std::optional<zima::sketcher::Sketch> trajectory_sketch_draft_;
+    ConstructionPropertiesDialog* trajectory_sketch_parent_dialog_{};
+    std::optional<std::size_t> trajectory_sketch_connection_index_;
+    std::string trajectory_sketch_start_point_id_;
+    std::string trajectory_sketch_end_point_id_;
+    // A profile Sketch owned by a pending 3D Sweep is edited by the regular
+    // Sketcher, but remains inside the parent dialog transaction until the
+    // Sweep itself is confirmed with OK.
+    std::optional<zima::sketcher::Sketch> sweep_profile_sketch_draft_;
+    ConstructionPropertiesDialog* sweep_profile_parent_dialog_{};
+    std::optional<std::size_t> sweep_profile_sketch_index_;
+    ConstructionPropertiesDialog* sweep_profile_point_dialog_{};
+    // Engaged outer optional means a Point-pick command is active.  The inner
+    // empty value creates a new profile; an index reassigns an existing one.
+    std::optional<std::optional<std::size_t>> pending_sweep_profile_index_;
     std::string sketch_view_state_id_;
     bool sketch_view_back_{};
     int sketch_view_quarter_turns_{};
@@ -446,6 +472,7 @@ private:
     ComponentPropertiesDialog* component_placement_dialog_{};
     std::optional<std::size_t> pending_component_placement_index_;
     bool pending_component_placement_component_side_{};
+    bool component_placement_auto_advance_{};
     std::string component_placement_assembly_document_id_;
     std::string component_placement_occurrence_id_;
 
@@ -494,8 +521,11 @@ private:
         std::size_t group, std::optional<std::size_t> member);
     void restore_edge_treatment_route(std::size_t group);
     [[nodiscard]] bool finish_edge_treatment_selection();
+    void apply_extrusion_target_selection_contract();
     void accept_extrusion_target(const zima::viewer::ViewerCandidate& candidate);
     void finish_extrusion_target_selection();
+    [[nodiscard]] bool finish_active_reference_selection();
+    void set_primitive_properties_dimension_selection();
     void begin_normal_view_selection();
     void accept_normal_view_reference(const zima::viewer::ViewerCandidate& candidate);
     void show_orientation_dialog();
@@ -530,15 +560,30 @@ private:
     void show_primitive_properties(
         zima::document::FeatureKind feature_kind,
         const std::string& container_id = {});
+    void show_sweep3d_properties(const std::string& container_id = {});
     void transform_sketch_container(
         const std::string& container_id,
         zima::document::FeatureKind target_kind);
     void show_construction_properties(
         zima::document::ConstructionKind kind, const std::string& object_id = {});
-    void start_construction_reference_selection(std::size_t index);
+    void show_curve_point_properties(
+        ConstructionPropertiesDialog* curve_dialog,
+        std::optional<std::size_t> point_index);
+    void start_curve_axis_selection(
+        ConstructionPropertiesDialog* curve_dialog, std::size_t point_index);
+    void accept_curve_axis_reference(
+        const zima::viewer::ViewerCandidate& candidate);
+    void start_sweep_profile_point_selection(
+        ConstructionPropertiesDialog* sweep_dialog,
+        std::optional<std::size_t> profile_index);
+    void accept_sweep_profile_point(
+        const zima::viewer::ViewerCandidate& candidate);
+    void start_construction_reference_selection(
+        std::size_t index, bool auto_advance = false);
     void accept_construction_reference(
         const zima::viewer::ViewerCandidate& candidate);
-    void start_primitive_reference_selection(std::size_t index);
+    void start_primitive_reference_selection(
+        std::size_t index, bool auto_advance = false);
     void accept_primitive_reference(
         const zima::viewer::ViewerCandidate& candidate);
     // Embedded component placement-reference picking (ComponentPropertiesDialog):
@@ -547,7 +592,7 @@ private:
     // instead of ConstructionReference's OCCT-origin-driven contract, and
     // accepts BOTH a component-side and a target-side pick per row.
     void start_component_placement_reference_selection(
-        std::size_t index, bool component_side);
+        std::size_t index, bool component_side, bool auto_advance = false);
     void accept_component_placement_reference(
         const zima::viewer::ViewerCandidate& candidate);
     [[nodiscard]] bool accept_construction_tree_reference(
@@ -570,6 +615,12 @@ private:
         const QString& owner_id, const QString& instance_path,
         const QString& semantic_key);
     void show_sketch_properties(const std::string& sketch_id = {});
+    void show_curve_connection_sketch(
+        ConstructionPropertiesDialog* curve_dialog,
+        std::size_t connection_index);
+    void show_sweep_profile_sketch(
+        ConstructionPropertiesDialog* sweep_dialog,
+        std::size_t profile_index);
     void show_sketch_bspline_properties(
         const std::string& sketch_id, const std::string& bspline_id);
     void show_sketch_text_properties(
@@ -869,7 +920,8 @@ private:
         bool ancestor_suppressed = false);
     void select_occurrence(const std::string& instance_path);
     void select_container(const std::string& container_id);
-    void show_component_properties(const std::string& instance_path);
+    void show_component_properties(
+        const std::string& instance_path, bool start_reference_entry = false);
     void show_component_context_menu(
         const std::string& instance_path, const QPoint& global_position);
     [[nodiscard]] std::optional<std::string> resolve_active_occurrence(

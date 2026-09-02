@@ -21,6 +21,7 @@
 #include <QSizePolicy>
 #include <QStringList>
 #include <QTableWidget>
+#include <QToolButton>
 #include <QTreeWidget>
 
 #include <exception>
@@ -60,22 +61,25 @@ bool supports_placement_reference_table(zima::document::FeatureKind kind) {
         kind == FeatureKind::ImportedStep;
 }
 
-QString primitive_label(zima::document::FeatureKind kind) {
-    return kind == zima::document::FeatureKind::Cylinder ? QObject::tr("Válec")
-        : kind == zima::document::FeatureKind::Sphere ? QObject::tr("Koule")
-        : kind == zima::document::FeatureKind::Cone ? QObject::tr("Kužel")
-        : kind == zima::document::FeatureKind::Pyramid ? QObject::tr("Jehlan")
-        : kind == zima::document::FeatureKind::Wedge ? QObject::tr("Klín")
-        : kind == zima::document::FeatureKind::Extrusion
-            ? QObject::tr("Vytažení")
-        : kind == zima::document::FeatureKind::Revolution
-            ? QObject::tr("Rotace")
-        : kind == zima::document::FeatureKind::Fillet
-            ? QObject::tr("Zaoblení")
-        : kind == zima::document::FeatureKind::Chamfer
-            ? QObject::tr("Sražení")
-        : kind == zima::document::FeatureKind::ImportedStep
-            ? QObject::tr("Import STEP") : QObject::tr("Kvádr");
+QString primitive_properties_title(zima::document::FeatureKind kind) {
+    using zima::document::FeatureKind;
+    switch (kind) {
+        case FeatureKind::Sketch: return QObject::tr("Vlastnosti skici");
+        case FeatureKind::Box: return QObject::tr("Vlastnosti kvádru");
+        case FeatureKind::Cylinder: return QObject::tr("Vlastnosti válce");
+        case FeatureKind::Sphere: return QObject::tr("Vlastnosti koule");
+        case FeatureKind::Cone: return QObject::tr("Vlastnosti kužele");
+        case FeatureKind::Pyramid: return QObject::tr("Vlastnosti jehlanu");
+        case FeatureKind::Wedge: return QObject::tr("Vlastnosti klínu");
+        case FeatureKind::Extrusion: return QObject::tr("Vlastnosti vytažení");
+        case FeatureKind::Revolution: return QObject::tr("Vlastnosti rotace");
+        case FeatureKind::Sweep3D: return QObject::tr("Vlastnosti 3D Sweepu");
+        case FeatureKind::ImportedStep:
+            return QObject::tr("Vlastnosti importu STEP");
+        case FeatureKind::Fillet: return QObject::tr("Vlastnosti zaoblení");
+        case FeatureKind::Chamfer: return QObject::tr("Vlastnosti sražení");
+    }
+    return QObject::tr("Vlastnosti prvku");
 }
 
 }  // namespace
@@ -103,7 +107,8 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
     std::vector<AssemblyTarget> assembly_targets,
     std::vector<std::string> selected_targets,
     bool assembly_cut_mode)
-    : PropertiesSubWindow(primitive_label(initial.feature_kind), parent),
+    : PropertiesSubWindow(
+          primitive_properties_title(initial.feature_kind), parent),
       initial_(initial), edit_mode_(edit_mode),
       accepted_target_baseline_(selected_targets), commit_(std::move(commit)) {
     setAttribute(Qt::WA_DeleteOnClose, true);
@@ -409,7 +414,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
             return combo;
         };
         const auto end_row = [this, &end_condition](const char* side, QComboBox*& combo,
-                QDoubleSpinBox* length, QLineEdit*& target, QPushButton*& collection,
+                QDoubleSpinBox* length, QLineEdit*& target, QToolButton*& collection,
                 zima::document::EndCondition condition,
                 const std::vector<zima::document::ExtrusionParameters::EndTarget>& targets) {
             auto* row = new QWidget(this);
@@ -441,7 +446,15 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
             } else {
                 reverse_end_target_clear_action_ = clear_action;
             }
-            collection = new QPushButton(QStringLiteral("…"), this);
+            collection = zima::ui::build_reference_inspection_button(
+                !targets.empty(), false,
+                [this, side = std::string(side)](bool) {
+                    toggle_extrusion_target_highlight(side);
+                });
+            collection->setParent(this);
+            collection->setObjectName(side == std::string_view("forward")
+                ? "extrusionForwardTargetInspection"
+                : "extrusionReverseTargetInspection");
             layout->addWidget(combo, 1);
             layout->addWidget(length, 1);
             layout->addWidget(target, 1);
@@ -453,9 +466,20 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
                 collection->setVisible(value == "up_to");
             };
             connect(combo, &QComboBox::currentIndexChanged, this,
-                [this, refresh](int) { refresh(); notify_preview(); });
-            connect(collection, &QPushButton::clicked, this, [this, side] {
-                request_extrusion_target(std::string(side));
+                [this, combo, refresh, side = std::string(side)](int) {
+                    refresh();
+                    if (combo->currentData().toString() == "up_to") {
+                        request_extrusion_target(side);
+                    } else {
+                        const bool was_active = side == "reverse"
+                            ? reverse_end_target_pick_active_
+                            : forward_end_target_pick_active_;
+                        if (was_active) {
+                            finish_extrusion_target_entry();
+                            if (extrusion_target_cancel_) extrusion_target_cancel_();
+                        }
+                    }
+                    notify_preview();
             });
             refresh();
             refresh_extrusion_target_styles();
@@ -554,9 +578,65 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         source->setWordWrap(true);
         form->addRow(tr("Zdrojový soubor"), source);
     } else {
-        treatment_size_ = dimension(initial.edge_treatment.size, "edgeTreatmentSize");
-        form->addRow(initial.feature_kind == zima::document::FeatureKind::Fillet
-            ? tr("Poloměr") : tr("Vzdálenost"), treatment_size_);
+        const bool fillet =
+            initial.feature_kind == zima::document::FeatureKind::Fillet;
+        treatment_type_ = new QComboBox(this);
+        treatment_type_->setObjectName("edgeTreatmentType");
+        if (fillet) {
+            treatment_type_->addItem(tr("Konstantní"), "constant");
+            treatment_type_->addItem(tr("Proměnlivé R1 → R2"), "linear");
+            treatment_type_->setCurrentIndex(treatment_type_->findData(
+                initial.edge_treatment.fillet_mode ==
+                        zima::document::EdgeTreatmentParameters::FilletMode::Linear
+                    ? "linear" : "constant"));
+        } else {
+            treatment_type_->addItem(tr("A × A"), "equal_distance");
+            treatment_type_->addItem(tr("A × B"), "two_distances");
+            treatment_type_->addItem(tr("A + úhel"), "distance_angle");
+            const char* mode = initial.edge_treatment.chamfer_mode ==
+                    zima::document::EdgeTreatmentParameters::ChamferMode::TwoDistances
+                ? "two_distances"
+                : initial.edge_treatment.chamfer_mode ==
+                        zima::document::EdgeTreatmentParameters::ChamferMode::DistanceAngle
+                    ? "distance_angle" : "equal_distance";
+            treatment_type_->setCurrentIndex(treatment_type_->findData(mode));
+        }
+        form->addRow(tr("Typ"), treatment_type_);
+        treatment_primary_ = dimension(
+            initial.edge_treatment.primary_size, "edgeTreatmentPrimary");
+        treatment_secondary_ = dimension(
+            initial.edge_treatment.secondary_size, "edgeTreatmentSecondary");
+        treatment_angle_ = new QDoubleSpinBox(this);
+        treatment_angle_->setObjectName("edgeTreatmentAngle");
+        treatment_angle_->setRange(0.1, 89.9);
+        treatment_angle_->setDecimals(2);
+        treatment_angle_->setSingleStep(1.0);
+        treatment_angle_->setSuffix(QStringLiteral("°"));
+        treatment_angle_->setValue(initial.edge_treatment.angle_degrees);
+        treatment_primary_label_ = new QLabel(this);
+        treatment_secondary_label_ = new QLabel(this);
+        treatment_angle_label_ = new QLabel(tr("Úhel"), this);
+        form->addRow(treatment_primary_label_, treatment_primary_);
+        form->addRow(treatment_secondary_label_, treatment_secondary_);
+        form->addRow(treatment_angle_label_, treatment_angle_);
+        treatment_flip_ = new QPushButton(tr("FLIP"), this);
+        treatment_flip_->setObjectName("edgeTreatmentFlip");
+        treatment_flip_->setCheckable(true);
+        treatment_flip_->setChecked(initial.edge_treatment.flip);
+        treatment_reverse_ = new QPushButton(tr("OBRÁTIT SMĚR"), this);
+        treatment_reverse_->setObjectName("edgeTreatmentReverse");
+        treatment_reverse_->setCheckable(true);
+        treatment_reverse_->setChecked(initial.edge_treatment.reverse);
+        for (auto* button : {treatment_flip_, treatment_reverse_}) {
+            button->setMinimumHeight(34);
+            button->setStyleSheet(
+                "QPushButton{border:2px solid #2d5670;border-radius:6px;"
+                "font-weight:700;padding:6px 12px}"
+                "QPushButton:checked{background:#00d1ff;color:#101510;"
+                "border-color:#6fe3ff}");
+            form->addRow(button);
+        }
+        refresh_edge_treatment_fields();
         auto* edges_label = new QLabel(tr("Vybrané hrany"), this);
         auto label_font = edges_label->font(); label_font.setBold(true);
         edges_label->setFont(label_font);
@@ -671,8 +751,20 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         if (input != nullptr) connect(input, &QDoubleSpinBox::valueChanged,
             this, [this] { notify_preview(); });
     }
-    if (treatment_size_ != nullptr) {
-        connect(treatment_size_, &QDoubleSpinBox::valueChanged,
+    if (treatment_type_ != nullptr) {
+        connect(treatment_type_, &QComboBox::currentIndexChanged,
+            this, [this] {
+                refresh_edge_treatment_fields();
+                notify_preview();
+            });
+        for (auto* field : {
+                 treatment_primary_, treatment_secondary_, treatment_angle_}) {
+            connect(field, &QDoubleSpinBox::valueChanged,
+                this, [this] { notify_preview(); });
+        }
+        connect(treatment_flip_, &QPushButton::toggled,
+            this, [this] { notify_preview(); });
+        connect(treatment_reverse_, &QPushButton::toggled,
             this, [this] { notify_preview(); });
     }
     for (auto* input : translation_) {
@@ -775,7 +867,23 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
         result.revolution.angle_degrees = forward_length_->value();
         result.revolution.angle_reverse = reverse_length_->value();
     } else if (result.feature_kind != zima::document::FeatureKind::ImportedStep) {
-        result.edge_treatment.size = treatment_size_->value();
+        const auto mode = treatment_type_->currentData().toString();
+        if (result.feature_kind == zima::document::FeatureKind::Fillet) {
+            result.edge_treatment.fillet_mode = mode == "linear"
+                ? zima::document::EdgeTreatmentParameters::FilletMode::Linear
+                : zima::document::EdgeTreatmentParameters::FilletMode::Constant;
+        } else {
+            result.edge_treatment.chamfer_mode = mode == "two_distances"
+                ? zima::document::EdgeTreatmentParameters::ChamferMode::TwoDistances
+                : mode == "distance_angle"
+                    ? zima::document::EdgeTreatmentParameters::ChamferMode::DistanceAngle
+                    : zima::document::EdgeTreatmentParameters::ChamferMode::EqualDistance;
+        }
+        result.edge_treatment.primary_size = treatment_primary_->value();
+        result.edge_treatment.secondary_size = treatment_secondary_->value();
+        result.edge_treatment.angle_degrees = treatment_angle_->value();
+        result.edge_treatment.flip = treatment_flip_->isChecked();
+        result.edge_treatment.reverse = treatment_reverse_->isChecked();
     }
     if (result.feature_kind == zima::document::FeatureKind::Box ||
         result.feature_kind == zima::document::FeatureKind::Cylinder ||
@@ -883,6 +991,11 @@ void PrimitivePropertiesDialog::set_extrusion_target(
     notify_preview();
 }
 
+void PrimitivePropertiesDialog::set_edge_route_start_vertices(
+    std::vector<zima::kernel::VertexReference> vertices) {
+    initial_.edge_treatment.route_start_vertices = std::move(vertices);
+}
+
 void PrimitivePropertiesDialog::set_extrusion_surface_target(
     zima::kernel::FaceReference reference,
     std::vector<zima::kernel::Vec3> triangles, std::string label) {
@@ -923,11 +1036,8 @@ bool PrimitivePropertiesDialog::eventFilter(QObject* watched, QEvent* event) {
             const auto& targets = side == "reverse"
                 ? initial_.extrusion.end_targets_reverse
                 : initial_.extrusion.end_targets_forward;
-            if (targets.empty() || !targets.front().reference.valid()) {
-                request_extrusion_target(side);
-            } else {
-                toggle_extrusion_target_highlight(side);
-            }
+            static_cast<void>(targets);
+            request_extrusion_target(side);
             event->accept();
             return true;
         }
@@ -937,18 +1047,29 @@ bool PrimitivePropertiesDialog::eventFilter(QObject* watched, QEvent* event) {
 
 void PrimitivePropertiesDialog::request_extrusion_target(
     const std::string& side) {
+    const bool had_highlights = forward_end_target_highlighted_ ||
+        reverse_end_target_highlighted_;
     active_end_target_side_ = side;
     forward_end_target_pick_active_ = side == "forward";
     reverse_end_target_pick_active_ = side == "reverse";
     forward_end_target_highlighted_ = false;
     reverse_end_target_highlighted_ = false;
     refresh_extrusion_target_styles();
-    if (reference_highlights_changed_) reference_highlights_changed_();
+    if (had_highlights && reference_highlights_changed_)
+        reference_highlights_changed_();
     if (extrusion_target_request_) extrusion_target_request_();
+}
+
+void PrimitivePropertiesDialog::finish_extrusion_target_entry() {
+    forward_end_target_pick_active_ = false;
+    reverse_end_target_pick_active_ = false;
+    refresh_extrusion_target_styles();
 }
 
 void PrimitivePropertiesDialog::clear_extrusion_target(
     const std::string& side) {
+    const bool was_active = side == "reverse"
+        ? reverse_end_target_pick_active_ : forward_end_target_pick_active_;
     auto& targets = side == "reverse"
         ? initial_.extrusion.end_targets_reverse
         : initial_.extrusion.end_targets_forward;
@@ -968,6 +1089,7 @@ void PrimitivePropertiesDialog::clear_extrusion_target(
     }
     refresh_extrusion_target_styles();
     if (reference_highlights_changed_) reference_highlights_changed_();
+    if (was_active && extrusion_target_cancel_) extrusion_target_cancel_();
     notify_preview();
 }
 
@@ -975,27 +1097,37 @@ void PrimitivePropertiesDialog::toggle_extrusion_target_highlight(
     const std::string& side) {
     if (side == "reverse") {
         reverse_end_target_highlighted_ = !reverse_end_target_highlighted_;
-        reverse_end_target_pick_active_ = false;
     } else {
         forward_end_target_highlighted_ = !forward_end_target_highlighted_;
-        forward_end_target_pick_active_ = false;
     }
     refresh_extrusion_target_styles();
     if (reference_highlights_changed_) reference_highlights_changed_();
 }
 
 void PrimitivePropertiesDialog::refresh_extrusion_target_styles() {
-    const auto apply = [](QLineEdit* edit, bool active) {
+    const auto apply = [](QLineEdit* edit, QToolButton* inspection,
+                          bool active, bool highlighted, bool populated) {
         if (edit == nullptr) return;
-        edit->setStyleSheet(active
-            ? QStringLiteral("QLineEdit{background:#00d1ff;color:#102027;"
-                             "border:1px solid #00a9d1;padding:2px 5px}")
-            : QString{});
+        const QString background = highlighted
+            ? QStringLiteral("background:#00d1ff;color:#102027;")
+            : QString{};
+        const QString border = active
+            ? QStringLiteral("border:2px solid #42d66b;")
+            : QStringLiteral("border:1px solid palette(mid);");
+        edit->setStyleSheet(QStringLiteral("QLineEdit{%1%2padding:2px 5px}")
+            .arg(background, border));
+        if (inspection != nullptr) {
+            const QSignalBlocker blocked(inspection);
+            inspection->setEnabled(populated);
+            inspection->setChecked(highlighted && populated);
+        }
     };
-    apply(forward_end_target_, forward_end_target_highlighted_ ||
-        forward_end_target_pick_active_);
-    apply(reverse_end_target_, reverse_end_target_highlighted_ ||
-        reverse_end_target_pick_active_);
+    apply(forward_end_target_, forward_end_targets_button_,
+        forward_end_target_pick_active_, forward_end_target_highlighted_,
+        !initial_.extrusion.end_targets_forward.empty());
+    apply(reverse_end_target_, reverse_end_targets_button_,
+        reverse_end_target_pick_active_, reverse_end_target_highlighted_,
+        !initial_.extrusion.end_targets_reverse.empty());
 }
 
 void PrimitivePropertiesDialog::set_extrusion_target_request(
@@ -1098,6 +1230,29 @@ void PrimitivePropertiesDialog::set_reverse_extent_and_direction(
 
 void PrimitivePropertiesDialog::notify_preview() {
     if (preview_) preview_(values());
+}
+
+void PrimitivePropertiesDialog::set_extrusion_target_cancel(
+    std::function<void()> callback) {
+    extrusion_target_cancel_ = std::move(callback);
+}
+
+void PrimitivePropertiesDialog::refresh_edge_treatment_fields() {
+    if (treatment_type_ == nullptr) return;
+    const bool fillet =
+        initial_.feature_kind == zima::document::FeatureKind::Fillet;
+    const QString mode = treatment_type_->currentData().toString();
+    const bool second = fillet ? mode == "linear" : mode == "two_distances";
+    const bool angle = !fillet && mode == "distance_angle";
+    treatment_primary_label_->setText(fillet
+        ? (second ? tr("R1") : tr("Poloměr R")) : tr("Vzdálenost A"));
+    treatment_secondary_label_->setText(fillet ? tr("R2") : tr("Vzdálenost B"));
+    treatment_secondary_label_->setVisible(second);
+    treatment_secondary_->setVisible(second);
+    treatment_angle_label_->setVisible(angle);
+    treatment_angle_->setVisible(angle);
+    treatment_flip_->setVisible(!fillet && mode != "equal_distance");
+    treatment_reverse_->setVisible(fillet && second);
 }
 
 bool PrimitivePropertiesDialog::submit() {
@@ -1236,6 +1391,27 @@ std::size_t PrimitivePropertiesDialog::first_empty_position_index() const {
     return placement_ ? placement_->first_empty_position_index() : 3;
 }
 
+void PrimitivePropertiesDialog::set_active_reference_index(
+    std::optional<std::size_t> index) {
+    if (placement_) placement_->set_active_reference_index(index);
+}
+
+void PrimitivePropertiesDialog::set_reference_inspected(
+    std::size_t index, bool inspected) {
+    if (placement_) placement_->set_reference_inspected(index, inspected);
+}
+
+void PrimitivePropertiesDialog::clear_reference_highlights() {
+    if (placement_) placement_->clear_reference_highlights();
+    const bool had_target_highlights = forward_end_target_highlighted_ ||
+        reverse_end_target_highlighted_;
+    forward_end_target_highlighted_ = false;
+    reverse_end_target_highlighted_ = false;
+    refresh_extrusion_target_styles();
+    if (had_target_highlights && reference_highlights_changed_)
+        reference_highlights_changed_();
+}
+
 void PrimitivePropertiesDialog::set_remaining_translation_dof(int dof) {
     if (!placement_) return;
     placement_->set_remaining_translation_dof(dof);
@@ -1275,6 +1451,14 @@ bool PrimitivePropertiesDialog::set_inline_parameter_value(
         if (key == "x") return set_field(translation_[0]);
         if (key == "y") return set_field(translation_[1]);
         if (key == "z") return set_field(translation_[2]);
+        if (key == "rotation_x" || key == "rotation_y" ||
+            key == "rotation_z") {
+            if (placement_ == nullptr) return false;
+            const std::size_t index = key == "rotation_x" ? 0
+                : key == "rotation_y" ? 1 : 2;
+            if (set_field(placement_->rotation_fields()[index])) return true;
+            return set_field(placement_->rotation_offset_fields()[index]);
+        }
         constexpr std::string_view reference_prefix{"reference_offset:"};
         if (!key.starts_with(reference_prefix) || placement_ == nullptr)
             return false;
@@ -1297,7 +1481,9 @@ bool PrimitivePropertiesDialog::set_inline_parameter_value(
     if (key == "length_reverse") return set_field(reverse_length_);
     if (key == "profile_offset") return set_field(profile_plane_offset_);
     if (key == "angle") return set_field(forward_length_);
-    if (key == "size") return set_field(treatment_size_);
+    if (key == "size" || key == "primary") return set_field(treatment_primary_);
+    if (key == "secondary") return set_field(treatment_secondary_);
+    if (key == "treatment_angle") return set_field(treatment_angle_);
     return false;
 }
 

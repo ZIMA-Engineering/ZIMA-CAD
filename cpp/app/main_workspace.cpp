@@ -658,16 +658,15 @@ int verify_startup_contract(
         return 1;
     }
     if (!verify(point_references != nullptr &&
-                    point_viewer->selection_candidates_at(
+                    !point_viewer->selection_candidates_at(
                         QPointF(point_viewer->width() / 2.0,
                                 point_viewer->height() / 2.0)).empty(),
-                "Idle Point Properties still offered 3D hover candidates")) {
+                "Point Properties did not automatically arm its first "
+                "reference field")) {
         return 1;
     }
-    // Properties itself is not a picking command. Explicitly activate the
-    // requested field before validating the reference candidate universe.
-    emit point_references->cellClicked(0, 1);
-    application.processEvents();
+    // Opening Properties owns the first useful empty reference field. The
+    // same candidate universe is then consumed by hover, RMB cycling and LMB.
     std::optional<QPointF> origin_axis_hover_position;
     if (point_viewer != nullptr) {
         for (int y = 2; y < point_viewer->height() && !origin_axis_hover_position; y += 4) {
@@ -704,6 +703,15 @@ int verify_startup_contract(
                         "origin:axis:") &&
                     contains_orange_hover(point_viewer->grabFramebuffer()),
                 "Origin axis hover was not rendered orange during placement")) return 1;
+    auto* point_x_field =
+        point_dialog->findChild<QDoubleSpinBox*>("constructionX");
+    if (!verify(point_x_field != nullptr,
+                "Point Properties did not expose its X field")) return 1;
+    // Zero container dimensions are intentionally absent. Give X a nonzero
+    // value to verify the same live Properties/View editing contract without
+    // reviving a misleading 0 mm annotation.
+    point_x_field->setValue(5.0);
+    application.processEvents();
     std::optional<QPointF> point_x_dimension_position;
     for (int y = 2; y < point_viewer->height() &&
             !point_x_dimension_position; y += 2) {
@@ -715,7 +723,8 @@ int verify_startup_contract(
                         return candidate.kind ==
                                 zima::viewer::CandidateKind::Dimension &&
                             candidate.owner_id == point_properties->construction_id() &&
-                            candidate.semantic_key == "parameter:x";
+                            candidate.semantic_key ==
+                                "parameter:placement:x";
                     })) {
                 point_x_dimension_position = position;
                 break;
@@ -739,13 +748,31 @@ int verify_startup_contract(
         QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier);
     QApplication::sendEvent(inline_point_dimension, &submit_point_dimension);
     application.processEvents();
-    auto* point_x_field = point_dialog->findChild<QDoubleSpinBox*>("constructionX");
-    if (!verify(point_x_field != nullptr &&
-                    std::abs(point_x_field->value() - 12.0) < 1.0e-9,
+    if (!verify(std::abs(point_x_field->value() - 12.0) < 1.0e-9,
                 "Point dimension edit did not update the pending X field")) return 1;
     point_x_field->setValue(0.0);
     application.processEvents();
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    bool zero_point_x_dimension_visible = false;
+    for (int y = 2; y < point_viewer->height() &&
+            !zero_point_x_dimension_visible; y += 2) {
+        for (int x = 2; x < point_viewer->width(); x += 2) {
+            const auto candidates = point_viewer->selection_candidates_at(
+                {static_cast<qreal>(x), static_cast<qreal>(y)});
+            zero_point_x_dimension_visible = std::any_of(
+                candidates.begin(), candidates.end(), [&](const auto& candidate) {
+                    return candidate.kind ==
+                            zima::viewer::CandidateKind::Dimension &&
+                        candidate.owner_id ==
+                            point_properties->construction_id() &&
+                        candidate.semantic_key ==
+                            "parameter:placement:x";
+                });
+            if (zero_point_x_dimension_visible) break;
+        }
+    }
+    if (!verify(!zero_point_x_dimension_visible,
+                "Zero Point X dimension remained visible in Properties")) return 1;
     point_viewer->clear_selection();
     point_viewer->reset_candidate_cycle();
     std::optional<zima::viewer::ViewerCandidate> point_hover;
@@ -1297,20 +1324,20 @@ int verify_startup_contract(
         Qt::NoModifier);
     QApplication::sendEvent(&window, &cancel_first_entity);
     application.processEvents();
-    bool first_entity_snapped_to_origin{};
+    bool first_entity_referenced_origin{};
     for (int index = 0; index < tree->topLevelItemCount(); ++index) {
         auto* group = tree->topLevelItem(index);
         if (group->text(0) != QStringLiteral("Vazby")) continue;
         for (int child = 0; child < group->childCount(); ++child) {
             if (group->child(child)->text(0).startsWith(
-                    QStringLiteral("Shodnost"))) {
-                first_entity_snapped_to_origin = true;
+                    QStringLiteral("Reference bodu"))) {
+                first_entity_referenced_origin = true;
                 break;
             }
         }
     }
-    if (!verify(first_entity_snapped_to_origin,
-                "first Sketch entity did not persist its coincidence to the origin")) {
+    if (!verify(first_entity_referenced_origin,
+                "first Sketch entity did not persist its hidden origin reference")) {
         return 1;
     }
     sketch_rectangle->trigger();
@@ -1952,6 +1979,65 @@ int verify_startup_contract(
                 "existing Extrusion did not reopen with its persisted value")) {
         return 1;
     }
+    auto* up_to_combo = edit_dialog->findChild<QComboBox*>(
+        "extrusionForwardEndCondition");
+    auto* up_to_field = edit_dialog->findChild<QLineEdit*>(
+        "extrusionForwardEndTarget");
+    auto* up_to_viewer = dynamic_cast<zima::viewer::MeshView*>(
+        window.findChild<QOpenGLWidget*>("modelWorkspace"));
+    if (!verify(up_to_combo != nullptr && up_to_field != nullptr &&
+                    up_to_viewer != nullptr && view_selection != nullptr,
+                "Extrusion Up-to integration controls are missing")) {
+        return 1;
+    }
+    const bool selection_was_checked = view_selection->isChecked();
+    view_selection->setChecked(false);
+    application.processEvents();
+    up_to_combo->setCurrentIndex(up_to_combo->findData("up_to"));
+    application.processEvents();
+    std::optional<QPointF> up_to_face_position;
+    for (int y = 4; y < up_to_viewer->height() && !up_to_face_position; y += 4) {
+        for (int x = 4; x < up_to_viewer->width(); x += 4) {
+            const QPointF position{
+                static_cast<qreal>(x), static_cast<qreal>(y)};
+            const auto candidates = up_to_viewer->selection_candidates_at(
+                position);
+            if (!candidates.empty() &&
+                candidates.front().kind == zima::viewer::CandidateKind::Face &&
+                zima::app::placement_reference_candidate_has_stable_geometry(
+                    candidates.front())) {
+                up_to_face_position = position;
+                break;
+            }
+        }
+    }
+    if (!verify(up_to_field->styleSheet().contains("#42d66b"),
+                "Selecting Up-to did not activate its green target field")) {
+        return 1;
+    }
+    if (!verify(up_to_face_position.has_value(),
+                "Selecting Up-to lost Face hover after the live preview refresh")) {
+        return 1;
+    }
+    QMouseEvent up_to_hover(QEvent::MouseMove, *up_to_face_position,
+        up_to_viewer->mapToGlobal(up_to_face_position->toPoint()),
+        Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+    QApplication::sendEvent(up_to_viewer, &up_to_hover);
+    application.processEvents();
+    QMouseEvent up_to_press(QEvent::MouseButtonPress, *up_to_face_position,
+        up_to_viewer->mapToGlobal(up_to_face_position->toPoint()),
+        Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+    QApplication::sendEvent(up_to_viewer, &up_to_press);
+    application.processEvents();
+    if (!verify(!up_to_field->text().isEmpty() &&
+                    !up_to_field->styleSheet().contains("#42d66b"),
+                "LMB accepted the Up-to hover candidate but did not transfer "
+                "its persisted Face reference into the target field")) {
+        return 1;
+    }
+    up_to_combo->setCurrentIndex(up_to_combo->findData("length"));
+    view_selection->setChecked(selection_was_checked);
+    application.processEvents();
     const double original_extrusion_height = edit_height->value();
     edit_height->setValue(37.0);
     edit_dialog->findChild<QDialogButtonBox*>()
@@ -2104,6 +2190,24 @@ int verify_startup_contract(
                 "Save did not expose its completed status progress") ||
         !verify(std::filesystem::exists(saved_part_path),
                 "Save did not persist the edited Part")) {
+        return 1;
+    }
+    try {
+        const auto template_part = zima::document::PartDocument::load(
+            std::filesystem::current_path() /
+            "config/templates/start_part.prtz");
+        const auto created_part =
+            zima::document::PartDocument::load(saved_part_path);
+        if (!verify(created_part.document_id != template_part.document_id &&
+                        created_part.physical_parameters.at("MATERIAL_NAME") ==
+                            "S235JR" &&
+                        created_part.physical_parameters.contains(
+                            "YOUNG_MODULUS"),
+                    "new Part did not clone the start template with a unique ID")) {
+            return 1;
+        }
+    } catch (const std::exception&) {
+        verify(false, "new Part or its start template could not be reopened");
         return 1;
     }
     close->trigger();
@@ -2507,6 +2611,27 @@ int verify_startup_contract(
         application.processEvents();
         if (!verify(std::filesystem::exists(saved_nested_assembly_path),
                     "Save did not persist the outer Assembly")) {
+            return 1;
+        }
+        try {
+            const auto template_assembly =
+                zima::assembly::AssemblyDocument::load(
+                    std::filesystem::current_path() /
+                    "config/templates/start_assembly.asmz");
+            const auto created_assembly =
+                zima::assembly::AssemblyDocument::load(
+                    saved_nested_assembly_path);
+            if (!verify(created_assembly.document_id !=
+                            template_assembly.document_id &&
+                            created_assembly.user_parameters.contains("mass") &&
+                            created_assembly.relations.size() == 1 &&
+                            created_assembly.relations.front().target == "mass",
+                        "new Assembly did not clone the start template with a unique ID")) {
+                return 1;
+            }
+        } catch (const std::exception&) {
+            verify(false,
+                "new Assembly or its start template could not be reopened");
             return 1;
         }
         close->trigger();

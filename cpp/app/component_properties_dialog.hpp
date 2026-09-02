@@ -5,6 +5,8 @@
 
 #include <array>
 #include <functional>
+#include <optional>
+#include <set>
 #include <string>
 
 class QDoubleSpinBox;
@@ -40,6 +42,7 @@ public:
     // `index`'s `component_side` cell (true = component-side/moving
     // reference, false = target-side/fixed reference).
     using ReferenceRequestCallback = std::function<void(std::size_t index, bool component_side)>;
+    using ReferenceHighlightsChangedCallback = std::function<void()>;
 
     ComponentPropertiesDialog(
         const zima::assembly::PartOccurrence& initial,
@@ -64,6 +67,15 @@ public:
     // target-side cell and refreshes that row's display.
     void set_placement_reference(std::size_t index, bool component_side,
         zima::assembly::MateReference reference, const QString& label);
+    void set_active_reference_cell(
+        std::optional<std::size_t> index, bool component_side = true);
+    void set_reference_inspected(
+        std::size_t index, bool component_side, bool inspected);
+    void clear_reference_highlights();
+    void set_reference_highlights_changed_callback(
+        ReferenceHighlightsChangedCallback callback);
+    [[nodiscard]] std::vector<zima::assembly::MateReference>
+        highlighted_references() const;
     [[nodiscard]] const std::vector<zima::assembly::ComponentPlacementReference>&
         placement_references() const { return placement_references_; }
 
@@ -86,10 +98,18 @@ private:
     std::array<QDoubleSpinBox*, 3> offset_fields_{};
     std::array<QWidget*, 3> flip_buttons_{};
     std::array<QToolButton*, 3> limit_buttons_{};
+    std::array<QToolButton*, 3> component_inspection_buttons_{};
+    std::array<QToolButton*, 3> target_inspection_buttons_{};
     ReferenceRequestCallback reference_request_;
+    ReferenceHighlightsChangedCallback reference_highlights_changed_;
     PreviewCallback preview_;
+    std::optional<std::size_t> active_reference_index_;
+    bool active_reference_component_side_{true};
+    std::set<std::pair<std::size_t, bool>> inspected_reference_cells_;
 
     void refresh_placement_table();
+    void apply_reference_visual_states();
+    void toggle_reference_highlight(std::size_t index, bool component_side);
     void remove_placement_reference(std::size_t index);
     [[nodiscard]] zima::assembly::PartOccurrence current_value() const;
     void notify_preview();

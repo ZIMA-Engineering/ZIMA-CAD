@@ -19,6 +19,23 @@ void require(bool condition, const char* message) {
 
 int main() {
     try {
+        const auto start_assembly_template =
+            zima::assembly::AssemblyDocument::load(
+                std::filesystem::current_path() /
+                "config/templates/start_assembly.asmz");
+        require(start_assembly_template.document_id ==
+                    "template-start-assembly" &&
+                    start_assembly_template.components.empty() &&
+                    start_assembly_template.sketches.empty() &&
+                    start_assembly_template.cuts.empty() &&
+                    start_assembly_template.constructions.empty() &&
+                    start_assembly_template.dependencies.empty() &&
+                    start_assembly_template.user_parameters.contains("mass") &&
+                    start_assembly_template.relations.size() == 1 &&
+                    start_assembly_template.relations.front().target == "mass" &&
+                    start_assembly_template.relations.front().expression ==
+                        "model.mass",
+                "Start Assembly template is stale or incomplete");
         const auto fixture_dir = std::filesystem::current_path() /
             "tests/fixtures/cross_language";
         const auto fixture_assembly = zima::assembly::AssemblyDocument::load(

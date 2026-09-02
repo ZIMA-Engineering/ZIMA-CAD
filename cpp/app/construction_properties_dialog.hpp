@@ -9,14 +9,17 @@
 #include <array>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string_view>
+#include <vector>
 #include <QString>
 
 class QDoubleSpinBox;
 class QComboBox;
 class QLabel;
 class QLineEdit;
+class QPushButton;
 class QTableWidget;
 
 namespace zima::ui {
@@ -33,10 +36,58 @@ public:
     ConstructionPropertiesDialog(
         const zima::document::ConstructionObject& initial, bool edit_mode,
         CommitCallback commit, QWidget* parent, int decimal_places = 3);
+    using SweepCommitCallback =
+        std::function<void(zima::document::HistoryContainer)>;
+    ConstructionPropertiesDialog(
+        const zima::document::HistoryContainer& initial, bool edit_mode,
+        bool allow_subtract,
+        SweepCommitCallback commit, QWidget* parent, int decimal_places = 3);
     using ReferenceRequestCallback = std::function<void(std::size_t)>;
     using PreviewCallback = std::function<void(zima::document::ConstructionObject)>;
     void set_reference_request_callback(ReferenceRequestCallback callback);
     void set_preview_callback(PreviewCallback callback);
+    using CurvePointEditRequestCallback =
+        std::function<void(std::optional<std::size_t>)>;
+    using CurveAxisRequestCallback = std::function<void(std::size_t)>;
+    using CurveAxisCycleCallback = std::function<void()>;
+    using CurveSketchEditRequestCallback = std::function<void(std::size_t)>;
+    using SweepProfilePointRequestCallback =
+        std::function<void(std::optional<std::size_t>)>;
+    using SweepProfileEditRequestCallback = std::function<void(std::size_t)>;
+    void set_curve_point_edit_request_callback(
+        CurvePointEditRequestCallback callback);
+    void set_curve_axis_request_callback(CurveAxisRequestCallback callback);
+    void set_curve_axis_cycle_callback(CurveAxisCycleCallback callback);
+    void set_curve_sketch_edit_request_callback(
+        CurveSketchEditRequestCallback callback);
+    void set_sweep_profile_point_request_callback(
+        SweepProfilePointRequestCallback callback);
+    void set_sweep_profile_edit_request_callback(
+        SweepProfileEditRequestCallback callback);
+    void set_curve_axis_active(std::optional<std::size_t> index);
+    void set_curve_point_tangent(
+        std::size_t index, zima::document::Curve3DTangentMode tangent);
+    void set_curve_point(std::optional<std::size_t> index,
+        zima::document::ConstructionObject point, bool update_preview = true);
+    void erase_curve_point(std::size_t index, bool update_preview = true);
+    [[nodiscard]] const zima::document::ConstructionObject* curve_point(
+        std::size_t index) const;
+    [[nodiscard]] const zima::document::Curve3DConnection* curve_connection(
+        std::size_t index) const;
+    void set_curve_connection_sketch(std::size_t index,
+        const zima::sketcher::Sketch& sketch,
+        std::string start_point_id, std::string end_point_id,
+        bool plane_valid = true);
+    [[nodiscard]] zima::document::ConstructionObject pending_value() const;
+    [[nodiscard]] zima::document::HistoryContainer pending_sweep_value() const;
+    void add_sweep_profile(std::string point_id,
+        const zima::sketcher::Sketch& sketch);
+    void set_sweep_profile_sketch(
+        std::size_t index, const zima::sketcher::Sketch& sketch);
+    bool reassign_sweep_profile(std::size_t index, std::string point_id);
+    [[nodiscard]] const zima::document::Sweep3DProfile* sweep_profile(
+        std::size_t index) const;
+    void refresh_preview();
     bool set_reference(std::size_t index,
         zima::document::ConstructionReference reference,
         const QString& label,
@@ -60,6 +111,11 @@ public:
     // bulk-fill attempt (e.g. after deleting and re-entering a reference)
     // may arm a row other than 0.
     [[nodiscard]] std::size_t first_empty_position_index() const;
+    void set_active_reference_index(
+        std::optional<std::size_t> index) override;
+    void set_reference_inspected(
+        std::size_t index, bool inspected) override;
+    void clear_reference_highlights() override;
     // Populated position references only (empty "hole" rows left by a
     // deleted reference are skipped, in row order). Use this instead of
     // relying on the raw reference count whenever the true entered-reference
@@ -124,6 +180,42 @@ private:
     QDoubleSpinBox* display_size_{};
     QDoubleSpinBox* offset_{};
     QComboBox* definition_{};
+    QComboBox* curve_type_{};
+    QComboBox* curve_tangent_{};
+    QTableWidget* curve_points_table_{};
+    QPushButton* add_curve_point_{};
+    QPushButton* edit_curve_point_{};
+    QPushButton* delete_curve_point_{};
+    QPushButton* move_curve_point_up_{};
+    QPushButton* move_curve_point_down_{};
+    std::vector<zima::document::ConstructionObject> curve_points_;
+    std::vector<zima::document::Curve3DConnection> curve_connections_;
+    enum class CurveTableRowKind { Point, Connection };
+    struct CurveTableRow {
+        CurveTableRowKind kind{CurveTableRowKind::Point};
+        std::size_t index{};
+    };
+    std::vector<CurveTableRow> curve_table_rows_;
+    CurvePointEditRequestCallback curve_point_edit_request_;
+    CurveAxisRequestCallback curve_axis_request_;
+    CurveAxisCycleCallback curve_axis_cycle_;
+    CurveSketchEditRequestCallback curve_sketch_edit_request_;
+    std::optional<zima::document::HistoryContainer> initial_sweep_;
+    SweepCommitCallback sweep_commit_;
+    std::vector<zima::document::Sweep3DProfile> sweep_profiles_;
+    QTableWidget* sweep_profiles_table_{};
+    QPushButton* add_sweep_profile_{};
+    QPushButton* edit_sweep_profile_{};
+    QPushButton* delete_sweep_profile_{};
+    QPushButton* reassign_sweep_profile_{};
+    QPushButton* add_sweep_operation_{};
+    QPushButton* subtract_sweep_operation_{};
+    zima::document::CombineMode sweep_combine_mode_{
+        zima::document::CombineMode::Add};
+    bool allow_sweep_subtract_{};
+    SweepProfilePointRequestCallback sweep_profile_point_request_;
+    SweepProfileEditRequestCallback sweep_profile_edit_request_;
+    std::optional<std::size_t> active_curve_axis_index_;
     std::unique_ptr<zima::ui::ContainerPlacementSection> placement_;
     QLabel* reference_status_{};
     QLabel* dof_label_{};
@@ -137,6 +229,16 @@ private:
     ReferenceHighlightsChangedCallback reference_highlights_changed_;
     void refresh_definition_fields();
     void refresh_offset_enabled_state();
+    void refresh_curve_points();
+    void refresh_experimental_curve_rows();
+    void synchronize_experimental_connections();
+    void merge_experimental_spline_generators();
+    void initialize_sweep_ui();
+    void refresh_sweep_profiles();
+    [[nodiscard]] std::optional<std::size_t>
+        selected_sweep_profile_index() const;
+    [[nodiscard]] std::optional<std::size_t>
+        selected_curve_point_index() const;
     [[nodiscard]] zima::document::ConstructionObject current_value() const;
     void notify_preview();
 };

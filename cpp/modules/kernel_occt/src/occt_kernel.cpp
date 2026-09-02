@@ -22,6 +22,7 @@
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRepClass_FaceClassifier.hxx>
 #include <BRepOffsetAPI_ThruSections.hxx>
+#include <BRepOffsetAPI_MakePipeShell.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <BRepPrimAPI_MakeHalfSpace.hxx>
 #include <BRepPrimAPI_MakeRevol.hxx>
@@ -54,6 +55,7 @@
 #include <GC_MakeArcOfCircle.hxx>
 #include <Geom_TrimmedCurve.hxx>
 #include <Geom_BSplineCurve.hxx>
+#include <Geom_BezierCurve.hxx>
 #include <Geom_Surface.hxx>
 #include <GeomAPI_Interpolate.hxx>
 #include <GeomAPI_ProjectPointOnSurf.hxx>
@@ -1207,6 +1209,183 @@ TopoDS_Wire make_profile_wire(
             return curved_wire.Wire();
         }
     }, profile_variant);
+}
+
+void validate_sweep3d(const Sweep3DRequest& request) {
+    if (request.path_points.size() < 2 ||
+        request.path_point_ids.size() != request.path_points.size() ||
+        request.path_segments.size() + 1 != request.path_points.size()) {
+        throw std::invalid_argument(
+            "3D Sweep path requires aligned Points and segments");
+    }
+    if (request.sections.empty()) {
+        throw std::invalid_argument("3D Sweep requires at least one section");
+    }
+    std::unordered_set<std::size_t> section_locations;
+    for (const auto& section : request.sections) {
+        if (section.profile_id.empty() || section.point_id.empty() ||
+            section.point_index >= request.path_points.size() ||
+            request.path_point_ids[section.point_index] != section.point_id ||
+            !section_locations.insert(section.point_index).second) {
+            throw std::invalid_argument(
+                "3D Sweep section has an invalid or duplicate Point relation");
+        }
+        const double normal_length = std::hypot(std::hypot(
+            section.profile_normal.x, section.profile_normal.y),
+            section.profile_normal.z);
+        if (!std::isfinite(normal_length) || normal_length <= 1.0e-12) {
+            throw std::invalid_argument(
+                "3D Sweep section has an invalid Sketch plane");
+        }
+        ExtrusionRequest profile_request;
+        profile_request.outer_profile = section.profile.outer_profile;
+        profile_request.inner_profiles = section.profile.inner_profiles;
+        profile_request.direction = {0.0, 0.0, 1.0};
+        validate_extrusion(profile_request);
+        if (!section.profile.inner_profiles.empty()) {
+            throw std::invalid_argument(
+                "Basic 3D Sweep does not support profile holes");
+        }
+    }
+    for (std::size_t index = 0; index < request.path_segments.size(); ++index) {
+        const auto& segment = request.path_segments[index];
+        if (segment.source_id.empty() ||
+            (segment.bezier_control_points.size() != 0 &&
+             segment.bezier_control_points.size() != 4)) {
+            throw std::invalid_argument("3D Sweep path segment is invalid");
+        }
+        const double distance = std::hypot(std::hypot(
+            segment.end.x-segment.start.x,
+            segment.end.y-segment.start.y),
+            segment.end.z-segment.start.z);
+        if (!std::isfinite(distance) || distance <= 1.0e-9) {
+            throw std::invalid_argument(
+                "3D Sweep path contains a zero-length segment");
+        }
+    }
+}
+
+PrimitiveData make_sweep3d_data(
+    const Sweep3DRequest& request, const std::string& owner_id) {
+    std::vector<TopoDS_Vertex> path_vertices;
+    path_vertices.reserve(request.path_points.size());
+    for (const auto& point : request.path_points) {
+        path_vertices.push_back(BRepBuilderAPI_MakeVertex(
+            gp_Pnt(point.x, point.y, point.z)).Vertex());
+    }
+    BRepBuilderAPI_MakeWire spine_builder;
+    std::vector<TopoDS_Edge> spine_edges;
+    spine_edges.reserve(request.path_segments.size());
+    for (std::size_t index = 0; index < request.path_segments.size(); ++index) {
+        const auto& segment = request.path_segments[index];
+        TopoDS_Edge edge;
+        if (segment.bezier_control_points.empty()) {
+            BRepBuilderAPI_MakeEdge builder(
+                path_vertices[index], path_vertices[index + 1]);
+            if (!builder.IsDone()) {
+                throw std::runtime_error("OCCT 3D Sweep line spine failed");
+            }
+            edge = builder.Edge();
+        } else {
+            TColgp_Array1OfPnt poles(1, 4);
+            for (Standard_Integer pole = 1; pole <= 4; ++pole) {
+                const auto& point = segment.bezier_control_points[
+                    static_cast<std::size_t>(pole - 1)];
+                poles.SetValue(pole, gp_Pnt(point.x, point.y, point.z));
+            }
+            Handle(Geom_BezierCurve) curve = new Geom_BezierCurve(poles);
+            BRepBuilderAPI_MakeEdge builder(
+                curve, path_vertices[index], path_vertices[index + 1]);
+            if (!builder.IsDone()) {
+                throw std::runtime_error("OCCT 3D Sweep spline spine failed");
+            }
+            edge = builder.Edge();
+        }
+        spine_builder.Add(edge);
+        spine_edges.push_back(std::move(edge));
+    }
+    if (!spine_builder.IsDone()) {
+        throw std::runtime_error("OCCT 3D Sweep spine wire failed");
+    }
+    const auto spine = spine_builder.Wire();
+    BRepOffsetAPI_MakePipeShell builder(spine);
+    builder.SetMode(false);
+    if (std::ranges::all_of(request.path_segments,
+            [](const auto& segment) {
+                return segment.bezier_control_points.empty();
+            })) {
+        builder.SetTransitionMode(BRepBuilderAPI_RightCorner);
+    }
+    std::vector<TopoDS_Wire> section_wires;
+    section_wires.reserve(request.sections.size());
+    for (const auto& section : request.sections) {
+        section_wires.push_back(make_profile_wire(
+            section.profile.outer_profile, section.profile_normal));
+        builder.Add(section_wires.back(), path_vertices[section.point_index],
+            false, false);
+    }
+    if (!builder.IsReady()) {
+        throw std::runtime_error("OCCT 3D Sweep is not ready");
+    }
+    builder.Build();
+    if (!builder.IsDone() || builder.Shape().IsNull()) {
+        throw std::runtime_error("OCCT 3D Sweep failed");
+    }
+    if (request.make_solid && !builder.MakeSolid()) {
+        throw std::runtime_error(
+            "OCCT 3D Sweep could not close the swept shell into a solid");
+    }
+    if (!BRepCheck_Analyzer(builder.Shape()).IsValid()) {
+        throw std::runtime_error("OCCT 3D Sweep produced an invalid shape");
+    }
+    PrimitiveData result{builder.Shape(), {}, {}, {}};
+    for (std::size_t section_index = 0;
+         section_index < request.sections.size(); ++section_index) {
+        const auto& section = request.sections[section_index];
+        std::size_t edge_index{};
+        for (TopExp_Explorer explorer(section_wires[section_index], TopAbs_EDGE);
+             explorer.More(); explorer.Next(), ++edge_index) {
+            if (edge_index >= section.profile.outer_edge_source_ids.size()) {
+                throw std::runtime_error(
+                    "3D Sweep profile edge provenance mismatch");
+            }
+            const auto& source_id =
+                section.profile.outer_edge_source_ids[edge_index];
+            const auto source_edge = TopoDS::Edge(explorer.Current());
+            const auto& generated = builder.Generated(source_edge);
+            for (TopTools_ListIteratorOfListOfShape iterator(generated);
+                 iterator.More(); iterator.Next()) {
+                if (iterator.Value().ShapeType() == TopAbs_FACE) {
+                    result.faces.push_back({iterator.Value(),
+                        {owner_id, "generated:" + source_id}});
+                } else if (iterator.Value().ShapeType() == TopAbs_EDGE) {
+                    result.edges.push_back({iterator.Value(),
+                        {owner_id, "generated:" + source_id}});
+                }
+            }
+            if (edge_index < section.profile.outer_vertex_source_ids.size()) {
+                const auto source_vertex = TopExp::FirstVertex(source_edge, true);
+                const auto& generated_vertex = builder.Generated(source_vertex);
+                for (TopTools_ListIteratorOfListOfShape iterator(generated_vertex);
+                     iterator.More(); iterator.Next()) {
+                    if (iterator.Value().ShapeType() == TopAbs_EDGE) {
+                        result.edges.push_back({iterator.Value(),
+                            {owner_id, "generated:" +
+                                section.profile.outer_vertex_source_ids[edge_index]}});
+                    } else if (iterator.Value().ShapeType() == TopAbs_VERTEX) {
+                        result.vertices.push_back({iterator.Value(),
+                            {owner_id, "generated:" +
+                                section.profile.outer_vertex_source_ids[edge_index]}});
+                    }
+                }
+            }
+        }
+        if (edge_index != section.profile.outer_edge_source_ids.size()) {
+            throw std::runtime_error(
+                "3D Sweep profile edge provenance count mismatch");
+        }
+    }
+    return result;
 }
 
 PrimitiveData make_extrusion_data(
@@ -2842,15 +3021,65 @@ BodyResult make_result(
             const gp_Pnt point = curve.Value(parameter);
             viewer_edge.points.push_back({point.X(), point.Y(), point.Z()});
         }
-        if (edge_index != 0) {
+        if (vertex_references) {
+            const TopoDS_Vertex first_vertex =
+                TopExp::FirstVertex(edge, true);
+            const TopoDS_Vertex last_vertex =
+                TopExp::LastVertex(edge, true);
+            const auto first_reference =
+                vertex_references->reference_for(first_vertex);
+            const auto last_reference =
+                vertex_references->reference_for(last_vertex);
+            if (first_reference.valid() && last_reference.valid() &&
+                first_reference != last_reference) {
+                const gp_Pnt first_point = BRep_Tool::Pnt(first_vertex);
+                const auto squared_distance = [](const gp_Pnt& first,
+                                                  const Vec3& second) {
+                    const double x = first.X() - second.x;
+                    const double y = first.Y() - second.y;
+                    const double z = first.Z() - second.z;
+                    return x * x + y * y + z * z;
+                };
+                if (squared_distance(first_point, viewer_edge.points.front()) <=
+                    squared_distance(first_point, viewer_edge.points.back())) {
+                    viewer_edge.edge_treatment_endpoint_references = {
+                        first_reference, last_reference};
+                } else {
+                    viewer_edge.edge_treatment_endpoint_references = {
+                        last_reference, first_reference};
+                }
+            }
+        }
+        if (edge_index != 0 && face_references) {
+            std::vector<std::pair<FaceReference, std::vector<Vec3>>> sides;
             for (TopTools_ListIteratorOfListOfShape iterator(
                      edge_faces.FindFromIndex(edge_index));
-                 iterator.More() &&
-                     viewer_edge.edge_treatment_side_directions.size() < 2;
-                 iterator.Next()) {
+                 iterator.More(); iterator.Next()) {
+                const auto face_reference =
+                    face_references->reference_for(iterator.Value());
+                if (!face_reference.valid()) continue;
                 auto directions = sampled_inward_face_directions(
                     edge, TopoDS::Face(iterator.Value()), sample_parameters);
                 if (!directions.empty()) {
+                    sides.emplace_back(face_reference, std::move(directions));
+                }
+            }
+            std::ranges::sort(sides, [](const auto& first, const auto& second) {
+                return std::tie(first.first.owner_id,
+                           first.first.semantic_key,
+                           first.first.instance_path) <
+                    std::tie(second.first.owner_id,
+                           second.first.semantic_key,
+                           second.first.instance_path);
+            });
+            sides.erase(std::ranges::unique(sides,
+                [](const auto& first, const auto& second) {
+                    return first.first == second.first;
+                }).begin(), sides.end());
+            if (sides.size() == 2) {
+                for (auto& [reference, directions] : sides) {
+                    viewer_edge.edge_treatment_side_references.push_back(
+                        std::move(reference));
                     viewer_edge.edge_treatment_side_directions.push_back(
                         std::move(directions));
                 }
@@ -2862,6 +3091,7 @@ BodyResult make_result(
         // simply do not offer the fake two-sided preview.
         if (viewer_edge.edge_treatment_side_directions.size() != 2) {
             viewer_edge.edge_treatment_side_directions.clear();
+            viewer_edge.edge_treatment_side_references.clear();
         }
         if (collect_original_references && reference.valid()) {
             auto reference_edge = viewer_edge;
@@ -3274,17 +3504,37 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                     throw std::invalid_argument(
                         "Fillet/Chamfer original edge reference is invalid");
                 }
-                const double size = [&] {
-                    using Treatment = std::decay_t<decltype(treatment)>;
-                    if constexpr (std::is_same_v<Treatment, FilletRequest>) {
-                        return treatment.radius;
-                    } else {
-                        return treatment.distance;
+                using Treatment = std::decay_t<decltype(treatment)>;
+                if constexpr (std::is_same_v<Treatment, FilletRequest>) {
+                    if (!std::isfinite(treatment.radius_start) ||
+                        treatment.radius_start <= 0.0 ||
+                        (treatment.mode == FilletRequest::Mode::Linear &&
+                         (!std::isfinite(treatment.radius_end) ||
+                          treatment.radius_end <= 0.0 ||
+                          treatment.contour_start_vertices.size() !=
+                              treatment.edges.size() ||
+                          std::ranges::any_of(
+                              treatment.contour_start_vertices,
+                              [](const auto& vertex) {
+                                  return !vertex.valid() ||
+                                      !vertex.instance_path.empty();
+                              })))) {
+                        throw std::invalid_argument(
+                            "Fillet radii must be finite and positive");
                     }
-                }();
-                if (!std::isfinite(size) || size <= 0.0) {
-                    throw std::invalid_argument(
-                        "Fillet/Chamfer size must be finite and positive");
+                } else {
+                    if (!std::isfinite(treatment.distance_a) ||
+                        treatment.distance_a <= 0.0 ||
+                        (treatment.mode == ChamferRequest::Mode::TwoDistances &&
+                         (!std::isfinite(treatment.distance_b) ||
+                          treatment.distance_b <= 0.0)) ||
+                        (treatment.mode == ChamferRequest::Mode::DistanceAngle &&
+                         (!std::isfinite(treatment.angle_radians) ||
+                          treatment.angle_radians <= 0.0 ||
+                          treatment.angle_radians >= std::numbers::pi))) {
+                        throw std::invalid_argument(
+                            "Chamfer parameters are outside their valid range");
+                    }
                 }
                 std::vector<std::pair<TopoDS_Edge, EdgeReference>> selected;
                 for (const auto& requested : treatment.edges) {
@@ -3302,17 +3552,66 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                             "Fillet/Chamfer original edge is missing at this history boundary");
                     }
                 }
-                using Treatment = std::decay_t<decltype(treatment)>;
                 if constexpr (std::is_same_v<Treatment, FilletRequest>) {
                     BRepFilletAPI_MakeFillet algorithm(result_shape);
-                    for (const auto& [edge, reference] : selected) {
+                    const TopologyReferenceIndex<VertexReference, OwnedVertex>
+                        vertex_references(owned_topology->vertices);
+                    for (std::size_t selected_index = 0;
+                         selected_index < selected.size(); ++selected_index) {
+                        const auto& [edge, reference] = selected[selected_index];
                         static_cast<void>(reference);
                         // OCCT expands one seed to its tangent contour. The
                         // document nevertheless persists every stable ZIMA
                         // edge in that route so generated topology can retain
                         // all parents. Do not add the same OCCT contour twice.
                         if (algorithm.Contour(edge) == 0) {
-                            algorithm.Add(size, edge);
+                            if (treatment.mode == FilletRequest::Mode::Constant) {
+                                algorithm.Add(treatment.radius_start, edge);
+                            } else {
+                                // OCCT defines R1/R2 on its internally built
+                                // spine, not on TopoDS_Edge orientation. Add
+                                // the contour first, query its actual ends,
+                                // then map the persisted ZIMA R1 endpoint to
+                                // that order before assigning the law.
+                                algorithm.Add(edge);
+                                const int contour = algorithm.Contour(edge);
+                                if (contour <= 0) {
+                                    throw std::runtime_error(
+                                        "OCCT did not create a Fillet contour");
+                                }
+                                const auto first_reference =
+                                    vertex_references.reference_for(
+                                        algorithm.FirstVertex(contour));
+                                const auto last_reference =
+                                    vertex_references.reference_for(
+                                        algorithm.LastVertex(contour));
+                                if (!first_reference.valid() ||
+                                    !last_reference.valid() ||
+                                    first_reference == last_reference) {
+                                    throw std::runtime_error(
+                                        "Variable Fillet edge endpoints have no stable ZIMA identity");
+                                }
+                                const auto& semantic_start =
+                                    treatment.contour_start_vertices[
+                                        selected_index];
+                                const bool semantic_start_is_first =
+                                    semantic_start == first_reference;
+                                if (!semantic_start_is_first &&
+                                    semantic_start != last_reference) {
+                                    throw std::runtime_error(
+                                        "Variable Fillet R1 endpoint is not on the OCCT contour");
+                                }
+                                const bool r1_is_occt_first =
+                                    semantic_start_is_first != treatment.reverse;
+                                algorithm.SetRadius(
+                                    r1_is_occt_first
+                                        ? treatment.radius_start
+                                        : treatment.radius_end,
+                                    r1_is_occt_first
+                                        ? treatment.radius_end
+                                        : treatment.radius_start,
+                                    contour, 1);
+                            }
                         }
                     }
                     algorithm.Build();
@@ -3359,10 +3658,64 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                             std::move(unified.hidden_display_edges)});
                 } else {
                     BRepFilletAPI_MakeChamfer algorithm(result_shape);
+                    TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+                    TopExp::MapShapesAndAncestors(
+                        result_shape, TopAbs_EDGE, TopAbs_FACE, edge_faces);
+                    const TopologyReferenceIndex<FaceReference, OwnedFace>
+                        face_references(owned_topology->faces);
+                    const auto support_face = [&](const TopoDS_Edge& edge) {
+                        const int edge_index = edge_faces.FindIndex(edge);
+                        if (edge_index == 0) {
+                            throw std::runtime_error(
+                                "Chamfer edge has no adjacent faces");
+                        }
+                        std::vector<std::pair<FaceReference, TopoDS_Face>> faces;
+                        for (TopTools_ListIteratorOfListOfShape iterator(
+                                 edge_faces.FindFromIndex(edge_index));
+                             iterator.More(); iterator.Next()) {
+                            const auto reference =
+                                face_references.reference_for(iterator.Value());
+                            if (reference.valid()) {
+                                faces.emplace_back(reference,
+                                    TopoDS::Face(iterator.Value()));
+                            }
+                        }
+                        std::ranges::sort(faces,
+                            [](const auto& first, const auto& second) {
+                                return std::tie(first.first.owner_id,
+                                           first.first.semantic_key,
+                                           first.first.instance_path) <
+                                    std::tie(second.first.owner_id,
+                                           second.first.semantic_key,
+                                           second.first.instance_path);
+                            });
+                        faces.erase(std::ranges::unique(faces,
+                            [](const auto& first, const auto& second) {
+                                return first.first == second.first;
+                            }).begin(), faces.end());
+                        if (faces.size() != 2) {
+                            throw std::runtime_error(
+                                "Chamfer A x B / A + angle requires exactly two stably named adjacent faces");
+                        }
+                        return treatment.flip
+                            ? faces.back().second : faces.front().second;
+                    };
                     for (const auto& [edge, reference] : selected) {
                         static_cast<void>(reference);
                         if (algorithm.Contour(edge) == 0) {
-                            algorithm.Add(size, edge);
+                            if (treatment.mode ==
+                                ChamferRequest::Mode::EqualDistance) {
+                                algorithm.Add(treatment.distance_a, edge);
+                            } else if (treatment.mode ==
+                                ChamferRequest::Mode::TwoDistances) {
+                                algorithm.Add(treatment.distance_a,
+                                    treatment.distance_b, edge,
+                                    support_face(edge));
+                            } else {
+                                algorithm.AddDA(treatment.distance_a,
+                                    treatment.angle_radians, edge,
+                                    support_face(edge));
+                            }
                         }
                     }
                     algorithm.Build();
@@ -3539,6 +3892,9 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                 } else if constexpr (std::is_same_v<Request, RevolutionRequest>) {
                     validate_revolution(primitive);
                     return make_revolution_data(primitive, operation.owner_id);
+                } else if constexpr (std::is_same_v<Request, Sweep3DRequest>) {
+                    validate_sweep3d(primitive);
+                    return make_sweep3d_data(primitive, operation.owner_id);
                 } else if constexpr (std::is_same_v<Request, StepRequest>) {
                     return make_step_data(primitive, operation.owner_id, step_documents);
                 } else {

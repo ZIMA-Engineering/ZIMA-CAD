@@ -19,7 +19,8 @@ enum class SketchPlane { XY, XZ, YZ };
 [[nodiscard]] double plane_offset_delta_for_normal_displacement(
     SketchPlane plane, double normal_displacement) noexcept;
 enum class ConstraintKind {
-    Horizontal, Vertical, Coincident, Parallel, Perpendicular, EqualLength,
+    Horizontal, Vertical, Coincident, PointReference,
+    Parallel, Perpendicular, EqualLength,
     EqualRadius, PointOnCircle, PointOnLine, MidpointOnLine, Symmetric,
     Midpoint, Concentric, Tangent
 };
@@ -217,6 +218,11 @@ struct SketchDimension {
     // locked and unlocked driving dimensions constrain geometry; a locked
     // value cannot be changed until explicitly unlocked.
     bool locked{};
+    // Unsigned point-to-line and line-to-line distances persist their
+    // magnitude in value and their selected normal branch independently.
+    // This keeps the displayed value positive while allowing a negative user
+    // entry to mean "move to the opposite side".
+    int solution_side{1};
     bool operator==(const SketchDimension&) const = default;
 };
 
@@ -343,8 +349,20 @@ public:
     [[nodiscard]] std::string add_point_pair_constraint(
         const std::string& reference_point_id,
         const std::string& driven_point_id, ConstraintKind kind);
-    [[nodiscard]] std::string add_coincident_constraint(
-        const std::string& first_point_id, const std::string& second_point_id);
+    // Point-point coincidence is a topology operation: every reference to
+    // absorbed_point_id is rewired to reference_point_id and the absorbed
+    // point is removed. No persistent Coincident equation or View marker is
+    // created.
+    [[nodiscard]] std::string merge_points(
+        const std::string& reference_point_id,
+        const std::string& absorbed_point_id);
+    // A read-only external point (Sketch origin, projected point or generated
+    // curve keypoint) cannot become a native graph vertex. Keep that special
+    // anchor as an explicit reference equation, without presenting it as the
+    // point-on-geometry C relation.
+    [[nodiscard]] std::string add_point_reference_constraint(
+        const std::string& native_point_id,
+        const std::string& reference_point_id);
     [[nodiscard]] std::string add_segment_pair_constraint(
         const std::string& first_segment_id, const std::string& second_segment_id,
         ConstraintKind kind);

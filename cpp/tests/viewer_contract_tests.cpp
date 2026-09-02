@@ -161,7 +161,8 @@ int main() {
         zima::kernel::ViewerMesh ordinary_sketch_mesh;
         ordinary_sketch_mesh.edges.push_back({
             {{-5.0, 0.0, 5.0}, {5.0, 0.0, 5.0}},
-            {"sketch-container", "segment:profile"}, false, true});
+            {"owned-sketch", "segment:profile"}, false, true,
+            false, false, "sketch-container"});
         const auto ordinary_sketch_candidates =
             zima::viewer::ordered_viewer_candidates(ordinary_sketch_mesh,
                 {0.0, 0.0, 0.0}, {0.0, 0.0, 1.0}, 0.01);
@@ -173,11 +174,25 @@ int main() {
         require(ordinary_sketch_containers.size() == 1 &&
                     ordinary_sketch_containers.front().owner_id ==
                         "sketch-container" &&
-                    ordinary_sketch_containers.front().semantic_key == "sketch" &&
+                    ordinary_sketch_containers.front().semantic_key.empty() &&
                     tree_sketch_candidate &&
-                    tree_sketch_candidate->semantic_key == "sketch",
-                "Ordinary View did not expose the whole Sketch through the "
-                "shared candidate list");
+                    tree_sketch_candidate->semantic_key.empty() &&
+                    zima::viewer::candidate_recolors_wire_edge(
+                        *tree_sketch_candidate,
+                        ordinary_sketch_mesh.edges.front()) &&
+                    zima::viewer::candidate_recolors_wire_edge(
+                        ordinary_sketch_candidates.front(),
+                        ordinary_sketch_mesh.edges.front()),
+                "Ordinary View did not expose the whole owned Sketch as its "
+                "parent history Container through the common cyan wire");
+        const auto direct_sketch_child_candidate =
+            zima::viewer::container_candidate(ordinary_sketch_mesh, "owned-sketch");
+        require(direct_sketch_child_candidate &&
+                    direct_sketch_child_candidate->semantic_key == "sketch" &&
+                    zima::viewer::candidate_recolors_wire_edge(
+                        *direct_sketch_child_candidate,
+                        ordinary_sketch_mesh.edges.front()),
+                "Direct Sketch child selection lost its native Sketch wire");
         mesh.points = {
             {{0.0, 0.0, 4.0}, {"front", "vertex-a"}},
             {{0.0, 0.0, 9.0}, {"back", "vertex-b"}},
@@ -385,6 +400,33 @@ int main() {
                 "Tree selection did not resolve the same stable container candidate");
         require(!zima::viewer::container_candidate(mesh, "missing-container"),
                 "Tree selection accepted a container absent from viewer data");
+        zima::kernel::ViewerMesh curve_mesh;
+        zima::kernel::ViewerEdge curve_first;
+        curve_first.points = {{-2.0, 0.0, 5.0}, {0.0, 0.0, 5.0}};
+        curve_first.reference = {
+            "curve-entity", "curve:segment:point-a:point-b", {}};
+        curve_first.display_owner_id = "curve-container";
+        zima::kernel::ViewerEdge curve_second;
+        curve_second.points = {{0.0, 0.0, 5.0}, {2.0, 0.0, 5.0}};
+        curve_second.reference = {
+            "curve-entity", "curve:segment:point-b:point-c", {}};
+        curve_second.display_owner_id = "curve-container";
+        curve_mesh.edges = {curve_first, curve_second};
+        const auto curve_candidates = zima::viewer::filter_candidates(
+            zima::viewer::ordered_viewer_candidates(curve_mesh,
+                {0.0, 0.0, 0.0}, {0.0, 0.0, 1.0}, 0.01),
+            {zima::viewer::CandidateKind::Container});
+        const auto curve_tree_candidate =
+            zima::viewer::container_candidate(curve_mesh, "curve-container");
+        require(curve_candidates.size() == 1 &&
+                    curve_candidates.front().owner_id == "curve-container" &&
+                    curve_tree_candidate &&
+                    curve_tree_candidate->owner_id == "curve-container" &&
+                    zima::viewer::candidate_recolors_wire_edge(
+                        curve_candidates.front(), curve_first) &&
+                    zima::viewer::candidate_recolors_wire_edge(
+                        curve_candidates.front(), curve_second),
+                "3D Curve hover, LMB and Tree did not resolve one complete container");
         zima::kernel::ViewerMesh separated;
         separated.vertices = {
             {-1.0, -1.0, 5.0}, {1.0, -1.0, 5.0}, {0.0, 1.0, 5.0}};

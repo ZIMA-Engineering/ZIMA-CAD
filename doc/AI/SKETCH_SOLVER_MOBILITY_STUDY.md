@@ -452,6 +452,27 @@ at `46.893 ms`, 100-branch dimension edit at `1.126 ms` and 1,000-branch
 dimension edit at `33.151 ms`. The correction adds no new solver scan or
 scaling regime.
 
+### Direct C+T mobility and angular-driver batch 6 result
+
+A Circle contact carrying PointOnCircle, PointOnLine and Tangent now has an
+explicit direct-manipulation ownership rule. With an unlocked radial dimension
+the contact is the cursor-driven radial handle: the Circle centre remains
+fixed, the radius follows the contact and the free tangent Segment endpoint is
+repositioned to preserve the Segment's previous length and tangent orientation.
+With a locked Radius/Diameter, the existing angular-slide behavior remains.
+
+A driving Angle on a Segment with exactly one Circle C+T contact uses the same
+ownership. The requested angle analytically seeds the corresponding contact
+on the unchanged Circle and the unchanged Segment length, after which the
+ordinary nonlinear solve validates every remaining relation. Common tangents
+with two circular supports deliberately stay outside this one-contact rule.
+
+Contract tests cover dragging a `(5,0)` contact to `(8,0)` while preserving an
+origin-centred Circle and a ten-millimetre tangent arm, and changing the same
+arm from `90°` to `45°` while preserving centre, radius and tangency. The known
+Segment-to-Arc free-end reverse round trip `A -> B -> A` remains an independent
+open continuity case; direct Arc endpoint dragging remains verified.
+
 ## Idle-time preparation
 
 Allowed background work is limited to Sketch data:

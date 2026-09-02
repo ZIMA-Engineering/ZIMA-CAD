@@ -136,7 +136,7 @@ ComponentPropertiesDialog::ComponentPropertiesDialog(
     const zima::assembly::PartOccurrence& initial,
     CommitCallback commit,
     QWidget* parent)
-    : PropertiesSubWindow(tr("Komponenta"), parent),
+    : PropertiesSubWindow(tr("Vlastnosti komponenty"), parent),
       initial_(initial), commit_(std::move(commit)),
       placement_references_(initial.placement_references) {
     setAttribute(Qt::WA_DeleteOnClose, true);
@@ -185,10 +185,11 @@ ComponentPropertiesDialog::ComponentPropertiesDialog(
     heading->setFont(heading_font);
     content_layout()->addWidget(heading);
 
-    placement_table_ = new QTableWidget(0, 7, this);
+    placement_table_ = new QTableWidget(0, 9, this);
     placement_table_->setObjectName("componentPlacementTable");
     placement_table_->setHorizontalHeaderLabels({QString(), tr("Tento díl"),
-        tr("Cíl"), tr("Typ"), tr("Hodnota"), tr("Obrátit"), QString()});
+        tr("Cíl"), tr("Typ"), tr("Hodnota"), tr("Obrátit"), QString(),
+        tr("Zobrazit díl"), tr("Zobrazit cíl")});
     placement_table_->horizontalHeader()->setSectionResizeMode(
         0, QHeaderView::ResizeToContents);
     placement_table_->horizontalHeader()->setSectionResizeMode(
@@ -203,13 +204,16 @@ ComponentPropertiesDialog::ComponentPropertiesDialog(
         5, QHeaderView::ResizeToContents);
     placement_table_->horizontalHeader()->setSectionResizeMode(
         6, QHeaderView::ResizeToContents);
+    placement_table_->horizontalHeader()->setSectionResizeMode(
+        7, QHeaderView::ResizeToContents);
+    placement_table_->horizontalHeader()->setSectionResizeMode(
+        8, QHeaderView::ResizeToContents);
     placement_table_->verticalHeader()->setDefaultSectionSize(34);
     placement_table_->verticalHeader()->setMinimumSectionSize(34);
     placement_table_->setFixedHeight(
         placement_table_->horizontalHeader()->sizeHint().height() + 3 * 34 +
         placement_table_->frameWidth() * 2);
-    placement_table_->setStyleSheet(
-        "QTableWidget::item:selected{background:#00d1ff;color:#102027}");
+    zima::ui::install_reference_cell_delegate(placement_table_);
     content_layout()->addWidget(placement_table_);
     connect(placement_table_, &QTableWidget::cellClicked, this,
         [this](int row, int column) {
@@ -220,12 +224,10 @@ ComponentPropertiesDialog::ComponentPropertiesDialog(
                 auto* item = component_side
                     ? component_items_[static_cast<std::size_t>(row)]
                     : target_items_[static_cast<std::size_t>(row)];
-                if (item == nullptr || item->has_reference()) return;
-                if (reference_request_) {
+                if (item == nullptr) return;
+                if (reference_request_)
                     reference_request_(static_cast<std::size_t>(row), component_side);
-                }
             }
-            placement_table_->clearSelection();
         });
 
     auto* position_form = new QFormLayout;
@@ -301,11 +303,91 @@ void ComponentPropertiesDialog::set_placement_reference(
     static_cast<void>(label);
 }
 
+void ComponentPropertiesDialog::set_active_reference_cell(
+    std::optional<std::size_t> index, bool component_side) {
+    active_reference_index_ = index;
+    active_reference_component_side_ = component_side;
+    apply_reference_visual_states();
+}
+
+void ComponentPropertiesDialog::set_reference_inspected(
+    std::size_t index, bool component_side, bool inspected) {
+    const auto key = std::pair{index, component_side};
+    if (inspected) inspected_reference_cells_.insert(key);
+    else inspected_reference_cells_.erase(key);
+    apply_reference_visual_states();
+    if (reference_highlights_changed_) reference_highlights_changed_();
+}
+
+void ComponentPropertiesDialog::clear_reference_highlights() {
+    if (inspected_reference_cells_.empty()) return;
+    inspected_reference_cells_.clear();
+    apply_reference_visual_states();
+    if (reference_highlights_changed_) reference_highlights_changed_();
+}
+
+void ComponentPropertiesDialog::set_reference_highlights_changed_callback(
+    ReferenceHighlightsChangedCallback callback) {
+    reference_highlights_changed_ = std::move(callback);
+}
+
+std::vector<zima::assembly::MateReference>
+ComponentPropertiesDialog::highlighted_references() const {
+    std::vector<zima::assembly::MateReference> result;
+    for (const auto& [index, component_side] : inspected_reference_cells_) {
+        if (index >= placement_references_.size()) continue;
+        const auto& row = placement_references_[index];
+        const auto& reference = component_side
+            ? row.component_reference : row.target_reference;
+        if (!reference.owner_id.empty() && !reference.semantic_key.empty())
+            result.push_back(reference);
+    }
+    return result;
+}
+
+void ComponentPropertiesDialog::apply_reference_visual_states() {
+    for (std::size_t index = 0; index < component_items_.size(); ++index) {
+        const bool component_inspected =
+            inspected_reference_cells_.contains({index, true});
+        const bool target_inspected =
+            inspected_reference_cells_.contains({index, false});
+        if (auto* item = component_items_[index]) {
+            item->set_active_input(active_reference_index_ == index &&
+                active_reference_component_side_);
+            item->set_inspected(component_inspected);
+        }
+        if (auto* item = target_items_[index]) {
+            item->set_active_input(active_reference_index_ == index &&
+                !active_reference_component_side_);
+            item->set_inspected(target_inspected);
+        }
+        if (auto* button = component_inspection_buttons_[index]) {
+            const QSignalBlocker blocked(button);
+            button->setChecked(component_inspected);
+        }
+        if (auto* button = target_inspection_buttons_[index]) {
+            const QSignalBlocker blocked(button);
+            button->setChecked(target_inspected);
+        }
+    }
+}
+
+void ComponentPropertiesDialog::toggle_reference_highlight(
+    std::size_t index, bool component_side) {
+    const auto key = std::pair{index, component_side};
+    set_reference_inspected(index, component_side,
+        !inspected_reference_cells_.contains(key));
+}
+
 void ComponentPropertiesDialog::remove_placement_reference(std::size_t index) {
     if (index >= placement_references_.size()) return;
+    const bool had_highlights = !inspected_reference_cells_.empty();
+    inspected_reference_cells_.clear();
     placement_references_.erase(placement_references_.begin() +
         static_cast<std::ptrdiff_t>(index));
     refresh_placement_table();
+    if (had_highlights && reference_highlights_changed_)
+        reference_highlights_changed_();
     notify_preview();
 }
 
@@ -316,6 +398,8 @@ void ComponentPropertiesDialog::refresh_placement_table() {
     offset_fields_.fill(nullptr);
     flip_buttons_.fill(nullptr);
     limit_buttons_.fill(nullptr);
+    component_inspection_buttons_.fill(nullptr);
+    target_inspection_buttons_.fill(nullptr);
     placement_table_->setRowCount(0);
     // Offer one more empty row than currently populated, capped at 3 rows,
     // matching Python's _retained_mate_rows(value[:3]) row cap.
@@ -476,7 +560,36 @@ void ComponentPropertiesDialog::refresh_placement_table() {
             dialog->show();
             dialog->raise();
         });
+
+        const bool component_populated = populated &&
+            !row.component_reference.owner_id.empty() &&
+            !row.component_reference.semantic_key.empty();
+        auto* component_inspection = zima::ui::build_reference_inspection_button(
+            component_populated,
+            inspected_reference_cells_.contains({index, true}),
+            [this, index](bool) { toggle_reference_highlight(index, true); });
+        component_inspection->setToolTip(component_populated
+            ? tr("Zobrazit nebo skrýt referenci tohoto dílu ve View")
+            : tr("Nejprve vyberte referenci tohoto dílu"));
+        component_inspection_buttons_[index] = component_inspection;
+        placement_table_->setCellWidget(static_cast<int>(index), 7,
+            zima::ui::centered_cell_widget(component_inspection));
+
+        const bool target_populated = populated &&
+            !row.target_reference.owner_id.empty() &&
+            !row.target_reference.semantic_key.empty();
+        auto* target_inspection = zima::ui::build_reference_inspection_button(
+            target_populated,
+            inspected_reference_cells_.contains({index, false}),
+            [this, index](bool) { toggle_reference_highlight(index, false); });
+        target_inspection->setToolTip(target_populated
+            ? tr("Zobrazit nebo skrýt cílovou referenci ve View")
+            : tr("Nejprve vyberte cílovou referenci"));
+        target_inspection_buttons_[index] = target_inspection;
+        placement_table_->setCellWidget(static_cast<int>(index), 8,
+            zima::ui::centered_cell_widget(target_inspection));
     }
+    apply_reference_visual_states();
 }
 
 zima::assembly::PartOccurrence ComponentPropertiesDialog::current_value() const {

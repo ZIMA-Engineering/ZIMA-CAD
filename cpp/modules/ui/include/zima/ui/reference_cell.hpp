@@ -7,6 +7,8 @@
 #include <QTableWidgetItem>
 
 class QWidget;
+class QTableWidget;
+class QToolButton;
 
 namespace zima::ui {
 
@@ -41,6 +43,18 @@ void set_reference_row_populated(QWidget* indicator, bool populated);
 QWidget* build_reference_row_flip_button(
     bool enabled, bool checked, std::function<void(bool)> toggled_callback);
 
+// Installs the shared reference-cell delegate on a table. The delegate draws
+// the two reference-entry states on the exact item only: a green outline for
+// the single active input and an azure fill for independently inspected
+// stored geometry. It deliberately ignores QTableWidget's selection palette.
+void install_reference_cell_delegate(QTableWidget* table);
+
+// Small independent inspection toggle placed next to a reference field. It
+// never arms picking; it only asks the owner to show/hide the exact persisted
+// reference in the View.
+QToolButton* build_reference_inspection_button(
+    bool enabled, bool checked, std::function<void(bool)> toggled_callback);
+
 // Reference-column table item: a flat QTableWidgetItem holding a reference
 // descriptor (empty when unfilled), its display label and a "checked"/
 // highlighted flag. Mirrors Python's _ReferenceCellItem: the reference is a
@@ -59,6 +73,11 @@ public:
 
     [[nodiscard]] bool is_checked() const { return checked_; }
     void set_checked(bool value) { checked_ = value; }
+
+    [[nodiscard]] bool is_active_input() const;
+    void set_active_input(bool value);
+    [[nodiscard]] bool is_inspected() const;
+    void set_inspected(bool value);
 
     // Applies the "pick reference" placeholder styling (muted color, no
     // reference set) used while a row is empty.

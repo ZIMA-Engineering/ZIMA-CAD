@@ -366,7 +366,7 @@ int main() {
         const auto lifecycle_coincident_point = dependent_sketch.add_point(
             lifecycle_reference.cached_points.front()[0] + 10.0,
             lifecycle_reference.cached_points.front()[1] + 10.0);
-        static_cast<void>(dependent_sketch.add_coincident_constraint(
+        static_cast<void>(dependent_sketch.add_point_reference_constraint(
             lifecycle_coincident_point, lifecycle_reference.id));
         const auto lifecycle_dimension_point = dependent_sketch.add_point(
             lifecycle_reference.cached_points.front()[0] + 8.0,

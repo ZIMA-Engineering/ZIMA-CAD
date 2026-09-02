@@ -21,6 +21,7 @@ struct ApplicationSettings {
     QMap<QString, QString> units;
     QMap<QString, QString> translations;
     QString part_template{QStringLiteral("start_part.prtz")};
+    QString assembly_template{QStringLiteral("start_assembly.asmz")};
 
     [[nodiscard]] static ApplicationSettings load(
         const QString& working_directory = {});

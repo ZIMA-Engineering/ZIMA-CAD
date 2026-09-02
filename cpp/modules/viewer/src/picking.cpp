@@ -103,11 +103,45 @@ bool candidate_recolors_wire_edge(
     }
     if (candidate.kind == CandidateKind::Container &&
         candidate.semantic_key.empty()) {
-        return !edge.construction && !edge.overlay &&
+        const bool screen_curve = edge.overlay &&
+            edge.reference.semantic_key.starts_with("curve:segment:");
+        const auto& key = edge.reference.semantic_key;
+        const bool inactive_sketch_profile = edge.overlay &&
+            (key.starts_with("segment:") || key.starts_with("circle:") ||
+             key.starts_with("arc:") || key.starts_with("corner_radius:") ||
+             key.starts_with("ellipse:") ||
+             key.starts_with("elliptical_arc:") ||
+             key.starts_with("bspline:") || key.starts_with("text:"));
+        return !edge.construction &&
+            (!edge.overlay || screen_curve || inactive_sketch_profile) &&
             edge.display_owner_id == candidate.owner_id &&
             edge.reference.instance_path == candidate.instance_path;
     }
-    return candidate.kind == CandidateKind::Edge &&
+    if (candidate.kind == CandidateKind::Container &&
+        candidate.semantic_key == "sketch") {
+        const auto& key = edge.reference.semantic_key;
+        const bool native_sketch_geometry =
+            key.starts_with("segment:") ||
+            key.starts_with("trim_piece:") ||
+            key.starts_with("circle:") ||
+            key.starts_with("arc:") ||
+            key.starts_with("corner_radius:") ||
+            key.starts_with("ellipse:") ||
+            key.starts_with("elliptical_arc:") ||
+            key.starts_with("bspline:") ||
+            key.starts_with("text:");
+        return native_sketch_geometry &&
+            edge.reference.owner_id == candidate.owner_id &&
+            edge.reference.instance_path == candidate.instance_path;
+    }
+    const bool exact_edge_candidate =
+        candidate.kind == CandidateKind::Edge ||
+        candidate.kind == CandidateKind::SketchSegment ||
+        candidate.kind == CandidateKind::SketchCurve ||
+        candidate.kind == CandidateKind::SketchTrimPiece ||
+        candidate.kind == CandidateKind::SketchText ||
+        candidate.kind == CandidateKind::SketchExternalReference;
+    return exact_edge_candidate &&
         candidate.owner_id == edge.reference.owner_id &&
         candidate.semantic_key == edge.reference.semantic_key &&
         candidate.instance_path == edge.reference.instance_path;
@@ -491,6 +525,25 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
                                   edge.reference.owner_id, edge.reference.semantic_key,
                                   edge.reference.instance_path, geometry});
             }
+            if (edge.reference.semantic_key.starts_with("curve:segment:") &&
+                edge.edge < source.edges.size() &&
+                !source.edges[edge.edge].display_owner_id.empty() &&
+                std::none_of(result.begin(), result.end(),
+                    [&](const ViewerCandidate& candidate) {
+                        return candidate.kind == CandidateKind::Container &&
+                            candidate.owner_id ==
+                                source.edges[edge.edge].display_owner_id &&
+                            candidate.instance_path ==
+                                edge.reference.instance_path;
+                    })) {
+                // A 3D Curve may consist of many persisted segment entities,
+                // but ordinary Part interaction offers their parent history
+                // container exactly once. Edge-taking commands can still
+                // consume the exact preceding Edge candidate.
+                result.push_back({CandidateKind::Container, edge.distance,
+                    edge.edge, source.edges[edge.edge].display_owner_id, {},
+                    edge.reference.instance_path, geometry});
+            }
             const bool native_sketch_geometry =
                 kind == CandidateKind::SketchSegment ||
                 kind == CandidateKind::SketchCurve ||
@@ -498,19 +551,25 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
             if (native_sketch_geometry &&
                 std::none_of(result.begin(), result.end(),
                     [&](const ViewerCandidate& candidate) {
+                        const auto& display_owner =
+                            source.edges[edge.edge].display_owner_id;
+                        const auto& container_owner = display_owner.empty()
+                            ? edge.reference.owner_id : display_owner;
                         return candidate.kind == CandidateKind::Container &&
-                            candidate.semantic_key == "sketch" &&
-                            candidate.owner_id == edge.reference.owner_id &&
+                            candidate.owner_id == container_owner &&
                             candidate.instance_path ==
                                 edge.reference.instance_path &&
                             candidate.geometry == geometry;
                     })) {
-                // Outside Sketcher the same hit is offered as the complete
-                // Sketch leaf container. Active Sketcher contracts filter
-                // this candidate out and continue to consume the individual
-                // persisted geometry candidate above.
+                const auto& display_owner =
+                    source.edges[edge.edge].display_owner_id;
+                // An inactive owned Sketch is offered as its parent history
+                // Container. Its native Sketch identity remains on the edge
+                // for Sketcher and direct Tree-child interaction.
                 result.push_back({CandidateKind::Container, edge.distance,
-                    edge.edge, edge.reference.owner_id, "sketch",
+                    edge.edge,
+                    display_owner.empty() ? edge.reference.owner_id : display_owner,
+                    display_owner.empty() ? "sketch" : "",
                     edge.reference.instance_path, geometry});
             }
         }
@@ -783,6 +842,18 @@ std::optional<ViewerCandidate> container_candidate(
     if (auto display_plane = find_plane(
             mesh.triangle_references, CandidateGeometry::Display)) {
         return display_plane;
+    }
+    const auto display_owned_edge = std::find_if(
+        mesh.edges.begin(), mesh.edges.end(),
+        [&](const zima::kernel::ViewerEdge& edge) {
+            return edge.display_owner_id == owner_id &&
+                edge.reference.instance_path == instance_path;
+        });
+    if (display_owned_edge != mesh.edges.end()) {
+        return ViewerCandidate{CandidateKind::Container, 0.0,
+            static_cast<std::size_t>(
+                std::distance(mesh.edges.begin(), display_owned_edge)),
+            owner_id, {}, instance_path, CandidateGeometry::Display};
     }
     const auto sketch_edge = std::find_if(mesh.edges.begin(), mesh.edges.end(),
         [&](const zima::kernel::ViewerEdge& edge) {

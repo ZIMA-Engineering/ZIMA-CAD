@@ -22,6 +22,7 @@ class QLineEdit;
 class QListWidget;
 class QPushButton;
 class QTableWidget;
+class QToolButton;
 class QTreeWidget;
 class QWidget;
 
@@ -63,6 +64,8 @@ public:
         zima::kernel::FaceReference reference,
         std::vector<zima::kernel::Vec3> triangles, std::string label = {});
     void set_extrusion_target_request(std::function<void()> callback);
+    void set_extrusion_target_cancel(std::function<void()> callback);
+    void finish_extrusion_target_entry();
     void set_profile_pick_request(std::function<void(bool)> callback);
     void set_edit_sketch_callback(
         std::function<void(zima::document::HistoryContainer)> callback);
@@ -86,6 +89,8 @@ public:
     void set_edge_references(std::vector<zima::kernel::EdgeReference> edges);
     using EdgeGroup = std::vector<zima::kernel::EdgeReference>;
     void set_edge_groups(std::vector<EdgeGroup> groups);
+    void set_edge_route_start_vertices(
+        std::vector<zima::kernel::VertexReference> vertices);
     void set_edge_group_callbacks(
         std::function<void(std::size_t, std::optional<std::size_t>)> remove,
         std::function<void(std::size_t)> restore);
@@ -103,6 +108,11 @@ public:
     [[nodiscard]] std::vector<zima::document::ConstructionReference>
         references_without(std::size_t index) const;
     [[nodiscard]] std::size_t first_empty_position_index() const;
+    void set_active_reference_index(
+        std::optional<std::size_t> index) override;
+    void set_reference_inspected(
+        std::size_t index, bool inspected) override;
+    void clear_reference_highlights() override;
     void set_remaining_translation_dof(int dof);
     void set_remaining_rotation_dof(int dof);
     void set_translation_constraint_state(
@@ -170,8 +180,8 @@ private:
     QLineEdit* reverse_end_target_{};
     QAction* forward_end_target_clear_action_{};
     QAction* reverse_end_target_clear_action_{};
-    QPushButton* forward_end_targets_button_{};
-    QPushButton* reverse_end_targets_button_{};
+    QToolButton* forward_end_targets_button_{};
+    QToolButton* reverse_end_targets_button_{};
     QWidget* reverse_end_row_{};
     std::array<std::array<double, 2>, 3> revolution_extent_values_{{
         {{360.0, 360.0}}, {{45.0, 45.0}}, {{45.0, 45.0}}}};
@@ -182,10 +192,19 @@ private:
     bool forward_end_target_pick_active_{};
     bool reverse_end_target_pick_active_{};
     std::function<void()> extrusion_target_request_;
+    std::function<void()> extrusion_target_cancel_;
     std::function<void(bool)> profile_pick_request_;
     std::function<void(zima::document::HistoryContainer)> edit_sketch_;
     std::function<void(const zima::document::HistoryContainer&)> preview_;
-    QDoubleSpinBox* treatment_size_{};
+    QComboBox* treatment_type_{};
+    QLabel* treatment_primary_label_{};
+    QLabel* treatment_secondary_label_{};
+    QLabel* treatment_angle_label_{};
+    QDoubleSpinBox* treatment_primary_{};
+    QDoubleSpinBox* treatment_secondary_{};
+    QDoubleSpinBox* treatment_angle_{};
+    QPushButton* treatment_flip_{};
+    QPushButton* treatment_reverse_{};
     QTreeWidget* edge_list_{};
     QPushButton* remove_edge_button_{};
     QPushButton* restore_route_button_{};
@@ -209,6 +228,7 @@ private:
     void toggle_extrusion_target_highlight(const std::string& side);
     void refresh_extrusion_target_styles();
     void notify_preview();
+    void refresh_edge_treatment_fields();
 };
 
 }  // namespace zima::app

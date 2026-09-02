@@ -1,0 +1,12 @@
+[Document]
+document_id=template-start-assembly
+family_table={"columns":[],"instances":[]}
+format_version=11
+name=Startovací sestava
+type=assembly
+
+[Container.template-start-assembly]
+param.cpp_assembly={"format":"zima-cad-cpp","format_version":21,"type":"assembly","document_id":"template-start-assembly","name":"Startovací sestava","user_parameters":{"approved_by":"","date":"","drawn_by":"","general_tolerance":"ISO 2768-mK","mass":"0","material":"","name":"","quantity":"1","revision":"00","standard":"","stock":"","tolerancing":"ISO 8015"},"user_parameter_order":["name","standard","stock","material","quantity","drawn_by","approved_by","revision","date","general_tolerance","tolerancing","mass"],"user_parameter_labels":{"approved_by":{"cs":"Schválil","de":"Genehmigt von","en":"Approved","fr":"Approuvé par"},"date":{"cs":"Datum","de":"Datum","en":"Date","fr":"Date"},"drawn_by":{"cs":"Kreslil","de":"Gezeichnet von","en":"Drew","fr":"Dessiné par"},"general_tolerance":{"cs":"Přesnost","de":"Genauigkeit","en":"Accuracy","fr":"Précision"},"mass":{"cs":"Hmotnost","de":"Gewicht","en":"Weight","fr":"Masse"},"material":{"cs":"Materiál","de":"Material","en":"Material","fr":"Matériau"},"name":{"cs":"Název","de":"Name","en":"Name","fr":"Nom"},"quantity":{"cs":"Množství","de":"Menge","en":"Quantity","fr":"Quantité"},"revision":{"cs":"Verze","de":"Version","en":"Version","fr":"Version"},"standard":{"cs":"Norma","de":"Norm","en":"Standard","fr":"Norme"},"stock":{"cs":"Polotovar","de":"Rohteil","en":"Stock","fr":"Ébauche"},"tolerancing":{"cs":"Tolerování","de":"Tolerierung","en":"Tolerancing","fr":"Tolérancement"}},"user_parameter_values":{"approved_by":{"":""},"date":{"":""},"drawn_by":{"":""},"general_tolerance":{"":"ISO 2768-mK"},"mass":{"":"0"},"material":{"":""},"name":{"":""},"quantity":{"":"1"},"revision":{"":"00"},"standard":{"":""},"stock":{"":""},"tolerancing":{"":"ISO 8015"}},"relations":[{"target":"mass","expression":"model.mass"}],"document_units":{"Angle":"deg","Length":"mm","Mass":"kg","Stress":"MPa","Temperature":"C","Time":"s"},"document_precision":{"angular_tolerance":"0.001","decimal_places":"3","linear_tolerance":"0.001","mesh_deflection":"0.1"},"physical_parameters":{},"physical_parameter_units":{},"material_parameter_descriptions":{},"family_table":"{\"columns\":[],\"instances\":[]}","named_views":"[]","sketches":[],"cuts":[],"constructions":[],"components":[],"dependencies":[]}
+
+[Containers]
+items=template-start-assembly

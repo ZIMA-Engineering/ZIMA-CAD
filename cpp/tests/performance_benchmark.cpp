@@ -419,7 +419,7 @@ int main(int argc, char** argv) {
     const auto fillet_boundaries = kernel.evaluate_history(fillet_operations);
     auto changed_fillet_operations = fillet_operations;
     std::get<zima::kernel::FilletRequest>(
-        changed_fillet_operations.back().primitive).radius = 1.5;
+        changed_fillet_operations.back().primitive).radius_start = 1.5;
     const auto fillet_incremental_ms = milliseconds([&] {
         const auto result = kernel.evaluate_history_incremental(
             changed_fillet_operations, fillet_boundaries);

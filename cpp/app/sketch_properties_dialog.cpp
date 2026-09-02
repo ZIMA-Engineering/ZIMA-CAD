@@ -61,7 +61,7 @@ SketchPropertiesDialog::SketchPropertiesDialog(
     zima::document::Placement initial_placement, bool edit_mode,
     std::vector<PlaneOption> plane_options,
     CommitCallback commit, QWidget* parent)
-    : PropertiesSubWindow(tr("Skica"), parent),
+    : PropertiesSubWindow(tr("Vlastnosti skici"), parent),
       initial_(std::move(initial)), initial_placement_(std::move(initial_placement)),
       plane_options_(std::move(plane_options)), commit_(std::move(commit)) {
     normalize_sketch_front_references(initial_placement_.references);
@@ -277,6 +277,20 @@ std::size_t SketchPropertiesDialog::first_empty_position_index() const {
     return placement_->first_empty_position_index();
 }
 
+void SketchPropertiesDialog::set_active_reference_index(
+    std::optional<std::size_t> index) {
+    placement_->set_active_reference_index(index);
+}
+
+void SketchPropertiesDialog::set_reference_inspected(
+    std::size_t index, bool inspected) {
+    placement_->set_reference_inspected(index, inspected);
+}
+
+void SketchPropertiesDialog::clear_reference_highlights() {
+    placement_->clear_reference_highlights();
+}
+
 void SketchPropertiesDialog::set_translation_constraint_state(
         const zima::document::PointConstraintState& state,
         const zima::kernel::Vec3& solution) {
@@ -308,6 +322,13 @@ bool SketchPropertiesDialog::set_inline_parameter_value(
     if (key == "x") return set_field(translation[0]);
     if (key == "y") return set_field(translation[1]);
     if (key == "z") return set_field(translation[2]);
+    if (key == "rotation_x" || key == "rotation_y" ||
+        key == "rotation_z") {
+        const std::size_t index = key == "rotation_x" ? 0
+            : key == "rotation_y" ? 1 : 2;
+        if (set_field(placement_->rotation_fields()[index])) return true;
+        return set_field(placement_->rotation_offset_fields()[index]);
+    }
     constexpr std::string_view reference_prefix{"reference_offset:"};
     if (!key.starts_with(reference_prefix)) return false;
     const auto suffix = key.substr(reference_prefix.size());

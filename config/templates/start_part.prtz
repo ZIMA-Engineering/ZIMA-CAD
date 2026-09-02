@@ -1,9 +1,11 @@
 [Document]
-document_id = 37e30d48-e606-42dc-8dcd-88d6886b1501
+document_id = template-start-part
 type = part
-format_version = 11
-body_visible = true
-body_suppressed = false
+format_version = 12
+name = Startovací díl
+family_table = {"columns":[],"instances":[]}
+named_views = []
+body_color = #B9C2CC
 history_cursor = 0
 
 [DocumentUnits]
@@ -24,10 +26,80 @@ decimal_places = 3
 Name = S235JR
 
 [MaterialProperties]
+CONDITION = EN 10025-2, válcovaný stav, reprezentativní hodnoty při 20 °C
+EMISSIVITY = 7.000000E-01
+HARDNESS = 120 HB
 MASS_DENSITY = 7.850000E-06
+POISSON_RATIO = 3.000000E-01
+SHEAR_MODULUS = 8.076923E+04
+SHEETMETAL_K_FACTOR = 0.318309886184
+SPECIFIC_HEAT = 4.700000E+08
+STRESS_LIMIT_FOR_COMPRESSION = 2.350000E+02
+STRESS_LIMIT_FOR_SHEAR = 1.360000E+02
+STRESS_LIMIT_FOR_TENSION = 2.350000E+02
+STRUCTURAL_DAMPING_COEFFICIENT = 2.000000E-03
+THERMAL_CONDUCTIVITY = 5.000000E+04
+THERMAL_EXPANSION_COEFFICIENT = 1.200000E-05
+THERM_EXPANSION_REF_TEMPERATURE = 20
+YOUNG_MODULUS = 2.100000E+05
 
 [MaterialUnits]
+EMISSIVITY = 1
 MASS_DENSITY = kg/mm^3
+POISSON_RATIO = 1
+SHEAR_MODULUS = MPa
+SHEETMETAL_K_FACTOR = 1
+SPECIFIC_HEAT = mm^2/(s^2*C)
+STRESS_LIMIT_FOR_COMPRESSION = MPa
+STRESS_LIMIT_FOR_SHEAR = MPa
+STRESS_LIMIT_FOR_TENSION = MPa
+STRUCTURAL_DAMPING_COEFFICIENT = 1
+THERMAL_CONDUCTIVITY = mm*kg/(s^3*C)
+THERMAL_EXPANSION_COEFFICIENT = 1/C
+THERM_EXPANSION_REF_TEMPERATURE = C
+YOUNG_MODULUS = MPa
+
+[MaterialDescriptions]
+CONDITION\cs = Stav materiálu
+CONDITION\de = Materialzustand
+CONDITION\en = Material condition
+CONDITION\fr = État du matériau
+EMISSIVITY\cs = Emisivita
+EMISSIVITY\en = Emissivity
+HARDNESS\cs = Tvrdost
+HARDNESS\en = Hardness
+MASS_DENSITY\cs = Hustota
+MASS_DENSITY\de = Massendichte
+MASS_DENSITY\en = Mass density
+MASS_DENSITY\fr = Masse volumique
+MATERIAL_NAME\cs = Materiál
+MATERIAL_NAME\de = Material
+MATERIAL_NAME\en = Material
+MATERIAL_NAME\fr = Matériau
+POISSON_RATIO\cs = Poissonovo číslo
+POISSON_RATIO\en = Poisson ratio
+SHEAR_MODULUS\cs = Modul pružnosti ve smyku
+SHEAR_MODULUS\en = Shear modulus
+SHEETMETAL_K_FACTOR\cs = K-faktor plechu
+SHEETMETAL_K_FACTOR\en = Sheet-metal K-factor
+SPECIFIC_HEAT\cs = Měrná tepelná kapacita
+SPECIFIC_HEAT\en = Specific heat
+STRESS_LIMIT_FOR_COMPRESSION\cs = Mez napětí v tlaku
+STRESS_LIMIT_FOR_COMPRESSION\en = Compressive stress limit
+STRESS_LIMIT_FOR_SHEAR\cs = Mez smykového napětí
+STRESS_LIMIT_FOR_SHEAR\en = Shear stress limit
+STRESS_LIMIT_FOR_TENSION\cs = Mez napětí v tahu
+STRESS_LIMIT_FOR_TENSION\en = Tensile stress limit
+STRUCTURAL_DAMPING_COEFFICIENT\cs = Součinitel konstrukčního tlumení
+STRUCTURAL_DAMPING_COEFFICIENT\en = Structural damping coefficient
+THERMAL_CONDUCTIVITY\cs = Tepelná vodivost
+THERMAL_CONDUCTIVITY\en = Thermal conductivity
+THERMAL_EXPANSION_COEFFICIENT\cs = Součinitel teplotní roztažnosti
+THERMAL_EXPANSION_COEFFICIENT\en = Thermal expansion coefficient
+THERM_EXPANSION_REF_TEMPERATURE\cs = Referenční teplota roztažnosti
+THERM_EXPANSION_REF_TEMPERATURE\en = Thermal expansion reference temperature
+YOUNG_MODULUS\cs = Youngův modul
+YOUNG_MODULUS\en = Young's modulus
 
 [UserParameters]
 Order = name, standard, stock, material, quantity, drawn_by, approved_by, revision, date, general_tolerance, tolerancing, mass
@@ -100,4 +172,7 @@ mass = 0
 Data = [{"target":"mass","expression":"model.mass"}]
 
 [Containers]
+items =
+
+[Sketches]
 items =

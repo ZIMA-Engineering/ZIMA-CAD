@@ -1,6 +1,7 @@
 #include <zima/assembly/assembly_document.hpp>
 #include <zima/document/versioned_file.hpp>
 #include <zima/document/viewer_packet_json.hpp>
+#include <zima/kernel/stable_id.hpp>
 
 #include <nlohmann/json.hpp>
 
@@ -114,13 +115,7 @@ void append_viewer_mesh(zima::kernel::ViewerMesh& target,
 }
 
 std::string make_id() {
-    std::mt19937_64 generator(static_cast<std::mt19937_64::result_type>(
-        std::chrono::steady_clock::now().time_since_epoch().count()));
-    std::uniform_int_distribution<unsigned long long> distribution;
-    std::ostringstream stream;
-    stream << std::hex << std::setfill('0') << std::setw(16)
-           << distribution(generator) << std::setw(16) << distribution(generator);
-    return stream.str();
+    return zima::kernel::make_stable_id();
 }
 
 zima::kernel::Vec3 transform_point(

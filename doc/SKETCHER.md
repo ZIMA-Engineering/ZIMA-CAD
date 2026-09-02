@@ -75,7 +75,9 @@ Při kreslení vícebodové geometrie platí:
 V jedné poloze skici existuje pouze jeden interní bod. Potvrzení nabídky `C`
 na existujícím bodě znovu použije jeho stabilní ID; nesmí vytvořit druhý bod
 ve stejné poloze a teprve jej spojit duplicitní vazbou. Navazující úsečky proto
-sdílejí jeden skutečný koncový bod.
+sdílejí jeden skutečný koncový bod. Nabídka `C` je v tomto okamžiku informace
+náhledu; po sloučení dvou nativních bodů nezůstává samostatná vazba ani značka
+`C`. Trvalé `C` patří pouze bodu ležícímu na jiné geometrii.
 
 Vratný radius společného rohu vzniká výběrem dvou napojených úseček a tažením
 jejich společného bodu. Toto přesné gesto má přednost před běžným tažením
@@ -200,16 +202,17 @@ Značka `H` nebo `V` se zobrazuje u řízeného, tedy druhého bodu. Výběr zna
 zvýrazní oba body. Odstranění vazby neodstraní žádný z bodů.
 
 Výběr geometrické značky `H/V` zvýrazní její dva řídicí koncové body, nikoli
-celou úsečku. Geometrii zvýrazňují pouze vztahy, jejichž význam skutečně patří
-ke křivkám: `C` ukazuje spojené body a navazující geometrii, `T` obě tečné
-geometrie. Fixovaný bod používá značku `F`; `K` je vyhrazeno významnému bodu
-křivky.
+celou úsečku. Trvalé `C` zvýrazní bod a jeho nosnou geometrii; dva sloučené
+nativní body už žádnou vazbu `C` nemají. `T` zvýrazní obě tečné geometrie.
+Fixovaný bod používá značku `F`; `K` je vyhrazeno přesnému generovanému
+charakteristickému bodu křivky.
 Výběr bodové značky `H/V` zvýrazní pouze referenční a řízený bod. Při kreslení
 má kombinace totožnosti `C` a bodové `H/V` přednost před automatickou
 kolmostí i rovnoběžností. Značka `H/V` se v náhledu zobrazuje přímo u právě
 zadávaného druhého bodu. Při tečném vytažení úsečky ke kružnici, oblouku,
-elipse nebo eliptickému oblouku se u kontaktního bodu zobrazují současně `C`
-a `T`.
+elipse nebo eliptickému oblouku se u běžného kontaktního bodu zobrazují
+současně `C` a `T`. Pouze přesný dotyk v potvrzeném čtvrtinovém bodě používá
+`K + T`.
 
 Výběr vazby `C` bodu na ose zvýrazní běžnou výběrovou azurovou barvou bod i
 osu. Totéž platí pro jinou referenci, ke které vazba `C` náleží.
@@ -220,7 +223,10 @@ nesmí značku kolmosti přesunout na konec nové úsečky.
 
 ## Ostatní vazby
 
-- **Totožná**: první bod je reference, druhý bod se s ním ztotožní.
+- **Shodnost**: dva nativní body se sloučí do jednoho stabilního topologického
+  bodu bez uložené značky `C`. Po výběru bodu lze jako druhý prvek zvolit osu,
+  úsečku či křivku; tehdy vznikne trvalá vazba bodu na geometrii `C`. Hlavní
+  osu X/Y lze zvolit také jako první referenci a potom vybrat řízený bod.
 - **Rovnoběžná**: první čára je reference, druhá se natočí rovnoběžně.
 - **Kolmá**: první čára je reference, druhá se natočí kolmo.
 - **Stejná**: první délka nebo poloměr je reference, druhý ji převezme.
@@ -279,6 +285,12 @@ oblouku je radiální rukojeť: jeho vzdálenost od středu mění poloměr a je
 mění rozsah oblouku. Zamknutá poloměrová kóta ponechá poloměr pevný a dovolí
 pouze úhlový pohyb konce. Nezamknutá řídicí poloměrová kóta převezme hodnotu
 dosaženou přímým tažením.
+
+Stejný rigidní překlad středu platí při vytvoření vazby a při topologickém
+sloučení, nejen při přímém tažení. Na osu nebo konec úsečky se proto nepřesune
+samotná souřadnice středu odděleně od konců oblouku. Přenesou se všechny
+závislé řídicí a kontaktní body; pevná či externě ukotvená závislost operaci
+transakčně odmítne.
 
 Pokud View obsahuje více vybraných bodů nebo geometrií a tah začne na jednom
 z vybraných bodů, celý výběr se z původního stavu přeloží jedním společným
@@ -342,19 +354,25 @@ a vzdálený konec druhé leží na ose. Změna délky pohne společným bodem a
 dopočítá nový průsečík druhé úsečky s osou bez změny úhlu. Duplicitní nebo již
 jinou vazbou určená kóta se odmítne a skica zůstane beze změny.
 
-## Další solverové výukové scénáře
+## Regresní scénáře solveru
 
-Při příštím pokračování na Skicáři se mají jako první projít tyto případy:
+Tyto případy tvoří průběžnou ověřovací matici; základní varianty jsou již
+pokryté a při rozšíření solveru se nesmějí ztratit:
 
 1. **Úhlové kóty** — dále rozšiřovat regresní kombinace pro řídicí, zamknutou
    a referenční variantu, záporné hodnoty a odstranění ve složitějších
    zavazbených řetězcích.
 2. **Navazující křivky** — učit mobilitu řetězců úsečka–oblouk,
    oblouk–úsečka, eliptický oblouk–úsečka a úsečka–B-spline se samostatnými
-   kombinacemi `C`, `T`, `H/V`, pevného bodu a řídicí kóty.
-3. **Středy na osách** — tažení všech čtyř rohů obdélníku se středem strany na
-   hlavní nebo konstrukční ose a tečný oblouk lomené čáry se středem na ose.
-   Solver musí pohyb propagovat do volné větve a nesmí odtáhnout aktivní bod.
+   kombinacemi `C`, `T`, `H/V`, pevného bodu a řídicí kóty. Každý tah musí mít
+   vratný test `A -> B -> A`; u volného konce úsečky tečné ke konci kruhového
+   oblouku je dopředný tah ověřený, ale návrat po stejné větvi zatím může
+   klást odpor a zůstává otevřenou chybou. Přímé tažení samotného konce oblouku
+   funguje správně a není součástí této chyby.
+3. **Středy na osách** — bodová vazba středu kružnice/oblouku na hlavní osu,
+   obě pořadí výběru osy a bodu, rigidní přenos konců oblouku a sloučení středu
+   s koncem úsečky. Solver musí pohyb propagovat do volné větve a nesmí
+   odtáhnout aktivní bod.
 4. **Křivkové parametry** — současně měnit poloměr/natočení kruhových a
    eliptických objektů, velikost a natočení mnohoúhelníku a koncové rameno
    B-spline bez porušení kontaktního bodu.
@@ -381,8 +399,10 @@ redundantní kolmost ani `H/V` se neukládá, protože je již důsledkem symetr
 
 Značka vazby patří řízenému prvku. Přejetí zvýrazní vztah oranžově, výběr
 modře. Výběr značky musí umožnit dohledat všechny účastníky. Odstranění značky
-odstraní pouze vazbu. Základní značky jsou `H`, `V`, `C`, `M`, `T`, `=`, `S`,
-`∥` a `⊥`.
+odstraní pouze vazbu. Základní značky jsou `H`, `V`, `C`, `K`, `M`, `T`, `F`,
+`=`, `S`, `∥` a `⊥`. `C` značí libovolnou polohu bodu na geometrii, `K` pouze
+přesný generovaný charakteristický bod. Samotný typ „křivka“ nikdy není
+důvodem změnit `C` na `K`.
 
 Počet současně zobrazených náhledových značek není pevně omezen. Bodové a
 vztahové značky u stejného bodu používají společné pořadí a vodorovné sloty,

@@ -393,12 +393,30 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result) {
             }
             side_directions.push_back(std::move(samples));
         }
+        nlohmann::json side_references = nlohmann::json::array();
+        for (const auto& reference : edge.edge_treatment_side_references) {
+            side_references.push_back({
+                {"owner", reference.owner_id},
+                {"key", reference.semantic_key},
+                {"instance_path", reference.instance_path}});
+        }
+        nlohmann::json endpoint_references = nlohmann::json::array();
+        for (const auto& reference :
+             edge.edge_treatment_endpoint_references) {
+            endpoint_references.push_back({
+                {"owner", reference.owner_id},
+                {"key", reference.semantic_key},
+                {"instance_path", reference.instance_path}});
+        }
         edges.push_back({
             {"owner", edge.reference.owner_id}, {"key", edge.reference.semantic_key},
             {"instance_path", edge.reference.instance_path},
             {"display_owner", edge.display_owner_id},
             {"edge_treatment_owners", edge.edge_treatment_owner_ids},
             {"edge_treatment_side_directions", std::move(side_directions)},
+            {"edge_treatment_side_references", std::move(side_references)},
+            {"edge_treatment_endpoint_references",
+                std::move(endpoint_references)},
             {"points", std::move(points)},
         });
     }
@@ -533,10 +551,42 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source) {
             loaded.edge_treatment_side_directions.push_back(
                 std::move(samples));
         }
+        for (const auto& reference :
+             edge.at("edge_treatment_side_references")) {
+            zima::kernel::FaceReference loaded_reference{
+                reference.at("owner").get<std::string>(),
+                reference.at("key").get<std::string>(),
+                reference.at("instance_path").get<std::string>()};
+            if (!loaded_reference.valid()) {
+                throw std::runtime_error(
+                    "Persisted viewer treatment side reference is invalid");
+            }
+            loaded.edge_treatment_side_references.push_back(
+                std::move(loaded_reference));
+        }
+        for (const auto& reference :
+             edge.at("edge_treatment_endpoint_references")) {
+            zima::kernel::VertexReference loaded_reference{
+                reference.at("owner").get<std::string>(),
+                reference.at("key").get<std::string>(),
+                reference.at("instance_path").get<std::string>()};
+            if (!loaded_reference.valid()) {
+                throw std::runtime_error(
+                    "Persisted viewer treatment endpoint reference is invalid");
+            }
+            loaded.edge_treatment_endpoint_references.push_back(
+                std::move(loaded_reference));
+        }
         if (!loaded.edge_treatment_side_directions.empty() &&
-            loaded.edge_treatment_side_directions.size() != 2) {
+            (loaded.edge_treatment_side_directions.size() != 2 ||
+             loaded.edge_treatment_side_references.size() != 2)) {
             throw std::runtime_error(
                 "Persisted viewer edge must have exactly two treatment sides");
+        }
+        if (!loaded.edge_treatment_endpoint_references.empty() &&
+            loaded.edge_treatment_endpoint_references.size() != 2) {
+            throw std::runtime_error(
+                "Persisted viewer edge must have exactly two treatment endpoints");
         }
         const bool owner_empty = loaded.reference.owner_id.empty();
         const bool key_empty = loaded.reference.semantic_key.empty();

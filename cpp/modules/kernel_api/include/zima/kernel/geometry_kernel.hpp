@@ -9,6 +9,7 @@
 #include <optional>
 #include <memory>
 #include <type_traits>
+#include <utility>
 
 namespace zima::kernel {
 
@@ -87,6 +88,14 @@ struct ViewerEdge {
     // directly; opening Properties or changing the size never asks OCCT to
     // recover face adjacency or material side.
     std::vector<std::vector<Vec3>> edge_treatment_side_directions;
+    // Stable ZIMA owners of the two direction rows above.  The rows are
+    // sorted by these references during explicit body calculation, so FLIP
+    // selects a named side instead of depending on OCCT ancestor order.
+    std::vector<FaceReference> edge_treatment_side_references;
+    // Stable endpoint identities aligned with points.front()/points.back().
+    // Variable-radius preview uses them to show the same R1/R2 direction as
+    // the explicit OCCT calculation even when curve parameterization flips.
+    std::vector<VertexReference> edge_treatment_endpoint_references;
 };
 
 struct ViewerPoint {
@@ -360,14 +369,72 @@ struct StepRequest {
     std::vector<TopologyIdentity> topology;
 };
 
+struct Sweep3DRequest {
+    struct PathSegment {
+        std::string source_id;
+        Vec3 start;
+        Vec3 end;
+        // Empty for a line.  A four-point array is an exact cubic Bezier
+        // representation of the corresponding ZIMA Hermite Curve3D segment.
+        std::vector<Vec3> bezier_control_points;
+    };
+    struct Section {
+        std::string profile_id;
+        std::string point_id;
+        std::size_t point_index{};
+        // Persisted ZIMA Sketch-plane normal. Polygon/curved profiles carry
+        // their points in 3D, but exact circles and ellipses still need this
+        // plane to construct their OCCT wire without falling back to world XY.
+        Vec3 profile_normal{0.0, 0.0, 1.0};
+        ExtrusionRequest::ProfileRegion profile;
+    };
+    std::vector<Vec3> path_points;
+    std::vector<std::string> path_point_ids;
+    std::vector<PathSegment> path_segments;
+    std::vector<Section> sections;
+    bool make_solid{true};
+};
+
 struct FilletRequest {
+    enum class Mode { Constant, Linear };
+    FilletRequest() = default;
+    FilletRequest(std::vector<EdgeReference> selected_edges, double radius)
+        : edges(std::move(selected_edges)), radius_start(radius),
+          radius_end(radius) {}
+    FilletRequest(std::vector<EdgeReference> selected_edges, Mode selected_mode,
+                  double start, double end, bool reversed,
+                  std::vector<VertexReference> contour_starts = {})
+        : edges(std::move(selected_edges)), mode(selected_mode),
+          radius_start(start), radius_end(end), reverse(reversed),
+          contour_start_vertices(std::move(contour_starts)) {}
     std::vector<EdgeReference> edges;
-    double radius{1.0};
+    Mode mode{Mode::Constant};
+    double radius_start{1.0};
+    double radius_end{1.0};
+    bool reverse{};
+    // Parallel to edges. Every member of one persisted tangent route carries
+    // the same semantic R1 endpoint, allowing whichever member seeds OCCT to
+    // recover the intended contour direction.
+    std::vector<VertexReference> contour_start_vertices;
 };
 
 struct ChamferRequest {
+    enum class Mode { EqualDistance, TwoDistances, DistanceAngle };
+    ChamferRequest() = default;
+    ChamferRequest(std::vector<EdgeReference> selected_edges, double distance)
+        : edges(std::move(selected_edges)), distance_a(distance),
+          distance_b(distance) {}
+    ChamferRequest(std::vector<EdgeReference> selected_edges, Mode selected_mode,
+                   double first, double second, double angle, bool flipped)
+        : edges(std::move(selected_edges)), mode(selected_mode),
+          distance_a(first), distance_b(second), angle_radians(angle),
+          flip(flipped) {}
     std::vector<EdgeReference> edges;
-    double distance{1.0};
+    Mode mode{Mode::EqualDistance};
+    double distance_a{1.0};
+    double distance_b{1.0};
+    double angle_radians{0.7853981633974483};
+    bool flip{};
 };
 
 enum class BooleanOperation { Add, Subtract };
@@ -381,7 +448,7 @@ struct BoxOperation {
 using PrimitiveRequest = std::variant<
     BoxRequest, CylinderRequest, SphereRequest, ConeRequest, PyramidRequest, WedgeRequest,
     ExtrusionRequest, RevolutionRequest,
-    StepRequest, FilletRequest, ChamferRequest>;
+    Sweep3DRequest, StepRequest, FilletRequest, ChamferRequest>;
 
 struct HistoryOperation {
     std::string owner_id;
@@ -812,6 +879,119 @@ struct PlacedBody {
                     u64(std::bit_cast<std::uint64_t>(value));
                 }
                 byte(primitive.first_cap_is_start);
+            } else if constexpr (std::is_same_v<Request, Sweep3DRequest>) {
+                const auto append_string = [&](const std::string& value) {
+                    u64(value.size());
+                    for (const unsigned char character : value) byte(character);
+                };
+                const auto append_point = [&](const Vec3& point) {
+                    for (const double value : {point.x, point.y, point.z}) {
+                        u64(std::bit_cast<std::uint64_t>(value));
+                    }
+                };
+                const auto append_profile = [&](
+                        const ExtrusionRequest::ProfileLoop& profile_variant) {
+                    byte(static_cast<std::uint8_t>(profile_variant.index()));
+                    std::visit([&](const auto& profile) {
+                        using Profile = std::decay_t<decltype(profile)>;
+                        if constexpr (std::is_same_v<Profile,
+                                          ExtrusionRequest::PolygonProfile>) {
+                            u64(profile.vertices.size());
+                            for (const auto& point : profile.vertices)
+                                append_point(point);
+                        } else if constexpr (std::is_same_v<Profile,
+                                                 ExtrusionRequest::CircleProfile>) {
+                            append_point(profile.center);
+                            u64(std::bit_cast<std::uint64_t>(profile.radius));
+                        } else if constexpr (std::is_same_v<Profile,
+                                                 ExtrusionRequest::EllipseProfile>) {
+                            append_point(profile.center);
+                            append_point(profile.major_axis_direction);
+                            u64(std::bit_cast<std::uint64_t>(
+                                profile.major_radius));
+                            u64(std::bit_cast<std::uint64_t>(
+                                profile.minor_radius));
+                        } else {
+                            u64(profile.curves.size());
+                            for (const auto& curve : profile.curves) {
+                                byte(static_cast<std::uint8_t>(curve.index()));
+                                std::visit([&](const auto& exact_curve) {
+                                    append_point(exact_curve.start);
+                                    if constexpr (std::is_same_v<
+                                            std::decay_t<decltype(exact_curve)>,
+                                            ExtrusionRequest::ArcCurve>) {
+                                        append_point(exact_curve.middle);
+                                    }
+                                    if constexpr (std::is_same_v<
+                                            std::decay_t<decltype(exact_curve)>,
+                                            ExtrusionRequest::EllipticalArcCurve>) {
+                                        append_point(exact_curve.center);
+                                        append_point(
+                                            exact_curve.major_axis_direction);
+                                        for (const double value : {
+                                                exact_curve.major_radius,
+                                                exact_curve.minor_radius,
+                                                exact_curve.start_parameter,
+                                                exact_curve.end_parameter}) {
+                                            u64(std::bit_cast<std::uint64_t>(
+                                                value));
+                                        }
+                                        byte(exact_curve.reversed);
+                                    }
+                                    if constexpr (std::is_same_v<
+                                            std::decay_t<decltype(exact_curve)>,
+                                            ExtrusionRequest::BSplineCurve>) {
+                                        u64(exact_curve.degree);
+                                        byte(exact_curve.interpolating);
+                                        byte(exact_curve.periodic);
+                                        u64(exact_curve.control_points.size());
+                                        for (const auto& point :
+                                             exact_curve.control_points) {
+                                            append_point(point);
+                                        }
+                                    }
+                                    append_point(exact_curve.end);
+                                }, curve);
+                            }
+                        }
+                    }, profile_variant);
+                };
+                u64(primitive.path_points.size());
+                for (const auto& point : primitive.path_points)
+                    append_point(point);
+                u64(primitive.path_point_ids.size());
+                for (const auto& id : primitive.path_point_ids)
+                    append_string(id);
+                u64(primitive.path_segments.size());
+                for (const auto& segment : primitive.path_segments) {
+                    append_string(segment.source_id);
+                    append_point(segment.start);
+                    append_point(segment.end);
+                    u64(segment.bezier_control_points.size());
+                    for (const auto& point : segment.bezier_control_points)
+                        append_point(point);
+                }
+                u64(primitive.sections.size());
+                for (const auto& section : primitive.sections) {
+                    append_string(section.profile_id);
+                    append_string(section.point_id);
+                    u64(section.point_index);
+                    append_point(section.profile_normal);
+                    append_string(section.profile.region_id);
+                    append_string(section.profile.outer_boundary_id);
+                    u64(section.profile.outer_edge_source_ids.size());
+                    for (const auto& id :
+                         section.profile.outer_edge_source_ids) {
+                        append_string(id);
+                    }
+                    u64(section.profile.outer_vertex_source_ids.size());
+                    for (const auto& id :
+                         section.profile.outer_vertex_source_ids) {
+                        append_string(id);
+                    }
+                    append_profile(section.profile.outer_profile);
+                }
+                byte(primitive.make_solid);
             } else if constexpr (std::is_same_v<Request, StepRequest>) {
                 u64(primitive.source_path.size());
                 for (const unsigned char value : primitive.source_path) byte(value);
@@ -826,9 +1006,26 @@ struct PlacedBody {
                     for (const unsigned char value : edge.semantic_key) byte(value);
                 }
                 if constexpr (std::is_same_v<Request, FilletRequest>) {
-                    u64(std::bit_cast<std::uint64_t>(primitive.radius));
+                    byte(static_cast<std::uint8_t>(primitive.mode));
+                    u64(std::bit_cast<std::uint64_t>(primitive.radius_start));
+                    u64(std::bit_cast<std::uint64_t>(primitive.radius_end));
+                    byte(primitive.reverse ? 1U : 0U);
+                    u64(primitive.contour_start_vertices.size());
+                    for (const auto& vertex :
+                         primitive.contour_start_vertices) {
+                        u64(vertex.owner_id.size());
+                        for (const unsigned char value : vertex.owner_id)
+                            byte(value);
+                        u64(vertex.semantic_key.size());
+                        for (const unsigned char value : vertex.semantic_key)
+                            byte(value);
+                    }
                 } else {
-                    u64(std::bit_cast<std::uint64_t>(primitive.distance));
+                    byte(static_cast<std::uint8_t>(primitive.mode));
+                    u64(std::bit_cast<std::uint64_t>(primitive.distance_a));
+                    u64(std::bit_cast<std::uint64_t>(primitive.distance_b));
+                    u64(std::bit_cast<std::uint64_t>(primitive.angle_radians));
+                    byte(primitive.flip ? 1U : 0U);
                 }
             }
         }, operation.primitive);

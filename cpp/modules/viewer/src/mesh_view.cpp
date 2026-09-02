@@ -922,6 +922,17 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
     }
     auto filtered = filter_candidates(candidates,
         impl_->allowed_kinds, impl_->candidate_filter);
+    if (impl_->drag_begin_callback) {
+        // In normal Sketch editing a point under the pointer owns the direct
+        // drag before annotations or curve wires at the same screen pixel.
+        // Put that policy into the one shared candidate list so hover, LMB
+        // and RMB all see the same order; RMB can still cycle to a Dimension
+        // or another overlapping point without LMB replacing its choice.
+        std::stable_partition(filtered.begin(), filtered.end(),
+            [](const auto& candidate) {
+                return candidate.kind == CandidateKind::SketchPoint;
+            });
+    }
     if (impl_->candidate_priority) {
         std::stable_sort(filtered.begin(), filtered.end(),
             [&](const auto& left, const auto& right) {
@@ -2943,6 +2954,12 @@ if (impl_->show_planes) {
                 edge.reference.semantic_key.starts_with("external_axis:") ||
                 edge.reference.semantic_key.starts_with("external_face:");
         });
+    const bool curve3d_geometry_visible = std::any_of(
+        impl_->mesh.edges.begin(), impl_->mesh.edges.end(),
+        [](const auto& edge) {
+            return edge.reference.semantic_key.starts_with(
+                "curve:segment:");
+        });
     const bool external_points_visible = impl_->show_sketches && std::any_of(
         impl_->mesh.points.begin(), impl_->mesh.points.end(), [](const auto& point) {
             return point.reference.semantic_key.starts_with("external_point:");
@@ -2986,7 +3003,8 @@ if (impl_->show_planes) {
     const bool dimensions_visible = !impl_->mesh.dimensions.empty() ||
         !impl_->transient_dimensions.empty();
     if (axes_visible || points_visible || planes_visible ||
-        sketch_geometry_visible || dimensions_visible ||
+        sketch_geometry_visible || curve3d_geometry_visible ||
+        dimensions_visible ||
         !impl_->transient_edges.empty() || !impl_->transient_points.empty() ||
         !impl_->transient_labels.empty() ||
         impl_->sketch_cursor.has_value() ||
@@ -3194,6 +3212,33 @@ if (impl_->show_planes) {
                     : edge.construction
                         ? QPen(QColor(77, 216, 17), 1.5, Qt::DashLine)
                         : QPen(QColor(255, 255, 255), 1.8);
+                const bool candidate_match = highlighted &&
+                    candidate_recolors_wire_edge(*highlighted, edge);
+                const auto key = edge_key(edge.reference);
+                const bool selected =
+                    (candidate_match && impl_->confirmed_candidate) ||
+                    impl_->edge_treatment_selection_edges.contains(key) ||
+                    impl_->feature_selected_edges.contains(key) ||
+                    impl_->constraint_reference_edges.contains(key) ||
+                    impl_->assembly_reference_edges.contains(key) ||
+                    impl_->selected_container_content_ids.contains(
+                        edge.reference.owner_id) ||
+                    impl_->constraint_reference_owner_ids.contains(
+                        edge.reference.owner_id);
+                const bool hovered =
+                    (candidate_match && !impl_->confirmed_candidate) ||
+                    impl_->feature_hover_edges.contains(key) ||
+                    impl_->object_overlay_main_edge_keys.contains(key);
+                const bool preview =
+                    impl_->feature_preview_owner_ids.contains(
+                        edge.reference.owner_id);
+                if (selected) {
+                    edge_pen.setColor(QColor(0, 209, 255));
+                } else if (hovered) {
+                    edge_pen.setColor(QColor(255, 122, 0));
+                } else if (preview) {
+                    edge_pen.setColor(QColor(0, 209, 255));
+                }
                 if (edge.construction && !edge.dash_dot) {
                     // Qt's default dash pattern is dense enough that construction
                     // geometry reads as a solid line at ordinary sketch zoom levels.
@@ -3223,6 +3268,43 @@ if (impl_->show_planes) {
                     }
                     painter.drawPath(path);
                 }
+            }
+        }
+        if (curve3d_geometry_visible) {
+            // 3D Curves share Sketch's screen-space stroke contract. Their
+            // persisted segment paths remain the single picking geometry;
+            // QPainter only presents those same samples at a stable 1.8 px
+            // width on every OpenGL driver.
+            for (const auto& edge : impl_->mesh.edges) {
+                if (!edge.reference.semantic_key.starts_with(
+                        "curve:segment:")) continue;
+                const bool candidate_match = highlighted &&
+                    candidate_recolors_wire_edge(*highlighted, edge);
+                const auto key = edge_key(edge.reference);
+                const bool referenced =
+                    impl_->constraint_reference_edges.contains(key) ||
+                    impl_->assembly_reference_edges.contains(key) ||
+                    impl_->selected_container_content_ids.contains(
+                        edge.reference.owner_id);
+                const bool preview =
+                    impl_->feature_preview_owner_ids.contains(
+                        edge.reference.owner_id);
+                const QColor color = candidate_match
+                    ? impl_->confirmed_candidate
+                        ? QColor(30, 220, 240)
+                        : QColor(255, 140, 12)
+                    : (referenced || preview)
+                        ? QColor(0, 209, 255)
+                        : QColor(255, 255, 255);
+                painter.setPen(QPen(color, 1.8, Qt::SolidLine,
+                    Qt::RoundCap, Qt::RoundJoin));
+                if (edge.points.empty()) continue;
+                QPainterPath path(project(edge.points.front()));
+                for (std::size_t index = 1;
+                     index < edge.points.size(); ++index) {
+                    path.lineTo(project(edge.points[index]));
+                }
+                painter.drawPath(path);
             }
         }
         if (!impl_->mesh.constraint_markers.empty()) {
@@ -3783,11 +3865,6 @@ if (impl_->show_planes) {
                     const bool creation_preview =
                         impl_->feature_preview_owner_ids.contains(
                             point.reference.owner_id);
-                    const bool active_sketch_point =
-                        !impl_->active_sketch_owner_id.empty() &&
-                        point.reference.owner_id ==
-                            impl_->active_sketch_owner_id &&
-                        point.reference.semantic_key.starts_with("point:");
                     const bool selected = point.reference.owner_id ==
                             impl_->selected_container_origin_id ||
                         (impl_->confirmed_candidate &&
@@ -3836,9 +3913,12 @@ if (impl_->show_planes) {
                     // same cyan preview colour in Plane, Sketch, Extrusion
                     // and Revolution properties. The old purple exception
                     // made the point look unrelated to its plane.
-                    const QColor marker_color = active_sketch_point
-                        ? QColor("#D05CFF")
-                        : plane_offset_preview
+                    // Sketcher points use the same interaction language as
+                    // the rest of the Viewer: white while idle, orange while
+                    // offered and cyan once confirmed (including a drag).
+                    // Purple remains reserved for the separate feature and
+                    // plane manipulators drawn elsewhere.
+                    const QColor marker_color = plane_offset_preview
                         ? QColor(0, 209, 255)
                         : selected
                         ? QColor(30, 220, 240)
@@ -3960,14 +4040,8 @@ if (impl_->show_planes) {
             }
         }
         if (highlighted) {
-            const bool active_sketch_point =
-                highlighted->kind == CandidateKind::SketchPoint &&
-                !impl_->active_sketch_owner_id.empty() &&
-                highlighted->owner_id == impl_->active_sketch_owner_id;
-            const QColor color = active_sketch_point
-                ? QColor("#D05CFF")
-                : impl_->confirmed_candidate
-                    ? QColor(30, 220, 240) : QColor(255, 140, 12);
+            const QColor color = impl_->confirmed_candidate
+                ? QColor(30, 220, 240) : QColor(255, 140, 12);
             const bool sketch_container =
                 highlighted->kind == CandidateKind::Container &&
                 highlighted->semantic_key == "sketch";
@@ -4465,21 +4539,10 @@ void MeshView::mousePressEvent(QMouseEvent* event) {
             // stealing every later attempt to drag that point.
             impl_->active_candidate = 0;
         }
-        // Screen-space annotations may be inserted ahead of world-space
-        // candidates after the common ray ordering. At an exact overlap an
-        // editable Sketch point still owns the LMB drag gesture; Dimension,
-        // Constraint and Axis remain in the same list for RMB cycling and
-        // can be selected directly on their visible geometry away from it.
-        if (impl_->drag_begin_callback) {
-            const auto point = std::find_if(impl_->candidates.begin(),
-                impl_->candidates.end(), [](const auto& candidate) {
-                    return candidate.kind == CandidateKind::SketchPoint;
-                });
-            if (point != impl_->candidates.end()) {
-                impl_->active_candidate = static_cast<std::size_t>(
-                    std::distance(impl_->candidates.begin(), point));
-            }
-        }
+        // Candidate construction already orders an editable Sketch point
+        // ahead of overlapping annotations. Do not search for another point
+        // here: RMB may have deliberately cycled to a different point or
+        // annotation in this exact list, and LMB must confirm that candidate.
         if (qEnvironmentVariableIsSet("ZIMA_SKETCH_TRACE")) {
             QStringList offered;
             for (const auto& item : impl_->candidates) {

@@ -15,7 +15,7 @@
 namespace zima::document {
 
 enum class CombineMode { Add, Subtract };
-enum class FeatureKind { Sketch, Box, Cylinder, Sphere, Cone, Pyramid, Wedge, Extrusion, Revolution, ImportedStep, Fillet, Chamfer };
+enum class FeatureKind { Sketch, Box, Cylinder, Sphere, Cone, Pyramid, Wedge, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer };
 enum class ExtrusionDirection { Forward, Reverse, Symmetric };
 enum class ExtrusionExtent { Blind, UpToPlane, UpToSurface, ThroughAll };
 enum class ProfileSource { Internal, External };
@@ -24,7 +24,62 @@ enum class ProfileExtentMode { OneSide, TwoSides, Symmetric };
 enum class ThinMode { OneSide, OtherSide, Symmetric };
 enum class EndCondition { Length, UpTo, ThroughAll };
 enum class EndTargetKind { Point, Plane, Face };
-enum class ConstructionKind { Point, Axis, Plane };
+enum class ConstructionKind { Point, Curve3D, Curve3DExperimental, Axis, Plane };
+enum class Curve3DType { Polyline, InterpolatingSpline };
+enum class Curve3DTangentMode {
+    Automatic,
+    PositiveX,
+    NegativeX,
+    PositiveY,
+    NegativeY,
+    PositiveZ,
+    NegativeZ,
+};
+enum class Curve3DConnectionType {
+    Undefined,
+    Line,
+    InterpolatingSpline,
+    Sketch,
+    Biarc,
+    Corner,
+};
+enum class Curve3DSketchPlaneMode { Automatic, Custom };
+
+// One persisted interval between two ordered child Points of the
+// experimental 3D-Curve.  `generator_id` is deliberately distinct from the
+// interval identity: adjacent spline intervals share one generator identity
+// and are solved as one global interpolating spline, while Line/Biarc/Corner
+// intervals own an individual generator.  This keeps the UI's natural
+// Point/connection/Point sequence without falsely turning every spline knot
+// interval into an independent curve object.
+struct Curve3DConnection {
+    std::string id;
+    std::string generator_id;
+    std::string parent_construction_id;
+    std::string start_point_id;
+    std::string end_point_id;
+    Curve3DConnectionType type{Curve3DConnectionType::Undefined};
+    Curve3DTangentMode start_tangent{Curve3DTangentMode::PositiveX};
+    Curve3DTangentMode end_tangent{Curve3DTangentMode::PositiveX};
+    bool start_tangent_enabled{};
+    bool end_tangent_enabled{};
+    // Biarc solution-family selector.  0.5 is the balanced construction;
+    // endpoints/directions remain hard constraints for every value.
+    double weight{0.5};
+    // A trajectory Sketch is owned by this connection, not by Part history
+    // and not by a future Sweep profile.  It is kept as normal persisted ZIMA
+    // Sketch data so the regular Sketcher can edit it without involving OCCT.
+    Curve3DSketchPlaneMode sketch_plane_mode{
+        Curve3DSketchPlaneMode::Automatic};
+    std::string sketch_id;
+    std::string sketch_start_point_id;
+    std::string sketch_end_point_id;
+    std::string sketch_serialized;
+    std::string sketch_plane_reference_owner_id;
+    std::string sketch_plane_reference_semantic_key;
+    bool sketch_plane_valid{};
+    bool operator==(const Curve3DConnection&) const = default;
+};
 enum class LocalDatumPlane { XY, YZ, XZ };
 enum class PartHistoryKind { Feature, Sketch, Construction };
 struct PartHistoryEntry {
@@ -106,6 +161,11 @@ struct ConstructionObject {
     std::string id;
     std::string entity_id;
     std::string entity_parent_id;
+    // Non-empty only for a Point nested by a 3D-Curve container.  The Point
+    // keeps its complete ordinary ConstructionObject identity and placement,
+    // while this explicit parent relation makes the hierarchy persisted
+    // rather than inferred from vector position or a display label.
+    std::string parent_construction_id;
     std::string name;
     ConstructionKind kind{ConstructionKind::Point};
     ContainerOrigin container_origin;
@@ -163,6 +223,21 @@ struct ConstructionObject {
     double display_size{100.0};
     ConstructionDefinition definition{ConstructionDefinition::Absolute};
     std::vector<ConstructionReference> references;
+    // 3D-Curve only: ordered ordinary Point containers. Their coordinates,
+    // rotations and reference solving live in the Curve container's local
+    // frame. Vector order is the path traversal order; child IDs remain
+    // stable when rows are moved.
+    Curve3DType curve_type{Curve3DType::Polyline};
+    Curve3DTangentMode curve_tangent{Curve3DTangentMode::Automatic};
+    // Curve3D child Point only: when false the interpolator derives this
+    // Point's tangent automatically. The selected axis/sign above remains
+    // persisted so re-enabling direction control restores the user's choice.
+    bool curve_tangent_enabled{};
+    std::vector<ConstructionObject> curve_points;
+    // Experimental 3D-Curve only. The legacy Curve3D intentionally keeps
+    // this empty and continues through its original curve_type/curve_points
+    // path unchanged.
+    std::vector<Curve3DConnection> curve_connections;
     // Plane-kind containers only: persisted work-plane offset (mm). The JSON
     // key intentionally remains the legacy generic "offset" because this
     // field was previously persisted-but-dead; reusing it keeps save/load
@@ -194,8 +269,10 @@ struct Placement;
 construction_point_dimensions(
     const ConstructionObject& object,
     const zima::kernel::ViewerReferenceGeometry& geometry);
-// The same six dimension slots (absolute X/Y/Z plus three reference offsets)
-// for every container that owns a universal Placement section.
+// The same placement dimensions for every container that owns a universal
+// Placement section: absolute X/Y/Z or reference offsets, plus the currently
+// editable nonzero RX/RY/RZ values (absolute angles without an orientation
+// reference, correction angles with one).
 [[nodiscard]] std::vector<zima::kernel::ViewerDimension>
 container_placement_dimensions(
     const std::string& owner_id, const Placement& placement,
@@ -297,11 +374,26 @@ struct RevolutionParameters {
 };
 
 struct EdgeTreatmentParameters {
+    enum class FilletMode { Constant, Linear };
+    enum class ChamferMode { EqualDistance, TwoDistances, DistanceAngle };
     // One persisted user route contains every original edge selected by one
     // contour operation. Keeping the grouping in ZIMA data means reopening
     // Properties never has to guess it from current OCCT topology.
     std::vector<std::vector<zima::kernel::EdgeReference>> routes;
-    double size{1.0};
+    // One stable endpoint per route. R1 belongs to this endpoint; R2 belongs
+    // to the other end. OCCT may orient its internal spine either way, so the
+    // explicit calculation maps this ZIMA intent to OCCT First/LastVertex.
+    std::vector<zima::kernel::VertexReference> route_start_vertices;
+    FilletMode fillet_mode{FilletMode::Constant};
+    ChamferMode chamfer_mode{ChamferMode::EqualDistance};
+    double primary_size{1.0};
+    double secondary_size{1.0};
+    double angle_degrees{45.0};
+    // Chamfer FLIP chooses the other one of the two adjacent faces after
+    // their stable ZIMA references have been sorted.  Fillet reverse swaps
+    // the semantic start/end radii without relying on OCCT enumeration.
+    bool flip{};
+    bool reverse{};
     [[nodiscard]] std::vector<zima::kernel::EdgeReference>
     flattened_edges() const {
         std::vector<zima::kernel::EdgeReference> result;
@@ -312,6 +404,26 @@ struct EdgeTreatmentParameters {
     }
     bool operator==(const EdgeTreatmentParameters&) const = default;
 };
+
+struct Curve3DSolvedPrimitive {
+    std::string generator_id;
+    std::string semantic_key;
+    std::vector<zima::kernel::Vec3> points;
+    bool operator==(const Curve3DSolvedPrimitive&) const = default;
+};
+
+struct Curve3DSolution {
+    bool valid{};
+    std::string error;
+    std::vector<Curve3DSolvedPrimitive> primitives;
+    bool operator==(const Curve3DSolution&) const = default;
+};
+
+// Pure ZIMA geometry calculation used by the experimental editor, viewer and
+// contract tests. It never calls OCCT. Input/output coordinates are local to
+// the owning ConstructionObject; the viewer applies the container placement.
+[[nodiscard]] Curve3DSolution solve_experimental_curve3d(
+    const ConstructionObject& object);
 
 struct ImportedStepParameters {
     std::string source_path;
@@ -326,6 +438,27 @@ struct ImportedStepParameters {
         return frozen_brep && other.frozen_brep &&
             *frozen_brep == *other.frozen_brep;
     }
+};
+
+// One profile owned by a 3D Sweep.  The profile has its own stable identity;
+// `point_id` is only its current placement relation.  Reassigning the profile
+// to another path Point therefore preserves all Sketch geometry and IDs.
+struct Sweep3DProfile {
+    std::string id;
+    std::string point_id;
+    std::string sketch_id;
+    std::string sketch_serialized;
+    bool operator==(const Sweep3DProfile&) const = default;
+};
+
+struct Sweep3DParameters {
+    // A complete ordinary Curve3D is embedded in the history feature.  Its
+    // child Point IDs are the only valid profile placement targets.  It is
+    // not duplicated in PartDocument::constructions and consequently does
+    // not appear as an independent Tree object.
+    ConstructionObject path;
+    std::vector<Sweep3DProfile> profiles;
+    bool operator==(const Sweep3DParameters&) const = default;
 };
 
 struct Placement {
@@ -391,6 +524,7 @@ struct HistoryContainer {
     WedgeParameters wedge;
     ExtrusionParameters extrusion;
     RevolutionParameters revolution;
+    Sweep3DParameters sweep3d;
     ImportedStepParameters imported_step;
     EdgeTreatmentParameters edge_treatment;
     bool suppressed{};
@@ -447,20 +581,25 @@ public:
     [[nodiscard]] ConstructionObject* find_construction(const std::string& id);
     [[nodiscard]] const ConstructionObject* find_construction(
         const std::string& id) const;
-    // Origin's on-screen size is a fixed constant, independent of the
-    // model/scene size and camera zoom (see kDocumentOriginAxisLength in
-    // part_document.cpp). `reference_scene_size` is unused and kept only
-    // for source compatibility with existing call sites.
+    // Origin's on-screen size is fixed, independent of model/scene size and
+    // camera zoom. Axis arrow tips use the half-extent of the corresponding
+    // Origin plane rectangle (see kDocumentOriginPlaneSize in
+    // part_document.cpp). `reference_scene_size` is unused and kept only for
+    // source compatibility with existing call sites.
     [[nodiscard]] zima::kernel::ViewerMesh origin_viewer_mesh(
         double reference_scene_size = 0.0) const;
-    // A container's own editing-mode Origin is likewise a fixed constant
-    // (kContainerOriginAxisLength), the same for every ConstructionKind and
-    // distinct from the document's own Origin constant so the two remain
-    // visually distinguishable. `reference_scene_size` is unused and kept
-    // only for source compatibility with existing call sites.
+    // A container's own editing-mode Origin likewise has a fixed plane size,
+    // the same for every ConstructionKind and distinct from the document's
+    // own Origin. Its axis arrow tips use that plane's half-extent as well.
+    // `reference_scene_size` is unused and kept only for source compatibility
+    // with existing call sites.
     [[nodiscard]] zima::kernel::ViewerMesh construction_viewer_mesh(
         const std::string& editing_object_id = {},
         double reference_scene_size = 0.0) const;
+    [[nodiscard]] zima::kernel::ViewerReferenceGeometry
+        construction_reference_geometry_for(
+            const std::string& object_id,
+            zima::kernel::ViewerReferenceGeometry source_geometry) const;
     void resolve_constructions(
         zima::kernel::ViewerReferenceGeometry source_geometry = {});
     [[nodiscard]] std::vector<zima::kernel::ViewerEdge> extrusion_preview_edges(
@@ -477,6 +616,12 @@ public:
         std::string sketch_id);
     [[nodiscard]] static HistoryContainer create_revolution_container(
         std::string sketch_id);
+    [[nodiscard]] static HistoryContainer create_sweep3d_container();
+    // Recomputes the selected embedded profile's invisible Sketch frame from
+    // its currently assigned path Point.  The Sketch geometry/identity is
+    // preserved; only its resolved origin and orthonormal frame change.
+    [[nodiscard]] static bool reframe_sweep3d_profile(
+        HistoryContainer& container, std::size_t profile_index);
     [[nodiscard]] static HistoryContainer create_fillet_container(
         std::vector<zima::kernel::EdgeReference> edges);
     [[nodiscard]] static HistoryContainer create_chamfer_container(

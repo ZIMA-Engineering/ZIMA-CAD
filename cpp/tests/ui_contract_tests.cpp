@@ -10,6 +10,7 @@
 #include "extrusion_dimension_policy.hpp"
 
 #include <zima/viewer/mesh_view.hpp>
+#include <zima/ui/reference_cell.hpp>
 
 #include <QAction>
 #include <QApplication>
@@ -22,12 +23,14 @@
 #include <QFileSystemModel>
 #include <QHeaderView>
 #include <QIcon>
+#include <QImage>
 #include <QMouseEvent>
 #include <QListWidget>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
 #include <QPlainTextEdit>
+#include <QRegularExpression>
 #include <QTimer>
 #include <QTableWidget>
 #include <QToolButton>
@@ -37,6 +40,7 @@
 #include <QVBoxLayout>
 
 #include <chrono>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -46,6 +50,35 @@ namespace {
 
 void require(bool condition, const char* message) {
     if (!condition) throw std::runtime_error(message);
+}
+
+bool framebuffer_contains_color_near(const QImage& image,
+    const QSize& logical_size, const QPointF& logical_position,
+    const QColor& expected, int tolerance = 24) {
+    if (image.isNull() || logical_size.isEmpty()) return false;
+    const double scale_x = static_cast<double>(image.width()) /
+        static_cast<double>(logical_size.width());
+    const double scale_y = static_cast<double>(image.height()) /
+        static_cast<double>(logical_size.height());
+    const int center_x = static_cast<int>(std::lround(
+        logical_position.x() * scale_x));
+    const int center_y = static_cast<int>(std::lround(
+        logical_position.y() * scale_y));
+    const int radius_x = static_cast<int>(std::ceil(14.0 * scale_x));
+    const int radius_y = static_cast<int>(std::ceil(14.0 * scale_y));
+    for (int y = std::max(0, center_y - radius_y);
+         y <= std::min(image.height() - 1, center_y + radius_y); ++y) {
+        for (int x = std::max(0, center_x - radius_x);
+             x <= std::min(image.width() - 1, center_x + radius_x); ++x) {
+            const QColor actual = image.pixelColor(x, y);
+            if (std::abs(actual.red() - expected.red()) <= tolerance &&
+                std::abs(actual.green() - expected.green()) <= tolerance &&
+                std::abs(actual.blue() - expected.blue()) <= tolerance) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 }  // namespace
@@ -82,8 +115,9 @@ int main(int argc, char* argv[]) {
             &parent);
         ok_dialog->show();
         application.processEvents();
-        require(ok_dialog->windowTitle() == QStringLiteral("Kvádr"),
-                "Create and edit must share the feature-only dialog title");
+        require(ok_dialog->windowTitle() ==
+                    QStringLiteral("Vlastnosti kvádru"),
+                "Create and edit must share the same Properties title");
         auto* length = ok_dialog->findChild<QDoubleSpinBox*>("boxLength");
         require(length != nullptr, "Box dialog must expose its length");
         int box_preview_updates = 0;
@@ -93,9 +127,17 @@ int main(int argc, char* argv[]) {
                 ++box_preview_updates;
                 previewed_box_length = preview.box.length;
             });
-        length->setValue(125.0);
-        require(box_preview_updates >= 2 && previewed_box_length == 125.0,
-                "Changing a Box dimension did not update its wire preview");
+        auto* box_width = ok_dialog->findChild<QDoubleSpinBox*>("boxWidth");
+        auto* box_height = ok_dialog->findChild<QDoubleSpinBox*>("boxHeight");
+        require(box_width != nullptr && box_height != nullptr &&
+                    ok_dialog->set_inline_parameter_value("length", 125.0) &&
+                    ok_dialog->set_inline_parameter_value("width", 85.0) &&
+                    ok_dialog->set_inline_parameter_value("height", 55.0) &&
+                    length->value() == 125.0 && box_width->value() == 85.0 &&
+                    box_height->value() == 55.0 &&
+                    box_preview_updates >= 4 &&
+                    previewed_box_length == 125.0,
+                "Inline Box dimensions did not reach their live fields or wire preview");
         const auto translations =
             ok_dialog->findChildren<QDoubleSpinBox*>("primitiveTranslation");
         require(translations.size() == 3,
@@ -105,6 +147,9 @@ int main(int argc, char* argv[]) {
         application.processEvents();
         require(ok_commits == 1, "OK must commit exactly once");
         require(committed.box.length == 125.0, "OK did not commit edited length");
+        require(committed.box.width == 85.0 &&
+                    committed.box.height == 55.0,
+                "OK did not commit inline-edited Box width/height");
         require(committed.placement.x == 42.0,
                 "OK did not commit container placement");
 
@@ -124,8 +169,9 @@ int main(int argc, char* argv[]) {
             {"body-owner", "edge:second", {}},
             {"body-owner", "edge:third", {}}};
         fillet_dialog->set_edge_groups({grouped_fillet_edges});
-        require(fillet_dialog->windowTitle() == QStringLiteral("Zaoblení"),
-                "Fillet create/edit dialog title is not feature-only");
+        require(fillet_dialog->windowTitle() ==
+                    QStringLiteral("Vlastnosti zaoblení"),
+                "Fillet create/edit dialog does not use a Properties title");
         auto* fillet_routes = fillet_dialog->findChild<QTreeWidget*>(
             "edgeTreatmentEdges");
         require(fillet_routes != nullptr && fillet_routes->columnCount() == 2 &&
@@ -563,11 +609,22 @@ int main(int argc, char* argv[]) {
                     std::ranges::none_of(sphere_corrections,
                         [](const auto* field) { return field->isEnabled(); }),
                 "Reference-free primitive enables correction instead of absolute rotation");
+        require(sphere_dialog->set_inline_parameter_value(
+                    "placement:rotation_x", 17.0) &&
+                    std::abs(sphere_absolute_rx->value() - 17.0) < 1.0e-9,
+                "Absolute angular View dimension did not update the active "
+                "primitive Properties field");
         sphere_dialog->set_orientation_base_rotation({10.0, 20.0, 30.0}, true);
         require(!sphere_absolute_rx->isEnabled() &&
                     std::ranges::all_of(sphere_corrections,
                         [](const auto* field) { return field->isEnabled(); }),
                 "Referenced primitive did not lock its base rotation and enable correction");
+        require(sphere_dialog->set_inline_parameter_value(
+                    "placement:rotation_x", -6.0) &&
+                    std::abs(sphere_corrections.front()->value() - (-6.0)) <
+                        1.0e-9,
+                "Referenced angular View dimension did not update the active "
+                "rotation-correction field");
         sphere_dialog->set_orientation_base_rotation({10.0, 20.0, 30.0}, false);
         sphere_radius->setValue(27.0);
         sphere_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
@@ -590,20 +647,76 @@ int main(int argc, char* argv[]) {
                 }, &parent);
             treatment_dialog->show();
             application.processEvents();
-            auto* treatment_size = treatment_dialog->findChild<QDoubleSpinBox*>(
-                "edgeTreatmentSize");
-            require(treatment_size != nullptr,
-                    "Fillet/Chamfer edit did not reuse Primitive Properties");
+            auto* treatment_type = treatment_dialog->findChild<QComboBox*>(
+                "edgeTreatmentType");
+            auto* treatment_primary = treatment_dialog->findChild<QDoubleSpinBox*>(
+                "edgeTreatmentPrimary");
+            auto* treatment_secondary = treatment_dialog->findChild<QDoubleSpinBox*>(
+                "edgeTreatmentSecondary");
+            auto* treatment_angle = treatment_dialog->findChild<QDoubleSpinBox*>(
+                "edgeTreatmentAngle");
+            auto* treatment_flip = treatment_dialog->findChild<QPushButton*>(
+                "edgeTreatmentFlip");
+            auto* treatment_reverse = treatment_dialog->findChild<QPushButton*>(
+                "edgeTreatmentReverse");
+            require(treatment_type != nullptr && treatment_primary != nullptr &&
+                        treatment_secondary != nullptr && treatment_angle != nullptr &&
+                        treatment_flip != nullptr && treatment_reverse != nullptr,
+                    "Fillet/Chamfer edit did not expose the shared mode Properties UI");
             int treatment_preview_updates = 0;
             double previewed_treatment_size = 0.0;
             treatment_dialog->set_preview_callback(
                 [&](const zima::document::HistoryContainer& preview) {
                     ++treatment_preview_updates;
-                    previewed_treatment_size = preview.edge_treatment.size;
+                    previewed_treatment_size =
+                        preview.edge_treatment.primary_size;
                 });
-            treatment_size->setValue(kind == zima::document::FeatureKind::Fillet
-                ? 2.5 : 3.5);
-            require(treatment_preview_updates >= 2 &&
+            const double inline_primary =
+                kind == zima::document::FeatureKind::Fillet ? 2.5 : 3.5;
+            require(treatment_dialog->set_inline_parameter_value(
+                        "primary", inline_primary) &&
+                        treatment_primary->value() == inline_primary,
+                    "Inline treatment dimension did not update the active "
+                    "Properties field");
+            if (kind == zima::document::FeatureKind::Fillet) {
+                treatment_type->setCurrentIndex(
+                    treatment_type->findData("linear"));
+                require(treatment_secondary->isVisible() &&
+                            treatment_reverse->isVisible() &&
+                            !treatment_flip->isVisible(),
+                    "Variable Fillet mode did not reveal R2 and direction only");
+                require(treatment_dialog->set_inline_parameter_value(
+                            "secondary", 4.5) &&
+                            treatment_secondary->value() == 4.5,
+                        "Inline R2 dimension did not update the active "
+                        "Fillet Properties field");
+                treatment_reverse->click();
+            } else {
+                treatment_type->setCurrentIndex(
+                    treatment_type->findData("distance_angle"));
+                require(treatment_angle->isVisible() &&
+                            treatment_flip->isVisible() &&
+                            !treatment_secondary->isVisible(),
+                    "A + angle Chamfer mode did not reveal angle and FLIP only");
+                require(treatment_dialog->set_inline_parameter_value(
+                            "treatment_angle", 37.5) &&
+                            treatment_angle->value() == 37.5,
+                        "Inline angle dimension did not update the active "
+                        "Chamfer Properties field");
+                treatment_type->setCurrentIndex(
+                    treatment_type->findData("two_distances"));
+                require(treatment_secondary->isVisible() &&
+                            treatment_flip->isVisible() &&
+                            !treatment_reverse->isVisible(),
+                    "A x B Chamfer mode did not reveal B and FLIP only");
+                require(treatment_dialog->set_inline_parameter_value(
+                            "secondary", 1.75) &&
+                            treatment_secondary->value() == 1.75,
+                        "Inline B dimension did not update the active "
+                        "Chamfer Properties field");
+                treatment_flip->click();
+            }
+            require(treatment_preview_updates >= 1 &&
                         previewed_treatment_size ==
                             (kind == zima::document::FeatureKind::Fillet
                                 ? 2.5 : 3.5),
@@ -614,9 +727,18 @@ int main(int argc, char* argv[]) {
             require(committed_treatment.feature_kind == kind &&
                         committed_treatment.edge_treatment.flattened_edges() ==
                             treatment_edges &&
-                        committed_treatment.edge_treatment.size ==
-                            (kind == zima::document::FeatureKind::Fillet ? 2.5 : 3.5),
-                    "Fillet/Chamfer Properties lost its input edge identity or size");
+                        committed_treatment.edge_treatment.primary_size ==
+                            (kind == zima::document::FeatureKind::Fillet ? 2.5 : 3.5) &&
+                        committed_treatment.edge_treatment.secondary_size ==
+                            (kind == zima::document::FeatureKind::Fillet ? 4.5 : 1.75) &&
+                        (kind == zima::document::FeatureKind::Fillet
+                            ? committed_treatment.edge_treatment.fillet_mode ==
+                                  zima::document::EdgeTreatmentParameters::FilletMode::Linear &&
+                              committed_treatment.edge_treatment.reverse
+                            : committed_treatment.edge_treatment.chamfer_mode ==
+                                  zima::document::EdgeTreatmentParameters::ChamferMode::TwoDistances &&
+                              committed_treatment.edge_treatment.flip),
+                    "Fillet/Chamfer Properties lost its mode, edge identity or values");
         }
         auto cone_initial = zima::document::PartDocument::create_cone_container();
         zima::document::HistoryContainer committed_cone;
@@ -747,9 +869,47 @@ int main(int argc, char* argv[]) {
         emit box_reference_table->cellClicked(0, 1);
         require(requested_box_reference == 0,
                 "Box Properties did not request viewer reference selection");
+        requested_box_reference.reset();
         require(box_reference_dialog->set_reference(
                     0, {{}, "part-origin", "origin:point"}, "Počátek dílu"),
                 "Box Properties rejected its first placement reference");
+        require(!requested_box_reference,
+                "Storing a placement reference recursively re-armed the old "
+                "field and cancelled sequential entry");
+        box_reference_dialog->set_active_reference_index(0);
+        auto* active_box_reference = dynamic_cast<zima::ui::ReferenceCellItem*>(
+            box_reference_table->item(0, 1));
+        require(active_box_reference != nullptr &&
+                    active_box_reference->is_active_input() &&
+                    box_reference_table->selectedItems().empty() &&
+                    box_reference_table->selectionMode() ==
+                        QAbstractItemView::NoSelection,
+                "Active placement input is not an exact explicit field state");
+        box_reference_dialog->set_active_reference_index(1);
+        auto* next_box_reference = dynamic_cast<zima::ui::ReferenceCellItem*>(
+            box_reference_table->item(1, 1));
+        require(next_box_reference != nullptr &&
+                    next_box_reference->is_active_input() &&
+                    !active_box_reference->is_active_input(),
+                "Sequential placement did not move the green active state to "
+                "the newly offered reference field");
+        box_reference_dialog->set_active_reference_index(0);
+        auto* box_eye_cell = box_reference_table->cellWidget(0, 3);
+        auto* box_eye = box_eye_cell == nullptr
+            ? nullptr : box_eye_cell->findChild<QToolButton*>();
+        require(box_eye != nullptr && box_eye->isEnabled(),
+                "Stored placement reference has no independent inspection eye");
+        box_eye->click();
+        require(active_box_reference->is_active_input() &&
+                    active_box_reference->is_inspected() &&
+                    box_reference_dialog->highlighted_reference_entries().size() == 1,
+                "Inspection eye replaced the active-input state instead of "
+                "remaining independent");
+        box_reference_dialog->set_active_reference_index(std::nullopt);
+        box_reference_dialog->clear_reference_highlights();
+        require(!active_box_reference->is_active_input() &&
+                    !active_box_reference->is_inspected(),
+                "Placement field did not clear its two visual states independently");
         box_reference_dialog->set_translation_constraint_state(
             {0, {true, true, true}}, {10.0, 20.0, 30.0});
         require(box_reference_dialog->owns_reference_owner(initial.id) &&
@@ -1082,8 +1242,20 @@ int main(int argc, char* argv[]) {
             [&](std::size_t index) { requested_point_reference = index; });
         construction_point_dialog->show();
         application.processEvents();
-        require(construction_point_dialog->width() <= 360,
+        require(construction_point_dialog->windowTitle() ==
+                    QStringLiteral("Vlastnosti bodu") &&
+                    construction_point_dialog->width() <= 360,
                 "Point Properties is wider than the compact feature dialogs");
+        auto* point_absolute_rx = construction_point_dialog->findChild<QDoubleSpinBox*>(
+            "constructionRotationX");
+        const auto point_rotation_offsets =
+            construction_point_dialog->findChildren<QDoubleSpinBox*>(
+                QRegularExpression(QStringLiteral("constructionRotationOffset[XYZ]")));
+        require(point_absolute_rx != nullptr && point_absolute_rx->isEnabled() &&
+                    point_rotation_offsets.size() == 3 &&
+                    std::ranges::none_of(point_rotation_offsets,
+                        [](const auto* field) { return field->isEnabled(); }),
+                "Reference-free Point removed editable absolute rotation");
         auto* point_reference_item = construction_point_dialog->findChild<QTableWidget*>(
             "constructionReferenceTable")->item(0, 1);
         require(point_reference_item != nullptr,
@@ -1151,9 +1323,9 @@ int main(int argc, char* argv[]) {
         const auto* fully_constrained_table =
             construction_point_dialog->findChild<QTableWidget*>(
                 "constructionReferenceTable");
-        require(fully_constrained_table->rowCount() == 1 &&
-                    fully_constrained_table->item(0, 1) != nullptr,
-                "Fully constrained Point Properties still offered another reference");
+        require(fully_constrained_table->rowCount() == 2 &&
+                    fully_constrained_table->item(1, 1) != nullptr,
+                "Positioned Point did not offer another reference for its orientation");
         construction_point_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
         require(committed_point.kind == zima::document::ConstructionKind::Point &&
                     committed_point.definition ==
@@ -1171,6 +1343,86 @@ int main(int argc, char* argv[]) {
                 "Point Properties did not commit its selected Origin reference "
                 "and mirrored container orientation");
 
+        auto point_only_rotation_initial = point_initial;
+        point_only_rotation_initial.references = {
+            {{}, "fixture-point", "point"}};
+        point_only_rotation_initial.absolute_rotation = {11.0, 22.0, 33.0};
+        point_only_rotation_initial.rotation = {91.0, 92.0, 93.0};
+        auto* point_only_rotation_dialog =
+            new zima::app::ConstructionPropertiesDialog(
+                point_only_rotation_initial, true,
+                [](zima::document::ConstructionObject) {}, &parent);
+        point_only_rotation_dialog->show();
+        application.processEvents();
+        auto* point_only_absolute_rx =
+            point_only_rotation_dialog->findChild<QDoubleSpinBox*>(
+                "constructionRotationX");
+        require(point_only_absolute_rx != nullptr &&
+                    point_only_absolute_rx->isEnabled() &&
+                    std::abs(point_only_absolute_rx->value() - 11.0) < 1.0e-9,
+                "Point-only placement displayed the resolved/final rotation "
+                "instead of its editable absolute rotation");
+        point_only_rotation_dialog->close();
+        application.processEvents();
+
+        zima::document::ConstructionObject committed_point_frame;
+        auto* point_frame_dialog = new zima::app::ConstructionPropertiesDialog(
+            point_initial, false,
+            [&](zima::document::ConstructionObject value) {
+                committed_point_frame = std::move(value);
+            }, &parent);
+        point_frame_dialog->show();
+        application.processEvents();
+        require(point_frame_dialog->set_reference(
+                    0, {{}, "fixture-point", "point"}, "Bod"),
+                "Point frame dialog rejected its position point");
+        point_frame_dialog->set_translation_constraint_state(
+            {0, {true, true, true}}, {10.0, 20.0, 30.0});
+        point_frame_dialog->set_remaining_rotation_dof(3);
+        point_frame_dialog->set_orientation_base_rotation({11.0, 22.0, 33.0}, false);
+        auto* point_frame_table = point_frame_dialog->findChild<QTableWidget*>(
+            "constructionReferenceTable");
+        auto* point_frame_absolute_rx = point_frame_dialog->findChild<QDoubleSpinBox*>(
+            "constructionRotationX");
+        const auto point_frame_offsets =
+            point_frame_dialog->findChildren<QDoubleSpinBox*>(
+                QRegularExpression(QStringLiteral("constructionRotationOffset[XYZ]")));
+        require(point_frame_table != nullptr && point_frame_table->rowCount() == 2 &&
+                    point_frame_absolute_rx != nullptr &&
+                    point_frame_absolute_rx->isEnabled() &&
+                    std::ranges::none_of(point_frame_offsets,
+                        [](const auto* field) { return field->isEnabled(); }),
+                "Bare Point did not preserve absolute angles or offer its first plane");
+
+        zima::document::ConstructionReference first_frame_plane{{},
+            "part-origin", "origin:plane:xz", 0.0, false,
+            "direction", true, true};
+        require(point_frame_dialog->set_reference(
+                    1, first_frame_plane, "Rovina XZ"),
+                "Point frame dialog rejected its first orientation plane");
+        point_frame_dialog->set_remaining_rotation_dof(1);
+        point_frame_dialog->set_orientation_base_rotation({0.0, 0.0, 0.0}, true);
+        require(point_frame_table->rowCount() == 3 &&
+                    !point_frame_absolute_rx->isEnabled() &&
+                    std::ranges::all_of(point_frame_offsets,
+                        [](const auto* field) { return field->isEnabled(); }),
+                "Point plus one plane did not switch from absolute angles to "
+                "referenced rotation corrections or offer the second plane");
+
+        zima::document::ConstructionReference second_frame_plane{{},
+            "part-origin", "origin:plane:xy", 0.0, false,
+            "direction", true, true};
+        require(point_frame_dialog->set_reference(
+                    2, second_frame_plane, "Rovina XY"),
+                "Point frame dialog rejected its second orientation plane");
+        point_frame_dialog->set_remaining_rotation_dof(0);
+        point_frame_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
+        require(committed_point_frame.references.size() == 3 &&
+                    !committed_point_frame.references[0].orientation_only &&
+                    committed_point_frame.references[1].orientation_only &&
+                    committed_point_frame.references[2].orientation_only,
+                "Point frame did not persist point position separately from two planes");
+
         int cancelled_point_commits = 0;
         auto* cancelled_point_dialog = new zima::app::ConstructionPropertiesDialog(
             committed_point, true,
@@ -1187,6 +1439,291 @@ int main(int argc, char* argv[]) {
         cancelled_point_dialog->buttons()->button(QDialogButtonBox::Cancel)->click();
         require(cancelled_point_commits == 0,
                 "Cancel committed a pending Point Properties reference change");
+
+        auto curve_initial = zima::document::PartDocument::create_construction(
+            zima::document::ConstructionKind::Curve3D);
+        zima::document::ConstructionObject committed_curve;
+        auto* curve_dialog = new zima::app::ConstructionPropertiesDialog(
+            curve_initial, false,
+            [&](zima::document::ConstructionObject value) {
+                committed_curve = std::move(value);
+            }, &parent);
+        auto curve_point_a = zima::document::PartDocument::create_construction(
+            zima::document::ConstructionKind::Point);
+        auto curve_point_b = zima::document::PartDocument::create_construction(
+            zima::document::ConstructionKind::Point);
+        curve_point_a.curve_tangent =
+            zima::document::Curve3DTangentMode::PositiveX;
+        curve_point_a.curve_tangent_enabled = true;
+        curve_point_b.curve_tangent =
+            zima::document::Curve3DTangentMode::PositiveX;
+        curve_point_b.curve_tangent_enabled = true;
+        curve_dialog->set_curve_point(std::nullopt, curve_point_a);
+        curve_dialog->set_curve_point(std::nullopt, curve_point_b);
+        std::optional<std::size_t> requested_curve_axis;
+        curve_dialog->set_curve_axis_request_callback(
+            [&](std::size_t index) { requested_curve_axis = index; });
+        curve_dialog->show();
+        application.processEvents();
+        auto* curve_table =
+            curve_dialog->findChild<QTableWidget*>("curve3DPoints");
+        require(curve_table != nullptr && curve_table->columnCount() == 5 &&
+                    curve_table->rowCount() == 2 &&
+                    curve_table->horizontalHeaderItem(0)->text() == "Bod" &&
+                    curve_table->horizontalHeaderItem(1)->text() == "Osa směru" &&
+                    curve_table->item(0, 0) != nullptr &&
+                    curve_table->item(0, 1) != nullptr &&
+                    curve_table->item(0, 1)->text() == "+X",
+                "3D Curve Properties does not expose the two reference-style "
+                "Point / Direction Axis columns");
+        const auto curve_row_button = [curve_table](int column) {
+            auto* cell = curve_table->cellWidget(0, column);
+            if (auto* button = qobject_cast<QToolButton*>(cell)) return button;
+            return cell != nullptr ? cell->findChild<QToolButton*>() : nullptr;
+        };
+        auto* cycle_curve_axis = curve_row_button(2);
+        auto* direction_enabled = curve_row_button(4);
+        require(cycle_curve_axis != nullptr && direction_enabled != nullptr &&
+                    cycle_curve_axis->text() == QStringLiteral("SWITCH") &&
+                    direction_enabled->isChecked(),
+                "3D Curve direction row has no SWITCH and direction toggle");
+        cycle_curve_axis->click();
+        application.processEvents();
+        require(curve_table->item(0, 1)->text() == "+Y" &&
+                    curve_dialog->pending_value().curve_points[0].curve_tangent ==
+                        zima::document::Curve3DTangentMode::PositiveY,
+                "3D Curve X/Y/Z button did not cycle X to Y");
+        auto* flip_curve_axis = curve_row_button(3);
+        require(flip_curve_axis != nullptr &&
+                    flip_curve_axis->text() == QStringLiteral("FLIP"),
+                "3D Curve direction row has no distinct FLIP control");
+        flip_curve_axis->click();
+        application.processEvents();
+        require(curve_table->item(0, 1)->text() == QStringLiteral("−Y") &&
+                    curve_dialog->pending_value().curve_points[0].curve_tangent ==
+                        zima::document::Curve3DTangentMode::NegativeY,
+                "3D Curve FLIP did not reverse the selected tangent axis");
+        direction_enabled = curve_row_button(4);
+        require(direction_enabled != nullptr,
+            "3D Curve direction toggle vanished after FLIP");
+        direction_enabled->click();
+        application.processEvents();
+        cycle_curve_axis = curve_row_button(2);
+        flip_curve_axis = curve_row_button(3);
+        direction_enabled = curve_row_button(4);
+        require(!curve_dialog->pending_value().curve_points[0]
+                        .curve_tangent_enabled &&
+                    curve_dialog->pending_value().curve_points[0].curve_tangent ==
+                        zima::document::Curve3DTangentMode::NegativeY,
+                "3D Curve direction toggle did not preserve the disabled axis state");
+        require(direction_enabled != nullptr && !direction_enabled->isChecked(),
+                "3D Curve direction toggle did not present its disabled state");
+        require(cycle_curve_axis != nullptr && !cycle_curve_axis->isEnabled(),
+                "3D Curve SWITCH remained enabled with direction control off");
+        require(flip_curve_axis != nullptr && !flip_curve_axis->isEnabled(),
+                "3D Curve FLIP remained enabled with direction control off");
+        direction_enabled->click();
+        application.processEvents();
+        emit curve_table->cellClicked(0, 1);
+        require(requested_curve_axis == 0 &&
+                    curve_dialog->findChild<QPushButton*>(
+                        "curve3DEditPoint")->isEnabled() &&
+                    curve_dialog->findChild<QPushButton*>(
+                        "curve3DDeletePoint")->isEnabled(),
+                "3D Curve direction-axis field did not arm Viewer picking "
+                "or select its Point row");
+        curve_dialog->set_curve_point_tangent(
+            1, zima::document::Curve3DTangentMode::PositiveZ);
+        curve_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
+        require(committed_curve.kind ==
+                    zima::document::ConstructionKind::Curve3D &&
+                    committed_curve.curve_points.size() == 2 &&
+                    committed_curve.curve_points[0].parent_construction_id ==
+                        committed_curve.id &&
+                    committed_curve.curve_points[1].curve_tangent ==
+                        zima::document::Curve3DTangentMode::PositiveZ &&
+                    committed_curve.curve_points[0].curve_tangent_enabled &&
+                    committed_curve.curve_points[1].curve_tangent_enabled,
+                "3D Curve Properties did not commit ordered Points, axes and switches");
+
+        auto sweep_initial =
+            zima::document::PartDocument::create_sweep3d_container();
+        auto sweep_point_a = zima::document::PartDocument::create_construction(
+            zima::document::ConstructionKind::Point);
+        auto sweep_point_b = zima::document::PartDocument::create_construction(
+            zima::document::ConstructionKind::Point);
+        auto sweep_point_c = zima::document::PartDocument::create_construction(
+            zima::document::ConstructionKind::Point);
+        sweep_point_a.name = "Bod A";
+        sweep_point_b.name = "Bod B";
+        sweep_point_c.name = "Bod C";
+        sweep_point_a.origin = {0.0, 0.0, 0.0};
+        sweep_point_b.origin = {0.0, 0.0, 10.0};
+        sweep_point_c.origin = {0.0, 0.0, 20.0};
+        for (auto* point : {&sweep_point_a, &sweep_point_b, &sweep_point_c})
+            point->parent_construction_id = sweep_initial.sweep3d.path.id;
+        sweep_initial.sweep3d.path.curve_points = {
+            sweep_point_a, sweep_point_b, sweep_point_c};
+        zima::document::HistoryContainer committed_sweep;
+        auto* sweep_dialog = new zima::app::ConstructionPropertiesDialog(
+            sweep_initial, false, true,
+            [&](zima::document::HistoryContainer value) {
+                committed_sweep = std::move(value);
+            }, &parent);
+        std::optional<std::optional<std::size_t>> requested_sweep_profile;
+        sweep_dialog->set_sweep_profile_point_request_callback(
+            [&](std::optional<std::size_t> index) {
+                requested_sweep_profile.emplace(index);
+            });
+        sweep_dialog->show();
+        application.processEvents();
+        require(sweep_dialog->windowTitle() ==
+                    QStringLiteral("Vlastnosti 3D Sweepu") &&
+                    sweep_dialog->findChild<QTableWidget*>(
+                        "sweep3DProfiles") != nullptr,
+                "3D Sweep does not reuse the 3D Curve Properties dialog with "
+                "its profile table");
+        auto* sweep_add_operation = sweep_dialog->findChild<QPushButton*>(
+            "sweep3DAddOperation");
+        auto* sweep_subtract_operation = sweep_dialog->findChild<QPushButton*>(
+            "sweep3DSubtractOperation");
+        require(sweep_add_operation != nullptr &&
+                    sweep_subtract_operation != nullptr &&
+                    sweep_add_operation->isChecked() &&
+                    sweep_subtract_operation->isEnabled(),
+                "3D Sweep does not expose the same Add/Subtract operation "
+                "contract as Protrusion");
+        sweep_subtract_operation->click();
+        require(sweep_dialog->pending_sweep_value().combine_mode ==
+                    zima::document::CombineMode::Subtract &&
+                    !sweep_add_operation->isChecked() &&
+                    sweep_subtract_operation->isChecked(),
+                "3D Sweep Subtract button did not update the pending history "
+                "operation");
+        sweep_dialog->findChild<QPushButton*>("sweep3DAddProfile")->click();
+        require(requested_sweep_profile &&
+                    !requested_sweep_profile->has_value(),
+                "Add Sketch did not request a path Point from the Viewer");
+        requested_sweep_profile.reset();
+        auto sweep_sketch = zima::sketcher::Sketch::create_default();
+        sweep_sketch.name = "Profil 1";
+        sweep_sketch.owner_container_id = sweep_initial.id;
+        static_cast<void>(
+            sweep_sketch.add_rectangle(-2.0, -3.0, 2.0, 3.0));
+        const auto original_sketch_id = sweep_sketch.id;
+        const auto original_points = sweep_sketch.points;
+        const auto original_segments = sweep_sketch.segments;
+        sweep_dialog->add_sweep_profile(sweep_point_a.id, sweep_sketch);
+        require(sweep_dialog->reassign_sweep_profile(0, sweep_point_b.id),
+                "3D Sweep dialog rejected profile reassignment");
+        const auto reassigned = sweep_dialog->pending_sweep_value();
+        const auto reassigned_sketch = zima::sketcher::Sketch::from_serialized(
+            reassigned.sweep3d.profiles.front().sketch_serialized);
+        require(reassigned.sweep3d.profiles.front().point_id == sweep_point_b.id &&
+                    reassigned_sketch.id == original_sketch_id &&
+                    reassigned_sketch.points == original_points &&
+                    reassigned_sketch.segments == original_segments &&
+                    std::abs(reassigned_sketch.resolved_origin.z - 10.0) < 1.0e-9,
+                "Reassigning a Sweep profile changed its Sketch identity or geometry");
+        sweep_dialog->erase_curve_point(1);
+        require(sweep_dialog->pending_sweep_value().sweep3d.profiles.empty(),
+                "Deleting a Sweep Point did not delete its assigned profile "
+                "inside the same pending transaction");
+        sweep_dialog->add_sweep_profile(sweep_point_c.id, sweep_sketch);
+        sweep_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
+        require(committed_sweep.feature_kind ==
+                    zima::document::FeatureKind::Sweep3D &&
+                    committed_sweep.combine_mode ==
+                        zima::document::CombineMode::Subtract &&
+                    committed_sweep.sweep3d.path.curve_points.size() == 2 &&
+                    committed_sweep.sweep3d.profiles.size() == 1 &&
+                    committed_sweep.sweep3d.profiles.front().point_id ==
+                        sweep_point_c.id,
+                "3D Sweep Properties did not commit its embedded path/profile model");
+
+        auto experimental_initial =
+            zima::document::PartDocument::create_construction(
+                zima::document::ConstructionKind::Curve3DExperimental);
+        zima::document::ConstructionObject committed_experimental;
+        auto* experimental_dialog =
+            new zima::app::ConstructionPropertiesDialog(
+                experimental_initial, false,
+                [&](zima::document::ConstructionObject value) {
+                    committed_experimental = std::move(value);
+                }, &parent);
+        auto experimental_a =
+            zima::document::PartDocument::create_construction(
+                zima::document::ConstructionKind::Point);
+        auto experimental_b =
+            zima::document::PartDocument::create_construction(
+                zima::document::ConstructionKind::Point);
+        auto experimental_c =
+            zima::document::PartDocument::create_construction(
+                zima::document::ConstructionKind::Point);
+        experimental_a.origin = {0.0, 0.0, 0.0};
+        experimental_b.origin = {10.0, 5.0, 0.0};
+        experimental_c.origin = {20.0, 0.0, 5.0};
+        experimental_dialog->set_curve_point(std::nullopt, experimental_a);
+        experimental_dialog->set_curve_point(std::nullopt, experimental_b);
+        experimental_dialog->set_curve_point(std::nullopt, experimental_c);
+        experimental_dialog->show();
+        application.processEvents();
+        auto* experimental_table = experimental_dialog->findChild<QTableWidget*>(
+            "curve3DExperimentalRows");
+        auto* first_connection_type =
+            experimental_dialog->findChild<QComboBox*>(
+                "curve3DExperimentalConnectionType0");
+        auto* second_connection_type =
+            experimental_dialog->findChild<QComboBox*>(
+                "curve3DExperimentalConnectionType1");
+        require(experimental_dialog->findChild<QComboBox*>(
+                    "curve3DExperimentalType") == nullptr &&
+                    experimental_table != nullptr &&
+                    first_connection_type != nullptr &&
+                    second_connection_type != nullptr &&
+                    experimental_table->columnCount() == 6 &&
+                    experimental_table->rowCount() == 5 &&
+                    experimental_table->item(0, 1)->text() == "Bod" &&
+                    experimental_table->item(1, 0)->text().contains("→") &&
+                    experimental_table->item(2, 1)->text() == "Bod",
+                "Experimental 3D trajectory lost its Point/connection sequence");
+        first_connection_type->setCurrentIndex(
+            first_connection_type->findData(
+            static_cast<int>(
+                zima::document::Curve3DConnectionType::InterpolatingSpline)));
+        second_connection_type->setCurrentIndex(
+            second_connection_type->findData(
+            static_cast<int>(
+                zima::document::Curve3DConnectionType::InterpolatingSpline)));
+        application.processEvents();
+        const auto spline_pending = experimental_dialog->pending_value();
+        require(spline_pending.curve_connections.size() == 2 &&
+                    spline_pending.curve_connections[0].type ==
+                        zima::document::Curve3DConnectionType::InterpolatingSpline &&
+                    spline_pending.curve_connections[1].type ==
+                        zima::document::Curve3DConnectionType::InterpolatingSpline &&
+                    spline_pending.curve_connections[0].generator_id ==
+                        spline_pending.curve_connections[1].generator_id,
+                "Adjacent spline rows did not merge into one persisted generator");
+        first_connection_type->setCurrentIndex(
+            first_connection_type->findData(static_cast<int>(
+                zima::document::Curve3DConnectionType::Line)));
+        second_connection_type->setCurrentIndex(
+            second_connection_type->findData(static_cast<int>(
+                zima::document::Curve3DConnectionType::Line)));
+        application.processEvents();
+        experimental_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
+        require(committed_experimental.kind ==
+                    zima::document::ConstructionKind::Curve3DExperimental &&
+                    committed_experimental.curve_connections.size() == 2 &&
+                    std::ranges::all_of(
+                        committed_experimental.curve_connections,
+                        [](const auto& connection) {
+                            return connection.type ==
+                                zima::document::Curve3DConnectionType::Line &&
+                                !connection.id.empty();
+                        }),
+                "Experimental polyline did not commit stable structural intervals");
 
         auto extrusion_initial =
             zima::document::PartDocument::create_extrusion_container("sketch-profile");
@@ -1322,10 +1859,26 @@ int main(int argc, char* argv[]) {
         require(forward_target != nullptr && clear_forward_target != nullptr &&
                     clear_forward_target->isEnabled(),
                 "Up-to target does not expose its reference field and clear action");
-        QMouseEvent highlight_target(
+        forward_end->setCurrentIndex(forward_end->findData("length"));
+        forward_end->setCurrentIndex(forward_end->findData("up_to"));
+        require(target_requests == 1 &&
+                    forward_target->styleSheet().contains("#42d66b"),
+                "Selecting Up-to in the end-condition menu did not immediately "
+                "arm its exact target field");
+        QMouseEvent replace_target(
             QEvent::MouseButtonPress, QPointF(8.0, 8.0),
             Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
-        QApplication::sendEvent(forward_target, &highlight_target);
+        QApplication::sendEvent(forward_target, &replace_target);
+        require(target_requests == 2 &&
+                    forward_target->styleSheet().contains("#42d66b") &&
+                    extrusion_dialog->highlighted_reference_entries().empty(),
+                "Clicking populated Up-to text did not arm one-shot "
+                "replacement independently of inspection");
+        auto* forward_target_eye = extrusion_dialog->findChild<QToolButton*>(
+            "extrusionForwardTargetInspection");
+        require(forward_target_eye != nullptr && forward_target_eye->isEnabled(),
+                "Populated Up-to reference has no independent inspection eye");
+        forward_target_eye->click();
         const auto highlighted_targets =
             extrusion_dialog->highlighted_reference_entries();
         require(target_highlight_updates == 1 &&
@@ -1335,8 +1888,8 @@ int main(int argc, char* argv[]) {
                             return reference.owner_id == "datum-plane" &&
                                 reference.semantic_key == "plane";
                         }),
-                "Clicking a populated Up-to field did not highlight the exact "
-                "stored target reference");
+                "Up-to inspection eye did not highlight the exact stored "
+                "target independently of input ownership");
         clear_forward_target->trigger();
         require(forward_target->text().isEmpty() &&
                     !clear_forward_target->isEnabled() &&
@@ -1346,8 +1899,9 @@ int main(int argc, char* argv[]) {
             QEvent::MouseButtonPress, QPointF(8.0, 8.0),
             Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
         QApplication::sendEvent(forward_target, &request_target);
-        require(target_requests == 1 &&
-                    forward_target->styleSheet().contains("#00d1ff"),
+        require(target_requests == 3 &&
+                    forward_target->styleSheet().contains("#42d66b") &&
+                    !forward_target->styleSheet().contains("#00d1ff"),
                 "Clicking an empty Up-to field did not arm explicit face picking");
         extrusion_dialog->set_extrusion_target(
             {"datum-plane", "plane", {}}, {0.0, 0.0, 30.0}, {0.0, 0.0, 1.0});
@@ -1506,6 +2060,39 @@ int main(int argc, char* argv[]) {
                 "Component Properties did not store the picked placement-reference row");
         auto* mate_table = placement_dialog->findChild<QTableWidget*>(
             "componentPlacementTable");
+        require(mate_table != nullptr &&
+                    mate_table->selectionMode() == QAbstractItemView::NoSelection,
+                "Assembly reference table still relies on table selection styling");
+        placement_reference_requests.clear();
+        emit mate_table->cellClicked(0, 1);
+        require(placement_reference_requests ==
+                    std::vector<std::pair<std::size_t, bool>>{{0, true}},
+                "Clicking a populated assembly reference did not arm one-shot "
+                "replacement");
+        placement_dialog->set_active_reference_cell(0, true);
+        auto* component_reference_item =
+            dynamic_cast<zima::ui::ReferenceCellItem*>(mate_table->item(0, 1));
+        auto* target_reference_item =
+            dynamic_cast<zima::ui::ReferenceCellItem*>(mate_table->item(0, 2));
+        require(component_reference_item != nullptr &&
+                    target_reference_item != nullptr &&
+                    component_reference_item->is_active_input() &&
+                    !target_reference_item->is_active_input() &&
+                    mate_table->selectedItems().empty(),
+                "Assembly active field leaked its green state into another cell");
+        auto* component_eye_cell = mate_table->cellWidget(0, 7);
+        auto* component_eye = component_eye_cell == nullptr
+            ? nullptr : component_eye_cell->findChild<QToolButton*>();
+        require(component_eye != nullptr && component_eye->isEnabled(),
+                "Assembly component-side reference has no inspection eye");
+        component_eye->click();
+        require(component_reference_item->is_active_input() &&
+                    component_reference_item->is_inspected() &&
+                    !target_reference_item->is_inspected() &&
+                    placement_dialog->highlighted_references().size() == 1,
+                "Assembly inspection state coloured a different reference cell");
+        placement_dialog->set_active_reference_cell(std::nullopt);
+        placement_dialog->clear_reference_highlights();
         auto* limits_cell = mate_table == nullptr
             ? nullptr : mate_table->cellWidget(0, 6);
         auto* limits_button = limits_cell == nullptr
@@ -2144,6 +2731,35 @@ int main(int argc, char* argv[]) {
         }
         require(shared_corner_position.has_value(),
                 "Shared Sketch corner was not a View candidate");
+        box_selection_view.clear_selection();
+        application.processEvents();
+        const auto idle_point_frame = box_selection_view.grabFramebuffer();
+        require(framebuffer_contains_color_near(idle_point_frame,
+                    box_selection_view.size(), *shared_corner_position,
+                    QColor(255, 255, 255)) &&
+                    !framebuffer_contains_color_near(idle_point_frame,
+                        box_selection_view.size(), *shared_corner_position,
+                        QColor("#D05CFF")),
+                "Idle active SketchPoint was not white or retained the purple "
+                "manipulator colour");
+        QMouseEvent corner_hover(QEvent::MouseMove,
+            *shared_corner_position, *shared_corner_position,
+            *shared_corner_position, Qt::NoButton, Qt::NoButton,
+            Qt::NoModifier);
+        QApplication::sendEvent(&box_selection_view, &corner_hover);
+        application.processEvents();
+        const auto hovered_corner = box_selection_view.hovered_candidate();
+        const auto hover_point_frame = box_selection_view.grabFramebuffer();
+        require(hovered_corner && hovered_corner->kind ==
+                    zima::viewer::CandidateKind::SketchPoint &&
+                    framebuffer_contains_color_near(hover_point_frame,
+                        box_selection_view.size(), *shared_corner_position,
+                        QColor(255, 140, 12)) &&
+                    !framebuffer_contains_color_near(hover_point_frame,
+                        box_selection_view.size(), *shared_corner_position,
+                        QColor("#D05CFF")),
+                "Hovered active SketchPoint did not use the ordinary orange "
+                "Viewer offer colour");
         box_selection_view.set_selection_contract({
             zima::viewer::CandidateKind::SketchConstraint});
         const auto second_relation_candidates =
@@ -2157,11 +2773,24 @@ int main(int argc, char* argv[]) {
             zima::viewer::CandidateKind::SketchSegment,
             zima::viewer::CandidateKind::SketchPoint});
         std::optional<zima::viewer::ViewerCandidate> drag_candidate;
+        std::string selected_point_id;
+        int point_drag_updates = 0;
+        int point_drag_ends = 0;
+        box_selection_view.set_confirmation_callback(
+            [&](const auto& candidate) {
+                if (candidate.kind ==
+                        zima::viewer::CandidateKind::SketchPoint &&
+                    candidate.semantic_key.starts_with("point:")) {
+                    selected_point_id = candidate.semantic_key.substr(6);
+                }
+            });
         box_selection_view.set_candidate_drag_callbacks(
             [&](const auto& candidate, const auto&, const auto&) {
                 drag_candidate = candidate;
                 return true;
-            }, [](const auto&, const auto&) {}, [] {});
+            },
+            [&](const auto&, const auto&) { ++point_drag_updates; },
+            [&] { ++point_drag_ends; });
         QMouseEvent corner_press(QEvent::MouseButtonPress,
             *shared_corner_position, *shared_corner_position,
             *shared_corner_position, Qt::LeftButton, Qt::LeftButton,
@@ -2171,11 +2800,77 @@ int main(int argc, char* argv[]) {
                     zima::viewer::CandidateKind::SketchPoint &&
                     drag_candidate->semantic_key == "point:shared-corner",
                 "Two selected segments did not prioritize their shared corner drag");
-        QMouseEvent corner_release(QEvent::MouseButtonRelease,
+        application.processEvents();
+        const auto pressed_corner = box_selection_view.confirmed_candidate();
+        const auto pressed_point_frame = box_selection_view.grabFramebuffer();
+        require(pressed_corner && pressed_corner->kind ==
+                    zima::viewer::CandidateKind::SketchPoint &&
+                    pressed_corner->semantic_key == "point:shared-corner" &&
+                    selected_point_id == "shared-corner" &&
+                    framebuffer_contains_color_near(pressed_point_frame,
+                        box_selection_view.size(), *shared_corner_position,
+                        QColor(30, 220, 240)) &&
+                    !framebuffer_contains_color_near(pressed_point_frame,
+                        box_selection_view.size(), *shared_corner_position,
+                        QColor("#D05CFF")),
+                "LMB-confirmed SketchPoint was not cyan before its drag");
+        QMouseEvent point_click_release(QEvent::MouseButtonRelease,
             *shared_corner_position, *shared_corner_position,
             *shared_corner_position, Qt::LeftButton, Qt::NoButton,
             Qt::NoModifier);
+        QApplication::sendEvent(&box_selection_view, &point_click_release);
+        application.processEvents();
+        const auto clicked_corner = box_selection_view.confirmed_candidate();
+        const auto clicked_point_frame = box_selection_view.grabFramebuffer();
+        require(point_drag_updates == 0 && point_drag_ends == 1 &&
+                    clicked_corner && clicked_corner->kind ==
+                        zima::viewer::CandidateKind::SketchPoint &&
+                    clicked_corner->semantic_key == "point:shared-corner" &&
+                    selected_point_id == "shared-corner" &&
+                    framebuffer_contains_color_near(clicked_point_frame,
+                        box_selection_view.size(), *shared_corner_position,
+                        QColor(30, 220, 240)),
+                "SketchPoint click-release without movement lost its confirmed "
+                "cyan selection or callback ID needed by Delete");
+
+        QMouseEvent corner_drag_press(QEvent::MouseButtonPress,
+            *shared_corner_position, *shared_corner_position,
+            *shared_corner_position, Qt::LeftButton, Qt::LeftButton,
+            Qt::NoModifier);
+        QApplication::sendEvent(&box_selection_view, &corner_drag_press);
+        const QPointF corner_drag_position =
+            *shared_corner_position + QPointF(2.0, 1.0);
+        QMouseEvent corner_drag(QEvent::MouseMove,
+            corner_drag_position, corner_drag_position, corner_drag_position,
+            Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(&box_selection_view, &corner_drag);
+        application.processEvents();
+        const auto dragged_corner = box_selection_view.confirmed_candidate();
+        const auto dragged_point_frame = box_selection_view.grabFramebuffer();
+        require(dragged_corner && dragged_corner->kind ==
+                    zima::viewer::CandidateKind::SketchPoint &&
+                    dragged_corner->semantic_key == "point:shared-corner" &&
+                    framebuffer_contains_color_near(dragged_point_frame,
+                        box_selection_view.size(), *shared_corner_position,
+                        QColor(30, 220, 240)),
+                "Dragged SketchPoint lost its cyan confirmed state");
+        QMouseEvent corner_release(QEvent::MouseButtonRelease,
+            corner_drag_position, corner_drag_position,
+            corner_drag_position, Qt::LeftButton, Qt::NoButton,
+            Qt::NoModifier);
         QApplication::sendEvent(&box_selection_view, &corner_release);
+        application.processEvents();
+        const auto released_corner = box_selection_view.confirmed_candidate();
+        const auto released_point_frame = box_selection_view.grabFramebuffer();
+        require(released_corner && released_corner->kind ==
+                    zima::viewer::CandidateKind::SketchPoint &&
+                    released_corner->semantic_key == "point:shared-corner" &&
+                    selected_point_id == "shared-corner" &&
+                    point_drag_updates == 1 && point_drag_ends == 2 &&
+                    framebuffer_contains_color_near(released_point_frame,
+                        box_selection_view.size(), *shared_corner_position,
+                        QColor(30, 220, 240)),
+                "Released SketchPoint did not remain cyan and confirmed");
 
         std::cout << "C++ properties-window contracts passed\n";
         return 0;

@@ -63,6 +63,11 @@ public:
         zima::document::ConstructionReference reference,
         const QString& label) override;
     [[nodiscard]] std::size_t first_empty_position_index() const override;
+    void set_active_reference_index(
+        std::optional<std::size_t> index) override;
+    void set_reference_inspected(
+        std::size_t index, bool inspected) override;
+    void clear_reference_highlights() override;
     void set_translation_constraint_state(
         const zima::document::PointConstraintState& state,
         const zima::kernel::Vec3& solution) override;

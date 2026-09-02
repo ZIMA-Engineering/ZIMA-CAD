@@ -1,6 +1,7 @@
 #include <zima/document/part_document.hpp>
 #include <zima/document/versioned_file.hpp>
 #include <zima/document/viewer_packet_json.hpp>
+#include <zima/kernel/stable_id.hpp>
 
 #include <nlohmann/json.hpp>
 
@@ -34,13 +35,13 @@ namespace {
 // unrelated reason (new body, new construction reference resolving, etc.),
 // which is exactly the long-running reported bug. Origin sizes are therefore
 // fixed, absolute constants, completely independent of the document's/scene's
-// size: one constant for the document's own Origin, a distinct constant for
-// every container's own editing-mode Origin (used identically for every
-// ConstructionKind -- Point, Axis, Plane, ...), never derived from geometry.
-constexpr double kDocumentOriginAxisLength = 8.0;
-constexpr double kDocumentOriginPlaneSize = 12.0;
-constexpr double kContainerOriginAxisLength = 5.0;
-constexpr double kContainerOriginPlaneSize = 7.5;
+// size: one plane size for the document's own Origin and a distinct plane size
+// for every container's own editing-mode Origin (used identically for every
+// ConstructionKind -- Point, Axis, Plane, ...), never derived from body
+// geometry. Each axis length is deliberately derived from half of its Origin
+// plane size so the arrow tip terminates exactly on the plane rectangle edge.
+constexpr double kDocumentOriginPlaneSize = 10.0;
+constexpr double kContainerOriginPlaneSize = 5.0;
 
 void append_reference_geometry(
     zima::kernel::ViewerReferenceGeometry& target,
@@ -102,14 +103,7 @@ zima::kernel::ViewerReferenceGeometry reference_geometry_delta(
 }
 
 std::string make_id() {
-    std::mt19937_64 generator(
-        static_cast<std::mt19937_64::result_type>(
-            std::chrono::steady_clock::now().time_since_epoch().count()));
-    std::uniform_int_distribution<unsigned long long> distribution;
-    std::ostringstream stream;
-    stream << std::hex << std::setfill('0') << std::setw(16)
-           << distribution(generator) << std::setw(16) << distribution(generator);
-    return stream.str();
+    return zima::kernel::make_stable_id();
 }
 
 // Rotates `value` by `rotation` (RX/RY/RZ, in degrees, applied in X-then-Y-
@@ -134,6 +128,79 @@ zima::kernel::Vec3 rotated_vector(
         -sy * value.x + cy * value.z};
     return zima::kernel::Vec3{cz * value.x - sz * value.y,
         sz * value.x + cz * value.y, value.z};
+}
+
+// Exact local derivative used by every consumer of the ordinary Curve3D:
+// its View wire, Sweep Bezier path and Sweep profile plane. Keeping one
+// implementation prevents a visually offered spline from acquiring a
+// different tangent when it reaches the body kernel.
+zima::kernel::Vec3 ordinary_curve3d_spline_tangent(
+    const ConstructionObject& curve, std::size_t index) {
+    if (curve.curve_points.size() < 2 || index >= curve.curve_points.size())
+        return {};
+    const auto subtract = [](const auto& first, const auto& second) {
+        return zima::kernel::Vec3{first.x-second.x, first.y-second.y,
+            first.z-second.z};
+    };
+    const auto scale = [](const auto& value, double factor) {
+        return zima::kernel::Vec3{value.x*factor, value.y*factor,
+            value.z*factor};
+    };
+    const auto length = [&](std::size_t first, std::size_t second) {
+        const auto delta = subtract(curve.curve_points[second].origin,
+            curve.curve_points[first].origin);
+        return std::hypot(std::hypot(delta.x, delta.y), delta.z);
+    };
+    const auto& point = curve.curve_points[index];
+    if (!point.curve_tangent_enabled ||
+        point.curve_tangent == Curve3DTangentMode::Automatic) {
+        if (index == 0) {
+            return subtract(curve.curve_points[1].origin,
+                curve.curve_points[0].origin);
+        }
+        if (index + 1 == curve.curve_points.size()) {
+            return subtract(point.origin,
+                curve.curve_points[index - 1].origin);
+        }
+        return scale(subtract(curve.curve_points[index + 1].origin,
+            curve.curve_points[index - 1].origin), 0.5);
+    }
+    zima::kernel::Vec3 axis;
+    double sign = 1.0;
+    switch (point.curve_tangent) {
+        case Curve3DTangentMode::PositiveX: axis = {1,0,0}; break;
+        case Curve3DTangentMode::NegativeX: axis = {1,0,0}; sign = -1; break;
+        case Curve3DTangentMode::PositiveY: axis = {0,1,0}; break;
+        case Curve3DTangentMode::NegativeY: axis = {0,1,0}; sign = -1; break;
+        case Curve3DTangentMode::PositiveZ: axis = {0,0,1}; break;
+        case Curve3DTangentMode::NegativeZ: axis = {0,0,1}; sign = -1; break;
+        case Curve3DTangentMode::Automatic: break;
+    }
+    axis = rotated_vector(axis, point.rotation);
+    const double magnitude = index == 0 ? length(0, 1)
+        : index + 1 == curve.curve_points.size()
+            ? length(index - 1, index)
+            : (length(index - 1, index) + length(index, index + 1)) * 0.5;
+    return scale(axis, sign * magnitude);
+}
+
+zima::kernel::Vec3 ordinary_curve3d_profile_tangent(
+    const ConstructionObject& curve, std::size_t index) {
+    const auto& point = curve.curve_points[index];
+    if (curve.curve_type != Curve3DType::Polyline ||
+        point.curve_tangent_enabled) {
+        return ordinary_curve3d_spline_tangent(curve, index);
+    }
+    // A polyline has no unique derivative at a corner. Its following
+    // segment defines the section plane; only the last Point uses incoming.
+    if (index + 1 < curve.curve_points.size()) {
+        const auto& next = curve.curve_points[index + 1].origin;
+        return {next.x-point.origin.x, next.y-point.origin.y,
+            next.z-point.origin.z};
+    }
+    const auto& previous = curve.curve_points[index - 1].origin;
+    return {point.origin.x-previous.x, point.origin.y-previous.y,
+        point.origin.z-previous.z};
 }
 
 using IniSections = std::map<std::string, std::map<std::string, std::string>>;
@@ -227,6 +294,70 @@ zima::kernel::StepRequest::TopologyIdentity::Kind step_topology_kind(
     if (name == "edge") return Kind::Edge;
     if (name == "vertex") return Kind::Vertex;
     throw std::runtime_error("Invalid persisted STEP topology kind");
+}
+
+const char* fillet_mode_name(EdgeTreatmentParameters::FilletMode mode) {
+    using Mode = EdgeTreatmentParameters::FilletMode;
+    switch (mode) {
+    case Mode::Constant: return "constant";
+    case Mode::Linear: return "linear";
+    }
+    throw std::invalid_argument("Invalid Fillet mode");
+}
+
+EdgeTreatmentParameters::FilletMode fillet_mode(const std::string& name) {
+    using Mode = EdgeTreatmentParameters::FilletMode;
+    if (name == "constant") return Mode::Constant;
+    if (name == "linear") return Mode::Linear;
+    throw std::runtime_error("Invalid persisted Fillet mode");
+}
+
+const char* chamfer_mode_name(EdgeTreatmentParameters::ChamferMode mode) {
+    using Mode = EdgeTreatmentParameters::ChamferMode;
+    switch (mode) {
+    case Mode::EqualDistance: return "equal_distance";
+    case Mode::TwoDistances: return "two_distances";
+    case Mode::DistanceAngle: return "distance_angle";
+    }
+    throw std::invalid_argument("Invalid Chamfer mode");
+}
+
+EdgeTreatmentParameters::ChamferMode chamfer_mode(const std::string& name) {
+    using Mode = EdgeTreatmentParameters::ChamferMode;
+    if (name == "equal_distance") return Mode::EqualDistance;
+    if (name == "two_distances") return Mode::TwoDistances;
+    if (name == "distance_angle") return Mode::DistanceAngle;
+    throw std::runtime_error("Invalid persisted Chamfer mode");
+}
+
+bool valid_edge_treatment_values(
+    FeatureKind kind, const EdgeTreatmentParameters& parameters) {
+    if (!std::isfinite(parameters.primary_size) ||
+        parameters.primary_size <= 0.0) return false;
+    if (kind == FeatureKind::Fillet) {
+        if (parameters.fillet_mode !=
+            EdgeTreatmentParameters::FilletMode::Linear) return true;
+        return std::isfinite(parameters.secondary_size) &&
+            parameters.secondary_size > 0.0 &&
+            parameters.route_start_vertices.size() == parameters.routes.size() &&
+            std::ranges::all_of(parameters.route_start_vertices,
+                [](const auto& vertex) {
+                    return vertex.valid() && vertex.instance_path.empty();
+                });
+    }
+    if (kind != FeatureKind::Chamfer) return false;
+    if (parameters.chamfer_mode ==
+        EdgeTreatmentParameters::ChamferMode::TwoDistances) {
+        return std::isfinite(parameters.secondary_size) &&
+            parameters.secondary_size > 0.0;
+    }
+    if (parameters.chamfer_mode ==
+        EdgeTreatmentParameters::ChamferMode::DistanceAngle) {
+        return std::isfinite(parameters.angle_degrees) &&
+            parameters.angle_degrees > 0.0 &&
+            parameters.angle_degrees < 180.0;
+    }
+    return true;
 }
 
 // The persisted `combine_mode` field must match Python's `CombineMode` enum
@@ -592,10 +723,20 @@ void write_part_ini(
                     value.at("angle_degrees").get<double>());
             } else if (type == "fillet") {
                 feature["param.radius"] = std::to_string(
-                    value.at("size").get<double>());
+                    value.at("primary_size").get<double>());
+                feature["param.mode"] = value.at("mode").get<std::string>();
+                feature["param.radius_end"] = std::to_string(
+                    value.at("secondary_size").get<double>());
+                feature["param.reverse"] = json_text(value.at("reverse"));
             } else if (type == "chamfer") {
                 feature["param.distance"] = std::to_string(
-                    value.at("size").get<double>());
+                    value.at("primary_size").get<double>());
+                feature["param.mode"] = value.at("mode").get<std::string>();
+                feature["param.distance_b"] = std::to_string(
+                    value.at("secondary_size").get<double>());
+                feature["param.angle_degrees"] = std::to_string(
+                    value.at("angle_degrees").get<double>());
+                feature["param.flip"] = json_text(value.at("flip"));
             }
             ini["Children." + entry.id]["items"] = feature_id;
         } else if (entry.kind == PartHistoryKind::Sketch) {
@@ -628,7 +769,9 @@ void write_part_ini(
             auto& container = ini["Container." + entry.id];
             add_common_entity_fields(container, entry.id, value.at("name"),
                 "container", "0", value.at("suppressed").get<bool>());
-            container["TYPE"] = kind == "point" ? "POINT" : kind == "axis" ? "AXIS" : "PLANE";
+            container["TYPE"] = kind == "point" ? "POINT"
+                : kind == "curve3d" ? "CURVE3D"
+                : kind == "axis" ? "AXIS" : "PLANE";
             container["param.cpp_kind"] = "construction";
             container["param.cpp_construction"] = value.dump();
             const auto construction_entity_id = entry.id + ":construction";
@@ -2254,6 +2397,58 @@ zima::kernel::Vec3 placement_transform_direction(
                 rotation[2][2] * direction.z};
 }
 
+zima::kernel::Vec3 placement_inverse_transform_point(
+    const PlacementRotationMatrix& rotation,
+    const zima::kernel::Vec3& translation, const zima::kernel::Vec3& point) {
+    const zima::kernel::Vec3 shifted{
+        point.x - translation.x, point.y - translation.y,
+        point.z - translation.z};
+    // A rigid rotation's inverse is its transpose.
+    return {rotation[0][0] * shifted.x + rotation[1][0] * shifted.y +
+                rotation[2][0] * shifted.z,
+            rotation[0][1] * shifted.x + rotation[1][1] * shifted.y +
+                rotation[2][1] * shifted.z,
+            rotation[0][2] * shifted.x + rotation[1][2] * shifted.y +
+                rotation[2][2] * shifted.z};
+}
+
+zima::kernel::Vec3 placement_inverse_transform_direction(
+    const PlacementRotationMatrix& rotation,
+    const zima::kernel::Vec3& direction) {
+    return {rotation[0][0] * direction.x + rotation[1][0] * direction.y +
+                rotation[2][0] * direction.z,
+            rotation[0][1] * direction.x + rotation[1][1] * direction.y +
+                rotation[2][1] * direction.z,
+            rotation[0][2] * direction.x + rotation[1][2] * direction.y +
+                rotation[2][2] * direction.z};
+}
+
+zima::kernel::ViewerReferenceGeometry reference_geometry_in_local_frame(
+    zima::kernel::ViewerReferenceGeometry geometry,
+    const zima::kernel::Vec3& origin, const zima::kernel::Vec3& rotation_degrees) {
+    const auto rotation =
+        placement_rotation_matrix_from_euler_degrees(rotation_degrees);
+    const auto point = [&](const zima::kernel::Vec3& value) {
+        return placement_inverse_transform_point(rotation, origin, value);
+    };
+    const auto direction = [&](const zima::kernel::Vec3& value) {
+        return placement_inverse_transform_direction(rotation, value);
+    };
+    for (auto& value : geometry.vertices) value = point(value);
+    for (auto& edge : geometry.edges) {
+        for (auto& value : edge.points) value = point(value);
+        for (auto& side : edge.edge_treatment_side_directions) {
+            for (auto& value : side) value = direction(value);
+        }
+    }
+    for (auto& value : geometry.points) value.position = point(value.position);
+    for (auto& value : geometry.axes) {
+        value.point = point(value.point);
+        value.direction = direction(value.direction);
+    }
+    return geometry;
+}
+
 // Applies a container's resolved placement (rotation about the world origin
 // followed by translation) to a sketch-built profile loop, in place. This is
 // how a Sketch profile -- always built in the source Sketch's own plane --
@@ -2645,6 +2840,724 @@ void placement_assign_orientation_direction(
 
 }  // namespace
 
+namespace {
+
+using TrajectoryVec3 = zima::kernel::Vec3;
+
+TrajectoryVec3 trajectory_add(
+    const TrajectoryVec3& a, const TrajectoryVec3& b) {
+    return {a.x + b.x, a.y + b.y, a.z + b.z};
+}
+
+TrajectoryVec3 trajectory_subtract(
+    const TrajectoryVec3& a, const TrajectoryVec3& b) {
+    return {a.x - b.x, a.y - b.y, a.z - b.z};
+}
+
+TrajectoryVec3 trajectory_scale(const TrajectoryVec3& value, double scale) {
+    return {value.x * scale, value.y * scale, value.z * scale};
+}
+
+double trajectory_dot(const TrajectoryVec3& a, const TrajectoryVec3& b) {
+    return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+TrajectoryVec3 trajectory_cross(
+    const TrajectoryVec3& a, const TrajectoryVec3& b) {
+    return {a.y * b.z - a.z * b.y,
+            a.z * b.x - a.x * b.z,
+            a.x * b.y - a.y * b.x};
+}
+
+double trajectory_length(const TrajectoryVec3& value) {
+    return std::sqrt(trajectory_dot(value, value));
+}
+
+std::optional<TrajectoryVec3> trajectory_normalized(
+    const TrajectoryVec3& value) {
+    const double length = trajectory_length(value);
+    if (!std::isfinite(length) || length <= 1.0e-9) return std::nullopt;
+    return trajectory_scale(value, 1.0 / length);
+}
+
+std::optional<TrajectoryVec3> experimental_endpoint_axis(
+    Curve3DTangentMode mode, const ConstructionObject& point) {
+    TrajectoryVec3 axis;
+    double sign = 1.0;
+    switch (mode) {
+        case Curve3DTangentMode::PositiveX: axis = {1.0, 0.0, 0.0}; break;
+        case Curve3DTangentMode::NegativeX:
+            axis = {1.0, 0.0, 0.0}; sign = -1.0; break;
+        case Curve3DTangentMode::PositiveY: axis = {0.0, 1.0, 0.0}; break;
+        case Curve3DTangentMode::NegativeY:
+            axis = {0.0, 1.0, 0.0}; sign = -1.0; break;
+        case Curve3DTangentMode::PositiveZ: axis = {0.0, 0.0, 1.0}; break;
+        case Curve3DTangentMode::NegativeZ:
+            axis = {0.0, 0.0, 1.0}; sign = -1.0; break;
+        case Curve3DTangentMode::Automatic: return std::nullopt;
+    }
+    return trajectory_normalized(
+        trajectory_scale(rotated_vector(axis, point.rotation), sign));
+}
+
+struct ExperimentalCurveSpan {
+    std::size_t first_connection{};
+    std::size_t last_connection{};
+    Curve3DConnectionType type{Curve3DConnectionType::Undefined};
+    std::string generator_id;
+};
+
+struct SolvedExperimentalSpan {
+    bool solved{};
+    TrajectoryVec3 start_tangent;
+    TrajectoryVec3 end_tangent;
+    std::vector<Curve3DSolvedPrimitive> primitives;
+};
+
+bool solve_tridiagonal_vec3(std::vector<double> lower,
+    std::vector<double> diagonal, std::vector<double> upper,
+    std::vector<TrajectoryVec3> right,
+    std::vector<TrajectoryVec3>& result) {
+    const auto count = diagonal.size();
+    if (count == 0 || lower.size() != count || upper.size() != count ||
+        right.size() != count) return false;
+    for (std::size_t index = 1; index < count; ++index) {
+        if (std::abs(diagonal[index - 1]) <= 1.0e-12) return false;
+        const double factor = lower[index] / diagonal[index - 1];
+        diagonal[index] -= factor * upper[index - 1];
+        right[index] = trajectory_subtract(
+            right[index], trajectory_scale(right[index - 1], factor));
+    }
+    if (std::abs(diagonal.back()) <= 1.0e-12) return false;
+    result.assign(count, {});
+    result.back() = trajectory_scale(right.back(), 1.0 / diagonal.back());
+    for (std::size_t reverse = count - 1; reverse > 0; --reverse) {
+        const auto index = reverse - 1;
+        if (std::abs(diagonal[index]) <= 1.0e-12) return false;
+        result[index] = trajectory_scale(
+            trajectory_subtract(right[index],
+                trajectory_scale(result[index + 1], upper[index])),
+            1.0 / diagonal[index]);
+    }
+    return true;
+}
+
+bool solve_global_interpolating_spline(
+    const ConstructionObject& object, const ExperimentalCurveSpan& span,
+    SolvedExperimentalSpan& solved, std::string& error) {
+    const std::size_t first_point = span.first_connection;
+    const std::size_t last_point = span.last_connection + 1;
+    const std::size_t count = last_point - first_point + 1;
+    if (count < 2) {
+        error = "Interpolační spline vyžaduje alespoň dva body.";
+        return false;
+    }
+    std::vector<TrajectoryVec3> points;
+    points.reserve(count);
+    for (std::size_t index = first_point; index <= last_point; ++index)
+        points.push_back(object.curve_points[index].origin);
+    std::vector<double> intervals(count - 1);
+    for (std::size_t index = 0; index + 1 < count; ++index) {
+        intervals[index] =
+            trajectory_length(trajectory_subtract(points[index + 1], points[index]));
+        if (intervals[index] <= 1.0e-9) {
+            error = "Dva sousední body spline mají shodnou polohu.";
+            return false;
+        }
+    }
+
+    const auto& first_connection =
+        object.curve_connections[span.first_connection];
+    const auto& last_connection =
+        object.curve_connections[span.last_connection];
+    const auto start_constraint = first_connection.start_tangent_enabled
+        ? experimental_endpoint_axis(first_connection.start_tangent,
+              object.curve_points[first_point])
+        : std::optional<TrajectoryVec3>{};
+    const auto end_constraint = last_connection.end_tangent_enabled
+        ? experimental_endpoint_axis(last_connection.end_tangent,
+              object.curve_points[last_point])
+        : std::optional<TrajectoryVec3>{};
+
+    std::vector<double> lower(count), diagonal(count), upper(count);
+    std::vector<TrajectoryVec3> right(count);
+    if (start_constraint) {
+        const double h = intervals.front();
+        diagonal.front() = 2.0 * h;
+        upper.front() = h;
+        right.front() = trajectory_scale(
+            trajectory_subtract(
+                trajectory_scale(
+                    trajectory_subtract(points[1], points[0]), 1.0 / h),
+                *start_constraint),
+            6.0);
+    } else {
+        diagonal.front() = 1.0;
+    }
+    for (std::size_t index = 1; index + 1 < count; ++index) {
+        const double previous = intervals[index - 1];
+        const double next = intervals[index];
+        lower[index] = previous;
+        diagonal[index] = 2.0 * (previous + next);
+        upper[index] = next;
+        const auto next_slope = trajectory_scale(
+            trajectory_subtract(points[index + 1], points[index]), 1.0 / next);
+        const auto previous_slope = trajectory_scale(
+            trajectory_subtract(points[index], points[index - 1]),
+            1.0 / previous);
+        right[index] = trajectory_scale(
+            trajectory_subtract(next_slope, previous_slope), 6.0);
+    }
+    if (end_constraint) {
+        const double h = intervals.back();
+        lower.back() = h;
+        diagonal.back() = 2.0 * h;
+        right.back() = trajectory_scale(
+            trajectory_subtract(*end_constraint,
+                trajectory_scale(
+                    trajectory_subtract(points.back(),
+                        points[points.size() - 2]), 1.0 / h)),
+            6.0);
+    } else {
+        diagonal.back() = 1.0;
+    }
+
+    std::vector<TrajectoryVec3> second_derivatives;
+    if (!solve_tridiagonal_vec3(
+            std::move(lower), std::move(diagonal), std::move(upper),
+            std::move(right), second_derivatives)) {
+        error = "Interpolační spline má singulární výpočet.";
+        return false;
+    }
+
+    constexpr int samples = 24;
+    for (std::size_t interval = 0; interval + 1 < count; ++interval) {
+        Curve3DSolvedPrimitive primitive;
+        const auto& connection =
+            object.curve_connections[span.first_connection + interval];
+        primitive.generator_id = span.generator_id;
+        primitive.semantic_key = "trajectory:spline:" + span.generator_id +
+            ":interval:" + connection.id;
+        primitive.points.reserve(samples + 1);
+        const double h = intervals[interval];
+        for (int sample = 0; sample <= samples; ++sample) {
+            const double b = static_cast<double>(sample) / samples;
+            const double a = 1.0 - b;
+            auto value = trajectory_add(
+                trajectory_scale(points[interval], a),
+                trajectory_scale(points[interval + 1], b));
+            const auto curvature = trajectory_add(
+                trajectory_scale(second_derivatives[interval],
+                    (a * a * a - a) * h * h / 6.0),
+                trajectory_scale(second_derivatives[interval + 1],
+                    (b * b * b - b) * h * h / 6.0));
+            primitive.points.push_back(trajectory_add(value, curvature));
+        }
+        solved.primitives.push_back(std::move(primitive));
+    }
+    const double first_h = intervals.front();
+    const auto start_derivative = trajectory_subtract(
+        trajectory_scale(trajectory_subtract(points[1], points[0]),
+            1.0 / first_h),
+        trajectory_scale(trajectory_add(
+            trajectory_scale(second_derivatives[0], 2.0),
+            second_derivatives[1]), first_h / 6.0));
+    const double last_h = intervals.back();
+    const auto end_derivative = trajectory_add(
+        trajectory_scale(trajectory_subtract(points.back(),
+            points[points.size() - 2]), 1.0 / last_h),
+        trajectory_scale(trajectory_add(
+            second_derivatives[second_derivatives.size() - 2],
+            trajectory_scale(second_derivatives.back(), 2.0)),
+            last_h / 6.0));
+    const auto start_tangent = trajectory_normalized(start_derivative);
+    const auto end_tangent = trajectory_normalized(end_derivative);
+    if (!start_tangent || !end_tangent) {
+        error = "Interpolační spline nemá platnou koncovou tečnu.";
+        return false;
+    }
+    solved.start_tangent = *start_tangent;
+    solved.end_tangent = *end_tangent;
+    solved.solved = true;
+    return true;
+}
+
+std::vector<TrajectoryVec3> sample_arc_from_start(
+    const TrajectoryVec3& start, const TrajectoryVec3& tangent,
+    const TrajectoryVec3& end) {
+    const auto chord = trajectory_subtract(end, start);
+    const auto perpendicular = trajectory_subtract(
+        chord, trajectory_scale(tangent, trajectory_dot(chord, tangent)));
+    const double perpendicular_squared =
+        trajectory_dot(perpendicular, perpendicular);
+    if (perpendicular_squared <= 1.0e-14) return {start, end};
+    const auto center_offset = trajectory_scale(perpendicular,
+        trajectory_dot(chord, chord) / (2.0 * perpendicular_squared));
+    const auto center = trajectory_add(start, center_offset);
+    const double radius = trajectory_length(center_offset);
+    if (!std::isfinite(radius) || radius <= 1.0e-9) return {start, end};
+    const auto first = trajectory_scale(
+        trajectory_subtract(start, center), 1.0 / radius);
+    const auto last = trajectory_scale(
+        trajectory_subtract(end, center), 1.0 / radius);
+    const auto normal = trajectory_normalized(trajectory_cross(first, tangent));
+    if (!normal) return {start, end};
+    double angle = std::atan2(
+        trajectory_dot(*normal, trajectory_cross(first, last)),
+        std::clamp(trajectory_dot(first, last), -1.0, 1.0));
+    if (angle <= 1.0e-9) angle += 2.0 * std::numbers::pi;
+    constexpr int samples = 24;
+    std::vector<TrajectoryVec3> result;
+    result.reserve(samples + 1);
+    const auto second = trajectory_cross(*normal, first);
+    for (int sample = 0; sample <= samples; ++sample) {
+        const double value = angle * static_cast<double>(sample) / samples;
+        result.push_back(trajectory_add(center,
+            trajectory_scale(trajectory_add(
+                trajectory_scale(first, std::cos(value)),
+                trajectory_scale(second, std::sin(value))), radius)));
+    }
+    result.front() = start;
+    result.back() = end;
+    return result;
+}
+
+bool solve_biarc(const ConstructionObject& object,
+    const ExperimentalCurveSpan& span, const TrajectoryVec3& start_tangent,
+    const TrajectoryVec3& end_tangent, SolvedExperimentalSpan& solved,
+    std::string& error) {
+    const auto& connection = object.curve_connections[span.first_connection];
+    const auto& start = object.curve_points[span.first_connection].origin;
+    const auto& end = object.curve_points[span.first_connection + 1].origin;
+    const auto chord = trajectory_subtract(end, start);
+    const double chord_squared = trajectory_dot(chord, chord);
+    if (chord_squared <= 1.0e-18) {
+        error = "Biarc má shodný počáteční a koncový bod.";
+        return false;
+    }
+    const double weight = std::clamp(connection.weight, 0.05, 0.95);
+    const double ratio = weight / (1.0 - weight);
+    const double tangent_dot =
+        std::clamp(trajectory_dot(start_tangent, end_tangent), -1.0, 1.0);
+    const double quadratic = 2.0 * ratio * (1.0 - tangent_dot);
+    const double linear = 2.0 *
+        (trajectory_dot(chord, start_tangent) +
+         ratio * trajectory_dot(chord, end_tangent));
+    double first_distance{};
+    if (std::abs(quadratic) <= 1.0e-12) {
+        if (linear <= 1.0e-12) {
+            error = "Biarc nemá kladné řešení pro zadané směry.";
+            return false;
+        }
+        first_distance = chord_squared / linear;
+    } else {
+        const double discriminant =
+            linear * linear + 4.0 * quadratic * chord_squared;
+        if (discriminant < 0.0) {
+            error = "Biarc nemá reálné řešení.";
+            return false;
+        }
+        first_distance =
+            (-linear + std::sqrt(discriminant)) / (2.0 * quadratic);
+    }
+    const double second_distance = ratio * first_distance;
+    if (!std::isfinite(first_distance) || !std::isfinite(second_distance) ||
+        first_distance <= 1.0e-9 || second_distance <= 1.0e-9) {
+        error = "Biarc nemá kladné řešení pro zadané směry.";
+        return false;
+    }
+    const auto first_control = trajectory_add(
+        start, trajectory_scale(start_tangent, first_distance));
+    const auto second_control = trajectory_subtract(
+        end, trajectory_scale(end_tangent, second_distance));
+    const auto join = trajectory_scale(
+        trajectory_add(
+            trajectory_scale(first_control, second_distance),
+            trajectory_scale(second_control, first_distance)),
+        1.0 / (first_distance + second_distance));
+    auto first_arc = sample_arc_from_start(start, start_tangent, join);
+    auto second_arc =
+        sample_arc_from_start(end, trajectory_scale(end_tangent, -1.0), join);
+    std::reverse(second_arc.begin(), second_arc.end());
+    solved.primitives.push_back({connection.generator_id,
+        "trajectory:biarc:" + connection.generator_id + ":arc:start",
+        std::move(first_arc)});
+    solved.primitives.push_back({connection.generator_id,
+        "trajectory:biarc:" + connection.generator_id + ":arc:end",
+        std::move(second_arc)});
+    solved.start_tangent = start_tangent;
+    solved.end_tangent = end_tangent;
+    solved.solved = true;
+    return true;
+}
+
+bool solve_corner(const ConstructionObject& object,
+    const ExperimentalCurveSpan& span, const TrajectoryVec3& start_tangent,
+    const TrajectoryVec3& end_tangent, SolvedExperimentalSpan& solved,
+    std::string& error) {
+    const auto& connection = object.curve_connections[span.first_connection];
+    const auto& start = object.curve_points[span.first_connection].origin;
+    const auto& end = object.curve_points[span.first_connection + 1].origin;
+    const auto chord = trajectory_subtract(end, start);
+    const double parallel =
+        std::clamp(trajectory_dot(start_tangent, end_tangent), -1.0, 1.0);
+    const double denominator = 1.0 - parallel * parallel;
+    if (denominator <= 1.0e-12) {
+        error = "Tečny rohu jsou rovnoběžné a neurčují vrchol.";
+        return false;
+    }
+    const double along_start =
+        (trajectory_dot(chord, start_tangent) -
+         parallel * trajectory_dot(chord, end_tangent)) / denominator;
+    const double before_end =
+        (trajectory_dot(chord, end_tangent) -
+         parallel * trajectory_dot(chord, start_tangent)) / denominator;
+    const auto first_vertex = trajectory_add(
+        start, trajectory_scale(start_tangent, along_start));
+    const auto second_vertex = trajectory_subtract(
+        end, trajectory_scale(end_tangent, before_end));
+    const double tolerance =
+        std::max(1.0, trajectory_length(chord)) * 1.0e-7;
+    if (along_start <= 1.0e-9 || before_end <= 1.0e-9 ||
+        trajectory_length(trajectory_subtract(
+            first_vertex, second_vertex)) > tolerance) {
+        error = "Polopřímky tečen rohu se v prostoru neprotínají.";
+        return false;
+    }
+    const auto vertex =
+        trajectory_scale(trajectory_add(first_vertex, second_vertex), 0.5);
+    solved.primitives.push_back({connection.generator_id,
+        "trajectory:corner:" + connection.generator_id + ":line:start",
+        {start, vertex}});
+    solved.primitives.push_back({connection.generator_id,
+        "trajectory:corner:" + connection.generator_id + ":line:end",
+        {vertex, end}});
+    solved.start_tangent = start_tangent;
+    solved.end_tangent = end_tangent;
+    solved.solved = true;
+    return true;
+}
+
+bool trajectory_sketch_geometry_key(const std::string& key) {
+    return key.starts_with("segment:") || key.starts_with("arc:") ||
+        key.starts_with("ellipse:") ||
+        key.starts_with("elliptical_arc:") ||
+        key.starts_with("bspline:") || key.starts_with("corner_radius:");
+}
+
+bool solve_trajectory_sketch(const Curve3DConnection& connection,
+    SolvedExperimentalSpan& solved, std::string& error) {
+    if (!connection.sketch_plane_valid || connection.sketch_id.empty() ||
+        connection.sketch_start_point_id.empty() ||
+        connection.sketch_end_point_id.empty() ||
+        connection.sketch_serialized.empty()) {
+        error = "Sketch trajektorie nemá platnou rovinu nebo systémové body.";
+        return false;
+    }
+
+    zima::sketcher::Sketch sketch;
+    try {
+        sketch = zima::sketcher::Sketch::from_serialized(
+            connection.sketch_serialized);
+    } catch (const std::exception&) {
+        error = "Data Sketch trajektorie jsou neplatná.";
+        return false;
+    }
+    if (sketch.id != connection.sketch_id) {
+        error = "Sketch trajektorie nepatří svému spojení.";
+        return false;
+    }
+    const auto* start_point = sketch.find_point(
+        connection.sketch_start_point_id);
+    const auto* end_point = sketch.find_point(connection.sketch_end_point_id);
+    if (start_point == nullptr || end_point == nullptr ||
+        !start_point->fixed || !end_point->fixed) {
+        error = "START a END Sketch trajektorie musí být systémové pevné body.";
+        return false;
+    }
+
+    struct PathEdge {
+        std::vector<TrajectoryVec3> points;
+        std::size_t first{};
+        std::size_t second{};
+    };
+    std::vector<TrajectoryVec3> nodes;
+    std::vector<PathEdge> edges;
+    const auto node_for = [&](const TrajectoryVec3& point) {
+        for (std::size_t index = 0; index < nodes.size(); ++index) {
+            if (trajectory_length(trajectory_subtract(nodes[index], point)) <=
+                    1.0e-6) return index;
+        }
+        nodes.push_back(point);
+        return nodes.size() - 1;
+    };
+    try {
+        const auto mesh = sketch.viewer_mesh();
+        for (const auto& edge : mesh.edges) {
+            if (edge.construction || edge.infinite || edge.points.size() < 2 ||
+                edge.reference.owner_id != sketch.id ||
+                !trajectory_sketch_geometry_key(
+                    edge.reference.semantic_key)) continue;
+            PathEdge path;
+            path.points = edge.points;
+            path.first = node_for(path.points.front());
+            path.second = node_for(path.points.back());
+            edges.push_back(std::move(path));
+        }
+    } catch (const std::exception&) {
+        error = "Geometrii Sketch trajektorie nelze vyhodnotit.";
+        return false;
+    }
+    if (edges.empty()) {
+        error = "Sketch trajektorie zatím neobsahuje cestu START–END.";
+        return false;
+    }
+
+    const auto nearest_node = [&](const TrajectoryVec3& point)
+            -> std::optional<std::size_t> {
+        for (std::size_t index = 0; index < nodes.size(); ++index) {
+            if (trajectory_length(trajectory_subtract(nodes[index], point)) <=
+                    1.0e-6) return index;
+        }
+        return std::nullopt;
+    };
+    const auto start_node = nearest_node(
+        sketch.world_point(start_point->x, start_point->y));
+    const auto end_node = nearest_node(
+        sketch.world_point(end_point->x, end_point->y));
+    if (!start_node || !end_node || *start_node == *end_node) {
+        error = "Kreslená cesta se musí dotýkat systémových bodů START a END.";
+        return false;
+    }
+
+    std::vector<std::vector<std::size_t>> incidence(nodes.size());
+    for (std::size_t index = 0; index < edges.size(); ++index) {
+        incidence[edges[index].first].push_back(index);
+        incidence[edges[index].second].push_back(index);
+    }
+    for (std::size_t index = 0; index < incidence.size(); ++index) {
+        const std::size_t required =
+            index == *start_node || index == *end_node ? 1 : 2;
+        if (!incidence[index].empty() && incidence[index].size() != required) {
+            error = "Sketch trajektorie musí být jedna otevřená neodbočující cesta.";
+            return false;
+        }
+    }
+
+    std::vector<bool> used(edges.size());
+    std::vector<TrajectoryVec3> ordered;
+    std::size_t current = *start_node;
+    while (current != *end_node) {
+        const auto next = std::ranges::find_if(incidence[current],
+            [&](std::size_t index) { return !used[index]; });
+        if (next == incidence[current].end()) {
+            error = "Sketch trajektorie je přerušená před bodem END.";
+            return false;
+        }
+        auto& edge = edges[*next];
+        used[*next] = true;
+        const bool forward = edge.first == current;
+        const auto append = [&](const TrajectoryVec3& point) {
+            if (ordered.empty() || trajectory_length(trajectory_subtract(
+                    ordered.back(), point)) > 1.0e-9) ordered.push_back(point);
+        };
+        if (forward) {
+            for (const auto& point : edge.points) append(point);
+            current = edge.second;
+        } else {
+            for (auto point = edge.points.rbegin(); point != edge.points.rend();
+                 ++point) append(*point);
+            current = edge.first;
+        }
+    }
+    if (std::ranges::any_of(used, [](bool value) { return !value; }) ||
+        ordered.size() < 2) {
+        error = "Sketch trajektorie obsahuje další oddělenou geometrii.";
+        return false;
+    }
+    const auto start_tangent = trajectory_normalized(
+        trajectory_subtract(ordered[1], ordered[0]));
+    const auto end_tangent = trajectory_normalized(
+        trajectory_subtract(ordered.back(), ordered[ordered.size() - 2]));
+    if (!start_tangent || !end_tangent) {
+        error = "Sketch trajektorie nemá jednoznačné koncové tečny.";
+        return false;
+    }
+    solved.start_tangent = *start_tangent;
+    solved.end_tangent = *end_tangent;
+    solved.primitives.push_back({connection.generator_id,
+        "trajectory:sketch:" + connection.generator_id, std::move(ordered)});
+    solved.solved = true;
+    return true;
+}
+
+}  // namespace
+
+Curve3DSolution solve_experimental_curve3d(const ConstructionObject& object) {
+    Curve3DSolution result;
+    if (object.kind != ConstructionKind::Curve3DExperimental) {
+        result.error = "Výpočet očekává experimentální 3D křivku.";
+        return result;
+    }
+    if (object.curve_points.size() < 2) {
+        result.error = "Experimentální 3D křivka vyžaduje alespoň dva body.";
+        return result;
+    }
+    if (object.curve_connections.size() + 1 != object.curve_points.size()) {
+        result.error = "Spojení nepokrývají všechny sousední body.";
+        return result;
+    }
+    std::unordered_set<std::string> point_ids;
+    for (const auto& point : object.curve_points) {
+        if (point.id.empty() || point.parent_construction_id != object.id ||
+            !point_ids.insert(point.id).second) {
+            result.error = "Experimentální 3D křivka má neplatné body.";
+            return result;
+        }
+    }
+    std::unordered_set<std::string> connection_ids;
+    for (std::size_t index = 0; index < object.curve_connections.size(); ++index) {
+        const auto& connection = object.curve_connections[index];
+        if (connection.id.empty() || connection.generator_id.empty() ||
+            connection.parent_construction_id != object.id ||
+            connection.start_point_id != object.curve_points[index].id ||
+            connection.end_point_id != object.curve_points[index + 1].id ||
+            !connection_ids.insert(connection.id).second ||
+            connection.type == Curve3DConnectionType::Undefined ||
+            !std::isfinite(connection.weight) ||
+            connection.weight <= 0.0 || connection.weight >= 1.0) {
+            result.error = "Experimentální spojení je neúplné nebo neplatné.";
+            return result;
+        }
+        if (trajectory_length(trajectory_subtract(
+                object.curve_points[index + 1].origin,
+                object.curve_points[index].origin)) <= 1.0e-9) {
+            result.error = "Dva sousední body mají shodnou polohu.";
+            return result;
+        }
+    }
+
+    std::vector<ExperimentalCurveSpan> spans;
+    std::unordered_set<std::string> generator_ids;
+    for (std::size_t index = 0; index < object.curve_connections.size();) {
+        const auto& connection = object.curve_connections[index];
+        ExperimentalCurveSpan span{index, index, connection.type,
+            connection.generator_id};
+        if (connection.type == Curve3DConnectionType::InterpolatingSpline) {
+            while (span.last_connection + 1 < object.curve_connections.size()) {
+                const auto& next =
+                    object.curve_connections[span.last_connection + 1];
+                if (next.type != Curve3DConnectionType::InterpolatingSpline ||
+                    next.generator_id != span.generator_id) break;
+                ++span.last_connection;
+            }
+        }
+        if (!generator_ids.insert(span.generator_id).second) {
+            result.error =
+                "Jeden generátor trajektorie se objevuje v nesouvislých spanech.";
+            return result;
+        }
+        spans.push_back(std::move(span));
+        index = spans.back().last_connection + 1;
+    }
+
+    std::vector<SolvedExperimentalSpan> solved(spans.size());
+    for (std::size_t index = 0; index < spans.size(); ++index) {
+        const auto& span = spans[index];
+        if (span.type == Curve3DConnectionType::Line) {
+            const auto& connection =
+                object.curve_connections[span.first_connection];
+            const auto& start =
+                object.curve_points[span.first_connection].origin;
+            const auto& end =
+                object.curve_points[span.first_connection + 1].origin;
+            const auto tangent =
+                trajectory_normalized(trajectory_subtract(end, start));
+            if (!tangent) {
+                result.error = "Úsečka má nulovou délku.";
+                return result;
+            }
+            solved[index].solved = true;
+            solved[index].start_tangent = *tangent;
+            solved[index].end_tangent = *tangent;
+            solved[index].primitives.push_back({connection.generator_id,
+                "trajectory:line:" + connection.generator_id, {start, end}});
+        } else if (span.type ==
+                   Curve3DConnectionType::InterpolatingSpline) {
+            if (!solve_global_interpolating_spline(
+                    object, span, solved[index], result.error)) return result;
+        } else if (span.type == Curve3DConnectionType::Sketch) {
+            if (!solve_trajectory_sketch(
+                    object.curve_connections[span.first_connection],
+                    solved[index], result.error)) return result;
+        }
+    }
+
+    bool progress = true;
+    while (progress) {
+        progress = false;
+        for (std::size_t index = 0; index < spans.size(); ++index) {
+            if (solved[index].solved) continue;
+            const auto& span = spans[index];
+            if (span.type != Curve3DConnectionType::Biarc &&
+                span.type != Curve3DConnectionType::Corner) continue;
+            const auto& connection =
+                object.curve_connections[span.first_connection];
+            std::optional<TrajectoryVec3> start_tangent;
+            std::optional<TrajectoryVec3> end_tangent;
+            if (connection.start_tangent_enabled) {
+                start_tangent = experimental_endpoint_axis(
+                    connection.start_tangent,
+                    object.curve_points[span.first_connection]);
+            } else if (index > 0) {
+                if (!solved[index - 1].solved) continue;
+                start_tangent = solved[index - 1].end_tangent;
+            } else {
+                start_tangent = trajectory_normalized(trajectory_subtract(
+                    object.curve_points[span.first_connection + 1].origin,
+                    object.curve_points[span.first_connection].origin));
+            }
+            if (connection.end_tangent_enabled) {
+                end_tangent = experimental_endpoint_axis(
+                    connection.end_tangent,
+                    object.curve_points[span.first_connection + 1]);
+            } else if (index + 1 < spans.size()) {
+                if (!solved[index + 1].solved) continue;
+                end_tangent = solved[index + 1].start_tangent;
+            } else {
+                end_tangent = trajectory_normalized(trajectory_subtract(
+                    object.curve_points[span.first_connection + 1].origin,
+                    object.curve_points[span.first_connection].origin));
+            }
+            if (!start_tangent || !end_tangent) {
+                result.error =
+                    "Generované spojení nemá platné počáteční a koncové směry.";
+                return result;
+            }
+            const bool ok = span.type == Curve3DConnectionType::Biarc
+                ? solve_biarc(object, span, *start_tangent, *end_tangent,
+                      solved[index], result.error)
+                : solve_corner(object, span, *start_tangent, *end_tangent,
+                      solved[index], result.error);
+            if (!ok) return result;
+            progress = true;
+        }
+    }
+    if (std::ranges::any_of(
+            solved, [](const auto& span) { return !span.solved; })) {
+        result.error =
+            "Řetězec generovaných spojení nemá jednoznačný zdroj tečen.";
+        return result;
+    }
+    for (auto& span : solved) {
+        result.primitives.insert(result.primitives.end(),
+            std::make_move_iterator(span.primitives.begin()),
+            std::make_move_iterator(span.primitives.end()));
+    }
+    result.valid = true;
+    return result;
+}
+
 PartDocument PartDocument::create_default() {
     PartDocument document;
     document.document_id = make_id();
@@ -2725,6 +3638,9 @@ ConstructionObject PartDocument::create_construction(ConstructionKind kind) {
     object.entity_parent_id = kind == ConstructionKind::Point
         ? object.container_origin.id : object.id;
     object.name = kind == ConstructionKind::Point ? "Bod001"
+        : kind == ConstructionKind::Curve3D ? "3D křivka001"
+        : kind == ConstructionKind::Curve3DExperimental
+            ? "3D trajektorie EXP001"
         : kind == ConstructionKind::Axis ? "Osa001" : "Rovina001";
     return object;
 }
@@ -3637,6 +4553,67 @@ std::vector<zima::kernel::ViewerDimension> container_placement_dimensions(
                 dimension.reference.semantic_key.substr(parameter_prefix.size());
         }
     }
+    const bool orientation_from_reference = std::any_of(
+        placement.references.begin(), placement.references.end(),
+        [](const auto& reference) {
+            return reference.orientation_drives_rotation;
+        });
+    const std::array angles = orientation_from_reference
+        ? std::array{placement.rotation_offset_x,
+                     placement.rotation_offset_y,
+                     placement.rotation_offset_z}
+        : std::array{placement.absolute_rotation_x,
+                     placement.absolute_rotation_y,
+                     placement.absolute_rotation_z};
+    const zima::kernel::Vec3 origin{
+        placement.x, placement.y, placement.z};
+    const std::array axes{
+        zima::kernel::Vec3{1.0, 0.0, 0.0},
+        zima::kernel::Vec3{0.0, 1.0, 0.0},
+        zima::kernel::Vec3{0.0, 0.0, 1.0}};
+    const std::array first_rays{
+        zima::kernel::Vec3{0.0, 1.0, 0.0},
+        zima::kernel::Vec3{0.0, 0.0, 1.0},
+        zima::kernel::Vec3{1.0, 0.0, 0.0}};
+    // Linear placement dimensions use an 8 mm witness offset. Put RX/RY/RZ
+    // in visibly separate, nested angular bands so a degree value cannot be
+    // mistaken for an adjacent length and the three arcs do not paint over
+    // one another.
+    constexpr std::array radii{18.0, 22.0, 26.0};
+    constexpr std::array keys{
+        "parameter:placement:rotation_x",
+        "parameter:placement:rotation_y",
+        "parameter:placement:rotation_z"};
+    constexpr std::array labels{"RX = ", "RY = ", "RZ = "};
+    for (std::size_t index = 0; index < angles.size(); ++index) {
+        const double degrees = angles[index];
+        if (std::abs(degrees) <= 1.0e-9) continue;
+        const double radians = degrees * std::numbers::pi / 180.0;
+        const auto& axis = axes[index];
+        const auto& first = first_rays[index];
+        const zima::kernel::Vec3 cross{
+            axis.y*first.z-axis.z*first.y,
+            axis.z*first.x-axis.x*first.z,
+            axis.x*first.y-axis.y*first.x};
+        const zima::kernel::Vec3 rotated{
+            first.x*std::cos(radians) + cross.x*std::sin(radians),
+            first.y*std::cos(radians) + cross.y*std::sin(radians),
+            first.z*std::cos(radians) + cross.z*std::sin(radians)};
+        const zima::kernel::Vec3 first_tip{
+            origin.x + first.x*radii[index],
+            origin.y + first.y*radii[index],
+            origin.z + first.z*radii[index]};
+        const zima::kernel::Vec3 second_tip{
+            origin.x + rotated.x*radii[index],
+            origin.y + rotated.y*radii[index],
+            origin.z + rotated.z*radii[index]};
+        result.push_back({origin, origin, first_tip, second_tip, degrees,
+            {owner_id, keys[index], {}}, labels[index], " °"});
+        auto& dimension = result.back();
+        dimension.kind = zima::kernel::ViewerDimensionKind::Angular;
+        dimension.plane_normal = axis;
+        dimension.sweep_degrees = degrees;
+    }
     return result;
 }
 
@@ -3751,16 +4728,65 @@ int orientation_constraint_remaining_dof(
 }
 
 ConstructionObject* PartDocument::find_construction(const std::string& id) {
-    const auto found = std::find_if(constructions.begin(), constructions.end(),
-        [&](const auto& object) { return object.id == id; });
-    return found == constructions.end() ? nullptr : &*found;
+    for (auto& object : constructions) {
+        if (object.id == id) return &object;
+        const auto child = std::find_if(object.curve_points.begin(),
+            object.curve_points.end(),
+            [&](const auto& point) { return point.id == id; });
+        if (child != object.curve_points.end()) return &*child;
+    }
+    return nullptr;
 }
 
 const ConstructionObject* PartDocument::find_construction(
     const std::string& id) const {
-    const auto found = std::find_if(constructions.begin(), constructions.end(),
-        [&](const auto& object) { return object.id == id; });
-    return found == constructions.end() ? nullptr : &*found;
+    for (const auto& object : constructions) {
+        if (object.id == id) return &object;
+        const auto child = std::find_if(object.curve_points.begin(),
+            object.curve_points.end(),
+            [&](const auto& point) { return point.id == id; });
+        if (child != object.curve_points.end()) return &*child;
+    }
+    return nullptr;
+}
+
+zima::kernel::ViewerReferenceGeometry
+PartDocument::construction_reference_geometry_for(
+    const std::string& object_id,
+    zima::kernel::ViewerReferenceGeometry source_geometry) const {
+    for (const auto& object : constructions) {
+        const auto child = std::find_if(object.curve_points.begin(),
+            object.curve_points.end(),
+            [&](const auto& point) { return point.id == object_id; });
+        if (child == object.curve_points.end()) continue;
+        // A child Point may explicitly use its owning Curve's local Origin.
+        // Publish that editing frame into the same reference universe before
+        // converting every candidate into Curve-local coordinates.
+        PartDocument carrier;
+        carrier.constructions.push_back(object);
+        const auto local_origin_mesh =
+            carrier.construction_viewer_mesh(object.id).original_references;
+        const auto append = [](auto& target, const auto& source) {
+            const auto base = static_cast<std::uint32_t>(target.vertices.size());
+            target.vertices.insert(target.vertices.end(),
+                source.vertices.begin(), source.vertices.end());
+            for (const auto index : source.triangles)
+                target.triangles.push_back(base + index);
+            target.triangle_references.insert(target.triangle_references.end(),
+                source.triangle_references.begin(),
+                source.triangle_references.end());
+            target.edges.insert(target.edges.end(),
+                source.edges.begin(), source.edges.end());
+            target.points.insert(target.points.end(),
+                source.points.begin(), source.points.end());
+            target.axes.insert(target.axes.end(),
+                source.axes.begin(), source.axes.end());
+        };
+        append(source_geometry, local_origin_mesh);
+        return reference_geometry_in_local_frame(
+            std::move(source_geometry), object.origin, object.rotation);
+    }
+    return source_geometry;
 }
 
 zima::kernel::ViewerMesh PartDocument::origin_viewer_mesh(
@@ -3784,11 +4810,11 @@ zima::kernel::ViewerMesh PartDocument::origin_viewer_mesh(
     mesh.original_references.points.push_back(
         {zero, {origin_id, "origin:point", {}}});
     // Origin's on-screen size must never change with the model/scene size
-    // or camera zoom -- see kDocumentOriginAxisLength's comment.
+    // or camera zoom -- see kDocumentOriginPlaneSize's comment.
     // `reference_scene_size` is intentionally unused here.
     (void)reference_scene_size;
-    const double origin_axis_length = kDocumentOriginAxisLength;
     const double origin_plane_size = kDocumentOriginPlaneSize;
+    const double origin_axis_length = origin_plane_size * 0.5;
     for (const auto& [key, direction] : std::array{
              std::pair{"x", zima::kernel::Vec3{1.0, 0.0, 0.0}},
              std::pair{"y", zima::kernel::Vec3{0.0, 1.0, 0.0}},
@@ -3879,7 +4905,7 @@ double viewer_mesh_bounds_diagonal(const zima::kernel::ViewerMesh& mesh) {
 zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
     const std::string& editing_object_id, double reference_scene_size) const {
     // Origin sizing no longer depends on scene size (see
-    // kDocumentOriginAxisLength's comment); this parameter is kept only for
+    // kDocumentOriginPlaneSize's comment); this parameter is kept only for
     // source compatibility with existing call sites.
     (void)reference_scene_size;
     zima::kernel::ViewerMesh mesh;
@@ -3920,12 +4946,12 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
         // suppressed ones, are skipped entirely.
         if (object.suppressed) continue;
         // Every container's own editing-mode Origin (axes + FRONT/TOP/...
-        // planes) is sized from a single fixed constant
-        // (kContainerOriginAxisLength/kContainerOriginPlaneSize), the same
-        // for every ConstructionKind and completely independent of the
-        // scene/model size or camera zoom -- exactly like the document's own
-        // Origin (kDocumentOriginAxisLength/kDocumentOriginPlaneSize), just a
-        // distinct constant so the two are visually told apart. Deriving
+        // planes) is sized from kContainerOriginPlaneSize, the same for every
+        // ConstructionKind and completely independent of the scene/model size
+        // or camera zoom -- exactly like the document's own Origin, just a
+        // distinct size so the two are visually told apart. The axes use the
+        // plane half-extent, keeping every arrow tip on the rectangle edge.
+        // Deriving
         // either from `reference_scene_size` made both grow/shrink every
         // time the camera's fit-to-view radius changed for an unrelated
         // reason (new body, a construction reference resolving to real
@@ -3939,7 +4965,7 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
         // still show this preview instead of nothing.
         const auto append_editing_origin_frame = [&] {
             const std::string& origin_id = object.container_origin.id;
-            const double extent = kContainerOriginAxisLength;
+            const double axis_extent = kContainerOriginPlaneSize * 0.5;
             // `datum_plane_mesh()`'s `size` parameter is the FULL edge
             // length; callers halve it to get corner half-widths (see
             // `origin_viewer_mesh`'s `origin_plane_size * 0.5`).
@@ -3949,7 +4975,7 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
                      std::pair{"y", zima::kernel::Vec3{0.0, 1.0, 0.0}},
                      std::pair{"z", zima::kernel::Vec3{0.0, 0.0, 1.0}}}) {
                 zima::kernel::ViewerAxis axis{object.origin,
-                    rotated(local_direction, object.rotation), extent,
+                    rotated(local_direction, object.rotation), axis_extent,
                     {origin_id, std::string("origin:axis:") + key, {}}};
                 axis.label = key;
                 mesh.axes.push_back(axis);
@@ -4022,6 +5048,165 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
             mesh.original_references.points.push_back(
                 {object.origin, {origin_id, std::string(point_semantic), {}}});
             if (editing) append_editing_origin_frame();
+            continue;
+        }
+        if (object.kind == ConstructionKind::Curve3D ||
+            object.kind == ConstructionKind::Curve3DExperimental) {
+            const bool editing_curve_geometry = editing ||
+                std::any_of(object.curve_points.begin(),
+                    object.curve_points.end(), [&](const auto& point) {
+                        return point.id == editing_object_id;
+                    });
+            // A child Point is entered in the Curve's local coordinate
+            // system.  Keep the parent Curve Origin visible and pickable for
+            // the whole child-edit session, alongside the child's own local
+            // Origin.  Previously only the child frame was appended, so a
+            // newly created Point had no visible indication of the frame its
+            // coordinates are actually relative to.
+            if (editing_curve_geometry) append_editing_origin_frame();
+            const auto parent_rotation =
+                placement_rotation_matrix_from_euler_degrees(object.rotation);
+            const auto world_point = [&](const zima::kernel::Vec3& local) {
+                return placement_transform_point(
+                    parent_rotation, object.origin, local);
+            };
+            const auto append_mesh = [&](const zima::kernel::ViewerMesh& source) {
+                const auto vertex_base =
+                    static_cast<std::uint32_t>(mesh.vertices.size());
+                mesh.vertices.insert(mesh.vertices.end(),
+                    source.vertices.begin(), source.vertices.end());
+                for (const auto index : source.triangles)
+                    mesh.triangles.push_back(vertex_base + index);
+                mesh.triangle_references.insert(mesh.triangle_references.end(),
+                    source.triangle_references.begin(),
+                    source.triangle_references.end());
+                mesh.edges.insert(mesh.edges.end(),
+                    source.edges.begin(), source.edges.end());
+                mesh.points.insert(mesh.points.end(),
+                    source.points.begin(), source.points.end());
+                mesh.axes.insert(mesh.axes.end(),
+                    source.axes.begin(), source.axes.end());
+                const auto reference_base = static_cast<std::uint32_t>(
+                    mesh.original_references.vertices.size());
+                const auto& references = source.original_references;
+                mesh.original_references.vertices.insert(
+                    mesh.original_references.vertices.end(),
+                    references.vertices.begin(), references.vertices.end());
+                for (const auto index : references.triangles)
+                    mesh.original_references.triangles.push_back(
+                        reference_base + index);
+                mesh.original_references.triangle_references.insert(
+                    mesh.original_references.triangle_references.end(),
+                    references.triangle_references.begin(),
+                    references.triangle_references.end());
+                mesh.original_references.edges.insert(
+                    mesh.original_references.edges.end(),
+                    references.edges.begin(), references.edges.end());
+                mesh.original_references.points.insert(
+                    mesh.original_references.points.end(),
+                    references.points.begin(), references.points.end());
+                mesh.original_references.axes.insert(
+                    mesh.original_references.axes.end(),
+                    references.axes.begin(), references.axes.end());
+            };
+            std::vector<zima::kernel::Vec3> local_points;
+            local_points.reserve(object.curve_points.size());
+            for (const auto& child : object.curve_points) {
+                local_points.push_back(child.origin);
+                const auto world = world_point(child.origin);
+                if (editing_curve_geometry) {
+                    // Every child Point owns a real local Origin.  The
+                    // complete set must remain visible while its parent
+                    // Curve is created or edited: connection directions and
+                    // future Sweep profiles refer to these per-point axes
+                    // and planes.  Rendering only the currently edited Point
+                    // made the other persisted frames impossible to inspect
+                    // or pick while defining the trajectory.
+                    auto displayed_child = child;
+                    displayed_child.parent_construction_id.clear();
+                    displayed_child.origin = world;
+                    displayed_child.rotation =
+                        placement_euler_degrees_from_rotation_matrix(
+                            placement_rotation_matrix_multiply(
+                                parent_rotation,
+                                placement_rotation_matrix_from_euler_degrees(
+                                    child.rotation)));
+                    PartDocument carrier;
+                    carrier.constructions.push_back(std::move(displayed_child));
+                    append_mesh(carrier.construction_viewer_mesh(child.id));
+                }
+            }
+            if (object.kind == ConstructionKind::Curve3DExperimental) {
+                const auto solution = solve_experimental_curve3d(object);
+                if (solution.valid) {
+                    for (const auto& primitive : solution.primitives) {
+                        zima::kernel::ViewerEdge edge;
+                        edge.points.reserve(primitive.points.size());
+                        for (const auto& point : primitive.points)
+                            edge.points.push_back(world_point(point));
+                        edge.reference = {
+                            object.entity_id, primitive.semantic_key, {}};
+                        edge.display_owner_id = object.id;
+                        edge.overlay = true;
+                        mesh.edges.push_back(edge);
+                        mesh.original_references.edges.push_back(std::move(edge));
+                    }
+                }
+                continue;
+            }
+            if (local_points.size() >= 2) {
+                for (std::size_t segment = 1;
+                     segment < local_points.size(); ++segment) {
+                    std::vector<zima::kernel::Vec3> path;
+                    if (object.curve_type == Curve3DType::Polyline) {
+                        path = {world_point(local_points[segment-1]),
+                                world_point(local_points[segment])};
+                    } else {
+                        const auto first_tangent =
+                            ordinary_curve3d_spline_tangent(object, segment-1);
+                        const auto second_tangent =
+                            ordinary_curve3d_spline_tangent(object, segment);
+                        constexpr int samples = 24;
+                        path.reserve(samples + 1);
+                        for (int sample = 0; sample <= samples; ++sample) {
+                            const double t = static_cast<double>(sample) / samples;
+                            const double t2 = t*t;
+                            const double t3 = t2*t;
+                            const double h00 = 2*t3 - 3*t2 + 1;
+                            const double h10 = t3 - 2*t2 + t;
+                            const double h01 = -2*t3 + 3*t2;
+                            const double h11 = t3 - t2;
+                            const auto& a = local_points[segment-1];
+                            const auto& b = local_points[segment];
+                            path.push_back(world_point({
+                                h00*a.x + h10*first_tangent.x +
+                                    h01*b.x + h11*second_tangent.x,
+                                h00*a.y + h10*first_tangent.y +
+                                    h01*b.y + h11*second_tangent.y,
+                                h00*a.z + h10*first_tangent.z +
+                                    h01*b.z + h11*second_tangent.z}));
+                        }
+                    }
+                    const auto semantic = std::string("curve:segment:") +
+                        object.curve_points[segment-1].id + ":" +
+                        object.curve_points[segment].id;
+                    zima::kernel::ViewerEdge edge;
+                    edge.points = std::move(path);
+                    edge.reference = {object.entity_id, semantic, {}};
+                    // Segment identity remains the persisted ZIMA entity
+                    // reference. display_owner_id is presentation-only and
+                    // groups every segment into the parent Curve container
+                    // for the shared hover/LMB/Tree selection contract.
+                    edge.display_owner_id = object.id;
+                    // Like Sketch geometry, a 3D Curve has a screen-constant
+                    // presentation stroke. This avoids implementation-defined
+                    // wide OpenGL lines while keeping the same persisted path
+                    // as the picker.
+                    edge.overlay = true;
+                    mesh.edges.push_back(edge);
+                    mesh.original_references.edges.push_back(std::move(edge));
+                }
+            }
             continue;
         }
         const auto normal = normalized(object.direction);
@@ -4182,6 +5367,24 @@ void PartDocument::resolve_constructions(
     append(source_geometry, origin_viewer_mesh(scene_size).original_references);
     for (auto& object : constructions) {
         static_cast<void>(resolve_construction(object, source_geometry));
+        if ((object.kind == ConstructionKind::Curve3D ||
+             object.kind == ConstructionKind::Curve3DExperimental) &&
+            !object.curve_points.empty()) {
+            auto local_geometry = construction_reference_geometry_for(
+                object.curve_points.front().id, source_geometry);
+            bool children_valid = true;
+            for (auto& point : object.curve_points) {
+                // Child Point placement is solved in the owning Curve's
+                // coordinate system. Reference identities stay unchanged;
+                // only their numerical geometry is expressed locally.
+                static_cast<void>(resolve_construction(point, local_geometry));
+                children_valid = children_valid && point.reference_valid;
+                local_geometry.points.push_back({
+                    point.origin,
+                    {point.container_origin.id, "point", {}}, point.name});
+            }
+            object.reference_valid = object.reference_valid && children_valid;
+        }
         // Even a datum with a newly missing reference keeps publishing its
         // last valid persisted frame. Downstream containers can therefore
         // remain geometrically usable while the broken-link status is
@@ -4194,6 +5397,52 @@ void PartDocument::resolve_constructions(
     // Resolve every owning container before deriving its local work plane.
     for (auto& container : history) {
         static_cast<void>(resolve_placement(container.placement, source_geometry));
+    }
+    // A Sweep owns an ordinary Curve3D, but that curve is deliberately not a
+    // second top-level Construction object.  Resolve its child Points in the
+    // already-resolved container frame so their persisted coordinates remain
+    // local while references may point at ordinary world/document geometry.
+    // This is pure ZIMA placement solving; OCCT is still called only by the
+    // explicit body calculation that consumes kernel_operations().
+    for (auto& container : history) {
+        if (container.feature_kind != FeatureKind::Sweep3D) continue;
+        auto carrier_path = container.sweep3d.path;
+        carrier_path.parent_construction_id.clear();
+        carrier_path.origin = {container.placement.x,
+            container.placement.y, container.placement.z};
+        carrier_path.entity_origin = carrier_path.origin;
+        carrier_path.rotation = {container.placement.rotation_x,
+            container.placement.rotation_y, container.placement.rotation_z};
+        carrier_path.absolute_rotation = carrier_path.rotation;
+        carrier_path.rotation_offset_x = 0.0;
+        carrier_path.rotation_offset_y = 0.0;
+        carrier_path.rotation_offset_z = 0.0;
+        carrier_path.orientation_back = false;
+        carrier_path.orientation_quarter_turns = 0;
+        carrier_path.references.clear();
+        carrier_path.definition = ConstructionDefinition::Absolute;
+        static_cast<void>(resolve_construction(carrier_path, source_geometry));
+
+        PartDocument carrier;
+        carrier.constructions.push_back(carrier_path);
+        auto local_geometry = carrier.construction_reference_geometry_for(
+            carrier_path.curve_points.empty()
+                ? carrier_path.id : carrier_path.curve_points.front().id,
+            source_geometry);
+        bool children_valid = true;
+        for (auto& point : carrier_path.curve_points) {
+            static_cast<void>(resolve_construction(point, local_geometry));
+            children_valid = children_valid && point.reference_valid;
+            local_geometry.points.push_back({point.origin,
+                {point.container_origin.id, "point", {}}, point.name});
+        }
+        container.sweep3d.path.curve_points =
+            std::move(carrier_path.curve_points);
+        container.sweep3d.path.reference_valid = children_valid;
+        for (std::size_t profile = 0;
+             profile < container.sweep3d.profiles.size(); ++profile) {
+            static_cast<void>(reframe_sweep3d_profile(container, profile));
+        }
     }
     // An owned Sketch derives its work plane strictly from its container's
     // local origin. Offset therefore moves the plane along the selected
@@ -4412,17 +5661,33 @@ void PartDocument::resolve_constructions(
 
 namespace {
 
+bool is_profile_preview_source_edge(
+    const zima::kernel::ViewerEdge& edge) {
+    if (edge.construction || edge.points.size() < 2) return false;
+    const auto& key = edge.reference.semantic_key;
+    return key.starts_with("segment:") || key.starts_with("circle:") ||
+        key.starts_with("arc:") || key.starts_with("ellipse:") ||
+        key.starts_with("elliptical_arc:") ||
+        key.starts_with("bspline:") || key.starts_with("text:");
+}
+
+std::vector<zima::kernel::ViewerEdge> profile_preview_source_edges(
+    const zima::sketcher::Sketch& evaluated_profile) {
+    // Feature previews consume the same materialized curve graph as the
+    // kernel request. Calling viewer_mesh() on the unevaluated source Sketch
+    // uses editor-only semantic keys (for example corner_radius:) and must not
+    // become a second profile.
+    auto edges = evaluated_profile.viewer_mesh().edges;
+    std::erase_if(edges, [](const auto& edge) {
+        return !is_profile_preview_source_edge(edge);
+    });
+    return edges;
+}
+
 std::vector<zima::kernel::ViewerEdge> thin_profile_preview_edges(
-        const zima::sketcher::Sketch& sketch, double thickness, ThinMode mode) {
-    std::vector<zima::kernel::ViewerEdge> source;
-    for (const auto& edge : sketch.viewer_mesh().edges) {
-        const auto& key = edge.reference.semantic_key;
-        if (!edge.construction && edge.points.size() >= 2 &&
-            (key.starts_with("segment:") || key.starts_with("circle:") ||
-             key.starts_with("arc:") || key.starts_with("ellipse:") ||
-             key.starts_with("elliptical_arc:") || key.starts_with("bspline:") ||
-             key.starts_with("text:"))) source.push_back(edge);
-    }
+        const zima::sketcher::Sketch& evaluated_profile,
+        double thickness, ThinMode mode) {
+    auto source = profile_preview_source_edges(evaluated_profile);
     if (source.empty() || thickness <= 1.0e-12) return source;
     const auto distance = [](const auto& a, const auto& b) {
         return std::hypot(std::hypot(a.x-b.x, a.y-b.y), a.z-b.z);
@@ -4458,7 +5723,7 @@ std::vector<zima::kernel::ViewerEdge> thin_profile_preview_edges(
         }
         chains.push_back(std::move(points));
     }
-    auto normal = sketch.resolved_normal;
+    auto normal = evaluated_profile.resolved_normal;
     const double normal_length = std::hypot(std::hypot(normal.x, normal.y), normal.z);
     if (normal_length <= 1.0e-12) return {};
     normal = {normal.x/normal_length, normal.y/normal_length, normal.z/normal_length};
@@ -4536,16 +5801,16 @@ std::vector<zima::kernel::ViewerEdge> thin_profile_preview_edges(
         const auto first_role = first_is_inside ? "inside" : "outside";
         const auto second_role = first_is_inside ? "outside" : "inside";
         result.push_back({std::move(first),
-            {sketch.id, "thin:" + std::string(first_role), {}}});
+            {evaluated_profile.id, "thin:" + std::string(first_role), {}}});
         result.push_back({std::move(second),
-            {sketch.id, "thin:" + std::string(second_role), {}}});
+            {evaluated_profile.id, "thin:" + std::string(second_role), {}}});
         if (!closed) {
             result.push_back({{result[result.size()-2].points.front(),
                                result.back().points.front()},
-                              {sketch.id, "thin:profile_start", {}}});
+                              {evaluated_profile.id, "thin:profile_start", {}}});
             result.push_back({{result[result.size()-3].points.back(),
                                result[result.size()-2].points.back()},
-                              {sketch.id, "thin:profile_end", {}}});
+                              {evaluated_profile.id, "thin:profile_end", {}}});
         }
     }
     return result;
@@ -4582,7 +5847,8 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
         (parameters.extent_mode == ProfileExtentMode::Symmetric
             ? parameters.end_condition_forward == EndCondition::ThroughAll
             : parameters.end_condition_reverse == EndCondition::ThroughAll);
-    auto request = extrusion_request(*sketch,
+    const auto evaluated_profile = sketch->evaluated_profile_sketch();
+    auto request = extrusion_request(evaluated_profile,
         forward + reverse, parameters.direction);
     const double length = std::sqrt(request.direction.x * request.direction.x +
                                     request.direction.y * request.direction.y +
@@ -4673,21 +5939,13 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
                                   point.z + request.direction.z};
     };
     std::vector<zima::kernel::ViewerEdge> result;
-    const auto solid_profile_edge = [](const auto& edge) {
-        if (edge.construction) return false;
-        const auto& key = edge.reference.semantic_key;
-        return key.starts_with("segment:") || key.starts_with("circle:") ||
-            key.starts_with("arc:") || key.starts_with("ellipse:") ||
-            key.starts_with("elliptical_arc:") ||
-            key.starts_with("bspline:") || key.starts_with("text:") ||
-            key.starts_with("thin:");
-    };
     const auto profile_edges = parameters.result_type == ProfileResultType::Thin
-        ? thin_profile_preview_edges(*sketch, parameters.thin_thickness,
+        ? thin_profile_preview_edges(evaluated_profile,
+              parameters.thin_thickness,
               parameters.thin_mode)
-        : sketch->viewer_mesh().edges;
+        : profile_preview_source_edges(evaluated_profile);
     for (const auto& source : profile_edges) {
-        if (!solid_profile_edge(source) || source.points.size() < 2) continue;
+        if (source.points.size() < 2) continue;
         zima::kernel::ViewerEdge start = source;
         const auto profile_role = source.reference.semantic_key.starts_with("thin:")
             ? ":" + source.reference.semantic_key : std::string{};
@@ -4918,8 +6176,9 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::revolution_preview_edges(
     const double reverse = parameters.extent_mode == ProfileExtentMode::OneSide
         ? 0.0 : parameters.extent_mode == ProfileExtentMode::Symmetric
             ? parameters.angle_degrees : parameters.angle_reverse;
+    const auto evaluated_profile = sketch->evaluated_profile_sketch();
     auto request = revolution_request(
-        *sketch, parameters.axis_segment_id,
+        evaluated_profile, parameters.axis_segment_id,
         parameters.angle_degrees + reverse);
     if (parameters.direction == ExtrusionDirection::Reverse) {
         request.axis_direction.x = -request.axis_direction.x;
@@ -4957,21 +6216,13 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::revolution_preview_edges(
     const double start_angle = -reverse;
     const double end_angle = parameters.angle_degrees;
     std::vector<zima::kernel::ViewerEdge> result;
-    const auto solid_profile_edge = [](const auto& edge) {
-        if (edge.construction) return false;
-        const auto& key = edge.reference.semantic_key;
-        return key.starts_with("segment:") || key.starts_with("circle:") ||
-            key.starts_with("arc:") || key.starts_with("ellipse:") ||
-            key.starts_with("elliptical_arc:") ||
-            key.starts_with("bspline:") || key.starts_with("text:") ||
-            key.starts_with("thin:");
-    };
     const auto profile_edges = parameters.result_type == ProfileResultType::Thin
-        ? thin_profile_preview_edges(*sketch, parameters.thin_thickness,
+        ? thin_profile_preview_edges(evaluated_profile,
+              parameters.thin_thickness,
               parameters.thin_mode)
-        : sketch->viewer_mesh().edges;
+        : profile_preview_source_edges(evaluated_profile);
     for (const auto& source : profile_edges) {
-        if (!solid_profile_edge(source) || source.points.size() < 2) continue;
+        if (source.points.size() < 2) continue;
         zima::kernel::ViewerEdge start;
         zima::kernel::ViewerEdge end;
         const auto profile_role = source.reference.semantic_key.starts_with("thin:")
@@ -5070,6 +6321,105 @@ HistoryContainer PartDocument::create_chamfer_container(
     container.feature_kind = FeatureKind::Chamfer;
     container.edge_treatment.routes.push_back(std::move(edges));
     return container;
+}
+
+HistoryContainer PartDocument::create_sweep3d_container() {
+    HistoryContainer container;
+    container.id = make_id();
+    container.feature_id = make_id();
+    container.feature_parent_id = container.id;
+    container.container_origin = create_container_origin(container.id);
+    container.name = "3D Sweep";
+    container.feature_kind = FeatureKind::Sweep3D;
+    container.sweep3d.path = create_construction(ConstructionKind::Curve3D);
+    container.sweep3d.path.name = "Trajektorie";
+    container.sweep3d.path.parent_construction_id = container.id;
+    return container;
+}
+
+bool PartDocument::reframe_sweep3d_profile(
+    HistoryContainer& container, std::size_t profile_index) {
+    if (container.feature_kind != FeatureKind::Sweep3D ||
+        profile_index >= container.sweep3d.profiles.size()) return false;
+    auto& path = container.sweep3d.path;
+    auto& profile = container.sweep3d.profiles[profile_index];
+    if (path.kind != ConstructionKind::Curve3D ||
+        path.curve_points.size() < 2 || profile.sketch_serialized.empty()) {
+        return false;
+    }
+    const auto found = std::find_if(path.curve_points.begin(),
+        path.curve_points.end(), [&](const auto& point) {
+            return point.id == profile.point_id;
+        });
+    if (found == path.curve_points.end()) return false;
+    const auto point_index = static_cast<std::size_t>(
+        std::distance(path.curve_points.begin(), found));
+    const auto length = [](const zima::kernel::Vec3& value) {
+        return std::hypot(std::hypot(value.x, value.y), value.z);
+    };
+    const auto scale = [](const zima::kernel::Vec3& value, double factor) {
+        return zima::kernel::Vec3{
+            value.x * factor, value.y * factor, value.z * factor};
+    };
+    const auto subtract = [](const auto& first, const auto& second) {
+        return zima::kernel::Vec3{first.x-second.x, first.y-second.y,
+            first.z-second.z};
+    };
+    auto tangent = ordinary_curve3d_profile_tangent(path, point_index);
+    tangent = rotated_vector(tangent, path.rotation);
+    tangent = rotated_vector(tangent, {
+        container.placement.rotation_x, container.placement.rotation_y,
+        container.placement.rotation_z});
+    const double tangent_length = length(tangent);
+    if (!std::isfinite(tangent_length) || tangent_length <= 1.0e-9) return false;
+    const auto normal = scale(tangent, 1.0 / tangent_length);
+
+    auto sketch = zima::sketcher::Sketch::from_serialized(
+        profile.sketch_serialized);
+    auto x_axis = sketch.resolved_x_axis;
+    const auto dot = [](const auto& first, const auto& second) {
+        return first.x*second.x + first.y*second.y + first.z*second.z;
+    };
+    x_axis = subtract(x_axis, scale(normal, dot(x_axis, normal)));
+    if (length(x_axis) <= 1.0e-9) {
+        x_axis = rotated_vector({1.0, 0.0, 0.0}, found->rotation);
+        x_axis = rotated_vector(x_axis, path.rotation);
+        x_axis = rotated_vector(x_axis, {
+            container.placement.rotation_x, container.placement.rotation_y,
+            container.placement.rotation_z});
+        x_axis = subtract(x_axis, scale(normal, dot(x_axis, normal)));
+    }
+    if (length(x_axis) <= 1.0e-9) {
+        const zima::kernel::Vec3 fallback =
+            std::abs(normal.z) < 0.9 ? zima::kernel::Vec3{0,0,1}
+                                    : zima::kernel::Vec3{0,1,0};
+        x_axis = subtract(fallback, scale(normal, dot(fallback, normal)));
+    }
+    x_axis = scale(x_axis, 1.0 / length(x_axis));
+    const zima::kernel::Vec3 y_axis{
+        normal.y*x_axis.z-normal.z*x_axis.y,
+        normal.z*x_axis.x-normal.x*x_axis.z,
+        normal.x*x_axis.y-normal.y*x_axis.x};
+
+    auto origin = rotated_vector(found->origin, path.rotation);
+    origin = {origin.x + path.origin.x, origin.y + path.origin.y,
+        origin.z + path.origin.z};
+    origin = rotated_vector(origin, {
+        container.placement.rotation_x, container.placement.rotation_y,
+        container.placement.rotation_z});
+    origin = {origin.x + container.placement.x,
+        origin.y + container.placement.y,
+        origin.z + container.placement.z};
+    sketch.id = profile.sketch_id.empty() ? sketch.id : profile.sketch_id;
+    profile.sketch_id = sketch.id;
+    sketch.owner_container_id = container.id;
+    sketch.plane_reference_owner_id = "sweep3d:profile:" + profile.id;
+    sketch.resolved_origin = origin;
+    sketch.resolved_x_axis = x_axis;
+    sketch.resolved_y_axis = y_axis;
+    sketch.resolved_normal = normal;
+    profile.sketch_serialized = sketch.serialized();
+    return true;
 }
 
 HistoryContainer PartDocument::create_imported_step_container(
@@ -5305,6 +6655,119 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 apply_container_placement(revolution, container.placement);
             }
             primitive = std::move(revolution);
+        } else if (container.feature_kind == FeatureKind::Sweep3D) {
+            auto resolved_container = container;
+            auto& path = resolved_container.sweep3d.path;
+            if (path.kind != ConstructionKind::Curve3D ||
+                path.curve_points.size() < 2) {
+                throw std::runtime_error(
+                    "3D Sweep requires an ordinary 3D Curve with at least two Points");
+            }
+            if (resolved_container.sweep3d.profiles.empty()) {
+                throw std::runtime_error("3D Sweep requires at least one profile Sketch");
+            }
+            for (std::size_t profile_index = 0;
+                 profile_index < resolved_container.sweep3d.profiles.size();
+                 ++profile_index) {
+                if (!reframe_sweep3d_profile(resolved_container, profile_index)) {
+                    throw std::runtime_error(
+                        "3D Sweep profile references a missing or degenerate path Point");
+                }
+            }
+            zima::kernel::Sweep3DRequest sweep;
+            const auto path_rotation = path.rotation;
+            const auto container_rotation = zima::kernel::Vec3{
+                container.placement.rotation_x,
+                container.placement.rotation_y,
+                container.placement.rotation_z};
+            const auto world_point = [&](zima::kernel::Vec3 point) {
+                point = rotated_vector(point, path_rotation);
+                point = {point.x + path.origin.x, point.y + path.origin.y,
+                    point.z + path.origin.z};
+                point = rotated_vector(point, container_rotation);
+                return zima::kernel::Vec3{
+                    point.x + container.placement.x,
+                    point.y + container.placement.y,
+                    point.z + container.placement.z};
+            };
+            const auto world_vector = [&](zima::kernel::Vec3 vector) {
+                return rotated_vector(
+                    rotated_vector(vector, path_rotation),
+                    container_rotation);
+            };
+            for (const auto& point : path.curve_points) {
+                sweep.path_points.push_back(world_point(point.origin));
+                sweep.path_point_ids.push_back(point.id);
+            }
+            for (std::size_t index = 1;
+                 index < path.curve_points.size(); ++index) {
+                zima::kernel::Sweep3DRequest::PathSegment segment;
+                segment.source_id = "curve:segment:" +
+                    path.curve_points[index-1].id + ":" +
+                    path.curve_points[index].id;
+                segment.start = sweep.path_points[index-1];
+                segment.end = sweep.path_points[index];
+                if (path.curve_type == Curve3DType::InterpolatingSpline) {
+                    const auto first_tangent = world_vector(
+                        ordinary_curve3d_spline_tangent(path, index-1));
+                    const auto second_tangent = world_vector(
+                        ordinary_curve3d_spline_tangent(path, index));
+                    segment.bezier_control_points = {
+                        segment.start,
+                        {segment.start.x + first_tangent.x / 3.0,
+                         segment.start.y + first_tangent.y / 3.0,
+                         segment.start.z + first_tangent.z / 3.0},
+                        {segment.end.x - second_tangent.x / 3.0,
+                         segment.end.y - second_tangent.y / 3.0,
+                         segment.end.z - second_tangent.z / 3.0},
+                        segment.end};
+                }
+                sweep.path_segments.push_back(std::move(segment));
+            }
+            std::unordered_set<std::string> assigned_points;
+            for (const auto& profile : resolved_container.sweep3d.profiles) {
+                const auto point = std::find(
+                    sweep.path_point_ids.begin(), sweep.path_point_ids.end(),
+                    profile.point_id);
+                if (point == sweep.path_point_ids.end() ||
+                    !assigned_points.insert(profile.point_id).second) {
+                    throw std::runtime_error(
+                        "3D Sweep permits at most one profile per path Point");
+                }
+                const auto sketch = zima::sketcher::Sketch::from_serialized(
+                    profile.sketch_serialized);
+                auto source = extrusion_request(
+                    sketch, 1.0, ExtrusionDirection::Forward);
+                if (!source.inner_profiles.empty() ||
+                    !source.additional_profile_regions.empty()) {
+                    throw std::runtime_error(
+                        "Basic 3D Sweep currently requires one closed profile without islands or holes");
+                }
+                zima::kernel::ExtrusionRequest::ProfileRegion region;
+                region.region_id = std::move(source.profile_region_id);
+                region.outer_boundary_id = std::move(source.outer_boundary_id);
+                region.inner_boundary_ids = std::move(source.inner_boundary_ids);
+                region.outer_edge_source_ids =
+                    std::move(source.outer_edge_source_ids);
+                region.inner_edge_source_ids =
+                    std::move(source.inner_edge_source_ids);
+                region.outer_vertex_source_ids =
+                    std::move(source.outer_vertex_source_ids);
+                region.inner_vertex_source_ids =
+                    std::move(source.inner_vertex_source_ids);
+                region.outer_profile = std::move(source.outer_profile);
+                region.inner_profiles = std::move(source.inner_profiles);
+                sweep.sections.push_back({profile.id, profile.point_id,
+                    static_cast<std::size_t>(std::distance(
+                        sweep.path_point_ids.begin(), point)),
+                    source.direction,
+                    std::move(region)});
+            }
+            std::ranges::sort(sweep.sections,
+                [](const auto& first, const auto& second) {
+                    return first.point_index < second.point_index;
+                });
+            primitive = std::move(sweep);
         } else if (container.feature_kind == FeatureKind::ImportedStep) {
             zima::kernel::StepRequest step{
                 container.imported_step.source_path,
@@ -5314,14 +6777,43 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             primitive = std::move(step);
         } else if (container.feature_kind == FeatureKind::Fillet) {
             require_default_sketch_feature_placement(container.placement);
+            const auto mode = container.edge_treatment.fillet_mode ==
+                    EdgeTreatmentParameters::FilletMode::Linear
+                ? zima::kernel::FilletRequest::Mode::Linear
+                : zima::kernel::FilletRequest::Mode::Constant;
+            std::vector<zima::kernel::VertexReference> contour_starts;
+            for (std::size_t route = 0;
+                 route < container.edge_treatment.routes.size(); ++route) {
+                const auto start = route <
+                        container.edge_treatment.route_start_vertices.size()
+                    ? container.edge_treatment.route_start_vertices[route]
+                    : zima::kernel::VertexReference{};
+                contour_starts.insert(contour_starts.end(),
+                    container.edge_treatment.routes[route].size(), start);
+            }
             primitive = zima::kernel::FilletRequest{
                 container.edge_treatment.flattened_edges(),
-                container.edge_treatment.size};
+                mode,
+                container.edge_treatment.primary_size,
+                container.edge_treatment.secondary_size,
+                container.edge_treatment.reverse,
+                std::move(contour_starts)};
         } else {
             require_default_sketch_feature_placement(container.placement);
+            const auto mode = container.edge_treatment.chamfer_mode ==
+                    EdgeTreatmentParameters::ChamferMode::TwoDistances
+                ? zima::kernel::ChamferRequest::Mode::TwoDistances
+                : container.edge_treatment.chamfer_mode ==
+                        EdgeTreatmentParameters::ChamferMode::DistanceAngle
+                    ? zima::kernel::ChamferRequest::Mode::DistanceAngle
+                    : zima::kernel::ChamferRequest::Mode::EqualDistance;
             primitive = zima::kernel::ChamferRequest{
                 container.edge_treatment.flattened_edges(),
-                container.edge_treatment.size};
+                mode,
+                container.edge_treatment.primary_size,
+                container.edge_treatment.secondary_size,
+                container.edge_treatment.angle_degrees * std::numbers::pi / 180.0,
+                container.edge_treatment.flip};
         }
         operations.push_back({
             container.id,
@@ -5335,6 +6827,243 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
     }
     return operations;
 }
+
+namespace {
+
+std::string curve_tangent_key(Curve3DTangentMode mode) {
+    switch (mode) {
+        case Curve3DTangentMode::PositiveX: return "+x";
+        case Curve3DTangentMode::NegativeX: return "-x";
+        case Curve3DTangentMode::PositiveY: return "+y";
+        case Curve3DTangentMode::NegativeY: return "-y";
+        case Curve3DTangentMode::PositiveZ: return "+z";
+        case Curve3DTangentMode::NegativeZ: return "-z";
+        case Curve3DTangentMode::Automatic: return "automatic";
+    }
+    return "automatic";
+}
+
+Curve3DTangentMode curve_tangent_from_key(const std::string& key) {
+    if (key == "+x") return Curve3DTangentMode::PositiveX;
+    if (key == "-x") return Curve3DTangentMode::NegativeX;
+    if (key == "+y") return Curve3DTangentMode::PositiveY;
+    if (key == "-y") return Curve3DTangentMode::NegativeY;
+    if (key == "+z") return Curve3DTangentMode::PositiveZ;
+    if (key == "-z") return Curve3DTangentMode::NegativeZ;
+    if (key == "automatic") return Curve3DTangentMode::Automatic;
+    throw std::runtime_error("Invalid 3D-Curve tangent mode");
+}
+
+std::string curve_connection_type_key(Curve3DConnectionType type) {
+    switch (type) {
+        case Curve3DConnectionType::Undefined: return "undefined";
+        case Curve3DConnectionType::Line: return "line";
+        case Curve3DConnectionType::InterpolatingSpline: return "spline";
+        case Curve3DConnectionType::Sketch: return "sketch";
+        case Curve3DConnectionType::Biarc: return "biarc";
+        case Curve3DConnectionType::Corner: return "corner";
+    }
+    return "undefined";
+}
+
+Curve3DConnectionType curve_connection_type_from_key(
+    const std::string& key) {
+    if (key == "undefined") return Curve3DConnectionType::Undefined;
+    if (key == "line") return Curve3DConnectionType::Line;
+    if (key == "spline")
+        return Curve3DConnectionType::InterpolatingSpline;
+    if (key == "sketch") return Curve3DConnectionType::Sketch;
+    if (key == "biarc") return Curve3DConnectionType::Biarc;
+    if (key == "corner") return Curve3DConnectionType::Corner;
+    throw std::runtime_error("Invalid experimental 3D-Curve connection type");
+}
+
+std::string curve_sketch_plane_mode_key(Curve3DSketchPlaneMode mode) {
+    return mode == Curve3DSketchPlaneMode::Custom ? "custom" : "automatic";
+}
+
+Curve3DSketchPlaneMode curve_sketch_plane_mode_from_key(
+    const std::string& key) {
+    if (key == "automatic") return Curve3DSketchPlaneMode::Automatic;
+    if (key == "custom") return Curve3DSketchPlaneMode::Custom;
+    throw std::runtime_error("Invalid trajectory Sketch plane mode");
+}
+
+ConstructionObject deserialize_curve_point(
+    const nlohmann::json& source, const std::string& parent_id,
+    std::unordered_set<std::string>& construction_ids) {
+    ConstructionObject point;
+    point.id = source.at("id").get<std::string>();
+    point.entity_id = source.at("entity_id").get<std::string>();
+    point.entity_parent_id = source.at("entity_parent_id").get<std::string>();
+    point.parent_construction_id =
+        source.at("parent_construction_id").get<std::string>();
+    point.name = source.at("name").get<std::string>();
+    if (source.at("type").get<std::string>() != "point" ||
+        point.parent_construction_id != parent_id) {
+        throw std::runtime_error("3D-Curve children must be Point containers");
+    }
+    point.kind = ConstructionKind::Point;
+    const auto& serialized_origin = source.at("container_origin");
+    point.container_origin.id = serialized_origin.at("id").get<std::string>();
+    point.container_origin.parent_id =
+        serialized_origin.at("parent_id").get<std::string>();
+    point.container_origin.name = serialized_origin.at("name").get<std::string>();
+    point.container_origin.locked = serialized_origin.at("locked").get<bool>();
+    for (const auto& serialized_child : serialized_origin.at("children")) {
+        const auto kind = serialized_child.at("kind").get<std::string>();
+        point.container_origin.children.push_back({
+            serialized_child.at("id").get<std::string>(),
+            serialized_child.at("parent_id").get<std::string>(),
+            serialized_child.at("name").get<std::string>(),
+            kind == "point" ? OriginChildKind::Point
+                : kind == "axis" ? OriginChildKind::Axis
+                : kind == "plane" ? OriginChildKind::Plane
+                : throw std::runtime_error(
+                      "Invalid Container Origin child kind"),
+            serialized_child.at("key").get<std::string>(),
+            serialized_child.at("locked").get<bool>()});
+    }
+    point.origin = {source.at("x").get<double>(),
+                    source.at("y").get<double>(),
+                    source.at("z").get<double>()};
+    point.rotation = {source.at("rotation_x").get<double>(),
+                      source.at("rotation_y").get<double>(),
+                      source.at("rotation_z").get<double>()};
+    point.rotation_offset_x = source.value("rotation_offset_x", 0.0);
+    point.rotation_offset_y = source.value("rotation_offset_y", 0.0);
+    point.rotation_offset_z = source.value("rotation_offset_z", 0.0);
+    point.absolute_rotation = {
+        source.value("absolute_rotation_x", point.rotation.x),
+        source.value("absolute_rotation_y", point.rotation.y),
+        source.value("absolute_rotation_z", point.rotation.z)};
+    point.orientation_back = source.value("orientation_back", false);
+    point.orientation_quarter_turns =
+        source.value("orientation_quarter_turns", 0);
+    point.direction = {source.value("direction_x", 0.0),
+                       source.value("direction_y", 0.0),
+                       source.value("direction_z", 1.0)};
+    point.direction_axis = source.value("direction_axis", "y");
+    point.display_size = source.value("display_size", 100.0);
+    point.definition = ConstructionDefinition::Absolute;
+    const auto definition = source.value("definition", "absolute");
+    point.definition = definition == "absolute" ? ConstructionDefinition::Absolute
+        : definition == "point_reference"
+            ? ConstructionDefinition::PointReference
+        : definition == "two_point_axis" ? ConstructionDefinition::TwoPointAxis
+        : definition == "axis_reference" ? ConstructionDefinition::AxisReference
+        : definition == "three_point_plane"
+            ? ConstructionDefinition::ThreePointPlane
+        : definition == "plane_reference" ? ConstructionDefinition::PlaneReference
+        : throw std::runtime_error("Invalid construction definition");
+    point.offset = source.value("offset", 0.0);
+    point.reference_valid = source.value("reference_valid", true);
+    point.suppressed = source.value("suppressed", false);
+    point.curve_tangent = curve_tangent_from_key(
+        source.value("curve_tangent", "automatic"));
+    point.curve_tangent_enabled = source.at(
+        "curve_tangent_enabled").get<bool>();
+    for (const auto& serialized : source.at("references")) {
+        point.references.push_back({
+            serialized.at("instance_path").get<std::string>(),
+            serialized.at("owner_id").get<std::string>(),
+            serialized.at("semantic_key").get<std::string>(),
+            serialized.at("offset").get<double>(),
+            serialized.at("supports_offset").get<bool>(),
+            serialized.at("orientation_role").get<std::string>(),
+            serialized.at("orientation_drives_rotation").get<bool>(),
+            serialized.value("orientation_only", false),
+            serialized.value("flip", false)});
+    }
+    if (point.id.empty() || point.name.empty() ||
+        !construction_ids.insert(point.id).second ||
+        point.container_origin != create_container_origin(point.id) ||
+        point.entity_id != point.container_origin.id + ":point" ||
+        point.entity_parent_id != point.container_origin.id ||
+        !std::isfinite(point.origin.x) || !std::isfinite(point.origin.y) ||
+        !std::isfinite(point.origin.z)) {
+        throw std::runtime_error("Invalid 3D-Curve Point container");
+    }
+    return point;
+}
+
+nlohmann::json serialize_curve_point(
+    const ConstructionObject& point, const std::string& parent_id,
+    std::unordered_set<std::string>& construction_ids) {
+    if (point.kind != ConstructionKind::Point ||
+        point.parent_construction_id != parent_id || point.id.empty() ||
+        point.name.empty() || !construction_ids.insert(point.id).second ||
+        point.container_origin != create_container_origin(point.id) ||
+        point.entity_id != point.container_origin.id + ":point" ||
+        point.entity_parent_id != point.container_origin.id) {
+        throw std::runtime_error("Invalid 3D-Curve Point container");
+    }
+    nlohmann::json origin_children = nlohmann::json::array();
+    for (const auto& child : point.container_origin.children) {
+        origin_children.push_back({
+            {"id", child.id}, {"parent_id", child.parent_id},
+            {"name", child.name},
+            {"kind", child.kind == OriginChildKind::Point ? "point"
+                : child.kind == OriginChildKind::Axis ? "axis" : "plane"},
+            {"key", child.key}, {"locked", child.locked}});
+    }
+    nlohmann::json references = nlohmann::json::array();
+    for (const auto& reference : point.references) {
+        references.push_back({
+            {"instance_path", reference.instance_path},
+            {"owner_id", reference.owner_id},
+            {"semantic_key", reference.semantic_key},
+            {"offset", reference.offset},
+            {"supports_offset", reference.supports_offset},
+            {"orientation_role", reference.orientation_role},
+            {"orientation_drives_rotation",
+                reference.orientation_drives_rotation},
+            {"orientation_only", reference.orientation_only},
+            {"flip", reference.flip}});
+    }
+    const auto definition = point.definition == ConstructionDefinition::Absolute
+        ? "absolute" : point.definition == ConstructionDefinition::PointReference
+            ? "point_reference"
+        : point.definition == ConstructionDefinition::TwoPointAxis
+            ? "two_point_axis"
+        : point.definition == ConstructionDefinition::AxisReference
+            ? "axis_reference"
+        : point.definition == ConstructionDefinition::ThreePointPlane
+            ? "three_point_plane" : "plane_reference";
+    return {{"id", point.id}, {"entity_id", point.entity_id},
+        {"entity_parent_id", point.entity_parent_id},
+        {"parent_construction_id", point.parent_construction_id},
+        {"name", point.name}, {"type", "point"},
+        {"container_origin", {{"id", point.container_origin.id},
+            {"parent_id", point.container_origin.parent_id},
+            {"name", point.container_origin.name},
+            {"locked", point.container_origin.locked},
+            {"children", std::move(origin_children)}}},
+        {"x", point.origin.x}, {"y", point.origin.y}, {"z", point.origin.z},
+        {"rotation_x", point.rotation.x},
+        {"rotation_y", point.rotation.y},
+        {"rotation_z", point.rotation.z},
+        {"rotation_offset_x", point.rotation_offset_x},
+        {"rotation_offset_y", point.rotation_offset_y},
+        {"rotation_offset_z", point.rotation_offset_z},
+        {"absolute_rotation_x", point.absolute_rotation.x},
+        {"absolute_rotation_y", point.absolute_rotation.y},
+        {"absolute_rotation_z", point.absolute_rotation.z},
+        {"orientation_back", point.orientation_back},
+        {"orientation_quarter_turns", point.orientation_quarter_turns},
+        {"direction_x", point.direction.x},
+        {"direction_y", point.direction.y},
+        {"direction_z", point.direction.z},
+        {"direction_axis", point.direction_axis},
+        {"display_size", point.display_size}, {"definition", definition},
+        {"references", std::move(references)}, {"offset", point.offset},
+        {"reference_valid", point.reference_valid},
+        {"suppressed", point.suppressed},
+        {"curve_tangent", curve_tangent_key(point.curve_tangent)},
+        {"curve_tangent_enabled", point.curve_tangent_enabled}};
+}
+
+}  // namespace
 
 PartDocument PartDocument::load(
     const std::filesystem::path& path,
@@ -5368,12 +7097,14 @@ PartDocument PartDocument::load(
         throw std::runtime_error("Document history must be an array");
     }
     std::unordered_set<std::string> container_ids;
+    std::unordered_set<std::string> construction_ids;
     for (const auto& source : source_history) {
         const std::string type = source.at("type").get<std::string>();
         if (type != "sketch" && type != "box" && type != "cylinder" && type != "sphere" &&
             type != "cone" && type != "pyramid" && type != "wedge" &&
             type != "extrusion" &&
-            type != "revolution" && type != "imported_step" &&
+            type != "revolution" && type != "sweep3d" &&
+            type != "imported_step" &&
             type != "fillet" && type != "chamfer") {
             throw std::runtime_error("Unsupported history feature type");
         }
@@ -5386,6 +7117,7 @@ PartDocument PartDocument::load(
             : type == "wedge" ? FeatureKind::Wedge
             : type == "extrusion" ? FeatureKind::Extrusion
             : type == "revolution" ? FeatureKind::Revolution
+            : type == "sweep3d" ? FeatureKind::Sweep3D
             : type == "imported_step" ? FeatureKind::ImportedStep
             : type == "fillet" ? FeatureKind::Fillet
             : type == "chamfer" ? FeatureKind::Chamfer : FeatureKind::Box;
@@ -5675,6 +7407,79 @@ PartDocument PartDocument::load(
                             : container.revolution.angle_reverse) > 360.0) {
                 throw std::runtime_error("Invalid Revolution parameters");
             }
+        } else if (container.feature_kind == FeatureKind::Sweep3D) {
+            const auto& serialized_path = source.at("path");
+            auto& path = container.sweep3d.path;
+            path.id = serialized_path.at("id").get<std::string>();
+            path.entity_id = serialized_path.at("entity_id").get<std::string>();
+            path.entity_parent_id =
+                serialized_path.at("entity_parent_id").get<std::string>();
+            path.parent_construction_id = container.id;
+            path.name = serialized_path.at("name").get<std::string>();
+            path.kind = ConstructionKind::Curve3D;
+            path.container_origin = create_container_origin(path.id);
+            path.origin = {serialized_path.at("x").get<double>(),
+                serialized_path.at("y").get<double>(),
+                serialized_path.at("z").get<double>()};
+            path.rotation = {serialized_path.at("rotation_x").get<double>(),
+                serialized_path.at("rotation_y").get<double>(),
+                serialized_path.at("rotation_z").get<double>()};
+            path.absolute_rotation = path.rotation;
+            path.curve_type = serialized_path.at("curve_type") == "polyline"
+                ? Curve3DType::Polyline
+                : serialized_path.at("curve_type") == "interpolating_spline"
+                    ? Curve3DType::InterpolatingSpline
+                    : throw std::runtime_error("Invalid 3D Sweep path type");
+            if (path.id.empty() || path.name.empty() ||
+                !construction_ids.insert(path.id).second ||
+                path.entity_id != path.id + ":entity" ||
+                path.entity_parent_id != path.id ||
+                !std::isfinite(path.origin.x) ||
+                !std::isfinite(path.origin.y) ||
+                !std::isfinite(path.origin.z)) {
+                throw std::runtime_error("Invalid 3D Sweep path container");
+            }
+            for (const auto& serialized_point :
+                 serialized_path.at("curve_points")) {
+                path.curve_points.push_back(deserialize_curve_point(
+                    serialized_point, path.id, construction_ids));
+            }
+            if (path.curve_points.size() < 2) {
+                throw std::runtime_error(
+                    "3D Sweep path requires at least two Points");
+            }
+            std::unordered_set<std::string> profile_ids;
+            std::unordered_set<std::string> profile_points;
+            for (const auto& serialized_profile : source.at("profiles")) {
+                Sweep3DProfile profile{
+                    serialized_profile.at("id").get<std::string>(),
+                    serialized_profile.at("point_id").get<std::string>(),
+                    serialized_profile.at("sketch_id").get<std::string>(),
+                    serialized_profile.at("sketch_serialized").get<std::string>()};
+                if (profile.id.empty() || profile.point_id.empty() ||
+                    profile.sketch_id.empty() ||
+                    !profile_ids.insert(profile.id).second ||
+                    !profile_points.insert(profile.point_id).second ||
+                    std::none_of(path.curve_points.begin(),
+                        path.curve_points.end(), [&](const auto& point) {
+                            return point.id == profile.point_id;
+                        })) {
+                    throw std::runtime_error(
+                        "Invalid 3D Sweep profile relation");
+                }
+                const auto sketch = zima::sketcher::Sketch::from_serialized(
+                    profile.sketch_serialized);
+                if (sketch.id != profile.sketch_id ||
+                    sketch.owner_container_id != container.id) {
+                    throw std::runtime_error(
+                        "Invalid 3D Sweep profile Sketch identity");
+                }
+                container.sweep3d.profiles.push_back(std::move(profile));
+            }
+            if (container.sweep3d.profiles.empty()) {
+                throw std::runtime_error(
+                    "3D Sweep requires at least one profile Sketch");
+            }
         } else if (container.feature_kind == FeatureKind::ImportedStep) {
             container.imported_step.source_path = source.at("source_path").get<std::string>();
             container.imported_step.component_path =
@@ -5712,7 +7517,26 @@ PartDocument PartDocument::load(
                 container.edge_treatment.routes.push_back(
                     std::move(loaded_route));
             }
-            container.edge_treatment.size = source.at("size").get<double>();
+            if (container.feature_kind == FeatureKind::Fillet) {
+                container.edge_treatment.fillet_mode = fillet_mode(
+                    source.at("mode").get<std::string>());
+            } else {
+                container.edge_treatment.chamfer_mode = chamfer_mode(
+                    source.at("mode").get<std::string>());
+            }
+            container.edge_treatment.primary_size =
+                source.at("primary_size").get<double>();
+            container.edge_treatment.secondary_size =
+                source.at("secondary_size").get<double>();
+            container.edge_treatment.angle_degrees =
+                source.at("angle_degrees").get<double>();
+            container.edge_treatment.flip = source.at("flip").get<bool>();
+            container.edge_treatment.reverse = source.at("reverse").get<bool>();
+            for (const auto& vertex : source.at("route_start_vertices")) {
+                container.edge_treatment.route_start_vertices.push_back({
+                    vertex.at("owner").get<std::string>(),
+                    vertex.at("key").get<std::string>(), {}});
+            }
             const auto treatment_edges =
                 container.edge_treatment.flattened_edges();
             if (container.edge_treatment.routes.empty() ||
@@ -5724,8 +7548,8 @@ PartDocument PartDocument::load(
                     [](const auto& edge) {
                         return !edge.valid() || !edge.instance_path.empty();
                     }) ||
-                !std::isfinite(container.edge_treatment.size) ||
-                container.edge_treatment.size <= 0.0 ||
+                !valid_edge_treatment_values(
+                    container.feature_kind, container.edge_treatment) ||
                 container.combine_mode != CombineMode::Add) {
                 throw std::runtime_error("Invalid Fillet/Chamfer parameters");
             }
@@ -5772,6 +7596,15 @@ PartDocument PartDocument::load(
             }
         }
         validate_placement(container.placement);
+        if (container.feature_kind == FeatureKind::Sweep3D) {
+            for (std::size_t index = 0;
+                 index < container.sweep3d.profiles.size(); ++index) {
+                if (!reframe_sweep3d_profile(container, index)) {
+                    throw std::runtime_error(
+                        "3D Sweep profile frame cannot be resolved");
+                }
+            }
+        }
         if (container.feature_kind == FeatureKind::Fillet ||
             container.feature_kind == FeatureKind::Chamfer) {
             require_default_sketch_feature_placement(container.placement);
@@ -5786,16 +7619,20 @@ PartDocument PartDocument::load(
         }
         document.sketches.push_back(std::move(sketch));
     }
-    std::unordered_set<std::string> construction_ids;
     for (const auto& source : root.at("constructions")) {
         ConstructionObject object;
         object.id = source.at("id").get<std::string>();
         object.entity_id = source.at("entity_id").get<std::string>();
         object.entity_parent_id =
             source.at("entity_parent_id").get<std::string>();
+        object.parent_construction_id =
+            source.value("parent_construction_id", std::string{});
         object.name = source.at("name").get<std::string>();
         const auto type = source.at("type").get<std::string>();
         object.kind = type == "point" ? ConstructionKind::Point
+            : type == "curve3d" ? ConstructionKind::Curve3D
+            : type == "curve3d_experimental"
+                ? ConstructionKind::Curve3DExperimental
             : type == "axis" ? ConstructionKind::Axis
             : type == "plane" ? ConstructionKind::Plane
                                : throw std::runtime_error("Invalid construction type");
@@ -5881,12 +7718,80 @@ PartDocument PartDocument::load(
                 serialized.value("orientation_only", false),
                 serialized.value("flip", false)});
         }
+        const auto curve_type = source.value("curve_type", "polyline");
+        object.curve_type = curve_type == "polyline" ? Curve3DType::Polyline
+            : curve_type == "interpolating_spline"
+                ? Curve3DType::InterpolatingSpline
+                : throw std::runtime_error("Invalid 3D-Curve type");
+        object.curve_tangent = curve_tangent_from_key(
+            source.value("curve_tangent", "automatic"));
+        for (const auto& serialized :
+             source.value("curve_points", nlohmann::json::array())) {
+            object.curve_points.push_back(deserialize_curve_point(
+                serialized, object.id, construction_ids));
+        }
+        if (object.kind == ConstructionKind::Curve3DExperimental) {
+            std::unordered_set<std::string> connection_ids;
+            for (const auto& serialized : source.at("curve_connections")) {
+                Curve3DConnection connection;
+                connection.id = serialized.at("id").get<std::string>();
+                connection.generator_id =
+                    serialized.at("generator_id").get<std::string>();
+                connection.parent_construction_id =
+                    serialized.at("parent_construction_id").get<std::string>();
+                connection.start_point_id =
+                    serialized.at("start_point_id").get<std::string>();
+                connection.end_point_id =
+                    serialized.at("end_point_id").get<std::string>();
+                connection.type = curve_connection_type_from_key(
+                    serialized.at("type").get<std::string>());
+                connection.start_tangent = curve_tangent_from_key(
+                    serialized.at("start_tangent").get<std::string>());
+                connection.end_tangent = curve_tangent_from_key(
+                    serialized.at("end_tangent").get<std::string>());
+                connection.start_tangent_enabled =
+                    serialized.at("start_tangent_enabled").get<bool>();
+                connection.end_tangent_enabled =
+                    serialized.at("end_tangent_enabled").get<bool>();
+                connection.weight = serialized.at("weight").get<double>();
+                connection.sketch_plane_mode = curve_sketch_plane_mode_from_key(
+                    serialized.at("sketch_plane_mode").get<std::string>());
+                connection.sketch_id =
+                    serialized.at("sketch_id").get<std::string>();
+                connection.sketch_start_point_id =
+                    serialized.at("sketch_start_point_id").get<std::string>();
+                connection.sketch_end_point_id =
+                    serialized.at("sketch_end_point_id").get<std::string>();
+                connection.sketch_serialized =
+                    serialized.at("sketch_serialized").get<std::string>();
+                connection.sketch_plane_reference_owner_id = serialized.at(
+                    "sketch_plane_reference_owner_id").get<std::string>();
+                connection.sketch_plane_reference_semantic_key = serialized.at(
+                    "sketch_plane_reference_semantic_key").get<std::string>();
+                connection.sketch_plane_valid =
+                    serialized.at("sketch_plane_valid").get<bool>();
+                if (connection.id.empty() || connection.generator_id.empty() ||
+                    connection.parent_construction_id != object.id ||
+                    !connection_ids.insert(connection.id).second ||
+                    !std::isfinite(connection.weight) ||
+                    connection.weight <= 0.0 || connection.weight >= 1.0) {
+                    throw std::runtime_error(
+                        "Invalid experimental 3D-Curve connection");
+                }
+                object.curve_connections.push_back(std::move(connection));
+            }
+        } else if (!source.value(
+                       "curve_connections", nlohmann::json::array()).empty()) {
+            throw std::runtime_error(
+                "Only an experimental 3D-Curve may own connections");
+        }
         const double direction_length = std::sqrt(
             object.direction.x * object.direction.x +
             object.direction.y * object.direction.y +
             object.direction.z * object.direction.z);
         if (object.id.empty() || object.entity_id.empty() ||
             object.entity_id == object.id || object.name.empty() ||
+            !object.parent_construction_id.empty() ||
             !construction_ids.insert(object.id).second ||
             !std::isfinite(object.origin.x) || !std::isfinite(object.origin.y) ||
             !std::isfinite(object.origin.z) ||
@@ -5899,9 +7804,29 @@ PartDocument PartDocument::load(
             object.orientation_quarter_turns < 0 ||
             object.orientation_quarter_turns > 3 ||
             !std::isfinite(direction_length) ||
-            (object.kind != ConstructionKind::Point && direction_length <= 0.0) ||
+            ((object.kind == ConstructionKind::Axis ||
+              object.kind == ConstructionKind::Plane) &&
+             direction_length <= 0.0) ||
             !std::isfinite(object.display_size) || object.display_size <= 0.0) {
             throw std::runtime_error("Invalid construction object");
+        }
+        if (object.kind != ConstructionKind::Curve3D &&
+            object.kind != ConstructionKind::Curve3DExperimental &&
+            !object.curve_points.empty()) {
+            throw std::runtime_error(
+                "Only a 3D-Curve may own nested Point containers");
+        }
+        if (object.kind != ConstructionKind::Curve3DExperimental &&
+            !object.curve_connections.empty()) {
+            throw std::runtime_error(
+                "Only an experimental 3D-Curve may own connections");
+        }
+        if (object.kind == ConstructionKind::Curve3DExperimental) {
+            const auto solution = solve_experimental_curve3d(object);
+            if (!solution.valid) {
+                throw std::runtime_error(
+                    "Invalid experimental 3D-Curve: " + solution.error);
+            }
         }
         document.constructions.push_back(std::move(object));
     }
@@ -6178,6 +8103,39 @@ void PartDocument::save(
                             : container.revolution.angle_reverse) > 360.0) {
                 throw std::runtime_error("Invalid Revolution parameters");
             }
+        } else if (container.feature_kind == FeatureKind::Sweep3D) {
+            const auto& path = container.sweep3d.path;
+            if (path.kind != ConstructionKind::Curve3D ||
+                path.parent_construction_id != container.id ||
+                path.id.empty() || path.entity_id != path.id + ":entity" ||
+                path.entity_parent_id != path.id ||
+                path.container_origin != create_container_origin(path.id) ||
+                path.curve_points.size() < 2 ||
+                container.sweep3d.profiles.empty()) {
+                throw std::runtime_error("Invalid 3D Sweep path");
+            }
+            std::unordered_set<std::string> profile_ids;
+            std::unordered_set<std::string> profile_points;
+            for (const auto& profile : container.sweep3d.profiles) {
+                if (profile.id.empty() || profile.point_id.empty() ||
+                    profile.sketch_id.empty() ||
+                    !profile_ids.insert(profile.id).second ||
+                    !profile_points.insert(profile.point_id).second ||
+                    std::none_of(path.curve_points.begin(),
+                        path.curve_points.end(), [&](const auto& point) {
+                            return point.id == profile.point_id;
+                        })) {
+                    throw std::runtime_error(
+                        "Invalid 3D Sweep profile relation");
+                }
+                const auto sketch = zima::sketcher::Sketch::from_serialized(
+                    profile.sketch_serialized);
+                if (sketch.id != profile.sketch_id ||
+                    sketch.owner_container_id != container.id) {
+                    throw std::runtime_error(
+                        "Invalid 3D Sweep profile Sketch identity");
+                }
+            }
         } else if (container.feature_kind == FeatureKind::ImportedStep) {
             if (container.imported_step.source_path.empty() ||
                 !container.imported_step.frozen_brep ||
@@ -6197,8 +8155,8 @@ void PartDocument::save(
                                        !edge.instance_path.empty();
                                });
                        }) ||
-                   !std::isfinite(container.edge_treatment.size) ||
-                   container.edge_treatment.size <= 0.0 ||
+                   !valid_edge_treatment_values(
+                       container.feature_kind, container.edge_treatment) ||
                    container.combine_mode != CombineMode::Add) {
             throw std::runtime_error("Invalid Fillet/Chamfer parameters");
         }
@@ -6227,6 +8185,8 @@ void PartDocument::save(
                     ? "extrusion"
                 : container.feature_kind == FeatureKind::Revolution
                     ? "revolution"
+                : container.feature_kind == FeatureKind::Sweep3D
+                    ? "sweep3d"
                 : container.feature_kind == FeatureKind::ImportedStep
                     ? "imported_step"
                 : container.feature_kind == FeatureKind::Fillet
@@ -6414,6 +8374,37 @@ void PartDocument::save(
             serialized["axis_segment_id"] =
                 container.revolution.axis_segment_id;
             serialized["angle_degrees"] = container.revolution.angle_degrees;
+        } else if (container.feature_kind == FeatureKind::Sweep3D) {
+            const auto& path = container.sweep3d.path;
+            std::unordered_set<std::string> embedded_construction_ids;
+            if (!embedded_construction_ids.insert(path.id).second) {
+                throw std::runtime_error("Duplicate 3D Sweep path ID");
+            }
+            nlohmann::json curve_points = nlohmann::json::array();
+            for (const auto& point : path.curve_points) {
+                curve_points.push_back(serialize_curve_point(
+                    point, path.id, embedded_construction_ids));
+            }
+            serialized["path"] = {
+                {"id", path.id}, {"entity_id", path.entity_id},
+                {"entity_parent_id", path.entity_parent_id},
+                {"name", path.name},
+                {"x", path.origin.x}, {"y", path.origin.y},
+                {"z", path.origin.z},
+                {"rotation_x", path.rotation.x},
+                {"rotation_y", path.rotation.y},
+                {"rotation_z", path.rotation.z},
+                {"curve_type", path.curve_type == Curve3DType::Polyline
+                    ? "polyline" : "interpolating_spline"},
+                {"curve_points", std::move(curve_points)}};
+            serialized["profiles"] = nlohmann::json::array();
+            for (const auto& profile : container.sweep3d.profiles) {
+                serialized["profiles"].push_back({
+                    {"id", profile.id},
+                    {"point_id", profile.point_id},
+                    {"sketch_id", profile.sketch_id},
+                    {"sketch_serialized", profile.sketch_serialized}});
+            }
         } else if (container.feature_kind == FeatureKind::ImportedStep) {
             serialized["source_path"] = container.imported_step.source_path;
             serialized["component_path"] = container.imported_step.component_path;
@@ -6442,7 +8433,21 @@ void PartDocument::save(
                 }
                 serialized["routes"].push_back(std::move(serialized_route));
             }
-            serialized["size"] = container.edge_treatment.size;
+            serialized["mode"] = container.feature_kind == FeatureKind::Fillet
+                ? fillet_mode_name(container.edge_treatment.fillet_mode)
+                : chamfer_mode_name(container.edge_treatment.chamfer_mode);
+            serialized["primary_size"] = container.edge_treatment.primary_size;
+            serialized["secondary_size"] = container.edge_treatment.secondary_size;
+            serialized["angle_degrees"] = container.edge_treatment.angle_degrees;
+            serialized["flip"] = container.edge_treatment.flip;
+            serialized["reverse"] = container.edge_treatment.reverse;
+            serialized["route_start_vertices"] = nlohmann::json::array();
+            for (const auto& vertex :
+                 container.edge_treatment.route_start_vertices) {
+                serialized["route_start_vertices"].push_back({
+                    {"owner", vertex.owner_id},
+                    {"key", vertex.semantic_key}});
+            }
         }
         serialized_history.push_back(std::move(serialized));
     }
@@ -6516,6 +8521,7 @@ void PartDocument::save(
             object.direction.y * object.direction.y +
             object.direction.z * object.direction.z);
         if (object.id.empty() || object.entity_id.empty() || object.name.empty() ||
+            !object.parent_construction_id.empty() ||
             !construction_ids.insert(object.id).second ||
             !std::isfinite(object.origin.x) || !std::isfinite(object.origin.y) ||
             !std::isfinite(object.origin.z) ||
@@ -6528,9 +8534,22 @@ void PartDocument::save(
             object.orientation_quarter_turns < 0 ||
             object.orientation_quarter_turns > 3 ||
             !std::isfinite(direction_length) ||
-            (object.kind != ConstructionKind::Point && direction_length <= 0.0) ||
+            ((object.kind == ConstructionKind::Axis ||
+              object.kind == ConstructionKind::Plane) &&
+             direction_length <= 0.0) ||
             !std::isfinite(object.display_size) || object.display_size <= 0.0) {
             throw std::runtime_error("Invalid construction object");
+        }
+        if (object.kind != ConstructionKind::Curve3D &&
+            object.kind != ConstructionKind::Curve3DExperimental &&
+            !object.curve_points.empty()) {
+            throw std::runtime_error(
+                "Only a 3D-Curve may own nested Point containers");
+        }
+        if (object.kind != ConstructionKind::Curve3DExperimental &&
+            !object.curve_connections.empty()) {
+            throw std::runtime_error(
+                "Only an experimental 3D-Curve may own connections");
         }
         if (object.container_origin != create_container_origin(object.id) ||
             (object.kind == ConstructionKind::Point &&
@@ -6566,6 +8585,57 @@ void PartDocument::save(
                 {"orientation_only", reference.orientation_only},
                 {"flip", reference.flip}});
         }
+        nlohmann::json curve_points = nlohmann::json::array();
+        for (const auto& point : object.curve_points) {
+            curve_points.push_back(serialize_curve_point(
+                point, object.id, construction_ids));
+        }
+        nlohmann::json curve_connections = nlohmann::json::array();
+        std::unordered_set<std::string> connection_ids;
+        for (const auto& connection : object.curve_connections) {
+            if (connection.id.empty() || connection.generator_id.empty() ||
+                connection.parent_construction_id != object.id ||
+                !connection_ids.insert(connection.id).second ||
+                !std::isfinite(connection.weight) ||
+                connection.weight <= 0.0 || connection.weight >= 1.0) {
+                throw std::runtime_error(
+                    "Invalid experimental 3D-Curve connection");
+            }
+            curve_connections.push_back({
+                {"id", connection.id},
+                {"generator_id", connection.generator_id},
+                {"parent_construction_id",
+                    connection.parent_construction_id},
+                {"start_point_id", connection.start_point_id},
+                {"end_point_id", connection.end_point_id},
+                {"type", curve_connection_type_key(connection.type)},
+                {"start_tangent",
+                    curve_tangent_key(connection.start_tangent)},
+                {"end_tangent", curve_tangent_key(connection.end_tangent)},
+                {"start_tangent_enabled",
+                    connection.start_tangent_enabled},
+                {"end_tangent_enabled",
+                    connection.end_tangent_enabled},
+                {"weight", connection.weight},
+                {"sketch_plane_mode", curve_sketch_plane_mode_key(
+                    connection.sketch_plane_mode)},
+                {"sketch_id", connection.sketch_id},
+                {"sketch_start_point_id", connection.sketch_start_point_id},
+                {"sketch_end_point_id", connection.sketch_end_point_id},
+                {"sketch_serialized", connection.sketch_serialized},
+                {"sketch_plane_reference_owner_id",
+                    connection.sketch_plane_reference_owner_id},
+                {"sketch_plane_reference_semantic_key",
+                    connection.sketch_plane_reference_semantic_key},
+                {"sketch_plane_valid", connection.sketch_plane_valid}});
+        }
+        if (object.kind == ConstructionKind::Curve3DExperimental) {
+            const auto solution = solve_experimental_curve3d(object);
+            if (!solution.valid) {
+                throw std::runtime_error(
+                    "Invalid experimental 3D-Curve: " + solution.error);
+            }
+        }
         const auto definition = object.definition == ConstructionDefinition::Absolute
             ? "absolute"
             : object.definition == ConstructionDefinition::PointReference
@@ -6579,8 +8649,12 @@ void PartDocument::save(
         serialized_constructions.push_back({
             {"id", object.id}, {"entity_id", object.entity_id},
             {"entity_parent_id", object.entity_parent_id},
+            {"parent_construction_id", object.parent_construction_id},
             {"name", object.name},
             {"type", object.kind == ConstructionKind::Point ? "point"
+                : object.kind == ConstructionKind::Curve3D ? "curve3d"
+                : object.kind == ConstructionKind::Curve3DExperimental
+                    ? "curve3d_experimental"
                 : object.kind == ConstructionKind::Axis ? "axis" : "plane"},
             {"container_origin", {
                 {"id", object.container_origin.id},
@@ -6609,7 +8683,12 @@ void PartDocument::save(
             {"display_size", object.display_size}, {"definition", definition},
             {"references", std::move(references)}, {"offset", object.offset},
             {"reference_valid", object.reference_valid},
-            {"suppressed", object.suppressed}});
+            {"suppressed", object.suppressed},
+            {"curve_type", object.curve_type == Curve3DType::Polyline
+                ? "polyline" : "interpolating_spline"},
+            {"curve_tangent", curve_tangent_key(object.curve_tangent)},
+            {"curve_points", std::move(curve_points)},
+            {"curve_connections", std::move(curve_connections)}});
     }
     nlohmann::json serialized_relations = nlohmann::json::array();
     for (const auto& relation : relations) serialized_relations.push_back(

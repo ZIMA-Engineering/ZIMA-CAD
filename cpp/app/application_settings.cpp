@@ -105,6 +105,8 @@ ApplicationSettings ApplicationSettings::load(const QString& working_directory) 
     }
     result.part_template = layered_value(
         base, local_layer, "Templates/Part", "start_part.prtz");
+    result.assembly_template = layered_value(
+        base, local_layer, "Templates/Assembly", "start_assembly.asmz");
     QFile translations(QDir(result.resolved_paths.value("Localization"))
                            .absoluteFilePath(result.language + ".ini"));
     if (translations.open(QIODevice::ReadOnly | QIODevice::Text)) {
@@ -165,6 +167,7 @@ bool ApplicationSettings::save(QString* error) const {
                         QDir::fromNativeSeparators(it.value().trimmed()));
     }
     output.setValue("Templates/Part", part_template);
+    output.setValue("Templates/Assembly", assembly_template);
     for (auto it = units.cbegin(); it != units.cend(); ++it) {
         output.setValue(QStringLiteral("Units/") + it.key(), it.value());
     }
