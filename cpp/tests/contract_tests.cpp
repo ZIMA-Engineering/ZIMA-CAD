@@ -1078,10 +1078,15 @@ int main() {
                     std::ranges::find(edge.edge_treatment_owner_ids, "fillet") !=
                         edge.edge_treatment_owner_ids.end();
             });
+        const auto fillet_owned_edge_count = std::ranges::count_if(
+            fillet_boundaries.back().mesh.edges, [](const auto& edge) {
+                return edge.reference.owner_id == "fillet";
+            });
         require(fillet_boundary_edge_count == 4 &&
-                    curved_fillet_boundary_edge_count == 2,
+                    curved_fillet_boundary_edge_count == 2 &&
+                    fillet_owned_edge_count == fillet_boundary_edge_count,
                 "Single-edge Fillet did not persist exactly its four-edge "
-                "surface boundary: two radius arcs and two longitudinal edges");
+                "surface boundary, or stole identity from surviving Box edges");
         const std::vector<zima::kernel::HistoryOperation> edited_fillet_history{
             {"box", zima::kernel::BoxRequest{100.0, 80.0, 50.0},
              zima::kernel::BooleanOperation::Add},
@@ -1123,14 +1128,22 @@ int main() {
                         }),
                 "Original-edge Chamfer did not produce a valid bounded solid");
         require_stable_body_edges(chamfer_boundaries.back(), "Chamfer");
-        require(std::ranges::count_if(chamfer_boundaries.back().mesh.edges,
+        const auto chamfer_boundary_edge_count =
+            std::ranges::count_if(chamfer_boundaries.back().mesh.edges,
                     [](const auto& edge) {
                         return std::ranges::find(
                             edge.edge_treatment_owner_ids, "chamfer") !=
                             edge.edge_treatment_owner_ids.end();
-                    }) == 4,
+                    });
+        const auto chamfer_owned_edge_count =
+            std::ranges::count_if(chamfer_boundaries.back().mesh.edges,
+                [](const auto& edge) {
+                    return edge.reference.owner_id == "chamfer";
+                });
+        require(chamfer_boundary_edge_count == 4 &&
+                    chamfer_owned_edge_count == chamfer_boundary_edge_count,
                 "Single-edge Chamfer did not persist exactly its four-edge "
-                "surface boundary");
+                "surface boundary, or stole identity from surviving Box edges");
 
         const auto two_distance_chamfer = kernel.evaluate_history({
             {"box", zima::kernel::BoxRequest{100.0, 80.0, 50.0},
@@ -4117,6 +4130,43 @@ int main() {
         require(joined_fillet_results.size() == 3 &&
                     !joined_fillet_results.back().mesh.triangles.empty(),
                 "Fillet could not consume a stable generated Boolean edge");
+        const auto joined_fillet_boundary_count = std::ranges::count_if(
+            joined_fillet_results.back().mesh.edges, [](const auto& edge) {
+                return std::ranges::find(
+                    edge.edge_treatment_owner_ids, "joined-fillet") !=
+                    edge.edge_treatment_owner_ids.end();
+            });
+        const auto joined_fillet_owned_count = std::ranges::count_if(
+            joined_fillet_results.back().mesh.edges, [](const auto& edge) {
+                return edge.reference.owner_id == "joined-fillet";
+            });
+        const auto joined_fillet_non_boundary_edges_are_internal =
+            std::ranges::all_of(joined_fillet_results.back().mesh.edges,
+                [](const auto& edge) {
+                    if (edge.reference.owner_id != "joined-fillet" ||
+                        std::ranges::find(edge.edge_treatment_owner_ids,
+                            "joined-fillet") !=
+                            edge.edge_treatment_owner_ids.end()) {
+                        return true;
+                    }
+                    // OCCT can split one treatment surface into several
+                    // faces. Their shared seam is owned by the treatment but
+                    // is intentionally not part of its visible boundary.
+                    const auto adjacent =
+                        edge.reference.semantic_key.find(":between:");
+                    return adjacent != std::string::npos &&
+                        edge.reference.semantic_key.find(
+                            "joined-fillet", adjacent) != std::string::npos;
+                });
+        const auto joined_fillet_identity_error =
+            "Fillet on a generated Boolean edge stole surviving result "
+            "edge identities outside its generated face boundary; boundary=" +
+            std::to_string(joined_fillet_boundary_count) + ", owned=" +
+            std::to_string(joined_fillet_owned_count);
+        require(joined_fillet_boundary_count != 0 &&
+                    joined_fillet_owned_count >= joined_fillet_boundary_count &&
+                    joined_fillet_non_boundary_edges_are_internal,
+                joined_fillet_identity_error.c_str());
         // A protruding box rotated around X creates an interior Boolean seam
         // between a horizontal face and a 15-degree inclined face. Both
         // supporting faces extend past that seam, so a face classifier alone

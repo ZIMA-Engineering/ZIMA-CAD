@@ -2237,6 +2237,53 @@ std::vector<Owned> propagate_topology(
     return propagated;
 }
 
+template <typename Algorithm, typename Owned>
+std::vector<Owned> propagate_edge_treatment_topology(
+    Algorithm& algorithm,
+    const TopoDS_Shape& result_shape,
+    const std::vector<Owned>& existing) {
+    // BRepFilletAPI_MakeFillet and BRepFilletAPI_MakeChamfer populate their
+    // internal result map with faces only. Consequently IsDeleted(edge) and
+    // IsDeleted(vertex) report true even when the exact input sub-shape still
+    // exists in the result. Never use that broken history predicate here.
+    //
+    // OCCT remains the geometry calculator. ZIMA owns persistent identity:
+    // exact survivors retain their reference, while reported descendants are
+    // accepted only when they really occur in the calculated result.
+    TopTools_IndexedMapOfShape result_shapes;
+    TopExp::MapShapes(result_shape, result_shapes);
+    std::vector<Owned> propagated;
+    const auto append_unique = [&](const TopoDS_Shape& shape,
+                                   const auto& reference) {
+        if (!result_shapes.Contains(shape) ||
+            std::any_of(propagated.begin(), propagated.end(),
+                [&](const auto& value) {
+                    return value.shape.IsSame(shape) &&
+                        value.reference == reference;
+                })) {
+            return;
+        }
+        propagated.push_back({shape, reference});
+    };
+    for (const auto& source : existing) {
+        if (result_shapes.Contains(source.shape)) {
+            append_unique(source.shape, source.reference);
+        }
+        for (const auto* descendants : {
+                &algorithm.Modified(source.shape),
+                &algorithm.Generated(source.shape)}) {
+            for (TopTools_ListIteratorOfListOfShape iterator(*descendants);
+                 iterator.More(); iterator.Next()) {
+                if (iterator.Value().ShapeType() != source.shape.ShapeType()) {
+                    continue;
+                }
+                append_unique(iterator.Value(), source.reference);
+            }
+        }
+    }
+    return propagated;
+}
+
 template <typename Reference, typename Owned>
 class TopologyReferenceIndex {
 public:
@@ -2373,6 +2420,9 @@ struct ProvenanceUnifyResult {
     std::vector<TopoDS_Shape> hidden_display_edges;
 };
 
+std::string encoded_topology_ancestry(
+    const std::set<std::string>& parents);
+
 ProvenanceUnifyResult unify_preserving_face_provenance(
     const TopoDS_Shape& shape,
     const std::vector<OwnedFace>& faces,
@@ -2449,13 +2499,8 @@ std::vector<OwnedFace> generated_edge_treatment_faces(
     result.reserve(static_cast<std::size_t>(generated_shapes.Extent()));
     for (int index = 1; index <= generated_shapes.Extent(); ++index) {
         std::string key(role);
-        key += ":from:";
-        bool first = true;
-        for (const auto& parent : parents[static_cast<std::size_t>(index)]) {
-            if (!first) key += "|";
-            key += parent;
-            first = false;
-        }
+        key += ":from:" + encoded_topology_ancestry(
+            parents[static_cast<std::size_t>(index)]);
         result.push_back({generated_shapes.FindKey(index),
             FaceReference{treatment_owner, std::move(key), {}}});
     }
@@ -2478,13 +2523,7 @@ void append_unmapped_edge_treatment_faces(
             ":" + reference.semantic_key);
     }
     std::string key(role);
-    key += ":from:";
-    bool first = true;
-    for (const auto& parent : parents) {
-        if (!first) key += "|";
-        key += parent;
-        first = false;
-    }
+    key += ":from:" + encoded_topology_ancestry(parents);
     const FaceReference fallback_reference{
         treatment_owner, std::move(key), {}};
     TopTools_IndexedMapOfShape mapped_faces;
@@ -2624,7 +2663,7 @@ std::string compact_topology_token(std::string_view value) {
     return encoded.str();
 }
 
-std::string encoded_shell_ancestry(
+std::string encoded_topology_ancestry(
     const std::set<std::string>& parents) {
     if (parents.empty()) return {};
     const auto primary = std::ranges::min_element(parents,
@@ -2764,7 +2803,7 @@ std::vector<OwnedFace> shell_result_faces(
                 encoded_topology_reference(value.unchanged.front());
         }
         return std::string("derived:") +
-            encoded_shell_ancestry(value.parents);
+            encoded_topology_ancestry(value.parents);
     };
     std::map<std::string, std::size_t> base_parent_counts;
     for (const auto& value : pending) {
@@ -2910,7 +2949,7 @@ std::vector<OwnedFace> shell_result_faces(
         } else {
             reference = {shell_owner,
                 std::string(semantic_role) + ":from:" +
-                    encoded_shell_ancestry(value.parents), {}};
+                    encoded_topology_ancestry(value.parents), {}};
         }
         const auto identity = encoded_topology_reference(reference);
         const auto [found, inserted] = identities.emplace(identity, value.shape);
@@ -3104,6 +3143,62 @@ std::set<std::string> selected_edge_parent_tokens(
     return result;
 }
 
+template <typename Algorithm>
+std::vector<std::pair<TopoDS_Edge, EdgeReference>>
+resolve_edge_treatment_contours(
+    Algorithm& algorithm,
+    const std::vector<std::pair<TopoDS_Edge, EdgeReference>>& requested,
+    const std::vector<OwnedEdge>& available,
+    std::string_view operation_name,
+    std::string_view feature_id) {
+    TopTools_IndexedMapOfShape requested_shapes;
+    for (const auto& [edge, reference] : requested) {
+        static_cast<void>(reference);
+        requested_shapes.Add(edge);
+        if (algorithm.Contour(edge) <= 0) {
+            throw std::runtime_error(std::string("OCCT did not create a ") +
+                std::string(operation_name) + " contour");
+        }
+    }
+
+    // Fillet and Chamfer accept a seed edge and may expand it to an OCCT
+    // tangent contour. That expansion is a geometric decision only: every
+    // member must resolve back to an identity already persisted by ZIMA at
+    // the input boundary. OCCT contour order must never create identity.
+    const TopologyReferenceIndex<EdgeReference, OwnedEdge> references(available);
+    std::vector<std::pair<TopoDS_Edge, EdgeReference>> resolved;
+    TopTools_IndexedMapOfShape actual_shapes;
+    for (int contour = 1; contour <= algorithm.NbContours(); ++contour) {
+        for (int edge_index = 1;
+             edge_index <= algorithm.NbEdges(contour); ++edge_index) {
+            const auto& edge = algorithm.Edge(contour, edge_index);
+            if (edge.IsNull()) {
+                throw std::runtime_error(std::string("OCCT returned an empty ") +
+                    std::string(operation_name) + " contour edge");
+            }
+            if (actual_shapes.Contains(edge)) continue;
+            const auto reference = references.reference_for(edge);
+            if (!reference.valid()) {
+                throw std::runtime_error(std::string("The ") +
+                    std::string(operation_name) + " feature " +
+                    std::string(feature_id) +
+                    " contains a contour edge without an unambiguous persisted ZIMA identity");
+            }
+            actual_shapes.Add(edge);
+            resolved.emplace_back(edge, reference);
+        }
+    }
+
+    for (int index = 1; index <= requested_shapes.Extent(); ++index) {
+        if (!actual_shapes.Contains(requested_shapes.FindKey(index))) {
+            throw std::runtime_error(std::string("OCCT omitted a requested ") +
+                std::string(operation_name) + " edge from feature " +
+                std::string(feature_id));
+        }
+    }
+    return resolved;
+}
+
 std::vector<OwnedEdge> complete_edge_treatment_edges(
     const TopoDS_Shape& result_shape,
     const std::vector<OwnedFace>& faces,
@@ -3212,11 +3307,11 @@ std::vector<OwnedEdge> complete_edge_treatment_edges(
         }
         std::string semantic_key(role);
         semantic_key += ":from:" +
-            encoded_topology_reference_set(selected_parents);
+            encoded_topology_ancestry(selected_parents);
         semantic_key += ":between:" +
-            encoded_topology_reference_set(adjacent_faces);
+            encoded_topology_ancestry(adjacent_faces);
         semantic_key += ":ends:" +
-            encoded_topology_reference_set(endpoint_supports);
+            encoded_topology_ancestry(endpoint_supports);
         result.push_back({edge,
             EdgeReference{treatment_owner, std::move(semantic_key), {}}});
     }
@@ -3254,9 +3349,9 @@ std::vector<OwnedVertex> complete_edge_treatment_vertices(
             vertex_edges, vertex, edge_references);
         std::string semantic_key(role);
         semantic_key += ":from:" +
-            encoded_topology_reference_set(selected_parents);
+            encoded_topology_ancestry(selected_parents);
         semantic_key += ":at:" +
-            encoded_topology_reference_set(incident_edges);
+            encoded_topology_ancestry(incident_edges);
         result.push_back({vertex,
             VertexReference{treatment_owner, std::move(semantic_key), {}}});
     }
@@ -4151,8 +4246,15 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                             }
                         }
                     }
+                    selected = resolve_edge_treatment_contours(
+                        algorithm, selected, owned_topology->edges,
+                        "Fillet", operation.owner_id);
                     algorithm.Build();
-                    if (!algorithm.IsDone()) throw std::runtime_error("OCCT Fillet failed");
+                    if (!algorithm.IsDone() || algorithm.Shape().IsNull() ||
+                        !BRepCheck_Analyzer(algorithm.Shape()).IsValid()) {
+                        throw std::runtime_error(
+                            "OCCT Fillet failed or produced an invalid body");
+                    }
                     auto treatment_faces = propagate_topology(
                         algorithm, owned_topology->faces,
                         std::vector<OwnedFace>{});
@@ -4169,10 +4271,12 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                     auto treatment_topology = std::make_shared<LiveCache::Topology>(
                         LiveCache::Topology{
                             std::move(treatment_faces),
-                            propagate_topology(algorithm, owned_topology->edges,
-                                std::vector<OwnedEdge>{}),
-                            propagate_topology(algorithm, owned_topology->vertices,
-                                std::vector<OwnedVertex>{}),
+                            propagate_edge_treatment_topology(
+                                algorithm, algorithm.Shape(),
+                                owned_topology->edges),
+                            propagate_edge_treatment_topology(
+                                algorithm, algorithm.Shape(),
+                                owned_topology->vertices),
                             propagate_display_edges(
                                 algorithm, owned_topology->hidden_display_edges)});
                     result_shape = algorithm.Shape();
@@ -4255,8 +4359,15 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                             }
                         }
                     }
+                    selected = resolve_edge_treatment_contours(
+                        algorithm, selected, owned_topology->edges,
+                        "Chamfer", operation.owner_id);
                     algorithm.Build();
-                    if (!algorithm.IsDone()) throw std::runtime_error("OCCT Chamfer failed");
+                    if (!algorithm.IsDone() || algorithm.Shape().IsNull() ||
+                        !BRepCheck_Analyzer(algorithm.Shape()).IsValid()) {
+                        throw std::runtime_error(
+                            "OCCT Chamfer failed or produced an invalid body");
+                    }
                     auto treatment_faces = propagate_topology(
                         algorithm, owned_topology->faces,
                         std::vector<OwnedFace>{});
@@ -4273,10 +4384,12 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                     auto treatment_topology = std::make_shared<LiveCache::Topology>(
                         LiveCache::Topology{
                             std::move(treatment_faces),
-                            propagate_topology(algorithm, owned_topology->edges,
-                                std::vector<OwnedEdge>{}),
-                            propagate_topology(algorithm, owned_topology->vertices,
-                                std::vector<OwnedVertex>{}),
+                            propagate_edge_treatment_topology(
+                                algorithm, algorithm.Shape(),
+                                owned_topology->edges),
+                            propagate_edge_treatment_topology(
+                                algorithm, algorithm.Shape(),
+                                owned_topology->vertices),
                             propagate_display_edges(
                                 algorithm, owned_topology->hidden_display_edges)});
                     result_shape = algorithm.Shape();

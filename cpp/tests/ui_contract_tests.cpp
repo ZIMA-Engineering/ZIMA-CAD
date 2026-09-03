@@ -465,6 +465,10 @@ int main(int argc, char* argv[]) {
         same_reference_other_edge.points = {
             {-0.7, 0.65, 0.0}, {0.7, 0.65, 0.0}};
         same_reference_other_edge.edge_treatment_owner_ids.clear();
+        // Reproduce an imperfect kernel-history assignment: even if a
+        // non-boundary edge carries the treatment as display owner, the
+        // Container must use the exact generated-face boundary indices only.
+        same_reference_other_edge.display_owner_id = "fillet-container";
         shaded_treatment_mesh.edges.push_back(
             std::move(same_reference_other_edge));
         auto straight_treatment_edge = shaded_treatment_mesh.edges.front();

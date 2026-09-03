@@ -2880,15 +2880,21 @@ if (impl_->show_origins) {
     // by the existing single-candidate hover/confirm mechanism rather than
     // Python's separate _hovered_edge/_selected_edge fields, since C++ has
     // one shared candidate-cycling model instead of a dedicated edge cursor.
+    const auto exact_edge_treatment_wire = [&](const auto& highlighted)
+            -> const std::vector<std::size_t>* {
+        if (!highlighted || highlighted->kind != CandidateKind::Container ||
+            !highlighted->semantic_key.empty()) return nullptr;
+        const auto found = impl_->edge_treatment_boundary_edge_indices.find(
+            {highlighted->owner_id, highlighted->instance_path});
+        return found == impl_->edge_treatment_boundary_edge_indices.end()
+            ? nullptr : &found->second;
+    };
     const auto original_container_wire = [&](const auto& highlighted)
             -> const std::vector<std::size_t>* {
         if (!highlighted || highlighted->kind != CandidateKind::Container ||
             (!highlighted->semantic_key.empty() &&
              highlighted->semantic_key != "solid")) return nullptr;
-        if (impl_->edge_treatment_boundary_edge_indices.contains(
-                {highlighted->owner_id, highlighted->instance_path})) {
-            return nullptr;
-        }
+        if (exact_edge_treatment_wire(highlighted) != nullptr) return nullptr;
         const auto found = impl_->original_container_edge_indices.find(
             {highlighted->owner_id, highlighted->instance_path});
         return found == impl_->original_container_edge_indices.end()
@@ -2903,6 +2909,7 @@ if (impl_->show_origins) {
              impl_->display_mode == DisplayMode::HiddenEdges ||
              impl_->display_mode == DisplayMode::NoHiddenEdges);
         const bool candidate_match = highlighted &&
+            exact_edge_treatment_wire(highlighted) == nullptr &&
             original_container_wire(highlighted) == nullptr &&
             candidate_recolors_wire_edge(*highlighted, edge);
         return candidate_match ||
@@ -2924,6 +2931,7 @@ if (impl_->show_origins) {
             bool candidate_is_confirmed) {
         const auto key = edge_key(edge.reference);
         const bool candidate_match = highlighted &&
+            exact_edge_treatment_wire(highlighted) == nullptr &&
             original_container_wire(highlighted) == nullptr &&
             candidate_recolors_wire_edge(*highlighted, edge);
         const bool selected =
