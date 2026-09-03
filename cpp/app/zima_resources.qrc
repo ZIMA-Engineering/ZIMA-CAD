@@ -5,6 +5,7 @@
     <file alias="icons/new.svg">../../resources/icons/new.svg</file>
     <file alias="icons/open.svg">../../resources/icons/open.svg</file>
     <file alias="icons/save.svg">../../resources/icons/save.svg</file>
+    <file alias="icons/save-as.svg">../../resources/icons/save-as.svg</file>
     <file alias="icons/settings.svg">../../resources/icons/settings.svg</file>
     <file alias="icons/undo.svg">../../resources/icons/undo.svg</file>
     <file alias="icons/redo.svg">../../resources/icons/redo.svg</file>

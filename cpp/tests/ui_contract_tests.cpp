@@ -99,6 +99,8 @@ int main(int argc, char* argv[]) {
                 "3D-Sweep icon is missing from Qt resources");
         require(!zima::app::resource_icon("shell").isNull(),
                 "Shell icon is missing from Qt resources");
+        require(!zima::app::resource_icon("save-as").isNull(),
+                "Save-As icon is missing from Qt resources");
 
         bool cancel_committed = false;
         auto* cancel_dialog = new zima::app::PrimitivePropertiesDialog(
@@ -832,6 +834,20 @@ int main(int argc, char* argv[]) {
             {1, {true, false, true}});
         sphere_dialog->set_orientation_base_rotation({10.0, 0.0, 30.0}, true);
         sphere_dialog->set_resolved_rotation({10.0, 0.0, 30.0});
+        bool partial_rotation_preview_active = false;
+        double preview_absolute_ry = -999.0;
+        sphere_dialog->set_preview_callback(
+            [&](const zima::document::HistoryContainer& preview) {
+                if (!partial_rotation_preview_active) return;
+                preview_absolute_ry = preview.placement.absolute_rotation_y;
+                sphere_dialog->set_rotation_constraint_state(
+                    {1, {true, false, true}});
+                sphere_dialog->set_orientation_base_rotation(
+                    {10.0, 0.0, 30.0}, true);
+                sphere_dialog->set_resolved_rotation(
+                    {10.0, preview_absolute_ry, 30.0});
+            });
+        partial_rotation_preview_active = true;
         require(!sphere_absolute_rx->isEnabled() &&
                     std::abs(sphere_absolute_rx->value() - 10.0) < 1.0e-9 &&
                     sphere_absolute_ry != nullptr &&
@@ -843,11 +859,23 @@ int main(int argc, char* argv[]) {
                         [](const auto* field) { return field->isEnabled(); }) == 2 &&
                     sphere_dialog->set_inline_parameter_value(
                         "placement:rotation_y", 24.0) &&
+                    std::abs(preview_absolute_ry - 24.0) < 1.0e-9 &&
                     std::abs(sphere_absolute_ry->value() - 24.0) < 1.0e-9 &&
                     sphere_dialog->set_inline_parameter_value(
                         "placement:rotation_x", -6.0),
                 "One FRONT reference did not keep absolute RY free while "
                 "enabling only the constrained RX/RZ corrections");
+        partial_rotation_preview_active = false;
+
+        zima::viewer::ViewerCandidate direction_point_candidate;
+        direction_point_candidate.kind = zima::viewer::CandidateKind::Vertex;
+        direction_point_candidate.geometry =
+            zima::viewer::CandidateGeometry::Display;
+        direction_point_candidate.owner_id = "direction-point-owner";
+        direction_point_candidate.semantic_key = "point";
+        require(zima::app::placement_reference_candidate_can_define_direction(
+                    direction_point_candidate),
+                "A stable second Point is filtered out before placement hover");
         sphere_dialog->set_rotation_constraint_state(
             {0, {true, true, true}});
         sphere_dialog->set_orientation_base_rotation(

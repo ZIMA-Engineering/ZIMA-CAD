@@ -414,6 +414,24 @@ bool candidate_drives_rotation(const zima::viewer::ViewerCandidate& candidate) {
         candidate.semantic_key.starts_with("origin:axis:");
 }
 
+bool placement_angle_uses_reference_correction(
+        const std::vector<zima::document::ConstructionReference>& references,
+        const zima::kernel::ViewerReferenceGeometry& geometry,
+        const zima::kernel::Vec3& origin, std::size_t axis_index) {
+    if (axis_index >= 3 || !std::any_of(references.begin(), references.end(),
+            [](const auto& reference) {
+                return reference.orientation_drives_rotation;
+            })) {
+        return false;
+    }
+    // A partially referenced frame mixes both value classes: constrained
+    // axes expose corrections, while its remaining DOF stays an absolute
+    // angle. Decide per axis exactly like the shared Properties fields and
+    // container_placement_dimensions(), not once for the whole frame.
+    return zima::document::orientation_constraint_state(
+        references, geometry, true, origin).constrained_axes[axis_index];
+}
+
 // Whether the classic history-order shortcut ("1st point = origin, 2nd =
 // axis direction" for an Axis; "1st point = origin, 2nd/3rd = plane-defining
 // points" for a Plane) already has every point it needs -- used to stop
@@ -2306,7 +2324,8 @@ void AssemblyWorkspaceWindow::create_actions() {
     connect(save_action_, &QAction::triggered, this,
         [this] { save_active_document(); });
     file->addAction(save_action_);
-    save_as_action_ = make_action(t("menu.file.save_as", "Uložit jako..."));
+    save_as_action_ = make_action(
+        t("menu.file.save_as", "Uložit jako..."), "save-as");
     save_as_action_->setObjectName("saveDocumentAsAction");
     save_as_action_->setShortcut(QKeySequence::SaveAs);
     save_as_action_->setEnabled(false);
@@ -3113,9 +3132,26 @@ void AssemblyWorkspaceWindow::create_actions() {
     main_toolbar_->setMovable(false);
     main_toolbar_->setIconSize(QSize(24, 24));
     main_toolbar_->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    // The document strip is the first interaction surface below the menu.
+    // Give every enabled command the same immediate green offer/press
+    // feedback as the View and application toolbars instead of leaving the
+    // icon buttons visually inert.
+    main_toolbar_->setStyleSheet(
+        "QToolButton { margin:1px; padding:3px; border:1px solid transparent;"
+        " border-radius:5px; }"
+        "QToolButton:hover:enabled { background-color:rgba(77,216,17,72);"
+        " color:#fff; border:1px solid rgba(128,170,26,190); }"
+        "QToolButton:pressed:enabled { background-color:rgba(77,216,17,175);"
+        " color:#fff; border:1px solid #9BCC32; padding-left:4px;"
+        " padding-top:4px; padding-right:2px; padding-bottom:2px; }"
+        "QToolButton:disabled { color:rgba(255,255,255,70); }");
     main_toolbar_->addAction(new_document_action_);
     main_toolbar_->addAction(open_document_action_);
     main_toolbar_->addAction(save_action_);
+    main_toolbar_->addAction(save_as_action_);
+    main_toolbar_->addSeparator();
+    main_toolbar_->addAction(undo_action_);
+    main_toolbar_->addAction(redo_action_);
     main_toolbar_->addSeparator();
     main_toolbar_->addAction(settings_action_);
     auto* toolbar_spacer = new QWidget(main_toolbar_);
@@ -11828,7 +11864,8 @@ void AssemblyWorkspaceWindow::start_primitive_reference_selection(
             std::move(local_path), candidate.owner_id, candidate.semantic_key, 0.0,
             candidate_supports_offset(candidate)};
         if (orientation_reference || direction_reference) {
-            if (direction_reference && !candidate_drives_rotation(candidate))
+            if (direction_reference &&
+                !placement_reference_candidate_can_define_direction(candidate))
                 return false;
             candidate_reference.orientation_drives_rotation = true;
             candidate_reference.orientation_role = direction_reference
@@ -12035,8 +12072,10 @@ void AssemblyWorkspaceWindow::accept_primitive_reference(
         ? std::max(1, baseline_rotation_dof)
         : direction_reference ? baseline_rotation_dof
         : baseline_translation_dof + baseline_rotation_dof;
-    if (direction_reference && !candidate_drives_rotation(candidate)) {
-        state_->setText(tr("Po bodu vyberte rovinu, plochu, osu nebo hranu pro orientaci."));
+    if (direction_reference &&
+        !placement_reference_candidate_can_define_direction(candidate)) {
+        state_->setText(tr(
+            "Po bodu vyberte další bod, rovinu, plochu, osu nebo hranu pro orientaci."));
         viewer_->clear_selection();
         return;
     }
@@ -24951,13 +24990,9 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                             const std::size_t index =
                                 construction_key == "rotation_x" ? 0
                                 : construction_key == "rotation_y" ? 1 : 2;
-                            const bool referenced = std::any_of(
-                                construction->references.begin(),
-                                construction->references.end(),
-                                [](const auto& reference) {
-                                    return reference.orientation_drives_rotation;
-                                });
-                            if (referenced) {
+                            if (placement_angle_uses_reference_correction(
+                                    construction->references, geometry,
+                                    construction->origin, index)) {
                                 std::array<double*, 3> correction{
                                     &construction->rotation_offset_x,
                                     &construction->rotation_offset_y,
@@ -25143,13 +25178,10 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                         const std::size_t index =
                             placement_key == "rotation_x" ? 0
                             : placement_key == "rotation_y" ? 1 : 2;
-                        const bool referenced = std::any_of(
-                            container->placement.references.begin(),
-                            container->placement.references.end(),
-                            [](const auto& reference) {
-                                return reference.orientation_drives_rotation;
-                            });
-                        if (referenced) {
+                        if (placement_angle_uses_reference_correction(
+                                container->placement.references, geometry,
+                                {container->placement.x, container->placement.y,
+                                 container->placement.z}, index)) {
                             std::array<double*, 3> correction{
                                 &container->placement.rotation_offset_x,
                                 &container->placement.rotation_offset_y,

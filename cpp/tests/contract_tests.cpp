@@ -2990,6 +2990,64 @@ int main() {
                             origin_sketch_x_axis.z) < 1.0e-6,
                 "ROTATE did not turn the referenced Sketch axes in its plane");
 
+            // A single placement Plane fixes only the owned Sketch's local
+            // +Y/normal.  Its free absolute RY must remain a live roll around
+            // the unchanged Container Origin, including before the user adds
+            // another reference and completes the frame.
+            zima::kernel::ViewerReferenceGeometry skew_profile_geometry;
+            // Same +Y plane as XZ, but deliberately start its triangle with
+            // a diagonal edge.  Profile orientation must depend on the plane
+            // normal and explicit RY only, never this tessellation order.
+            skew_profile_geometry.vertices = {
+                {0.0, 40.0, 0.0}, {10.0, 40.0, 10.0},
+                {10.0, 40.0, 0.0}};
+            skew_profile_geometry.triangles = {0, 1, 2};
+            skew_profile_geometry.triangle_references = {
+                {"skew-profile-face", "surface", {}}};
+            zima::document::PartDocument partial_sketch_document;
+            partial_sketch_document.document_id = constructions.document_id;
+            auto partial_sketch_container =
+                zima::document::PartDocument::create_sketch_container();
+            partial_sketch_container.placement.references = {
+                {{}, "skew-profile-face", "surface",
+                    0.0, true, "front", true}};
+            auto partial_sketch = zima::sketcher::Sketch::create_default();
+            partial_sketch.owner_container_id = partial_sketch_container.id;
+            partial_sketch_document.history.push_back(partial_sketch_container);
+            partial_sketch_document.sketches.push_back(partial_sketch);
+            partial_sketch_document.resolve_constructions(skew_profile_geometry);
+            const auto zero_roll_origin =
+                partial_sketch_document.sketches.front().resolved_origin;
+            const auto zero_roll_normal =
+                partial_sketch_document.sketches.front().resolved_normal;
+            const auto zero_roll_x =
+                partial_sketch_document.sketches.front().resolved_x_axis;
+            partial_sketch_document.history.front().placement
+                .absolute_rotation_y = 30.0;
+            partial_sketch_document.resolve_constructions(skew_profile_geometry);
+            const auto& rolled_partial_sketch =
+                partial_sketch_document.sketches.front();
+            const double rolled_x_dot =
+                rolled_partial_sketch.resolved_x_axis.x * zero_roll_x.x +
+                rolled_partial_sketch.resolved_x_axis.y * zero_roll_x.y +
+                rolled_partial_sketch.resolved_x_axis.z * zero_roll_x.z;
+            require(std::abs(rolled_partial_sketch.resolved_origin.x -
+                            zero_roll_origin.x) < 1.0e-7 &&
+                        std::abs(rolled_partial_sketch.resolved_origin.y -
+                            zero_roll_origin.y) < 1.0e-7 &&
+                        std::abs(rolled_partial_sketch.resolved_origin.z -
+                            zero_roll_origin.z) < 1.0e-7 &&
+                        std::abs(rolled_partial_sketch.resolved_normal.x -
+                            zero_roll_normal.x) < 1.0e-7 &&
+                        std::abs(rolled_partial_sketch.resolved_normal.y -
+                            zero_roll_normal.y) < 1.0e-7 &&
+                        std::abs(rolled_partial_sketch.resolved_normal.z -
+                            zero_roll_normal.z) < 1.0e-7 &&
+                        std::abs(rolled_x_dot - std::cos(
+                            30.0 * std::numbers::pi / 180.0)) < 1.0e-7,
+                "Free absolute RY did not roll a partially constrained owned "
+                "Sketch/local Origin around its fixed reference normal");
+
             zima::document::Placement rotated_placement;
             rotated_placement.references = {
                 {{}, constructions.document_id + ":origin", "origin:axis:x", 0.0,
@@ -3114,6 +3172,8 @@ int main() {
             // shared by ordinary containers and construction containers.
             point_plane_geometry.points.push_back(
                 {{10.0, 30.0, 30.0}, {"direction-point", "point"}});
+            point_plane_geometry.points.push_back(
+                {{10.0, 20.0, 40.0}, {"top-direction-point", "point"}});
             const zima::document::ConstructionReference direction_point{
                 {}, "direction-point", "point", 0.0, false,
                 "direction", true, true};
@@ -3135,6 +3195,22 @@ int main() {
                         std::abs(point_direction_base.z) < 1.0e-7,
                     "Directional Point was calculated from the stale preview "
                     "origin instead of the resolved placement point");
+            auto three_point_frame_placement = point_direction_placement;
+            three_point_frame_placement.references.push_back({
+                {}, "top-direction-point", "point", 0.0, false,
+                "direction", true, true});
+            require(zima::document::orientation_constraint_remaining_dof(
+                        three_point_frame_placement.references,
+                        point_plane_geometry, true,
+                        {10.0, 20.0, 30.0}) == 0 &&
+                        zima::document::resolve_placement(
+                            three_point_frame_placement,
+                            point_plane_geometry) &&
+                        std::abs(three_point_frame_placement.rotation_x) < 1.0e-7 &&
+                        std::abs(three_point_frame_placement.rotation_y) < 1.0e-7 &&
+                        std::abs(three_point_frame_placement.rotation_z) < 1.0e-7,
+                    "Three Point placement did not use P1 as origin, P2 as "
+                    "FRONT direction, and P3 as TOP direction");
 
             auto minimum_twist_point =
                 zima::document::PartDocument::create_construction(

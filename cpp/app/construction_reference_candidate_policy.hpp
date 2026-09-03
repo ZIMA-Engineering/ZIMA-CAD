@@ -55,6 +55,23 @@ placement_reference_candidate_kinds() {
           candidate.semantic_key.starts_with("origin:plane:")));
 }
 
+// Once a Point has fixed the container origin, a second Point is a valid
+// direction vector from that origin, just like a linear Edge/Axis or a
+// Plane/Face normal. Keep this separate from candidate_drives_rotation(): a
+// bare first Point still fixes position only and must not orient a container
+// until it is deliberately entered in a following direction row.
+[[nodiscard]] inline bool placement_reference_candidate_can_define_direction(
+    const zima::viewer::ViewerCandidate& candidate) {
+    using zima::viewer::CandidateKind;
+    if (!placement_reference_candidate_has_stable_geometry(candidate))
+        return false;
+    return candidate.kind == CandidateKind::Vertex ||
+        candidate.kind == CandidateKind::Axis ||
+        candidate.kind == CandidateKind::Edge ||
+        candidate.kind == CandidateKind::Plane ||
+        candidate.kind == CandidateKind::Face;
+}
+
 // Shared static admission rules for Point/Axis/Plane reference picking.
 [[nodiscard]] inline bool construction_reference_candidate_passes_static_filters(
     const zima::viewer::ViewerCandidate& candidate,

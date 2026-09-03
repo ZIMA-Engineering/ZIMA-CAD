@@ -5803,62 +5803,33 @@ void PartDocument::resolve_constructions(
                     reference.orientation_drives_rotation &&
                     reference.orientation_role == "top";
             });
-        if (has_position_top) {
+        if (first_position_reference != owner->placement.references.end() &&
+            first_position_reference->supports_offset) {
             // Owned profiles use local XZ with local +Y as FRONT. Recompose
-            // the generic reference-derived base with ROTATE around that
-            // normal; the generic Placement default rotates around local Z
-            // and would tilt the Sketch away from its selected first Face.
+            // the SAME generic reference-derived base used by Box and every
+            // other container, changing only ROTATE's local axis to the
+            // profile normal.  A former second pass inherited `front` from
+            // the first tessellation triangle of the selected Face; that
+            // made Extrusion/Revolution Origins start at an arbitrary
+            // in-plane diagonal while Box stayed deterministic.
+            const zima::kernel::Vec3 manual_rotation = has_position_top
+                ? zima::kernel::Vec3{
+                    owner->placement.rotation_offset_x,
+                    owner->placement.rotation_offset_y,
+                    owner->placement.rotation_offset_z}
+                // One FRONT leaves local Y as the real absolute roll DOF.
+                // Constrained local X/Z continue to expose corrections.
+                : zima::kernel::Vec3{
+                    owner->placement.rotation_offset_x,
+                    geometric_placement.absolute_rotation_y,
+                    owner->placement.rotation_offset_z};
             rotation = placement_apply_view_orientation_degrees(
                 geometric_base_rotation,
                 owner->placement.orientation_back,
                 owner->placement.orientation_quarter_turns,
-                {owner->placement.rotation_offset_x,
-                 owner->placement.rotation_offset_y,
-                 owner->placement.rotation_offset_z},
+                manual_rotation,
                 /*back_rotation_axis=*/0,
                 /*quarter_rotation_axis=*/1);
-        }
-        // With only one planar row, inherit its persisted in-plane frame.
-        // Once a second plane supplies TOP, the generic FRONT/TOP solution is
-        // authoritative and avoids deriving roll from an arbitrary triangle.
-        if (first_position_reference != owner->placement.references.end() &&
-            first_position_reference->supports_offset && !has_position_top) {
-            if (const auto inherited = placement_reference_plane(
-                    *first_position_reference, source_geometry)) {
-                auto normal = inherited->normal;
-                auto in_plane_x = inherited->front;
-                if (first_position_reference->flip) {
-                    normal = {-normal.x, -normal.y, -normal.z};
-                }
-                in_plane_x = placement_vec_project_perpendicular(
-                    in_plane_x, normal);
-                auto in_plane_y = placement_vec_normalized(
-                    placement_vec_cross(normal, in_plane_x));
-                if (!placement_vec_is_zero(in_plane_x) &&
-                    !placement_vec_is_zero(in_plane_y)) {
-                    // SketchPlane::XZ uses local +Y as its normal and local
-                    // -Z as its second 2D axis.
-                    const zima::kernel::Vec3 local_z{
-                        -in_plane_y.x, -in_plane_y.y, -in_plane_y.z};
-                    const auto inherited_base =
-                        placement_euler_degrees_from_rotation_matrix(
-                            placement_rotation_matrix_from_columns(
-                                in_plane_x, normal, local_z));
-                    rotation = placement_apply_view_orientation_degrees(
-                        inherited_base,
-                        owner->placement.orientation_back,
-                        owner->placement.orientation_quarter_turns,
-                        {owner->placement.rotation_offset_x,
-                         owner->placement.rotation_offset_y,
-                         owner->placement.rotation_offset_z},
-                        /*back_rotation_axis=*/0,
-                        // A referenced owned profile uses local XZ; its
-                        // normal/FRONT is local +Y, so ROTATE must spin the
-                        // Sketch in that plane instead of tilting it around
-                        // the generic local Z axis.
-                        /*quarter_rotation_axis=*/1);
-                }
-            }
         }
         const auto shifted = rotated_vector(local_origin, rotation);
         sketch.resolved_origin = {geometric_placement.x + shifted.x,

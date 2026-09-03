@@ -164,7 +164,8 @@ ContainerPlacementSection::ContainerPlacementSection(
         refresh_orientation_controls();
     }
 
-    const auto field = [this](bool angular, const char* object_name) {
+    const auto field = [this](bool angular, const char* object_name,
+                             bool notify_on_change = true) {
         auto* input = new QDoubleSpinBox(parent_widget_);
         input->setRange(angular ? -360'000.0 : -1'000'000.0,
                         angular ? 360'000.0 : 1'000'000.0);
@@ -172,8 +173,10 @@ ContainerPlacementSection::ContainerPlacementSection(
         input->setSingleStep(angular ? 5.0 : 1.0);
         input->setSuffix(angular ? tr(" deg") : tr(" mm"));
         input->setObjectName(object_name);
-        connect(input, &QDoubleSpinBox::valueChanged, this,
-            [this] { notify_changed(); });
+        if (notify_on_change) {
+            connect(input, &QDoubleSpinBox::valueChanged, this,
+                [this] { notify_changed(); });
+        }
         return input;
     };
     translation_ = {field(false, "containerPlacementX"),
@@ -186,9 +189,13 @@ ContainerPlacementSection::ContainerPlacementSection(
     layout->addLayout(coordinates);
 
     if (with_orientation_) {
-        rotation_ = {field(true, "containerRotationX"),
-                     field(true, "containerRotationY"),
-                     field(true, "containerRotationZ")};
+        // Absolute rotation needs one ordered signal handler: store the
+        // user's free-axis value first, then publish the preview. A separate
+        // earlier notify handler let the synchronous resolver refresh the
+        // field from its old backing value before the new RY was stored.
+        rotation_ = {field(true, "containerRotationX", false),
+                     field(true, "containerRotationY", false),
+                     field(true, "containerRotationZ", false)};
         rotation_offset_ = {field(true, "containerRotationOffsetX"),
                             field(true, "containerRotationOffsetY"),
                             field(true, "containerRotationOffsetZ")};
@@ -198,6 +205,7 @@ ContainerPlacementSection::ContainerPlacementSection(
                 [this, index](double value) {
                     if (rotation_[index]->isEnabled())
                         absolute_rotation_values_[index] = value;
+                    notify_changed();
                 });
         }
         auto* rotation_form = new QFormLayout;
