@@ -3837,6 +3837,8 @@ bool resolve_construction(ConstructionObject& object,
     // mutually exclusive admission outcomes for the very same pick.
     std::vector<std::reference_wrapper<const ConstructionReference>>
         position_references;
+    std::vector<std::reference_wrapper<const ConstructionReference>>
+        orientation_references;
     std::optional<zima::kernel::Vec3> front_direction;
     std::optional<zima::kernel::Vec3> top_direction;
     bool orientation_resolved = true;
@@ -3851,21 +3853,7 @@ bool resolve_construction(ConstructionObject& object,
         // but orientation_only == false) still contributes its own
         // position equation; only its direction is additionally read here.
         if (reference.orientation_drives_rotation) {
-            std::optional<zima::kernel::Vec3> direction;
-            if (const auto resolved = axis(reference)) direction = resolved->direction;
-            else if (const auto resolved = plane(reference)) direction = resolved->normal;
-            else if (const auto resolved = point(reference)) {
-                direction = zima::kernel::Vec3{
-                    resolved->x - object.origin.x,
-                    resolved->y - object.origin.y,
-                    resolved->z - object.origin.z};
-            }
-            if (!direction) {
-                orientation_resolved = false;
-            } else {
-                placement_assign_orientation_direction(reference, *direction,
-                    front_direction, top_direction);
-            }
+            orientation_references.push_back(reference);
         }
         if (reference.orientation_only) has_explicit_orientation_reference = true;
         if (!reference.orientation_only) position_references.push_back(reference);
@@ -3901,8 +3889,9 @@ bool resolve_construction(ConstructionObject& object,
     // reference implementation's TwoPointAxis/ThreePointPlane semantics
     // (first entity fixes the origin, subsequent ones only fix direction).
     std::vector<zima::kernel::Vec3> shortcut_points;
-    bool all_points = !front_direction && !top_direction &&
-        !position_references.empty();
+    bool all_points = !position_references.empty() &&
+        (orientation_references.empty() ||
+         (origin_bulk_fill && !has_explicit_orientation_reference));
     if (all_points) {
         for (const auto& wrapped : position_references) {
             if (const auto resolved = point(wrapped.get())) {
@@ -3990,6 +3979,34 @@ bool resolve_construction(ConstructionObject& object,
     if (position_resolved) {
         resolved_position = origin;
         object.origin = origin;
+    }
+    // Direction points are relative to the resolved container origin. Do
+    // not derive them from object.origin before solving the position rows:
+    // that stale-preview ordering produced a frame which disagreed with the
+    // reference table until another click happened to recalculate it.
+    if (!(origin_bulk_fill && !has_explicit_orientation_reference)) {
+        for (const auto& wrapped : orientation_references) {
+            const auto& reference = wrapped.get();
+            std::optional<zima::kernel::Vec3> direction;
+            if (const auto resolved = axis(reference)) {
+                direction = resolved->direction;
+            } else if (const auto resolved = plane(reference)) {
+                direction = resolved->normal;
+            } else if (reference.orientation_role == "direction") {
+                if (const auto resolved = point(reference)) {
+                    direction = zima::kernel::Vec3{
+                        resolved->x - object.origin.x,
+                        resolved->y - object.origin.y,
+                        resolved->z - object.origin.z};
+                }
+            }
+            if (!direction || placement_vec_is_zero(*direction)) {
+                orientation_resolved = false;
+                continue;
+            }
+            placement_assign_orientation_direction(reference, *direction,
+                front_direction, top_direction);
+        }
     }
     // Only one special case auto-inherits a Plane frame with no explicit
     // FRONT/TOP references: the FIRST placement reference resolves to a
@@ -4293,6 +4310,7 @@ bool resolve_placement(
         placement.absolute_rotation_x, placement.absolute_rotation_y,
         placement.absolute_rotation_z};
     std::vector<std::reference_wrapper<const ConstructionReference>> position_references;
+    std::vector<std::reference_wrapper<const ConstructionReference>> orientation_references;
     std::optional<zima::kernel::Vec3> front_direction;
     std::optional<zima::kernel::Vec3> top_direction;
     bool orientation_resolved = true;
@@ -4301,18 +4319,7 @@ bool resolve_placement(
         [](const auto& reference) { return reference.orientation_drives_rotation; });
     for (const auto& reference : placement.references) {
         if (reference.orientation_drives_rotation) {
-            std::optional<zima::kernel::Vec3> direction;
-            if (const auto resolved = placement_reference_axis(reference, geometry)) {
-                direction = resolved->direction;
-            } else if (const auto resolved = placement_reference_plane(reference, geometry)) {
-                direction = resolved->normal;
-            }
-            if (!direction) {
-                orientation_resolved = false;
-            } else {
-                placement_assign_orientation_direction(reference, *direction,
-                    front_direction, top_direction);
-            }
+            orientation_references.push_back(reference);
         }
         if (!reference.orientation_only) position_references.push_back(reference);
     }
@@ -4364,6 +4371,34 @@ bool resolve_placement(
             // by itself still supplies a numerical position.
             if (!three_point_base) orientation_resolved = false;
         }
+    }
+    // Resolve point-based directions only after the position equations and
+    // the ordered-three-point shortcut have established the real container
+    // origin. Using placement.x/y/z from the previous preview here made a
+    // valid Point + Plane/Axis sequence briefly (and sometimes persistently)
+    // produce a direction for the wrong origin.
+    for (const auto& wrapped : orientation_references) {
+        const auto& reference = wrapped.get();
+        std::optional<zima::kernel::Vec3> direction;
+        if (const auto resolved = placement_reference_axis(reference, geometry)) {
+            direction = resolved->direction;
+        } else if (const auto resolved =
+                       placement_reference_plane(reference, geometry)) {
+            direction = resolved->normal;
+        } else if (reference.orientation_role == "direction") {
+            if (const auto resolved = placement_reference_point(reference, geometry)) {
+                direction = zima::kernel::Vec3{
+                    resolved->x - placement.x,
+                    resolved->y - placement.y,
+                    resolved->z - placement.z};
+            }
+        }
+        if (!direction || placement_vec_is_zero(*direction)) {
+            orientation_resolved = false;
+            continue;
+        }
+        placement_assign_orientation_direction(reference, *direction,
+            front_direction, top_direction);
     }
     if (orientation_from_reference) {
         *orientation_from_reference = has_orientation_reference;

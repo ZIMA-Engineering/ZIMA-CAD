@@ -209,7 +209,6 @@ private:
     std::array<QDoubleSpinBox*, 3> rotation_offset_{};
     std::array<double, 3> absolute_rotation_values_{};
     std::array<double, 3> resolved_rotation_values_{};
-    zima::kernel::Vec3 orientation_base_rotation_{};
     zima::document::OrientationConstraintState rotation_constraint_state_;
     bool orientation_back_{};
     int orientation_quarter_turns_{};

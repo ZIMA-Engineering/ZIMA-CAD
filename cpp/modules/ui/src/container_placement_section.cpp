@@ -314,8 +314,23 @@ void ContainerPlacementSection::set_translation_constraint_state(
 
 void ContainerPlacementSection::set_orientation_base_rotation(
         const zima::kernel::Vec3& value, bool constrained) {
+    const bool was_reference_driven = orientation_reference_driven_;
+    if (was_reference_driven && !constrained) {
+        // Explicitly removing the last orientation reference must not make
+        // the container jump. Fold the last calculated world frame into the
+        // now-editable absolute values and clear the reference-only
+        // modifiers so they cannot be applied a second time.
+        absolute_rotation_values_ = resolved_rotation_values_;
+        orientation_back_ = false;
+        orientation_quarter_turns_ = 0;
+        for (auto* correction : rotation_offset_) {
+            if (correction == nullptr) continue;
+            const QSignalBlocker blocker(correction);
+            correction->setValue(0.0);
+        }
+        refresh_orientation_controls();
+    }
     orientation_reference_driven_ = constrained;
-    orientation_base_rotation_ = value;
     if (constrained) {
         const std::array base{value.x, value.y, value.z};
         for (std::size_t index = 0;
@@ -331,18 +346,18 @@ void ContainerPlacementSection::set_resolved_rotation(
         const zima::kernel::Vec3& value, bool valid) {
     if (!valid) return;
     resolved_rotation_values_ = {value.x, value.y, value.z};
+    refresh_rotation_field_states();
 }
 
 void ContainerPlacementSection::refresh_rotation_field_states() {
-    const std::array base{orientation_base_rotation_.x,
-        orientation_base_rotation_.y, orientation_base_rotation_.z};
     for (std::size_t i = 0; i < rotation_.size(); ++i) {
         const bool constrained = orientation_reference_driven_ &&
             rotation_constraint_state_.constrained_axes[i];
         if (rotation_[i]) {
             const QSignalBlocker blocker(rotation_[i]);
             rotation_[i]->setValue(
-                constrained ? base[i] : absolute_rotation_values_[i]);
+                constrained ? resolved_rotation_values_[i]
+                            : absolute_rotation_values_[i]);
             rotation_[i]->setEnabled(!constrained);
         }
         if (!rotation_offset_[i]) continue;

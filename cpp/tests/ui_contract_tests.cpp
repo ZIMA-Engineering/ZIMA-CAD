@@ -26,6 +26,7 @@
 #include <QIcon>
 #include <QImage>
 #include <QMouseEvent>
+#include <QPainter>
 #include <QListWidget>
 #include <QLabel>
 #include <QLineEdit>
@@ -830,6 +831,7 @@ int main(int argc, char* argv[]) {
         sphere_dialog->set_rotation_constraint_state(
             {1, {true, false, true}});
         sphere_dialog->set_orientation_base_rotation({10.0, 0.0, 30.0}, true);
+        sphere_dialog->set_resolved_rotation({10.0, 0.0, 30.0});
         require(!sphere_absolute_rx->isEnabled() &&
                     std::abs(sphere_absolute_rx->value() - 10.0) < 1.0e-9 &&
                     sphere_absolute_ry != nullptr &&
@@ -850,6 +852,7 @@ int main(int argc, char* argv[]) {
             {0, {true, true, true}});
         sphere_dialog->set_orientation_base_rotation(
             {10.0, 20.0, 30.0}, true);
+        sphere_dialog->set_resolved_rotation({10.0, 20.0, 30.0});
         require(!sphere_absolute_ry->isEnabled() &&
                     std::abs(sphere_absolute_ry->value() - 20.0) < 1.0e-9 &&
                     std::ranges::all_of(sphere_corrections,
@@ -862,23 +865,33 @@ int main(int argc, char* argv[]) {
                 "Referenced angular View dimension did not update the active "
                 "rotation-correction field");
         sphere_dialog->set_resolved_rotation({-12.0, 34.0, 56.0});
+        require(std::abs(sphere_absolute_rx->value() - (-12.0)) < 1.0e-9 &&
+                    std::abs(sphere_absolute_ry->value() - 34.0) < 1.0e-9 &&
+                    std::abs(sphere_absolute_rz->value() - 56.0) < 1.0e-9,
+                "Referenced Absolute fields do not show the final frame after "
+                "FRONT/BACK, quarter-turn, and correction composition");
         sphere_dialog->set_orientation_base_rotation({10.0, 20.0, 30.0}, false);
         require(sphere_absolute_rx->isEnabled() &&
                     sphere_absolute_ry->isEnabled() &&
                     sphere_absolute_rz->isEnabled() &&
-                    std::abs(sphere_absolute_rx->value() - 10.0) < 1.0e-9 &&
-                    std::abs(sphere_absolute_ry->value() - 20.0) < 1.0e-9 &&
-                    std::abs(sphere_absolute_rz->value() - 30.0) < 1.0e-9,
-                "Removing orientation references did not retain their last "
-                "stored absolute rotation");
+                    std::abs(sphere_absolute_rx->value() - (-12.0)) < 1.0e-9 &&
+                    std::abs(sphere_absolute_ry->value() - 34.0) < 1.0e-9 &&
+                    std::abs(sphere_absolute_rz->value() - 56.0) < 1.0e-9 &&
+                    std::ranges::all_of(sphere_corrections,
+                        [](const auto* field) {
+                            return !field->isEnabled() &&
+                                std::abs(field->value()) < 1.0e-9;
+                        }),
+                "Removing orientation references did not fold the last final "
+                "frame into editable absolute rotation");
         sphere_radius->setValue(27.0);
         sphere_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
         application.processEvents();
         require(committed_sphere.feature_kind == zima::document::FeatureKind::Sphere &&
                     committed_sphere.sphere.radius == 27.0 &&
-                    committed_sphere.placement.absolute_rotation_x == 10.0 &&
-                    committed_sphere.placement.absolute_rotation_y == 20.0 &&
-                    committed_sphere.placement.absolute_rotation_z == 30.0 &&
+                    committed_sphere.placement.absolute_rotation_x == -12.0 &&
+                    committed_sphere.placement.absolute_rotation_y == 34.0 &&
+                    committed_sphere.placement.absolute_rotation_z == 56.0 &&
                     committed_sphere.placement.rotation_x == -12.0 &&
                     committed_sphere.placement.rotation_y == 34.0 &&
                     committed_sphere.placement.rotation_z == 56.0,
@@ -1157,6 +1170,29 @@ int main(int argc, char* argv[]) {
                     box_reference_dialog->highlighted_reference_entries().size() == 1,
                 "Inspection eye replaced the active-input state instead of "
                 "remaining independent");
+        const auto paint_reference_cell = [&](QStyle::State state) {
+            QImage image(260, 36, QImage::Format_ARGB32_Premultiplied);
+            image.fill(Qt::transparent);
+            QPainter painter(&image);
+            QStyleOptionViewItem option;
+            option.rect = image.rect();
+            option.state = state;
+            option.palette = box_reference_table->palette();
+            option.font = box_reference_table->font();
+            option.widget = box_reference_table;
+            box_reference_table->itemDelegate()->paint(
+                &painter, option, box_reference_table->model()->index(0, 1));
+            painter.end();
+            return image;
+        };
+        const auto focused_reference_cell = paint_reference_cell(
+            QStyle::State_Enabled | QStyle::State_Active |
+            QStyle::State_Selected | QStyle::State_HasFocus);
+        const auto inactive_reference_cell = paint_reference_cell(
+            QStyle::State_Enabled);
+        require(focused_reference_cell == inactive_reference_cell,
+                "Stored reference text or cyan inspection changed when the "
+                "Properties window gained/lost focus");
         box_reference_dialog->set_active_reference_index(std::nullopt);
         box_reference_dialog->clear_reference_highlights();
         require(!active_box_reference->is_active_input() &&

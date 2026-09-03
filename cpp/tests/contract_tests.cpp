@@ -3108,6 +3108,34 @@ int main() {
                 "Single FRONT reference did not overwrite constrained absolute "
                 "RX/RZ while preserving free absolute RY");
 
+            // A point used as a direction must be measured from the newly
+            // resolved placement point, never from the previous preview
+            // position. This covers the Point + directional Point contract
+            // shared by ordinary containers and construction containers.
+            point_plane_geometry.points.push_back(
+                {{10.0, 30.0, 30.0}, {"direction-point", "point"}});
+            const zima::document::ConstructionReference direction_point{
+                {}, "direction-point", "point", 0.0, false,
+                "direction", true, true};
+            zima::document::Placement point_direction_placement;
+            point_direction_placement.x = -100.0;
+            point_direction_placement.y = -100.0;
+            point_direction_placement.z = -100.0;
+            point_direction_placement.references = {
+                {{}, "fixture-point", "point"}, direction_point};
+            zima::kernel::Vec3 point_direction_base;
+            require(zima::document::resolve_placement(
+                        point_direction_placement, point_plane_geometry,
+                        &point_direction_base) &&
+                        std::abs(point_direction_placement.x - 10.0) < 1.0e-7 &&
+                        std::abs(point_direction_placement.y - 20.0) < 1.0e-7 &&
+                        std::abs(point_direction_placement.z - 30.0) < 1.0e-7 &&
+                        std::abs(point_direction_base.x) < 1.0e-7 &&
+                        std::abs(point_direction_base.y) < 1.0e-7 &&
+                        std::abs(point_direction_base.z) < 1.0e-7,
+                    "Directional Point was calculated from the stale preview "
+                    "origin instead of the resolved placement point");
+
             auto minimum_twist_point =
                 zima::document::PartDocument::create_construction(
                     zima::document::ConstructionKind::Point);
@@ -3125,6 +3153,22 @@ int main() {
                         std::abs(minimum_twist_point.absolute_rotation.z) <
                             1.0e-9,
                 "Construction container did not share partial FRONT placement");
+            auto point_direction_construction =
+                zima::document::PartDocument::create_construction(
+                    zima::document::ConstructionKind::Point);
+            point_direction_construction.origin = {-100.0, -100.0, -100.0};
+            point_direction_construction.references = {
+                {{}, "fixture-point", "point"}, direction_point};
+            require(zima::document::resolve_construction(
+                        point_direction_construction, point_plane_geometry) &&
+                        std::abs(point_direction_construction.origin.x - 10.0) < 1.0e-7 &&
+                        std::abs(point_direction_construction.origin.y - 20.0) < 1.0e-7 &&
+                        std::abs(point_direction_construction.origin.z - 30.0) < 1.0e-7 &&
+                        std::abs(point_direction_construction.rotation.x) < 1.0e-7 &&
+                        std::abs(point_direction_construction.rotation.y) < 1.0e-7 &&
+                        std::abs(point_direction_construction.rotation.z) < 1.0e-7,
+                    "Construction directional Point did not share the resolved-"
+                    "origin orientation contract");
 
             zima::document::Placement composed_placement;
             composed_placement.rotation_offset_z = 15.0;

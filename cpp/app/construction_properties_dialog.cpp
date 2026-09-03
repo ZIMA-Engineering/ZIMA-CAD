@@ -3,8 +3,6 @@
 #include "zima/ui/reference_cell.hpp"
 
 #include <zima/kernel/stable_id.hpp>
-#include <zima/ui/reference_cell.hpp>
-#include <zima/kernel/stable_id.hpp>
 
 #include <QDoubleSpinBox>
 #include <QComboBox>

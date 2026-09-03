@@ -48,8 +48,7 @@ OrientationDialog::OrientationDialog(
     reference_table_->setHorizontalHeaderLabels({QString(),
         tr("Reference"), tr("Směr"), tr("Obrátit")});
     reference_table_->verticalHeader()->hide();
-    reference_table_->setStyleSheet(
-        "QTableWidget::item:selected{background:#00d1ff;color:#102027}");
+    zima::ui::install_reference_cell_delegate(reference_table_);
     auto* header = reference_table_->horizontalHeader();
     header->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     header->setSectionResizeMode(1, QHeaderView::Stretch);
@@ -169,6 +168,11 @@ void OrientationDialog::activate_row(std::size_t row) {
     if (row >= 2) return;
     active_row_ = row;
     reference_table_->setRowHidden(static_cast<int>(row), false);
+    for (std::size_t index = 0; index < reference_items_.size(); ++index) {
+        if (reference_items_[index] != nullptr)
+            reference_items_[index]->set_active_input(index == row);
+    }
+    reference_table_->viewport()->update();
     if (reference_request_) reference_request_(row);
 }
 
@@ -233,6 +237,8 @@ void OrientationDialog::accept_reference(
     const bool was_last_row = active_row_ + 1 >= 2;
     if (!was_last_row) {
         activate_row(active_row_ + 1);
+    } else {
+        reference->set_active_input(false);
     }
     update_highlights();
     if (was_last_row) notify_rows_changed();
@@ -268,6 +274,10 @@ void OrientationDialog::remove_row(std::size_t row) {
     updating_rows_ = false;
     active_row_ = std::min<std::size_t>(rows.size(), 1);
     reference_table_->setRowHidden(static_cast<int>(active_row_), false);
+    for (std::size_t index = 0; index < reference_items_.size(); ++index) {
+        if (reference_items_[index] != nullptr)
+            reference_items_[index]->set_active_input(index == active_row_);
+    }
     update_highlights();
     notify_rows_changed();
 }
@@ -299,15 +309,11 @@ void OrientationDialog::update_highlights() {
     for (std::size_t index = 0; index < 2; ++index) {
         auto* reference = reference_items_[index];
         const bool highlighted = highlighted_rows_.count(index) != 0;
-        reference->setBackground(highlighted
-            ? QBrush(QColor("#00d1ff")) : QBrush());
-        reference->setForeground(highlighted
-            ? QBrush(QColor("#102027"))
-            : (reference->has_reference()
-                  ? QBrush() : QBrush(palette().color(QPalette::Mid))));
+        reference->set_inspected(highlighted);
         zima::ui::set_reference_row_populated(
             row_indicators_[index], reference->has_reference());
     }
+    reference_table_->viewport()->update();
 }
 
 void OrientationDialog::notify_rows_changed() {

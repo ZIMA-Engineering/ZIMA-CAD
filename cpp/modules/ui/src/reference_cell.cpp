@@ -17,6 +17,7 @@ namespace {
 
 constexpr int active_input_role = Qt::UserRole + 131;
 constexpr int inspected_role = Qt::UserRole + 132;
+constexpr int populated_reference_role = Qt::UserRole + 133;
 
 class ReferenceCellDelegate final : public QStyledItemDelegate {
 public:
@@ -31,10 +32,26 @@ public:
         clean.state &= ~(QStyle::State_Selected | QStyle::State_HasFocus);
         const bool inspected = index.data(inspected_role).toBool();
         const bool active = index.data(active_input_role).toBool();
+        const bool populated = index.data(populated_reference_role).toBool();
+        QColor text_color;
         if (inspected) {
             clean.backgroundBrush = QColor(QStringLiteral("#00d1ff"));
-            clean.palette.setColor(QPalette::Text,
-                QColor(QStringLiteral("#102027")));
+            text_color = QColor(QStringLiteral("#102027"));
+        } else if (populated) {
+            // Never inherit the active/inactive window palette for stored
+            // references. A dialog focus change must not turn a valid
+            // reference into low-contrast or effectively invisible text.
+            text_color = QColor(QStringLiteral("#e6edf3"));
+        } else {
+            const auto foreground = index.data(Qt::ForegroundRole).value<QBrush>();
+            text_color = foreground.style() == Qt::NoBrush
+                ? QColor(QStringLiteral("#8d969f")) : foreground.color();
+        }
+        for (const auto group : {QPalette::Active, QPalette::Inactive,
+                                 QPalette::Disabled}) {
+            clean.palette.setColor(group, QPalette::Text, text_color);
+            clean.palette.setColor(group, QPalette::HighlightedText, text_color);
+            clean.palette.setColor(group, QPalette::WindowText, text_color);
         }
         QStyledItemDelegate::paint(painter, clean, index);
         if (!active) return;
@@ -179,11 +196,13 @@ ReferenceCellItem::ReferenceCellItem(const QString& text)
 void ReferenceCellItem::set_reference(const QString& value) {
     reference_ = value;
     has_reference_ = true;
+    setData(populated_reference_role, true);
 }
 
 void ReferenceCellItem::clear_reference() {
     reference_.clear();
     has_reference_ = false;
+    setData(populated_reference_role, false);
 }
 
 void ReferenceCellItem::set_placeholder_style(const QColor& muted) {
