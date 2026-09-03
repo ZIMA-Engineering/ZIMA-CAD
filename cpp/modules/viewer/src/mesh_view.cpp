@@ -201,6 +201,9 @@ struct MeshView::Impl {
     // upload_mesh's line_data build) purely so paintGL can resolve each
     // edge's highlight-priority colour before its individual draw call.
     std::vector<zima::kernel::ViewerEdge> line_edges;
+    // Index in mesh.edges for every line_edges entry. A stable topology
+    // reference is not a unique draw identity after an edge is split.
+    std::vector<std::size_t> line_mesh_edge_indices;
     GLsizei line_vertex_count{};
     // Candidate internal triangulation edges eligible to become silhouettes
     // (shared by exactly two triangles of the same owning face, not already
@@ -291,6 +294,8 @@ struct MeshView::Impl {
     std::set<EdgeKey> edge_treatment_selection_edges;
     std::set<EdgeKey> feature_hover_edges;
     std::set<EdgeKey> feature_selected_edges;
+    std::set<std::size_t> feature_hover_edge_indices;
+    std::set<std::size_t> feature_selected_edge_indices;
     std::set<std::string> feature_preview_owner_ids;
     std::string active_sketch_owner_id;
     std::set<std::string> constraint_reference_owner_ids;
@@ -600,6 +605,8 @@ void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
     impl_->confirmed_candidate.reset();
     impl_->feature_hover_edges.clear();
     impl_->feature_selected_edges.clear();
+    impl_->feature_hover_edge_indices.clear();
+    impl_->feature_selected_edge_indices.clear();
     impl_->selected_container_origin_id.clear();
     impl_->gpu_dirty = true;
     ++impl_->base_mesh_revision;
@@ -1191,11 +1198,16 @@ std::vector<zima::kernel::EdgeReference> MeshView::tangent_edge_route(
     return result;
 }
 
-std::set<EdgeKey> MeshView::edge_treatment_boundary_edges(
+std::set<std::size_t> MeshView::edge_treatment_boundary_edge_indices(
     const std::string& owner_id,
     const std::string& instance_path) const {
-    return zima::viewer::edge_treatment_boundary_edges(
-        impl_->mesh, owner_id, instance_path);
+    std::set<std::size_t> result;
+    const auto found = impl_->edge_treatment_boundary_edge_indices.find(
+        {owner_id, instance_path});
+    if (found != impl_->edge_treatment_boundary_edge_indices.end()) {
+        result.insert(found->second.begin(), found->second.end());
+    }
+    return result;
 }
 
 std::optional<zima::kernel::Vec3> MeshView::candidate_face_normal(
@@ -1849,14 +1861,36 @@ void MeshView::set_edge_treatment_selection_edges(std::set<EdgeKey> edges) {
 }
 
 void MeshView::set_feature_hover_edges(std::set<EdgeKey> edges) {
-    if (edges == impl_->feature_hover_edges) return;
+    if (edges == impl_->feature_hover_edges &&
+        impl_->feature_hover_edge_indices.empty()) return;
     impl_->feature_hover_edges = std::move(edges);
+    impl_->feature_hover_edge_indices.clear();
     update();
 }
 
 void MeshView::set_feature_selected_edges(std::set<EdgeKey> edges) {
-    if (edges == impl_->feature_selected_edges) return;
+    if (edges == impl_->feature_selected_edges &&
+        impl_->feature_selected_edge_indices.empty()) return;
     impl_->feature_selected_edges = std::move(edges);
+    impl_->feature_selected_edge_indices.clear();
+    update();
+}
+
+void MeshView::set_feature_hover_edge_indices(
+    std::set<std::size_t> edges) {
+    if (edges == impl_->feature_hover_edge_indices &&
+        impl_->feature_hover_edges.empty()) return;
+    impl_->feature_hover_edge_indices = std::move(edges);
+    impl_->feature_hover_edges.clear();
+    update();
+}
+
+void MeshView::set_feature_selected_edge_indices(
+    std::set<std::size_t> edges) {
+    if (edges == impl_->feature_selected_edge_indices &&
+        impl_->feature_selected_edges.empty()) return;
+    impl_->feature_selected_edge_indices = std::move(edges);
+    impl_->feature_selected_edges.clear();
     update();
 }
 
@@ -2485,7 +2519,10 @@ void MeshView::upload_mesh() {
     std::vector<float> line_data;
     impl_->line_ranges.clear();
     impl_->line_edges.clear();
-    for (const auto& edge : impl_->mesh.edges) {
+    impl_->line_mesh_edge_indices.clear();
+    for (std::size_t mesh_edge_index = 0;
+         mesh_edge_index < impl_->mesh.edges.size(); ++mesh_edge_index) {
+        const auto& edge = impl_->mesh.edges[mesh_edge_index];
         // Datum/work-plane rectangles are rendered later by QPainter after
         // applying the screen-constant reference scale. Uploading their raw
         // model-space border to the GL line pass as well draws a second,
@@ -2498,6 +2535,7 @@ void MeshView::upload_mesh() {
             (edge.points.size() - 1) * 2);
         impl_->line_ranges.emplace_back(first, count);
         impl_->line_edges.push_back(edge);
+        impl_->line_mesh_edge_indices.push_back(mesh_edge_index);
         // GL_LINES permits the complete ordinary wire to be rendered in one
         // draw call.  GL_LINE_STRIP required one call per persisted edge,
         // which meant about 29,000 driver calls per frame for the large STEP
@@ -2857,6 +2895,7 @@ if (impl_->show_origins) {
             ? nullptr : &found->second;
     };
     const auto edge_is_highlighted = [&](const zima::kernel::ViewerEdge& edge,
+            std::size_t mesh_edge_index,
             const std::optional<ViewerCandidate>& highlighted) {
         const auto key = edge_key(edge.reference);
         const bool preview = impl_->feature_preview_owner_ids.contains(edge.reference.owner_id) &&
@@ -2870,6 +2909,8 @@ if (impl_->show_origins) {
             impl_->edge_treatment_selection_edges.contains(key) ||
             impl_->feature_selected_edges.contains(key) ||
             impl_->feature_hover_edges.contains(key) ||
+            impl_->feature_selected_edge_indices.contains(mesh_edge_index) ||
+            impl_->feature_hover_edge_indices.contains(mesh_edge_index) ||
             impl_->constraint_reference_edges.contains(key) ||
             impl_->assembly_reference_edges.contains(key) ||
             impl_->object_overlay_main_edge_keys.contains(key) ||
@@ -2878,6 +2919,7 @@ if (impl_->show_origins) {
             preview;
     };
     const auto edge_display_color = [&](const zima::kernel::ViewerEdge& edge,
+            std::size_t mesh_edge_index,
             const std::optional<ViewerCandidate>& highlighted,
             bool candidate_is_confirmed) {
         const auto key = edge_key(edge.reference);
@@ -2888,6 +2930,7 @@ if (impl_->show_origins) {
             (candidate_match && candidate_is_confirmed) ||
             impl_->edge_treatment_selection_edges.contains(key) ||
             impl_->feature_selected_edges.contains(key) ||
+            impl_->feature_selected_edge_indices.contains(mesh_edge_index) ||
             impl_->constraint_reference_edges.contains(key) ||
             impl_->assembly_reference_edges.contains(key) ||
             impl_->selected_container_content_ids.contains(edge.reference.owner_id) ||
@@ -2898,7 +2941,8 @@ if (impl_->show_origins) {
         }
         const bool hovered =
             (candidate_match && !candidate_is_confirmed) ||
-            impl_->feature_hover_edges.contains(key);
+            impl_->feature_hover_edges.contains(key) ||
+            impl_->feature_hover_edge_indices.contains(mesh_edge_index);
         if (hovered) return QVector4D(1.0F, 0.48F, 0.0F, 1.0F);
         const bool preview = impl_->feature_preview_owner_ids.contains(edge.reference.owner_id) &&
             (impl_->display_mode == DisplayMode::Wire ||
@@ -2938,7 +2982,8 @@ if (impl_->show_origins) {
             for (std::size_t index = 0;
                  index < impl_->line_ranges.size(); ++index) {
                 if (edge_is_highlighted(
-                        impl_->line_edges[index], highlighted)) continue;
+                        impl_->line_edges[index],
+                        impl_->line_mesh_edge_indices[index], highlighted)) continue;
                 first.push_back(impl_->line_ranges[index].first);
                 count.push_back(impl_->line_ranges[index].second);
             }
@@ -2963,8 +3008,11 @@ if (impl_->show_origins) {
         std::vector<ColorBatch> batches;
         for (std::size_t index = 0; index < impl_->line_ranges.size(); ++index) {
             const auto& edge = impl_->line_edges[index];
-            if (!edge_is_highlighted(edge, highlighted)) continue;
-            const auto color = edge_display_color(edge, highlighted, confirmed);
+            const auto mesh_edge_index = impl_->line_mesh_edge_indices[index];
+            if (!edge_is_highlighted(
+                    edge, mesh_edge_index, highlighted)) continue;
+            const auto color = edge_display_color(
+                edge, mesh_edge_index, highlighted, confirmed);
             auto batch = std::find_if(batches.begin(), batches.end(),
                 [&](const auto& value) { return value.color == color; });
             if (batch == batches.end()) {

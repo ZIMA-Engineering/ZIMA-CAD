@@ -518,7 +518,7 @@ private:
     void start_edge_treatment(zima::document::FeatureKind kind);
     [[nodiscard]] bool is_edge_treatment_feature(
         const std::string& owner_id) const;
-    [[nodiscard]] std::set<zima::viewer::EdgeKey>
+    [[nodiscard]] std::set<std::size_t>
         edge_treatment_feature_edges(
             const std::string& owner_id,
             std::string instance_path = {}) const;

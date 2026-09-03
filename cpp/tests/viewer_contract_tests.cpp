@@ -121,48 +121,50 @@ int main() {
                     imported_step_container) &&
                     zima::viewer::candidate_uses_face_boundary_overlay(face_overlay),
                 "Whole STEP Container still entered the derived face-boundary overlay");
-        zima::kernel::ViewerMesh treatment_wire_mesh;
         auto fillet_boundary = native_original_wire;
         fillet_boundary.reference = {"box", "x_min:y_min", {}};
+        fillet_boundary.display_owner_id = "fillet-a";
         fillet_boundary.edge_treatment_owner_ids = {"fillet-a"};
+        const zima::kernel::FaceReference first_support{
+            "box", "face:x_min", {}};
+        const zima::kernel::FaceReference second_support{
+            "box", "face:y_min", {}};
+        const zima::kernel::FaceReference fillet_face{
+            "fillet-a", "fillet:face:from:source", {}};
+        fillet_boundary.edge_treatment_side_references = {
+            first_support, fillet_face};
         auto shared_treatment_boundary = fillet_boundary;
         shared_treatment_boundary.reference.semantic_key = "x_min:z_min";
         shared_treatment_boundary.edge_treatment_owner_ids = {
             "fillet-a", "chamfer-b"};
+        shared_treatment_boundary.edge_treatment_side_references = {
+            second_support, fillet_face};
+        auto terminal_treatment_edge = fillet_boundary;
+        terminal_treatment_edge.reference.semantic_key = "fillet:end";
+        terminal_treatment_edge.edge_treatment_side_references = {
+            {"box", "face:end", {}}, fillet_face};
         auto unrelated_boundary = fillet_boundary;
         unrelated_boundary.reference.semantic_key = "y_min:z_min";
+        unrelated_boundary.display_owner_id = "fillet-other";
         unrelated_boundary.edge_treatment_owner_ids = {"fillet-other"};
-        treatment_wire_mesh.edges = {fillet_boundary,
-            shared_treatment_boundary, unrelated_boundary};
-        const auto fillet_wire =
-            zima::viewer::edge_treatment_boundary_edges(
-                treatment_wire_mesh, "fillet-a");
-        const auto chamfer_wire =
-            zima::viewer::edge_treatment_boundary_edges(
-                treatment_wire_mesh, "chamfer-b");
         const zima::viewer::ViewerCandidate fillet_container{
             zima::viewer::CandidateKind::Container, 0.0, 0,
             "fillet-a", {}, {}, zima::viewer::CandidateGeometry::Display};
         const zima::viewer::ViewerCandidate unrelated_treatment_container{
             zima::viewer::CandidateKind::Container, 0.0, 0,
             "fillet-other", {}, {}, zima::viewer::CandidateGeometry::Display};
-        require(fillet_wire.size() == 2 && chamfer_wire.size() == 1 &&
-                    fillet_wire.contains(zima::viewer::edge_key(
-                        fillet_boundary.reference)) &&
-                    fillet_wire.contains(zima::viewer::edge_key(
-                        shared_treatment_boundary.reference)) &&
-                    !fillet_wire.contains(zima::viewer::edge_key(
-                        unrelated_boundary.reference)) &&
-                    zima::viewer::candidate_recolors_wire_edge(
+        require(!zima::viewer::candidate_recolors_wire_edge(
                         fillet_container, fillet_boundary) &&
-                    zima::viewer::candidate_recolors_wire_edge(
+                    !zima::viewer::candidate_recolors_wire_edge(
                         fillet_container, shared_treatment_boundary) &&
                     !zima::viewer::candidate_recolors_wire_edge(
+                        fillet_container, terminal_treatment_edge) &&
+                    !zima::viewer::candidate_recolors_wire_edge(
                         fillet_container, unrelated_boundary) &&
-                    zima::viewer::candidate_recolors_wire_edge(
+                    !zima::viewer::candidate_recolors_wire_edge(
                         unrelated_treatment_container, unrelated_boundary),
-                "Fillet/Chamfer face hit did not resolve only its persisted "
-                "boundary wire");
+                "Fillet/Chamfer Container fell through to ambiguous stable-key "
+                "wire recolouring instead of exact display-edge indices");
         zima::kernel::ViewerMesh infinite_line_mesh;
         infinite_line_mesh.edges.push_back({
             {{-1.0, 0.0, 5.0}, {1.0, 0.0, 5.0}},

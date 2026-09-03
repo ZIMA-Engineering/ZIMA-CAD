@@ -103,18 +103,16 @@ bool candidate_recolors_wire_edge(
     }
     if (candidate.kind == CandidateKind::Container &&
         candidate.semantic_key.empty()) {
-        // Fillet/Chamfer Containers are represented by the exact persisted
-        // boundary edges of their generated treatment faces. These edges
-        // keep the identity of the input body, so display_owner_id cannot
-        // identify the treatment Container itself; the persisted ancestry
-        // list is the authoritative relation instead. Keeping this in the
-        // common recolour predicate also makes hover independent of whether
-        // the ordinary wire is currently displayed (plain Shaded included).
+        // A Fillet/Chamfer Container owns the selected operational edge at
+        // its real input boundary, not every edge later generated around the
+        // treatment face. The application presents that persisted input
+        // geometry separately; never let these OCCT-created result edges
+        // fall through to display_owner_id and join the Container highlight.
         if (edge.reference.instance_path == candidate.instance_path &&
             std::find(edge.edge_treatment_owner_ids.begin(),
                 edge.edge_treatment_owner_ids.end(), candidate.owner_id) !=
                 edge.edge_treatment_owner_ids.end()) {
-            return true;
+            return false;
         }
         const bool screen_curve = edge.overlay &&
             edge.reference.semantic_key.starts_with("curve:segment:");
@@ -174,23 +172,6 @@ bool candidate_uses_original_container_wire_edge(
 bool candidate_uses_face_boundary_overlay(
     const ViewerCandidate& candidate) {
     return candidate.kind == CandidateKind::Face;
-}
-
-std::set<EdgeKey> edge_treatment_boundary_edges(
-    const zima::kernel::ViewerMesh& mesh,
-    const std::string& owner_id,
-    const std::string& instance_path) {
-    std::set<EdgeKey> result;
-    if (owner_id.empty()) return result;
-    for (const auto& edge : mesh.edges) {
-        if (!edge.reference.valid() ||
-            edge.reference.instance_path != instance_path ||
-            std::find(edge.edge_treatment_owner_ids.begin(),
-                edge.edge_treatment_owner_ids.end(), owner_id) ==
-                edge.edge_treatment_owner_ids.end()) continue;
-        result.insert(edge_key(edge.reference));
-    }
-    return result;
 }
 
 std::vector<EdgePickCandidate> ordered_edge_candidates(

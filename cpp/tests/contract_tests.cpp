@@ -1066,13 +1066,22 @@ int main() {
                         }),
                 "Original-edge Fillet did not produce a valid bounded solid");
         require_stable_body_edges(fillet_boundaries.back(), "Fillet");
-        require(std::ranges::any_of(fillet_boundaries.back().mesh.edges,
-                    [](const auto& edge) {
-                        return std::ranges::find(
-                            edge.edge_treatment_owner_ids, "fillet") !=
-                            edge.edge_treatment_owner_ids.end();
-                    }),
-                "Fillet did not persist its visible treatment boundary wire");
+        const auto fillet_boundary_edge_count = std::ranges::count_if(
+            fillet_boundaries.back().mesh.edges, [](const auto& edge) {
+                return std::ranges::find(
+                    edge.edge_treatment_owner_ids, "fillet") !=
+                    edge.edge_treatment_owner_ids.end();
+            });
+        const auto curved_fillet_boundary_edge_count = std::ranges::count_if(
+            fillet_boundaries.back().mesh.edges, [](const auto& edge) {
+                return edge.points.size() > 2 &&
+                    std::ranges::find(edge.edge_treatment_owner_ids, "fillet") !=
+                        edge.edge_treatment_owner_ids.end();
+            });
+        require(fillet_boundary_edge_count == 4 &&
+                    curved_fillet_boundary_edge_count == 2,
+                "Single-edge Fillet did not persist exactly its four-edge "
+                "surface boundary: two radius arcs and two longitudinal edges");
         const std::vector<zima::kernel::HistoryOperation> edited_fillet_history{
             {"box", zima::kernel::BoxRequest{100.0, 80.0, 50.0},
              zima::kernel::BooleanOperation::Add},
@@ -1114,13 +1123,14 @@ int main() {
                         }),
                 "Original-edge Chamfer did not produce a valid bounded solid");
         require_stable_body_edges(chamfer_boundaries.back(), "Chamfer");
-        require(std::ranges::any_of(chamfer_boundaries.back().mesh.edges,
+        require(std::ranges::count_if(chamfer_boundaries.back().mesh.edges,
                     [](const auto& edge) {
                         return std::ranges::find(
                             edge.edge_treatment_owner_ids, "chamfer") !=
                             edge.edge_treatment_owner_ids.end();
-                    }),
-                "Chamfer did not persist its visible treatment boundary wire");
+                    }) == 4,
+                "Single-edge Chamfer did not persist exactly its four-edge "
+                "surface boundary");
 
         const auto two_distance_chamfer = kernel.evaluate_history({
             {"box", zima::kernel::BoxRequest{100.0, 80.0, 50.0},
@@ -3561,8 +3571,22 @@ int main() {
         extrusion_container.extrusion.height = 10.0;
         const auto extrusion_container_id = extrusion_container.id;
         extrusion_document.history.push_back(std::move(extrusion_container));
+        const auto profile_cap_key = [](std::string_view role,
+                                        const std::string& profile_region_id) {
+            return std::string(role) + ":from:" +
+                std::to_string(profile_region_id.size()) + ":" +
+                profile_region_id;
+        };
+        const auto extrusion_operations = extrusion_document.kernel_operations();
+        const auto& extrusion_request =
+            std::get<zima::kernel::ExtrusionRequest>(
+                extrusion_operations.front().primitive);
+        const auto extrusion_start_cap =
+            profile_cap_key("start", extrusion_request.profile_region_id);
+        const auto extrusion_end_cap =
+            profile_cap_key("end", extrusion_request.profile_region_id);
         const auto extrusion_results =
-            kernel.evaluate_history(extrusion_document.kernel_operations());
+            kernel.evaluate_history(extrusion_operations);
         require(extrusion_results.size() == 1 &&
                     std::abs(extrusion_results.front().volume - 6000.0) < 1.0e-6,
                 "Closed Sketch extrusion produced an incorrect solid volume");
@@ -3778,8 +3802,8 @@ int main() {
                     "Extrusion face lost its stable history owner");
             extrusion_faces.insert(reference.semantic_key);
         }
-        require(extrusion_faces.contains("start") &&
-                    extrusion_faces.contains("end") &&
+        require(extrusion_faces.contains(extrusion_start_cap) &&
+                    extrusion_faces.contains(extrusion_end_cap) &&
                     std::ranges::all_of(extrusion_segment_ids,
                         [&](const auto& id) {
                             return extrusion_faces.contains("generated:" + id);
@@ -3858,10 +3882,12 @@ int main() {
             require(count != 0, "Requested semantic cap face is missing");
             return sum / static_cast<double>(count);
         };
-        require(std::abs(referenced_face_z(extrusion_results.front(), "start")) <
+        require(std::abs(referenced_face_z(
+                    extrusion_results.front(), extrusion_start_cap)) <
                     1.0e-7 &&
-                std::abs(referenced_face_z(extrusion_results.front(), "end") -
-                    10.0) < 1.0e-7,
+                std::abs(referenced_face_z(
+                    extrusion_results.front(), extrusion_end_cap) - 10.0) <
+                    1.0e-7,
                 "Forward Extrusion swapped semantic start/end caps");
         auto reverse_extrusion_document = extrusion_document;
         reverse_extrusion_document.history.front().extrusion.direction =
@@ -3872,10 +3898,12 @@ int main() {
         require(std::abs(reverse_bounds[0] + 10.0) < 1.0e-7 &&
                     std::abs(reverse_bounds[1]) < 1.0e-7 &&
                     std::abs(referenced_face_z(
-                        reverse_extrusion_results.front(), "start") + 10.0) <
+                        reverse_extrusion_results.front(),
+                        extrusion_start_cap) + 10.0) <
                         1.0e-7 &&
                     std::abs(referenced_face_z(
-                        reverse_extrusion_results.front(), "end")) < 1.0e-7,
+                        reverse_extrusion_results.front(),
+                        extrusion_end_cap)) < 1.0e-7,
                 "Reverse Extrusion is not located behind the Sketch plane");
         auto symmetric_extrusion_document = extrusion_document;
         symmetric_extrusion_document.history.front().extrusion.direction =
@@ -3886,10 +3914,12 @@ int main() {
         require(std::abs(symmetric_bounds[0] + 5.0) < 1.0e-7 &&
                     std::abs(symmetric_bounds[1] - 5.0) < 1.0e-7 &&
                     std::abs(referenced_face_z(
-                        symmetric_extrusion_results.front(), "start") + 5.0) <
+                        symmetric_extrusion_results.front(),
+                        extrusion_start_cap) + 5.0) <
                         1.0e-7 &&
                     std::abs(referenced_face_z(
-                        symmetric_extrusion_results.front(), "end") - 5.0) <
+                        symmetric_extrusion_results.front(),
+                        extrusion_end_cap) - 5.0) <
                         1.0e-7 &&
                     symmetric_extrusion_results.front().source_fingerprint !=
                         extrusion_results.front().source_fingerprint,
@@ -4036,6 +4066,19 @@ int main() {
         require(up_to_results.size() == 2 &&
                     std::abs(up_to_results.back().volume - 6000.0) < 1e-6,
                 "Up-to-plane Extrusion did not clip at the datum plane");
+        const auto up_to_operations = up_to_document.kernel_operations();
+        const auto& up_to_request =
+            std::get<zima::kernel::ExtrusionRequest>(
+                up_to_operations.back().primitive);
+        const auto up_to_end_cap =
+            profile_cap_key("end", up_to_request.profile_region_id);
+        require(std::ranges::any_of(
+                    up_to_results.back().mesh.triangle_references,
+                    [&](const auto& reference) {
+                        return reference.owner_id == up_to.id &&
+                            reference.semantic_key == up_to_end_cap;
+                    }),
+                "Up-to-plane Extrusion lost its profile-owned end face");
         // Boolean intersection edges are created by Up-to Extrusion whenever
         // its clipped prism joins an existing body. They must carry a stable
         // ZIMA identity so a following Fillet/Chamfer can select them.
@@ -4698,15 +4741,32 @@ int main() {
             kernel.evaluate_history(text_profile_operations);
         require(std::abs(text_profile_results.front().volume - 670.0) < 1.0e-6,
                 "Multi-glyph Text Extrusion has an incorrect exact volume");
+        std::set<std::string> expected_text_cap_keys{
+            profile_cap_key("start", text_request.profile_region_id),
+            profile_cap_key("end", text_request.profile_region_id)};
+        for (const auto& region : text_request.additional_profile_regions) {
+            expected_text_cap_keys.insert(
+                profile_cap_key("start", region.region_id));
+            expected_text_cap_keys.insert(
+                profile_cap_key("end", region.region_id));
+        }
+        std::set<std::string> actual_text_cap_keys;
         bool stable_text_boundary_found = false;
         for (const auto& reference : text_profile_results.front().mesh
                  .original_references.triangle_references) {
+            if (reference.owner_id ==
+                    text_profile_document.history.front().id &&
+                (reference.semantic_key.starts_with("start:from:") ||
+                 reference.semantic_key.starts_with("end:from:"))) {
+                actual_text_cap_keys.insert(reference.semantic_key);
+            }
             if (reference.semantic_key == "generated:" + profile_text_id) {
                 stable_text_boundary_found = true;
             }
         }
-        require(stable_text_boundary_found,
-                "Text profile side lost its stable source-boundary identity");
+        require(stable_text_boundary_found &&
+                    actual_text_cap_keys == expected_text_cap_keys,
+                "Multi-region profile caps lost unique profile-region ancestry");
         const auto text_profile_path = std::filesystem::temp_directory_path() /
             "zima-cad-text-profile-contract.prtz";
         text_profile_document.save(text_profile_path);
@@ -5182,8 +5242,19 @@ int main() {
                 "Revolution faces/edges lost their Sketch curve/point parents");
         auto half_revolution_document = revolution_document;
         half_revolution_document.history.front().revolution.angle_degrees = 180.0;
+        const auto half_revolution_operations =
+            half_revolution_document.kernel_operations();
+        const auto& half_revolution_request =
+            std::get<zima::kernel::RevolutionRequest>(
+                half_revolution_operations.front().primitive);
+        const auto half_revolution_start_cap =
+            profile_cap_key(
+                "start", half_revolution_request.profile_region_id);
+        const auto half_revolution_end_cap =
+            profile_cap_key(
+                "end", half_revolution_request.profile_region_id);
         const auto half_revolution_results = kernel.evaluate_history(
-            half_revolution_document.kernel_operations());
+            half_revolution_operations);
         require(std::abs(half_revolution_results.front().volume -
                     195.0 * std::numbers::pi) < 1.0e-6 &&
                     half_revolution_results.front().source_fingerprint !=
@@ -5196,8 +5267,8 @@ int main() {
                 partial_revolution_faces.insert(reference.semantic_key);
             }
         }
-        require(partial_revolution_faces.contains("start") &&
-                    partial_revolution_faces.contains("end"),
+        require(partial_revolution_faces.contains(half_revolution_start_cap) &&
+                    partial_revolution_faces.contains(half_revolution_end_cap),
                 "Partial Revolution lost its start or end profile face");
         auto two_sided_revolution = revolution_document;
         auto& two_sided_parameters =

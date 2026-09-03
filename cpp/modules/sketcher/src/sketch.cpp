@@ -21,6 +21,27 @@
 
 namespace zima::sketcher {
 
+std::string constraint_marker_label(ConstraintKind kind) {
+    switch (kind) {
+    case ConstraintKind::Horizontal: return "H";
+    case ConstraintKind::Vertical: return "V";
+    case ConstraintKind::Coincident: return {};
+    case ConstraintKind::PointReference: return "K";
+    case ConstraintKind::Parallel: return "//";
+    case ConstraintKind::Perpendicular: return "⊥";
+    case ConstraintKind::EqualLength:
+    case ConstraintKind::EqualRadius: return "=";
+    case ConstraintKind::PointOnCircle:
+    case ConstraintKind::PointOnLine: return "C";
+    case ConstraintKind::MidpointOnLine:
+    case ConstraintKind::Midpoint: return "M";
+    case ConstraintKind::Symmetric: return "S";
+    case ConstraintKind::Concentric: return "◎";
+    case ConstraintKind::Tangent: return "T";
+    }
+    return {};
+}
+
 DimensionKind classify_linear_dimension(
     const std::array<double, 2>& first,
     const std::array<double, 2>& second,
@@ -10407,26 +10428,6 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         }
         return std::nullopt;
     };
-    const auto marker_label = [](ConstraintKind kind) -> std::string {
-        switch (kind) {
-            case ConstraintKind::Horizontal: return "H";
-            case ConstraintKind::Vertical: return "V";
-            case ConstraintKind::Coincident:
-            case ConstraintKind::PointReference: return {};
-            case ConstraintKind::Parallel: return "//";
-            case ConstraintKind::Perpendicular: return "⊥";
-            case ConstraintKind::EqualLength:
-            case ConstraintKind::EqualRadius: return "=";
-            case ConstraintKind::PointOnCircle: return "C";
-            case ConstraintKind::PointOnLine: return "C";
-            case ConstraintKind::MidpointOnLine: return "M";
-            case ConstraintKind::Symmetric: return "S";
-            case ConstraintKind::Midpoint: return "M";
-            case ConstraintKind::Concentric: return "◎";
-            case ConstraintKind::Tangent: return "T";
-        }
-        return {};
-    };
     const auto geometry_semantic_key = [&](const std::string& geometry_id) {
         if (geometry_id.empty()) return std::string{};
         if (geometry_id == "sketch_axis:x" || geometry_id == "sketch_axis:y")
@@ -10657,13 +10658,13 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         const auto marker_reference = zima::kernel::EdgeReference{
             id, "constraint:" + constraint.id, {}};
         result.constraint_markers.push_back({*anchor,
-            referenced_keypoint_geometry ? "K" : marker_label(constraint.kind),
+            constraint_marker_label(constraint.kind),
             marker_reference, participants});
         if (constraint.kind == ConstraintKind::Symmetric &&
             !constraint.second_point_id.empty()) {
             if (const auto* mirrored = find_point(constraint.second_point_id)) {
                 result.constraint_markers.push_back({project(*mirrored),
-                    marker_label(constraint.kind), marker_reference,
+                    constraint_marker_label(constraint.kind), marker_reference,
                     std::move(participants)});
             }
         }

@@ -1126,7 +1126,7 @@ QString sketch_constraint_label(zima::sketcher::ConstraintKind kind) {
     switch (kind) {
     case Kind::Horizontal: return QObject::tr("Vodorovnost");
     case Kind::Vertical: return QObject::tr("Svislost");
-    case Kind::Coincident: return QObject::tr("Shodnost");
+    case Kind::Coincident: return QObject::tr("Totožnost");
     case Kind::PointReference: return QObject::tr("Reference bodu");
     case Kind::Parallel: return QObject::tr("Rovnoběžnost");
     case Kind::Perpendicular: return QObject::tr("Kolmost");
@@ -1140,6 +1140,26 @@ QString sketch_constraint_label(zima::sketcher::ConstraintKind kind) {
     case Kind::Tangent: return QObject::tr("Tečnost");
     }
     return QObject::tr("Vazba");
+}
+
+QIcon sketch_constraint_tree_icon(zima::sketcher::ConstraintKind kind) {
+    QString symbol = QString::fromStdString(
+        zima::sketcher::constraint_marker_label(kind));
+    // A point-point identity is represented by one merged point in the View,
+    // so it has no separate text marker there. Keep its list row visually
+    // aligned with all other relations by using one small green point.
+    if (symbol.isEmpty()) symbol = QStringLiteral("•");
+    QPixmap pixmap(18, 18);
+    pixmap.fill(Qt::transparent);
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::TextAntialiasing);
+    painter.setPen(QColor("#7CFF6B"));
+    QFont font = painter.font();
+    font.setBold(true);
+    font.setPixelSize(12);
+    painter.setFont(font);
+    painter.drawText(pixmap.rect(), Qt::AlignCenter, symbol);
+    return QIcon(pixmap);
 }
 
 QString sketch_dimension_label(const zima::sketcher::SketchDimension& dimension) {
@@ -2826,7 +2846,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     sketch_horizontal_action_->setObjectName("sketchHorizontalAction");
     sketch_vertical_action_ = make_action(tr("Svislost"));
     sketch_vertical_action_->setObjectName("sketchVerticalAction");
-    sketch_coincident_action_ = make_action(tr("Shodnost"));
+    sketch_coincident_action_ = make_action(tr("Totožnost"));
     sketch_coincident_action_->setObjectName("sketchCoincidentAction");
     sketch_midpoint_action_ = make_action(tr("Střed"));
     sketch_midpoint_action_->setObjectName("sketchMidpointAction");
@@ -2842,6 +2862,31 @@ void AssemblyWorkspaceWindow::create_actions() {
     sketch_perpendicular_action_->setObjectName("sketchPerpendicularAction");
     sketch_equal_length_action_ = make_action(tr("Stejnost"));
     sketch_equal_length_action_->setObjectName("sketchEqualAction");
+    const auto set_constraint_menu_icon = [](QAction* action,
+            zima::sketcher::ConstraintKind kind) {
+        action->setIcon(sketch_constraint_tree_icon(kind));
+        action->setIconVisibleInMenu(true);
+    };
+    set_constraint_menu_icon(sketch_horizontal_action_,
+        zima::sketcher::ConstraintKind::Horizontal);
+    set_constraint_menu_icon(sketch_vertical_action_,
+        zima::sketcher::ConstraintKind::Vertical);
+    set_constraint_menu_icon(sketch_parallel_action_,
+        zima::sketcher::ConstraintKind::Parallel);
+    set_constraint_menu_icon(sketch_equal_length_action_,
+        zima::sketcher::ConstraintKind::EqualLength);
+    set_constraint_menu_icon(sketch_perpendicular_action_,
+        zima::sketcher::ConstraintKind::Perpendicular);
+    set_constraint_menu_icon(sketch_coincident_action_,
+        zima::sketcher::ConstraintKind::Coincident);
+    set_constraint_menu_icon(sketch_midpoint_action_,
+        zima::sketcher::ConstraintKind::Midpoint);
+    set_constraint_menu_icon(sketch_symmetric_action_,
+        zima::sketcher::ConstraintKind::Symmetric);
+    set_constraint_menu_icon(sketch_tangent_action_,
+        zima::sketcher::ConstraintKind::Tangent);
+    set_constraint_menu_icon(sketch_concentric_action_,
+        zima::sketcher::ConstraintKind::Concentric);
     sketch_fix_point_action_ = make_action(tr("Fixovat bod"));
     sketch_fix_point_action_->setToolTip(tr(
         "Uzamkne bod na jeho současných souřadnicích X a Y."));
@@ -3543,7 +3588,7 @@ void AssemblyWorkspaceWindow::create_layout() {
             select_occurrence(candidate.instance_path);
         } else if (candidate.kind == zima::viewer::CandidateKind::Container) {
             select_container(candidate.owner_id);
-            viewer_->set_feature_selected_edges(
+            viewer_->set_feature_selected_edge_indices(
                 edge_treatment_feature_edges(
                     candidate.owner_id, candidate.instance_path));
         } else if (candidate.kind == zima::viewer::CandidateKind::SketchSegment &&
@@ -4124,14 +4169,14 @@ void AssemblyWorkspaceWindow::create_layout() {
             edge_treatment_hover_seed_ = std::move(hover_seed);
         } else {
             edge_treatment_hover_seed_.reset();
-            std::set<zima::viewer::EdgeKey> hovered_feature;
+            std::set<std::size_t> hovered_feature;
             if (const auto candidate = viewer_->offered_candidate();
                 candidate &&
                 candidate->kind == zima::viewer::CandidateKind::Container) {
                 hovered_feature = edge_treatment_feature_edges(
                     candidate->owner_id, candidate->instance_path);
             }
-            viewer_->set_feature_hover_edges(std::move(hovered_feature));
+            viewer_->set_feature_hover_edge_indices(std::move(hovered_feature));
         }
         if (!sketch_inference_cycle_refresh_) {
             sketch_segment_inference_cycle_ = 0;
@@ -4783,7 +4828,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 const auto owner_id =
                     item->data(0, Qt::UserRole).toString().toStdString();
                 viewer_->confirm_container(owner_id);
-                viewer_->set_feature_selected_edges(
+                viewer_->set_feature_selected_edge_indices(
                     edge_treatment_feature_edges(owner_id));
             } else if (item->data(0, Qt::UserRole + 3).toString() ==
                            "part-result-body") {
@@ -7194,19 +7239,20 @@ bool AssemblyWorkspaceWindow::is_edge_treatment_feature(
          container->feature_kind == zima::document::FeatureKind::Chamfer);
 }
 
-std::set<zima::viewer::EdgeKey>
+std::set<std::size_t>
 AssemblyWorkspaceWindow::edge_treatment_feature_edges(
     const std::string& owner_id,
     std::string instance_path) const {
     if (!is_edge_treatment_feature(owner_id) || viewer_ == nullptr) return {};
+    const auto* part = workspace_.open_part(workspace_.active_document_id());
+    if (part == nullptr ||
+        part->session.document().find_container(owner_id) == nullptr) return {};
     if (instance_path.empty()) {
-        const auto* part = workspace_.open_part(workspace_.active_document_id());
-        if (part != nullptr) {
-            instance_path = resolve_active_occurrence(
-                part->session.document().document_id).value_or(std::string{});
-        }
+        instance_path = resolve_active_occurrence(
+            part->session.document().document_id).value_or(std::string{});
     }
-    return viewer_->edge_treatment_boundary_edges(owner_id, instance_path);
+    return viewer_->edge_treatment_boundary_edge_indices(
+        owner_id, instance_path);
 }
 
 void AssemblyWorkspaceWindow::begin_status_operation(
@@ -16353,12 +16399,12 @@ void AssemblyWorkspaceWindow::start_sketch_coincident(
             ? tr("Vodorovnost bodů: vyberte řízený bod.")
             : kind == zima::sketcher::ConstraintKind::Vertical
                 ? tr("Svislost bodů: vyberte řízený bod.")
-                : tr("Shodnost bodů: vyberte druhý bod.")
+                : tr("Totožnost bodů: vyberte druhý bod.")
         : kind == zima::sketcher::ConstraintKind::Horizontal
             ? tr("Vodorovnost bodů: vyberte první bod. Escape příkaz zruší.")
             : kind == zima::sketcher::ConstraintKind::Vertical
                 ? tr("Svislost bodů: vyberte první bod. Escape příkaz zruší.")
-                : tr("Shodnost bodů: vyberte první bod. Escape příkaz zruší."));
+                : tr("Totožnost bodů: vyberte první bod. Escape příkaz zruší."));
 }
 
 void AssemblyWorkspaceWindow::cancel_sketch_coincident() {
@@ -16861,7 +16907,7 @@ void AssemblyWorkspaceWindow::accept_sketch_coincident_point(
                     value.semantic_key.starts_with("point:");
             });
             state_->setText(tr(
-                "Shodnost s osou: vyberte bod, který má ležet na ose."));
+                "Totožnost s osou: vyberte bod, který má ležet na ose."));
             return;
         }
         support_geometry_id = candidate.semantic_key;
@@ -16947,7 +16993,7 @@ void AssemblyWorkspaceWindow::accept_sketch_coincident_point(
                  value.semantic_key.starts_with("bspline:"));
         });
         state_->setText(tr(
-            "Shodnost: vyberte druhý bod, úsečku, křivku nebo externí přímku."));
+            "Totožnost: vyberte druhý bod, úsečku, křivku nebo externí přímku."));
         return;
     }
     if (!support_geometry_id.empty()) {
@@ -17016,7 +17062,7 @@ void AssemblyWorkspaceWindow::accept_sketch_coincident_point(
             ? tr("Vodorovnost bodů vytvořena. Vyberte referenční bod další vazby.")
             : completed_kind == zima::sketcher::ConstraintKind::Vertical
                 ? tr("Svislost bodů vytvořena. Vyberte referenční bod další vazby.")
-                : tr("Vazba shodnosti vytvořena. Vyberte první bod další vazby."));
+                : tr("Vazba totožnosti vytvořena. Vyberte první bod další vazby."));
     } catch (const std::exception& error) {
         state_->setText(QString::fromUtf8(error.what()));
     }
@@ -17038,17 +17084,25 @@ void AssemblyWorkspaceWindow::start_sketch_segment_pair(
     selected_sketch_point_id_.clear();
     set_sketch_pair_contract();
     state_->setText(kind == zima::sketcher::ConstraintKind::Parallel
-        ? tr("Rovnoběžnost: vyberte referenční úsečku. Escape příkaz zruší.")
+        ? tr("Rovnoběžnost: vyberte úsečku, která se má pohnout. "
+             "Escape příkaz zruší.")
         : kind == zima::sketcher::ConstraintKind::Perpendicular
-            ? tr("Kolmost: vyberte referenční úsečku. Escape příkaz zruší.")
-            : tr("Stejné: vyberte referenční úsečku, kružnici nebo oblouk. "
+            ? tr("Kolmost: vyberte úsečku, která se má pohnout. "
+                 "Escape příkaz zruší.")
+            : tr("Stejné: vyberte řízenou úsečku, kružnici nebo oblouk. "
                  "Escape příkaz zruší."));
 }
 
 void AssemblyWorkspaceWindow::set_sketch_pair_contract() {
     const bool equal = pending_pair_kind_ ==
         zima::sketcher::ConstraintKind::EqualLength;
-    if (!equal) {
+    if (!equal && pending_pair_geometry_id_.empty()) {
+        // Pair constraints follow the normal CAD contract: the first click
+        // is always editable/driven geometry. Datum axes and external lines
+        // are valid only as the stationary second reference.
+        viewer_->set_selection_contract({
+            zima::viewer::CandidateKind::SketchSegment});
+    } else if (!equal) {
         viewer_->set_selection_contract({
             zima::viewer::CandidateKind::SketchSegment,
             zima::viewer::CandidateKind::SketchAxis,
@@ -17098,8 +17152,11 @@ void AssemblyWorkspaceWindow::set_sketch_pair_contract() {
                     pending_geometry_id) {
                 return false;
             }
-            if (pending_geometry_id.empty()) return true;
-            return reference_is_circular ? circular : segment;
+            if (pending_geometry_id.empty()) {
+                return equal ? segment || circular : segment;
+            }
+            if (equal) return reference_is_circular ? circular : segment;
+            return segment || base_axis || external_direction;
         });
 }
 
@@ -17142,16 +17199,16 @@ void AssemblyWorkspaceWindow::accept_sketch_segment_pair(
         pending_pair_reference_is_circular_ = is_circular;
         set_sketch_pair_contract();
         state_->setText(pending_pair_kind_ == zima::sketcher::ConstraintKind::Parallel
-            ? tr("Rovnoběžnost: vyberte řízenou úsečku.")
+            ? tr("Rovnoběžnost: vyberte stojící referenční úsečku nebo osu.")
             : pending_pair_kind_ == zima::sketcher::ConstraintKind::Perpendicular
-                ? tr("Kolmost: vyberte řízenou úsečku.")
+                ? tr("Kolmost: vyberte stojící referenční úsečku nebo osu.")
                 : is_circular
-                    ? tr("Stejné: vyberte řízenou kružnici nebo oblouk.")
-                    : tr("Stejné: vyberte řízenou úsečku."));
+                    ? tr("Stejné: vyberte referenční kružnici nebo oblouk.")
+                    : tr("Stejné: vyberte referenční úsečku."));
         return;
     }
     if (geometry_id == pending_pair_geometry_id_) {
-        state_->setText(tr("Vyberte jinou řízenou geometrii."));
+        state_->setText(tr("Vyberte jinou referenční geometrii."));
         return;
     }
     if (is_circular != pending_pair_reference_is_circular_) {
@@ -17163,14 +17220,13 @@ void AssemblyWorkspaceWindow::accept_sketch_segment_pair(
         if (!mutate_active_sketch([&](auto& sketch) {
                 if (pending_pair_reference_is_circular_) {
                     static_cast<void>(sketch.add_equal_radius_constraint(
-                        pending_pair_geometry_id_, geometry_id));
+                        geometry_id, pending_pair_geometry_id_));
                 } else {
-                    const bool selected_base_axis =
-                        geometry_id == "sketch_axis:x" ||
-                        geometry_id == "sketch_axis:y";
+                    // The model API stores reference first and driven second;
+                    // UI selection deliberately uses the opposite temporal
+                    // order so the object chosen first is the one that moves.
                     static_cast<void>(sketch.add_segment_pair_constraint(
-                        selected_base_axis ? geometry_id : pending_pair_geometry_id_,
-                        selected_base_axis ? pending_pair_geometry_id_ : geometry_id,
+                        geometry_id, pending_pair_geometry_id_,
                         pending_pair_kind_));
                 }
             })) return;
@@ -17182,12 +17238,12 @@ void AssemblyWorkspaceWindow::accept_sketch_segment_pair(
         refresh_tabs();
         refresh_scene();
         state_->setText(pending_pair_kind_ == zima::sketcher::ConstraintKind::Parallel
-            ? tr("Rovnoběžnost vytvořena. Vyberte další referenční úsečku.")
+            ? tr("Rovnoběžnost vytvořena. Vyberte další řízenou úsečku.")
             : pending_pair_kind_ == zima::sketcher::ConstraintKind::Perpendicular
-                ? tr("Kolmost vytvořena. Vyberte další referenční úsečku.")
+                ? tr("Kolmost vytvořena. Vyberte další řízenou úsečku.")
                 : equal_radius
-                    ? tr("Stejný poloměr vytvořen. Vyberte další referenční geometrii.")
-                    : tr("Stejná délka vytvořena. Vyberte další referenční geometrii."));
+                    ? tr("Stejný poloměr vytvořen. Vyberte další řízenou geometrii.")
+                    : tr("Stejná délka vytvořena. Vyberte další řízenou geometrii."));
     } catch (const std::exception& error) {
         state_->setText(QString::fromUtf8(error.what()));
     }
@@ -23552,10 +23608,13 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         sketch_text_action_->setEnabled(!active_sketch_id_.empty());
         sketch_constraints_action_->setEnabled(!active_sketch_id_.empty());
         sketch_dimensions_action_->setEnabled(!active_sketch_id_.empty());
-        sketch_horizontal_action_->setEnabled(
-            !selected_sketch_segment_id_.empty() || !selected_sketch_point_id_.empty());
-        sketch_vertical_action_->setEnabled(
-            !selected_sketch_segment_id_.empty() || !selected_sketch_point_id_.empty());
+        // H/V can constrain a preselected segment, but without a preselection
+        // they deliberately start the two-point direction workflow. Keep both
+        // commands available for the whole active-Sketch session; gating them
+        // on a selected object made that supported workflow unreachable after
+        // an ordinary scene refresh.
+        sketch_horizontal_action_->setEnabled(!active_sketch_id_.empty());
+        sketch_vertical_action_->setEnabled(!active_sketch_id_.empty());
         sketch_coincident_action_->setEnabled(!active_sketch_id_.empty());
         sketch_midpoint_action_->setEnabled(!active_sketch_id_.empty());
         sketch_symmetric_action_->setEnabled(!active_sketch_id_.empty());
@@ -24358,7 +24417,7 @@ void AssemblyWorkspaceWindow::populate_sketch_tree(
         auto* item = new QTreeWidgetItem(constraints, {
             sketch_constraint_label(constraint.kind) +
             QStringLiteral("%1").arg(++constraint_index, 3, 10, QLatin1Char('0'))});
-        item->setIcon(0, resource_icon("sketch-constraints"));
+        item->setIcon(0, sketch_constraint_tree_icon(constraint.kind));
         item->setData(0, Qt::UserRole, QString::fromStdString(constraint.id));
         item->setData(0, Qt::UserRole + 3, "part-sketch-constraint");
         item->setData(0, Qt::UserRole + 4, QString::fromStdString(sketch.id));
@@ -24381,12 +24440,22 @@ void AssemblyWorkspaceWindow::populate_sketch_tree(
 void AssemblyWorkspaceWindow::add_part_tree_children(
     QTreeWidgetItem* parent,
     const zima::document::PartDocument& document) {
+    // A brand-new Extrusion/Revolution temporarily places its owned Sketch
+    // and draft owner in DocumentSession while the Sketcher sub-editor is
+    // active. That is transaction working state, not committed history. Keep
+    // it out of Tree until Properties accepts it with OK. Existing containers
+    // being edited remain visible according to the rollback contract.
+    const std::string pending_creation_id =
+        pending_profile_feature_ && !pending_profile_transform_original_
+        ? pending_profile_feature_->id : std::string{};
     const auto construction_path = active_occurrence_path_.empty()
         ? zima::assembly::InstancePath{}
         : zima::assembly::InstancePath::decode(active_occurrence_path_);
     add_origin_tree_item(parent, document.document_id, false, construction_path);
     for (std::size_t index = 0; index < document.history.size(); ++index) {
         const auto& container = document.history[index];
+        if (!pending_creation_id.empty() &&
+            container.id == pending_creation_id) continue;
         const QString operation = container.combine_mode ==
                 zima::document::CombineMode::Subtract
             ? QStringLiteral("− ") : QStringLiteral("+ ");
@@ -24439,6 +24508,7 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
         for (const auto& constraint : sketch.constraints) {
             auto* child = new QTreeWidgetItem(
                 item, {sketch_constraint_label(constraint.kind)});
+            child->setIcon(0, sketch_constraint_tree_icon(constraint.kind));
             child->setData(0, Qt::UserRole,
                 QString::fromStdString(constraint.id));
             child->setData(0, Qt::UserRole + 3, "part-sketch-constraint");
@@ -24506,6 +24576,18 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
         }
     }
     std::size_t displayed_cursor = document.effective_history_cursor();
+    if (!pending_creation_id.empty() && !document.history_order.empty()) {
+        const auto pending = std::find_if(document.history_order.begin(),
+            document.history_order.end(), [&](const auto& entry) {
+                return entry.kind == zima::document::PartHistoryKind::Feature &&
+                    entry.id == pending_creation_id;
+            });
+        if (pending != document.history_order.end() &&
+            static_cast<std::size_t>(std::distance(
+                document.history_order.begin(), pending)) < displayed_cursor) {
+            --displayed_cursor;
+        }
+    }
     if (part_rollback_ &&
         part_rollback_->part_document_id == document.document_id &&
         part_rollback_->history_limit < document.history.size()) {

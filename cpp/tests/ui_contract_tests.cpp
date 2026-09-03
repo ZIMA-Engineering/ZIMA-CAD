@@ -457,10 +457,23 @@ int main(int argc, char* argv[]) {
         shaded_treatment_mesh.triangle_references.push_back(
             {"fillet-container", "fillet-face", {}});
         zima::kernel::ViewerEdge treatment_edge{
-            {{-0.7, 0.0, 0.0}, {0.7, 0.0, 0.0}},
+            {{-0.7, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.7, 0.20, 0.0}},
             {"input-solid", "edge:treatment-boundary", {}}};
         treatment_edge.edge_treatment_owner_ids = {"fillet-container"};
         shaded_treatment_mesh.edges.push_back(std::move(treatment_edge));
+        auto same_reference_other_edge = shaded_treatment_mesh.edges.front();
+        same_reference_other_edge.points = {
+            {-0.7, 0.65, 0.0}, {0.7, 0.65, 0.0}};
+        same_reference_other_edge.edge_treatment_owner_ids.clear();
+        shaded_treatment_mesh.edges.push_back(
+            std::move(same_reference_other_edge));
+        auto straight_treatment_edge = shaded_treatment_mesh.edges.front();
+        straight_treatment_edge.reference.semantic_key =
+            "edge:treatment-longitudinal";
+        straight_treatment_edge.points = {
+            {-0.7, -0.45, 0.0}, {0.7, -0.45, 0.0}};
+        shaded_treatment_mesh.edges.push_back(
+            std::move(straight_treatment_edge));
         zima::viewer::MeshView shaded_treatment_view(&parent);
         shaded_treatment_view.setGeometry(0, 0, 500, 360);
         shaded_treatment_view.set_mesh(std::move(shaded_treatment_mesh));
@@ -479,6 +492,17 @@ int main(int argc, char* argv[]) {
         application.processEvents();
         const auto treatment_candidate =
             shaded_treatment_view.hovered_candidate();
+        const auto treatment_edge_indices = shaded_treatment_view
+            .edge_treatment_boundary_edge_indices("fillet-container");
+        require(treatment_edge_indices.size() == 2 &&
+                    treatment_edge_indices.contains(0) &&
+                    treatment_edge_indices.contains(2),
+                "Fillet display highlight omitted a curved or longitudinal "
+                "boundary edge, or mixed another occurrence of the same "
+                "stable model reference into the treatment boundary");
+        shaded_treatment_view.set_feature_hover_edge_indices(
+            treatment_edge_indices);
+        application.processEvents();
         const auto shaded_treatment_frame =
             shaded_treatment_view.grabFramebuffer();
         require(treatment_candidate &&
@@ -489,7 +513,19 @@ int main(int argc, char* argv[]) {
                         shaded_treatment_view.size(), treatment_pointer,
                         QColor(255, 122, 0)),
                 "Plain Shaded mode did not show the exact orange persisted "
-                "Fillet/Chamfer boundary offered by the common picker");
+                "Fillet/Chamfer boundary edge offered by the common picker");
+        shaded_treatment_view.set_feature_hover_edge_indices({});
+        shaded_treatment_view.confirm_container("fillet-container");
+        shaded_treatment_view.set_feature_selected_edge_indices(
+            treatment_edge_indices);
+        application.processEvents();
+        const auto selected_treatment_frame =
+            shaded_treatment_view.grabFramebuffer();
+        require(framebuffer_contains_color_near(selected_treatment_frame,
+                    shaded_treatment_view.size(), treatment_pointer,
+                    QColor(0, 209, 255)),
+                "Confirmed Fillet/Chamfer did not show its exact boundary edge "
+                "in cyan");
 
         zima::kernel::ViewerMesh face_cycle_mesh;
         face_cycle_mesh.vertices = {

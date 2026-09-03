@@ -1042,6 +1042,15 @@ int main() {
                             "point:" + loaded_point_tools.segments.front().first_point_id,
                             "point:" + loaded_point_tools.segments.front().second_point_id},
                 "Sketch constraint did not publish its persistent View marker");
+        require(zima::sketcher::constraint_marker_label(
+                    zima::sketcher::ConstraintKind::Horizontal) == "H" &&
+                    zima::sketcher::constraint_marker_label(
+                        zima::sketcher::ConstraintKind::PointReference) == "K" &&
+                    zima::sketcher::constraint_marker_label(
+                        zima::sketcher::ConstraintKind::PointOnCircle) == "C" &&
+                    zima::sketcher::constraint_marker_label(
+                        zima::sketcher::ConstraintKind::Coincident).empty(),
+                "Sketch relation list and View no longer share one marker vocabulary");
         auto coincident_marker_sketch = zima::sketcher::Sketch::create_default();
         const auto coincident_first_segment =
             coincident_marker_sketch.add_segment(0.0, 0.0, 5.0, 0.0);

@@ -1392,6 +1392,17 @@ PrimitiveData make_sweep3d_data(
     return result;
 }
 
+std::string profile_cap_semantic_key(
+    std::string_view role, std::string_view profile_region_id) {
+    if (profile_region_id.empty()) {
+        throw std::runtime_error(
+            "Profile cap is missing its persisted profile-region parent");
+    }
+    return std::string(role) + ":from:" +
+        std::to_string(profile_region_id.size()) + ":" +
+        std::string(profile_region_id);
+}
+
 PrimitiveData make_extrusion_data(
     const ExtrusionRequest& request, const std::string& owner_id,
     const std::optional<TopoDS_Face>& exact_target = std::nullopt,
@@ -1549,8 +1560,12 @@ PrimitiveData make_extrusion_data(
     PrimitiveData result{prism.Shape(), {}, {}, {}};
     const std::string first_role = request.first_cap_is_start ? "start" : "end";
     const std::string last_role = request.first_cap_is_start ? "end" : "start";
-    result.faces.push_back({prism.FirstShape(), {owner_id, first_role}});
-    result.faces.push_back({prism.LastShape(), {owner_id, last_role}});
+    const FaceReference first_cap_reference{owner_id,
+        profile_cap_semantic_key(first_role, request.profile_region_id), {}};
+    const FaceReference last_cap_reference{owner_id,
+        profile_cap_semantic_key(last_role, request.profile_region_id), {}};
+    result.faces.push_back({prism.FirstShape(), first_cap_reference});
+    result.faces.push_back({prism.LastShape(), last_cap_reference});
     std::vector<std::vector<std::string>> edge_sources{
         request.outer_edge_source_ids};
     edge_sources.insert(edge_sources.end(), request.inner_edge_source_ids.begin(),
@@ -1665,12 +1680,20 @@ PrimitiveData make_extrusion_data(
             !BRepCheck_Analyzer(clip.Shape()).IsValid()) {
             throw std::runtime_error("OCCT Up-to-plane clipping failed");
         }
-        result.faces = propagate_topology(clip, result.faces, {});
+        // The clipping face is the semantic replacement for the prism's
+        // overrun cap. Its identity is defined before OCCT calculation by the
+        // Extrusion feature, cap role and persisted profile-region parent.
+        // OCCT history only locates the runtime descendant created by Common.
+        result.faces = propagate_topology(clip, result.faces,
+            std::vector<OwnedFace>{{limiting_face, last_cap_reference}});
+        TopTools_IndexedMapOfShape clipped_faces;
+        TopExp::MapShapes(clip.Shape(), TopAbs_FACE, clipped_faces);
+        std::erase_if(result.faces, [&](const auto& owned) {
+            return !clipped_faces.Contains(owned.shape);
+        });
         result.edges = propagate_topology(clip, result.edges, {});
         result.vertices = propagate_topology(clip, result.vertices, {});
         result.shape = clip.Shape();
-        // Clipping may create new result-body topology.  It is deliberately not
-        // exposed as a stable reference: no persisted ZIMA source owns it.
     }
     if (!request.additional_profile_regions.empty()) {
         TopoDS_Compound compound;
@@ -2051,9 +2074,13 @@ PrimitiveData make_revolution_data(
     const std::string last_role = request.first_cap_is_start ? "end" : "start";
     if (request.angle_degrees < 360.0 - 1.0e-9) {
         result.faces.push_back(
-            {revolution.FirstShape(), {owner_id, first_role}});
+            {revolution.FirstShape(), {owner_id,
+                profile_cap_semantic_key(
+                    first_role, request.profile_region_id), {}}});
         result.faces.push_back(
-            {revolution.LastShape(), {owner_id, last_role}});
+            {revolution.LastShape(), {owner_id,
+                profile_cap_semantic_key(
+                    last_role, request.profile_region_id), {}}});
     }
     std::vector<std::vector<std::string>> edge_sources{
         request.outer_edge_source_ids};
@@ -3495,7 +3522,7 @@ BodyResult make_result(
         viewer_edge.display_owner_id = reference.owner_id;
         const int edge_index = edge_faces.FindIndex(edge);
         if (face_references) {
-            std::set<std::string> treatment_owners;
+            std::map<std::string, std::size_t> treatment_face_counts;
             if (edge_index != 0) {
                 for (TopTools_ListIteratorOfListOfShape iterator(
                          edge_faces.FindFromIndex(edge_index));
@@ -3507,12 +3534,19 @@ BodyResult make_result(
                              "fillet:face") ||
                          face_reference.semantic_key.starts_with(
                              "chamfer:face"))) {
-                        treatment_owners.insert(face_reference.owner_id);
+                        ++treatment_face_counts[face_reference.owner_id];
                     }
                 }
             }
-            viewer_edge.edge_treatment_owner_ids.assign(
-                treatment_owners.begin(), treatment_owners.end());
+            for (const auto& [owner_id, adjacent_face_count] :
+                 treatment_face_counts) {
+                // The visible wire of a treatment feature is the boundary of
+                // the union of all faces generated by that feature. An edge
+                // shared by two such faces is internal to the union.
+                if (adjacent_face_count == 1) {
+                    viewer_edge.edge_treatment_owner_ids.push_back(owner_id);
+                }
+            }
         }
         std::vector<double> sample_parameters;
         sample_parameters.reserve(

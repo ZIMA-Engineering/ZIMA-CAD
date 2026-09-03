@@ -150,6 +150,8 @@ int verify_startup_contract(
         window.findChild<QAction*>("sketchUniversalDimensionAction");
     auto* sketch_horizontal =
         window.findChild<QAction*>("sketchHorizontalAction");
+    auto* sketch_vertical =
+        window.findChild<QAction*>("sketchVerticalAction");
     auto* sketch_fix_point =
         window.findChild<QAction*>("sketchFixPointAction");
     auto* workspace_state = window.findChild<QLabel*>("workspaceState");
@@ -221,7 +223,7 @@ int verify_startup_contract(
                     sketch_dimensions != nullptr &&
                     sketch_dimension != nullptr &&
                     sketch_universal_dimension != nullptr &&
-                    sketch_horizontal != nullptr &&
+                    sketch_horizontal != nullptr && sketch_vertical != nullptr &&
                     sketch_fix_point != nullptr &&
                     workspace_state != nullptr &&
                     file_progress != nullptr && !file_progress->isVisible() &&
@@ -1110,6 +1112,8 @@ int verify_startup_contract(
                     sketch_symmetric->isEnabled() &&
                     sketch_concentric->isEnabled() &&
                     sketch_tangent->isEnabled() &&
+                    sketch_horizontal->isEnabled() &&
+                    sketch_vertical->isEnabled() &&
                     sketch_text->isEnabled() &&
                     sketch_external_reference->isEnabled() &&
                     sketch_constraints->isEnabled() &&

@@ -73,6 +73,8 @@ are documented in [Future C++ migration](doc/CXX_MIGRATION.md).
     generated axes, with selectable and deletable in-view representation
   - Ctrl multi-selection in the tree and sketch view, rectangle selection and
     mirrored geometry with persistent point-pair symmetry constraints
+  - Czech **Totožnost** naming for point identity and the same green relation
+    symbol in every Sketch constraint-list row as in the 3D view
 - remaining work:
   - DXF import into the active Sketch with unit, layer and geometry mapping
   - DXF export of Sketch geometry with preserved real dimensions

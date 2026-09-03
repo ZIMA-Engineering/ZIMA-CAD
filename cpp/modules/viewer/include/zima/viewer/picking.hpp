@@ -112,11 +112,6 @@ struct EdgeKey {
 // Returns the already-calculated Body wire bounding every visible generated
 // face of one Fillet/Chamfer feature. Treatment faces remain hit targets only;
 // callers colour these exact persisted edges instead of a face overlay.
-[[nodiscard]] std::set<EdgeKey> edge_treatment_boundary_edges(
-    const zima::kernel::ViewerMesh& mesh,
-    const std::string& owner_id,
-    const std::string& instance_path = {});
-
 [[nodiscard]] std::vector<PickCandidate> ordered_ray_candidates(
     const zima::kernel::ViewerMesh& mesh,
     const zima::kernel::Vec3& ray_origin,

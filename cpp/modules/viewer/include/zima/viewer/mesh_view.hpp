@@ -195,6 +195,11 @@ public:
     void set_edge_treatment_selection_edges(std::set<EdgeKey> edges);
     void set_feature_hover_edges(std::set<EdgeKey> edges);
     void set_feature_selected_edges(std::set<EdgeKey> edges);
+    // Fillet/Chamfer presentation addresses exact occurrences in the current
+    // display mesh. Several result edges may legitimately share one stable
+    // model reference, so EdgeKey is not a unique rendering identity here.
+    void set_feature_hover_edge_indices(std::set<std::size_t> edges);
+    void set_feature_selected_edge_indices(std::set<std::size_t> edges);
     void set_feature_preview_owners(std::set<std::string> owner_ids);
     void set_constraint_reference_highlights(
         std::set<std::string> owner_ids, std::set<EdgeKey> edges);
@@ -226,7 +231,7 @@ public:
     [[nodiscard]] std::vector<zima::kernel::EdgeReference> tangent_edge_route(
         const ViewerCandidate& seed,
         double angular_tolerance_degrees = 35.0) const;
-    [[nodiscard]] std::set<EdgeKey> edge_treatment_boundary_edges(
+    [[nodiscard]] std::set<std::size_t> edge_treatment_boundary_edge_indices(
         const std::string& owner_id,
         const std::string& instance_path = {}) const;
     // Outward unit normal of a Face candidate's triangle, in the same

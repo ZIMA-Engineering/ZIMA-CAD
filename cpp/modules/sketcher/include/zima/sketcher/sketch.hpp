@@ -24,6 +24,10 @@ enum class ConstraintKind {
     EqualRadius, PointOnCircle, PointOnLine, MidpointOnLine, Symmetric,
     Midpoint, Concentric, Tangent
 };
+// Single presentation symbol shared by the Sketch view and every constraint
+// list. An empty symbol means that the relation is represented by merged
+// topology rather than by a separate in-view marker.
+[[nodiscard]] std::string constraint_marker_label(ConstraintKind kind);
 enum class DimensionKind {
     Distance, DistanceX, DistanceY, DistancePointLine, DistanceSymmetric,
     DistanceLine,

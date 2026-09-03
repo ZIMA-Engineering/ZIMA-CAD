@@ -77,10 +77,10 @@ struct ViewerEdge {
     // recolour the existing GL edge instead of drawing a second overlay.
     std::string display_owner_id;
     // Persisted viewer-only relation from this calculated Body edge to every
-    // Fillet/Chamfer surface whose visible boundary it forms. The relation is
-    // resolved during the explicit OCCT calculation and lets ordinary hover,
-    // selection and dimension inspection highlight only the treatment wire
-    // without traversing or reconstructing topology in the viewer.
+    // Fillet/Chamfer surface whose visible boundary it forms. The viewer uses
+    // the exact display-edge occurrence carrying this relation: stable model
+    // references are intentionally not used as draw identities because one
+    // reference may have several visible descendants after a Boolean.
     std::vector<std::string> edge_treatment_owner_ids;
     // Two already-calculated inward directions, one for each face adjacent
     // to this body edge. Each direction row is sampled at the same positions
