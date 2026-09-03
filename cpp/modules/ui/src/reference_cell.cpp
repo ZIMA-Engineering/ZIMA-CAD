@@ -33,11 +33,15 @@ public:
         const bool inspected = index.data(inspected_role).toBool();
         const bool active = index.data(active_input_role).toBool();
         const bool populated = index.data(populated_reference_role).toBool();
+        // Inspection belongs to the eye button and the View overlay. It must
+        // never recolour a stored reference label: on the dark Properties
+        // table every populated reference remains normally light and
+        // readable, independent of eye state and window focus.
         QColor text_color;
         if (inspected) {
             clean.backgroundBrush = QColor(QStringLiteral("#00d1ff"));
-            text_color = QColor(QStringLiteral("#102027"));
-        } else if (populated) {
+        }
+        if (populated) {
             // Never inherit the active/inactive window palette for stored
             // references. A dialog focus change must not turn a valid
             // reference into low-contrast or effectively invisible text.
