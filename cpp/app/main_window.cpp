@@ -271,7 +271,8 @@ void MainWindow::show_primitive_properties(
          feature_kind == zima::document::FeatureKind::Pyramid ||
          feature_kind == zima::document::FeatureKind::Wedge ||
          feature_kind == zima::document::FeatureKind::Fillet ||
-         feature_kind == zima::document::FeatureKind::Chamfer)) return;
+         feature_kind == zima::document::FeatureKind::Chamfer ||
+         feature_kind == zima::document::FeatureKind::Shell)) return;
     const auto* edited = container_id.empty()
         ? nullptr : document.find_container(container_id);
     if (!container_id.empty() &&

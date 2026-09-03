@@ -97,10 +97,33 @@ std::optional<HistoryRollbackBoundary> DocumentSession::rollback_boundary(
     // operations preceding the edited container, while history_index keeps
     // the actual Tree/history position used to suppress downstream items.
     std::size_t calculated_before{};
-    for (std::size_t history_index = 0; history_index < *index; ++history_index) {
-        if (current_.document.history[history_index].feature_kind !=
-                FeatureKind::Sketch) {
-            ++calculated_before;
+    if (current_.document.history_order.empty()) {
+        for (std::size_t history_index = 0; history_index < *index;
+             ++history_index) {
+            if (current_.document.history[history_index].feature_kind !=
+                    FeatureKind::Sketch) {
+                ++calculated_before;
+            }
+        }
+    } else {
+        const auto ordered = std::find_if(
+            current_.document.history_order.begin(),
+            current_.document.history_order.end(), [&](const auto& entry) {
+                return entry.kind == PartHistoryKind::Feature &&
+                    entry.id == container_id;
+            });
+        if (ordered == current_.document.history_order.end()) {
+            return std::nullopt;
+        }
+        for (auto entry = current_.document.history_order.begin();
+             entry != ordered; ++entry) {
+            if (entry->kind != PartHistoryKind::Feature) continue;
+            const auto* container =
+                current_.document.find_container(entry->id);
+            if (container != nullptr &&
+                container->feature_kind != FeatureKind::Sketch) {
+                ++calculated_before;
+            }
         }
     }
     if (current_.calculated_boundaries.size() < calculated_before) {

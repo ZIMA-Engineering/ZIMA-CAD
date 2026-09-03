@@ -311,6 +311,40 @@ dimensions and positions can legitimately change, and multiple faces can have
 the same geometry. It may support migration from old `Face N` data or present
 ranked repair candidates, but it must not silently bind an ambiguous reference.
 
+### Deferred idea: geometric verification of OCCT result ancestry
+
+This is a recorded design option only; it is not currently implemented and is
+not required by the active topology contract.
+
+If operation history later proves incomplete or ambiguous, result faces could
+be compared with persisted ZIMA source faces during explicit calculation or
+Regenerate. OCCT `Generated`/`Modified` history would remain the primary source
+of runtime correspondence. Geometric comparison would be only a validator or
+fallback, using evidence such as surface type and support, placement and
+orientation, trimmed overlap, bounds, area, centroid and adjacency.
+
+The fallback must preserve these rules:
+
+- every result fragment keeps its own unique ZIMA identity and never reuses a
+  parent face ID;
+- the complete set of contributing parents is retained as ancestry;
+- when a newly generated child genuinely has several equivalent parent
+  candidates, persisted ZIMA history/tree order may choose a deterministic
+  primary parent (the first applicable parent), but this must not turn an
+  unresolved user reference into a silent guess;
+- unmatched or genuinely ambiguous correspondence remains explicit instead of
+  binding to a geometrically similar neighbouring face;
+- Shell inner faces cannot be recognized merely as coplanar with an original
+  face because they are offset; their known Shell operation relationship and
+  OCCT history must participate in the match;
+- matching runs only as part of an explicitly requested body calculation,
+  never from hover, selection, tree refresh or display code;
+- candidate faces should first be indexed by surface class and coarse geometry
+  so the fallback does not degrade into an unrestricted all-to-all comparison.
+
+This option should be implemented only after a concrete ancestry failure shows
+that the existing semantic identities and OCCT history cannot solve the case.
+
 ## Resolution states and failure behavior
 
 Reference resolution must return an explicit state, at least:

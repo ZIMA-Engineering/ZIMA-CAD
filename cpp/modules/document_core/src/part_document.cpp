@@ -801,6 +801,9 @@ void write_part_ini(
                 feature["param.angle_degrees"] = std::to_string(
                     value.at("angle_degrees").get<double>());
                 feature["param.flip"] = json_text(value.at("flip"));
+            } else if (type == "shell") {
+                feature["param.thickness"] = std::to_string(
+                    value.at("thickness").get<double>());
             }
             ini["Children." + entry.id]["items"] = feature_id;
         } else if (entry.kind == PartHistoryKind::Sketch) {
@@ -6398,6 +6401,26 @@ HistoryContainer PartDocument::create_chamfer_container(
     return container;
 }
 
+HistoryContainer PartDocument::create_shell_container(
+    std::vector<zima::kernel::FaceReference> removed_faces) {
+    if (std::any_of(removed_faces.begin(), removed_faces.end(),
+            [](const auto& face) {
+                return !face.valid() || !face.instance_path.empty();
+            })) {
+        throw std::invalid_argument(
+            "Shell requires local original face references");
+    }
+    HistoryContainer container;
+    container.id = make_id();
+    container.feature_id = make_id();
+    container.feature_parent_id = container.id;
+    container.container_origin = create_container_origin(container.id);
+    container.name = "Shell";
+    container.feature_kind = FeatureKind::Shell;
+    container.shell.removed_faces = std::move(removed_faces);
+    return container;
+}
+
 HistoryContainer PartDocument::create_sweep3d_container() {
     HistoryContainer container;
     container.id = make_id();
@@ -6524,6 +6547,27 @@ std::size_t PartDocument::effective_history_cursor() const {
     return std::min(history_cursor, history_order.size());
 }
 
+std::size_t PartDocument::body_operation_count_at_history_cursor() const {
+    if (history_order.empty()) {
+        return static_cast<std::size_t>(std::count_if(history.begin(),
+            history.end(), [](const auto& container) {
+                return container.feature_kind != FeatureKind::Sketch;
+            }));
+    }
+    std::size_t count{};
+    const auto cursor = effective_history_cursor();
+    for (std::size_t index = 0; index < cursor; ++index) {
+        const auto& entry = history_order[index];
+        if (entry.kind != PartHistoryKind::Feature) continue;
+        const auto* container = find_container(entry.id);
+        if (container != nullptr &&
+            container->feature_kind != FeatureKind::Sketch) {
+            ++count;
+        }
+    }
+    return count;
+}
+
 void PartDocument::set_history_cursor(std::size_t cursor) {
     history_cursor = std::min(cursor, history_order.size());
 }
@@ -6566,7 +6610,22 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
         }
     }
     boolean_tolerance = std::max(1.0e-7, boolean_tolerance);
-    for (const auto& container : history) {
+    std::vector<const HistoryContainer*> ordered_history;
+    ordered_history.reserve(history.size());
+    if (history_order.empty()) {
+        for (const auto& container : history) {
+            ordered_history.push_back(&container);
+        }
+    } else {
+        for (const auto& entry : history_order) {
+            if (entry.kind != PartHistoryKind::Feature) continue;
+            if (const auto* container = find_container(entry.id)) {
+                ordered_history.push_back(container);
+            }
+        }
+    }
+    for (const auto* ordered_container : ordered_history) {
+        const auto& container = *ordered_container;
         if (container.feature_kind == FeatureKind::Sketch) continue;
         zima::kernel::Vec3 translation{
             container.placement.x, container.placement.y, container.placement.z};
@@ -6889,7 +6948,7 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 container.edge_treatment.secondary_size,
                 container.edge_treatment.reverse,
                 std::move(contour_starts)};
-        } else {
+        } else if (container.feature_kind == FeatureKind::Chamfer) {
             require_default_sketch_feature_placement(container.placement);
             const auto mode = container.edge_treatment.chamfer_mode ==
                     EdgeTreatmentParameters::ChamferMode::TwoDistances
@@ -6905,6 +6964,12 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 container.edge_treatment.secondary_size,
                 container.edge_treatment.angle_degrees * std::numbers::pi / 180.0,
                 container.edge_treatment.flip};
+        } else if (container.feature_kind == FeatureKind::Shell) {
+            require_default_sketch_feature_placement(container.placement);
+            primitive = zima::kernel::ShellRequest{
+                container.shell.removed_faces, container.shell.thickness};
+        } else {
+            throw std::logic_error("Unsupported Part history feature");
         }
         operations.push_back({
             container.id,
@@ -7614,7 +7679,7 @@ PartDocument PartDocument::load(
             type != "extrusion" &&
             type != "revolution" && type != "sweep3d" &&
             type != "imported_step" &&
-            type != "fillet" && type != "chamfer") {
+            type != "fillet" && type != "chamfer" && type != "shell") {
             throw std::runtime_error("Unsupported history feature type");
         }
         HistoryContainer container;
@@ -7629,7 +7694,8 @@ PartDocument PartDocument::load(
             : type == "sweep3d" ? FeatureKind::Sweep3D
             : type == "imported_step" ? FeatureKind::ImportedStep
             : type == "fillet" ? FeatureKind::Fillet
-            : type == "chamfer" ? FeatureKind::Chamfer : FeatureKind::Box;
+            : type == "chamfer" ? FeatureKind::Chamfer
+            : type == "shell" ? FeatureKind::Shell : FeatureKind::Box;
         container.id = source.at("id").get<std::string>();
         container.feature_id = source.at("feature_id").get<std::string>();
         container.feature_parent_id =
@@ -8015,6 +8081,25 @@ PartDocument PartDocument::load(
                 container.combine_mode != CombineMode::Add) {
                 throw std::runtime_error("Invalid imported STEP parameters");
             }
+        } else if (container.feature_kind == FeatureKind::Shell) {
+            container.shell.thickness = source.at("thickness").get<double>();
+            for (const auto& face : source.at("removed_faces")) {
+                container.shell.removed_faces.push_back({
+                    face.at("owner").get<std::string>(),
+                    face.at("key").get<std::string>(), {}});
+            }
+            std::set<std::pair<std::string, std::string>> unique_faces;
+            if (!std::isfinite(container.shell.thickness) ||
+                container.shell.thickness <= 0.0 ||
+                std::any_of(container.shell.removed_faces.begin(),
+                    container.shell.removed_faces.end(), [&](const auto& face) {
+                        return !face.valid() || !face.instance_path.empty() ||
+                            !unique_faces.emplace(
+                                face.owner_id, face.semantic_key).second;
+                    }) ||
+                container.combine_mode != CombineMode::Add) {
+                throw std::runtime_error("Invalid Shell parameters");
+            }
         } else {
             for (const auto& route : source.at("routes")) {
                 std::vector<zima::kernel::EdgeReference> loaded_route;
@@ -8115,7 +8200,8 @@ PartDocument PartDocument::load(
             }
         }
         if (container.feature_kind == FeatureKind::Fillet ||
-            container.feature_kind == FeatureKind::Chamfer) {
+            container.feature_kind == FeatureKind::Chamfer ||
+            container.feature_kind == FeatureKind::Shell) {
             require_default_sketch_feature_placement(container.placement);
         }
         document.history.push_back(std::move(container));
@@ -8443,6 +8529,19 @@ void PartDocument::save(
                 container.combine_mode != CombineMode::Add) {
                 throw std::runtime_error("Invalid imported STEP parameters");
             }
+        } else if (container.feature_kind == FeatureKind::Shell) {
+            std::set<std::pair<std::string, std::string>> unique_faces;
+            if (!std::isfinite(container.shell.thickness) ||
+                container.shell.thickness <= 0.0 ||
+                std::any_of(container.shell.removed_faces.begin(),
+                    container.shell.removed_faces.end(), [&](const auto& face) {
+                        return !face.valid() || !face.instance_path.empty() ||
+                            !unique_faces.emplace(
+                                face.owner_id, face.semantic_key).second;
+                    }) ||
+                container.combine_mode != CombineMode::Add) {
+                throw std::runtime_error("Invalid Shell parameters");
+            }
         } else if (container.edge_treatment.routes.empty() ||
                    std::any_of(container.edge_treatment.routes.begin(),
                        container.edge_treatment.routes.end(),
@@ -8462,7 +8561,8 @@ void PartDocument::save(
         }
         validate_placement(container.placement);
         if (container.feature_kind == FeatureKind::Fillet ||
-            container.feature_kind == FeatureKind::Chamfer) {
+            container.feature_kind == FeatureKind::Chamfer ||
+            container.feature_kind == FeatureKind::Shell) {
             require_default_sketch_feature_placement(container.placement);
         }
         nlohmann::json serialized = {
@@ -8490,7 +8590,9 @@ void PartDocument::save(
                 : container.feature_kind == FeatureKind::ImportedStep
                     ? "imported_step"
                 : container.feature_kind == FeatureKind::Fillet
-                    ? "fillet" : "chamfer"},
+                    ? "fillet"
+                : container.feature_kind == FeatureKind::Chamfer
+                    ? "chamfer" : "shell"},
             {"name", container.name},
             {"combine", container.combine_mode == CombineMode::Subtract
                 ? "subtract" : "add"}, {"suppressed", container.suppressed},
@@ -8512,7 +8614,8 @@ void PartDocument::save(
             });
         }
         if (container.feature_kind != FeatureKind::Fillet &&
-            container.feature_kind != FeatureKind::Chamfer) {
+            container.feature_kind != FeatureKind::Chamfer &&
+            container.feature_kind != FeatureKind::Shell) {
             nlohmann::json placement_references = nlohmann::json::array();
             for (const auto& reference : container.placement.references) {
                 if (reference.owner_id.empty() || reference.semantic_key.empty()) {
@@ -8722,6 +8825,13 @@ void PartDocument::save(
                     {"kind", step_topology_kind_name(identity.kind)},
                     {"semantic_key", identity.semantic_key},
                     {"shape_locator", identity.shape_locator}});
+            }
+        } else if (container.feature_kind == FeatureKind::Shell) {
+            serialized["thickness"] = container.shell.thickness;
+            serialized["removed_faces"] = nlohmann::json::array();
+            for (const auto& face : container.shell.removed_faces) {
+                serialized["removed_faces"].push_back({
+                    {"owner", face.owner_id}, {"key", face.semantic_key}});
             }
         } else {
             serialized["routes"] = nlohmann::json::array();

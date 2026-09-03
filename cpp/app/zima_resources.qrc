@@ -46,6 +46,7 @@
     <file alias="icons/sweep.svg">../../resources/icons/sweep.svg</file>
     <file alias="icons/fillet.svg">../../resources/icons/fillet.svg</file>
     <file alias="icons/chamfer.svg">../../resources/icons/chamfer.svg</file>
+    <file alias="icons/shell.svg">../../resources/icons/shell.svg</file>
     <file alias="icons/box.svg">../../resources/icons/box.svg</file>
     <file alias="icons/result-body.svg">../../resources/icons/result-body.svg</file>
     <file alias="icons/sphere.svg">../../resources/icons/sphere.svg</file>

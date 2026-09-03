@@ -151,6 +151,7 @@ private:
     QAction* revolution_action_{};
     QAction* fillet_action_{};
     QAction* chamfer_action_{};
+    QAction* shell_action_{};
     QAction* sketch_action_{};
     QAction* sketch_normal_view_action_{};
     QAction* sketch_flip_view_action_{};
@@ -257,9 +258,12 @@ private:
     std::vector<std::vector<zima::kernel::EdgeReference>>
         pending_edge_treatment_groups_;
     std::vector<zima::kernel::EdgeReference> pending_edge_treatment_seeds_;
-    std::optional<zima::viewer::EdgeKey> edge_treatment_hover_seed_;
+    std::optional<zima::viewer::ViewerCandidate> edge_treatment_hover_seed_;
     zima::document::EdgeTreatmentParameters edge_treatment_preview_parameters_;
     std::string edge_treatment_preview_owner_id_;
+    bool shell_face_selection_active_{};
+    PrimitivePropertiesDialog* shell_dialog_{};
+    std::vector<zima::kernel::FaceReference> pending_shell_faces_;
     PrimitivePropertiesDialog* extrusion_target_dialog_{};
     bool extrusion_target_assembly_cut_{};
     ConstructionPropertiesDialog* construction_reference_dialog_{};
@@ -521,11 +525,17 @@ private:
         std::size_t group, std::optional<std::size_t> member);
     void restore_edge_treatment_route(std::size_t group);
     [[nodiscard]] bool finish_edge_treatment_selection();
+    void start_shell();
+    void accept_shell_face(const zima::viewer::ViewerCandidate& candidate);
+    void refresh_shell_selection_ui();
+    void remove_shell_face(std::size_t index);
+    [[nodiscard]] bool finish_shell_face_selection();
     void apply_extrusion_target_selection_contract();
     void accept_extrusion_target(const zima::viewer::ViewerCandidate& candidate);
     void finish_extrusion_target_selection();
     [[nodiscard]] bool finish_active_reference_selection();
     void set_primitive_properties_dimension_selection();
+    void show_parameter_dimensions(const std::string& owner_id);
     void begin_normal_view_selection();
     void accept_normal_view_reference(const zima::viewer::ViewerCandidate& candidate);
     void show_orientation_dialog();
@@ -729,9 +739,12 @@ private:
     void preview_sketch_rectangle_ray(
         const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
     struct SketchRectangleMidpointSnap {
+        struct Constraint {
+            std::string axis_id;
+            std::size_t side_index{};
+        };
         std::array<double, 2> opposite;
-        std::string axis_id;
-        std::size_t side_index{};
+        std::vector<Constraint> constraints;
     };
     [[nodiscard]] std::optional<SketchRectangleMidpointSnap>
     inferred_sketch_rectangle_midpoint_snap(

@@ -94,6 +94,11 @@ public:
     void set_edge_group_callbacks(
         std::function<void(std::size_t, std::optional<std::size_t>)> remove,
         std::function<void(std::size_t)> restore);
+    void set_shell_faces(std::vector<zima::kernel::FaceReference> faces);
+    void set_shell_face_callbacks(
+        std::function<void(std::size_t)> remove,
+        std::function<void()> request_selection);
+    void set_shell_face_selection_active(bool active);
 
     // Universal container placement (position + FRONT/TOP orientation
     // references), reusing the same reference/DOF contract as
@@ -211,6 +216,12 @@ private:
     std::vector<EdgeGroup> edge_groups_;
     std::function<void(std::size_t, std::optional<std::size_t>)> remove_edge_;
     std::function<void(std::size_t)> restore_route_;
+    QDoubleSpinBox* shell_thickness_{};
+    QListWidget* shell_face_list_{};
+    QPushButton* remove_shell_face_button_{};
+    std::vector<zima::kernel::FaceReference> shell_faces_;
+    std::function<void(std::size_t)> remove_shell_face_;
+    std::function<void()> request_shell_face_selection_;
     std::array<QDoubleSpinBox*, 3> translation_{};
     std::array<QDoubleSpinBox*, 3> rotation_{};
     std::unique_ptr<zima::ui::ContainerPlacementSection> placement_;

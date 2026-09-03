@@ -21,8 +21,11 @@
 #include <BRepPrimAPI_MakeWedge.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRepClass_FaceClassifier.hxx>
+#include <BRepExtrema_DistShapeShape.hxx>
 #include <BRepOffsetAPI_ThruSections.hxx>
 #include <BRepOffsetAPI_MakePipeShell.hxx>
+#include <BRepOffsetAPI_MakeThickSolid.hxx>
+#include <BRepOffset_Mode.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <BRepPrimAPI_MakeHalfSpace.hxx>
 #include <BRepPrimAPI_MakeRevol.hxx>
@@ -93,6 +96,7 @@
 #include <bit>
 #include <cmath>
 #include <array>
+#include <limits>
 #include <numbers>
 #include <optional>
 #include <sstream>
@@ -2579,6 +2583,401 @@ std::string encoded_topology_reference_set(
     return encoded;
 }
 
+std::string compact_topology_token(std::string_view value) {
+    std::uint64_t first = 14695981039346656037ULL;
+    std::uint64_t second = 7809847782465536322ULL;
+    for (const unsigned char byte : value) {
+        first ^= byte;
+        first *= 1099511628211ULL;
+        second ^= static_cast<std::uint64_t>(byte) + 0x9eU;
+        second *= 14029467366897019727ULL;
+    }
+    std::ostringstream encoded;
+    encoded << std::hex << first << ':' << second;
+    return encoded.str();
+}
+
+std::string encoded_shell_ancestry(
+    const std::set<std::string>& parents) {
+    if (parents.empty()) return {};
+    const auto primary = std::ranges::min_element(parents,
+        [](const auto& first, const auto& second) {
+            return std::tuple{first.size(), first} <
+                std::tuple{second.size(), second};
+        });
+    const auto context =
+        encoded_topology_reference_set(parents);
+    // Keep one exact deterministic parent relation in the persisted key.
+    // Additional OCCT history/adjacency context is only a discriminator and
+    // is stored as a compact 128-bit token. Runtime uniqueness checks below
+    // still reject a collision instead of silently reusing an identity.
+    return "parent:" + std::to_string(primary->size()) + ":" +
+        *primary + ":context-digest:" +
+        compact_topology_token(context);
+}
+
+template <typename Owned>
+std::vector<Owned> keep_unambiguous_topology_references(
+    std::vector<Owned> values) {
+    std::map<std::string, std::size_t> counts;
+    for (const auto& value : values) {
+        ++counts[encoded_topology_reference(value.reference)];
+    }
+    std::erase_if(values, [&](const auto& value) {
+        return counts[encoded_topology_reference(value.reference)] != 1;
+    });
+    return values;
+}
+
+template <typename Algorithm, typename Owned>
+void collect_shell_face_parent_tokens(
+    Algorithm& algorithm,
+    const TopoDS_Face& result_face,
+    const std::vector<Owned>& inputs,
+    std::string_view topology_role,
+    std::set<std::string>& parents) {
+    for (const auto& input : inputs) {
+        if (!input.reference.valid()) continue;
+        TopTools_IndexedMapOfShape result_subshapes;
+        TopExp::MapShapes(result_face, input.shape.ShapeType(),
+            result_subshapes);
+        if (result_subshapes.Contains(input.shape)) {
+            parents.insert(std::string(topology_role) + ":unchanged:" +
+                encoded_topology_reference(input.reference));
+        }
+        const auto collect = [&](const TopTools_ListOfShape& descendants,
+                                 std::string_view history_role) {
+            for (TopTools_ListIteratorOfListOfShape iterator(descendants);
+                 iterator.More(); iterator.Next()) {
+                const auto& descendant = iterator.Value();
+                if ((descendant.ShapeType() == TopAbs_FACE &&
+                     descendant.IsSame(result_face)) ||
+                    (descendant.ShapeType() == input.shape.ShapeType() &&
+                     result_subshapes.Contains(descendant))) {
+                    parents.insert(std::string(topology_role) + ":" +
+                        std::string(history_role) + ":" +
+                        encoded_topology_reference(input.reference));
+                }
+            }
+        };
+        collect(algorithm.Modified(input.shape), "modified");
+        collect(algorithm.Generated(input.shape), "generated");
+    }
+}
+
+template <typename Algorithm>
+std::vector<OwnedFace> shell_result_faces(
+    Algorithm& algorithm,
+    const TopoDS_Shape& result_shape,
+    const std::vector<OwnedFace>& input_faces,
+    const std::vector<OwnedEdge>& input_edges,
+    const std::vector<OwnedVertex>& input_vertices,
+    const std::string& shell_owner,
+    std::string_view semantic_role) {
+    struct PendingFace {
+        TopoDS_Face shape;
+        std::vector<FaceReference> unchanged;
+        std::set<std::string> parents;
+    };
+    std::vector<PendingFace> pending;
+    TopTools_IndexedMapOfShape visited;
+    for (TopExp_Explorer explorer(result_shape, TopAbs_FACE);
+         explorer.More(); explorer.Next()) {
+        const auto face = TopoDS::Face(explorer.Current());
+        if (visited.Contains(face)) continue;
+        visited.Add(face);
+
+        PendingFace value;
+        value.shape = face;
+        for (const auto& input : input_faces) {
+            if (input.reference.valid() && input.shape.IsSame(face) &&
+                std::find(value.unchanged.begin(), value.unchanged.end(),
+                    input.reference) == value.unchanged.end()) {
+                value.unchanged.push_back(input.reference);
+            }
+        }
+        if (value.unchanged.size() != 1) {
+            collect_shell_face_parent_tokens(
+                algorithm, face, input_faces, "face", value.parents);
+            collect_shell_face_parent_tokens(
+                algorithm, face, input_edges, "edge", value.parents);
+            collect_shell_face_parent_tokens(
+                algorithm, face, input_vertices, "vertex", value.parents);
+            if (value.parents.empty()) {
+                throw std::runtime_error(
+                    "Shell result face has no stable ZIMA ancestry in " +
+                    std::string(semantic_role));
+            }
+        }
+        pending.push_back(std::move(value));
+    }
+
+    std::map<std::string, std::size_t> unchanged_reference_counts;
+    for (const auto& value : pending) {
+        if (value.unchanged.size() == 1) {
+            ++unchanged_reference_counts[
+                encoded_topology_reference(value.unchanged.front())];
+        }
+    }
+    for (auto& value : pending) {
+        if (value.unchanged.size() != 1) continue;
+        const auto parent = encoded_topology_reference(value.unchanged.front());
+        if (unchanged_reference_counts[parent] <= 1) continue;
+        // A prior treatment may expose several geometric fragments carrying
+        // one conceptual source-face reference. Shell owns distinct children
+        // for those fragments; preserving the same ID on both would make the
+        // topology ambiguous.
+        value.parents.insert("face:fragment-of:" + parent);
+        value.unchanged.clear();
+    }
+
+    const auto base_parent_token = [](const PendingFace& value) {
+        if (value.unchanged.size() == 1) {
+            return std::string("unchanged:") +
+                encoded_topology_reference(value.unchanged.front());
+        }
+        return std::string("derived:") +
+            encoded_shell_ancestry(value.parents);
+    };
+    std::map<std::string, std::size_t> base_parent_counts;
+    for (const auto& value : pending) {
+        if (value.unchanged.size() != 1) {
+            ++base_parent_counts[base_parent_token(value)];
+        }
+    }
+    for (auto& value : pending) {
+        if (value.unchanged.size() == 1 ||
+            base_parent_counts[base_parent_token(value)] == 1) {
+            continue;
+        }
+        GProp_GProps properties;
+        BRepGProp::SurfaceProperties(value.shape, properties);
+        const BRepAdaptor_Surface support(value.shape, true);
+        value.parents.insert("transition-surface-kind:" + std::to_string(
+            static_cast<int>(support.GetType())));
+        const auto probe = BRepBuilderAPI_MakeVertex(
+            properties.CentreOfMass()).Vertex();
+        const auto add_nearest_parents = [&](const auto& inputs,
+                                             std::string_view role) {
+            struct MeasuredParent {
+                double distance{};
+                std::string role;
+                std::string reference;
+            };
+            double best = std::numeric_limits<double>::infinity();
+            std::vector<MeasuredParent> distances;
+            for (const auto& input : inputs) {
+                if (!input.reference.valid()) continue;
+                BRepExtrema_DistShapeShape distance(probe, input.shape);
+                if (!distance.IsDone() || distance.NbSolution() == 0) continue;
+                const double measured = distance.Value();
+                best = std::min(best, measured);
+                std::string resolved_role(role);
+                if (input.shape.ShapeType() == TopAbs_EDGE) {
+                    const auto edge = TopoDS::Edge(input.shape);
+                    const auto first = TopExp::FirstVertex(edge, true);
+                    const auto last = TopExp::LastVertex(edge, true);
+                    const auto closest = distance.PointOnShape2(1);
+                    const bool at_endpoint =
+                        (!first.IsNull() &&
+                         closest.Distance(BRep_Tool::Pnt(first)) <= 1.0e-7) ||
+                        (!last.IsNull() &&
+                         closest.Distance(BRep_Tool::Pnt(last)) <= 1.0e-7);
+                    resolved_role += at_endpoint ? "-endpoint" : "-interior";
+                }
+                distances.push_back({measured, std::move(resolved_role),
+                    encoded_topology_reference(input.reference)});
+            }
+            if (!std::isfinite(best)) return;
+            std::map<std::pair<std::string, std::string>, double> unique;
+            for (const auto& measured : distances) {
+                const auto key = std::pair{measured.role, measured.reference};
+                const auto found = unique.find(key);
+                if (found == unique.end() || measured.distance < found->second) {
+                    unique.insert_or_assign(key, measured.distance);
+                }
+            }
+            distances.clear();
+            for (const auto& [key, distance] : unique) {
+                distances.push_back({distance, key.first, key.second});
+            }
+            std::ranges::sort(distances, {}, &MeasuredParent::distance);
+            const double tolerance = std::max(1.0e-7,
+                std::max(1.0, best) * 1.0e-8);
+            int rank{};
+            double rank_distance = best;
+            for (const auto& measured : distances) {
+                if (measured.distance > rank_distance + tolerance) {
+                    ++rank;
+                    rank_distance = measured.distance;
+                }
+                if (rank >= 4) break;
+                value.parents.insert(measured.role + ":rank:" +
+                    std::to_string(rank) + ":" + measured.reference);
+            }
+        };
+        // OCCT can split one offset parent into several transition patches
+        // without reporting distinct history. The nearest persisted source
+        // edge/vertex supplies the missing parent relation; coordinates and
+        // traversal position never enter the identity.
+        std::vector<OwnedFace> prior_feature_faces;
+        std::ranges::copy_if(input_faces,
+            std::back_inserter(prior_feature_faces), [&](const auto& face) {
+                return face.reference.owner_id != shell_owner;
+            });
+        add_nearest_parents(prior_feature_faces,
+            "nearest-prior-feature-face");
+        add_nearest_parents(input_faces, "nearest-face");
+        add_nearest_parents(input_edges, "nearest-edge");
+        add_nearest_parents(input_vertices, "nearest-vertex");
+    }
+    TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+    TopExp::MapShapesAndAncestors(
+        result_shape, TopAbs_EDGE, TopAbs_FACE, edge_faces);
+    for (auto& value : pending) {
+        if (value.unchanged.size() == 1) continue;
+        std::set<std::string> adjacent_parents;
+        std::vector<std::string> boundary_contexts;
+        for (TopExp_Explorer edges(value.shape, TopAbs_EDGE);
+             edges.More(); edges.Next()) {
+            const int edge_index = edge_faces.FindIndex(edges.Current());
+            if (edge_index == 0) continue;
+            std::set<std::string> edge_neighbors;
+            for (TopTools_ListIteratorOfListOfShape neighbor(
+                    edge_faces.FindFromIndex(edge_index));
+                 neighbor.More(); neighbor.Next()) {
+                if (neighbor.Value().IsSame(value.shape)) continue;
+                const auto found = std::find_if(pending.begin(), pending.end(),
+                    [&](const auto& candidate) {
+                        return candidate.shape.IsSame(neighbor.Value());
+                    });
+                if (found != pending.end()) {
+                    auto token = base_parent_token(*found);
+                    adjacent_parents.insert(token);
+                    edge_neighbors.insert(std::move(token));
+                }
+            }
+            boundary_contexts.push_back(
+                encoded_topology_reference_set(edge_neighbors));
+        }
+        if (!adjacent_parents.empty()) {
+            value.parents.insert("adjacent-digest:" + compact_topology_token(
+                encoded_topology_reference_set(adjacent_parents)));
+        }
+        std::ranges::sort(boundary_contexts);
+        std::string encoded_boundaries;
+        for (const auto& context : boundary_contexts) {
+            encoded_boundaries += std::to_string(context.size()) + ":" +
+                context;
+        }
+        value.parents.insert("boundary-context-digest:" +
+            compact_topology_token(encoded_boundaries));
+    }
+
+    std::vector<OwnedFace> result;
+    std::map<std::string, TopoDS_Shape> identities;
+    for (auto& value : pending) {
+        FaceReference reference;
+        if (value.unchanged.size() == 1) {
+            reference = value.unchanged.front();
+        } else {
+            reference = {shell_owner,
+                std::string(semantic_role) + ":from:" +
+                    encoded_shell_ancestry(value.parents), {}};
+        }
+        const auto identity = encoded_topology_reference(reference);
+        const auto [found, inserted] = identities.emplace(identity, value.shape);
+        if (!inserted && !found->second.IsSame(value.shape)) {
+            throw std::runtime_error(
+                "Shell produced ambiguous face ancestry in " +
+                std::string(semantic_role));
+        }
+        result.push_back({value.shape, std::move(reference)});
+    }
+    return result;
+}
+
+template <typename Owned>
+void require_complete_unique_shell_topology(
+    const TopoDS_Shape& result_shape, TopAbs_ShapeEnum kind,
+    const std::vector<Owned>& topology, std::string_view label) {
+    TopTools_IndexedMapOfShape expected;
+    TopExp::MapShapes(result_shape, kind, expected);
+    TopTools_IndexedMapOfShape mapped;
+    std::map<std::string, TopoDS_Shape> identities;
+    for (const auto& owned : topology) {
+        if (!owned.reference.valid() || owned.shape.ShapeType() != kind) continue;
+        mapped.Add(owned.shape);
+        const auto identity = encoded_topology_reference(owned.reference);
+        const auto [found, inserted] = identities.emplace(identity, owned.shape);
+        if (!inserted && !found->second.IsSame(owned.shape)) {
+            throw std::runtime_error(
+                "Shell reused one stable identity for multiple " +
+                std::string(label));
+        }
+    }
+    if (mapped.Extent() != expected.Extent()) {
+        throw std::runtime_error(
+            "Shell did not define stable identity for every " +
+            std::string(label));
+    }
+}
+
+std::vector<OwnedFace> shell_opening_tool_faces(
+    const TopoDS_Shape& tool_shape,
+    const OwnedFace& opening_source,
+    const FaceReference& conceptual_source,
+    const std::vector<OwnedEdge>& opening_source_edges,
+    const std::string& shell_owner,
+    std::string_view tool_role) {
+    const auto source_face_token =
+        encoded_topology_reference(conceptual_source);
+    std::vector<OwnedFace> result;
+    std::map<std::string, TopoDS_Shape> identities;
+    TopTools_IndexedMapOfShape visited;
+    for (TopExp_Explorer explorer(tool_shape, TopAbs_FACE);
+         explorer.More(); explorer.Next()) {
+        const auto face = TopoDS::Face(explorer.Current());
+        if (visited.Contains(face)) continue;
+        visited.Add(face);
+
+        std::string role;
+        std::set<std::string> edge_parents;
+        if (face.IsSame(opening_source.shape)) {
+            role = std::string(tool_role) + ":source-cap:from:" +
+                source_face_token;
+        } else {
+            TopTools_IndexedMapOfShape face_edges;
+            TopExp::MapShapes(face, TopAbs_EDGE, face_edges);
+            for (const auto& source_edge : opening_source_edges) {
+                if (source_edge.reference.valid() &&
+                    face_edges.Contains(source_edge.shape)) {
+                    edge_parents.insert(
+                        encoded_topology_reference(source_edge.reference));
+                }
+            }
+            if (!edge_parents.empty()) {
+                role = std::string(tool_role) + ":side:from:" +
+                    source_face_token + ":boundary-digest:" +
+                    compact_topology_token(
+                        encoded_topology_reference_set(edge_parents));
+            } else {
+                role = std::string(tool_role) + ":offset-cap:from:" +
+                    source_face_token;
+            }
+        }
+        const FaceReference reference{shell_owner, std::move(role), {}};
+        const auto identity = encoded_topology_reference(reference);
+        const auto [found, inserted] = identities.emplace(identity, face);
+        if (!inserted && !found->second.IsSame(face)) {
+            throw std::runtime_error(
+                "Shell opening tool produced ambiguous stable face ancestry");
+        }
+        result.push_back({face, reference});
+    }
+    return result;
+}
+
 template <typename Reference, typename Owned>
 std::set<std::string> referenced_ancestor_tokens(
     const TopTools_IndexedDataMapOfShapeListOfShape& ancestors,
@@ -2620,26 +3019,27 @@ std::vector<OwnedEdge> complete_boolean_edges(
         if (visited.Contains(edge)) continue;
         visited.Add(edge);
 
-        bool inherited = false;
+        std::vector<EdgeReference> inherited_references;
         for (const auto& candidate : propagated_edges) {
             if (!candidate.shape.IsSame(edge)) continue;
-            if (std::none_of(result.begin(), result.end(),
-                    [&](const auto& value) {
-                        return value.shape.IsSame(edge) &&
-                            value.reference == candidate.reference;
-                    })) {
-                result.push_back({edge, candidate.reference});
+            if (std::find(inherited_references.begin(),
+                    inherited_references.end(), candidate.reference) ==
+                inherited_references.end()) {
+                inherited_references.push_back(candidate.reference);
             }
-            inherited = true;
         }
-        // Preserve every inherited parent, including deliberate ambiguity.
-        // A new Boolean identity is only defined when OCCT produced a shape
-        // that has no propagated ZIMA parent at all.
-        if (inherited) continue;
+        if (inherited_references.size() == 1) {
+            result.push_back({edge, inherited_references.front()});
+            continue;
+        }
+        // When a Boolean reports several different parents for one runtime
+        // edge, the edge is a new intersection. Define one child identity
+        // from the two persisted adjacent faces below instead of exposing an
+        // ambiguous reference.
 
         const auto adjacent_faces = referenced_ancestor_tokens(
             edge_faces, edge, face_references);
-        if (adjacent_faces.size() != 2) continue;
+        if (adjacent_faces.empty()) continue;
         std::set<std::string> endpoint_supports;
         TopTools_IndexedMapOfShape vertices;
         TopExp::MapShapes(edge, TopAbs_VERTEX, vertices);
@@ -3848,6 +4248,643 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                 apply_edge_treatment(*chamfer);
                 continue;
             }
+            if (const auto* shell = std::get_if<ShellRequest>(&operation.primitive)) {
+                if (result_shape.IsNull()) {
+                    throw std::invalid_argument("Shell requires an input body");
+                }
+                if (operation.operation != BooleanOperation::Add ||
+                    !std::isfinite(shell->thickness) ||
+                    shell->thickness <= 0.0 ||
+                    std::any_of(shell->removed_faces.begin(),
+                        shell->removed_faces.end(), [](const auto& face) {
+                            return !face.valid() ||
+                                !face.instance_path.empty();
+                        })) {
+                    throw std::invalid_argument("Shell parameters are invalid");
+                }
+                TopTools_IndexedMapOfShape solids;
+                TopExp::MapShapes(result_shape, TopAbs_SOLID, solids);
+                if (solids.Extent() != 1) {
+                    throw std::invalid_argument(
+                        "Shell requires exactly one connected solid");
+                }
+
+                std::set<std::pair<std::string, std::string>> selected_ids;
+                TopTools_ListOfShape selected_face_shapes;
+                for (const auto& requested : shell->removed_faces) {
+                    if (!selected_ids.emplace(
+                            requested.owner_id, requested.semantic_key).second) {
+                        throw std::invalid_argument(
+                            "Shell face references must be unique");
+                    }
+                    std::vector<const OwnedFace*> matches;
+                    for (const auto& owned : owned_topology->faces) {
+                        if (owned.reference.owner_id == requested.owner_id &&
+                            owned.reference.semantic_key ==
+                                requested.semantic_key) {
+                            matches.push_back(&owned);
+                        }
+                    }
+                    if (matches.size() != 1) {
+                        throw std::runtime_error(
+                            "Shell face is missing or ambiguous at this history boundary");
+                    }
+                    selected_face_shapes.Append(matches.front()->shape);
+                }
+
+                const double shell_tolerance =
+                    std::max(1.0e-7, operation.boolean_tolerance);
+                const auto volume_of = [](const TopoDS_Shape& shape) {
+                    GProp_GProps properties;
+                    BRepGProp::VolumeProperties(shape, properties);
+                    return properties.Mass();
+                };
+                const double input_volume = volume_of(solids.FindKey(1));
+                const double volume_tolerance = std::max(
+                    1.0e-12, std::abs(input_volume) * 1.0e-10);
+                const std::vector<std::pair<TopoDS_Edge, EdgeReference>>
+                    no_selected_edges;
+
+                // Prefer OCCT's native open-shell operation. It offsets the
+                // body and joins all selected openings as one calculation,
+                // so adjacent faces have no artificial wall between them.
+                // A previous implementation accepted IsDone() alone, but
+                // OCCT can report success while returning the unchanged
+                // input on some treated bodies. Validate the actual solid
+                // and volume before accepting it.
+                if (!shell->removed_faces.empty()) {
+                    std::unique_ptr<BRepOffsetAPI_MakeThickSolid>
+                        direct_shell;
+                    auto candidate = std::make_unique<
+                        BRepOffsetAPI_MakeThickSolid>();
+                    candidate->MakeThickSolidByJoin(
+                        solids.FindKey(1), selected_face_shapes,
+                        -shell->thickness, shell_tolerance,
+                        BRepOffset_Skin, false, false, GeomAbs_Arc, true);
+                    if (candidate->IsDone() &&
+                        !candidate->Shape().IsNull() &&
+                        BRepCheck_Analyzer(candidate->Shape()).IsValid()) {
+                        TopTools_IndexedMapOfShape direct_solids;
+                        TopExp::MapShapes(candidate->Shape(), TopAbs_SOLID,
+                            direct_solids);
+                        const double direct_volume =
+                            volume_of(candidate->Shape());
+                        if (direct_solids.Extent() == 1 &&
+                            direct_volume > volume_tolerance &&
+                            direct_volume <
+                                input_volume - volume_tolerance) {
+                            direct_shell = std::move(candidate);
+                        }
+                    }
+                    if (direct_shell) {
+                        auto direct_faces = shell_result_faces(*direct_shell,
+                            direct_shell->Shape(), owned_topology->faces,
+                            owned_topology->edges,
+                            owned_topology->vertices,
+                            operation.owner_id, "shell:face");
+                        auto direct_edges = complete_boolean_edges(
+                            direct_shell->Shape(), direct_faces,
+                            keep_unambiguous_topology_references(
+                                propagate_topology(*direct_shell,
+                                    owned_topology->edges,
+                                    std::vector<OwnedEdge>{})),
+                            operation.owner_id, "shell");
+                        auto direct_vertices =
+                            complete_edge_treatment_vertices(
+                                direct_shell->Shape(), direct_edges,
+                                keep_unambiguous_topology_references(
+                                    propagate_topology(*direct_shell,
+                                        owned_topology->vertices,
+                                        std::vector<OwnedVertex>{})),
+                                no_selected_edges, operation.owner_id,
+                                "shell:vertex");
+                        require_complete_unique_shell_topology(
+                            direct_shell->Shape(), TopAbs_FACE,
+                            direct_faces, "faces");
+                        require_complete_unique_shell_topology(
+                            direct_shell->Shape(), TopAbs_EDGE,
+                            direct_edges, "edges");
+                        require_complete_unique_shell_topology(
+                            direct_shell->Shape(), TopAbs_VERTEX,
+                            direct_vertices, "vertices");
+                        result_shape = direct_shell->Shape();
+                        owned_topology =
+                            std::make_shared<LiveCache::Topology>(
+                                LiveCache::Topology{
+                                    std::move(direct_faces),
+                                    std::move(direct_edges),
+                                    std::move(direct_vertices), {}});
+                        auto direct_result = make_result(result_shape,
+                            owned_topology->faces,
+                            owned_topology->edges,
+                            owned_topology->vertices, true,
+                            persist_boundary_shape, true,
+                            owned_topology->hidden_display_edges);
+                        // Shell creates real persistent reference owners of
+                        // its own (inner offset and transition faces/edges/
+                        // vertices). Keep only those Shell-owned entities in
+                        // the append-only reference packet. Unchanged outer
+                        // fragments already resolve through their original
+                        // source feature and must not be duplicated here.
+                        append_reference_geometry(original_references,
+                            reference_geometry_for_owners(
+                                direct_result.mesh.original_references,
+                                std::unordered_set<std::string>{
+                                    operation.owner_id}));
+                        boundaries.push_back(std::move(direct_result));
+                        boundaries.back().source_fingerprint =
+                            history_fingerprint(
+                                operations, boundaries.size());
+                        remember_live_boundary(
+                            boundaries.back().source_fingerprint,
+                            result_shape, owned_topology);
+                        continue;
+                    }
+                }
+
+                // With an empty closing-face list OCCT produces the inward
+                // offset solid itself. The required closed Shell is the
+                // material between the original body and that inner solid.
+                // Building this explicitly also avoids MakeThickSolid's
+                // false-success result (unchanged input body) on bodies with
+                // several consecutive Fillet/Chamfer operations.
+                TopTools_ListOfShape no_closing_faces;
+                BRepOffsetAPI_MakeThickSolid inner_offset;
+                inner_offset.MakeThickSolidByJoin(
+                    solids.FindKey(1), no_closing_faces, -shell->thickness,
+                    shell_tolerance, BRepOffset_Skin, false, false,
+                    GeomAbs_Arc, false);
+                if (!inner_offset.IsDone() || inner_offset.Shape().IsNull() ||
+                    !BRepCheck_Analyzer(inner_offset.Shape()).IsValid()) {
+                    throw std::runtime_error("OCCT Shell inner offset failed");
+                }
+                TopTools_IndexedMapOfShape inner_solids;
+                TopExp::MapShapes(
+                    inner_offset.Shape(), TopAbs_SOLID, inner_solids);
+                const double inner_volume = volume_of(inner_offset.Shape());
+                if (inner_solids.Extent() != 1 ||
+                    inner_volume <= volume_tolerance ||
+                    inner_volume >= input_volume - volume_tolerance) {
+                    throw std::runtime_error(
+                        "Shell thickness does not leave one valid inner cavity");
+                }
+
+                auto inner_faces = shell_result_faces(inner_offset,
+                    inner_offset.Shape(), owned_topology->faces,
+                    owned_topology->edges, owned_topology->vertices,
+                    operation.owner_id, "shell:inner-face");
+                auto inner_edges = complete_boolean_edges(
+                    inner_offset.Shape(), inner_faces,
+                    keep_unambiguous_topology_references(propagate_topology(
+                        inner_offset, owned_topology->edges,
+                        std::vector<OwnedEdge>{})),
+                    operation.owner_id, "shell:inner");
+                auto inner_vertices = complete_edge_treatment_vertices(
+                    inner_offset.Shape(), inner_edges,
+                    keep_unambiguous_topology_references(propagate_topology(
+                        inner_offset, owned_topology->vertices,
+                        std::vector<OwnedVertex>{})),
+                    no_selected_edges, operation.owner_id,
+                    "shell:inner-vertex");
+
+                BRepAlgoAPI_Cut closed_wall(
+                    solids.FindKey(1), inner_offset.Shape());
+                closed_wall.SetToFillHistory(true);
+                closed_wall.SetFuzzyValue(shell_tolerance);
+                closed_wall.Build();
+                if (!closed_wall.IsDone() || closed_wall.Shape().IsNull() ||
+                    !BRepCheck_Analyzer(closed_wall.Shape()).IsValid()) {
+                    throw std::runtime_error("OCCT closed Shell failed");
+                }
+                TopTools_IndexedMapOfShape wall_solids;
+                TopExp::MapShapes(closed_wall.Shape(), TopAbs_SOLID, wall_solids);
+                const double closed_wall_volume = volume_of(closed_wall.Shape());
+                if (wall_solids.Extent() != 1 ||
+                    closed_wall_volume <= volume_tolerance ||
+                    closed_wall_volume >= input_volume - volume_tolerance) {
+                    throw std::runtime_error(
+                        "OCCT closed Shell did not create a valid wall");
+                }
+
+                auto wall_face_inputs = owned_topology->faces;
+                wall_face_inputs.insert(wall_face_inputs.end(),
+                    inner_faces.begin(), inner_faces.end());
+                auto wall_edge_inputs = owned_topology->edges;
+                wall_edge_inputs.insert(wall_edge_inputs.end(),
+                    inner_edges.begin(), inner_edges.end());
+                auto wall_vertex_inputs = owned_topology->vertices;
+                wall_vertex_inputs.insert(wall_vertex_inputs.end(),
+                    inner_vertices.begin(), inner_vertices.end());
+                auto shell_faces = shell_result_faces(closed_wall,
+                    closed_wall.Shape(), wall_face_inputs, wall_edge_inputs,
+                    wall_vertex_inputs, operation.owner_id,
+                    "shell:wall-face");
+                auto shell_edges = complete_boolean_edges(closed_wall.Shape(),
+                    shell_faces,
+                    keep_unambiguous_topology_references(propagate_topology(
+                        closed_wall, owned_topology->edges, inner_edges)),
+                    operation.owner_id, "shell:wall");
+                auto shell_vertices = complete_edge_treatment_vertices(
+                    closed_wall.Shape(), shell_edges,
+                    keep_unambiguous_topology_references(propagate_topology(
+                        closed_wall, owned_topology->vertices,
+                        inner_vertices)),
+                    no_selected_edges, operation.owner_id,
+                    "shell:wall-vertex");
+                TopoDS_Shape shell_shape = closed_wall.Shape();
+
+                if (!shell->removed_faces.empty()) {
+                    struct ShellOpeningTool {
+                        std::unique_ptr<BRepOffsetAPI_MakeThickSolid>
+                            algorithm;
+                        std::vector<OwnedFace> faces;
+                        std::vector<OwnedEdge> edges;
+                        std::vector<OwnedVertex> vertices;
+                    };
+                    const auto make_opening_tool =
+                        [&](const OwnedFace& source,
+                            const FaceReference& conceptual_source,
+                            const std::vector<OwnedEdge>& source_topology_edges,
+                            const std::vector<OwnedVertex>&
+                                source_topology_vertices,
+                            std::string_view tool_role) {
+                        GProp_GProps face_properties;
+                        BRepGProp::SurfaceProperties(
+                            source.shape, face_properties);
+                        const double expected_removed_volume = std::max(
+                            volume_tolerance,
+                            face_properties.Mass() * shell->thickness);
+                        struct Candidate {
+                            double score{
+                                std::numeric_limits<double>::infinity()};
+                            double removed_volume{};
+                            std::unique_ptr<
+                                BRepOffsetAPI_MakeThickSolid> tool;
+                        };
+                        Candidate best;
+                        for (const bool reverse_face : {false, true}) {
+                            for (const double direction : {-1.1, 1.1}) {
+                                auto tool = std::make_unique<
+                                    BRepOffsetAPI_MakeThickSolid>();
+                                auto tool_face = TopoDS::Face(source.shape);
+                                if (reverse_face) tool_face.Reverse();
+                                tool->MakeThickSolidBySimple(tool_face,
+                                    shell->thickness * direction);
+                                if (!tool->IsDone() ||
+                                    tool->Shape().IsNull() ||
+                                    !BRepCheck_Analyzer(
+                                        tool->Shape()).IsValid()) {
+                                    continue;
+                                }
+                                BRepAlgoAPI_Cut probe(
+                                    shell_shape, tool->Shape());
+                                probe.SetFuzzyValue(shell_tolerance);
+                                probe.Build();
+                                if (!probe.IsDone() ||
+                                    probe.Shape().IsNull() ||
+                                    !BRepCheck_Analyzer(
+                                        probe.Shape()).IsValid()) {
+                                    continue;
+                                }
+                                TopTools_IndexedMapOfShape probe_solids;
+                                TopExp::MapShapes(probe.Shape(),
+                                    TopAbs_SOLID, probe_solids);
+                                const double candidate_volume =
+                                    volume_of(probe.Shape());
+                                const double removed_volume =
+                                    closed_wall_volume - candidate_volume;
+                                if (probe_solids.Extent() != 1 ||
+                                    candidate_volume <= volume_tolerance ||
+                                    removed_volume <= volume_tolerance) {
+                                    continue;
+                                }
+                                const double score = std::abs(
+                                    removed_volume -
+                                    expected_removed_volume) /
+                                    expected_removed_volume;
+                                if (score < best.score ||
+                                    (score == best.score &&
+                                     removed_volume <
+                                         best.removed_volume)) {
+                                    best.score = score;
+                                    best.removed_volume = removed_volume;
+                                    best.tool = std::move(tool);
+                                }
+                            }
+                        }
+                        if (!best.tool) {
+                            throw std::runtime_error(
+                                "OCCT Shell could not construct an opening tool");
+                        }
+
+                        TopTools_IndexedMapOfShape source_edges;
+                        TopTools_IndexedMapOfShape source_vertices;
+                        TopExp::MapShapes(
+                            source.shape, TopAbs_EDGE, source_edges);
+                        TopExp::MapShapes(
+                            source.shape, TopAbs_VERTEX, source_vertices);
+                        std::vector<OwnedEdge> face_edges;
+                        std::ranges::copy_if(source_topology_edges,
+                            std::back_inserter(face_edges),
+                            [&](const auto& edge) {
+                                return source_edges.Contains(edge.shape);
+                            });
+                        std::vector<OwnedVertex> face_vertices;
+                        std::ranges::copy_if(source_topology_vertices,
+                            std::back_inserter(face_vertices),
+                            [&](const auto& vertex) {
+                                return source_vertices.Contains(
+                                    vertex.shape);
+                            });
+                        auto tool_faces = shell_opening_tool_faces(
+                            best.tool->Shape(), source,
+                            conceptual_source, face_edges,
+                            operation.owner_id, tool_role);
+                        auto tool_edges = complete_boolean_edges(
+                            best.tool->Shape(), tool_faces,
+                            keep_unambiguous_topology_references(
+                                propagate_topology(*best.tool, face_edges,
+                                    std::vector<OwnedEdge>{})),
+                            operation.owner_id,
+                            std::string(tool_role) + ":edge");
+                        auto tool_vertices =
+                            complete_edge_treatment_vertices(
+                                best.tool->Shape(), tool_edges,
+                                keep_unambiguous_topology_references(
+                                    propagate_topology(*best.tool,
+                                        face_vertices,
+                                        std::vector<OwnedVertex>{})),
+                                no_selected_edges, operation.owner_id,
+                                std::string(tool_role) + ":vertex");
+                        return ShellOpeningTool{
+                            std::move(best.tool), std::move(tool_faces),
+                            std::move(tool_edges),
+                            std::move(tool_vertices)};
+                    };
+
+                    std::vector<ShellOpeningTool> inner_opening_tools;
+                    std::vector<ShellOpeningTool> outer_opening_tools;
+                    inner_opening_tools.reserve(
+                        shell->removed_faces.size());
+                    outer_opening_tools.reserve(
+                        shell->removed_faces.size());
+                    TopTools_ListOfShape opening_tool_shapes;
+                    std::vector<OwnedFace> opening_tool_faces;
+                    std::vector<OwnedEdge> opening_tool_edges;
+                    std::vector<OwnedVertex> opening_tool_vertices;
+
+                    for (const auto& requested :
+                         shell->removed_faces) {
+                        const auto matches_reference =
+                            [&](const auto& owned) {
+                                return owned.reference.owner_id ==
+                                        requested.owner_id &&
+                                    owned.reference.semantic_key ==
+                                        requested.semantic_key;
+                            };
+                        const auto input = std::ranges::find_if(
+                            owned_topology->faces, matches_reference);
+                        const auto outer = std::ranges::find_if(
+                            shell_faces, matches_reference);
+                        if (input == owned_topology->faces.end() ||
+                            outer == shell_faces.end()) {
+                            throw std::runtime_error(
+                                "Shell opening lost its selected source face");
+                        }
+
+                        std::vector<OwnedFace> inner_matches;
+                        const auto append_inner_match =
+                            [&](const TopoDS_Shape& shape) {
+                                if (shape.ShapeType() != TopAbs_FACE) return;
+                                for (const auto& inner_face : inner_faces) {
+                                    if (!inner_face.shape.IsSame(shape) ||
+                                        std::any_of(inner_matches.begin(),
+                                            inner_matches.end(),
+                                            [&](const auto& value) {
+                                                return value.shape.IsSame(
+                                                    shape);
+                                            })) {
+                                        continue;
+                                    }
+                                    inner_matches.push_back(inner_face);
+                                }
+                            };
+                        for (const auto* descendants : {
+                                &inner_offset.Modified(input->shape),
+                                &inner_offset.Generated(input->shape)}) {
+                            for (TopTools_ListIteratorOfListOfShape iterator(
+                                    *descendants);
+                                 iterator.More(); iterator.Next()) {
+                                append_inner_match(iterator.Value());
+                            }
+                        }
+                        if (inner_matches.size() != 1) {
+                            throw std::runtime_error(
+                                "Shell opening has no unique inner offset face");
+                        }
+
+                        auto inner_tool = make_opening_tool(
+                            inner_matches.front(), requested, inner_edges,
+                            inner_vertices, "shell:opening-inner-tool");
+                        opening_tool_shapes.Append(
+                            inner_tool.algorithm->Shape());
+                        opening_tool_faces.insert(
+                            opening_tool_faces.end(),
+                            inner_tool.faces.begin(),
+                            inner_tool.faces.end());
+                        opening_tool_edges.insert(
+                            opening_tool_edges.end(),
+                            inner_tool.edges.begin(),
+                            inner_tool.edges.end());
+                        opening_tool_vertices.insert(
+                            opening_tool_vertices.end(),
+                            inner_tool.vertices.begin(),
+                            inner_tool.vertices.end());
+                        inner_opening_tools.push_back(
+                            std::move(inner_tool));
+                        outer_opening_tools.push_back(make_opening_tool(
+                            *outer, requested, shell_edges, shell_vertices,
+                            "shell:opening-outer-tool"));
+                    }
+
+                    // Inner-face tools preserve the rims of unselected
+                    // neighboring walls, but two adjacent selected faces
+                    // leave a corner prism between their offset boundaries.
+                    // The intersection of their corresponding outer-face
+                    // tools is exactly that missing shared corner. Add only
+                    // this intersection, never either complete outer tool.
+                    for (std::size_t first = 0;
+                         first < outer_opening_tools.size(); ++first) {
+                        for (std::size_t second = first + 1;
+                             second < outer_opening_tools.size(); ++second) {
+                            auto& first_tool =
+                                outer_opening_tools[first];
+                            auto& second_tool =
+                                outer_opening_tools[second];
+                            BRepAlgoAPI_Common bridge(
+                                first_tool.algorithm->Shape(),
+                                second_tool.algorithm->Shape());
+                            bridge.SetToFillHistory(true);
+                            bridge.SetFuzzyValue(shell_tolerance);
+                            bridge.Build();
+                            if (!bridge.IsDone() ||
+                                bridge.Shape().IsNull() ||
+                                !BRepCheck_Analyzer(
+                                    bridge.Shape()).IsValid() ||
+                                volume_of(bridge.Shape()) <=
+                                    volume_tolerance) {
+                                continue;
+                            }
+                            auto bridge_face_inputs = first_tool.faces;
+                            bridge_face_inputs.insert(
+                                bridge_face_inputs.end(),
+                                second_tool.faces.begin(),
+                                second_tool.faces.end());
+                            auto bridge_edge_inputs = first_tool.edges;
+                            bridge_edge_inputs.insert(
+                                bridge_edge_inputs.end(),
+                                second_tool.edges.begin(),
+                                second_tool.edges.end());
+                            auto bridge_vertex_inputs =
+                                first_tool.vertices;
+                            bridge_vertex_inputs.insert(
+                                bridge_vertex_inputs.end(),
+                                second_tool.vertices.begin(),
+                                second_tool.vertices.end());
+                            auto bridge_faces = shell_result_faces(
+                                bridge, bridge.Shape(),
+                                bridge_face_inputs, bridge_edge_inputs,
+                                bridge_vertex_inputs,
+                                operation.owner_id,
+                                "shell:opening-bridge-face");
+                            auto bridge_edges = complete_boolean_edges(
+                                bridge.Shape(), bridge_faces,
+                                keep_unambiguous_topology_references(
+                                    propagate_topology(bridge,
+                                        first_tool.edges,
+                                        second_tool.edges)),
+                                operation.owner_id,
+                                "shell:opening-bridge");
+                            auto bridge_vertices =
+                                complete_edge_treatment_vertices(
+                                    bridge.Shape(), bridge_edges,
+                                    keep_unambiguous_topology_references(
+                                        propagate_topology(bridge,
+                                            first_tool.vertices,
+                                            second_tool.vertices)),
+                                    no_selected_edges,
+                                    operation.owner_id,
+                                    "shell:opening-bridge-vertex");
+                            opening_tool_shapes.Append(bridge.Shape());
+                            opening_tool_faces.insert(
+                                opening_tool_faces.end(),
+                                bridge_faces.begin(),
+                                bridge_faces.end());
+                            opening_tool_edges.insert(
+                                opening_tool_edges.end(),
+                                bridge_edges.begin(),
+                                bridge_edges.end());
+                            opening_tool_vertices.insert(
+                                opening_tool_vertices.end(),
+                                bridge_vertices.begin(),
+                                bridge_vertices.end());
+                        }
+                    }
+
+                    TopTools_ListOfShape opening_arguments;
+                    opening_arguments.Append(shell_shape);
+                    BRepAlgoAPI_Cut opening_cut;
+                    opening_cut.SetArguments(opening_arguments);
+                    opening_cut.SetTools(opening_tool_shapes);
+                    opening_cut.SetToFillHistory(true);
+                    opening_cut.SetFuzzyValue(shell_tolerance);
+                    opening_cut.Build();
+                    if (!opening_cut.IsDone() ||
+                        opening_cut.Shape().IsNull() ||
+                        !BRepCheck_Analyzer(
+                            opening_cut.Shape()).IsValid()) {
+                        throw std::runtime_error(
+                            "OCCT Shell could not create the selected openings");
+                    }
+                    TopTools_IndexedMapOfShape opened_solids;
+                    TopExp::MapShapes(opening_cut.Shape(),
+                        TopAbs_SOLID, opened_solids);
+                    const double opened_volume =
+                        volume_of(opening_cut.Shape());
+                    if (opened_solids.Extent() != 1 ||
+                        opened_volume <= volume_tolerance ||
+                        opened_volume >=
+                            closed_wall_volume - volume_tolerance) {
+                        throw std::runtime_error(
+                            "OCCT Shell openings did not create one valid wall");
+                    }
+
+                    auto opening_face_inputs = shell_faces;
+                    opening_face_inputs.insert(
+                        opening_face_inputs.end(),
+                        opening_tool_faces.begin(),
+                        opening_tool_faces.end());
+                    auto opening_edge_inputs = shell_edges;
+                    opening_edge_inputs.insert(
+                        opening_edge_inputs.end(),
+                        opening_tool_edges.begin(),
+                        opening_tool_edges.end());
+                    auto opening_vertex_inputs = shell_vertices;
+                    opening_vertex_inputs.insert(
+                        opening_vertex_inputs.end(),
+                        opening_tool_vertices.begin(),
+                        opening_tool_vertices.end());
+                    auto next_faces = shell_result_faces(
+                        opening_cut, opening_cut.Shape(),
+                        opening_face_inputs, opening_edge_inputs,
+                        opening_vertex_inputs, operation.owner_id,
+                        "shell:opening-face");
+                    auto next_edges = complete_boolean_edges(
+                        opening_cut.Shape(), next_faces,
+                        keep_unambiguous_topology_references(
+                            propagate_topology(opening_cut, shell_edges,
+                                opening_tool_edges)),
+                        operation.owner_id, "shell:opening");
+                    auto next_vertices =
+                        complete_edge_treatment_vertices(
+                            opening_cut.Shape(), next_edges,
+                            keep_unambiguous_topology_references(
+                                propagate_topology(opening_cut,
+                                    shell_vertices,
+                                    opening_tool_vertices)),
+                            no_selected_edges, operation.owner_id,
+                            "shell:opening-vertex");
+                    shell_shape = opening_cut.Shape();
+                    shell_faces = std::move(next_faces);
+                    shell_edges = std::move(next_edges);
+                    shell_vertices = std::move(next_vertices);
+                }
+
+                result_shape = std::move(shell_shape);
+                require_complete_unique_shell_topology(result_shape,
+                    TopAbs_FACE, shell_faces, "faces");
+                require_complete_unique_shell_topology(result_shape,
+                    TopAbs_EDGE, shell_edges, "edges");
+                require_complete_unique_shell_topology(result_shape,
+                    TopAbs_VERTEX, shell_vertices, "vertices");
+                owned_topology = std::make_shared<LiveCache::Topology>(
+                    LiveCache::Topology{std::move(shell_faces),
+                        std::move(shell_edges), std::move(shell_vertices), {}});
+                auto shell_result = make_result(result_shape,
+                    owned_topology->faces, owned_topology->edges,
+                    owned_topology->vertices, true, persist_boundary_shape,
+                    true, owned_topology->hidden_display_edges);
+                append_reference_geometry(original_references,
+                    reference_geometry_for_owners(
+                        shell_result.mesh.original_references,
+                        std::unordered_set<std::string>{operation.owner_id}));
+                boundaries.push_back(std::move(shell_result));
+                boundaries.back().source_fingerprint =
+                    history_fingerprint(operations, boundaries.size());
+                remember_live_boundary(boundaries.back().source_fingerprint,
+                    result_shape, owned_topology);
+                continue;
+            }
             const bool imported_step = std::holds_alternative<StepRequest>(operation.primitive);
             const PrimitiveData operand = std::visit([&](const auto& primitive)
                 -> PrimitiveData {
@@ -3967,7 +5004,7 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                 } else if constexpr (std::is_same_v<Request, StepRequest>) {
                     return make_step_data(primitive, operation.owner_id, step_documents);
                 } else {
-                    throw std::logic_error("Edge treatment reached primitive builder");
+                    throw std::logic_error("Body treatment reached primitive builder");
                 }
             }, operation.primitive);
             const std::string reference_cache_key = history_fingerprint(

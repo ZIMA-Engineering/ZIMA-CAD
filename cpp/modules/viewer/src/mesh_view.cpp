@@ -1003,13 +1003,21 @@ std::vector<zima::kernel::EdgeReference> MeshView::tangent_edge_route(
     struct Endpoint { std::size_t edge{}; int end{}; };
     const double tolerance = std::max(1.0e-6,
         world_tolerance_for_pixels(0.05));
-    const auto key = [tolerance](const zima::kernel::Vec3& point) {
-        return std::array<long long, 3>{
-            std::llround(point.x / tolerance),
-            std::llround(point.y / tolerance),
-            std::llround(point.z / tolerance)};
+    using VertexKey = std::pair<std::string, std::string>;
+    const auto endpoint_key = [](const zima::kernel::ViewerEdge& edge, int end)
+            -> std::optional<VertexKey> {
+        if (edge.edge_treatment_endpoint_references.size() != 2) {
+            return std::nullopt;
+        }
+        const auto& reference = edge.edge_treatment_endpoint_references[
+            end == 0 ? 0 : 1];
+        if (!reference.valid()) return std::nullopt;
+        // All candidate edges were already restricted to one occurrence
+        // below. The endpoint's persisted ZIMA owner + semantic key is the
+        // exact topological connection; spatial proximity is not.
+        return VertexKey{reference.owner_id, reference.semantic_key};
     };
-    std::map<std::array<long long, 3>, std::vector<Endpoint>> endpoints;
+    std::map<VertexKey, std::vector<Endpoint>> endpoints;
     std::optional<std::size_t> seed_index;
     for (std::size_t index = 0; index < edges.size(); ++index) {
         const auto& edge = edges[index];
@@ -1021,10 +1029,30 @@ std::vector<zima::kernel::EdgeReference> MeshView::tangent_edge_route(
         if (!edge.reference.valid() ||
             edge.reference.instance_path != seed.instance_path ||
             edge.points.size() < 2) continue;
-        endpoints[key(edge.points.front())].push_back({index, 0});
-        endpoints[key(edge.points.back())].push_back({index, 1});
-        if (edge.reference.owner_id == seed.owner_id &&
+        if (const auto front = endpoint_key(edge, 0)) {
+            endpoints[*front].push_back({index, 0});
+        }
+        if (const auto back = endpoint_key(edge, 1)) {
+            endpoints[*back].push_back({index, 1});
+        }
+        if (index == seed.geometry_index &&
+            edge.reference.owner_id == seed.owner_id &&
             edge.reference.semantic_key == seed.semantic_key) {
+            seed_index = index;
+        }
+    }
+    // Programmatic route restoration has no picked geometry index. Resolve
+    // it only when the persisted edge identity is unique in the displayed
+    // body. A live hover/click always takes the exact offered mesh edge above.
+    if (!seed_index) {
+        for (std::size_t index = 0; index < edges.size(); ++index) {
+            const auto& edge = edges[index];
+            if (edge.reference.owner_id != seed.owner_id ||
+                edge.reference.semantic_key != seed.semantic_key ||
+                edge.reference.instance_path != seed.instance_path) {
+                continue;
+            }
+            if (seed_index) return {};
             seed_index = index;
         }
     }
@@ -1048,23 +1076,32 @@ std::vector<zima::kernel::EdgeReference> MeshView::tangent_edge_route(
         std::numbers::pi / 180.0);
     std::set<std::size_t> selected{*seed_index};
     std::vector<std::size_t> pending{*seed_index};
+    std::set<VertexKey> visited_vertices;
     while (!pending.empty()) {
         const auto current = pending.back(); pending.pop_back();
         for (int end = 0; end < 2; ++end) {
             const auto current_direction = direction(current, end);
-            if (!current_direction) continue;
-            const auto& point = end == 0 ? edges[current].points.front()
-                                         : edges[current].points.back();
+            const auto vertex = endpoint_key(edges[current], end);
+            if (!current_direction || !vertex) continue;
+            // Once the route has crossed one vertex, do not enter the same
+            // junction again from the newly added edge and accidentally take
+            // a different branch back out of it.
+            if (!visited_vertices.insert(*vertex).second) continue;
             std::vector<std::size_t> continuations;
-            for (const auto candidate : endpoints[key(point)]) {
+            for (const auto candidate : endpoints[*vertex]) {
                 if (candidate.edge == current || selected.contains(candidate.edge)) continue;
                 const auto candidate_direction = direction(candidate.edge, candidate.end);
                 if (!candidate_direction) continue;
-                const double alignment = std::abs(
+                const double alignment =
                     current_direction->x * candidate_direction->x +
                     current_direction->y * candidate_direction->y +
-                    current_direction->z * candidate_direction->z);
-                if (alignment >= limit) continuations.push_back(candidate.edge);
+                    current_direction->z * candidate_direction->z;
+                // Both vectors point away from their common endpoint. A
+                // continuous route therefore has antiparallel tangents. The
+                // old abs(dot) also accepted a curve that doubled back on the
+                // same side, which could pull a disconnected-looking Fillet
+                // boundary into the selected route.
+                if (alignment <= -limit) continuations.push_back(candidate.edge);
             }
             std::sort(continuations.begin(), continuations.end());
             continuations.erase(std::unique(continuations.begin(), continuations.end()),
@@ -3983,10 +4020,12 @@ if (impl_->show_planes) {
         // A populated placement-reference row can identify a persisted Face.
         // Faces live in triangle reference data, whereas the normal cyan
         // reference state above colours ViewerEdges.  Draw the exact semantic
-        // face boundary from the persisted original-reference tessellation so
-        // selecting such a row has the same cyan feedback as Plane/Axis/Point
-        // rows.  Internal tessellation diagonals occur twice and are removed;
-        // no whole-body tint or OCCT topology lookup is involved.
+        // face boundary from the current display fragments carrying that
+        // persisted identity. Fall back to the original-reference packet only
+        // when the identity has no visible fragment. This is the same
+        // visible-fragment -> stable-source contract used by picking.
+        // Internal tessellation diagonals occur twice and are removed; no
+        // whole-body tint or OCCT topology lookup is involved.
         {
             using RoundedPoint = std::array<long long, 3>;
             struct FaceBoundarySegment {
@@ -4002,36 +4041,73 @@ if (impl_->show_planes) {
                     std::llround(point.y * scale),
                     std::llround(point.z * scale)};
             };
-            const auto& original = impl_->mesh.original_references;
-            for (std::size_t triangle = 0;
-                 triangle < original.triangle_references.size(); ++triangle) {
-                const auto& reference = original.triangle_references[triangle];
-                if (!impl_->constraint_reference_edges.contains(EdgeKey{
-                        reference.owner_id, reference.semantic_key,
-                        reference.instance_path}) ||
-                    reference.semantic_key == "plane" ||
-                    reference.semantic_key.starts_with("origin:plane:") ||
-                    triangle * 3 + 2 >= original.triangles.size()) continue;
-                const std::array<std::uint32_t, 3> indices{
-                    original.triangles[triangle * 3],
-                    original.triangles[triangle * 3 + 1],
-                    original.triangles[triangle * 3 + 2]};
-                if (std::ranges::any_of(indices, [&](const auto index) {
-                        return index >= original.vertices.size();
-                    })) continue;
-                for (std::size_t side = 0; side < 3; ++side) {
-                    const auto& first = original.vertices[indices[side]];
-                    const auto& second = original.vertices[indices[(side + 1) % 3]];
-                    auto first_key = rounded(first);
-                    auto second_key = rounded(second);
-                    if (second_key < first_key) std::swap(first_key, second_key);
-                    auto& segment = boundary[{first_key, second_key}];
-                    if (segment.uses++ == 0) {
-                        segment.first = first;
-                        segment.second = second;
-                    }
+            std::set<EdgeKey> displayed_references;
+            for (const auto& reference :
+                 impl_->mesh.triangle_references) {
+                const EdgeKey key{reference.owner_id,
+                    reference.semantic_key, reference.instance_path};
+                if (impl_->constraint_reference_edges.contains(key) &&
+                    reference.semantic_key != "plane" &&
+                    !reference.semantic_key.starts_with(
+                        "origin:plane:")) {
+                    displayed_references.insert(std::move(key));
                 }
             }
+            const auto append_boundaries =
+                [&](const auto& source, bool original_fallback) {
+                    for (std::size_t triangle = 0;
+                         triangle <
+                            source.triangle_references.size();
+                         ++triangle) {
+                        const auto& reference =
+                            source.triangle_references[triangle];
+                        const EdgeKey key{reference.owner_id,
+                            reference.semantic_key,
+                            reference.instance_path};
+                        if (!impl_->constraint_reference_edges.contains(
+                                key) ||
+                            (original_fallback &&
+                             displayed_references.contains(key)) ||
+                            reference.semantic_key == "plane" ||
+                            reference.semantic_key.starts_with(
+                                "origin:plane:") ||
+                            triangle * 3 + 2 >=
+                                source.triangles.size()) {
+                            continue;
+                        }
+                        const std::array<std::uint32_t, 3> indices{
+                            source.triangles[triangle * 3],
+                            source.triangles[triangle * 3 + 1],
+                            source.triangles[triangle * 3 + 2]};
+                        if (std::ranges::any_of(indices,
+                                [&](const auto index) {
+                                    return index >=
+                                        source.vertices.size();
+                                })) {
+                            continue;
+                        }
+                        for (std::size_t side = 0; side < 3; ++side) {
+                            const auto& first =
+                                source.vertices[indices[side]];
+                            const auto& second = source.vertices[
+                                indices[(side + 1) % 3]];
+                            auto first_key = rounded(first);
+                            auto second_key = rounded(second);
+                            if (second_key < first_key) {
+                                std::swap(first_key, second_key);
+                            }
+                            auto& segment =
+                                boundary[{first_key, second_key}];
+                            if (segment.uses++ == 0) {
+                                segment.first = first;
+                                segment.second = second;
+                            }
+                        }
+                    }
+                };
+            append_boundaries(impl_->mesh, false);
+            append_boundaries(
+                impl_->mesh.original_references, true);
             for (const auto& [key, segment] : boundary) {
                 static_cast<void>(key);
                 if (segment.uses != 1) continue;

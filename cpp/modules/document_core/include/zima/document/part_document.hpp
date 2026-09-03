@@ -16,7 +16,7 @@
 namespace zima::document {
 
 enum class CombineMode { Add, Subtract };
-enum class FeatureKind { Sketch, Box, Cylinder, Sphere, Cone, Pyramid, Wedge, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer };
+enum class FeatureKind { Sketch, Box, Cylinder, Sphere, Cone, Pyramid, Wedge, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell };
 enum class ExtrusionDirection { Forward, Reverse, Symmetric };
 enum class ExtrusionExtent { Blind, UpToPlane, UpToSurface, ThroughAll };
 enum class ProfileSource { Internal, External };
@@ -415,6 +415,12 @@ struct EdgeTreatmentParameters {
     bool operator==(const EdgeTreatmentParameters&) const = default;
 };
 
+struct ShellParameters {
+    std::vector<zima::kernel::FaceReference> removed_faces;
+    double thickness{1.0};
+    bool operator==(const ShellParameters&) const = default;
+};
+
 struct Curve3DSolvedPrimitive {
     std::string generator_id;
     std::string semantic_key;
@@ -537,6 +543,7 @@ struct HistoryContainer {
     Sweep3DParameters sweep3d;
     ImportedStepParameters imported_step;
     EdgeTreatmentParameters edge_treatment;
+    ShellParameters shell;
     bool suppressed{};
     bool operator==(const HistoryContainer&) const = default;
 };
@@ -575,6 +582,7 @@ public:
     std::size_t history_cursor{std::numeric_limits<std::size_t>::max()};
 
     [[nodiscard]] std::size_t effective_history_cursor() const;
+    [[nodiscard]] std::size_t body_operation_count_at_history_cursor() const;
     void set_history_cursor(std::size_t cursor);
     void insert_history_entry(PartHistoryKind kind, std::string id);
 
@@ -636,6 +644,8 @@ public:
         std::vector<zima::kernel::EdgeReference> edges);
     [[nodiscard]] static HistoryContainer create_chamfer_container(
         std::vector<zima::kernel::EdgeReference> edges);
+    [[nodiscard]] static HistoryContainer create_shell_container(
+        std::vector<zima::kernel::FaceReference> removed_faces = {});
     [[nodiscard]] static HistoryContainer create_imported_step_container(
         std::filesystem::path source_path, std::string component_path = {},
         std::string component_name = {});

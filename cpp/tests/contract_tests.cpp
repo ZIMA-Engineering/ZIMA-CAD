@@ -476,6 +476,388 @@ int main() {
         require(display_box_face_keys == box_face_keys,
                 "Visible Box fragments changed stable semantic face identities");
 
+        const zima::kernel::FaceReference shell_opening{
+            "box", "z_max", {}};
+        const auto shell_boundaries = kernel.evaluate_history({
+            {"box", zima::kernel::BoxRequest{100.0, 80.0, 50.0},
+             zima::kernel::BooleanOperation::Add},
+            {"shell", zima::kernel::ShellRequest{{shell_opening}, 2.0},
+             zima::kernel::BooleanOperation::Add},
+        });
+        require(shell_boundaries.size() == 2 &&
+                    shell_boundaries.back().volume > 0.0 &&
+                    shell_boundaries.back().volume < body.volume,
+                "Inward Shell did not remove material from the input solid");
+        const auto shell_bounds = [&](auto coordinate) {
+            return std::minmax_element(
+                shell_boundaries.back().mesh.vertices.begin(),
+                shell_boundaries.back().mesh.vertices.end(),
+                [&](const auto& left, const auto& right) {
+                    return coordinate(left) < coordinate(right);
+                });
+        };
+        const auto shell_x = shell_bounds(
+            [](const auto& point) { return point.x; });
+        const auto shell_y = shell_bounds(
+            [](const auto& point) { return point.y; });
+        const auto shell_z = shell_bounds(
+            [](const auto& point) { return point.z; });
+        require(std::abs(shell_x.first->x) < 1.0e-7 &&
+                    std::abs(shell_x.second->x - 100.0) < 1.0e-7 &&
+                    std::abs(shell_y.first->y) < 1.0e-7 &&
+                    std::abs(shell_y.second->y - 80.0) < 1.0e-7 &&
+                    std::abs(shell_z.first->z) < 1.0e-7 &&
+                    std::abs(shell_z.second->z - 50.0) < 1.0e-7,
+                "Inward Shell changed the exterior dimensions");
+        std::set<std::pair<std::string, std::string>> shell_face_ids;
+        std::set<std::string> shell_face_owners;
+        for (const auto& reference :
+             shell_boundaries.back().mesh.triangle_references) {
+            require(reference.valid(),
+                "Shell left an anonymous result face");
+            shell_face_ids.emplace(reference.owner_id, reference.semantic_key);
+            shell_face_owners.insert(reference.owner_id);
+        }
+        require(shell_face_owners.contains("box") &&
+                    shell_face_owners.contains("shell") &&
+                    shell_face_ids.size() > box_face_keys.size(),
+                "Shell did not preserve exterior face identity and create "
+                "stable owned inner faces");
+        std::set<std::pair<std::string, std::string>>
+            shell_owned_display_face_ids;
+        for (const auto& identity : shell_face_ids) {
+            if (identity.first == "shell") {
+                shell_owned_display_face_ids.insert(identity);
+            }
+        }
+        std::set<std::pair<std::string, std::string>>
+            shell_owned_reference_face_ids;
+        for (const auto& reference : shell_boundaries.back()
+                 .mesh.original_references.triangle_references) {
+            if (reference.owner_id == "shell") {
+                shell_owned_reference_face_ids.emplace(
+                    reference.owner_id, reference.semantic_key);
+            }
+        }
+        require(!shell_owned_display_face_ids.empty() &&
+                    shell_owned_reference_face_ids ==
+                        shell_owned_display_face_ids,
+                "Shell-owned display faces were not persisted as stable "
+                "placement reference geometry");
+        const auto& shell_reference_identity =
+            *shell_owned_reference_face_ids.begin();
+        zima::document::ConstructionReference shell_face_reference{
+            {}, shell_reference_identity.first,
+            shell_reference_identity.second, 0.0, true};
+        require(zima::document::point_constraint_remaining_dof(
+                    {shell_face_reference}, shell_boundaries.back()
+                        .mesh.original_references) < 3,
+                "A persisted inner Shell face did not constrain placement");
+        std::set<std::pair<std::string, std::string>> shell_edge_ids;
+        for (const auto& edge : shell_boundaries.back().mesh.edges) {
+            require(edge.reference.valid(),
+                "Shell left an anonymous result edge");
+            require(shell_edge_ids.emplace(edge.reference.owner_id,
+                        edge.reference.semantic_key).second,
+                "Shell reused one stable edge identity");
+        }
+        std::set<std::pair<std::string, std::string>> shell_vertex_ids;
+        for (const auto& point : shell_boundaries.back().mesh.points) {
+            require(point.reference.valid(),
+                "Shell left an anonymous result vertex");
+            require(shell_vertex_ids.emplace(point.reference.owner_id,
+                        point.reference.semantic_key).second,
+                "Shell reused one stable vertex identity");
+        }
+        const auto closed_shell_boundaries = kernel.evaluate_history({
+            {"closed-shell-box", zima::kernel::BoxRequest{10.0, 10.0, 10.0},
+             zima::kernel::BooleanOperation::Add},
+            {"closed-shell", zima::kernel::ShellRequest{{}, 1.0},
+             zima::kernel::BooleanOperation::Add},
+        });
+        require(closed_shell_boundaries.size() == 2 &&
+                    std::abs(closed_shell_boundaries.back().volume - 488.0) <
+                        1.0e-6,
+                "Closed Shell without opening faces did not create a hollow body");
+        const auto adjacent_opening_shell = kernel.evaluate_history({
+            {"adjacent-opening-box",
+             zima::kernel::BoxRequest{10.0, 10.0, 10.0},
+             zima::kernel::BooleanOperation::Add},
+            {"adjacent-opening-shell",
+             zima::kernel::ShellRequest{{
+                 {"adjacent-opening-box", "z_max", {}},
+                 {"adjacent-opening-box", "x_max", {}}}, 1.0},
+             zima::kernel::BooleanOperation::Add},
+        });
+        const auto adjacent_opening_error =
+            "Adjacent Shell openings retained a wall at their common edge; "
+            "volume=" + std::to_string(
+                adjacent_opening_shell.back().volume);
+        require(adjacent_opening_shell.size() == 2 &&
+                    std::abs(adjacent_opening_shell.back().volume - 352.0) <
+                        1.0e-6,
+                adjacent_opening_error.c_str());
+        std::size_t adjacent_shell_max_key{};
+        for (const auto& reference :
+             adjacent_opening_shell.back().mesh.triangle_references) {
+            adjacent_shell_max_key = std::max(
+                adjacent_shell_max_key, reference.semantic_key.size());
+        }
+        for (const auto& edge : adjacent_opening_shell.back().mesh.edges) {
+            adjacent_shell_max_key = std::max(
+                adjacent_shell_max_key, edge.reference.semantic_key.size());
+        }
+        for (const auto& point : adjacent_opening_shell.back().mesh.points) {
+            adjacent_shell_max_key = std::max(
+                adjacent_shell_max_key, point.reference.semantic_key.size());
+        }
+        require(adjacent_opening_shell.back().mesh.triangles.size() < 100000 &&
+                    adjacent_shell_max_key < 4096,
+                "Adjacent Shell openings produced a pathological viewer packet");
+        const std::string shell_fillet_box_id = "shell-two-fillet-box";
+        std::vector<zima::kernel::HistoryOperation> shell_after_fillets{
+            {shell_fillet_box_id,
+             zima::kernel::BoxRequest{100.0, 80.0, 50.0},
+             zima::kernel::BooleanOperation::Add},
+            {"shell-first-fillet",
+             zima::kernel::FilletRequest{{
+                 {shell_fillet_box_id,
+                  "edge:x_max:y_min:z_max--x_max:y_min:z_min", {}},
+                 {shell_fillet_box_id,
+                  "edge:x_min:y_min:z_max--x_min:y_min:z_min", {}}}, 5.0},
+             zima::kernel::BooleanOperation::Add},
+            {"shell-second-fillet",
+             zima::kernel::FilletRequest{{
+                 {shell_fillet_box_id,
+                  "edge:x_max:y_max:z_min--x_max:y_min:z_min", {}}}, 5.0},
+             zima::kernel::BooleanOperation::Add},
+        };
+        const auto two_fillet_body =
+            kernel.evaluate_history(shell_after_fillets);
+        require(two_fillet_body.size() == 3 &&
+                    two_fillet_body.back().volume > 0.0 &&
+                    two_fillet_body.back().volume < 400000.0,
+                "Sequential Fillet setup for Shell regression failed");
+        std::size_t treated_input_max_key{};
+        for (const auto& reference :
+             two_fillet_body.back().mesh.triangle_references) {
+            treated_input_max_key = std::max(
+                treated_input_max_key, reference.semantic_key.size());
+        }
+        for (const auto& edge : two_fillet_body.back().mesh.edges) {
+            treated_input_max_key = std::max(
+                treated_input_max_key, edge.reference.semantic_key.size());
+        }
+        shell_after_fillets.push_back({"closed-shell-after-two-fillets",
+            zima::kernel::ShellRequest{{}, 1.0},
+            zima::kernel::BooleanOperation::Add});
+        const auto closed_after_two_fillets =
+            kernel.evaluate_history(shell_after_fillets);
+        require(closed_after_two_fillets.size() == 4 &&
+                    closed_after_two_fillets.back().volume > 0.0 &&
+                    closed_after_two_fillets.back().volume <
+                        closed_after_two_fillets[2].volume,
+                "Closed Shell failed after two Fillet features");
+        std::size_t treated_closed_shell_max_key{};
+        for (const auto& reference :
+             closed_after_two_fillets.back().mesh.triangle_references) {
+            treated_closed_shell_max_key = std::max(
+                treated_closed_shell_max_key,
+                reference.semantic_key.size());
+        }
+        for (const auto& edge :
+             closed_after_two_fillets.back().mesh.edges) {
+            treated_closed_shell_max_key = std::max(
+                treated_closed_shell_max_key,
+                edge.reference.semantic_key.size());
+        }
+        shell_after_fillets.back().primitive = zima::kernel::ShellRequest{{
+            {shell_fillet_box_id, "z_max", {}}}, 1.0};
+        const auto single_open_after_two_fillets =
+            kernel.evaluate_history(shell_after_fillets);
+        require(single_open_after_two_fillets.size() == 4 &&
+                    single_open_after_two_fillets.back().volume > 0.0 &&
+                    single_open_after_two_fillets.back().volume <
+                        single_open_after_two_fillets[2].volume,
+                "Single-face Shell failed after two Fillet features");
+        shell_after_fillets.back().primitive = zima::kernel::ShellRequest{{
+            {shell_fillet_box_id, "z_max", {}},
+            {shell_fillet_box_id, "x_max", {}}}, 1.0};
+        const auto open_after_two_fillets =
+            kernel.evaluate_history(shell_after_fillets);
+        require(open_after_two_fillets.size() == 4 &&
+                    open_after_two_fillets.back().volume > 0.0 &&
+                    open_after_two_fillets.back().volume <
+                        open_after_two_fillets[2].volume,
+                "Open Shell failed after two Fillet features");
+        std::size_t treated_shell_max_face_key{};
+        for (const auto& reference :
+             open_after_two_fillets.back().mesh.triangle_references) {
+            treated_shell_max_face_key = std::max(
+                treated_shell_max_face_key, reference.semantic_key.size());
+        }
+        std::size_t treated_shell_max_edge_key{};
+        for (const auto& edge : open_after_two_fillets.back().mesh.edges) {
+            treated_shell_max_edge_key = std::max(
+                treated_shell_max_edge_key,
+                edge.reference.semantic_key.size());
+        }
+        const auto treated_shell_max_key = std::max(
+            treated_shell_max_face_key, treated_shell_max_edge_key);
+        const auto treated_shell_packet_error =
+            "Shell after two Fillets produced pathological persisted or "
+            "viewer data; kernel_shape=" +
+            std::to_string(
+                open_after_two_fillets.back().kernel_shape.size()) +
+            ", triangle_indices=" +
+            std::to_string(
+                open_after_two_fillets.back().mesh.triangles.size()) +
+            ", input_max_key=" +
+            std::to_string(treated_input_max_key) +
+            ", closed_shell_max_key=" +
+            std::to_string(treated_closed_shell_max_key) +
+            ", max_face_key=" +
+            std::to_string(treated_shell_max_face_key) +
+            ", max_edge_key=" +
+            std::to_string(treated_shell_max_edge_key);
+        require(open_after_two_fillets.back().kernel_shape.size() <
+                    1U * 1024U * 1024U &&
+                    open_after_two_fillets.back().mesh.triangles.size() <
+                        100000 &&
+                    treated_shell_max_key < 4096,
+                treated_shell_packet_error.c_str());
+        zima::kernel::BoxRequest separated_shell_box{10.0, 10.0, 10.0};
+        separated_shell_box.translation = {20.0, 0.0, 0.0};
+        bool rejected_multi_solid_shell = false;
+        try {
+            static_cast<void>(kernel.evaluate_history({
+                {"shell-a", zima::kernel::BoxRequest{10.0, 10.0, 10.0},
+                 zima::kernel::BooleanOperation::Add},
+                {"shell-b", separated_shell_box,
+                 zima::kernel::BooleanOperation::Add},
+                {"shell", zima::kernel::ShellRequest{{
+                    {"shell-a", "z_max", {}}}, 1.0},
+                 zima::kernel::BooleanOperation::Add},
+            }));
+        } catch (const std::invalid_argument&) {
+            rejected_multi_solid_shell = true;
+        }
+        require(rejected_multi_solid_shell,
+            "Shell accepted multiple disjoint input solids");
+
+        auto shell_document = zima::document::PartDocument::create_default();
+        shell_document.history.clear();
+        shell_document.history_order.clear();
+        auto persisted_shell_box =
+            zima::document::PartDocument::create_box_container();
+        persisted_shell_box.box = {40.0, 30.0, 20.0};
+        auto persisted_shell =
+            zima::document::PartDocument::create_shell_container({{
+                persisted_shell_box.id, "z_max", {}}});
+        persisted_shell.shell.thickness = 1.25;
+        shell_document.insert_history_entry(
+            zima::document::PartHistoryKind::Feature,
+            persisted_shell_box.id);
+        shell_document.history.push_back(persisted_shell_box);
+        shell_document.insert_history_entry(
+            zima::document::PartHistoryKind::Feature,
+            persisted_shell.id);
+        shell_document.history.push_back(persisted_shell);
+        const auto persisted_shell_boundaries = kernel.evaluate_history(
+            shell_document.kernel_operations());
+        const auto shell_path = std::filesystem::temp_directory_path() /
+            "zima-cad-shell-roundtrip-contract.prtz";
+        shell_document.save(shell_path, persisted_shell_boundaries);
+        std::vector<zima::kernel::BodyResult> loaded_shell_boundaries;
+        const auto loaded_shell_document = zima::document::PartDocument::load(
+            shell_path, &loaded_shell_boundaries);
+        std::filesystem::remove(shell_path);
+        require(loaded_shell_document.history.size() == 2 &&
+                    loaded_shell_document.history.back().feature_kind ==
+                        zima::document::FeatureKind::Shell &&
+                    loaded_shell_document.history.back().shell.thickness ==
+                        1.25 &&
+                    loaded_shell_document.history.back().shell.removed_faces ==
+                        persisted_shell.shell.removed_faces &&
+                    loaded_shell_boundaries.size() == 2 &&
+                    loaded_shell_boundaries.back().source_fingerprint ==
+                        persisted_shell_boundaries.back().source_fingerprint,
+                "Shell parameters or calculated stable topology did not "
+                "survive save/reopen");
+
+        auto measured_shell_document =
+            zima::document::PartDocument::create_default();
+        measured_shell_document.history.clear();
+        measured_shell_document.history_order.clear();
+        auto measured_shell_box =
+            zima::document::PartDocument::create_box_container();
+        measured_shell_box.box = {100.0, 80.0, 50.0};
+        const auto measured_shell_box_id = measured_shell_box.id;
+        auto measured_shell_first_fillet =
+            zima::document::PartDocument::create_fillet_container({
+                {measured_shell_box_id,
+                 "edge:x_max:y_min:z_max--x_max:y_min:z_min", {}},
+                {measured_shell_box_id,
+                 "edge:x_min:y_min:z_max--x_min:y_min:z_min", {}}});
+        measured_shell_first_fillet.edge_treatment.primary_size = 5.0;
+        auto measured_shell_second_fillet =
+            zima::document::PartDocument::create_fillet_container({{
+                measured_shell_box_id,
+                "edge:x_max:y_max:z_min--x_max:y_min:z_min", {}}});
+        measured_shell_second_fillet.edge_treatment.primary_size = 5.0;
+        auto measured_shell =
+            zima::document::PartDocument::create_shell_container({
+                {measured_shell_box_id, "z_max", {}},
+                {measured_shell_box_id, "x_max", {}}});
+        measured_shell.shell.thickness = 1.0;
+        const auto measured_shell_id = measured_shell.id;
+        auto append_measured_shell_container =
+            [&measured_shell_document](auto container) {
+                measured_shell_document.insert_history_entry(
+                    zima::document::PartHistoryKind::Feature, container.id);
+                measured_shell_document.history.push_back(
+                    std::move(container));
+            };
+        append_measured_shell_container(std::move(measured_shell_box));
+        append_measured_shell_container(std::move(measured_shell_first_fillet));
+        append_measured_shell_container(std::move(measured_shell_second_fillet));
+        append_measured_shell_container(std::move(measured_shell));
+        const auto measured_shell_results = kernel.evaluate_history(
+            measured_shell_document.kernel_operations());
+        const auto measured_shell_path =
+            std::filesystem::temp_directory_path() /
+            "zima-cad-shell-current-format-measure.prtz";
+        measured_shell_document.save(
+            measured_shell_path, measured_shell_results);
+        const auto measured_shell_bytes =
+            std::filesystem::file_size(measured_shell_path);
+        std::vector<zima::kernel::BodyResult> measured_loaded_results;
+        const auto measured_loaded_document =
+            zima::document::PartDocument::load(
+                measured_shell_path, &measured_loaded_results);
+        std::filesystem::remove(measured_shell_path);
+        const auto measured_shell_size_error =
+            "Treated Shell document exceeded its persisted-size budget; bytes=" +
+            std::to_string(measured_shell_bytes) + ", kernel_shape=" +
+            std::to_string(
+                measured_shell_results.back().kernel_shape.size());
+        const bool loaded_shell_has_owned_reference_face =
+            !measured_loaded_results.empty() && std::any_of(
+                measured_loaded_results.back().mesh.original_references
+                    .triangle_references.begin(),
+                measured_loaded_results.back().mesh.original_references
+                    .triangle_references.end(),
+                [&](const auto& reference) {
+                    return reference.owner_id == measured_shell_id;
+                });
+        require(measured_shell_bytes < 4U * 1024U * 1024U &&
+                    measured_loaded_document.history.size() == 4 &&
+                    measured_loaded_document.history.back().feature_kind ==
+                        zima::document::FeatureKind::Shell &&
+                    measured_loaded_results.size() == 4 &&
+                    loaded_shell_has_owned_reference_face,
+                measured_shell_size_error.c_str());
+
         zima::kernel::BoxRequest adjacent_second{10.0, 10.0, 10.0};
         adjacent_second.translation = {10.0, 0.0, 0.0};
         const auto adjacent_boxes = kernel.evaluate_history({
@@ -4948,6 +5330,46 @@ int main() {
                     cursor_document.history_order[1].id == cursor_sphere_id &&
                     cursor_document.history_order[2].id == cursor_point_id,
                 "Insert Here cursor did not control unified history insertion");
+        cursor_document.set_history_cursor(1);
+        auto cursor_cylinder =
+            zima::document::PartDocument::create_cylinder_container();
+        const auto cursor_cylinder_id = cursor_cylinder.id;
+        cursor_document.history.push_back(std::move(cursor_cylinder));
+        cursor_document.insert_history_entry(
+            zima::document::PartHistoryKind::Feature, cursor_cylinder_id);
+        auto cursor_sketch_container =
+            zima::document::PartDocument::create_sketch_container();
+        const auto cursor_sketch_container_id = cursor_sketch_container.id;
+        cursor_document.history.push_back(std::move(cursor_sketch_container));
+        cursor_document.insert_history_entry(
+            zima::document::PartHistoryKind::Feature,
+            cursor_sketch_container_id);
+        const auto cursor_operations = cursor_document.kernel_operations();
+        require(cursor_document.history_order.size() == 5 &&
+                    cursor_document.history_order[0].id == cursor_box_id &&
+                    cursor_document.history_order[1].id == cursor_cylinder_id &&
+                    cursor_document.history_order[2].id ==
+                        cursor_sketch_container_id &&
+                    cursor_document.history_order[3].id == cursor_sphere_id &&
+                    cursor_document.history_order[4].id == cursor_point_id &&
+                    cursor_operations.size() == 3 &&
+                    cursor_operations[0].owner_id == cursor_box_id &&
+                    cursor_operations[1].owner_id == cursor_cylinder_id &&
+                    cursor_operations[2].owner_id == cursor_sphere_id &&
+                    cursor_document.body_operation_count_at_history_cursor() == 2,
+                "Tree order, body operation order, and Insert Here boundary diverged");
+        std::vector<zima::kernel::BodyResult> cursor_boundaries(3);
+        cursor_boundaries[0].volume = 1.0;
+        cursor_boundaries[1].volume = 2.0;
+        cursor_boundaries[2].volume = 3.0;
+        zima::document::DocumentSession cursor_session(
+            cursor_document, std::move(cursor_boundaries));
+        const auto cursor_sphere_rollback =
+            cursor_session.rollback_boundary(cursor_sphere_id);
+        require(cursor_sphere_rollback &&
+                    cursor_sphere_rollback->input_body &&
+                    cursor_sphere_rollback->input_body->volume == 2.0,
+                "Rollback did not use the unified Tree order before a feature");
 
         zima::kernel::ViewerReferenceGeometry orientation_geometry;
         orientation_geometry.axes.push_back({{}, {1.0, 0.0, 0.0}, 10.0,

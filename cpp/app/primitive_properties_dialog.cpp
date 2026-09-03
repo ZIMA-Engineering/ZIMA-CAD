@@ -78,6 +78,7 @@ QString primitive_properties_title(zima::document::FeatureKind kind) {
             return QObject::tr("Vlastnosti importu STEP");
         case FeatureKind::Fillet: return QObject::tr("Vlastnosti zaoblení");
         case FeatureKind::Chamfer: return QObject::tr("Vlastnosti sražení");
+        case FeatureKind::Shell: return QObject::tr("Vlastnosti Shellu");
     }
     return QObject::tr("Vlastnosti prvku");
 }
@@ -116,7 +117,8 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
     auto* header_form = new QFormLayout;
     name_ = new QLineEdit(QString::fromStdString(initial.name), this);
     const bool treatment = initial.feature_kind == zima::document::FeatureKind::Fillet ||
-        initial.feature_kind == zima::document::FeatureKind::Chamfer;
+        initial.feature_kind == zima::document::FeatureKind::Chamfer ||
+        initial.feature_kind == zima::document::FeatureKind::Shell;
     if (!treatment) header_form->addRow(tr("Název"), name_);
     else name_->hide();
     if (!treatment) {
@@ -571,6 +573,37 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         thin_thickness_->setVisible(initial_thin);
         thin_mode_->setVisible(initial_thin);
         refresh_extent();
+    } else if (initial.feature_kind == zima::document::FeatureKind::Shell) {
+        shell_thickness_ = dimension(initial.shell.thickness, "shellThickness");
+        form->addRow(tr("Tloušťka"), shell_thickness_);
+        auto* faces_label = new QLabel(tr("Otevřené plochy"), this);
+        auto label_font = faces_label->font();
+        label_font.setBold(true);
+        faces_label->setFont(label_font);
+        form->addRow(faces_label);
+        shell_face_list_ = new QListWidget(this);
+        shell_face_list_->setObjectName("shellFaces");
+        shell_face_list_->setMinimumHeight(100);
+        shell_face_list_->viewport()->installEventFilter(this);
+        form->addRow(shell_face_list_);
+        connect(shell_face_list_, &QListWidget::itemPressed, this,
+            [this] {
+                if (request_shell_face_selection_)
+                    request_shell_face_selection_();
+            });
+        remove_shell_face_button_ = new QPushButton(
+            tr("Odebrat vybranou plochu"), this);
+        remove_shell_face_button_->setObjectName("shellRemoveFace");
+        form->addRow(remove_shell_face_button_);
+        connect(remove_shell_face_button_, &QPushButton::clicked, this, [this] {
+            const int row = shell_face_list_->currentRow();
+            if (row >= 0 && remove_shell_face_) {
+                remove_shell_face_(static_cast<std::size_t>(row));
+            }
+        });
+        connect(shell_thickness_, qOverload<double>(&QDoubleSpinBox::valueChanged),
+            this, [this] { notify_preview(); });
+        set_shell_faces(initial.shell.removed_faces);
     } else if (initial.feature_kind == zima::document::FeatureKind::ImportedStep) {
         auto* source = new QLabel(
             QString::fromStdString(initial.imported_step.source_path), this);
@@ -866,6 +899,9 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
             : zima::document::ExtrusionDirection::Forward;
         result.revolution.angle_degrees = forward_length_->value();
         result.revolution.angle_reverse = reverse_length_->value();
+    } else if (result.feature_kind == zima::document::FeatureKind::Shell) {
+        result.shell.removed_faces = shell_faces_;
+        result.shell.thickness = shell_thickness_->value();
     } else if (result.feature_kind != zima::document::FeatureKind::ImportedStep) {
         const auto mode = treatment_type_->currentData().toString();
         if (result.feature_kind == zima::document::FeatureKind::Fillet) {
@@ -1027,6 +1063,16 @@ void PrimitivePropertiesDialog::set_extrusion_surface_target(
 }
 
 bool PrimitivePropertiesDialog::eventFilter(QObject* watched, QEvent* event) {
+    if (shell_face_list_ != nullptr &&
+        watched == shell_face_list_->viewport() &&
+        event->type() == QEvent::MouseButtonPress) {
+        const auto* mouse = static_cast<QMouseEvent*>(event);
+        if (mouse->button() == Qt::LeftButton &&
+            request_shell_face_selection_ &&
+            shell_face_list_->itemAt(mouse->position().toPoint()) == nullptr) {
+            request_shell_face_selection_();
+        }
+    }
     if ((watched == forward_end_target_ || watched == reverse_end_target_) &&
         event->type() == QEvent::MouseButtonPress) {
         const auto* mouse = static_cast<QMouseEvent*>(event);
@@ -1253,6 +1299,36 @@ void PrimitivePropertiesDialog::refresh_edge_treatment_fields() {
     treatment_angle_->setVisible(angle);
     treatment_flip_->setVisible(!fillet && mode != "equal_distance");
     treatment_reverse_->setVisible(fillet && second);
+}
+
+void PrimitivePropertiesDialog::set_shell_faces(
+    std::vector<zima::kernel::FaceReference> faces) {
+    shell_faces_ = std::move(faces);
+    initial_.shell.removed_faces = shell_faces_;
+    if (shell_face_list_ == nullptr) return;
+    shell_face_list_->clear();
+    for (std::size_t index = 0; index < shell_faces_.size(); ++index) {
+        auto* item = new QListWidgetItem(
+            tr("Plocha %1").arg(index + 1), shell_face_list_);
+        item->setToolTip(QString::fromStdString(
+            shell_faces_[index].owner_id + " / " +
+            shell_faces_[index].semantic_key));
+    }
+    remove_shell_face_button_->setEnabled(!shell_faces_.empty());
+}
+
+void PrimitivePropertiesDialog::set_shell_face_callbacks(
+    std::function<void(std::size_t)> remove,
+    std::function<void()> request_selection) {
+    remove_shell_face_ = std::move(remove);
+    request_shell_face_selection_ = std::move(request_selection);
+}
+
+void PrimitivePropertiesDialog::set_shell_face_selection_active(bool active) {
+    if (shell_face_list_ == nullptr) return;
+    shell_face_list_->setStyleSheet(active
+        ? QStringLiteral("QListWidget{border:2px solid #80AA1A;}")
+        : QString{});
 }
 
 bool PrimitivePropertiesDialog::submit() {

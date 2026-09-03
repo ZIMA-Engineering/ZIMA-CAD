@@ -437,6 +437,11 @@ struct ChamferRequest {
     bool flip{};
 };
 
+struct ShellRequest {
+    std::vector<FaceReference> removed_faces;
+    double thickness{1.0};
+};
+
 enum class BooleanOperation { Add, Subtract };
 
 struct BoxOperation {
@@ -448,7 +453,7 @@ struct BoxOperation {
 using PrimitiveRequest = std::variant<
     BoxRequest, CylinderRequest, SphereRequest, ConeRequest, PyramidRequest, WedgeRequest,
     ExtrusionRequest, RevolutionRequest,
-    Sweep3DRequest, StepRequest, FilletRequest, ChamferRequest>;
+    Sweep3DRequest, StepRequest, FilletRequest, ChamferRequest, ShellRequest>;
 
 struct HistoryOperation {
     std::string owner_id;
@@ -997,6 +1002,15 @@ struct PlacedBody {
                 for (const unsigned char value : primitive.source_path) byte(value);
                 u64(primitive.component_path.size());
                 for (const unsigned char value : primitive.component_path) byte(value);
+            } else if constexpr (std::is_same_v<Request, ShellRequest>) {
+                u64(primitive.removed_faces.size());
+                for (const auto& face : primitive.removed_faces) {
+                    u64(face.owner_id.size());
+                    for (const unsigned char value : face.owner_id) byte(value);
+                    u64(face.semantic_key.size());
+                    for (const unsigned char value : face.semantic_key) byte(value);
+                }
+                u64(std::bit_cast<std::uint64_t>(primitive.thickness));
             } else {
                 u64(primitive.edges.size());
                 for (const auto& edge : primitive.edges) {

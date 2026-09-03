@@ -96,6 +96,8 @@ int main(int argc, char* argv[]) {
                 "3D-Curve icon is missing from Qt resources");
         require(!zima::app::resource_icon("sweep").isNull(),
                 "3D-Sweep icon is missing from Qt resources");
+        require(!zima::app::resource_icon("shell").isNull(),
+                "Shell icon is missing from Qt resources");
 
         bool cancel_committed = false;
         auto* cancel_dialog = new zima::app::PrimitivePropertiesDialog(
@@ -193,6 +195,84 @@ int main(int argc, char* argv[]) {
                     committed_fillet.edge_treatment.routes.size() == 1 &&
                     committed_fillet.edge_treatment.routes.front().size() == 3,
                 "Fillet dialog did not persist one three-object route");
+
+        std::vector<zima::kernel::FaceReference> shell_faces{
+            {"body-owner", "face:top", {}},
+            {"body-owner", "face:front", {}}};
+        auto shell = zima::document::PartDocument::create_shell_container(
+            shell_faces);
+        zima::document::HistoryContainer committed_shell;
+        auto* shell_dialog = new zima::app::PrimitivePropertiesDialog(
+            shell, false, false,
+            [&](zima::document::HistoryContainer value) {
+                committed_shell = std::move(value);
+            }, &parent);
+        shell_dialog->show();
+        application.processEvents();
+        auto* shell_list =
+            shell_dialog->findChild<QListWidget*>("shellFaces");
+        auto* shell_thickness =
+            shell_dialog->findChild<QDoubleSpinBox*>("shellThickness");
+        auto* remove_shell =
+            shell_dialog->findChild<QPushButton*>("shellRemoveFace");
+        int shell_selection_requests = 0;
+        shell_dialog->set_shell_face_callbacks(
+            [&](std::size_t index) {
+                shell_faces.erase(shell_faces.begin() + index);
+                shell_dialog->set_shell_faces(shell_faces);
+            },
+            [&] { ++shell_selection_requests; });
+        shell_dialog->set_shell_face_selection_active(true);
+        require(shell_dialog->windowTitle() ==
+                    QStringLiteral("Vlastnosti Shellu") &&
+                    shell_list != nullptr && shell_list->count() == 2 &&
+                    shell_thickness != nullptr &&
+                    remove_shell != nullptr &&
+                    shell_dialog->findChild<QLineEdit*>()->isHidden() &&
+                    shell_dialog->findChild<QTableWidget*>(
+                        "primitiveReferenceTable") == nullptr &&
+                    shell_list->styleSheet().contains(
+                        QStringLiteral("#80AA1A")),
+                "Shell did not use the shared Properties presentation or "
+                "its dedicated face/thickness controls");
+        shell_list->setCurrentRow(1);
+        remove_shell->click();
+        require(shell_list->count() == 1 &&
+                    shell_faces.size() == 1,
+                "Shell face list did not remove the selected entry");
+        const auto item_position =
+            shell_list->visualItemRect(shell_list->item(0)).center();
+        QMouseEvent shell_list_click(
+            QEvent::MouseButtonPress, item_position, item_position,
+            shell_list->viewport()->mapToGlobal(item_position),
+            Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(shell_list->viewport(), &shell_list_click);
+        require(shell_selection_requests == 1,
+                "Clicking the Shell face list did not reactivate picking");
+        shell_thickness->setValue(2.5);
+        shell_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
+        application.processEvents();
+        require(committed_shell.feature_kind ==
+                    zima::document::FeatureKind::Shell &&
+                    committed_shell.shell.removed_faces == shell_faces &&
+                    committed_shell.shell.thickness == 2.5,
+                "Shell Properties lost its selected faces or thickness");
+
+        bool closed_shell_committed = false;
+        auto* closed_shell_dialog = new zima::app::PrimitivePropertiesDialog(
+            zima::document::PartDocument::create_shell_container(),
+            false, false,
+            [&](zima::document::HistoryContainer value) {
+                closed_shell_committed =
+                    value.feature_kind == zima::document::FeatureKind::Shell &&
+                    value.shell.removed_faces.empty();
+            }, &parent);
+        closed_shell_dialog->show();
+        application.processEvents();
+        closed_shell_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
+        application.processEvents();
+        require(closed_shell_committed,
+            "Shell Properties rejected a closed shell without opening faces");
 
         int middle_commits = 0;
         zima::document::CombineMode middle_operation =
@@ -373,7 +453,31 @@ int main(int argc, char* argv[]) {
              {"route-owner-b", "edge:right", {}}},
             {{{0.0, 0.0, 0.0}, {0.0, 10.0, 0.0}},
              {"route-owner-c", "edge:branch", {}}},
+            // Same geometric start and tangent direction as edge:left, but
+            // it doubles back from the shared endpoint and is not a route
+            // continuation.
+            {{{0.0, 0.0, 0.0}, {-5.0, 0.0, 0.0}},
+             {"route-owner-d", "edge:wrong-way", {}}},
+            // Geometrically touches edge:right but owns a different ZIMA
+            // endpoint, so proximity alone must not connect it.
+            {{{10.0, 0.0, 0.0}, {20.0, 0.0, 0.0}},
+             {"route-owner-e", "edge:near-only", {}}},
         };
+        tangent_route_mesh.edges[0].edge_treatment_endpoint_references = {
+            {"vertex-owner", "vertex:left", {}},
+            {"vertex-owner", "vertex:joint", {}}};
+        tangent_route_mesh.edges[1].edge_treatment_endpoint_references = {
+            {"vertex-owner", "vertex:joint", {}},
+            {"vertex-owner", "vertex:right", {}}};
+        tangent_route_mesh.edges[2].edge_treatment_endpoint_references = {
+            {"vertex-owner", "vertex:joint", {}},
+            {"vertex-owner", "vertex:branch", {}}};
+        tangent_route_mesh.edges[3].edge_treatment_endpoint_references = {
+            {"vertex-owner", "vertex:joint", {}},
+            {"vertex-owner", "vertex:wrong-way", {}}};
+        tangent_route_mesh.edges[4].edge_treatment_endpoint_references = {
+            {"vertex-owner", "vertex:other-at-right", {}},
+            {"vertex-owner", "vertex:near-only", {}}};
         zima::viewer::MeshView tangent_route_view(&parent);
         tangent_route_view.setGeometry(0, 0, 500, 360);
         tangent_route_view.set_mesh(std::move(tangent_route_mesh));
@@ -387,7 +491,7 @@ int main(int argc, char* argv[]) {
                     tangent_route.front().owner_id == "route-owner-a" &&
                     tangent_route.back().owner_id == "route-owner-b",
                 "Fillet/Chamfer tangent route stopped at a container provenance "
-                "boundary or followed a non-tangent branch");
+                "boundary or followed a wrong-way/geometrically-near branch");
         const auto stable_display_edge = tangent_route_view.display_edge(
             {"route-owner-a", "edge:left", {}});
         require(stable_display_edge && stable_display_edge->points.size() == 2 &&
