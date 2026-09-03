@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
+  <title id="title">Perspective projection</title>
+  <g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3 5l12 2v10L3 19zM15 7l5-3v16l-5-3M3 5l5-1h12"/>
+    <circle cx="2.5" cy="12" r="1" fill="currentColor" stroke="none"/>
+  </g>
+</svg>

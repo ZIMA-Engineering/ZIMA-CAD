@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
+  <title id="title">Fly navigation</title>
+  <g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 3l3 6 6 3-6 3-3 6-3-6-6-3 6-3z"/>
+    <path d="M12 7v10M7 12h10"/>
+  </g>
+</svg>

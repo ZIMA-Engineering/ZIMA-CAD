@@ -35,8 +35,12 @@ public:
         const zima::document::PointConstraintState& state,
         const zima::kernel::Vec3& solution) = 0;
     virtual void set_remaining_rotation_dof(int dof) = 0;
+    virtual void set_rotation_constraint_state(
+        const zima::document::OrientationConstraintState& state) = 0;
     virtual void set_orientation_base_rotation(
         const zima::kernel::Vec3& rotation, bool constrained) = 0;
+    virtual void set_resolved_rotation(
+        const zima::kernel::Vec3& rotation, bool valid = true) = 0;
     // Inline View dimensions edit the same pending widgets as the dialog.
     virtual bool set_inline_parameter_value(
         std::string_view key, double value) = 0;

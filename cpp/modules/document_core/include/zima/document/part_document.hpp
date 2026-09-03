@@ -268,6 +268,13 @@ struct PointConstraintState {
     int remaining_dof{3};
     std::array<bool, 3> constrained_axes{};
 };
+struct OrientationConstraintState {
+    int remaining_dof{3};
+    // Local RX/RY/RZ parameters already owned by orientation references.
+    // A single FRONT reference fixes RX and RZ while rotation around its
+    // local Y normal remains absolute; TOP analogously leaves local RZ.
+    std::array<bool, 3> constrained_axes{};
+};
 struct Placement;
 [[nodiscard]] PointConstraintState point_constraint_state(
     const std::vector<ConstructionReference>& references,
@@ -287,6 +294,11 @@ construction_point_dimensions(
 container_placement_dimensions(
     const std::string& owner_id, const Placement& placement,
     const zima::kernel::ViewerReferenceGeometry& geometry);
+[[nodiscard]] OrientationConstraintState orientation_constraint_state(
+    const std::vector<ConstructionReference>& references,
+    const zima::kernel::ViewerReferenceGeometry& geometry,
+    bool marked_only,
+    const zima::kernel::Vec3& orientation_origin = {});
 [[nodiscard]] int orientation_constraint_remaining_dof(
     const std::vector<ConstructionReference>& references,
     const zima::kernel::ViewerReferenceGeometry& geometry,
@@ -491,6 +503,11 @@ struct Placement {
     double rotation_x{};
     double rotation_y{};
     double rotation_z{};
+    // Persisted absolute Euler parameters. A valid orientation reference
+    // overwrites every component it constrains; the one remaining free local
+    // component stays user-editable until another independent reference
+    // constrains it. Consequently the disabled Absolute fields show stored
+    // data, not a transient UI-only preview.
     double absolute_rotation_x{};
     double absolute_rotation_y{};
     double absolute_rotation_z{};

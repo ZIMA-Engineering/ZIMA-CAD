@@ -1091,6 +1091,11 @@ void ConstructionPropertiesDialog::set_orientation_base_rotation(
     updating_rotation_fields_ = false;
 }
 
+void ConstructionPropertiesDialog::set_resolved_rotation(
+        const zima::kernel::Vec3& rotation, bool valid) {
+    placement_->set_resolved_rotation(rotation, valid);
+}
+
 void ConstructionPropertiesDialog::set_orientation_inherited_from_reference(
         bool inherited) {
     if (placement_ == nullptr) return;
@@ -1105,6 +1110,12 @@ void ConstructionPropertiesDialog::set_remaining_translation_dof(int dof) {
 
 void ConstructionPropertiesDialog::set_remaining_rotation_dof(int dof) {
     placement_->set_remaining_rotation_dof(dof);
+    remaining_rotation_dof_ = placement_->remaining_rotation_dof();
+}
+
+void ConstructionPropertiesDialog::set_rotation_constraint_state(
+        const zima::document::OrientationConstraintState& state) {
+    placement_->set_rotation_constraint_state(state);
     remaining_rotation_dof_ = placement_->remaining_rotation_dof();
 }
 
@@ -1712,12 +1723,13 @@ zima::document::ConstructionObject ConstructionPropertiesDialog::current_value()
     auto value = initial_;
     value.name = name_->text().trimmed().toStdString();
     value.origin = {origin_[0]->value(), origin_[1]->value(), origin_[2]->value()};
-    if (rotation_[0] != nullptr) {
-        value.absolute_rotation = {rotation_[0]->value(), rotation_[1]->value(),
-                                   rotation_[2]->value()};
-        value.rotation = value.absolute_rotation;
-    }
     const auto numeric = placement_->numeric_placement();
+    if (rotation_[0] != nullptr) {
+        value.absolute_rotation = {numeric.absolute_rotation_x,
+            numeric.absolute_rotation_y, numeric.absolute_rotation_z};
+        value.rotation = {numeric.rotation_x, numeric.rotation_y,
+            numeric.rotation_z};
+    }
     value.orientation_back = numeric.orientation_back;
     value.orientation_quarter_turns = numeric.orientation_quarter_turns;
     if (rotation_offset_[0] != nullptr) {

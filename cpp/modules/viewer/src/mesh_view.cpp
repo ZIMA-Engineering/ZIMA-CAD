@@ -2,6 +2,7 @@
 #include <zima/viewer/picking.hpp>
 
 #include <QMatrix4x4>
+#include <QKeyEvent>
 #include <QMouseEvent>
 #include <QFontMetricsF>
 #include <QOpenGLBuffer>
@@ -40,6 +41,12 @@ namespace {
 // the first body exists: a 1 mm plane offset is visible, but no longer fills
 // a large part of the View.
 constexpr float kEmptyDocumentViewHalfExtent = 50.0F;
+constexpr float kPerspectiveFieldOfViewDegrees = 45.0F;
+
+QQuaternion default_camera_orientation() {
+    return QQuaternion::fromAxisAndAngle(1.0F, 0.0F, 0.0F, -45.0F) *
+        QQuaternion::fromAxisAndAngle(0.0F, 0.0F, 1.0F, 215.264F);
+}
 
 double screen_segment_distance(const QPointF& point, const QPointF& first,
     const QPointF& second) {
@@ -308,16 +315,15 @@ struct MeshView::Impl {
     // how far the camera has to zoom out to fit newly added geometry -- see
     // fit_all()'s comment for the full reasoning.
     bool reference_view_scale_initialized{false};
-    QQuaternion orientation = [] {
-        return QQuaternion::fromAxisAndAngle(0.0F, 0.0F, 1.0F, 0.0F) *
-            QQuaternion::fromAxisAndAngle(1.0F, 0.0F, 0.0F, -45.0F) *
-            QQuaternion::fromAxisAndAngle(0.0F, 0.0F, 1.0F, 215.264F);
-    }();
+    QQuaternion orientation = default_camera_orientation();
     // Mirrors Python's animate_standard_view/animate_view_normal: a running
     // QVariantAnimation slerps orientation and lerps pan/zoom back to the
     // resting state, matching zima_cad/viewer.py's camera transition feel
     // instead of a hard jump cut.
     QVariantAnimation* camera_animation{};
+    ProjectionMode projection_mode{ProjectionMode::Orthographic};
+    bool fly_navigation_enabled{};
+    QVector3D fly_position;
     DisplayMode display_mode{DisplayMode::ShadedWithEdges};
     int dimension_decimal_places{3};
     bool show_origins{true};
@@ -494,12 +500,36 @@ struct MeshView::Impl {
         }
     }
 
+    [[nodiscard]] float orbit_distance() const {
+        const float half_angle = kPerspectiveFieldOfViewDegrees *
+            static_cast<float>(std::numbers::pi) / 360.0F;
+        return std::max(view_scale, 0.001F) / std::tan(half_angle);
+    }
+
+    void place_fly_camera_at_orbit_position() {
+        const float units_per_pixel = 2.0F * view_scale /
+            std::max(1, viewport_height);
+        const QVector3D camera_translation(
+            -static_cast<float>(pan_pixels.x()) * units_per_pixel,
+            static_cast<float>(pan_pixels.y()) * units_per_pixel,
+            orbit_distance());
+        fly_position = center +
+            orientation.inverted().rotatedVector(camera_translation);
+    }
+
     [[nodiscard]] QMatrix4x4 view() const {
         QMatrix4x4 result;
+        if (fly_navigation_enabled) {
+            result.rotate(orientation);
+            result.translate(-fly_position);
+            return result;
+        }
         const float units_per_pixel = 2.0F * view_scale /
             std::max(1, viewport_height);
         result.translate(static_cast<float>(pan_pixels.x()) * units_per_pixel,
-                         static_cast<float>(-pan_pixels.y()) * units_per_pixel, 0.0F);
+                         static_cast<float>(-pan_pixels.y()) * units_per_pixel,
+                         projection_mode == ProjectionMode::Perspective
+                            ? -orbit_distance() : 0.0F);
         result.rotate(orientation);
         result.translate(-center);
         return result;
@@ -511,9 +541,35 @@ struct MeshView::Impl {
         const float aspect = height > 0 ? static_cast<float>(width) / height : 1.0F;
         QMatrix4x4 result;
         const float vertical = std::max(view_scale, 0.001F);
+        if (projection_mode == ProjectionMode::Perspective) {
+            const float camera_distance = fly_navigation_enabled
+                ? std::max((center - fly_position).length(), radius)
+                : orbit_distance();
+            // Fit the perspective depth range tightly around the scene's
+            // persisted bounding sphere. The earlier 1e-5*radius ..
+            // distance+40*radius span wasted most 24-bit depth precision and
+            // made adjacent/coplanar CAD triangles alternate as dark square
+            // "teeth" along silhouettes when zoomed in. A small 10% sphere
+            // margin keeps the whole model visible while retaining useful
+            // precision even when the fly camera moves inside its bounds.
+            const float scene_radius = std::max(radius, 0.001F);
+            const float minimum_near = std::max(
+                scene_radius * 1.0e-3F, 1.0e-4F);
+            const float near_plane = std::max(minimum_near,
+                camera_distance - scene_radius * 1.1F);
+            const float far_plane = std::max(
+                camera_distance + scene_radius * 1.1F,
+                near_plane + scene_radius * 0.01F);
+            result.perspective(kPerspectiveFieldOfViewDegrees,
+                std::max(aspect, 0.001F), near_plane, far_plane);
+            return result;
+        }
+        const float depth_extent = std::max({radius * 20.0F, 100.0F,
+            fly_navigation_enabled
+                ? (center - fly_position).length() + radius * 2.0F
+                : 0.0F});
         result.ortho(-vertical * aspect, vertical * aspect, -vertical, vertical,
-                     -std::max(radius * 20.0F, 100.0F),
-                     std::max(radius * 20.0F, 100.0F));
+                     -depth_extent, depth_extent);
         return result;
     }
 };
@@ -598,6 +654,9 @@ void MeshView::set_camera_state(const std::array<float, 8>& state) {
     // view_scale itself (equivalent to "just fit").
     impl_->reference_view_scale = state[7] > 0.0F ? state[7] : impl_->view_scale;
     impl_->reference_view_scale_initialized = true;
+    if (impl_->fly_navigation_enabled) {
+        impl_->place_fly_camera_at_orbit_position();
+    }
     impl_->candidates.clear();
     impl_->rebuild_persisted_reference_mesh();
     update();
@@ -918,6 +977,21 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
         std::erase_if(candidates, [&](const auto& candidate) {
             return sketch_owned_kind(candidate.kind) &&
                 candidate.owner_id != impl_->active_sketch_owner_id;
+        });
+    }
+    const bool origin_geometry_requested = impl_->editing_origin_visible ||
+        std::ranges::any_of(impl_->allowed_kinds, [](CandidateKind kind) {
+            return kind == CandidateKind::Vertex ||
+                kind == CandidateKind::Axis || kind == CandidateKind::Plane;
+        });
+    if (!impl_->show_origins && !origin_geometry_requested) {
+        // Hidden means both visually hidden and absent from the ordinary
+        // common picker. An active point/axis/plane-taking command remains
+        // an explicit exception and makes the same origin entities visible
+        // and selectable for that command.
+        std::erase_if(candidates, [](const auto& candidate) {
+            return candidate.semantic_key == "origin" ||
+                candidate.semantic_key.starts_with("origin:");
         });
     }
     auto filtered = filter_candidates(candidates,
@@ -1845,7 +1919,14 @@ void MeshView::set_transient_point_transform(
 
 double MeshView::world_tolerance_for_pixels(double pixels) const {
     if (!std::isfinite(pixels) || pixels < 0.0 || height() <= 0) return 0.0;
-    return 2.0 * static_cast<double>(impl_->view_scale) * pixels /
+    double visible_half_height = impl_->view_scale;
+    if (impl_->fly_navigation_enabled &&
+        impl_->projection_mode == ProjectionMode::Perspective) {
+        const double distance = (impl_->center - impl_->fly_position).length();
+        visible_half_height = std::max(0.001, distance * std::tan(
+            kPerspectiveFieldOfViewDegrees * std::numbers::pi / 360.0));
+    }
+    return 2.0 * visible_half_height * pixels /
         static_cast<double>(height());
 }
 
@@ -1939,6 +2020,8 @@ void MeshView::fit_all() {
             impl_->reference_view_scale = 1.4F;
         }
         impl_->pan_pixels = {};
+        if (impl_->fly_navigation_enabled)
+            impl_->place_fly_camera_at_orbit_position();
         return;
     }
     if (bounds.empty()) {
@@ -1988,6 +2071,8 @@ void MeshView::fit_all() {
             impl_->reference_view_scale_initialized = true;
         }
         impl_->pan_pixels = {};
+        if (impl_->fly_navigation_enabled)
+            impl_->place_fly_camera_at_orbit_position();
         return;
     }
     zima::kernel::Vec3 minimum{
@@ -2047,6 +2132,8 @@ void MeshView::fit_all() {
         impl_->reference_view_scale_initialized = true;
     }
     impl_->pan_pixels = {};
+    if (impl_->fly_navigation_enabled)
+        impl_->place_fly_camera_at_orbit_position();
     update();
 }
 
@@ -2056,6 +2143,48 @@ void MeshView::set_display_mode(DisplayMode mode) {
 }
 
 DisplayMode MeshView::display_mode() const { return impl_->display_mode; }
+
+void MeshView::set_projection_mode(ProjectionMode mode) {
+    if (impl_->projection_mode == mode) return;
+    if (impl_->camera_animation != nullptr) {
+        impl_->camera_animation->stop();
+        impl_->camera_animation = nullptr;
+    }
+    impl_->projection_mode = mode;
+    impl_->candidates.clear();
+    update();
+}
+
+ProjectionMode MeshView::projection_mode() const {
+    return impl_->projection_mode;
+}
+
+void MeshView::set_fly_navigation_enabled(bool enabled) {
+    if (impl_->fly_navigation_enabled == enabled) return;
+    if (impl_->camera_animation != nullptr) {
+        impl_->camera_animation->stop();
+        impl_->camera_animation = nullptr;
+    }
+    if (enabled) {
+        impl_->place_fly_camera_at_orbit_position();
+        impl_->fly_navigation_enabled = true;
+        setFocus(Qt::OtherFocusReason);
+        impl_->candidates.clear();
+        update();
+        return;
+    }
+    // Fly navigation is independent of projection. Leaving it restores the
+    // ordinary isometric CAD camera but keeps the selected Ortho/Perspective
+    // projection unchanged.
+    impl_->fly_navigation_enabled = false;
+    impl_->orientation = default_camera_orientation();
+    impl_->pan_pixels = {};
+    fit_all();
+}
+
+bool MeshView::fly_navigation_enabled() const {
+    return impl_->fly_navigation_enabled;
+}
 
 namespace {
 // Shared camera transition helper for set_standard_view/set_view_direction,
@@ -2525,7 +2654,7 @@ void MeshView::paintGL() {
                                           second - normal, first - normal});
             painter.restore();
         };
-if (impl_->show_planes) {
+if (impl_->show_origins) {
             painter.setPen(QPen(QColor(173, 110, 46), 1.5));
             for (const auto& edge : impl_->mesh.edges) {
                 const bool origin = edge.reference.semantic_key.starts_with(
@@ -2573,7 +2702,7 @@ if (impl_->show_planes) {
                 }
             }
         }
-        if (impl_->show_origins || impl_->show_axes) {
+        if (impl_->show_origins) {
             for (const auto& axis : impl_->mesh.axes) {
                 if (!axis.reference.semantic_key.starts_with("origin:axis:")) continue;
                 const QColor color = axis.reference.semantic_key == "origin:axis:x"
@@ -2727,16 +2856,6 @@ if (impl_->show_planes) {
         return found == impl_->original_container_edge_indices.end()
             ? nullptr : &found->second;
     };
-    const auto treatment_container_wire = [&](const auto& highlighted)
-            -> const std::vector<std::size_t>* {
-        if (!highlighted || highlighted->kind != CandidateKind::Container ||
-            (!highlighted->semantic_key.empty() &&
-             highlighted->semantic_key != "solid")) return nullptr;
-        const auto found = impl_->edge_treatment_boundary_edge_indices.find(
-            {highlighted->owner_id, highlighted->instance_path});
-        return found == impl_->edge_treatment_boundary_edge_indices.end()
-            ? nullptr : &found->second;
-    };
     const auto edge_is_highlighted = [&](const zima::kernel::ViewerEdge& edge,
             const std::optional<ViewerCandidate>& highlighted) {
         const auto key = edge_key(edge.reference);
@@ -2746,7 +2865,6 @@ if (impl_->show_planes) {
              impl_->display_mode == DisplayMode::NoHiddenEdges);
         const bool candidate_match = highlighted &&
             original_container_wire(highlighted) == nullptr &&
-            treatment_container_wire(highlighted) == nullptr &&
             candidate_recolors_wire_edge(*highlighted, edge);
         return candidate_match ||
             impl_->edge_treatment_selection_edges.contains(key) ||
@@ -2765,7 +2883,6 @@ if (impl_->show_planes) {
         const auto key = edge_key(edge.reference);
         const bool candidate_match = highlighted &&
             original_container_wire(highlighted) == nullptr &&
-            treatment_container_wire(highlighted) == nullptr &&
             candidate_recolors_wire_edge(*highlighted, edge);
         const bool selected =
             (candidate_match && candidate_is_confirmed) ||
@@ -2796,7 +2913,8 @@ if (impl_->show_planes) {
         }
         return QVector4D(1.0F, 1.0F, 1.0F, 1.0F);
     };
-    const auto draw_lines = [&](bool force_black_if_not_highlighted = false) {
+    const auto draw_lines = [&](bool force_black_if_not_highlighted = false,
+                                bool highlighted_only = false) {
         impl_->program.setUniformValue("unlit", 1);
         bind_attributes(impl_->lines);
         std::optional<ViewerCandidate> highlighted = impl_->confirmed_candidate;
@@ -2856,6 +2974,17 @@ if (impl_->show_planes) {
             batch->first.push_back(impl_->line_ranges[index].first);
             batch->count.push_back(impl_->line_ranges[index].second);
         }
+        if (highlighted_only) {
+            // Plain Shaded deliberately hides the ordinary body wire, but it
+            // must not hide the feedback for the one candidate produced by
+            // the common picker. Draw only orange/cyan persisted edges; do
+            // not reintroduce a complete second wire for large models.
+            for (const auto& batch : batches) {
+                impl_->program.setUniformValue("color", batch.color);
+                draw_ranges(batch.first, batch.count);
+            }
+            return;
+        }
         if (batches.size() == 1 &&
             batches.front().first.size() == impl_->line_ranges.size()) {
             // The complete ordinary/hovered/selected wire has one colour.
@@ -2912,6 +3041,10 @@ if (impl_->show_planes) {
             break;
         case DisplayMode::Shaded:
             draw_triangles();
+            glDepthFunc(GL_LEQUAL);
+            draw_lines(/*force_black_if_not_highlighted=*/false,
+                       /*highlighted_only=*/true);
+            glDepthFunc(GL_LESS);
             break;
     }
 
@@ -3031,8 +3164,8 @@ if (impl_->show_planes) {
     const bool planes_selectable = std::find(
         impl_->allowed_kinds.begin(), impl_->allowed_kinds.end(),
         CandidateKind::Plane) != impl_->allowed_kinds.end();
-    const bool planes_visible = (impl_->show_planes || planes_selectable ||
-        impl_->editing_origin_visible) && std::any_of(
+    const bool planes_visible = (impl_->show_planes || impl_->show_origins ||
+        planes_selectable || impl_->editing_origin_visible) && std::any_of(
         impl_->mesh.edges.begin(), impl_->mesh.edges.end(), [](const auto& edge) {
             return edge.reference.semantic_key == "border" ||
                 edge.reference.semantic_key.starts_with("origin:plane:");
@@ -3378,7 +3511,7 @@ if (impl_->show_planes) {
                 const bool creation_preview = !origin &&
                     impl_->feature_preview_owner_ids.contains(
                         edge.reference.owner_id);
-                if ((origin && !impl_->show_planes && !planes_selectable &&
+                if ((origin && !impl_->show_origins && !planes_selectable &&
                         !impl_->editing_origin_visible) ||
                     (!origin && !impl_->show_planes && !planes_selectable &&
                         !creation_preview)) continue;
@@ -4882,7 +5015,20 @@ void MeshView::mouseMoveEvent(QMouseEvent* event) {
             impl_->middle_dragged = true;
         }
         if (event->buttons().testFlag(Qt::RightButton)) {
-            impl_->pan_pixels += QPointF(movement.x(), movement.y());
+            if (impl_->fly_navigation_enabled) {
+                const auto inverse = impl_->orientation.inverted();
+                const QVector3D right = inverse.rotatedVector(
+                    QVector3D(1.0F, 0.0F, 0.0F));
+                const QVector3D up = inverse.rotatedVector(
+                    QVector3D(0.0F, 1.0F, 0.0F));
+                const float distance_per_pixel = 2.0F * impl_->view_scale /
+                    std::max(1, height());
+                impl_->fly_position +=
+                    -right * movement.x() * distance_per_pixel +
+                    up * movement.y() * distance_per_pixel;
+            } else {
+                impl_->pan_pixels += QPointF(movement.x(), movement.y());
+            }
         } else {
             constexpr float degrees_per_pixel = 0.22F;
             const auto horizontal = QQuaternion::fromAxisAndAngle(
@@ -5128,6 +5274,18 @@ void MeshView::mouseReleaseEvent(QMouseEvent* event) {
 
 void MeshView::wheelEvent(QWheelEvent* event) {
     const float steps = event->angleDelta().y() / 120.0F;
+    if (impl_->fly_navigation_enabled &&
+        impl_->projection_mode == ProjectionMode::Perspective) {
+        const QVector3D forward = impl_->orientation.inverted().rotatedVector(
+            QVector3D(0.0F, 0.0F, -1.0F));
+        const float distance = std::max(impl_->radius * 0.12F,
+            impl_->view_scale * 0.08F);
+        impl_->fly_position += forward * steps * distance;
+        impl_->candidates.clear();
+        update();
+        event->accept();
+        return;
+    }
     const float old_scale = impl_->view_scale;
     impl_->view_scale *= std::pow(1.15F, steps);
     impl_->view_scale = std::clamp(
@@ -5141,6 +5299,43 @@ void MeshView::wheelEvent(QWheelEvent* event) {
     }
     impl_->candidates.clear();
     impl_->rebuild_persisted_reference_mesh();
+    update();
+    event->accept();
+}
+
+void MeshView::keyPressEvent(QKeyEvent* event) {
+    if (!impl_->fly_navigation_enabled) {
+        QOpenGLWidget::keyPressEvent(event);
+        return;
+    }
+    const auto inverse = impl_->orientation.inverted();
+    const QVector3D forward = inverse.rotatedVector(
+        QVector3D(0.0F, 0.0F, -1.0F));
+    const QVector3D right = inverse.rotatedVector(
+        QVector3D(1.0F, 0.0F, 0.0F));
+    const QVector3D up = inverse.rotatedVector(
+        QVector3D(0.0F, 1.0F, 0.0F));
+    QVector3D direction;
+    switch (event->key()) {
+        case Qt::Key_W:
+        case Qt::Key_Up: direction = forward; break;
+        case Qt::Key_S:
+        case Qt::Key_Down: direction = -forward; break;
+        case Qt::Key_A:
+        case Qt::Key_Left: direction = -right; break;
+        case Qt::Key_D:
+        case Qt::Key_Right: direction = right; break;
+        case Qt::Key_Q: direction = -up; break;
+        case Qt::Key_E: direction = up; break;
+        default:
+            QOpenGLWidget::keyPressEvent(event);
+            return;
+    }
+    const float multiplier = event->modifiers().testFlag(Qt::ShiftModifier)
+        ? 4.0F : 1.0F;
+    impl_->fly_position += direction *
+        std::max(impl_->radius * 0.04F, 0.05F) * multiplier;
+    impl_->candidates.clear();
     update();
     event->accept();
 }

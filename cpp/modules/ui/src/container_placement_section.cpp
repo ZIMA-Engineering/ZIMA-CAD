@@ -60,6 +60,7 @@ ContainerPlacementSection::ContainerPlacementSection(
     // reference row forever. Only sections that actually expose rotation
     // (with_orientation_) start with 3 DOF pending; others start at 0.
     if (!with_orientation_) remaining_rotation_dof_ = 0;
+    if (!with_orientation_) rotation_constraint_state_.remaining_dof = 0;
     reference_status_ = new QLabel(parent_widget_);
     reference_status_->setStyleSheet("color:#80AA1A;font-weight:700;");
     reference_status_->setWordWrap(true);
@@ -191,6 +192,14 @@ ContainerPlacementSection::ContainerPlacementSection(
         rotation_offset_ = {field(true, "containerRotationOffsetX"),
                             field(true, "containerRotationOffsetY"),
                             field(true, "containerRotationOffsetZ")};
+        for (std::size_t index = 0; index < rotation_.size(); ++index) {
+            connect(rotation_[index],
+                qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+                [this, index](double value) {
+                    if (rotation_[index]->isEnabled())
+                        absolute_rotation_values_[index] = value;
+                });
+        }
         auto* rotation_form = new QFormLayout;
         auto* header = new QWidget(parent_widget_);
         auto* header_layout = new QHBoxLayout(header);
@@ -223,18 +232,15 @@ ContainerPlacementSection::ContainerPlacementSection(
 void ContainerPlacementSection::initialize_numeric_values(
         const zima::document::Placement& placement) {
     const std::array position{placement.x, placement.y, placement.z};
-    const bool has_orientation_reference = std::any_of(
-        placement.references.begin(), placement.references.end(),
-        [](const auto& reference) { return reference.orientation_drives_rotation; });
-    const std::array rotation{
-        !has_orientation_reference ? placement.absolute_rotation_x : placement.rotation_x,
-        !has_orientation_reference ? placement.absolute_rotation_y : placement.rotation_y,
-        !has_orientation_reference ? placement.absolute_rotation_z : placement.rotation_z};
+    absolute_rotation_values_ = {placement.absolute_rotation_x,
+        placement.absolute_rotation_y, placement.absolute_rotation_z};
+    resolved_rotation_values_ = {placement.rotation_x,
+        placement.rotation_y, placement.rotation_z};
     const std::array correction{placement.rotation_offset_x,
         placement.rotation_offset_y, placement.rotation_offset_z};
     for (std::size_t i = 0; i < 3; ++i) {
         translation_[i]->setValue(position[i]);
-        if (rotation_[i]) rotation_[i]->setValue(rotation[i]);
+        if (rotation_[i]) rotation_[i]->setValue(absolute_rotation_values_[i]);
         if (rotation_offset_[i]) rotation_offset_[i]->setValue(correction[i]);
     }
     orientation_back_ = placement.orientation_back;
@@ -270,15 +276,22 @@ zima::document::Placement ContainerPlacementSection::numeric_placement() const {
     result.x = translation_[0]->value(); result.y = translation_[1]->value();
     result.z = translation_[2]->value();
     if (rotation_[0]) {
-        result.rotation_x = rotation_[0]->value();
-        result.rotation_y = rotation_[1]->value();
-        result.rotation_z = rotation_[2]->value();
+        result.rotation_x = resolved_rotation_values_[0];
+        result.rotation_y = resolved_rotation_values_[1];
+        result.rotation_z = resolved_rotation_values_[2];
         result.rotation_offset_x = rotation_offset_[0]->value();
         result.rotation_offset_y = rotation_offset_[1]->value();
         result.rotation_offset_z = rotation_offset_[2]->value();
-        result.absolute_rotation_x = rotation_[0]->value();
-        result.absolute_rotation_y = rotation_[1]->value();
-        result.absolute_rotation_z = rotation_[2]->value();
+        std::array absolute = absolute_rotation_values_;
+        for (std::size_t index = 0; index < absolute.size(); ++index) {
+            if (!orientation_reference_driven_ ||
+                !rotation_constraint_state_.constrained_axes[index]) {
+                absolute[index] = rotation_[index]->value();
+            }
+        }
+        result.absolute_rotation_x = absolute[0];
+        result.absolute_rotation_y = absolute[1];
+        result.absolute_rotation_z = absolute[2];
         result.orientation_back = orientation_back_;
         result.orientation_quarter_turns = orientation_quarter_turns_;
     }
@@ -301,18 +314,42 @@ void ContainerPlacementSection::set_translation_constraint_state(
 
 void ContainerPlacementSection::set_orientation_base_rotation(
         const zima::kernel::Vec3& value, bool constrained) {
-    const std::array values{value.x, value.y, value.z};
-    for (std::size_t i = 0; i < 3; ++i) {
-        if (!rotation_[i]) continue;
-        const QSignalBlocker blocker(rotation_[i]);
-        rotation_[i]->setValue(values[i]);
-        rotation_[i]->setEnabled(!constrained);
-        if (rotation_offset_[i]) {
-            rotation_offset_[i]->setEnabled(constrained);
-            if (!constrained) {
-                const QSignalBlocker offset_blocker(rotation_offset_[i]);
-                rotation_offset_[i]->setValue(0.0);
-            }
+    orientation_reference_driven_ = constrained;
+    orientation_base_rotation_ = value;
+    if (constrained) {
+        const std::array base{value.x, value.y, value.z};
+        for (std::size_t index = 0;
+             index < absolute_rotation_values_.size(); ++index) {
+            if (rotation_constraint_state_.constrained_axes[index])
+                absolute_rotation_values_[index] = base[index];
+        }
+    }
+    refresh_rotation_field_states();
+}
+
+void ContainerPlacementSection::set_resolved_rotation(
+        const zima::kernel::Vec3& value, bool valid) {
+    if (!valid) return;
+    resolved_rotation_values_ = {value.x, value.y, value.z};
+}
+
+void ContainerPlacementSection::refresh_rotation_field_states() {
+    const std::array base{orientation_base_rotation_.x,
+        orientation_base_rotation_.y, orientation_base_rotation_.z};
+    for (std::size_t i = 0; i < rotation_.size(); ++i) {
+        const bool constrained = orientation_reference_driven_ &&
+            rotation_constraint_state_.constrained_axes[i];
+        if (rotation_[i]) {
+            const QSignalBlocker blocker(rotation_[i]);
+            rotation_[i]->setValue(
+                constrained ? base[i] : absolute_rotation_values_[i]);
+            rotation_[i]->setEnabled(!constrained);
+        }
+        if (!rotation_offset_[i]) continue;
+        rotation_offset_[i]->setEnabled(constrained);
+        if (!orientation_reference_driven_) {
+            const QSignalBlocker offset_blocker(rotation_offset_[i]);
+            rotation_offset_[i]->setValue(0.0);
         }
     }
 }
@@ -549,7 +586,25 @@ void ContainerPlacementSection::set_remaining_translation_dof(int dof) {
 }
 
 void ContainerPlacementSection::set_remaining_rotation_dof(int dof) {
-    remaining_rotation_dof_ = std::clamp(dof, 0, 3);
+    zima::document::OrientationConstraintState state;
+    state.remaining_dof = std::clamp(dof, 0, 3);
+    if (state.remaining_dof == 0) {
+        state.constrained_axes = {true, true, true};
+    } else if (state.remaining_dof == 1) {
+        // Compatibility for callers that only know the rank. All current
+        // one-reference automatic placement roles start as FRONT/local-Y.
+        state.constrained_axes = {true, false, true};
+    }
+    set_rotation_constraint_state(state);
+}
+
+void ContainerPlacementSection::set_rotation_constraint_state(
+        const zima::document::OrientationConstraintState& state) {
+    rotation_constraint_state_ = state;
+    rotation_constraint_state_.remaining_dof =
+        std::clamp(rotation_constraint_state_.remaining_dof, 0, 3);
+    remaining_rotation_dof_ = rotation_constraint_state_.remaining_dof;
+    refresh_rotation_field_states();
     set_remaining_translation_dof(remaining_translation_dof_);
 }
 

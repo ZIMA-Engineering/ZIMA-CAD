@@ -1500,6 +1500,13 @@ void PrimitivePropertiesDialog::set_remaining_rotation_dof(int dof) {
     remaining_rotation_dof_ = placement_->remaining_rotation_dof();
 }
 
+void PrimitivePropertiesDialog::set_rotation_constraint_state(
+        const zima::document::OrientationConstraintState& state) {
+    if (!placement_) return;
+    placement_->set_rotation_constraint_state(state);
+    remaining_rotation_dof_ = placement_->remaining_rotation_dof();
+}
+
 void PrimitivePropertiesDialog::set_translation_constraint_state(
     const zima::document::PointConstraintState& state,
     const zima::kernel::Vec3& solution) {
@@ -1511,6 +1518,12 @@ void PrimitivePropertiesDialog::set_orientation_base_rotation(
     const zima::kernel::Vec3& rotation, bool constrained) {
     if (!placement_) return;
     placement_->set_orientation_base_rotation(rotation, constrained);
+}
+
+void PrimitivePropertiesDialog::set_resolved_rotation(
+        const zima::kernel::Vec3& rotation, bool valid) {
+    if (!placement_) return;
+    placement_->set_resolved_rotation(rotation, valid);
 }
 
 bool PrimitivePropertiesDialog::set_inline_parameter_value(

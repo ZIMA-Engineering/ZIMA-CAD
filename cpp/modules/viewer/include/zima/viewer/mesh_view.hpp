@@ -18,6 +18,7 @@
 
 class QMouseEvent;
 class QWheelEvent;
+class QKeyEvent;
 class QQuaternion;namespace zima::viewer {
 
 enum class DisplayMode {
@@ -26,6 +27,11 @@ enum class DisplayMode {
     NoHiddenEdges,
     ShadedWithEdges,
     Shaded,
+};
+
+enum class ProjectionMode {
+    Orthographic,
+    Perspective,
 };
 
 enum class StandardView {
@@ -86,6 +92,10 @@ public:
     void fit_all();
     void set_display_mode(DisplayMode mode);
     [[nodiscard]] DisplayMode display_mode() const;
+    void set_projection_mode(ProjectionMode mode);
+    [[nodiscard]] ProjectionMode projection_mode() const;
+    void set_fly_navigation_enabled(bool enabled);
+    [[nodiscard]] bool fly_navigation_enabled() const;
     void set_standard_view(StandardView view);
     void set_view_direction(const zima::kernel::Vec3& direction);
     void set_view_direction(const zima::kernel::Vec3& direction, float roll_degrees);
@@ -237,6 +247,7 @@ protected:
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
+    void keyPressEvent(QKeyEvent* event) override;
 
 private:
     struct Impl;

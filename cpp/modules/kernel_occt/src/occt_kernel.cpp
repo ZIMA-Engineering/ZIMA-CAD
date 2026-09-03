@@ -3247,8 +3247,9 @@ std::string serialize_kernel_shape(const TopoDS_Shape& shape) {
     return serialized_shape.str();
 }
 
-std::optional<Vec3> inward_face_direction(const TopoDS_Face& face,
-    const gp_Pnt& edge_point, const gp_Vec& edge_tangent,
+std::optional<Vec3> inward_face_direction(const TopoDS_Edge& edge,
+    const TopoDS_Face& face, const gp_Pnt& edge_point,
+    const gp_Vec& edge_tangent,
     double probe_distance, double tolerance) {
     TopLoc_Location location;
     const Handle(Geom_Surface) surface = BRep_Tool::Surface(face, location);
@@ -3272,6 +3273,11 @@ std::optional<Vec3> inward_face_direction(const TopoDS_Face& face,
     dv.Transform(location.Transformation());
     auto normal = du.Crossed(dv);
     if (normal.SquareMagnitude() <= 1.0e-18) return std::nullopt;
+    // D1 returns the normal of the underlying geometric surface. A face can
+    // use that surface with REVERSED topological orientation (for example the
+    // bottom face of a solid), so material-side preview directions must use
+    // the oriented face normal rather than the raw supporting-surface normal.
+    if (face.Orientation() == TopAbs_REVERSED) normal.Reverse();
     normal.Normalize();
     auto tangent = edge_tangent;
     tangent.Normalize();
@@ -3294,9 +3300,37 @@ std::optional<Vec3> inward_face_direction(const TopoDS_Face& face,
         return classifier.State() == TopAbs_IN ||
             classifier.State() == TopAbs_ON;
     };
-    if (!is_inside(candidate)) {
-        candidate.Reverse();
-        if (!is_inside(candidate)) return std::nullopt;
+    auto opposite = candidate;
+    opposite.Reverse();
+    const bool candidate_inside = is_inside(candidate);
+    const bool opposite_inside = is_inside(opposite);
+    if (candidate_inside != opposite_inside) {
+        if (!candidate_inside) candidate.Reverse();
+    } else {
+        // A Boolean intersection can split an otherwise continuous planar
+        // face along an operational edge. At that split both probes may be
+        // classified ON/IN, so geometry alone does not tell which half of
+        // the supporting surface OCCT trims for a Fillet/Chamfer. The edge
+        // orientation in the owning face wire does: for a FORWARD edge the
+        // face lies to the left (surface normal x oriented tangent), and for
+        // a REVERSED edge it lies to the right. Use that topology as the
+        // deterministic tie-breaker instead of accepting the arbitrary first
+        // probe. This is essential for non-right-angle intersections where
+        // choosing the other half changes the supplementary corner angle.
+        std::optional<TopAbs_Orientation> face_edge_orientation;
+        for (TopExp_Explorer explorer(face, TopAbs_EDGE);
+             explorer.More(); explorer.Next()) {
+            const auto face_edge = TopoDS::Edge(explorer.Current());
+            if (!face_edge.IsSame(edge) ||
+                (face_edge.Orientation() != TopAbs_FORWARD &&
+                 face_edge.Orientation() != TopAbs_REVERSED)) {
+                continue;
+            }
+            face_edge_orientation = face_edge.Orientation();
+            break;
+        }
+        if (face_edge_orientation == TopAbs_REVERSED) candidate.Reverse();
+        if (!face_edge_orientation && !candidate_inside) return std::nullopt;
     }
     return Vec3{candidate.X(), candidate.Y(), candidate.Z()};
 }
@@ -3319,7 +3353,7 @@ std::vector<Vec3> sampled_inward_face_directions(const TopoDS_Edge& edge,
         gp_Vec tangent;
         curve.D1(parameter, point, tangent);
         sampled.push_back(inward_face_direction(
-            face, point, tangent, probe, tolerance * 10.0));
+            edge, face, point, tangent, probe, tolerance * 10.0));
     }
     if (std::none_of(sampled.begin(), sampled.end(),
             [](const auto& value) { return value.has_value(); })) return {};

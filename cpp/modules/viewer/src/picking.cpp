@@ -103,6 +103,19 @@ bool candidate_recolors_wire_edge(
     }
     if (candidate.kind == CandidateKind::Container &&
         candidate.semantic_key.empty()) {
+        // Fillet/Chamfer Containers are represented by the exact persisted
+        // boundary edges of their generated treatment faces. These edges
+        // keep the identity of the input body, so display_owner_id cannot
+        // identify the treatment Container itself; the persisted ancestry
+        // list is the authoritative relation instead. Keeping this in the
+        // common recolour predicate also makes hover independent of whether
+        // the ordinary wire is currently displayed (plain Shaded included).
+        if (edge.reference.instance_path == candidate.instance_path &&
+            std::find(edge.edge_treatment_owner_ids.begin(),
+                edge.edge_treatment_owner_ids.end(), candidate.owner_id) !=
+                edge.edge_treatment_owner_ids.end()) {
+            return true;
+        }
         const bool screen_curve = edge.overlay &&
             edge.reference.semantic_key.starts_with("curve:segment:");
         const auto& key = edge.reference.semantic_key;

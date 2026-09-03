@@ -120,11 +120,15 @@ public:
     void clear_reference_highlights() override;
     void set_remaining_translation_dof(int dof);
     void set_remaining_rotation_dof(int dof);
+    void set_rotation_constraint_state(
+        const zima::document::OrientationConstraintState& state) override;
     void set_translation_constraint_state(
         const zima::document::PointConstraintState& state,
         const zima::kernel::Vec3& solution);
     void set_orientation_base_rotation(
         const zima::kernel::Vec3& rotation, bool constrained);
+    void set_resolved_rotation(
+        const zima::kernel::Vec3& rotation, bool valid = true) override;
     bool set_inline_parameter_value(
         std::string_view key, double value) override;
 

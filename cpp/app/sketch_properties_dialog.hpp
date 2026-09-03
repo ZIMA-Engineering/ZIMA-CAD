@@ -72,8 +72,12 @@ public:
         const zima::document::PointConstraintState& state,
         const zima::kernel::Vec3& solution) override;
     void set_remaining_rotation_dof(int dof) override;
+    void set_rotation_constraint_state(
+        const zima::document::OrientationConstraintState& state) override;
     void set_orientation_base_rotation(
         const zima::kernel::Vec3& rotation, bool constrained) override;
+    void set_resolved_rotation(
+        const zima::kernel::Vec3& rotation, bool valid = true) override;
     bool set_inline_parameter_value(
         std::string_view key, double value) override;
 

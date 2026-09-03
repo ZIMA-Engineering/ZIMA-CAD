@@ -66,6 +66,10 @@ public:
         const zima::kernel::Vec3& solution);
     void set_orientation_base_rotation(
         const zima::kernel::Vec3& rotation, bool constrained);
+    void set_resolved_rotation(
+        const zima::kernel::Vec3& rotation, bool valid = true);
+    void set_rotation_constraint_state(
+        const zima::document::OrientationConstraintState& state);
     [[nodiscard]] const std::array<QDoubleSpinBox*, 3>& translation_fields() const {
         return translation_;
     }
@@ -203,6 +207,10 @@ private:
     std::array<QDoubleSpinBox*, 3> translation_{};
     std::array<QDoubleSpinBox*, 3> rotation_{};
     std::array<QDoubleSpinBox*, 3> rotation_offset_{};
+    std::array<double, 3> absolute_rotation_values_{};
+    std::array<double, 3> resolved_rotation_values_{};
+    zima::kernel::Vec3 orientation_base_rotation_{};
+    zima::document::OrientationConstraintState rotation_constraint_state_;
     bool orientation_back_{};
     int orientation_quarter_turns_{};
     std::vector<zima::document::ConstructionReference> references_;
@@ -211,6 +219,7 @@ private:
     std::vector<QString> orientation_labels_;
     int remaining_translation_dof_{3};
     int remaining_rotation_dof_{3};
+    bool orientation_reference_driven_{};
     std::set<std::size_t> highlighted_reference_rows_;
     std::set<std::size_t> highlighted_orientation_rows_;
     std::optional<std::size_t> active_reference_index_;
@@ -225,6 +234,7 @@ private:
     void toggle_reference_highlight(std::size_t row);
     void toggle_orientation_highlight(std::size_t row);
     void refresh_orientation_controls();
+    void refresh_rotation_field_states();
     void notify_changed();
 };
 

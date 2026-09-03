@@ -140,13 +140,27 @@ int main() {
         const auto chamfer_wire =
             zima::viewer::edge_treatment_boundary_edges(
                 treatment_wire_mesh, "chamfer-b");
+        const zima::viewer::ViewerCandidate fillet_container{
+            zima::viewer::CandidateKind::Container, 0.0, 0,
+            "fillet-a", {}, {}, zima::viewer::CandidateGeometry::Display};
+        const zima::viewer::ViewerCandidate unrelated_treatment_container{
+            zima::viewer::CandidateKind::Container, 0.0, 0,
+            "fillet-other", {}, {}, zima::viewer::CandidateGeometry::Display};
         require(fillet_wire.size() == 2 && chamfer_wire.size() == 1 &&
                     fillet_wire.contains(zima::viewer::edge_key(
                         fillet_boundary.reference)) &&
                     fillet_wire.contains(zima::viewer::edge_key(
                         shared_treatment_boundary.reference)) &&
                     !fillet_wire.contains(zima::viewer::edge_key(
-                        unrelated_boundary.reference)),
+                        unrelated_boundary.reference)) &&
+                    zima::viewer::candidate_recolors_wire_edge(
+                        fillet_container, fillet_boundary) &&
+                    zima::viewer::candidate_recolors_wire_edge(
+                        fillet_container, shared_treatment_boundary) &&
+                    !zima::viewer::candidate_recolors_wire_edge(
+                        fillet_container, unrelated_boundary) &&
+                    zima::viewer::candidate_recolors_wire_edge(
+                        unrelated_treatment_container, unrelated_boundary),
                 "Fillet/Chamfer face hit did not resolve only its persisted "
                 "boundary wire");
         zima::kernel::ViewerMesh infinite_line_mesh;

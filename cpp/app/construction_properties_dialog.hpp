@@ -125,6 +125,8 @@ public:
         populated_references() const;
     void set_remaining_translation_dof(int dof);
     void set_remaining_rotation_dof(int dof);
+    void set_rotation_constraint_state(
+        const zima::document::OrientationConstraintState& state) override;
     void set_translation_constraint_state(
         const zima::document::PointConstraintState& state,
         const zima::kernel::Vec3& solution);
@@ -140,6 +142,8 @@ public:
     // false, the absolute column stays editable (there is no base to show).
     void set_orientation_base_rotation(
         const zima::kernel::Vec3& base_rotation, bool has_orientation_references);
+    void set_resolved_rotation(
+        const zima::kernel::Vec3& rotation, bool valid = true) override;
     // Reflects the Plane container's auto-inherited orientation (see
     // resolve_construction()'s `orientation_inherited_from_reference`) in
     // the FRONT/TOP table: locks it and labels it with the position

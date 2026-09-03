@@ -2362,8 +2362,12 @@ zima::kernel::Vec3 placement_euler_degrees_from_rotation_matrix(
 }
 
 // Builds the FRONT (local Y) / TOP (local Z) orthonormal frame from one or
-// two supplied directions via Gram-Schmidt, returning the base rotation in
-// degrees. std::nullopt means neither direction was supplied.
+// two supplied directions. With one direction, choose the Euler
+// representation whose genuinely free local parameter is zero: FRONT fixes
+// RX/RZ and leaves RY, while TOP fixes RX/RY and leaves RZ. This is not merely
+// a display convention. It makes the computed, disabled absolute fields
+// describe the real reference frame without consuming the remaining DOF.
+// std::nullopt means neither direction was supplied.
 std::optional<zima::kernel::Vec3> placement_frame_base_rotation_degrees(
     const std::optional<zima::kernel::Vec3>& front_direction,
     const std::optional<zima::kernel::Vec3>& top_direction) {
@@ -2379,22 +2383,22 @@ std::optional<zima::kernel::Vec3> placement_frame_base_rotation_degrees(
         z_axis = placement_vec_normalized(placement_vec_cross(x_axis, y_axis));
     } else if (front_direction) {
         y_axis = placement_vec_normalized(*front_direction);
-        z_axis = placement_vec_project_perpendicular({0.0, 0.0, 1.0}, y_axis);
-        if (placement_vec_is_zero(z_axis)) {
-            z_axis = placement_vec_project_perpendicular({1.0, 0.0, 0.0}, y_axis);
-        }
-        if (placement_vec_is_zero(z_axis)) return std::nullopt;
-        x_axis = placement_vec_normalized(placement_vec_cross(y_axis, z_axis));
-        z_axis = placement_vec_normalized(placement_vec_cross(x_axis, y_axis));
+        if (placement_vec_is_zero(y_axis)) return std::nullopt;
+        constexpr double degrees_per_radian = 180.0 / std::numbers::pi;
+        const double horizontal = std::hypot(y_axis.x, y_axis.y);
+        return zima::kernel::Vec3{
+            std::atan2(y_axis.z, horizontal) * degrees_per_radian,
+            0.0,
+            std::atan2(-y_axis.x, y_axis.y) * degrees_per_radian};
     } else {
         z_axis = placement_vec_normalized(*top_direction);
-        x_axis = placement_vec_project_perpendicular({1.0, 0.0, 0.0}, z_axis);
-        if (placement_vec_is_zero(x_axis)) {
-            x_axis = placement_vec_project_perpendicular({0.0, 1.0, 0.0}, z_axis);
-        }
-        if (placement_vec_is_zero(x_axis)) return std::nullopt;
-        y_axis = placement_vec_normalized(placement_vec_cross(z_axis, x_axis));
-        x_axis = placement_vec_normalized(placement_vec_cross(y_axis, z_axis));
+        if (placement_vec_is_zero(z_axis)) return std::nullopt;
+        constexpr double degrees_per_radian = 180.0 / std::numbers::pi;
+        const double horizontal = std::hypot(z_axis.x, z_axis.z);
+        return zima::kernel::Vec3{
+            std::atan2(-z_axis.y, horizontal) * degrees_per_radian,
+            std::atan2(z_axis.x, z_axis.z) * degrees_per_radian,
+            0.0};
     }
     return placement_euler_degrees_from_rotation_matrix(
         placement_rotation_matrix_from_columns(x_axis, y_axis, z_axis));
@@ -2462,6 +2466,27 @@ zima::kernel::Vec3 placement_transform_direction(
                 rotation[1][2] * direction.z,
             rotation[2][0] * direction.x + rotation[2][1] * direction.y +
                 rotation[2][2] * direction.z};
+}
+
+zima::kernel::Vec3 placement_reference_manual_rotation_degrees(
+    bool fully_constrained,
+    const std::optional<zima::kernel::Vec3>& front_direction,
+    const std::optional<zima::kernel::Vec3>& top_direction,
+    const zima::kernel::Vec3& absolute_degrees,
+    const zima::kernel::Vec3& correction_degrees) {
+    if (fully_constrained || (front_direction && top_direction))
+        return correction_degrees;
+    if (front_direction) {
+        // FRONT is local Y: only rotation about local Y remains absolute.
+        return {correction_degrees.x, absolute_degrees.y,
+            correction_degrees.z};
+    }
+    if (top_direction) {
+        // TOP is local Z: only rotation about local Z remains absolute.
+        return {correction_degrees.x, correction_degrees.y,
+            absolute_degrees.z};
+    }
+    return absolute_degrees;
 }
 
 zima::kernel::Vec3 placement_inverse_transform_point(
@@ -3744,6 +3769,7 @@ bool resolve_construction(ConstructionObject& object,
     const auto previous_entity_origin = object.entity_origin;
     const auto previous_rotation = object.rotation;
     const auto previous_rotation_base = object.rotation_base;
+    const auto previous_absolute_rotation = object.absolute_rotation;
     const auto previous_direction = object.direction;
     const bool previous_inherited =
         object.orientation_inherited_from_reference;
@@ -4140,38 +4166,12 @@ bool resolve_construction(ConstructionObject& object,
         // the new Plane is offset from" contract.
         const std::optional front = inherited_plane_frame->front;
         const std::optional top = inherited_plane_frame->top;
-        const zima::kernel::Vec3 manual_offset{object.rotation_offset_x,
-            object.rotation_offset_y, object.rotation_offset_z};
-        object.rotation = placement_compose_orientation_degrees(
-            front, top, manual_offset);
         object.rotation_base = placement_frame_base_rotation_degrees(
             front, top).value_or(zima::kernel::Vec3{});
         object.orientation_inherited_from_reference = true;
     } else if (front_direction || top_direction) {
-        const zima::kernel::Vec3 manual_offset{object.rotation_offset_x,
-            object.rotation_offset_y, object.rotation_offset_z};
-        object.rotation = placement_compose_orientation_degrees(
-            front_direction, top_direction, manual_offset);
         object.rotation_base = placement_frame_base_rotation_degrees(
             front_direction, top_direction).value_or(zima::kernel::Vec3{});
-        if (object.kind == ConstructionKind::Axis) {
-            // Read the Axis's direction back out of the just-composed
-            // rotation (base frame + manual Korekce offset) instead of the
-            // pre-correction frame, so a Korekce RX/RY/RZ edit visibly
-            // rotates the rendered line -- matching Python's
-            // `_axis_direction_changed`, where the combo re-labels the
-            // picked reference's role (x -> left/local-X, y -> base/
-            // local-Y, z -> up/local-Z) onto this same rotation instead of
-            // an independent, correction-blind frame.
-            const auto matrix = placement_rotation_matrix_from_euler_degrees(
-                object.rotation);
-            const zima::kernel::Vec3 local = object.direction_axis == "x"
-                ? zima::kernel::Vec3{1.0, 0.0, 0.0}
-                : object.direction_axis == "z"
-                    ? zima::kernel::Vec3{0.0, 0.0, 1.0}
-                    : zima::kernel::Vec3{0.0, 1.0, 0.0};
-            object.direction = placement_transform_direction(matrix, local);
-        }
     } else if (origin_bulk_fill) {
         // The whole-Origin bulk-fill is a deliberate request for the global
         // identity frame. Even if the preview object carried a stale
@@ -4179,10 +4179,6 @@ bool resolve_construction(ConstructionObject& object,
         // bulk-fill was being entered incrementally, the completed origin
         // triad must overwrite it here so both the resolved data and the
         // editing-origin preview axes land back on +X/+Y/+Z.
-        const zima::kernel::Vec3 manual_offset{object.rotation_offset_x,
-            object.rotation_offset_y, object.rotation_offset_z};
-        object.rotation = placement_compose_orientation_degrees(
-            std::nullopt, std::nullopt, manual_offset);
         object.rotation_base = {};
     } else {
         object.rotation_base = {};
@@ -4190,19 +4186,58 @@ bool resolve_construction(ConstructionObject& object,
     const bool orientation_from_reference = front_direction || top_direction ||
         origin_bulk_fill || object.orientation_inherited_from_reference ||
         three_point_plane_frame.has_value();
+    if (orientation_from_reference) {
+        auto rotation_state = orientation_constraint_state(
+            object.references, geometry, true, object.origin);
+        if (origin_bulk_fill || object.orientation_inherited_from_reference ||
+            three_point_plane_frame.has_value()) {
+            rotation_state.remaining_dof = 0;
+            rotation_state.constrained_axes = {true, true, true};
+        }
+        const std::array resolved_base{object.rotation_base.x,
+            object.rotation_base.y, object.rotation_base.z};
+        std::array absolute{object.absolute_rotation.x,
+            object.absolute_rotation.y, object.absolute_rotation.z};
+        for (std::size_t index = 0; index < absolute.size(); ++index) {
+            if (rotation_state.constrained_axes[index])
+                absolute[index] = resolved_base[index];
+        }
+        object.absolute_rotation = {absolute[0], absolute[1], absolute[2]};
+    }
     const auto absolute_base = object.absolute_rotation;
     const auto final_base = orientation_from_reference
         ? object.rotation_base : absolute_base;
+    const zima::kernel::Vec3 correction_rotation{object.rotation_offset_x,
+        object.rotation_offset_y, object.rotation_offset_z};
+    const bool full_reference_frame = origin_bulk_fill ||
+        object.orientation_inherited_from_reference ||
+        three_point_plane_frame.has_value();
+    const auto manual_rotation = orientation_from_reference
+        ? placement_reference_manual_rotation_degrees(
+              full_reference_frame, front_direction, top_direction,
+              object.absolute_rotation, correction_rotation)
+        : zima::kernel::Vec3{};
     object.rotation = placement_apply_view_orientation_degrees(
         final_base, object.orientation_back, object.orientation_quarter_turns,
-        orientation_from_reference
-            ? zima::kernel::Vec3{object.rotation_offset_x,
-                                 object.rotation_offset_y,
-                                 object.rotation_offset_z}
-            : zima::kernel::Vec3{},
+        manual_rotation,
         object.kind == ConstructionKind::Plane &&
                 object.base_plane == LocalDatumPlane::YZ
             ? 1 : 0);
+    if (object.kind == ConstructionKind::Axis &&
+        orientation_from_reference && !axis_shortcut) {
+        // Read the Axis direction from the same final frame that is rendered.
+        // In the one-FRONT state, absolute RY rotates around the referenced
+        // local Y direction and therefore does not move that axis; RX/RZ are
+        // the only available corrections.
+        const auto matrix = placement_rotation_matrix_from_euler_degrees(
+            object.rotation);
+        const zima::kernel::Vec3 local = object.direction_axis == "x"
+            ? zima::kernel::Vec3{1.0, 0.0, 0.0}
+            : object.direction_axis == "z"
+                ? zima::kernel::Vec3{0.0, 0.0, 1.0}
+                : zima::kernel::Vec3{0.0, 1.0, 0.0};
+        object.direction = placement_transform_direction(matrix, local);
+    }
     if (object.kind == ConstructionKind::Plane) {
         const zima::kernel::Vec3 local_normal =
             object.base_plane == LocalDatumPlane::XY
@@ -4236,6 +4271,7 @@ bool resolve_construction(ConstructionObject& object,
         object.entity_origin = previous_entity_origin;
         object.rotation = previous_rotation;
         object.rotation_base = previous_rotation_base;
+        object.absolute_rotation = previous_absolute_rotation;
         object.direction = previous_direction;
         object.orientation_inherited_from_reference = previous_inherited;
     }
@@ -4246,6 +4282,16 @@ bool resolve_placement(
     Placement& placement, const zima::kernel::ViewerReferenceGeometry& geometry,
     zima::kernel::Vec3* base_rotation,
     bool* orientation_from_reference) {
+    // Resolution is transactional. A missing persisted reference is a
+    // diagnostic state, not permission to replace the last calculated frame
+    // with a partial/default solution.
+    const zima::kernel::Vec3 previous_position{
+        placement.x, placement.y, placement.z};
+    const zima::kernel::Vec3 previous_rotation{
+        placement.rotation_x, placement.rotation_y, placement.rotation_z};
+    const zima::kernel::Vec3 previous_absolute_rotation{
+        placement.absolute_rotation_x, placement.absolute_rotation_y,
+        placement.absolute_rotation_z};
     std::vector<std::reference_wrapper<const ConstructionReference>> position_references;
     std::optional<zima::kernel::Vec3> front_direction;
     std::optional<zima::kernel::Vec3> top_direction;
@@ -4323,15 +4369,41 @@ bool resolve_placement(
         *orientation_from_reference = has_orientation_reference;
     }
     if (has_orientation_reference) {
-        const zima::kernel::Vec3 manual_offset{placement.rotation_offset_x,
+        const zima::kernel::Vec3 correction_rotation{placement.rotation_offset_x,
             placement.rotation_offset_y, placement.rotation_offset_z};
+        const auto reference_base = placement_frame_base_rotation_degrees(
+            front_direction, top_direction);
+        if (!three_point_base && !reference_base) orientation_resolved = false;
         const auto resolved_base = three_point_base.value_or(
-            placement_frame_base_rotation_degrees(
-                front_direction, top_direction).value_or(zima::kernel::Vec3{}));
+            reference_base.value_or(zima::kernel::Vec3{}));
+        auto rotation_state = orientation_constraint_state(
+            placement.references, geometry, true,
+            {placement.x, placement.y, placement.z});
+        if (three_point_base) {
+            rotation_state.remaining_dof = 0;
+            rotation_state.constrained_axes = {true, true, true};
+        }
+        std::array absolute{placement.absolute_rotation_x,
+            placement.absolute_rotation_y, placement.absolute_rotation_z};
+        const std::array reference_angles{
+            resolved_base.x, resolved_base.y, resolved_base.z};
+        for (std::size_t index = 0; index < absolute.size(); ++index) {
+            if (rotation_state.constrained_axes[index])
+                absolute[index] = reference_angles[index];
+        }
+        placement.absolute_rotation_x = absolute[0];
+        placement.absolute_rotation_y = absolute[1];
+        placement.absolute_rotation_z = absolute[2];
+        const zima::kernel::Vec3 stored_absolute_rotation{
+            absolute[0], absolute[1], absolute[2]};
+        const auto manual_rotation =
+            placement_reference_manual_rotation_degrees(
+                three_point_base.has_value(), front_direction, top_direction,
+                stored_absolute_rotation, correction_rotation);
         if (base_rotation) *base_rotation = resolved_base;
         const auto composed = placement_apply_view_orientation_degrees(
             resolved_base, placement.orientation_back,
-            placement.orientation_quarter_turns, manual_offset);
+            placement.orientation_quarter_turns, manual_rotation);
         placement.rotation_x = composed.x;
         placement.rotation_y = composed.y;
         placement.rotation_z = composed.z;
@@ -4348,6 +4420,18 @@ bool resolve_placement(
         placement.rotation_z = composed.z;
     }
     placement.reference_valid = position_resolved && orientation_resolved;
+    if (!placement.reference_valid) {
+        placement.x = previous_position.x;
+        placement.y = previous_position.y;
+        placement.z = previous_position.z;
+        placement.rotation_x = previous_rotation.x;
+        placement.rotation_y = previous_rotation.y;
+        placement.rotation_z = previous_rotation.z;
+        placement.absolute_rotation_x = previous_absolute_rotation.x;
+        placement.absolute_rotation_y = previous_absolute_rotation.y;
+        placement.absolute_rotation_z = previous_absolute_rotation.z;
+        if (base_rotation) *base_rotation = previous_absolute_rotation;
+    }
     return placement.reference_valid;
 }
 
@@ -4625,15 +4709,20 @@ std::vector<zima::kernel::ViewerDimension> container_placement_dimensions(
         [](const auto& reference) {
             return reference.orientation_drives_rotation;
         });
-    const std::array angles = orientation_from_reference
-        ? std::array{placement.rotation_offset_x,
-                     placement.rotation_offset_y,
-                     placement.rotation_offset_z}
-        : std::array{placement.absolute_rotation_x,
-                     placement.absolute_rotation_y,
-                     placement.absolute_rotation_z};
     const zima::kernel::Vec3 origin{
         placement.x, placement.y, placement.z};
+    const auto orientation_state = orientation_constraint_state(
+        placement.references, geometry, true, origin);
+    const std::array absolute_angles{placement.absolute_rotation_x,
+        placement.absolute_rotation_y, placement.absolute_rotation_z};
+    const std::array correction_angles{placement.rotation_offset_x,
+        placement.rotation_offset_y, placement.rotation_offset_z};
+    std::array<double, 3> angles{};
+    for (std::size_t index = 0; index < angles.size(); ++index) {
+        angles[index] = orientation_from_reference &&
+                orientation_state.constrained_axes[index]
+            ? correction_angles[index] : absolute_angles[index];
+    }
     const std::array axes{
         zima::kernel::Vec3{1.0, 0.0, 0.0},
         zima::kernel::Vec3{0.0, 1.0, 0.0},
@@ -4701,7 +4790,7 @@ bool construction_reference_is_point(
         });
 }
 
-int orientation_constraint_remaining_dof(
+OrientationConstraintState orientation_constraint_state(
     const std::vector<ConstructionReference>& references,
     const zima::kernel::ViewerReferenceGeometry& geometry,
     bool marked_only, const zima::kernel::Vec3& orientation_origin) {
@@ -4710,7 +4799,12 @@ int orientation_constraint_remaining_dof(
             actual.owner_id == expected.owner_id &&
             actual.semantic_key == expected.semantic_key;
     };
-    std::vector<zima::kernel::Vec3> directions;
+    struct DirectionConstraint {
+        zima::kernel::Vec3 direction;
+        std::size_t local_axis{};
+    };
+    std::vector<DirectionConstraint> directions;
+    bool front_assigned = false;
     for (const auto& reference : references) {
         if (marked_only && !reference.orientation_drives_rotation) continue;
         std::optional<zima::kernel::Vec3> direction;
@@ -4778,20 +4872,52 @@ int orientation_constraint_remaining_dof(
         const double magnitude = std::hypot(
             std::hypot(direction->x, direction->y), direction->z);
         if (magnitude <= 1.0e-9) continue;
-        directions.push_back({direction->x / magnitude,
-            direction->y / magnitude, direction->z / magnitude});
+        std::size_t local_axis = 1;
+        if (reference.orientation_role == "top" ||
+            reference.orientation_role == "bottom") {
+            local_axis = 2;
+        } else if (reference.orientation_role == "left" ||
+                   reference.orientation_role == "right") {
+            local_axis = 0;
+        } else if (reference.orientation_role == "direction") {
+            local_axis = front_assigned ? 2 : 1;
+        }
+        if (local_axis == 1) front_assigned = true;
+        directions.push_back({
+            {direction->x / magnitude, direction->y / magnitude,
+             direction->z / magnitude},
+            local_axis});
     }
-    if (directions.empty()) return 3;
-    const auto& first = directions.front();
+    OrientationConstraintState state;
+    if (directions.empty()) return state;
+    state.remaining_dof = 1;
+    state.constrained_axes = {true, true, true};
+    state.constrained_axes[directions.front().local_axis] = false;
+    const auto& first = directions.front().direction;
     const bool independent = std::any_of(directions.begin() + 1,
-        directions.end(), [&](const auto& direction) {
+        directions.end(), [&](const auto& constraint) {
+            if (constraint.local_axis == directions.front().local_axis)
+                return false;
+            const auto& direction = constraint.direction;
             const zima::kernel::Vec3 cross{
                 first.y * direction.z - first.z * direction.y,
                 first.z * direction.x - first.x * direction.z,
                 first.x * direction.y - first.y * direction.x};
             return std::hypot(std::hypot(cross.x, cross.y), cross.z) > 1.0e-6;
         });
-    return independent ? 0 : 1;
+    if (independent) {
+        state.remaining_dof = 0;
+        state.constrained_axes = {true, true, true};
+    }
+    return state;
+}
+
+int orientation_constraint_remaining_dof(
+    const std::vector<ConstructionReference>& references,
+    const zima::kernel::ViewerReferenceGeometry& geometry,
+    bool marked_only, const zima::kernel::Vec3& orientation_origin) {
+    return orientation_constraint_state(
+        references, geometry, marked_only, orientation_origin).remaining_dof;
 }
 
 ConstructionObject* PartDocument::find_construction(const std::string& id) {

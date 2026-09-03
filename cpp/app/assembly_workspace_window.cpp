@@ -2464,6 +2464,41 @@ void AssemblyWorkspaceWindow::create_actions() {
     shaded_action_->setObjectName("shadedDisplayAction");
     shaded_edges_action_->setChecked(true);
 
+    camera_projection_group_ = new QActionGroup(this);
+    camera_projection_group_->setExclusive(true);
+    const auto projection_action = [this, &make_action](const QString& text,
+            const char* icon, const QString& tooltip,
+            zima::viewer::ProjectionMode mode) {
+        auto* action = make_action(text, icon);
+        action->setCheckable(true);
+        action->setToolTip(tooltip);
+        camera_projection_group_->addAction(action);
+        connect(action, &QAction::triggered, this, [this, mode] {
+            if (viewer_ != nullptr) viewer_->set_projection_mode(mode);
+        });
+        return action;
+    };
+    orthographic_camera_action_ = projection_action(tr("Orto"),
+        "view-orthographic",
+        tr("Ortografický pohled – současné CAD zobrazení"),
+        zima::viewer::ProjectionMode::Orthographic);
+    perspective_camera_action_ = projection_action(tr("Perspektiva"),
+        "view-perspective",
+        tr("Perspektivní pohled s otáčením kolem modelu"),
+        zima::viewer::ProjectionMode::Perspective);
+    fly_camera_action_ = make_action(tr("Průlet"), "view-fly");
+    fly_camera_action_->setCheckable(true);
+    fly_camera_action_->setToolTip(tr(
+        "Zapnout průlet nezávisle na Orto/Perspektivě: prostřední tlačítko "
+        "rozhlížení, kolečko nebo W/S vpřed a vzad, A/D do stran, Q/E svisle"));
+    connect(fly_camera_action_, &QAction::toggled, this, [this](bool enabled) {
+        if (viewer_ != nullptr) viewer_->set_fly_navigation_enabled(enabled);
+    });
+    orthographic_camera_action_->setObjectName("orthographicCameraAction");
+    perspective_camera_action_->setObjectName("perspectiveCameraAction");
+    fly_camera_action_->setObjectName("flyCameraAction");
+    orthographic_camera_action_->setChecked(true);
+
     const auto reference_action = [this, &make_action](
         const QString& text, const char* icon,
         zima::viewer::ReferenceVisibility reference) {
@@ -2514,6 +2549,11 @@ void AssemblyWorkspaceWindow::create_actions() {
     add_standard_view(t("toolbar.view.bottom", "Bottom – XY opačně"), zima::viewer::StandardView::Bottom);
     view->addSeparator();
     view->addAction(selection_action_);
+    view->addSeparator();
+    for (auto* action : {orthographic_camera_action_,
+                         perspective_camera_action_, fly_camera_action_}) {
+        view->addAction(action);
+    }
     view->addSeparator();
     for (auto* action : {wire_action_, hidden_edges_action_, no_hidden_edges_action_,
                          shaded_edges_action_, shaded_action_}) {
@@ -3096,12 +3136,12 @@ void AssemblyWorkspaceWindow::create_actions() {
     view_toolbar_->setMovable(false);
     view_toolbar_->setIconSize(QSize(16, 16));
     view_toolbar_->setStyleSheet(
-        "QToolButton:hover:enabled { background-color: rgba(255,255,255,32);"
-        " color:#fff; border:none; border-radius:4px; }"
+        "QToolButton:hover:enabled { background-color:rgba(77,216,17,72);"
+        " color:#fff; border:1px solid rgba(128,170,26,190); border-radius:4px; }"
         "QToolButton:checked { background-color:rgba(77,216,17,125);"
-        " color:#fff; border:none; border-radius:4px; }"
+        " color:#fff; border:1px solid #80AA1A; border-radius:4px; }"
         "QToolButton:pressed { background-color:rgba(77,216,17,165);"
-        " color:#fff; border:none; border-radius:4px; }");
+        " color:#fff; border:1px solid #9BCC32; border-radius:4px; }");
     view_toolbar_->addAction(regenerate_document_action_);
     view_toolbar_->addSeparator();
     view_toolbar_->addAction(fit_view_action_);
@@ -3144,6 +3184,15 @@ void AssemblyWorkspaceWindow::create_actions() {
     connect(selection_filter_combo_, &QComboBox::currentIndexChanged, this,
         [this] { if (viewer_ != nullptr && workspace_.size() != 0) refresh_scene(); });
     view_toolbar_->addWidget(selection_filter_combo_);
+    view_toolbar_->addSeparator();
+    for (auto* action : {orthographic_camera_action_,
+                         perspective_camera_action_, fly_camera_action_}) {
+        view_toolbar_->addAction(action);
+        if (auto* button = qobject_cast<QToolButton*>(
+                view_toolbar_->widgetForAction(action))) {
+            button->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+        }
+    }
     view_toolbar_->addSeparator();
     for (auto* action : {wire_action_, hidden_edges_action_, no_hidden_edges_action_,
                          shaded_edges_action_, shaded_action_}) {
@@ -5313,9 +5362,10 @@ void AssemblyWorkspaceWindow::update_document_area_visibility() {
     standard_views_menu_->menuAction()->setEnabled(has_document);
     colors_menu_->menuAction()->setEnabled(has_document);
     for (auto* action : {wire_action_, hidden_edges_action_, no_hidden_edges_action_,
-                         shaded_edges_action_, shaded_action_, show_origins_action_,
-                         show_points_action_, show_axes_action_, show_planes_action_,
-                         show_sketches_action_}) {
+                         shaded_edges_action_, shaded_action_,
+                         orthographic_camera_action_, perspective_camera_action_,
+                         fly_camera_action_, show_origins_action_, show_points_action_,
+                         show_axes_action_, show_planes_action_, show_sketches_action_}) {
         action->setEnabled(has_document);
     }
     update_application_actions();
@@ -9395,21 +9445,25 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             }
             zima::kernel::Vec3 base_rotation;
             bool orientation_from_reference = false;
-            static_cast<void>(zima::document::resolve_placement(
+            const bool placement_valid = zima::document::resolve_placement(
                 placement, primitive_reference_geometry_, &base_rotation,
-                &orientation_from_reference));
+                &orientation_from_reference);
             const auto constraint_state = zima::document::point_constraint_state(
                 placement.references, primitive_reference_geometry_);
             primitive_translation_dof_ = constraint_state.remaining_dof;
             primitive_reference_dialog_->set_translation_constraint_state(
                 constraint_state,
                 {placement.x, placement.y, placement.z});
-            primitive_reference_dialog_->set_remaining_rotation_dof(
-                zima::document::orientation_constraint_remaining_dof(
+            primitive_reference_dialog_->set_rotation_constraint_state(
+                zima::document::orientation_constraint_state(
                     placement.references, primitive_reference_geometry_, true,
                     {placement.x, placement.y, placement.z}));
             primitive_reference_dialog_->set_orientation_base_rotation(
                 base_rotation, orientation_from_reference);
+            primitive_reference_dialog_->set_resolved_rotation(
+                {placement.rotation_x, placement.rotation_y,
+                 placement.rotation_z},
+                placement_valid);
             zima::document::PartDocument preview_geometry;
             viewer_->set_transient_edges(
                 preview_geometry.primitive_preview_edges(resolved_preview));
@@ -10309,9 +10363,9 @@ void AssemblyWorkspaceWindow::show_sweep3d_properties(
                 placement_for_dialog.absolute_rotation_y,
                 placement_for_dialog.absolute_rotation_z};
             bool orientation_from_reference = false;
-            static_cast<void>(zima::document::resolve_placement(
+            const bool placement_valid = zima::document::resolve_placement(
                 placement_for_dialog, reference_geometry,
-                &placement_base_rotation, &orientation_from_reference));
+                &placement_base_rotation, &orientation_from_reference);
             construction_reference_geometry_ = std::move(reference_geometry);
 
             const auto constraint_state =
@@ -10320,13 +10374,19 @@ void AssemblyWorkspaceWindow::show_sweep3d_properties(
             construction_translation_dof_ = constraint_state.remaining_dof;
             dialog->set_translation_constraint_state(
                 constraint_state, display_path.origin);
-            construction_rotation_dof_ =
-                zima::document::orientation_constraint_remaining_dof(
+            const auto rotation_state =
+                zima::document::orientation_constraint_state(
                     preview.references, construction_reference_geometry_, true,
                     display_path.origin);
-            dialog->set_remaining_rotation_dof(construction_rotation_dof_);
+            construction_rotation_dof_ = rotation_state.remaining_dof;
+            dialog->set_rotation_constraint_state(rotation_state);
             dialog->set_orientation_base_rotation(
                 placement_base_rotation, orientation_from_reference);
+            dialog->set_resolved_rotation(
+                {placement_for_dialog.rotation_x,
+                 placement_for_dialog.rotation_y,
+                 placement_for_dialog.rotation_z},
+                placement_valid);
 
             std::set<std::string> preview_owners{
                 resolved->id, display_path.id, display_path.entity_id,
@@ -10535,6 +10595,8 @@ void AssemblyWorkspaceWindow::show_construction_properties(
             zima::kernel::Vec3 resolved_entity_origin = preview.entity_origin;
             zima::kernel::Vec3 resolved_direction = preview.direction;
             zima::kernel::Vec3 resolved_rotation = preview.rotation_base;
+            zima::kernel::Vec3 resolved_final_rotation = preview.rotation;
+            bool resolved_reference_valid = preview.reference_valid;
             bool resolved_orientation_inherited =
                 preview.orientation_inherited_from_reference;
             if (const auto* source = workspace_.open_part(document_id)) {
@@ -10555,6 +10617,8 @@ void AssemblyWorkspaceWindow::show_construction_properties(
                     resolved_entity_origin = resolved->entity_origin;
                     resolved_direction = resolved->direction;
                     resolved_rotation = resolved->rotation_base;
+                    resolved_final_rotation = resolved->rotation;
+                    resolved_reference_valid = resolved->reference_valid;
                     resolved_orientation_inherited =
                         resolved->orientation_inherited_from_reference;
                     construction_parameter_preview_ = *resolved;
@@ -10587,6 +10651,8 @@ void AssemblyWorkspaceWindow::show_construction_properties(
                     resolved_entity_origin = resolved->entity_origin;
                     resolved_direction = resolved->direction;
                     resolved_rotation = resolved->rotation_base;
+                    resolved_final_rotation = resolved->rotation;
+                    resolved_reference_valid = resolved->reference_valid;
                     resolved_orientation_inherited =
                         resolved->orientation_inherited_from_reference;
                     construction_parameter_preview_ = *resolved;
@@ -10602,16 +10668,22 @@ void AssemblyWorkspaceWindow::show_construction_properties(
                 construction_translation_dof_ = constraint_state.remaining_dof;
                 construction_reference_dialog_->set_translation_constraint_state(
                     constraint_state, resolved_origin);
-                construction_rotation_dof_ =
-                    zima::document::orientation_constraint_remaining_dof(
+                auto rotation_state =
+                    zima::document::orientation_constraint_state(
                         preview.references, reference_geometry, true,
                         resolved_origin);
                 if (construction_shortcut_satisfied(
                         preview.kind, preview.references, reference_geometry)) {
-                    construction_rotation_dof_ = 0;
+                    rotation_state.remaining_dof = 0;
+                    rotation_state.constrained_axes = {true, true, true};
                 }
-                construction_reference_dialog_->set_remaining_rotation_dof(
-                    construction_rotation_dof_);
+                if (resolved_orientation_inherited) {
+                    rotation_state.remaining_dof = 0;
+                    rotation_state.constrained_axes = {true, true, true};
+                }
+                construction_rotation_dof_ = rotation_state.remaining_dof;
+                construction_reference_dialog_->set_rotation_constraint_state(
+                    rotation_state);
                 const bool has_orientation_references = std::any_of(
                     preview.references.begin(), preview.references.end(),
                     [](const auto& reference) {
@@ -10621,6 +10693,8 @@ void AssemblyWorkspaceWindow::show_construction_properties(
                     has_orientation_references
                         ? resolved_rotation : preview.absolute_rotation,
                     has_orientation_references);
+                construction_reference_dialog_->set_resolved_rotation(
+                    resolved_final_rotation, resolved_reference_valid);
                 construction_reference_dialog_->set_orientation_inherited_from_reference(
                     resolved_orientation_inherited);
             }
@@ -11035,14 +11109,19 @@ void AssemblyWorkspaceWindow::show_curve_point_properties(
             if (construction_reference_dialog_ != nullptr) {
                 construction_reference_dialog_->set_translation_constraint_state(
                     constraint_state, resolved->origin);
-                construction_rotation_dof_ =
-                    zima::document::orientation_constraint_remaining_dof(
-                        preview.references, construction_reference_geometry_, true,
-                        resolved->origin);
-                construction_reference_dialog_->set_remaining_rotation_dof(
-                    construction_rotation_dof_);
                 const bool inherited =
                     resolved->orientation_inherited_from_reference;
+                auto rotation_state =
+                    zima::document::orientation_constraint_state(
+                        preview.references, construction_reference_geometry_, true,
+                        resolved->origin);
+                if (inherited) {
+                    rotation_state.remaining_dof = 0;
+                    rotation_state.constrained_axes = {true, true, true};
+                }
+                construction_rotation_dof_ = rotation_state.remaining_dof;
+                construction_reference_dialog_->set_rotation_constraint_state(
+                    rotation_state);
                 const bool has_orientation_references = std::any_of(
                     preview.references.begin(), preview.references.end(),
                     [](const auto& reference) {
@@ -11053,6 +11132,8 @@ void AssemblyWorkspaceWindow::show_curve_point_properties(
                         ? resolved->rotation_base
                         : resolved->absolute_rotation,
                     has_orientation_references);
+                construction_reference_dialog_->set_resolved_rotation(
+                    resolved->rotation, resolved->reference_valid);
                 construction_reference_dialog_->
                     set_orientation_inherited_from_reference(inherited);
             }
@@ -12686,20 +12767,25 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             }
             zima::kernel::Vec3 base_rotation;
             bool orientation_from_reference = false;
-            static_cast<void>(zima::document::resolve_placement(
+            const bool placement_valid = zima::document::resolve_placement(
                 placement, primitive_reference_geometry_, &base_rotation,
-                &orientation_from_reference));
+                &orientation_from_reference);
             const auto state = zima::document::point_constraint_state(
                 placement.references, primitive_reference_geometry_);
             primitive_translation_dof_ = state.remaining_dof;
             if (primitive_reference_dialog_ != nullptr) {
                 primitive_reference_dialog_->set_translation_constraint_state(
                     state, {placement.x, placement.y, placement.z});
-                primitive_reference_dialog_->set_remaining_rotation_dof(
-                    zima::document::orientation_constraint_remaining_dof(
-                        placement.references, primitive_reference_geometry_, false));
+                primitive_reference_dialog_->set_rotation_constraint_state(
+                    zima::document::orientation_constraint_state(
+                        placement.references, primitive_reference_geometry_, true,
+                        {placement.x, placement.y, placement.z}));
                 primitive_reference_dialog_->set_orientation_base_rotation(
                     base_rotation, orientation_from_reference);
+                primitive_reference_dialog_->set_resolved_rotation(
+                    {placement.rotation_x, placement.rotation_y,
+                     placement.rotation_z},
+                    placement_valid);
             }
             // Preview the Sketch in the final container frame. Placement
             // FRONT/BACK and ROTATE are modeling-frame controls here, so the
@@ -20375,15 +20461,16 @@ void AssemblyWorkspaceWindow::preview_sketch_rectangle_ray(
     viewer_->set_transient_edges(std::move(preview_edges));
     viewer_->set_transient_points({b, d});
     if (midpoint_snap) {
-        const auto& first_constraint = midpoint_snap->constraints.front();
-        const std::array midpoint = midpoint_snap->constraints.size() > 1
-            ? std::array{(x0 + x1) * 0.5, (y0 + y1) * 0.5}
-            : first_constraint.side_index == 0
+        std::vector<std::pair<zima::kernel::Vec3, std::string>> labels;
+        labels.reserve(midpoint_snap->constraints.size());
+        for (const auto& constraint : midpoint_snap->constraints) {
+            const std::array midpoint = constraint.side_index == 0
                 ? std::array{(x0 + x1) * 0.5, y0}
                 : std::array{x1, (y0 + y1) * 0.5};
-        viewer_->set_transient_labels({{
-            sketch->world_point(midpoint[0], midpoint[1]),
-            midpoint_snap->constraints.size() > 1 ? "2×M" : "M"}});
+            labels.emplace_back(
+                sketch->world_point(midpoint[0], midpoint[1]), "M");
+        }
+        viewer_->set_transient_labels(std::move(labels));
     }
 }
 

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
+  <title id="title">Orthographic projection</title>
+  <g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M5 7.5h9v9H5zM14 7.5l4-2v9l-4 2M5 7.5l4-2h9"/>
+    <path d="M3 3v18M1.5 5L3 3l1.5 2M1.5 19L3 21l1.5-2"/>
+  </g>
+</svg>

@@ -184,6 +184,11 @@ int verify_startup_contract(
     auto* colors_menu = window.findChild<QMenu*>("colorsMenu");
     auto* fit_view = window.findChild<QAction*>("fitViewAction");
     auto* view_selection = window.findChild<QAction*>("viewSelectionAction");
+    auto* orthographic_camera =
+        window.findChild<QAction*>("orthographicCameraAction");
+    auto* perspective_camera =
+        window.findChild<QAction*>("perspectiveCameraAction");
+    auto* fly_camera = window.findChild<QAction*>("flyCameraAction");
     auto* import_document = window.findChild<QAction*>("importDocumentAction");
     auto* material = window.findChild<QAction*>("materialAction");
     auto* relations = window.findChild<QAction*>("relationsAction");
@@ -247,7 +252,21 @@ int verify_startup_contract(
                     colors_menu != nullptr &&
                     !colors_menu->menuAction()->isEnabled() &&
                     fit_view != nullptr && !fit_view->isEnabled() &&
-                    view_selection != nullptr && !view_selection->isEnabled(),
+                    view_selection != nullptr && !view_selection->isEnabled() &&
+                    orthographic_camera != nullptr &&
+                    !orthographic_camera->isEnabled() &&
+                    perspective_camera != nullptr &&
+                    !perspective_camera->isEnabled() &&
+                    fly_camera != nullptr && !fly_camera->isEnabled() &&
+                    orthographic_camera->isCheckable() &&
+                    perspective_camera->isCheckable() &&
+                    fly_camera->isCheckable() &&
+                    orthographic_camera->isChecked() &&
+                    !perspective_camera->isChecked() &&
+                    !fly_camera->isChecked() &&
+                    !orthographic_camera->icon().isNull() &&
+                    !perspective_camera->icon().isNull() &&
+                    !fly_camera->icon().isNull(),
                 "viewer commands must be disabled without a visible document") ||
         !verify(global_settings != nullptr && global_settings->isEnabled(),
                 "Global Settings must remain functional without a document")) {

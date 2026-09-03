@@ -210,18 +210,22 @@ void SketchPropertiesDialog::refresh_resolved_placement() {
     normalize_sketch_front_references(value.references);
     zima::kernel::Vec3 base_rotation;
     bool orientation_from_reference = false;
-    static_cast<void>(zima::document::resolve_placement(
+    const bool placement_valid = zima::document::resolve_placement(
         value, reference_geometry_, &base_rotation,
-        &orientation_from_reference));
+        &orientation_from_reference);
     const auto state = zima::document::point_constraint_state(
         value.references, reference_geometry_);
     placement_->set_translation_constraint_state(
         state, {value.x, value.y, value.z});
-    placement_->set_remaining_rotation_dof(
-        zima::document::orientation_constraint_remaining_dof(
-            value.references, reference_geometry_, false));
+    placement_->set_rotation_constraint_state(
+        zima::document::orientation_constraint_state(
+            value.references, reference_geometry_, true,
+            {value.x, value.y, value.z}));
     placement_->set_orientation_base_rotation(
         base_rotation, orientation_from_reference);
+    placement_->set_resolved_rotation(
+        {value.rotation_x, value.rotation_y, value.rotation_z},
+        placement_valid);
 }
 
 std::vector<zima::document::ConstructionReference>
@@ -301,9 +305,19 @@ void SketchPropertiesDialog::set_remaining_rotation_dof(int dof) {
     placement_->set_remaining_rotation_dof(dof);
 }
 
+void SketchPropertiesDialog::set_rotation_constraint_state(
+        const zima::document::OrientationConstraintState& state) {
+    placement_->set_rotation_constraint_state(state);
+}
+
 void SketchPropertiesDialog::set_orientation_base_rotation(
         const zima::kernel::Vec3& rotation, bool constrained) {
     placement_->set_orientation_base_rotation(rotation, constrained);
+}
+
+void SketchPropertiesDialog::set_resolved_rotation(
+        const zima::kernel::Vec3& rotation, bool valid) {
+    placement_->set_resolved_rotation(rotation, valid);
 }
 
 bool SketchPropertiesDialog::set_inline_parameter_value(

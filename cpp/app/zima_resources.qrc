@@ -16,6 +16,9 @@
     <file alias="icons/select.svg">../../resources/icons/select.svg</file>
     <file alias="icons/view-fit.svg">../../resources/icons/view-fit.svg</file>
     <file alias="icons/view-normal.svg">../../resources/icons/view-normal.svg</file>
+    <file alias="icons/view-orthographic.svg">../../resources/icons/view-orthographic.svg</file>
+    <file alias="icons/view-perspective.svg">../../resources/icons/view-perspective.svg</file>
+    <file alias="icons/view-fly.svg">../../resources/icons/view-fly.svg</file>
     <file alias="icons/sketch-view-flip.svg">../../resources/icons/sketch-view-flip.svg</file>
     <file alias="icons/sketch-view-rotate.svg">../../resources/icons/sketch-view-rotate.svg</file>
     <file alias="icons/origin.svg">../../resources/icons/origin.svg</file>

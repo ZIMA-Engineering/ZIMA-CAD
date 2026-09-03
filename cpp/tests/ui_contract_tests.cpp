@@ -342,6 +342,64 @@ int main(int argc, char* argv[]) {
         require(startup_camera[4] >= 50.0F && startup_camera[7] < startup_camera[4],
                 "Empty document camera does not expose a useful metric working area "
                 "independently of the screen-constant Origin size");
+        require(view.projection_mode() ==
+                    zima::viewer::ProjectionMode::Orthographic &&
+                    !view.fly_navigation_enabled(),
+                "Viewer did not start in the established orthographic CAD mode");
+        view.set_projection_mode(zima::viewer::ProjectionMode::Perspective);
+        require(view.projection_mode() ==
+                    zima::viewer::ProjectionMode::Perspective,
+                "Perspective projection was not activated");
+        auto displaced_camera = startup_camera;
+        displaced_camera[0] = 1.0F;
+        displaced_camera[1] = 0.0F;
+        displaced_camera[2] = 0.0F;
+        displaced_camera[3] = 0.0F;
+        displaced_camera[5] = 73.0F;
+        displaced_camera[6] = -41.0F;
+        view.set_camera_state(displaced_camera);
+        view.set_fly_navigation_enabled(true);
+        require(view.fly_navigation_enabled() &&
+                    view.projection_mode() ==
+                        zima::viewer::ProjectionMode::Perspective,
+                "Fly navigation did not remain independent of perspective");
+        view.set_projection_mode(zima::viewer::ProjectionMode::Orthographic);
+        require(view.fly_navigation_enabled() &&
+                    view.projection_mode() ==
+                        zima::viewer::ProjectionMode::Orthographic,
+                "Changing projection unexpectedly disabled Fly navigation");
+        const float ortho_fly_scale_before = view.camera_state()[4];
+        QWheelEvent ortho_fly_wheel(QPointF(40, 40), QPointF(40, 40),
+            QPoint(), QPoint(0, 120), Qt::NoButton, Qt::NoModifier,
+            Qt::ScrollUpdate, false);
+        QApplication::sendEvent(&view, &ortho_fly_wheel);
+        require(std::abs(view.camera_state()[4] - ortho_fly_scale_before) >
+                    1.0e-4F,
+                "Mouse wheel did not zoom while Fly navigation used Ortho projection");
+        view.set_fly_navigation_enabled(false);
+        const auto restored_camera = view.camera_state();
+        require(view.projection_mode() ==
+                    zima::viewer::ProjectionMode::Orthographic &&
+                    !view.fly_navigation_enabled() &&
+                    std::abs(restored_camera[0] - startup_camera[0]) < 1.0e-4F &&
+                    std::abs(restored_camera[1] - startup_camera[1]) < 1.0e-4F &&
+                    std::abs(restored_camera[2] - startup_camera[2]) < 1.0e-4F &&
+                    std::abs(restored_camera[3] - startup_camera[3]) < 1.0e-4F &&
+                    std::abs(restored_camera[5]) < 1.0e-4F &&
+                    std::abs(restored_camera[6]) < 1.0e-4F,
+                "Leaving Fly did not restore the default isometric CAD camera");
+        view.set_reference_visibility(
+            zima::viewer::ReferenceVisibility::Origins, false);
+        require(!view.reference_visible(
+                    zima::viewer::ReferenceVisibility::Origins) &&
+                    view.reference_visible(
+                        zima::viewer::ReferenceVisibility::Planes) &&
+                    view.reference_visible(
+                        zima::viewer::ReferenceVisibility::Axes),
+                "Hiding the Origin incorrectly changed the independent user "
+                "Plane/Axis visibility switches");
+        view.set_reference_visibility(
+            zima::viewer::ReferenceVisibility::Origins, true);
         view_middle_dialog->show();
         application.processEvents();
         QMouseEvent view_middle_double_click(
@@ -388,6 +446,47 @@ int main(int argc, char* argv[]) {
                 "Empty LMB click left stale view selection confirmed");
         require(empty_selection_callbacks == 1,
                 "Empty LMB click did not notify tree/view selection clearing");
+
+        zima::kernel::ViewerMesh shaded_treatment_mesh;
+        shaded_treatment_mesh.vertices = {
+            {-1.0, -1.0, 0.0}, {1.0, -1.0, 0.0}, {0.0, 1.0, 0.0}};
+        shaded_treatment_mesh.triangles = {0, 1, 2};
+        shaded_treatment_mesh.triangle_references.push_back(
+            {"fillet-container", "fillet-face", {}});
+        zima::kernel::ViewerEdge treatment_edge{
+            {{-0.7, 0.0, 0.0}, {0.7, 0.0, 0.0}},
+            {"input-solid", "edge:treatment-boundary", {}}};
+        treatment_edge.edge_treatment_owner_ids = {"fillet-container"};
+        shaded_treatment_mesh.edges.push_back(std::move(treatment_edge));
+        zima::viewer::MeshView shaded_treatment_view(&parent);
+        shaded_treatment_view.setGeometry(0, 0, 500, 360);
+        shaded_treatment_view.set_mesh(std::move(shaded_treatment_mesh));
+        shaded_treatment_view.set_display_mode(
+            zima::viewer::DisplayMode::Shaded);
+        shaded_treatment_view.set_selection_contract(
+            {zima::viewer::CandidateKind::Container});
+        shaded_treatment_view.show();
+        shaded_treatment_view.fit_all();
+        application.processEvents();
+        const QPointF treatment_pointer(250.0, 180.0);
+        QMouseEvent treatment_hover(QEvent::MouseMove,
+            treatment_pointer, treatment_pointer, treatment_pointer,
+            Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+        QApplication::sendEvent(&shaded_treatment_view, &treatment_hover);
+        application.processEvents();
+        const auto treatment_candidate =
+            shaded_treatment_view.hovered_candidate();
+        const auto shaded_treatment_frame =
+            shaded_treatment_view.grabFramebuffer();
+        require(treatment_candidate &&
+                    treatment_candidate->kind ==
+                        zima::viewer::CandidateKind::Container &&
+                    treatment_candidate->owner_id == "fillet-container" &&
+                    framebuffer_contains_color_near(shaded_treatment_frame,
+                        shaded_treatment_view.size(), treatment_pointer,
+                        QColor(255, 122, 0)),
+                "Plain Shaded mode did not show the exact orange persisted "
+                "Fillet/Chamfer boundary offered by the common picker");
 
         zima::kernel::ViewerMesh face_cycle_mesh;
         face_cycle_mesh.vertices = {
@@ -712,6 +811,10 @@ int main(int argc, char* argv[]) {
                 "Primitive Properties exposes Sketch-only view controls");
         auto* sphere_absolute_rx = sphere_dialog->findChild<QDoubleSpinBox*>(
             "containerRotationX");
+        auto* sphere_absolute_ry = sphere_dialog->findChild<QDoubleSpinBox*>(
+            "containerRotationY");
+        auto* sphere_absolute_rz = sphere_dialog->findChild<QDoubleSpinBox*>(
+            "containerRotationZ");
         const auto sphere_corrections = sphere_dialog->findChildren<QDoubleSpinBox*>(
             "primitiveRotation");
         require(sphere_absolute_rx != nullptr && sphere_absolute_rx->isEnabled() &&
@@ -724,24 +827,63 @@ int main(int argc, char* argv[]) {
                     std::abs(sphere_absolute_rx->value() - 17.0) < 1.0e-9,
                 "Absolute angular View dimension did not update the active "
                 "primitive Properties field");
-        sphere_dialog->set_orientation_base_rotation({10.0, 20.0, 30.0}, true);
+        sphere_dialog->set_rotation_constraint_state(
+            {1, {true, false, true}});
+        sphere_dialog->set_orientation_base_rotation({10.0, 0.0, 30.0}, true);
         require(!sphere_absolute_rx->isEnabled() &&
+                    std::abs(sphere_absolute_rx->value() - 10.0) < 1.0e-9 &&
+                    sphere_absolute_ry != nullptr &&
+                    sphere_absolute_ry->isEnabled() &&
+                    sphere_absolute_rz != nullptr &&
+                    !sphere_absolute_rz->isEnabled() &&
+                    std::abs(sphere_absolute_rz->value() - 30.0) < 1.0e-9 &&
+                    std::ranges::count_if(sphere_corrections,
+                        [](const auto* field) { return field->isEnabled(); }) == 2 &&
+                    sphere_dialog->set_inline_parameter_value(
+                        "placement:rotation_y", 24.0) &&
+                    std::abs(sphere_absolute_ry->value() - 24.0) < 1.0e-9 &&
+                    sphere_dialog->set_inline_parameter_value(
+                        "placement:rotation_x", -6.0),
+                "One FRONT reference did not keep absolute RY free while "
+                "enabling only the constrained RX/RZ corrections");
+        sphere_dialog->set_rotation_constraint_state(
+            {0, {true, true, true}});
+        sphere_dialog->set_orientation_base_rotation(
+            {10.0, 20.0, 30.0}, true);
+        require(!sphere_absolute_ry->isEnabled() &&
+                    std::abs(sphere_absolute_ry->value() - 20.0) < 1.0e-9 &&
                     std::ranges::all_of(sphere_corrections,
-                        [](const auto* field) { return field->isEnabled(); }),
-                "Referenced primitive did not lock its base rotation and enable correction");
+                    [](const auto* field) { return field->isEnabled(); }),
+                "Fully referenced primitive did not enable rotation correction");
         require(sphere_dialog->set_inline_parameter_value(
                     "placement:rotation_x", -6.0) &&
                     std::abs(sphere_corrections.front()->value() - (-6.0)) <
                         1.0e-9,
                 "Referenced angular View dimension did not update the active "
                 "rotation-correction field");
+        sphere_dialog->set_resolved_rotation({-12.0, 34.0, 56.0});
         sphere_dialog->set_orientation_base_rotation({10.0, 20.0, 30.0}, false);
+        require(sphere_absolute_rx->isEnabled() &&
+                    sphere_absolute_ry->isEnabled() &&
+                    sphere_absolute_rz->isEnabled() &&
+                    std::abs(sphere_absolute_rx->value() - 10.0) < 1.0e-9 &&
+                    std::abs(sphere_absolute_ry->value() - 20.0) < 1.0e-9 &&
+                    std::abs(sphere_absolute_rz->value() - 30.0) < 1.0e-9,
+                "Removing orientation references did not retain their last "
+                "stored absolute rotation");
         sphere_radius->setValue(27.0);
         sphere_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
         application.processEvents();
         require(committed_sphere.feature_kind == zima::document::FeatureKind::Sphere &&
-                    committed_sphere.sphere.radius == 27.0,
-                "Sphere Properties did not commit its radius");
+                    committed_sphere.sphere.radius == 27.0 &&
+                    committed_sphere.placement.absolute_rotation_x == 10.0 &&
+                    committed_sphere.placement.absolute_rotation_y == 20.0 &&
+                    committed_sphere.placement.absolute_rotation_z == 30.0 &&
+                    committed_sphere.placement.rotation_x == -12.0 &&
+                    committed_sphere.placement.rotation_y == 34.0 &&
+                    committed_sphere.placement.rotation_z == 56.0,
+                "Sphere Properties did not commit its radius and last valid "
+                "absolute/final rotation");
         const std::vector<zima::kernel::EdgeReference> treatment_edges{
             {"source-feature", "generated:source-edge", {}}};
         for (const auto kind : {zima::document::FeatureKind::Fillet,
@@ -1488,12 +1630,17 @@ int main(int argc, char* argv[]) {
                 "Point frame dialog rejected its position point");
         point_frame_dialog->set_translation_constraint_state(
             {0, {true, true, true}}, {10.0, 20.0, 30.0});
-        point_frame_dialog->set_remaining_rotation_dof(3);
+        point_frame_dialog->set_rotation_constraint_state(
+            {3, {false, false, false}});
         point_frame_dialog->set_orientation_base_rotation({11.0, 22.0, 33.0}, false);
         auto* point_frame_table = point_frame_dialog->findChild<QTableWidget*>(
             "constructionReferenceTable");
         auto* point_frame_absolute_rx = point_frame_dialog->findChild<QDoubleSpinBox*>(
             "constructionRotationX");
+        auto* point_frame_absolute_ry = point_frame_dialog->findChild<QDoubleSpinBox*>(
+            "constructionRotationY");
+        auto* point_frame_absolute_rz = point_frame_dialog->findChild<QDoubleSpinBox*>(
+            "constructionRotationZ");
         const auto point_frame_offsets =
             point_frame_dialog->findChildren<QDoubleSpinBox*>(
                 QRegularExpression(QStringLiteral("constructionRotationOffset[XYZ]")));
@@ -1510,14 +1657,19 @@ int main(int argc, char* argv[]) {
         require(point_frame_dialog->set_reference(
                     1, first_frame_plane, "Rovina XZ"),
                 "Point frame dialog rejected its first orientation plane");
-        point_frame_dialog->set_remaining_rotation_dof(1);
+        point_frame_dialog->set_rotation_constraint_state(
+            {1, {true, false, true}});
         point_frame_dialog->set_orientation_base_rotation({0.0, 0.0, 0.0}, true);
         require(point_frame_table->rowCount() == 3 &&
                     !point_frame_absolute_rx->isEnabled() &&
-                    std::ranges::all_of(point_frame_offsets,
-                        [](const auto* field) { return field->isEnabled(); }),
-                "Point plus one plane did not switch from absolute angles to "
-                "referenced rotation corrections or offer the second plane");
+                    point_frame_absolute_ry != nullptr &&
+                    point_frame_absolute_ry->isEnabled() &&
+                    point_frame_absolute_rz != nullptr &&
+                    !point_frame_absolute_rz->isEnabled() &&
+                    std::ranges::count_if(point_frame_offsets,
+                        [](const auto* field) { return field->isEnabled(); }) == 2,
+                "Point plus one plane did not keep local RY absolute and "
+                "switch only RX/RZ to correction");
 
         zima::document::ConstructionReference second_frame_plane{{},
             "part-origin", "origin:plane:xy", 0.0, false,
@@ -1525,7 +1677,11 @@ int main(int argc, char* argv[]) {
         require(point_frame_dialog->set_reference(
                     2, second_frame_plane, "Rovina XY"),
                 "Point frame dialog rejected its second orientation plane");
-        point_frame_dialog->set_remaining_rotation_dof(0);
+        point_frame_dialog->set_rotation_constraint_state(
+            {0, {true, true, true}});
+        require(std::ranges::all_of(point_frame_offsets,
+                    [](const auto* field) { return field->isEnabled(); }),
+                "Point plus two planes did not enable fully constrained corrections");
         point_frame_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
         require(committed_point_frame.references.size() == 3 &&
                     !committed_point_frame.references[0].orientation_only &&

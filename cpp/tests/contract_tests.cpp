@@ -3071,8 +3071,60 @@ int main() {
                         std::abs(point_two_planes.x - 10.0) < 1.0e-7 &&
                         std::abs(point_two_planes.y - 20.0) < 1.0e-7 &&
                         std::abs(point_two_planes.z - 30.0) < 1.0e-7,
-                    "Point plus two orientation-only planes did not fully orient "
+                "Point plus two orientation-only planes did not fully orient "
                     "the same fixed container origin");
+
+            // One plane determines only FRONT/local-Y. RX/RZ come from that
+            // reference, while the user's absolute RY remains the real
+            // unsolved roll around the selected normal.
+            zima::document::Placement minimum_twist_placement;
+            minimum_twist_placement.absolute_rotation_x = 37.0;
+            minimum_twist_placement.absolute_rotation_y = -23.0;
+            minimum_twist_placement.absolute_rotation_z = 81.0;
+            minimum_twist_placement.references = {
+                {{}, "fixture-point", "point"},
+                {{}, constructions.document_id + ":origin", "origin:plane:xy",
+                    0.0, false, "direction", true, true}};
+            require(zima::document::resolve_placement(
+                        minimum_twist_placement, point_plane_geometry),
+                "Single-plane minimum-twist placement did not resolve");
+            const auto minimum_twist_x = rotate(
+                {1.0, 0.0, 0.0}, minimum_twist_placement);
+            const auto minimum_twist_front = rotate(
+                {0.0, 1.0, 0.0}, minimum_twist_placement);
+            const auto minimum_twist_top = rotate(
+                {0.0, 0.0, 1.0}, minimum_twist_placement);
+            require(minimum_twist_front.z > 0.999999 &&
+                        minimum_twist_x.y < -0.39 &&
+                        minimum_twist_top.x < -0.39,
+                "Single-plane placement consumed absolute RY instead of "
+                "using it as roll around the FRONT normal");
+            require(std::abs(minimum_twist_placement.absolute_rotation_x - 90.0) <
+                            1.0e-9 &&
+                        std::abs(minimum_twist_placement.absolute_rotation_y + 23.0) <
+                            1.0e-9 &&
+                        std::abs(minimum_twist_placement.absolute_rotation_z) <
+                            1.0e-9,
+                "Single FRONT reference did not overwrite constrained absolute "
+                "RX/RZ while preserving free absolute RY");
+
+            auto minimum_twist_point =
+                zima::document::PartDocument::create_construction(
+                    zima::document::ConstructionKind::Point);
+            minimum_twist_point.references = minimum_twist_placement.references;
+            minimum_twist_point.absolute_rotation = {37.0, -23.0, 81.0};
+            require(zima::document::resolve_construction(
+                        minimum_twist_point, point_plane_geometry) &&
+                        std::abs(minimum_twist_point.rotation.x - 90.0) < 1.0e-6 &&
+                        std::abs(minimum_twist_point.rotation.y) < 1.0e-6 &&
+                        std::abs(minimum_twist_point.rotation.z + 23.0) < 1.0e-6 &&
+                        std::abs(minimum_twist_point.absolute_rotation.x - 90.0) <
+                            1.0e-9 &&
+                        std::abs(minimum_twist_point.absolute_rotation.y + 23.0) <
+                            1.0e-9 &&
+                        std::abs(minimum_twist_point.absolute_rotation.z) <
+                            1.0e-9,
+                "Construction container did not share partial FRONT placement");
 
             zima::document::Placement composed_placement;
             composed_placement.rotation_offset_z = 15.0;
@@ -3902,6 +3954,61 @@ int main() {
         require(joined_fillet_results.size() == 3 &&
                     !joined_fillet_results.back().mesh.triangles.empty(),
                 "Fillet could not consume a stable generated Boolean edge");
+        // A protruding box rotated around X creates an interior Boolean seam
+        // between a horizontal face and a 15-degree inclined face. Both
+        // supporting faces extend past that seam, so a face classifier alone
+        // cannot choose the material side. The persisted preview guides must
+        // use the oriented OCCT faces and agree with the real Fillet side.
+        zima::kernel::BoxRequest sloped_box{50.0, 30.0, 20.0};
+        sloped_box.translation = {25.0, 30.0, 5.0};
+        sloped_box.rotation_degrees = {15.0, 0.0, 0.0};
+        const auto sloped_join_results = kernel.evaluate_history({
+            {"sloped-base", zima::kernel::BoxRequest{100.0, 80.0, 10.0},
+                zima::kernel::BooleanOperation::Add},
+            {"sloped-box", sloped_box,
+                zima::kernel::BooleanOperation::Add}});
+        const auto sloped_intersection_edge = std::find_if(
+            sloped_join_results.back().mesh.edges.begin(),
+            sloped_join_results.back().mesh.edges.end(), [](const auto& edge) {
+                return edge.reference.owner_id == "sloped-box" &&
+                    edge.reference.semantic_key.starts_with(
+                        "boolean:add:intersection:") &&
+                    edge.points.size() >= 2 &&
+                    edge.edge_treatment_side_directions.size() == 2 &&
+                    std::ranges::all_of(edge.points, [](const auto& point) {
+                        return std::abs(point.z - 10.0) < 1.0e-6 &&
+                            std::abs(point.y - 28.6602540378444) < 1.0e-6;
+                    });
+            });
+        require(sloped_intersection_edge !=
+                    sloped_join_results.back().mesh.edges.end(),
+                "Sloped Boolean result exposed no selectable intersection edge");
+        const auto has_preview_direction = [&](const auto& expected) {
+            return std::ranges::any_of(
+                sloped_intersection_edge->edge_treatment_side_directions,
+                [&](const auto& samples) {
+                    return !samples.empty() &&
+                        std::abs(samples.front().x - expected.x) < 1.0e-6 &&
+                        std::abs(samples.front().y - expected.y) < 1.0e-6 &&
+                        std::abs(samples.front().z - expected.z) < 1.0e-6;
+                });
+        };
+        require(has_preview_direction(zima::kernel::Vec3{0.0, -1.0, 0.0}) &&
+                    has_preview_direction(zima::kernel::Vec3{
+                        0.0, -0.258819045102521, 0.965925826289068}),
+                "Sloped Boolean Fillet preview selected the supplementary, "
+                "non-material side of an oriented face");
+        const auto sloped_fillet_results = kernel.evaluate_history({
+            {"sloped-base", zima::kernel::BoxRequest{100.0, 80.0, 10.0},
+                zima::kernel::BooleanOperation::Add},
+            {"sloped-box", sloped_box,
+                zima::kernel::BooleanOperation::Add},
+            {"sloped-fillet", zima::kernel::FilletRequest{
+                {sloped_intersection_edge->reference}, 0.75},
+                zima::kernel::BooleanOperation::Add}});
+        require(sloped_fillet_results.size() == 3 &&
+                    !sloped_fillet_results.back().mesh.triangles.empty(),
+                "Fillet failed on the sloped Boolean intersection edge");
         auto inclined_document = up_to_document;
         inclined_document.constructions.front().direction = {-0.5, 0.0, 1.0};
         inclined_document.history.back().extrusion.target_plane_normal =
@@ -5380,19 +5487,142 @@ int main() {
             {"axis-y", "axis", {}}});
         std::vector<zima::document::ConstructionReference> orientation_refs{
             {{}, "axis-x", "axis", 0.0, false, "front", true}};
-        require(zima::document::orientation_constraint_remaining_dof(
-                    orientation_refs, orientation_geometry, true) == 1,
-                "One direction reference did not leave one rotational DOF");
+        const auto one_front_state =
+            zima::document::orientation_constraint_state(
+                orientation_refs, orientation_geometry, true);
+        require(one_front_state.remaining_dof == 1 &&
+                    one_front_state.constrained_axes ==
+                        std::array<bool, 3>{true, false, true},
+                "One FRONT direction did not constrain RX/RZ and leave local RY");
+        zima::document::Placement one_front_placement;
+        one_front_placement.absolute_rotation_x = 12.0;
+        one_front_placement.absolute_rotation_y = 37.0;
+        one_front_placement.absolute_rotation_z = 23.0;
+        one_front_placement.references = orientation_refs;
+        zima::kernel::Vec3 one_front_base;
+        require(zima::document::resolve_placement(
+                    one_front_placement, orientation_geometry, &one_front_base) &&
+                    std::abs(one_front_base.x) < 1.0e-7 &&
+                    std::abs(one_front_base.y) < 1.0e-7 &&
+                    std::abs(one_front_base.z + 90.0) < 1.0e-7,
+                "Single FRONT frame consumed its free RY or reported a "
+                "base rotation inconsistent with its local Origin");
+        const auto rotate_orientation = [](zima::kernel::Vec3 vector,
+                                            const auto& placement) {
+            constexpr double radians = std::numbers::pi / 180.0;
+            const double rx = placement.rotation_x * radians;
+            const double ry = placement.rotation_y * radians;
+            const double rz = placement.rotation_z * radians;
+            const double cx = std::cos(rx), sx = std::sin(rx);
+            const double cy = std::cos(ry), sy = std::sin(ry);
+            const double cz = std::cos(rz), sz = std::sin(rz);
+            const zima::kernel::Vec3 after_x{vector.x,
+                cx * vector.y - sx * vector.z,
+                sx * vector.y + cx * vector.z};
+            const zima::kernel::Vec3 after_y{
+                cy * after_x.x + sy * after_x.z, after_x.y,
+                -sy * after_x.x + cy * after_x.z};
+            return zima::kernel::Vec3{
+                cz * after_y.x - sz * after_y.y,
+                sz * after_y.x + cz * after_y.y, after_y.z};
+        };
+        const auto resolved_front = rotate_orientation(
+            {0.0, 1.0, 0.0}, one_front_placement);
+        require(resolved_front.x > 0.999999 &&
+                    std::abs(resolved_front.y) < 1.0e-7 &&
+                    std::abs(resolved_front.z) < 1.0e-7 &&
+                    std::abs(one_front_placement.absolute_rotation_x) <
+                        1.0e-9 &&
+                    std::abs(one_front_placement.absolute_rotation_y - 37.0) <
+                        1.0e-9 &&
+                    std::abs(one_front_placement.absolute_rotation_z + 90.0) <
+                        1.0e-9,
+                "Single FRONT did not overwrite constrained absolute RX/RZ "
+                "while preserving the editable absolute RY");
+
+        const std::vector<zima::document::ConstructionReference> top_only_refs{
+            {{}, "axis-y", "axis", 0.0, false, "top", true}};
+        const auto one_top_state =
+            zima::document::orientation_constraint_state(
+                top_only_refs, orientation_geometry, true);
+        require(one_top_state.remaining_dof == 1 &&
+                    one_top_state.constrained_axes ==
+                        std::array<bool, 3>{true, true, false},
+                "One TOP direction did not constrain RX/RY and leave local RZ");
         orientation_refs.push_back(
             {{}, "axis-x-parallel", "axis", 0.0, false, "top", true});
-        require(zima::document::orientation_constraint_remaining_dof(
-                    orientation_refs, orientation_geometry, true) == 1,
+        const auto parallel_state = zima::document::orientation_constraint_state(
+            orientation_refs, orientation_geometry, true);
+        require(parallel_state.remaining_dof == 1 &&
+                    parallel_state.constrained_axes ==
+                        std::array<bool, 3>{true, false, true},
                 "Parallel second direction incorrectly removed rotational DOF");
         orientation_refs.back() =
             {{}, "axis-y", "axis", 0.0, false, "top", true};
-        require(zima::document::orientation_constraint_remaining_dof(
-                    orientation_refs, orientation_geometry, true) == 0,
+        const auto complete_orientation_state =
+            zima::document::orientation_constraint_state(
+                orientation_refs, orientation_geometry, true);
+        require(complete_orientation_state.remaining_dof == 0 &&
+                    complete_orientation_state.constrained_axes ==
+                        std::array<bool, 3>{true, true, true},
                 "Independent second direction did not fully constrain orientation");
+        one_front_placement.references = orientation_refs;
+        zima::kernel::Vec3 fully_referenced_base;
+        require(zima::document::resolve_placement(one_front_placement,
+                    orientation_geometry, &fully_referenced_base) &&
+                    std::abs(one_front_placement.absolute_rotation_x -
+                        fully_referenced_base.x) < 1.0e-9 &&
+                    std::abs(one_front_placement.absolute_rotation_y -
+                        fully_referenced_base.y) < 1.0e-9 &&
+                    std::abs(one_front_placement.absolute_rotation_z -
+                        fully_referenced_base.z) < 1.0e-9 &&
+                    std::abs(one_front_placement.absolute_rotation_y - 37.0) >
+                        1.0e-6,
+                "Second independent reference did not take precedence over "
+                "the formerly free absolute rotation");
+
+        auto placement_roundtrip =
+            zima::document::PartDocument::create_default();
+        auto referenced_box =
+            zima::document::PartDocument::create_box_container();
+        referenced_box.placement = one_front_placement;
+        placement_roundtrip.insert_history_entry(
+            zima::document::PartHistoryKind::Feature, referenced_box.id);
+        placement_roundtrip.history.push_back(referenced_box);
+        const auto placement_roundtrip_path =
+            std::filesystem::temp_directory_path() /
+            "zima-cad-placement-reference-rotation-contract.prtz";
+        placement_roundtrip.save(placement_roundtrip_path);
+        const auto loaded_placement_roundtrip =
+            zima::document::PartDocument::load(placement_roundtrip_path);
+        std::filesystem::remove(placement_roundtrip_path);
+        require(loaded_placement_roundtrip.history.size() == 1 &&
+                    loaded_placement_roundtrip.history.front().placement ==
+                        one_front_placement,
+                "Resolved absolute/final placement rotation did not survive "
+                "save and reopen");
+        auto missing_reference_placement =
+            loaded_placement_roundtrip.history.front().placement;
+        const auto last_valid_placement = missing_reference_placement;
+        require(!zima::document::resolve_placement(
+                    missing_reference_placement, {}) &&
+                    missing_reference_placement.x == last_valid_placement.x &&
+                    missing_reference_placement.y == last_valid_placement.y &&
+                    missing_reference_placement.z == last_valid_placement.z &&
+                    missing_reference_placement.rotation_x ==
+                        last_valid_placement.rotation_x &&
+                    missing_reference_placement.rotation_y ==
+                        last_valid_placement.rotation_y &&
+                    missing_reference_placement.rotation_z ==
+                        last_valid_placement.rotation_z &&
+                    missing_reference_placement.absolute_rotation_x ==
+                        last_valid_placement.absolute_rotation_x &&
+                    missing_reference_placement.absolute_rotation_y ==
+                        last_valid_placement.absolute_rotation_y &&
+                    missing_reference_placement.absolute_rotation_z ==
+                        last_valid_placement.absolute_rotation_z,
+                "A missing placement reference destroyed the last valid "
+                "persisted container transform");
 
         auto sweep_document = zima::document::PartDocument::create_default();
         auto sweep_container =

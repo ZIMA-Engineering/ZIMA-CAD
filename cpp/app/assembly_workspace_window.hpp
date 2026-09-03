@@ -122,6 +122,9 @@ private:
     QAction* no_hidden_edges_action_{};
     QAction* shaded_edges_action_{};
     QAction* shaded_action_{};
+    QAction* orthographic_camera_action_{};
+    QAction* perspective_camera_action_{};
+    QAction* fly_camera_action_{};
     QAction* show_origins_action_{};
     QAction* show_points_action_{};
     QAction* show_axes_action_{};
@@ -132,6 +135,7 @@ private:
     QAction* custom_body_color_action_{};
     QAction* reset_body_color_action_{};
     QActionGroup* display_mode_group_{};
+    QActionGroup* camera_projection_group_{};
     QActionGroup* application_group_{};
     std::array<QAction*, 6> application_actions_{};
     ApplicationMode active_application_{ApplicationMode::Modeling};
