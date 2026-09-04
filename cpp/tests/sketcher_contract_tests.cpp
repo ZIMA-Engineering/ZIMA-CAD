@@ -749,6 +749,70 @@ int main() {
                     ambiguous_face_geometry,
                     {"container-source", "face:stable-source", {}}),
                 "Disconnected faces with one identity were guessed as one reference");
+        auto section_sketch = zima::sketcher::Sketch::create_default();
+        section_sketch.plane = zima::sketcher::SketchPlane::XZ;
+        zima::kernel::ViewerReferenceGeometry cylinder_side;
+        constexpr std::size_t cylinder_samples = 32;
+        for (std::size_t sample = 0; sample < cylinder_samples; ++sample) {
+            const double angle = 2.0 * std::numbers::pi *
+                static_cast<double>(sample) /
+                static_cast<double>(cylinder_samples);
+            const double x = 5.0 * std::cos(angle);
+            const double y = 5.0 * std::sin(angle);
+            cylinder_side.vertices.push_back({x, y, 0.0});
+            cylinder_side.vertices.push_back({x, y, 12.0});
+        }
+        for (std::size_t sample = 0; sample < cylinder_samples; ++sample) {
+            const auto next = (sample + 1) % cylinder_samples;
+            const auto lower = static_cast<std::uint32_t>(sample * 2);
+            const auto upper = lower + 1;
+            const auto next_lower = static_cast<std::uint32_t>(next * 2);
+            const auto next_upper = next_lower + 1;
+            cylinder_side.triangles.insert(cylinder_side.triangles.end(),
+                {lower, next_lower, next_upper, lower, next_upper, upper});
+            cylinder_side.triangle_references.insert(
+                cylinder_side.triangle_references.end(), 2,
+                {"cylinder", "side", {}});
+        }
+        const auto cylinder_section = section_sketch.intersect_external_face(
+            cylinder_side, {"cylinder", "side", {}});
+        require(cylinder_section && cylinder_section->size() == 2 &&
+                    std::ranges::all_of(*cylinder_section, [](const auto& path) {
+                        if (path.size() < 2) return false;
+                        double minimum_z = path.front()[1];
+                        double maximum_z = path.front()[1];
+                        for (const auto& point : path) {
+                            minimum_z = std::min(minimum_z, point[1]);
+                            maximum_z = std::max(maximum_z, point[1]);
+                        }
+                        return maximum_z - minimum_z > 11.9;
+                    }),
+                "Persisted cylinder side did not produce two finite Sketch-plane branches");
+        auto cylinder_face_reference =
+            zima::sketcher::Sketch::create_external_reference(
+                zima::sketcher::ExternalReferenceKind::Face);
+        cylinder_face_reference.source_document_id = "cylinder-part";
+        cylinder_face_reference.source_owner_id = "cylinder";
+        cylinder_face_reference.source_semantic_key = "side";
+        cylinder_face_reference.cached_paths = *cylinder_section;
+        cylinder_face_reference.infinite = false;
+        section_sketch.add_external_reference(cylinder_face_reference);
+        const auto persisted_section = zima::sketcher::Sketch::from_serialized(
+            section_sketch.serialized());
+        require(persisted_section.external_references ==
+                    section_sketch.external_references,
+                "Finite face-plane intersection branches did not round-trip");
+        const auto last_valid_section =
+            section_sketch.external_references.front().cached_paths;
+        require(section_sketch.refresh_external_references(
+                    "cylinder-part", {}) &&
+                    section_sketch.external_references.front().broken &&
+                    section_sketch.external_references.front().cached_paths ==
+                        last_valid_section &&
+                    section_sketch.refresh_external_references(
+                        "cylinder-part", cylinder_side) &&
+                    !section_sketch.external_references.front().broken,
+                "Curved face reference did not preserve and recover its last valid section");
         refreshed_sources.vertices = {
             {2.0, -3.0, -2.0}, {2.0, 3.0, -2.0},
             {2.0, 3.0, 2.0}, {2.0, -3.0, 2.0}};

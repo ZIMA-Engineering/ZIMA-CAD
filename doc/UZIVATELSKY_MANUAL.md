@@ -204,6 +204,10 @@ Příkaz lze před výběrem zrušit opětovným kliknutím na tlačítko nebo k
   odsazení, **PŘEDNÍ/ZADNÍ**, čtvrtotáčku **Rotace** i korekce `RX/RY/RZ`.
   Korekční úhlové kóty se nekreslí ve světových rovinách, ale kolem odpovídajících
   lokálních os po aplikování orientačních přepínačů.
+- Parametrická kóta se nabízí k hoveru a editaci pouze nad textem hodnoty,
+  nikoli nad kótovacími či vynášecími čarami. Po zachycení textu se oranžově
+  zvýrazní celá kóta; kliknutí ji potvrdí azurově. Čáry kóty proto neblokují
+  hrany, body ani jiné reference ležící pod nimi.
 - Externí skica předává Protrusion nebo Revolve pouze svou parametrickou
   2D geometrii. Světovou polohu, orientaci i odsazení profilu určuje cílový
   kontejner.
@@ -737,7 +741,9 @@ navíc ukáže hlavní **Osu prvku** (válec, kužel, otvor, Vytažení a Rotace
 skutečnou pracovní či odsazenou profilovou rovinu Vytažení a Rotace. Otvor
 ukazuje vstupní rovinu kolmou ke své hlavní ose. Tato geometrie vzniká z
 persistovaného ZIMA rámce a vyřešené Sketch roviny, nikoli průchodem OCCT
-topologie.
+topologie. Pracovní rovina má stejnou pevnou zobrazovací velikost jako roviny
+lokálního Počátku a po návratu do zadávání referencí je ve View nabízená
+společným hover/click pickerem jako stabilní rovinná reference.
 
 Globální viewerové přepínače jsou nadřazené: vypnuté **Počátky** skryjí celý
 lokální kontext a přepínače **Osy** a **Roviny** samostatně určují, zda se v něm
@@ -876,6 +882,13 @@ nezobrazují všechny současně: nejbližší bod se zvýrazní až po přiblí
 kurzoru a kliknutím se potvrdí. Již vybraný bod zůstává viditelný. Příkaz
 **Dokončit skicu** se při vstupu z vlastností kontejneru vrátí zpět do těchto
 vlastností.
+
+Zakřivenou persistovanou plochu lze použít také jako externí řez skicovou
+rovinou. Průsečnice se vypočítá z uložené ZIMA referenční sítě bez nového
+volání OCCT a ukládá jednotlivé konečné větve; rovina procházející osou válce
+tak vytvoří dvě hraniční úsečky jeho pláště. Při ztrátě zdroje zůstane poslední
+platný řez uložený jako přerušená reference a po návratu zdroje se výslovně
+obnoví.
 
 ### Sestavové řezy
 

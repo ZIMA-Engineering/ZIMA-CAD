@@ -88,7 +88,10 @@ persistované parametrické kóty přesně upravovaného kontejneru. Lze proto
 přepsat například délku, šířku a výšku Boxu přímo přes viditelnou kótu, zatímco
 běžný hover 3D topologie zůstává vypnutý, dokud uživatel výslovně neaktivuje
 referenční pole. Filtr Properties tak neblokuje kóty a současně nespouští
-nákladný výběr ploch a hran.
+nákladný výběr ploch a hran. Screen-space picker přijímá kótu pouze nad jejím
+textem; po zachycení obarví celý kótovací packet, ale vynášecí čáry nekradou
+hover geometrii pod nimi. Obnova scény při přímé editaci hodnoty již nepotvrzuje
+celý vlastnický kontejner, protože takové potvrzení blokovalo další hover kót.
 
 Part implementace nyní vlastní obecnou uspořádanou historii kontejnerů místo
 jednoho speciálního kvádru. Kontejnery mají stabilní unikátní ID a explicitní
@@ -1102,7 +1105,9 @@ lokální Origin a podle typu také hlavní osu prvku a vyřešenou pracovní č
 odsazenou profilovou rovinu. Prezentace respektuje nezávislé globální filtry
 Origins/Axes/Planes a nemění jejich nastavení. Jde o transientní viewerovou
 geometrii odvozenou z persistovaných ZIMA objektů, nikoli o novou topologickou
-identitu ani skrytý kernelový výpočet.
+identitu ani skrytý kernelový výpočet. Profilová/odsazená rovina používá stejný
+pevný rozměr jako roviny lokálního Originu a zároveň publikuje stabilní
+rovinnou referenci do společného pickeru následujících kontejnerů.
 
 Parametrické kóty aktivních Vlastností používají jeden lokální→světový rámec
 výsledného placementu. Stejný převod se aplikuje na koncové body, vynášecí
@@ -1122,4 +1127,15 @@ vstupní a výstupní sražení či vrtací špičku a kosmetický závitový dr
 není plocha ani solid a sám nemění booleovský výsledek; následující odečítací
 operace nadále pracují s reálným tělesem. Parametry rozlišují délku, Až k a Skrz
 vše pro otvor i nezávislou délku závitu. OCCT výpočet, viewerová prezentace,
-strom a round-trip mají samostatné kontraktní testy.
+strom a round-trip mají samostatné kontraktní testy. Transientní náhled režimu
+Skrz vše protíná osu otvoru s persistovanými trojúhelníky skutečného vstupního
+tělesa a končí těsně za prvním a posledním průchodem. U naklopeného otvoru se
+proto neroztáhne na projekci celé úhlopříčky solidu; neuzavřený či degenerovaný
+viewer mesh má konzervativní projekční fallback.
+
+Externí reference `Face` nyní rozlišuje nekonečný řez dvou rovinných ploch a
+konečné větve řezu zakřivené plochy skicovou rovinou. Druhý případ vzniká z
+persistované referenční triangulace bez OCCT, uchovává stabilní identitu
+zdrojové plochy a serializuje `cached_paths`. Válcový plášť protnutý osovou
+rovinou je regresně ověřen na dvě samostatné hraniční větve včetně zachování
+poslední platné cache při ztrátě a obnovení zdroje.

@@ -115,6 +115,48 @@ int main() {
         }
         require(preview_has_axial_y,
                 "Referenced Hole preview does not follow first-plane normal");
+        referenced_hole.hole.bore_end_condition =
+            zima::document::EndCondition::ThroughAll;
+        zima::kernel::ViewerMesh bounded_input;
+        bounded_input.vertices = {{-20.0, -2.0, -20.0},
+            {20.0, -2.0, -20.0}, {-20.0, 18.0, -20.0},
+            {20.0, 18.0, -20.0}, {-20.0, -2.0, 20.0},
+            {20.0, -2.0, 20.0}, {-20.0, 18.0, 20.0},
+            {20.0, 18.0, 20.0}};
+        const auto bounded_preview =
+            document.primitive_preview_edges(referenced_hole, bounded_input);
+        double bounded_min_y = std::numeric_limits<double>::max();
+        double bounded_max_y = std::numeric_limits<double>::lowest();
+        for (const auto& edge : bounded_preview) {
+            for (const auto& point : edge.points) {
+                bounded_min_y = std::min(bounded_min_y, point.y);
+                bounded_max_y = std::max(bounded_max_y, point.y);
+            }
+        }
+        require(bounded_min_y >= -3.01 && bounded_max_y <= 19.01 &&
+                    bounded_max_y-bounded_min_y < 23.0,
+                "Through-all Hole preview did not stop just beyond the input bounds");
+        auto angled_hole = referenced_hole;
+        angled_hole.placement.rotation_z = 45.0;
+        bounded_input.triangles = {
+            0,1,3, 0,3,2, 4,6,7, 4,7,5,
+            0,4,5, 0,5,1, 2,3,7, 2,7,6,
+            0,2,6, 0,6,4, 1,5,7, 1,7,3};
+        const auto angled_preview =
+            document.primitive_preview_edges(angled_hole, bounded_input);
+        const double inverse_sqrt_two = 1.0/std::sqrt(2.0);
+        double angled_min = std::numeric_limits<double>::max();
+        double angled_max = std::numeric_limits<double>::lowest();
+        for (const auto& edge : angled_preview) {
+            for (const auto& point : edge.points) {
+                const double axial = -point.x*inverse_sqrt_two +
+                    point.y*inverse_sqrt_two;
+                angled_min = std::min(angled_min, axial);
+                angled_max = std::max(angled_max, axial);
+            }
+        }
+        require(angled_max-angled_min < 33.0,
+                "Tilted through-all Hole preview used whole-body projection instead of axis crossings");
         const auto referenced_operations = [&] {
             auto carrier = zima::document::PartDocument::create_default();
             carrier.history.push_back(referenced_hole);

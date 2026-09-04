@@ -737,8 +737,8 @@ int main(int argc, char* argv[]) {
             zima::viewer::CandidateKind::Dimension,
             zima::viewer::CandidateKind::SketchConstraint,
             zima::viewer::CandidateKind::SketchAxis});
-        std::optional<QPointF> point_dimension_overlap;
-        for (int y = 0; y < zero_dimension_view.height() && !point_dimension_overlap;
+        std::optional<QPointF> owning_point_position;
+        for (int y = 0; y < zero_dimension_view.height() && !owning_point_position;
              ++y) {
             for (int x = 0; x < zero_dimension_view.width(); ++x) {
                 const auto candidates = zero_dimension_view.selection_candidates_at(
@@ -749,20 +749,22 @@ int main(int argc, char* argv[]) {
                                 zima::viewer::CandidateKind::SketchPoint &&
                             candidate.semantic_key == "point:dimension-owner";
                     });
-                const bool dimension = std::ranges::any_of(candidates,
-                    [](const auto& candidate) {
-                        return candidate.kind ==
-                                zima::viewer::CandidateKind::Dimension &&
-                            candidate.semantic_key == "dimension:zero-y";
-                    });
-                if (point && dimension) {
-                    point_dimension_overlap = QPointF(x, y);
+                if (point) {
+                    require(std::ranges::none_of(candidates,
+                                [](const auto& candidate) {
+                                    return candidate.kind ==
+                                            zima::viewer::CandidateKind::Dimension &&
+                                        candidate.semantic_key ==
+                                            "dimension:zero-y";
+                                }),
+                        "Dimension witness was offered outside its text label");
+                    owning_point_position = QPointF(x, y);
                     break;
                 }
             }
         }
-        require(point_dimension_overlap.has_value(),
-                "Dimension witness did not overlap its owning Sketch point in the test view");
+        require(owning_point_position.has_value(),
+                "Owning Sketch point was not pickable in the test view");
         std::optional<zima::viewer::ViewerCandidate> overlap_drag;
         zero_dimension_view.set_candidate_drag_callbacks(
             [&](const auto& candidate, const auto&, const auto&) {
@@ -770,16 +772,16 @@ int main(int argc, char* argv[]) {
                 return true;
             }, [](const auto&, const auto&) {}, [] {});
         QMouseEvent overlap_press(QEvent::MouseButtonPress,
-            *point_dimension_overlap, *point_dimension_overlap,
-            *point_dimension_overlap, Qt::LeftButton, Qt::LeftButton,
+            *owning_point_position, *owning_point_position,
+            *owning_point_position, Qt::LeftButton, Qt::LeftButton,
             Qt::NoModifier);
         QApplication::sendEvent(&zero_dimension_view, &overlap_press);
         require(overlap_drag && overlap_drag->kind ==
                     zima::viewer::CandidateKind::SketchPoint,
                 "Overlapping Dimension stole the owning Sketch point drag");
         QMouseEvent overlap_release(QEvent::MouseButtonRelease,
-            *point_dimension_overlap, *point_dimension_overlap,
-            *point_dimension_overlap, Qt::LeftButton, Qt::NoButton,
+            *owning_point_position, *owning_point_position,
+            *owning_point_position, Qt::LeftButton, Qt::NoButton,
             Qt::NoModifier);
         QApplication::sendEvent(&zero_dimension_view, &overlap_release);
 

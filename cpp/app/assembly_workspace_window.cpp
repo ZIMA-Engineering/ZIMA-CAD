@@ -968,6 +968,21 @@ void add_history_container_tree_children(QTreeWidgetItem* parent,
         sketch->setData(0, Qt::UserRole + 3,
             assembly_owned ? "assembly-sketch" : "part-sketch");
     }
+    if (container.feature_kind == zima::document::FeatureKind::Sketch) return;
+    const QString operation = container.combine_mode ==
+            zima::document::CombineMode::Subtract
+        ? QStringLiteral("− ") : QStringLiteral("+ ");
+    auto* feature = new QTreeWidgetItem(parent,
+        {operation + QString::fromStdString(container.name)});
+    feature->setIcon(0, resource_icon(feature_icon_name(container.feature_kind)));
+    feature->setData(0, Qt::UserRole, QString::fromStdString(
+        assembly_owned ? container.id : container.feature_id));
+    feature->setData(0, Qt::UserRole + 1,
+        QString::fromStdString(instance_path.encoded()));
+    feature->setData(0, Qt::UserRole + 3,
+        assembly_owned ? "assembly-cut" : "part-container-entity");
+    feature->setData(0, Qt::UserRole + 6,
+        QString::fromStdString(container.id));
     const bool primitive_primary_axis =
         container.feature_kind == zima::document::FeatureKind::Cylinder ||
         container.feature_kind == zima::document::FeatureKind::Cone ||
@@ -1013,21 +1028,6 @@ void add_history_container_tree_children(QTreeWidgetItem* parent,
                 QString::fromStdString(container.id));
         }
     }
-    if (container.feature_kind == zima::document::FeatureKind::Sketch) return;
-    const QString operation = container.combine_mode ==
-            zima::document::CombineMode::Subtract
-        ? QStringLiteral("− ") : QStringLiteral("+ ");
-    auto* feature = new QTreeWidgetItem(parent,
-        {operation + QString::fromStdString(container.name)});
-    feature->setIcon(0, resource_icon(feature_icon_name(container.feature_kind)));
-    feature->setData(0, Qt::UserRole, QString::fromStdString(
-        assembly_owned ? container.id : container.feature_id));
-    feature->setData(0, Qt::UserRole + 1,
-        QString::fromStdString(instance_path.encoded()));
-    feature->setData(0, Qt::UserRole + 3,
-        assembly_owned ? "assembly-cut" : "part-container-entity");
-    feature->setData(0, Qt::UserRole + 6,
-        QString::fromStdString(container.id));
 }
 
 void add_construction_tree_children(QTreeWidgetItem* parent,
@@ -1194,7 +1194,9 @@ zima::kernel::ViewerMesh local_container_context_mesh(
     auto mesh = local_origin_display_mesh(
         document.history_origin_reference_geometry_before({}),
         visible_origin_ids);
-    constexpr double context_extent = 25.0;
+    // Match the fixed full edge length of every local Container Origin
+    // plane.  These helpers must not grow with the model or camera fit.
+    constexpr double context_extent = 5.0;
     const auto append_axis = [&](const auto& container,
             zima::kernel::Vec3 point, zima::kernel::Vec3 direction) {
         if (!show_axes) return;
@@ -1221,9 +1223,25 @@ zima::kernel::ViewerMesh local_container_context_mesh(
         zima::kernel::ViewerEdge plane;
         plane.points = {corner(-half, -half), corner(half, -half),
             corner(half, half), corner(-half, half), corner(-half, -half)};
-        plane.reference = {container.id, "plane:profile", {}};
+        // MeshView presents every non-Origin work plane through the shared
+        // `border` semantic. A custom key left this valid rectangle outside
+        // the plane renderer, so POČÁTEK appeared to do nothing.
+        plane.reference = {container.id, "border", {}};
         plane.overlay = true;
         mesh.edges.push_back(std::move(plane));
+        const auto& points = mesh.edges.back().points;
+        const auto offset = static_cast<std::uint32_t>(
+            mesh.original_references.vertices.size());
+        mesh.original_references.vertices.insert(
+            mesh.original_references.vertices.end(), points.begin(),
+            points.begin() + 4);
+        mesh.original_references.triangles.insert(
+            mesh.original_references.triangles.end(),
+            {offset, offset + 1, offset + 2,
+             offset, offset + 2, offset + 3});
+        mesh.original_references.triangle_references.insert(
+            mesh.original_references.triangle_references.end(), 2,
+            {container.id, "plane", {}});
     };
     for (const auto& container : document.history) {
         if (!visible_origin_ids.contains(container.container_origin.id) ||
@@ -1600,12 +1618,18 @@ void populate_external_reference_cache(
         const auto projected = sketch.project_external_face_plane(source,
             {reference.source_owner_id, reference.source_semantic_key,
              reference.source_instance_path});
-        if (!projected) {
+        if (projected) {
+            reference.cached_points = *projected;
+            reference.infinite = true;
+        } else if (const auto intersections = sketch.intersect_external_face(source,
+                       {reference.source_owner_id, reference.source_semantic_key,
+                        reference.source_instance_path})) {
+            reference.cached_paths = *intersections;
+            reference.infinite = false;
+        } else {
             throw std::runtime_error(
                 "Source face has no unique intersection with the Sketch plane");
         }
-        reference.cached_points = *projected;
-        reference.infinite = true;
     }
     reference.broken = false;
 }
@@ -9919,6 +9943,14 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 document.construction_viewer_mesh().original_references);
             append_reference_geometry(reference_geometry,
                 document.history_origin_reference_geometry_before(initial.id));
+            std::set<std::string> preceding_container_ids;
+            for (const auto& container : document.history) {
+                if (container.id == initial.id) break;
+                preceding_container_ids.insert(container.container_origin.id);
+            }
+            append_reference_geometry(reference_geometry,
+                local_container_context_mesh(document, preceding_container_ids,
+                    false, true).original_references);
         } else {
             const auto& document = assembly->session.document();
             reference_geometry = document.build_scene().original_references;
@@ -9990,8 +10022,25 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                  placement.rotation_z},
                 placement_valid);
             zima::document::PartDocument preview_geometry;
-            viewer_->set_transient_edges(
-                preview_geometry.primitive_preview_edges(resolved_preview));
+            const zima::kernel::ViewerMesh* through_all_input = nullptr;
+            if (resolved_preview.feature_kind ==
+                    zima::document::FeatureKind::Hole &&
+                resolved_preview.hole.bore_end_condition ==
+                    zima::document::EndCondition::ThroughAll) {
+                if (part_rollback_ && part_rollback_->input_body) {
+                    through_all_input = &part_rollback_->input_body->mesh;
+                } else if (const auto* active_part = workspace_.open_part(
+                               workspace_.active_document_id());
+                           active_part != nullptr &&
+                           !active_part->session.calculated_boundaries().empty()) {
+                    through_all_input =
+                        &active_part->session.calculated_boundaries().back().mesh;
+                }
+            }
+            viewer_->set_transient_edges(through_all_input != nullptr
+                ? preview_geometry.primitive_preview_edges(
+                      resolved_preview, *through_all_input)
+                : preview_geometry.primitive_preview_edges(resolved_preview));
             // Basic solids are only an analytical cyan wire until OK. Their
             // local Container Origin is nevertheless real editing context:
             // standard-colour axes/planes plus a cyan origin point, all
@@ -15848,8 +15897,9 @@ AssemblyWorkspaceWindow::sketch_candidate_snap_ray(
                 support_geometry_id = reference->id;
                 if (reference->kind ==
                         zima::sketcher::ExternalReferenceKind::Axis ||
-                    reference->kind ==
-                        zima::sketcher::ExternalReferenceKind::Face) {
+                    (reference->kind ==
+                         zima::sketcher::ExternalReferenceKind::Face &&
+                     reference->cached_points.size() >= 2)) {
                     const auto& first = reference->cached_points.front();
                     const auto& second = reference->cached_points.back();
                     line = std::pair{first,
@@ -24272,7 +24322,12 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                 // cyan only after an explicit LMB selection.
                 viewer_->clear_selection();
             } else {
-                viewer_->confirm_container(construction_dimension_object_id_);
+                // Parameter-dimension inspection must leave the annotations
+                // hoverable after any scene rebuild, including an inline
+                // value edit made without an open properties dialog.
+                // Confirming the owning container here latched a cyan object
+                // selection and suppressed all subsequent dimension hover.
+                viewer_->clear_selection();
                 viewer_->set_feature_selected_edges({});
             }
         }

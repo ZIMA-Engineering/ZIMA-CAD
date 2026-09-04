@@ -885,48 +885,11 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
         QRectF text_bounds = metrics.boundingRect(text);
         text_bounds.moveTopLeft(text_anchor + QPointF(0.0, -metrics.ascent()));
         text_bounds.adjust(-hit_radius, -hit_radius, hit_radius, hit_radius);
-        bool hit = text_bounds.contains(position) ||
-            screen_segment_distance(position, witness_first, line_first) <= hit_radius ||
-            screen_segment_distance(position, witness_second, line_second) <= hit_radius;
-        if (dimension.kind == zima::kernel::ViewerDimensionKind::Angular) {
-            const QPointF first_vector = line_first - witness_first;
-            const QPointF second_vector = line_second - witness_first;
-            const double radius = std::hypot(first_vector.x(), first_vector.y());
-            if (radius > 1.0e-6) {
-                const double start = std::atan2(
-                    first_vector.y(), first_vector.x());
-                double sweep = std::abs(dimension.sweep_degrees) *
-                    std::numbers::pi / 180.0;
-                if (first_vector.x() * second_vector.y() -
-                        first_vector.y() * second_vector.x() < 0.0) {
-                    sweep = -sweep;
-                }
-                constexpr int samples = 48;
-                QPointF previous = line_first;
-                for (int sample = 1; sample <= samples && !hit; ++sample) {
-                    const double angle = start + sweep * sample / samples;
-                    const QPointF current = witness_first + QPointF(
-                        radius * std::cos(angle), radius * std::sin(angle));
-                    hit = screen_segment_distance(
-                        position, previous, current) <= hit_radius;
-                    previous = current;
-                }
-            }
-        } else {
-            hit = hit || screen_segment_distance(
-                position, line_first, line_second) <= hit_radius;
-        }
-        if (linear_layout) {
-            hit = hit ||
-                screen_segment_distance(position,
-                    linear_layout->line_first - linear_layout->along * 10.0,
-                    linear_layout->first_tail) <= hit_radius ||
-                screen_segment_distance(position,
-                    linear_layout->line_second + linear_layout->along * 10.0,
-                    linear_layout->second_tail) <= hit_radius ||
-                screen_segment_distance(position, linear_layout->leader_start,
-                    linear_layout->leader_end) <= hit_radius;
-        }
+        // A dimension is an editable annotation, not selectable model
+        // geometry. Offer it only over its visible text; witness/leader/arc
+        // strokes remain available to the geometry underneath and therefore
+        // cannot steal hover from edges, faces or reference planes.
+        const bool hit = text_bounds.contains(position);
         if (!hit) continue;
         std::erase_if(candidates, [index](const auto& candidate) {
             return candidate.kind == CandidateKind::Dimension &&

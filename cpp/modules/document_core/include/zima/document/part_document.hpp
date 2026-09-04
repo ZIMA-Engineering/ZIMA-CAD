@@ -691,6 +691,9 @@ public:
         const zima::kernel::ViewerMesh& through_all_input) const;
     [[nodiscard]] std::vector<zima::kernel::ViewerEdge> primitive_preview_edges(
         const HistoryContainer& container) const;
+    [[nodiscard]] std::vector<zima::kernel::ViewerEdge> primitive_preview_edges(
+        const HistoryContainer& container,
+        const zima::kernel::ViewerMesh& through_all_input) const;
     // Cosmetic thread presentation derived exclusively from persisted Hole
     // data. It is display-only wire geometry: no OCCT topology and no
     // selectable modeling reference is created.

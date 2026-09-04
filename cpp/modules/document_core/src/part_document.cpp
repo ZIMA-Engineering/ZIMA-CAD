@@ -6591,6 +6591,117 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::primitive_preview_edges(
     return result;
 }
 
+std::vector<zima::kernel::ViewerEdge> PartDocument::primitive_preview_edges(
+        const HistoryContainer& container,
+        const zima::kernel::ViewerMesh& through_all_input) const {
+    if (container.feature_kind != FeatureKind::Hole ||
+        container.hole.bore_end_condition != EndCondition::ThroughAll ||
+        through_all_input.vertices.empty()) {
+        return primitive_preview_edges(container);
+    }
+    const bool referenced_work_plane = std::any_of(
+        container.placement.references.begin(),
+        container.placement.references.end(), [](const auto& reference) {
+            return !reference.orientation_only && reference.supports_offset &&
+                !reference.owner_id.empty();
+        });
+    auto direction = rotated_vector(referenced_work_plane
+            ? zima::kernel::Vec3{0.0, 1.0, 0.0}
+            : zima::kernel::Vec3{0.0, 0.0, 1.0},
+        {container.placement.rotation_x, container.placement.rotation_y,
+         container.placement.rotation_z});
+    const double direction_length = std::hypot(
+        std::hypot(direction.x, direction.y), direction.z);
+    if (direction_length <= 1.0e-12) return primitive_preview_edges(container);
+    direction = {direction.x/direction_length, direction.y/direction_length,
+        direction.z/direction_length};
+    const zima::kernel::Vec3 origin{container.placement.x,
+        container.placement.y, container.placement.z};
+    zima::kernel::Vec3 lower = through_all_input.vertices.front();
+    zima::kernel::Vec3 upper = lower;
+    for (const auto& point : through_all_input.vertices) {
+        lower.x = std::min(lower.x, point.x); lower.y = std::min(lower.y, point.y);
+        lower.z = std::min(lower.z, point.z); upper.x = std::max(upper.x, point.x);
+        upper.y = std::max(upper.y, point.y); upper.z = std::max(upper.z, point.z);
+    }
+    const double diagonal = std::hypot(std::hypot(upper.x-lower.x,
+        upper.y-lower.y), upper.z-lower.z);
+    const double margin = std::max(1.0, diagonal*1.0e-4);
+    const auto subtract = [](const auto& left, const auto& right) {
+        return zima::kernel::Vec3{left.x-right.x, left.y-right.y,
+            left.z-right.z};
+    };
+    const auto cross = [](const auto& left, const auto& right) {
+        return zima::kernel::Vec3{
+            left.y*right.z-left.z*right.y,
+            left.z*right.x-left.x*right.z,
+            left.x*right.y-left.y*right.x};
+    };
+    const auto dot = [](const auto& left, const auto& right) {
+        return left.x*right.x + left.y*right.y + left.z*right.z;
+    };
+    std::vector<double> intersections;
+    intersections.reserve(through_all_input.triangles.size()/3);
+    constexpr double intersection_tolerance = 1.0e-9;
+    for (std::size_t triangle = 0;
+         triangle + 2 < through_all_input.triangles.size(); triangle += 3) {
+        const std::array indices{
+            through_all_input.triangles[triangle],
+            through_all_input.triangles[triangle+1],
+            through_all_input.triangles[triangle+2]};
+        if (std::ranges::any_of(indices, [&](const auto index) {
+                return index >= through_all_input.vertices.size();
+            })) continue;
+        const auto& first = through_all_input.vertices[indices[0]];
+        const auto edge_a = subtract(
+            through_all_input.vertices[indices[1]], first);
+        const auto edge_b = subtract(
+            through_all_input.vertices[indices[2]], first);
+        const auto perpendicular = cross(direction, edge_b);
+        const double determinant = dot(edge_a, perpendicular);
+        if (std::abs(determinant) <= intersection_tolerance) continue;
+        const double inverse = 1.0/determinant;
+        const auto from_first = subtract(origin, first);
+        const double u = dot(from_first, perpendicular)*inverse;
+        if (u < -intersection_tolerance || u > 1.0+intersection_tolerance)
+            continue;
+        const auto q = cross(from_first, edge_a);
+        const double v = dot(direction, q)*inverse;
+        if (v < -intersection_tolerance ||
+            u+v > 1.0+intersection_tolerance) continue;
+        const double parameter = dot(edge_b, q)*inverse;
+        if (std::none_of(intersections.begin(), intersections.end(),
+                [&](double value) {
+                    return std::abs(value-parameter) <=
+                        std::max(1.0, diagonal)*1.0e-7;
+                })) intersections.push_back(parameter);
+    }
+    double start_parameter{};
+    double end_parameter{};
+    if (intersections.size() >= 2) {
+        const auto [minimum, maximum] = std::minmax_element(
+            intersections.begin(), intersections.end());
+        start_parameter = *minimum-margin;
+        end_parameter = *maximum+margin;
+    } else {
+        // Degenerate/non-closed display meshes cannot provide two crossings.
+        // Keep the previous conservative persisted-mesh projection fallback.
+        for (const auto& point : through_all_input.vertices) {
+            const double projection = dot(subtract(point, origin), direction);
+            start_parameter = std::min(start_parameter, projection);
+            end_parameter = std::max(end_parameter, projection);
+        }
+        start_parameter -= margin;
+        end_parameter += margin;
+    }
+    auto bounded = container;
+    bounded.hole.bore_length = end_parameter-start_parameter;
+    bounded.placement.x += direction.x*start_parameter;
+    bounded.placement.y += direction.y*start_parameter;
+    bounded.placement.z += direction.z*start_parameter;
+    return primitive_preview_edges(bounded);
+}
+
 std::vector<zima::kernel::ViewerEdge> PartDocument::hole_thread_edges(
         const HistoryContainer& container,
         const zima::kernel::ViewerMesh* supporting_body) const {

@@ -332,7 +332,8 @@ std::optional<std::array<double, 2>> point_on_line_target(
         });
     if (reference == sketch.external_references.end()) return std::nullopt;
     if (reference->kind == ExternalReferenceKind::Axis ||
-        reference->kind == ExternalReferenceKind::Face) {
+        (reference->kind == ExternalReferenceKind::Face &&
+         reference->cached_points.size() >= 2)) {
         return project(reference->cached_points.front(),
             reference->cached_points.back(), false);
     }
@@ -350,7 +351,11 @@ std::optional<std::array<double, 2>> point_on_line_target(
             }
         }
     };
-    consider_path(reference->cached_points);
+    if (reference->kind == ExternalReferenceKind::Face) {
+        for (const auto& path : reference->cached_paths) consider_path(path);
+    } else {
+        consider_path(reference->cached_points);
+    }
     return closest;
 }
 
@@ -2248,8 +2253,10 @@ void Sketch::validate() const {
               reference.kind == ExternalReferenceKind::Axis) &&
              (reference.cached_points.size() < 2 || !reference.cached_paths.empty())) ||
             (reference.kind == ExternalReferenceKind::Face &&
-             (reference.cached_points.size() != 2 ||
-              !reference.cached_paths.empty() || !reference.infinite))) {
+             !((reference.cached_points.size() == 2 &&
+                reference.cached_paths.empty() && reference.infinite) ||
+               (reference.cached_points.empty() &&
+                !reference.cached_paths.empty() && !reference.infinite)))) {
             throw std::runtime_error("Sketch external reference geometry is invalid");
         }
         for (std::size_t index = 0; index < reference.cached_points.size(); ++index) {
@@ -2263,10 +2270,9 @@ void Sketch::validate() const {
             }
         }
         for (const auto& path : reference.cached_paths) {
-            if (path.size() < 4 || path.front() != path.back()) {
+            if (path.size() < 2) {
                 throw std::runtime_error("Sketch external face path is invalid");
             }
-            double signed_area{};
             for (std::size_t index = 0; index < path.size(); ++index) {
                 const auto& point = path[index];
                 if (!std::isfinite(point[0]) || !std::isfinite(point[1]) ||
@@ -2275,13 +2281,6 @@ void Sketch::validate() const {
                         point[1] - path[index - 1][1]) <= 1.0e-12)) {
                     throw std::runtime_error("Sketch external face path is invalid");
                 }
-                if (index > 0) {
-                    signed_area += path[index - 1][0] * point[1] -
-                        point[0] * path[index - 1][1];
-                }
-            }
-            if (std::abs(signed_area) <= 1.0e-12) {
-                throw std::runtime_error("Sketch external face path has zero area");
             }
         }
     }
@@ -6483,6 +6482,139 @@ Sketch::project_external_face_plane(
 }
 
 std::optional<std::vector<std::vector<std::array<double, 2>>>>
+Sketch::intersect_external_face(
+    const zima::kernel::ViewerReferenceGeometry& source_geometry,
+    const zima::kernel::FaceReference& face) const {
+    if (!face.valid() || source_geometry.triangles.size() % 3 != 0 ||
+        source_geometry.triangle_references.size() !=
+            source_geometry.triangles.size() / 3) return std::nullopt;
+    const auto subtract = [](const auto& left, const auto& right) {
+        return zima::kernel::Vec3{left.x - right.x, left.y - right.y,
+            left.z - right.z};
+    };
+    const auto cross = [](const auto& left, const auto& right) {
+        return zima::kernel::Vec3{
+            left.y * right.z - left.z * right.y,
+            left.z * right.x - left.x * right.z,
+            left.x * right.y - left.y * right.x};
+    };
+    const auto dot = [](const auto& left, const auto& right) {
+        return left.x * right.x + left.y * right.y + left.z * right.z;
+    };
+    const auto origin = world_point(0.0, 0.0);
+    auto normal = cross(subtract(world_point(1.0, 0.0), origin),
+        subtract(world_point(0.0, 1.0), origin));
+    const double normal_length = std::sqrt(dot(normal, normal));
+    if (normal_length <= 1.0e-12) return std::nullopt;
+    normal = {normal.x / normal_length, normal.y / normal_length,
+        normal.z / normal_length};
+    const auto distance = [&](const auto& point) {
+        return dot(normal, subtract(point, origin));
+    };
+    constexpr double plane_tolerance = 1.0e-7;
+    constexpr double join_tolerance = 1.0e-6;
+    using Point2 = std::array<double, 2>;
+    std::vector<std::pair<Point2, Point2>> segments;
+    for (std::size_t triangle = 0;
+         triangle < source_geometry.triangle_references.size(); ++triangle) {
+        if (source_geometry.triangle_references[triangle] != face) continue;
+        std::array<zima::kernel::Vec3, 3> vertices;
+        for (std::size_t corner = 0; corner < 3; ++corner) {
+            const auto index = source_geometry.triangles[triangle * 3 + corner];
+            if (index >= source_geometry.vertices.size()) return std::nullopt;
+            vertices[corner] = source_geometry.vertices[index];
+        }
+        const std::array<double, 3> distances{
+            distance(vertices[0]), distance(vertices[1]), distance(vertices[2])};
+        // A coincident face does not define a unique section curve.
+        if (std::ranges::all_of(distances, [](double value) {
+                return std::abs(value) <= plane_tolerance;
+            })) continue;
+        std::vector<zima::kernel::Vec3> hits;
+        const auto add_hit = [&](const auto& point) {
+            if (std::none_of(hits.begin(), hits.end(), [&](const auto& value) {
+                    const auto delta = subtract(value, point);
+                    return std::sqrt(dot(delta, delta)) <= plane_tolerance;
+                })) hits.push_back(point);
+        };
+        for (std::size_t first = 0; first < 3; ++first) {
+            const auto second = (first + 1) % 3;
+            const double a = distances[first];
+            const double b = distances[second];
+            if (std::abs(a) <= plane_tolerance) add_hit(vertices[first]);
+            if ((a < -plane_tolerance && b > plane_tolerance) ||
+                (a > plane_tolerance && b < -plane_tolerance)) {
+                const double parameter = a / (a - b);
+                add_hit(zima::kernel::Vec3{
+                    vertices[first].x + parameter *
+                        (vertices[second].x - vertices[first].x),
+                    vertices[first].y + parameter *
+                        (vertices[second].y - vertices[first].y),
+                    vertices[first].z + parameter *
+                        (vertices[second].z - vertices[first].z)});
+            }
+        }
+        if (hits.size() < 2) continue;
+        std::pair<std::size_t, std::size_t> farthest{0, 1};
+        double farthest_squared{};
+        for (std::size_t first = 0; first < hits.size(); ++first) {
+            for (std::size_t second = first + 1; second < hits.size(); ++second) {
+                const auto delta = subtract(hits[first], hits[second]);
+                const double squared = dot(delta, delta);
+                if (squared > farthest_squared) {
+                    farthest_squared = squared;
+                    farthest = {first, second};
+                }
+            }
+        }
+        if (farthest_squared <= plane_tolerance * plane_tolerance) continue;
+        const auto first = local_point(hits[farthest.first]);
+        const auto second = local_point(hits[farthest.second]);
+        if (std::hypot(first[0] - second[0], first[1] - second[1]) >
+            join_tolerance) segments.emplace_back(first, second);
+    }
+    if (segments.empty()) return std::nullopt;
+    const auto close = [=](const Point2& first, const Point2& second) {
+        return std::hypot(first[0] - second[0], first[1] - second[1]) <=
+            join_tolerance;
+    };
+    std::vector<std::vector<Point2>> paths;
+    while (!segments.empty()) {
+        std::vector<Point2> path{segments.back().first, segments.back().second};
+        segments.pop_back();
+        bool extended = true;
+        while (extended) {
+            extended = false;
+            for (auto iterator = segments.begin(); iterator != segments.end(); ++iterator) {
+                if (close(path.back(), iterator->first)) {
+                    path.push_back(iterator->second);
+                } else if (close(path.back(), iterator->second)) {
+                    path.push_back(iterator->first);
+                } else if (close(path.front(), iterator->second)) {
+                    path.insert(path.begin(), iterator->first);
+                } else if (close(path.front(), iterator->first)) {
+                    path.insert(path.begin(), iterator->second);
+                } else continue;
+                segments.erase(iterator);
+                extended = true;
+                break;
+            }
+        }
+        std::vector<Point2> clean;
+        for (const auto& point : path) {
+            if (clean.empty() || !close(clean.back(), point)) clean.push_back(point);
+        }
+        if (clean.size() >= 2) paths.push_back(std::move(clean));
+    }
+    if (paths.empty()) return std::nullopt;
+    std::ranges::sort(paths, [](const auto& left, const auto& right) {
+        return std::tie(left.front()[0], left.front()[1], left.back()[0], left.back()[1]) <
+            std::tie(right.front()[0], right.front()[1], right.back()[0], right.back()[1]);
+    });
+    return paths;
+}
+
+std::optional<std::vector<std::vector<std::array<double, 2>>>>
 Sketch::project_external_face(
     const zima::kernel::ViewerReferenceGeometry& source_geometry,
     const zima::kernel::FaceReference& face) const {
@@ -6629,6 +6761,7 @@ bool Sketch::refresh_external_references(
     for (auto& reference : next.external_references) {
         if (reference.source_document_id != source_document_id) continue;
         std::optional<std::vector<std::array<double, 2>>> resolved;
+        bool face_intersection_resolved = false;
         if (reference.kind == ExternalReferenceKind::Edge) {
             const zima::kernel::ViewerEdge* match = nullptr;
             std::size_t match_count{};
@@ -6681,17 +6814,43 @@ bool Sketch::refresh_external_references(
                 if (match_count == 0) match = candidate;
                 ++match_count;
             }
-            if (match_count > 0) resolved =
-                next.project_external_face_plane(source_geometry, match);
+            if (match_count > 0) {
+                resolved = next.project_external_face_plane(source_geometry, match);
+                if (!resolved) {
+                    const auto intersections =
+                        next.intersect_external_face(source_geometry, match);
+                    if (intersections) {
+                        face_intersection_resolved = true;
+                        if (reference.cached_paths != *intersections) {
+                            reference.cached_paths = *intersections;
+                            changed = true;
+                        }
+                        if (!reference.cached_points.empty()) {
+                            reference.cached_points.clear();
+                            changed = true;
+                        }
+                        if (reference.infinite) {
+                            reference.infinite = false;
+                            changed = true;
+                        }
+                    }
+                }
+            }
         }
-        const bool broken = !resolved.has_value();
+        const bool broken = !resolved.has_value() &&
+            !face_intersection_resolved;
         if (resolved && reference.cached_points != *resolved) {
             reference.cached_points = std::move(*resolved);
             changed = true;
         }
-        if (reference.kind == ExternalReferenceKind::Face &&
+        if (reference.kind == ExternalReferenceKind::Face && resolved &&
             !reference.cached_paths.empty()) {
             reference.cached_paths.clear();
+            changed = true;
+        }
+        if (reference.kind == ExternalReferenceKind::Face && resolved &&
+            !reference.infinite) {
+            reference.infinite = true;
             changed = true;
         }
         if (reference.broken != broken) {
@@ -10705,17 +10864,24 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
     }
     for (const auto& reference : external_references) {
         if (reference.kind != ExternalReferenceKind::Face) continue;
-        zima::kernel::ViewerEdge edge;
-        edge.reference = {id, "external_face:" + reference.id +
-            (reference.broken ? ":broken" : ""), {}};
-        edge.construction = true;
-        edge.overlay = true;
-        edge.infinite = true;
-        edge.points.reserve(reference.cached_points.size());
-        for (const auto& point : reference.cached_points) {
-            edge.points.push_back(world_point(point[0], point[1]));
+        const auto append = [&](const auto& points, bool infinite) {
+            zima::kernel::ViewerEdge edge;
+            edge.reference = {id, "external_face:" + reference.id +
+                (reference.broken ? ":broken" : ""), {}};
+            edge.construction = true;
+            edge.overlay = true;
+            edge.infinite = infinite;
+            edge.points.reserve(points.size());
+            for (const auto& point : points) {
+                edge.points.push_back(world_point(point[0], point[1]));
+            }
+            result.edges.push_back(std::move(edge));
+        };
+        if (!reference.cached_points.empty()) {
+            append(reference.cached_points, reference.infinite);
+        } else {
+            for (const auto& path : reference.cached_paths) append(path, false);
         }
-        result.edges.push_back(std::move(edge));
     }
     const auto geometry_anchor = [&](const std::string& geometry_id)
             -> std::optional<zima::kernel::Vec3> {

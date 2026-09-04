@@ -494,6 +494,13 @@ public:
         project_external_face_plane(
             const zima::kernel::ViewerReferenceGeometry& source_geometry,
             const zima::kernel::FaceReference& face) const;
+    // Intersects a persisted (possibly curved) source face mesh with this
+    // Sketch plane.  The result contains one finite path per intersection
+    // branch and never invokes the solid kernel.
+    [[nodiscard]] std::optional<std::vector<std::vector<std::array<double, 2>>>>
+        intersect_external_face(
+            const zima::kernel::ViewerReferenceGeometry& source_geometry,
+            const zima::kernel::FaceReference& face) const;
     [[nodiscard]] std::optional<std::vector<std::vector<std::array<double, 2>>>>
         project_external_face(
             const zima::kernel::ViewerReferenceGeometry& source_geometry,
