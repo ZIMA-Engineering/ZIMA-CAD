@@ -6978,8 +6978,8 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::thread_edges(
                 origin.z+direction.z*length*0.5}));
     const double profile_diameter = container.thread.custom_profile_diameter
         ? container.thread.profile_diameter
-        : external ? container.thread.profile_diameter
-        : container.thread.nominal_diameter;
+        : external ? container.thread.nominal_diameter
+        : container.thread.profile_diameter;
     adapter.hole.diameter = profile_diameter;
     adapter.hole.thread_nominal_diameter = profile_diameter;
     adapter.hole.thread_length = length;
@@ -7011,8 +7011,8 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::thread_edges(
     // end rings of the other diameter. Thus internal and external use one
     // predictable six-edge symbol: four circles plus two boundary lines.
     const double secondary_diameter = external
-        ? container.thread.nominal_diameter
-        : container.thread.profile_diameter;
+        ? container.thread.profile_diameter
+        : container.thread.nominal_diameter;
     if (secondary_diameter > 0.0 &&
         std::abs(secondary_diameter - profile_diameter) > 1.0e-9) {
         auto secondary_adapter = adapter;

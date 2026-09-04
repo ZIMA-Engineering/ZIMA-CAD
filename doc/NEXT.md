@@ -311,8 +311,9 @@
   them with the same OCCT tool. Thread shares Extrusion's one-side, two-side
   and symmetric extents and independent Length, Up To and Through All ends;
   it deliberately has no offset work plane.
-- Thread runout respects thread side: an external thread keeps the root sheet
-  continuous, while an internal thread keeps the nominal sheet continuous.
+- Thread runout respects thread side: an external thread keeps the nominal
+  sheet continuous, while an internal thread keeps the root sheet continuous;
+  both retain two distinct cylindrical sheets and their runout cones.
   The end cone reverses the start cone's radii, and Automatic side detection
   distinguishes an axis in material from an axis in a void.
 

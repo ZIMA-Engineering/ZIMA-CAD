@@ -6411,8 +6411,8 @@ int main() {
                         external_thread_wire.front().points.front().x-
                             external_thread.placement.x,
                         external_thread_wire.front().points.front().y-
-                            external_thread.placement.y)-4.07965) < 1.0e-6,
-                "External Thread did not use its root cylinder diameter");
+                            external_thread.placement.y)-5.0) < 1.0e-6,
+                "External Thread did not use its nominal continuous cylinder");
         auto internal_thread = thread;
         internal_thread.thread.side = zima::document::ThreadSide::Internal;
         const auto internal_thread_wire =
@@ -6422,8 +6422,9 @@ int main() {
                         internal_thread_wire.front().points.front().x-
                             internal_thread.placement.x,
                         internal_thread_wire.front().points.front().y-
-                            internal_thread.placement.y)-5.0) < 1.0e-6,
-                "Internal Thread did not use its nominal cylinder diameter");
+                            internal_thread.placement.y)-
+                            internal_thread.thread.profile_diameter*0.5) < 1.0e-6,
+                "Internal Thread did not use its root continuous cylinder");
         auto axis_plane_thread = thread;
         axis_plane_thread.placement = {};
         zima::document::ConstructionReference thread_axis_reference;

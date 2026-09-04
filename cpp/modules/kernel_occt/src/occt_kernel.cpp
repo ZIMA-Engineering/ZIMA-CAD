@@ -4321,17 +4321,17 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                         classifier.State() == TopAbs_ON;
                 }
                 const double continuous_radius = external_thread
-                    ? thread_geometry->root_radius
-                    : thread_geometry->nominal_radius;
-                const double interrupted_radius = external_thread
                     ? thread_geometry->nominal_radius
                     : thread_geometry->root_radius;
+                const double interrupted_radius = external_thread
+                    ? thread_geometry->root_radius
+                    : thread_geometry->nominal_radius;
                 technological_surfaces.push_back({
                     make_thread_cylinder_face(*thread_geometry,
                         continuous_radius, start,
                         thread_geometry->length),
                     operation.owner_id,
-                    external_thread ? "root" : "nominal"});
+                    external_thread ? "nominal" : "root"});
                 const double interrupted_start = start + start_runout;
                 const double interrupted_length = std::max(
                     0.0, thread_geometry->length - start_runout - end_runout);
@@ -4340,7 +4340,7 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                         interrupted_radius, interrupted_start,
                         interrupted_length),
                     operation.owner_id,
-                    external_thread ? "nominal" : "root"});
+                    external_thread ? "root" : "nominal"});
                 if (start_runout > 1.0e-9) {
                     technological_surfaces.push_back({
                         make_thread_cone_face(*thread_geometry,

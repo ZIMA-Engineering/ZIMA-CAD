@@ -1156,8 +1156,9 @@ Samostatný HistoryContainer **Závit** představuje technologický závit bez
 oddělené šedé OCCT sheet plochy jmenovitého a patního válce. U konečné délky je
 spojuje kuželový výjezd, jehož výchozí délka je `2 × P` a uživatel může násobek
 stoupání změnit; výjezd je omezen nejvýše na polovinu příslušného rozsahu.
-Vnější závit vede patní válec přes celý rozsah a jmenovitý válec zkracuje o
-výjezdy; vnitřní závit má toto pravidlo obráceně. Koncový kužel vždy obrací
+Vnější závit vede jmenovitý válec přes celý rozsah a patní válec zkracuje o
+výjezdy; vnitřní závit má toto pravidlo obráceně. Oba typy proto vždy obsahují
+dvě rozdílné válcové plochy a kuželové výjezdy. Koncový kužel vždy obrací
 pořadí poloměrů proti počátečnímu kuželu, takže oba výjezdy směřují z plného
 profilu ke správné koncové kružnici. Režim Automaticky rozlišuje vnější závit
 podle osového bodu ležícího v materiálu a vnitřní závit podle osy v dutině.

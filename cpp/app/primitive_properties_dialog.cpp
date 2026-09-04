@@ -505,15 +505,15 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         };
         const auto calculated_profile_diameter = [this] {
             const bool internal=thread_side_->currentData()=="internal";
-            if (internal) return hole_thread_nominal_diameter_->value();
             if (thread_size_->currentIndex()>=0) {
                 bool valid{};
                 const double tabulated=thread_size_->currentData(
-                    Qt::UserRole+4).toDouble(&valid);
+                    internal ? Qt::UserRole+3 : Qt::UserRole+4).toDouble(&valid);
                 if (valid && tabulated>0.0) return tabulated;
             }
             const double factor=thread_standard_->currentData()=="metric"
-                ? 1.226869 : 1.280654;
+                ? internal ? 1.082532 : 1.226869
+                : 1.280654;
             const double pitch=thread_size_->currentIndex()>=0
                 ? thread_size_->currentData(Qt::UserRole+2).toDouble()
                 : 0.0;
