@@ -1176,15 +1176,19 @@ tabulkový vnější patní průměr, vnitřní závit tabulkový vnitřní patn
 oba dovolují vlastní průměr válce závitu. Automatická volba rozlišuje vnitřní
 a vnější stranu podle nosného tělesa; uživatel ji může přepsat.
 
-Samostatný kontejner **Vrtací špička** používá stejné obecné zadávání umístění
-jako ostatní kontejnery. Uživatel zvolí osu otvoru a jeho kruhovou rovinnou
-plochu dna. Při explicitním výpočtu se stabilní reference dna vyhodnotí v OCCT,
-ověří se právě jedna kruhová hranice a její střed musí souhlasit s vyřešeným
-počátkem kontejneru. Z poloměru `r` a vrcholového úhlu `α` vznikne odečítací
-rotační kužel s hloubkou `r / tan(α/2)` směřující na materiálovou stranu dna.
-Jediným ručně měnitelným parametrem je vrcholový úhel, výchozí `118°`; jeho
-symetrická úhlová kóta podporuje stejnou editaci dvojklikem jako ostatní
-parametrické kóty. Prvek nevlastní uživatelskou skicu ani samostatnou osu.
+Samostatný kontejner **Vrtací špička** obsahuje jeden vrcholový úhel a seznam
+stabilních referencí na kruhová rovinná dna otvorů. Každé dno může mít jiný
+průměr. Při explicitním výpočtu se pro každé platné dno odvodí vlastní střed,
+poloměr a směr do materiálu a vznikne odečítací kužel s hloubkou
+`r / tan(α/2)`. Ztracené reference se při regeneraci zahodí; ostatní špičky se
+vypočítají dál a prázdný seznam je bezpečný no-op. Prvek nemá vlastní umístění,
+osu ani skicu.
+
+Samostatný kontejner **Sražení otvorů** obsahuje společnou hloubku, úhel a
+seznam stabilních kruhových hran otvorů. Při výpočtu OCCT ověří, že každá hrana
+je skutečná kružnice sousedící s válcovou stěnou otvoru. Hloubka se měří osově
+po této stěně. Obecné nekruhové hrany specializovaný příkaz odmítne; další
+proveditelnost sražení určuje standardní OCCT výpočet.
 
 Kóta může vedle textu před a za číselnou hodnotou nést i samostatný zobrazovaný
 text, například `G 1/2`. Řídicí číselná hodnota přitom zůstává zachována pro

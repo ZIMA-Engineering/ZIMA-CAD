@@ -2393,7 +2393,7 @@ void MeshView::initializeGL() {
         "uniform int unlit;\n"
         "in vec3 viewNormal;\n"
         "out vec4 fragmentColor;\n"
-        "void main(){ vec3 lightDirection = normalize(vec3(0.25, -0.35, 0.902));"
+        "void main(){ vec3 lightDirection = normalize(vec3(0.25, 0.35, 0.902));"
         // OCCT face orientation is persisted separately from tessellation
         // winding. Adjacent triangles of one planar ZIMA face may therefore
         // arrive with opposite winding; two-sided rendering must light both

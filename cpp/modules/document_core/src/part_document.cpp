@@ -409,7 +409,8 @@ bool valid_edge_treatment_values(
                     return vertex.valid() && vertex.instance_path.empty();
                 });
     }
-    if (kind != FeatureKind::Chamfer) return false;
+    if (kind != FeatureKind::Chamfer &&
+        kind != FeatureKind::HoleChamfer) return false;
     if (parameters.chamfer_mode ==
         EdgeTreatmentParameters::ChamferMode::TwoDistances) {
         return std::isfinite(parameters.secondary_size) &&
@@ -3819,6 +3820,20 @@ HistoryContainer PartDocument::create_drill_point_container() {
     container.name = "Vrtací špička";
     container.feature_kind = FeatureKind::DrillPoint;
     container.combine_mode = CombineMode::Subtract;
+    return container;
+}
+
+HistoryContainer PartDocument::create_hole_chamfer_container() {
+    HistoryContainer container;
+    container.id = make_id();
+    container.feature_id = make_id();
+    container.feature_parent_id = container.id;
+    container.container_origin = create_container_origin(container.id);
+    container.name = "Sražení otvorů";
+    container.feature_kind = FeatureKind::HoleChamfer;
+    container.combine_mode = CombineMode::Add;
+    container.edge_treatment.chamfer_mode =
+        EdgeTreatmentParameters::ChamferMode::DistanceAngle;
     return container;
 }
 
@@ -7658,8 +7673,7 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             primitive = thread;
         } else if (container.feature_kind == FeatureKind::DrillPoint) {
             zima::kernel::DrillPointRequest point;
-            point.bottom_face = container.drill_point.bottom_face;
-            point.origin = translation;
+            point.bottom_faces = container.drill_point.bottom_faces;
             point.included_angle_degrees =
                 container.drill_point.included_angle_degrees;
             primitive = point;
@@ -7985,6 +7999,17 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 container.edge_treatment.secondary_size,
                 container.edge_treatment.angle_degrees * std::numbers::pi / 180.0,
                 container.edge_treatment.flip};
+        } else if (container.feature_kind == FeatureKind::HoleChamfer) {
+            require_default_sketch_feature_placement(container.placement);
+            zima::kernel::ChamferRequest chamfer{
+                container.edge_treatment.flattened_edges(),
+                zima::kernel::ChamferRequest::Mode::DistanceAngle,
+                container.edge_treatment.primary_size,
+                container.edge_treatment.secondary_size,
+                container.edge_treatment.angle_degrees * std::numbers::pi / 180.0,
+                container.edge_treatment.flip};
+            chamfer.require_circular_hole_edge = true;
+            primitive = std::move(chamfer);
         } else if (container.feature_kind == FeatureKind::Shell) {
             require_default_sketch_feature_placement(container.placement);
             primitive = zima::kernel::ShellRequest{
@@ -8702,8 +8727,10 @@ PartDocument PartDocument::load(
             type != "extrusion" &&
             type != "revolution" && type != "sweep3d" &&
             type != "imported_step" &&
-            type != "fillet" && type != "chamfer" && type != "shell" &&
-            type != "hole" && type != "thread") {
+            type != "fillet" && type != "chamfer" &&
+            type != "hole_chamfer" && type != "shell" &&
+            type != "hole" && type != "thread" &&
+            type != "drill_point") {
             throw std::runtime_error("Unsupported history feature type");
         }
         HistoryContainer container;
@@ -8719,6 +8746,7 @@ PartDocument PartDocument::load(
             : type == "imported_step" ? FeatureKind::ImportedStep
             : type == "fillet" ? FeatureKind::Fillet
             : type == "chamfer" ? FeatureKind::Chamfer
+            : type == "hole_chamfer" ? FeatureKind::HoleChamfer
             : type == "shell" ? FeatureKind::Shell
             : type == "hole" ? FeatureKind::Hole
             : type == "thread" ? FeatureKind::Thread
@@ -8941,13 +8969,16 @@ PartDocument PartDocument::load(
                 throw std::runtime_error("Neplatný výjezd závitu");
             }
         } else if (container.feature_kind == FeatureKind::DrillPoint) {
-            container.drill_point.bottom_face = {
-                source.at("bottom_face_owner"), source.at("bottom_face_key"),
-                source.at("bottom_face_instance_path")};
+            for (const auto& face : source.at("bottom_faces")) {
+                container.drill_point.bottom_faces.push_back({
+                    face.at("owner"), face.at("key"), face.at("instance_path")});
+            }
             container.drill_point.included_angle_degrees =
                 source.at("included_angle_degrees");
-            if (!container.drill_point.bottom_face.valid() ||
-                !container.drill_point.bottom_face.instance_path.empty() ||
+            if (std::ranges::any_of(container.drill_point.bottom_faces,
+                    [](const auto& face) {
+                        return !face.valid() || !face.instance_path.empty();
+                    }) ||
                 !std::isfinite(container.drill_point.included_angle_degrees) ||
                 container.drill_point.included_angle_degrees <= 0.0 ||
                 container.drill_point.included_angle_degrees >= 180.0) {
@@ -9396,6 +9427,7 @@ PartDocument PartDocument::load(
         }
         if (container.feature_kind == FeatureKind::Fillet ||
             container.feature_kind == FeatureKind::Chamfer ||
+            container.feature_kind == FeatureKind::HoleChamfer ||
             container.feature_kind == FeatureKind::Shell) {
             require_default_sketch_feature_placement(container.placement);
         }
@@ -9693,8 +9725,10 @@ void PartDocument::save(
                 throw std::runtime_error("Chybí cílová reference závitu");
             }
         } else if (container.feature_kind == FeatureKind::DrillPoint) {
-            if (!container.drill_point.bottom_face.valid() ||
-                !container.drill_point.bottom_face.instance_path.empty() ||
+            if (std::ranges::any_of(container.drill_point.bottom_faces,
+                    [](const auto& face) {
+                        return !face.valid() || !face.instance_path.empty();
+                    }) ||
                 !std::isfinite(container.drill_point.included_angle_degrees) ||
                 container.drill_point.included_angle_degrees <= 0.0 ||
                 container.drill_point.included_angle_degrees >= 180.0) {
@@ -9844,6 +9878,7 @@ void PartDocument::save(
         validate_placement(container.placement);
         if (container.feature_kind == FeatureKind::Fillet ||
             container.feature_kind == FeatureKind::Chamfer ||
+            container.feature_kind == FeatureKind::HoleChamfer ||
             container.feature_kind == FeatureKind::Shell) {
             require_default_sketch_feature_placement(container.placement);
         }
@@ -9875,6 +9910,8 @@ void PartDocument::save(
                     ? "fillet"
                 : container.feature_kind == FeatureKind::Chamfer
                     ? "chamfer"
+                : container.feature_kind == FeatureKind::HoleChamfer
+                    ? "hole_chamfer"
                 : container.feature_kind == FeatureKind::Shell
                     ? "shell"
                 : container.feature_kind == FeatureKind::Thread
@@ -9903,6 +9940,7 @@ void PartDocument::save(
         }
         if (container.feature_kind != FeatureKind::Fillet &&
             container.feature_kind != FeatureKind::Chamfer &&
+            container.feature_kind != FeatureKind::HoleChamfer &&
             container.feature_kind != FeatureKind::Shell) {
             nlohmann::json placement_references = nlohmann::json::array();
             for (const auto& reference : container.placement.references) {
@@ -10070,12 +10108,12 @@ void PartDocument::save(
             serialized["end_targets_reverse"] = serialize_targets(
                 container.thread.end_targets_reverse);
         } else if (container.feature_kind == FeatureKind::DrillPoint) {
-            serialized["bottom_face_owner"] =
-                container.drill_point.bottom_face.owner_id;
-            serialized["bottom_face_key"] =
-                container.drill_point.bottom_face.semantic_key;
-            serialized["bottom_face_instance_path"] =
-                container.drill_point.bottom_face.instance_path;
+            serialized["bottom_faces"] = nlohmann::json::array();
+            for (const auto& face : container.drill_point.bottom_faces) {
+                serialized["bottom_faces"].push_back({
+                    {"owner", face.owner_id}, {"key", face.semantic_key},
+                    {"instance_path", face.instance_path}});
+            }
             serialized["included_angle_degrees"] =
                 container.drill_point.included_angle_degrees;
         } else if (container.feature_kind == FeatureKind::Sphere) {

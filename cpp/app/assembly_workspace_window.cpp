@@ -440,6 +440,41 @@ bool supports_placement_reference_picking(zima::document::FeatureKind kind) {
         kind == FeatureKind::Thread;
 }
 
+bool viewer_edge_is_circular(const zima::kernel::ViewerEdge& edge) {
+    const auto& points = edge.points;
+    if (points.size() < 9) return false;
+    const auto distance = [](const auto& first, const auto& second) {
+        return std::hypot(std::hypot(first.x - second.x,
+            first.y - second.y), first.z - second.z);
+    };
+    double scale{};
+    for (std::size_t index = 1; index < points.size(); ++index)
+        scale = std::max(scale, distance(points.front(), points[index]));
+    if (scale <= 1.0e-9 ||
+        distance(points.front(), points.back()) > scale * 1.0e-5)
+        return false;
+    const std::size_t count = points.size() - 1;
+    zima::kernel::Vec3 center{};
+    for (std::size_t index = 0; index < count; ++index) {
+        center.x += points[index].x;
+        center.y += points[index].y;
+        center.z += points[index].z;
+    }
+    center.x /= static_cast<double>(count);
+    center.y /= static_cast<double>(count);
+    center.z /= static_cast<double>(count);
+    double mean_radius{};
+    for (std::size_t index = 0; index < count; ++index)
+        mean_radius += distance(points[index], center);
+    mean_radius /= static_cast<double>(count);
+    if (mean_radius <= 1.0e-9) return false;
+    return std::ranges::all_of(points.begin(), points.begin() + count,
+        [&](const auto& point) {
+            return std::abs(distance(point, center) - mean_radius) <=
+                mean_radius * 2.0e-2;
+        });
+}
+
 bool sketch_visible_outside_sketcher(
     const zima::document::PartDocument& document,
     const zima::sketcher::Sketch& sketch) {
@@ -929,6 +964,7 @@ QString feature_icon_name(zima::document::FeatureKind kind) {
         case FeatureKind::Hole: return QStringLiteral("cylinder");
         case FeatureKind::Thread: return QStringLiteral("thread");
         case FeatureKind::DrillPoint: return QStringLiteral("drill-point");
+        case FeatureKind::HoleChamfer: return QStringLiteral("chamfer");
     }
     return {};
 }
@@ -938,7 +974,9 @@ void add_history_container_tree_children(QTreeWidgetItem* parent,
     const zima::assembly::InstancePath& instance_path = {},
     const zima::sketcher::Sketch* owned_sketch = nullptr,
     bool assembly_owned = false) {
-    if (container.feature_kind != zima::document::FeatureKind::Thread) {
+    if (container.feature_kind != zima::document::FeatureKind::Thread &&
+        container.feature_kind != zima::document::FeatureKind::DrillPoint &&
+        container.feature_kind != zima::document::FeatureKind::HoleChamfer) {
         add_construction_origin_tree_item(
             parent, container.container_origin, container.name, instance_path);
     }
@@ -1579,6 +1617,34 @@ bool refresh_sketch_external_references(
                 document.document_id, allowed_source)) {
             changed = true;
         }
+    }
+    return changed;
+}
+
+bool prune_missing_drill_point_references(
+    zima::document::PartDocument& document,
+    const std::vector<zima::kernel::BodyResult>& boundaries) {
+    bool changed = false;
+    const auto operations = document.kernel_operations();
+    for (std::size_t index = 0; index < operations.size(); ++index) {
+        auto* container = document.find_container(operations[index].owner_id);
+        if (container == nullptr || container->feature_kind !=
+                zima::document::FeatureKind::DrillPoint) continue;
+        const auto* available = index == 0 || index - 1 >= boundaries.size()
+            ? nullptr
+            : &boundaries[index - 1].mesh.original_references
+                .triangle_references;
+        const auto before = container->drill_point.bottom_faces.size();
+        std::erase_if(container->drill_point.bottom_faces,
+            [&](const auto& face) {
+                return available == nullptr || std::ranges::none_of(
+                    *available, [&](const auto& candidate) {
+                        return candidate.owner_id == face.owner_id &&
+                            candidate.semantic_key == face.semantic_key;
+                    });
+            });
+        changed = changed ||
+            container->drill_point.bottom_faces.size() != before;
     }
     return changed;
 }
@@ -3121,6 +3187,8 @@ void AssemblyWorkspaceWindow::create_actions() {
     revolution_action_->setObjectName("revolutionAction");
     fillet_action_ = make_action(tr("Zaoblení"), "fillet");
     chamfer_action_ = make_action(tr("Sražení"), "chamfer");
+    hole_chamfer_action_ = make_action(tr("Sražení otvorů"), "chamfer");
+    hole_chamfer_action_->setObjectName("holeChamferAction");
     shell_action_ = make_action(tr("Shell"), "shell");
     shell_action_->setObjectName("shellAction");
     sketch_action_ = make_action(tr("Skica"), "sketch");
@@ -3378,6 +3446,9 @@ void AssemblyWorkspaceWindow::create_actions() {
         start_edge_treatment(zima::document::FeatureKind::Fillet); });
     connect(chamfer_action_, &QAction::triggered, this, [this] {
         start_edge_treatment(zima::document::FeatureKind::Chamfer); });
+    connect(hole_chamfer_action_, &QAction::triggered, this, [this] {
+        show_primitive_properties(
+            zima::document::FeatureKind::HoleChamfer); });
     connect(shell_action_, &QAction::triggered, this, [this] { start_shell(); });
     connect(sketch_action_, &QAction::triggered, this, [this] { show_sketch_properties(); });
     connect(sketch_normal_view_action_, &QAction::triggered, this,
@@ -3791,6 +3862,14 @@ void AssemblyWorkspaceWindow::create_layout() {
         }
         if (shell_face_selection_active_) {
             accept_shell_face(candidate);
+            return;
+        }
+        if (drill_point_face_selection_active_) {
+            accept_drill_point_face(candidate);
+            return;
+        }
+        if (hole_chamfer_edge_selection_active_) {
+            accept_hole_chamfer_edge(candidate);
             return;
         }
         if (edge_treatment_selection_) {
@@ -4246,6 +4325,8 @@ void AssemblyWorkspaceWindow::create_layout() {
     viewer_->set_context_menu_callback(
         [this](const auto& candidate, const QPoint& global_position) {
             if (edge_treatment_selection_ || shell_face_selection_active_ ||
+                drill_point_face_selection_active_ ||
+                hole_chamfer_edge_selection_active_ ||
                 extrusion_target_dialog_ != nullptr ||
                 sketch_external_reference_active_ || sketch_trim_active_ ||
                 sketch_mirror_active_ || sketch_coincident_active_ ||
@@ -5264,6 +5345,8 @@ void AssemblyWorkspaceWindow::create_layout() {
                 pending_primitive_reference_index_ ||
                 extrusion_target_dialog_ != nullptr ||
                 edge_treatment_selection_ || shell_face_selection_active_ ||
+                drill_point_face_selection_active_ ||
+                hole_chamfer_edge_selection_active_ ||
                 sketch_external_reference_active_ || sketch_trim_active_ ||
                 sketch_mirror_active_ || sketch_coincident_active_ ||
                 sketch_midpoint_active_ || sketch_symmetric_active_ ||
@@ -6052,6 +6135,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         add_green_separator();
         add_command(fillet_action_);
         add_command(chamfer_action_);
+        add_command(hole_chamfer_action_);
         add_command(shell_action_);
         add_command(hole_action_);
         add_command(thread_action_);
@@ -6706,6 +6790,9 @@ void AssemblyWorkspaceWindow::start_edge_treatment(
         shell_dialog_ = nullptr;
         shell_face_selection_active_ = false;
         pending_shell_faces_.clear();
+        drill_point_dialog_ = nullptr;
+        drill_point_face_selection_active_ = false;
+        pending_drill_point_faces_.clear();
         tree_->setProperty("commandSelectionActive", false);
         viewer_->set_transient_edges({});
         viewer_->set_transient_dimensions({});
@@ -7082,6 +7169,167 @@ bool AssemblyWorkspaceWindow::finish_shell_face_selection() {
     refresh_shell_selection_ui();
     state_->setText(tr(
         "Výběr ploch Shellu ukončen. Kliknutím do seznamu jej znovu zapnete."));
+    return true;
+}
+
+void AssemblyWorkspaceWindow::accept_drill_point_face(
+        const zima::viewer::ViewerCandidate& candidate) {
+    if (!drill_point_face_selection_active_ || drill_point_dialog_ == nullptr)
+        return;
+    if (candidate.kind != zima::viewer::CandidateKind::Face ||
+        candidate.geometry != zima::viewer::CandidateGeometry::Display ||
+        candidate.owner_id.empty() || candidate.semantic_key.empty()) {
+        state_->setText(tr("Vyberte kruhovou koncovou plochu otvoru."));
+        return;
+    }
+    const auto* part = workspace_.open_part(workspace_.active_document_id());
+    if (part == nullptr) return;
+    const auto expected_path = resolve_active_occurrence(
+        part->session.document().document_id).value_or(std::string{});
+    if (candidate.instance_path != expected_path) return;
+    const zima::kernel::FaceReference face{
+        candidate.owner_id, candidate.semantic_key, {}};
+    if (std::ranges::find(pending_drill_point_faces_, face) ==
+            pending_drill_point_faces_.end()) {
+        pending_drill_point_faces_.push_back(face);
+    }
+    refresh_drill_point_selection_ui();
+    state_->setText(tr("Vybraná dna otvorů: %1.")
+        .arg(pending_drill_point_faces_.size()));
+}
+
+void AssemblyWorkspaceWindow::refresh_drill_point_selection_ui() {
+    if (drill_point_dialog_ == nullptr || viewer_ == nullptr) return;
+    const auto* part = workspace_.open_part(workspace_.active_document_id());
+    const std::string instance_path = part == nullptr ? std::string{}
+        : resolve_active_occurrence(part->session.document().document_id)
+            .value_or(std::string{});
+    drill_point_dialog_->set_drill_point_faces(pending_drill_point_faces_);
+    drill_point_dialog_->set_drill_point_face_selection_active(
+        drill_point_face_selection_active_);
+    std::set<zima::viewer::EdgeKey> highlighted_faces;
+    for (const auto& face : pending_drill_point_faces_) {
+        highlighted_faces.insert(
+            {face.owner_id, face.semantic_key, instance_path});
+    }
+    viewer_->set_constraint_reference_highlights(
+        {}, std::move(highlighted_faces));
+    viewer_->clear_selection();
+    tree_->setProperty("commandSelectionActive",
+        drill_point_face_selection_active_);
+    if (!drill_point_face_selection_active_) {
+        viewer_->set_selection_contract({});
+        viewer_->set_candidate_filter([](const auto&) { return false; });
+        return;
+    }
+    viewer_->set_selection_contract({zima::viewer::CandidateKind::Face});
+    viewer_->set_candidate_filter(
+        [expected_path = instance_path](const auto& candidate) {
+            return candidate.kind == zima::viewer::CandidateKind::Face &&
+                candidate.geometry ==
+                    zima::viewer::CandidateGeometry::Display &&
+                candidate.instance_path == expected_path &&
+                !candidate.owner_id.empty() &&
+                !candidate.semantic_key.empty();
+        });
+}
+
+void AssemblyWorkspaceWindow::remove_drill_point_face(std::size_t index) {
+    if (index >= pending_drill_point_faces_.size()) return;
+    pending_drill_point_faces_.erase(
+        pending_drill_point_faces_.begin() + index);
+    refresh_drill_point_selection_ui();
+}
+
+bool AssemblyWorkspaceWindow::finish_drill_point_face_selection() {
+    if (!drill_point_face_selection_active_ || drill_point_dialog_ == nullptr)
+        return false;
+    drill_point_face_selection_active_ = false;
+    refresh_drill_point_selection_ui();
+    state_->setText(tr(
+        "Výběr den otvorů ukončen. Kliknutím do seznamu jej znovu zapnete."));
+    return true;
+}
+
+void AssemblyWorkspaceWindow::accept_hole_chamfer_edge(
+        const zima::viewer::ViewerCandidate& candidate) {
+    if (!hole_chamfer_edge_selection_active_ ||
+        hole_chamfer_dialog_ == nullptr) return;
+    if (candidate.kind != zima::viewer::CandidateKind::Edge ||
+        candidate.geometry != zima::viewer::CandidateGeometry::Display ||
+        candidate.owner_id.empty() || candidate.semantic_key.empty()) {
+        state_->setText(tr("Vyberte kruhovou hranu otvoru."));
+        return;
+    }
+    const auto* part = workspace_.open_part(workspace_.active_document_id());
+    if (part == nullptr) return;
+    const auto expected_path = resolve_active_occurrence(
+        part->session.document().document_id).value_or(std::string{});
+    if (candidate.instance_path != expected_path) return;
+    const zima::kernel::EdgeReference edge{
+        candidate.owner_id, candidate.semantic_key, {}};
+    if (std::ranges::find(pending_hole_chamfer_edges_, edge) ==
+            pending_hole_chamfer_edges_.end()) {
+        pending_hole_chamfer_edges_.push_back(edge);
+    }
+    refresh_hole_chamfer_selection_ui();
+    state_->setText(tr("Vybrané hrany otvorů: %1.")
+        .arg(pending_hole_chamfer_edges_.size()));
+}
+
+void AssemblyWorkspaceWindow::refresh_hole_chamfer_selection_ui() {
+    if (hole_chamfer_dialog_ == nullptr || viewer_ == nullptr) return;
+    const auto* part = workspace_.open_part(workspace_.active_document_id());
+    const std::string instance_path = part == nullptr ? std::string{}
+        : resolve_active_occurrence(part->session.document().document_id)
+            .value_or(std::string{});
+    hole_chamfer_dialog_->set_hole_chamfer_edges(
+        pending_hole_chamfer_edges_);
+    hole_chamfer_dialog_->set_hole_chamfer_edge_selection_active(
+        hole_chamfer_edge_selection_active_);
+    std::set<zima::viewer::EdgeKey> highlighted_edges;
+    for (const auto& edge : pending_hole_chamfer_edges_) {
+        highlighted_edges.insert(
+            {edge.owner_id, edge.semantic_key, instance_path});
+    }
+    viewer_->set_constraint_reference_highlights(
+        {}, std::move(highlighted_edges));
+    viewer_->clear_selection();
+    tree_->setProperty("commandSelectionActive",
+        hole_chamfer_edge_selection_active_);
+    if (!hole_chamfer_edge_selection_active_) {
+        viewer_->set_selection_contract({});
+        viewer_->set_candidate_filter([](const auto&) { return false; });
+        return;
+    }
+    viewer_->set_selection_contract({zima::viewer::CandidateKind::Edge});
+    viewer_->set_candidate_filter(
+        [this, expected_path = instance_path](const auto& candidate) {
+            if (candidate.kind != zima::viewer::CandidateKind::Edge ||
+                candidate.geometry !=
+                    zima::viewer::CandidateGeometry::Display ||
+                candidate.instance_path != expected_path ||
+                candidate.owner_id.empty() ||
+                candidate.semantic_key.empty()) return false;
+            const auto edge = viewer_->candidate_edge(candidate);
+            return edge && viewer_edge_is_circular(*edge);
+        });
+}
+
+void AssemblyWorkspaceWindow::remove_hole_chamfer_edge(std::size_t index) {
+    if (index >= pending_hole_chamfer_edges_.size()) return;
+    pending_hole_chamfer_edges_.erase(
+        pending_hole_chamfer_edges_.begin() + index);
+    refresh_hole_chamfer_selection_ui();
+}
+
+bool AssemblyWorkspaceWindow::finish_hole_chamfer_edge_selection() {
+    if (!hole_chamfer_edge_selection_active_ ||
+        hole_chamfer_dialog_ == nullptr) return false;
+    hole_chamfer_edge_selection_active_ = false;
+    refresh_hole_chamfer_selection_ui();
+    state_->setText(tr(
+        "Výběr hran otvorů ukončen. Kliknutím do seznamu jej znovu zapnete."));
     return true;
 }
 
@@ -7572,6 +7820,8 @@ void AssemblyWorkspaceWindow::accept_orientation_reference(
 }
 
 bool AssemblyWorkspaceWindow::finish_active_reference_selection() {
+    if (finish_hole_chamfer_edge_selection()) return true;
+    if (finish_drill_point_face_selection()) return true;
     if (finish_shell_face_selection()) return true;
     const bool handled = extrusion_target_dialog_ != nullptr ||
         primitive_reference_dialog_ != nullptr ||
@@ -9114,7 +9364,9 @@ AssemblyWorkspaceWindow::calculate_part_with_resolved_references(
             construction_reference_source_geometry(calculated));
         const bool external_references_changed =
             refresh_sketch_external_references(document, calculated);
-        if (!external_references_changed &&
+        const bool drill_points_changed =
+            prune_missing_drill_point_references(document, calculated);
+        if (!external_references_changed && !drill_points_changed &&
             document.history == history_before &&
             document.constructions == constructions_before) {
             return calculated;
@@ -9334,6 +9586,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             ? zima::document::PartDocument::create_thread_container()
         : feature_kind == zima::document::FeatureKind::DrillPoint
             ? zima::document::PartDocument::create_drill_point_container()
+        : feature_kind == zima::document::FeatureKind::HoleChamfer
+            ? zima::document::PartDocument::create_hole_chamfer_container()
         : feature_kind == zima::document::FeatureKind::Sphere
             ? zima::document::PartDocument::create_sphere_container()
         : feature_kind == zima::document::FeatureKind::Cone
@@ -9347,6 +9601,26 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         : feature_kind == zima::document::FeatureKind::Revolution
             ? zima::document::PartDocument::create_revolution_container(source_sketch_id)
             : zima::document::PartDocument::create_box_container();
+    if (feature_kind == zima::document::FeatureKind::DrillPoint && part != nullptr) {
+        const zima::kernel::BodyResult* input_body = nullptr;
+        if (rollback_boundary && rollback_boundary->input_body) {
+            input_body = &*rollback_boundary->input_body;
+        } else if (!part->session.calculated_boundaries().empty()) {
+            input_body = &part->session.calculated_boundaries().back();
+        }
+        if (input_body != nullptr) {
+            const auto& available =
+                input_body->mesh.original_references.triangle_references;
+            std::erase_if(initial.drill_point.bottom_faces,
+                [&](const auto& face) {
+                    return std::ranges::none_of(available,
+                        [&](const auto& candidate) {
+                            return candidate.owner_id == face.owner_id &&
+                                candidate.semantic_key == face.semantic_key;
+                        });
+                });
+        }
+    }
     if (pending_owned_sketch) {
         pending_owned_sketch->owner_container_id = initial.id;
         // The transient owned Sketch and its profile feature must share one
@@ -9440,10 +9714,6 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                     zima::document::FeatureKind::Hole ||
                 committed.feature_kind ==
                     zima::document::FeatureKind::Thread) {
-                normalize_owned_profile_front_references(
-                    committed.placement.references);
-            } else if (committed.feature_kind ==
-                    zima::document::FeatureKind::DrillPoint) {
                 normalize_owned_profile_front_references(
                     committed.placement.references);
             }
@@ -10633,6 +10903,37 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     }
     properties_dialog_ = dialog;
     const std::string dialog_container_id = initial.id;
+    if (!assembly_cut &&
+        feature_kind == zima::document::FeatureKind::DrillPoint) {
+        drill_point_dialog_ = dialog;
+        pending_drill_point_faces_ = initial.drill_point.bottom_faces;
+        drill_point_face_selection_active_ = true;
+        dialog->set_drill_point_face_callbacks(
+            [this](std::size_t index) { remove_drill_point_face(index); },
+            [this] {
+                drill_point_face_selection_active_ = true;
+                refresh_drill_point_selection_ui();
+                state_->setText(tr(
+                    "Vyberte kruhová dna otvorů pro vrtací špičky."));
+            });
+        refresh_drill_point_selection_ui();
+    }
+    if (!assembly_cut &&
+        feature_kind == zima::document::FeatureKind::HoleChamfer) {
+        hole_chamfer_dialog_ = dialog;
+        pending_hole_chamfer_edges_ =
+            initial.edge_treatment.flattened_edges();
+        hole_chamfer_edge_selection_active_ = true;
+        dialog->set_hole_chamfer_edge_callbacks(
+            [this](std::size_t index) { remove_hole_chamfer_edge(index); },
+            [this] {
+                hole_chamfer_edge_selection_active_ = true;
+                refresh_hole_chamfer_selection_ui();
+                state_->setText(tr(
+                    "Vyberte kruhové hrany otvorů pro sražení."));
+            });
+        refresh_hole_chamfer_selection_ui();
+    }
     if (edit_mode && !assembly_cut &&
         (feature_kind == zima::document::FeatureKind::Fillet ||
          feature_kind == zima::document::FeatureKind::Chamfer)) {
@@ -10781,6 +11082,12 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         shell_dialog_ = nullptr;
         shell_face_selection_active_ = false;
         pending_shell_faces_.clear();
+        drill_point_dialog_ = nullptr;
+        drill_point_face_selection_active_ = false;
+        pending_drill_point_faces_.clear();
+        hole_chamfer_dialog_ = nullptr;
+        hole_chamfer_edge_selection_active_ = false;
+        pending_hole_chamfer_edges_.clear();
         extrusion_target_dialog_ = nullptr;
         extrusion_target_assembly_cut_ = false;
         primitive_reference_dialog_ = nullptr;
@@ -10827,7 +11134,11 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     // disabled until the user explicitly requests one placement/Up-to
     // reference field; that command installs its own exact selection
     // contract and returns here after one confirmed pick.
-    if (shell_dialog_ != nullptr) {
+    if (hole_chamfer_dialog_ != nullptr) {
+        refresh_hole_chamfer_selection_ui();
+    } else if (drill_point_dialog_ != nullptr) {
+        refresh_drill_point_selection_ui();
+    } else if (shell_dialog_ != nullptr) {
         refresh_shell_selection_ui();
     } else if (edge_treatment_selection_) {
         refresh_edge_treatment_selection_ui();
@@ -12465,26 +12776,14 @@ void AssemblyWorkspaceWindow::start_primitive_reference_selection(
         : zima::assembly::InstancePath::decode(active_occurrence_path_);
     const bool active_part =
         workspace_.open_part(workspace_.active_document_id()) != nullptr;
-    const auto* primitive_properties = dynamic_cast<PrimitivePropertiesDialog*>(
-        primitive_reference_dialog_);
-    const bool drill_point = primitive_properties != nullptr &&
-        primitive_properties->feature_kind() ==
-            zima::document::FeatureKind::DrillPoint;
     viewer_->set_candidate_filter([this, prefix, active_part, index,
             orientation_reference, direction_reference, orientation_origin,
-            baseline_references, baseline_dof, auto_advance, drill_point](
+            baseline_references, baseline_dof, auto_advance](
                 const auto& candidate) {
         if (candidate.kind == zima::viewer::CandidateKind::Dimension &&
             candidate.owner_id == construction_dimension_object_id_ &&
             candidate.semantic_key.starts_with("parameter:")) return true;
         if (!placement_reference_candidate_has_stable_geometry(candidate)) return false;
-        if (drill_point && index < 3 &&
-            ((index == 0 && candidate.kind !=
-                    zima::viewer::CandidateKind::Axis) ||
-             (index == 1 && candidate.kind !=
-                    zima::viewer::CandidateKind::Face) || index > 1)) {
-            return false;
-        }
         if (primitive_reference_dialog_ == nullptr ||
             primitive_reference_dialog_->owns_reference_owner(candidate.owner_id))
             return false;
@@ -12695,18 +12994,6 @@ void AssemblyWorkspaceWindow::accept_primitive_reference(
         local_path = path.encoded();
     }
     const std::size_t selected_index = *pending_primitive_reference_index_;
-    auto* primitive_properties = dynamic_cast<PrimitivePropertiesDialog*>(
-        primitive_reference_dialog_);
-    const bool drill_point = primitive_properties != nullptr &&
-        primitive_properties->feature_kind() ==
-            zima::document::FeatureKind::DrillPoint;
-    if (drill_point && selected_index < 3 &&
-        ((selected_index == 0 && candidate.kind !=
-                zima::viewer::CandidateKind::Axis) ||
-         (selected_index == 1 && candidate.kind !=
-                zima::viewer::CandidateKind::Face) || selected_index > 1)) {
-        return;
-    }
     const bool orientation_reference = selected_index >= 3;
     auto baseline_references =
         primitive_reference_dialog_->references_without(selected_index);
@@ -12737,7 +13024,6 @@ void AssemblyWorkspaceWindow::accept_primitive_reference(
         viewer_->clear_selection();
         return;
     }
-    const auto committed_instance_path = local_path;
     auto proposed_reference = zima::document::ConstructionReference{
         local_path, candidate.owner_id, candidate.semantic_key, 0.0,
         candidate_supports_offset(candidate)};
@@ -12800,18 +13086,12 @@ void AssemblyWorkspaceWindow::accept_primitive_reference(
         : tr("Plocha");
     reference_label = reference_label.isEmpty()
         ? semantic_label : reference_label + QStringLiteral(" — ") + semantic_label;
-    const bool auto_advance = primitive_reference_auto_advance_ &&
-        !(drill_point && selected_index == 1);
+    const bool auto_advance = primitive_reference_auto_advance_;
     if (!primitive_reference_dialog_->set_reference(
         selected_index, std::move(committed_reference), reference_label)) {
         state_->setText(tr("Stejná reference už je pro toto umístění zadaná."));
         viewer_->clear_selection();
         return;
-    }
-    if (drill_point && selected_index == 1) {
-        primitive_properties->set_drill_point_bottom_face({
-            candidate.owner_id, candidate.semantic_key,
-            committed_instance_path});
     }
     if (auto_advance)
         primitive_reference_dialog_->set_reference_inspected(selected_index, true);
@@ -22488,7 +22768,8 @@ void AssemblyWorkspaceWindow::regenerate_active_part() {
             : calculated.back().mesh.original_references);
         const bool references_changed =
             refresh_sketch_external_references(next, calculated) |
-            workspace_.refresh_context_external_references(next);
+            workspace_.refresh_context_external_references(next) |
+            prune_missing_drill_point_references(next, calculated);
         if (references_changed) calculated = calculate_part(next, &calculated);
         if (references_changed || next.constructions != previous_constructions) {
             part->session.commit(std::move(next), std::move(calculated));
@@ -23187,27 +23468,6 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                         linear("length_reverse", "Zpětná délka = ", origin,
                             axial(-reverse), {8,8,0}, reverse);
                     }
-                } else if (container->feature_kind ==
-                        FeatureKind::DrillPoint) {
-                    const double half = container->drill_point
-                        .included_angle_degrees * std::numbers::pi / 360.0;
-                    constexpr double cue_length = 12.0;
-                    const auto first = local(
-                        cue_length * std::sin(half), 0.0,
-                        cue_length * std::cos(half));
-                    const auto second = local(
-                        -cue_length * std::sin(half), 0.0,
-                        cue_length * std::cos(half));
-                    mesh.dimensions.push_back({origin, origin, first, second,
-                        container->drill_point.included_angle_degrees,
-                        {container->id, "parameter:included_angle", {}},
-                        "", "°"});
-                    auto& dimension = mesh.dimensions.back();
-                    dimension.kind =
-                        zima::kernel::ViewerDimensionKind::Angular;
-                    dimension.plane_normal = local_vector({0.0, 1.0, 0.0});
-                    dimension.sweep_degrees =
-                        container->drill_point.included_angle_degrees;
                 } else if (container->feature_kind == FeatureKind::Sphere) {
                     radius("radius", origin,
                         local(container->sphere.radius,0,0), {0,6,0},
@@ -23772,7 +24032,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                              sweep_3d_action_,
                              construction_axis_action_, construction_plane_action_,
                              sketch_action_, extrusion_action_, revolution_action_,
-                             fillet_action_, chamfer_action_, shell_action_,
+                             fillet_action_, chamfer_action_, hole_chamfer_action_, shell_action_,
                              regenerate_part_action_,
                              sketch_normal_view_action_,
                              sketch_flip_view_action_, sketch_rotate_view_action_,
@@ -24550,6 +24810,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         wedge_action_->setEnabled(true);
         fillet_action_->setEnabled(!document.history.empty());
         chamfer_action_->setEnabled(!document.history.empty());
+        hole_chamfer_action_->setEnabled(!document.history.empty());
         shell_action_->setEnabled(!document.history.empty());
         construction_point_action_->setEnabled(true);
         curve_3d_action_->setEnabled(true);
@@ -25026,6 +25287,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     fillet_action_->setEnabled(active_part != nullptr &&
         !active_part->session.document().history.empty());
     chamfer_action_->setEnabled(active_part != nullptr &&
+        !active_part->session.document().history.empty());
+    hole_chamfer_action_->setEnabled(active_part != nullptr &&
         !active_part->session.document().history.empty());
     shell_action_->setEnabled(active_part != nullptr &&
         !active_part->session.document().history.empty());

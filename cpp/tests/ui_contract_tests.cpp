@@ -1045,14 +1045,14 @@ int main(int argc, char* argv[]) {
                     "primitiveSubtractOperation") == nullptr,
             "Drill Point incorrectly exposes a selectable Boolean operation");
         drill_angle->setValue(120.0);
-        require(drill_point_dialog->set_reference(
-                    0, {{}, "hole", "axis:primary"}, "Osa otvoru") &&
-                drill_point_dialog->set_reference(
-                    1, {{}, "hole", "face:bottom", 0.0, true},
-                    "Dno otvoru"),
-            "Drill Point Properties rejected its general container placement");
-        drill_point_dialog->set_drill_point_bottom_face(
-            {"hole", "face:bottom", {}});
+        require(drill_point_dialog->findChild<QListWidget*>(
+                    "drillPointFaces") != nullptr &&
+                drill_point_dialog->findChild<QWidget*>(
+                    "primitiveReferenceTable") == nullptr,
+            "Drill Point does not expose its dedicated face-list contract");
+        drill_point_dialog->set_drill_point_faces({
+            {"hole-a", "face:bottom", {}},
+            {"hole-b", "face:bottom", {}}});
         drill_point_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
         application.processEvents();
         require(committed_drill_point.feature_kind ==
@@ -1061,8 +1061,40 @@ int main(int argc, char* argv[]) {
                     zima::document::CombineMode::Subtract &&
                 committed_drill_point.drill_point.included_angle_degrees ==
                     120.0 &&
-                committed_drill_point.drill_point.bottom_face.valid(),
-            "Drill Point Properties did not commit its face and included angle");
+                committed_drill_point.drill_point.bottom_faces.size() == 2,
+            "Drill Point Properties did not commit its faces and included angle");
+
+        auto hole_chamfer_initial =
+            zima::document::PartDocument::create_hole_chamfer_container();
+        zima::document::HistoryContainer committed_hole_chamfer;
+        auto* hole_chamfer_dialog = new zima::app::PrimitivePropertiesDialog(
+            hole_chamfer_initial, false, true,
+            [&](zima::document::HistoryContainer value) {
+                committed_hole_chamfer = std::move(value);
+            }, &parent);
+        hole_chamfer_dialog->show();
+        application.processEvents();
+        auto* chamfer_depth = hole_chamfer_dialog->findChild<QDoubleSpinBox*>(
+            "holeChamferDepth");
+        auto* chamfer_angle = hole_chamfer_dialog->findChild<QDoubleSpinBox*>(
+            "holeChamferAngle");
+        require(chamfer_depth != nullptr && chamfer_angle != nullptr &&
+                hole_chamfer_dialog->findChild<QListWidget*>(
+                    "holeChamferEdges") != nullptr,
+            "Hole Chamfer Properties does not expose depth, angle and edge list");
+        chamfer_depth->setValue(1.5);
+        chamfer_angle->setValue(45.0);
+        hole_chamfer_dialog->set_hole_chamfer_edges({
+            {"hole-a", "circle:entrance", {}},
+            {"hole-b", "circle:entrance", {}}});
+        hole_chamfer_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
+        application.processEvents();
+        require(committed_hole_chamfer.feature_kind ==
+                    zima::document::FeatureKind::HoleChamfer &&
+                committed_hole_chamfer.edge_treatment.primary_size == 1.5 &&
+                committed_hole_chamfer.edge_treatment.angle_degrees == 45.0 &&
+                committed_hole_chamfer.edge_treatment.flattened_edges().size() == 2,
+            "Hole Chamfer Properties did not commit its shared parameters and edges");
 
         auto sphere_initial = zima::document::PartDocument::create_sphere_container();
         zima::document::HistoryContainer committed_sphere;
