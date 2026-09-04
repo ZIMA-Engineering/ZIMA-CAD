@@ -1499,6 +1499,54 @@ int main() {
                         construction_symmetric.dimensions,
                 "Symmetric dimension did not support a construction axis or persistence");
 
+        // A common revolved-profile construction dimensions the intersection
+        // of a sloped wall with one datum axis symmetrically about the other.
+        // Editing that diameter must move the supporting wall as coupled
+        // geometry; moving only the intersection point makes PointOnLine put
+        // it straight back and falsely reports an overconstraint.
+        auto intersection_symmetric = zima::sketcher::Sketch::create_default();
+        const auto wall = intersection_symmetric.add_segment(
+            13.0, 1.0, 17.0, -3.0);
+        const auto intersection = intersection_symmetric.add_point(14.0, 0.0);
+        static_cast<void>(intersection_symmetric.add_point_on_line_constraint(
+            intersection, "sketch_axis:x"));
+        static_cast<void>(intersection_symmetric.add_point_on_line_constraint(
+            intersection, wall));
+        auto intersection_diameter =
+            intersection_symmetric.create_symmetric_dimension(
+                intersection, {}, "sketch_axis:y");
+        intersection_symmetric.apply_dimension(intersection_diameter);
+        require(intersection_symmetric.set_dimension_value(
+                    intersection_diameter.id, 40.0) &&
+                    std::abs(intersection_symmetric.find_point(intersection)->x -
+                        20.0) < 1.0e-7,
+                "Editing a symmetric intersection dimension did not move its "
+                "point-on-line support geometry");
+
+        auto revolved_wall = zima::sketcher::Sketch::create_default();
+        const auto wall_segment = revolved_wall.add_segment(
+            11.5, 1.0, 16.13592489, -3.63592489);
+        auto wall_angle = revolved_wall.create_line_symmetric_dimension(
+            "sketch_axis:y", wall_segment, {},
+            zima::sketcher::DimensionKind::AngleSymmetric);
+        revolved_wall.apply_dimension(wall_angle);
+        const auto revolved_wall_segment = std::ranges::find_if(
+            revolved_wall.segments,
+            [&](const auto& value) { return value.id == wall_segment; });
+        const auto wall_anchor = revolved_wall_segment->first_point_id;
+        auto wall_diameter = revolved_wall.create_symmetric_dimension(
+            wall_anchor, {}, "sketch_axis:y");
+        revolved_wall.apply_dimension(wall_diameter);
+        require(revolved_wall.set_dimension_value(wall_diameter.id, 30.0) &&
+                    std::abs(revolved_wall.find_point(wall_anchor)->x -
+                        15.0) < 1.0e-7 &&
+                    std::abs(std::ranges::find_if(
+                        revolved_wall.dimensions, [&](const auto& value) {
+                            return value.id == wall_angle.id;
+                        })->value - wall_angle.value) < 1.0e-7,
+                "Editing a revolve-profile symmetric diameter fought the "
+                "symmetric angle on the same wall");
+
         auto three_point_angle = zima::sketcher::Sketch::create_default();
         const auto three_angle_first = three_point_angle.add_point(1.0, 2.0);
         const auto three_angle_vertex = three_point_angle.add_point(0.0, 2.0);

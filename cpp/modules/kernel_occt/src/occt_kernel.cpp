@@ -2,6 +2,7 @@
 
 #include <BRepGProp.hxx>
 #include <BRepBndLib.hxx>
+#include <BRepLib.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepAlgoAPI_Common.hxx>
@@ -1615,6 +1616,9 @@ PrimitiveData make_extrusion_data(
             }
             const auto& point_id = vertex_sources[wire_index][boundary_edge];
             const TopoDS_Vertex vertex = TopExp::FirstVertex(edge, true);
+            const TopoDS_Vertex end_vertex = TopExp::LastVertex(edge, true);
+            const bool closed_profile_curve = !vertex.IsNull() &&
+                !end_vertex.IsNull() && vertex.IsSame(end_vertex);
             const auto first_vertex = prism.FirstShape(vertex);
             const auto last_vertex = prism.LastShape(vertex);
             if (!first_vertex.IsNull()) {
@@ -1627,10 +1631,12 @@ PrimitiveData make_extrusion_data(
             }
             const auto& generated_from_vertex = prism.Generated(vertex);
             for (TopTools_ListIteratorOfListOfShape iterator(generated_from_vertex);
-                 iterator.More(); iterator.Next()) {
+                iterator.More(); iterator.Next()) {
                 if (iterator.Value().ShapeType() == TopAbs_EDGE) {
                     result.edges.push_back(
-                        {iterator.Value(), {owner_id, "generated:" + point_id}});
+                        {iterator.Value(), {owner_id,
+                            (closed_profile_curve ? "seam:generated:"
+                                                  : "generated:") + point_id}});
                 }
             }
         }
@@ -3616,6 +3622,31 @@ BodyResult make_result(
             ? reference : EdgeReference{};
         viewer_edge.display_owner_id = reference.owner_id;
         const int edge_index = edge_faces.FindIndex(edge);
+        if (edge_index != 0) {
+            std::vector<TopoDS_Face> adjacent_faces;
+            for (TopTools_ListIteratorOfListOfShape iterator(
+                     edge_faces.FindFromIndex(edge_index));
+                 iterator.More(); iterator.Next()) {
+                const auto face = TopoDS::Face(iterator.Value());
+                if (BRep_Tool::IsClosed(edge, face)) {
+                    viewer_edge.parameter_seam = true;
+                }
+                if (std::none_of(adjacent_faces.begin(), adjacent_faces.end(),
+                        [&](const auto& existing) {
+                            return existing.IsSame(face);
+                        })) adjacent_faces.push_back(face);
+            }
+            if (!viewer_edge.parameter_seam && adjacent_faces.size() == 2) {
+                const BRepAdaptor_Surface first(adjacent_faces[0], true);
+                const BRepAdaptor_Surface second(adjacent_faces[1], true);
+                if (first.GetType() == GeomAbs_Cylinder &&
+                    second.GetType() == GeomAbs_Cylinder &&
+                    BRepLib::ContinuityOfFaces(edge, adjacent_faces[0],
+                        adjacent_faces[1], 1.0e-6) != GeomAbs_C0) {
+                    viewer_edge.parameter_seam = true;
+                }
+            }
+        }
         if (face_references) {
             std::map<std::string, std::size_t> treatment_face_counts;
             if (edge_index != 0) {
@@ -5453,6 +5484,34 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                 result_shape, owned_topology);
         }
         if (!boundaries.empty()) {
+            std::set<std::string> subtract_owner_ids;
+            for (const auto& operation : operations) {
+                if (operation.operation == BooleanOperation::Subtract)
+                    subtract_owner_ids.insert(operation.owner_id);
+            }
+            // Reference geometry for a subtractive tool initially describes
+            // its standalone start/end rims. After the Boolean, the visible
+            // opening can be either a modified descendant of that same rim or
+            // a new explicit intersection child. Persist the actual surviving
+            // descendant geometry under its already-defined ZIMA identity;
+            // otherwise the picker sees the correct circular opening in the
+            // display packet but can only offer an obsolete rim outside the
+            // retained body from the reference packet.
+            for (const auto& edge :
+                 boundaries.back().mesh.edges) {
+                if (!subtract_owner_ids.contains(edge.reference.owner_id))
+                    continue;
+                const auto existing = std::find_if(
+                    original_references.edges.begin(),
+                    original_references.edges.end(), [&](const auto& existing) {
+                        return existing.reference == edge.reference;
+                    });
+                if (existing == original_references.edges.end()) {
+                    original_references.edges.push_back(edge);
+                } else {
+                    *existing = edge;
+                }
+            }
             boundaries.back().mesh.original_references =
                 std::move(original_references);
             // Feature-generated axes are both persisted references and
@@ -5466,6 +5525,12 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                     boundaries.back().mesh.axes.push_back(axis);
                 }
             }
+        }
+        for (auto& boundary : boundaries) {
+            std::erase_if(boundary.mesh.edges, [](const auto& edge) {
+                return edge.reference.semantic_key == "seam" ||
+                    edge.reference.semantic_key.starts_with("seam:");
+            });
         }
         compact_history_reference_geometry(boundaries);
         return boundaries;

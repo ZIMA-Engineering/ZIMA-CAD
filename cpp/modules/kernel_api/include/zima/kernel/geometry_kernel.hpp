@@ -72,6 +72,9 @@ struct ViewerEdge {
     // as an unbounded line in the active Sketch plane.
     bool infinite{};
     bool dash_dot{};
+    // True only for an edge closing the UV parameterization of a periodic
+    // surface. It remains persisted topology but is neither drawn nor picked.
+    bool parameter_seam{};
     // Viewer-only ownership of an already calculated body wire. It never
     // forms a persistent topology reference; it only lets a Container hover
     // recolour the existing GL edge instead of drawing a second overlay.

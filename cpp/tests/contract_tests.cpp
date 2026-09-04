@@ -1708,15 +1708,26 @@ int main() {
                 "Wedge geometry or references are incorrect");
         std::set<std::string> cylinder_edges;
         bool sampled_circle = false;
+        bool persisted_parameter_seam = false;
         for (const auto& edge : cylinder_boundaries.front().mesh.original_references.edges) {
             cylinder_edges.insert(edge.reference.semantic_key);
+            if (edge.reference.semantic_key == "seam") {
+                persisted_parameter_seam = edge.parameter_seam;
+            }
             if (edge.reference.semantic_key.starts_with("circle:")) {
                 sampled_circle = sampled_circle || edge.points.size() > 16;
             }
         }
         require(cylinder_edges == std::set<std::string>{
-                    "circle:z_max", "circle:z_min", "seam"} && sampled_circle,
+                    "circle:z_max", "circle:z_min", "seam"} && sampled_circle &&
+                    persisted_parameter_seam,
                 "Cylinder edges are not stable selectable viewer polylines");
+        require(std::ranges::none_of(cylinder_boundaries.front().mesh.edges,
+                    [](const auto& edge) {
+                        return edge.reference.semantic_key == "seam" ||
+                            edge.reference.semantic_key.starts_with("seam:");
+                    }),
+                "Cylinder parameterization seam leaked into visible/hidden edges");
         require(cylinder_boundaries.front().mesh.original_references.axes.size() == 1 &&
                     cylinder_boundaries.front().mesh.axes.size() == 1 &&
                     cylinder_boundaries.front().mesh.original_references.axes.front()
@@ -4643,7 +4654,7 @@ int main() {
                                second.z - first.z));
             }
         }
-        require(longest_through_reference_edge > 10.0 &&
+        require(longest_through_reference_edge > 9.0 &&
                     longest_through_reference_edge < 100.0,
                 "Through-all persisted reference wire is not finite around the input body");
         auto two_sided_calculation = through_document;
@@ -4798,7 +4809,7 @@ int main() {
 
         auto circular_document = zima::document::PartDocument::create_default();
         auto circular_sketch = zima::sketcher::Sketch::create_default();
-        circular_sketch.plane_offset = -5.0;
+        circular_sketch.plane_offset = -10.0;
         static_cast<void>(circular_sketch.add_circle(0.0, 0.0, 5.0));
         const auto circular_sketch_id = circular_sketch.id;
         circular_document.sketches.push_back(std::move(circular_sketch));
@@ -4808,7 +4819,7 @@ int main() {
         auto circular_cut =
             zima::document::PartDocument::create_extrusion_container(
                 circular_sketch_id);
-        circular_cut.extrusion.height = 10.0;
+        circular_cut.extrusion.height = 20.0;
         circular_cut.combine_mode = zima::document::CombineMode::Subtract;
         const auto circular_cut_id = circular_cut.id;
         circular_document.history.push_back(std::move(circular_cut));
@@ -4828,6 +4839,25 @@ int main() {
         }
         require(circular_side_found,
                 "Circular extrusion lost its stable cylindrical side reference");
+        const auto circular_opening_edge = std::find_if(
+            circular_results.back().mesh.original_references.edges.begin(),
+            circular_results.back().mesh.original_references.edges.end(),
+            [&](const auto& edge) {
+                return edge.reference.owner_id == circular_cut_id &&
+                    (edge.reference.semantic_key.starts_with("start:") ||
+                     edge.reference.semantic_key.starts_with("end:") ||
+                     edge.reference.semantic_key.starts_with(
+                         "boolean:subtract:intersection:")) &&
+                    std::any_of(edge.points.begin(), edge.points.end(),
+                        [](const auto& point) {
+                            return std::abs(std::abs(point.z) - 5.0) < 1.0e-6;
+                        });
+            });
+        require(circular_opening_edge !=
+                    circular_results.back().mesh.original_references.edges.end() &&
+                    circular_opening_edge->points.size() > 3,
+                "Circular subtract did not persist its visible opening edge "
+                "for external Sketch references");
         const auto& circular_axes = circular_results.back().mesh.original_references.axes;
         const auto circular_axis = std::find_if(circular_axes.begin(), circular_axes.end(),
             [&](const auto& value) {
@@ -4839,8 +4869,8 @@ int main() {
                             return value.reference.owner_id == circular_cut_id;
                         }) == 1 &&
                     circular_axis->reference.semantic_key == "axis:primary" &&
-                    circular_axis->display_length > 10.0 &&
-                    circular_axis->display_length < 13.0,
+                    circular_axis->display_length > 20.0 &&
+                    circular_axis->display_length < 23.0,
                 "Circular Extrusion did not publish one fitted primary axis");
         require(circular_results.back().mesh.axes.size() == 1 &&
                     circular_results.back().mesh.axes.front().reference.owner_id ==

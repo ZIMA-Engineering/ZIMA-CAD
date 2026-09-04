@@ -1122,6 +1122,24 @@ jejích koncových bodů nemůže vytvořit reflexní úhel; symetrický úhel z
 rozsahu 0–180°. Inference druhého bodu úsečky současně nenabízí falešné H/V jen
 proto, že kurzor leží na nesouvisejícím existujícím bodu.
 
+Univerzální kóta podporuje také pořadí bod–osa–bod i osa–bod–bod. Po prvních
+dvou volbách zůstává živý náhled vzdálenosti bodu od osy; opakovaná volba téhož
+bodu vytvoří celkovou symetrickou kótu s dvojnásobnou hodnotou a jiný třetí bod
+vytvoří dvoubodovou symetrickou kótu. `DistanceSymmetric`,
+`DistanceLineSymmetric` a `AngleSymmetric` jsou plné rovnice Sketcher solveru:
+účastní se editace, tažení, DOF, redundance i round-trip. Při kombinaci průměru
+revolve profilu a symetrického úhlu na stejné šikmé stěně zůstává kótovaný
+vrchol kotvou a úhlová rovnice natáčí volný konec; bod ležící uvnitř nosné
+úsečky naopak přenáší posun i do této úsečky. Solver tak neosciluje mezi kótou
+a vazbou bodu na přímce.
+
+Transientní drát uzavřeného vytažení a rotačních primitiv používá stejnou
+úspornou konvenci jako OCCT prezentace: dvě koncové kružnice či profilové
+křivky a jedinou podélnou spojnici. Kužel a otvor mají rovněž jednu spojnici;
+koule jednu meridiánovou kružnici. Periodický B-Rep šev zůstává interně v OCCT,
+ale je v persistovaném viewer packetu označen `parameter_seam` a renderer ani
+picker jej nezobrazují či nenabízejí jako referenci.
+
 Nativní HistoryContainer **Otvor** skládá analytické válcové odebrání, volitelné
 vstupní a výstupní sražení či vrtací špičku a kosmetický závitový drát. Závit
 není plocha ani solid a sám nemění booleovský výsledek; následující odečítací

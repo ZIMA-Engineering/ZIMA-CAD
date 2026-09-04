@@ -2680,7 +2680,7 @@ bool Sketch::set_dimension_value(const std::string& dimension_id, double value) 
           found->kind == DimensionKind::EllipseRotation) &&
          (value < -180.0 || value > 180.0)) ||
         (found->kind == DimensionKind::AngleSymmetric &&
-         (value < 0.0 || value > 360.0)) ||
+         (value < 0.0 || value > 180.0)) ||
         (found->lower_limit && checked_value < *found->lower_limit) ||
         (found->upper_limit && checked_value > *found->upper_limit)) return false;
     auto updated = *found;
@@ -9158,8 +9158,38 @@ SolveResult Sketch::solve_impl(
                     maximum_residual = std::max(
                         maximum_residual, std::abs(correction));
                     if (std::abs(correction) <= tolerance) continue;
-                    const auto translated = point_translation_closure(
+                    auto translated = point_translation_closure(
                         *this, target_point_id);
+                    // If the dimensioned point is an explicit point-on-line
+                    // intersection, moving only that point is immediately
+                    // undone by the incidence constraint.  Carry its native
+                    // support segment along with it; the remaining solver
+                    // constraints can then position the complete coupled
+                    // geometry (for example a sloped wall meeting a datum
+                    // axis) instead of oscillating the point off and back
+                    // onto the unchanged line.
+                    for (const auto& constraint : constraints) {
+                        if (constraint.suppressed ||
+                            constraint.kind != ConstraintKind::PointOnLine ||
+                            constraint.first_point_id != target_point_id ||
+                            constraint.geometry_id == dimension.geometry_id) {
+                            continue;
+                        }
+                        const auto support = std::find_if(
+                            segments.begin(), segments.end(),
+                            [&](const auto& value) {
+                                return value.id == constraint.geometry_id;
+                            });
+                        if (support == segments.end()) continue;
+                        const auto first_closure = point_translation_closure(
+                            *this, support->first_point_id);
+                        const auto second_closure = point_translation_closure(
+                            *this, support->second_point_id);
+                        translated.insert(
+                            first_closure.begin(), first_closure.end());
+                        translated.insert(
+                            second_closure.begin(), second_closure.end());
+                    }
                     const auto reference_segment = std::find_if(
                         segments.begin(), segments.end(), [&](const auto& value) {
                             return value.id == dimension.geometry_id;
@@ -9432,11 +9462,39 @@ SolveResult Sketch::solve_impl(
                     SketchPoint* shared{};
                     SketchPoint* free_endpoint{};
                     double direction_sign{1.0};
+                    // When another driving dimension owns one endpoint, that
+                    // endpoint is the dimensional anchor.  Rotating both
+                    // endpoints about their midpoint would undo the other
+                    // dimension on the next solver pass and oscillate to a
+                    // false conflict (the usual revolve-profile case is a
+                    // diameter on the wall's upper endpoint plus a symmetric
+                    // angle on the wall itself).
+                    const auto driven_by_other_dimension =
+                        [&](const std::string& point_id) {
+                            return std::any_of(dimensions.begin(),
+                                dimensions.end(), [&](const auto& other) {
+                                    return !other.suppressed && other.driving &&
+                                        other.id != dimension.id &&
+                                        (other.first_point_id == point_id ||
+                                         other.second_point_id == point_id);
+                                });
+                        };
+                    const bool first_dimension_anchor =
+                        driven_by_other_dimension(driven_first->id);
+                    const bool second_dimension_anchor =
+                        driven_by_other_dimension(driven_second->id);
+                    if (first_dimension_anchor != second_dimension_anchor) {
+                        shared = first_dimension_anchor
+                            ? driven_first : driven_second;
+                        free_endpoint = first_dimension_anchor
+                            ? driven_second : driven_first;
+                        direction_sign = first_dimension_anchor ? 1.0 : -1.0;
+                    }
                     const auto reference_segment = std::find_if(
                         segments.begin(), segments.end(), [&](const auto& value) {
                             return value.id == dimension.geometry_id;
                         });
-                    if (reference_segment != segments.end()) {
+                    if (shared == nullptr && reference_segment != segments.end()) {
                         if (reference_segment->first_point_id == driven_first->id ||
                             reference_segment->second_point_id == driven_first->id) {
                             shared = driven_first;

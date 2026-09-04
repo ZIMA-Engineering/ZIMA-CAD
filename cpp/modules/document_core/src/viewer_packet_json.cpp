@@ -412,6 +412,7 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result) {
             {"owner", edge.reference.owner_id}, {"key", edge.reference.semantic_key},
             {"instance_path", edge.reference.instance_path},
             {"display_owner", edge.display_owner_id},
+            {"parameter_seam", edge.parameter_seam},
             {"edge_treatment_owners", edge.edge_treatment_owner_ids},
             {"edge_treatment_side_directions", std::move(side_directions)},
             {"edge_treatment_side_references", std::move(side_references)},
@@ -536,6 +537,7 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source) {
             edge.at("instance_path").get<std::string>()};
         loaded.display_owner_id =
             edge.at("display_owner").get<std::string>();
+        loaded.parameter_seam = edge.value("parameter_seam", false);
         loaded.edge_treatment_owner_ids =
             edge.at("edge_treatment_owners").get<std::vector<std::string>>();
         for (const auto& point : edge.at("points")) loaded.points.push_back(load_vec3(point));

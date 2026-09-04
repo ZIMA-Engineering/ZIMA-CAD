@@ -385,6 +385,21 @@ konec na stejnou délku, zobrazí `=`, oranžově zvýrazní referenční úseč
 potvrzení uloží skutečnou vazbu stejné délky. Tato nabídka nepřebíjí `C`,
 bodové `H/V` ani povinnou tečnou návaznost.
 
+Univerzální kóta přijímá symetrickou délkovou kótu posloupností **bod – osa –
+bod** (stejně také **osa – bod – bod**). Už po výběru bodu a osy zobrazuje
+editovatelný náhled kolmé vzdálenosti. Třetí výběr stejného bodu vytvoří
+průměrovou symetrickou kótu přes osu; výběr jiného bodu řídí oba body na
+opačných stranách osy polovinou celkové hodnoty. Osa může být hlavní osa skici
+nebo konstrukční čára. Symetrické bodové, lineární a úhlové kóty jsou řídicí
+rovnice solveru, nikoli pouze grafické anotace, a proto se podílejí na stupních
+volnosti, redundanci, editaci hodnoty i tažení geometrie.
+
+Pokud je kótovaný bod současně průsečíkem s nosnou úsečkou, solver přenese
+změnu do této úsečky a teprve potom dopočítá ostatní vazby. Jestliže koncový bod
+šikmé stěny řídí symetrická délková kóta a stěnu současně řídí symetrický úhel,
+zůstává tento bod kotvou a natáčí se volný konec stěny. Tím se obě řídicí kóty
+navzájem neruší ani u profilu určeného pro rotaci.
+
 Stejná délka se nabízí také při vodorovném nebo svislém zadávání. Náhled v
 takovém případě ukáže současně `=` a `H/V` a po potvrzení uloží obě nezávislé
 podmínky.

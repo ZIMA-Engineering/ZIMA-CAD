@@ -6386,7 +6386,22 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
         }
         result.push_back(start);
         result.push_back(end);
-        const std::size_t samples[] = {0, source.points.size() - 1};
+        const auto distance = [](const auto& first, const auto& second) {
+            return std::hypot(std::hypot(first.x-second.x,
+                                         first.y-second.y),
+                              first.z-second.z);
+        };
+        const bool closed = source.points.size() > 3 &&
+            distance(source.points.front(), source.points.back()) <= 1.0e-7;
+        const std::size_t distinct_count = closed
+            ? source.points.size() - 1 : source.points.size();
+        // Match the compact OCCT rotational wire convention: a closed swept
+        // profile has its two end loops and one longitudinal connector.  A
+        // second, artificial opposite connector made the transient wire look
+        // unlike the calculated body.
+        const std::vector<std::size_t> samples = closed
+            ? std::vector<std::size_t>{distinct_count / 4}
+            : std::vector<std::size_t>{0, source.points.size() - 1};
         for (const auto index : samples) {
             result.push_back({{start.points[index], end.points[index]},
                               {container.id, "preview:side", {}}});
@@ -6508,7 +6523,7 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::primitive_preview_edges(
         const double height = container.cylinder.height;
         circle(radius, 0.0, "cylinder:bottom");
         circle(radius, height, "cylinder:top");
-        for (int index = 0; index < 4; ++index) {
+        for (int index = 0; index < 1; ++index) {
             const double angle = 0.5 * std::numbers::pi * index;
             const double x = radius * std::cos(angle);
             const double y = radius * std::sin(angle);
@@ -6528,7 +6543,7 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::primitive_preview_edges(
         if (referenced_work_plane) {
             circle(radius, 0.0, "hole:bore:start", 1);
             circle(radius, height, "hole:bore:end", 1);
-            for (int index = 0; index < 4; ++index) {
+            for (int index = 0; index < 1; ++index) {
                 const double angle = 0.5 * std::numbers::pi * index;
                 const double x = radius * std::cos(angle);
                 const double z = radius * std::sin(angle);
@@ -6538,7 +6553,7 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::primitive_preview_edges(
         } else {
             circle(radius, 0.0, "hole:bore:start");
             circle(radius, height, "hole:bore:end");
-            for (int index = 0; index < 4; ++index) {
+            for (int index = 0; index < 1; ++index) {
                 const double angle = 0.5 * std::numbers::pi * index;
                 const double x = radius * std::cos(angle);
                 const double y = radius * std::sin(angle);
@@ -6547,15 +6562,13 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::primitive_preview_edges(
             }
         }
     } else if (container.feature_kind == FeatureKind::Sphere) {
-        circle(container.sphere.radius, 0.0, "sphere:xy", 0);
-        circle(container.sphere.radius, 0.0, "sphere:xz", 1);
-        circle(container.sphere.radius, 0.0, "sphere:yz", 2);
+        circle(container.sphere.radius, 0.0, "sphere:meridian", 1);
     } else if (container.feature_kind == FeatureKind::Cone) {
         circle(container.cone.bottom_radius, 0.0, "cone:bottom");
         if (container.cone.top_radius > 1.0e-9) {
             circle(container.cone.top_radius, container.cone.height, "cone:top");
         }
-        for (int index = 0; index < 4; ++index) {
+        for (int index = 0; index < 1; ++index) {
             const double angle = 0.5 * std::numbers::pi * index;
             append({{container.cone.bottom_radius * std::cos(angle),
                          container.cone.bottom_radius * std::sin(angle), 0.0},

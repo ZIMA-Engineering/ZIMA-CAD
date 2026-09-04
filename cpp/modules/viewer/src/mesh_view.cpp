@@ -602,6 +602,9 @@ MeshView::~MeshView() {
 void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
     const auto previous_confirmation = impl_->confirmed_candidate;
     impl_->mesh = std::move(mesh);
+    std::erase_if(impl_->mesh.edges, [](const auto& edge) {
+        return edge.parameter_seam;
+    });
     impl_->candidates.clear();
     impl_->confirmed_candidate.reset();
     impl_->feature_hover_edges.clear();

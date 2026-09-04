@@ -713,10 +713,19 @@ zima::kernel::ViewerMesh local_origin_display_mesh(
         const zima::kernel::ViewerReferenceGeometry& geometry,
         const std::set<std::string>& visible_origin_ids) {
     zima::kernel::ViewerMesh mesh;
+    // history_origin_reference_geometry_before() deliberately carries the
+    // same canonical reference geometry as Document Origin.  POČÁTEK is only
+    // a presentation of a container-local frame, whose established nominal
+    // plane size is 5 versus 10 for Document Origin. Keep that distinction in
+    // this display-only copy; reference identity and placement math remain
+    // untouched.
+    constexpr double local_origin_display_scale = 0.5;
     for (const auto& axis : geometry.axes) {
-        if (visible_origin_ids.contains(axis.reference.owner_id) &&
-            axis.reference.semantic_key.starts_with("origin:"))
-            mesh.axes.push_back(axis);
+        if (!visible_origin_ids.contains(axis.reference.owner_id) ||
+            !axis.reference.semantic_key.starts_with("origin:")) continue;
+        auto displayed = axis;
+        displayed.display_length *= local_origin_display_scale;
+        mesh.axes.push_back(std::move(displayed));
     }
     for (const auto& point : geometry.points) {
         if (visible_origin_ids.contains(point.reference.owner_id) &&
@@ -740,6 +749,18 @@ zima::kernel::ViewerMesh local_origin_display_mesh(
         zima::kernel::ViewerEdge edge;
         edge.points = {geometry.vertices[a], geometry.vertices[b],
             geometry.vertices[c], geometry.vertices[d], geometry.vertices[a]};
+        zima::kernel::Vec3 center;
+        for (std::size_t index = 0; index < 4; ++index) {
+            center.x += edge.points[index].x;
+            center.y += edge.points[index].y;
+            center.z += edge.points[index].z;
+        }
+        center = {center.x/4.0, center.y/4.0, center.z/4.0};
+        for (auto& point : edge.points) {
+            point = {center.x + (point.x-center.x)*local_origin_display_scale,
+                     center.y + (point.y-center.y)*local_origin_display_scale,
+                     center.z + (point.z-center.z)*local_origin_display_scale};
+        }
         edge.reference = {reference.owner_id, reference.semantic_key,
             reference.instance_path};
         edge.overlay = true;
@@ -15523,6 +15544,8 @@ void AssemblyWorkspaceWindow::preview_sketch_bspline_ray(
     const auto position = sketch->intersect_ray(origin, direction);
     if (!position) {
         viewer_->set_transient_edges({});
+        viewer_->set_transient_points({});
+        viewer_->set_transient_labels({});
         return;
     }
     auto preview_points = pending_bspline_points_;
@@ -19152,15 +19175,8 @@ void AssemblyWorkspaceWindow::set_sketch_universal_dimension_contract() {
                            zima::viewer::CandidateKind::SketchAxis &&
                        (candidate.semantic_key == "sketch_axis:x" ||
                         candidate.semantic_key == "sketch_axis:y")) {
-                const bool axis_is_origin_point = references.empty() ||
-                    (references.size() == 1 &&
-                     references[0].kind ==
-                         UniversalDimensionReferenceKind::Point);
-                id = axis_is_origin_point
-                    ? "sketch_origin" : candidate.semantic_key;
-                kind = axis_is_origin_point
-                    ? UniversalDimensionReferenceKind::Point
-                    : UniversalDimensionReferenceKind::Line;
+                id = candidate.semantic_key;
+                kind = UniversalDimensionReferenceKind::Line;
             } else if (candidate.kind == zima::viewer::CandidateKind::
                            SketchExternalReference &&
                        candidate.semantic_key ==
@@ -19185,7 +19201,21 @@ void AssemblyWorkspaceWindow::set_sketch_universal_dimension_contract() {
                 references[1].kind == UniversalDimensionReferenceKind::Line &&
                 kind == UniversalDimensionReferenceKind::Line &&
                 id == references[0].id;
+            const bool repeated_point_for_symmetry =
+                references.size() == 2 &&
+                kind == UniversalDimensionReferenceKind::Point &&
+                ((references[0].kind ==
+                      UniversalDimensionReferenceKind::Point &&
+                  references[1].kind ==
+                      UniversalDimensionReferenceKind::Line &&
+                  id == references[0].id) ||
+                 (references[0].kind ==
+                      UniversalDimensionReferenceKind::Line &&
+                  references[1].kind ==
+                      UniversalDimensionReferenceKind::Point &&
+                  id == references[1].id));
             return repeated_first_line_for_symmetry ||
+                repeated_point_for_symmetry ||
                 std::ranges::none_of(references, [&](const auto& value) {
                 return value.kind == kind && value.id == id;
             });
@@ -19279,17 +19309,8 @@ void AssemblyWorkspaceWindow::accept_sketch_universal_dimension(
         } else if (candidate.kind == zima::viewer::CandidateKind::SketchAxis &&
                    (candidate.semantic_key == "sketch_axis:x" ||
                     candidate.semantic_key == "sketch_axis:y")) {
-            const bool axis_is_origin_point =
-                universal_dimension_references_.empty() ||
-                (universal_dimension_references_.size() == 1 &&
-                 universal_dimension_references_[0].kind ==
-                     UniversalDimensionReferenceKind::Point);
-            next = {axis_is_origin_point
-                    ? UniversalDimensionReferenceKind::Point
-                    : UniversalDimensionReferenceKind::Line,
-                axis_is_origin_point
-                    ? std::string{"sketch_origin"}
-                    : candidate.semantic_key};
+            next = {UniversalDimensionReferenceKind::Line,
+                    candidate.semantic_key};
         } else if (candidate.kind == zima::viewer::CandidateKind::
                        SketchExternalReference &&
                    candidate.semantic_key ==
@@ -19309,7 +19330,21 @@ void AssemblyWorkspaceWindow::accept_sketch_universal_dimension(
                 universal_dimension_references_[0].id) &&
             sketch_axis_like_reference(*sketch,
                 universal_dimension_references_[1].id);
+        const bool repeated_point_for_symmetry =
+            universal_dimension_references_.size() == 2 &&
+            next.kind == UniversalDimensionReferenceKind::Point &&
+            ((universal_dimension_references_[0].kind ==
+                  UniversalDimensionReferenceKind::Point &&
+              universal_dimension_references_[1].kind ==
+                  UniversalDimensionReferenceKind::Line &&
+              next.id == universal_dimension_references_[0].id) ||
+             (universal_dimension_references_[0].kind ==
+                  UniversalDimensionReferenceKind::Line &&
+              universal_dimension_references_[1].kind ==
+                  UniversalDimensionReferenceKind::Point &&
+              next.id == universal_dimension_references_[1].id));
         if (!repeated_first_line_for_symmetry &&
+            !repeated_point_for_symmetry &&
             std::ranges::any_of(universal_dimension_references_,
                 [&](const auto& value) {
                     return value.kind == next.kind && value.id == next.id;
@@ -19383,13 +19418,15 @@ void AssemblyWorkspaceWindow::accept_sketch_universal_dimension(
         } else if (refs.size() == 1 &&
                    refs[0].kind == UniversalDimensionReferenceKind::Point &&
                    next.kind == UniversalDimensionReferenceKind::Line) {
+            universal_pending_dimension_ = sketch->create_point_line_dimension(
+                refs[0].id, next.id);
             universal_dimension_references_.push_back(next);
-            universal_pending_dimension_.reset();
         } else if (refs.size() == 1 &&
                    refs[0].kind == UniversalDimensionReferenceKind::Line &&
                    next.kind == UniversalDimensionReferenceKind::Point) {
+            universal_pending_dimension_ = sketch->create_point_line_dimension(
+                next.id, refs[0].id);
             universal_dimension_references_.push_back(next);
-            universal_pending_dimension_.reset();
         } else if (refs.size() == 2 &&
                    refs[0].kind == UniversalDimensionReferenceKind::Point &&
                    refs[1].kind == UniversalDimensionReferenceKind::Point) {
@@ -19414,16 +19451,26 @@ void AssemblyWorkspaceWindow::accept_sketch_universal_dimension(
                    refs[0].kind == UniversalDimensionReferenceKind::Line &&
                    refs[1].kind == UniversalDimensionReferenceKind::Point &&
                    next.kind == UniversalDimensionReferenceKind::Point) {
-            universal_pending_dimension_ =
-                sketch->create_point_line_angle_dimension(
+            universal_pending_dimension_ = sketch_axis_like_reference(
+                    *sketch, refs[0].id)
+                ? sketch->create_symmetric_dimension(
+                    refs[1].id,
+                    repeated_point_for_symmetry ? std::string{} : next.id,
+                    refs[0].id)
+                : sketch->create_point_line_angle_dimension(
                     refs[1].id, next.id, refs[0].id);
             universal_dimension_references_.push_back(next);
         } else if (refs.size() == 2 &&
                    refs[0].kind == UniversalDimensionReferenceKind::Point &&
                    refs[1].kind == UniversalDimensionReferenceKind::Line &&
                    next.kind == UniversalDimensionReferenceKind::Point) {
-            universal_pending_dimension_ =
-                sketch->create_point_line_angle_dimension(
+            universal_pending_dimension_ = sketch_axis_like_reference(
+                    *sketch, refs[1].id)
+                ? sketch->create_symmetric_dimension(
+                    refs[0].id,
+                    repeated_point_for_symmetry ? std::string{} : next.id,
+                    refs[1].id)
+                : sketch->create_point_line_angle_dimension(
                     refs[0].id, next.id, refs[1].id);
             universal_dimension_references_.push_back(next);
         } else return;
@@ -20950,7 +20997,10 @@ void AssemblyWorkspaceWindow::preview_sketch_segment_ray(
              (start_point.y + active_point.y) * 0.5,
              (start_point.z + active_point.z) * 0.5}, "M"});
     }
-    if (!markers.empty()) viewer_->set_transient_labels(std::move(markers));
+    // Publish the complete inference state on every mouse move, including
+    // the empty state. Leaving the previous labels installed made a stale C
+    // survive a small cursor movement and appear beside the current C H/C V.
+    viewer_->set_transient_labels(std::move(markers));
 }
 
 std::optional<AssemblyWorkspaceWindow::SketchPolylineArcCenterSnap>

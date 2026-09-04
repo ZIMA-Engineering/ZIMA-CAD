@@ -447,6 +447,12 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
         }
         for (const auto& edge : ordered_edge_candidates(
                 source, ray_origin, ray_direction, world_tolerance)) {
+            if (edge.edge < source.edges.size() &&
+                source.edges[edge.edge].parameter_seam) continue;
+            if (edge.reference.semantic_key == "seam" ||
+                edge.reference.semantic_key.starts_with("seam:")) {
+                continue;
+            }
             // Plane borders in the display packet are unscaled model-space
             // helpers. Their one visible/pickable screen-constant copy lives
             // in the rebuilt persisted-reference packet.
@@ -472,7 +478,8 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
                     edge.reference.semantic_key == "border";
                 result.push_back({CandidateKind::Plane, edge.distance, edge.edge,
                                   edge.reference.owner_id,
-                                  datum_entity ? "plane" : edge.reference.semantic_key,
+                                  edge.reference.semantic_key == "border"
+                                      ? "plane" : edge.reference.semantic_key,
                                   edge.reference.instance_path, geometry});
                 const std::string container_owner = datum_entity
                     ? edge.reference.owner_id.substr(0,
