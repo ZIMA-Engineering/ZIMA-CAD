@@ -151,6 +151,10 @@ struct ViewerDimension {
     // user-confirmed placement point instead of forcing text to the arc
     // bisector.
     std::optional<Vec3> label_position;
+    // Optional presentation text. The numeric value remains the driving
+    // engineering value used by editing and solving; only its View label is
+    // replaced (for example "M10" on a cosmetic thread diameter).
+    std::string display_text_override;
 };
 
 struct ViewerConstraintMarker {
@@ -206,6 +210,26 @@ struct CylinderRequest {
     double height{50.0};
     Vec3 translation;
     Vec3 rotation_degrees;
+};
+
+// Non-volumetric technological geometry. It participates in explicit OCCT
+// history calculation and can be trimmed by later subtractive operands, but
+// never changes the result solid's volume or Boolean ownership.
+struct ThreadSurfaceRequest {
+    enum class Side { Automatic, Internal, External };
+
+    double nominal_radius{5.0};
+    double root_radius{4.1881};
+    double start_offset{};
+    double length{15.0};
+    double runout_start{};
+    double runout_end{3.0};
+    bool through_all_forward{};
+    bool through_all_reverse{};
+    Side side{Side::Automatic};
+    Vec3 origin;
+    Vec3 axis_direction{0.0, 0.0, 1.0};
+    Vec3 radial_direction{1.0, 0.0, 0.0};
 };
 
 struct SphereRequest {
@@ -313,6 +337,11 @@ struct ExtrusionRequest {
     Vec3 direction{0.0, 0.0, 10.0};
     double start_offset{};
     Extent extent{Extent::Blind};
+    // Through-all is directional.  These flags distinguish a forward-only
+    // extrusion from a genuinely two-sided one; the Sketch plane remains a
+    // hard boundary on every side that is not marked Through-all.
+    bool through_all_forward{true};
+    bool through_all_reverse{};
     FaceReference target_face;
     bool target_is_datum{};
     Vec3 target_plane_origin;
@@ -465,7 +494,8 @@ struct BoxOperation {
 using PrimitiveRequest = std::variant<
     BoxRequest, CylinderRequest, SphereRequest, ConeRequest, PyramidRequest, WedgeRequest,
     ExtrusionRequest, RevolutionRequest, FeatureGroupRequest,
-    Sweep3DRequest, StepRequest, FilletRequest, ChamferRequest, ShellRequest>;
+    Sweep3DRequest, StepRequest, FilletRequest, ChamferRequest, ShellRequest,
+    ThreadSurfaceRequest>;
 
 struct HistoryOperation {
     std::string owner_id;
@@ -742,6 +772,8 @@ struct PlacedBody {
                 }
                 byte(static_cast<std::uint8_t>(primitive.extent));
                 byte(primitive.first_cap_is_start);
+                byte(primitive.through_all_forward);
+                byte(primitive.through_all_reverse);
                 u64(primitive.target_face.owner_id.size());
                 for (const unsigned char value : primitive.target_face.owner_id) byte(value);
                 u64(primitive.target_face.semantic_key.size());
@@ -1034,6 +1066,22 @@ struct PlacedBody {
                 for (const unsigned char value : primitive.source_path) byte(value);
                 u64(primitive.component_path.size());
                 for (const unsigned char value : primitive.component_path) byte(value);
+            } else if constexpr (std::is_same_v<Request, ThreadSurfaceRequest>) {
+                for (const double value : {primitive.nominal_radius,
+                        primitive.root_radius, primitive.start_offset,
+                        primitive.length, primitive.runout_start,
+                        primitive.runout_end, primitive.origin.x,
+                        primitive.origin.y, primitive.origin.z,
+                        primitive.axis_direction.x, primitive.axis_direction.y,
+                        primitive.axis_direction.z,
+                        primitive.radial_direction.x,
+                        primitive.radial_direction.y,
+                        primitive.radial_direction.z}) {
+                    u64(std::bit_cast<std::uint64_t>(value));
+                }
+                byte(primitive.through_all_forward);
+                byte(primitive.through_all_reverse);
+                byte(static_cast<std::uint8_t>(primitive.side));
             } else if constexpr (std::is_same_v<Request, ShellRequest>) {
                 u64(primitive.removed_faces.size());
                 for (const auto& face : primitive.removed_faces) {

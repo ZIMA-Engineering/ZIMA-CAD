@@ -4637,8 +4637,18 @@ int main() {
         const auto through_results =
             kernel.evaluate_history(through_document.kernel_operations());
         require(through_results.size() == 2 &&
-                    std::abs(through_results.back().volume - 3750.0) < 1e-6,
-                "Through-all subtractive Extrusion did not cross the complete body");
+                    std::abs(through_results.back().volume - 3875.0) < 1e-6,
+                "Forward Through-all subtractive Extrusion crossed the Sketch plane");
+        double through_cut_min_z = std::numeric_limits<double>::infinity();
+        for (const auto& edge :
+             through_results.back().mesh.original_references.edges) {
+            if (edge.reference.owner_id != through.id) continue;
+            for (const auto& point : edge.points) {
+                through_cut_min_z = std::min(through_cut_min_z, point.z);
+            }
+        }
+        require(through_cut_min_z >= -1.0e-8,
+                "Forward Through-all crossed the Sketch plane in reverse");
         double longest_through_reference_edge{};
         for (const auto& edge :
              through_results.back().mesh.original_references.edges) {
@@ -4654,7 +4664,7 @@ int main() {
                                second.z - first.z));
             }
         }
-        require(longest_through_reference_edge > 9.0 &&
+        require(longest_through_reference_edge > 4.0 &&
                     longest_through_reference_edge < 100.0,
                 "Through-all persisted reference wire is not finite around the input body");
         auto two_sided_calculation = through_document;
@@ -6329,6 +6339,154 @@ int main() {
                     loaded_hole.history.back().combine_mode ==
                         zima::document::CombineMode::Subtract,
                 "Hole parameters or independent bore/thread lengths did not round-trip");
+        auto thread_document = zima::document::PartDocument::create_default();
+        auto thread_base = zima::document::PartDocument::create_box_container();
+        thread_base.box = {40.0, 40.0, 40.0};
+        thread_document.history.push_back(thread_base);
+        auto thread = zima::document::PartDocument::create_thread_container();
+        thread.placement.z = -20.0;
+        thread.thread.nominal_diameter = 10.0;
+        thread.thread.pitch = 1.5;
+        thread.thread.length_forward = 25.0;
+        thread_document.history.push_back(thread);
+        const auto thread_operations = thread_document.kernel_operations();
+        require(thread_operations.size() == 2 &&
+                    std::holds_alternative<zima::kernel::ThreadSurfaceRequest>(
+                        thread_operations.back().primitive),
+            "Standalone Thread did not enter OCCT as technological sheet history");
+        const auto thread_boundaries = kernel.evaluate_history(thread_operations);
+        require(thread_boundaries.size() == 2 &&
+                    std::abs(thread_boundaries.back().volume -
+                        thread_boundaries.front().volume) < 1.0e-7 &&
+                    std::ranges::any_of(
+                        thread_boundaries.back().mesh.triangle_references,
+                        [&](const auto& reference) {
+                            return reference.owner_id == thread.id &&
+                                reference.semantic_key.starts_with(
+                                    "thread:surface:");
+                        }),
+            "Standalone Thread sheet changed solid volume or was not meshed");
+        auto trimmed_thread_operations = thread_operations;
+        zima::kernel::BoxRequest thread_cutter{20.0, 20.0, 10.0};
+        thread_cutter.translation = {-10.0, -10.0, -10.0};
+        trimmed_thread_operations.push_back({"thread-cutter", thread_cutter,
+            zima::kernel::BooleanOperation::Subtract});
+        const auto trimmed_thread_boundaries =
+            kernel.evaluate_history(trimmed_thread_operations);
+        const auto& trimmed_thread_mesh = trimmed_thread_boundaries.back().mesh;
+        bool has_trimmed_thread_surface = false;
+        for (std::size_t triangle = 0;
+             triangle < trimmed_thread_mesh.triangle_references.size(); ++triangle) {
+            const auto& reference =
+                trimmed_thread_mesh.triangle_references[triangle];
+            if (reference.owner_id != thread.id ||
+                !reference.semantic_key.starts_with("thread:surface:")) continue;
+            has_trimmed_thread_surface = true;
+            const auto first = trimmed_thread_mesh.triangles[triangle * 3];
+            const auto second = trimmed_thread_mesh.triangles[triangle * 3 + 1];
+            const auto third = trimmed_thread_mesh.triangles[triangle * 3 + 2];
+            const double center_z = (trimmed_thread_mesh.vertices[first].z +
+                trimmed_thread_mesh.vertices[second].z +
+                trimmed_thread_mesh.vertices[third].z) / 3.0;
+            require(center_z <= -10.0 + 1.0e-6 || center_z >= -1.0e-6,
+                "A later subtractive operation did not trim the Thread sheet");
+        }
+        require(has_trimmed_thread_surface,
+            "Thread sheet disappeared completely after a partial trim");
+        const auto thread_wire = thread_document.thread_edges(thread, nullptr);
+        require(thread_wire.size() == 6 &&
+                    std::ranges::all_of(thread_wire, [&](const auto& edge) {
+                        return edge.reference.owner_id.empty() &&
+                            edge.reference.semantic_key.starts_with("thread:wire:") &&
+                            edge.display_owner_id == thread.id;
+                    }),
+            "Standalone Thread is not a non-referenceable four-ring/two-line wire");
+        auto external_thread = thread;
+        external_thread.thread.side = zima::document::ThreadSide::External;
+        external_thread.thread.profile_diameter = 8.1593;
+        const auto external_thread_wire =
+            thread_document.thread_edges(external_thread, nullptr);
+        require(!external_thread_wire.empty() &&
+                    std::abs(std::hypot(
+                        external_thread_wire.front().points.front().x-
+                            external_thread.placement.x,
+                        external_thread_wire.front().points.front().y-
+                            external_thread.placement.y)-4.07965) < 1.0e-6,
+                "External Thread did not use its root cylinder diameter");
+        auto internal_thread = thread;
+        internal_thread.thread.side = zima::document::ThreadSide::Internal;
+        const auto internal_thread_wire =
+            thread_document.thread_edges(internal_thread, nullptr);
+        require(!internal_thread_wire.empty() &&
+                    std::abs(std::hypot(
+                        internal_thread_wire.front().points.front().x-
+                            internal_thread.placement.x,
+                        internal_thread_wire.front().points.front().y-
+                            internal_thread.placement.y)-5.0) < 1.0e-6,
+                "Internal Thread did not use its nominal cylinder diameter");
+        auto axis_plane_thread = thread;
+        axis_plane_thread.placement = {};
+        zima::document::ConstructionReference thread_axis_reference;
+        thread_axis_reference.owner_id = "source-axis";
+        thread_axis_reference.semantic_key = "axis:primary";
+        zima::document::ConstructionReference thread_plane_reference;
+        thread_plane_reference.owner_id = "source-face";
+        thread_plane_reference.semantic_key = "z_max";
+        thread_plane_reference.supports_offset = true;
+        axis_plane_thread.placement.references = {
+            thread_axis_reference, thread_plane_reference};
+        const auto axis_plane_wire =
+            thread_document.thread_edges(axis_plane_thread, nullptr);
+        require(axis_plane_wire.size() == 6 &&
+                    axis_plane_wire[1].points.front().y < -24.999,
+            "Axis + Plane Thread forward direction did not enter the "
+            "FRONT side consistently");
+        axis_plane_thread.thread.direction =
+            zima::document::ExtrusionDirection::Reverse;
+        const auto reversed_axis_plane_wire =
+            thread_document.thread_edges(axis_plane_thread, nullptr);
+        require(reversed_axis_plane_wire.size() == 6 &&
+                    reversed_axis_plane_wire[1].points.front().y > 24.999,
+            "Axis + Plane Thread reverse direction did not invert its wire");
+        auto bidirectional_thread_document = thread_document;
+        auto& bidirectional_thread =
+            bidirectional_thread_document.history.back().thread;
+        bidirectional_thread.extent_mode =
+            zima::document::ProfileExtentMode::TwoSides;
+        bidirectional_thread.length_forward = 20.0;
+        bidirectional_thread.length_reverse = 5.0;
+        bidirectional_thread.end_condition_forward =
+            zima::document::EndCondition::Length;
+        bidirectional_thread.end_condition_reverse =
+            zima::document::EndCondition::Length;
+        bidirectional_thread.runout_pitch_factor = 2.0;
+        bidirectional_thread.side = zima::document::ThreadSide::Internal;
+        const auto bidirectional_operations =
+            bidirectional_thread_document.kernel_operations();
+        const auto& bidirectional_request =
+            std::get<zima::kernel::ThreadSurfaceRequest>(
+                bidirectional_operations.back().primitive);
+        require(std::abs(bidirectional_request.start_offset + 5.0) < 1.0e-9 &&
+                    std::abs(bidirectional_request.length - 25.0) < 1.0e-9 &&
+                    std::abs(bidirectional_request.runout_start - 3.0) < 1.0e-9 &&
+                    std::abs(bidirectional_request.runout_end - 3.0) < 1.0e-9 &&
+                    bidirectional_request.side ==
+                        zima::kernel::ThreadSurfaceRequest::Side::Internal,
+            "Two-sided Thread did not map extents, side and 2xP runouts to its sheet request");
+        const auto thread_path = std::filesystem::temp_directory_path() /
+            "zima-cad-thread-contract.prtz";
+        require(thread_boundaries.front().source_fingerprint ==
+                    zima::kernel::history_fingerprint(
+                        thread_document.kernel_operations(), 1),
+            "Standalone Thread changed the preceding body fingerprint");
+        thread_document.save(thread_path, thread_boundaries);
+        const auto loaded_thread = zima::document::PartDocument::load(thread_path);
+        std::filesystem::remove(thread_path);
+        require(loaded_thread.history.size() == 2 &&
+                    loaded_thread.history.back().feature_kind ==
+                        zima::document::FeatureKind::Thread &&
+                    loaded_thread.history.back().thread == thread.thread,
+            "Standalone Thread did not survive save and reopen");
         std::cout << "C++ document and OCCT contracts passed\n";
         return 0;
     } catch (const std::exception& error) {

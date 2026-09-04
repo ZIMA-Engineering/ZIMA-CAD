@@ -36,6 +36,7 @@ private:
     QCheckBox* locked_{};
     QLineEdit* prefix_{};
     QLineEdit* suffix_{};
+    QLineEdit* display_text_override_{};
     QComboBox* tolerance_mode_{};
     QLineEdit* symmetric_tolerance_{};
     QLineEdit* single_tolerance_{};

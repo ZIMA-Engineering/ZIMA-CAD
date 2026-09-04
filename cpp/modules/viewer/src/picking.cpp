@@ -4,6 +4,7 @@
 #include <cmath>
 #include <limits>
 #include <iterator>
+#include <map>
 
 namespace zima::viewer {
 namespace {
@@ -184,7 +185,12 @@ std::vector<EdgePickCandidate> ordered_edge_candidates(
     if (ray_length_squared <= 1.0e-18 || world_tolerance < 0.0) return candidates;
     for (std::size_t edge_index = 0; edge_index < mesh.edges.size(); ++edge_index) {
         const auto& edge = mesh.edges[edge_index];
-        if (!edge.reference.valid() || edge.points.size() < 2) continue;
+        const bool cosmetic_thread = !edge.display_owner_id.empty() &&
+            (edge.reference.semantic_key.starts_with("thread:wire:") ||
+             edge.reference.semantic_key.starts_with(
+                 "hole:cosmetic-thread:"));
+        if ((!edge.reference.valid() && !cosmetic_thread) ||
+            edge.points.size() < 2) continue;
         double nearest_ray_distance = std::numeric_limits<double>::max();
         bool hit = false;
         for (std::size_t segment = 1; segment < edge.points.size(); ++segment) {
@@ -213,7 +219,15 @@ std::vector<EdgePickCandidate> ordered_edge_candidates(
                 nearest_ray_distance = std::min(nearest_ray_distance, ray_parameter);
             }
         }
-        if (hit) candidates.push_back({edge_index, nearest_ray_distance, edge.reference});
+        if (hit) {
+            auto reference = edge.reference;
+            if (!reference.valid() && cosmetic_thread) {
+                reference.owner_id = edge.display_owner_id;
+                reference.semantic_key = "display-wire";
+            }
+            candidates.push_back(
+                {edge_index, nearest_ray_distance, std::move(reference)});
+        }
     }
     std::stable_sort(candidates.begin(), candidates.end(),
         [](const auto& left, const auto& right) { return left.distance < right.distance; });
@@ -385,6 +399,68 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
         references, ray_origin, ray_direction);
     const auto append_geometry = [&](const zima::kernel::ViewerMesh& source,
                                      CandidateGeometry geometry) {
+        // Standalone Thread owns a visual cylindrical envelope but no B-Rep
+        // face. Build a transient pick-only skin between its two displayed
+        // rings so hovering anywhere on the apparent cylinder offers the
+        // parent Container. This skin never enters ViewerMesh, persistence,
+        // highlighting, or the reference candidate kinds.
+        if (geometry == CandidateGeometry::Display) {
+            struct ThreadRings {
+                const zima::kernel::ViewerEdge* start{};
+                const zima::kernel::ViewerEdge* end{};
+                std::size_t start_index{};
+            };
+            using ThreadOccurrence = std::pair<std::string, std::string>;
+            std::map<ThreadOccurrence, ThreadRings> rings;
+            for (std::size_t index = 0; index < source.edges.size(); ++index) {
+                const auto& edge = source.edges[index];
+                if (edge.display_owner_id.empty() ||
+                    !edge.reference.semantic_key.starts_with("thread:wire:")) {
+                    continue;
+                }
+                auto& pair = rings[{edge.display_owner_id,
+                    edge.reference.instance_path}];
+                if (edge.reference.semantic_key.ends_with(":start")) {
+                    pair.start = &edge;
+                    pair.start_index = index;
+                } else if (edge.reference.semantic_key.ends_with(":end")) {
+                    pair.end = &edge;
+                }
+            }
+            for (const auto& [occurrence, pair] : rings) {
+                const auto& [owner, instance_path] = occurrence;
+                if (pair.start == nullptr || pair.end == nullptr ||
+                    pair.start->points.size() < 3 ||
+                    pair.start->points.size() != pair.end->points.size()) {
+                    continue;
+                }
+                zima::kernel::ViewerMesh skin;
+                const std::size_t segment_count = pair.start->points.size() - 1;
+                skin.vertices.reserve(segment_count * 2);
+                for (std::size_t index = 0; index < segment_count; ++index) {
+                    skin.vertices.push_back(pair.start->points[index]);
+                    skin.vertices.push_back(pair.end->points[index]);
+                }
+                const zima::kernel::FaceReference pick_reference{
+                    owner, "thread:picking-cylinder", instance_path};
+                for (std::size_t index = 0; index < segment_count; ++index) {
+                    const auto next = (index + 1) % segment_count;
+                    const auto a = static_cast<std::uint32_t>(index * 2);
+                    const auto b = static_cast<std::uint32_t>(next * 2);
+                    skin.triangles.insert(skin.triangles.end(),
+                        {a, b, a + 1, b, b + 1, a + 1});
+                    skin.triangle_references.push_back(pick_reference);
+                    skin.triangle_references.push_back(pick_reference);
+                }
+                const auto hits = ordered_ray_candidates(
+                    skin, ray_origin, ray_direction);
+                if (!hits.empty()) {
+                    result.push_back({CandidateKind::Container,
+                        hits.front().distance, pair.start_index, owner, {}, instance_path,
+                        CandidateGeometry::Display});
+                }
+            }
+        }
         const auto faces = ordered_ray_candidates(source, ray_origin, ray_direction);
         for (const auto& face : faces) {
             // In a Part, valid display-face identities are the persisted
@@ -460,6 +536,27 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
                 edge.edge < source.edges.size() && source.edges[edge.edge].overlay &&
                 (edge.reference.semantic_key == "border" ||
                  edge.reference.semantic_key.starts_with("origin:plane:"))) {
+                continue;
+            }
+            if (edge.edge < source.edges.size() &&
+                !source.edges[edge.edge].reference.valid() &&
+                !source.edges[edge.edge].display_owner_id.empty() &&
+                (source.edges[edge.edge].reference.semantic_key.starts_with(
+                     "thread:wire:") ||
+                 source.edges[edge.edge].reference.semantic_key.starts_with(
+                     "hole:cosmetic-thread:"))) {
+                const auto& display_edge = source.edges[edge.edge];
+                if (std::none_of(result.begin(), result.end(),
+                        [&](const ViewerCandidate& item) {
+                            return item.kind == CandidateKind::Container &&
+                                item.owner_id == display_edge.display_owner_id &&
+                                item.instance_path ==
+                                    display_edge.reference.instance_path;
+                        })) {
+                    result.push_back({CandidateKind::Container, edge.distance,
+                        edge.edge, display_edge.display_owner_id, {},
+                        display_edge.reference.instance_path, geometry});
+                }
                 continue;
             }
             // A Plane is selected through its rectangular border only: the

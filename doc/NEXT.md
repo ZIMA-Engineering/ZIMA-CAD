@@ -298,14 +298,23 @@
 
 ## Holes and Cosmetic Threads
 
-- After Sweep, implement Hole as a semantic history container rather than only
-  an anonymous subtracted cylinder: through/blind depth, cylindrical or conical
-  countersink/counterbore, drill-point bottom, stable axis and entry/end faces.
-- Store thread standard, designation, pitch, tolerance, handedness and threaded
-  length as cosmetic/technological data on a Hole or cylindrical face.
-- Do not generate real helical BREP thread geometry. It is excessively costly
-  for Booleans, triangulation, topology stability, files and assemblies. Use a
-  lightweight viewer representation and correct Drawing annotation instead.
+- Hole is now a semantic history container with blind, Up To and Through All
+  depth, optional countersinks/drill point and an independent cosmetic thread.
+- Standalone Thread now stores standard, designation, nominal and profile
+  diameters, pitch, side, handedness and threaded length. Embedded catalogs
+  cover metric ISO, Whitworth BSW and cylindrical G/BSPP threads; tapered pipe
+  threads and tolerance classes remain future work.
+- Thread deliberately has no helical BREP geometry or Boolean contribution.
+  Explicit calculation creates separate grey OCCT sheet geometry for its root
+  and nominal cylinders plus finite-length runout cones. The sheets do not
+  change solid volume, but every later subtractive history operation trims
+  them with the same OCCT tool. Thread shares Extrusion's one-side, two-side
+  and symmetric extents and independent Length, Up To and Through All ends;
+  it deliberately has no offset work plane.
+- Thread runout respects thread side: an external thread keeps the root sheet
+  continuous, while an internal thread keeps the nominal sheet continuous.
+  The end cone reverses the start cone's radii, and Automatic side detection
+  distinguishes an axis in material from an axis in a void.
 
 ## Container Orientation and Reference Geometry
 

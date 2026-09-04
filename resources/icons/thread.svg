@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
+  <title id="title">Thread</title>
+  <g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <ellipse cx="7" cy="5.5" rx="3.5" ry="1.75"/>
+    <ellipse cx="17" cy="18.5" rx="3.5" ry="1.75"/>
+    <path d="M3.5 5.5l10 13M10.5 5.5l10 13"/>
+    <path d="M6.5 9.4l5-2.1m-2.3 5.6l5-2.1m-2.3 5.6l5-2.1"
+          stroke="#80AA1A"/>
+  </g>
+</svg>

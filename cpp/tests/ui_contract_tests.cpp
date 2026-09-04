@@ -731,6 +731,49 @@ int main(int argc, char* argv[]) {
         application.processEvents();
         require(zero_dimension_edits == 1,
                 "Zero-valued point dimension label could not be double-click edited");
+
+        zima::kernel::ViewerMesh overlapping_dimension_mesh;
+        overlapping_dimension_mesh.dimensions.push_back({
+            {0.0, 0.0, 0.0}, {10.0, 0.0, 0.0},
+            {0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, 10.0,
+            {"front-owner", "parameter:length", {}}, ""});
+        overlapping_dimension_mesh.dimensions.push_back({
+            {0.0, 0.0, 0.0}, {10.0, 0.0, 0.0},
+            {0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, 20.0,
+            {"back-owner", "parameter:length", {}}, ""});
+        zima::viewer::MeshView overlapping_dimension_view(&parent);
+        overlapping_dimension_view.setGeometry(0, 0, 500, 360);
+        overlapping_dimension_view.set_mesh(
+            std::move(overlapping_dimension_mesh));
+        overlapping_dimension_view.show();
+        application.processEvents();
+        overlapping_dimension_view.confirm_reference(
+            "back-owner", "parameter:length", {},
+            zima::viewer::CandidateKind::Dimension);
+        const auto back_dimension =
+            overlapping_dimension_view.confirmed_candidate();
+        const auto back_label = back_dimension
+            ? overlapping_dimension_view.candidate_dimension_label_position(
+                  *back_dimension)
+            : std::nullopt;
+        require(back_label.has_value(),
+                "Overlapping dimension test has no label position");
+        std::string double_clicked_owner;
+        overlapping_dimension_view.set_double_confirmation_callback(
+            [&](const auto& candidate) {
+                double_clicked_owner = candidate.owner_id;
+            });
+        QMouseEvent overlapping_double_click(
+            QEvent::MouseButtonDblClick, QPointF(*back_label),
+            QPointF(*back_label), QPointF(*back_label),
+            Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(
+            &overlapping_dimension_view, &overlapping_double_click);
+        application.processEvents();
+        require(double_clicked_owner == "back-owner",
+                "View double click opened the first overlapping object instead "
+                "of the exact confirmed candidate");
+
         zero_dimension_view.clear_selection();
         zero_dimension_view.set_selection_contract({
             zima::viewer::CandidateKind::SketchPoint,
@@ -883,6 +926,104 @@ int main(int argc, char* argv[]) {
                         }),
                 "Hole thread must be exactly two circles and two "
                 "non-referenceable boundary lines");
+
+        auto thread_initial =
+            zima::document::PartDocument::create_thread_container();
+        int thread_commits = 0;
+        zima::document::HistoryContainer committed_thread;
+        auto* thread_dialog = new zima::app::PrimitivePropertiesDialog(
+            thread_initial, false, false,
+            [&](zima::document::HistoryContainer value) {
+                ++thread_commits;
+                committed_thread = std::move(value);
+            }, &parent);
+        thread_dialog->show();
+        application.processEvents();
+        auto* thread_standard =
+            thread_dialog->findChild<QComboBox*>("threadStandard");
+        auto* thread_size =
+            thread_dialog->findChild<QComboBox*>("threadSize");
+        auto* thread_side =
+            thread_dialog->findChild<QComboBox*>("threadSide");
+        auto* thread_diameter =
+            thread_dialog->findChild<QDoubleSpinBox*>("threadNominalDiameter");
+        auto* thread_profile =
+            thread_dialog->findChild<QDoubleSpinBox*>("threadProfileDiameter");
+        auto* thread_custom = thread_dialog->findChild<QCheckBox*>(
+            "threadCustomProfileDiameter");
+        auto* thread_label =
+            thread_dialog->findChild<QLineEdit*>("threadDimensionLabel");
+        auto* thread_extent =
+            thread_dialog->findChild<QComboBox*>("threadExtentMode");
+        auto* thread_forward_length =
+            thread_dialog->findChild<QDoubleSpinBox*>("threadLengthForward");
+        auto* thread_reverse_length =
+            thread_dialog->findChild<QDoubleSpinBox*>("threadLengthReverse");
+        auto* thread_runout = thread_dialog->findChild<QDoubleSpinBox*>(
+            "threadRunoutPitchFactor");
+        require(thread_standard != nullptr && thread_size != nullptr &&
+                    thread_side != nullptr && thread_diameter != nullptr &&
+                    thread_profile != nullptr && thread_custom != nullptr &&
+                    thread_label != nullptr && thread_extent != nullptr &&
+                    thread_forward_length != nullptr &&
+                    thread_reverse_length != nullptr && thread_runout != nullptr,
+                "Thread dialog does not expose standard, size, side, profile "
+                "diameter, extrusion-style extent, runout and dimension text");
+        require(thread_dialog->findChild<QPushButton*>(
+                    "primitiveAddOperation") == nullptr &&
+                    thread_dialog->findChild<QPushButton*>(
+                    "primitiveSubtractOperation") == nullptr,
+                "Thread dialog incorrectly exposes Boolean operation buttons");
+        const int metric_m10=thread_size->findData("M10");
+        require(thread_size->count() >= 390 && metric_m10 >= 0 &&
+                    std::abs(thread_size->itemData(
+                        metric_m10,Qt::UserRole+3).toDouble()-8.376) < 1.0e-6,
+                "Thread dialog did not load the complete embedded metric ISO "
+                "catalog or its tabulated M10 root diameter");
+        thread_standard->setCurrentIndex(thread_standard->findData("pipe"));
+        const int pipe_g_half=thread_size->findData("G 1/2");
+        require(thread_size->count() == 24 && pipe_g_half >= 0 &&
+                    std::abs(thread_size->itemData(
+                        pipe_g_half,Qt::UserRole+1).toDouble()-20.955) < 1.0e-6 &&
+                    std::abs(thread_size->itemData(
+                        pipe_g_half,Qt::UserRole+3).toDouble()-18.631) < 1.0e-6,
+                "Thread dialog did not load the embedded cylindrical G catalog");
+        thread_standard->setCurrentIndex(thread_standard->findData("metric"));
+        thread_size->setCurrentIndex(thread_size->findData("M12"));
+        thread_side->setCurrentIndex(thread_side->findData("external"));
+        thread_custom->setChecked(true);
+        thread_profile->setValue(11.8);
+        thread_label->setText("M12 – broušený");
+        thread_extent->setCurrentIndex(thread_extent->findData("two_sides"));
+        thread_forward_length->setValue(18.0);
+        thread_reverse_length->setValue(7.0);
+        thread_runout->setValue(2.5);
+        require(thread_dialog->set_reference(
+                    0, {{}, "part-origin", "origin:plane:xy"}, "Rovina XY"),
+                "Thread Properties rejected its defining plane");
+        thread_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
+        application.processEvents();
+        require(thread_commits == 1 &&
+                    committed_thread.feature_kind ==
+                        zima::document::FeatureKind::Thread &&
+                    committed_thread.thread.standard ==
+                        zima::document::ThreadStandard::Metric &&
+                    committed_thread.thread.side ==
+                        zima::document::ThreadSide::External &&
+                    committed_thread.thread.designation == "M12" &&
+                    committed_thread.thread.nominal_diameter == 12.0 &&
+                    committed_thread.thread.pitch == 1.75 &&
+                    committed_thread.thread.custom_profile_diameter &&
+                    committed_thread.thread.profile_diameter == 11.8 &&
+                    committed_thread.thread.dimension_label ==
+                        "M12 – broušený" &&
+                    committed_thread.thread.extent_mode ==
+                        zima::document::ProfileExtentMode::TwoSides &&
+                    committed_thread.thread.length_forward == 18.0 &&
+                    committed_thread.thread.length_reverse == 7.0 &&
+                    committed_thread.thread.runout_pitch_factor == 2.5,
+                "Thread Properties did not commit its engineering designation "
+                "and independent real profile diameter");
 
         auto sphere_initial = zima::document::PartDocument::create_sphere_container();
         zima::document::HistoryContainer committed_sphere;
@@ -2811,6 +2952,8 @@ int main(int argc, char* argv[]) {
             dimension_dialog->findChild<QCheckBox*>("sketchDimensionLocked");
         auto* dimension_prefix =
             dimension_dialog->findChild<QLineEdit*>("sketchDimensionPrefix");
+        auto* dimension_display_text =
+            dimension_dialog->findChild<QLineEdit*>("sketchDimensionDisplayText");
         auto* tolerance_mode =
             dimension_dialog->findChild<QComboBox*>("sketchDimensionToleranceMode");
         auto* symmetric_tolerance =
@@ -2821,7 +2964,7 @@ int main(int argc, char* argv[]) {
                 [&](const QLabel* label) { return label->text() == text; });
         };
         require(dimension_value && dimension_driving && dimension_locked &&
-                    dimension_prefix &&
+                    dimension_prefix && dimension_display_text &&
                     tolerance_mode && symmetric_tolerance &&
                     dimension_dialog->findChild<QCheckBox*>("sketchLowerEnabled") == nullptr &&
                     has_dimension_label(QStringLiteral("Text před hodnotou")) &&
@@ -2839,6 +2982,7 @@ int main(int argc, char* argv[]) {
                 "Locked driving dimension disabled intentional numeric editing");
         dimension_value->setValue(25.0);
         dimension_prefix->setText(QStringLiteral("⌀"));
+        dimension_display_text->setText(QStringLiteral("G 1/2"));
         tolerance_mode->setCurrentIndex(
             tolerance_mode->findData(QStringLiteral("symmetric")));
         symmetric_tolerance->setText(QStringLiteral("0.1"));
@@ -2846,6 +2990,7 @@ int main(int argc, char* argv[]) {
         require(dimension_commits == 1 && committed_dimension.locked &&
                     std::abs(committed_dimension.value - 25.0) < 1.0e-9 &&
                     committed_dimension.prefix == "⌀" &&
+                    committed_dimension.display_text_override == "G 1/2" &&
                     committed_dimension.tolerance_mode == "symmetric" &&
                     committed_dimension.symmetric_tolerance == "0.1",
                 "Sketch dimension Properties did not commit display/tolerance style");

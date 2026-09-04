@@ -436,7 +436,8 @@ bool supports_placement_reference_picking(zima::document::FeatureKind kind) {
         kind == FeatureKind::Sphere || kind == FeatureKind::Cone ||
         kind == FeatureKind::Pyramid || kind == FeatureKind::Wedge ||
         kind == FeatureKind::Extrusion || kind == FeatureKind::Revolution ||
-        kind == FeatureKind::ImportedStep || kind == FeatureKind::Hole;
+        kind == FeatureKind::ImportedStep || kind == FeatureKind::Hole ||
+        kind == FeatureKind::Thread;
 }
 
 bool sketch_visible_outside_sketcher(
@@ -926,6 +927,7 @@ QString feature_icon_name(zima::document::FeatureKind kind) {
         case FeatureKind::Chamfer: return QStringLiteral("chamfer");
         case FeatureKind::Shell: return QStringLiteral("shell");
         case FeatureKind::Hole: return QStringLiteral("cylinder");
+        case FeatureKind::Thread: return QStringLiteral("thread");
     }
     return {};
 }
@@ -935,8 +937,10 @@ void add_history_container_tree_children(QTreeWidgetItem* parent,
     const zima::assembly::InstancePath& instance_path = {},
     const zima::sketcher::Sketch* owned_sketch = nullptr,
     bool assembly_owned = false) {
-    add_construction_origin_tree_item(
-        parent, container.container_origin, container.name, instance_path);
+    if (container.feature_kind != zima::document::FeatureKind::Thread) {
+        add_construction_origin_tree_item(
+            parent, container.container_origin, container.name, instance_path);
+    }
     if (container.feature_kind == zima::document::FeatureKind::Hole) {
         const auto add_hole_part = [&](const QString& label,
                 const char* icon, const char* role) {
@@ -990,11 +994,16 @@ void add_history_container_tree_children(QTreeWidgetItem* parent,
             assembly_owned ? "assembly-sketch" : "part-sketch");
     }
     if (container.feature_kind == zima::document::FeatureKind::Sketch) return;
-    const QString operation = container.combine_mode ==
+    const QString operation = container.feature_kind ==
+            zima::document::FeatureKind::Thread
+        ? QString{} : container.combine_mode ==
             zima::document::CombineMode::Subtract
         ? QStringLiteral("− ") : QStringLiteral("+ ");
-    auto* feature = new QTreeWidgetItem(parent,
-        {operation + QString::fromStdString(container.name)});
+    const QString feature_label = container.feature_kind ==
+            zima::document::FeatureKind::Thread
+        ? QObject::tr("Plochy závitu")
+        : operation + QString::fromStdString(container.name);
+    auto* feature = new QTreeWidgetItem(parent, {feature_label});
     feature->setIcon(0, resource_icon(feature_icon_name(container.feature_kind)));
     feature->setData(0, Qt::UserRole, QString::fromStdString(
         assembly_owned ? container.id : container.feature_id));
@@ -3083,6 +3092,8 @@ void AssemblyWorkspaceWindow::create_actions() {
     cylinder_action_ = make_action(tr("Válec"), "cylinder");
     hole_action_ = make_action(tr("Otvor"), "cylinder");
     hole_action_->setObjectName("holeAction");
+    thread_action_ = make_action(tr("Závit"), "thread");
+    thread_action_->setObjectName("threadAction");
     sphere_action_ = make_action(tr("Koule"), "sphere");
     cone_action_ = make_action(tr("Kužel"), "cone");
     pyramid_action_ = make_action(tr("Jehlan"), "pyramid");
@@ -3331,6 +3342,8 @@ void AssemblyWorkspaceWindow::create_actions() {
         show_primitive_properties(zima::document::FeatureKind::Cylinder); });
     connect(hole_action_, &QAction::triggered, this, [this] {
         show_primitive_properties(zima::document::FeatureKind::Hole); });
+    connect(thread_action_, &QAction::triggered, this, [this] {
+        show_primitive_properties(zima::document::FeatureKind::Thread); });
     connect(sphere_action_, &QAction::triggered, this, [this] {
         show_primitive_properties(zima::document::FeatureKind::Sphere); });
     connect(cone_action_, &QAction::triggered, this, [this] {
@@ -6036,6 +6049,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         add_command(chamfer_action_);
         add_command(shell_action_);
         add_command(hole_action_);
+        add_command(thread_action_);
         add_green_separator();
         for (auto* action : {box_action_, sphere_action_, cylinder_action_, cone_action_,
                              pyramid_action_, wedge_action_}) {
@@ -9310,6 +9324,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             ? zima::document::PartDocument::create_cylinder_container()
         : feature_kind == zima::document::FeatureKind::Hole
             ? zima::document::PartDocument::create_hole_container()
+        : feature_kind == zima::document::FeatureKind::Thread
+            ? zima::document::PartDocument::create_thread_container()
         : feature_kind == zima::document::FeatureKind::Sphere
             ? zima::document::PartDocument::create_sphere_container()
         : feature_kind == zima::document::FeatureKind::Cone
@@ -9413,7 +9429,9 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 committed.feature_kind ==
                     zima::document::FeatureKind::Revolution ||
                 committed.feature_kind ==
-                    zima::document::FeatureKind::Hole) {
+                    zima::document::FeatureKind::Hole ||
+                committed.feature_kind ==
+                    zima::document::FeatureKind::Thread) {
                 normalize_owned_profile_front_references(
                     committed.placement.references);
             }
@@ -10016,6 +10034,16 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             if (primitive_reference_dialog_ == nullptr) return preview;
             auto resolved_preview = preview;
             auto& placement = resolved_preview.placement;
+            // Creation and later Properties editing must resolve the same
+            // reference set. OK normalizes a Thread's Axis + Plane rows
+            // before committing; doing that only at commit time left the
+            // first cyan preview on its stale numerical origin (typically
+            // Z=0), while reopening Properties immediately looked correct.
+            if (resolved_preview.feature_kind ==
+                    zima::document::FeatureKind::Thread) {
+                normalize_owned_profile_front_references(
+                    placement.references);
+            }
             if (defer_profile_scene_refresh) {
                 normalize_owned_profile_front_references(
                     placement.references,
@@ -10058,10 +10086,22 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                         &active_part->session.calculated_boundaries().back().mesh;
                 }
             }
-            viewer_->set_transient_edges(through_all_input != nullptr
-                ? preview_geometry.primitive_preview_edges(
-                      resolved_preview, *through_all_input)
-                : preview_geometry.primitive_preview_edges(resolved_preview));
+            if (resolved_preview.feature_kind ==
+                    zima::document::FeatureKind::Thread) {
+                const zima::kernel::ViewerMesh* body = nullptr;
+                if (const auto* active_part = workspace_.open_part(
+                        workspace_.active_document_id()); active_part != nullptr &&
+                    !active_part->session.calculated_boundaries().empty()) {
+                    body = &active_part->session.calculated_boundaries().back().mesh;
+                }
+                viewer_->set_transient_edges(
+                    preview_geometry.thread_edges(resolved_preview, body));
+            } else {
+                viewer_->set_transient_edges(through_all_input != nullptr
+                    ? preview_geometry.primitive_preview_edges(
+                          resolved_preview, *through_all_input)
+                    : preview_geometry.primitive_preview_edges(resolved_preview));
+            }
             // Basic solids are only an analytical cyan wire until OK. Their
             // local Container Origin is nevertheless real editing context:
             // standard-colour axes/planes plus a cyan origin point, all
@@ -21646,6 +21686,10 @@ AssemblyWorkspaceWindow::inferred_sketch_circle_radius(
     };
     for (const auto& circle : sketch->circles) offer(circle.radius, circle.id);
     for (const auto& arc : sketch->arcs) offer(arc.radius, arc.id);
+    for (const auto& reference : sketch->external_references) {
+        if (const auto radius = sketch->circular_radius(reference.id))
+            offer(*radius, reference.id);
+    }
     return best;
 }
 
@@ -23064,6 +23108,42 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                     linear("height", "Výška = ", origin,
                         local(0,0,container->cylinder.height), {8,0,0},
                         container->cylinder.height);
+                } else if (container->feature_kind == FeatureKind::Thread) {
+                    const double diameter=container->thread.profile_diameter;
+                    const bool referenced_work_plane = std::any_of(
+                        container->placement.references.begin(),
+                        container->placement.references.end(),
+                        [](const auto& reference) {
+                            return !reference.orientation_only &&
+                                reference.supports_offset &&
+                                !reference.owner_id.empty();
+                        });
+                    const auto axial = [&](double distance) {
+                        return referenced_work_plane
+                            ? local(0,-distance,0)
+                            : local(0,0,distance);
+                    };
+                    mesh.dimensions.push_back({origin,
+                        local(diameter*0.5,0,0), origin,
+                        local(diameter*0.5,0,0),
+                        container->thread.nominal_diameter,
+                        {container->id,"parameter:thread_nominal_diameter",{}},""});
+                    auto& dimension=mesh.dimensions.back();
+                    dimension.kind=zima::kernel::ViewerDimensionKind::Diameter;
+                    dimension.display_text_override=
+                        container->thread.dimension_label;
+                    linear("length_forward", "Délka závitu = ", origin,
+                        axial(container->thread.length_forward), {8,8,0},
+                        container->thread.length_forward);
+                    if (container->thread.extent_mode !=
+                            zima::document::ProfileExtentMode::OneSide) {
+                        const double reverse = container->thread.extent_mode ==
+                                zima::document::ProfileExtentMode::Symmetric
+                            ? container->thread.length_forward
+                            : container->thread.length_reverse;
+                        linear("length_reverse", "Zpětná délka = ", origin,
+                            axial(-reverse), {8,8,0}, reverse);
+                    }
                 } else if (container->feature_kind == FeatureKind::Sphere) {
                     radius("radius", origin,
                         local(container->sphere.radius,0,0), {0,6,0},
@@ -23622,7 +23702,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         active_application_ = ApplicationMode::Drawing;
         insert_action_->setEnabled(false);
         regenerate_action_->setEnabled(false);
-        for (auto* action : {box_action_, cylinder_action_, hole_action_, sphere_action_, cone_action_,
+        for (auto* action : {box_action_, cylinder_action_, hole_action_, thread_action_, sphere_action_, cone_action_,
                              pyramid_action_, wedge_action_, construction_point_action_,
                              curve_3d_action_, curve_3d_experimental_action_,
                              sweep_3d_action_,
@@ -24253,11 +24333,16 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             }
             zima::kernel::ViewerMesh display = cursor_body != nullptr
                 ? cursor_body->mesh : zima::kernel::ViewerMesh{};
-            // Cosmetic Hole threads are persisted ZIMA presentation data,
-            // not OCCT edges. Add only features at the displayed history
-            // boundary, and leave them non-referenceable.
+            // Standalone Thread sheets are already part of the calculated
+            // boundary. Only legacy cosmetic threads owned by Hole are
+            // appended as lightweight presentation edges here.
             std::size_t visible_body_features{};
+            std::unordered_set<std::string> visible_history_ids;
+            const auto history_cursor=document.effective_history_cursor();
+            for (std::size_t index=0; index<history_cursor; ++index)
+                visible_history_ids.insert(document.history_order[index].id);
             for (const auto& container : document.history) {
+                if (!visible_history_ids.contains(container.id)) continue;
                 if (container.feature_kind ==
                     zima::document::FeatureKind::Sketch) continue;
                 if (visible_body_features++ >= displayed_count) break;
@@ -24392,7 +24477,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         regenerate_document_action_->setEnabled(true);
         box_action_->setEnabled(true);
         cylinder_action_->setEnabled(true);
-        hole_action_->setEnabled(!document.history.empty());
+    hole_action_->setEnabled(!document.history.empty());
+    thread_action_->setEnabled(!document.history.empty());
         sphere_action_->setEnabled(true);
         cone_action_->setEnabled(true);
         pyramid_action_->setEnabled(true);
@@ -24863,6 +24949,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     box_action_->setEnabled(active_part != nullptr);
     cylinder_action_->setEnabled(active_part != nullptr);
     hole_action_->setEnabled(active_part != nullptr &&
+        !active_part->session.document().history.empty());
+    thread_action_->setEnabled(active_part != nullptr &&
         !active_part->session.document().history.empty());
     sphere_action_->setEnabled(active_part != nullptr);
     cone_action_->setEnabled(active_part != nullptr);

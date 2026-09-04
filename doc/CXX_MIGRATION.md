@@ -1151,6 +1151,36 @@ tělesa a končí těsně za prvním a posledním průchodem. U naklopeného otv
 proto neroztáhne na projekci celé úhlopříčky solidu; neuzavřený či degenerovaný
 viewer mesh má konzervativní projekční fallback.
 
+Samostatný HistoryContainer **Závit** představuje technologický závit bez
+šroubovice a bez vlastní objemové booleovské operace. Explicitní výpočet vytváří
+oddělené šedé OCCT sheet plochy jmenovitého a patního válce. U konečné délky je
+spojuje kuželový výjezd, jehož výchozí délka je `2 × P` a uživatel může násobek
+stoupání změnit; výjezd je omezen nejvýše na polovinu příslušného rozsahu.
+Vnější závit vede patní válec přes celý rozsah a jmenovitý válec zkracuje o
+výjezdy; vnitřní závit má toto pravidlo obráceně. Koncový kužel vždy obrací
+pořadí poloměrů proti počátečnímu kuželu, takže oba výjezdy směřují z plného
+profilu ke správné koncové kružnici. Režim Automaticky rozlišuje vnější závit
+podle osového bodu ležícího v materiálu a vnitřní závit podle osy v dutině.
+Pozdější odečítací operace řežou stejným OCCT nástrojem solid i všechny dříve
+vytvořené technologické plochy. Závit proto nemění objem tělesa, ale jeho sheets
+se skutečně přeruší například následujícím otvorem nebo drážkou.
+Rozsah sdílí s Vytažením: jedna strana, obě strany nebo symetricky a nezávislé
+Délka/Až k/Skrz vše v obou směrech. Oproti Vytažení nemá odsazenou rovinu.
+Nevlastní skicu, skicovou rovinu ani osu: osu a počáteční plochu přebírá jako
+stabilní reference předchozích kontejnerů. Ve stromu proto obsahuje pouze
+výslednou položku **Plochy závitu**.
+Vestavěné katalogy (bez závislosti na externích souborech) obsahují metrické
+ISO, Whitworth BSW a válcové trubkové G/BSPP rozměry. Vnější závit zobrazuje
+tabulkový patní průměr, vnitřní závit jmenovitý průměr a oba dovolují vlastní
+průměr válce závitu. Automatická volba rozlišuje vnitřní a vnější stranu podle
+nosného tělesa; uživatel ji může přepsat.
+
+Kóta může vedle textu před a za číselnou hodnotou nést i samostatný zobrazovaný
+text, například `G 1/2`. Řídicí číselná hodnota přitom zůstává zachována pro
+solver a dvojklik ve View vždy otevře její skutečnou hodnotu. Výchozí kóta
+závitu zobrazuje číselný jmenovitý rozměr; technologické označení `M10` či
+`G 1/2` je samostatný parametr a do kóty vstoupí jen jako uživatelský text.
+
 Externí reference `Face` nyní rozlišuje nekonečný řez dvou rovinných ploch a
 konečné větve řezu zakřivené plochy skicovou rovinou. Druhý případ vzniká z
 persistované referenční triangulace bez OCCT, uchovává stabilní identitu

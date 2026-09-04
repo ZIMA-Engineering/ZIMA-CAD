@@ -846,10 +846,12 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
         const QPointF witness_second = project(dimension.witness_second);
         const QPointF line_first = project(dimension.line_first);
         const QPointF line_second = project(dimension.line_second);
-        const QString text = QString::fromStdString(dimension.label_prefix) +
-            QString::number(dimension.value, 'f',
-                impl_->dimension_decimal_places) +
-            QString::fromStdString(dimension.unit_suffix);
+        const QString text = !dimension.display_text_override.empty()
+            ? QString::fromStdString(dimension.display_text_override)
+            : QString::fromStdString(dimension.label_prefix) +
+                QString::number(dimension.value, 'f',
+                    impl_->dimension_decimal_places) +
+                QString::fromStdString(dimension.unit_suffix);
         QPointF text_anchor = line_second + QPointF(12.0, 0.0);
         std::optional<LinearDimensionLayout> linear_layout;
         if (dimension.kind == zima::kernel::ViewerDimensionKind::Linear) {
@@ -1556,10 +1558,12 @@ std::optional<QPoint> MeshView::candidate_dimension_label_position(
         return QPointF((clip.x() + 1.0F) * width() / 2.0F,
             (1.0F - clip.y()) * height() / 2.0F);
     };
-    const QString text = QString::fromStdString(dimension.label_prefix) +
-        QString::number(dimension.value, 'f',
-                impl_->dimension_decimal_places) +
-        QString::fromStdString(dimension.unit_suffix);
+    const QString text = !dimension.display_text_override.empty()
+        ? QString::fromStdString(dimension.display_text_override)
+        : QString::fromStdString(dimension.label_prefix) +
+            QString::number(dimension.value, 'f',
+                    impl_->dimension_decimal_places) +
+            QString::fromStdString(dimension.unit_suffix);
     const QFontMetricsF metrics(font());
     QPointF baseline;
     if (dimension.kind == zima::kernel::ViewerDimensionKind::Angular) {
@@ -2807,6 +2811,9 @@ if (impl_->show_origins) {
             QColor color = impl_->body_surface_color;
             if (triangle >= impl_->mesh.triangle_references.size()) return color;
             const auto& reference = impl_->mesh.triangle_references[triangle];
+            if (reference.semantic_key.starts_with("thread:surface:")) {
+                color = QColor("#8F969D");
+            }
             if (const auto found = impl_->body_surface_instance_colors.find(
                     reference.instance_path);
                 found != impl_->body_surface_instance_colors.end()) {
@@ -2821,12 +2828,26 @@ if (impl_->show_origins) {
         std::size_t first{};
         while (first < triangle_count) {
             QColor color = triangle_color(first);
+            const bool technological_thread = first <
+                    impl_->mesh.triangle_references.size() &&
+                impl_->mesh.triangle_references[first].semantic_key.starts_with(
+                    "thread:surface:");
             std::size_t end = first + 1;
             while (end < triangle_count) {
                 QColor next = triangle_color(end);
-                if (next != color) break;
+                const bool next_thread = end <
+                        impl_->mesh.triangle_references.size() &&
+                    impl_->mesh.triangle_references[end].semantic_key.starts_with(
+                        "thread:surface:");
+                if (next != color || next_thread != technological_thread) break;
                 ++end;
             }
+            // The solid is pushed slightly back for edge readability. A
+            // coincident technological sheet needs the unshifted depth so
+            // its grey face remains visible on an outside cylinder, while
+            // genuinely nearer solid geometry still occludes it.
+            glPolygonOffset(technological_thread ? 0.0F : 1.0F,
+                technological_thread ? 0.0F : 1.0F);
             if (color.alpha() < 255) {
                 glEnable(GL_BLEND);
                 glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -2837,6 +2858,7 @@ if (impl_->show_origins) {
             if (color.alpha() < 255) glDisable(GL_BLEND);
             first = end;
         }
+        glPolygonOffset(1.0F, 1.0F);
         glDisable(GL_POLYGON_OFFSET_FILL);
     };
     // Resolves one final edge colour by priority, mirroring Python's
@@ -2929,9 +2951,11 @@ if (impl_->show_origins) {
                 static_cast<float>(color.greenF()),
                 static_cast<float>(color.blueF()), 1.0F);
         }
-        if (edge.reference.semantic_key.starts_with(
-                "hole:cosmetic-thread:")) {
-            return QVector4D(0.55F, 0.55F, 0.55F, 1.0F);
+        const auto& semantic = edge.reference.semantic_key;
+        if (semantic.starts_with("hole:cosmetic-thread:") ||
+            semantic.starts_with("thread:wire:") ||
+            semantic.starts_with("thread:boundary:")) {
+            return QVector4D(0.62F, 0.62F, 0.62F, 1.0F);
         }
         return QVector4D(1.0F, 1.0F, 1.0F, 1.0F);
     };
@@ -2951,25 +2975,43 @@ if (impl_->show_origins) {
             }
         };
         if (force_black_if_not_highlighted) {
-            impl_->program.setUniformValue(
-                "color", QVector4D(0.0F, 0.0F, 0.0F, 1.0F));
-            std::vector<GLint> first;
-            std::vector<GLsizei> count;
-            first.reserve(impl_->line_ranges.size());
-            count.reserve(impl_->line_ranges.size());
+            std::vector<GLint> ordinary_first;
+            std::vector<GLsizei> ordinary_count;
+            std::vector<GLint> thread_first;
+            std::vector<GLsizei> thread_count;
+            ordinary_first.reserve(impl_->line_ranges.size());
+            ordinary_count.reserve(impl_->line_ranges.size());
             for (std::size_t index = 0;
                  index < impl_->line_ranges.size(); ++index) {
                 if (edge_is_highlighted(
                         impl_->line_edges[index],
                         impl_->line_mesh_edge_indices[index], highlighted)) continue;
+                const auto& semantic =
+                    impl_->line_edges[index].reference.semantic_key;
+                const bool cosmetic_thread = semantic.starts_with(
+                        "hole:cosmetic-thread:") ||
+                    semantic.starts_with("thread:wire:");
+                auto& first = cosmetic_thread ? thread_first : ordinary_first;
+                auto& count = cosmetic_thread ? thread_count : ordinary_count;
                 first.push_back(impl_->line_ranges[index].first);
                 count.push_back(impl_->line_ranges[index].second);
             }
-            if (first.size() == impl_->line_ranges.size()) {
+            if (thread_first.empty() && ordinary_first.size() ==
+                    impl_->line_ranges.size()) {
+                impl_->program.setUniformValue(
+                    "color", QVector4D(0.0F, 0.0F, 0.0F, 1.0F));
                 glDrawArrays(GL_LINES, 0, impl_->line_vertex_count);
-            } else {
-                draw_ranges(first, count);
+                return;
             }
+            impl_->program.setUniformValue(
+                "color", QVector4D(0.0F, 0.0F, 0.0F, 1.0F));
+            draw_ranges(ordinary_first, ordinary_count);
+            // A cosmetic thread commonly lies entirely behind/on its
+            // supporting cylinder. Pure black made its two rings and two
+            // boundary lines disappear against the dark View background.
+            impl_->program.setUniformValue(
+                "color", QVector4D(0.55F, 0.55F, 0.55F, 1.0F));
+            draw_ranges(thread_first, thread_count);
             return;
         }
 
@@ -3072,6 +3114,39 @@ if (impl_->show_origins) {
                        /*highlighted_only=*/true);
             glDepthFunc(GL_LESS);
             break;
+    }
+
+    // Cosmetic thread lines are useful in Shaded too, but they must obey the
+    // calculated body's depth buffer. LEQUAL keeps the portion lying on an
+    // outside cylindrical face legible while ordinary LESS/occlusion hides
+    // the part running inside material. Hidden Edges and Wire still reveal
+    // the complete symbol through their normal display-mode passes.
+    {
+        std::optional<ViewerCandidate> thread_highlight =
+            impl_->confirmed_candidate;
+        const bool thread_confirmed = thread_highlight.has_value();
+        if (!thread_highlight && !impl_->candidates.empty()) {
+            thread_highlight = impl_->candidates[impl_->active_candidate];
+        }
+        glDepthFunc(GL_LEQUAL);
+        bind_attributes(impl_->lines);
+        for (std::size_t index = 0; index < impl_->line_ranges.size(); ++index) {
+            const auto& edge = impl_->line_edges[index];
+            const auto& semantic = edge.reference.semantic_key;
+            if (!semantic.starts_with("hole:cosmetic-thread:") &&
+                !semantic.starts_with("thread:wire:")) continue;
+            QVector4D color(0.62F, 0.62F, 0.62F, 1.0F);
+            if (thread_highlight &&
+                candidate_recolors_wire_edge(*thread_highlight, edge)) {
+                color = thread_confirmed
+                    ? QVector4D(0.0F, 0.82F, 1.0F, 1.0F)
+                    : QVector4D(1.0F, 0.48F, 0.0F, 1.0F);
+            }
+            impl_->program.setUniformValue("color", color);
+            glDrawArrays(GL_LINES, impl_->line_ranges[index].first,
+                impl_->line_ranges[index].second);
+        }
+        glDepthFunc(GL_LESS);
     }
 
     // Boundary/silhouette edges on curved surfaces (cylinders, spheres, ...)
@@ -3701,11 +3776,12 @@ if (impl_->show_origins) {
                 // dimension graphics stacked on top of one another.
                 painter.setPen(QPen(color, 1.5));
                 painter.setBrush(color);
-                const QString text =
-                    QString::fromStdString(dimension.label_prefix) +
-                    QString::number(dimension.value, 'f',
-                impl_->dimension_decimal_places) +
-                    QString::fromStdString(dimension.unit_suffix);
+                const QString text = !dimension.display_text_override.empty()
+                    ? QString::fromStdString(dimension.display_text_override)
+                    : QString::fromStdString(dimension.label_prefix) +
+                        QString::number(dimension.value, 'f',
+                            impl_->dimension_decimal_places) +
+                        QString::fromStdString(dimension.unit_suffix);
                 constexpr double arrow_length = 10.0;
                 constexpr double arrow_half_width = 1.763269807;
                 constexpr double tail_length = 7.0;
@@ -4971,9 +5047,20 @@ void MeshView::mouseDoubleClickEvent(QMouseEvent* event) {
         return;
     }
     if (event->button() != Qt::LeftButton || !impl_->double_confirmation_callback) return;
+    // The press preceding QEvent::MouseButtonDblClick has already confirmed
+    // the exact candidate selected by the user. Re-picking below may rebuild
+    // or reorder an overlapping candidate list and reset active_candidate to
+    // zero; opening that new first item edited a different container. Keep
+    // the confirmed identity and use the refreshed list only as a fallback
+    // when no press candidate exists.
+    const auto pressed_candidate = impl_->confirmed_candidate;
     update_candidates(event->position());
-    if (!impl_->candidates.empty()) {
-        impl_->double_confirmation_callback(impl_->candidates[impl_->active_candidate]);
+    if (pressed_candidate) {
+        impl_->double_confirmation_callback(*pressed_candidate);
+        event->accept();
+    } else if (!impl_->candidates.empty()) {
+        impl_->double_confirmation_callback(
+            impl_->candidates[impl_->active_candidate]);
         event->accept();
     }
 }

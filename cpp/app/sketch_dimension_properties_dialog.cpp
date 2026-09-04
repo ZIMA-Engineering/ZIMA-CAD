@@ -58,11 +58,12 @@ SketchDimensionPropertiesDialog::SketchDimensionPropertiesDialog(
     zima::sketcher::SketchDimension initial, bool edit_mode,
     CommitCallback commit, QWidget* parent, QString custom_title)
     : PropertiesSubWindow(custom_title.isEmpty()
-          ? tr("Kóta")
+          ? tr("Vlastnosti kóty")
           : std::move(custom_title), parent),
       initial_(std::move(initial)), commit_(std::move(commit)) {
     setAttribute(Qt::WA_DeleteOnClose, true);
     setMinimumWidth(340);
+    setMinimumHeight(560);
     form_ = new QFormLayout;
     value_ = dimension_field(initial_.value, "sketchDimensionValue", this);
     form_->addRow(tr("Jmenovitá hodnota"), value_);
@@ -81,6 +82,12 @@ SketchDimensionPropertiesDialog::SketchDimensionPropertiesDialog(
         prefix_, initial_.prefix, "sketchDimensionPrefix", this));
     form_->addRow(tr("Text za hodnotou"), symbol_field(
         suffix_, initial_.suffix, "sketchDimensionSuffix", this));
+    display_text_override_ = new QLineEdit(
+        QString::fromStdString(initial_.display_text_override), this);
+    display_text_override_->setObjectName("sketchDimensionDisplayText");
+    display_text_override_->setPlaceholderText(
+        tr("Prázdné = zobrazit skutečnou hodnotu"));
+    form_->addRow(tr("Text místo hodnoty"), display_text_override_);
     tolerance_mode_ = new QComboBox(this);
     tolerance_mode_->setObjectName("sketchDimensionToleranceMode");
     tolerance_mode_->addItem(tr("Bez tolerance"), "");
@@ -161,6 +168,8 @@ bool SketchDimensionPropertiesDialog::submit() {
     result.locked = locked_->isChecked();
     result.prefix = prefix_->text().toStdString();
     result.suffix = suffix_->text().toStdString();
+    result.display_text_override =
+        display_text_override_->text().trimmed().toStdString();
     result.tolerance_mode = tolerance_mode_->currentData().toString().toStdString();
     result.symmetric_tolerance = symmetric_tolerance_->text().trimmed().toStdString();
     result.single_tolerance = single_tolerance_->text().trimmed().toStdString();

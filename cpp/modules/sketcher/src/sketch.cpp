@@ -1034,6 +1034,39 @@ std::optional<double> circular_curve_radius(
             sketch.arcs.begin(), sketch.arcs.end(),
             [&](const auto& value) { return value.id == geometry_id; });
         arc != sketch.arcs.end()) return arc->radius;
+    const auto external = std::find_if(sketch.external_references.begin(),
+        sketch.external_references.end(), [&](const auto& value) {
+            return value.id == geometry_id && !value.broken &&
+                value.kind == ExternalReferenceKind::Edge &&
+                value.cached_points.size() >= 8;
+        });
+    if (external != sketch.external_references.end()) {
+        const auto& points = external->cached_points;
+        const auto& first = points.front();
+        const auto& last = points.back();
+        double min_x=first[0], max_x=first[0], min_y=first[1], max_y=first[1];
+        for (const auto& point : points) {
+            min_x=std::min(min_x,point[0]); max_x=std::max(max_x,point[0]);
+            min_y=std::min(min_y,point[1]); max_y=std::max(max_y,point[1]);
+        }
+        const double scale=std::max(1.0,std::hypot(max_x-min_x,max_y-min_y));
+        if (std::hypot(first[0]-last[0],first[1]-last[1]) <= scale*1.0e-4) {
+            const std::size_t count=points.size()-1;
+            double cx{},cy{};
+            for (std::size_t i=0;i<count;++i) { cx+=points[i][0]; cy+=points[i][1]; }
+            cx/=count; cy/=count;
+            double radius{};
+            for (std::size_t i=0;i<count;++i)
+                radius+=std::hypot(points[i][0]-cx,points[i][1]-cy);
+            radius/=count;
+            double error{};
+            for (std::size_t i=0;i<count;++i)
+                error=std::max(error,std::abs(
+                    std::hypot(points[i][0]-cx,points[i][1]-cy)-radius));
+            if (radius>1.0e-10 && error <= std::max(1.0,radius)*2.0e-3)
+                return radius;
+        }
+    }
     return std::nullopt;
 }
 
@@ -4094,6 +4127,11 @@ std::string Sketch::add_equal_radius_constraint(
     return id;
 }
 
+std::optional<double> Sketch::circular_radius(
+        const std::string& geometry_id) const {
+    return circular_curve_radius(*this, geometry_id);
+}
+
 std::string Sketch::add_point_on_circle_constraint(
     const std::string& point_id, const std::string& circle_id) {
     const auto* point = find_point(point_id);
@@ -6333,7 +6371,68 @@ std::string Sketch::add_external_profile_geometry(
     auto next = *this;
     std::string geometry_id;
     std::vector<std::string> point_ids;
-    if (straight) {
+    const double scale = std::max(1.0, std::hypot(
+        std::max_element(source.begin(), source.end(), [](const auto& a, const auto& b) {
+            return a[0] < b[0]; })->at(0) -
+        std::min_element(source.begin(), source.end(), [](const auto& a, const auto& b) {
+            return a[0] < b[0]; })->at(0),
+        std::max_element(source.begin(), source.end(), [](const auto& a, const auto& b) {
+            return a[1] < b[1]; })->at(1) -
+        std::min_element(source.begin(), source.end(), [](const auto& a, const auto& b) {
+            return a[1] < b[1]; })->at(1)));
+    const bool closed = source.size() >= 8 &&
+        std::hypot(first[0]-last[0], first[1]-last[1]) <= scale*1.0e-4;
+    bool analytic_closed{};
+    if (closed) {
+        const std::size_t count = source.size()-1;
+        double cx{}, cy{};
+        for (std::size_t i=0; i<count; ++i) {
+            cx += source[i][0]; cy += source[i][1];
+        }
+        cx /= count; cy /= count;
+        double xx{}, xy{}, yy{};
+        for (std::size_t i=0; i<count; ++i) {
+            const double x=source[i][0]-cx, y=source[i][1]-cy;
+            xx += x*x; xy += x*y; yy += y*y;
+        }
+        xx /= count; xy /= count; yy /= count;
+        const double rotation = 0.5*std::atan2(2.0*xy, xx-yy);
+        const double trace=xx+yy;
+        const double delta=std::hypot(xx-yy, 2.0*xy);
+        double major=std::sqrt(std::max(0.0, trace+delta));
+        double minor=std::sqrt(std::max(0.0, trace-delta));
+        double maximum_error{};
+        if (major > 1.0e-10 && minor > 1.0e-10) {
+            for (std::size_t i=0; i<count; ++i) {
+                const double dx=source[i][0]-cx, dy=source[i][1]-cy;
+                const double u= dx*std::cos(rotation)+dy*std::sin(rotation);
+                const double v=-dx*std::sin(rotation)+dy*std::cos(rotation);
+                maximum_error=std::max(maximum_error,
+                    std::abs(u*u/(major*major)+v*v/(minor*minor)-1.0));
+            }
+        }
+        if (maximum_error <= 2.0e-3 && major > 1.0e-10 && minor > 1.0e-10) {
+            if (std::abs(major-minor) <= std::max(major, minor)*1.0e-4) {
+                geometry_id=next.add_circle(cx, cy, 0.5*(major+minor), false, 1.0e-9);
+                const auto circle=std::find_if(next.circles.begin(), next.circles.end(),
+                    [&](const auto& value) { return value.id==geometry_id; });
+                point_ids={circle->center_point_id};
+            } else {
+                geometry_id=next.add_ellipse(cx, cy,
+                    cx+major*std::cos(rotation), cy+major*std::sin(rotation),
+                    cx-minor*std::sin(rotation), cy+minor*std::cos(rotation),
+                    false, 1.0e-9);
+                const auto ellipse=std::find_if(next.ellipses.begin(), next.ellipses.end(),
+                    [&](const auto& value) { return value.id==geometry_id; });
+                point_ids={ellipse->center_point_id, ellipse->major_point_id,
+                    ellipse->minor_point_id};
+            }
+            analytic_closed=true;
+        }
+    }
+    if (analytic_closed) {
+        // Already reconstructed as an exact circle/ellipse above.
+    } else if (straight) {
         geometry_id = next.add_segment(
             first[0], first[1], last[0], last[1], 1.0e-9, false);
         const auto segment = std::find_if(next.segments.begin(), next.segments.end(),
@@ -9449,13 +9548,25 @@ SolveResult Sketch::solve_impl(
                     const double residual = measured - target;
                     maximum_residual = std::max(maximum_residual, std::abs(residual));
                     if (std::abs(residual) <= tolerance) continue;
-                    double reference_angle = std::atan2(ry, rx);
-                    if (rx * dx + ry * dy < 0.0) {
-                        reference_angle += 3.14159265358979323846;
-                    }
-                    const double orientation = rx * dy - ry * dx < 0.0 ? -1.0 : 1.0;
-                    const double angle = reference_angle + orientation *
-                        target * 3.14159265358979323846 / 180.0;
+                    constexpr double pi = 3.14159265358979323846;
+                    const double reference_angle = std::atan2(ry, rx);
+                    const double half_angle = target * pi / 180.0;
+                    // An undirected axis admits four vectors for the same
+                    // symmetric half-angle: +/- around either axis ray.
+                    // Choose the vector closest to the current directed
+                    // segment.  Picking only by cross-product sign can jump
+                    // to the opposite ray and flip a revolve-profile wall by
+                    // 180 degrees after an otherwise small diameter edit.
+                    const std::array candidates{
+                        reference_angle + half_angle,
+                        reference_angle - half_angle,
+                        reference_angle + pi + half_angle,
+                        reference_angle + pi - half_angle};
+                    const double current_angle = std::atan2(dy, dx);
+                    const double angle = *std::ranges::max_element(
+                        candidates, {}, [&](double candidate) {
+                            return std::cos(candidate - current_angle);
+                        });
                     const double target_dx = driven_length * std::cos(angle);
                     const double target_dy = driven_length * std::sin(angle);
                     bool moved{};
@@ -9483,7 +9594,36 @@ SolveResult Sketch::solve_impl(
                         driven_by_other_dimension(driven_first->id);
                     const bool second_dimension_anchor =
                         driven_by_other_dimension(driven_second->id);
-                    if (first_dimension_anchor != second_dimension_anchor) {
+                    const bool first_immutable = immutable(*driven_first);
+                    const bool second_immutable = immutable(*driven_second);
+                    const auto anchoring_equations = [&](const std::string& point_id) {
+                        return std::ranges::count_if(constraints, [&](const auto& value) {
+                            return !value.suppressed &&
+                                value.first_point_id == point_id &&
+                                (value.kind == ConstraintKind::PointOnLine ||
+                                 value.kind == ConstraintKind::PointReference);
+                        });
+                    };
+                    const auto first_anchors = anchoring_equations(driven_first->id);
+                    const auto second_anchors = anchoring_equations(driven_second->id);
+                    if (first_anchors != second_anchors) {
+                        shared = first_anchors > second_anchors
+                            ? driven_first : driven_second;
+                        free_endpoint = first_anchors > second_anchors
+                            ? driven_second : driven_first;
+                        direction_sign = first_anchors > second_anchors ? 1.0 : -1.0;
+                    } else if (first_immutable != second_immutable) {
+                        // A point fixed by coincident/point-on-geometry
+                        // constraints is the stronger anchor.  This is the
+                        // common countersink profile: its outer corner lies
+                        // at the intersection of an external edge and the X
+                        // axis, while the other end must slide on the axis of
+                        // revolution when the included angle changes.
+                        shared = first_immutable ? driven_first : driven_second;
+                        free_endpoint = first_immutable
+                            ? driven_second : driven_first;
+                        direction_sign = first_immutable ? 1.0 : -1.0;
+                    } else if (first_dimension_anchor != second_dimension_anchor) {
                         shared = first_dimension_anchor
                             ? driven_first : driven_second;
                         free_endpoint = first_dimension_anchor
@@ -11852,6 +11992,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         rendered.locked = dimension->locked;
         rendered.label_prefix = dimension->prefix + rendered.label_prefix;
         if (!dimension->suffix.empty()) rendered.unit_suffix = dimension->suffix;
+        rendered.display_text_override = dimension->display_text_override;
         if (dimension->tolerance_mode == "symmetric" &&
             !dimension->symmetric_tolerance.empty()) {
             rendered.unit_suffix += " ±" + dimension->symmetric_tolerance;
@@ -12126,6 +12267,7 @@ std::string Sketch::serialized() const {
         if (dimension.upper_limit) value["upper_limit"] = *dimension.upper_limit;
         value["prefix"] = dimension.prefix;
         value["suffix"] = dimension.suffix;
+        value["display_text_override"] = dimension.display_text_override;
         value["tolerance_mode"] = dimension.tolerance_mode;
         value["symmetric_tolerance"] = dimension.symmetric_tolerance;
         value["single_tolerance"] = dimension.single_tolerance;
@@ -12332,6 +12474,8 @@ Sketch Sketch::from_serialized(const std::string& value) {
         if (value.contains("upper_limit")) dimension.upper_limit = value.at("upper_limit").get<double>();
         dimension.prefix = value.value("prefix", std::string{});
         dimension.suffix = value.value("suffix", std::string{});
+        dimension.display_text_override =
+            value.value("display_text_override", std::string{});
         dimension.tolerance_mode = value.value("tolerance_mode", std::string{});
         dimension.symmetric_tolerance =
             value.value("symmetric_tolerance", std::string{});

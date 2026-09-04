@@ -180,6 +180,14 @@ private:
     QComboBox* hole_thread_end_{};
     QDoubleSpinBox* hole_thread_length_{};
     QCheckBox* hole_left_hand_{};
+    QComboBox* thread_direction_{};
+    QComboBox* thread_standard_{};
+    QComboBox* thread_size_{};
+    QComboBox* thread_side_{};
+    QLineEdit* thread_dimension_label_{};
+    QCheckBox* thread_custom_profile_diameter_{};
+    QDoubleSpinBox* thread_profile_diameter_{};
+    QDoubleSpinBox* thread_runout_factor_{};
     QComboBox* extrusion_direction_{};
     QComboBox* extrusion_extent_{};
     QLabel* extrusion_target_{};

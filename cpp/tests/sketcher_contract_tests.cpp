@@ -457,6 +457,61 @@ int main() {
         require(!external_direction_sketch.move_point(
                     linked_first_point, 100.0, 100.0),
                 "Externally linked profile point was not read-only");
+        auto external_circle_sketch = zima::sketcher::Sketch::create_default();
+        auto external_circle = zima::sketcher::Sketch::create_external_reference(
+            zima::sketcher::ExternalReferenceKind::Edge);
+        external_circle.source_document_id = "circle-source";
+        external_circle.source_owner_id = "circle-owner";
+        external_circle.source_semantic_key = "edge:circle";
+        for (int sample = 0; sample <= 32; ++sample) {
+            const double angle = 2.0*std::numbers::pi*sample/32.0;
+            external_circle.cached_points.push_back(
+                {3.0+7.0*std::cos(angle), -2.0+7.0*std::sin(angle)});
+        }
+        const auto external_circle_id = external_circle.id;
+        external_circle_sketch.add_external_reference(external_circle);
+        const auto linked_circle =
+            external_circle_sketch.add_external_profile_geometry(
+                external_circle_id);
+        require(external_circle_sketch.circles.size() == 1 &&
+                    external_circle_sketch.circles.front().id == linked_circle &&
+                    external_circle_sketch.bsplines.empty() &&
+                    external_circle_sketch.segments.empty(),
+                "Projected external circle was decomposed instead of restored "
+                "as one analytic circle");
+        auto external_equal_sketch = zima::sketcher::Sketch::create_default();
+        external_equal_sketch.add_external_reference(external_circle);
+        const auto driven_external_circle =
+            external_equal_sketch.add_circle(20.0, 0.0, 6.5);
+        static_cast<void>(external_equal_sketch.add_equal_radius_constraint(
+            external_circle_id, driven_external_circle));
+        require(std::abs(external_equal_sketch.circles.front().radius-7.0) < 1.0e-6,
+                "A native circle could not inherit equality from an external circle");
+        auto external_ellipse_sketch = zima::sketcher::Sketch::create_default();
+        auto external_ellipse = zima::sketcher::Sketch::create_external_reference(
+            zima::sketcher::ExternalReferenceKind::Edge);
+        external_ellipse.source_document_id = "ellipse-source";
+        external_ellipse.source_owner_id = "ellipse-owner";
+        external_ellipse.source_semantic_key = "edge:ellipse";
+        constexpr double ellipse_rotation = 0.37;
+        for (int sample = 0; sample <= 32; ++sample) {
+            const double angle = 2.0*std::numbers::pi*sample/32.0;
+            const double u = 9.0*std::cos(angle);
+            const double v = 4.0*std::sin(angle);
+            external_ellipse.cached_points.push_back({
+                2.0+u*std::cos(ellipse_rotation)-v*std::sin(ellipse_rotation),
+                5.0+u*std::sin(ellipse_rotation)+v*std::cos(ellipse_rotation)});
+        }
+        const auto external_ellipse_id = external_ellipse.id;
+        external_ellipse_sketch.add_external_reference(external_ellipse);
+        const auto linked_ellipse =
+            external_ellipse_sketch.add_external_profile_geometry(
+                external_ellipse_id);
+        require(external_ellipse_sketch.ellipses.size() == 1 &&
+                    external_ellipse_sketch.ellipses.front().id == linked_ellipse &&
+                    external_ellipse_sketch.bsplines.empty(),
+                "Projected external ellipse was decomposed instead of restored "
+                "as one analytic ellipse");
         auto removed_linked_reference = external_direction_sketch;
         removed_linked_reference.remove_geometry(external_direction_id);
         require(removed_linked_reference.external_references.empty() &&
@@ -1534,12 +1589,26 @@ int main() {
             revolved_wall.segments,
             [&](const auto& value) { return value.id == wall_segment; });
         const auto wall_anchor = revolved_wall_segment->first_point_id;
+        const auto wall_other = revolved_wall_segment->second_point_id;
         auto wall_diameter = revolved_wall.create_symmetric_dimension(
             wall_anchor, {}, "sketch_axis:y");
         revolved_wall.apply_dimension(wall_diameter);
+        const auto* direction_before_first =
+            revolved_wall.find_point(wall_anchor);
+        const auto* direction_before_second =
+            revolved_wall.find_point(wall_other);
+        const std::array direction_before{
+            direction_before_second->x - direction_before_first->x,
+            direction_before_second->y - direction_before_first->y};
         require(revolved_wall.set_dimension_value(wall_diameter.id, 30.0) &&
                     std::abs(revolved_wall.find_point(wall_anchor)->x -
                         15.0) < 1.0e-7 &&
+                    (revolved_wall.find_point(wall_other)->x -
+                         revolved_wall.find_point(wall_anchor)->x) *
+                            direction_before[0] +
+                        (revolved_wall.find_point(wall_other)->y -
+                         revolved_wall.find_point(wall_anchor)->y) *
+                            direction_before[1] > 0.0 &&
                     std::abs(std::ranges::find_if(
                         revolved_wall.dimensions, [&](const auto& value) {
                             return value.id == wall_angle.id;
@@ -6232,6 +6301,44 @@ int main() {
             require(!reversed_axis_angle.set_dimension_value(
                         reversed_dimension.id, 200.0),
                     "Symmetric angle incorrectly accepted a reflex value");
+
+            // Regression from 02.prtz: the outer endpoint is fixed by the
+            // intersection of an external profile edge and the Sketch X
+            // axis.  Editing the included angle must slide the other endpoint
+            // along the revolution axis, not try to move the fixed corner.
+            auto countersink_angle = zima::sketcher::Sketch::create_default();
+            auto outer_edge = zima::sketcher::Sketch::create_external_reference(
+                zima::sketcher::ExternalReferenceKind::Edge);
+            outer_edge.source_document_id = "part";
+            outer_edge.source_owner_id = "cylinder";
+            outer_edge.source_semantic_key = "edge:outer";
+            outer_edge.cached_points = {{5.0, -20.0}, {5.0, 0.0}};
+            const auto outer_edge_id = outer_edge.id;
+            countersink_angle.add_external_reference(outer_edge);
+            const auto axis = countersink_angle.add_segment(
+                0.0, 0.0, 0.0, 3.0, 1.0e-9, true);
+            const auto wall = countersink_angle.add_segment(
+                5.0, 0.0, 0.0, 3.0);
+            const auto outer_point = countersink_angle.segments.back().first_point_id;
+            const auto axis_point = countersink_angle.segments.front().second_point_id;
+            static_cast<void>(countersink_angle.add_point_on_line_constraint(
+                axis_point, "sketch_axis:y"));
+            static_cast<void>(countersink_angle.add_point_on_line_constraint(
+                outer_point, outer_edge_id));
+            static_cast<void>(countersink_angle.add_point_on_line_constraint(
+                outer_point, "sketch_axis:x"));
+            auto countersink_dimension =
+                countersink_angle.create_line_symmetric_dimension(
+                    axis, wall, std::string{}, DimensionKind::AngleSymmetric);
+            countersink_angle.apply_dimension(countersink_dimension);
+            require(countersink_angle.set_dimension_value(
+                        countersink_dimension.id, 90.0),
+                    "02.prtz countersink symmetric angle could not be edited");
+            const auto* anchored_outer = countersink_angle.find_point(outer_point);
+            require(anchored_outer != nullptr &&
+                        std::abs(anchored_outer->x-5.0) < 1.0e-6 &&
+                        std::abs(anchored_outer->y) < 1.0e-6,
+                    "Editing the countersink angle moved its externally fixed corner");
 
             auto base_axis_angle = zima::sketcher::Sketch::create_default();
             const auto base_axis_line = base_axis_angle.add_segment(

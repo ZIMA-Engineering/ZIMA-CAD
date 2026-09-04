@@ -48,6 +48,7 @@
     <file alias="icons/protrusion.svg">../../resources/icons/protrusion.svg</file>
     <file alias="icons/revolve.svg">../../resources/icons/revolve.svg</file>
     <file alias="icons/sweep.svg">../../resources/icons/sweep.svg</file>
+    <file alias="icons/thread.svg">../../resources/icons/thread.svg</file>
     <file alias="icons/fillet.svg">../../resources/icons/fillet.svg</file>
     <file alias="icons/chamfer.svg">../../resources/icons/chamfer.svg</file>
     <file alias="icons/shell.svg">../../resources/icons/shell.svg</file>
@@ -59,5 +60,8 @@
     <file alias="icons/pyramid.svg">../../resources/icons/pyramid.svg</file>
     <file alias="icons/wedge.svg">../../resources/icons/wedge.svg</file>
     <file alias="fonts/osifont-lgpl3fe.ttf">../../config/fonts/osifont-lgpl3fe.ttf</file>
+    <file alias="data/threads/metric_iso.tsv">../../resources/data/threads/metric_iso.tsv</file>
+    <file alias="data/threads/whitworth_bsw.tsv">../../resources/data/threads/whitworth_bsw.tsv</file>
+    <file alias="data/threads/pipe_iso228.tsv">../../resources/data/threads/pipe_iso228.tsv</file>
   </qresource>
 </RCC>

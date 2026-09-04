@@ -1,6 +1,8 @@
 #include <zima/viewer/picking.hpp>
 
+#include <cmath>
 #include <iostream>
+#include <numbers>
 #include <stdexcept>
 
 namespace {
@@ -79,6 +81,44 @@ int main() {
         require(!zima::viewer::candidate_recolors_wire_edge(
                     local_part_body, sketch_wire),
                 "Part Body Tree selection also recoloured Sketch geometry");
+        zima::kernel::ViewerMesh cosmetic_thread_mesh;
+        zima::kernel::ViewerEdge cosmetic_thread_edge;
+        cosmetic_thread_edge.reference.semantic_key = "thread:wire:test:start";
+        cosmetic_thread_edge.display_owner_id = "thread-container";
+        zima::kernel::ViewerEdge cosmetic_thread_end = cosmetic_thread_edge;
+        cosmetic_thread_end.reference.semantic_key = "thread:wire:test:end";
+        constexpr std::size_t thread_segments = 32;
+        for (std::size_t index = 0; index <= thread_segments; ++index) {
+            const double angle = 2.0 * std::numbers::pi *
+                static_cast<double>(index) / thread_segments;
+            cosmetic_thread_edge.points.push_back(
+                {std::cos(angle), -1.0, 5.0 + std::sin(angle)});
+            cosmetic_thread_end.points.push_back(
+                {std::cos(angle), 1.0, 5.0 + std::sin(angle)});
+        }
+        cosmetic_thread_mesh.edges.push_back(cosmetic_thread_edge);
+        cosmetic_thread_mesh.edges.push_back(cosmetic_thread_end);
+        const auto cosmetic_thread_candidates =
+            zima::viewer::ordered_viewer_candidates(cosmetic_thread_mesh,
+                {0.0, 0.0, 0.0}, {0.0, 0.0, 1.0}, 0.01);
+        require(std::ranges::any_of(cosmetic_thread_candidates,
+                    [](const auto& candidate) {
+                        return candidate.kind ==
+                                zima::viewer::CandidateKind::Container &&
+                            candidate.owner_id == "thread-container";
+                    }) &&
+                    std::ranges::none_of(cosmetic_thread_candidates,
+                    [](const auto& candidate) {
+                        return candidate.kind ==
+                            zima::viewer::CandidateKind::Edge;
+                    }) &&
+                    zima::viewer::candidate_recolors_wire_edge(
+                        {zima::viewer::CandidateKind::Container, 0.0, 0,
+                         "thread-container"}, cosmetic_thread_edge) &&
+                    zima::viewer::container_candidate(
+                        cosmetic_thread_mesh, "thread-container").has_value(),
+                "Cosmetic Thread cylindrical envelope was not selectable as "
+                "its parent Container or leaked as a topological Edge");
         const zima::viewer::ViewerCandidate face_overlay{
             zima::viewer::CandidateKind::Face, 0.0, 0,
             "source", "step:face:#42", "5:first",
@@ -178,7 +218,7 @@ int main() {
         ordinary_sketch_mesh.edges.push_back({
             {{-5.0, 0.0, 5.0}, {5.0, 0.0, 5.0}},
             {"owned-sketch", "segment:profile"}, false, true,
-            false, false, "sketch-container"});
+            false, false, false, "sketch-container"});
         const auto ordinary_sketch_candidates =
             zima::viewer::ordered_viewer_candidates(ordinary_sketch_mesh,
                 {0.0, 0.0, 0.0}, {0.0, 0.0, 1.0}, 0.01);

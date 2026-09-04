@@ -143,6 +143,7 @@ private:
     QAction* box_action_{};
     QAction* cylinder_action_{};
     QAction* hole_action_{};
+    QAction* thread_action_{};
     QAction* sphere_action_{};
     QAction* cone_action_{};
     QAction* pyramid_action_{};

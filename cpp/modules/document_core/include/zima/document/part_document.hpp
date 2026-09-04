@@ -16,7 +16,7 @@
 namespace zima::document {
 
 enum class CombineMode { Add, Subtract };
-enum class FeatureKind { Sketch, Box, Cylinder, Sphere, Cone, Pyramid, Wedge, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole };
+enum class FeatureKind { Sketch, Box, Cylinder, Sphere, Cone, Pyramid, Wedge, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread };
 enum class ExtrusionDirection { Forward, Reverse, Symmetric };
 enum class ExtrusionExtent { Blind, UpToPlane, UpToSurface, ThroughAll };
 enum class ProfileSource { Internal, External };
@@ -26,6 +26,8 @@ enum class ThinMode { OneSide, OtherSide, Symmetric };
 enum class EndCondition { Length, UpTo, ThroughAll };
 enum class EndTargetKind { Point, Plane, Face };
 enum class HoleType { Plain, MetricThread, PipeThread, WhitworthThread };
+enum class ThreadStandard { Metric, Whitworth, Pipe };
+enum class ThreadSide { Automatic, Internal, External };
 enum class ConstructionKind { Point, Curve3D, Curve3DExperimental, Axis, Plane };
 enum class Curve3DType { Polyline, InterpolatingSpline };
 enum class Curve3DTangentMode {
@@ -470,6 +472,33 @@ struct HoleParameters {
     bool operator==(const HoleParameters&) const = default;
 };
 
+// A cosmetic engineering thread is a standalone history container. Its
+// diameter is a direct parameter and its axis/start plane are borrowed
+// placement references; it intentionally owns no Sketch and contributes no
+// solid volume. Its calculated result is technological sheet geometry, never
+// a helix or a Boolean add/subtract body.
+struct ThreadParameters {
+    double nominal_diameter{10.0};
+    double pitch{1.5};
+    double profile_diameter{8.3762};
+    bool custom_profile_diameter{};
+    ThreadStandard standard{ThreadStandard::Metric};
+    ThreadSide side{ThreadSide::Automatic};
+    std::string designation{"M10"};
+    std::string dimension_label;
+    ExtrusionDirection direction{ExtrusionDirection::Forward};
+    ProfileExtentMode extent_mode{ProfileExtentMode::OneSide};
+    double length_forward{15.0};
+    double length_reverse{15.0};
+    EndCondition end_condition_forward{EndCondition::Length};
+    EndCondition end_condition_reverse{EndCondition::Length};
+    std::vector<ExtrusionParameters::EndTarget> end_targets_forward;
+    std::vector<ExtrusionParameters::EndTarget> end_targets_reverse;
+    double runout_pitch_factor{2.0};
+    bool left_hand{};
+    bool operator==(const ThreadParameters&) const = default;
+};
+
 struct Curve3DSolvedPrimitive {
     std::string generator_id;
     std::string semantic_key;
@@ -599,6 +628,7 @@ struct HistoryContainer {
     EdgeTreatmentParameters edge_treatment;
     ShellParameters shell;
     HoleParameters hole;
+    ThreadParameters thread;
     bool suppressed{};
     bool operator==(const HistoryContainer&) const = default;
 };
@@ -653,6 +683,7 @@ public:
     [[nodiscard]] static HistoryContainer create_pyramid_container();
     [[nodiscard]] static HistoryContainer create_wedge_container();
     [[nodiscard]] static HistoryContainer create_hole_container();
+    [[nodiscard]] static HistoryContainer create_thread_container();
     [[nodiscard]] static ConstructionObject create_construction(
         ConstructionKind kind);
     [[nodiscard]] ConstructionObject* find_construction(const std::string& id);
@@ -698,6 +729,11 @@ public:
     // data. It is display-only wire geometry: no OCCT topology and no
     // selectable modeling reference is created.
     [[nodiscard]] std::vector<zima::kernel::ViewerEdge> hole_thread_edges(
+        const HistoryContainer& container,
+        const zima::kernel::ViewerMesh* supporting_body = nullptr,
+        bool reverse = false,
+        bool external_surface = false) const;
+    [[nodiscard]] std::vector<zima::kernel::ViewerEdge> thread_edges(
         const HistoryContainer& container,
         const zima::kernel::ViewerMesh* supporting_body = nullptr) const;
     [[nodiscard]] std::vector<zima::kernel::ViewerEdge> revolution_preview_edges(
