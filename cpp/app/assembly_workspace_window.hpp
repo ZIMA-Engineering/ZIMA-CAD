@@ -15,6 +15,7 @@
 #include <array>
 #include <utility>
 #include <vector>
+#include <set>
 
 class QAction;
 class QActionGroup;
@@ -141,6 +142,7 @@ private:
     ApplicationMode active_application_{ApplicationMode::Modeling};
     QAction* box_action_{};
     QAction* cylinder_action_{};
+    QAction* hole_action_{};
     QAction* sphere_action_{};
     QAction* cone_action_{};
     QAction* pyramid_action_{};
@@ -296,6 +298,14 @@ private:
     std::optional<std::size_t> pending_primitive_reference_index_;
     bool primitive_reference_auto_advance_{};
     int primitive_translation_dof_{3};
+    bool local_origin_selection_active_{};
+    std::set<std::string> visible_local_origin_ids_;
+    std::set<std::string> selectable_local_origin_container_ids_;
+    std::optional<std::size_t> suspended_primitive_reference_index_;
+    bool suspended_primitive_reference_auto_advance_{};
+    PlacementReferenceDialog* local_origin_selection_dialog_{};
+    std::optional<std::size_t> suspended_construction_reference_index_;
+    bool suspended_construction_reference_auto_advance_{};
     std::string active_sketch_id_;
     // A Sketch interval of the experimental 3D trajectory is edited by the
     // regular Sketcher, but remains a dialog-owned draft until the parent
@@ -539,6 +549,9 @@ private:
     void finish_extrusion_target_selection();
     [[nodiscard]] bool finish_active_reference_selection();
     void set_primitive_properties_dimension_selection();
+    void set_local_origin_selection_mode(bool active);
+    void toggle_local_origin_visibility(
+        const zima::viewer::ViewerCandidate& candidate);
     void show_parameter_dimensions(const std::string& owner_id);
     void begin_normal_view_selection();
     void accept_normal_view_reference(const zima::viewer::ViewerCandidate& candidate);
@@ -904,12 +917,15 @@ private:
     void refresh_tabs();
     void refresh_scene();
     void apply_body_color(const QColor& color);
+    void apply_body_appearance(const QColor& color,
+        const std::map<std::string, QColor>& face_colors);
     void reset_body_color();
     void show_body_color_dialog();
     void update_body_color_actions();
     void update_viewer_body_colors();
     [[nodiscard]] std::optional<std::string> selected_occurrence_path() const;
     [[nodiscard]] QColor selected_body_color() const;
+    [[nodiscard]] std::map<std::string, QColor> selected_face_colors() const;
     void update_document_kind_button();
     void navigate_document_kind();
     void add_part_tree_children(

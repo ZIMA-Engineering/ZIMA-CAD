@@ -45,6 +45,8 @@ public:
     using ReferenceRequestCallback = std::function<void(std::size_t)>;
     using PreviewCallback = std::function<void(zima::document::ConstructionObject)>;
     void set_reference_request_callback(ReferenceRequestCallback callback);
+    void set_origin_selection_mode_callback(std::function<void(bool)> callback) override;
+    void set_origin_selection_mode_active(bool active) override;
     void set_preview_callback(PreviewCallback callback);
     using CurvePointEditRequestCallback =
         std::function<void(std::optional<std::size_t>)>;

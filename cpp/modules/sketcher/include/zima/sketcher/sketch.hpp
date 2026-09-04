@@ -33,6 +33,13 @@ enum class DimensionKind {
     DistanceLine,
     Radius, Diameter, Angle, AngleThreePoint,
     AngleBetween,
+    // Symmetric line-pair dimensions treat a sketch axis / construction line
+    // as a mirror. With one real reference line the value is doubled, as if
+    // a mirrored counterpart line existed on the other side of the axis;
+    // with two real reference lines the value is their individual
+    // angle/distance from the axis summed together. Both kinds drive their
+    // owned line(s) independently toward half of the persisted value.
+    AngleSymmetric, DistanceLineSymmetric,
     EllipseMajorRadius, EllipseMinorRadius, EllipseRotation
 };
 [[nodiscard]] DimensionKind classify_linear_dimension(
@@ -201,6 +208,12 @@ struct SketchDimension {
     // Second persisted line owner for line-to-line distance and angle.
     // Built-in sketch axes use the stable IDs sketch_axis:x / sketch_axis:y.
     std::string second_geometry_id;
+    // Optional third persisted line owner. Only AngleSymmetric and
+    // DistanceLineSymmetric use it, for the two-real-line form of a
+    // symmetric line-pair dimension (geometry_id is the mirror axis,
+    // second_geometry_id the first real line, third_geometry_id the
+    // optional second real line).
+    std::string third_geometry_id;
     std::optional<std::array<double, 2>> placement;
     // -1 while interactively choosing a sector, 0 for the directed/base
     // angle sectors, 1 for their supplementary sectors.
@@ -516,6 +529,11 @@ public:
     [[nodiscard]] SketchDimension create_line_pair_dimension(
         const std::string& reference_line_id,
         const std::string& driven_line_id,
+        DimensionKind kind) const;
+    [[nodiscard]] SketchDimension create_line_symmetric_dimension(
+        const std::string& axis_id,
+        const std::string& first_line_id,
+        const std::string& second_line_id,
         DimensionKind kind) const;
     void apply_dimension(SketchDimension dimension);
     [[nodiscard]] SketchDimension create_circle_radius_dimension(

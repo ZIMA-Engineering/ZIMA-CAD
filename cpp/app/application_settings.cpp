@@ -1,6 +1,8 @@
 #include "application_settings.hpp"
 
 #include <QCoreApplication>
+#include <QApplication>
+#include <QFontDatabase>
 #include <QDir>
 #include <QFileInfo>
 #include <QFile>
@@ -22,7 +24,15 @@ const QMap<QString, QString> path_defaults{
     {QStringLiteral("Templates"), QStringLiteral("templates")},
     {QStringLiteral("Formats"), QStringLiteral("formats")},
     {QStringLiteral("Localization"), QStringLiteral("localization")},
-    {QStringLiteral("WorkingDirectory"), QStringLiteral("../Projects")}};
+#ifdef Q_OS_WIN
+    {QStringLiteral("WorkingDirectory"), QDir::toNativeSeparators(
+        QStringLiteral("C:/Users/vladi/Prace/ZIMA-Engineering/00-SOFTWARE/"
+                       "01-ZIMA/ZIMA-CAD/Projects"))}};
+#else
+    {QStringLiteral("WorkingDirectory"),
+        QStringLiteral("/home/vladimir/Prace/ZIMA-Engineering/00-SOFTWARE/"
+                       "01-ZIMA/ZIMA-CAD/Projects")}};
+#endif
 
 const QMap<QString, QString> unit_defaults{
     {QStringLiteral("Length"), QStringLiteral("mm")},
@@ -88,6 +98,9 @@ ApplicationSettings ApplicationSettings::load(const QString& working_directory) 
     QSettings local(result.local_config_path, QSettings::IniFormat);
     const QSettings* local_layer = result.local_config_path.isEmpty() ? nullptr : &local;
     result.language = layered_value(base, local_layer, "Application/Language", "cs").trimmed();
+    result.use_iso_application_font = layered_value(
+        base, local_layer, "Application/UseISOFont", "true").trimmed().toLower()
+        != QStringLiteral("false");
     if (result.language.isEmpty()) result.language = QStringLiteral("cs");
     for (const auto& key : path_keys) {
         const QString setting_key = QStringLiteral("Paths/") + key;
@@ -162,6 +175,7 @@ bool ApplicationSettings::save(QString* error) const {
             output.setValue(key, source.value(key));
     }
     output.setValue("Application/Language", language);
+    output.setValue("Application/UseISOFont", use_iso_application_font);
     for (auto it = configured_paths.cbegin(); it != configured_paths.cend(); ++it) {
         output.setValue(QStringLiteral("Paths/") + it.key(),
                         QDir::fromNativeSeparators(it.value().trimmed()));
@@ -228,6 +242,23 @@ bool ApplicationSettings::save(QString* error) const {
         return false;
     }
     return true;
+}
+
+void apply_application_font(QApplication& application,
+    const ApplicationSettings& settings) {
+    if (!settings.use_iso_application_font) {
+        application.setFont(QFontDatabase::systemFont(QFontDatabase::GeneralFont));
+        return;
+    }
+    static int font_id = -2;
+    if (font_id == -2) font_id = QFontDatabase::addApplicationFont(
+        QStringLiteral(":/zima/fonts/osifont-lgpl3fe.ttf"));
+    if (font_id < 0) return;
+    const auto families = QFontDatabase::applicationFontFamilies(font_id);
+    if (families.empty()) return;
+    auto font = application.font();
+    font.setFamily(families.front());
+    application.setFont(font);
 }
 
 }  // namespace zima::app

@@ -16,7 +16,7 @@
 namespace zima::document {
 
 enum class CombineMode { Add, Subtract };
-enum class FeatureKind { Sketch, Box, Cylinder, Sphere, Cone, Pyramid, Wedge, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell };
+enum class FeatureKind { Sketch, Box, Cylinder, Sphere, Cone, Pyramid, Wedge, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole };
 enum class ExtrusionDirection { Forward, Reverse, Symmetric };
 enum class ExtrusionExtent { Blind, UpToPlane, UpToSurface, ThroughAll };
 enum class ProfileSource { Internal, External };
@@ -25,6 +25,7 @@ enum class ProfileExtentMode { OneSide, TwoSides, Symmetric };
 enum class ThinMode { OneSide, OtherSide, Symmetric };
 enum class EndCondition { Length, UpTo, ThroughAll };
 enum class EndTargetKind { Point, Plane, Face };
+enum class HoleType { Plain, MetricThread, PipeThread, WhitworthThread };
 enum class ConstructionKind { Point, Curve3D, Curve3DExperimental, Axis, Plane };
 enum class Curve3DType { Polyline, InterpolatingSpline };
 enum class Curve3DTangentMode {
@@ -433,6 +434,42 @@ struct ShellParameters {
     bool operator==(const ShellParameters&) const = default;
 };
 
+// A Hole is one semantic history feature.  Its internal cylindrical cut,
+// entrance treatment, drill point and cosmetic thread are implementation
+// parts, never independent history operations.  Bore and thread extents are
+// deliberately separate: a through bore with a finite threaded length is a
+// normal and important case.
+struct HoleParameters {
+    std::string sketch_id;
+    std::string circle_id;
+    std::string sketch_serialized;
+    std::string chamfer_sketch_id;
+    std::string chamfer_sketch_serialized;
+    std::array<std::string, 3> chamfer_point_ids;
+    std::string chamfer_axis_segment_id;
+    std::string tip_sketch_id;
+    std::string tip_sketch_serialized;
+    std::array<std::string, 3> tip_point_ids;
+    std::string tip_axis_segment_id;
+    HoleType type{HoleType::Plain};
+    double diameter{10.0};
+    EndCondition bore_end_condition{EndCondition::Length};
+    double bore_length{20.0};
+    std::vector<ExtrusionParameters::EndTarget> bore_end_targets;
+    double entrance_chamfer{};
+    bool drill_point_enabled{};
+    double drill_point_angle_degrees{118.0};
+    bool exit_chamfer_enabled{};
+    double exit_chamfer{};
+    bool thread_enabled{};
+    double thread_nominal_diameter{10.0};
+    double thread_pitch{1.5};
+    EndCondition thread_end_condition{EndCondition::Length};
+    double thread_length{15.0};
+    bool left_hand_thread{};
+    bool operator==(const HoleParameters&) const = default;
+};
+
 struct Curve3DSolvedPrimitive {
     std::string generator_id;
     std::string semantic_key;
@@ -561,6 +598,7 @@ struct HistoryContainer {
     ImportedStepParameters imported_step;
     EdgeTreatmentParameters edge_treatment;
     ShellParameters shell;
+    HoleParameters hole;
     bool suppressed{};
     bool operator==(const HistoryContainer&) const = default;
 };
@@ -592,6 +630,9 @@ public:
     // Display colour of the calculated body.  It is presentation metadata;
     // changing it never invalidates or recalculates OCCT geometry.
     std::string body_color{"#B9C2CC"};
+    // Optional presentation overrides addressed by persisted ZIMA face
+    // identity (owner_id + semantic_key), never by OCCT enumeration order.
+    std::map<std::string, std::string> face_colors;
     std::vector<HistoryContainer> history;
     std::vector<zima::sketcher::Sketch> sketches;
     std::vector<ConstructionObject> constructions;
@@ -611,6 +652,7 @@ public:
     [[nodiscard]] static HistoryContainer create_cone_container();
     [[nodiscard]] static HistoryContainer create_pyramid_container();
     [[nodiscard]] static HistoryContainer create_wedge_container();
+    [[nodiscard]] static HistoryContainer create_hole_container();
     [[nodiscard]] static ConstructionObject create_construction(
         ConstructionKind kind);
     [[nodiscard]] ConstructionObject* find_construction(const std::string& id);
@@ -623,6 +665,10 @@ public:
     // source compatibility with existing call sites.
     [[nodiscard]] zima::kernel::ViewerMesh origin_viewer_mesh(
         double reference_scene_size = 0.0) const;
+    [[nodiscard]] zima::kernel::ViewerReferenceGeometry
+        history_origin_reference_geometry_before(
+            const std::string& container_id,
+            double reference_scene_size = 0.0) const;
     // A container's own editing-mode Origin likewise has a fixed plane size,
     // the same for every ConstructionKind and distinct from the document's
     // own Origin. Its axis arrow tips use that plane's half-extent as well.
@@ -645,6 +691,12 @@ public:
         const zima::kernel::ViewerMesh& through_all_input) const;
     [[nodiscard]] std::vector<zima::kernel::ViewerEdge> primitive_preview_edges(
         const HistoryContainer& container) const;
+    // Cosmetic thread presentation derived exclusively from persisted Hole
+    // data. It is display-only wire geometry: no OCCT topology and no
+    // selectable modeling reference is created.
+    [[nodiscard]] std::vector<zima::kernel::ViewerEdge> hole_thread_edges(
+        const HistoryContainer& container,
+        const zima::kernel::ViewerMesh* supporting_body = nullptr) const;
     [[nodiscard]] std::vector<zima::kernel::ViewerEdge> revolution_preview_edges(
         const HistoryContainer& container) const;
     [[nodiscard]] static HistoryContainer create_extrusion_container(

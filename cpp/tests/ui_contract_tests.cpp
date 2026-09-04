@@ -804,6 +804,18 @@ int main(int argc, char* argv[]) {
                     cylinder_dialog->findChild<QTableWidget*>(
                         "primitiveOrientationTable") != nullptr,
                 "Cylinder Properties did not receive the universal placement tables");
+        auto* origin_mode = cylinder_dialog->findChild<QPushButton*>(
+            "containerOriginSelectionButton");
+        std::vector<bool> origin_mode_changes;
+        cylinder_dialog->set_origin_selection_mode_callback(
+            [&](bool active) { origin_mode_changes.push_back(active); });
+        require(origin_mode != nullptr && origin_mode->isCheckable(),
+                "Container Properties does not expose the shared POČÁTEK mode");
+        origin_mode->click();
+        origin_mode->click();
+        require(origin_mode_changes == std::vector<bool>({true, false}) &&
+                    !origin_mode->isChecked(),
+                "POČÁTEK button did not toggle one shared selection mode");
         require(cylinder_dialog->set_reference(
                     0, {{}, "part-origin", "origin:point"}, "Počátek dílu"),
                 "Cylinder Properties rejected its placement reference");
@@ -821,6 +833,54 @@ int main(int argc, char* argv[]) {
                         "part-origin",
                 "Cylinder Properties did not commit exact parameters or its "
                 "universal placement reference");
+
+        auto hole_initial =
+            zima::document::PartDocument::create_hole_container();
+        int hole_commits = 0;
+        zima::document::HistoryContainer committed_hole;
+        auto* hole_dialog = new zima::app::PrimitivePropertiesDialog(
+            hole_initial, false, true,
+            [&](zima::document::HistoryContainer value) {
+                ++hole_commits;
+                committed_hole = std::move(value);
+            }, &parent);
+        hole_dialog->show();
+        application.processEvents();
+        auto* hole_type = hole_dialog->findChild<QComboBox*>("holeType");
+        auto* bore_length =
+            hole_dialog->findChild<QDoubleSpinBox*>("holeBoreLength");
+        auto* thread_length =
+            hole_dialog->findChild<QDoubleSpinBox*>("holeThreadLength");
+        auto* thread_end =
+            hole_dialog->findChild<QComboBox*>("holeThreadEnd");
+        require(hole_type != nullptr && bore_length != nullptr &&
+                    thread_length != nullptr && thread_end != nullptr,
+                "Hole dialog does not expose independent bore/thread controls");
+        hole_type->setCurrentIndex(hole_type->findData("metric"));
+        bore_length->setValue(35.0);
+        thread_length->setValue(12.0);
+        hole_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
+        application.processEvents();
+        require(hole_commits == 1 &&
+                    committed_hole.feature_kind ==
+                        zima::document::FeatureKind::Hole &&
+                    committed_hole.combine_mode ==
+                        zima::document::CombineMode::Subtract &&
+                    committed_hole.hole.thread_enabled &&
+                    committed_hole.hole.bore_length == 35.0 &&
+                    committed_hole.hole.thread_length == 12.0,
+                "Hole Properties did not preserve independent bore/thread lengths");
+        const auto cosmetic_thread =
+            zima::document::PartDocument{}.hole_thread_edges(committed_hole);
+        require(cosmetic_thread.size() == 4 &&
+                    std::all_of(cosmetic_thread.begin(), cosmetic_thread.end(),
+                        [](const auto& edge) {
+                            return !edge.reference.valid() &&
+                                edge.reference.semantic_key.starts_with(
+                                    "hole:cosmetic-thread:");
+                        }),
+                "Hole thread must be exactly two circles and two "
+                "non-referenceable boundary lines");
 
         auto sphere_initial = zima::document::PartDocument::create_sphere_container();
         zima::document::HistoryContainer committed_sphere;
@@ -2167,6 +2227,12 @@ int main(int argc, char* argv[]) {
         extrusion_plane_offset->setValue(-7.5);
         extrusion_extent->setCurrentIndex(
             extrusion_extent->findData("symmetric"));
+        require(extrusion_dialog->set_inline_parameter_value(
+                    "length_reverse", 31.0) &&
+                    extrusion_dialog->forward_extent_length() == 31.0,
+                "Symmetric reverse-side dimension did not edit the shared "
+                "forward extent field");
+        extrusion_height->setValue(48.0);
         int preview_updates = 0;
         zima::document::HistoryContainer extrusion_preview;
         extrusion_dialog->set_preview_callback(

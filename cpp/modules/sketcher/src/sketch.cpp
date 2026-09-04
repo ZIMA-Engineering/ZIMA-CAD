@@ -493,6 +493,8 @@ const char* dimension_name(DimensionKind kind) {
     case DimensionKind::Angle: return "angle";
     case DimensionKind::AngleThreePoint: return "angle_three_point";
     case DimensionKind::AngleBetween: return "angle_between";
+    case DimensionKind::AngleSymmetric: return "angle_symmetric";
+    case DimensionKind::DistanceLineSymmetric: return "distance_line_symmetric";
     case DimensionKind::EllipseMajorRadius: return "ellipse_major_radius";
     case DimensionKind::EllipseMinorRadius: return "ellipse_minor_radius";
     case DimensionKind::EllipseRotation: return "ellipse_rotation";
@@ -512,6 +514,9 @@ DimensionKind dimension_from_name(const std::string& name) {
     if (name == "angle") return DimensionKind::Angle;
     if (name == "angle_three_point") return DimensionKind::AngleThreePoint;
     if (name == "angle_between") return DimensionKind::AngleBetween;
+    if (name == "angle_symmetric") return DimensionKind::AngleSymmetric;
+    if (name == "distance_line_symmetric")
+        return DimensionKind::DistanceLineSymmetric;
     if (name == "ellipse_major_radius") return DimensionKind::EllipseMajorRadius;
     if (name == "ellipse_minor_radius") return DimensionKind::EllipseMinorRadius;
     if (name == "ellipse_rotation") return DimensionKind::EllipseRotation;
@@ -784,6 +789,44 @@ std::optional<double> measured_dimension_value(
              reference->second[1] * driven->second[1]) /
                 (reference_length * driven_length), -1.0, 1.0)) *
             180.0 / 3.14159265358979323846;
+    }
+    if (dimension.kind == DimensionKind::AngleSymmetric ||
+        dimension.kind == DimensionKind::DistanceLineSymmetric) {
+        const auto axis = sketch_axis_line(sketch, dimension.geometry_id)
+            ? sketch_axis_line(sketch, dimension.geometry_id)
+            : segment_or_external_line(sketch, dimension.geometry_id);
+        const auto first = segment_or_external_line(
+            sketch, dimension.second_geometry_id);
+        if (!axis || !first) return std::nullopt;
+        const double axis_length = std::hypot(axis->second[0], axis->second[1]);
+        const double first_length = std::hypot(first->second[0], first->second[1]);
+        if (axis_length <= 1.0e-12 || first_length <= 1.0e-12) return std::nullopt;
+        const auto measure = [&](const auto& line, double length)
+                -> std::optional<double> {
+            if (dimension.kind == DimensionKind::DistanceLineSymmetric) {
+                return std::abs(
+                    axis->second[0] * (line.first[1] - axis->first[1]) -
+                    axis->second[1] * (line.first[0] - axis->first[0])) /
+                    axis_length;
+            }
+            const double scale = axis_length * length;
+            if (scale <= 1.0e-12) return std::nullopt;
+            return std::acos(std::clamp(std::abs(
+                (axis->second[0] * line.second[0] +
+                 axis->second[1] * line.second[1]) / scale), 0.0, 1.0)) *
+                180.0 / 3.14159265358979323846;
+        };
+        const auto first_measure = measure(*first, first_length);
+        if (!first_measure) return std::nullopt;
+        if (dimension.third_geometry_id.empty()) return *first_measure * 2.0;
+        const auto second = segment_or_external_line(
+            sketch, dimension.third_geometry_id);
+        if (!second) return std::nullopt;
+        const double second_length = std::hypot(second->second[0], second->second[1]);
+        if (second_length <= 1.0e-12) return std::nullopt;
+        const auto second_measure = measure(*second, second_length);
+        if (!second_measure) return std::nullopt;
+        return *first_measure + *second_measure;
     }
     if (dimension.kind == DimensionKind::AngleThreePoint) {
         const auto first = point_position(dimension.first_point_id);
@@ -2394,6 +2437,9 @@ void Sketch::validate() const {
         const bool line_pair_dimension =
             dimension.kind == DimensionKind::DistanceLine ||
             dimension.kind == DimensionKind::AngleBetween;
+        const bool symmetric_line_dimension =
+            dimension.kind == DimensionKind::AngleSymmetric ||
+            dimension.kind == DimensionKind::DistanceLineSymmetric;
         const bool point_line_angle =
             dimension.kind == DimensionKind::AngleBetween &&
             dimension.second_geometry_id.empty() &&
@@ -2492,6 +2538,23 @@ void Sketch::validate() const {
                    (dimension.second_point_id != dimension.first_point_id &&
                     find_point(dimension.second_point_id) != nullptr))) &&
             dimension.second_geometry_id.empty() && point_dimension_line;
+        const auto symmetric_axis_line = symmetric_line_dimension
+            ? (sketch_axis_line(*this, dimension.geometry_id)
+                ? sketch_axis_line(*this, dimension.geometry_id)
+                : segment_or_external_line(*this, dimension.geometry_id))
+            : std::nullopt;
+        const bool symmetric_line_geometry_valid = symmetric_line_dimension &&
+            symmetric_axis_line.has_value() &&
+            dimension.geometry_id != dimension.second_geometry_id &&
+            dimension.geometry_id != dimension.third_geometry_id &&
+            dimension.second_geometry_id != dimension.third_geometry_id &&
+            std::any_of(segments.begin(), segments.end(), [&](const auto& segment) {
+                return segment.id == dimension.second_geometry_id;
+            }) &&
+            (dimension.third_geometry_id.empty() ||
+             std::any_of(segments.begin(), segments.end(), [&](const auto& segment) {
+                 return segment.id == dimension.third_geometry_id;
+             }));
         const bool three_point_angle_valid = three_point_angle &&
             dimension.second_geometry_id.empty() &&
             dimension.first_point_id != dimension.second_point_id &&
@@ -2505,6 +2568,7 @@ void Sketch::validate() const {
             (radial_dimension ? !geometry_valid
                 : ellipse_dimension ? !ellipse_geometry_valid
                 : line_pair_dimension ? !line_pair_geometry_valid
+                : symmetric_line_dimension ? !symmetric_line_geometry_valid
                 : point_line_dimension ? !point_line_geometry_valid
                 : three_point_angle ? !three_point_angle_valid
                 : !segment_geometry_valid && !point_pair_geometry_valid &&
@@ -2520,10 +2584,19 @@ void Sketch::validate() const {
              dimension.kind == DimensionKind::DistancePointLine ||
              dimension.kind == DimensionKind::DistanceSymmetric ||
              dimension.kind == DimensionKind::DistanceLine || radial_dimension ||
+             dimension.kind == DimensionKind::DistanceLineSymmetric ||
              dimension.kind == DimensionKind::EllipseMajorRadius ||
              dimension.kind == DimensionKind::EllipseMinorRadius) &&
             dimension.value < 0.0) {
             throw std::runtime_error("Distance must not be negative");
+        }
+        if (dimension.kind == DimensionKind::AngleSymmetric &&
+            (dimension.value < 0.0 || dimension.value > 180.0)) {
+            // A symmetric angle is the sum of two unsigned angles measured
+            // from the axis, never a signed sector selection like
+            // AngleBetween.
+            throw std::runtime_error(
+                "Symmetric angle must lie between 0 and 180 degrees");
         }
         if ((dimension.kind == DimensionKind::AngleBetween &&
              (dimension.value < -180.0 || dimension.value > 180.0)) ||
@@ -2598,6 +2671,7 @@ bool Sketch::set_dimension_value(const std::string& dimension_id, double value) 
     if (
         ((found->kind == DimensionKind::Distance ||
           found->kind == DimensionKind::DistanceSymmetric ||
+          found->kind == DimensionKind::DistanceLineSymmetric ||
           found->kind == DimensionKind::Radius ||
           found->kind == DimensionKind::Diameter ||
           found->kind == DimensionKind::EllipseMajorRadius ||
@@ -2606,6 +2680,8 @@ bool Sketch::set_dimension_value(const std::string& dimension_id, double value) 
           found->kind == DimensionKind::AngleBetween ||
           found->kind == DimensionKind::EllipseRotation) &&
          (value < -180.0 || value > 180.0)) ||
+        (found->kind == DimensionKind::AngleSymmetric &&
+         (value < 0.0 || value > 360.0)) ||
         (found->lower_limit && checked_value < *found->lower_limit) ||
         (found->upper_limit && checked_value > *found->upper_limit)) return false;
     auto updated = *found;
@@ -3840,6 +3916,7 @@ std::string Sketch::merge_points(
         replace(dimension.second_point_id);
         replace(dimension.geometry_id);
         replace(dimension.second_geometry_id);
+        replace(dimension.third_geometry_id);
     }
     for (auto& corner : next.corner_radii) replace(corner.vertex_id);
 
@@ -3906,6 +3983,7 @@ std::string Sketch::merge_points(
     std::erase_if(next.dimensions, [&](const auto& dimension) {
         return collapsed_segment_ids.contains(dimension.geometry_id) ||
             collapsed_segment_ids.contains(dimension.second_geometry_id) ||
+            collapsed_segment_ids.contains(dimension.third_geometry_id) ||
             removed_corner_ids.contains(dimension.geometry_id) ||
             removed_corner_ids.contains(dimension.second_geometry_id) ||
             (!dimension.first_point_id.empty() &&
@@ -4871,6 +4949,7 @@ void Sketch::remove_geometry(const std::string& geometry_id) {
         [&](const auto& value) {
             return value.geometry_id == geometry_id ||
                 value.second_geometry_id == geometry_id ||
+                value.third_geometry_id == geometry_id ||
                 (external_reference_count != 0 &&
                  (value.first_point_id == geometry_id ||
                   value.second_point_id == geometry_id));
@@ -5013,7 +5092,8 @@ void Sketch::remove_point(const std::string& point_id) {
     std::erase_if(next.dimensions, [&](const auto& value) {
         return value.first_point_id == point_id || value.second_point_id == point_id ||
             geometry_removed(value.geometry_id) ||
-            geometry_removed(value.second_geometry_id);
+            geometry_removed(value.second_geometry_id) ||
+            geometry_removed(value.third_geometry_id);
     });
     const auto point_is_referenced = [&](const std::string& candidate_id) {
         return std::any_of(next.segments.begin(), next.segments.end(), [&](const auto& value) {
@@ -6989,6 +7069,16 @@ SketchDimension Sketch::create_line_pair_dimension(
         throw std::invalid_argument(
             "Line distance requires parallel reference lines");
     }
+    if (kind == DimensionKind::AngleBetween &&
+        std::abs(rv[0] * dv[1] - rv[1] * dv[0]) <=
+            reference_length * driven_length * 1.0e-7) {
+        // Parallel reference lines have no well-defined angle: it is always
+        // a degenerate 0 deg or 180 deg. Refuse to persist that geometry
+        // rather than let it silently fight an existing Horizontal/Vertical
+        // constraint on either line.
+        throw std::invalid_argument(
+            "Angle between lines requires non-parallel reference lines");
+    }
     double value{};
     if (kind == DimensionKind::AngleBetween) {
         const double cosine = std::clamp(
@@ -7013,6 +7103,88 @@ SketchDimension Sketch::create_line_pair_dimension(
             (driven->first[0] - reference->first[0]);
         result.solution_side = cross < 0.0 ? -1 : 1;
     }
+    return result;
+}
+
+SketchDimension Sketch::create_line_symmetric_dimension(
+    const std::string& axis_id,
+    const std::string& first_line_id,
+    const std::string& second_line_id,
+    DimensionKind kind) const {
+    if (kind != DimensionKind::AngleSymmetric &&
+        kind != DimensionKind::DistanceLineSymmetric) {
+        throw std::invalid_argument("Symmetric line-pair dimension kind is unsupported");
+    }
+    const auto axis = sketch_axis_line(*this, axis_id)
+        ? sketch_axis_line(*this, axis_id)
+        : segment_or_external_line(*this, axis_id);
+    const auto first = segment_or_external_line(*this, first_line_id);
+    const auto first_segment = std::find_if(segments.begin(), segments.end(),
+        [&](const auto& value) { return value.id == first_line_id; });
+    if (!axis || !first || first_segment == segments.end() ||
+        axis_id == first_line_id) {
+        throw std::invalid_argument(
+            "Symmetric line-pair dimension requires a valid axis and native line");
+    }
+    const auto& av = axis->second;
+    const auto& fv = first->second;
+    const double axis_length = std::hypot(av[0], av[1]);
+    const double first_length = std::hypot(fv[0], fv[1]);
+    if (axis_length <= 1.0e-12 || first_length <= 1.0e-12) {
+        throw std::invalid_argument(
+            "Symmetric line-pair dimension requires non-zero lines");
+    }
+    const auto measure = [&](const std::array<double, 2>& lv,
+            const std::array<double, 2>& origin, double length) {
+        if (kind == DimensionKind::DistanceLineSymmetric) {
+            if (std::abs(av[0] * lv[1] - av[1] * lv[0]) >
+                    axis_length * length * 1.0e-7) {
+                throw std::invalid_argument(
+                    "Symmetric distance requires reference lines parallel to the axis");
+            }
+            return std::abs(av[0] * (origin[1] - axis->first[1]) -
+                av[1] * (origin[0] - axis->first[0])) / axis_length;
+        }
+        if (std::abs(av[0] * lv[1] - av[1] * lv[0]) <=
+                axis_length * length * 1.0e-7) {
+            throw std::invalid_argument(
+                "Symmetric angle requires reference lines not parallel to the axis");
+        }
+        const double cosine = std::clamp(std::abs(
+            (av[0] * lv[0] + av[1] * lv[1]) / (axis_length * length)),
+            0.0, 1.0);
+        return std::acos(cosine) * 180.0 / 3.14159265358979323846;
+    };
+    const double first_measure = measure(fv, first->first, first_length);
+    double value = 2.0 * first_measure;
+    if (!second_line_id.empty()) {
+        if (second_line_id == first_line_id || second_line_id == axis_id) {
+            throw std::invalid_argument(
+                "Symmetric line-pair dimension requires two distinct native lines");
+        }
+        const auto second = segment_or_external_line(*this, second_line_id);
+        const auto second_segment = std::find_if(segments.begin(), segments.end(),
+            [&](const auto& value) { return value.id == second_line_id; });
+        if (!second || second_segment == segments.end()) {
+            throw std::invalid_argument(
+                "Symmetric line-pair dimension second line is invalid");
+        }
+        const auto& sv = second->second;
+        const double second_length = std::hypot(sv[0], sv[1]);
+        if (second_length <= 1.0e-12) {
+            throw std::invalid_argument(
+                "Symmetric line-pair dimension requires non-zero lines");
+        }
+        const double second_measure = measure(sv, second->first, second_length);
+        value = first_measure + second_measure;
+    }
+    SketchDimension result;
+    result.id = make_id();
+    result.kind = kind;
+    result.value = value;
+    result.geometry_id = axis_id;
+    result.second_geometry_id = first_line_id;
+    result.third_geometry_id = second_line_id;
     return result;
 }
 
@@ -9021,6 +9193,116 @@ SolveResult Sketch::solve_impl(
                 }
                 continue;
             }
+            if (dimension.kind == DimensionKind::AngleSymmetric ||
+                dimension.kind == DimensionKind::DistanceLineSymmetric) {
+                // Both real lines are driven independently toward half of
+                // the persisted value, mirroring how DistanceSymmetric
+                // drives each of its (up to two) points independently
+                // toward half of its own persisted value.
+                const auto reference = sketch_axis_line(*this, dimension.geometry_id)
+                    ? sketch_axis_line(*this, dimension.geometry_id)
+                    : segment_or_external_line(*this, dimension.geometry_id);
+                const double rx = reference->second[0];
+                const double ry = reference->second[1];
+                const double reference_length = std::hypot(rx, ry);
+                const double target = dimension.value * 0.5;
+                for (const auto& driven_line_id : {dimension.second_geometry_id,
+                                                    dimension.third_geometry_id}) {
+                    if (driven_line_id.empty()) continue;
+                    const auto driven_segment = std::find_if(
+                        segments.begin(), segments.end(), [&](const auto& value) {
+                            return value.id == driven_line_id;
+                        });
+                    if (driven_segment == segments.end()) {
+                        maximum_residual = std::max(maximum_residual, 1.0);
+                        immovable_conflict = true;
+                        continue;
+                    }
+                    auto* driven_first = find_point(driven_segment->first_point_id);
+                    auto* driven_second = find_point(driven_segment->second_point_id);
+                    const double dx = driven_second->x - driven_first->x;
+                    const double dy = driven_second->y - driven_first->y;
+                    const double driven_length = std::hypot(dx, dy);
+                    if (driven_length <= 1.0e-12) {
+                        immovable_conflict = true;
+                        continue;
+                    }
+                    if (dimension.kind == DimensionKind::DistanceLineSymmetric) {
+                        const double signed_distance =
+                            (rx * (driven_first->y - reference->first[1]) -
+                             ry * (driven_first->x - reference->first[0])) /
+                            reference_length;
+                        const double side = signed_distance < 0.0 ? -1.0 : 1.0;
+                        const double correction = side * target - signed_distance;
+                        maximum_residual = std::max(
+                            maximum_residual, std::abs(correction));
+                        if (std::abs(correction) > tolerance) {
+                            if (immutable(*driven_first) || immutable(*driven_second)) {
+                                immovable_conflict = true;
+                            } else {
+                                driven_first->x += -ry / reference_length * correction;
+                                driven_first->y += rx / reference_length * correction;
+                                driven_second->x += -ry / reference_length * correction;
+                                driven_second->y += rx / reference_length * correction;
+                            }
+                        }
+                        continue;
+                    }
+                    // A Sketch symmetry axis is an undirected geometric
+                    // line. Reversing its two endpoints must not turn the
+                    // included half-angle into its supplementary angle and
+                    // the displayed A-B-A total into a reflex angle.
+                    const double cosine = std::clamp(std::abs(
+                        (rx * dx + ry * dy) / (reference_length * driven_length)),
+                        0.0, 1.0);
+                    const double measured = std::acos(cosine) *
+                        180.0 / 3.14159265358979323846;
+                    const double residual = measured - target;
+                    maximum_residual = std::max(maximum_residual, std::abs(residual));
+                    if (std::abs(residual) <= tolerance) continue;
+                    double reference_angle = std::atan2(ry, rx);
+                    if (rx * dx + ry * dy < 0.0) {
+                        reference_angle += 3.14159265358979323846;
+                    }
+                    const double orientation = rx * dy - ry * dx < 0.0 ? -1.0 : 1.0;
+                    const double angle = reference_angle + orientation *
+                        target * 3.14159265358979323846 / 180.0;
+                    const double target_dx = driven_length * std::cos(angle);
+                    const double target_dy = driven_length * std::sin(angle);
+                    bool moved{};
+                    SketchPoint* shared{};
+                    SketchPoint* free_endpoint{};
+                    double direction_sign{1.0};
+                    const auto reference_segment = std::find_if(
+                        segments.begin(), segments.end(), [&](const auto& value) {
+                            return value.id == dimension.geometry_id;
+                        });
+                    if (reference_segment != segments.end()) {
+                        if (reference_segment->first_point_id == driven_first->id ||
+                            reference_segment->second_point_id == driven_first->id) {
+                            shared = driven_first;
+                            free_endpoint = driven_second;
+                        } else if (reference_segment->first_point_id ==
+                                driven_second->id ||
+                            reference_segment->second_point_id == driven_second->id) {
+                            shared = driven_second;
+                            free_endpoint = driven_first;
+                            direction_sign = -1.0;
+                        }
+                    }
+                    if (shared != nullptr && free_endpoint != nullptr &&
+                        !immutable(*free_endpoint)) {
+                        free_endpoint->x = shared->x + direction_sign * target_dx;
+                        free_endpoint->y = shared->y + direction_sign * target_dy;
+                        moved = true;
+                    } else {
+                        moved = move_pair(*driven_first, *driven_second,
+                            target_dx - dx, target_dy - dy);
+                    }
+                    if (!moved) immovable_conflict = true;
+                }
+                continue;
+            }
             if (dimension.kind == DimensionKind::AngleThreePoint) {
                 const auto first = point_position(dimension.first_point_id);
                 const auto vertex = point_position(dimension.second_point_id);
@@ -9563,6 +9845,41 @@ SolveResult Sketch::solve_impl(
                 }
                 continue;
             }
+            if (dimension.kind == DimensionKind::AngleSymmetric ||
+                dimension.kind == DimensionKind::DistanceLineSymmetric) {
+                const auto reference = sketch_axis_line(*this, dimension.geometry_id)
+                    ? sketch_axis_line(*this, dimension.geometry_id)
+                    : segment_or_external_line(*this, dimension.geometry_id);
+                const double rx = reference->second[0];
+                const double ry = reference->second[1];
+                const double reference_length = std::hypot(rx, ry);
+                const double target = dimension.value * 0.5;
+                for (const auto& driven_line_id : {dimension.second_geometry_id,
+                                                    dimension.third_geometry_id}) {
+                    if (driven_line_id.empty()) continue;
+                    const auto driven = segment_or_external_line(*this, driven_line_id);
+                    if (!driven) {
+                        result.push_back(1.0e12);
+                        continue;
+                    }
+                    const double dx = driven->second[0];
+                    const double dy = driven->second[1];
+                    if (dimension.kind == DimensionKind::DistanceLineSymmetric) {
+                        const double signed_distance =
+                            (rx * (driven->first[1] - reference->first[1]) -
+                             ry * (driven->first[0] - reference->first[0])) /
+                            reference_length;
+                        result.push_back(std::abs(signed_distance) - target);
+                    } else {
+                        const double cosine = std::clamp(std::abs(
+                            (rx * dx + ry * dy) /
+                                (reference_length * std::hypot(dx, dy))), 0.0, 1.0);
+                        result.push_back(std::acos(cosine) *
+                            180.0 / 3.14159265358979323846 - target);
+                    }
+                }
+                continue;
+            }
             if (dimension.kind == DimensionKind::AngleThreePoint) {
                 const auto first = point_position(dimension.first_point_id);
                 const auto vertex = point_position(dimension.second_point_id);
@@ -9736,7 +10053,8 @@ SolveResult Sketch::solve_impl(
     for (const auto& dimension : dimensions) {
         if (dimension.suppressed || !dimension.driving) continue;
         unite_entities({dimension.first_point_id, dimension.second_point_id,
-                        dimension.geometry_id, dimension.second_geometry_id});
+                        dimension.geometry_id, dimension.second_geometry_id,
+                        dimension.third_geometry_id});
     }
 
     std::vector<std::vector<std::size_t>> equation_columns;
@@ -9767,11 +10085,16 @@ SolveResult Sketch::solve_impl(
     for (const auto& dimension : dimensions) {
         if (dimension.suppressed || !dimension.driving) continue;
         const std::size_t count =
-            dimension.kind == DimensionKind::DistanceSymmetric &&
-                    !dimension.second_point_id.empty() ? 2 : 1;
+            (dimension.kind == DimensionKind::DistanceSymmetric &&
+                    !dimension.second_point_id.empty()) ||
+            ((dimension.kind == DimensionKind::AngleSymmetric ||
+              dimension.kind == DimensionKind::DistanceLineSymmetric) &&
+                    !dimension.third_geometry_id.empty())
+                ? 2 : 1;
         append_equations(count,
             {dimension.first_point_id, dimension.second_point_id,
-             dimension.geometry_id, dimension.second_geometry_id});
+             dimension.geometry_id, dimension.second_geometry_id,
+             dimension.third_geometry_id});
     }
     const auto base = residuals();
     if (equation_columns.size() != base.size()) {
@@ -11001,6 +11324,170 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
             }
             continue;
         }
+        if (dimension.kind == DimensionKind::AngleSymmetric ||
+            dimension.kind == DimensionKind::DistanceLineSymmetric) {
+            const auto reference = sketch_axis_line(*this, dimension.geometry_id)
+                ? sketch_axis_line(*this, dimension.geometry_id)
+                : segment_or_external_line(*this, dimension.geometry_id);
+            if (!reference) continue;
+            const double rx = reference->second[0];
+            const double ry = reference->second[1];
+            const double reference_length_squared = rx * rx + ry * ry;
+            if (dimension.kind == DimensionKind::DistanceLineSymmetric &&
+                dimension.third_geometry_id.empty()) {
+                const auto driven = segment_or_external_line(
+                    *this, dimension.second_geometry_id);
+                if (!driven || reference_length_squared <= 1.0e-12) continue;
+                std::array<double, 2> actual = driven->first;
+                if (dimension.placement) {
+                    const double driven_length_squared =
+                        driven->second[0]*driven->second[0] +
+                        driven->second[1]*driven->second[1];
+                    if (driven_length_squared > 1.0e-12) {
+                        const double along =
+                            (((*dimension.placement)[0]-driven->first[0])*
+                                 driven->second[0] +
+                             ((*dimension.placement)[1]-driven->first[1])*
+                                 driven->second[1]) / driven_length_squared;
+                        actual = {driven->first[0] + along*driven->second[0],
+                            driven->first[1] + along*driven->second[1]};
+                    }
+                }
+                const double factor =
+                    ((actual[0]-reference->first[0])*rx +
+                     (actual[1]-reference->first[1])*ry) /
+                    reference_length_squared;
+                const std::array center{reference->first[0]+factor*rx,
+                    reference->first[1]+factor*ry};
+                const std::array mirrored{2.0*center[0]-actual[0],
+                    2.0*center[1]-actual[1]};
+                result.dimensions.push_back({
+                    world_point(mirrored[0], mirrored[1]),
+                    world_point(actual[0], actual[1]),
+                    world_point(mirrored[0], mirrored[1]),
+                    world_point(actual[0], actual[1]),
+                    dimension.value, {id, "dimension:" + dimension.id, {}}});
+                if (dimension.placement) {
+                    result.dimensions.back().label_position = world_point(
+                        (*dimension.placement)[0], (*dimension.placement)[1]);
+                }
+                continue;
+            }
+            // A-B-A owns only one real line. Display its implied mirrored ray
+            // as one total angular dimension across the center axis: common
+            // intersection vertex, one arc, two arrow ends and one value.
+            if (dimension.kind == DimensionKind::AngleSymmetric &&
+                dimension.third_geometry_id.empty()) {
+                const auto driven = segment_or_external_line(
+                    *this, dimension.second_geometry_id);
+                if (!driven) continue;
+                const double dx = driven->second[0];
+                const double dy = driven->second[1];
+                const double cross = rx * dy - ry * dx;
+                if (std::abs(cross) <= 1.0e-12) continue;
+                const double qx = driven->first[0] - reference->first[0];
+                const double qy = driven->first[1] - reference->first[1];
+                const double factor = (qx * dy - qy * dx) / cross;
+                const std::array vertex{
+                    reference->first[0] + factor * rx,
+                    reference->first[1] + factor * ry};
+                const double radius = dimension.placement
+                    ? std::max(1.0, std::hypot(
+                        (*dimension.placement)[0]-vertex[0],
+                        (*dimension.placement)[1]-vertex[1]))
+                    : 20.0;
+                constexpr double radians =
+                    3.14159265358979323846 / 180.0;
+                const double half_sweep = (cross < 0.0 ? -1.0 : 1.0) *
+                    dimension.value * 0.5 * radians;
+                double start_angle = std::atan2(ry, rx) - half_sweep;
+                if (dimension.placement) {
+                    const double cursor_angle = std::atan2(
+                        (*dimension.placement)[1]-vertex[1],
+                        (*dimension.placement)[0]-vertex[0]);
+                    const double middle = start_angle + half_sweep;
+                    if (std::cos(cursor_angle-(middle+3.14159265358979323846)) >
+                        std::cos(cursor_angle-middle)) {
+                        start_angle += 3.14159265358979323846;
+                    }
+                }
+                const double sweep = 2.0 * half_sweep;
+                const double end_angle = start_angle + sweep;
+                result.dimensions.push_back({
+                    world_point(vertex[0], vertex[1]),
+                    world_point(vertex[0], vertex[1]),
+                    world_point(vertex[0] + radius*std::cos(start_angle),
+                                vertex[1] + radius*std::sin(start_angle)),
+                    world_point(vertex[0] + radius*std::cos(end_angle),
+                                vertex[1] + radius*std::sin(end_angle)),
+                    dimension.value, {id, "dimension:" + dimension.id, {}},
+                    "∠ ", "°"});
+                auto& rendered = result.dimensions.back();
+                rendered.kind = zima::kernel::ViewerDimensionKind::Angular;
+                rendered.plane_normal = resolved_normal;
+                rendered.sweep_degrees = sweep / radians;
+                if (dimension.placement) {
+                    rendered.label_position = world_point(
+                        (*dimension.placement)[0], (*dimension.placement)[1]);
+                }
+                continue;
+            }
+            // The explicit two-real-line form retains one icon per driven
+            // line because those lines need not share an intersection.
+            for (const auto& driven_line_id : {dimension.second_geometry_id,
+                                                dimension.third_geometry_id}) {
+                if (driven_line_id.empty()) continue;
+                const auto driven = segment_or_external_line(*this, driven_line_id);
+                if (!driven) continue;
+                if (dimension.kind == DimensionKind::DistanceLineSymmetric) {
+                    const std::array driven_anchor = driven->first;
+                    const double factor =
+                        ((driven_anchor[0] - reference->first[0]) * rx +
+                         (driven_anchor[1] - reference->first[1]) * ry) /
+                        reference_length_squared;
+                    const std::array projection{
+                        reference->first[0] + factor * rx,
+                        reference->first[1] + factor * ry};
+                    result.dimensions.push_back({
+                        world_point(projection[0], projection[1]),
+                        world_point(driven_anchor[0], driven_anchor[1]),
+                        world_point(projection[0], projection[1]),
+                        world_point(driven_anchor[0], driven_anchor[1]),
+                        dimension.value, {id, "dimension:" + dimension.id, {}}});
+                } else {
+                    const double dx = driven->second[0];
+                    const double dy = driven->second[1];
+                    const double cross = rx * dy - ry * dx;
+                    if (std::abs(cross) <= 1.0e-12) continue;
+                    const double qx = driven->first[0] - reference->first[0];
+                    const double qy = driven->first[1] - reference->first[1];
+                    const double factor = (qx * dy - qy * dx) / cross;
+                    const std::array vertex{
+                        reference->first[0] + factor * rx,
+                        reference->first[1] + factor * ry};
+                    const double display_radius = 20.0;
+                    const double ra = std::atan2(ry, rx);
+                    const double sweep_radians = (cross < 0.0 ? -1.0 : 1.0) *
+                        dimension.value * 3.14159265358979323846 / 180.0;
+                    const double da = ra + sweep_radians;
+                    result.dimensions.push_back({
+                        world_point(vertex[0], vertex[1]),
+                        world_point(vertex[0], vertex[1]),
+                        world_point(vertex[0] + display_radius * std::cos(ra),
+                                    vertex[1] + display_radius * std::sin(ra)),
+                        world_point(vertex[0] + display_radius * std::cos(da),
+                                    vertex[1] + display_radius * std::sin(da)),
+                        dimension.value, {id, "dimension:" + dimension.id, {}},
+                        "∠ ", "°"});
+                    result.dimensions.back().kind =
+                        zima::kernel::ViewerDimensionKind::Angular;
+                    result.dimensions.back().plane_normal = resolved_normal;
+                    result.dimensions.back().sweep_degrees =
+                        sweep_radians * 180.0 / 3.14159265358979323846;
+                }
+            }
+            continue;
+        }
         if (dimension.kind == DimensionKind::AngleThreePoint) {
             const auto* first = find_point(dimension.first_point_id);
             const auto* vertex = find_point(dimension.second_point_id);
@@ -11405,6 +11892,7 @@ std::string Sketch::serialized() const {
             {"value", dimension.value}, {"driving", dimension.driving},
             {"suppressed", dimension.suppressed}, {"geometry", dimension.geometry_id},
             {"second_geometry", dimension.second_geometry_id},
+            {"third_geometry", dimension.third_geometry_id},
             {"solution_side", dimension.solution_side},
             {"angle_sector", dimension.angle_sector},
             {"angle_presentation_reversed",
@@ -11606,6 +12094,8 @@ Sketch Sketch::from_serialized(const std::string& value) {
         dimension.geometry_id = value.at("geometry").get<std::string>();
         dimension.second_geometry_id =
             value.at("second_geometry").get<std::string>();
+        dimension.third_geometry_id =
+            value.value("third_geometry", std::string{});
         dimension.solution_side = value.at("solution_side").get<int>();
         dimension.angle_sector = value.value("angle_sector", -1);
         dimension.angle_presentation_reversed =

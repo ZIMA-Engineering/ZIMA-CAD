@@ -5176,6 +5176,125 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                     return make_extrusion_data(
                         primitive, operation.owner_id, exact_target,
                         through_all_forward_span, through_all_reverse_span);
+                } else if constexpr (std::is_same_v<Request, FeatureGroupRequest>) {
+                    if (primitive.children.empty()) {
+                        throw std::invalid_argument(
+                            "Feature group requires at least one child operation");
+                    }
+                    std::optional<PrimitiveData> grouped;
+                    for (const auto& child : primitive.children) {
+                        auto child_data = std::visit([&](const auto& value)
+                                -> PrimitiveData {
+                            using Child = std::decay_t<decltype(value)>;
+                            if constexpr (std::is_same_v<Child,
+                                              ExtrusionRequest>) {
+                                validate_extrusion(value);
+                                std::optional<TopoDS_Face> exact_target;
+                                if (value.extent ==
+                                        ExtrusionRequest::Extent::UpToSurface) {
+                                    std::vector<const OwnedFace*> matches;
+                                    for (const auto& face : owned_topology->faces) {
+                                        if (face.reference.owner_id ==
+                                                value.target_face.owner_id &&
+                                            face.reference.semantic_key ==
+                                                value.target_face.semantic_key) {
+                                            matches.push_back(&face);
+                                        }
+                                    }
+                                    if (matches.size() != 1) {
+                                        throw std::runtime_error(
+                                            "Grouped Extrusion target surface is missing or ambiguous");
+                                    }
+                                    exact_target = TopoDS::Face(matches.front()->shape);
+                                }
+                                double forward_span = 2'000'000.0;
+                                double reverse_span = 2'000'000.0;
+                                if (value.extent ==
+                                        ExtrusionRequest::Extent::ThroughAll &&
+                                    !result_shape.IsNull()) {
+                                    const Vec3 profile_origin = std::visit(
+                                        [](const auto& profile) {
+                                            using Profile = std::decay_t<
+                                                decltype(profile)>;
+                                            if constexpr (std::is_same_v<Profile,
+                                                    ExtrusionRequest::PolygonProfile>) {
+                                                return profile.vertices.front();
+                                            } else if constexpr (std::is_same_v<Profile,
+                                                    ExtrusionRequest::CircleProfile> ||
+                                                std::is_same_v<Profile,
+                                                    ExtrusionRequest::EllipseProfile>) {
+                                                return profile.center;
+                                            } else {
+                                                return std::visit([](const auto& curve) {
+                                                    return curve.start;
+                                                }, profile.curves.front());
+                                            }
+                                        }, value.outer_profile);
+                                    const double direction_length = std::hypot(
+                                        std::hypot(value.direction.x,
+                                            value.direction.y),
+                                        value.direction.z);
+                                    const Vec3 unit{value.direction.x /
+                                            direction_length,
+                                        value.direction.y / direction_length,
+                                        value.direction.z / direction_length};
+                                    Bnd_Box bounds;
+                                    BRepBndLib::Add(result_shape, bounds);
+                                    Standard_Real xmin{}, ymin{}, zmin{},
+                                        xmax{}, ymax{}, zmax{};
+                                    bounds.Get(xmin, ymin, zmin, xmax, ymax, zmax);
+                                    double forward{};
+                                    double reverse{};
+                                    for (unsigned mask = 0; mask < 8; ++mask) {
+                                        const Vec3 corner{mask & 1 ? xmax : xmin,
+                                            mask & 2 ? ymax : ymin,
+                                            mask & 4 ? zmax : zmin};
+                                        const double projection =
+                                            (corner.x-profile_origin.x)*unit.x +
+                                            (corner.y-profile_origin.y)*unit.y +
+                                            (corner.z-profile_origin.z)*unit.z;
+                                        forward = std::max(forward, projection);
+                                        reverse = std::max(reverse, -projection);
+                                    }
+                                    const double diagonal = std::hypot(std::hypot(
+                                        xmax-xmin, ymax-ymin), zmax-zmin);
+                                    const double margin = std::max(
+                                        1.0, diagonal*1.0e-4);
+                                    forward_span = std::max(0.0, forward)+margin;
+                                    reverse_span = std::max(0.0, reverse)+margin;
+                                }
+                                return make_extrusion_data(value,
+                                    operation.owner_id, exact_target,
+                                    forward_span, reverse_span);
+                            } else {
+                                validate_revolution(value);
+                                return make_revolution_data(
+                                    value, operation.owner_id);
+                            }
+                        }, child);
+                        if (!grouped) {
+                            grouped = std::move(child_data);
+                            continue;
+                        }
+                        BRepAlgoAPI_Fuse fuse(grouped->shape, child_data.shape);
+                        fuse.SetToFillHistory(true);
+                        fuse.SetFuzzyValue(std::max(
+                            1.0e-7, operation.boolean_tolerance));
+                        fuse.Build();
+                        if (!fuse.IsDone() || fuse.Shape().IsNull() ||
+                            !BRepCheck_Analyzer(fuse.Shape()).IsValid()) {
+                            throw std::runtime_error(
+                                "OCCT feature-group fuse failed");
+                        }
+                        grouped->faces = propagate_topology(
+                            fuse, grouped->faces, child_data.faces);
+                        grouped->edges = propagate_topology(
+                            fuse, grouped->edges, child_data.edges);
+                        grouped->vertices = propagate_topology(
+                            fuse, grouped->vertices, child_data.vertices);
+                        grouped->shape = fuse.Shape();
+                    }
+                    return std::move(*grouped);
                 } else if constexpr (std::is_same_v<Request, RevolutionRequest>) {
                     validate_revolution(primitive);
                     return make_revolution_data(primitive, operation.owner_id);

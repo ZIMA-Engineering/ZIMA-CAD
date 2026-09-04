@@ -4,6 +4,7 @@
 
 #include <QAction>
 #include <QComboBox>
+#include <QCheckBox>
 #include <QDoubleSpinBox>
 #include <QEvent>
 #include <QFormLayout>
@@ -26,6 +27,8 @@
 
 #include <exception>
 #include <algorithm>
+#include <cmath>
+#include <numbers>
 
 namespace zima::app {
 namespace {
@@ -58,7 +61,7 @@ bool supports_placement_reference_table(zima::document::FeatureKind kind) {
         kind == FeatureKind::Sphere || kind == FeatureKind::Cone ||
         kind == FeatureKind::Pyramid || kind == FeatureKind::Wedge ||
         kind == FeatureKind::Extrusion || kind == FeatureKind::Revolution ||
-        kind == FeatureKind::ImportedStep;
+        kind == FeatureKind::ImportedStep || kind == FeatureKind::Hole;
 }
 
 QString primitive_properties_title(zima::document::FeatureKind kind) {
@@ -79,6 +82,7 @@ QString primitive_properties_title(zima::document::FeatureKind kind) {
         case FeatureKind::Fillet: return QObject::tr("Vlastnosti zaoblení");
         case FeatureKind::Chamfer: return QObject::tr("Vlastnosti sražení");
         case FeatureKind::Shell: return QObject::tr("Vlastnosti Shellu");
+        case FeatureKind::Hole: return QObject::tr("Vlastnosti otvoru");
     }
     return QObject::tr("Vlastnosti prvku");
 }
@@ -202,6 +206,150 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         height_ = dimension(initial.cylinder.height, "cylinderHeight");
         form->addRow(tr("Poloměr"), radius_);
         form->addRow(tr("Výška"), height_);
+    } else if (initial.feature_kind == zima::document::FeatureKind::Hole) {
+        hole_type_ = new QComboBox(this);
+        hole_type_->setObjectName("holeType");
+        hole_type_->addItem(tr("Hladký otvor"), "plain");
+        hole_type_->addItem(tr("Metrický závit"), "metric");
+        hole_type_->addItem(tr("Trubkový závit"), "pipe");
+        hole_type_->addItem(tr("Whitworthův závit"), "whitworth");
+        const char* type = initial.hole.type == zima::document::HoleType::MetricThread
+            ? "metric" : initial.hole.type == zima::document::HoleType::PipeThread
+            ? "pipe" : initial.hole.type == zima::document::HoleType::WhitworthThread
+            ? "whitworth" : "plain";
+        hole_type_->setCurrentIndex(hole_type_->findData(type));
+        form->addRow(tr("Typ otvoru"), hole_type_);
+        form->addRow(new QLabel(tr("Vstup / sražení"), this));
+        hole_entrance_chamfer_ = dimension(
+            std::max(0.001, initial.hole.entrance_chamfer), "holeEntranceChamfer");
+        hole_entrance_chamfer_->setRange(0.0, 1'000'000.0);
+        hole_entrance_chamfer_->setValue(initial.hole.entrance_chamfer);
+        form->addRow(tr("Sražení"), hole_entrance_chamfer_);
+        form->addRow(new QLabel(tr("Válcová část"), this));
+        hole_diameter_ = dimension(initial.hole.diameter, "holeDiameter");
+        form->addRow(tr("Průměr"), hole_diameter_);
+        hole_bore_end_ = new QComboBox(this);
+        hole_bore_end_->setObjectName("holeBoreEnd");
+        hole_bore_end_->addItem(tr("Délka"), "length");
+        hole_bore_end_->addItem(tr("Až k"), "up_to");
+        hole_bore_end_->addItem(tr("Skrz vše"), "through_all");
+        hole_bore_end_->setCurrentIndex(hole_bore_end_->findData(
+            initial.hole.bore_end_condition == zima::document::EndCondition::UpTo
+                ? "up_to" : initial.hole.bore_end_condition ==
+                    zima::document::EndCondition::ThroughAll ? "through_all" : "length"));
+        hole_bore_length_ = dimension(initial.hole.bore_length, "holeBoreLength");
+        form->addRow(tr("Ukončení otvoru"), hole_bore_end_);
+        form->addRow(tr("Délka otvoru"), hole_bore_length_);
+        forward_end_target_ = new QLineEdit(this);
+        forward_end_target_->setObjectName("holeBoreEndTarget");
+        forward_end_target_->setReadOnly(true);
+        forward_end_target_->setPlaceholderText(
+            tr("Vyberte rovinu nebo plochu…"));
+        if (!initial.hole.bore_end_targets.empty()) {
+            forward_end_target_->setText(QString::fromStdString(
+                initial.hole.bore_end_targets.front().label));
+        }
+        forward_end_target_->installEventFilter(this);
+        forward_end_target_clear_action_ = new QAction(
+            tr("Vymazat referenci"), forward_end_target_);
+        forward_end_target_clear_action_->setEnabled(
+            !initial.hole.bore_end_targets.empty());
+        forward_end_target_->addAction(forward_end_target_clear_action_);
+        connect(forward_end_target_clear_action_, &QAction::triggered, this,
+            [this] { clear_extrusion_target("forward"); });
+        forward_end_targets_button_ =
+            zima::ui::build_reference_inspection_button(
+                !initial.hole.bore_end_targets.empty(), false,
+                [this](bool) { toggle_extrusion_target_highlight("forward"); });
+        forward_end_targets_button_->setParent(this);
+        auto* hole_target_row = new QWidget(this);
+        auto* hole_target_layout = new QHBoxLayout(hole_target_row);
+        hole_target_layout->setContentsMargins(0, 0, 0, 0);
+        hole_target_layout->addWidget(forward_end_target_, 1);
+        hole_target_layout->addWidget(forward_end_targets_button_);
+        form->addRow(tr("Cíl otvoru"), hole_target_row);
+        hole_drill_point_ = new QCheckBox(tr("Vrtaná špička"), this);
+        hole_drill_point_->setChecked(initial.hole.drill_point_enabled);
+        hole_drill_angle_ = dimension(initial.hole.drill_point_angle_degrees,
+            "holeDrillPointAngle");
+        hole_drill_angle_->setSuffix(" °");
+        form->addRow(hole_drill_point_);
+        form->addRow(tr("Úhel špičky"), hole_drill_angle_);
+        hole_exit_chamfer_enabled_ = new QCheckBox(
+            tr("Srazit konec otvoru"), this);
+        hole_exit_chamfer_enabled_->setObjectName("holeExitChamferEnabled");
+        hole_exit_chamfer_enabled_->setChecked(
+            initial.hole.exit_chamfer_enabled);
+        hole_exit_chamfer_ = dimension(
+            std::max(0.001, initial.hole.exit_chamfer), "holeExitChamfer");
+        hole_exit_chamfer_->setRange(0.0, 1'000'000.0);
+        hole_exit_chamfer_->setValue(initial.hole.exit_chamfer);
+        form->addRow(hole_exit_chamfer_enabled_);
+        form->addRow(tr("Sražení konce"), hole_exit_chamfer_);
+        form->addRow(new QLabel(tr("Závitový drát"), this));
+        hole_thread_enabled_ = new QCheckBox(tr("Závit"), this);
+        hole_thread_enabled_->setChecked(initial.hole.thread_enabled);
+        hole_thread_nominal_diameter_ = dimension(
+            initial.hole.thread_nominal_diameter, "holeThreadDiameter");
+        hole_thread_pitch_ = dimension(initial.hole.thread_pitch, "holeThreadPitch");
+        hole_thread_end_ = new QComboBox(this);
+        hole_thread_end_->setObjectName("holeThreadEnd");
+        hole_thread_end_->addItem(tr("Délka"), "length");
+        hole_thread_end_->addItem(tr("Až k"), "up_to");
+        hole_thread_end_->addItem(tr("Skrz válcovou část"), "through_all");
+        hole_thread_end_->setCurrentIndex(hole_thread_end_->findData(
+            initial.hole.thread_end_condition == zima::document::EndCondition::UpTo
+                ? "up_to" : initial.hole.thread_end_condition ==
+                    zima::document::EndCondition::ThroughAll ? "through_all" : "length"));
+        hole_thread_length_ = dimension(initial.hole.thread_length, "holeThreadLength");
+        hole_left_hand_ = new QCheckBox(tr("Levý závit"), this);
+        hole_left_hand_->setChecked(initial.hole.left_hand_thread);
+        form->addRow(hole_thread_enabled_);
+        form->addRow(tr("Jmenovitý průměr"), hole_thread_nominal_diameter_);
+        form->addRow(tr("Stoupání"), hole_thread_pitch_);
+        form->addRow(tr("Ukončení závitu"), hole_thread_end_);
+        form->addRow(tr("Délka závitu"), hole_thread_length_);
+        form->addRow(hole_left_hand_);
+        const auto refresh_hole = [this] {
+            const bool threaded = hole_thread_enabled_->isChecked() ||
+                hole_type_->currentData() != "plain";
+            hole_thread_enabled_->setChecked(threaded);
+            for (auto* field : {hole_thread_nominal_diameter_, hole_thread_pitch_,
+                                hole_thread_length_}) field->setEnabled(threaded);
+            hole_thread_end_->setEnabled(threaded);
+            hole_left_hand_->setEnabled(threaded);
+            hole_drill_angle_->setEnabled(hole_drill_point_->isChecked());
+            hole_exit_chamfer_enabled_->setEnabled(
+                !hole_drill_point_->isChecked());
+            hole_exit_chamfer_->setEnabled(
+                !hole_drill_point_->isChecked() &&
+                hole_exit_chamfer_enabled_->isChecked());
+            const bool length = hole_bore_end_->currentData() == "length";
+            const bool up_to = hole_bore_end_->currentData() == "up_to";
+            hole_bore_length_->setVisible(length);
+            forward_end_target_->setVisible(up_to);
+            forward_end_targets_button_->setVisible(up_to);
+            notify_preview();
+        };
+        connect(hole_type_, &QComboBox::currentIndexChanged, this,
+            [refresh_hole](int) { refresh_hole(); });
+        connect(hole_thread_enabled_, &QCheckBox::toggled, this,
+            [refresh_hole](bool) { refresh_hole(); });
+        connect(hole_drill_point_, &QCheckBox::toggled, this,
+            [refresh_hole](bool) { refresh_hole(); });
+        connect(hole_exit_chamfer_enabled_, &QCheckBox::toggled, this,
+            [refresh_hole](bool) { refresh_hole(); });
+        connect(hole_bore_end_, &QComboBox::currentIndexChanged, this,
+            [this, refresh_hole](int) {
+                refresh_hole();
+                if (hole_bore_end_->currentData() == "up_to") {
+                    request_extrusion_target("forward");
+                } else if (forward_end_target_pick_active_) {
+                    finish_extrusion_target_entry();
+                    if (extrusion_target_cancel_) extrusion_target_cancel_();
+                }
+            });
+        refresh_hole();
     } else if (initial.feature_kind == zima::document::FeatureKind::Sphere) {
         radius_ = dimension(initial.sphere.radius, "sphereRadius");
         form->addRow(tr("Poloměr"), radius_);
@@ -829,6 +977,92 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
         result.box = {length_->value(), width_->value(), height_->value()};
     } else if (result.feature_kind == zima::document::FeatureKind::Cylinder) {
         result.cylinder = {radius_->value(), height_->value()};
+    } else if (result.feature_kind == zima::document::FeatureKind::Hole) {
+        const auto end = [](const QComboBox* combo) {
+            return combo->currentData() == "up_to"
+                ? zima::document::EndCondition::UpTo
+                : combo->currentData() == "through_all"
+                    ? zima::document::EndCondition::ThroughAll
+                    : zima::document::EndCondition::Length;
+        };
+        const auto type = hole_type_->currentData();
+        result.hole.type = type == "metric" ? zima::document::HoleType::MetricThread
+            : type == "pipe" ? zima::document::HoleType::PipeThread
+            : type == "whitworth" ? zima::document::HoleType::WhitworthThread
+            : zima::document::HoleType::Plain;
+        result.hole.diameter = hole_diameter_->value();
+        auto profile = zima::sketcher::Sketch::from_serialized(
+            result.hole.sketch_serialized);
+        const auto profile_circle = std::find_if(profile.circles.begin(),
+            profile.circles.end(), [&](const auto& circle) {
+                return circle.id == result.hole.circle_id;
+            });
+        if (profile_circle != profile.circles.end()) {
+            profile_circle->radius = result.hole.diameter * 0.5;
+            result.hole.sketch_serialized = profile.serialized();
+        }
+        result.hole.bore_end_condition = end(hole_bore_end_);
+        result.hole.bore_length = hole_bore_length_->value();
+        result.hole.bore_end_targets = initial_.hole.bore_end_targets;
+        result.hole.entrance_chamfer = hole_entrance_chamfer_->value();
+        result.hole.drill_point_enabled = hole_drill_point_->isChecked();
+        result.hole.drill_point_angle_degrees = hole_drill_angle_->value();
+        result.hole.exit_chamfer_enabled =
+            hole_exit_chamfer_enabled_->isChecked() &&
+            !result.hole.drill_point_enabled;
+        result.hole.exit_chamfer = hole_exit_chamfer_->value();
+        const double radius = result.hole.diameter * 0.5;
+        auto chamfer_profile = zima::sketcher::Sketch::from_serialized(
+            result.hole.chamfer_sketch_serialized);
+        if (result.hole.entrance_chamfer > 0.0) {
+            const std::array<std::array<double, 2>, 3> chamfer_points{{
+                {{radius, 0.0}},
+                {{radius + result.hole.entrance_chamfer, 0.0}},
+                {{radius, result.hole.entrance_chamfer}}}};
+            for (std::size_t index = 0; index < chamfer_points.size(); ++index) {
+                if (auto* point = chamfer_profile.find_point(
+                        result.hole.chamfer_point_ids[index])) {
+                    point->x = chamfer_points[index][0];
+                    point->y = chamfer_points[index][1];
+                }
+            }
+            result.hole.chamfer_sketch_serialized = chamfer_profile.serialized();
+        }
+        auto tip_profile = zima::sketcher::Sketch::from_serialized(
+            result.hole.tip_sketch_serialized);
+        const double half_angle = std::clamp(
+            result.hole.drill_point_angle_degrees *
+                std::numbers::pi / 360.0,
+            1.0e-4, std::numbers::pi*0.5-1.0e-4);
+        const double point_depth = radius/std::tan(half_angle);
+        const std::array<std::array<double, 2>, 3> tip_points =
+            result.hole.drill_point_enabled
+            ? std::array<std::array<double, 2>, 3>{{
+                {{0.0, result.hole.bore_length}},
+                {{radius, result.hole.bore_length}},
+                {{0.0, result.hole.bore_length + point_depth}}}}
+            : std::array<std::array<double, 2>, 3>{{
+                {{radius, result.hole.bore_length -
+                    result.hole.exit_chamfer}},
+                {{radius + result.hole.exit_chamfer,
+                    result.hole.bore_length}},
+                {{radius, result.hole.bore_length}}}};
+        for (std::size_t index = 0; index < tip_points.size(); ++index) {
+            if (auto* point = tip_profile.find_point(
+                    result.hole.tip_point_ids[index])) {
+                point->x = tip_points[index][0];
+                point->y = tip_points[index][1];
+            }
+        }
+        result.hole.tip_sketch_serialized = tip_profile.serialized();
+        result.hole.thread_enabled = hole_thread_enabled_->isChecked();
+        result.hole.thread_nominal_diameter = hole_thread_nominal_diameter_->value();
+        result.hole.thread_pitch = hole_thread_pitch_->value();
+        result.hole.thread_end_condition = end(hole_thread_end_);
+        result.hole.thread_length = result.hole.thread_end_condition ==
+                zima::document::EndCondition::ThroughAll
+            ? result.hole.bore_length : hole_thread_length_->value();
+        result.hole.left_hand_thread = hole_left_hand_->isChecked();
     } else if (result.feature_kind == zima::document::FeatureKind::Sphere) {
         result.sphere = {radius_->value()};
     } else if (result.feature_kind == zima::document::FeatureKind::Cone) {
@@ -923,6 +1157,7 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
     }
     if (result.feature_kind == zima::document::FeatureKind::Box ||
         result.feature_kind == zima::document::FeatureKind::Cylinder ||
+        result.feature_kind == zima::document::FeatureKind::Hole ||
         result.feature_kind == zima::document::FeatureKind::Sphere ||
         result.feature_kind == zima::document::FeatureKind::Cone ||
         result.feature_kind == zima::document::FeatureKind::Pyramid ||
@@ -1007,9 +1242,11 @@ void PrimitivePropertiesDialog::set_extrusion_target(
         : std::move(label);
     target.fallback_origin = origin;
     target.fallback_normal = normal;
-    auto& targets = active_end_target_side_ == "reverse"
-        ? initial_.extrusion.end_targets_reverse
-        : initial_.extrusion.end_targets_forward;
+    auto& targets = initial_.feature_kind == zima::document::FeatureKind::Hole
+        ? initial_.hole.bore_end_targets
+        : active_end_target_side_ == "reverse"
+            ? initial_.extrusion.end_targets_reverse
+            : initial_.extrusion.end_targets_forward;
     targets = {target};
     auto* edit = active_end_target_side_ == "reverse"
         ? reverse_end_target_ : forward_end_target_;
@@ -1042,9 +1279,11 @@ void PrimitivePropertiesDialog::set_extrusion_surface_target(
         ? target.reference.owner_id + " / " + target.reference.semantic_key
         : std::move(label);
     target.fallback_triangles = std::move(triangles);
-    auto& targets = active_end_target_side_ == "reverse"
-        ? initial_.extrusion.end_targets_reverse
-        : initial_.extrusion.end_targets_forward;
+    auto& targets = initial_.feature_kind == zima::document::FeatureKind::Hole
+        ? initial_.hole.bore_end_targets
+        : active_end_target_side_ == "reverse"
+            ? initial_.extrusion.end_targets_reverse
+            : initial_.extrusion.end_targets_forward;
     targets = {target};
     auto* edit = active_end_target_side_ == "reverse"
         ? reverse_end_target_ : forward_end_target_;
@@ -1116,9 +1355,10 @@ void PrimitivePropertiesDialog::clear_extrusion_target(
     const std::string& side) {
     const bool was_active = side == "reverse"
         ? reverse_end_target_pick_active_ : forward_end_target_pick_active_;
-    auto& targets = side == "reverse"
-        ? initial_.extrusion.end_targets_reverse
-        : initial_.extrusion.end_targets_forward;
+    auto& targets = initial_.feature_kind == zima::document::FeatureKind::Hole
+        ? initial_.hole.bore_end_targets
+        : side == "reverse" ? initial_.extrusion.end_targets_reverse
+                            : initial_.extrusion.end_targets_forward;
     targets.clear();
     auto* edit = side == "reverse" ? reverse_end_target_ : forward_end_target_;
     if (edit != nullptr) edit->clear();
@@ -1170,7 +1410,9 @@ void PrimitivePropertiesDialog::refresh_extrusion_target_styles() {
     };
     apply(forward_end_target_, forward_end_targets_button_,
         forward_end_target_pick_active_, forward_end_target_highlighted_,
-        !initial_.extrusion.end_targets_forward.empty());
+        initial_.feature_kind == zima::document::FeatureKind::Hole
+            ? !initial_.hole.bore_end_targets.empty()
+            : !initial_.extrusion.end_targets_forward.empty());
     apply(reverse_end_target_, reverse_end_targets_button_,
         reverse_end_target_pick_active_, reverse_end_target_highlighted_,
         !initial_.extrusion.end_targets_reverse.empty());
@@ -1338,6 +1580,23 @@ bool PrimitivePropertiesDialog::submit() {
         return false;
     }
     auto result = values();
+    if (result.feature_kind == zima::document::FeatureKind::Hole) {
+        result.combine_mode = zima::document::CombineMode::Subtract;
+        if (result.hole.bore_end_condition ==
+                zima::document::EndCondition::UpTo &&
+            (result.hole.bore_end_targets.empty() ||
+             !result.hole.bore_end_targets.front().reference.valid())) {
+            error_->setText(tr("Vyberte cílovou rovinu nebo plochu otvoru."));
+            return false;
+        }
+        if (result.hole.thread_enabled &&
+            result.hole.thread_length > result.hole.bore_length) {
+            error_->setText(tr(
+                "Délka závitu nesmí přesáhnout délku válcové části otvoru."));
+            hole_thread_length_->setFocus();
+            return false;
+        }
+    }
     std::vector<std::string> selected_targets;
     if (assembly_targets_ != nullptr) {
         for (int row = 0; row < assembly_targets_->count(); ++row) {
@@ -1398,6 +1657,15 @@ void PrimitivePropertiesDialog::set_reference_request_callback(
     reference_request_ = std::move(callback);
 }
 
+void PrimitivePropertiesDialog::set_origin_selection_mode_callback(
+        std::function<void(bool)> callback) {
+    if (placement_) placement_->set_origin_selection_mode_callback(std::move(callback));
+}
+
+void PrimitivePropertiesDialog::set_origin_selection_mode_active(bool active) {
+    if (placement_) placement_->set_origin_selection_mode_active(active);
+}
+
 void PrimitivePropertiesDialog::set_reference_highlights_changed_callback(
     ReferenceHighlightsChangedCallback callback) {
     reference_highlights_changed_ = std::move(callback);
@@ -1412,7 +1680,9 @@ PrimitivePropertiesDialog::highlighted_reference_owner_ids() const {
             result.insert(targets.front().reference.owner_id);
     };
     append_target(forward_end_target_highlighted_,
-        initial_.extrusion.end_targets_forward);
+        initial_.feature_kind == zima::document::FeatureKind::Hole
+            ? initial_.hole.bore_end_targets
+            : initial_.extrusion.end_targets_forward);
     append_target(reverse_end_target_highlighted_,
         initial_.extrusion.end_targets_reverse);
     return result;
@@ -1430,7 +1700,9 @@ PrimitivePropertiesDialog::highlighted_reference_entries() const {
             reference.semantic_key});
     };
     append_target(forward_end_target_highlighted_,
-        initial_.extrusion.end_targets_forward);
+        initial_.feature_kind == zima::document::FeatureKind::Hole
+            ? initial_.hole.bore_end_targets
+            : initial_.extrusion.end_targets_forward);
     append_target(reverse_end_target_highlighted_,
         initial_.extrusion.end_targets_reverse);
     return result;
@@ -1567,6 +1839,10 @@ bool PrimitivePropertiesDialog::set_inline_parameter_value(
     if (key == "top_radius") return set_field(top_radius_);
     if (key == "top_offset") return set_field(top_offset_);
     if (key == "length_forward") return set_field(forward_length_);
+    if (key == "length_reverse" && extent_mode_ != nullptr &&
+        extent_mode_->currentData() == "symmetric") {
+        return set_field(forward_length_);
+    }
     if (key == "length_reverse") return set_field(reverse_length_);
     if (key == "profile_offset") return set_field(profile_plane_offset_);
     if (key == "angle") return set_field(forward_length_);

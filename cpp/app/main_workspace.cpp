@@ -314,7 +314,9 @@ int verify_startup_contract(
                     global_language->findText("de") >= 0 &&
                     global_language->findText("en") >= 0 &&
                     global_language->findText("fr") >= 0 &&
-                    global_dialog->findChildren<QLineEdit*>().size() == 4 &&
+                    global_dialog->findChildren<QLineEdit*>().size() == 5 &&
+                    global_dialog->findChild<QLineEdit*>(
+                        "globalPathWorkingDirectory") != nullptr &&
                     global_buttons != nullptr &&
                     global_buttons->buttons().size() == 2,
                 "Global Settings must implement the Python startup contract")) {
@@ -1626,6 +1628,17 @@ int verify_startup_contract(
     if (!verify(workspace_state->text().contains(
                     QStringLiteral("klikněte do prostoru")),
                 "Universal Dimension did not enter angular placement after Segment -> Axis")) {
+        return 1;
+    }
+    // A -> B -> A is the single-geometry symmetric contract: selecting the
+    // same real line again asks for its implicit mirror about axis B.  The
+    // final empty click places one DistanceLineSymmetric/AngleSymmetric item.
+    sketch_click_at(*dimension_segment_position);
+    application.processEvents();
+    if (!verify(workspace_state->text().contains(
+                    QStringLiteral("symetrická kóta"), Qt::CaseInsensitive),
+                "Universal Dimension did not enter symmetric placement from "
+                "the A -> B -> A sequence")) {
         return 1;
     }
     QKeyEvent cancel_universal_angle(QEvent::KeyPress, Qt::Key_Escape,

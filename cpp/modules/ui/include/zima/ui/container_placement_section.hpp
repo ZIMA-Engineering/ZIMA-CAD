@@ -41,6 +41,7 @@ public:
     using ReferenceRequestCallback = std::function<void(std::size_t)>;
     using ChangedCallback = std::function<void()>;
     using HighlightsChangedCallback = std::function<void()>;
+    using OriginSelectionModeCallback = std::function<void(bool)>;
 
     // `parent_widget` owns every widget created by this section (tables,
     // headings, labels); `layout` is the dialog's vertical content layout
@@ -94,6 +95,8 @@ public:
     // resolved placement and the owning dialog should recompute its preview.
     void set_changed_callback(ChangedCallback callback);
     void set_highlights_changed_callback(HighlightsChangedCallback callback);
+    void set_origin_selection_mode_callback(OriginSelectionModeCallback callback);
+    void set_origin_selection_mode_active(bool active);
 
     // Seeds the section from a container's persisted references, splitting
     // genuine orientation-only FRONT/TOP entries from plain position
@@ -197,6 +200,7 @@ private:
     QTableWidget* orientation_table_{};
     QPushButton* orientation_flip_button_{};
     QPushButton* orientation_rotate_button_{};
+    QPushButton* origin_selection_button_{};
     std::array<ReferenceCellItem*, 3> reference_items_{};
     std::array<QWidget*, 3> reference_indicators_{};
     std::array<QToolButton*, 3> reference_inspection_buttons_{};
@@ -227,6 +231,7 @@ private:
     ReferenceRequestCallback reference_request_;
     ChangedCallback changed_;
     HighlightsChangedCallback highlights_changed_;
+    OriginSelectionModeCallback origin_selection_mode_;
 
     void remove_reference(std::size_t index);
     void apply_reference_visual_states();

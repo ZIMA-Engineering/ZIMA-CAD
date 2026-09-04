@@ -48,6 +48,8 @@ public:
     using PreviewCallback = std::function<void(
         const zima::sketcher::Sketch&, const zima::document::Placement&)>;
     void set_reference_request_callback(ReferenceRequestCallback callback);
+    void set_origin_selection_mode_callback(std::function<void(bool)> callback) override;
+    void set_origin_selection_mode_active(bool active) override;
     void set_reference_highlights_changed_callback(
         HighlightsChangedCallback callback);
     void set_reference_geometry(

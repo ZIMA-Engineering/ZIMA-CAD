@@ -1737,6 +1737,8 @@ int main() {
         document.material_parameter_descriptions["MASS_DENSITY"]["cs"] = "Hustota";
         document.family_table = R"({"columns":["length"],"instances":[]})";
         document.body_color = "#803F6F9F";
+        document.face_colors = {{"feature-a::side:curve-1", "#FFFF0000"},
+                                {"feature-a::cap:end", "#FF00AA44"}};
         const auto empty_path = std::filesystem::temp_directory_path() /
             "zima-cad-cpp-empty-contract.prtz";
         document.save(empty_path);
@@ -1764,7 +1766,8 @@ int main() {
                     empty_loaded.material_parameter_descriptions ==
                         document.material_parameter_descriptions &&
                     empty_loaded.family_table == document.family_table &&
-                    empty_loaded.body_color == document.body_color,
+                    empty_loaded.body_color == document.body_color &&
+                    empty_loaded.face_colors == document.face_colors,
                 "Part document tools data did not round-trip");
         auto first = zima::document::PartDocument::create_box_container();
         first.box.length = 123.5;
@@ -2188,6 +2191,42 @@ int main() {
                     std::abs(rotation_radius - 22.0) < 1.0e-9,
                 "Universal container placement did not expose its nonzero "
                 "angle in the separated angular dimension band");
+        auto oriented_correction = container_placement;
+        oriented_correction.references = {
+            {{}, constructions.document_id + ":origin", "origin:plane:xz",
+                0.0, true, "front", true, true},
+            {{}, constructions.document_id + ":origin", "origin:plane:xy",
+                0.0, true, "top", true, true}};
+        oriented_correction.orientation_back = true;
+        oriented_correction.orientation_quarter_turns = 1;
+        oriented_correction.rotation_offset_y = 15.0;
+        oriented_correction.rotation_offset_z = -10.0;
+        require(zima::document::resolve_placement(
+                    oriented_correction, document_origin_geometry),
+                "Oriented correction dimension fixture did not resolve");
+        const auto oriented_dimensions =
+            zima::document::container_placement_dimensions(
+                "container", oriented_correction, document_origin_geometry);
+        const auto correction_y = std::ranges::find_if(
+            oriented_dimensions, [](const auto& dimension) {
+                return dimension.reference.semantic_key ==
+                    "parameter:placement:rotation_y";
+            });
+        const auto correction_z = std::ranges::find_if(
+            oriented_dimensions, [](const auto& dimension) {
+                return dimension.reference.semantic_key ==
+                    "parameter:placement:rotation_z";
+            });
+        require(correction_y != oriented_dimensions.end() &&
+                    correction_z != oriented_dimensions.end() &&
+                    std::abs(correction_y->plane_normal.x + 1.0) < 1.0e-9 &&
+                    std::abs(correction_y->plane_normal.y) < 1.0e-9 &&
+                    std::abs(correction_y->plane_normal.z) < 1.0e-9 &&
+                    std::abs(correction_z->plane_normal.x) < 1.0e-9 &&
+                    std::abs(correction_z->plane_normal.y) < 1.0e-9 &&
+                    std::abs(correction_z->plane_normal.z + 1.0) < 1.0e-9,
+                "FRONT/BACK and quarter-turn controls did not rotate the "
+                "correction-dimension planes with the local container frame");
         container_placement.references = dimensioned_point.references;
         container_placement.x = dimensioned_point.origin.x;
         container_placement.y = dimensioned_point.origin.y;
@@ -2622,6 +2661,130 @@ int main() {
                     solid_origin_mesh.points.front().position.y == 12.0 &&
                     solid_origin_mesh.points.front().position.z == 13.0,
                 "Basic solid did not publish its persisted placement-origin marker");
+        auto linked_origin_document =
+            zima::document::PartDocument::create_default();
+        auto linked_origin_parent =
+            zima::document::PartDocument::create_box_container();
+        linked_origin_parent.placement = {11.0, 12.0, 13.0};
+        const auto linked_parent_id = linked_origin_parent.id;
+        auto linked_origin_child =
+            zima::document::PartDocument::create_cylinder_container();
+        linked_origin_child.placement.references = {
+            {{}, linked_origin_parent.container_origin.id, "origin:plane:xz",
+                0.0, true, "front", true},
+            {{}, linked_origin_parent.container_origin.id, "origin:plane:xy",
+                0.0, true, "top", true},
+            {{}, linked_origin_parent.container_origin.id, "origin:plane:yz",
+                0.0, true}};
+        const auto linked_child_id = linked_origin_child.id;
+        linked_origin_document.history.push_back(linked_origin_parent);
+        linked_origin_document.history.push_back(linked_origin_child);
+        linked_origin_document.resolve_constructions();
+        const auto* resolved_linked_child =
+            linked_origin_document.find_container(linked_child_id);
+        require(resolved_linked_child != nullptr &&
+                    resolved_linked_child->placement.reference_valid &&
+                    std::abs(resolved_linked_child->placement.x - 11.0) < 1.0e-6 &&
+                    std::abs(resolved_linked_child->placement.y - 12.0) < 1.0e-6 &&
+                    std::abs(resolved_linked_child->placement.z - 13.0) < 1.0e-6,
+                "History container did not follow an earlier container Origin");
+        const auto linked_dialog_geometry = linked_origin_document
+            .history_origin_reference_geometry_before(linked_child_id);
+        const auto linked_translation_state =
+            zima::document::point_constraint_state(
+                resolved_linked_child->placement.references,
+                linked_dialog_geometry);
+        const auto linked_rotation_state =
+            zima::document::orientation_constraint_state(
+                resolved_linked_child->placement.references,
+                linked_dialog_geometry, true,
+                {resolved_linked_child->placement.x,
+                 resolved_linked_child->placement.y,
+                 resolved_linked_child->placement.z});
+        require(linked_translation_state.remaining_dof == 0 &&
+                    linked_rotation_state.remaining_dof == 0 &&
+                    std::ranges::all_of(
+                        linked_translation_state.constrained_axes,
+                        [](bool constrained) { return constrained; }) &&
+                    std::ranges::all_of(
+                        linked_rotation_state.constrained_axes,
+                        [](bool constrained) { return constrained; }),
+                "Live dialog geometry did not fully constrain a linked local Origin");
+        require(zima::document::container_placement_dimensions(
+                    linked_child_id, resolved_linked_child->placement,
+                    linked_dialog_geometry).empty(),
+                "Reference-driven absolute placement dimensions remained visible");
+        auto* moved_linked_parent =
+            linked_origin_document.find_container(linked_parent_id);
+        require(moved_linked_parent != nullptr,
+                "Linked parent container disappeared");
+        moved_linked_parent->placement.x = 21.0;
+        moved_linked_parent->placement.y = -8.0;
+        moved_linked_parent->placement.z = 4.0;
+        linked_origin_document.resolve_constructions();
+        resolved_linked_child =
+            linked_origin_document.find_container(linked_child_id);
+        require(resolved_linked_child != nullptr &&
+                    std::abs(resolved_linked_child->placement.x - 21.0) < 1.0e-6 &&
+                    std::abs(resolved_linked_child->placement.y + 8.0) < 1.0e-6 &&
+                    std::abs(resolved_linked_child->placement.z - 4.0) < 1.0e-6,
+                "Child container did not follow its moved parent Origin");
+        const auto linked_origin_path = std::filesystem::temp_directory_path() /
+            "zima-cad-linked-container-origin-contract.prtz";
+        linked_origin_document.save(linked_origin_path);
+        auto loaded_linked_origin_document =
+            zima::document::PartDocument::load(linked_origin_path);
+        std::filesystem::remove(linked_origin_path);
+        loaded_linked_origin_document.resolve_constructions();
+        const auto* loaded_linked_child =
+            loaded_linked_origin_document.find_container(linked_child_id);
+        require(loaded_linked_child != nullptr &&
+                    loaded_linked_child->placement.references ==
+                        resolved_linked_child->placement.references &&
+                    std::abs(loaded_linked_child->placement.x - 21.0) < 1.0e-6 &&
+                    std::abs(loaded_linked_child->placement.y + 8.0) < 1.0e-6 &&
+                    std::abs(loaded_linked_child->placement.z - 4.0) < 1.0e-6,
+                "Container-Origin dependency did not survive save/load");
+
+        auto forward_origin_document =
+            zima::document::PartDocument::create_default();
+        auto forward_origin_first =
+            zima::document::PartDocument::create_cylinder_container();
+        auto forward_origin_later =
+            zima::document::PartDocument::create_box_container();
+        forward_origin_first.placement.references = {
+            {{}, forward_origin_later.container_origin.id, "origin:plane:xz",
+                0.0, true}};
+        const auto forward_first_id = forward_origin_first.id;
+        forward_origin_document.history.push_back(forward_origin_first);
+        forward_origin_document.history.push_back(forward_origin_later);
+        forward_origin_document.resolve_constructions();
+        require(!forward_origin_document.find_container(forward_first_id)
+                    ->placement.reference_valid,
+                "A forward history-container dependency was accepted");
+
+        auto cyclic_origin_document =
+            zima::document::PartDocument::create_default();
+        auto cyclic_origin_first =
+            zima::document::PartDocument::create_box_container();
+        auto cyclic_origin_second =
+            zima::document::PartDocument::create_cylinder_container();
+        cyclic_origin_first.placement.references = {
+            {{}, cyclic_origin_second.container_origin.id, "origin:plane:xz",
+                0.0, true}};
+        cyclic_origin_second.placement.references = {
+            {{}, cyclic_origin_first.container_origin.id, "origin:plane:xz",
+                0.0, true}};
+        const auto cyclic_first_id = cyclic_origin_first.id;
+        const auto cyclic_second_id = cyclic_origin_second.id;
+        cyclic_origin_document.history.push_back(cyclic_origin_first);
+        cyclic_origin_document.history.push_back(cyclic_origin_second);
+        cyclic_origin_document.resolve_constructions();
+        require(!cyclic_origin_document.find_container(cyclic_first_id)
+                     ->placement.reference_valid &&
+                    !cyclic_origin_document.find_container(cyclic_second_id)
+                     ->placement.reference_valid,
+                "A cyclic history-container dependency was accepted");
         const auto edited_point_mesh =
             constructions.construction_viewer_mesh(point.id);
         const auto edited_point_origin_xy = std::find_if(
@@ -6097,6 +6260,45 @@ int main() {
                     std::abs(loaded_sweep_boundaries.front().volume - 480.0) <
                         1.0e-5,
                 "3D Sweep path/profile relation did not survive save and reopen");
+        auto hole_document = zima::document::PartDocument::create_default();
+        auto hole_base = zima::document::PartDocument::create_box_container();
+        hole_base.box = {40.0, 40.0, 40.0};
+        hole_document.history.push_back(std::move(hole_base));
+        auto hole = zima::document::PartDocument::create_hole_container();
+        hole.placement.z = -20.0;
+        hole.hole.type = zima::document::HoleType::MetricThread;
+        hole.hole.diameter = 8.5;
+        hole.hole.bore_end_condition = zima::document::EndCondition::ThroughAll;
+        hole.hole.bore_length = 40.0;
+        hole.hole.thread_enabled = true;
+        hole.hole.thread_nominal_diameter = 10.0;
+        hole.hole.thread_pitch = 1.5;
+        hole.hole.thread_end_condition = zima::document::EndCondition::Length;
+        hole.hole.thread_length = 15.0;
+        hole_document.history.push_back(hole);
+        const auto hole_operations = hole_document.kernel_operations();
+        require(hole_operations.size() == 2 &&
+                    hole_operations.back().operation ==
+                        zima::kernel::BooleanOperation::Subtract &&
+                    std::get_if<zima::kernel::FeatureGroupRequest>(
+                        &hole_operations.back().primitive) != nullptr,
+                "Hole did not translate to one subtractive feature group");
+        const auto hole_boundaries = kernel.evaluate_history(hole_operations);
+        require(hole_boundaries.size() == 2 &&
+                    hole_boundaries.back().volume < 64000.0,
+                "Hole did not remove material from its input body");
+        const auto hole_path = std::filesystem::temp_directory_path() /
+            "zima-cad-hole-contract.prtz";
+        hole_document.save(hole_path, hole_boundaries);
+        const auto loaded_hole = zima::document::PartDocument::load(hole_path);
+        std::filesystem::remove(hole_path);
+        require(loaded_hole.history.size() == 2 &&
+                    loaded_hole.history.back().feature_kind ==
+                        zima::document::FeatureKind::Hole &&
+                    loaded_hole.history.back().hole == hole.hole &&
+                    loaded_hole.history.back().combine_mode ==
+                        zima::document::CombineMode::Subtract,
+                "Hole parameters or independent bore/thread lengths did not round-trip");
         std::cout << "C++ document and OCCT contracts passed\n";
         return 0;
     } catch (const std::exception& error) {

@@ -1087,3 +1087,39 @@ viditelností Sketcheru. Drag kopie připojuje pouze `viewer_mesh()` aktivní
 skici, nikoliv všechny skici Partu. Výběrový obdélník blokuje zpětné signály
 Tree během hromadné synchronizace a `Delete` odstraní celou vybranou množinu v
 jedné revizi.
+
+History kontejnery nyní publikují svůj lokální Origin postupně v pořadí
+historie. Následující kontejner se proto může persistovanými rovinami, osami a
+bodem navázat na již vyřešený lokální rámec předchozího kontejneru; dopředné a
+cyklické závislosti zůstávají neplatné. Dialogy Sketch, Vytažení, Rotace i
+ostatních podporovaných prvků dostávají stejný referenční packet. Přechod do
+vlastněného Sketcheru a zpět znovu řeší pouze ZIMA placement reference nad
+hotovými viewer daty a nespouští OCCT.
+
+Společná `ContainerPlacementSection` přidává do všech vlastnostních dialogů
+režim **POČÁTEK**. Vybrané History kontejnery zobrazí po dobu dialogu celý
+lokální Origin a podle typu také hlavní osu prvku a vyřešenou pracovní či
+odsazenou profilovou rovinu. Prezentace respektuje nezávislé globální filtry
+Origins/Axes/Planes a nemění jejich nastavení. Jde o transientní viewerovou
+geometrii odvozenou z persistovaných ZIMA objektů, nikoli o novou topologickou
+identitu ani skrytý kernelový výpočet.
+
+Parametrické kóty aktivních Vlastností používají jeden lokální→světový rámec
+výsledného placementu. Stejný převod se aplikuje na koncové body, vynášecí
+směry, normály i poloměrové kóty. Korekční `RX/RY/RZ` navíc kreslí své oblouky
+v lokálním rámci po FRONT/BACK a čtvrtotáčce, nikoli kolem pevných světových
+os. Každý synchronní preview callback rámec i kóty znovu sestaví po změně
+reference, offsetu, orientace nebo parametru.
+
+Sketcher rozšířil tříklikové pořadí úsečka–osa–úsečka o skutečné symetrické
+lineární a úhlové kóty. Osa je geometricky neorientovaná, takže obrácené pořadí
+jejích koncových bodů nemůže vytvořit reflexní úhel; symetrický úhel zůstává v
+rozsahu 0–180°. Inference druhého bodu úsečky současně nenabízí falešné H/V jen
+proto, že kurzor leží na nesouvisejícím existujícím bodu.
+
+Nativní HistoryContainer **Otvor** skládá analytické válcové odebrání, volitelné
+vstupní a výstupní sražení či vrtací špičku a kosmetický závitový drát. Závit
+není plocha ani solid a sám nemění booleovský výsledek; následující odečítací
+operace nadále pracují s reálným tělesem. Parametry rozlišují délku, Až k a Skrz
+vše pro otvor i nezávislou délku závitu. OCCT výpočet, viewerová prezentace,
+strom a round-trip mají samostatné kontraktní testy.

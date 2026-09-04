@@ -198,6 +198,12 @@ Příkaz lze před výběrem zrušit opětovným kliknutím na tlačítko nebo k
   pracovní roviny okamžitě znovu sestaví azurový drát náhledu. Jde pouze o
   viewerový náhled z rozepsaných hodnot; definice kontejneru a historie se
   uloží a přepočítají až tlačítkem **OK**.
+- Živé parametrické kóty ve Vlastnostech jsou definované v lokálním systému
+  kontejneru a do View se převádějí jeho aktuálním výsledným rámcem. Jejich
+  body, vynášecí čáry, roviny a normály proto průběžně sledují změnu referencí,
+  odsazení, **PŘEDNÍ/ZADNÍ**, čtvrtotáčku **Rotace** i korekce `RX/RY/RZ`.
+  Korekční úhlové kóty se nekreslí ve světových rovinách, ale kolem odpovídajících
+  lokálních os po aplikování orientačních přepínačů.
 - Externí skica předává Protrusion nebo Revolve pouze svou parametrickou
   2D geometrii. Světovou polohu, orientaci i odsazení profilu určuje cílový
   kontejner.
@@ -719,6 +725,30 @@ položkou **Počátek** příslušného kontejneru:
 - **Odkrýt** pomocnou geometrii.
 
 Nastavení je součástí dokumentu.
+
+V otevřených **Vlastnostech kontejneru** slouží tlačítko **POČÁTEK** k
+dočasnému výběru lokálního konstrukčního kontextu jiného kontejneru. První
+kliknutí na kontejner ve View nebo tree jeho kontext zobrazí, další kliknutí
+jej skryje. Vypnutí tlačítka ukončí tento výběrový režim, ale již zobrazené
+kontexty ponechá do zavření dialogu; zadávání přerušené reference se obnoví.
+
+Kontext zahrnuje lokální bod počátku, roviny XY/XZ/YZ a osy X/Y/Z. Podle typu
+navíc ukáže hlavní **Osu prvku** (válec, kužel, otvor, Vytažení a Rotace) a
+skutečnou pracovní či odsazenou profilovou rovinu Vytažení a Rotace. Otvor
+ukazuje vstupní rovinu kolmou ke své hlavní ose. Tato geometrie vzniká z
+persistovaného ZIMA rámce a vyřešené Sketch roviny, nikoli průchodem OCCT
+topologie.
+
+Globální viewerové přepínače jsou nadřazené: vypnuté **Počátky** skryjí celý
+lokální kontext a přepínače **Osy** a **Roviny** samostatně určují, zda se v něm
+smějí zobrazit osy a roviny. Tlačítko **POČÁTEK** jejich stav nepřepisuje.
+
+Lokální Počátek kontejneru, který leží dříve v historii, lze použít také jako
+zdroj ustavení dalšího kontejneru. Kliknutí na jeho uzel Počátek v tree vyplní
+odpovídající tři roviny stejně jako u hlavního Počátku dokumentu. Reference
+zůstávají jednosměrné podle pořadí historie; dopředná nebo cyklická vazba se
+odmítne. Po návratu z vlastněného Sketcheru se rozpracované reference znovu
+vyhodnotí bez výpočtu OCCT, takže dialog zachová správný počet stupňů volnosti.
 
 ## Základní práce se sestavou
 

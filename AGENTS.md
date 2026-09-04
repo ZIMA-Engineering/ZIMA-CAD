@@ -44,6 +44,17 @@
   A transient preview may replace it while the dialog is open; OK or Cancel
   restores normal full-history display, selection mode, and highlights.
 
+## Container placement protection
+
+- Do not modify the shared container-placement code or its general placement,
+  reference-solving, orientation, offset, preview, or persistence contracts
+  without first asking the user and receiving explicit approval.
+- Feature work must consume the existing container-placement contract. Do not
+  alter that shared contract merely to repair or specialize one feature.
+- If a requested change appears to require changing container placement, stop,
+  explain the proposed change and its possible effects on other containers,
+  and ask the user before editing it.
+
 ## Explicit dependency regeneration
 
 - Changes to a source Part or nested Assembly must not automatically regenerate

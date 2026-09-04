@@ -109,6 +109,8 @@ struct PartOccurrence {
     // Source colour captured when the component is inserted or explicitly
     // regenerated. This preserves the Assembly's last calculated appearance.
     std::string body_color{"#B9C2CC"};
+    // Source Part face appearance captured by explicit insertion/regeneration.
+    std::map<std::string, std::string> face_colors;
     // Empty means that the occurrence uses the normal silver body colour.
     // A value is an Assembly-owned presentation override for this occurrence.
     std::optional<std::string> body_color_override;

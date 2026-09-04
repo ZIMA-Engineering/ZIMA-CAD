@@ -55,6 +55,8 @@ void MainWindow::create_actions() {
     auto* modeling = menuBar()->addMenu(tr("Modelování"));
     modeling->addAction(tr("Kvádr…"), this, [this] { show_box_properties(); });
     modeling->addAction(tr("Válec…"), this, [this] { show_cylinder_properties(); });
+    modeling->addAction(tr("Otvor…"), this, [this] {
+        show_primitive_properties(zima::document::FeatureKind::Hole); });
     modeling->addAction(tr("Koule…"), this, [this] {
         show_primitive_properties(zima::document::FeatureKind::Sphere); });
     modeling->addAction(tr("Kužel…"), this, [this] {
@@ -237,7 +239,16 @@ void MainWindow::rebuild(std::optional<std::size_t> history_limit,
             .arg(QString::fromStdString(kernel_.name()))
             .arg(result.volume, 0, 'f', 3)
             .arg(result.surface_area, 0, 'f', 3));
-        viewer_->set_mesh(result.mesh);
+        auto display = result.mesh;
+        for (std::size_t index = 0;
+             index < evaluated_count && index < document.history.size(); ++index) {
+            auto thread = document.hole_thread_edges(
+                document.history[index], &result.mesh);
+            display.edges.insert(display.edges.end(),
+                std::make_move_iterator(thread.begin()),
+                std::make_move_iterator(thread.end()));
+        }
+        viewer_->set_mesh(std::move(display));
         restore_container_selection();
     } catch (const std::exception& error) {
         viewer_->set_mesh({});
@@ -286,6 +297,8 @@ void MainWindow::show_primitive_properties(
         ? *edited
         : feature_kind == zima::document::FeatureKind::Cylinder
             ? zima::document::PartDocument::create_cylinder_container()
+        : feature_kind == zima::document::FeatureKind::Hole
+            ? zima::document::PartDocument::create_hole_container()
         : feature_kind == zima::document::FeatureKind::Sphere
             ? zima::document::PartDocument::create_sphere_container()
         : feature_kind == zima::document::FeatureKind::Cone

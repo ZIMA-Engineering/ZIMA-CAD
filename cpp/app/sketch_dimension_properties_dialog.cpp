@@ -111,6 +111,9 @@ SketchDimensionPropertiesDialog::SketchDimensionPropertiesDialog(
         initial_.kind == zima::sketcher::DimensionKind::EllipseRotation) {
         value_->setRange(-180.0, 180.0);
         value_->setSuffix(" °");
+    } else if (initial_.kind == zima::sketcher::DimensionKind::AngleSymmetric) {
+        value_->setRange(0.0, 360.0);
+        value_->setSuffix(" °");
     } else if (initial_.kind ==
                zima::sketcher::DimensionKind::AngleThreePoint) {
         value_->setSuffix(" °");
@@ -167,6 +170,7 @@ bool SketchDimensionPropertiesDialog::submit() {
          result.kind == zima::sketcher::DimensionKind::DistancePointLine ||
          result.kind == zima::sketcher::DimensionKind::DistanceSymmetric ||
          result.kind == zima::sketcher::DimensionKind::DistanceLine ||
+         result.kind == zima::sketcher::DimensionKind::DistanceLineSymmetric ||
          result.kind == zima::sketcher::DimensionKind::Radius ||
          result.kind == zima::sketcher::DimensionKind::Diameter ||
          result.kind == zima::sketcher::DimensionKind::EllipseMajorRadius ||
@@ -180,6 +184,11 @@ bool SketchDimensionPropertiesDialog::submit() {
          result.kind == zima::sketcher::DimensionKind::EllipseRotation) &&
         (result.value < -180.0 || result.value > 180.0)) {
         error_->setText(tr("Úhel musí být v rozsahu −180° až +180°."));
+        return false;
+    }
+    if (result.kind == zima::sketcher::DimensionKind::AngleSymmetric &&
+        (result.value < 0.0 || result.value > 360.0)) {
+        error_->setText(tr("Symetrický úhel musí být v rozsahu 0° až 360°."));
         return false;
     }
     try {

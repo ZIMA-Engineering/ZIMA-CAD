@@ -672,6 +672,15 @@ void ConstructionPropertiesDialog::set_reference_request_callback(
     reference_request_ = std::move(callback);
 }
 
+void ConstructionPropertiesDialog::set_origin_selection_mode_callback(
+        std::function<void(bool)> callback) {
+    if (placement_) placement_->set_origin_selection_mode_callback(std::move(callback));
+}
+
+void ConstructionPropertiesDialog::set_origin_selection_mode_active(bool active) {
+    if (placement_) placement_->set_origin_selection_mode_active(active);
+}
+
 void ConstructionPropertiesDialog::set_reference_highlights_changed_callback(
     ReferenceHighlightsChangedCallback callback) {
     reference_highlights_changed_ = std::move(callback);

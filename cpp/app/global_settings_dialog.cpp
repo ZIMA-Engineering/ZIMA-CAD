@@ -33,6 +33,13 @@ GlobalSettingsDialog::GlobalSettingsDialog(
     language_->setCurrentText(settings_.language);
     form->addRow(settings_.text("global.language", tr("Jazyk aplikace")), language_);
 
+    application_font_ = new QComboBox(this);
+    application_font_->setObjectName("globalApplicationFont");
+    application_font_->addItem(tr("ISO technický font"), true);
+    application_font_->addItem(tr("Systémový font"), false);
+    application_font_->setCurrentIndex(settings_.use_iso_application_font ? 0 : 1);
+    form->addRow(tr("Font celé aplikace"), application_font_);
+
     const QMap<QString, QStringList> choices{
         {"Length", {"mm", "cm", "m", "in"}},
         {"Angle", {"deg", "rad"}},
@@ -57,6 +64,8 @@ GlobalSettingsDialog::GlobalSettingsDialog(
     }
 
     const QMap<QString, QString> path_labels{
+        {"WorkingDirectory", settings_.text("global.path.working_directory",
+            tr("Výchozí pracovní adresář"))},
         {"Materials", settings_.text("global.path.materials", tr("Knihovna materiálů"))},
         {"Templates", settings_.text("global.path.templates", tr("Šablony"))},
         {"Formats", settings_.text("global.path.formats", tr("Formáty výkresů"))},
@@ -103,6 +112,8 @@ void GlobalSettingsDialog::browse_path(const QString& key) {
 
 bool GlobalSettingsDialog::submit() {
     settings_.language = language_->currentText();
+    settings_.use_iso_application_font =
+        application_font_->currentData().toBool();
     for (auto it = unit_fields_.cbegin(); it != unit_fields_.cend(); ++it) {
         settings_.units[it.key()] = it.value()->currentText();
     }

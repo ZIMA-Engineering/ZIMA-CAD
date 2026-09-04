@@ -168,6 +168,15 @@ void SketchPropertiesDialog::set_reference_request_callback(
     placement_->set_reference_request_callback(std::move(callback));
 }
 
+void SketchPropertiesDialog::set_origin_selection_mode_callback(
+        std::function<void(bool)> callback) {
+    if (placement_) placement_->set_origin_selection_mode_callback(std::move(callback));
+}
+
+void SketchPropertiesDialog::set_origin_selection_mode_active(bool active) {
+    if (placement_) placement_->set_origin_selection_mode_active(active);
+}
+
 void SketchPropertiesDialog::set_reference_highlights_changed_callback(
         HighlightsChangedCallback callback) {
     placement_->set_highlights_changed_callback(std::move(callback));

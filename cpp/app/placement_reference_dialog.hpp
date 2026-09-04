@@ -7,6 +7,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include <functional>
 
 #include <QString>
 
@@ -31,6 +32,9 @@ public:
     virtual void set_reference_inspected(
         std::size_t index, bool inspected) = 0;
     virtual void clear_reference_highlights() = 0;
+    virtual void set_origin_selection_mode_callback(
+        std::function<void(bool)> callback) = 0;
+    virtual void set_origin_selection_mode_active(bool active) = 0;
     virtual void set_translation_constraint_state(
         const zima::document::PointConstraintState& state,
         const zima::kernel::Vec3& solution) = 0;

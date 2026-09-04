@@ -845,6 +845,7 @@ std::string Workspace::insert_open_part(
         std::move(occurrence_name), part_document_id, part->path,
         part_result(*part));
     occurrence.body_color = part->session.document().body_color;
+    occurrence.face_colors = part->session.document().face_colors;
     const std::string occurrence_id = occurrence.occurrence_id;
     next.components.push_back(std::move(occurrence));
     static_cast<void>(next.build_scene());
@@ -971,6 +972,7 @@ zima::assembly::AssemblyDocument Workspace::refreshed_assembly(
         }
         occurrence.calculated_source = part_result(*part);
         occurrence.body_color = part->session.document().body_color;
+        occurrence.face_colors = part->session.document().face_colors;
         occurrence.source_path = part->path;
     }
     recursion_stack.pop_back();

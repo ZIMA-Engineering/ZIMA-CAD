@@ -340,6 +340,15 @@ struct RevolutionRequest {
     double angle_degrees{360.0};
 };
 
+// A semantic feature may organize several ordinary modeling primitives while
+// still committing one history boundary.  The children remain real ZIMA
+// operations (currently Extrusion/Revolution); this is grouping, not a new
+// kernel shortcut for any particular feature such as Hole.
+struct FeatureGroupRequest {
+    using Child = std::variant<ExtrusionRequest, RevolutionRequest>;
+    std::vector<Child> children;
+};
+
 struct StepRequest {
     std::string source_path;
     std::string component_path;
@@ -452,7 +461,7 @@ struct BoxOperation {
 
 using PrimitiveRequest = std::variant<
     BoxRequest, CylinderRequest, SphereRequest, ConeRequest, PyramidRequest, WedgeRequest,
-    ExtrusionRequest, RevolutionRequest,
+    ExtrusionRequest, RevolutionRequest, FeatureGroupRequest,
     Sweep3DRequest, StepRequest, FilletRequest, ChamferRequest, ShellRequest>;
 
 struct HistoryOperation {
@@ -747,6 +756,26 @@ struct PlacedBody {
                         u64(std::bit_cast<std::uint64_t>(value));
                     }
                 }
+            } else if constexpr (std::is_same_v<Request, FeatureGroupRequest>) {
+                u64(primitive.children.size());
+                std::vector<HistoryOperation> child_operations;
+                child_operations.reserve(primitive.children.size());
+                for (std::size_t child_index = 0;
+                     child_index < primitive.children.size(); ++child_index) {
+                    HistoryOperation child;
+                    child.owner_id = operation.owner_id + ":child:" +
+                        std::to_string(child_index);
+                    std::visit([&](const auto& value) {
+                        child.primitive = value;
+                    }, primitive.children[child_index]);
+                    child.operation = operation.operation;
+                    child.boolean_tolerance = operation.boolean_tolerance;
+                    child_operations.push_back(std::move(child));
+                }
+                const auto child_fingerprint = history_fingerprint(
+                    child_operations, child_operations.size());
+                u64(child_fingerprint.size());
+                for (const unsigned char value : child_fingerprint) byte(value);
             } else if constexpr (std::is_same_v<Request, RevolutionRequest>) {
                 const auto append_profile = [&](const auto& profile_variant) {
                     byte(static_cast<std::uint8_t>(profile_variant.index()));

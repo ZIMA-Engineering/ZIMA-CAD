@@ -197,6 +197,11 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_contract_tests COMMAND zima_cpp_contract_tests)
     set_tests_properties(zima_cpp_contract_tests PROPERTIES
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    add_executable(zima_cpp_hole_contract_tests tests/hole_contract_tests.cpp)
+    target_link_libraries(zima_cpp_hole_contract_tests PRIVATE
+        zima_document_core zima_kernel_occt)
+    add_test(NAME zima_cpp_hole_contract_tests
+        COMMAND zima_cpp_hole_contract_tests)
     add_executable(zima_cpp_ui_contract_tests
         tests/ui_contract_tests.cpp app/primitive_properties_dialog.cpp
         app/construction_properties_dialog.cpp

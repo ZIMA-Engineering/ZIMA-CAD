@@ -147,9 +147,17 @@ ContainerPlacementSection::ContainerPlacementSection(
         orientation_flip_button_->setObjectName("containerOrientationFlipButton");
         orientation_rotate_button_ = new QPushButton(parent_widget_);
         orientation_rotate_button_->setObjectName("containerOrientationRotateButton");
+        origin_selection_button_ = new QPushButton(tr("POČÁTEK"), parent_widget_);
+        origin_selection_button_->setObjectName("containerOriginSelectionButton");
+        origin_selection_button_->setCheckable(true);
+        origin_selection_button_->setStyleSheet(
+            "QPushButton:checked{background:#4dd811;color:#102010;font-weight:700;}");
+        origin_selection_button_->setToolTip(
+            tr("Kliknutím zobrazit nebo skrýt lokální Počátky kontejnerů"));
         orientation_controls->addWidget(orientation_flip_button_);
         orientation_controls->addWidget(orientation_rotate_button_);
         orientation_controls->addStretch(1);
+        orientation_controls->addWidget(origin_selection_button_);
         layout->addLayout(orientation_controls);
         connect(orientation_flip_button_, &QPushButton::clicked, this, [this] {
             orientation_back_ = !orientation_back_;
@@ -161,6 +169,10 @@ ContainerPlacementSection::ContainerPlacementSection(
             refresh_orientation_controls();
             notify_changed();
         });
+        connect(origin_selection_button_, &QPushButton::toggled, this,
+            [this](bool active) {
+                if (origin_selection_mode_) origin_selection_mode_(active);
+            });
         refresh_orientation_controls();
     }
 
@@ -235,6 +247,18 @@ ContainerPlacementSection::ContainerPlacementSection(
     // it, otherwise a caller that forgets installation gets a floating,
     // clipped "Zbývající stupně volnosti" label over the dialog.
     dof_label_->hide();
+}
+
+void ContainerPlacementSection::set_origin_selection_mode_callback(
+        OriginSelectionModeCallback callback) {
+    origin_selection_mode_ = std::move(callback);
+}
+
+void ContainerPlacementSection::set_origin_selection_mode_active(bool active) {
+    if (origin_selection_button_ == nullptr ||
+        origin_selection_button_->isChecked() == active) return;
+    const QSignalBlocker blocker(origin_selection_button_);
+    origin_selection_button_->setChecked(active);
 }
 
 void ContainerPlacementSection::initialize_numeric_values(

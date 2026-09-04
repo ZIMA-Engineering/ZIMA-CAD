@@ -6010,6 +6010,213 @@ int main() {
                     reloaded_document.history.front().extrusion.sketch_id == sketch_id,
                 "Committed Sketch and Extrusion did not round-trip without OCCT");
 
+        {
+            auto symmetric_sketch = zima::sketcher::Sketch::create_default();
+            const auto axis_id = symmetric_sketch.add_segment(
+                0.0, 0.0, 20.0, 0.0, 1.0e-6, true);
+            const auto first_line_id = symmetric_sketch.add_segment(
+                0.0, 5.0, 10.0, 5.0);
+            // Single-line symmetric distance: axis parallel to first line,
+            // value is doubled as if a mirrored line existed.
+            auto single_distance = symmetric_sketch.create_line_symmetric_dimension(
+                axis_id, first_line_id, std::string{},
+                DimensionKind::DistanceLineSymmetric);
+            symmetric_sketch.apply_dimension(single_distance);
+            require(std::abs(symmetric_sketch.dimensions.front().value - 10.0) <
+                        1.0e-7,
+                    "Single-line symmetric distance was not doubled");
+            require(symmetric_sketch.set_dimension_value(single_distance.id, 16.0),
+                    "Symmetric distance value could not be updated");
+            const auto* driven_first = symmetric_sketch.find_point(
+                symmetric_sketch.segments[1].first_point_id);
+            require(std::abs(std::abs(driven_first->y) - 8.0) < 1.0e-6,
+                    "Driving a single-line symmetric distance did not move the "
+                    "line to half the requested value from the axis");
+            const auto edited_distance_mesh = symmetric_sketch.viewer_mesh();
+            require(edited_distance_mesh.dimensions.size() == 1 &&
+                        std::abs(edited_distance_mesh.dimensions.front().value-16.0) <
+                            1.0e-7 &&
+                        std::abs(edited_distance_mesh.dimensions.front().line_first.y+
+                            edited_distance_mesh.dimensions.front().line_second.y) <
+                            1.0e-7,
+                    "A-B-A linear dimension was not drawn across both sides "
+                    "of its symmetry axis");
+            const auto distance_endpoint =
+                symmetric_sketch.segments[1].second_point_id;
+            const auto* distance_before =
+                symmetric_sketch.find_point(distance_endpoint);
+            require(symmetric_sketch.move_point(distance_endpoint,
+                        distance_before->x, distance_before->y+2.0),
+                    "A-B-A linear dimension prevented dragging its unlocked line");
+            require(!symmetric_sketch.set_dimension_value(single_distance.id, -4.0),
+                    "Negative symmetric distance was incorrectly accepted");
+
+            auto single_angle_sketch = zima::sketcher::Sketch::create_default();
+            const auto single_angle_axis = single_angle_sketch.add_segment(
+                -20.0, 0.0, 20.0, 0.0, 1.0e-6, true);
+            const auto single_angle_line = single_angle_sketch.add_segment(
+                0.0, 0.0, 8.660254037844387, 5.0);
+            auto single_angle = single_angle_sketch.create_line_symmetric_dimension(
+                single_angle_axis, single_angle_line, std::string{},
+                DimensionKind::AngleSymmetric);
+            single_angle.placement = std::array{12.0, 0.0};
+            single_angle_sketch.apply_dimension(single_angle);
+            const auto single_angle_mesh = single_angle_sketch.viewer_mesh();
+            require(single_angle_mesh.dimensions.size() == 1 &&
+                        std::abs(single_angle_mesh.dimensions.front().value-60.0) <
+                            1.0e-6 &&
+                        std::abs(single_angle_mesh.dimensions.front().line_first.x-
+                            single_angle_mesh.dimensions.front().line_second.x) <
+                            1.0e-6 &&
+                        std::abs(single_angle_mesh.dimensions.front().line_first.y+
+                            single_angle_mesh.dimensions.front().line_second.y) <
+                            1.0e-6,
+                    "A-B-A symmetric angle was not rendered as one mirrored "
+                    "total-angle dimension about its axis");
+            require(single_angle_sketch.set_dimension_value(single_angle.id, 80.0),
+                    "A-B-A symmetric angle value could not be edited");
+            const auto edited_single_angle = std::ranges::find_if(
+                single_angle_sketch.dimensions, [&](const auto& dimension) {
+                    return dimension.id == single_angle.id;
+                });
+            require(edited_single_angle != single_angle_sketch.dimensions.end() &&
+                        std::abs(edited_single_angle->value-80.0) < 1.0e-7,
+                    "A-B-A symmetric angle edit did not persist its value");
+            const auto movable_endpoint =
+                single_angle_sketch.segments[1].second_point_id;
+            const auto* before_drag =
+                single_angle_sketch.find_point(movable_endpoint);
+            const double drag_x = before_drag->x;
+            const double drag_y = before_drag->y + 3.0;
+            require(single_angle_sketch.move_point(
+                        movable_endpoint, drag_x, drag_y),
+                    "A-B-A dimension prevented dragging its unlocked line");
+            require(std::abs(std::ranges::find_if(
+                        single_angle_sketch.dimensions,
+                        [&](const auto& dimension) {
+                            return dimension.id == single_angle.id;
+                        })->value-80.0) > 1.0e-4,
+                    "Dragging an unlocked A-B-A line did not update its "
+                    "symmetric angle value");
+
+            auto reversed_axis_angle = zima::sketcher::Sketch::create_default();
+            const auto reversed_axis = reversed_axis_angle.add_segment(
+                20.0, 0.0, -20.0, 0.0, 1.0e-6, true);
+            const auto reversed_line = reversed_axis_angle.add_segment(
+                0.0, 0.0, 7.064, 7.078);
+            auto reversed_dimension =
+                reversed_axis_angle.create_line_symmetric_dimension(
+                    reversed_axis, reversed_line, std::string{},
+                    DimensionKind::AngleSymmetric);
+            require(reversed_dimension.value > 90.0 &&
+                        reversed_dimension.value < 91.0,
+                    "Reversing the symmetry-axis endpoints created a reflex "
+                    "A-B-A angle instead of the same included angle");
+            reversed_axis_angle.apply_dimension(reversed_dimension);
+            const auto reversed_mesh = reversed_axis_angle.viewer_mesh();
+            require(reversed_mesh.dimensions.size() == 1 &&
+                        reversed_mesh.dimensions.front().value < 180.0,
+                    "Reversed symmetry axis rendered a reflex angular dimension");
+            require(!reversed_axis_angle.set_dimension_value(
+                        reversed_dimension.id, 200.0),
+                    "Symmetric angle incorrectly accepted a reflex value");
+
+            auto base_axis_angle = zima::sketcher::Sketch::create_default();
+            const auto base_axis_line = base_axis_angle.add_segment(
+                -8.0, 4.0, 8.0, 8.0);
+            auto base_symmetric = base_axis_angle.create_line_symmetric_dimension(
+                "sketch_axis:x", base_axis_line, std::string{},
+                DimensionKind::AngleSymmetric);
+            base_axis_angle.apply_dimension(base_symmetric);
+            require(base_axis_angle.set_dimension_value(base_symmetric.id, 70.0),
+                    "Base Sketch axis A-B-A angle could not be edited");
+            const auto base_endpoint =
+                base_axis_angle.segments.front().second_point_id;
+            const auto* base_before = base_axis_angle.find_point(base_endpoint);
+            require(base_axis_angle.move_point(base_endpoint,
+                        base_before->x, base_before->y+2.0),
+                    "Base Sketch axis blocked dragging an A-B-A line endpoint");
+
+            auto degenerate_sketch = zima::sketcher::Sketch::create_default();
+            const auto degenerate_axis = degenerate_sketch.add_segment(
+                0.0, 0.0, 20.0, 0.0, 1.0e-6, true);
+            const auto degenerate_line = degenerate_sketch.add_segment(
+                2.0, 4.0, 12.0, 4.0);
+            bool parallel_distance_rejected = false;
+            try {
+                degenerate_sketch.create_line_symmetric_dimension(
+                    degenerate_axis, degenerate_line, std::string{},
+                    DimensionKind::AngleSymmetric);
+            } catch (const std::invalid_argument&) {
+                parallel_distance_rejected = true;
+            }
+            require(parallel_distance_rejected,
+                    "Symmetric angle accepted a line parallel to the axis");
+            const auto parallel_distance =
+                degenerate_sketch.create_line_symmetric_dimension(
+                    degenerate_axis, degenerate_line, std::string{},
+                    DimensionKind::DistanceLineSymmetric);
+            require(std::abs(parallel_distance.value - 8.0) < 1.0e-7,
+                    "Symmetric distance did not double-measure a line parallel "
+                    "to the axis");
+
+            auto perpendicular_sketch = zima::sketcher::Sketch::create_default();
+            const auto perpendicular_axis = perpendicular_sketch.add_segment(
+                0.0, 0.0, 20.0, 0.0, 1.0e-6, true);
+            const auto perpendicular_line = perpendicular_sketch.add_segment(
+                5.0, 0.0, 5.0, 10.0);
+            bool perpendicular_distance_rejected = false;
+            try {
+                perpendicular_sketch.create_line_symmetric_dimension(
+                    perpendicular_axis, perpendicular_line, std::string{},
+                    DimensionKind::DistanceLineSymmetric);
+            } catch (const std::invalid_argument&) {
+                perpendicular_distance_rejected = true;
+            }
+            require(perpendicular_distance_rejected,
+                    "Symmetric distance accepted a line not parallel to the axis");
+
+            auto two_line_sketch = zima::sketcher::Sketch::create_default();
+            const auto two_line_axis = two_line_sketch.add_segment(
+                0.0, 0.0, 20.0, 0.0, 1.0e-6, true);
+            const auto two_line_first = two_line_sketch.add_segment(
+                0.0, 0.0, 8.660254037844387, 5.0);
+            const auto two_line_second = two_line_sketch.add_segment(
+                0.0, 0.0, 5.0, 8.660254037844387);
+            auto summed_angle = two_line_sketch.create_line_symmetric_dimension(
+                two_line_axis, two_line_first, two_line_second,
+                DimensionKind::AngleSymmetric);
+            require(std::abs(summed_angle.value - 90.0) < 1.0e-6,
+                    "Two-line symmetric angle was not the sum of individual angles");
+            two_line_sketch.apply_dimension(summed_angle);
+            require(two_line_sketch.viewer_mesh().dimensions.size() == 2,
+                    "Two-line symmetric angle did not render one icon per line");
+            require(two_line_sketch.set_dimension_value(summed_angle.id, 120.0),
+                    "Two-line symmetric angle value could not be updated");
+            const auto* first_point = two_line_sketch.find_point(
+                two_line_sketch.segments[1].first_point_id);
+            const auto* first_end = two_line_sketch.find_point(
+                two_line_sketch.segments[1].second_point_id);
+            const auto* second_point = two_line_sketch.find_point(
+                two_line_sketch.segments[2].first_point_id);
+            const auto* second_end = two_line_sketch.find_point(
+                two_line_sketch.segments[2].second_point_id);
+            const double first_angle = std::abs(std::atan2(
+                first_end->y - first_point->y, first_end->x - first_point->x) *
+                180.0 / 3.14159265358979323846);
+            const double second_angle = std::abs(std::atan2(
+                second_end->y - second_point->y,
+                second_end->x - second_point->x) * 180.0 / 3.14159265358979323846);
+            require(std::abs(first_angle - 60.0) < 1.0e-4 &&
+                        std::abs(second_angle - 60.0) < 1.0e-4,
+                    "Driving a two-line symmetric angle did not move each line to "
+                    "half the requested total");
+            const auto loaded_symmetric = zima::sketcher::Sketch::from_serialized(
+                two_line_sketch.serialized());
+            require(loaded_symmetric.dimensions == two_line_sketch.dimensions,
+                    "Symmetric line dimension did not survive serialization");
+        }
+
         std::cout << "C++ Sketcher contracts passed\n";
         return 0;
     } catch (const std::exception& error) {

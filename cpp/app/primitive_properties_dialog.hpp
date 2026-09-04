@@ -15,6 +15,7 @@
 
 class QAction;
 class QComboBox;
+class QCheckBox;
 class QDoubleSpinBox;
 class QEvent;
 class QLabel;
@@ -118,6 +119,8 @@ public:
     void set_reference_inspected(
         std::size_t index, bool inspected) override;
     void clear_reference_highlights() override;
+    void set_origin_selection_mode_callback(std::function<void(bool)> callback) override;
+    void set_origin_selection_mode_active(bool active) override;
     void set_remaining_translation_dof(int dof);
     void set_remaining_rotation_dof(int dof);
     void set_rotation_constraint_state(
@@ -162,6 +165,21 @@ private:
     QDoubleSpinBox* radius_{};
     QDoubleSpinBox* top_radius_{};
     QDoubleSpinBox* top_offset_{};
+    QComboBox* hole_type_{};
+    QDoubleSpinBox* hole_diameter_{};
+    QComboBox* hole_bore_end_{};
+    QDoubleSpinBox* hole_bore_length_{};
+    QDoubleSpinBox* hole_entrance_chamfer_{};
+    QCheckBox* hole_drill_point_{};
+    QDoubleSpinBox* hole_drill_angle_{};
+    QCheckBox* hole_exit_chamfer_enabled_{};
+    QDoubleSpinBox* hole_exit_chamfer_{};
+    QCheckBox* hole_thread_enabled_{};
+    QDoubleSpinBox* hole_thread_nominal_diameter_{};
+    QDoubleSpinBox* hole_thread_pitch_{};
+    QComboBox* hole_thread_end_{};
+    QDoubleSpinBox* hole_thread_length_{};
+    QCheckBox* hole_left_hand_{};
     QComboBox* extrusion_direction_{};
     QComboBox* extrusion_extent_{};
     QLabel* extrusion_target_{};

@@ -306,6 +306,7 @@ struct MeshView::Impl {
     std::optional<QColor> edge_color_override;
     QColor body_surface_color{"#B9C2CC"};
     std::map<std::string, QColor> body_surface_instance_colors;
+    std::map<std::string, QColor> body_surface_face_colors;
     QPoint last_pointer;
     QVector3D center;
     QPointF pan_pixels;
@@ -1931,10 +1932,12 @@ void MeshView::set_edge_color_override(std::optional<QColor> color) {
 }
 
 void MeshView::set_body_surface_colors(
-    QColor default_color, std::map<std::string, QColor> instance_colors) {
+    QColor default_color, std::map<std::string, QColor> instance_colors,
+    std::map<std::string, QColor> face_colors) {
     impl_->body_surface_color = default_color.isValid()
         ? std::move(default_color) : QColor("#B9C2CC");
     impl_->body_surface_instance_colors = std::move(instance_colors);
+    impl_->body_surface_face_colors = std::move(face_colors);
     update();
 }
 
@@ -2834,30 +2837,27 @@ if (impl_->show_origins) {
                 static_cast<float>(color.alphaF()));
         };
         const std::size_t triangle_count = impl_->mesh.triangles.size() / 3;
+        const auto triangle_color = [&](std::size_t triangle) {
+            QColor color = impl_->body_surface_color;
+            if (triangle >= impl_->mesh.triangle_references.size()) return color;
+            const auto& reference = impl_->mesh.triangle_references[triangle];
+            if (const auto found = impl_->body_surface_instance_colors.find(
+                    reference.instance_path);
+                found != impl_->body_surface_instance_colors.end()) {
+                color = found->second;
+            }
+            const std::string key = reference.instance_path + "\x1f" +
+                reference.owner_id + "\x1f" + reference.semantic_key;
+            if (const auto found = impl_->body_surface_face_colors.find(key);
+                found != impl_->body_surface_face_colors.end()) color = found->second;
+            return color;
+        };
         std::size_t first{};
         while (first < triangle_count) {
-            QColor color = impl_->body_surface_color;
-            if (first < impl_->mesh.triangle_references.size()) {
-                const auto& path =
-                    impl_->mesh.triangle_references[first].instance_path;
-                if (const auto found =
-                        impl_->body_surface_instance_colors.find(path);
-                    found != impl_->body_surface_instance_colors.end()) {
-                    color = found->second;
-                }
-            }
+            QColor color = triangle_color(first);
             std::size_t end = first + 1;
             while (end < triangle_count) {
-                QColor next = impl_->body_surface_color;
-                if (end < impl_->mesh.triangle_references.size()) {
-                    const auto& path =
-                        impl_->mesh.triangle_references[end].instance_path;
-                    if (const auto found =
-                            impl_->body_surface_instance_colors.find(path);
-                        found != impl_->body_surface_instance_colors.end()) {
-                        next = found->second;
-                    }
-                }
+                QColor next = triangle_color(end);
                 if (next != color) break;
                 ++end;
             }
@@ -2962,6 +2962,10 @@ if (impl_->show_origins) {
             return QVector4D(static_cast<float>(color.redF()),
                 static_cast<float>(color.greenF()),
                 static_cast<float>(color.blueF()), 1.0F);
+        }
+        if (edge.reference.semantic_key.starts_with(
+                "hole:cosmetic-thread:")) {
+            return QVector4D(0.55F, 0.55F, 0.55F, 1.0F);
         }
         return QVector4D(1.0F, 1.0F, 1.0F, 1.0F);
     };

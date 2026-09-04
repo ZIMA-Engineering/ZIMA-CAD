@@ -1700,6 +1700,8 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
         }
         component.body_color =
             source.value("body_color", std::string("#B9C2CC"));
+        component.face_colors = source.value("face_colors",
+            std::map<std::string, std::string>{});
         document.components.push_back(std::move(component));
     }
     for (const auto& source : root.at("dependencies")) {
@@ -1757,6 +1759,7 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
                 ? nlohmann::json(*component.body_color_override)
                 : nlohmann::json(nullptr)},
             {"body_color", component.body_color},
+            {"face_colors", component.face_colors},
         });
     }
     nlohmann::json dependencies_json = nlohmann::json::array();

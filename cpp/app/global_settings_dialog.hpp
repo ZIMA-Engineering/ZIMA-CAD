@@ -24,6 +24,7 @@ private:
 
     ApplicationSettings settings_;
     QComboBox* language_{};
+    QComboBox* application_font_{};
     QMap<QString, QComboBox*> unit_fields_;
     QMap<QString, QLineEdit*> path_fields_;
 };

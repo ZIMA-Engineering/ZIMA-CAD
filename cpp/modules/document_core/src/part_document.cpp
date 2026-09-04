@@ -511,7 +511,9 @@ void add_json_parameters(
             // Large immutable payloads live in param.cpp_history only.  A raw
             // B-Rep is multiline and is neither an editable feature parameter
             // nor valid as a duplicate INI scalar.
-            it.key() == "frozen_brep") {
+            it.key() == "frozen_brep" || it.key() == "sketch_serialized" ||
+            it.key() == "chamfer_sketch_serialized" ||
+            it.key() == "tip_sketch_serialized") {
             continue;
         }
         section["param." + it.key()] = json_text(it.value());
@@ -533,6 +535,7 @@ nlohmann::json read_part_ini(const std::filesystem::path& path) {
             "{\"columns\":[],\"instances\":[]}")},
         {"named_views", ini_value(ini, "Document", "named_views", "[]")},
         {"body_color", ini_value(ini, "Document", "body_color", "#B9C2CC")},
+        {"face_colors", nlohmann::json::object()},
         {"user_parameters", nlohmann::json::object()},
         {"user_parameter_order", nlohmann::json::array()},
         {"user_parameter_labels", nlohmann::json::object()},
@@ -557,6 +560,7 @@ nlohmann::json read_part_ini(const std::filesystem::path& path) {
     };
     copy_section("DocumentUnits", "document_units");
     copy_section("DocumentPrecision", "document_precision");
+    copy_section("FaceColors", "face_colors");
     copy_section("MaterialProperties", "physical_parameters");
     if (ini.contains("Material")) {
         const auto material_name = ini_value(ini, "Material", "Name");
@@ -685,6 +689,7 @@ void write_part_ini(
     };
     copy_object("DocumentUnits", "document_units");
     copy_object("DocumentPrecision", "document_precision");
+    copy_object("FaceColors", "face_colors");
     copy_object("MaterialProperties", "physical_parameters");
     ini["Material"]["Name"] = root.at("physical_parameters").value("MATERIAL_NAME", "");
     ini.erase("MaterialProperties");
@@ -3720,6 +3725,79 @@ HistoryContainer PartDocument::create_wedge_container() {
     return container;
 }
 
+HistoryContainer PartDocument::create_hole_container() {
+    HistoryContainer container;
+    container.id = make_id();
+    container.feature_id = make_id();
+    container.feature_parent_id = container.id;
+    container.container_origin = create_container_origin(container.id);
+    container.name = "Otvor";
+    container.feature_kind = FeatureKind::Hole;
+    container.combine_mode = CombineMode::Subtract;
+    auto sketch = zima::sketcher::Sketch::create_default();
+    sketch.name = "Skica otvoru";
+    sketch.owner_container_id = container.id;
+    container.hole.circle_id = sketch.add_circle(
+        0.0, 0.0, container.hole.diameter * 0.5);
+    container.hole.sketch_id = sketch.id;
+    container.hole.sketch_serialized = sketch.serialized();
+    const auto axial_sketch = [&](const char* name,
+            const std::array<std::array<double, 2>, 3>& triangle) {
+        auto profile = zima::sketcher::Sketch::create_default();
+        profile.name = name;
+        profile.owner_container_id = container.id;
+        profile.plane = zima::sketcher::SketchPlane::XZ;
+        profile.refresh_default_frame();
+        const auto first = profile.add_segment(triangle[0][0], triangle[0][1],
+            triangle[1][0], triangle[1][1]);
+        static_cast<void>(profile.add_segment(triangle[1][0], triangle[1][1],
+            triangle[2][0], triangle[2][1]));
+        static_cast<void>(profile.add_segment(triangle[2][0], triangle[2][1],
+            triangle[0][0], triangle[0][1]));
+        const auto first_segment = std::find_if(profile.segments.begin(),
+            profile.segments.end(), [&](const auto& segment) {
+                return segment.id == first;
+            });
+        if (first_segment == profile.segments.end() || profile.points.size() != 3) {
+            throw std::logic_error("Internal opening profile construction failed");
+        }
+        const auto second_point = first_segment->second_point_id;
+        const auto first_point = first_segment->first_point_id;
+        const auto third_point = std::find_if(profile.points.begin(),
+            profile.points.end(), [&](const auto& point) {
+                return point.id != first_point && point.id != second_point;
+            });
+        const auto point_ids = std::array<std::string, 3>{
+            first_point, second_point, third_point->id};
+        const auto minimum_y = std::min({triangle[0][1], triangle[1][1],
+            triangle[2][1]});
+        const auto maximum_y = std::max({triangle[0][1], triangle[1][1],
+            triangle[2][1]});
+        const auto axis = profile.add_segment(0.0, minimum_y-1.0, 0.0,
+            maximum_y+1.0, 1.0e-6, true);
+        profile.set_segment_centerline(axis, true);
+        return std::tuple{std::move(profile), point_ids, axis};
+    };
+    const double radius = container.hole.diameter * 0.5;
+    auto [chamfer, chamfer_points, chamfer_axis] = axial_sketch("Skica sražení",
+        {{{radius, 0.0}, {radius+1.0, 0.0}, {radius, 1.0}}});
+    container.hole.chamfer_sketch_id = chamfer.id;
+    container.hole.chamfer_sketch_serialized = chamfer.serialized();
+    container.hole.chamfer_point_ids = std::move(chamfer_points);
+    container.hole.chamfer_axis_segment_id = std::move(chamfer_axis);
+    const double point_depth = radius/std::tan(
+        container.hole.drill_point_angle_degrees*std::numbers::pi/360.0);
+    auto [tip, tip_points, tip_axis] = axial_sketch("Skica špičky",
+        {{{0.0, container.hole.bore_length},
+          {radius, container.hole.bore_length},
+          {0.0, container.hole.bore_length+point_depth}}});
+    container.hole.tip_sketch_id = tip.id;
+    container.hole.tip_sketch_serialized = tip.serialized();
+    container.hole.tip_point_ids = std::move(tip_points);
+    container.hole.tip_axis_segment_id = std::move(tip_axis);
+    return container;
+}
+
 ConstructionObject PartDocument::create_construction(ConstructionKind kind) {
     ConstructionObject object;
     object.id = make_id();
@@ -4758,14 +4836,25 @@ std::vector<zima::kernel::ViewerDimension> container_placement_dimensions(
                 orientation_state.constrained_axes[index]
             ? correction_angles[index] : absolute_angles[index];
     }
-    const std::array axes{
+    const std::array canonical_axes{
         zima::kernel::Vec3{1.0, 0.0, 0.0},
         zima::kernel::Vec3{0.0, 1.0, 0.0},
         zima::kernel::Vec3{0.0, 0.0, 1.0}};
-    const std::array first_rays{
+    const std::array canonical_first_rays{
         zima::kernel::Vec3{0.0, 1.0, 0.0},
         zima::kernel::Vec3{0.0, 0.0, 1.0},
         zima::kernel::Vec3{1.0, 0.0, 0.0}};
+    // Correction values are rotations in the container's local frame after
+    // FRONT/BACK and the in-plane quarter turn. Their dimension arcs must
+    // follow that same frame; drawing them around the fixed world XYZ axes
+    // made the indicated plane disagree with the actual correction after
+    // either orientation control was used.
+    const auto correction_frame = placement_rotation_matrix_from_euler_degrees(
+        placement_apply_view_orientation_degrees(
+            {placement.absolute_rotation_x, placement.absolute_rotation_y,
+             placement.absolute_rotation_z},
+            placement.orientation_back, placement.orientation_quarter_turns,
+            {}));
     // Linear placement dimensions use an 8 mm witness offset. Put RX/RY/RZ
     // in visibly separate, nested angular bands so a degree value cannot be
     // mistaken for an adjacent length and the three arcs do not paint over
@@ -4780,8 +4869,16 @@ std::vector<zima::kernel::ViewerDimension> container_placement_dimensions(
         const double degrees = angles[index];
         if (std::abs(degrees) <= 1.0e-9) continue;
         const double radians = degrees * std::numbers::pi / 180.0;
-        const auto& axis = axes[index];
-        const auto& first = first_rays[index];
+        const bool correction_dimension = orientation_from_reference &&
+            orientation_state.constrained_axes[index];
+        const auto axis = correction_dimension
+            ? placement_transform_direction(
+                  correction_frame, canonical_axes[index])
+            : canonical_axes[index];
+        const auto first = correction_dimension
+            ? placement_transform_direction(
+                  correction_frame, canonical_first_rays[index])
+            : canonical_first_rays[index];
         const zima::kernel::Vec3 cross{
             axis.y*first.z-axis.z*first.y,
             axis.z*first.x-axis.x*first.z,
@@ -5088,6 +5185,55 @@ zima::kernel::ViewerMesh PartDocument::origin_viewer_mesh(
     append_origin_plane("yz", {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0});
     append_origin_plane("xz", {1.0, 0.0, 0.0}, {0.0, 0.0, -1.0});
     return mesh;
+}
+
+zima::kernel::ViewerReferenceGeometry
+PartDocument::history_origin_reference_geometry_before(
+        const std::string& container_id, double reference_scene_size) const {
+    zima::kernel::ViewerReferenceGeometry result;
+    const auto append = [](zima::kernel::ViewerReferenceGeometry& target,
+                           zima::kernel::ViewerReferenceGeometry source) {
+        const auto vertex_base = static_cast<std::uint32_t>(target.vertices.size());
+        target.vertices.insert(target.vertices.end(),
+            source.vertices.begin(), source.vertices.end());
+        for (const auto index : source.triangles)
+            target.triangles.push_back(vertex_base + index);
+        target.triangle_references.insert(target.triangle_references.end(),
+            source.triangle_references.begin(), source.triangle_references.end());
+        target.edges.insert(target.edges.end(), source.edges.begin(), source.edges.end());
+        target.points.insert(target.points.end(), source.points.begin(), source.points.end());
+        target.axes.insert(target.axes.end(), source.axes.begin(), source.axes.end());
+    };
+    for (const auto& container : history) {
+        if (!container_id.empty() && container.id == container_id) break;
+        if (!container.placement.reference_valid || container.suppressed) continue;
+        PartDocument carrier;
+        carrier.document_id = container.id;
+        carrier.name = container.name;
+        auto origin = carrier.origin_viewer_mesh(
+            reference_scene_size).original_references;
+        const auto rotation = placement_rotation_matrix_from_euler_degrees({
+            container.placement.rotation_x,
+            container.placement.rotation_y,
+            container.placement.rotation_z});
+        const zima::kernel::Vec3 translation{
+            container.placement.x, container.placement.y, container.placement.z};
+        for (auto& point : origin.vertices)
+            point = placement_transform_point(rotation, translation, point);
+        for (auto& edge : origin.edges) {
+            for (auto& point : edge.points)
+                point = placement_transform_point(rotation, translation, point);
+        }
+        for (auto& point : origin.points)
+            point.position = placement_transform_point(
+                rotation, translation, point.position);
+        for (auto& axis : origin.axes) {
+            axis.point = placement_transform_point(rotation, translation, axis.point);
+            axis.direction = placement_transform_direction(rotation, axis.direction);
+        }
+        append(result, std::move(origin));
+    }
+    return result;
 }
 
 double viewer_mesh_bounds_diagonal(const zima::kernel::ViewerMesh& mesh) {
@@ -5633,9 +5779,48 @@ void PartDocument::resolve_constructions(
         append(source_geometry,
             carrier.construction_viewer_mesh({}, scene_size).original_references);
     }
-    // Resolve every owning container before deriving its local work plane.
+    // Resolve history containers in order. After each container is solved,
+    // publish its persisted local Origin into the reference universe for
+    // later containers. This is the history equivalent of the construction
+    // loop above: a later feature may be assembled onto an earlier feature's
+    // Origin, while self-, forward- and cyclic references remain unavailable
+    // by construction. Existing document/body references are unchanged.
     for (auto& container : history) {
         static_cast<void>(resolve_placement(container.placement, source_geometry));
+        if (!container.placement.reference_valid) continue;
+
+        PartDocument origin_carrier;
+        origin_carrier.document_id = container.id;
+        origin_carrier.name = container.name;
+        auto local_origin = origin_carrier.origin_viewer_mesh(
+            scene_size).original_references;
+        const auto rotation = placement_rotation_matrix_from_euler_degrees({
+            container.placement.rotation_x,
+            container.placement.rotation_y,
+            container.placement.rotation_z});
+        const zima::kernel::Vec3 translation{
+            container.placement.x,
+            container.placement.y,
+            container.placement.z};
+        for (auto& point : local_origin.vertices) {
+            point = placement_transform_point(rotation, translation, point);
+        }
+        for (auto& edge : local_origin.edges) {
+            for (auto& point : edge.points) {
+                point = placement_transform_point(rotation, translation, point);
+            }
+        }
+        for (auto& point : local_origin.points) {
+            point.position = placement_transform_point(
+                rotation, translation, point.position);
+        }
+        for (auto& axis : local_origin.axes) {
+            axis.point = placement_transform_point(
+                rotation, translation, axis.point);
+            axis.direction = placement_transform_direction(
+                rotation, axis.direction);
+        }
+        append(source_geometry, local_origin);
     }
     // A Sweep owns an ordinary Curve3D, but that curve is deliberately not a
     // second top-level Construction object.  Resolve its child Points in the
@@ -6331,6 +6516,36 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::primitive_preview_edges(
                     {x, y, 0.0}, {x, y, height}},
                 "cylinder:side:" + std::to_string(index));
         }
+    } else if (container.feature_kind == FeatureKind::Hole) {
+        const double radius = container.hole.diameter * 0.5;
+        const double height = container.hole.bore_length;
+        const bool referenced_work_plane = std::any_of(
+            container.placement.references.begin(),
+            container.placement.references.end(), [](const auto& reference) {
+                return !reference.orientation_only && reference.supports_offset &&
+                    !reference.owner_id.empty();
+            });
+        if (referenced_work_plane) {
+            circle(radius, 0.0, "hole:bore:start", 1);
+            circle(radius, height, "hole:bore:end", 1);
+            for (int index = 0; index < 4; ++index) {
+                const double angle = 0.5 * std::numbers::pi * index;
+                const double x = radius * std::cos(angle);
+                const double z = radius * std::sin(angle);
+                append({{x, 0.0, z}, {x, height, z}},
+                    "hole:bore:side:" + std::to_string(index));
+            }
+        } else {
+            circle(radius, 0.0, "hole:bore:start");
+            circle(radius, height, "hole:bore:end");
+            for (int index = 0; index < 4; ++index) {
+                const double angle = 0.5 * std::numbers::pi * index;
+                const double x = radius * std::cos(angle);
+                const double y = radius * std::sin(angle);
+                append({{x, y, 0.0}, {x, y, height}},
+                    "hole:bore:side:" + std::to_string(index));
+            }
+        }
     } else if (container.feature_kind == FeatureKind::Sphere) {
         circle(container.sphere.radius, 0.0, "sphere:xy", 0);
         circle(container.sphere.radius, 0.0, "sphere:xz", 1);
@@ -6374,6 +6589,149 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::primitive_preview_edges(
         }
     }
     return result;
+}
+
+std::vector<zima::kernel::ViewerEdge> PartDocument::hole_thread_edges(
+        const HistoryContainer& container,
+        const zima::kernel::ViewerMesh* supporting_body) const {
+    if (container.feature_kind != FeatureKind::Hole ||
+        !container.hole.thread_enabled ||
+        container.hole.thread_length <= 0.0) return {};
+    const double length = std::min(
+        container.hole.thread_length, container.hole.bore_length);
+    const double radius = std::max(
+        container.hole.diameter, container.hole.thread_nominal_diameter) * 0.5;
+    const zima::kernel::Vec3 rotation{container.placement.rotation_x,
+        container.placement.rotation_y, container.placement.rotation_z};
+    const zima::kernel::Vec3 translation{container.placement.x,
+        container.placement.y, container.placement.z};
+    const auto world = [&](zima::kernel::Vec3 point) {
+        point = rotated_vector(point, rotation);
+        point.x += translation.x;
+        point.y += translation.y;
+        point.z += translation.z;
+        return point;
+    };
+    std::vector<zima::kernel::ViewerEdge> wires;
+    const bool referenced_work_plane = std::any_of(
+        container.placement.references.begin(),
+        container.placement.references.end(), [](const auto& reference) {
+            return !reference.orientation_only && reference.supports_offset &&
+                !reference.owner_id.empty();
+        });
+    const auto axial_point = [&](double radial_x, double radial_y, double axial) {
+        return referenced_work_plane
+            ? zima::kernel::Vec3{radial_x, axial, radial_y}
+            : zima::kernel::Vec3{radial_x, radial_y, axial};
+    };
+    const auto point_has_material = [&](const zima::kernel::Vec3& point) {
+        if (supporting_body == nullptr || supporting_body->triangles.empty())
+            return true;
+        // Fixed oblique ray avoids the common vertex/edge degeneracies of an
+        // axis-aligned parity test. The source mesh is the persisted result
+        // of the explicit body calculation; this never invokes OCCT.
+        const zima::kernel::Vec3 direction{0.811107, 0.324443, 0.486664};
+        std::size_t hits{};
+        for (std::size_t index = 0;
+             index + 2 < supporting_body->triangles.size(); index += 3) {
+            const auto& a = supporting_body->vertices[
+                supporting_body->triangles[index]];
+            const auto& b = supporting_body->vertices[
+                supporting_body->triangles[index + 1]];
+            const auto& c = supporting_body->vertices[
+                supporting_body->triangles[index + 2]];
+            const zima::kernel::Vec3 e1{b.x-a.x,b.y-a.y,b.z-a.z};
+            const zima::kernel::Vec3 e2{c.x-a.x,c.y-a.y,c.z-a.z};
+            const zima::kernel::Vec3 p{direction.y*e2.z-direction.z*e2.y,
+                direction.z*e2.x-direction.x*e2.z,
+                direction.x*e2.y-direction.y*e2.x};
+            const double determinant = e1.x*p.x+e1.y*p.y+e1.z*p.z;
+            if (std::abs(determinant) < 1.0e-12) continue;
+            const double inverse = 1.0/determinant;
+            const zima::kernel::Vec3 t{point.x-a.x,point.y-a.y,point.z-a.z};
+            const double u = (t.x*p.x+t.y*p.y+t.z*p.z)*inverse;
+            if (u < 0.0 || u > 1.0) continue;
+            const zima::kernel::Vec3 q{t.y*e1.z-t.z*e1.y,
+                t.z*e1.x-t.x*e1.z,t.x*e1.y-t.y*e1.x};
+            const double v = (direction.x*q.x+direction.y*q.y+
+                direction.z*q.z)*inverse;
+            if (v < 0.0 || u+v > 1.0) continue;
+            const double distance = (e2.x*q.x+e2.y*q.y+e2.z*q.z)*inverse;
+            if (distance > 1.0e-9) ++hits;
+        }
+        return hits % 2 == 1;
+    };
+    const auto append = [&](std::vector<zima::kernel::Vec3> points,
+                            std::string role) {
+        zima::kernel::ViewerEdge wire;
+        // Empty owner_id intentionally makes this viewer wire
+        // non-referenceable.
+        wire.reference.semantic_key = "hole:cosmetic-thread:" +
+            container.id + ":" + std::move(role);
+        const double support_radius = radius + std::max(1.0e-5, radius*1.0e-5);
+        std::vector<bool> supported;
+        supported.reserve(points.size());
+        for (auto& point : points) {
+            auto support = point;
+            const double radial = referenced_work_plane
+                ? std::hypot(support.x, support.z)
+                : std::hypot(support.x, support.y);
+            if (radial > 1.0e-12) {
+                support.x *= support_radius/radial;
+                if (referenced_work_plane) {
+                    support.z *= support_radius/radial;
+                } else {
+                    support.y *= support_radius/radial;
+                }
+            }
+            point = world(point);
+            supported.push_back(point_has_material(world(support)));
+        }
+        if (supporting_body == nullptr) {
+            wire.points = std::move(points);
+            wires.push_back(std::move(wire));
+            return;
+        }
+        std::size_t run_index{};
+        for (std::size_t index = 0; index < points.size();) {
+            while (index < points.size() && !supported[index]) ++index;
+            const std::size_t begin = index;
+            while (index < points.size() && supported[index]) ++index;
+            if (index - begin < 2) continue;
+            auto clipped = wire;
+            clipped.reference.semantic_key +=
+                ":run:" + std::to_string(run_index++);
+            clipped.points.insert(clipped.points.end(),
+                points.begin() + static_cast<std::ptrdiff_t>(begin),
+                points.begin() + static_cast<std::ptrdiff_t>(index));
+            wires.push_back(std::move(clipped));
+        }
+    };
+    constexpr int circle_samples = 64;
+    for (int end = 0; end < 2; ++end) {
+        std::vector<zima::kernel::Vec3> circle;
+        circle.reserve(circle_samples + 1);
+        for (int sample = 0; sample <= circle_samples; ++sample) {
+            const double angle = 2.0 * std::numbers::pi * sample /
+                circle_samples;
+            circle.push_back(axial_point(radius * std::cos(angle),
+                radius * std::sin(angle), end == 0 ? 0.0 : length));
+        }
+        append(std::move(circle), end == 0 ? "start" : "end");
+    }
+    for (int side = 0; side < 2; ++side) {
+        const double angle = std::numbers::pi * side;
+        const double x = radius * std::cos(angle);
+        const double y = radius * std::sin(angle);
+        std::vector<zima::kernel::Vec3> boundary;
+        boundary.reserve(65);
+        for (int sample = 0; sample <= 64; ++sample) {
+            boundary.push_back(axial_point(
+                x, y, length * sample / 64.0));
+        }
+        append(std::move(boundary), "side:" + std::to_string(side));
+    }
+    return wires;
 }
 
 std::vector<zima::kernel::ViewerEdge> PartDocument::revolution_preview_edges(
@@ -6783,6 +7141,116 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             cylinder.translation = translation;
             cylinder.rotation_degrees = rotation;
             primitive = cylinder;
+        } else if (container.feature_kind == FeatureKind::Hole) {
+            if (!std::isfinite(container.hole.diameter) ||
+                container.hole.diameter <= 0.0 ||
+                !std::isfinite(container.hole.bore_length) ||
+                container.hole.bore_length <= 0.0) {
+                throw std::runtime_error("Průměr a délka otvoru musí být kladné");
+            }
+            if (container.hole.thread_enabled &&
+                (!std::isfinite(container.hole.thread_length) ||
+                 container.hole.thread_length <= 0.0 ||
+                 container.hole.thread_length > container.hole.bore_length)) {
+                throw std::runtime_error(
+                    "Délka závitu se musí vejít do válcové části otvoru");
+            }
+            if (container.hole.bore_end_condition == EndCondition::UpTo &&
+                (container.hole.bore_end_targets.empty() ||
+                 !container.hole.bore_end_targets.front().reference.valid())) {
+                throw std::runtime_error(
+                    "Pro ukončení otvoru Až k vyberte cílovou rovinu nebo plochu");
+            }
+            auto sketch = zima::sketcher::Sketch::from_serialized(
+                container.hole.sketch_serialized);
+            if (sketch.id != container.hole.sketch_id ||
+                sketch.owner_container_id != container.id) {
+                throw std::runtime_error(
+                    "Otvor vlastní neplatnou profilovou skicu");
+            }
+            const auto circle = std::find_if(sketch.circles.begin(),
+                sketch.circles.end(), [&](const auto& value) {
+                    return value.id == container.hole.circle_id;
+                });
+            if (circle == sketch.circles.end() || circle->construction) {
+                throw std::runtime_error(
+                    "Profilová skica otvoru neobsahuje uloženou kružnici");
+            }
+            const auto* center = sketch.find_point(circle->center_point_id);
+            if (center == nullptr) {
+                throw std::runtime_error("Kružnice otvoru nemá středový bod");
+            }
+            zima::kernel::FeatureGroupRequest group;
+            // A Hole is an owned profile feature.  Its first planar
+            // placement reference is FRONT, hence its normal is local +Y.
+            // Use XZ for the circular profile so the actual extrusion starts
+            // on that selected plane instead of retaining the unrelated
+            // default XY/+Z primitive direction.
+            const bool referenced_work_plane = std::any_of(
+                container.placement.references.begin(),
+                container.placement.references.end(), [](const auto& reference) {
+                    return !reference.orientation_only &&
+                        reference.supports_offset &&
+                        !reference.owner_id.empty();
+                });
+            if (referenced_work_plane) {
+                sketch.plane = zima::sketcher::SketchPlane::XZ;
+                sketch.refresh_default_frame();
+            }
+            auto bore = extrusion_request(sketch, container.hole.bore_length,
+                ExtrusionDirection::Forward);
+            const auto* bore_target = container.hole.bore_end_targets.empty()
+                ? nullptr : &container.hole.bore_end_targets.front();
+            bore.extent = container.hole.bore_end_condition == EndCondition::ThroughAll
+                ? zima::kernel::ExtrusionRequest::Extent::ThroughAll
+                : container.hole.bore_end_condition == EndCondition::UpTo &&
+                        bore_target != nullptr &&
+                        bore_target->kind == EndTargetKind::Plane
+                    ? zima::kernel::ExtrusionRequest::Extent::UpToPlane
+                : container.hole.bore_end_condition == EndCondition::UpTo
+                    ? zima::kernel::ExtrusionRequest::Extent::UpToSurface
+                    : zima::kernel::ExtrusionRequest::Extent::Blind;
+            if (bore_target != nullptr) {
+                bore.target_face = bore_target->reference;
+                if (allow_persisted_external_target) {
+                    bore.target_face.instance_path.clear();
+                }
+                bore.target_is_datum = bore_target->kind == EndTargetKind::Plane;
+                bore.target_plane_origin = bore_target->fallback_origin;
+                bore.target_plane_normal = bore_target->fallback_normal;
+                bore.target_surface_triangles = bore_target->fallback_triangles;
+            }
+            apply_container_placement(bore, container.placement);
+            group.children.emplace_back(std::move(bore));
+
+            if (container.hole.entrance_chamfer > 0.0) {
+                auto chamfer_sketch =
+                    zima::sketcher::Sketch::from_serialized(
+                        container.hole.chamfer_sketch_serialized);
+                if (referenced_work_plane) {
+                    // XY contains local +Y, the bore/revolution axis.
+                    chamfer_sketch.plane = zima::sketcher::SketchPlane::XY;
+                    chamfer_sketch.refresh_default_frame();
+                }
+                auto chamfer = revolution_request(chamfer_sketch,
+                    container.hole.chamfer_axis_segment_id, 360.0);
+                apply_container_placement(chamfer, container.placement);
+                group.children.emplace_back(std::move(chamfer));
+            }
+            if (container.hole.drill_point_enabled ||
+                container.hole.exit_chamfer_enabled) {
+                auto tip_sketch = zima::sketcher::Sketch::from_serialized(
+                    container.hole.tip_sketch_serialized);
+                if (referenced_work_plane) {
+                    tip_sketch.plane = zima::sketcher::SketchPlane::XY;
+                    tip_sketch.refresh_default_frame();
+                }
+                auto tip = revolution_request(tip_sketch,
+                    container.hole.tip_axis_segment_id, 360.0);
+                apply_container_placement(tip, container.placement);
+                group.children.emplace_back(std::move(tip));
+            }
+            primitive = std::move(group);
         } else if (container.feature_kind == FeatureKind::Sphere) {
             zima::kernel::SphereRequest sphere;
             sphere.radius = container.sphere.radius;
@@ -7798,6 +8266,8 @@ PartDocument PartDocument::load(
     document.family_table = root.at("family_table").get<std::string>();
     document.named_views = root.value("named_views", std::string("[]"));
     document.body_color = root.at("body_color").get<std::string>();
+    document.face_colors = root.value("face_colors",
+        std::map<std::string, std::string>{});
     const auto& source_history = root.at("history");
     if (!source_history.is_array()) {
         throw std::runtime_error("Document history must be an array");
@@ -7811,7 +8281,8 @@ PartDocument PartDocument::load(
             type != "extrusion" &&
             type != "revolution" && type != "sweep3d" &&
             type != "imported_step" &&
-            type != "fillet" && type != "chamfer" && type != "shell") {
+            type != "fillet" && type != "chamfer" && type != "shell" &&
+            type != "hole") {
             throw std::runtime_error("Unsupported history feature type");
         }
         HistoryContainer container;
@@ -7827,7 +8298,8 @@ PartDocument PartDocument::load(
             : type == "imported_step" ? FeatureKind::ImportedStep
             : type == "fillet" ? FeatureKind::Fillet
             : type == "chamfer" ? FeatureKind::Chamfer
-            : type == "shell" ? FeatureKind::Shell : FeatureKind::Box;
+            : type == "shell" ? FeatureKind::Shell
+            : type == "hole" ? FeatureKind::Hole : FeatureKind::Box;
         container.id = source.at("id").get<std::string>();
         container.feature_id = source.at("feature_id").get<std::string>();
         container.feature_parent_id =
@@ -7890,6 +8362,83 @@ PartDocument PartDocument::load(
             container.cylinder.height = source.at("height").get<double>();
             require_positive(container.cylinder.radius, "radius");
             require_positive(container.cylinder.height, "height");
+        } else if (container.feature_kind == FeatureKind::Hole) {
+            container.hole.sketch_id = source.at("sketch_id");
+            container.hole.circle_id = source.at("circle_id");
+            container.hole.sketch_serialized = source.at("sketch_serialized");
+            container.hole.chamfer_sketch_id = source.at("chamfer_sketch_id");
+            container.hole.chamfer_sketch_serialized =
+                source.at("chamfer_sketch_serialized");
+            container.hole.chamfer_point_ids =
+                source.at("chamfer_point_ids").get<std::array<std::string, 3>>();
+            container.hole.chamfer_axis_segment_id =
+                source.at("chamfer_axis_segment_id");
+            container.hole.tip_sketch_id = source.at("tip_sketch_id");
+            container.hole.tip_sketch_serialized =
+                source.at("tip_sketch_serialized");
+            container.hole.tip_point_ids =
+                source.at("tip_point_ids").get<std::array<std::string, 3>>();
+            container.hole.tip_axis_segment_id =
+                source.at("tip_axis_segment_id");
+            for (const auto& value : source.at("bore_end_targets")) {
+                ExtrusionParameters::EndTarget target;
+                target.kind = value.at("kind") == "point" ? EndTargetKind::Point
+                    : value.at("kind") == "plane" ? EndTargetKind::Plane
+                    : value.at("kind") == "face" ? EndTargetKind::Face
+                    : throw std::runtime_error("Neplatný cíl otvoru");
+                target.reference = {value.at("owner"), value.at("key"),
+                    value.at("instance_path")};
+                target.label = value.at("label");
+                target.fallback_origin = {value.at("origin").at(0),
+                    value.at("origin").at(1), value.at("origin").at(2)};
+                target.fallback_normal = {value.at("normal").at(0),
+                    value.at("normal").at(1), value.at("normal").at(2)};
+                for (const auto& point : value.at("triangles")) {
+                    target.fallback_triangles.push_back(
+                        {point.at(0), point.at(1), point.at(2)});
+                }
+                if (!target.reference.valid()) {
+                    throw std::runtime_error("Neplatná reference cíle otvoru");
+                }
+                container.hole.bore_end_targets.push_back(std::move(target));
+            }
+            const std::string hole_type = source.at("hole_type");
+            container.hole.type = hole_type == "plain" ? HoleType::Plain
+                : hole_type == "metric_thread" ? HoleType::MetricThread
+                : hole_type == "pipe_thread" ? HoleType::PipeThread
+                : hole_type == "whitworth_thread" ? HoleType::WhitworthThread
+                : throw std::runtime_error("Neplatný typ otvoru");
+            const auto parse_end = [](const nlohmann::json& value) {
+                return value == "length" ? EndCondition::Length
+                    : value == "up_to" ? EndCondition::UpTo
+                    : value == "through_all" ? EndCondition::ThroughAll
+                    : throw std::runtime_error("Neplatné ukončení otvoru");
+            };
+            container.hole.diameter = source.at("diameter");
+            container.hole.bore_end_condition = parse_end(source.at("bore_end_condition"));
+            container.hole.bore_length = source.at("bore_length");
+            container.hole.entrance_chamfer = source.at("entrance_chamfer");
+            container.hole.drill_point_enabled = source.at("drill_point_enabled");
+            container.hole.drill_point_angle_degrees = source.at("drill_point_angle_degrees");
+            container.hole.exit_chamfer_enabled = source.at("exit_chamfer_enabled");
+            container.hole.exit_chamfer = source.at("exit_chamfer");
+            container.hole.thread_enabled = source.at("thread_enabled");
+            container.hole.thread_nominal_diameter = source.at("thread_nominal_diameter");
+            container.hole.thread_pitch = source.at("thread_pitch");
+            container.hole.thread_end_condition = parse_end(source.at("thread_end_condition"));
+            container.hole.thread_length = source.at("thread_length");
+            container.hole.left_hand_thread = source.at("left_hand_thread");
+            require_positive(container.hole.diameter, "diameter");
+            require_positive(container.hole.bore_length, "bore_length");
+            if (container.hole.thread_enabled) {
+                require_positive(container.hole.thread_nominal_diameter,
+                    "thread_nominal_diameter");
+                require_positive(container.hole.thread_pitch, "thread_pitch");
+                require_positive(container.hole.thread_length, "thread_length");
+                if (container.hole.thread_length > container.hole.bore_length) {
+                    throw std::runtime_error("Závit přesahuje délku otvoru");
+                }
+            }
         } else if (container.feature_kind == FeatureKind::Sphere) {
             container.sphere.radius = source.at("radius").get<double>();
             require_positive(container.sphere.radius, "radius");
@@ -8550,6 +9099,67 @@ void PartDocument::save(
         } else if (container.feature_kind == FeatureKind::Cylinder) {
             require_positive(container.cylinder.radius, "radius");
             require_positive(container.cylinder.height, "height");
+        } else if (container.feature_kind == FeatureKind::Hole) {
+            const auto profile = zima::sketcher::Sketch::from_serialized(
+                container.hole.sketch_serialized);
+            const auto chamfer_profile = zima::sketcher::Sketch::from_serialized(
+                container.hole.chamfer_sketch_serialized);
+            const auto tip_profile = zima::sketcher::Sketch::from_serialized(
+                container.hole.tip_sketch_serialized);
+            if (profile.id != container.hole.sketch_id ||
+                profile.owner_container_id != container.id ||
+                chamfer_profile.id != container.hole.chamfer_sketch_id ||
+                chamfer_profile.owner_container_id != container.id ||
+                chamfer_profile.plane != zima::sketcher::SketchPlane::XZ ||
+                tip_profile.id != container.hole.tip_sketch_id ||
+                tip_profile.owner_container_id != container.id ||
+                tip_profile.plane != zima::sketcher::SketchPlane::XZ ||
+                std::any_of(container.hole.chamfer_point_ids.begin(),
+                    container.hole.chamfer_point_ids.end(), [&](const auto& id) {
+                        return id.empty() || chamfer_profile.find_point(id) == nullptr;
+                    }) ||
+                std::any_of(container.hole.tip_point_ids.begin(),
+                    container.hole.tip_point_ids.end(), [&](const auto& id) {
+                        return id.empty() || tip_profile.find_point(id) == nullptr;
+                    }) ||
+                std::none_of(chamfer_profile.segments.begin(),
+                    chamfer_profile.segments.end(), [&](const auto& segment) {
+                        return segment.id == container.hole.chamfer_axis_segment_id &&
+                            segment.construction && segment.centerline;
+                    }) ||
+                std::none_of(tip_profile.segments.begin(),
+                    tip_profile.segments.end(), [&](const auto& segment) {
+                        return segment.id == container.hole.tip_axis_segment_id &&
+                            segment.construction && segment.centerline;
+                    }) ||
+                std::none_of(profile.circles.begin(), profile.circles.end(),
+                    [&](const auto& circle) {
+                        return circle.id == container.hole.circle_id &&
+                            !circle.construction;
+                    })) {
+                throw std::runtime_error("Neplatná profilová skica otvoru");
+            }
+            require_positive(container.hole.diameter, "diameter");
+            require_positive(container.hole.bore_length, "bore_length");
+            if (!std::isfinite(container.hole.entrance_chamfer) ||
+                container.hole.entrance_chamfer < 0.0 ||
+                !std::isfinite(container.hole.exit_chamfer) ||
+                container.hole.exit_chamfer < 0.0 ||
+                !std::isfinite(container.hole.drill_point_angle_degrees) ||
+                container.hole.drill_point_angle_degrees <= 0.0 ||
+                container.hole.drill_point_angle_degrees >= 180.0 ||
+                container.combine_mode != CombineMode::Subtract) {
+                throw std::runtime_error("Neplatné parametry otvoru");
+            }
+            if (container.hole.thread_enabled) {
+                require_positive(container.hole.thread_nominal_diameter,
+                    "thread_nominal_diameter");
+                require_positive(container.hole.thread_pitch, "thread_pitch");
+                require_positive(container.hole.thread_length, "thread_length");
+                if (container.hole.thread_length > container.hole.bore_length) {
+                    throw std::runtime_error("Závit přesahuje délku otvoru");
+                }
+            }
         } else if (container.feature_kind == FeatureKind::Sphere) {
             require_positive(container.sphere.radius, "radius");
         } else if (container.feature_kind == FeatureKind::Cone) {
@@ -8724,7 +9334,9 @@ void PartDocument::save(
                 : container.feature_kind == FeatureKind::Fillet
                     ? "fillet"
                 : container.feature_kind == FeatureKind::Chamfer
-                    ? "chamfer" : "shell"},
+                    ? "chamfer"
+                : container.feature_kind == FeatureKind::Shell
+                    ? "shell" : "hole"},
             {"name", container.name},
             {"combine", container.combine_mode == CombineMode::Subtract
                 ? "subtract" : "add"}, {"suppressed", container.suppressed},
@@ -8795,6 +9407,64 @@ void PartDocument::save(
         } else if (container.feature_kind == FeatureKind::Cylinder) {
             serialized["radius"] = container.cylinder.radius;
             serialized["height"] = container.cylinder.height;
+        } else if (container.feature_kind == FeatureKind::Hole) {
+            const auto end_name = [](EndCondition condition) {
+                return condition == EndCondition::Length ? "length"
+                    : condition == EndCondition::UpTo ? "up_to" : "through_all";
+            };
+            serialized["hole_type"] = container.hole.type == HoleType::Plain
+                ? "plain" : container.hole.type == HoleType::MetricThread
+                ? "metric_thread" : container.hole.type == HoleType::PipeThread
+                ? "pipe_thread" : "whitworth_thread";
+            serialized["sketch_id"] = container.hole.sketch_id;
+            serialized["circle_id"] = container.hole.circle_id;
+            serialized["sketch_serialized"] = container.hole.sketch_serialized;
+            serialized["chamfer_sketch_id"] = container.hole.chamfer_sketch_id;
+            serialized["chamfer_sketch_serialized"] =
+                container.hole.chamfer_sketch_serialized;
+            serialized["chamfer_point_ids"] = container.hole.chamfer_point_ids;
+            serialized["chamfer_axis_segment_id"] =
+                container.hole.chamfer_axis_segment_id;
+            serialized["tip_sketch_id"] = container.hole.tip_sketch_id;
+            serialized["tip_sketch_serialized"] =
+                container.hole.tip_sketch_serialized;
+            serialized["tip_point_ids"] = container.hole.tip_point_ids;
+            serialized["tip_axis_segment_id"] =
+                container.hole.tip_axis_segment_id;
+            nlohmann::json hole_targets = nlohmann::json::array();
+            for (const auto& target : container.hole.bore_end_targets) {
+                nlohmann::json triangles = nlohmann::json::array();
+                for (const auto& point : target.fallback_triangles) {
+                    triangles.push_back({point.x, point.y, point.z});
+                }
+                hole_targets.push_back({{"kind",
+                        target.kind == EndTargetKind::Point ? "point"
+                        : target.kind == EndTargetKind::Plane ? "plane" : "face"},
+                    {"owner", target.reference.owner_id},
+                    {"key", target.reference.semantic_key},
+                    {"instance_path", target.reference.instance_path},
+                    {"label", target.label},
+                    {"origin", {target.fallback_origin.x,
+                        target.fallback_origin.y, target.fallback_origin.z}},
+                    {"normal", {target.fallback_normal.x,
+                        target.fallback_normal.y, target.fallback_normal.z}},
+                    {"triangles", std::move(triangles)}});
+            }
+            serialized["bore_end_targets"] = std::move(hole_targets);
+            serialized["diameter"] = container.hole.diameter;
+            serialized["bore_end_condition"] = end_name(container.hole.bore_end_condition);
+            serialized["bore_length"] = container.hole.bore_length;
+            serialized["entrance_chamfer"] = container.hole.entrance_chamfer;
+            serialized["drill_point_enabled"] = container.hole.drill_point_enabled;
+            serialized["drill_point_angle_degrees"] = container.hole.drill_point_angle_degrees;
+            serialized["exit_chamfer_enabled"] = container.hole.exit_chamfer_enabled;
+            serialized["exit_chamfer"] = container.hole.exit_chamfer;
+            serialized["thread_enabled"] = container.hole.thread_enabled;
+            serialized["thread_nominal_diameter"] = container.hole.thread_nominal_diameter;
+            serialized["thread_pitch"] = container.hole.thread_pitch;
+            serialized["thread_end_condition"] = end_name(container.hole.thread_end_condition);
+            serialized["thread_length"] = container.hole.thread_length;
+            serialized["left_hand_thread"] = container.hole.left_hand_thread;
         } else if (container.feature_kind == FeatureKind::Sphere) {
             serialized["radius"] = container.sphere.radius;
         } else if (container.feature_kind == FeatureKind::Cone) {
@@ -9108,6 +9778,7 @@ void PartDocument::save(
         {"family_table", family_table},
         {"named_views", named_views},
         {"body_color", body_color},
+        {"face_colors", face_colors},
         {"history", std::move(serialized_history)},
         {"sketches", std::move(serialized_sketches)},
         {"constructions", std::move(serialized_constructions)},

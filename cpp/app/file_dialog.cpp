@@ -82,18 +82,31 @@ class Utf8FileNameDelegate final : public QStyledItemDelegate {
 public:
     using QStyledItemDelegate::QStyledItemDelegate;
 
-    QString displayText(const QVariant& value,
-                        const QLocale& locale) const override {
-        const QString text = QStyledItemDelegate::displayText(value, locale);
-        // Some Qt builds decode the UTF-8 XDG user-directory names through
-        // Latin-1 in QFileDialog's places sidebar (for example StaÅ¾enÃ©).
-        // Repair only strings carrying the characteristic mojibake markers.
+    static QString repaired(QString text) {
+        // Qt's non-native places model may decode UTF-8 XDG directory names
+        // through Latin-1 before handing them to the view.  Repair only the
+        // characteristic mojibake form; ordinary names remain untouched.
         if (!text.contains(QChar(0x00c3)) && !text.contains(QChar(0x00c5)))
             return text;
         const QByteArray latin1 = text.toLatin1();
         if (latin1.contains('?')) return text;
-        const QString repaired = QString::fromUtf8(latin1);
-        return repaired.contains(QChar::ReplacementCharacter) ? text : repaired;
+        const QString decoded = QString::fromUtf8(latin1);
+        return decoded.contains(QChar::ReplacementCharacter)
+            ? text : decoded;
+    }
+
+    QString displayText(const QVariant& value,
+                        const QLocale& locale) const override {
+        return repaired(QStyledItemDelegate::displayText(value, locale));
+    }
+
+    void initStyleOption(QStyleOptionViewItem* option,
+                         const QModelIndex& index) const override {
+        QStyledItemDelegate::initStyleOption(option, index);
+        // QFileDialog's places sidebar uses a private model whose paint path
+        // does not reliably call displayText().  Repair the final text in the
+        // style option as well, immediately before it is painted.
+        option->text = repaired(option->text);
     }
 };
 
@@ -197,6 +210,8 @@ QString choose_directory(QWidget* parent, const QString& caption,
         label->setText(translations.value("file.dialog.look_in", label->text()));
     if (auto* label = dialog.findChild<QLabel*>("fileNameLabel"))
         label->setText(translations.value("file.dialog.directory", label->text()));
+    if (auto* label = dialog.findChild<QLabel*>("fileTypeLabel"))
+        label->setText(translations.value("file.dialog.file_type", label->text()));
     if (auto* buttons = dialog.findChild<QDialogButtonBox*>()) {
         if (auto* accept = buttons->button(QDialogButtonBox::Open))
             accept->setText(translations.value("button.select", accept->text()));

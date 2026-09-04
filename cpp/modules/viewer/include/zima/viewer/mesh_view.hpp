@@ -208,7 +208,8 @@ public:
     void set_object_overlay_main_edges(std::set<EdgeKey> edges);
     void set_edge_color_override(std::optional<QColor> color);
     void set_body_surface_colors(QColor default_color,
-        std::map<std::string, QColor> instance_colors = {});
+        std::map<std::string, QColor> instance_colors = {},
+        std::map<std::string, QColor> face_colors = {});
     [[nodiscard]] std::optional<ViewerCandidate> confirmed_candidate() const;
     [[nodiscard]] std::optional<ViewerCandidate> hovered_candidate() const;
     // Candidate selected from the current ordered offer list, even while an
