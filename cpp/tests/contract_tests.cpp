@@ -6393,6 +6393,30 @@ int main() {
         }
         require(has_trimmed_thread_surface,
             "Thread sheet disappeared completely after a partial trim");
+        zima::kernel::BoxRequest drill_block{40.0, 40.0, 40.0};
+        zima::kernel::CylinderRequest blind_bore{5.0, 21.0};
+        blind_bore.translation = {20.0, 20.0, 20.0};
+        zima::kernel::DrillPointRequest drill_point;
+        drill_point.bottom_face = {"blind-bore", "z_min", {}};
+        drill_point.origin = {20.0, 20.0, 20.0};
+        drill_point.included_angle_degrees = 118.0;
+        const auto drill_point_boundaries = kernel.evaluate_history({
+            {"drill-block", drill_block, zima::kernel::BooleanOperation::Add},
+            {"blind-bore", blind_bore,
+                zima::kernel::BooleanOperation::Subtract},
+            {"drill-point", drill_point,
+                zima::kernel::BooleanOperation::Subtract}});
+        require(drill_point_boundaries.size() == 3 &&
+                    drill_point_boundaries[2].volume <
+                        drill_point_boundaries[1].volume &&
+                    std::ranges::any_of(
+                        drill_point_boundaries[2].mesh.triangle_references,
+                        [](const auto& reference) {
+                            return reference.owner_id == "drill-point" &&
+                                reference.semantic_key == "drill-point:side";
+                        }),
+            "Drill Point did not derive and subtract its revolved cone from "
+            "the circular bottom face");
         const auto thread_wire = thread_document.thread_edges(thread, nullptr);
         require(thread_wire.size() == 6 &&
                     std::ranges::all_of(thread_wire, [&](const auto& edge) {

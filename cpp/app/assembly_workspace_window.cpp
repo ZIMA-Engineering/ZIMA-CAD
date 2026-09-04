@@ -928,6 +928,7 @@ QString feature_icon_name(zima::document::FeatureKind kind) {
         case FeatureKind::Shell: return QStringLiteral("shell");
         case FeatureKind::Hole: return QStringLiteral("cylinder");
         case FeatureKind::Thread: return QStringLiteral("thread");
+        case FeatureKind::DrillPoint: return QStringLiteral("drill-point");
     }
     return {};
 }
@@ -3094,6 +3095,8 @@ void AssemblyWorkspaceWindow::create_actions() {
     hole_action_->setObjectName("holeAction");
     thread_action_ = make_action(tr("Závit"), "thread");
     thread_action_->setObjectName("threadAction");
+    drill_point_action_ = make_action(tr("Vrtací špička"), "drill-point");
+    drill_point_action_->setObjectName("drillPointAction");
     sphere_action_ = make_action(tr("Koule"), "sphere");
     cone_action_ = make_action(tr("Kužel"), "cone");
     pyramid_action_ = make_action(tr("Jehlan"), "pyramid");
@@ -3344,6 +3347,8 @@ void AssemblyWorkspaceWindow::create_actions() {
         show_primitive_properties(zima::document::FeatureKind::Hole); });
     connect(thread_action_, &QAction::triggered, this, [this] {
         show_primitive_properties(zima::document::FeatureKind::Thread); });
+    connect(drill_point_action_, &QAction::triggered, this, [this] {
+        show_primitive_properties(zima::document::FeatureKind::DrillPoint); });
     connect(sphere_action_, &QAction::triggered, this, [this] {
         show_primitive_properties(zima::document::FeatureKind::Sphere); });
     connect(cone_action_, &QAction::triggered, this, [this] {
@@ -6050,6 +6055,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         add_command(shell_action_);
         add_command(hole_action_);
         add_command(thread_action_);
+        add_command(drill_point_action_);
         add_green_separator();
         for (auto* action : {box_action_, sphere_action_, cylinder_action_, cone_action_,
                              pyramid_action_, wedge_action_}) {
@@ -9326,6 +9332,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             ? zima::document::PartDocument::create_hole_container()
         : feature_kind == zima::document::FeatureKind::Thread
             ? zima::document::PartDocument::create_thread_container()
+        : feature_kind == zima::document::FeatureKind::DrillPoint
+            ? zima::document::PartDocument::create_drill_point_container()
         : feature_kind == zima::document::FeatureKind::Sphere
             ? zima::document::PartDocument::create_sphere_container()
         : feature_kind == zima::document::FeatureKind::Cone
@@ -9432,6 +9440,10 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                     zima::document::FeatureKind::Hole ||
                 committed.feature_kind ==
                     zima::document::FeatureKind::Thread) {
+                normalize_owned_profile_front_references(
+                    committed.placement.references);
+            } else if (committed.feature_kind ==
+                    zima::document::FeatureKind::DrillPoint) {
                 normalize_owned_profile_front_references(
                     committed.placement.references);
             }
@@ -12453,14 +12465,26 @@ void AssemblyWorkspaceWindow::start_primitive_reference_selection(
         : zima::assembly::InstancePath::decode(active_occurrence_path_);
     const bool active_part =
         workspace_.open_part(workspace_.active_document_id()) != nullptr;
+    const auto* primitive_properties = dynamic_cast<PrimitivePropertiesDialog*>(
+        primitive_reference_dialog_);
+    const bool drill_point = primitive_properties != nullptr &&
+        primitive_properties->feature_kind() ==
+            zima::document::FeatureKind::DrillPoint;
     viewer_->set_candidate_filter([this, prefix, active_part, index,
             orientation_reference, direction_reference, orientation_origin,
-            baseline_references, baseline_dof, auto_advance](
+            baseline_references, baseline_dof, auto_advance, drill_point](
                 const auto& candidate) {
         if (candidate.kind == zima::viewer::CandidateKind::Dimension &&
             candidate.owner_id == construction_dimension_object_id_ &&
             candidate.semantic_key.starts_with("parameter:")) return true;
         if (!placement_reference_candidate_has_stable_geometry(candidate)) return false;
+        if (drill_point && index < 3 &&
+            ((index == 0 && candidate.kind !=
+                    zima::viewer::CandidateKind::Axis) ||
+             (index == 1 && candidate.kind !=
+                    zima::viewer::CandidateKind::Face) || index > 1)) {
+            return false;
+        }
         if (primitive_reference_dialog_ == nullptr ||
             primitive_reference_dialog_->owns_reference_owner(candidate.owner_id))
             return false;
@@ -12671,6 +12695,18 @@ void AssemblyWorkspaceWindow::accept_primitive_reference(
         local_path = path.encoded();
     }
     const std::size_t selected_index = *pending_primitive_reference_index_;
+    auto* primitive_properties = dynamic_cast<PrimitivePropertiesDialog*>(
+        primitive_reference_dialog_);
+    const bool drill_point = primitive_properties != nullptr &&
+        primitive_properties->feature_kind() ==
+            zima::document::FeatureKind::DrillPoint;
+    if (drill_point && selected_index < 3 &&
+        ((selected_index == 0 && candidate.kind !=
+                zima::viewer::CandidateKind::Axis) ||
+         (selected_index == 1 && candidate.kind !=
+                zima::viewer::CandidateKind::Face) || selected_index > 1)) {
+        return;
+    }
     const bool orientation_reference = selected_index >= 3;
     auto baseline_references =
         primitive_reference_dialog_->references_without(selected_index);
@@ -12701,6 +12737,7 @@ void AssemblyWorkspaceWindow::accept_primitive_reference(
         viewer_->clear_selection();
         return;
     }
+    const auto committed_instance_path = local_path;
     auto proposed_reference = zima::document::ConstructionReference{
         local_path, candidate.owner_id, candidate.semantic_key, 0.0,
         candidate_supports_offset(candidate)};
@@ -12763,12 +12800,18 @@ void AssemblyWorkspaceWindow::accept_primitive_reference(
         : tr("Plocha");
     reference_label = reference_label.isEmpty()
         ? semantic_label : reference_label + QStringLiteral(" — ") + semantic_label;
-    const bool auto_advance = primitive_reference_auto_advance_;
+    const bool auto_advance = primitive_reference_auto_advance_ &&
+        !(drill_point && selected_index == 1);
     if (!primitive_reference_dialog_->set_reference(
         selected_index, std::move(committed_reference), reference_label)) {
         state_->setText(tr("Stejná reference už je pro toto umístění zadaná."));
         viewer_->clear_selection();
         return;
+    }
+    if (drill_point && selected_index == 1) {
+        primitive_properties->set_drill_point_bottom_face({
+            candidate.owner_id, candidate.semantic_key,
+            committed_instance_path});
     }
     if (auto_advance)
         primitive_reference_dialog_->set_reference_inspected(selected_index, true);
@@ -23144,6 +23187,27 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                         linear("length_reverse", "Zpětná délka = ", origin,
                             axial(-reverse), {8,8,0}, reverse);
                     }
+                } else if (container->feature_kind ==
+                        FeatureKind::DrillPoint) {
+                    const double half = container->drill_point
+                        .included_angle_degrees * std::numbers::pi / 360.0;
+                    constexpr double cue_length = 12.0;
+                    const auto first = local(
+                        cue_length * std::sin(half), 0.0,
+                        cue_length * std::cos(half));
+                    const auto second = local(
+                        -cue_length * std::sin(half), 0.0,
+                        cue_length * std::cos(half));
+                    mesh.dimensions.push_back({origin, origin, first, second,
+                        container->drill_point.included_angle_degrees,
+                        {container->id, "parameter:included_angle", {}},
+                        "", "°"});
+                    auto& dimension = mesh.dimensions.back();
+                    dimension.kind =
+                        zima::kernel::ViewerDimensionKind::Angular;
+                    dimension.plane_normal = local_vector({0.0, 1.0, 0.0});
+                    dimension.sweep_degrees =
+                        container->drill_point.included_angle_degrees;
                 } else if (container->feature_kind == FeatureKind::Sphere) {
                     radius("radius", origin,
                         local(container->sphere.radius,0,0), {0,6,0},
@@ -23702,7 +23766,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         active_application_ = ApplicationMode::Drawing;
         insert_action_->setEnabled(false);
         regenerate_action_->setEnabled(false);
-        for (auto* action : {box_action_, cylinder_action_, hole_action_, thread_action_, sphere_action_, cone_action_,
+        for (auto* action : {box_action_, cylinder_action_, hole_action_, thread_action_, drill_point_action_, sphere_action_, cone_action_,
                              pyramid_action_, wedge_action_, construction_point_action_,
                              curve_3d_action_, curve_3d_experimental_action_,
                              sweep_3d_action_,
@@ -24479,6 +24543,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         cylinder_action_->setEnabled(true);
     hole_action_->setEnabled(!document.history.empty());
     thread_action_->setEnabled(!document.history.empty());
+    drill_point_action_->setEnabled(!document.history.empty());
         sphere_action_->setEnabled(true);
         cone_action_->setEnabled(true);
         pyramid_action_->setEnabled(true);
@@ -24951,6 +25016,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     hole_action_->setEnabled(active_part != nullptr &&
         !active_part->session.document().history.empty());
     thread_action_->setEnabled(active_part != nullptr &&
+        !active_part->session.document().history.empty());
+    drill_point_action_->setEnabled(active_part != nullptr &&
         !active_part->session.document().history.empty());
     sphere_action_->setEnabled(active_part != nullptr);
     cone_action_->setEnabled(active_part != nullptr);

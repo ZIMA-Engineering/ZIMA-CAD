@@ -527,7 +527,7 @@ nlohmann::json read_part_ini(const std::filesystem::path& path) {
     }
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 37},
+        {"format_version", 38},
         {"document_id", ini_required(ini, "Document", "document_id")},
         {"type", ini_value(ini, "Document", "type", "part")},
         {"name", ini_value(ini, "Document", "name", "Nový díl")},
@@ -3807,6 +3807,18 @@ HistoryContainer PartDocument::create_thread_container() {
     container.name = "Závit";
     container.feature_kind = FeatureKind::Thread;
     container.combine_mode = CombineMode::Add;
+    return container;
+}
+
+HistoryContainer PartDocument::create_drill_point_container() {
+    HistoryContainer container;
+    container.id = make_id();
+    container.feature_id = make_id();
+    container.feature_parent_id = container.id;
+    container.container_origin = create_container_origin(container.id);
+    container.name = "Vrtací špička";
+    container.feature_kind = FeatureKind::DrillPoint;
+    container.combine_mode = CombineMode::Subtract;
     return container;
 }
 
@@ -7644,6 +7656,13 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 container.thread.end_condition_forward == EndCondition::Length
                 ? std::min(forward, requested_runout) : 0.0;
             primitive = thread;
+        } else if (container.feature_kind == FeatureKind::DrillPoint) {
+            zima::kernel::DrillPointRequest point;
+            point.bottom_face = container.drill_point.bottom_face;
+            point.origin = translation;
+            point.included_angle_degrees =
+                container.drill_point.included_angle_degrees;
+            primitive = point;
         } else if (container.feature_kind == FeatureKind::Sphere) {
             zima::kernel::SphereRequest sphere;
             sphere.radius = container.sphere.radius;
@@ -8702,7 +8721,9 @@ PartDocument PartDocument::load(
             : type == "chamfer" ? FeatureKind::Chamfer
             : type == "shell" ? FeatureKind::Shell
             : type == "hole" ? FeatureKind::Hole
-            : type == "thread" ? FeatureKind::Thread : FeatureKind::Box;
+            : type == "thread" ? FeatureKind::Thread
+            : type == "drill_point" ? FeatureKind::DrillPoint
+            : FeatureKind::Box;
         container.id = source.at("id").get<std::string>();
         container.feature_id = source.at("feature_id").get<std::string>();
         container.feature_parent_id =
@@ -8918,6 +8939,19 @@ PartDocument PartDocument::load(
             if (!std::isfinite(container.thread.runout_pitch_factor) ||
                 container.thread.runout_pitch_factor < 0.0) {
                 throw std::runtime_error("Neplatný výjezd závitu");
+            }
+        } else if (container.feature_kind == FeatureKind::DrillPoint) {
+            container.drill_point.bottom_face = {
+                source.at("bottom_face_owner"), source.at("bottom_face_key"),
+                source.at("bottom_face_instance_path")};
+            container.drill_point.included_angle_degrees =
+                source.at("included_angle_degrees");
+            if (!container.drill_point.bottom_face.valid() ||
+                !container.drill_point.bottom_face.instance_path.empty() ||
+                !std::isfinite(container.drill_point.included_angle_degrees) ||
+                container.drill_point.included_angle_degrees <= 0.0 ||
+                container.drill_point.included_angle_degrees >= 180.0) {
+                throw std::runtime_error("Neplatná vrtací špička");
             }
         } else if (container.feature_kind == FeatureKind::Sphere) {
             container.sphere.radius = source.at("radius").get<double>();
@@ -9658,6 +9692,14 @@ void PartDocument::save(
                     container.thread.end_targets_reverse))) {
                 throw std::runtime_error("Chybí cílová reference závitu");
             }
+        } else if (container.feature_kind == FeatureKind::DrillPoint) {
+            if (!container.drill_point.bottom_face.valid() ||
+                !container.drill_point.bottom_face.instance_path.empty() ||
+                !std::isfinite(container.drill_point.included_angle_degrees) ||
+                container.drill_point.included_angle_degrees <= 0.0 ||
+                container.drill_point.included_angle_degrees >= 180.0) {
+                throw std::runtime_error("Neplatná vrtací špička");
+            }
         } else if (container.feature_kind == FeatureKind::Sphere) {
             require_positive(container.sphere.radius, "radius");
         } else if (container.feature_kind == FeatureKind::Cone) {
@@ -9836,7 +9878,9 @@ void PartDocument::save(
                 : container.feature_kind == FeatureKind::Shell
                     ? "shell"
                 : container.feature_kind == FeatureKind::Thread
-                    ? "thread" : "hole"},
+                    ? "thread"
+                : container.feature_kind == FeatureKind::DrillPoint
+                    ? "drill_point" : "hole"},
             {"name", container.name},
             {"combine", container.combine_mode == CombineMode::Subtract
                 ? "subtract" : "add"}, {"suppressed", container.suppressed},
@@ -10025,6 +10069,15 @@ void PartDocument::save(
                 container.thread.end_targets_forward);
             serialized["end_targets_reverse"] = serialize_targets(
                 container.thread.end_targets_reverse);
+        } else if (container.feature_kind == FeatureKind::DrillPoint) {
+            serialized["bottom_face_owner"] =
+                container.drill_point.bottom_face.owner_id;
+            serialized["bottom_face_key"] =
+                container.drill_point.bottom_face.semantic_key;
+            serialized["bottom_face_instance_path"] =
+                container.drill_point.bottom_face.instance_path;
+            serialized["included_angle_degrees"] =
+                container.drill_point.included_angle_degrees;
         } else if (container.feature_kind == FeatureKind::Sphere) {
             serialized["radius"] = container.sphere.radius;
         } else if (container.feature_kind == FeatureKind::Cone) {
@@ -10321,7 +10374,7 @@ void PartDocument::save(
     }
     const nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 37},
+        {"format_version", 38},
         {"document_id", document_id},
         {"type", "part"},
         {"name", name},

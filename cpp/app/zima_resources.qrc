@@ -49,6 +49,7 @@
     <file alias="icons/revolve.svg">../../resources/icons/revolve.svg</file>
     <file alias="icons/sweep.svg">../../resources/icons/sweep.svg</file>
     <file alias="icons/thread.svg">../../resources/icons/thread.svg</file>
+    <file alias="icons/drill-point.svg">../../resources/icons/drill-point.svg</file>
     <file alias="icons/fillet.svg">../../resources/icons/fillet.svg</file>
     <file alias="icons/chamfer.svg">../../resources/icons/chamfer.svg</file>
     <file alias="icons/shell.svg">../../resources/icons/shell.svg</file>

@@ -232,6 +232,15 @@ struct ThreadSurfaceRequest {
     Vec3 radial_direction{1.0, 0.0, 0.0};
 };
 
+// Subtractive solid of revolution derived from one persisted circular bottom
+// face. The face supplies the exact radius and material-side normal only when
+// the user explicitly calculates the history.
+struct DrillPointRequest {
+    FaceReference bottom_face;
+    Vec3 origin;
+    double included_angle_degrees{118.0};
+};
+
 struct SphereRequest {
     double radius{40.0};
     Vec3 translation;
@@ -495,7 +504,7 @@ using PrimitiveRequest = std::variant<
     BoxRequest, CylinderRequest, SphereRequest, ConeRequest, PyramidRequest, WedgeRequest,
     ExtrusionRequest, RevolutionRequest, FeatureGroupRequest,
     Sweep3DRequest, StepRequest, FilletRequest, ChamferRequest, ShellRequest,
-    ThreadSurfaceRequest>;
+    ThreadSurfaceRequest, DrillPointRequest>;
 
 struct HistoryOperation {
     std::string owner_id;
@@ -1082,6 +1091,18 @@ struct PlacedBody {
                 byte(primitive.through_all_forward);
                 byte(primitive.through_all_reverse);
                 byte(static_cast<std::uint8_t>(primitive.side));
+            } else if constexpr (std::is_same_v<Request, DrillPointRequest>) {
+                for (const auto* text : {&primitive.bottom_face.owner_id,
+                        &primitive.bottom_face.semantic_key,
+                        &primitive.bottom_face.instance_path}) {
+                    u64(text->size());
+                    for (const unsigned char value : *text) byte(value);
+                }
+                for (const double value : {primitive.origin.x,
+                        primitive.origin.y, primitive.origin.z,
+                        primitive.included_angle_degrees}) {
+                    u64(std::bit_cast<std::uint64_t>(value));
+                }
             } else if constexpr (std::is_same_v<Request, ShellRequest>) {
                 u64(primitive.removed_faces.size());
                 for (const auto& face : primitive.removed_faces) {

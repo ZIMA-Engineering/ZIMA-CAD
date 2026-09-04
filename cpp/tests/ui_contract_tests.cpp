@@ -1025,6 +1025,45 @@ int main(int argc, char* argv[]) {
                 "Thread Properties did not commit its engineering designation "
                 "and independent real profile diameter");
 
+        auto drill_point_initial =
+            zima::document::PartDocument::create_drill_point_container();
+        zima::document::HistoryContainer committed_drill_point;
+        auto* drill_point_dialog = new zima::app::PrimitivePropertiesDialog(
+            drill_point_initial, false, true,
+            [&](zima::document::HistoryContainer value) {
+                committed_drill_point = std::move(value);
+            }, &parent);
+        drill_point_dialog->show();
+        application.processEvents();
+        auto* drill_angle = drill_point_dialog->findChild<QDoubleSpinBox*>(
+            "drillPointIncludedAngle");
+        require(drill_angle != nullptr && drill_angle->value() == 118.0,
+            "Drill Point Properties does not expose its default included angle");
+        require(drill_point_dialog->findChild<QPushButton*>(
+                    "primitiveAddOperation") == nullptr &&
+                drill_point_dialog->findChild<QPushButton*>(
+                    "primitiveSubtractOperation") == nullptr,
+            "Drill Point incorrectly exposes a selectable Boolean operation");
+        drill_angle->setValue(120.0);
+        require(drill_point_dialog->set_reference(
+                    0, {{}, "hole", "axis:primary"}, "Osa otvoru") &&
+                drill_point_dialog->set_reference(
+                    1, {{}, "hole", "face:bottom", 0.0, true},
+                    "Dno otvoru"),
+            "Drill Point Properties rejected its general container placement");
+        drill_point_dialog->set_drill_point_bottom_face(
+            {"hole", "face:bottom", {}});
+        drill_point_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
+        application.processEvents();
+        require(committed_drill_point.feature_kind ==
+                    zima::document::FeatureKind::DrillPoint &&
+                committed_drill_point.combine_mode ==
+                    zima::document::CombineMode::Subtract &&
+                committed_drill_point.drill_point.included_angle_degrees ==
+                    120.0 &&
+                committed_drill_point.drill_point.bottom_face.valid(),
+            "Drill Point Properties did not commit its face and included angle");
+
         auto sphere_initial = zima::document::PartDocument::create_sphere_container();
         zima::document::HistoryContainer committed_sphere;
         auto* sphere_dialog = new zima::app::PrimitivePropertiesDialog(

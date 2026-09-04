@@ -316,6 +316,12 @@
   both retain two distinct cylindrical sheets and their runout cones.
   The end cone reverses the start cone's radii, and Automatic side detection
   distinguishes an axis in material from an axis in a void.
+- Drill Point is a standalone subtractive history container placed by the
+  common container workflow from a hole axis and its circular planar bottom
+  face. Explicit OCCT calculation derives the radius from that stable face
+  and subtracts the 360-degree drill cone. Its only editable parameter is the
+  included angle (118 degrees by default), also exposed as an editable angular
+  View dimension.
 
 ## Container Orientation and Reference Geometry
 

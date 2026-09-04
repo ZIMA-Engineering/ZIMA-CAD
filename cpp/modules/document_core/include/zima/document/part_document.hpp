@@ -16,7 +16,7 @@
 namespace zima::document {
 
 enum class CombineMode { Add, Subtract };
-enum class FeatureKind { Sketch, Box, Cylinder, Sphere, Cone, Pyramid, Wedge, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread };
+enum class FeatureKind { Sketch, Box, Cylinder, Sphere, Cone, Pyramid, Wedge, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint };
 enum class ExtrusionDirection { Forward, Reverse, Symmetric };
 enum class ExtrusionExtent { Blind, UpToPlane, UpToSurface, ThroughAll };
 enum class ProfileSource { Internal, External };
@@ -499,6 +499,12 @@ struct ThreadParameters {
     bool operator==(const ThreadParameters&) const = default;
 };
 
+struct DrillPointParameters {
+    zima::kernel::FaceReference bottom_face;
+    double included_angle_degrees{118.0};
+    bool operator==(const DrillPointParameters&) const = default;
+};
+
 struct Curve3DSolvedPrimitive {
     std::string generator_id;
     std::string semantic_key;
@@ -629,6 +635,7 @@ struct HistoryContainer {
     ShellParameters shell;
     HoleParameters hole;
     ThreadParameters thread;
+    DrillPointParameters drill_point;
     bool suppressed{};
     bool operator==(const HistoryContainer&) const = default;
 };
@@ -684,6 +691,7 @@ public:
     [[nodiscard]] static HistoryContainer create_wedge_container();
     [[nodiscard]] static HistoryContainer create_hole_container();
     [[nodiscard]] static HistoryContainer create_thread_container();
+    [[nodiscard]] static HistoryContainer create_drill_point_container();
     [[nodiscard]] static ConstructionObject create_construction(
         ConstructionKind kind);
     [[nodiscard]] ConstructionObject* find_construction(const std::string& id);

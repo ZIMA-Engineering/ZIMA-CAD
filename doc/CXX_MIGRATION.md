@@ -1172,9 +1172,19 @@ stabilní reference předchozích kontejnerů. Ve stromu proto obsahuje pouze
 výslednou položku **Plochy závitu**.
 Vestavěné katalogy (bez závislosti na externích souborech) obsahují metrické
 ISO, Whitworth BSW a válcové trubkové G/BSPP rozměry. Vnější závit zobrazuje
-tabulkový patní průměr, vnitřní závit jmenovitý průměr a oba dovolují vlastní
-průměr válce závitu. Automatická volba rozlišuje vnitřní a vnější stranu podle
-nosného tělesa; uživatel ji může přepsat.
+tabulkový vnější patní průměr, vnitřní závit tabulkový vnitřní patní průměr a
+oba dovolují vlastní průměr válce závitu. Automatická volba rozlišuje vnitřní
+a vnější stranu podle nosného tělesa; uživatel ji může přepsat.
+
+Samostatný kontejner **Vrtací špička** používá stejné obecné zadávání umístění
+jako ostatní kontejnery. Uživatel zvolí osu otvoru a jeho kruhovou rovinnou
+plochu dna. Při explicitním výpočtu se stabilní reference dna vyhodnotí v OCCT,
+ověří se právě jedna kruhová hranice a její střed musí souhlasit s vyřešeným
+počátkem kontejneru. Z poloměru `r` a vrcholového úhlu `α` vznikne odečítací
+rotační kužel s hloubkou `r / tan(α/2)` směřující na materiálovou stranu dna.
+Jediným ručně měnitelným parametrem je vrcholový úhel, výchozí `118°`; jeho
+symetrická úhlová kóta podporuje stejnou editaci dvojklikem jako ostatní
+parametrické kóty. Prvek nevlastní uživatelskou skicu ani samostatnou osu.
 
 Kóta může vedle textu před a za číselnou hodnotou nést i samostatný zobrazovaný
 text, například `G 1/2`. Řídicí číselná hodnota přitom zůstává zachována pro

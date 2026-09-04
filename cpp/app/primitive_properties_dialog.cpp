@@ -135,7 +135,7 @@ bool supports_placement_reference_table(zima::document::FeatureKind kind) {
         kind == FeatureKind::Pyramid || kind == FeatureKind::Wedge ||
         kind == FeatureKind::Extrusion || kind == FeatureKind::Revolution ||
         kind == FeatureKind::ImportedStep || kind == FeatureKind::Hole ||
-        kind == FeatureKind::Thread;
+        kind == FeatureKind::Thread || kind == FeatureKind::DrillPoint;
 }
 
 QString primitive_properties_title(zima::document::FeatureKind kind) {
@@ -158,6 +158,8 @@ QString primitive_properties_title(zima::document::FeatureKind kind) {
         case FeatureKind::Shell: return QObject::tr("Vlastnosti Shellu");
         case FeatureKind::Hole: return QObject::tr("Vlastnosti otvoru");
         case FeatureKind::Thread: return QObject::tr("Vlastnosti závitu");
+        case FeatureKind::DrillPoint:
+            return QObject::tr("Vlastnosti vrtací špičky");
     }
     return QObject::tr("Vlastnosti prvku");
 }
@@ -200,10 +202,11 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         initial.feature_kind == zima::document::FeatureKind::Shell;
     if (!treatment) header_form->addRow(tr("Název"), name_);
     else name_->hide();
-    // Thread is technological viewer data, not a body-producing feature.
-    // It therefore has no Boolean operation even though it shares this dialog.
+    // Thread has no body Boolean and Drill Point is always subtractive; neither
+    // exposes a user-selectable operation even though both share this dialog.
     if (!treatment && initial.feature_kind !=
-            zima::document::FeatureKind::Thread) {
+            zima::document::FeatureKind::Thread &&
+        initial.feature_kind != zima::document::FeatureKind::DrillPoint) {
         operation_ = new QComboBox(this);
         if (!assembly_cut_mode) operation_->addItem(tr("Přičíst"), "add");
         if (allow_subtract || assembly_cut_mode) {
@@ -558,6 +561,16 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
                     notify_preview();
                 });
         refresh_thread();
+    } else if (initial.feature_kind == zima::document::FeatureKind::DrillPoint) {
+        drill_point_angle_ = dimension(
+            initial.drill_point.included_angle_degrees,
+            "drillPointIncludedAngle");
+        drill_point_angle_->setRange(1.0, 179.0);
+        drill_point_angle_->setSuffix(QStringLiteral(" °"));
+        form->addRow(tr("Vrcholový úhel"), drill_point_angle_);
+        connect(drill_point_angle_,
+            qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+            [this] { notify_preview(); });
     } else if (initial.feature_kind == zima::document::FeatureKind::Hole) {
         hole_type_ = new QComboBox(this);
         hole_type_->setObjectName("holeType");
@@ -1463,6 +1476,11 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
                 zima::document::EndCondition::ThroughAll
             ? result.hole.bore_length : hole_thread_length_->value();
         result.hole.left_hand_thread = hole_left_hand_->isChecked();
+    } else if (result.feature_kind ==
+            zima::document::FeatureKind::DrillPoint) {
+        result.combine_mode = zima::document::CombineMode::Subtract;
+        result.drill_point.included_angle_degrees =
+            drill_point_angle_->value();
     } else if (result.feature_kind == zima::document::FeatureKind::Sphere) {
         result.sphere = {radius_->value()};
     } else if (result.feature_kind == zima::document::FeatureKind::Cone) {
@@ -1559,6 +1577,7 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
         result.feature_kind == zima::document::FeatureKind::Cylinder ||
         result.feature_kind == zima::document::FeatureKind::Hole ||
         result.feature_kind == zima::document::FeatureKind::Thread ||
+        result.feature_kind == zima::document::FeatureKind::DrillPoint ||
         result.feature_kind == zima::document::FeatureKind::Sphere ||
         result.feature_kind == zima::document::FeatureKind::Cone ||
         result.feature_kind == zima::document::FeatureKind::Pyramid ||
@@ -1571,6 +1590,17 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
             ? placement_->combined_references(3)
             : std::vector<zima::document::ConstructionReference>{};
         result.placement.references = placement_references;
+        if (result.feature_kind ==
+                zima::document::FeatureKind::DrillPoint) {
+            const auto& face = result.drill_point.bottom_face;
+            const bool retained = std::ranges::any_of(
+                placement_references, [&](const auto& reference) {
+                    return reference.owner_id == face.owner_id &&
+                        reference.semantic_key == face.semantic_key &&
+                        reference.instance_path == face.instance_path;
+                });
+            if (!retained) result.drill_point.bottom_face = {};
+        }
     }
     return result;
 }
@@ -1975,6 +2005,12 @@ void PrimitivePropertiesDialog::set_shell_faces(
     remove_shell_face_button_->setEnabled(!shell_faces_.empty());
 }
 
+void PrimitivePropertiesDialog::set_drill_point_bottom_face(
+        zima::kernel::FaceReference face) {
+    initial_.drill_point.bottom_face = std::move(face);
+    notify_preview();
+}
+
 void PrimitivePropertiesDialog::set_shell_face_callbacks(
     std::function<void(std::size_t)> remove,
     std::function<void()> request_selection) {
@@ -2028,6 +2064,13 @@ bool PrimitivePropertiesDialog::submit() {
             error_->setText(tr("Vyberte cílovou rovinu nebo plochu závitu."));
             return false;
         }
+    }
+    if (result.feature_kind == zima::document::FeatureKind::DrillPoint &&
+        (!result.drill_point.bottom_face.valid() ||
+         result.placement.references.size() < 2)) {
+        error_->setText(tr(
+            "Vyberte osu otvoru a kruhovou plochu jeho dna."));
+        return false;
     }
     std::vector<std::string> selected_targets;
     if (assembly_targets_ != nullptr) {
@@ -2164,6 +2207,10 @@ const std::string& PrimitivePropertiesDialog::container_id() const {
     return initial_.id;
 }
 
+zima::document::FeatureKind PrimitivePropertiesDialog::feature_kind() const {
+    return initial_.feature_kind;
+}
+
 bool PrimitivePropertiesDialog::owns_reference_owner(
     const std::string& owner_id) const {
     return owner_id == initial_.id || owner_id == initial_.feature_id ||
@@ -2291,6 +2338,7 @@ bool PrimitivePropertiesDialog::set_inline_parameter_value(
     if (key == "thread_nominal_diameter")
         return set_field(hole_thread_nominal_diameter_);
     if (key == "thread_length") return set_field(hole_thread_length_);
+    if (key == "included_angle") return set_field(drill_point_angle_);
     if (key == "angle") return set_field(forward_length_);
     if (key == "size" || key == "primary") return set_field(treatment_primary_);
     if (key == "secondary") return set_field(treatment_secondary_);

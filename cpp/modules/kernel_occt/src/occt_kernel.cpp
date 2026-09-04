@@ -613,6 +613,79 @@ PrimitiveData make_cone_data(const ConeRequest& request, const std::string& owne
     return result;
 }
 
+PrimitiveData make_drill_point_data(const DrillPointRequest& request,
+        const TopoDS_Face& bottom_face, const TopoDS_Shape& body,
+        const std::string& owner_id) {
+    if (!request.bottom_face.valid() ||
+        !request.bottom_face.instance_path.empty() ||
+        !std::isfinite(request.included_angle_degrees) ||
+        request.included_angle_degrees <= 0.0 ||
+        request.included_angle_degrees >= 180.0) {
+        throw std::invalid_argument("Drill-point parameters are invalid");
+    }
+    BRepAdaptor_Surface surface(bottom_face);
+    if (surface.GetType() != GeomAbs_Plane) {
+        throw std::invalid_argument("Drill-point bottom face must be planar");
+    }
+    std::vector<gp_Circ> circles;
+    for (TopExp_Explorer explorer(bottom_face, TopAbs_EDGE);
+         explorer.More(); explorer.Next()) {
+        BRepAdaptor_Curve curve(TopoDS::Edge(explorer.Current()));
+        if (curve.GetType() == GeomAbs_Circle) circles.push_back(curve.Circle());
+    }
+    if (circles.size() != 1 || !(circles.front().Radius() > 1.0e-9)) {
+        throw std::invalid_argument(
+            "Drill-point bottom face must have one circular boundary");
+    }
+    const auto circle = circles.front();
+    const gp_Pnt center = circle.Location();
+    const double origin_error = center.Distance(gp_Pnt(
+        request.origin.x, request.origin.y, request.origin.z));
+    if (origin_error > std::max(1.0e-5, circle.Radius() * 1.0e-5)) {
+        throw std::invalid_argument(
+            "Drill-point container origin is not at the bottom-face center");
+    }
+    gp_Dir normal = surface.Plane().Axis().Direction();
+    if (bottom_face.Orientation() == TopAbs_REVERSED) normal.Reverse();
+    const double probe = std::max(1.0e-5, circle.Radius() * 1.0e-4);
+    const gp_Pnt positive = center.Translated(gp_Vec(normal) * probe);
+    const gp_Pnt negative = center.Translated(gp_Vec(normal) * -probe);
+    BRepClass3d_SolidClassifier positive_classifier(body, positive, 1.0e-7);
+    BRepClass3d_SolidClassifier negative_classifier(body, negative, 1.0e-7);
+    const bool positive_inside = positive_classifier.State() == TopAbs_IN;
+    const bool negative_inside = negative_classifier.State() == TopAbs_IN;
+    if (positive_inside == negative_inside) {
+        throw std::invalid_argument(
+            "Drill-point material side cannot be resolved from the bottom face");
+    }
+    if (!positive_inside) normal.Reverse();
+    const double half_angle = request.included_angle_degrees *
+        std::numbers::pi / 360.0;
+    const double depth = circle.Radius() / std::tan(half_angle);
+    const TopoDS_Shape cone = BRepPrimAPI_MakeCone(
+        gp_Ax2(center, normal), circle.Radius(), 0.0, depth).Shape();
+    if (cone.IsNull() || !BRepCheck_Analyzer(cone).IsValid()) {
+        throw std::runtime_error("OCCT drill-point revolution failed");
+    }
+    PrimitiveData result{cone, {}, {}, {}};
+    for (TopExp_Explorer explorer(cone, TopAbs_FACE);
+         explorer.More(); explorer.Next()) {
+        const auto face = TopoDS::Face(explorer.Current());
+        const auto kind = BRepAdaptor_Surface(face).GetType();
+        result.faces.push_back({face, {owner_id,
+            kind == GeomAbs_Cone ? "drill-point:side" : "drill-point:base"}});
+    }
+    for (TopExp_Explorer explorer(cone, TopAbs_EDGE);
+         explorer.More(); explorer.Next()) {
+        const auto edge = TopoDS::Edge(explorer.Current());
+        if (BRepAdaptor_Curve(edge).GetType() == GeomAbs_Circle) {
+            result.edges.push_back({edge,
+                {owner_id, "drill-point:base-circle"}});
+        }
+    }
+    return result;
+}
+
 PrimitiveData make_polyhedral_data(
     const TopoDS_Shape& unplaced, const gp_Trsf& transform,
     const std::string& owner_id, std::string_view kind) {
@@ -5326,6 +5399,22 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                 } else if constexpr (std::is_same_v<Request, ConeRequest>) {
                     validate_cone(primitive);
                     return make_cone_data(primitive, operation.owner_id);
+                } else if constexpr (std::is_same_v<Request, DrillPointRequest>) {
+                    std::vector<TopoDS_Face> matches;
+                    for (const auto& owned : owned_topology->faces) {
+                        if (owned.reference.owner_id ==
+                                primitive.bottom_face.owner_id &&
+                            owned.reference.semantic_key ==
+                                primitive.bottom_face.semantic_key) {
+                            matches.push_back(TopoDS::Face(owned.shape));
+                        }
+                    }
+                    if (matches.size() != 1) {
+                        throw std::runtime_error(
+                            "Drill-point bottom face is missing or ambiguous");
+                    }
+                    return make_drill_point_data(primitive, matches.front(),
+                        result_shape, operation.owner_id);
                 } else if constexpr (std::is_same_v<Request, PyramidRequest>) {
                     validate_pyramid(primitive);
                     return make_pyramid_data(primitive, operation.owner_id);

@@ -100,6 +100,8 @@ public:
         std::function<void(std::size_t)> remove,
         std::function<void()> request_selection);
     void set_shell_face_selection_active(bool active);
+    void set_drill_point_bottom_face(
+        zima::kernel::FaceReference face);
 
     // Universal container placement (position + FRONT/TOP orientation
     // references), reusing the same reference/DOF contract as
@@ -110,6 +112,7 @@ public:
         zima::document::ConstructionReference reference,
         const QString& label);
     [[nodiscard]] const std::string& container_id() const;
+    [[nodiscard]] zima::document::FeatureKind feature_kind() const;
     [[nodiscard]] bool owns_reference_owner(const std::string& owner_id) const;
     [[nodiscard]] std::vector<zima::document::ConstructionReference>
         references_without(std::size_t index) const;
@@ -188,6 +191,7 @@ private:
     QCheckBox* thread_custom_profile_diameter_{};
     QDoubleSpinBox* thread_profile_diameter_{};
     QDoubleSpinBox* thread_runout_factor_{};
+    QDoubleSpinBox* drill_point_angle_{};
     QComboBox* extrusion_direction_{};
     QComboBox* extrusion_extent_{};
     QLabel* extrusion_target_{};
