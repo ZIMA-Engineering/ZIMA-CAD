@@ -4649,26 +4649,6 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                             throw std::runtime_error(
                                 "Chamfer A x B / A + angle requires exactly two stably named adjacent faces");
                         }
-                        if (treatment.require_circular_hole_edge) {
-                            if (BRepAdaptor_Curve(edge).GetType() !=
-                                    GeomAbs_Circle) {
-                                throw std::runtime_error(
-                                    "Hole Chamfer requires a circular edge");
-                            }
-                            const auto cylindrical = std::find_if(
-                                faces.begin(), faces.end(), [](const auto& face) {
-                                    return BRepAdaptor_Surface(face.second)
-                                        .GetType() == GeomAbs_Cylinder;
-                                });
-                            if (cylindrical == faces.end()) {
-                                throw std::runtime_error(
-                                    "Hole Chamfer circle must bound a cylindrical hole wall");
-                            }
-                            // Depth is measured axially along the cylindrical
-                            // wall of the hole, not as a radial width on the
-                            // surrounding planar face.
-                            return cylindrical->second;
-                        }
                         return treatment.flip
                             ? faces.back().second : faces.front().second;
                     };

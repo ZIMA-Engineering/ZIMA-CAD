@@ -16,7 +16,7 @@
 namespace zima::document {
 
 enum class CombineMode { Add, Subtract };
-enum class FeatureKind { Sketch, Box, Cylinder, Sphere, Cone, Pyramid, Wedge, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint, HoleChamfer };
+enum class FeatureKind { Sketch, Box, Cylinder, Sphere, Cone, Pyramid, Wedge, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint };
 enum class ExtrusionDirection { Forward, Reverse, Symmetric };
 enum class ExtrusionExtent { Blind, UpToPlane, UpToSurface, ThroughAll };
 enum class ProfileSource { Internal, External };
@@ -692,7 +692,6 @@ public:
     [[nodiscard]] static HistoryContainer create_hole_container();
     [[nodiscard]] static HistoryContainer create_thread_container();
     [[nodiscard]] static HistoryContainer create_drill_point_container();
-    [[nodiscard]] static HistoryContainer create_hole_chamfer_container();
     [[nodiscard]] static ConstructionObject create_construction(
         ConstructionKind kind);
     [[nodiscard]] ConstructionObject* find_construction(const std::string& id);

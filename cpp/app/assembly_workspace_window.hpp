@@ -159,7 +159,6 @@ private:
     QAction* revolution_action_{};
     QAction* fillet_action_{};
     QAction* chamfer_action_{};
-    QAction* hole_chamfer_action_{};
     QAction* shell_action_{};
     QAction* sketch_action_{};
     QAction* sketch_normal_view_action_{};
@@ -276,9 +275,6 @@ private:
     bool drill_point_face_selection_active_{};
     PrimitivePropertiesDialog* drill_point_dialog_{};
     std::vector<zima::kernel::FaceReference> pending_drill_point_faces_;
-    bool hole_chamfer_edge_selection_active_{};
-    PrimitivePropertiesDialog* hole_chamfer_dialog_{};
-    std::vector<zima::kernel::EdgeReference> pending_hole_chamfer_edges_;
     PrimitivePropertiesDialog* extrusion_target_dialog_{};
     bool extrusion_target_assembly_cut_{};
     ConstructionPropertiesDialog* construction_reference_dialog_{};
@@ -558,11 +554,6 @@ private:
     void refresh_drill_point_selection_ui();
     void remove_drill_point_face(std::size_t index);
     [[nodiscard]] bool finish_drill_point_face_selection();
-    void accept_hole_chamfer_edge(
-        const zima::viewer::ViewerCandidate& candidate);
-    void refresh_hole_chamfer_selection_ui();
-    void remove_hole_chamfer_edge(std::size_t index);
-    [[nodiscard]] bool finish_hole_chamfer_edge_selection();
     void apply_extrusion_target_selection_contract();
     void accept_extrusion_target(const zima::viewer::ViewerCandidate& candidate);
     void finish_extrusion_target_selection();

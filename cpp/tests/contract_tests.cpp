@@ -6437,47 +6437,23 @@ int main() {
             "A Drill Point whose references all disappeared was not a safe no-op");
         zima::kernel::CylinderRequest chamfer_bore{5.0, 20.0};
         chamfer_bore.translation = {20.0, 20.0, 20.0};
-        zima::kernel::ChamferRequest hole_chamfer{{
+        zima::kernel::ChamferRequest bore_chamfer{{
                 {"chamfer-bore", "circle:z_max", {}}},
             zima::kernel::ChamferRequest::Mode::DistanceAngle,
             1.5, 1.5, std::numbers::pi / 4.0, false};
-        hole_chamfer.require_circular_hole_edge = true;
-        const auto hole_chamfer_boundaries = kernel.evaluate_history({
+        const auto bore_chamfer_boundaries = kernel.evaluate_history({
             {"chamfer-block", drill_block,
                 zima::kernel::BooleanOperation::Add},
             {"chamfer-bore", chamfer_bore,
                 zima::kernel::BooleanOperation::Subtract},
-            {"hole-chamfer", hole_chamfer,
+            {"bore-chamfer", bore_chamfer,
                 zima::kernel::BooleanOperation::Add}});
-        require(hole_chamfer_boundaries.size() == 3 &&
-                hole_chamfer_boundaries.back().volume <
-                    hole_chamfer_boundaries[1].volume,
-            "Hole Chamfer did not chamfer a circular perpendicular bore edge");
-        auto hole_chamfer_document =
-            zima::document::PartDocument::create_default();
-        auto persisted_hole_chamfer =
-            zima::document::PartDocument::create_hole_chamfer_container();
-        persisted_hole_chamfer.edge_treatment.routes = {{
-            {"hole", "circle:entrance", {}}}};
-        persisted_hole_chamfer.edge_treatment.primary_size = 1.25;
-        persisted_hole_chamfer.edge_treatment.angle_degrees = 45.0;
-        hole_chamfer_document.insert_history_entry(
-            zima::document::PartHistoryKind::Feature,
-            persisted_hole_chamfer.id);
-        hole_chamfer_document.history.push_back(persisted_hole_chamfer);
-        const auto hole_chamfer_path =
-            std::filesystem::temp_directory_path() /
-            "zima-cad-hole-chamfer-contract.prtz";
-        hole_chamfer_document.save(hole_chamfer_path);
-        const auto loaded_hole_chamfer =
-            zima::document::PartDocument::load(hole_chamfer_path);
-        std::filesystem::remove(hole_chamfer_path);
-        require(loaded_hole_chamfer.history.size() == 1 &&
-                loaded_hole_chamfer.history.front().feature_kind ==
-                    zima::document::FeatureKind::HoleChamfer &&
-                loaded_hole_chamfer.history.front().edge_treatment ==
-                    persisted_hole_chamfer.edge_treatment,
-            "Hole Chamfer did not preserve its edge list, depth and angle");
+        require(bore_chamfer_boundaries.size() == 3 &&
+                std::abs(bore_chamfer_boundaries[1].volume -
+                    bore_chamfer_boundaries.back().volume -
+                    std::numbers::pi * (5.0 * 1.5 * 1.5 +
+                        1.5 * 1.5 * 1.5 / 3.0)) < 1.0e-5,
+            "Ordinary Chamfer did not chamfer a circular perpendicular bore edge");
         const auto thread_wire = thread_document.thread_edges(thread, nullptr);
         require(thread_wire.size() == 6 &&
                     std::ranges::all_of(thread_wire, [&](const auto& edge) {

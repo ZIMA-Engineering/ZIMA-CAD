@@ -484,7 +484,6 @@ struct ChamferRequest {
     double distance_b{1.0};
     double angle_radians{0.7853981633974483};
     bool flip{};
-    bool require_circular_hole_edge{};
 };
 
 struct ShellRequest {
@@ -1140,7 +1139,6 @@ struct PlacedBody {
                     u64(std::bit_cast<std::uint64_t>(primitive.distance_b));
                     u64(std::bit_cast<std::uint64_t>(primitive.angle_radians));
                     byte(primitive.flip ? 1U : 0U);
-                    byte(primitive.require_circular_hole_edge ? 1U : 0U);
                 }
             }
         }, operation.primitive);

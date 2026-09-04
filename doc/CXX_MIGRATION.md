@@ -1184,11 +1184,24 @@ poloměr a směr do materiálu a vznikne odečítací kužel s hloubkou
 vypočítají dál a prázdný seznam je bezpečný no-op. Prvek nemá vlastní umístění,
 osu ani skicu.
 
-Samostatný kontejner **Sražení otvorů** obsahuje společnou hloubku, úhel a
-seznam stabilních kruhových hran otvorů. Při výpočtu OCCT ověří, že každá hrana
-je skutečná kružnice sousedící s válcovou stěnou otvoru. Hloubka se měří osově
-po této stěně. Obecné nekruhové hrany specializovaný příkaz odmítne; další
-proveditelnost sražení určuje standardní OCCT výpočet.
+Hrany otvorů se srážejí běžným příkazem **Sražení**, který podporuje i
+kruhové hrany. Samostatný příkaz Sražení otvorů byl odstraněn: používal
+stejný algoritmus OCCT a měření neprokázalo zrychlení. Sražení integrované
+přímo ve funkci **Otvor** zůstává zachováno.
+
+Ověření před odstraněním: Release build, blok 100 × 100 × 20 mm, otvory
+Ø10 mm, sražení 1,5 × 45°, dvě zahřívací opakování a medián z 15 výpočtů
+nad již vypočteným vstupním tělesem. Pořadí tří variant se střídalo.
+
+| Počet otvorů | Sražení otvorů | Sražení délka + úhel | Symetrické sražení |
+| --- | --- | --- | --- |
+| 1 | 19,077 ms | 19,154 ms | 18,760 ms |
+| 4 | 43,648 ms | 41,878 ms | 41,755 ms |
+| 16 | 127,901 ms | 129,094 ms | 119,024 ms |
+
+Ve všech variantách odebraný objem odpovídal analytickému výpočtu.
+Jde o lokální měření výpočtu, nikoli času uživatelské obsluhy. Regresní test
+nad kruhovou hranou nyní ověřuje běžné sražení a jeho odebraný objem.
 
 Kóta může vedle textu před a za číselnou hodnotou nést i samostatný zobrazovaný
 text, například `G 1/2`. Řídicí číselná hodnota přitom zůstává zachována pro

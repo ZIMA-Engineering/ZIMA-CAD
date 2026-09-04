@@ -409,8 +409,7 @@ bool valid_edge_treatment_values(
                     return vertex.valid() && vertex.instance_path.empty();
                 });
     }
-    if (kind != FeatureKind::Chamfer &&
-        kind != FeatureKind::HoleChamfer) return false;
+    if (kind != FeatureKind::Chamfer) return false;
     if (parameters.chamfer_mode ==
         EdgeTreatmentParameters::ChamferMode::TwoDistances) {
         return std::isfinite(parameters.secondary_size) &&
@@ -3820,20 +3819,6 @@ HistoryContainer PartDocument::create_drill_point_container() {
     container.name = "Vrtací špička";
     container.feature_kind = FeatureKind::DrillPoint;
     container.combine_mode = CombineMode::Subtract;
-    return container;
-}
-
-HistoryContainer PartDocument::create_hole_chamfer_container() {
-    HistoryContainer container;
-    container.id = make_id();
-    container.feature_id = make_id();
-    container.feature_parent_id = container.id;
-    container.container_origin = create_container_origin(container.id);
-    container.name = "Sražení otvorů";
-    container.feature_kind = FeatureKind::HoleChamfer;
-    container.combine_mode = CombineMode::Add;
-    container.edge_treatment.chamfer_mode =
-        EdgeTreatmentParameters::ChamferMode::DistanceAngle;
     return container;
 }
 
@@ -7999,17 +7984,6 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 container.edge_treatment.secondary_size,
                 container.edge_treatment.angle_degrees * std::numbers::pi / 180.0,
                 container.edge_treatment.flip};
-        } else if (container.feature_kind == FeatureKind::HoleChamfer) {
-            require_default_sketch_feature_placement(container.placement);
-            zima::kernel::ChamferRequest chamfer{
-                container.edge_treatment.flattened_edges(),
-                zima::kernel::ChamferRequest::Mode::DistanceAngle,
-                container.edge_treatment.primary_size,
-                container.edge_treatment.secondary_size,
-                container.edge_treatment.angle_degrees * std::numbers::pi / 180.0,
-                container.edge_treatment.flip};
-            chamfer.require_circular_hole_edge = true;
-            primitive = std::move(chamfer);
         } else if (container.feature_kind == FeatureKind::Shell) {
             require_default_sketch_feature_placement(container.placement);
             primitive = zima::kernel::ShellRequest{
@@ -8728,7 +8702,7 @@ PartDocument PartDocument::load(
             type != "revolution" && type != "sweep3d" &&
             type != "imported_step" &&
             type != "fillet" && type != "chamfer" &&
-            type != "hole_chamfer" && type != "shell" &&
+            type != "shell" &&
             type != "hole" && type != "thread" &&
             type != "drill_point") {
             throw std::runtime_error("Unsupported history feature type");
@@ -8746,7 +8720,6 @@ PartDocument PartDocument::load(
             : type == "imported_step" ? FeatureKind::ImportedStep
             : type == "fillet" ? FeatureKind::Fillet
             : type == "chamfer" ? FeatureKind::Chamfer
-            : type == "hole_chamfer" ? FeatureKind::HoleChamfer
             : type == "shell" ? FeatureKind::Shell
             : type == "hole" ? FeatureKind::Hole
             : type == "thread" ? FeatureKind::Thread
@@ -9427,7 +9400,6 @@ PartDocument PartDocument::load(
         }
         if (container.feature_kind == FeatureKind::Fillet ||
             container.feature_kind == FeatureKind::Chamfer ||
-            container.feature_kind == FeatureKind::HoleChamfer ||
             container.feature_kind == FeatureKind::Shell) {
             require_default_sketch_feature_placement(container.placement);
         }
@@ -9878,7 +9850,6 @@ void PartDocument::save(
         validate_placement(container.placement);
         if (container.feature_kind == FeatureKind::Fillet ||
             container.feature_kind == FeatureKind::Chamfer ||
-            container.feature_kind == FeatureKind::HoleChamfer ||
             container.feature_kind == FeatureKind::Shell) {
             require_default_sketch_feature_placement(container.placement);
         }
@@ -9910,8 +9881,6 @@ void PartDocument::save(
                     ? "fillet"
                 : container.feature_kind == FeatureKind::Chamfer
                     ? "chamfer"
-                : container.feature_kind == FeatureKind::HoleChamfer
-                    ? "hole_chamfer"
                 : container.feature_kind == FeatureKind::Shell
                     ? "shell"
                 : container.feature_kind == FeatureKind::Thread
@@ -9940,7 +9909,6 @@ void PartDocument::save(
         }
         if (container.feature_kind != FeatureKind::Fillet &&
             container.feature_kind != FeatureKind::Chamfer &&
-            container.feature_kind != FeatureKind::HoleChamfer &&
             container.feature_kind != FeatureKind::Shell) {
             nlohmann::json placement_references = nlohmann::json::array();
             for (const auto& reference : container.placement.references) {

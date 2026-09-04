@@ -106,12 +106,6 @@ public:
         std::function<void(std::size_t)> remove,
         std::function<void()> request_selection);
     void set_drill_point_face_selection_active(bool active);
-    void set_hole_chamfer_edges(
-        std::vector<zima::kernel::EdgeReference> edges);
-    void set_hole_chamfer_edge_callbacks(
-        std::function<void(std::size_t)> remove,
-        std::function<void()> request_selection);
-    void set_hole_chamfer_edge_selection_active(bool active);
 
     // Universal container placement (position + FRONT/TOP orientation
     // references), reusing the same reference/DOF contract as
@@ -207,13 +201,6 @@ private:
     std::vector<zima::kernel::FaceReference> drill_point_faces_;
     std::function<void(std::size_t)> remove_drill_point_face_;
     std::function<void()> request_drill_point_face_selection_;
-    QDoubleSpinBox* hole_chamfer_depth_{};
-    QDoubleSpinBox* hole_chamfer_angle_{};
-    QListWidget* hole_chamfer_edge_list_{};
-    QPushButton* remove_hole_chamfer_edge_button_{};
-    std::vector<zima::kernel::EdgeReference> hole_chamfer_edges_;
-    std::function<void(std::size_t)> remove_hole_chamfer_edge_;
-    std::function<void()> request_hole_chamfer_edge_selection_;
     QComboBox* extrusion_direction_{};
     QComboBox* extrusion_extent_{};
     QLabel* extrusion_target_{};

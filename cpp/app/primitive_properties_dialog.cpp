@@ -160,8 +160,6 @@ QString primitive_properties_title(zima::document::FeatureKind kind) {
         case FeatureKind::Thread: return QObject::tr("Vlastnosti závitu");
         case FeatureKind::DrillPoint:
             return QObject::tr("Vlastnosti vrtací špičky");
-        case FeatureKind::HoleChamfer:
-            return QObject::tr("Vlastnosti sražení otvorů");
     }
     return QObject::tr("Vlastnosti prvku");
 }
@@ -201,7 +199,6 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
     name_ = new QLineEdit(QString::fromStdString(initial.name), this);
     const bool treatment = initial.feature_kind == zima::document::FeatureKind::Fillet ||
         initial.feature_kind == zima::document::FeatureKind::Chamfer ||
-        initial.feature_kind == zima::document::FeatureKind::HoleChamfer ||
         initial.feature_kind == zima::document::FeatureKind::Shell;
     if (!treatment) header_form->addRow(tr("Název"), name_);
     else name_->hide();
@@ -600,49 +597,6 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
             qOverload<double>(&QDoubleSpinBox::valueChanged), this,
             [this] { notify_preview(); });
         set_drill_point_faces(initial.drill_point.bottom_faces);
-    } else if (initial.feature_kind ==
-            zima::document::FeatureKind::HoleChamfer) {
-        hole_chamfer_depth_ = dimension(
-            initial.edge_treatment.primary_size, "holeChamferDepth");
-        hole_chamfer_angle_ = dimension(
-            initial.edge_treatment.angle_degrees, "holeChamferAngle");
-        hole_chamfer_angle_->setRange(0.1, 179.9);
-        hole_chamfer_angle_->setSuffix(QStringLiteral(" °"));
-        form->addRow(tr("Hloubka sražení"), hole_chamfer_depth_);
-        form->addRow(tr("Úhel"), hole_chamfer_angle_);
-        auto* edges_label = new QLabel(tr("Kruhové hrany otvorů"), this);
-        auto label_font = edges_label->font();
-        label_font.setBold(true);
-        edges_label->setFont(label_font);
-        form->addRow(edges_label);
-        hole_chamfer_edge_list_ = new QListWidget(this);
-        hole_chamfer_edge_list_->setObjectName("holeChamferEdges");
-        hole_chamfer_edge_list_->setMinimumHeight(120);
-        hole_chamfer_edge_list_->viewport()->installEventFilter(this);
-        form->addRow(hole_chamfer_edge_list_);
-        connect(hole_chamfer_edge_list_, &QListWidget::itemPressed, this,
-            [this] {
-                if (request_hole_chamfer_edge_selection_)
-                    request_hole_chamfer_edge_selection_();
-            });
-        remove_hole_chamfer_edge_button_ = new QPushButton(
-            tr("Odebrat vybranou hranu"), this);
-        remove_hole_chamfer_edge_button_->setObjectName(
-            "holeChamferRemoveEdge");
-        form->addRow(remove_hole_chamfer_edge_button_);
-        connect(remove_hole_chamfer_edge_button_, &QPushButton::clicked,
-            this, [this] {
-                const int row = hole_chamfer_edge_list_->currentRow();
-                if (row >= 0 && remove_hole_chamfer_edge_)
-                    remove_hole_chamfer_edge_(static_cast<std::size_t>(row));
-            });
-        connect(hole_chamfer_depth_,
-            qOverload<double>(&QDoubleSpinBox::valueChanged), this,
-            [this] { notify_preview(); });
-        connect(hole_chamfer_angle_,
-            qOverload<double>(&QDoubleSpinBox::valueChanged), this,
-            [this] { notify_preview(); });
-        set_hole_chamfer_edges(initial.edge_treatment.flattened_edges());
     } else if (initial.feature_kind == zima::document::FeatureKind::Hole) {
         hole_type_ = new QComboBox(this);
         hole_type_->setObjectName("holeType");
@@ -1554,16 +1508,6 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
         result.drill_point.bottom_faces = drill_point_faces_;
         result.drill_point.included_angle_degrees =
             drill_point_angle_->value();
-    } else if (result.feature_kind ==
-            zima::document::FeatureKind::HoleChamfer) {
-        result.combine_mode = zima::document::CombineMode::Add;
-        result.edge_treatment.routes.clear();
-        for (const auto& edge : hole_chamfer_edges_)
-            result.edge_treatment.routes.push_back({edge});
-        result.edge_treatment.chamfer_mode =
-            zima::document::EdgeTreatmentParameters::ChamferMode::DistanceAngle;
-        result.edge_treatment.primary_size = hole_chamfer_depth_->value();
-        result.edge_treatment.angle_degrees = hole_chamfer_angle_->value();
     } else if (result.feature_kind == zima::document::FeatureKind::Sphere) {
         result.sphere = {radius_->value()};
     } else if (result.feature_kind == zima::document::FeatureKind::Cone) {
@@ -1812,17 +1756,6 @@ void PrimitivePropertiesDialog::set_extrusion_surface_target(
 }
 
 bool PrimitivePropertiesDialog::eventFilter(QObject* watched, QEvent* event) {
-    if (hole_chamfer_edge_list_ != nullptr &&
-        watched == hole_chamfer_edge_list_->viewport() &&
-        event->type() == QEvent::MouseButtonPress) {
-        const auto* mouse = static_cast<QMouseEvent*>(event);
-        if (mouse->button() == Qt::LeftButton &&
-            request_hole_chamfer_edge_selection_ &&
-            hole_chamfer_edge_list_->itemAt(
-                mouse->position().toPoint()) == nullptr) {
-            request_hole_chamfer_edge_selection_();
-        }
-    }
     if (drill_point_face_list_ != nullptr &&
         watched == drill_point_face_list_->viewport() &&
         event->type() == QEvent::MouseButtonPress) {
@@ -2130,40 +2063,6 @@ void PrimitivePropertiesDialog::set_drill_point_face_selection_active(
         : QString{});
 }
 
-void PrimitivePropertiesDialog::set_hole_chamfer_edges(
-        std::vector<zima::kernel::EdgeReference> edges) {
-    hole_chamfer_edges_ = std::move(edges);
-    initial_.edge_treatment.routes.clear();
-    for (const auto& edge : hole_chamfer_edges_)
-        initial_.edge_treatment.routes.push_back({edge});
-    if (hole_chamfer_edge_list_ == nullptr) return;
-    hole_chamfer_edge_list_->clear();
-    for (std::size_t index = 0; index < hole_chamfer_edges_.size(); ++index) {
-        auto* item = new QListWidgetItem(
-            tr("Hrana otvoru %1").arg(index + 1), hole_chamfer_edge_list_);
-        item->setToolTip(QString::fromStdString(
-            hole_chamfer_edges_[index].owner_id + " / " +
-            hole_chamfer_edges_[index].semantic_key));
-    }
-    remove_hole_chamfer_edge_button_->setEnabled(!hole_chamfer_edges_.empty());
-    notify_preview();
-}
-
-void PrimitivePropertiesDialog::set_hole_chamfer_edge_callbacks(
-        std::function<void(std::size_t)> remove,
-        std::function<void()> request_selection) {
-    remove_hole_chamfer_edge_ = std::move(remove);
-    request_hole_chamfer_edge_selection_ = std::move(request_selection);
-}
-
-void PrimitivePropertiesDialog::set_hole_chamfer_edge_selection_active(
-        bool active) {
-    if (hole_chamfer_edge_list_ == nullptr) return;
-    hole_chamfer_edge_list_->setStyleSheet(active
-        ? QStringLiteral("QListWidget { border: 2px solid #00aa44; }")
-        : QString{});
-}
-
 void PrimitivePropertiesDialog::set_shell_face_callbacks(
     std::function<void(std::size_t)> remove,
     std::function<void()> request_selection) {
@@ -2221,11 +2120,6 @@ bool PrimitivePropertiesDialog::submit() {
     if (result.feature_kind == zima::document::FeatureKind::DrillPoint &&
         result.drill_point.bottom_faces.empty() && !edit_mode_) {
         error_->setText(tr("Vyberte alespoň jedno kruhové dno otvoru."));
-        return false;
-    }
-    if (result.feature_kind == zima::document::FeatureKind::HoleChamfer &&
-        result.edge_treatment.flattened_edges().empty()) {
-        error_->setText(tr("Vyberte alespoň jednu kruhovou hranu otvoru."));
         return false;
     }
     std::vector<std::string> selected_targets;
