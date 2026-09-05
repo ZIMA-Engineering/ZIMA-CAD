@@ -52,9 +52,17 @@ Boční plochy odkazují na zdrojové křivky průřezu; hrany na křivky nebo
 body, ze kterých vznikly. Vzorkovací indexy aproximace nejsou trvalé
 identity topologie.
 
-Základní rovinu lze vybrat z XY/XZ/YZ nebo z původních rovinných referencí
-aktivního dílu. Odvozené roviny druhé a třetí skici jsou lokální součástí
-funkce. Sdílený kontrakt umístění kontejnerů se nemění.
+Umístění a orientace používají běžnou sekci kontejneru: tři poziční
+reference, FRONT/TOP, X/Y/Z, absolutní natočení a korekce, obrácení orientace
+a tlačítko POČÁTEK. Výběr ve View i v Tree používá společný picker.
+Při vytváření je aktivní první poziční reference. Krátký prostřední klik
+ukončí zadávání referencí; dvojklik potvrzuje celé okno.
+
+Základní skica leží v lokální rovině kontejneru (výchozí XZ / FRONT,
+případně XY nebo YZ). Všechny tři skici přebírají stejné umístění; změna
+posunu nebo orientace přenese celé vinutí. Odvozené roviny zůstávají
+součástí funkce. Samostatná světová reference základní roviny se nepoužívá.
+Sdílený kontrakt umístění kontejnerů se nemění.
 
 ## Ověření
 

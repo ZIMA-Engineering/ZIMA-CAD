@@ -580,7 +580,7 @@ struct Sweep3DParameters {
 
 // Two owned Sketches share an origin in perpendicular profile/path planes.
 struct Sweep2DParameters {
-    std::array<std::optional<zima::kernel::FaceReference>, 2> planes;
+    std::optional<zima::kernel::FaceReference> path_plane;
     std::array<std::string, 2> sketches;
     std::string start_point_id;
     ProfileResultType result_type{ProfileResultType::Solid};
@@ -593,7 +593,6 @@ struct Sweep2DParameters {
 // Three owned Sketches: base orbit, radial evolution, and normal section.
 // Their identities and the explicitly chosen orbit Point survive parameter edits.
 struct HelicalSweepParameters {
-    std::optional<zima::kernel::FaceReference> base_plane;
     bool reference_valid{true};
     std::array<std::string, 3> sketches;
     std::string circle_id;

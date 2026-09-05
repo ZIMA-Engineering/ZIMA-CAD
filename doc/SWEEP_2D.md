@@ -6,11 +6,20 @@ properties window used for both creation and editing. Sketch changes remain
 pending until OK; Cancel restores the original history. Editing rolls back to
 the feature's real input body.
 
-The first plane locates the profile. It can use XY/XZ/YZ or a persisted original
-planar face/datum reference. The default path plane contains the profile's local
-X direction and normal. An optional second original plane reference must be
+Both creation and editing use the standard container placement section:
+position references, FRONT/TOP, X/Y/Z, absolute rotation and corrections,
+orientation controls and the Origin selection button. They consume the shared
+placement solver and View/Tree picker. The first position reference is armed
+on creation. Reference inspection and short middle-click cancellation follow
+the standard contract.
+
+The profile uses a local container plane (XZ / FRONT by default, or XY/YZ).
+Its origin and frame inherit the resolved container placement, as do the path
+and transported profile. The default path plane contains the profile's local
+X direction and normal. An optional original path-plane reference must be
 perpendicular to the profile plane and contain the common origin. There is no
-additional offset plane. Both sketches keep their IDs when their frames change.
+additional offset plane or separate world placement for the first Sketch.
+Both sketches keep their IDs when their frames change.
 
 The path starts at the fixed sketch-origin point. Its initial tangent must be
 normal to the profile plane; joined segments must meet tangentially. Lines,

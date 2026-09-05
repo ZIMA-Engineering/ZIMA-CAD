@@ -93,22 +93,6 @@ inline std::vector<Curve> guide_curves(const sketcher::Sketch& source,const std:
     if(ordered.empty()||distance(cursor,point(source,start_id))<1e-7)throw std::runtime_error("Chybí otevřená vodicí dráha");
     return ordered;
 }
-inline void resolve_base_plane(HistoryContainer& c,const kernel::ViewerReferenceGeometry& geometry) {
-    if(!c.helical.base_plane)return;
-    const auto& ref=*c.helical.base_plane; std::vector<V> vertices;
-    for(std::size_t i=0;i<geometry.triangle_references.size();++i)if(geometry.triangle_references[i]==ref)
-        for(unsigned j=0;j<3;++j)vertices.push_back(geometry.vertices.at(geometry.triangles.at(3*i+j)));
-    if(vertices.size()<3)throw std::runtime_error("Chybí reference roviny Helical Sweepu");
-    auto n=unit(cross(sub(vertices[1],vertices[0]),sub(vertices[2],vertices[0])));
-    for(const auto& p:vertices)if(std::abs(dot(sub(p,vertices[0]),n))>1e-6)throw std::runtime_error("Vyberte rovinnou plochu");
-    auto base=sketcher::Sketch::from_serialized(c.helical.sketches[0]);
-    base.plane_reference_owner_id=c.id+":helical:base";
-    base.resolved_origin=mul(n,dot(vertices[0],n));
-    const V axis=std::abs(n.x)<.9?V{1,0,0}:V{0,1,0};
-    base.resolved_x_axis=unit(sub(axis,mul(n,dot(axis,n))));
-    base.resolved_y_axis=unit(cross(n,base.resolved_x_axis));base.resolved_normal=n;
-    c.helical.sketches[0]=base.serialized();
-}
 struct Path {
     V origin,radial,axis,azimuth;
     double radius{},pitch{}; bool left{};

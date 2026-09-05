@@ -11,12 +11,13 @@ static void require(bool ok,const char* message){if(!ok)throw std::runtime_error
 static document::HistoryContainer fixture(bool arc=false,bool open=false){
     auto c=document::PartDocument::create_sweep2d_container();
     auto section=sketcher::Sketch::from_serialized(c.sweep2d.sketches[0]);
+    section.plane=sketcher::SketchPlane::XY;section.refresh_default_frame();
     if(open)static_cast<void>(section.add_segment(-2,0,2,0));else static_cast<void>(section.add_circle(0,0,2));
     c.sweep2d.sketches[0]=section.serialized();
     auto path=sketcher::Sketch::from_serialized(c.sweep2d.sketches[1]);
     if(arc)static_cast<void>(path.add_arc(10,0,0,0,10,10,false,1e-6,true));
     else static_cast<void>(path.add_segment(0,0,0,20));
-    c.sweep2d.sketches[1]=path.serialized();return c;
+    c.sweep2d.sketches[1]=path.serialized();document::PartDocument::reframe_sweep2d_sketches(c);return c;
 }
 int main(){try{
     kernel::OcctKernel kernel;
@@ -47,10 +48,10 @@ int main(){try{
     auto base_bodies=kernel.evaluate_history(base_doc.kernel_operations());
     const auto& geometry=base_bodies.back().mesh.original_references;
     const auto face=[&](const std::string& key){for(const auto& ref:geometry.triangle_references)if(ref.semantic_key==key)return ref;throw std::runtime_error("Missing box reference "+key);};
-    auto attached=fixture();attached.sweep2d.planes={face("z_min"),face("y_min")};
+    auto attached=fixture();attached.sweep2d.path_plane=face("y_min");
     document::PartDocument::resolve_sweep2d_planes(attached,geometry);
     static_cast<void>(document::PartDocument::sweep2d_request(attached));
-    for(const auto& key:{"z_max","x_max"}){auto invalid=attached;invalid.sweep2d.planes[1]=face(key);bool rejected=false;try{document::PartDocument::resolve_sweep2d_planes(invalid,geometry);}catch(...){rejected=true;}require(rejected,"Invalid path plane accepted");}
+    for(const auto& key:{"z_max","x_max"}){auto invalid=attached;invalid.sweep2d.path_plane=face(key);bool rejected=false;try{document::PartDocument::resolve_sweep2d_planes(invalid,geometry);}catch(...){rejected=true;}require(rejected,"Invalid path plane accepted");}
     auto subtract=fixture();subtract.placement.x=10;subtract.placement.y=10;subtract.combine_mode=document::CombineMode::Subtract;base_doc.history.push_back(subtract);
     auto cut=kernel.evaluate_history(base_doc.kernel_operations());require(std::abs(cut.front().volume-cut.back().volume-80*std::numbers::pi)<.01,"Sweep subtraction failed");
     // Smooth curved law and a tangent line/arc chain.

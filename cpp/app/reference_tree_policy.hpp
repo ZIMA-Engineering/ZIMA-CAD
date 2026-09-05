@@ -74,12 +74,11 @@ template<class Document> std::string feature_reference_issue(const document::His
             std::ranges::none_of(sketch.segments,[&](const auto& segment) { return segment.id==feature.revolution.axis_segment_id; })) issue+="axis:"+feature.revolution.axis_segment_id;
         break;
     case FeatureKind::Sweep2D:
-        for(const auto& ref:feature.sweep2d.planes)if(ref)issue+=index.missing(*ref);
+        if(feature.sweep2d.path_plane)issue+=index.missing(*feature.sweep2d.path_plane);
         for(const auto& data:feature.sweep2d.sketches){auto sketch=sketcher::Sketch::from_serialized(data);sketch.plane_reference_owner_id.clear();issue+=sketch_reference_issue(sketch,document);}
         if(!feature.sweep2d.reference_valid)issue+="Invalid Sweep planes";
         break;
     case FeatureKind::HelicalSweep:
-        if(feature.helical.base_plane)issue+=index.missing(*feature.helical.base_plane);
         for(const auto& data:feature.helical.sketches){auto s=sketcher::Sketch::from_serialized(data);s.plane_reference_owner_id.clear();issue+=sketch_reference_issue(s,document);}
         break;
     case FeatureKind::Sweep3D:

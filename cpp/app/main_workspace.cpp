@@ -211,6 +211,15 @@ int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspac
     auto* dialog=dynamic_cast<zima::app::Sweep2DDialog*>(window.findChild<QDialog*>("sweep2dDialog"));
     if(!verify(dialog!=nullptr,"2D Sweep properties did not open"))return 1;
     const auto feature_id=dialog->pending.id;
+    auto* placement=dialog->findChild<QTableWidget*>("sweepPlacementReferences");auto* orientation=dialog->findChild<QTableWidget*>("sweepPlacementOrientation");
+    auto* placement_view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
+    if(!verify(placement&&placement->rowCount()>=1&&placement->rowCount()<=3&&orientation&&orientation->rowCount()==2&&placement_view,"Sweep has no standard placement controls"))return 1;
+    const auto camera=placement_view->camera_state();
+    dialog->findChild<QDoubleSpinBox*>("sweepTranslation0")->setValue(12);
+    dialog->findChild<QDoubleSpinBox*>("sweepTranslation1")->setValue(-3);
+    dialog->findChild<QDoubleSpinBox*>("sweepTranslation2")->setValue(8);
+    dialog->findChild<QDoubleSpinBox*>("sweepRotation1")->setValue(25);application.processEvents();
+    if(!verify(dialog->pending.placement.x==12&&dialog->pending.placement.y==-3&&dialog->pending.placement.z==8&&std::abs(dialog->pending.placement.rotation_y-25)<1e-6&&placement_view->camera_state()==camera,"Sweep placement fields did not update or moved camera"))return 1;
     auto section=zima::sketcher::Sketch::from_serialized(dialog->pending.sweep2d.sketches[0]);
     static_cast<void>(section.add_circle(0,0,2));dialog->set_sketch(0,section);
     auto guide=zima::sketcher::Sketch::from_serialized(dialog->pending.sweep2d.sketches[1]);
@@ -225,6 +234,7 @@ int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspac
     if(!verify(!dialog->isVisible(),"2D Sweep OK did not commit"))return 1;
     auto* save=window.findChild<QAction*>("saveDocumentAction");save->trigger();application.processEvents();
     auto stored=zima::document::PartDocument::load(path);
+    if(!verify(stored.history.back().placement.x==12&&stored.history.back().placement.y==-3&&stored.history.back().placement.z==8&&std::abs(stored.history.back().placement.rotation_y-25)<1e-6,"Sweep placement not persisted"))return 1;
     if(!verify(stored.history.size()==1&&stored.history.back().id==feature_id,"2D Sweep history not saved"))return 1;
     QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* item=nullptr;int sketches=0;
@@ -234,26 +244,37 @@ int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspac
     window.show_tree_item_properties(item);application.processEvents();
     dialog=dynamic_cast<zima::app::Sweep2DDialog*>(window.findChild<QDialog*>("sweep2dDialog"));
     if(!verify(dialog!=nullptr,"2D Sweep edit did not reopen same dialog"))return 1;
+    dialog->findChild<QDoubleSpinBox*>("sweepTranslation0")->setValue(99);
     dialog->findChild<QDoubleSpinBox*>("sweep2dThickness")->setValue(7);
     dialog->buttons()->button(QDialogButtonBox::Cancel)->click();application.processEvents();save->trigger();application.processEvents();
     stored=zima::document::PartDocument::load(path);
-    if(!verify(stored.history.back().sweep2d.thickness==1,"Cancel committed pending sweep2d pitch"))return 1;
+    if(!verify(stored.history.back().placement.x==12&&stored.history.back().sweep2d.thickness==1,"Cancel committed pending sweep2d pitch"))return 1;
     QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     action->trigger();application.processEvents();
     dialog=dynamic_cast<zima::app::Sweep2DDialog*>(window.findChild<QDialog*>("sweep2dDialog"));
     auto* view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
     if(!verify(dialog&&view,"Cannot test sweep2d reference selection"))return 1;
-    view->fit_all();dialog->select_plane();application.processEvents();
+    view->set_standard_view(zima::viewer::StandardView::Isometric);view->fit_all();dialog->request_placement(0);application.processEvents();
     std::optional<QPointF> hit;
+    std::size_t cap_index{};
     for(int y=4;y<view->height()&&!hit;y+=2)for(int x=4;x<view->width();x+=2){
         auto candidates=view->selection_candidates_at(QPointF(x,y));
-        if(!candidates.empty()&&candidates.front().owner_id==feature_id){hit=QPointF(x,y);break;}
+        for(std::size_t i=0;i<candidates.size();++i){const auto& candidate=candidates[i];
+            if(candidate.owner_id==feature_id&&candidate.kind==zima::viewer::CandidateKind::Face&&(candidate.semantic_key.starts_with("start:from:")||candidate.semantic_key.starts_with("end:from:"))){hit=QPointF(x,y);cap_index=i;break;}}
+        if(hit)break;
     }
     if(!verify(hit.has_value(),"Start/end plane not offered to another 2D Sweep"))return 1;
+    view->clear_selection();
+    QMouseEvent move(QEvent::MouseMove,*hit,*hit,*hit,Qt::NoButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&move);
+    for(std::size_t i=0;i<cap_index;++i){
+        QMouseEvent cycle_press(QEvent::MouseButtonPress,*hit,*hit,*hit,Qt::RightButton,Qt::RightButton,Qt::NoModifier);
+        QMouseEvent cycle_release(QEvent::MouseButtonRelease,*hit,*hit,*hit,Qt::RightButton,Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(view,&cycle_press);QApplication::sendEvent(view,&cycle_release);
+    }
     QMouseEvent press(QEvent::MouseButtonPress,*hit,*hit,*hit,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
     QMouseEvent release(QEvent::MouseButtonRelease,*hit,*hit,*hit,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
     QApplication::sendEvent(view,&press);QApplication::sendEvent(view,&release);application.processEvents();
-    if(!verify(dialog->pending.sweep2d.planes[0].has_value()&&!dialog->plane_input,"Plane reference click did not confirm offered cap"))return 1;
+    if(!verify(std::ranges::any_of(dialog->pending.placement.references,[&](const auto& ref){return ref.owner_id==feature_id&&(ref.semantic_key.starts_with("start:from:")||ref.semantic_key.starts_with("end:from:"));}),"Plane reference click did not confirm offered cap"))return 1;
     dialog->buttons()->button(QDialogButtonBox::Cancel)->click();application.processEvents();
     std::cout<<"2D Sweep UI contracts passed\n";return 0;
 }
@@ -268,6 +289,15 @@ int verify_helical_sweep_command(QApplication& application,zima::app::AssemblyWo
     auto* dialog=dynamic_cast<zima::app::HelicalSweepDialog*>(window.findChild<QDialog*>("helicalSweepDialog"));
     if(!verify(dialog!=nullptr,"Helical properties did not open"))return 1;
     const auto feature_id=dialog->pending.id;
+    auto* placement=dialog->findChild<QTableWidget*>("sweepPlacementReferences");auto* orientation=dialog->findChild<QTableWidget*>("sweepPlacementOrientation");
+    auto* placement_view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
+    if(!verify(placement&&placement->rowCount()>=1&&placement->rowCount()<=3&&orientation&&orientation->rowCount()==2&&placement_view,"Sweep has no standard placement controls"))return 1;
+    const auto camera=placement_view->camera_state();
+    dialog->findChild<QDoubleSpinBox*>("sweepTranslation0")->setValue(12);
+    dialog->findChild<QDoubleSpinBox*>("sweepTranslation1")->setValue(-3);
+    dialog->findChild<QDoubleSpinBox*>("sweepTranslation2")->setValue(8);
+    dialog->findChild<QDoubleSpinBox*>("sweepRotation1")->setValue(25);application.processEvents();
+    if(!verify(dialog->pending.placement.x==12&&dialog->pending.placement.y==-3&&dialog->pending.placement.z==8&&std::abs(dialog->pending.placement.rotation_y-25)<1e-6&&placement_view->camera_state()==camera,"Sweep placement fields did not update or moved camera"))return 1;
     auto base=zima::sketcher::Sketch::from_serialized(dialog->pending.helical.sketches[0]);
     static_cast<void>(base.add_circle(0,0,5));static_cast<void>(base.add_point(5,0));dialog->set_sketch(0,base);
     if(!verify(!dialog->pending.helical.start_point_id.empty(),"Unique initial Point not selected"))return 1;
@@ -283,6 +313,7 @@ int verify_helical_sweep_command(QApplication& application,zima::app::AssemblyWo
     if(!verify(!dialog->isVisible(),"Helical Sweep OK did not commit"))return 1;
     auto* save=window.findChild<QAction*>("saveDocumentAction");save->trigger();application.processEvents();
     auto stored=zima::document::PartDocument::load(path);
+    if(!verify(stored.history.back().placement.x==12&&stored.history.back().placement.y==-3&&stored.history.back().placement.z==8&&std::abs(stored.history.back().placement.rotation_y-25)<1e-6,"Sweep placement not persisted"))return 1;
     if(!verify(stored.history.size()==1&&stored.history.back().id==feature_id,"Helical Sweep history not saved"))return 1;
     QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* item=nullptr;int sketches=0;
@@ -292,26 +323,37 @@ int verify_helical_sweep_command(QApplication& application,zima::app::AssemblyWo
     window.show_tree_item_properties(item);application.processEvents();
     dialog=dynamic_cast<zima::app::HelicalSweepDialog*>(window.findChild<QDialog*>("helicalSweepDialog"));
     if(!verify(dialog!=nullptr,"Helical edit did not reopen same dialog"))return 1;
+    dialog->findChild<QDoubleSpinBox*>("sweepTranslation0")->setValue(99);
     dialog->findChild<QDoubleSpinBox*>("helicalPitch")->setValue(7);
     dialog->buttons()->button(QDialogButtonBox::Cancel)->click();application.processEvents();save->trigger();application.processEvents();
     stored=zima::document::PartDocument::load(path);
-    if(!verify(stored.history.back().helical.pitch==5,"Cancel committed pending helical pitch"))return 1;
+    if(!verify(stored.history.back().placement.x==12&&stored.history.back().helical.pitch==5,"Cancel committed pending helical pitch"))return 1;
     QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     action->trigger();application.processEvents();
     dialog=dynamic_cast<zima::app::HelicalSweepDialog*>(window.findChild<QDialog*>("helicalSweepDialog"));
     auto* view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
     if(!verify(dialog&&view,"Cannot test helical reference selection"))return 1;
-    view->fit_all();dialog->select_plane();application.processEvents();
+    view->set_standard_view(zima::viewer::StandardView::Isometric);view->fit_all();dialog->request_placement(0);application.processEvents();
     std::optional<QPointF> hit;
+    std::size_t cap_index{};
     for(int y=4;y<view->height()&&!hit;y+=2)for(int x=4;x<view->width();x+=2){
         auto candidates=view->selection_candidates_at(QPointF(x,y));
-        if(!candidates.empty()&&candidates.front().owner_id==feature_id){hit=QPointF(x,y);break;}
+        for(std::size_t i=0;i<candidates.size();++i){const auto& candidate=candidates[i];
+            if(candidate.owner_id==feature_id&&candidate.kind==zima::viewer::CandidateKind::Face&&(candidate.semantic_key.starts_with("start:from:")||candidate.semantic_key.starts_with("end:from:"))){hit=QPointF(x,y);cap_index=i;break;}}
+        if(hit)break;
     }
     if(!verify(hit.has_value(),"Start/end plane not offered to another Helical Sweep"))return 1;
+    view->clear_selection();
+    QMouseEvent move(QEvent::MouseMove,*hit,*hit,*hit,Qt::NoButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&move);
+    for(std::size_t i=0;i<cap_index;++i){
+        QMouseEvent cycle_press(QEvent::MouseButtonPress,*hit,*hit,*hit,Qt::RightButton,Qt::RightButton,Qt::NoModifier);
+        QMouseEvent cycle_release(QEvent::MouseButtonRelease,*hit,*hit,*hit,Qt::RightButton,Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(view,&cycle_press);QApplication::sendEvent(view,&cycle_release);
+    }
     QMouseEvent press(QEvent::MouseButtonPress,*hit,*hit,*hit,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
     QMouseEvent release(QEvent::MouseButtonRelease,*hit,*hit,*hit,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
     QApplication::sendEvent(view,&press);QApplication::sendEvent(view,&release);application.processEvents();
-    if(!verify(dialog->pending.helical.base_plane.has_value()&&!dialog->plane_input,"Plane reference click did not confirm offered cap"))return 1;
+    if(!verify(std::ranges::any_of(dialog->pending.placement.references,[&](const auto& ref){return ref.owner_id==feature_id&&(ref.semantic_key.starts_with("start:from:")||ref.semantic_key.starts_with("end:from:"));}),"Plane reference click did not confirm offered cap"))return 1;
     dialog->buttons()->button(QDialogButtonBox::Cancel)->click();application.processEvents();
     std::cout<<"Helical Sweep UI contracts passed\n";return 0;
 }

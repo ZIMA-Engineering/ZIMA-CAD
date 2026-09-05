@@ -10,6 +10,7 @@ static void require(bool ok,const char* message){if(!ok)throw std::runtime_error
 static document::HistoryContainer fixture(double end_radius=10,bool rectangle=false){
     auto c=document::PartDocument::create_helical_sweep_container();
     auto base=sketcher::Sketch::from_serialized(c.helical.sketches[0]);
+    base.plane=sketcher::SketchPlane::XY;base.refresh_default_frame();
     c.helical.circle_id=base.add_circle(0,0,10);c.helical.start_point_id=base.add_point(10,0);
     c.helical.sketches[0]=base.serialized();
     auto law=sketcher::Sketch::from_serialized(c.helical.sketches[1]);
@@ -52,8 +53,10 @@ int main(){try{
             std::set<std::string> new_caps;
             for(const auto& ref:regenerated.back().mesh.original_references.triangle_references)if(caps.contains(ref.semantic_key)){
                 new_caps.insert(ref.semantic_key);require(ref.surface&&ref.surface->kind==kernel::SurfaceGeometry::Kind::Plane,"Cap has no saved plane for downstream attachment");
-                auto next=fixture();next.helical.base_plane=ref;document::helical_geometry::resolve_base_plane(next,regenerated.back().mesh.original_references);
+                auto next=fixture();auto base=sketcher::Sketch::from_serialized(next.helical.sketches[0]);base.plane=sketcher::SketchPlane::XZ;next.helical.sketches[0]=base.serialized();document::ConstructionReference attachment{ref.instance_path,ref.owner_id,ref.semantic_key};attachment.orientation_drives_rotation=true;attachment.orientation_role="front";next.placement.references={attachment};
+                require(document::resolve_placement(next.placement,regenerated.back().mesh.original_references),"Cap placement failed");document::PartDocument::reframe_helical_sketches(next,0);
                 const auto plane=sketcher::Sketch::from_serialized(next.helical.sketches[0]);
+                require(std::abs(document::helical_geometry::dot(plane.resolved_normal,ref.surface->axis))>1-1e-6,"FRONT placement did not orient the base Sketch");
                 require(std::abs(document::helical_geometry::dot(document::helical_geometry::sub(plane.resolved_origin,ref.surface->origin),ref.surface->axis))<1e-5,"Downstream plane attachment lost changed cap");
             }
             require(new_caps==caps,"Pitch, height or handedness exchanged cap identities");

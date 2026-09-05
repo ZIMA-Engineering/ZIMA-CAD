@@ -618,6 +618,7 @@ private:
     void show_primitive_properties(
         zima::document::FeatureKind feature_kind,
         const std::string& container_id = {});
+    void show_sweep_properties(zima::document::FeatureKind kind, const std::string& container_id);
     void show_sweep2d_properties(const std::string& container_id = {});
     void show_helical_sweep_properties(const std::string& container_id = {});
     void show_sweep3d_properties(const std::string& container_id = {});
