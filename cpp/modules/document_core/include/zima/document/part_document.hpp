@@ -581,7 +581,6 @@ struct Sweep3DParameters {
 // Two owned Sketches share an origin in perpendicular profile/path planes.
 struct Sweep2DParameters {
     std::array<std::string, 2> sketches;
-    std::string start_point_id;
     ProfileResultType result_type{ProfileResultType::Solid};
     ThinMode thin_mode{ThinMode::Symmetric};
     double thickness{1.0};

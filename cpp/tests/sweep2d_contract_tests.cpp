@@ -22,6 +22,17 @@ static document::HistoryContainer fixture(bool arc=false,bool open=false){
 int main(){try{
     kernel::OcctKernel kernel;
     auto doc=document::PartDocument::create_default();
+    // A path is drawn from the Sketch origin; it does not need a separate
+    // seed point that Sketcher may merge or remove during editing.
+    auto redrawn=fixture();auto new_path=sketcher::Sketch::create_default();
+    static_cast<void>(new_path.add_segment(0,20,0,0));
+    const auto endpoint=new_path.segments.front().second_point_id;
+    redrawn.sweep2d.sketches[1]=new_path.serialized();
+    document::PartDocument::reframe_sweep2d_sketches(redrawn);
+    const auto redrawn_request=document::PartDocument::sweep2d_request(redrawn);
+    require(redrawn_request.path_point_ids.front()==endpoint&&redrawn_request.sections.front().point_id==endpoint,"Sweep start did not use the actual curve endpoint");
+    auto displaced=redrawn;for(auto& p:new_path.points)p.x+=1;displaced.sweep2d.sketches[1]=new_path.serialized();
+    bool away_rejected=false;try{static_cast<void>(document::PartDocument::sweep2d_request(displaced));}catch(...){away_rejected=true;}require(away_rejected,"A path away from the Sketch origin was accepted");
     for(bool arc:{false,true}){
         auto c=fixture(arc);doc.history={c};
         auto bodies=kernel.evaluate_history(doc.kernel_operations());

@@ -24,9 +24,6 @@ public:
         auto* form=new QFormLayout;
         auto* name=new QLineEdit(QString::fromStdString(pending.name),this);form->addRow(tr("Název"),name);
         connect(name,&QLineEdit::textChanged,this,[this](auto v){pending.name=v.toStdString();});
-        auto* mode=new QComboBox(this);mode->addItems({tr("Přičíst"),tr("Odečíst")});
-        mode->setCurrentIndex(pending.combine_mode==document::CombineMode::Subtract?1:0);form->addRow(tr("Operace"),mode);
-        connect(mode,&QComboBox::currentIndexChanged,this,[this](int i){pending.combine_mode=i?document::CombineMode::Subtract:document::CombineMode::Add;notify();});
         content_layout()->addLayout(form);install_placement();form=new QFormLayout;
         auto* plane=new QComboBox(this);plane->setObjectName("helicalBasePlane");plane->addItems({"XY","XZ / FRONT","YZ"});
         plane->setCurrentIndex(static_cast<int>(sketcher::Sketch::from_serialized(pending.helical.sketches[0]).plane));
@@ -42,7 +39,7 @@ public:
         connect(pitch,&QDoubleSpinBox::valueChanged,this,[this](double p){pending.helical.pitch=p;notify();});
         auto* hand=new QComboBox(this);hand->setObjectName("helicalHandedness");hand->addItems({tr("Pravý"),tr("Levý")});hand->setCurrentIndex(pending.helical.left_handed?1:0);form->addRow(tr("Směr vinutí"),hand);
         connect(hand,&QComboBox::currentIndexChanged,this,[this](int i){pending.helical.left_handed=i!=0;notify();});
-        status_=new QLabel(this);status_->setWordWrap(true);form->addRow(status_);content_layout()->addLayout(form);refresh_choices();
+        status_=new QLabel(this);status_->setWordWrap(true);form->addRow(status_);content_layout()->addLayout(form);install_operation_buttons();refresh_choices();
     }
     void set_status(const QString& text){status_->setText(text);}
     void set_sketch(unsigned stage,const sketcher::Sketch& sketch){pending.helical.sketches.at(stage)=sketch.serialized();if(stage==0)refresh_choices();notify();}

@@ -6,6 +6,9 @@ ve společném interním okně až do OK. Dokončit skicu se vrací do tohoto ok
 Cancel zahodí celý rozpracovaný kontejner. Editace používá uložený vstup
 před kontejnerem a po ukončení obnoví normální historii.
 
+Přičíst / Odečíst jsou dole ve vlastnostech jako společná dvojice tlačítek
+s Protrusion. Volba je do potvrzení OK pouze rozpracovaná.
+
 ## Vstupy
 
 1. Základní skica leží v rovině kolmé k ose vinutí. První verze přijímá
@@ -63,6 +66,9 @@ případně XY nebo YZ). Všechny tři skici přebírají stejné umístění; z
 posunu nebo orientace přenese celé vinutí. Odvozené roviny zůstávají
 součástí funkce. Samostatná světová reference základní roviny se nepoužívá.
 Sdílený kontrakt umístění kontejnerů se nemění.
+Náhled umístění zobrazuje počátek bez přidané pomocné konstrukční osy.
+Vstup do vlastněné skici natočí kameru na její skutečnou rovinu stejným
+postupem jako u běžné skici v dokumentu.
 
 ## Ověření
 
@@ -79,6 +85,7 @@ ZIMA_VERIFY_HELICAL_SWEEP_ONLY=1 ./build/cpp-debug/zima-cad-cpp --verify-startup
 
 Prochází vytvoření, vstup do všech tří skic, návrat do Vlastností, OK,
 uložení, znovuotevření, strom vlastněných skic a Cancel bez změny modelu.
+Kontroluje také společná tlačítka Přičíst / Odečíst.
 
 Výpočet dráhy používá kubické úseky s kontrolou vzorkovaných odchylek vůči toleranci 0,00001 mm;
 parametrizace vzorkování neovlivňuje identity výsledných ploch. Aktuální

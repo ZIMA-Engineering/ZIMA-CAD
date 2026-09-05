@@ -50,6 +50,14 @@ DimensionKind classify_linear_dimension(
     const double max_x = std::max(first[0], second[0]);
     const double min_y = std::min(first[1], second[1]);
     const double max_y = std::max(first[1], second[1]);
+    // Automatic placement must not select the zero projection of an
+    // axis-aligned pair, even beyond either endpoint of the segment.
+    const double alignment_tolerance = std::max(1.0e-9,
+        std::hypot(max_x - min_x, max_y - min_y) * 1.0e-9);
+    if (max_x - min_x <= alignment_tolerance &&
+        max_y - min_y > alignment_tolerance) return DimensionKind::DistanceY;
+    if (max_y - min_y <= alignment_tolerance &&
+        max_x - min_x > alignment_tolerance) return DimensionKind::DistanceX;
     const double tolerance = std::max(1.0e-6,
         std::hypot(max_x - min_x, max_y - min_y) * 0.05);
     const bool outside_x = cursor[0] < min_x || cursor[0] > max_x;

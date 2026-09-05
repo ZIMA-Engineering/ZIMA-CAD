@@ -1,5 +1,6 @@
 #pragma once
 #include "placement_reference_dialog.hpp"
+#include "feature_operation_buttons.hpp"
 #include <zima/ui/container_placement_section.hpp>
 #include <zima/ui/properties_subwindow.hpp>
 #include <QDoubleSpinBox>
@@ -20,6 +21,10 @@ public:
     std::function<void(std::size_t)> request_placement;
     SweepPlacementDialog(const QString& title, document::HistoryContainer value, QWidget* parent)
         : PropertiesSubWindow(title,parent),pending(std::move(value)) {}
+    void install_operation_buttons() {
+        add_feature_operation_buttons(this,content_layout(),pending.combine_mode==document::CombineMode::Subtract,
+            [this](bool subtract){pending.combine_mode=subtract?document::CombineMode::Subtract:document::CombineMode::Add;if(changed)changed();});
+    }
     void install_placement() {
         placement_=new ui::ContainerPlacementSection(this,content_layout(),true,true);
         placement_->initialize_from_references(pending.placement.references,[](const std::string& key){return QString::fromStdString(key);});

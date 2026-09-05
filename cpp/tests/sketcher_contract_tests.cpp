@@ -72,6 +72,16 @@ int main() {
                     {0.0, 0.0}, {10.0, 6.0}, {18.0, 6.2}) ==
                     DimensionKind::DistanceY,
                 "linear dimension boundary tolerance did not stabilize axis zones");
+        for (const auto cursor : {std::array{-20.0, -30.0},
+                                  std::array{20.0, 30.0},
+                                  std::array{0.0, 5.0}}) {
+            require(zima::sketcher::classify_linear_dimension(
+                        {0.0, 0.0}, {0.0, 10.0}, cursor) == DimensionKind::DistanceY,
+                    "vertical segment selected its zero horizontal projection");
+            require(zima::sketcher::classify_linear_dimension(
+                        {0.0, 0.0}, {10.0, 0.0}, cursor) == DimensionKind::DistanceX,
+                    "horizontal segment selected its zero vertical projection");
+        }
         auto sketch = zima::sketcher::Sketch::create_default();
         auto first = zima::sketcher::Sketch::create_point(0.0, 0.0);
         auto second = zima::sketcher::Sketch::create_point(13.0, 4.0);

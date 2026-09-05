@@ -33,6 +33,7 @@
 #include <QMessageBox>
 #include <QMouseEvent>
 #include <QPalette>
+#include <QQuaternion>
 #include <QPointer>
 #include <QOpenGLWidget>
 #include <QPushButton>
@@ -211,6 +212,14 @@ int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspac
     auto* dialog=dynamic_cast<zima::app::Sweep2DDialog*>(window.findChild<QDialog*>("sweep2dDialog"));
     if(!verify(dialog!=nullptr,"2D Sweep properties did not open"))return 1;
     const auto feature_id=dialog->pending.id;
+    auto* add_operation=dialog->findChild<QPushButton*>("primitiveAddOperation");
+    auto* subtract_operation=dialog->findChild<QPushButton*>("primitiveSubtractOperation");
+    if(!verify(add_operation&&subtract_operation&&add_operation->isChecked(),"Sweep operation buttons missing"))return 1;
+    subtract_operation->click();
+    if(!verify(dialog->pending.combine_mode==zima::document::CombineMode::Subtract&&subtract_operation->isChecked()&&!add_operation->isChecked(),"Sweep Subtract button did not select operation"))return 1;
+    add_operation->click();
+    if(!verify(dialog->pending.combine_mode==zima::document::CombineMode::Add&&add_operation->isChecked()&&!subtract_operation->isChecked(),"Sweep Add button did not select operation"))return 1;
+
     auto* placement=dialog->findChild<QTableWidget*>("sweepPlacementReferences");auto* orientation=dialog->findChild<QTableWidget*>("sweepPlacementOrientation");
     auto* placement_view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
     if(!verify(placement&&placement->rowCount()>=1&&placement->rowCount()<=3&&orientation&&orientation->rowCount()==2&&placement_view,"Sweep has no standard placement controls"))return 1;
@@ -228,6 +237,13 @@ int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspac
     for(unsigned stage=0;stage<2;++stage){
         dialog->findChild<QPushButton*>(QString("sweep2dSketch%1").arg(stage))->click();application.processEvents();
         if(!verify(!dialog->isVisible()&&finish&&finish->isEnabled(),"2D Sweep owned Sketch did not enter Sketcher"))return 1;
+        const auto frame=zima::sketcher::Sketch::from_serialized(dialog->pending.sweep2d.sketches[stage]);
+        QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();
+        const auto camera_frame=placement_view->camera_state();
+        const auto direction=QQuaternion(camera_frame[0],camera_frame[1],camera_frame[2],camera_frame[3]).inverted().rotatedVector(QVector3D(0,0,1));
+        const auto n=frame.resolved_normal;
+        const double cosine=std::abs(direction.x()*n.x+direction.y()*n.y+direction.z()*n.z)/std::sqrt(n.x*n.x+n.y*n.y+n.z*n.z);
+        if(!verify(cosine>1-1e-6,"Sweep Sketch entry did not align camera to its resolved plane"))return 1;
         finish->trigger();application.processEvents();if(!verify(dialog->isVisible(),"Sketch did not return to pending 2D Sweep"))return 1;
     }
     dialog->buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
@@ -255,6 +271,7 @@ int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspac
     auto* view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
     if(!verify(dialog&&view,"Cannot test sweep2d reference selection"))return 1;
     view->set_standard_view(zima::viewer::StandardView::Isometric);view->fit_all();dialog->request_placement(0);application.processEvents();
+    QEventLoop isometric_animation;QTimer::singleShot(950,&isometric_animation,&QEventLoop::quit);isometric_animation.exec();
     std::optional<QPointF> hit;
     std::size_t cap_index{};
     for(int y=4;y<view->height()&&!hit;y+=2)for(int x=4;x<view->width();x+=2){
@@ -293,6 +310,88 @@ int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspac
     const auto path_frame=zima::sketcher::Sketch::from_serialized(dialog->pending.sweep2d.sketches[1]);
     if(!verify(std::abs(profile_frame.resolved_normal.y)>1-1e-6&&std::abs(path_frame.resolved_normal.x)>1-1e-6,"Placement plane rows did not drive the two Sketch frames"))return 1;
     if(!verify(!dialog->findChild<QComboBox*>("sweep2dBasePlane")&&!dialog->findChild<QTableWidget*>("sweep2dReferences"),"Redundant sweep plane controls remain"))return 1;
+    dialog->findChild<QPushButton*>("sweep2dSketch1")->click();application.processEvents();
+    QEventLoop sketch_animation;QTimer::singleShot(950,&sketch_animation,&QEventLoop::quit);sketch_animation.exec();
+    auto* polyline=window.findChild<QAction*>("sketchPolylineAction");
+    if(!verify(polyline&&polyline->isEnabled(),"Polyline tool unavailable in owned Sketch"))return 1;
+    polyline->trigger();application.processEvents();
+    const auto mouse=[&](QPointF p,Qt::MouseButton button){
+        QMouseEvent move(QEvent::MouseMove,p,p,p,Qt::NoButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&move);
+        QMouseEvent press(QEvent::MouseButtonPress,p,p,p,button,button,Qt::NoModifier);
+        QMouseEvent release(QEvent::MouseButtonRelease,p,p,p,button,Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(view,&press);QApplication::sendEvent(view,&release);application.processEvents();
+    };
+    std::optional<QPointF> origin_hit;
+    for(int y=4;y<view->height()&&!origin_hit;y+=2)for(int x=4;x<view->width();x+=2){
+        const auto offered=view->selection_candidates_at(QPointF(x,y));
+        if(!offered.empty()&&offered.front().semantic_key=="external_point:sketch_origin"){origin_hit=QPointF(x,y);break;}
+    }
+    if(!verify(origin_hit.has_value(),"Path Sketch origin not offered"))return 1;
+    const QPointF chain_start=*origin_hit;
+    mouse(chain_start,Qt::LeftButton);
+    mouse(chain_start+QPointF(0,-60),Qt::LeftButton);
+    mouse(chain_start+QPointF(40,-100),Qt::RightButton);
+    mouse(chain_start+QPointF(40,-100),Qt::LeftButton);
+    mouse(chain_start+QPointF(100,-100.5),Qt::RightButton);
+    mouse(chain_start+QPointF(100,-100.5),Qt::LeftButton);
+    window.findChild<QAction*>("sketchDimensionAction")->trigger();application.processEvents();
+    const QPointF first_segment_hit=chain_start+QPointF(0,-30);
+    QMouseEvent dimension_move(QEvent::MouseMove,first_segment_hit,first_segment_hit,first_segment_hit,Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+    QApplication::sendEvent(view,&dimension_move);
+    const auto segment_candidates=view->selection_candidates_at(first_segment_hit);
+    const auto segment_candidate=std::ranges::find_if(segment_candidates,[](const auto& candidate){
+        return candidate.kind==zima::viewer::CandidateKind::SketchSegment;
+    });
+    if(!verify(segment_candidate!=segment_candidates.end(),"First polyline segment not offered after switching to dimension"))return 1;
+    for(auto it=segment_candidates.begin();it!=segment_candidate;++it){
+        QMouseEvent press(QEvent::MouseButtonPress,first_segment_hit,first_segment_hit,first_segment_hit,Qt::RightButton,Qt::RightButton,Qt::NoModifier);
+        QMouseEvent release(QEvent::MouseButtonRelease,first_segment_hit,first_segment_hit,first_segment_hit,Qt::RightButton,Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(view,&press);QApplication::sendEvent(view,&release);
+    }
+    mouse(first_segment_hit,Qt::LeftButton);
+    mouse(QPointF(45,45),Qt::LeftButton);
+    finish->trigger();application.processEvents();
+    auto chain=zima::sketcher::Sketch::from_serialized(dialog->pending.sweep2d.sketches[1]);
+    if(!verify(chain.dimensions.size()==1,"Direct switch from polyline failed to commit first segment dimension"))return 1;
+    chain.dimensions.clear();
+    if(!verify(chain.segments.size()==2&&chain.arcs.size()==1,"Line/arc/line polyline did not create the chain"))return 1;
+    if(!verify(chain.points.size()==5,"Polyline contains an extra point"))return 1;
+    const auto& arc=chain.arcs.front();
+    for(const auto& segment:chain.segments){
+        if(!verify(segment.first_point_id==arc.start_point_id||segment.first_point_id==arc.end_point_id||
+                   segment.second_point_id==arc.start_point_id||segment.second_point_id==arc.end_point_id,
+                   "Polyline arc and line do not share their contact point"))return 1;
+    }
+    if(!verify(std::ranges::count_if(chain.constraints,[](const auto& c){return c.kind==zima::sketcher::ConstraintKind::Tangent;})==2,"Polyline arc-to-line transition lost tangency"))return 1;
+    for(bool points:{false,true}){
+        auto dimension_sketch=chain;
+        const auto segment=dimension_sketch.segments.front().id;
+        dialog->set_sketch(1,dimension_sketch);
+        dialog->findChild<QPushButton*>("sweep2dSketch1")->click();application.processEvents();
+        QEventLoop dimension_animation;QTimer::singleShot(950,&dimension_animation,&QEventLoop::quit);dimension_animation.exec();
+        window.findChild<QAction*>("sketchDimensionAction")->trigger();application.processEvents();
+        const auto select=[&](const std::string& key){
+            for(int y=4;y<view->height();y+=2)for(int x=4;x<view->width();x+=2){
+                auto candidates=view->selection_candidates_at(QPointF(x,y));
+                for(std::size_t i=0;i<candidates.size();++i)if(candidates[i].owner_id==dimension_sketch.id&&candidates[i].semantic_key==key){
+                    const QPointF p(x,y);view->clear_selection();
+                    QMouseEvent move(QEvent::MouseMove,p,p,p,Qt::NoButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&move);
+                    for(std::size_t j=0;j<i;++j){QMouseEvent press(QEvent::MouseButtonPress,p,p,p,Qt::RightButton,Qt::RightButton,Qt::NoModifier);QMouseEvent release(QEvent::MouseButtonRelease,p,p,p,Qt::RightButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&press);QApplication::sendEvent(view,&release);}
+                    mouse(p,Qt::LeftButton);return true;
+                }
+            }
+            return false;
+        };
+        if(points){
+            if(!verify(select("point:"+dimension_sketch.segments.front().first_point_id)&&select("point:"+dimension_sketch.segments.front().second_point_id),"Cannot select axis-aligned segment endpoints"))return 1;
+        }else if(!verify(select("segment:"+segment),"Cannot select axis-aligned segment"))return 1;
+        mouse(QPointF(45,45),Qt::LeftButton);
+        finish->trigger();application.processEvents();
+        const auto dimension_result=zima::sketcher::Sketch::from_serialized(dialog->pending.sweep2d.sketches[1]);
+        if(!verify(dimension_result.dimensions.size()==1,"Empty click did not commit dimension on axis from origin"))return 1;
+    }
+
+
     dialog->buttons()->button(QDialogButtonBox::Cancel)->click();application.processEvents();
     std::cout<<"2D Sweep UI contracts passed\n";return 0;
 }
@@ -307,6 +406,14 @@ int verify_helical_sweep_command(QApplication& application,zima::app::AssemblyWo
     auto* dialog=dynamic_cast<zima::app::HelicalSweepDialog*>(window.findChild<QDialog*>("helicalSweepDialog"));
     if(!verify(dialog!=nullptr,"Helical properties did not open"))return 1;
     const auto feature_id=dialog->pending.id;
+    auto* add_operation=dialog->findChild<QPushButton*>("primitiveAddOperation");
+    auto* subtract_operation=dialog->findChild<QPushButton*>("primitiveSubtractOperation");
+    if(!verify(add_operation&&subtract_operation&&add_operation->isChecked(),"Sweep operation buttons missing"))return 1;
+    subtract_operation->click();
+    if(!verify(dialog->pending.combine_mode==zima::document::CombineMode::Subtract&&subtract_operation->isChecked()&&!add_operation->isChecked(),"Sweep Subtract button did not select operation"))return 1;
+    add_operation->click();
+    if(!verify(dialog->pending.combine_mode==zima::document::CombineMode::Add&&add_operation->isChecked()&&!subtract_operation->isChecked(),"Sweep Add button did not select operation"))return 1;
+
     auto* placement=dialog->findChild<QTableWidget*>("sweepPlacementReferences");auto* orientation=dialog->findChild<QTableWidget*>("sweepPlacementOrientation");
     auto* placement_view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
     if(!verify(placement&&placement->rowCount()>=1&&placement->rowCount()<=3&&orientation&&orientation->rowCount()==2&&placement_view,"Sweep has no standard placement controls"))return 1;
@@ -352,6 +459,7 @@ int verify_helical_sweep_command(QApplication& application,zima::app::AssemblyWo
     auto* view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
     if(!verify(dialog&&view,"Cannot test helical reference selection"))return 1;
     view->set_standard_view(zima::viewer::StandardView::Isometric);view->fit_all();dialog->request_placement(0);application.processEvents();
+    QEventLoop isometric_animation;QTimer::singleShot(950,&isometric_animation,&QEventLoop::quit);isometric_animation.exec();
     std::optional<QPointF> hit;
     std::size_t cap_index{};
     for(int y=4;y<view->height()&&!hit;y+=2)for(int x=4;x<view->width();x+=2){

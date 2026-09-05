@@ -7308,7 +7308,7 @@ struct PlanarSweepPath {
 PlanarSweepPath planar_sweep_path(const HistoryContainer& c) {
     using namespace helical_geometry;
     PlanarSweepPath path;path.sketch=zima::sketcher::Sketch::from_serialized(c.sweep2d.sketches[1]);
-    path.curves=guide_curves(path.sketch,c.sweep2d.start_point_id);
+    path.curves=guide_curves(path.sketch,P{0,0});
     const auto profile=zima::sketcher::Sketch::from_serialized(c.sweep2d.sketches[0]);
     if(std::abs(dot(unit(path.derivative(0,0)),unit(profile.resolved_normal)))<1-1e-7)
         throw std::runtime_error("Počáteční tečna dráhy musí být kolmá k rovině průřezu");
@@ -7323,7 +7323,6 @@ PlanarSweepPath planar_sweep_path(const HistoryContainer& c) {
 HistoryContainer PartDocument::create_sweep2d_container() {
     auto c=create_sweep3d_container();c.sweep3d={};c.name="2D Sweep";c.feature_kind=FeatureKind::Sweep2D;
     for(unsigned i=0;i<2;++i){auto s=zima::sketcher::Sketch::create_default();s.owner_container_id=c.id;s.plane=zima::sketcher::SketchPlane::XZ;s.refresh_default_frame();s.name=i?"Dráha":"Průřez";
-        if(i){c.sweep2d.start_point_id=s.add_point(0,0);s.set_point_fixed(c.sweep2d.start_point_id,true);}
         c.sweep2d.sketches[i]=s.serialized();}
     reframe_sweep2d_sketches(c);return c;
 }
@@ -7422,7 +7421,7 @@ zima::kernel::Sweep3DRequest PartDocument::sweep2d_request(const HistoryContaine
     using namespace helical_geometry;
     auto c=input;reframe_sweep2d_sketches(c);const auto p=planar_sweep_path(c);
     zima::kernel::Sweep3DRequest request;request.transported=true;
-    request.path_points.push_back(p.at(0,0));request.path_point_ids.push_back(c.sweep2d.start_point_id);
+    request.path_points.push_back(p.at(0,0));request.path_point_ids.push_back(p.curves.front().start_point_id);
     std::function<void(std::size_t,double,double,unsigned)> approximate;
     approximate=[&](std::size_t i,double a,double b,unsigned depth){
         const auto first=p.at(i,a),last=p.at(i,b),c1=add(first,mul(p.derivative(i,a),(b-a)/3)),c2=sub(last,mul(p.derivative(i,b),(b-a)/3));
@@ -7446,7 +7445,7 @@ zima::kernel::Sweep3DRequest PartDocument::sweep2d_request(const HistoryContaine
     region.outer_edge_source_ids=source.outer_edge_source_ids;region.outer_vertex_source_ids=source.outer_vertex_source_ids;
     region.outer_profile=source.outer_profile;region.inner_profiles=source.inner_profiles;
     region.inner_boundary_ids=source.inner_boundary_ids;region.inner_edge_source_ids=source.inner_edge_source_ids;region.inner_vertex_source_ids=source.inner_vertex_source_ids;
-    request.sections.push_back({section.id,c.sweep2d.start_point_id,0,section.resolved_normal,region});
+    request.sections.push_back({section.id,p.curves.front().start_point_id,0,section.resolved_normal,region});
     if(c.sweep2d.result_type==ProfileResultType::Thin){
         if(!std::isfinite(c.sweep2d.thickness)||c.sweep2d.thickness<=1e-7)throw std::runtime_error("Tloušťka musí být kladná");
         request.thin=true;request.thin_first=c.sweep2d.thin_mode==ThinMode::OneSide?0:c.sweep2d.thin_mode==ThinMode::OtherSide?-c.sweep2d.thickness:-c.sweep2d.thickness/2;
@@ -9662,7 +9661,6 @@ PartDocument PartDocument::load(
         } else if (container.feature_kind == FeatureKind::Sweep2D) {
             const auto& data=source.at("sweep2d");auto& p=container.sweep2d;
             p.sketches=data.at("sketches").get<std::array<std::string,2>>();
-            p.start_point_id=data.at("start_point_id").get<std::string>();
             p.thickness=data.at("thickness").get<double>();
             const auto type=data.at("result_type").get<std::string>();
             if(type!="solid"&&type!="thin")throw std::runtime_error("Invalid Sweep result type");
@@ -10755,7 +10753,7 @@ void PartDocument::save(
             serialized["angle_degrees"] = container.revolution.angle_degrees;
         } else if (container.feature_kind == FeatureKind::Sweep2D) {
             const auto& p=container.sweep2d;
-            serialized["sweep2d"]={{"sketches",p.sketches},{"start_point_id",p.start_point_id},{"thickness",p.thickness},
+            serialized["sweep2d"]={{"sketches",p.sketches},{"thickness",p.thickness},
                 {"result_type",p.result_type==ProfileResultType::Thin?"thin":"solid"},
                 {"thin_mode",p.thin_mode==ThinMode::OneSide?"one_side":p.thin_mode==ThinMode::OtherSide?"other_side":"symmetric"}};
         } else if (container.feature_kind == FeatureKind::HelicalSweep) {

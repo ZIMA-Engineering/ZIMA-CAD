@@ -6,6 +6,9 @@ properties window used for both creation and editing. Sketch changes remain
 pending until OK; Cancel restores the original history. Editing rolls back to
 the feature's real input body.
 
+Add / Subtract use the same bottom button row as Protrusion. Selection
+remains pending until OK.
+
 Both creation and editing use the standard container placement section:
 position references, FRONT/TOP, X/Y/Z, absolute rotation and corrections,
 orientation controls and the Origin selection button. They consume the shared
@@ -26,8 +29,12 @@ whether a valid swept body can already be constructed. A missing, unfinished,
 or invalid path does not hide the profile or the drawn path. The placement
 preview uses a point instead of an extra construction axis. Both Sketches keep
 their IDs when their frames change.
+Entering either owned Sketch aligns the camera to its resolved plane through
+the same active-Sketch accessor used for ordinary document sketches.
 
-The path starts at the fixed sketch-origin point. Its initial tangent must be
+The path starts at the Sketch origin. No separate fixed seed point is required;
+the sweep resolves the actual first curve endpoint, including reversed drawing
+direction. Its initial tangent must be
 normal to the profile plane; joined segments must meet tangentially. Lines,
 arcs, elliptical arcs and open B-splines use Sketch geometry, including evaluated
 corner radii. The path may bend and change direction within its plane; unlike a
@@ -60,3 +67,7 @@ Verification is in `cpp/tests/sweep2d_contract_tests.cpp` and the focused
 application contract `ZIMA_VERIFY_SWEEP2D_ONLY=1`. These cover analytic volume,
 normal transport, Thin contours, placement, end-cap persistence, plane validity,
 subtraction, owned Sketch entry/return, OK/Cancel and actual viewer plane picking.
+The GUI contract also checks camera alignment, the operation buttons, tangent
+line/arc/line continuation and confirmation of the first path segment's
+dimension, both by selecting the segment and by selecting its endpoints.
+The path fixture starts at the origin and verifies shared contact points.

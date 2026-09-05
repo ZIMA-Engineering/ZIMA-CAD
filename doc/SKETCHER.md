@@ -327,6 +327,12 @@ významné body `K` a bodové zarovnání `H/V` vůči existujícím bodům. Př
 má přednost před odvozeným přichycením středu k ose a potvrzené `H/V` se uloží
 jako skutečná bodová vazba.
 
+Při přepnutí z oblouku zpět na úsečku v **Lomené čáře** zůstává konec
+oblouku společným bodem. Při aktivní automatické tečnosti pokračování
+nabízí přichycení `C T`, zvýrazní podpůrný oblouk a po potvrzení uloží
+tečnou vazbu. Náhled i potvrzení používají stejnou inferenci. Střed oblouku
+je samostatný bod; na styku úsečky a oblouku se druhý bod nevytváří.
+
 Text je po dobu umístění kreslicí nástroj, takže obdélníkový výběr nesmí
 spotřebovat kliknutí do prázdného View. Levý klik určí kotvu a okamžitě zobrazí
 transientní obrys podle hodnot v interních Vlastnostech. `OK` jej uloží,
@@ -339,6 +345,18 @@ určují délkovou referenci; úsečka nebo osa předá své dva definiční bod
 kurzoru zobrazuje délkovou, vodorovnou nebo svislou variantu podle polohy.
 Kliknutí do prázdného View potvrdí její umístění. Kliknutí na další nabízenou
 úsečku, osu nebo body pokračuje ve stejném příkazu směrem k úhlové kótě.
+
+U bodů na společné svislici automatická volba nabídne svislý rozměr,
+u bodů na společné vodorovné přímce vodorovný rozměr, i když kurzor leží
+za koncem úsečky. Nesmí omylem zvolit nulový kolmý průmět. Odmítnutí
+nadbytečné nebo konfliktní kóty zobrazí zprávu a ponechá rozpracovanou kótu;
+výjimka solveru nesmí ukončit aplikaci.
+
+Stejný postup platí i ve vlastněných skicách sweepů. GUI regrese 2D Sweepu
+kreslí řetěz úsečka–oblouk–úsečka od počátku skici dráhy, přímo přepne na
+kótování první úsečky a potvrdí ji kliknutím do prostoru. Po opětovném
+vstupu ověřuje také kótování úsečky a dvojice jejích bodů a kontroluje
+sdílené konce bez přebytečných bodů.
 
 Úhlová kóta se vytvoří až ze dvou úplných směrů, tedy ze čtyř bodů. Dvě
 úsečky, dvě osy nebo jejich kombinace jsou pouze zkratkou pro stejné čtyři

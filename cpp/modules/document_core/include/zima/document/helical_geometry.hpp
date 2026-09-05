@@ -18,7 +18,7 @@ inline V cross(V a,V b) { return {a.y*b.z-a.z*b.y,a.z*b.x-a.x*b.z,a.x*b.y-a.y*b.
 inline double norm(V a) { return std::sqrt(dot(a,a)); }
 inline V unit(V a) { const auto n=norm(a); if (!std::isfinite(n)||n<1e-12) throw std::runtime_error("Neurčitý směr Helical Sweepu"); return mul(a,1/n); }
 inline double distance(P a,P b) { return std::hypot(a[0]-b[0],a[1]-b[1]); }
-struct Curve { std::string id; P start,end; std::function<P(double)> at; };
+struct Curve { std::string id; P start,end; std::function<P(double)> at; std::string start_point_id,end_point_id; };
 inline P point(const sketcher::Sketch& s,const std::string& id) {
     const auto* p=s.find_point(id); if (!p) throw std::runtime_error("Chybějící bod vodicí skici"); return {p->x,p->y};
 }
@@ -47,17 +47,17 @@ inline P spline_at(const std::vector<P>& p,unsigned degree,bool interpolating,do
     }
     return d[degree];
 }
-inline std::vector<Curve> guide_curves(const sketcher::Sketch& source,const std::string& start_id,bool require_origin=true) {
+inline std::vector<Curve> guide_curves(const sketcher::Sketch& source,P start,bool require_origin=true) {
     auto s=source.evaluated_profile_sketch(); std::vector<Curve> unordered;
     for(const auto& l:s.segments) if(!l.construction) {
         auto a=point(s,l.first_point_id),b=point(s,l.second_point_id);
-        unordered.push_back({l.id,a,b,[a,b](double u){return P{a[0]+u*(b[0]-a[0]),a[1]+u*(b[1]-a[1])};}});
+        unordered.push_back({l.id,a,b,[a,b](double u){return P{a[0]+u*(b[0]-a[0]),a[1]+u*(b[1]-a[1])};},l.first_point_id,l.second_point_id});
     }
     for(const auto& a:s.arcs) if(!a.construction) {
         auto c=point(s,a.center_point_id); const auto r=a.radius,t=a.start_angle;
         double sweep=a.end_angle-t; while(sweep<=0)sweep+=2*std::numbers::pi;
         const auto at=[c,r,t,sweep](double u){return P{c[0]+r*std::cos(t+u*sweep),c[1]+r*std::sin(t+u*sweep)};};
-        unordered.push_back({a.id,at(0),at(1),at});
+        unordered.push_back({a.id,at(0),at(1),at,a.start_point_id,a.end_point_id});
     }
     for(const auto& a:s.elliptical_arcs) if(!a.construction) {
         auto c=point(s,a.center_point_id); const double rot=a.rotation;
@@ -65,18 +65,18 @@ inline std::vector<Curve> guide_curves(const sketcher::Sketch& source,const std:
         if(a.reversed) {while(sweep>=0)sweep-=2*std::numbers::pi;}
         else {while(sweep<=0)sweep+=2*std::numbers::pi;}
         const auto at=[a,c,rot,sweep](double u){double t=a.start_parameter+u*sweep,x=a.major_radius*std::cos(t),y=a.minor_radius*std::sin(t);return P{c[0]+x*std::cos(rot)-y*std::sin(rot),c[1]+x*std::sin(rot)+y*std::cos(rot)};};
-        unordered.push_back({a.id,at(0),at(1),at});
+        unordered.push_back({a.id,at(0),at(1),at,a.start_point_id,a.end_point_id});
     }
     for(const auto& b:s.bsplines) if(!b.construction) {
         if(b.closed)throw std::runtime_error("Vodicí křivka musí být otevřená");
         std::vector<P> pts;for(const auto& id:b.control_point_ids)pts.push_back(point(s,id));
         const auto at=[pts,b](double u){return spline_at(pts,b.degree,b.interpolating,u);};
-        unordered.push_back({b.id,at(0),at(1),at});
+        unordered.push_back({b.id,at(0),at(1),at,b.control_point_ids.front(),b.control_point_ids.back()});
     }
     if(std::ranges::any_of(s.circles,[](auto& c){return !c.construction;})||
        std::ranges::any_of(s.ellipses,[](auto& c){return !c.construction;})||!s.texts.empty())
         throw std::runtime_error("Vodicí skica musí obsahovat jedinou otevřenou dráhu");
-    P cursor=point(source,start_id);
+    P cursor=start;
     if(require_origin&&distance(cursor,{0,0})>1e-7)throw std::runtime_error("Vodicí křivka musí začínat v počátku skici");
     std::vector<Curve> ordered;
     while(!unordered.empty()) {
@@ -87,11 +87,14 @@ inline std::vector<Curve> guide_curves(const sketcher::Sketch& source,const std:
         }
         if(found==unordered.size())throw std::runtime_error("Vodicí dráha není souvislá");
         auto c=unordered[found];unordered.erase(unordered.begin()+found);
-        if(reverse){std::swap(c.start,c.end);c.at=[at=c.at](double u){return at(1-u);};}
+        if(reverse){std::swap(c.start,c.end);std::swap(c.start_point_id,c.end_point_id);c.at=[at=c.at](double u){return at(1-u);};}
         ordered.push_back(c);cursor=c.end;
     }
-    if(ordered.empty()||distance(cursor,point(source,start_id))<1e-7)throw std::runtime_error("Chybí otevřená vodicí dráha");
+    if(ordered.empty()||distance(cursor,start)<1e-7)throw std::runtime_error("Chybí otevřená vodicí dráha");
     return ordered;
+}
+inline std::vector<Curve> guide_curves(const sketcher::Sketch& source,const std::string& start_id,bool require_origin=true) {
+    return guide_curves(source,point(source,start_id),require_origin);
 }
 struct Path {
     V origin,radial,axis,azimuth;

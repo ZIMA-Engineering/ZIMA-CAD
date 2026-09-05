@@ -1,3 +1,4 @@
+#include "feature_operation_buttons.hpp"
 #include "primitive_properties_dialog.hpp"
 #include "thread_catalog.hpp"
 
@@ -1156,46 +1157,15 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
     // for primitives, Extrusion and Revolution. The hidden combo remains an
     // internal value adapter only; it is no longer part of the visible UI.
     if (operation_ != nullptr) {
-        auto* operation_row = new QWidget(this);
-        auto* operation_layout = new QHBoxLayout(operation_row);
-        operation_layout->setContentsMargins(0, 0, 0, 0);
-        operation_layout->setSpacing(8);
-        add_operation_button_ = new QPushButton(tr("Přičíst"), this);
-        subtract_operation_button_ = new QPushButton(tr("Odečíst"), this);
-        for (auto* button : {add_operation_button_, subtract_operation_button_}) {
-            button->setCheckable(true);
-            button->setMinimumHeight(40);
-            button->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-        }
-        add_operation_button_->setObjectName("primitiveAddOperation");
-        subtract_operation_button_->setObjectName("primitiveSubtractOperation");
-        add_operation_button_->setStyleSheet(
-            "QPushButton{border:2px solid #2d5670;border-radius:6px;font-weight:700;"
-            "padding:7px 14px} QPushButton:checked{background:#00d1ff;color:#101510;"
-            "border-color:#6fe3ff}");
-        subtract_operation_button_->setStyleSheet(
-            "QPushButton{border:2px solid #713d3d;border-radius:6px;font-weight:700;"
-            "padding:7px 14px} QPushButton:checked{background:#c64b4b;color:#ffffff;"
-            "border-color:#ed7777}");
-        const bool subtract = operation_->currentData() == "subtract";
-        add_operation_button_->setChecked(!subtract);
-        subtract_operation_button_->setChecked(subtract);
-        operation_layout->addWidget(add_operation_button_);
-        operation_layout->addWidget(subtract_operation_button_);
-        auto* operation_form = new QFormLayout;
-        operation_form->addRow(tr("Operace"), operation_row);
-        content_layout()->addLayout(operation_form);
-        const auto select_operation = [this](bool subtract_selected) {
-            operation_->setCurrentIndex(operation_->findData(
-                subtract_selected ? "subtract" : "add"));
-            add_operation_button_->setChecked(!subtract_selected);
-            subtract_operation_button_->setChecked(subtract_selected);
-            notify_preview();
-        };
-        connect(add_operation_button_, &QPushButton::clicked, this,
-            [select_operation] { select_operation(false); });
-        connect(subtract_operation_button_, &QPushButton::clicked, this,
-            [select_operation] { select_operation(true); });
+        const auto operation_buttons = add_feature_operation_buttons(
+            this, content_layout(), operation_->currentData() == "subtract",
+            [this](bool subtract_selected) {
+                operation_->setCurrentIndex(operation_->findData(
+                    subtract_selected ? "subtract" : "add"));
+                notify_preview();
+            });
+        add_operation_button_ = operation_buttons.add;
+        subtract_operation_button_ = operation_buttons.subtract;
         if (assembly_cut_mode) {
             add_operation_button_->setEnabled(false);
             subtract_operation_button_->setEnabled(false);

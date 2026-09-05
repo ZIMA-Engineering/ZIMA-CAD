@@ -11359,7 +11359,7 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
         auto& c=dialog->pending;primitive_translation_dof_=zima::document::point_constraint_remaining_dof(c.placement.references,geometry);
         zima::document::PartDocument preview;
         zima::document::ConstructionObject origin;origin.id=c.id;origin.entity_id=c.feature_id;origin.container_origin=c.container_origin;
-        origin.kind=planar?zima::document::ConstructionKind::Point:zima::document::ConstructionKind::Axis;origin.origin={c.placement.x,c.placement.y,c.placement.z};origin.rotation={c.placement.rotation_x,c.placement.rotation_y,c.placement.rotation_z};origin.reference_valid=false;
+        origin.kind=zima::document::ConstructionKind::Point;origin.origin={c.placement.x,c.placement.y,c.placement.z};origin.rotation={c.placement.rotation_x,c.placement.rotation_y,c.placement.rotation_z};origin.reference_valid=false;
         preview.constructions.push_back(origin);primitive_origin_preview_mesh_=preview.construction_viewer_mesh(c.id);
         parameter_dimension_preview_=c;construction_dimension_object_id_=c.id;
         viewer_->set_feature_preview_owners({c.feature_id,c.container_origin.id});
@@ -14562,12 +14562,10 @@ void AssemblyWorkspaceWindow::align_active_sketch_view(bool fit_view) {
     const auto* assembly = workspace_.open_assembly(workspace_.active_document_id());
     if (viewer_ == nullptr || (part == nullptr && assembly == nullptr) ||
         active_sketch_id_.empty()) return;
-    const auto& sketches = part != nullptr
-        ? part->session.document().sketches : assembly->session.document().sketches;
-    const auto sketch = std::find_if(
-        sketches.begin(), sketches.end(),
-        [&](const auto& value) { return value.id == active_sketch_id_; });
-    if (sketch == sketches.end()) return;
+    // Owned, pending Sweep sketches are edited through the same active-sketch
+    // accessor as ordinary document sketches, before they enter history.
+    const auto* sketch = active_sketch();
+    if (sketch == nullptr) return;
     // `plane` is only the local XY/XZ/YZ choice. Once the container has
     // placement/orientation references, the real sketch plane can point in
     // any world direction; using the enum here caused Sketcher to claim a
@@ -17171,6 +17169,13 @@ AssemblyWorkspaceWindow::inferred_sketch_segment_end(
     // the closest guide, while the other coordinate remains cursor-driven.
     if (const auto* sketch = active_sketch()) {
         std::vector<std::string> start_tangent_curves;
+        // A polyline continuation already owns its contact with the preceding
+        // curve. Ordinary endpoint snap state is cleared after each segment,
+        // so recover this support from the chain for preview and confirmation.
+        if(sketch_polyline_active_&&!sketch_polyline_arc_mode_&&
+                !pending_polyline_tangent_geometry_id_.empty())
+            start_tangent_curves.push_back(pending_polyline_tangent_geometry_id_);
+
         if (pending_segment_start_snap_kind_ ==
                 zima::sketcher::ConstraintKind::PointOnCircle &&
             !pending_segment_start_snap_geometry_id_.empty()) {
@@ -21353,7 +21358,16 @@ void AssemblyWorkspaceWindow::show_sketch_dimension_properties(
         return;
     }
     if (!edit_mode) {
-        commit_dimension(std::move(initial));
+        try {
+            commit_dimension(initial);
+        } catch (const std::exception& error) {
+            pending_sketch_dimension_ = std::move(initial);
+            state_->setText(tr("Kótu nelze vytvořit: %1")
+                .arg(QString::fromUtf8(error.what())));
+            preserve_view_on_refresh_ = true;
+            refresh_scene();
+            return;
+        }
         refresh_tabs();
         refresh_scene();
         return;

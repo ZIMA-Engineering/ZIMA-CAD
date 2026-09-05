@@ -22,8 +22,6 @@ public:
         auto* form=new QFormLayout;
         auto* name=new QLineEdit(QString::fromStdString(pending.name),this);form->addRow(tr("Název"),name);
         connect(name,&QLineEdit::textChanged,this,[this](const auto& value){pending.name=value.toStdString();});
-        auto* mode=new QComboBox(this);mode->addItems({tr("Přičíst"),tr("Odečíst")});mode->setCurrentIndex(pending.combine_mode==document::CombineMode::Subtract?1:0);form->addRow(tr("Operace"),mode);
-        connect(mode,&QComboBox::currentIndexChanged,this,[this](int i){pending.combine_mode=i?document::CombineMode::Subtract:document::CombineMode::Add;notify();});
         content_layout()->addLayout(form);install_placement();form=new QFormLayout;
         auto* planes=new QLabel(tr("1. reference umístění: rovina průřezu\n2. reference umístění: rovina dráhy"),this);planes->setWordWrap(true);form->addRow(planes);
         for(unsigned i=0;i<2;++i){auto* button=new QPushButton(i?tr("2. Skica dráhy…"):tr("1. Skica průřezu…"),this);button->setObjectName(QString("sweep2dSketch%1").arg(i));form->addRow(button);connect(button,&QPushButton::clicked,this,[this,i]{if(edit_sketch)edit_sketch(i);});}
@@ -33,7 +31,7 @@ public:
         connect(result,&QComboBox::currentIndexChanged,this,[this](int i){pending.sweep2d.result_type=i?document::ProfileResultType::Thin:document::ProfileResultType::Solid;update_thin();notify();});
         connect(thickness_,&QDoubleSpinBox::valueChanged,this,[this](double value){pending.sweep2d.thickness=value;notify();});
         connect(side_,&QComboBox::currentIndexChanged,this,[this](int i){pending.sweep2d.thin_mode=i==0?document::ThinMode::OneSide:i==1?document::ThinMode::OtherSide:document::ThinMode::Symmetric;notify();});
-        status_=new QLabel(this);status_->setWordWrap(true);form->addRow(status_);content_layout()->addLayout(form);update_thin();
+        status_=new QLabel(this);status_->setWordWrap(true);form->addRow(status_);content_layout()->addLayout(form);install_operation_buttons();update_thin();
     }
     void set_status(const QString& text){status_->setText(text);}
     void set_sketch(unsigned stage,const sketcher::Sketch& s){pending.sweep2d.sketches.at(stage)=s.serialized();notify();}
