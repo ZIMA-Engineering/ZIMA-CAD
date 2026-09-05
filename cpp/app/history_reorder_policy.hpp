@@ -84,6 +84,14 @@ struct HistoryDependencyCollector {
         case FeatureKind::DrillPoint:
             for (const auto& ref : feature.drill_point.bottom_faces) reference(root,ref);
             break;
+        case FeatureKind::Sweep2D:
+            for(const auto& ref:feature.sweep2d.planes)if(ref)reference(root,*ref);
+            for(const auto& data:feature.sweep2d.sketches){auto owned=sketcher::Sketch::from_serialized(data);owned.plane_reference_owner_id.clear();sketch(owned,root);}
+            break;
+        case FeatureKind::HelicalSweep:
+            if(feature.helical.base_plane)reference(root,*feature.helical.base_plane);
+            for(const auto& data:feature.helical.sketches){auto owned=sketcher::Sketch::from_serialized(data);owned.plane_reference_owner_id.clear();sketch(owned,root);}
+            break;
         case FeatureKind::Sweep3D:
             construction(feature.sweep3d.path,root);
             for (const auto& profile : feature.sweep3d.profiles) {

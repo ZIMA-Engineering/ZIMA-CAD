@@ -16,7 +16,7 @@
 namespace zima::document {
 
 enum class CombineMode { Add, Subtract };
-enum class FeatureKind { Sketch, Box, Cylinder, Sphere, Cone, Pyramid, Wedge, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint, ShaftThread };
+enum class FeatureKind { Sketch, Box, Cylinder, Sphere, Cone, Pyramid, Wedge, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint, ShaftThread, HelicalSweep, Sweep2D };
 enum class ExtrusionDirection { Forward, Reverse, Symmetric };
 enum class ExtrusionExtent { Blind, UpToPlane, UpToSurface, ThroughAll };
 enum class ProfileSource { Internal, External };
@@ -578,6 +578,32 @@ struct Sweep3DParameters {
     bool operator==(const Sweep3DParameters&) const = default;
 };
 
+// Two owned Sketches share an origin in perpendicular profile/path planes.
+struct Sweep2DParameters {
+    std::array<std::optional<zima::kernel::FaceReference>, 2> planes;
+    std::array<std::string, 2> sketches;
+    std::string start_point_id;
+    ProfileResultType result_type{ProfileResultType::Solid};
+    ThinMode thin_mode{ThinMode::Symmetric};
+    double thickness{1.0};
+    bool reference_valid{true};
+    bool operator==(const Sweep2DParameters&) const = default;
+};
+
+// Three owned Sketches: base orbit, radial evolution, and normal section.
+// Their identities and the explicitly chosen orbit Point survive parameter edits.
+struct HelicalSweepParameters {
+    std::optional<zima::kernel::FaceReference> base_plane;
+    bool reference_valid{true};
+    std::array<std::string, 3> sketches;
+    std::string circle_id;
+    std::string start_point_id;
+    std::string guide_start_point_id;
+    double pitch{5.0};
+    bool left_handed{};
+    bool operator==(const HelicalSweepParameters&) const = default;
+};
+
 struct Placement {
     // Resolved container origin, either entered directly (no references) or
     // solved from `references` below, exactly as ConstructionObject does for
@@ -647,6 +673,8 @@ struct HistoryContainer {
     ExtrusionParameters extrusion;
     RevolutionParameters revolution;
     Sweep3DParameters sweep3d;
+    HelicalSweepParameters helical;
+    Sweep2DParameters sweep2d;
     ImportedStepParameters imported_step;
     EdgeTreatmentParameters edge_treatment;
     ShellParameters shell;
@@ -775,6 +803,16 @@ public:
     [[nodiscard]] static HistoryContainer create_revolution_container(
         std::string sketch_id);
     [[nodiscard]] static HistoryContainer create_sweep3d_container();
+    [[nodiscard]] static HistoryContainer create_sweep2d_container();
+    static void reframe_sweep2d_sketches(HistoryContainer&, unsigned through_stage = 1);
+    static void resolve_sweep2d_planes(HistoryContainer&, const zima::kernel::ViewerReferenceGeometry&);
+    [[nodiscard]] static zima::kernel::Sweep3DRequest sweep2d_request(const HistoryContainer&);
+    [[nodiscard]] static std::vector<zima::kernel::ViewerEdge> sweep2d_preview_edges(const HistoryContainer&);
+    [[nodiscard]] static HistoryContainer create_helical_sweep_container();
+    static void reframe_helical_sketches(HistoryContainer& container, unsigned through_stage = 2);
+    [[nodiscard]] static zima::kernel::Sweep3DRequest helical_sweep_request(const HistoryContainer& container);
+    [[nodiscard]] static std::vector<zima::kernel::ViewerEdge> helical_preview_edges(const HistoryContainer& container);
+
     // Recomputes the selected embedded profile's invisible Sketch frame from
     // its currently assigned path Point.  The Sketch geometry/identity is
     // preserved; only its resolved origin and orthonormal frame change.

@@ -486,6 +486,13 @@ struct Sweep3DRequest {
     std::vector<PathSegment> path_segments;
     std::vector<Section> sections;
     bool make_solid{true};
+    // A smooth, single-section sweep with a transported normal frame.
+    // Sampling indices are transient approximation data, never topology IDs.
+    bool transported{};
+    bool thin{};
+    std::string thin_end_point_id;
+    double thin_first{}, thin_second{};
+
 };
 
 struct FilletRequest {
@@ -1116,8 +1123,17 @@ struct PlacedBody {
                         append_string(id);
                     }
                     append_profile(section.profile.outer_profile);
+                    u64(section.profile.inner_profiles.size());
+                    for(const auto& inner:section.profile.inner_profiles)append_profile(inner);
+                    for(const auto& id:section.profile.inner_boundary_ids)append_string(id);
+                    for(const auto& loop:section.profile.inner_edge_source_ids){u64(loop.size());for(const auto& id:loop)append_string(id);}
+                    for(const auto& loop:section.profile.inner_vertex_source_ids){u64(loop.size());for(const auto& id:loop)append_string(id);}
+
                 }
                 byte(primitive.make_solid);
+                byte(primitive.transported);
+                byte(primitive.thin);append_string(primitive.thin_end_point_id);
+                u64(std::bit_cast<std::uint64_t>(primitive.thin_first));u64(std::bit_cast<std::uint64_t>(primitive.thin_second));
             } else if constexpr (std::is_same_v<Request, StepRequest>) {
                 u64(primitive.source_path.size());
                 for (const unsigned char value : primitive.source_path) byte(value);

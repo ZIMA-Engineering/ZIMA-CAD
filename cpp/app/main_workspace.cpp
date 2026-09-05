@@ -1,4 +1,6 @@
 #include "shaft_thread_dialog.hpp"
+#include "helical_sweep_dialog.hpp"
+#include "sweep2d_dialog.hpp"
 #include "assembly_workspace_window.hpp"
 #include "construction_reference_candidate_policy.hpp"
 #include "construction_properties_dialog.hpp"
@@ -199,6 +201,121 @@ int verify_history_tree_drag(QApplication& application,const std::filesystem::pa
     return 0;
 }
 
+int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspaceWindow& window,
+        const std::filesystem::path& directory) {
+    auto doc=zima::document::PartDocument::create_default();const auto path=directory/"sweep2d-ui.prtz";doc.save(path);
+    window.show();if(!verify(window.open_document_path(QString::fromStdString(path.string())),"Cannot open sweep2d fixture"))return 1;
+    application.processEvents();auto* action=window.findChild<QAction*>("sweep2dAction");
+    if(!verify(action&&action->isEnabled(),"2D Sweep command missing"))return 1;
+    action->trigger();application.processEvents();
+    auto* dialog=dynamic_cast<zima::app::Sweep2DDialog*>(window.findChild<QDialog*>("sweep2dDialog"));
+    if(!verify(dialog!=nullptr,"2D Sweep properties did not open"))return 1;
+    const auto feature_id=dialog->pending.id;
+    auto section=zima::sketcher::Sketch::from_serialized(dialog->pending.sweep2d.sketches[0]);
+    static_cast<void>(section.add_circle(0,0,2));dialog->set_sketch(0,section);
+    auto guide=zima::sketcher::Sketch::from_serialized(dialog->pending.sweep2d.sketches[1]);
+    static_cast<void>(guide.add_segment(0,0,0,10));dialog->set_sketch(1,guide);
+    auto* finish=window.findChild<QAction*>("finishSketchAction");
+    for(unsigned stage=0;stage<2;++stage){
+        dialog->findChild<QPushButton*>(QString("sweep2dSketch%1").arg(stage))->click();application.processEvents();
+        if(!verify(!dialog->isVisible()&&finish&&finish->isEnabled(),"2D Sweep owned Sketch did not enter Sketcher"))return 1;
+        finish->trigger();application.processEvents();if(!verify(dialog->isVisible(),"Sketch did not return to pending 2D Sweep"))return 1;
+    }
+    dialog->buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
+    if(!verify(!dialog->isVisible(),"2D Sweep OK did not commit"))return 1;
+    auto* save=window.findChild<QAction*>("saveDocumentAction");save->trigger();application.processEvents();
+    auto stored=zima::document::PartDocument::load(path);
+    if(!verify(stored.history.size()==1&&stored.history.back().id==feature_id,"2D Sweep history not saved"))return 1;
+    QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* item=nullptr;int sketches=0;
+    for(QTreeWidgetItemIterator i(tree);*i;++i){if((*i)->data(0,Qt::UserRole+3).toString()=="part-sweep2d-sketch")++sketches;
+        if((*i)->data(0,Qt::UserRole).toString().toStdString()==feature_id&&(*i)->data(0,Qt::UserRole+3).toString()=="part-container")item=*i;}
+    if(!verify(item&&sketches==2,"Owned 2D Sweep Sketches absent from Tree"))return 1;
+    window.show_tree_item_properties(item);application.processEvents();
+    dialog=dynamic_cast<zima::app::Sweep2DDialog*>(window.findChild<QDialog*>("sweep2dDialog"));
+    if(!verify(dialog!=nullptr,"2D Sweep edit did not reopen same dialog"))return 1;
+    dialog->findChild<QDoubleSpinBox*>("sweep2dThickness")->setValue(7);
+    dialog->buttons()->button(QDialogButtonBox::Cancel)->click();application.processEvents();save->trigger();application.processEvents();
+    stored=zima::document::PartDocument::load(path);
+    if(!verify(stored.history.back().sweep2d.thickness==1,"Cancel committed pending sweep2d pitch"))return 1;
+    QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    action->trigger();application.processEvents();
+    dialog=dynamic_cast<zima::app::Sweep2DDialog*>(window.findChild<QDialog*>("sweep2dDialog"));
+    auto* view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
+    if(!verify(dialog&&view,"Cannot test sweep2d reference selection"))return 1;
+    view->fit_all();dialog->select_plane();application.processEvents();
+    std::optional<QPointF> hit;
+    for(int y=4;y<view->height()&&!hit;y+=2)for(int x=4;x<view->width();x+=2){
+        auto candidates=view->selection_candidates_at(QPointF(x,y));
+        if(!candidates.empty()&&candidates.front().owner_id==feature_id){hit=QPointF(x,y);break;}
+    }
+    if(!verify(hit.has_value(),"Start/end plane not offered to another 2D Sweep"))return 1;
+    QMouseEvent press(QEvent::MouseButtonPress,*hit,*hit,*hit,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+    QMouseEvent release(QEvent::MouseButtonRelease,*hit,*hit,*hit,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+    QApplication::sendEvent(view,&press);QApplication::sendEvent(view,&release);application.processEvents();
+    if(!verify(dialog->pending.sweep2d.planes[0].has_value()&&!dialog->plane_input,"Plane reference click did not confirm offered cap"))return 1;
+    dialog->buttons()->button(QDialogButtonBox::Cancel)->click();application.processEvents();
+    std::cout<<"2D Sweep UI contracts passed\n";return 0;
+}
+
+int verify_helical_sweep_command(QApplication& application,zima::app::AssemblyWorkspaceWindow& window,
+        const std::filesystem::path& directory) {
+    auto doc=zima::document::PartDocument::create_default();const auto path=directory/"helical-ui.prtz";doc.save(path);
+    window.show();if(!verify(window.open_document_path(QString::fromStdString(path.string())),"Cannot open helical fixture"))return 1;
+    application.processEvents();auto* action=window.findChild<QAction*>("helicalSweepAction");
+    if(!verify(action&&action->isEnabled(),"Helical Sweep command missing"))return 1;
+    action->trigger();application.processEvents();
+    auto* dialog=dynamic_cast<zima::app::HelicalSweepDialog*>(window.findChild<QDialog*>("helicalSweepDialog"));
+    if(!verify(dialog!=nullptr,"Helical properties did not open"))return 1;
+    const auto feature_id=dialog->pending.id;
+    auto base=zima::sketcher::Sketch::from_serialized(dialog->pending.helical.sketches[0]);
+    static_cast<void>(base.add_circle(0,0,5));static_cast<void>(base.add_point(5,0));dialog->set_sketch(0,base);
+    if(!verify(!dialog->pending.helical.start_point_id.empty(),"Unique initial Point not selected"))return 1;
+    auto guide=zima::sketcher::Sketch::from_serialized(dialog->pending.helical.sketches[1]);static_cast<void>(guide.add_segment(0,0,-1,6));dialog->set_sketch(1,guide);
+    auto section=zima::sketcher::Sketch::from_serialized(dialog->pending.helical.sketches[2]);static_cast<void>(section.add_circle(0,0,.4));dialog->set_sketch(2,section);
+    auto* finish=window.findChild<QAction*>("finishSketchAction");
+    for(unsigned stage=0;stage<3;++stage){
+        dialog->findChild<QPushButton*>(QString("helicalSketch%1").arg(stage))->click();application.processEvents();
+        if(!verify(!dialog->isVisible()&&finish&&finish->isEnabled(),"Helical owned Sketch did not enter Sketcher"))return 1;
+        finish->trigger();application.processEvents();if(!verify(dialog->isVisible(),"Sketch did not return to pending Helical Sweep"))return 1;
+    }
+    dialog->buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
+    if(!verify(!dialog->isVisible(),"Helical Sweep OK did not commit"))return 1;
+    auto* save=window.findChild<QAction*>("saveDocumentAction");save->trigger();application.processEvents();
+    auto stored=zima::document::PartDocument::load(path);
+    if(!verify(stored.history.size()==1&&stored.history.back().id==feature_id,"Helical Sweep history not saved"))return 1;
+    QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* item=nullptr;int sketches=0;
+    for(QTreeWidgetItemIterator i(tree);*i;++i){if((*i)->data(0,Qt::UserRole+3).toString()=="part-helical-sketch")++sketches;
+        if((*i)->data(0,Qt::UserRole).toString().toStdString()==feature_id&&(*i)->data(0,Qt::UserRole+3).toString()=="part-container")item=*i;}
+    if(!verify(item&&sketches==3,"Owned Helical Sweep Sketches absent from Tree"))return 1;
+    window.show_tree_item_properties(item);application.processEvents();
+    dialog=dynamic_cast<zima::app::HelicalSweepDialog*>(window.findChild<QDialog*>("helicalSweepDialog"));
+    if(!verify(dialog!=nullptr,"Helical edit did not reopen same dialog"))return 1;
+    dialog->findChild<QDoubleSpinBox*>("helicalPitch")->setValue(7);
+    dialog->buttons()->button(QDialogButtonBox::Cancel)->click();application.processEvents();save->trigger();application.processEvents();
+    stored=zima::document::PartDocument::load(path);
+    if(!verify(stored.history.back().helical.pitch==5,"Cancel committed pending helical pitch"))return 1;
+    QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    action->trigger();application.processEvents();
+    dialog=dynamic_cast<zima::app::HelicalSweepDialog*>(window.findChild<QDialog*>("helicalSweepDialog"));
+    auto* view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
+    if(!verify(dialog&&view,"Cannot test helical reference selection"))return 1;
+    view->fit_all();dialog->select_plane();application.processEvents();
+    std::optional<QPointF> hit;
+    for(int y=4;y<view->height()&&!hit;y+=2)for(int x=4;x<view->width();x+=2){
+        auto candidates=view->selection_candidates_at(QPointF(x,y));
+        if(!candidates.empty()&&candidates.front().owner_id==feature_id){hit=QPointF(x,y);break;}
+    }
+    if(!verify(hit.has_value(),"Start/end plane not offered to another Helical Sweep"))return 1;
+    QMouseEvent press(QEvent::MouseButtonPress,*hit,*hit,*hit,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+    QMouseEvent release(QEvent::MouseButtonRelease,*hit,*hit,*hit,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+    QApplication::sendEvent(view,&press);QApplication::sendEvent(view,&release);application.processEvents();
+    if(!verify(dialog->pending.helical.base_plane.has_value()&&!dialog->plane_input,"Plane reference click did not confirm offered cap"))return 1;
+    dialog->buttons()->button(QDialogButtonBox::Cancel)->click();application.processEvents();
+    std::cout<<"Helical Sweep UI contracts passed\n";return 0;
+}
+
 int verify_shaft_thread_command(QApplication& application,zima::app::AssemblyWorkspaceWindow& window,
         const std::filesystem::path& directory) {
     auto document=zima::document::PartDocument::create_default();
@@ -357,6 +474,10 @@ int verify_startup_contract(
     QApplication& application, zima::app::AssemblyWorkspaceWindow& window,
     const std::filesystem::path& test_directory,
     const QString& part_capture_path = {}, const QString& drawing_capture_path = {}) {
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SWEEP2D_ONLY"))
+        return verify_sweep2d_command(application,window,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_HELICAL_SWEEP_ONLY"))
+        return verify_helical_sweep_command(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHAFT_THREAD_ONLY"))
         return verify_shaft_thread_command(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_HISTORY_DRAG_ONLY"))

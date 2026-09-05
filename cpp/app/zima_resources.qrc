@@ -47,6 +47,8 @@
     <file alias="icons/sketch-dimensions.svg">../../resources/icons/sketch-dimensions.svg</file>
     <file alias="icons/protrusion.svg">../../resources/icons/protrusion.svg</file>
     <file alias="icons/revolve.svg">../../resources/icons/revolve.svg</file>
+    <file alias="icons/sweep2d.svg">../../resources/icons/sweep2d.svg</file>
+    <file alias="icons/helical-sweep.svg">../../resources/icons/helical-sweep.svg</file>
     <file alias="icons/sweep.svg">../../resources/icons/sweep.svg</file>
     <file alias="icons/thread.svg">../../resources/icons/thread.svg</file>
     <file alias="icons/drill-point.svg">../../resources/icons/drill-point.svg</file>

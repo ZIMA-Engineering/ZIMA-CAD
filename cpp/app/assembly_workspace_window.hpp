@@ -160,6 +160,8 @@ private:
     QAction* curve_3d_action_{};
     QAction* curve_3d_experimental_action_{};
     QAction* sweep_3d_action_{};
+    QAction* helical_sweep_action_{};
+    QAction* sweep2d_action_{};
     QAction* construction_axis_action_{};
     QAction* construction_plane_action_{};
     QAction* extrusion_action_{};
@@ -341,6 +343,9 @@ private:
     // Sketcher, but remains inside the parent dialog transaction until the
     // Sweep itself is confirmed with OK.
     std::optional<zima::sketcher::Sketch> sweep_profile_sketch_draft_;
+    std::function<void(zima::sketcher::Sketch)> embedded_sketch_finished_;
+    std::function<void(const zima::viewer::ViewerCandidate&)> sweep_reference_pick_;
+    std::function<void()> sweep_reference_end_;
     ConstructionPropertiesDialog* sweep_profile_parent_dialog_{};
     std::optional<std::size_t> sweep_profile_sketch_index_;
     ConstructionPropertiesDialog* sweep_profile_point_dialog_{};
@@ -613,6 +618,8 @@ private:
     void show_primitive_properties(
         zima::document::FeatureKind feature_kind,
         const std::string& container_id = {});
+    void show_sweep2d_properties(const std::string& container_id = {});
+    void show_helical_sweep_properties(const std::string& container_id = {});
     void show_sweep3d_properties(const std::string& container_id = {});
     void transform_sketch_container(
         const std::string& container_id,

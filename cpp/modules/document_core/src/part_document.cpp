@@ -1,4 +1,5 @@
 #include <zima/document/part_document.hpp>
+#include <zima/document/helical_geometry.hpp>
 #include <zima/document/versioned_file.hpp>
 #include <zima/document/viewer_packet_json.hpp>
 #include <zima/kernel/stable_id.hpp>
@@ -5924,6 +5925,16 @@ void PartDocument::resolve_constructions(
         }
         append(source_geometry, local_origin);
     }
+    // Sweep-derived Sketch planes are feature-local; they consume
+    // the original reference packet without changing container placement.
+    for(auto& container:history)if(container.feature_kind==FeatureKind::Sweep2D){
+        try {resolve_sweep2d_planes(container,source_geometry);container.sweep2d.reference_valid=true;}
+        catch(const std::exception&) {container.sweep2d.reference_valid=false;}
+    }
+    for(auto& container:history)if(container.feature_kind==FeatureKind::HelicalSweep){
+        try {helical_geometry::resolve_base_plane(container,source_geometry);reframe_helical_sketches(container);container.helical.reference_valid=true;}
+        catch(const std::exception&) {container.helical.reference_valid=false;}
+    }
     // A Sweep owns an ordinary Curve3D, but that curve is deliberately not a
     // second top-level Construction object.  Resolve its child Points in the
     // already-resolved container frame so their persisted coordinates remain
@@ -6183,7 +6194,8 @@ std::vector<zima::kernel::ViewerEdge> profile_preview_source_edges(
 
 std::vector<zima::kernel::ViewerEdge> thin_profile_preview_edges(
         const zima::sketcher::Sketch& evaluated_profile,
-        double thickness, ThinMode mode) {
+        double thickness, ThinMode mode, bool canonical_winding = false,
+        std::optional<zima::kernel::Vec3> start_point = std::nullopt) {
     auto source = profile_preview_source_edges(evaluated_profile);
     if (source.empty() || thickness <= 1.0e-12) return source;
     const auto distance = [](const auto& a, const auto& b) {
@@ -6271,7 +6283,14 @@ std::vector<zima::kernel::ViewerEdge> thin_profile_preview_edges(
     const double second_distance = mode == ThinMode::OneSide ? thickness
         : mode == ThinMode::Symmetric ? half : 0.0;
     std::vector<zima::kernel::ViewerEdge> result;
-    for (const auto& chain : chains) {
+    for (auto chain : chains) {
+        if(canonical_winding){
+            if(distance(chain.front(),chain.back())<=tolerance){
+                zima::kernel::Vec3 area{};
+                for(std::size_t i=0;i+1<chain.size();++i){const auto& a=chain[i];const auto& b=chain[i+1];area.x+=a.y*b.z-a.z*b.y;area.y+=a.z*b.x-a.x*b.z;area.z+=a.x*b.y-a.y*b.x;}
+                if(area.x*normal.x+area.y*normal.y+area.z*normal.z<0)std::reverse(chain.begin(),chain.end());
+            }else if(start_point&&distance(chain.back(),*start_point)<distance(chain.front(),*start_point))std::reverse(chain.begin(),chain.end());
+        }
         auto first = offset_chain(chain, first_distance);
         auto second = offset_chain(chain, second_distance);
         if (first.empty() || second.empty()) continue;
@@ -7272,6 +7291,282 @@ HistoryContainer PartDocument::create_shell_container(
     return container;
 }
 
+namespace {
+struct PlanarSweepPath {
+    using V=zima::kernel::Vec3;
+    zima::sketcher::Sketch sketch;
+    std::vector<helical_geometry::Curve> curves;
+    V at(std::size_t i,double u) const {const auto p=curves[i].at(u);return sketch.world_point(p[0],p[1]);}
+    V derivative(std::size_t i,double u) const {
+        using namespace helical_geometry;
+        const double h=1e-5;
+        if(u<2*h)return mul(add(add(mul(at(i,u),-25),mul(at(i,u+h),48)),add(add(mul(at(i,u+2*h),-36),mul(at(i,u+3*h),16)),mul(at(i,u+4*h),-3))),1/(12*h));
+        if(u>1-2*h)return mul(add(add(mul(at(i,u),25),mul(at(i,u-h),-48)),add(add(mul(at(i,u-2*h),36),mul(at(i,u-3*h),-16)),mul(at(i,u-4*h),3))),1/(12*h));
+        return mul(add(sub(at(i,u-2*h),at(i,u+2*h)),mul(sub(at(i,u+h),at(i,u-h)),8)),1/(12*h));
+    }
+};
+PlanarSweepPath planar_sweep_path(const HistoryContainer& c) {
+    using namespace helical_geometry;
+    PlanarSweepPath path;path.sketch=zima::sketcher::Sketch::from_serialized(c.sweep2d.sketches[1]);
+    path.curves=guide_curves(path.sketch,c.sweep2d.start_point_id);
+    const auto profile=zima::sketcher::Sketch::from_serialized(c.sweep2d.sketches[0]);
+    if(std::abs(dot(unit(path.derivative(0,0)),unit(profile.resolved_normal)))<1-1e-7)
+        throw std::runtime_error("Počáteční tečna dráhy musí být kolmá k rovině průřezu");
+    for(std::size_t i=0;i<path.curves.size();++i){
+        for(unsigned j=0;j<=128;++j)static_cast<void>(unit(path.derivative(i,double(j)/128)));
+        if(i&&dot(unit(path.derivative(i-1,1)),unit(path.derivative(i,0)))<1-1e-7)
+            throw std::runtime_error("Segmenty dráhy musí navazovat tečně");
+    }
+    return path;
+}
+}
+HistoryContainer PartDocument::create_sweep2d_container() {
+    auto c=create_sweep3d_container();c.sweep3d={};c.name="2D Sweep";c.feature_kind=FeatureKind::Sweep2D;
+    for(unsigned i=0;i<2;++i){auto s=zima::sketcher::Sketch::create_default();s.owner_container_id=c.id;s.name=i?"Dráha":"Průřez";
+        if(i){c.sweep2d.start_point_id=s.add_point(0,0);s.set_point_fixed(c.sweep2d.start_point_id,true);}
+        c.sweep2d.sketches[i]=s.serialized();}
+    reframe_sweep2d_sketches(c);return c;
+}
+void PartDocument::reframe_sweep2d_sketches(HistoryContainer& c,unsigned) {
+    using namespace helical_geometry;
+    auto profile=zima::sketcher::Sketch::from_serialized(c.sweep2d.sketches[0]);
+    if(!c.sweep2d.planes[0]){
+        profile.plane_reference_owner_id.clear();profile.plane_offset=0;profile.refresh_default_frame();
+        const V rotation{c.placement.rotation_x,c.placement.rotation_y,c.placement.rotation_z};
+        profile.resolved_origin={c.placement.x,c.placement.y,c.placement.z};
+        profile.resolved_x_axis=rotated_vector(profile.resolved_x_axis,rotation);
+        profile.resolved_y_axis=rotated_vector(profile.resolved_y_axis,rotation);
+        profile.resolved_normal=rotated_vector(profile.resolved_normal,rotation);
+    }
+    profile.plane_reference_owner_id=c.id+":sweep2d:profile";
+    auto path=zima::sketcher::Sketch::from_serialized(c.sweep2d.sketches[1]);
+    path.plane_reference_owner_id=c.id+":sweep2d:path";
+    path.resolved_origin=profile.resolved_origin;path.resolved_y_axis=profile.resolved_normal;
+    if(!c.sweep2d.planes[1])path.resolved_normal=unit(cross(profile.resolved_x_axis,profile.resolved_normal));
+    if(std::abs(dot(path.resolved_normal,profile.resolved_normal))>1e-7)
+        throw std::runtime_error("Rovina dráhy musí být kolmá k rovině průřezu");
+    path.resolved_x_axis=unit(cross(path.resolved_y_axis,path.resolved_normal));
+    c.sweep2d.sketches[0]=profile.serialized();c.sweep2d.sketches[1]=path.serialized();
+}
+void PartDocument::resolve_sweep2d_planes(HistoryContainer& c,const zima::kernel::ViewerReferenceGeometry& geometry) {
+    using namespace helical_geometry;
+    for(unsigned stage=0;stage<2;++stage){
+        if(!c.sweep2d.planes[stage])continue;
+        const auto& ref=*c.sweep2d.planes[stage];std::vector<V> vertices;
+        for(std::size_t i=0;i<geometry.triangle_references.size();++i)if(geometry.triangle_references[i]==ref)
+            for(unsigned j=0;j<3;++j)vertices.push_back(geometry.vertices.at(geometry.triangles.at(3*i+j)));
+        if(vertices.size()<3)throw std::runtime_error("Chybí reference roviny 2D Sweepu");
+        const auto n=unit(cross(sub(vertices[1],vertices[0]),sub(vertices[2],vertices[0])));
+        for(const auto& p:vertices)if(std::abs(dot(sub(p,vertices[0]),n))>1e-6)throw std::runtime_error("Vyberte rovinnou plochu");
+        auto s=zima::sketcher::Sketch::from_serialized(c.sweep2d.sketches[stage]);
+        if(stage==0){
+            s.resolved_origin=mul(n,dot(vertices[0],n));
+            const V x=std::abs(n.x)<.9?V{1,0,0}:V{0,1,0};
+            s.resolved_x_axis=unit(sub(x,mul(n,dot(x,n))));s.resolved_y_axis=unit(cross(n,s.resolved_x_axis));
+        }else{
+            const auto profile=zima::sketcher::Sketch::from_serialized(c.sweep2d.sketches[0]);
+            if(std::abs(dot(sub(profile.resolved_origin,vertices[0]),n))>1e-6)
+                throw std::runtime_error("Rovina dráhy musí procházet počátkem průřezu");
+        }
+        s.resolved_normal=n;s.plane_reference_owner_id=c.id+":sweep2d:plane";c.sweep2d.sketches[stage]=s.serialized();
+    }
+    reframe_sweep2d_sketches(c);
+}
+namespace {
+zima::kernel::ExtrusionRequest open_sweep_profile(const zima::sketcher::Sketch& source,std::string& end_id) {
+    using namespace helical_geometry;
+    using E=zima::kernel::ExtrusionRequest;
+    const auto s=source.evaluated_profile_sketch();
+    std::map<std::string,std::pair<std::string,std::string>> endpoints;
+    for(const auto& l:s.segments)if(!l.construction)endpoints[l.id]={l.first_point_id,l.second_point_id};
+    for(const auto& l:s.arcs)if(!l.construction)endpoints[l.id]={l.start_point_id,l.end_point_id};
+    for(const auto& l:s.elliptical_arcs)if(!l.construction)endpoints[l.id]={l.start_point_id,l.end_point_id};
+    for(const auto& l:s.bsplines)if(!l.construction&&!l.control_point_ids.empty())endpoints[l.id]={l.control_point_ids.front(),l.control_point_ids.back()};
+    std::vector<std::string> ends;
+    for(const auto& [id,pair]:endpoints)for(const auto& idp:{pair.first,pair.second}){
+        unsigned count=0;const auto p=point(s,idp);
+        for(const auto& [other,ep]:endpoints)for(const auto& v:{ep.first,ep.second})if(distance(p,point(s,v))<1e-7)++count;
+        if(count==1)ends.push_back(idp);
+    }
+    if(ends.size()!=2)throw std::runtime_error("Thin vyžaduje jednu souvislou otevřenou nebo uzavřenou konturu");
+    std::sort(ends.begin(),ends.end());end_id=ends.back();
+    const auto curves=guide_curves(s,ends.front(),false);
+    E result;E::CurvedProfile profile;
+    result.profile_region_id="thin:region:from:"+s.id;result.outer_boundary_id="thin:boundary:from:"+s.id;
+    for(const auto& curve:curves){
+        const auto world=[&](P p){return s.world_point(p[0],p[1]);};
+        const auto& ep=endpoints.at(curve.id);const bool forward=distance(point(s,ep.first),curve.start)<1e-7;
+        result.outer_edge_source_ids.push_back(curve.id);result.outer_vertex_source_ids.push_back(forward?ep.first:ep.second);
+        if(std::ranges::any_of(s.segments,[&](const auto& l){return l.id==curve.id;}))profile.curves.push_back(E::LineCurve{world(curve.start),world(curve.end)});
+        else if(std::ranges::any_of(s.arcs,[&](const auto& l){return l.id==curve.id;}))profile.curves.push_back(E::ArcCurve{world(curve.start),world(curve.at(.5)),world(curve.end)});
+        else if(auto it=std::ranges::find_if(s.bsplines,[&](const auto& l){return l.id==curve.id;});it!=s.bsplines.end()){
+            E::BSplineCurve spline;spline.start=world(curve.start);spline.end=world(curve.end);spline.degree=it->degree;spline.interpolating=it->interpolating;
+            for(const auto& id:it->control_point_ids)spline.control_points.push_back(world(point(s,id)));
+            if(!forward)std::reverse(spline.control_points.begin(),spline.control_points.end());profile.curves.push_back(std::move(spline));
+        }else{
+            const auto ellipse=std::ranges::find_if(s.elliptical_arcs,[&](const auto& l){return l.id==curve.id;});if(ellipse==s.elliptical_arcs.end())throw std::runtime_error("Neznámá křivka Thin profilu");
+            E::EllipticalArcCurve arc;arc.start=world(curve.start);arc.end=world(curve.end);arc.center=world(point(s,ellipse->center_point_id));arc.major_axis_direction=add(mul(s.resolved_x_axis,std::cos(ellipse->rotation)),mul(s.resolved_y_axis,std::sin(ellipse->rotation)));arc.major_radius=ellipse->major_radius;arc.minor_radius=ellipse->minor_radius;arc.start_parameter=ellipse->start_parameter;arc.end_parameter=ellipse->end_parameter;arc.reversed=ellipse->reversed;profile.curves.push_back(arc);
+        }
+    }
+    result.outer_profile=std::move(profile);return result;
+}
+}
+
+zima::kernel::Sweep3DRequest PartDocument::sweep2d_request(const HistoryContainer& input) {
+    using namespace helical_geometry;
+    auto c=input;reframe_sweep2d_sketches(c);const auto p=planar_sweep_path(c);
+    zima::kernel::Sweep3DRequest request;request.transported=true;
+    request.path_points.push_back(p.at(0,0));request.path_point_ids.push_back(c.sweep2d.start_point_id);
+    std::function<void(std::size_t,double,double,unsigned)> approximate;
+    approximate=[&](std::size_t i,double a,double b,unsigned depth){
+        const auto first=p.at(i,a),last=p.at(i,b),c1=add(first,mul(p.derivative(i,a),(b-a)/3)),c2=sub(last,mul(p.derivative(i,b),(b-a)/3));
+        bool split=dot(unit(p.derivative(i,a)),unit(p.derivative(i,b)))<.95;
+        for(double t:{.125,.25,.5,.75,.875}){
+            const auto q=add(add(mul(first,std::pow(1-t,3)),mul(c1,3*t*(1-t)*(1-t))),add(mul(c2,3*t*t*(1-t)),mul(last,t*t*t)));
+            split=split||norm(sub(q,p.at(i,a+t*(b-a))))>1e-6;
+        }
+        if(split){if(depth>=20)throw std::runtime_error("Nelze aproximovat dráhu 2D Sweepu");const auto mid=(a+b)/2;approximate(i,a,mid,depth+1);approximate(i,mid,b,depth+1);return;}
+        request.path_segments.push_back({p.curves[i].id,first,last,{first,c1,c2,last}});
+        request.path_points.push_back(last);request.path_point_ids.push_back(p.curves[i].id+":sample:"+std::to_string(b));
+    };
+    for(std::size_t i=0;i<p.curves.size();++i)approximate(i,0,1,0);
+    auto section=zima::sketcher::Sketch::from_serialized(c.sweep2d.sketches[0]);
+    zima::kernel::ExtrusionRequest source;
+    try{source=extrusion_request(section,1.0,ExtrusionDirection::Forward);}
+    catch(const std::exception&){if(c.sweep2d.result_type!=ProfileResultType::Thin)throw;source=open_sweep_profile(section,request.thin_end_point_id);}
+    if(!source.additional_profile_regions.empty())throw std::runtime_error("Průřez musí tvořit jednu souvislou oblast");
+    zima::kernel::ExtrusionRequest::ProfileRegion region;
+    region.region_id=source.profile_region_id;region.outer_boundary_id=source.outer_boundary_id;
+    region.outer_edge_source_ids=source.outer_edge_source_ids;region.outer_vertex_source_ids=source.outer_vertex_source_ids;
+    region.outer_profile=source.outer_profile;region.inner_profiles=source.inner_profiles;
+    region.inner_boundary_ids=source.inner_boundary_ids;region.inner_edge_source_ids=source.inner_edge_source_ids;region.inner_vertex_source_ids=source.inner_vertex_source_ids;
+    request.sections.push_back({section.id,c.sweep2d.start_point_id,0,section.resolved_normal,region});
+    if(c.sweep2d.result_type==ProfileResultType::Thin){
+        if(!std::isfinite(c.sweep2d.thickness)||c.sweep2d.thickness<=1e-7)throw std::runtime_error("Tloušťka musí být kladná");
+        request.thin=true;request.thin_first=c.sweep2d.thin_mode==ThinMode::OneSide?0:c.sweep2d.thin_mode==ThinMode::OtherSide?-c.sweep2d.thickness:-c.sweep2d.thickness/2;
+        request.thin_second=c.sweep2d.thin_mode==ThinMode::OtherSide?0:c.sweep2d.thin_mode==ThinMode::OneSide?c.sweep2d.thickness:c.sweep2d.thickness/2;
+    }
+    return request;
+}
+std::vector<zima::kernel::ViewerEdge> PartDocument::sweep2d_preview_edges(const HistoryContainer& input) {
+    using namespace helical_geometry;
+    auto c=input;reframe_sweep2d_sketches(c);const auto p=planar_sweep_path(c);std::vector<zima::kernel::ViewerEdge> edges;
+    std::vector<V> positions,tangents;
+    for(std::size_t i=0;i<p.curves.size();++i){zima::kernel::ViewerEdge e;e.reference={c.id,"sweep2d:path:"+p.curves[i].id,{}};
+        for(unsigned j=0;j<=128;++j){const auto u=double(j)/128;e.points.push_back(p.at(i,u));if(i==0||j){positions.push_back(p.at(i,u));tangents.push_back(unit(p.derivative(i,u)));}}
+        edges.push_back(std::move(e));}
+    const auto section=zima::sketcher::Sketch::from_serialized(c.sweep2d.sketches[0]);
+    const auto profile=section.evaluated_profile_sketch();
+    std::optional<V> thin_start;
+    if(c.sweep2d.result_type==ProfileResultType::Thin){
+        try{std::string end;const auto open=open_sweep_profile(profile,end);const auto* start=profile.find_point(open.outer_vertex_source_ids.front());if(start)thin_start=profile.world_point(start->x,start->y);}catch(const std::exception&){}
+    }
+    auto source=c.sweep2d.result_type==ProfileResultType::Thin?thin_profile_preview_edges(profile,c.sweep2d.thickness,c.sweep2d.thin_mode,true,thin_start):profile_preview_source_edges(profile);
+    // A planar path has an unambiguous fixed binormal, including inflections.
+    const auto b=unit(p.sketch.resolved_normal),t0=tangents.front(),r0=unit(cross(b,t0));
+    const auto transform=[&](V q,std::size_t i){auto d=sub(q,section.resolved_origin);return add(positions[i],add(mul(b,dot(d,b)),mul(unit(cross(b,tangents[i])),dot(d,r0))));};
+    for(const auto& e:source){if(e.points.empty())continue;
+        for(auto i:{std::size_t{0},positions.size()-1}){auto ring=e;ring.reference.owner_id=c.id;for(auto& q:ring.points)q=transform(q,i);edges.push_back(std::move(ring));}
+        zima::kernel::ViewerEdge rail;rail.reference={c.id,"sweep2d:rail:"+e.reference.semantic_key,{}};
+        for(std::size_t i=0;i<positions.size();++i)rail.points.push_back(transform(e.points.front(),i));edges.push_back(std::move(rail));}
+    return edges;
+}
+
+HistoryContainer PartDocument::create_helical_sweep_container() {
+    auto c=create_sweep3d_container();
+    c.feature_kind=FeatureKind::HelicalSweep;c.name="Helical Sweep";
+    c.sweep3d={};
+    for(unsigned i=0;i<3;++i){
+        auto s=zima::sketcher::Sketch::create_default();s.owner_container_id=c.id;
+        s.name=i==0?"Základní kružnice":i==1?"Radiální dráha":"Průřez";
+        if(i==1){c.helical.guide_start_point_id=s.add_point(0,0);s.set_point_fixed(c.helical.guide_start_point_id,true);}
+        c.helical.sketches[i]=s.serialized();
+    }
+    return c;
+}
+void PartDocument::reframe_helical_sketches(HistoryContainer& c,unsigned through_stage) {
+    using namespace helical_geometry;
+    if(through_stage==0)return;
+    auto p=path(c,false);
+    auto guide=zima::sketcher::Sketch::from_serialized(c.helical.sketches[1]);
+    guide.plane_reference_owner_id=c.id+":helical:radial";
+    guide.resolved_origin=add(p.origin,mul(p.radial,p.radius));
+    guide.resolved_x_axis=p.radial;guide.resolved_y_axis=p.axis;
+    guide.resolved_normal=unit(cross(p.radial,p.axis));
+    c.helical.sketches[1]=guide.serialized();
+    if(through_stage<2)return;
+    p=path(c);
+    auto section=zima::sketcher::Sketch::from_serialized(c.helical.sketches[2]);
+    section.plane_reference_owner_id=c.id+":helical:section";
+    section.resolved_origin=p.at(0,0);
+    section.resolved_normal=unit(p.derivative(0,0));
+    section.resolved_x_axis=unit(sub(p.radial,mul(section.resolved_normal,dot(p.radial,section.resolved_normal))));
+    section.resolved_y_axis=unit(cross(section.resolved_normal,section.resolved_x_axis));
+    c.helical.sketches[2]=section.serialized();
+}
+zima::kernel::Sweep3DRequest PartDocument::helical_sweep_request(const HistoryContainer& input) {
+    using namespace helical_geometry;
+    auto c=input; reframe_helical_sketches(c);
+    const auto p=path(c); zima::kernel::Sweep3DRequest request;request.transported=true;
+    request.path_points.push_back(p.at(0,0));request.path_point_ids.push_back(c.helical.start_point_id);
+    std::function<void(std::size_t,double,double,unsigned)> approximate;
+    approximate=[&](std::size_t i,double a,double b,unsigned depth){
+        const auto first=p.at(i,a),last=p.at(i,b);
+        const auto c1=add(first,mul(p.derivative(i,a),(b-a)/3));
+        const auto c2=sub(last,mul(p.derivative(i,b),(b-a)/3));
+        bool split=std::abs(p.curves[i].at(b)[1]-p.curves[i].at(a)[1])/p.pitch>1./16;
+        for(double t:{.25,.5,.75}){
+            const auto q=add(add(mul(first,std::pow(1-t,3)),mul(c1,3*t*(1-t)*(1-t))),add(mul(c2,3*t*t*(1-t)),mul(last,t*t*t)));
+            split=split||norm(sub(q,p.at(i,a+t*(b-a))))>1e-5;
+        }
+        if(split){if(depth>=20)throw std::runtime_error("Nelze aproximovat dráhu v požadované přesnosti");const auto m=(a+b)/2;approximate(i,a,m,depth+1);approximate(i,m,b,depth+1);return;}
+        request.path_segments.push_back({p.curves[i].id,first,last,{first,c1,c2,last}});
+        request.path_points.push_back(last);
+        // These locators belong only to the transient approximation, never to persisted topology.
+        request.path_point_ids.push_back(p.curves[i].id+":sample:"+std::to_string(b));
+    };
+    for(std::size_t i=0;i<p.curves.size();++i)approximate(i,0,1,0);
+    auto section=zima::sketcher::Sketch::from_serialized(c.helical.sketches[2]);
+    auto source=extrusion_request(section,1.0,ExtrusionDirection::Forward);
+    if(!source.additional_profile_regions.empty())throw std::runtime_error("Průřez musí tvořit jednu souvislou oblast");
+    zima::kernel::ExtrusionRequest::ProfileRegion region;
+    region.region_id=source.profile_region_id;region.outer_boundary_id=source.outer_boundary_id;
+    region.outer_edge_source_ids=source.outer_edge_source_ids;region.outer_vertex_source_ids=source.outer_vertex_source_ids;
+    region.outer_profile=source.outer_profile;region.inner_profiles=source.inner_profiles;
+    region.inner_boundary_ids=source.inner_boundary_ids;region.inner_edge_source_ids=source.inner_edge_source_ids;
+    region.inner_vertex_source_ids=source.inner_vertex_source_ids;
+    request.sections.push_back({section.id,c.helical.start_point_id,0,section.resolved_normal,region});
+    return request;
+}
+std::vector<zima::kernel::ViewerEdge> PartDocument::helical_preview_edges(const HistoryContainer& input) {
+    using namespace helical_geometry;
+    auto c=input;const auto p=path(c);std::vector<zima::kernel::ViewerEdge> edges;
+    std::vector<V> positions,tangents;
+    for(std::size_t i=0;i<p.curves.size();++i){
+        zima::kernel::ViewerEdge edge;edge.reference={c.id,"helical:guide:"+p.curves[i].id,{}};
+        const unsigned count=std::max(32u,static_cast<unsigned>(std::ceil(std::abs(p.curves[i].end[1]-p.curves[i].start[1])/p.pitch*128)));
+        for(unsigned j=0;j<=count;++j){const double u=double(j)/count;edge.points.push_back(p.at(i,u));if(i==0||j>0){positions.push_back(p.at(i,u));tangents.push_back(unit(p.derivative(i,u)));}}
+        edges.push_back(std::move(edge));
+    }
+    reframe_helical_sketches(c);
+    const auto section=zima::sketcher::Sketch::from_serialized(c.helical.sketches[2]);
+    auto sketch_mesh=section.viewer_mesh();
+    std::vector<V> xs{section.resolved_x_axis},ys{section.resolved_y_axis};
+    for(std::size_t i=1;i<positions.size();++i){
+        const auto v=cross(tangents[i-1],tangents[i]);const auto cosine=dot(tangents[i-1],tangents[i]);
+        auto x=xs.back();if(cosine>-1+1e-9)x=add(x,add(cross(v,x),mul(cross(v,cross(v,x)),1/(1+cosine))));
+        x=unit(sub(x,mul(tangents[i],dot(x,tangents[i]))));xs.push_back(x);ys.push_back(unit(cross(tangents[i],x)));
+    }
+    const auto transported=[&](const V& q,std::size_t i){auto d=sub(q,section.resolved_origin);return add(positions[i],add(mul(xs[i],dot(d,section.resolved_x_axis)),mul(ys[i],dot(d,section.resolved_y_axis))));};
+    for(const auto& e:sketch_mesh.edges){
+        if(e.points.empty())continue;
+        for(auto i:{std::size_t{0},positions.size()-1}){auto ring=e;ring.reference.owner_id=c.id;ring.reference.semantic_key="helical:section:"+e.reference.semantic_key;for(auto& q:ring.points)q=transported(q,i);edges.push_back(std::move(ring));}
+        zima::kernel::ViewerEdge rail;rail.reference={c.id,"helical:rail:"+e.reference.semantic_key,{}};
+        for(std::size_t i=0;i<positions.size();++i)rail.points.push_back(transported(e.points.front(),i));edges.push_back(std::move(rail));
+    }
+    return edges;
+}
+
 HistoryContainer PartDocument::create_sweep3d_container() {
     HistoryContainer container;
     container.id = make_id();
@@ -7929,6 +8224,12 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 apply_container_placement(revolution, container.placement);
             }
             primitive = std::move(revolution);
+        } else if (container.feature_kind == FeatureKind::Sweep2D) {
+            if(!container.sweep2d.reference_valid)throw std::runtime_error("Neplatné reference 2D Sweepu");
+            primitive = sweep2d_request(container);
+        } else if (container.feature_kind == FeatureKind::HelicalSweep) {
+            if(!container.helical.reference_valid)throw std::runtime_error("Neplatné reference Helical Sweepu");
+            primitive = helical_sweep_request(container);
         } else if (container.feature_kind == FeatureKind::Sweep3D) {
             auto resolved_container = container;
             auto& path = resolved_container.sweep3d.path;
@@ -8819,7 +9120,7 @@ PartDocument PartDocument::load(
         if (type != "sketch" && type != "box" && type != "cylinder" && type != "sphere" &&
             type != "cone" && type != "pyramid" && type != "wedge" &&
             type != "extrusion" &&
-            type != "revolution" && type != "sweep3d" &&
+            type != "revolution" && type != "sweep3d" && type != "helical_sweep" && type != "sweep2d" &&
             type != "imported_step" &&
             type != "fillet" && type != "chamfer" &&
             type != "shell" &&
@@ -8836,6 +9137,8 @@ PartDocument PartDocument::load(
             : type == "wedge" ? FeatureKind::Wedge
             : type == "extrusion" ? FeatureKind::Extrusion
             : type == "revolution" ? FeatureKind::Revolution
+            : type == "sweep2d" ? FeatureKind::Sweep2D
+            : type == "helical_sweep" ? FeatureKind::HelicalSweep
             : type == "sweep3d" ? FeatureKind::Sweep3D
             : type == "imported_step" ? FeatureKind::ImportedStep
             : type == "fillet" ? FeatureKind::Fillet
@@ -9336,6 +9639,34 @@ PartDocument PartDocument::load(
                             : container.revolution.angle_reverse) > 360.0) {
                 throw std::runtime_error("Invalid Revolution parameters");
             }
+        } else if (container.feature_kind == FeatureKind::Sweep2D) {
+            const auto& data=source.at("sweep2d");auto& p=container.sweep2d;
+            p.sketches=data.at("sketches").get<std::array<std::string,2>>();
+            p.start_point_id=data.at("start_point_id").get<std::string>();
+            p.thickness=data.at("thickness").get<double>();
+            const auto type=data.at("result_type").get<std::string>();
+            if(type!="solid"&&type!="thin")throw std::runtime_error("Invalid Sweep result type");
+            p.result_type=type=="thin"?ProfileResultType::Thin:ProfileResultType::Solid;
+            const auto mode=data.at("thin_mode").get<std::string>();
+            if(mode!="one_side"&&mode!="other_side"&&mode!="symmetric")throw std::runtime_error("Invalid Sweep thin mode");
+            p.thin_mode=mode=="one_side"?ThinMode::OneSide:mode=="other_side"?ThinMode::OtherSide:ThinMode::Symmetric;
+            for(unsigned i=0;i<2;++i)if(!data.at("planes").at(i).is_null()){
+                const auto& r=data.at("planes").at(i);p.planes[i]=zima::kernel::FaceReference{r.at("owner_id"),r.at("semantic_key"),r.at("instance_path")};
+            }
+            reframe_sweep2d_sketches(container);
+        } else if (container.feature_kind == FeatureKind::HelicalSweep) {
+            const auto& h=source.at("helical");
+            if(!h.at("base_plane").is_null()) {
+                const auto& r=h.at("base_plane");container.helical.base_plane=zima::kernel::FaceReference{
+                    r.at("owner_id").get<std::string>(),r.at("semantic_key").get<std::string>(),r.at("instance_path").get<std::string>()};
+            }
+            container.helical.sketches=h.at("sketches").get<std::array<std::string,3>>();
+            container.helical.circle_id=h.at("circle_id").get<std::string>();
+            container.helical.start_point_id=h.at("start_point_id").get<std::string>();
+            container.helical.guide_start_point_id=h.at("guide_start_point_id").get<std::string>();
+            container.helical.pitch=h.at("pitch").get<double>();
+            container.helical.left_handed=h.at("left_handed").get<bool>();
+            reframe_helical_sketches(container);
         } else if (container.feature_kind == FeatureKind::Sweep3D) {
             const auto& serialized_path = source.at("path");
             auto& path = container.sweep3d.path;
@@ -9942,6 +10273,16 @@ void PartDocument::save(
                             : container.revolution.angle_reverse) > 360.0) {
                 throw std::runtime_error("Invalid Revolution parameters");
             }
+        } else if (container.feature_kind == FeatureKind::Sweep2D) {
+            std::set<std::string> ids;
+            for(const auto& data:container.sweep2d.sketches){const auto sketch=zima::sketcher::Sketch::from_serialized(data);
+                if(sketch.owner_container_id!=container.id||!ids.insert(sketch.id).second)throw std::runtime_error("Neplatné vlastnictví skic 2D Sweepu");}
+            static_cast<void>(sweep2d_request(container));
+        } else if (container.feature_kind == FeatureKind::HelicalSweep) {
+            std::set<std::string> ids;
+            for(const auto& data:container.helical.sketches){const auto s=zima::sketcher::Sketch::from_serialized(data);
+                if(s.owner_container_id!=container.id||!ids.insert(s.id).second)throw std::runtime_error("Neplatné vlastnictví skic Helical Sweepu");}
+            static_cast<void>(helical_sweep_request(container));
         } else if (container.feature_kind == FeatureKind::Sweep3D) {
             const auto& path = container.sweep3d.path;
             if (path.kind != ConstructionKind::Curve3D ||
@@ -10038,6 +10379,8 @@ void PartDocument::save(
                     ? "extrusion"
                 : container.feature_kind == FeatureKind::Revolution
                     ? "revolution"
+                : container.feature_kind == FeatureKind::Sweep2D ? "sweep2d"
+                : container.feature_kind == FeatureKind::HelicalSweep ? "helical_sweep"
                 : container.feature_kind == FeatureKind::Sweep3D
                     ? "sweep3d"
                 : container.feature_kind == FeatureKind::ImportedStep
@@ -10397,6 +10740,19 @@ void PartDocument::save(
             serialized["axis_segment_id"] =
                 container.revolution.axis_segment_id;
             serialized["angle_degrees"] = container.revolution.angle_degrees;
+        } else if (container.feature_kind == FeatureKind::Sweep2D) {
+            const auto& p=container.sweep2d;
+            serialized["sweep2d"]={{"sketches",p.sketches},{"start_point_id",p.start_point_id},{"thickness",p.thickness},
+                {"result_type",p.result_type==ProfileResultType::Thin?"thin":"solid"},
+                {"thin_mode",p.thin_mode==ThinMode::OneSide?"one_side":p.thin_mode==ThinMode::OtherSide?"other_side":"symmetric"}};
+            auto& planes=serialized["sweep2d"]["planes"];planes=nlohmann::json::array();
+            for(const auto& r:p.planes)planes.push_back(r?nlohmann::json{{"owner_id",r->owner_id},{"semantic_key",r->semantic_key},{"instance_path",r->instance_path}}:nlohmann::json(nullptr));
+        } else if (container.feature_kind == FeatureKind::HelicalSweep) {
+            const auto& h=container.helical;
+            serialized["helical"]={{"sketches",h.sketches},{"circle_id",h.circle_id},
+                {"start_point_id",h.start_point_id},{"guide_start_point_id",h.guide_start_point_id},
+                {"pitch",h.pitch},{"left_handed",h.left_handed}};
+            serialized["helical"]["base_plane"]=h.base_plane?nlohmann::json{{"owner_id",h.base_plane->owner_id},{"semantic_key",h.base_plane->semantic_key},{"instance_path",h.base_plane->instance_path}}:nlohmann::json(nullptr);
         } else if (container.feature_kind == FeatureKind::Sweep3D) {
             const auto& path = container.sweep3d.path;
             std::unordered_set<std::string> embedded_construction_ids;

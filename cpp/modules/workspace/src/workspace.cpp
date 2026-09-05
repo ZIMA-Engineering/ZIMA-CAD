@@ -474,7 +474,14 @@ bool Workspace::refresh_context_external_references(
     zima::document::PartDocument& document) const {
     using Context = std::tuple<std::string, std::string, std::string>;
     std::set<Context> contexts;
-    for (const auto& sketch : document.sketches) {
+    std::vector<std::pair<std::string*,zima::sketcher::Sketch>> owned;
+    for(auto& container:document.history)if(container.feature_kind==zima::document::FeatureKind::Sweep2D)
+        for(auto& data:container.sweep2d.sketches)owned.emplace_back(&data,zima::sketcher::Sketch::from_serialized(data));
+    std::vector<zima::sketcher::Sketch*> sketches;
+    for(auto& sketch:document.sketches)sketches.push_back(&sketch);
+    for(auto& entry:owned)sketches.push_back(&entry.second);
+    for (const auto* source : sketches) {
+        const auto& sketch=*source;
         for (const auto& reference : sketch.external_references) {
             if (reference.context_assembly_document_id.empty()) continue;
             contexts.emplace(reference.context_assembly_document_id,
@@ -490,7 +497,8 @@ bool Workspace::refresh_context_external_references(
                 assembly_id, zima::assembly::InstancePath::decode(dependent_path),
                 source_document_id);
         }
-        for (auto& sketch : document.sketches) {
+        for (auto* target : sketches) {
+            auto& sketch=*target;
             const bool owns_context = std::any_of(
                 sketch.external_references.begin(),
                 sketch.external_references.end(), [&](const auto& reference) {
@@ -504,6 +512,7 @@ bool Workspace::refresh_context_external_references(
             }
         }
     }
+    for(auto& [data,sketch]:owned)*data=sketch.serialized();
     return changed;
 }
 

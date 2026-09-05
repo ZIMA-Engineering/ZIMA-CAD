@@ -1,3 +1,4 @@
+#include <BRepOffsetAPI_MakeOffset.hxx>
 #include <zima/kernel/shaft_thread_geometry.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 
@@ -16,6 +17,7 @@
 #include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepCheck_Analyzer.hxx>
+#include <BOPAlgo_ArgumentAnalyzer.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
@@ -63,6 +65,7 @@
 #include <Geom_TrimmedCurve.hxx>
 #include <Geom_BSplineCurve.hxx>
 #include <Geom_BezierCurve.hxx>
+#include <GeomConvert_CompCurveToBSplineCurve.hxx>
 #include <Geom_Surface.hxx>
 #include <GeomAPI_Interpolate.hxx>
 #include <GeomAPI_ProjectPointOnSurf.hxx>
@@ -855,7 +858,7 @@ PrimitiveData make_wedge_data(const WedgeRequest& request, const std::string& ow
         owner_id, "wedge");
 }
 
-void validate_extrusion(const ExtrusionRequest& request) {
+void validate_extrusion(const ExtrusionRequest& request, bool allow_open_profile = false) {
     const auto validate_profile = [&](const auto& profile_variant) {
         std::visit([&](const auto& profile) {
             using Profile = std::decay_t<decltype(profile)>;
@@ -914,7 +917,7 @@ void validate_extrusion(const ExtrusionRequest& request) {
                         profile.curves.front()) &&
                     std::get<ExtrusionRequest::BSplineCurve>(
                         profile.curves.front()).periodic;
-                if (profile.curves.size() < 2 && !single_periodic_spline) {
+                if (profile.curves.empty() || (profile.curves.size() < 2 && !single_periodic_spline && !allow_open_profile)) {
                     throw std::invalid_argument(
                         "Curved Extrusion profile requires at least two curves");
                 }
@@ -1072,7 +1075,7 @@ void validate_extrusion(const ExtrusionRequest& request) {
                     }, curve);
                 }
                 if (!first_start || !previous_end ||
-                    distance(*previous_end, *first_start) > 1.0e-7) {
+                    (!allow_open_profile && distance(*previous_end, *first_start) > 1.0e-7)) {
                     throw std::invalid_argument(
                         "Extrusion Curved profile is not closed");
                 }
@@ -1125,11 +1128,23 @@ void validate_extrusion(const ExtrusionRequest& request) {
 TopoDS_Wire make_profile_wire(
     const ExtrusionRequest::ProfileLoop& profile_variant,
     const Vec3& profile_normal,
-    const std::optional<Vec3>& circle_radial_direction = std::nullopt) {
+    const std::optional<Vec3>& circle_radial_direction = std::nullopt,
+    std::vector<TopoDS_Edge>* source_edges = nullptr) {
     return std::visit([&](const auto& profile) {
         using Profile = std::decay_t<decltype(profile)>;
         if constexpr (std::is_same_v<Profile,
                           ExtrusionRequest::PolygonProfile>) {
+            if (source_edges) {
+                BRepBuilderAPI_MakeWire wire;
+                std::vector<TopoDS_Vertex> vertices;
+                for (const auto& p : profile.vertices) vertices.push_back(BRepBuilderAPI_MakeVertex(gp_Pnt(p.x,p.y,p.z)).Vertex());
+                for (std::size_t i=0;i<vertices.size();++i) {
+                    auto edge=BRepBuilderAPI_MakeEdge(vertices[i],vertices[(i+1)%vertices.size()]).Edge();
+                    wire.Add(edge);source_edges->push_back(edge);
+                }
+                if(!wire.IsDone())throw std::runtime_error("Invalid polygon wire");
+                return wire.Wire();
+            }
             BRepBuilderAPI_MakePolygon polygon;
             for (const auto& point : profile.vertices) {
                 polygon.Add(gp_Pnt(point.x, point.y, point.z));
@@ -1156,6 +1171,7 @@ TopoDS_Wire make_profile_wire(
             if (!circle_wire.IsDone()) {
                 throw std::runtime_error("OCCT circular profile wire failed");
             }
+            if(source_edges)source_edges->push_back(edge.Edge());
             return circle_wire.Wire();
         } else if constexpr (std::is_same_v<Profile,
                                  ExtrusionRequest::EllipseProfile>) {
@@ -1176,6 +1192,7 @@ TopoDS_Wire make_profile_wire(
             if (!ellipse_wire.IsDone()) {
                 throw std::runtime_error("OCCT elliptical profile wire failed");
             }
+            if(source_edges)source_edges->push_back(edge.Edge());
             return ellipse_wire.Wire();
         } else {
             BRepBuilderAPI_MakeWire curved_wire;
@@ -1280,11 +1297,28 @@ TopoDS_Wire make_profile_wire(
                     }
                 }, curve);
                 curved_wire.Add(edge);
+                if(source_edges)source_edges->push_back(curved_wire.Edge());
             }
             if (!curved_wire.IsDone()) {
                 throw std::runtime_error("OCCT curved profile wire failed");
             }
-            return curved_wire.Wire();
+            const auto wire=curved_wire.Wire();
+            if(source_edges){
+                // Joining independently built curves may replace an earlier
+                // edge to merge its endpoint. Recover that source's final edge
+                // by its shared curve handle, never by wire traversal position.
+                for(auto& source:*source_edges){
+                    Standard_Real a,b;const auto curve=BRep_Tool::Curve(source,a,b);
+                    TopoDS_Edge match;unsigned count=0;
+                    for(TopExp_Explorer it(wire,TopAbs_EDGE);it.More();it.Next()){
+                        const auto edge=TopoDS::Edge(it.Current());Standard_Real first,last;
+                        if(BRep_Tool::Curve(edge,first,last)==curve&&std::abs(first-a)<1e-9&&std::abs(last-b)<1e-9){match=edge;++count;}
+                    }
+                    if(count!=1)throw std::runtime_error("Nelze určit zdrojovou hranu průřezu");
+                    source=TopoDS::Edge(match.Oriented(source.Orientation()));
+                }
+            }
+            return wire;
         }
     }, profile_variant);
 }
@@ -1319,8 +1353,8 @@ void validate_sweep3d(const Sweep3DRequest& request) {
         profile_request.outer_profile = section.profile.outer_profile;
         profile_request.inner_profiles = section.profile.inner_profiles;
         profile_request.direction = {0.0, 0.0, 1.0};
-        validate_extrusion(profile_request);
-        if (!section.profile.inner_profiles.empty()) {
+        validate_extrusion(profile_request, request.thin);
+        if (!request.transported && !section.profile.inner_profiles.empty()) {
             throw std::invalid_argument(
                 "Basic 3D Sweep does not support profile holes");
         }
@@ -1343,8 +1377,195 @@ void validate_sweep3d(const Sweep3DRequest& request) {
     }
 }
 
+struct SweepProfileWire {
+    TopoDS_Wire wire;
+    std::vector<TopoDS_Edge> edges;
+    std::vector<std::string> curve_ids,point_ids;
+};
+
+PrimitiveData make_transported_sweep_data(const Sweep3DRequest& request,const std::string& owner_id,
+    const SweepProfileWire* prepared=nullptr) {
+    if(request.sections.size()!=1)throw std::runtime_error("Sweep vyžaduje jeden průřez");
+    GeomConvert_CompCurveToBSplineCurve curve;
+    for(const auto& segment:request.path_segments){
+        TColgp_Array1OfPnt poles(1,4);
+        for(int i=0;i<4;++i){const auto& p=segment.bezier_control_points.at(i);poles.SetValue(i+1,gp_Pnt(p.x,p.y,p.z));}
+        Handle(Geom_BezierCurve) part=new Geom_BezierCurve(poles);
+        if(!curve.Add(part,1e-7,true,true,1))throw std::runtime_error("Nelze spojit prostorovou dráhu");
+    }
+    auto spine_edge=BRepBuilderAPI_MakeEdge(curve.BSplineCurve()).Edge();
+    auto spine=BRepBuilderAPI_MakeWire(spine_edge).Wire();
+    BRepOffsetAPI_MakePipeShell builder(spine);
+    builder.SetDiscreteMode();builder.SetTolerance(1e-5,1e-5,1e-6);
+    builder.SetMaxSegments(2000);
+    auto section=request.sections.front();
+    std::vector<TopoDS_Edge> profile_edges;
+    auto profile=prepared?prepared->wire:make_profile_wire(section.profile.outer_profile,section.profile_normal,std::nullopt,&profile_edges);
+    if(prepared){profile_edges=prepared->edges;section.profile.outer_edge_source_ids=prepared->curve_ids;section.profile.outer_vertex_source_ids=prepared->point_ids;}
+    builder.Add(profile,false,false);builder.Build();
+    if(!builder.IsDone()||!builder.MakeSolid()||!BRepCheck_Analyzer(builder.Shape()).IsValid())
+        throw std::runtime_error("Sweep nevytvořil platné těleso; zkontrolujte průřez a dráhu");
+    PrimitiveData result{builder.Shape(),{},{},{}};
+    if(profile_edges.size()!=section.profile.outer_edge_source_ids.size())throw std::runtime_error("Chybí rodiče hran průřezu");
+    const auto key=[](const std::string& role,const std::string& source){return role+":from:"+std::to_string(source.size())+":"+source;};
+    for(std::size_t i=0;i<profile_edges.size();++i){
+        const auto& source=section.profile.outer_edge_source_ids[i];
+        const auto& shapes=builder.Generated(profile_edges[i]);
+        for(TopTools_ListIteratorOfListOfShape it(shapes);it.More();it.Next())
+            if(it.Value().ShapeType()==TopAbs_FACE)result.faces.push_back({it.Value(),{owner_id,"generated:"+source}});
+        // Caps are identified by the source/end normal planes, never traversal order.
+    }
+    const auto end=request.path_points.back();
+    GProp_GProps initial_properties;
+    BRepGProp::SurfaceProperties(BRepBuilderAPI_MakeFace(profile,true).Face(),initial_properties);
+    const auto initial_center=initial_properties.CentreOfMass();
+    TopoDS_Face start_cap,end_cap;
+    std::vector<TopoDS_Face> caps;
+    for(TopExp_Explorer it(result.shape,TopAbs_FACE);it.More();it.Next()){
+        auto face=TopoDS::Face(it.Current());bool generated=false;
+        for(const auto& side:result.faces)if(side.shape.IsSame(face))generated=true;
+        if(generated)continue;
+        BRepAdaptor_Surface surface(face);
+        if(surface.GetType()!=GeomAbs_Plane)throw std::runtime_error("Neurčitá koncová plocha Sweepu");
+        caps.push_back(face);GProp_GProps properties;BRepGProp::SurfaceProperties(face,properties);
+        if(properties.CentreOfMass().Distance(initial_center)<1e-5){
+            if(!start_cap.IsNull())throw std::runtime_error("Startovní a koncový průřez splývají");
+            start_cap=face;
+        }
+    }
+    if(caps.size()!=2||start_cap.IsNull())throw std::runtime_error("Chybí jednoznačné koncové plochy Sweepu");
+    for(const auto& cap:caps)if(!cap.IsSame(start_cap))end_cap=cap;
+    const gp_Pnt final_location(end.x,end.y,end.z);
+    if(end_cap.IsNull()||BRepAdaptor_Surface(end_cap).Plane().Distance(final_location)>1e-5)
+        throw std::runtime_error("Koncová plocha neodpovídá konci vodicí dráhy");
+    const auto side_faces=result.faces;
+    result.faces.push_back({start_cap,{owner_id,key("start",section.profile.region_id)}});
+    result.faces.push_back({end_cap,{owner_id,key("end",section.profile.region_id)}});
+    for(const auto& side:side_faces){
+        const auto source=side.reference.semantic_key.substr(std::string("generated:").size());
+        for(const auto& cap:std::vector<std::pair<TopoDS_Face,std::string>>{{start_cap,"start"},{end_cap,"end"}})
+            for(TopExp_Explorer rim(cap.first,TopAbs_EDGE);rim.More();rim.Next())
+                for(TopExp_Explorer boundary(side.shape,TopAbs_EDGE);boundary.More();boundary.Next())
+                    if(rim.Current().IsSame(boundary.Current())) {
+                        result.edges.push_back({rim.Current(),{owner_id,cap.second+":generated:"+source}});break;
+                    }
+    }
+    for(std::size_t i=0;i<profile_edges.size();++i){
+        const bool seam=section.profile.outer_vertex_source_ids.empty();
+        if(!seam&&i>=section.profile.outer_vertex_source_ids.size())throw std::runtime_error("Chybí rodiče bodů průřezu");
+        const auto& source=seam?section.profile.outer_edge_source_ids[i]:section.profile.outer_vertex_source_ids[i];
+        const auto vertex=TopExp::FirstVertex(profile_edges[i],true);
+        const auto& generated=builder.Generated(vertex);
+        for(TopTools_ListIteratorOfListOfShape it(generated);it.More();it.Next())if(it.Value().ShapeType()==TopAbs_EDGE){
+            result.edges.push_back({it.Value(),{owner_id,(seam?"seam:generated:":"generated:")+source}});
+            for(TopExp_Explorer v(it.Value(),TopAbs_VERTEX);v.More();v.Next()){
+                const auto position=BRep_Tool::Pnt(TopoDS::Vertex(v.Current()));
+                const auto start_plane=BRepAdaptor_Surface(start_cap).Plane();
+                const auto end_plane=BRepAdaptor_Surface(end_cap).Plane();
+                const std::string role=start_plane.Distance(position)<1e-5?"start":end_plane.Distance(position)<1e-5?"end":"";
+                if(!role.empty())result.vertices.push_back({v.Current(),{owner_id,(seam?"seam:":"")+role+":generated:"+source}});
+            }
+        }
+    }
+    for(std::size_t i=0;i<section.profile.inner_profiles.size();++i){
+        auto inner=request;auto& region=inner.sections.front().profile;
+        region.outer_profile=section.profile.inner_profiles[i];
+        region.outer_edge_source_ids=section.profile.inner_edge_source_ids.at(i);
+        region.outer_vertex_source_ids=section.profile.inner_vertex_source_ids.at(i);
+        region.region_id=section.profile.inner_boundary_ids.at(i);
+        region.inner_profiles.clear();region.inner_edge_source_ids.clear();region.inner_vertex_source_ids.clear();region.inner_boundary_ids.clear();
+        auto tool=make_transported_sweep_data(inner,owner_id);BRepAlgoAPI_Cut cut(result.shape,tool.shape);cut.Build();
+        if(!cut.IsDone()||!BRepCheck_Analyzer(cut.Shape()).IsValid())throw std::runtime_error("Nelze vytvořit dutý průřez");
+        result.faces=propagate_topology(cut,result.faces,tool.faces);
+        result.edges=propagate_topology(cut,result.edges,tool.edges);
+        result.vertices=propagate_topology(cut,result.vertices,tool.vertices);result.shape=cut.Shape();
+    }
+    BOPAlgo_ArgumentAnalyzer check;
+    check.SetShape1(result.shape);check.SelfInterMode()=true;check.Perform();
+    if(check.HasFaulty())throw std::runtime_error("Tažený průřez se protíná; upravte průřez nebo dráhu");
+    return result;
+}
+
+PrimitiveData make_thin_sweep_data(const Sweep3DRequest& request,const std::string& owner_id) {
+    if(request.sections.size()!=1||!std::isfinite(request.thin_first)||!std::isfinite(request.thin_second)||request.thin_second-request.thin_first<=1e-7)
+        throw std::runtime_error("Neplatná tloušťka 2D Sweepu");
+    const auto& section=request.sections.front();
+    if(!section.profile.inner_profiles.empty())throw std::runtime_error("Thin vyžaduje jednu otevřenou nebo uzavřenou konturu");
+    std::vector<TopoDS_Edge> original_edges;
+    auto original=make_profile_wire(section.profile.outer_profile,section.profile_normal,std::nullopt,&original_edges);
+    if(original_edges.size()!=section.profile.outer_edge_source_ids.size())throw std::runtime_error("Chybí zdrojové křivky Thin profilu");
+    const auto offset=[&](double amount,const std::string& role){
+        SweepProfileWire result;
+        if(const auto* polygon=std::get_if<ExtrusionRequest::PolygonProfile>(&section.profile.outer_profile)){
+            // Straight-sided contours have exact miter offsets. Their source
+            // edge/point ancestry is already known, without offset-history loss
+            // when OCCT trims the parallel lines at convex corners.
+            auto shifted=*polygon;const auto count=polygon->vertices.size();
+            std::vector<gp_Vec> sides;const auto n=section.profile_normal;const gp_Vec normal(n.x,n.y,n.z);
+            for(std::size_t i=0;i<count;++i){const auto a=polygon->vertices[i],b=polygon->vertices[(i+1)%count];gp_Vec tangent(b.x-a.x,b.y-a.y,b.z-a.z);tangent.Normalize();sides.push_back(normal.Crossed(tangent));}
+            for(std::size_t i=0;i<count;++i){const auto& before=sides[(i+count-1)%count];const auto& after=sides[i];const double denominator=1+before.Dot(after);
+                if(denominator<1e-8)throw std::runtime_error("Neplatný roh Thin profilu");const auto shift=(before+after)*(amount/denominator);
+                auto& p=shifted.vertices[i];p={p.x+shift.X(),p.y+shift.Y(),p.z+shift.Z()};}
+            for(std::size_t i=0;i<count;++i){const auto a=polygon->vertices[i],b=polygon->vertices[(i+1)%count],c=shifted.vertices[i],d=shifted.vertices[(i+1)%count];
+                if(gp_Vec(b.x-a.x,b.y-a.y,b.z-a.z).Dot(gp_Vec(d.x-c.x,d.y-c.y,d.z-c.z))<=1e-9)throw std::runtime_error("Tloušťka překročila rozměr profilu");}
+            result.wire=make_profile_wire(shifted,section.profile_normal,std::nullopt,&result.edges);
+            for(const auto& id:section.profile.outer_edge_source_ids)result.curve_ids.push_back("thin:"+role+":from:"+id);
+            for(const auto& id:section.profile.outer_vertex_source_ids)result.point_ids.push_back("thin:"+role+":from:"+id);
+            return result;
+        }
+        // Construct in the explicit Sketch plane, including a single straight open wire.
+        const auto p=BRep_Tool::Pnt(TopExp::FirstVertex(original_edges.front(),true));
+        const auto n=section.profile_normal;
+        const gp_Pln plane(p,gp_Dir(n.x,n.y,n.z));
+        BRepBuilderAPI_MakeFace support(plane);support.Add(original);
+        BRepOffsetAPI_MakeOffset builder(support.Face(),GeomAbs_Intersection,true);
+        if(std::abs(amount)>1e-10){builder.Perform(-amount);if(!builder.IsDone())throw std::runtime_error("Nelze odsadit Thin profil");}
+        BRepBuilderAPI_MakeWire wire;
+        for(std::size_t i=0;i<original_edges.size();++i){
+            std::vector<TopoDS_Edge> generated;
+            if(std::abs(amount)<=1e-10)generated.push_back(original_edges[i]);
+            else{const auto& shapes=builder.Generated(original_edges[i]);for(TopTools_ListIteratorOfListOfShape it(shapes);it.More();it.Next())if(it.Value().ShapeType()==TopAbs_EDGE)generated.push_back(TopoDS::Edge(it.Value()));}
+            if(generated.size()!=1)throw std::runtime_error("Odsazení změnilo topologii profilu; upravte tloušťku");
+            wire.Add(generated.front());result.edges.push_back(generated.front());
+            result.curve_ids.push_back("thin:"+role+":from:"+section.profile.outer_edge_source_ids[i]);
+            if(!section.profile.outer_vertex_source_ids.empty())result.point_ids.push_back("thin:"+role+":from:"+section.profile.outer_vertex_source_ids.at(i));
+        }
+        if(!wire.IsDone())throw std::runtime_error("Nesouvislé odsazení Thin profilu");result.wire=wire.Wire();return result;
+    };
+    const bool closed=BRep_Tool::IsClosed(original);
+    auto first=offset(request.thin_first,"first"),second=offset(request.thin_second,"second");
+    auto plain=request;plain.thin=false;
+    if(closed){
+        const auto area=[](const TopoDS_Wire& w){BRepBuilderAPI_MakeFace face(w,true);if(!face.IsDone()||!BRepCheck_Analyzer(face.Face()).IsValid())throw std::runtime_error("Neplatný odsazený průřez");GProp_GProps props;BRepGProp::SurfaceProperties(face.Face(),props);return props.Mass();};
+        if(area(first.wire)<area(second.wire))std::swap(first,second);
+        // Name by material role; changing the thickness side cannot swap reference identities.
+        const auto rename=[](auto& profile,const std::string& role){for(auto* ids:{&profile.curve_ids,&profile.point_ids})for(auto& id:*ids)id="thin:"+role+id.substr(id.find(":from:"));};
+        rename(first,"outside");rename(second,"inside");
+        auto outer=make_transported_sweep_data(plain,owner_id,&first),inner=make_transported_sweep_data(plain,owner_id,&second);
+        BRepAlgoAPI_Cut cut(outer.shape,inner.shape);cut.Build();
+        if(!cut.IsDone()||!BRepCheck_Analyzer(cut.Shape()).IsValid())throw std::runtime_error("Thin Sweep nevytvořil platné těleso");
+        outer.faces=propagate_topology(cut,outer.faces,inner.faces);outer.edges=propagate_topology(cut,outer.edges,inner.edges);outer.vertices=propagate_topology(cut,outer.vertices,inner.vertices);outer.shape=cut.Shape();return outer;
+    }
+    // Close the two offset sides at the two source endpoints. Endpoint roles
+    // are supplied by ZIMA, never by kernel traversal indices.
+    TopoDS_Vertex a,b,c,d;TopExp::Vertices(first.wire,a,b);TopExp::Vertices(second.wire,c,d);
+    if(a.IsNull()||b.IsNull()||c.IsNull()||d.IsNull())throw std::runtime_error("Thin profil nemá dva konce");
+    if(BRep_Tool::Pnt(a).Distance(BRep_Tool::Pnt(c))>BRep_Tool::Pnt(a).Distance(BRep_Tool::Pnt(d)))std::swap(c,d);
+    auto start=BRepBuilderAPI_MakeEdge(a,c).Edge(),end=BRepBuilderAPI_MakeEdge(b,d).Edge();
+    BRepBuilderAPI_MakeWire wire;wire.Add(first.wire);wire.Add(end);wire.Add(second.wire);wire.Add(start);
+    if(!wire.IsDone())throw std::runtime_error("Nelze uzavřít Thin profil");
+    SweepProfileWire joined;joined.wire=wire.Wire();joined.edges=first.edges;joined.edges.insert(joined.edges.end(),second.edges.begin(),second.edges.end());joined.edges.push_back(start);joined.edges.push_back(end);
+    joined.curve_ids=first.curve_ids;joined.curve_ids.insert(joined.curve_ids.end(),second.curve_ids.begin(),second.curve_ids.end());
+    joined.curve_ids.push_back("thin:closure:from:"+section.profile.outer_vertex_source_ids.front());joined.curve_ids.push_back("thin:closure:from:"+request.thin_end_point_id);
+    joined.point_ids=first.point_ids;joined.point_ids.insert(joined.point_ids.end(),second.point_ids.begin(),second.point_ids.end());
+    joined.point_ids.push_back("thin:first:from:"+section.profile.outer_vertex_source_ids.front());
+    joined.point_ids.push_back("thin:first:from:"+request.thin_end_point_id);
+    return make_transported_sweep_data(plain,owner_id,&joined);
+}
+
 PrimitiveData make_sweep3d_data(
     const Sweep3DRequest& request, const std::string& owner_id) {
+    if(request.transported)return request.thin?make_thin_sweep_data(request,owner_id):make_transported_sweep_data(request,owner_id);
     std::vector<TopoDS_Vertex> path_vertices;
     path_vertices.reserve(request.path_points.size());
     for (const auto& point : request.path_points) {

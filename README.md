@@ -47,6 +47,8 @@ Current modeling tools and interaction contracts:
 
 - [Threaded openings](doc/THREADED_OPENING.md)
 - [External shaft threads](doc/SHAFT_THREAD.md)
+- [Helical Sweep](doc/HELICAL_SWEEP.md)
+- [2D Sweep: dvě skici, roviny a Solid/Thin](doc/SWEEP_2D.md)
 - [View and Tree highlighting](doc/MODELING_INTERACTION.md)
 - [History reordering](doc/HISTORY_TREE_REORDER.md)
 - [Sketch constraint activity](doc/SKETCH_CONSTRAINT_ACTIVITY.md)
