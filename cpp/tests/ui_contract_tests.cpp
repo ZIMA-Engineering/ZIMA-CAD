@@ -1,3 +1,7 @@
+#include "shaft_thread_dialog.hpp"
+#include "shaft_thread_preview.hpp"
+#include <QPointer>
+#include "sketch_constraints_dialog.hpp"
 #include "primitive_properties_dialog.hpp"
 #include "construction_properties_dialog.hpp"
 #include "component_properties_dialog.hpp"
@@ -8,6 +12,11 @@
 #include "document_tools_dialogs.hpp"
 #include "construction_reference_candidate_policy.hpp"
 #include "extrusion_dimension_policy.hpp"
+#include "opening_dimension_policy.hpp"
+#include "reference_tree_policy.hpp"
+#include "tree_reference_state.hpp"
+#include "history_tree_widget.hpp"
+#include "history_reorder_policy.hpp"
 #include "resource_icon.hpp"
 
 #include <zima/viewer/mesh_view.hpp>
@@ -16,6 +25,7 @@
 #include <QAction>
 #include <QApplication>
 #include <QAbstractProxyModel>
+#include <QAbstractItemView>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QComboBox>
@@ -93,6 +103,314 @@ int main(int argc, char* argv[]) {
     const auto initial = zima::document::PartDocument::create_box_container();
 
     try {
+        {
+            using namespace zima::app;
+            int committed=0;
+            auto initial=zima::document::PartDocument::create_shaft_thread_container();
+            initial.shaft_thread.root_diameter=8.111;
+            QPointer<ShaftThreadDialog> dialog=new ShaftThreadDialog(initial,[&](auto) { ++committed; },&parent);
+            dialog->show();application.processEvents();
+            require(dialog->windowFlags().testFlag(Qt::SubWindow),"Shaft thread dialog is not internal");
+            auto* size=dialog->findChild<QComboBox*>("shaftThreadSize");
+            auto* root=dialog->findChild<QDoubleSpinBox*>("shaftThreadRootDiameter");
+            require(root && std::abs(root->value()-8.111)<1e-8,"Opening properties overwrote a custom root diameter");
+            dialog->set_numeric("length",18);
+            require(std::abs(dialog->pending().shaft_thread.root_diameter-8.111)<1e-8,"Length edit overwrote custom diameter");
+            const auto catalog=load_thread_catalog("metric");
+            const auto m10=std::ranges::find_if(catalog,[](const auto& value) { return value.designation=="M10"; });
+            require(m10!=catalog.end(),"M10 is missing from the thread catalog");
+            size->setCurrentIndex(size->findText("M10"));
+            QMetaObject::invokeMethod(size,"activated",Q_ARG(int,size->currentIndex()));
+            require(std::abs(root->value()-m10->external_root_diameter)<0.00051,
+                "Catalog did not fill the external root diameter");
+            root->setValue(8.05);dialog->set_numeric("length",19);
+            require(std::abs(dialog->pending().shaft_thread.root_diameter-8.05)<1e-8,
+                "Custom external root diameter was overwritten");
+            auto wire_feature=dialog->pending();
+            zima::kernel::SurfaceGeometry cylinder;
+            cylinder.kind=zima::kernel::SurfaceGeometry::Kind::Cylinder;
+            cylinder.radius=5;cylinder.axial_max=30;
+            zima::kernel::FaceReference cylinder_ref{"wire-source","side",{}};
+            cylinder_ref.surface=std::make_shared<const zima::kernel::SurfaceGeometry>(cylinder);
+            zima::kernel::FaceReference start_ref{"wire-source","start",{}};
+            start_ref.surface=std::make_shared<const zima::kernel::SurfaceGeometry>();
+            wire_feature.shaft_thread.cylinder=cylinder_ref;wire_feature.shaft_thread.start=start_ref;
+            zima::kernel::ViewerReferenceGeometry wire_refs;
+            wire_refs.triangle_references={cylinder_ref,start_ref};
+            const auto wire=shaft_thread_preview(wire_feature,wire_refs);
+            require(wire.edges.size()==4 &&
+                std::ranges::count_if(wire.edges,[](const auto& edge) { return edge.points.size()==3; })==1,
+                "Thread preview must have three circles and one continuous generator");
+            const auto exit=std::ranges::find_if(wire.edges,[](const auto& edge) {
+                return edge.reference.semantic_key=="thread:boundary:runout:end";
+            });
+            require(exit!=wire.edges.end() && exit->points.size()==65 &&
+                std::abs(exit->points.front().z-22)<1e-8 && std::abs(exit->points.front().x-5)<1e-8,
+                "Preview omitted the nominal-radius circle at the runout end");
+            auto* references=dialog->findChild<QTableWidget*>("shaftThreadReferences");
+            auto* chamfer=dialog->findChild<QCheckBox*>("shaftThreadChamfer");
+            auto* runout=dialog->findChild<QCheckBox*>("shaftThreadRunout");
+            auto* end=dialog->findChild<QComboBox*>("shaftThreadEnd");
+            require(!references->isRowHidden(2),"Entrance chamfer reference is hidden");
+            QMetaObject::invokeMethod(references,"cellClicked",Q_ARG(int,2),Q_ARG(int,1));
+            require(dialog->active_reference()==2 && chamfer->isChecked(),
+                "Third reference did not arm entrance chamfer selection");
+            end->setCurrentIndex(end->findData(static_cast<int>(zima::document::EndCondition::UpTo)));
+            require(!runout->isChecked() && !runout->isEnabled() &&
+                    !dialog->pending().shaft_thread.runout_enabled && dialog->active_reference()==3,
+                "Up-to did not switch off runout and arm its own target");
+            dialog->buttons()->button(QDialogButtonBox::Cancel)->click();
+            require(committed==0,"Cancel committed shaft thread parameters");
+            QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+            dialog=new ShaftThreadDialog(initial,[&](auto) { ++committed; },&parent);
+            dialog->show();application.processEvents();
+            QMouseEvent short_middle(QEvent::MouseButtonRelease,QPointF(40,40),QPointF(40,40),QPointF(40,40),
+                Qt::MiddleButton,Qt::NoButton,Qt::NoModifier);
+            QApplication::sendEvent(&parent,&short_middle);
+            require(committed==0 && dialog->isVisible(),"Short middle click committed shaft thread");
+            QMouseEvent double_middle(QEvent::MouseButtonDblClick,QPointF(40,40),QPointF(40,40),QPointF(40,40),
+                Qt::MiddleButton,Qt::MiddleButton,Qt::NoModifier);
+            QApplication::sendEvent(&parent,&double_middle);
+            require(committed==1 && !dialog->isVisible(),"Shaft thread did not confirm over the owner View");
+            QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+        }
+        {
+            using namespace zima::app;
+            using K=zima::sketcher::ConstraintKind;
+            SketchInferenceSettings settings;
+            auto sketch=zima::sketcher::Sketch::create_default();
+            const auto anchor=sketch.add_point(17.0,23.0);
+            static_cast<void>(sketch.add_point(-15.0,-7.0));
+            const auto horizontal=infer_sketch_point_alignment(sketch,{40.0,23.05},0.1,settings);
+            require(horizontal && horizontal->point_id==anchor && horizontal->kind==K::Horizontal && horizontal->position[1]==23.0,
+                "New point did not align horizontally to an existing Sketch point");
+            settings.disabled.insert(K::Horizontal);
+            require(!infer_sketch_point_alignment(sketch,{40.0,23.05},0.1,settings),
+                "Disabled automatic Horizontal still snapped the point");
+            const auto vertical=infer_sketch_point_alignment(sketch,{17.05,40.0},0.1,settings);
+            require(vertical && vertical->kind==K::Vertical,"Vertical inference was disabled together with Horizontal");
+            settings.disabled.insert(K::Coincident);settings.disabled.insert(K::EqualLength);
+            require(!settings.enabled(K::PointOnLine) && !settings.enabled(K::PointReference) && !settings.enabled(K::EqualRadius),
+                "Automatic relation aliases ignored their activity toggle");
+            settings={};
+            QAction horizontal_action("Vodorovnost",&parent);
+            horizontal_action.setObjectName("testHorizontal");
+            int manual=0,commits=0;
+            QObject::connect(&horizontal_action,&QAction::triggered,&parent,[&]{++manual;});
+            const auto create=[&] {
+                auto* dialog=new SketchConstraintsDialog(settings,{{K::Horizontal,&horizontal_action}},
+                    [&](auto next){settings=next;++commits;},&parent);
+                dialog->show();application.processEvents();return dialog;
+            };
+            auto* canceled=create();
+            auto* toggle=canceled->findChild<QPushButton*>("testHorizontalAutomatic");
+            require(toggle && toggle->isChecked() && canceled->windowFlags().testFlag(Qt::SubWindow),
+                "Constraint activity dialog is not internal or defaults are not enabled");
+            toggle->click();canceled->buttons()->button(QDialogButtonBox::Cancel)->click();
+            require(commits==0 && settings.enabled(K::Horizontal),"Cancel committed automatic constraint settings");
+            auto* accepted=create();accepted->findChild<QPushButton*>("testHorizontalAutomatic")->click();
+            accepted->buttons()->button(QDialogButtonBox::Ok)->click();
+            require(commits==1 && !settings.enabled(K::Horizontal),"OK did not commit automatic constraint settings");
+            auto* manual_dialog=create();manual_dialog->findChild<QPushButton*>("testHorizontalChoose")->click();
+            application.processEvents();
+            require(manual==1 && commits==1 && manual_dialog->isVisible() &&
+                manual_dialog->findChild<QPushButton*>("testHorizontalChoose")->isChecked() &&
+                !settings.enabled(K::Horizontal),
+                "Manual constraint must stay active without closing or committing the window");
+            manual_dialog->findChild<QPushButton*>("testHorizontalChoose")->click();
+            require(manual==2 && manual_dialog->isVisible(),"Constraint cannot be selected repeatedly");
+            manual_dialog->clear_active_choice();
+            require(!manual_dialog->findChild<QPushButton*>("testHorizontalChoose")->isChecked(),
+                "Canceled constraint remains green");
+            manual_dialog->buttons()->button(QDialogButtonBox::Cancel)->click();
+            QPointer<SketchConstraintsDialog> middle=create();
+            QMouseEvent middle_ok(QEvent::MouseButtonDblClick,QPointF(40,40),QPointF(40,40),QPointF(40,40),
+                Qt::MiddleButton,Qt::MiddleButton,Qt::NoModifier);
+            QApplication::sendEvent(&parent,&middle_ok);application.processEvents();
+            require(commits==2 && (!middle || !middle->isVisible()),"Constraint window did not accept middle double-click over its owner");
+
+            QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+        }
+
+        {
+            using namespace zima::app;
+            auto document=zima::document::PartDocument::create_default();
+            auto source=zima::document::PartDocument::create_box_container();
+            auto consumer=zima::document::PartDocument::create_box_container();
+            auto independent=zima::document::PartDocument::create_box_container();
+            zima::document::ConstructionReference ref;
+            ref.owner_id=source.feature_id;ref.semantic_key="z_max";
+            consumer.placement.references.push_back(ref);
+            document.history={source,independent,consumer};
+            const std::vector<std::string> order{source.id,independent.id,consumer.id};
+            const auto graph=part_history_dependencies(document);
+            require(!history_order_preserves_dependencies(order,reordered_history(order,consumer.id,source.id),graph),
+                "Moving consumer before source was allowed");
+            require(!history_order_preserves_dependencies(order,reordered_history(order,source.id,""),graph),
+                "Moving source after consumer was allowed");
+            require(history_order_preserves_dependencies(order,reordered_history(order,independent.id,""),graph),
+                "Independent feature could not move through history");
+            document.history.back().placement.references.clear();
+            zima::sketcher::Sketch sketch;
+            sketch.id="owned-sketch";sketch.owner_container_id=consumer.id;
+            zima::sketcher::SketchExternalReference external;
+            external.id="external-edge";external.source_owner_id=source.feature_id;
+            external.source_semantic_key="edge";
+            sketch.external_references.push_back(external);
+            document.sketches.push_back(sketch);
+            require(!history_order_preserves_dependencies(order,reordered_history(order,source.id,""),part_history_dependencies(document)),
+                "Owned Sketch external reference did not protect its source");
+            zima::assembly::AssemblyDocument assembly;
+            zima::assembly::PartOccurrence a,b,c;
+            a.occurrence_id="a";b.occurrence_id="b";c.occurrence_id="c";
+            zima::assembly::ComponentPlacementReference mate;
+            mate.target_reference.instance_path.occurrence_ids={"a","nested-part"};
+            c.placement_references.push_back(mate);
+            assembly.components={a,b,c};
+            const std::vector<std::string> components{"a","b","c"};
+            require(!history_order_preserves_dependencies(components,{"b","c","a"},assembly_component_dependencies(assembly)),
+                "Assembly mate on nested occurrence did not protect parent order");
+            assembly.components.back().placement_references.clear();
+            zima::assembly::ComponentDependency dependency;
+            dependency.prerequisite_occurrence_id="a";dependency.dependent_occurrence_id="c";
+            dependency.kind=zima::assembly::ComponentDependencyKind::ExternalSketchReference;
+            assembly.dependencies.push_back(dependency);
+            require(!history_order_preserves_dependencies(components,{"c","a","b"},assembly_component_dependencies(assembly)),
+                "Assembly external Sketch dependency was ignored");
+
+            HistoryTreeWidget tree;
+            tree.resize(320,340);tree.setHeaderHidden(true);
+            auto* root=new QTreeWidgetItem(&tree,{"Part"});root->setExpanded(true);
+            std::vector<QTreeWidgetItem*> rows;
+            for (const auto& id : {"a","b","c"}) {
+                auto* row=new QTreeWidgetItem(root,{id});
+                row->setData(0,Qt::UserRole,id);row->setData(0,Qt::UserRole+3,"part-container");
+                rows.push_back(row);
+            }
+            int commits=0;QString target;
+            int clicks=0;
+            QObject::connect(&tree,&QTreeWidget::itemClicked,&tree,[&]{++clicks;});
+            tree.reorder_enabled=[](auto*){return true;};
+            tree.reorder_requested=[&](auto*,const QString& before,bool commit) {
+                if (before=="a") return false;
+                if (commit) { ++commits;target=before; }
+                return true;
+            };
+            tree.show();application.processEvents();
+            const auto drag=[&](QTreeWidgetItem* row,const QPoint& destination,bool cancel=false) {
+                const QPoint start=tree.visualItemRect(row).center();
+                QMouseEvent press(QEvent::MouseButtonPress,QPointF(start),QPointF(tree.viewport()->mapToGlobal(start)),
+                    Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+                QApplication::sendEvent(tree.viewport(),&press);
+                QMouseEvent move(QEvent::MouseMove,QPointF(destination),QPointF(tree.viewport()->mapToGlobal(destination)),
+                    Qt::NoButton,Qt::LeftButton,Qt::NoModifier);
+                QApplication::sendEvent(tree.viewport(),&move);
+                if (cancel) { QKeyEvent escape(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);QApplication::sendEvent(&tree,&escape); }
+                else if (destination.y()>tree.visualItemRect(rows.back()).center().y()) {
+                    const auto frame=tree.viewport()->grab().toImage();
+                    const int y=tree.visualItemRect(rows.back()).bottom()+1;
+                    const auto scale=frame.devicePixelRatio();
+                    require(frame.pixelColor(qRound(8*scale),qRound(y*scale))==QColor("#4DD811"),
+                        "History drag did not draw green line at sibling boundary");
+                }
+                QMouseEvent release(QEvent::MouseButtonRelease,QPointF(destination),QPointF(tree.viewport()->mapToGlobal(destination)),
+                    Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+                QApplication::sendEvent(tree.viewport(),&release);
+            };
+            drag(rows.front(),tree.visualItemRect(rows.front()).center());
+            drag(rows.front(),tree.visualItemRect(rows.front()).center());
+            require(clicks==2 && commits==0,"Arming a drag swallowed ordinary/repeated Tree clicks");
+            const auto bottom=tree.visualItemRect(rows.back()).bottomLeft()+QPoint(25,0);
+            drag(rows.front(),bottom);
+            require(commits==1 && target.isEmpty(),"Tree drag did not commit end insertion exactly once");
+            drag(rows.back(),tree.visualItemRect(rows.front()).topLeft()+QPoint(25,1));
+            require(commits==1,"Forbidden Tree drag committed a change");
+            drag(rows.front(),bottom,true);
+            require(commits==1,"Escape did not cancel history drag");
+        }
+
+        {
+            using namespace zima::app;
+            TreeReferenceIndex references;
+            zima::document::ConstructionReference ref;
+            ref.owner_id="source"; ref.semantic_key="plane:top";
+            references.add(ref);
+            zima::document::Placement placement;
+            placement.references.push_back(ref);
+            require(placement_reference_issue(placement,references).empty(),
+                "Existing original reference was marked missing");
+            placement.references.front().semantic_key="deleted-plane";
+            const auto issue=placement_reference_issue(placement,references);
+            require(!issue.empty(),"Deleted topology reference was not detected");
+            placement.references.clear(); placement.reference_valid=false;
+            require(!placement_reference_issue(placement,references).empty(),
+                "Persisted unresolved placement was ignored");
+            ref.instance_path="second";
+            require(!references.missing(ref).empty(),
+                "Reference from another occurrence incorrectly resolved");
+
+            zima::assembly::PartOccurrence occurrence;
+            zima::assembly::ComponentPlacementReference mate;
+            mate.component_reference.owner_id="source";
+            mate.component_reference.semantic_key="plane:top";
+            mate.target_reference=mate.component_reference;
+            occurrence.placement_references.push_back(mate);
+            require(occurrence_reference_issue(occurrence,references).empty(),
+                "Existing Assembly reference was marked missing");
+            occurrence.placement_references.front().target_reference.instance_path.occurrence_ids={"other"};
+            require(!occurrence_reference_issue(occurrence,references).empty(),
+                "Assembly reference resolved against the wrong instance path");
+            auto document=zima::document::PartDocument::create_default();
+            auto plane=zima::document::PartDocument::create_construction(zima::document::ConstructionKind::Plane);
+            document.constructions.push_back(plane);
+            zima::sketcher::Sketch sketch;
+            sketch.plane_reference_owner_id=plane.entity_id;
+            require(sketch_reference_issue(sketch,document).empty(),
+                "Sketch plane entity identity was incorrectly marked missing");
+            document.constructions.clear();
+            require(!sketch_reference_issue(sketch,document).empty(),
+                "Deleted Sketch plane was not detected");
+
+            QTreeWidget tree;
+            tree.setColumnCount(1);
+            tree.setItemDelegate(new ReferenceTreeDelegate(&tree));
+            tree.setStyleSheet("QTreeWidget::item:selected { background: #356E22; } "
+                               "QTreeWidget::item:hover { background: transparent; }");
+            auto* row=new QTreeWidgetItem(&tree,{"Missing reference"});
+            TreeReferenceState state;
+            const auto missing=[&]{return row->data(0,missing_reference_role).toBool();};
+            state.apply(row,"part","feature",issue);
+            require(missing(),"Missing reference did not mark Tree row");
+            QStyleOptionViewItem option;
+            option.rect=QRect(0,0,240,24);
+            option.state=QStyle::State_Enabled|QStyle::State_Selected;
+            QImage painted(240,24,QImage::Format_ARGB32);
+            painted.fill(Qt::black);
+            { QPainter painter(&painted);
+              tree.itemDelegate()->paint(&painter,option,tree.model()->index(0,0)); }
+            require(painted.pixelColor(220,12)==missing_reference_color(),
+                "Selected missing-reference row lost its red background");
+            QDialog canceled;
+            state.watch(&canceled,&tree,"part","feature");
+            canceled.reject();
+            state.apply(row,"part","feature",issue);
+            require(missing(),"Cancel acknowledged a missing reference");
+            QDialog accepted;
+            state.watch(&accepted,&tree,"part","feature");
+            accepted.accept();
+            state.apply(row,"part","feature",issue);
+            require(!missing() && !placement.reference_valid,
+                "OK must clear presentation without changing reference validity");
+            state.apply(row,"part","feature",issue);
+            require(!missing(),"Tree refresh forgot successful OK");
+            state.apply(row,"assembly","feature",issue);
+            require(missing(),"OK acknowledged another document's object");
+            state.apply(row,"part","feature",issue+"new-reference");
+            require(missing(),"A newly lost reference was not marked again");
+            state.apply(row,"part","feature","");
+            state.apply(row,"part","feature",issue);
+            require(missing(),"Repair and subsequent loss reused obsolete acknowledgement");
+        }
         require(!zima::app::resource_icon("sketch-3d").isNull(),
                 "3D-Curve icon is missing from Qt resources");
         require(!zima::app::resource_icon("sweep").isNull(),
@@ -531,6 +849,50 @@ int main(int argc, char* argv[]) {
                 "Confirmed Fillet/Chamfer did not show its exact boundary edge "
                 "in cyan");
 
+        // A selected internal wire must survive solid occlusion in every
+        // display mode, without confirming an object during dimension edit.
+        zima::kernel::ViewerMesh internal_wire_mesh;
+        internal_wire_mesh.vertices = {{-2,-2,1},{2,-2,1},{0,2,1},
+                                      {-2,-2,-1},{2,-2,-1},{0,2,-1}};
+        internal_wire_mesh.triangles = {0,1,2,3,4,5};
+        internal_wire_mesh.triangle_references = {{"body","front",{}},{"body","back",{}}};
+        internal_wire_mesh.edges.push_back({{{-0.5,0,0},{0.5,0,0}},
+            {"opening","internal-wire","part-a"}});
+        internal_wire_mesh.edges.front().display_owner_id = "opening";
+        auto other_occurrence = internal_wire_mesh.edges.front();
+        other_occurrence.reference.instance_path = "part-b";
+        internal_wire_mesh.edges.push_back(other_occurrence);
+        zima::viewer::MeshView internal_wire_view(&parent);
+        internal_wire_view.setGeometry(0,0,500,360);
+        internal_wire_view.set_mesh(internal_wire_mesh);
+        internal_wire_view.set_view_direction({0,0,1});
+        internal_wire_view.show();
+        internal_wire_view.set_container_inspection("opening","part-a");
+        require(!internal_wire_view.confirmed_candidate() &&
+                internal_wire_view.container_inspection_wire().size() == 1 &&
+                internal_wire_view.container_inspection_wire().front().reference.instance_path == "part-a",
+            "Dimension inspection latched picking or included another occurrence");
+        for (const auto mode : {zima::viewer::DisplayMode::Wire,
+                zima::viewer::DisplayMode::HiddenEdges,
+                zima::viewer::DisplayMode::NoHiddenEdges,
+                zima::viewer::DisplayMode::ShadedWithEdges,
+                zima::viewer::DisplayMode::Shaded}) {
+            internal_wire_view.set_display_mode(mode);
+            application.processEvents();
+            require(framebuffer_contains_color_near(internal_wire_view.grabFramebuffer(),
+                internal_wire_view.size(),QPointF(250,180),QColor(0,209,255)),
+                "Solid occluded the inspected internal wire");
+        }
+        internal_wire_view.clear_selection();
+        require(internal_wire_view.container_inspection_wire().empty(),
+            "Clearing selection retained the inspection wire");
+        internal_wire_view.confirm_container_component("opening","bore",{0},"part-a");
+        application.processEvents();
+        require(framebuffer_contains_color_near(internal_wire_view.grabFramebuffer(),
+            internal_wire_view.size(),QPointF(250,180),QColor(0,209,255)),
+            "Tree component selection remained hidden inside the solid");
+        internal_wire_view.hide();
+
         zima::kernel::ViewerMesh face_cycle_mesh;
         face_cycle_mesh.vertices = {
             {-1.0, -1.0, 1.0}, {1.0, -1.0, 1.0},
@@ -668,6 +1030,16 @@ int main(int argc, char* argv[]) {
         zero_dimension_view.set_mesh(std::move(zero_dimension_mesh));
         zero_dimension_view.show();
         application.processEvents();
+        zero_dimension_view.confirm_reference("sketch","constraint:on-axis",{},zima::viewer::CandidateKind::SketchConstraint);
+        application.processEvents();
+        const auto participant_frame=zero_dimension_view.grabFramebuffer();
+        std::size_t cyan_pixels=0;
+        for (int y=0;y<participant_frame.height();++y)
+            for (int x=0;x<participant_frame.width();++x) {
+                const auto pixel=participant_frame.pixelColor(x,y);
+                if (pixel.red()<70 && pixel.green()>180 && pixel.blue()>210) ++cyan_pixels;
+            }
+        require(cyan_pixels>300,"Selected constraint highlighted its glyph but not its participating axis");
         zero_dimension_view.confirm_reference("sketch", "dimension:zero-y", {},
             zima::viewer::CandidateKind::Dimension);
         const auto zero_dimension_candidate =
@@ -927,6 +1299,23 @@ int main(int argc, char* argv[]) {
                 "Hole thread must be exactly two circles and two "
                 "non-referenceable boundary lines");
 
+        for (double degrees : {60.0,90.0,118.0,120.0}) {
+            const auto angle=zima::app::opening_cone_angle_dimension(
+                "opening","drill_point_angle",degrees,20.0,5.0);
+            require(angle && angle->kind==zima::kernel::ViewerDimensionKind::Angular &&
+                        std::abs(std::abs(angle->sweep_degrees)-degrees)<1e-6,
+                "Opening did not reuse the total symmetric Sketch angle");
+            const double dx1=angle->line_first.x-angle->witness_first.x;
+            const double dy1=angle->line_first.y-angle->witness_first.y;
+            const double dx2=angle->line_second.x-angle->witness_first.x;
+            const double dy2=angle->line_second.y-angle->witness_first.y;
+            const double measured=std::acos(std::clamp(
+                (dx1*dx2+dy1*dy2)/(std::hypot(dx1,dy1)*std::hypot(dx2,dy2)),
+                -1.0,1.0))*180.0/std::acos(-1.0);
+            require(std::abs(measured-degrees)<1e-6 &&
+                        dy1<0.0 && dy2<0.0 && dx1*dx2<0.0,
+                "Cone angle points to the wrong sector or does not span both flanks");
+        }
         auto thread_initial =
             zima::document::PartDocument::create_thread_container();
         int thread_commits = 0;
@@ -962,13 +1351,13 @@ int main(int argc, char* argv[]) {
         auto* thread_runout = thread_dialog->findChild<QDoubleSpinBox*>(
             "threadRunoutPitchFactor");
         require(thread_standard != nullptr && thread_size != nullptr &&
-                    thread_side != nullptr && thread_diameter != nullptr &&
+                    thread_side == nullptr && thread_diameter != nullptr &&
                     thread_profile != nullptr && thread_custom != nullptr &&
-                    thread_label != nullptr && thread_extent != nullptr &&
+                    thread_label == nullptr && thread_extent == nullptr &&
                     thread_forward_length != nullptr &&
-                    thread_reverse_length != nullptr && thread_runout != nullptr,
+                    thread_reverse_length == nullptr && thread_runout != nullptr,
                 "Thread dialog does not expose standard, size, side, profile "
-                "diameter, extrusion-style extent, runout and dimension text");
+                "diameter, extent and runout, or retained custom dimension text");
         require(thread_dialog->findChild<QPushButton*>(
                     "primitiveAddOperation") == nullptr &&
                     thread_dialog->findChild<QPushButton*>(
@@ -980,6 +1369,39 @@ int main(int argc, char* argv[]) {
                         metric_m10,Qt::UserRole+3).toDouble()-8.376) < 1.0e-6,
                 "Thread dialog did not load the complete embedded metric ISO "
                 "catalog or its tabulated M10 root diameter");
+        int switching_previews = 0;
+        thread_dialog->set_preview_callback([&](const auto& value) {
+            ++switching_previews;
+            if (!value.thread.enabled) return;
+            require(value.thread.nominal_diameter > value.thread.profile_diameter &&
+                        value.thread.profile_diameter > 0.01 && value.thread.pitch > 0.0 &&
+                        value.thread.bore_length + 1e-6 >= value.thread.length_forward +
+                            value.thread.runout_pitch_factor * value.thread.pitch,
+                "Catalog switching published an incomplete or too-deep thread preview");
+            zima::document::PartDocument probe;
+            probe.history.push_back(value);
+            require(!probe.kernel_operations().empty(),
+                "Round-trip opening cannot be submitted for calculation");
+        });
+        auto* roundtrip_depth=thread_dialog->findChild<QDoubleSpinBox*>("threadBoreLength");
+        require(roundtrip_depth && std::abs(roundtrip_depth->value()-20.0)<1e-6,
+            "New opening depth must default to 20 mm");
+        for (int repeat=0; repeat<3; ++repeat) {
+            thread_standard->setCurrentIndex(thread_standard->findData("plain"));
+            roundtrip_depth->setValue(10.0);
+            thread_standard->setCurrentIndex(thread_standard->findData("metric"));
+            require(thread_size->currentData()=="M10" &&
+                        std::abs(thread_diameter->value()-10.0)<1e-6 &&
+                        roundtrip_depth->value()>=18.0,
+                "Metric/plain round trip lost M10 or did not accommodate its runout");
+        }
+        require(switching_previews>0, "Round-trip preview was never published");
+        thread_standard->setCurrentIndex(thread_standard->findData("plain"));
+        application.processEvents();
+        require(thread_diameter->isVisible() && !thread_size->isVisible() &&
+                    !thread_forward_length->isVisible(),
+                "Plain opening did not exchange the thread catalog for a numerical diameter");
+        thread_diameter->setValue(10.0);
         thread_standard->setCurrentIndex(thread_standard->findData("pipe"));
         const int pipe_g_half=thread_size->findData("G 1/2");
         require(thread_size->count() == 24 && pipe_g_half >= 0 &&
@@ -990,14 +1412,113 @@ int main(int argc, char* argv[]) {
                 "Thread dialog did not load the embedded cylindrical G catalog");
         thread_standard->setCurrentIndex(thread_standard->findData("metric"));
         thread_size->setCurrentIndex(thread_size->findData("M12"));
-        thread_side->setCurrentIndex(thread_side->findData("external"));
+        thread_standard->setCurrentIndex(thread_standard->findData("plain"));
+        thread_standard->setCurrentIndex(thread_standard->findData("metric"));
+        require(thread_size->currentData()=="M12",
+            "Plain opening round trip reset a user-selected thread designation");
+        thread_dialog->set_preview_callback({});
+        auto* opening_bore_length=thread_dialog->findChild<QDoubleSpinBox*>("threadBoreLength");
+        auto* chamfer=thread_dialog->findChild<QCheckBox*>("threadChamferEnabled");
+        auto* chamfer_depth=thread_dialog->findChild<QDoubleSpinBox*>("threadChamferDepth");
+        auto* chamfer_angle=thread_dialog->findChild<QDoubleSpinBox*>("threadChamferAngle");
+        auto* tip=thread_dialog->findChild<QCheckBox*>("threadDrillPoint");
+        require(opening_bore_length && chamfer && chamfer_depth && chamfer_angle && tip,
+            "Opening dialog is missing bore, chamfer or drill point controls");
+        require(chamfer->isChecked() && tip->isChecked(),
+            "New opening dialog did not enable chamfer and drill point by default");
+        opening_bore_length->setValue(30.0);
+        chamfer->setChecked(true);
+        chamfer_depth->setValue(2.0);
+        chamfer_angle->setValue(90.0);
+        tip->setChecked(true);
         thread_custom->setChecked(true);
         thread_profile->setValue(11.8);
-        thread_label->setText("M12 – broušený");
-        thread_extent->setCurrentIndex(thread_extent->findData("two_sides"));
+
         thread_forward_length->setValue(18.0);
-        thread_reverse_length->setValue(7.0);
+
         thread_runout->setValue(2.5);
+        // View edits must remain in this pending dialog and target independent
+        // dimensions on every invocation, including after rebuilding a preview.
+        int inline_previews=0;
+        zima::document::HistoryContainer latest_thread_preview;
+        thread_dialog->set_preview_callback([&](const auto& value) { ++inline_previews; latest_thread_preview=value; });
+        for (int repeat=0; repeat<3; ++repeat) {
+            require(thread_dialog->set_inline_parameter_value("thread_length", 19.0+repeat),
+                "Thread length could not be edited repeatedly from View");
+            application.processEvents();
+            require(thread_forward_length->value()==19.0+repeat &&
+                        opening_bore_length->value()==30.0+repeat,
+                "Thread length edited the bore depth");
+            require(thread_dialog->set_inline_parameter_value("bore_length", 31.0+repeat),
+                "Bore depth could not be edited repeatedly from View");
+            application.processEvents();
+            require(thread_forward_length->value()==19.0+repeat &&
+                        opening_bore_length->value()==31.0+repeat && thread_commits==0,
+                "View edit changed the thread length or committed before OK");
+        }
+        auto* thread_length_end=thread_dialog->findChild<QComboBox*>("threadLengthEnd");
+        auto* thread_length_target=thread_dialog->findChild<QLineEdit*>("threadLengthEndTarget");
+        require(thread_length_end && thread_length_target,"Thread Up To controls are missing");
+        const double unchanged_bore=opening_bore_length->value();
+        thread_length_end->setCurrentIndex(thread_length_end->findData("up_to"));
+        application.processEvents();
+        require(thread_length_target->isVisible() && !thread_forward_length->isVisible() &&
+                !thread_runout->isVisible() &&
+                !thread_dialog->set_inline_parameter_value("thread_length",10.0) &&
+                opening_bore_length->value()==unchanged_bore,
+            "Thread Up To retained a driving length/runout or changed bore depth");
+        thread_dialog->set_extrusion_target({"test-plane","origin:plane:xy",{}},
+            {0,0,15},{0,0,1},"Thread end plane");
+        require(latest_thread_preview.thread.length_end_targets.size()==1 &&
+                latest_thread_preview.thread.end_targets_forward.empty(),
+            "Thread Up To target replaced the bore target");
+        thread_length_end->setCurrentIndex(thread_length_end->findData("length"));
+        application.processEvents();
+        require(thread_runout->isVisible() && thread_runout->value()==2.5 &&
+                thread_forward_length->isVisible(),
+            "Returning to fixed thread length did not restore runout settings");
+        const double bore_before=thread_profile->value();
+        require(!thread_dialog->set_inline_parameter_value("bore_diameter", 11.5) &&
+                    thread_profile->value()==bore_before && thread_diameter->value()==12.0,
+            "Threaded bore diameter must be an informational View dimension");
+        require(thread_dialog->set_inline_parameter_value("chamfer_depth", 1.5) &&
+                    thread_dialog->set_inline_parameter_value("chamfer_angle", 100.0) &&
+                    thread_dialog->set_inline_parameter_value("drill_point_angle", 120.0),
+            "Opening chamfer and drill point dimensions are not editable");
+        require(chamfer_depth->value()==1.5 && chamfer_angle->value()==100.0 &&
+                    thread_dialog->findChild<QDoubleSpinBox*>("threadDrillPointAngle")->value()==120.0,
+            "Opening angular dimensions edited the wrong fields");
+        chamfer->setChecked(false);
+        tip->setChecked(false);
+        require(!thread_dialog->set_inline_parameter_value("chamfer_depth", 2.0) &&
+                    !thread_dialog->set_inline_parameter_value("drill_point_angle", 118.0),
+            "Disabled opening options still accept View dimension edits");
+        chamfer->setChecked(true);
+        tip->setChecked(true);
+        chamfer_depth->setValue(2.0);
+        chamfer_angle->setValue(90.0);
+        thread_dialog->findChild<QDoubleSpinBox*>("threadDrillPointAngle")->setValue(118.0);
+        thread_standard->setCurrentIndex(thread_standard->findData("plain"));
+        require(thread_dialog->set_inline_parameter_value("bore_diameter", 14.0) &&
+                    thread_diameter->value()==14.0,
+            "Plain bore diameter must remain editable from View");
+        thread_standard->setCurrentIndex(thread_standard->findData("metric"));
+        require(inline_previews>=7 && thread_dialog->open_thread_catalog(),
+            "Thread designation cannot open its catalog in the pending dialog");
+        require(!thread_size->view()->isVisible(),
+            "Catalog popup opened inside the initiating pointer event");
+        application.processEvents();
+        require(thread_size->view()->isVisible(),
+            "Deferred thread catalog did not open after the pointer gesture");
+        application.processEvents();
+        require(thread_size->view()->isVisible(),
+            "Thread catalog disappeared before a size could be chosen");
+        thread_size->hidePopup();
+        require(!thread_dialog->set_inline_parameter_value("thread_designation", 10.0),
+            "Thread designation was accepted as a free numeric dimension");
+        thread_dialog->set_preview_callback({});
+        opening_bore_length->setValue(30.0);
+        thread_forward_length->setValue(18.0);
         require(thread_dialog->set_reference(
                     0, {{}, "part-origin", "origin:plane:xy"}, "Rovina XY"),
                 "Thread Properties rejected its defining plane");
@@ -1009,18 +1530,19 @@ int main(int argc, char* argv[]) {
                     committed_thread.thread.standard ==
                         zima::document::ThreadStandard::Metric &&
                     committed_thread.thread.side ==
-                        zima::document::ThreadSide::External &&
+                        zima::document::ThreadSide::Internal &&
                     committed_thread.thread.designation == "M12" &&
                     committed_thread.thread.nominal_diameter == 12.0 &&
                     committed_thread.thread.pitch == 1.75 &&
                     committed_thread.thread.custom_profile_diameter &&
                     committed_thread.thread.profile_diameter == 11.8 &&
-                    committed_thread.thread.dimension_label ==
-                        "M12 – broušený" &&
                     committed_thread.thread.extent_mode ==
-                        zima::document::ProfileExtentMode::TwoSides &&
+                        zima::document::ProfileExtentMode::OneSide &&
                     committed_thread.thread.length_forward == 18.0 &&
-                    committed_thread.thread.length_reverse == 7.0 &&
+                    committed_thread.thread.bore_length == 30.0 &&
+                    committed_thread.thread.chamfer_enabled &&
+                    committed_thread.thread.chamfer_depth == 2.0 &&
+                    committed_thread.hole.drill_point_enabled &&
                     committed_thread.thread.runout_pitch_factor == 2.5,
                 "Thread Properties did not commit its engineering designation "
                 "and independent real profile diameter");

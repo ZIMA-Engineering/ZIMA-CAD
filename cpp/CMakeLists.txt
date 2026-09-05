@@ -113,7 +113,7 @@ target_link_libraries(zima-cad-part-harness PRIVATE
 set_target_properties(zima-cad-part-harness PROPERTIES AUTORCC ON)
 
 add_executable(zima-cad-cpp
-    app/main_workspace.cpp app/assembly_workspace_window.cpp
+    app/main_workspace.cpp app/assembly_workspace_window.cpp app/shaft_thread_command.cpp
     app/application_settings.cpp app/global_settings_dialog.cpp
     app/document_tools_dialogs.cpp
     app/drawing_window.cpp app/file_dialog.cpp app/resource_icon.cpp
@@ -197,6 +197,9 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_contract_tests COMMAND zima_cpp_contract_tests)
     set_tests_properties(zima_cpp_contract_tests PROPERTIES
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    add_executable(zima_cpp_shaft_thread_contract_tests tests/shaft_thread_contract_tests.cpp)
+    target_link_libraries(zima_cpp_shaft_thread_contract_tests PRIVATE zima_document_core zima_kernel_occt)
+    add_test(NAME zima_cpp_shaft_thread_contract_tests COMMAND zima_cpp_shaft_thread_contract_tests)
     add_executable(zima_cpp_hole_contract_tests tests/hole_contract_tests.cpp)
     target_link_libraries(zima_cpp_hole_contract_tests PRIVATE
         zima_document_core zima_kernel_occt)

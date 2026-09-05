@@ -27,6 +27,21 @@
 namespace zima::document {
 namespace {
 
+// The opening depth is the axis/target-plane intersection, not the axial
+// projection of an arbitrary picked corner on an inclined face.
+double opening_target_depth(const ExtrusionParameters::EndTarget& target,
+        const zima::kernel::Vec3& origin, const zima::kernel::Vec3& axis) {
+    const zima::kernel::Vec3 delta{target.fallback_origin.x-origin.x,
+        target.fallback_origin.y-origin.y,target.fallback_origin.z-origin.z};
+    if (target.kind == EndTargetKind::Plane) {
+        const auto& n=target.fallback_normal;
+        const double denominator=n.x*axis.x+n.y*axis.y+n.z*axis.z;
+        if (std::abs(denominator)<1e-12) return std::numeric_limits<double>::quiet_NaN();
+        return (n.x*delta.x+n.y*delta.y+n.z*delta.z)/denominator;
+    }
+    return delta.x*axis.x+delta.y*axis.y+delta.z*axis.z;
+}
+
 // Origin must never visually change size on screen as the camera zooms or
 // re-fits to newly-resolved feature geometry (Solid/Axis/Plane results are
 // the only things that are allowed to change apparent size with zoom). Sizing
@@ -3799,15 +3814,49 @@ HistoryContainer PartDocument::create_hole_container() {
 }
 
 HistoryContainer PartDocument::create_thread_container() {
-    HistoryContainer container;
-    container.id = make_id();
-    container.feature_id = make_id();
-    container.feature_parent_id = container.id;
-    container.container_origin = create_container_origin(container.id);
-    container.name = "Závit";
+    auto container = create_hole_container();
+    container.name = "Otvor";
     container.feature_kind = FeatureKind::Thread;
-    container.combine_mode = CombineMode::Add;
+    container.thread.chamfer_enabled = true;
+    container.hole.drill_point_enabled = true;
     return container;
+}
+
+HistoryContainer PartDocument::create_shaft_thread_container() {
+    auto container=create_drill_point_container();
+    container.name="Závit";container.feature_kind=FeatureKind::ShaftThread;
+    container.combine_mode=CombineMode::Add;
+    return container;
+}
+
+zima::kernel::ThreadSurfaceRequest PartDocument::shaft_thread_request(
+        const HistoryContainer& container,const zima::kernel::ViewerReferenceGeometry* references) {
+    const auto& p=container.shaft_thread;
+    zima::kernel::ThreadSurfaceRequest request;
+    request.shaft_face=p.cylinder;request.shaft_start=p.start;
+    request.shaft_chamfer=p.chamfer;
+    request.shaft_end=p.end_condition==EndCondition::UpTo ? p.end : std::nullopt;
+    request.shaft_through_all=p.end_condition==EndCondition::ThroughAll;
+    request.shaft_runout=p.runout_enabled && p.end_condition==EndCondition::Length;
+    if (p.end_condition==EndCondition::UpTo && !p.end)
+        throw std::runtime_error("Pro Až k vyberte koncovou plochu závitu.");
+    request.length=p.length;request.root_radius=p.root_diameter*0.5;
+    request.nominal_radius=p.nominal_diameter*0.5;
+    request.runout_end=p.pitch*p.runout_pitch_factor;
+    request.side=zima::kernel::ThreadSurfaceRequest::Side::External;
+    if (references) {
+        const auto bind=[&](auto& face) {
+            const auto found=std::ranges::find_if(references->triangle_references,
+                [&](const auto& value) { return value==face && value.surface; });
+            if (found!=references->triangle_references.end()) face.surface=found->surface;
+            else if (!face.surface)
+                throw std::runtime_error("Chybí uložená geometrie reference závitu. Regenerujte Part.");
+        };
+        bind(*request.shaft_face);bind(request.shaft_start);
+        if (request.shaft_chamfer) bind(*request.shaft_chamfer);
+        if (request.shaft_end) bind(*request.shaft_end);
+    }
+    return request;
 }
 
 HistoryContainer PartDocument::create_drill_point_container() {
@@ -6672,7 +6721,7 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::primitive_preview_edges(
                 !reference.owner_id.empty();
         });
     auto direction = rotated_vector(referenced_work_plane
-            ? zima::kernel::Vec3{0.0, -1.0, 0.0}
+            ? zima::kernel::Vec3{0.0, 1.0, 0.0}
             : zima::kernel::Vec3{0.0, 0.0, 1.0},
         {container.placement.rotation_x, container.placement.rotation_y,
          container.placement.rotation_z});
@@ -6916,151 +6965,134 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::hole_thread_edges(
     return wires;
 }
 
+double PartDocument::thread_length(const HistoryContainer& container) {
+    if (container.thread.length_end_condition != EndCondition::UpTo)
+        return container.thread.length_forward;
+    if (container.thread.length_end_targets.empty())
+        return std::numeric_limits<double>::quiet_NaN();
+    const bool referenced=std::ranges::any_of(container.placement.references,[](const auto& ref) {
+        return !ref.orientation_only && ref.supports_offset && !ref.owner_id.empty();
+    });
+    auto axis=rotated_vector(referenced ? zima::kernel::Vec3{0,-1,0}
+        : zima::kernel::Vec3{0,0,1},{container.placement.rotation_x,
+            container.placement.rotation_y,container.placement.rotation_z});
+    if (container.thread.direction == ExtrusionDirection::Reverse)
+        axis={-axis.x,-axis.y,-axis.z};
+    return opening_target_depth(container.thread.length_end_targets.front(),
+        {container.placement.x,container.placement.y,container.placement.z},axis);
+}
+
 std::vector<zima::kernel::ViewerEdge> PartDocument::thread_edges(
         const HistoryContainer& container,
-        const zima::kernel::ViewerMesh* supporting_body) const {
-    if (container.feature_kind != FeatureKind::Thread ||
-        container.thread.nominal_diameter <= 0.0) return {};
-    double forward = container.thread.length_forward;
-    double reverse = container.thread.extent_mode == ProfileExtentMode::OneSide
-        ? 0.0 : container.thread.extent_mode == ProfileExtentMode::Symmetric
-            ? forward : container.thread.length_reverse;
-    const bool referenced_work_plane = std::any_of(
-        container.placement.references.begin(),
+        const zima::kernel::ViewerMesh* supporting_body,
+        std::optional<zima::kernel::ViewerAxis>* preview_axis) const {
+    if (preview_axis) preview_axis->reset();
+    if (container.feature_kind != FeatureKind::Thread) return {};
+    const auto& parameters = container.thread;
+    const bool referenced = std::any_of(container.placement.references.begin(),
         container.placement.references.end(), [](const auto& reference) {
             return !reference.orientation_only && reference.supports_offset &&
                 !reference.owner_id.empty();
         });
-    auto direction = rotated_vector(referenced_work_plane
-            ? zima::kernel::Vec3{0.0, 1.0, 0.0}
-            : zima::kernel::Vec3{0.0, 0.0, 1.0},
-        {container.placement.rotation_x, container.placement.rotation_y,
-         container.placement.rotation_z});
-    const double magnitude = std::hypot(
-        std::hypot(direction.x, direction.y), direction.z);
-    if (magnitude <= 1.0e-12) return {};
-    direction = {direction.x/magnitude, direction.y/magnitude,
-        direction.z/magnitude};
-    if (container.thread.direction == ExtrusionDirection::Reverse) {
-        direction = {-direction.x, -direction.y, -direction.z};
-    }
+    const zima::kernel::Vec3 rotation{container.placement.rotation_x,
+        container.placement.rotation_y, container.placement.rotation_z};
+    auto axis = rotated_vector(referenced ? zima::kernel::Vec3{0.0, -1.0, 0.0}
+        : zima::kernel::Vec3{0.0, 0.0, 1.0}, rotation);
+    if (parameters.direction == ExtrusionDirection::Reverse)
+        axis = {-axis.x, -axis.y, -axis.z};
+    const auto radial = rotated_vector({1.0, 0.0, 0.0}, rotation);
+    const zima::kernel::Vec3 tangent{axis.y*radial.z-axis.z*radial.y,
+        axis.z*radial.x-axis.x*radial.z, axis.x*radial.y-axis.y*radial.x};
     const zima::kernel::Vec3 origin{container.placement.x,
         container.placement.y, container.placement.z};
-    const auto projection = [&](const zima::kernel::Vec3& point) {
-        return (point.x-origin.x)*direction.x +
-            (point.y-origin.y)*direction.y +
-            (point.z-origin.z)*direction.z;
+    const auto projection = [&](const zima::kernel::Vec3& p) {
+        return (p.x-origin.x)*axis.x+(p.y-origin.y)*axis.y+(p.z-origin.z)*axis.z;
     };
-    if (container.thread.end_condition_forward == EndCondition::ThroughAll &&
-        supporting_body != nullptr && !supporting_body->vertices.empty()) {
-        forward = 0.0;
-        for (const auto& point : supporting_body->vertices) {
-            forward = std::max(forward, projection(point));
-        }
-    } else if (container.thread.end_condition_forward == EndCondition::UpTo &&
-        !container.thread.end_targets_forward.empty()) {
-        forward = projection(
-            container.thread.end_targets_forward.front().fallback_origin);
+    double depth = parameters.bore_length;
+    if (parameters.end_condition_forward == EndCondition::ThroughAll && supporting_body) {
+        depth = 0.0;
+        for (const auto& p : supporting_body->vertices) depth = std::max(depth, projection(p));
+    } else if (parameters.end_condition_forward == EndCondition::UpTo &&
+        !parameters.end_targets_forward.empty()) {
+        depth = opening_target_depth(parameters.end_targets_forward.front(),origin,axis);
     }
-    if (container.thread.extent_mode != ProfileExtentMode::OneSide) {
-        if (container.thread.extent_mode == ProfileExtentMode::Symmetric) {
-            reverse = forward;
-        } else if (container.thread.end_condition_reverse ==
-                EndCondition::ThroughAll && supporting_body != nullptr &&
-                !supporting_body->vertices.empty()) {
-            reverse = 0.0;
-            for (const auto& point : supporting_body->vertices)
-                reverse = std::max(reverse, -projection(point));
-        } else if (container.thread.end_condition_reverse == EndCondition::UpTo &&
-                !container.thread.end_targets_reverse.empty()) {
-            reverse = -projection(
-                container.thread.end_targets_reverse.front().fallback_origin);
-        }
+    if (!std::isfinite(depth) || depth <= 0.0) return {};
+    if (preview_axis) {
+        // Ordinary viewer axes are drawn symmetrically about their point.
+        // Center this transient axis at half the bore depth, so its ends are
+        // exactly the opening's local origin and the end of its cylinder.
+        *preview_axis = zima::kernel::ViewerAxis{
+            {origin.x+axis.x*depth*0.5, origin.y+axis.y*depth*0.5,
+             origin.z+axis.z*depth*0.5}, axis, depth,
+            {container.feature_id, "preview:opening-axis", {}}};
     }
-    const double length = forward + reverse;
-    if (!std::isfinite(length) || length <= 0.0) return {};
-    auto adapter = container;
-    adapter.feature_kind = FeatureKind::Hole;
-    adapter.hole.thread_enabled = true;
-    const bool external = container.thread.side == ThreadSide::External ||
-        (container.thread.side == ThreadSide::Automatic &&
-         supporting_body != nullptr && viewer_mesh_contains_point(
-            *supporting_body, {origin.x+direction.x*length*0.5,
-                origin.y+direction.y*length*0.5,
-                origin.z+direction.z*length*0.5}));
-    const double profile_diameter = container.thread.custom_profile_diameter
-        ? container.thread.profile_diameter
-        : external ? container.thread.nominal_diameter
-        : container.thread.profile_diameter;
-    adapter.hole.diameter = profile_diameter;
-    adapter.hole.thread_nominal_diameter = profile_diameter;
-    adapter.hole.thread_length = length;
-    adapter.hole.bore_length = length;
-    adapter.placement.x -= direction.x * reverse;
-    adapter.placement.y -= direction.y * reverse;
-    adapter.placement.z -= direction.z * reverse;
-    // A standalone Thread is explicit technological presentation geometry.
-    // It must remain a complete cylindrical wire wherever the user places
-    // it; clipping against the current body could reduce it to one ring when
-    // its root/nominal cylinder ran through empty space. Future operations
-    // may apply their own history-aware cut, but the Thread itself always
-    // contributes two complete rings and two boundary lines.
-    const bool wire_reverse = referenced_work_plane
-        ? container.thread.direction != ExtrusionDirection::Reverse
-        : container.thread.direction == ExtrusionDirection::Reverse;
-    auto result = hole_thread_edges(adapter, nullptr, wire_reverse,
-        external);
-    for (auto& edge : result) {
-        edge.reference.semantic_key.replace(0,
-            std::string("hole:cosmetic-thread:").size(), "thread:wire:");
-        // Display ownership makes the complete technological wire represent
-        // its parent Thread for ordinary hover/selection without turning any
-        // of its lines into a persistent topological reference.
+    const double radius = (parameters.enabled ? parameters.profile_diameter
+        : parameters.nominal_diameter) * 0.5;
+    const double chamfer = parameters.chamfer_enabled ? parameters.chamfer_depth : 0.0;
+    const double slope = std::tan(parameters.chamfer_angle_degrees*std::numbers::pi/360.0);
+    const auto point = [&](double r, double angle, double z) {
+        return zima::kernel::Vec3{origin.x+axis.x*z+r*(radial.x*std::cos(angle)+tangent.x*std::sin(angle)),
+            origin.y+axis.y*z+r*(radial.y*std::cos(angle)+tangent.y*std::sin(angle)),
+            origin.z+axis.z*z+r*(radial.z*std::cos(angle)+tangent.z*std::sin(angle))};
+    };
+    std::vector<zima::kernel::ViewerEdge> edges;
+    const auto append = [&](std::vector<zima::kernel::Vec3> points, const std::string& role) {
+        zima::kernel::ViewerEdge edge;
+        edge.points = std::move(points);
+        edge.reference.semantic_key = "thread:wire:"+container.id+":"+role;
         edge.display_owner_id = container.id;
+        edges.push_back(std::move(edge));
+    };
+    const auto ring = [&](double r, double z, const std::string& role) {
+        std::vector<zima::kernel::Vec3> points;
+        for (int i=0; i<=64; ++i) points.push_back(point(r,2.0*std::numbers::pi*i/64.0,z));
+        append(std::move(points), role);
+    };
+    const auto sides = [&](double r1, double z1, double r2, double z2, const std::string& role) {
+        // Match a revolved surface's single longitudinal seam. The rings
+        // describe its circumference; do not add a second silhouette line.
+        append({point(r1,0.0,z1),point(r2,0.0,z2)}, role);
+    };
+    ring(radius, chamfer, "bore:start");
+    ring(radius, depth, "bore:end");
+    sides(radius,chamfer,radius,depth,"bore:side");
+    if (chamfer>0.0) {
+        ring(radius+chamfer*slope,0.0,"chamfer:mouth");
+        sides(radius+chamfer*slope,0.0,radius,chamfer,"chamfer:side");
     }
-    // A cosmetic thread always presents both engineering diameters. Keep the
-    // original cylinder's two longitudinal boundaries, and add only the two
-    // end rings of the other diameter. Thus internal and external use one
-    // predictable six-edge symbol: four circles plus two boundary lines.
-    const double secondary_diameter = external
-        ? container.thread.profile_diameter
-        : container.thread.nominal_diameter;
-    if (secondary_diameter > 0.0 &&
-        std::abs(secondary_diameter - profile_diameter) > 1.0e-9) {
-        auto secondary_adapter = adapter;
-        const double requested_runout =
-            std::max(0.0, container.thread.runout_pitch_factor) *
-            container.thread.pitch;
-        const double start_runout = container.thread.extent_mode !=
-                    ProfileExtentMode::OneSide &&
-                container.thread.end_condition_reverse == EndCondition::Length
-            ? std::min(reverse, requested_runout) : 0.0;
-        const double end_runout =
-                container.thread.end_condition_forward == EndCondition::Length
-            ? std::min(forward, requested_runout) : 0.0;
-        const double secondary_length = std::max(
-            1.0e-9, length - start_runout - end_runout);
-        secondary_adapter.placement.x += direction.x * start_runout;
-        secondary_adapter.placement.y += direction.y * start_runout;
-        secondary_adapter.placement.z += direction.z * start_runout;
-        secondary_adapter.hole.diameter = secondary_diameter;
-        secondary_adapter.hole.thread_nominal_diameter = secondary_diameter;
-        secondary_adapter.hole.thread_length = secondary_length;
-        secondary_adapter.hole.bore_length = secondary_length;
-        auto secondary = hole_thread_edges(
-            secondary_adapter, nullptr, wire_reverse, external);
-        if (secondary.size() >= 2) {
-            for (std::size_t index = 0; index < 2; ++index) {
-                auto ring = std::move(secondary[index]);
-                ring.reference.semantic_key = "thread:wire:" + container.id +
-                    (index == 0 ? ":secondary-start-ring"
-                                : ":secondary-end-ring");
-                ring.display_owner_id = container.id;
-                result.push_back(std::move(ring));
+    if (container.hole.drill_point_enabled && parameters.end_condition_forward == EndCondition::Length) {
+        const double tip=radius/std::tan(container.hole.drill_point_angle_degrees*std::numbers::pi/360.0);
+        sides(radius,depth,0.0,depth+tip,"tip:side");
+    }
+    if (parameters.enabled) {
+        const double nominal=parameters.nominal_diameter*0.5;
+        const double start=chamfer>0.0 ? std::max(0.0,chamfer-(nominal-radius)/slope) : 0.0;
+        const double end=thread_length(container);
+        if (start < end) {
+            ring(nominal,start,"nominal:start");
+            if (parameters.length_end_condition == EndCondition::UpTo &&
+                !parameters.length_end_targets.empty()) {
+                const auto& target=parameters.length_end_targets.front();
+                std::vector<zima::kernel::Vec3> boundary;
+                for (int i=0;i<=64;++i) {
+                    const auto radial_point=point(nominal,2.0*std::numbers::pi*i/64.0,0.0);
+                    const double length=opening_target_depth(target,radial_point,axis);
+                    boundary.push_back({radial_point.x+axis.x*length,
+                        radial_point.y+axis.y*length,radial_point.z+axis.z*length});
+                }
+                const auto seam_end=boundary.front();
+                append(std::move(boundary),"nominal:end");
+                append({point(nominal,0.0,start),seam_end},"nominal:side");
+            } else {
+                ring(nominal,end,"nominal:end");
+                sides(nominal,start,nominal,end,"nominal:side");
             }
         }
+        const double runout=parameters.length_end_condition == EndCondition::UpTo
+            ? 0.0 : parameters.runout_pitch_factor*parameters.pitch;
+        if (runout>0.0) sides(nominal,end,radius,end+runout,"runout:side");
     }
-    return result;
+    return edges;
 }
 
 std::vector<zima::kernel::ViewerEdge> PartDocument::revolution_preview_edges(
@@ -7608,54 +7640,142 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             zima::kernel::ThreadSurfaceRequest thread;
             thread.nominal_radius = container.thread.nominal_diameter * 0.5;
             thread.root_radius = container.thread.profile_diameter * 0.5;
-            thread.side = container.thread.side == ThreadSide::Internal
-                ? zima::kernel::ThreadSurfaceRequest::Side::Internal
-                : container.thread.side == ThreadSide::External
-                    ? zima::kernel::ThreadSurfaceRequest::Side::External
-                    : zima::kernel::ThreadSurfaceRequest::Side::Automatic;
             thread.origin = translation;
             thread.axis_direction = axis;
             thread.radial_direction = radial;
-            const auto target_length = [&](EndCondition condition,
-                    double entered, const auto& targets, double sign) {
-                if (condition != EndCondition::UpTo || targets.empty())
-                    return entered;
-                const auto& point = targets.front().fallback_origin;
-                return std::max(1.0e-6, sign * (
-                    (point.x-translation.x)*axis.x +
-                    (point.y-translation.y)*axis.y +
-                    (point.z-translation.z)*axis.z));
+            thread.side = zima::kernel::ThreadSurfaceRequest::Side::Internal;
+            thread.enabled = container.thread.enabled;
+            require_positive(container.thread.bore_length, "Hloubka otvoru");
+            require_positive(container.thread.length_forward, "Délka závitu");
+            require_positive(container.thread.profile_diameter, "Průměr otvoru");
+            require_positive(container.thread.nominal_diameter, "Jmenovitý průměr");
+            if (thread.enabled && thread.root_radius >= thread.nominal_radius)
+                throw std::runtime_error("Průměr předvrtání musí být menší než jmenovitý průměr závitu");
+            if (container.thread.extent_mode != ProfileExtentMode::OneSide)
+                throw std::runtime_error("Otvor se vytváří pouze jedním směrem");
+            const bool thread_up_to=container.thread.enabled &&
+                container.thread.length_end_condition == EndCondition::UpTo;
+            if (thread_up_to && (container.thread.length_end_targets.empty() ||
+                !container.thread.length_end_targets.front().reference.valid() ||
+                container.thread.length_end_targets.front().kind != EndTargetKind::Plane))
+                throw std::runtime_error("Vyberte cílovou rovinu závitu Až k");
+            const double cylinder_length=container.thread.enabled ? thread_length(container)
+                : container.thread.length_forward;
+            require_positive(cylinder_length,"Délka závitu Až k");
+            const double runout = container.thread.enabled && !thread_up_to
+                ? container.thread.runout_pitch_factor * container.thread.pitch : 0.0;
+            if (!std::isfinite(runout) || runout < 0.0)
+                throw std::runtime_error("Neplatná délka výběhu závitu");
+            thread.length = cylinder_length + runout;
+            thread.runout_end = runout;
+            double bore_length = container.thread.bore_length;
+            const auto condition = container.thread.end_condition_forward;
+            const auto& targets = container.thread.end_targets_forward;
+            if (condition == EndCondition::UpTo) {
+                if (targets.empty() || !targets.front().reference.valid())
+                    throw std::runtime_error("Vyberte cíl otvoru Až k");
+                bore_length = opening_target_depth(targets.front(),translation,axis);
+                require_positive(bore_length, "Hloubka otvoru Až k");
+            }
+            if (thread.enabled && condition != EndCondition::ThroughAll &&
+                thread.length > bore_length + 1.0e-7)
+                throw std::runtime_error("Závit včetně výběhu přesahuje válcovou hloubku otvoru");
+            if (thread_up_to) {
+                const auto& target=container.thread.length_end_targets.front();
+                thread.end_plane_origin=target.fallback_origin;
+                thread.end_plane_normal=target.fallback_normal;
+                const auto& n=target.fallback_normal;
+                const double normal_axis=n.x*axis.x+n.y*axis.y+n.z*axis.z;
+                const double amplitude=thread.nominal_radius*std::sqrt(std::max(0.0,
+                    (n.x*n.x+n.y*n.y+n.z*n.z)/(normal_axis*normal_axis)-1.0));
+                if (condition == EndCondition::Length && cylinder_length+amplitude>bore_length+1e-7)
+                    throw std::runtime_error("Cíl závitu přesahuje hloubku otvoru");
+                thread.length=cylinder_length+amplitude+1.0;
+            }
+            const double radius = (thread.enabled ? container.thread.profile_diameter
+                : container.thread.nominal_diameter) * 0.5;
+            auto before = std::make_shared<zima::kernel::FeatureGroupRequest>();
+            auto after = std::make_shared<zima::kernel::FeatureGroupRequest>();
+            auto bore_sketch = zima::sketcher::Sketch::from_serialized(
+                container.hole.sketch_serialized);
+            for (auto& circle : bore_sketch.circles)
+                if (circle.id == container.hole.circle_id) circle.radius = radius;
+            if (referenced_work_plane) {
+                bore_sketch.plane = zima::sketcher::SketchPlane::XZ;
+                bore_sketch.refresh_default_frame();
+            }
+            // XZ's in-plane Y is -Z and its normal is +Y. The opening
+            // consumes the existing Thread FRONT direction (-Y).
+            const auto bore_direction = referenced_work_plane
+                ? container.thread.direction == ExtrusionDirection::Reverse
+                    ? ExtrusionDirection::Forward : ExtrusionDirection::Reverse
+                : container.thread.direction;
+            auto bore = extrusion_request(bore_sketch, bore_length, bore_direction);
+            bore.extent = condition == EndCondition::ThroughAll
+                ? zima::kernel::ExtrusionRequest::Extent::ThroughAll
+                : condition == EndCondition::UpTo && targets.front().kind != EndTargetKind::Point
+                    ? targets.front().kind == EndTargetKind::Plane
+                        ? zima::kernel::ExtrusionRequest::Extent::UpToPlane
+                        : zima::kernel::ExtrusionRequest::Extent::UpToSurface
+                    : zima::kernel::ExtrusionRequest::Extent::Blind;
+            if (condition == EndCondition::UpTo) {
+                const auto& target = targets.front();
+                bore.target_face = target.reference;
+                if (allow_persisted_external_target) bore.target_face.instance_path.clear();
+                bore.target_is_datum = target.kind == EndTargetKind::Plane;
+                bore.target_plane_origin = target.fallback_origin;
+                bore.target_plane_normal = target.fallback_normal;
+                bore.target_surface_triangles = target.fallback_triangles;
+            }
+            apply_container_placement(bore, container.placement);
+            before->children.emplace_back(std::move(bore));
+            const double axial_sign = -1.0 *
+                (container.thread.direction == ExtrusionDirection::Reverse ? -1.0 : 1.0);
+            const auto axial_cut = [&](const std::string& serialized,
+                    const std::array<std::string, 3>& ids, const std::string& axis_id,
+                    const std::array<std::array<double, 2>, 3>& triangle) {
+                auto sketch = zima::sketcher::Sketch::from_serialized(serialized);
+                for (std::size_t i = 0; i < ids.size(); ++i) {
+                    auto* point = sketch.find_point(ids[i]);
+                    if (!point) throw std::runtime_error("Chybí bod profilu otvoru");
+                    point->x = triangle[i][0];
+                    point->y = axial_sign * triangle[i][1];
+                }
+                if (referenced_work_plane) {
+                    sketch.plane = zima::sketcher::SketchPlane::XY;
+                    sketch.refresh_default_frame();
+                }
+                auto cut = revolution_request(sketch, axis_id, 360.0);
+                apply_container_placement(cut, container.placement);
+                return cut;
             };
-            const double forward = target_length(
-                container.thread.end_condition_forward,
-                container.thread.length_forward,
-                container.thread.end_targets_forward, 1.0);
-            const bool has_reverse = container.thread.extent_mode !=
-                ProfileExtentMode::OneSide;
-            const double reverse = !has_reverse ? 0.0
-                : container.thread.extent_mode == ProfileExtentMode::Symmetric
-                    ? forward : target_length(
-                        container.thread.end_condition_reverse,
-                        container.thread.length_reverse,
-                        container.thread.end_targets_reverse, -1.0);
-            thread.start_offset = -reverse;
-            thread.length = forward + reverse;
-            thread.through_all_forward =
-                container.thread.end_condition_forward ==
-                    EndCondition::ThroughAll;
-            thread.through_all_reverse = has_reverse &&
-                container.thread.end_condition_reverse ==
-                    EndCondition::ThroughAll;
-            const double requested_runout =
-                std::max(0.0, container.thread.runout_pitch_factor) *
-                container.thread.pitch;
-            thread.runout_start = has_reverse &&
-                    container.thread.end_condition_reverse == EndCondition::Length
-                ? std::min(reverse, requested_runout) : 0.0;
-            thread.runout_end =
-                container.thread.end_condition_forward == EndCondition::Length
-                ? std::min(forward, requested_runout) : 0.0;
+            if (container.hole.drill_point_enabled && condition == EndCondition::Length) {
+                const double angle = container.hole.drill_point_angle_degrees;
+                if (!std::isfinite(angle) || angle <= 0.0 || angle >= 180.0)
+                    throw std::runtime_error("Neplatný vrcholový úhel špičky");
+                const double depth = radius / std::tan(angle * std::numbers::pi / 360.0);
+                before->children.emplace_back(axial_cut(container.hole.tip_sketch_serialized,
+                    container.hole.tip_point_ids, container.hole.tip_axis_segment_id,
+                    {{{0.0, bore_length}, {radius, bore_length}, {0.0, bore_length+depth}}}));
+            }
+            if (container.thread.chamfer_enabled) {
+                const double depth = container.thread.chamfer_depth;
+                const double angle = container.thread.chamfer_angle_degrees;
+                require_positive(depth, "Hloubka sražení");
+                if (!std::isfinite(angle) || angle <= 0.0 || angle >= 180.0)
+                    throw std::runtime_error("Neplatný vrcholový úhel sražení");
+                const double width = depth * std::tan(angle * std::numbers::pi / 360.0);
+                if (condition != EndCondition::ThroughAll && depth > bore_length)
+                    throw std::runtime_error("Sražení přesahuje hloubku otvoru");
+                after->children.emplace_back(axial_cut(container.hole.chamfer_sketch_serialized,
+                    container.hole.chamfer_point_ids, container.hole.chamfer_axis_segment_id,
+                    {{{radius, 0.0}, {radius+width, 0.0}, {radius, depth}}}));
+            }
+            thread.cuts_before = std::move(before);
+            thread.cuts_after = std::move(after);
             primitive = thread;
+        } else if (container.feature_kind == FeatureKind::ShaftThread) {
+            primitive=shaft_thread_request(container);
         } else if (container.feature_kind == FeatureKind::DrillPoint) {
             zima::kernel::DrillPointRequest point;
             point.bottom_faces = container.drill_point.bottom_faces;
@@ -8703,7 +8823,7 @@ PartDocument PartDocument::load(
             type != "imported_step" &&
             type != "fillet" && type != "chamfer" &&
             type != "shell" &&
-            type != "hole" && type != "thread" &&
+            type != "hole" && type != "thread" && type != "shaft_thread" &&
             type != "drill_point") {
             throw std::runtime_error("Unsupported history feature type");
         }
@@ -8722,6 +8842,7 @@ PartDocument PartDocument::load(
             : type == "chamfer" ? FeatureKind::Chamfer
             : type == "shell" ? FeatureKind::Shell
             : type == "hole" ? FeatureKind::Hole
+            : type == "shaft_thread" ? FeatureKind::ShaftThread
             : type == "thread" ? FeatureKind::Thread
             : type == "drill_point" ? FeatureKind::DrillPoint
             : FeatureKind::Box;
@@ -8865,6 +8986,24 @@ PartDocument PartDocument::load(
                 }
             }
         } else if (container.feature_kind == FeatureKind::Thread) {
+            container.thread.enabled = source.at("enabled");
+            container.thread.bore_length = source.at("bore_length");
+            container.thread.chamfer_enabled = source.at("chamfer_enabled");
+            container.thread.chamfer_depth = source.at("chamfer_depth");
+            container.thread.chamfer_angle_degrees = source.at("chamfer_angle_degrees");
+            container.hole.sketch_id = source.at("opening").at("sketch_id");
+            container.hole.circle_id = source.at("opening").at("circle_id");
+            container.hole.sketch_serialized = source.at("opening").at("sketch_serialized");
+            container.hole.chamfer_sketch_id = source.at("opening").at("chamfer_sketch_id");
+            container.hole.chamfer_sketch_serialized = source.at("opening").at("chamfer_sketch_serialized");
+            container.hole.chamfer_point_ids = source.at("opening").at("chamfer_point_ids");
+            container.hole.chamfer_axis_segment_id = source.at("opening").at("chamfer_axis_segment_id");
+            container.hole.tip_sketch_id = source.at("opening").at("tip_sketch_id");
+            container.hole.tip_sketch_serialized = source.at("opening").at("tip_sketch_serialized");
+            container.hole.tip_point_ids = source.at("opening").at("tip_point_ids");
+            container.hole.tip_axis_segment_id = source.at("opening").at("tip_axis_segment_id");
+            container.hole.drill_point_enabled = source.at("opening").at("drill_point_enabled");
+            container.hole.drill_point_angle_degrees = source.at("opening").at("drill_point_angle_degrees");
             container.thread.nominal_diameter = source.at("nominal_diameter");
             container.thread.pitch = source.at("pitch");
             container.thread.profile_diameter = source.at("profile_diameter");
@@ -8883,7 +9022,6 @@ PartDocument PartDocument::load(
                 ? ThreadSide::External
                 : throw std::runtime_error("Neplatná strana závitu");
             container.thread.designation = source.at("designation");
-            container.thread.dimension_label = source.at("dimension_label");
             container.thread.direction = source.at("direction") == "reverse"
                 ? ExtrusionDirection::Reverse : ExtrusionDirection::Forward;
             const auto parse_end = [](const nlohmann::json& value) {
@@ -8900,8 +9038,8 @@ PartDocument PartDocument::load(
                 : throw std::runtime_error("Neplatný rozsah závitu");
             container.thread.end_condition_forward =
                 parse_end(source.at("end_condition_forward"));
-            container.thread.end_condition_reverse =
-                parse_end(source.at("end_condition_reverse"));
+            container.thread.length_end_condition =
+                parse_end(source.at("length_end_condition"));
             container.thread.length_forward = source.at("length_forward");
             container.thread.length_reverse = source.at("length_reverse");
             container.thread.runout_pitch_factor = source.at("runout_pitch_factor");
@@ -8930,8 +9068,8 @@ PartDocument PartDocument::load(
             };
             parse_targets(source.at("end_targets_forward"),
                 container.thread.end_targets_forward);
-            parse_targets(source.at("end_targets_reverse"),
-                container.thread.end_targets_reverse);
+            parse_targets(source.at("length_end_targets"),
+                container.thread.length_end_targets);
             require_positive(container.thread.nominal_diameter, "nominal_diameter");
             require_positive(container.thread.pitch, "pitch");
             require_positive(container.thread.profile_diameter, "profile_diameter");
@@ -8941,6 +9079,23 @@ PartDocument PartDocument::load(
                 container.thread.runout_pitch_factor < 0.0) {
                 throw std::runtime_error("Neplatný výjezd závitu");
             }
+        } else if (container.feature_kind == FeatureKind::ShaftThread) {
+            auto& p=container.shaft_thread;
+            const auto face=[](const auto& value) -> zima::kernel::FaceReference {
+                zima::kernel::FaceReference result{value.at("owner"),value.at("key"),value.at("instance_path")};
+                if (value.contains("surface") && !value.at("surface").is_null())
+                    result.surface=std::make_shared<const zima::kernel::SurfaceGeometry>(load_surface_geometry(value.at("surface")));
+                return result;
+            };
+            p.cylinder=face(source.at("cylinder"));p.start=face(source.at("start"));
+            if (!source.at("chamfer").is_null()) p.chamfer=face(source.at("chamfer"));
+            if (!source.at("end").is_null()) p.end=face(source.at("end"));
+            p.standard=static_cast<ThreadStandard>(source.at("standard").get<int>());
+            p.designation=source.at("designation");
+            p.nominal_diameter=source.at("nominal_diameter");p.root_diameter=source.at("root_diameter");
+            p.pitch=source.at("pitch");p.length=source.at("length");
+            p.end_condition=static_cast<EndCondition>(source.at("end_condition").get<int>());
+            p.runout_enabled=source.at("runout_enabled");p.runout_pitch_factor=source.at("runout_pitch_factor");
         } else if (container.feature_kind == FeatureKind::DrillPoint) {
             for (const auto& face : source.at("bottom_faces")) {
                 container.drill_point.bottom_faces.push_back({
@@ -9691,11 +9846,21 @@ void PartDocument::save(
             };
             if (missing_target(container.thread.end_condition_forward,
                     container.thread.end_targets_forward) ||
-                (container.thread.extent_mode != ProfileExtentMode::OneSide &&
-                 missing_target(container.thread.end_condition_reverse,
-                    container.thread.end_targets_reverse))) {
+                (container.thread.enabled &&
+                 missing_target(container.thread.length_end_condition,
+                    container.thread.length_end_targets))) {
                 throw std::runtime_error("Chybí cílová reference závitu");
             }
+        } else if (container.feature_kind == FeatureKind::ShaftThread) {
+            const auto& p=container.shaft_thread;
+            require_positive(p.root_diameter,"shaft root diameter");
+            require_positive(p.nominal_diameter,"shaft nominal diameter");
+            require_positive(p.pitch,"shaft thread pitch");require_positive(p.length,"shaft thread length");
+            if (!std::isfinite(p.runout_pitch_factor) || p.runout_pitch_factor<0 ||
+                !p.cylinder.valid() || !p.start.valid() ||
+                (p.chamfer && !p.chamfer->valid()) ||
+                (p.end_condition==EndCondition::UpTo && (!p.end || !p.end->valid())))
+                throw std::runtime_error("Neplatné parametry nebo reference vnějšího závitu.");
         } else if (container.feature_kind == FeatureKind::DrillPoint) {
             if (std::ranges::any_of(container.drill_point.bottom_faces,
                     [](const auto& face) {
@@ -9883,6 +10048,8 @@ void PartDocument::save(
                     ? "chamfer"
                 : container.feature_kind == FeatureKind::Shell
                     ? "shell"
+                : container.feature_kind == FeatureKind::ShaftThread
+                    ? "shaft_thread"
                 : container.feature_kind == FeatureKind::Thread
                     ? "thread"
                 : container.feature_kind == FeatureKind::DrillPoint
@@ -10020,6 +10187,24 @@ void PartDocument::save(
                 return condition == EndCondition::Length ? "length"
                     : condition == EndCondition::UpTo ? "up_to" : "through_all";
             };
+            serialized["enabled"] = container.thread.enabled;
+            serialized["bore_length"] = container.thread.bore_length;
+            serialized["chamfer_enabled"] = container.thread.chamfer_enabled;
+            serialized["chamfer_depth"] = container.thread.chamfer_depth;
+            serialized["chamfer_angle_degrees"] = container.thread.chamfer_angle_degrees;
+            serialized["opening"]["sketch_id"] = container.hole.sketch_id;
+            serialized["opening"]["circle_id"] = container.hole.circle_id;
+            serialized["opening"]["sketch_serialized"] = container.hole.sketch_serialized;
+            serialized["opening"]["chamfer_sketch_id"] = container.hole.chamfer_sketch_id;
+            serialized["opening"]["chamfer_sketch_serialized"] = container.hole.chamfer_sketch_serialized;
+            serialized["opening"]["chamfer_point_ids"] = container.hole.chamfer_point_ids;
+            serialized["opening"]["chamfer_axis_segment_id"] = container.hole.chamfer_axis_segment_id;
+            serialized["opening"]["tip_sketch_id"] = container.hole.tip_sketch_id;
+            serialized["opening"]["tip_sketch_serialized"] = container.hole.tip_sketch_serialized;
+            serialized["opening"]["tip_point_ids"] = container.hole.tip_point_ids;
+            serialized["opening"]["tip_axis_segment_id"] = container.hole.tip_axis_segment_id;
+            serialized["opening"]["drill_point_enabled"] = container.hole.drill_point_enabled;
+            serialized["opening"]["drill_point_angle_degrees"] = container.hole.drill_point_angle_degrees;
             serialized["nominal_diameter"] = container.thread.nominal_diameter;
             serialized["pitch"] = container.thread.pitch;
             serialized["profile_diameter"] = container.thread.profile_diameter;
@@ -10033,7 +10218,6 @@ void PartDocument::save(
                 ? "automatic" : container.thread.side == ThreadSide::Internal
                 ? "internal" : "external";
             serialized["designation"] = container.thread.designation;
-            serialized["dimension_label"] = container.thread.dimension_label;
             serialized["direction"] = container.thread.direction ==
                     ExtrusionDirection::Reverse ? "reverse" : "forward";
             serialized["extent_mode"] = container.thread.extent_mode ==
@@ -10042,8 +10226,8 @@ void PartDocument::save(
                     ? "symmetric" : "one_side";
             serialized["end_condition_forward"] =
                 end_name(container.thread.end_condition_forward);
-            serialized["end_condition_reverse"] =
-                end_name(container.thread.end_condition_reverse);
+            serialized["length_end_condition"] =
+                end_name(container.thread.length_end_condition);
             serialized["length_forward"] = container.thread.length_forward;
             serialized["length_reverse"] = container.thread.length_reverse;
             serialized["runout_pitch_factor"] =
@@ -10073,8 +10257,23 @@ void PartDocument::save(
             };
             serialized["end_targets_forward"] = serialize_targets(
                 container.thread.end_targets_forward);
-            serialized["end_targets_reverse"] = serialize_targets(
-                container.thread.end_targets_reverse);
+            serialized["length_end_targets"] = serialize_targets(
+                container.thread.length_end_targets);
+        } else if (container.feature_kind == FeatureKind::ShaftThread) {
+            const auto& p=container.shaft_thread;
+            const auto face=[](const zima::kernel::FaceReference& value) {
+                auto result=nlohmann::json{{"owner",value.owner_id},{"key",value.semantic_key},{"instance_path",value.instance_path}};
+                result["surface"]=value.surface ? serialize_surface_geometry(*value.surface) : nlohmann::json(nullptr);
+                return result;
+            };
+            serialized["cylinder"]=face(p.cylinder);serialized["start"]=face(p.start);
+            serialized["chamfer"]=p.chamfer ? face(*p.chamfer) : nlohmann::json(nullptr);
+            serialized["end"]=p.end ? face(*p.end) : nlohmann::json(nullptr);
+            serialized["standard"]=static_cast<int>(p.standard);serialized["designation"]=p.designation;
+            serialized["nominal_diameter"]=p.nominal_diameter;serialized["root_diameter"]=p.root_diameter;
+            serialized["pitch"]=p.pitch;serialized["length"]=p.length;
+            serialized["end_condition"]=static_cast<int>(p.end_condition);
+            serialized["runout_enabled"]=p.runout_enabled;serialized["runout_pitch_factor"]=p.runout_pitch_factor;
         } else if (container.feature_kind == FeatureKind::DrillPoint) {
             serialized["bottom_faces"] = nlohmann::json::array();
             for (const auto& face : container.drill_point.bottom_faces) {

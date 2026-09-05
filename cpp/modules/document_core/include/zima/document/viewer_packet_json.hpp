@@ -5,6 +5,9 @@
 #include <nlohmann/json_fwd.hpp>
 
 namespace zima::document {
+[[nodiscard]] nlohmann::json serialize_surface_geometry(const zima::kernel::SurfaceGeometry& value);
+[[nodiscard]] zima::kernel::SurfaceGeometry load_surface_geometry(const nlohmann::json& value);
+
 
 [[nodiscard]] nlohmann::json serialize_viewer_reference_geometry(
     const zima::kernel::ViewerReferenceGeometry& geometry);

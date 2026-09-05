@@ -1,6 +1,8 @@
+#include "shaft_thread_dialog.hpp"
 #include "assembly_workspace_window.hpp"
 #include "construction_reference_candidate_policy.hpp"
 #include "construction_properties_dialog.hpp"
+#include "primitive_properties_dialog.hpp"
 #include "drawing_window.hpp"
 #include "resource_icon.hpp"
 
@@ -8,6 +10,7 @@
 #include <zima/viewer/mesh_view.hpp>
 
 #include <QAction>
+#include <QAbstractItemView>
 #include <QApplication>
 #include <QCheckBox>
 #include <QColor>
@@ -17,6 +20,7 @@
 #include <QDoubleSpinBox>
 #include <QDir>
 #include <QEvent>
+#include <QEventLoop>
 #include <QFileInfo>
 #include <QImage>
 #include <QKeyEvent>
@@ -27,6 +31,7 @@
 #include <QMessageBox>
 #include <QMouseEvent>
 #include <QPalette>
+#include <QPointer>
 #include <QOpenGLWidget>
 #include <QPushButton>
 #include <QPixmap>
@@ -97,12 +102,272 @@ bool contains_cyan_selection(const QImage& image) {
     return false;
 }
 
+int verify_history_tree_drag(QApplication& application,const std::filesystem::path& test_directory) {
+    // Drag real Tree rows, persist the order, and verify one-step Undo.
+    {
+        auto document=zima::document::PartDocument::create_default();
+        auto a=zima::document::PartDocument::create_box_container();
+        auto b=zima::document::PartDocument::create_box_container();
+        auto c=zima::document::PartDocument::create_box_container();
+        b.placement.x=30;c.placement.x=60;
+        document.history={a,b,c};
+        zima::kernel::OcctKernel kernel;
+        const auto bodies=kernel.evaluate_history(document.kernel_operations());
+        const auto part_path=test_directory / "history-drag.prtz";
+        document.save(part_path,bodies);
+        zima::app::AssemblyWorkspaceWindow drag_window(QString::fromStdString(test_directory.string()));
+        drag_window.resize(1000,800);drag_window.show();
+        const auto drag=[&](const std::string& moved,const std::string& last) {
+            auto* tree=drag_window.findChild<QTreeWidget*>("documentTree");
+            tree->collapseAll();tree->topLevelItem(0)->setExpanded(true);
+            application.processEvents();
+            QTreeWidgetItem* source=nullptr;QTreeWidgetItem* target=nullptr;
+            for (QTreeWidgetItemIterator i(tree);*i;++i) {
+                const auto kind=(*i)->data(0,Qt::UserRole+3).toString();
+                if (kind!="part-container" && kind!="part-occurrence" && kind!="assembly-occurrence") continue;
+                const auto id=(*i)->data(0,Qt::UserRole).toString().toStdString();
+                if (id==moved) source=*i;
+                if (id==last) target=*i;
+            }
+            if (!source || !target) return false;
+            tree->scrollToItem(target);application.processEvents();
+            const auto start=tree->visualItemRect(source).center();
+            const auto end=tree->visualItemRect(target).bottomLeft()+QPoint(30,0);
+            QMouseEvent press(QEvent::MouseButtonPress,QPointF(start),QPointF(tree->viewport()->mapToGlobal(start)),
+                Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+            QApplication::sendEvent(tree->viewport(),&press);
+            QMouseEvent move(QEvent::MouseMove,QPointF(end),QPointF(tree->viewport()->mapToGlobal(end)),
+                Qt::NoButton,Qt::LeftButton,Qt::NoModifier);
+            QApplication::sendEvent(tree->viewport(),&move);
+            QMouseEvent release(QEvent::MouseButtonRelease,QPointF(end),QPointF(tree->viewport()->mapToGlobal(end)),
+                Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+            QApplication::sendEvent(tree->viewport(),&release);
+            application.processEvents();return true;
+        };
+        const auto save=[&] {
+            auto* action=drag_window.findChild<QAction*>("saveDocumentAction");
+            QTimer modal_guard;
+            QObject::connect(&modal_guard,&QTimer::timeout,&drag_window,[] {
+                if (auto* message=qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) {
+                    std::cerr << "History save failure: " << message->text().toStdString() << '\n';
+                    message->reject();
+                }
+            });
+            modal_guard.start(100);
+            if (action) action->trigger();
+            application.processEvents();
+        };
+        if (!verify(drag_window.open_document_path(QString::fromStdString(part_path.string())) && drag(a.id,c.id),
+                "Part history drag fixture failed")) return 1;
+        save();
+        auto reordered=zima::document::PartDocument::load(part_path);
+
+        if (!verify(reordered.history.size()==3 && reordered.history.back().id==a.id &&
+                reordered.history_order.back().id==a.id,"Part Tree drag did not persist calculation order")) return 1;
+        auto* undo=drag_window.findChild<QAction*>("undoAction");
+        if (!verify(undo!=nullptr,"History drag Undo is missing")) return 1;
+        undo->trigger();save();
+        reordered=zima::document::PartDocument::load(part_path);
+        if (!verify(reordered.history.front().id==a.id,"History drag was not one Undo transaction")) return 1;
+
+        auto assembly=zima::assembly::AssemblyDocument::create_default();
+        auto first=zima::assembly::AssemblyDocument::create_part_occurrence("First",document.document_id,part_path,bodies.back());
+        auto second=zima::assembly::AssemblyDocument::create_part_occurrence("Second",document.document_id,part_path,bodies.back());
+        auto third=zima::assembly::AssemblyDocument::create_part_occurrence("Third",document.document_id,part_path,bodies.back());
+        assembly.components={first,second,third};
+        zima::assembly::ComponentDependency dependency;
+        dependency.dependency_id="drag-dependency";
+        dependency.prerequisite_occurrence_id=first.occurrence_id;
+        dependency.dependent_occurrence_id=third.occurrence_id;
+        dependency.kind=zima::assembly::ComponentDependencyKind::ExternalSketchReference;
+        assembly.dependencies.push_back(dependency);
+        const auto assembly_path=test_directory / "history-drag.asmz";
+        assembly.save(assembly_path);
+        if (!verify(drag_window.open_document_path(QString::fromStdString(assembly_path.string())) &&
+                drag(first.occurrence_id,third.occurrence_id),"Assembly drag fixture failed")) return 1;
+        save();
+        auto changed=zima::assembly::AssemblyDocument::load(assembly_path);
+        if (!verify(changed.components.front().occurrence_id==first.occurrence_id,
+                "Assembly drag crossed an external Sketch dependency")) return 1;
+        if (!verify(drag(second.occurrence_id,third.occurrence_id),"Independent Assembly drag failed")) return 1;
+        save();changed=zima::assembly::AssemblyDocument::load(assembly_path);
+        if (!verify(changed.components.back().occurrence_id==second.occurrence_id,
+                "Independent Assembly component order was not persisted")) return 1;
+        drag_window.close();application.processEvents();
+    }
+
+    return 0;
+}
+
+int verify_shaft_thread_command(QApplication& application,zima::app::AssemblyWorkspaceWindow& window,
+        const std::filesystem::path& directory) {
+    auto document=zima::document::PartDocument::create_default();
+    auto profile=zima::sketcher::Sketch::create_default();
+    const auto circle_id=profile.add_circle(0,0,5);
+    auto shaft=zima::document::PartDocument::create_extrusion_container(profile.id);
+    shaft.extrusion.length_forward=30;
+    document.sketches.push_back(profile);
+    document.insert_history_entry(zima::document::PartHistoryKind::Sketch,profile.id);
+    document.history.push_back(shaft);
+    document.insert_history_entry(zima::document::PartHistoryKind::Feature,shaft.id);
+    auto support=zima::document::PartDocument::create_box_container();
+    support.box.length=20;support.box.width=20;support.box.height=5;
+    support.placement.x=-10;support.placement.y=-10;support.placement.z=-5;
+    document.history.push_back(support);
+    document.insert_history_entry(zima::document::PartHistoryKind::Feature,support.id);
+    zima::kernel::OcctKernel kernel;
+    const auto bodies=kernel.evaluate_history(document.kernel_operations());
+    const auto path=directory/"shaft-thread-ui.prtz";
+    document.save(path,bodies);
+    window.show();
+    if (!verify(window.open_document_path(QString::fromStdString(path.string())),"Cannot open shaft fixture")) return 1;
+    application.processEvents();
+    auto* action=window.findChild<QAction*>("shaftThreadAction");
+    auto* view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
+    if (!verify(action && action->isEnabled() && view,"Standalone shaft thread command is missing")) return 1;
+    action->trigger();application.processEvents();
+    auto* dialog=dynamic_cast<zima::app::ShaftThreadDialog*>(window.findChild<QDialog*>("shaftThreadDialog"));
+    // This class intentionally has no Q_OBJECT; use the known dialog child via RTTI.
+    if (!dialog) for (auto* child : window.findChildren<QDialog*>())
+        if (child->objectName()=="shaftThreadDialog") dialog=dynamic_cast<zima::app::ShaftThreadDialog*>(child);
+    if (!verify(dialog!=nullptr,"Shaft thread properties did not open")) return 1;
+    const auto click_face=[&](const std::string& key) {
+        std::optional<QPointF> position;
+        for (int y=8;y<view->height() && !position;y+=6)
+            for (int x=8;x<view->width();x+=6) {
+                const QPointF point(x,y);
+                const auto candidates=view->selection_candidates_at(point);
+                if (!candidates.empty() && candidates.front().owner_id==shaft.id &&
+                    candidates.front().semantic_key==key) { position=point;break; }
+            }
+        if (!position) return false;
+        QMouseEvent move(QEvent::MouseMove,*position,*position,*position,Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(view,&move);
+        QMouseEvent press(QEvent::MouseButtonPress,*position,*position,*position,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+        QApplication::sendEvent(view,&press);
+        QMouseEvent release(QEvent::MouseButtonRelease,*position,*position,*position,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(view,&release);application.processEvents();
+        return true;
+    };
+    if (!verify(click_face("generated:"+circle_id) && dialog->pending().shaft_thread.cylinder.valid(),
+            "Shaft cylinder cannot be selected from the common View candidates")) return 1;
+    auto* references=dialog->findChild<QTableWidget*>("shaftThreadReferences");
+    QMetaObject::invokeMethod(references,"cellClicked",Q_ARG(int,1),Q_ARG(int,1));
+    application.processEvents();
+    if (!verify(click_face("end:from:47:profile-region:"+circle_id) && dialog->pending().shaft_thread.start.valid(),
+            "Shaft start plane cannot be selected from the common View candidates")) return 1;
+    const auto feature_id=dialog->pending().id;
+    zima::viewer::ViewerCandidate dimension;
+    dimension.kind=zima::viewer::CandidateKind::Dimension;
+    dimension.owner_id=feature_id;dimension.semantic_key="parameter:root_diameter";
+    const auto position=view->candidate_dimension_label_position(dimension);
+    if (!verify(position.has_value(),"Shaft root diameter is missing in View")) return 1;
+    QMouseEvent double_click(QEvent::MouseButtonDblClick,QPointF(*position),QPointF(*position),QPointF(*position),
+        Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+    QApplication::sendEvent(view,&double_click);application.processEvents();
+    auto* editor=view->findChild<QLineEdit*>("inlineDimensionValueEdit");
+    if (!verify(editor && editor->isVisible(),"Shaft diameter did not open numeric editing")) return 1;
+    editor->setText("8.050");
+    QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);
+    QApplication::sendEvent(editor,&enter);application.processEvents();
+    if (!verify(dialog->isVisible() && std::abs(dialog->pending().shaft_thread.root_diameter-8.05)<1e-8,
+            "View diameter editing did not remain pending in the same dialog")) return 1;
+    dialog->buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
+    if (dialog->isVisible())
+        if (const auto* error=dialog->findChild<QLabel*>("propertiesSubmitError"))
+            std::cerr << error->text().toStdString() << '\n';
+    if (!verify(!dialog->isVisible(),"Valid shaft thread did not commit")) return 1;
+    auto* save=window.findChild<QAction*>("saveDocumentAction");
+    if (!verify(save!=nullptr,"Save command is missing")) return 1;
+    save->trigger();application.processEvents();
+    const auto loaded=zima::document::PartDocument::load(path);
+    if (!verify(loaded.history.size()==3 &&
+            loaded.history.back().feature_kind==zima::document::FeatureKind::ShaftThread &&
+            std::abs(loaded.history.back().shaft_thread.root_diameter-8.05)<1e-8,
+            "Shaft thread did not save the edited root diameter")) return 1;
+    QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    auto* tree=window.findChild<QTreeWidget*>("documentTree");
+    QTreeWidgetItem* item=nullptr;
+    for (QTreeWidgetItemIterator i(tree);*i;++i)
+        if ((*i)->data(0,Qt::UserRole).toString().toStdString()==feature_id) { item=*i;break; }
+    if (!verify(item!=nullptr,"Shaft thread is missing from Tree")) return 1;
+    window.show_tree_item_properties(item);application.processEvents();
+    dialog=dynamic_cast<zima::app::ShaftThreadDialog*>(window.findChild<QDialog*>("shaftThreadDialog"));
+    if (!verify(dialog && std::abs(dialog->pending().shaft_thread.root_diameter-8.05)<1e-8 &&
+            view->candidate_dimension_label_position(dimension).has_value(),
+            "Reopened shaft thread lost its custom root diameter or rollback reference geometry")) return 1;
+    references=dialog->findChild<QTableWidget*>("shaftThreadReferences");
+    QMetaObject::invokeMethod(references,"cellClicked",Q_ARG(int,0),Q_ARG(int,1));
+    application.processEvents();
+    if (!verify(click_face("generated:"+circle_id) && dialog->pending().shaft_thread.cylinder.valid(),
+            "Reopened shaft thread cannot replace its cylinder reference")) return 1;
+    dialog->set_numeric("root_diameter",8.0);
+    dialog->buttons()->button(QDialogButtonBox::Cancel)->click();application.processEvents();
+    save->trigger();application.processEvents();
+    const auto canceled=zima::document::PartDocument::load(path);
+    if (!verify(std::abs(canceled.history.back().shaft_thread.root_diameter-8.05)<1e-8,
+            "Cancel committed shaft thread preview")) return 1;
+    QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    window.show_parameter_dimensions(feature_id);application.processEvents();
+    if (!verify(!view->container_inspection_wire().empty() && !view->confirmed_candidate(),
+            "Dimension inspection lost its wire or blocked dimension picking")) return 1;
+    const auto camera=view->camera_state();
+    window.edit_dimension_inline(dimension);application.processEvents();
+    editor=view->findChild<QLineEdit*>("inlineDimensionValueEdit");
+    if (!verify(editor && editor->isVisible(),"Closed shaft thread does not support numeric View editing")) return 1;
+    editor->setText("8.030");
+    QApplication::sendEvent(editor,&enter);application.processEvents();
+    save->trigger();application.processEvents();
+    const auto inline_edited=zima::document::PartDocument::load(path);
+    if (!verify(!view->container_inspection_wire().empty(),
+            "Inline edit lost the inspected container wire after scene refresh")) return 1;
+    if (!verify(std::abs(inline_edited.history.back().shaft_thread.root_diameter-8.03)<1e-8 &&
+            inline_edited.history.back().shaft_thread.designation=="M10" && view->camera_state()==camera,
+            "Closed View edit lost its numeric diameter, catalog designation or camera")) return 1;
+    auto missing=inline_edited;
+    missing.document_id=zima::document::PartDocument::create_default().document_id;
+    missing.history={missing.history.back()};missing.history_order.clear();missing.history_cursor=0;
+    missing.sketches.clear();
+    const auto missing_path=directory/"shaft-thread-missing-ui.prtz";
+    missing.save(missing_path,kernel.evaluate_history(missing.kernel_operations()));
+    if (!verify(window.open_document_path(QString::fromStdString(missing_path.string())),
+            "Cannot reopen retained thread without its source")) return 1;
+    application.processEvents();
+    item=nullptr;
+    for (QTreeWidgetItemIterator i(tree);*i;++i)
+        if ((*i)->data(0,Qt::UserRole).toString().toStdString()==feature_id) { item=*i;break; }
+    if (!verify(item && item->data(0,zima::app::missing_reference_role).toBool(),
+            "Missing shaft references were not marked red after reopening")) return 1;
+    window.show_tree_item_properties(item);application.processEvents();
+    dialog=dynamic_cast<zima::app::ShaftThreadDialog*>(window.findChild<QDialog*>("shaftThreadDialog"));
+    if (!verify(dialog && !dialog->pending().shaft_thread.cylinder.valid() &&
+            !dialog->pending().shaft_thread.start.valid() && dialog->active_reference()==0,
+            "Missing shaft properties did not request new references")) return 1;
+    dialog->buttons()->button(QDialogButtonBox::Cancel)->click();application.processEvents();
+    save->trigger();application.processEvents();
+    const auto retained=zima::document::PartDocument::load(missing_path);
+    if (!verify(retained.history.back().shaft_thread.cylinder.valid() &&
+            retained.history.back().shaft_thread.cylinder.surface &&
+            retained.history.back().shaft_thread.start.surface,
+            "Cancel erased the durable missing-reference fallback")) return 1;
+    return 0;
+}
+
 int verify_startup_contract(
     QApplication& application, zima::app::AssemblyWorkspaceWindow& window,
     const std::filesystem::path& test_directory,
     const QString& part_capture_path = {}, const QString& drawing_capture_path = {}) {
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHAFT_THREAD_ONLY"))
+        return verify_shaft_thread_command(application,window,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_HISTORY_DRAG_ONLY"))
+        return verify_history_tree_drag(application,test_directory);
     window.show();
     application.processEvents();
+
+    if (!verify(window.findChild<QAction*>("holeAction") == nullptr &&
+                window.findChild<QAction*>("threadAction") != nullptr &&
+                window.findChild<QAction*>("threadAction")->text() == QObject::tr("Otvor"),
+            "only the combined opening/thread command should be exposed")) return 1;
 
     auto* tabs = window.findChild<QTabBar*>("documentTabs");
     auto* tree = window.findChild<QTreeWidget*>("documentTree");
@@ -217,9 +482,7 @@ int verify_startup_contract(
                     sketch_text != nullptr &&
                     sketch_external_reference != nullptr &&
                     sketch_constraints != nullptr &&
-                    sketch_constraints->menu() != nullptr &&
-                    sketch_constraints->menu()->actions().size() == 12 &&
-                    sketch_constraints->menu()->actions().contains(sketch_equal) &&
+                    sketch_constraints->menu() == nullptr && sketch_equal != nullptr &&
                     sketch_dimensions != nullptr &&
                     sketch_dimension != nullptr &&
                     sketch_universal_dimension != nullptr &&
@@ -1133,13 +1396,37 @@ int verify_startup_contract(
                     tools_toolbar->actions().contains(sketch_constraints) &&
                     tools_toolbar->actions().contains(
                         sketch_universal_dimension) &&
-                    sketch_constraints->menu()->actions().contains(sketch_midpoint) &&
-                    sketch_constraints->menu()->actions().contains(sketch_symmetric) &&
-                    sketch_constraints->menu()->actions().contains(sketch_concentric) &&
-                    sketch_constraints->menu()->actions().contains(sketch_tangent),
+                    sketch_constraints->menu()==nullptr,
                 "Sketch commands must be exposed in the shared right toolbar")) {
         return 1;
     }
+    sketch_constraints->trigger();application.processEvents();
+    auto* constraints_dialog=window.findChild<QDialog*>("sketchConstraintsDialog");
+    auto* horizontal_automatic=constraints_dialog ? constraints_dialog->findChild<QPushButton*>("sketchHorizontalActionAutomatic") : nullptr;
+    if (!verify(constraints_dialog && horizontal_automatic && horizontal_automatic->isChecked() &&
+            constraints_dialog->windowFlags().testFlag(Qt::SubWindow),"Constraint command did not open its internal activity window")) return 1;
+    horizontal_automatic->click();
+    constraints_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();
+    QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();
+    sketch_constraints->trigger();application.processEvents();
+    constraints_dialog=window.findChild<QDialog*>("sketchConstraintsDialog");
+    horizontal_automatic=constraints_dialog ? constraints_dialog->findChild<QPushButton*>("sketchHorizontalActionAutomatic") : nullptr;
+    if (!verify(horizontal_automatic && horizontal_automatic->isChecked(),"Canceled constraint activity change leaked into Sketcher")) return 1;
+    auto* manual_horizontal=constraints_dialog->findChild<QPushButton*>("sketchHorizontalActionChoose");
+    manual_horizontal->click();application.processEvents();
+    if (!verify(constraints_dialog->isVisible() && manual_horizontal->isChecked() &&
+            sketch_constraints->isChecked() && constraints_dialog->width()<360,
+            "Manual constraint must keep its compact window and green command active")) return 1;
+    auto* manual_vertical=constraints_dialog->findChild<QPushButton*>("sketchVerticalActionChoose");
+    manual_vertical->click();application.processEvents();
+    if (!verify(manual_vertical->isChecked() && !manual_horizontal->isChecked(),
+            "Switching constraints did not synchronize the green row")) return 1;
+    QMouseEvent constraints_middle(QEvent::MouseButtonDblClick,QPointF(40,40),
+        QPointF(40,40),QPointF(40,40),Qt::MiddleButton,Qt::MiddleButton,Qt::NoModifier);
+    QApplication::sendEvent(window.findChild<QOpenGLWidget*>("modelWorkspace"),&constraints_middle);application.processEvents();
+    if (!verify(!constraints_dialog->isVisible() && !sketch_constraints->isChecked(),
+            "Middle double-click did not finish the manual constraint session")) return 1;
+    QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();
     sketch_external_reference->trigger();
     application.processEvents();
     if (!verify(sketch_external_reference->isChecked(),
@@ -1365,6 +1652,32 @@ int verify_startup_contract(
                 "first Sketch entity did not persist its hidden origin reference")) {
         return 1;
     }
+    const auto horizontal_marker_count=[&] {
+        return std::ranges::count_if(sketch_viewer->mesh().constraint_markers,
+            [](const auto& marker){return marker.label=="H";});
+    };
+    for (const bool enabled : {true,false}) {
+        if (!enabled) {
+            sketch_constraints->trigger();application.processEvents();
+            auto* dialog=window.findChild<QDialog*>("sketchConstraintsDialog");
+            dialog->findChild<QPushButton*>("sketchHorizontalActionAutomatic")->click();
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();
+            QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();
+        }
+        sketch_point->trigger();application.processEvents();
+        sketch_click(0.76,0.29);
+        const auto count_before=horizontal_marker_count();
+        sketch_click_at({model_viewer->width()*0.88,model_viewer->height()*0.29+0.5});
+        if (!verify(enabled ? horizontal_marker_count()>count_before : horizontal_marker_count()==count_before,
+                "New Sketch point did not respect automatic Horizontal activity")) return 1;
+        QApplication::sendEvent(&window,&cancel_first_entity);application.processEvents();
+        undo->trigger();application.processEvents();undo->trigger();application.processEvents();
+    }
+    sketch_constraints->trigger();application.processEvents();
+    constraints_dialog=window.findChild<QDialog*>("sketchConstraintsDialog");
+    constraints_dialog->findChild<QPushButton*>("sketchHorizontalActionAutomatic")->click();
+    constraints_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();
+    QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();
     sketch_rectangle->trigger();
     application.processEvents();
     sketch_click(0.42, 0.42);
@@ -3534,6 +3847,436 @@ int verify_startup_contract(
         if (part_saved_exists && std::filesystem::exists(part_archive_two)) {
             std::filesystem::remove(part_archive_two);
         }
+    }
+
+    // Tree route/segment selection consumes the saved operation input; Delete
+    // is one undoable model edit for both edge-treatment kinds.
+    for (const bool fillet : {false,true}) {
+        auto document=zima::document::PartDocument::create_default();
+        auto box=zima::document::PartDocument::create_box_container();
+        document.history={box};
+        zima::kernel::OcctKernel kernel;
+        auto input=kernel.evaluate_history(document.kernel_operations());
+        std::vector<zima::kernel::EdgeReference> vertical;
+        for (const auto& edge : input.back().mesh.edges)
+            if (edge.points.size()==2 && edge.reference.valid() &&
+                std::abs(edge.points.front().x-edge.points.back().x)<1e-7 &&
+                std::abs(edge.points.front().y-edge.points.back().y)<1e-7 &&
+                std::abs(edge.points.front().z-edge.points.back().z)>1)
+                vertical.push_back(edge.reference);
+        if (!verify(vertical.size()>=3,"Treatment Tree fixture has no vertical edges")) return 1;
+        auto treatment=fillet
+            ? zima::document::PartDocument::create_fillet_container({vertical[0],vertical[1]})
+            : zima::document::PartDocument::create_chamfer_container({vertical[0],vertical[1]});
+        treatment.edge_treatment.routes.push_back({vertical[2]});
+        document.history.push_back(treatment);
+        const auto path=test_directory/(fillet ? "fillet-tree.prtz" : "chamfer-tree.prtz");
+        document.save(path,kernel.evaluate_history(document.kernel_operations()));
+        zima::app::AssemblyWorkspaceWindow route_window(QString::fromStdString(test_directory.string()));
+        route_window.resize(1100,800);route_window.show();
+        if (!verify(route_window.open_document_path(QString::fromStdString(path.string())),
+                "Treatment Tree fixture could not open")) return 1;
+        application.processEvents();
+        auto* tree=route_window.findChild<QTreeWidget*>("documentTree");
+        auto* view=dynamic_cast<zima::viewer::MeshView*>(route_window.findChild<QOpenGLWidget*>("modelWorkspace"));
+        const auto find_item=[&](int route,int segment) -> QTreeWidgetItem* {
+            for (QTreeWidgetItemIterator i(tree);*i;++i)
+                if ((*i)->data(0,Qt::UserRole+3).toString()=="part-treatment-component" &&
+                    (*i)->data(0,Qt::UserRole).toString().toStdString()==treatment.id &&
+                    (*i)->data(0,Qt::UserRole+6).toInt()==route &&
+                    (*i)->data(0,Qt::UserRole+7).toInt()==segment) return *i;
+            return nullptr;
+        };
+        auto* route=find_item(0,-1);
+        if (!verify(route && route->childCount()==2 && !route->isExpanded(),
+                "Treatment Tree does not expose collapsed routes with segments")) return 1;
+        tree->setCurrentItem(route);application.processEvents();
+        if (!verify(view && view->confirmed_component_wire().size()==2,
+                "Tree route did not select exactly its two input edges")) return 1;
+        tree->setCurrentItem(find_item(0,0));application.processEvents();
+        const auto selected=view->confirmed_component_wire();
+        if (!verify(selected.size()==1 && selected.front().reference==vertical[0],
+                "Tree segment selected a different input edge")) return 1;
+        const auto remove_item=[&](int route,int segment) {
+            auto* item=find_item(route,segment);
+            if (!item) return false;
+            for (auto* parent=item->parent();parent;parent=parent->parent()) tree->expandItem(parent);
+            tree->scrollToItem(item);tree->setCurrentItem(item);
+            bool invoked=false;
+            QTimer::singleShot(0,&route_window,[&] {
+                auto* menu=route_window.findChild<QMenu*>("treatmentComponentMenu");
+                if (!menu) return;
+                auto* remove=menu->findChild<QAction*>("deleteTreatmentComponent");
+                if (!remove) {menu->close();return;}
+                invoked=true;menu->setActiveAction(remove);
+                QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);
+                QApplication::sendEvent(menu,&enter);
+            });
+            tree->customContextMenuRequested(tree->visualItemRect(item).center());
+            application.processEvents();
+            return invoked;
+        };
+        if (!verify(remove_item(0,0) && find_item(0,-1) && find_item(0,-1)->childCount()==1 &&
+                find_item(1,-1),"Deleting one segment damaged the other treatment routes")) return 1;
+        if (!verify(remove_item(1,-1) && !find_item(1,-1) && find_item(0,-1),
+                "Deleting a route damaged the remaining route")) return 1;
+        if (!verify(remove_item(0,-1) && !find_item(0,-1),
+                "Deleting the last route retained an invalid empty treatment")) return 1;
+        route_window.findChild<QAction*>("undoAction")->trigger();application.processEvents();
+        if (!verify(find_item(0,-1) && find_item(0,-1)->childCount()==1,
+                "Undo failed to restore the last deleted treatment route")) return 1;
+        route_window.findChild<QAction*>("saveDocumentAction")->trigger();application.processEvents();
+        const auto saved=zima::document::PartDocument::load(path);
+        const auto* restored=saved.find_container(treatment.id);
+        if (!verify(restored && restored->edge_treatment.routes.size()==1 &&
+                restored->edge_treatment.routes.front()==std::vector<zima::kernel::EdgeReference>{vertical[1]},
+                "Edited treatment route did not survive save/reload")) return 1;
+        route_window.close();application.processEvents();
+    }
+
+    if (verify_history_tree_drag(application,test_directory)!=0) return 1;
+
+    // Lost-reference acknowledgement belongs to successful Properties OK.
+    {
+        auto document=zima::document::PartDocument::create_default();
+        auto box=zima::document::PartDocument::create_box_container();
+        box.placement.reference_valid=false;
+        document.history={box};
+        zima::kernel::OcctKernel kernel;
+        const auto calculated=kernel.evaluate_history(document.kernel_operations());
+        const auto path=test_directory / "missing-reference-tree.prtz";
+        document.save(path,calculated);
+        zima::app::AssemblyWorkspaceWindow reference_window(
+            QString::fromStdString(test_directory.string()));
+        reference_window.show();
+        if (!verify(reference_window.open_document_path(QString::fromStdString(path.string())),
+                "Missing-reference fixture did not open")) return 1;
+        const auto find_row=[&]() -> QTreeWidgetItem* {
+            auto* tree=reference_window.findChild<QTreeWidget*>("documentTree");
+            for (QTreeWidgetItemIterator i(tree);*i;++i)
+                if ((*i)->data(0,Qt::UserRole).toString().toStdString()==box.id &&
+                    (*i)->data(0,Qt::UserRole+3).toString()=="part-container") return *i;
+            return nullptr;
+        };
+        for (const auto button : {QDialogButtonBox::Cancel,QDialogButtonBox::Ok}) {
+            auto* row=find_row();
+            if (!verify(row && row->data(0,zima::app::missing_reference_role).toBool(),
+                    "Missing reference or Cancel did not retain red Tree row")) return 1;
+            reference_window.show_tree_item_properties(row);
+            application.processEvents();
+            zima::app::PrimitivePropertiesDialog* properties=nullptr;
+            for (auto* dialog : reference_window.findChildren<QDialog*>())
+                if (auto* primitive=dynamic_cast<zima::app::PrimitivePropertiesDialog*>(dialog))
+                    properties=primitive;
+            if (!verify(properties != nullptr,"Reference Properties did not open")) return 1;
+            properties->buttons()->button(button)->click();
+            QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+            application.processEvents();
+        }
+        if (!verify(find_row() && !find_row()->data(0,zima::app::missing_reference_role).toBool(),
+                "Successful Properties OK did not restore normal Tree background")) return 1;
+        reference_window.close();application.processEvents();
+    }
+
+    // Exercise the real 3D parameter display, including opening Properties
+    // from a catalog dimension while no dialog is active.
+    {
+        auto document=zima::document::PartDocument::create_default();
+        auto block=zima::document::PartDocument::create_box_container();
+        block.box={40.0,40.0,40.0};
+        auto opening=zima::document::PartDocument::create_thread_container();
+        opening.placement.z=-20.0;
+        document.history={block,opening};
+        zima::kernel::OcctKernel opening_kernel;
+        const auto calculated=opening_kernel.evaluate_history(document.kernel_operations());
+        const auto opening_path=test_directory / "opening-dimensions.prtz";
+        document.save(opening_path,calculated);
+        zima::app::AssemblyWorkspaceWindow opening_window(
+            QString::fromStdString(test_directory.string()));
+        opening_window.resize(1100,800);
+        opening_window.show();
+        if (!verify(opening_window.open_document_path(
+                QString::fromStdString(opening_path.string())),
+                "Opening dimension fixture could not be opened")) return 1;
+        opening_window.show_parameter_dimensions(opening.id);
+        application.processEvents();
+        auto* view=dynamic_cast<zima::viewer::MeshView*>(
+            opening_window.findChild<QOpenGLWidget*>("modelWorkspace"));
+        if (!verify(view != nullptr,"Opening View is missing")) return 1;
+        const auto candidate_for=[&](const std::string& key) {
+            std::optional<zima::viewer::ViewerCandidate> result;
+            for (std::size_t index=0;index<100;++index) {
+                zima::viewer::ViewerCandidate candidate;
+                candidate.kind=zima::viewer::CandidateKind::Dimension;
+                candidate.owner_id=opening.id;
+                candidate.semantic_key=key;
+                candidate.geometry_index=index;
+                if (view->candidate_dimension_value(candidate)) { result=candidate; break; }
+            }
+            return result;
+        };
+        const auto bore=candidate_for("measurement:bore_diameter");
+        const auto catalog=candidate_for("parameter:thread_designation");
+        if (!verify(bore && catalog &&
+                std::abs(*view->candidate_dimension_value(*bore)-opening.thread.profile_diameter)<1e-6,
+                "Closed opening Properties lost the informational bore dimension")) return 1;
+        view->repaint();
+        const auto image=view->grabFramebuffer();
+        int measured_pixels=0;
+        for (int y=0;y<image.height();++y)
+            for (int x=0;x<image.width();++x) {
+                const auto color=image.pixelColor(x,y);
+                if (std::abs(color.red()-173)<=2 && std::abs(color.green()-110)<=2 &&
+                    std::abs(color.blue()-46)<=2) ++measured_pixels;
+            }
+        image.save(QString::fromStdString((test_directory / "opening-dimensions.png").string()));
+        if (!verify(measured_pixels>15,
+                "3D View did not paint the informational diameter in measured brown")) return 1;
+        const auto wait_for_popup=[&] {
+            QEventLoop events;
+            QTimer::singleShot(40,&events,&QEventLoop::quit);
+            events.exec();
+        };
+        const auto properties_visible=[&] {
+            for (auto* child : opening_window.findChildren<QDialog*>())
+                if (dynamic_cast<zima::app::PrimitivePropertiesDialog*>(child) && child->isVisible())
+                    return true;
+            return false;
+        };
+        opening_window.edit_dimension_inline(*catalog);
+        wait_for_popup();
+        auto* sizes=opening_window.findChild<QComboBox*>("inlineThreadSizeEdit");
+        // Synthetic Qt input has no native Wayland grab serial. Check the
+        // inline editor and drive its normal activation signal below; popup
+        // grab availability is not a feature-state contract.
+        if (!verify(sizes && sizes->isVisible() && !properties_visible(),
+                "View Edit opened Properties instead of an inline catalog")) return 1;
+        const int m12=sizes->findText("M12");
+        sizes->setCurrentIndex(m12);
+        QMetaObject::invokeMethod(sizes,"activated",Q_ARG(int,m12));
+        sizes->hidePopup();
+        application.processEvents();
+        QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+        application.processEvents();
+        const auto edited_bore=candidate_for("measurement:bore_diameter");
+        const auto edited_catalog=candidate_for("parameter:thread_designation");
+        if (!verify(edited_bore && edited_catalog && !properties_visible() &&
+                std::abs(*view->candidate_dimension_value(*edited_catalog)-12.0)<1e-6,
+                "Catalog selection did not commit and return to View Edit")) return 1;
+        opening_window.edit_dimension_inline(*edited_catalog);
+        wait_for_popup();
+        sizes=opening_window.findChild<QComboBox*>("inlineThreadSizeEdit");
+        if (!verify(sizes != nullptr,"Repeated inline catalog edit failed")) return 1;
+        sizes->hidePopup();
+        application.processEvents();
+        QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+        application.processEvents();
+        const auto restored_catalog=candidate_for("parameter:thread_designation");
+        if (!verify(restored_catalog && !properties_visible() &&
+                std::abs(*view->candidate_dimension_value(*restored_catalog)-12.0)<1e-6,
+                "Dismissing the inline catalog changed the thread or left View Edit")) return 1;
+        auto* opening_tree=opening_window.findChild<QTreeWidget*>("documentTree");
+        QTreeWidgetItem* opening_item=nullptr;
+        {
+            QTreeWidgetItemIterator item(opening_tree);
+            while (*item) {
+                if ((*item)->data(0,Qt::UserRole).toString().toStdString()==opening.id) {
+                    opening_item=*item;
+                    break;
+                }
+                ++item;
+            }
+        }
+        if (!verify(opening_item != nullptr,"Opening history item is missing")) return 1;
+        opening_window.show_tree_item_properties(opening_item);
+        application.processEvents();
+        zima::app::PrimitivePropertiesDialog* opening_properties=nullptr;
+        for (auto* child : opening_window.findChildren<QDialog*>())
+            if (auto* primitive=dynamic_cast<zima::app::PrimitivePropertiesDialog*>(child))
+                opening_properties=primitive;
+        if (!verify(opening_properties != nullptr,"Opening Properties did not open")) return 1;
+        auto* ending=opening_properties->findChild<QComboBox*>("threadEnd");
+        auto* target=opening_properties->findChild<QLineEdit*>("threadBoreEndTarget");
+        const auto active_placement_cells=[&] {
+            int active=0;
+            for (auto* table : opening_properties->findChildren<QTableWidget*>())
+                for (int row=0;row<table->rowCount();++row)
+                    for (int column=0;column<table->columnCount();++column)
+                        if (const auto* cell=dynamic_cast<zima::ui::ReferenceCellItem*>(table->item(row,column));
+                            cell && cell->is_active_input()) ++active;
+            return active;
+        };
+        if (!verify(ending && target && active_placement_cells()>0,
+                "Opening fixture did not start with incomplete active placement")) return 1;
+        ending->setCurrentIndex(ending->findData("up_to"));
+        application.processEvents();
+        if (!verify(active_placement_cells()==0 && target->styleSheet().contains("#42d66b"),
+                "Opening Up To did not take exclusive input from placement")) return 1;
+        const auto* up_to_tip=opening_properties->findChild<QCheckBox*>("threadDrillPoint");
+        if (!verify(up_to_tip && !up_to_tip->isChecked() && !up_to_tip->isEnabled(),
+                "Opening Up To retained a drill point past its target surface")) return 1;
+        ending->setCurrentIndex(ending->findData("length"));
+        application.processEvents();
+        if (!verify(active_placement_cells()==0 && !target->styleSheet().contains("#42d66b"),
+                "Leaving Opening Up To retained a stale selection state")) return 1;
+        ending->setCurrentIndex(ending->findData("up_to"));
+        application.processEvents();
+        std::optional<QPointF> target_position;
+        for (int y=4;y<view->height() && !target_position;y+=6)
+            for (int x=4;x<view->width();x+=6) {
+                const QPointF position(x,y);
+                const auto offered=view->selection_candidates_at(position);
+                if (!offered.empty() && offered.front().kind==zima::viewer::CandidateKind::Face &&
+                    offered.front().semantic_key=="z_max") { target_position=position; break; }
+            }
+        if (!verify(target_position.has_value(),"Opening Up To offered no target face")) return 1;
+        QMouseEvent move(QEvent::MouseMove,*target_position,
+            view->mapToGlobal(target_position->toPoint()),Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(view,&move);
+        QMouseEvent press(QEvent::MouseButtonPress,*target_position,
+            view->mapToGlobal(target_position->toPoint()),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+        QApplication::sendEvent(view,&press);
+        QMouseEvent release(QEvent::MouseButtonRelease,*target_position,
+            view->mapToGlobal(target_position->toPoint()),Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(view,&release);
+        application.processEvents();
+        if (!verify(!target->text().isEmpty() && !target->styleSheet().contains("#42d66b") &&
+                active_placement_cells()==0 && opening_properties->first_empty_position_index()==0,
+                "Up To click did not set its target independently of placement")) return 1;
+        auto* thread_end=opening_properties->findChild<QComboBox*>("threadLengthEnd");
+        auto* thread_target=opening_properties->findChild<QLineEdit*>("threadLengthEndTarget");
+        if (!verify(thread_end && thread_target,"Thread length target controls missing")) return 1;
+        thread_end->setCurrentIndex(thread_end->findData("up_to"));
+        application.processEvents();
+        if (!verify(thread_target->styleSheet().contains("#42d66b") &&
+                !target->styleSheet().contains("#42d66b") && active_placement_cells()==0,
+                "Thread Up To did not exclusively own target entry")) return 1;
+        QApplication::sendEvent(view,&move);
+        QApplication::sendEvent(view,&press);
+        QApplication::sendEvent(view,&release);
+        application.processEvents();
+        if (!verify(!thread_target->text().isEmpty() &&
+                !opening_properties->findChild<QDoubleSpinBox*>("threadRunoutPitchFactor")->isVisible(),
+                "Thread Up To target missing or runout still visible")) return 1;
+        const QPointer<zima::app::PrimitivePropertiesDialog> committed_dialog(opening_properties);
+        opening_properties->buttons()->button(QDialogButtonBox::Ok)->click();
+        application.processEvents();
+        if (!verify(committed_dialog.isNull() || !committed_dialog->isVisible(),
+                "Opening Up To failed to calculate on OK")) return 1;
+        QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+        application.processEvents();
+        auto* save_opening=opening_window.findChild<QAction*>("saveDocumentAction");
+        if (!verify(save_opening != nullptr,"Opening save action is missing")) return 1;
+        save_opening->trigger();
+        application.processEvents();
+        std::vector<zima::kernel::BodyResult> up_to_results;
+        const auto up_to_document=zima::document::PartDocument::load(opening_path,&up_to_results);
+        const auto* saved_opening=up_to_document.find_container(opening.id);
+        if (!verify(saved_opening && !up_to_results.empty() &&
+                saved_opening->thread.end_condition_forward==zima::document::EndCondition::UpTo &&
+                saved_opening->thread.length_end_condition==zima::document::EndCondition::UpTo &&
+                saved_opening->thread.length_end_targets.size()==1 &&
+                saved_opening->thread.length_end_targets.front().reference.semantic_key=="z_max" &&
+                saved_opening->placement.references.empty() &&
+                saved_opening->thread.end_targets_forward.front().reference.semantic_key=="z_max",
+                "Opening Up To target or untouched placement did not survive save")) return 1;
+        const double drill_radius=saved_opening->thread.profile_diameter*0.5;
+        const double expected_volume=64000.0-std::acos(-1.0)*drill_radius*drill_radius*40.0-
+            std::acos(-1.0)*(drill_radius+1.0/3.0);
+        if (!verify(std::abs(up_to_results.back().volume-expected_volume)<1e-5,
+                "Opening Up To did not actually cut to its selected top face")) return 1;
+        const auto find_component=[&](const QString& role) -> QTreeWidgetItem* {
+            for (QTreeWidgetItemIterator i(opening_tree);*i;++i)
+                if ((*i)->data(0,Qt::UserRole+3).toString()=="part-opening-component" &&
+                    (*i)->data(0,Qt::UserRole).toString().toStdString()==opening.id &&
+                    (*i)->data(0,Qt::UserRole+5).toString()==role) return *i;
+            return nullptr;
+        };
+        const auto component_menu=[&](const QString& role,bool remove,bool edit=false) {
+            auto* item=find_component(role);
+            if (!item) return false;
+            opening_tree->expandItem(item->parent());
+            opening_tree->scrollToItem(item);
+            opening_tree->setCurrentItem(item);
+            application.processEvents();
+            bool menu_valid=false;
+            QTimer::singleShot(0,&opening_window,[&] {
+                auto* menu=opening_window.findChild<QMenu*>("openingComponentMenu");
+                if (!menu) return;
+                auto* action=menu->findChild<QAction*>("deleteOpeningComponent");
+                auto* edit_action=menu->findChild<QAction*>("editOpeningComponent");
+                menu_valid=edit_action && (action!=nullptr)==(role!="bore");
+                if ((remove && action) || (edit && edit_action)) {
+                    menu->setActiveAction(edit ? edit_action : action);
+                    QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);
+                    QApplication::sendEvent(menu,&enter);
+                } else menu->close();
+            });
+            opening_tree->customContextMenuRequested(
+                opening_tree->visualItemRect(item).center());
+            application.processEvents();
+            return menu_valid;
+        };
+        for (const QString role : {QStringLiteral("bore"),QStringLiteral("thread"),QStringLiteral("chamfer")}) {
+            auto* item=find_component(role);
+            if (!verify(item!=nullptr,"Opening component is missing from Tree")) return 1;
+            opening_tree->setCurrentItem(item);
+            application.processEvents();
+            const auto selected=view->confirmed_candidate();
+            if (!verify(selected && selected->semantic_key=="component:"+role.toStdString() &&
+                    !view->confirmed_component_edge_indices().empty(),
+                    "Opening Tree component did not select its exact View wire")) return 1;
+        }
+        if (!verify(component_menu("bore",false,true) && candidate_for("measurement:bore_diameter") &&
+                !candidate_for("parameter:thread_designation") && !properties_visible(),
+                "Tree bore Edit did not show only bore dimensions in View")) return 1;
+        if (!verify(component_menu("thread",false,true) && candidate_for("parameter:thread_designation") &&
+                !candidate_for("measurement:bore_diameter") && !properties_visible(),
+                "Tree thread Edit did not show only thread dimensions in View")) return 1;
+        if (!verify(component_menu("chamfer",false,true) && candidate_for("parameter:chamfer_depth") &&
+                !candidate_for("parameter:thread_designation") && !properties_visible(),
+                "Tree chamfer Edit did not show only chamfer dimensions in View")) return 1;
+        if (!verify(component_menu("bore",false),"Mandatory bore exposes Delete")) return 1;
+        if (!verify(component_menu("chamfer",true) && !find_component("chamfer") && find_component("thread"),
+                "Deleting chamfer did not disable only that opening component")) return 1;
+        if (!verify(component_menu("thread",true) && !find_component("thread") && find_component("bore"),
+                "Deleting thread did not switch the opening to a plain bore")) return 1;
+        const auto plain_icon=find_component("bore")->parent()->icon(0).pixmap(24,24).toImage();
+        if (!verify(plain_icon==zima::app::resource_icon("cylinder").pixmap(24,24).toImage(),
+                "Plain opening did not use the bore icon")) return 1;
+        opening_window.findChild<QAction*>("saveDocumentAction")->trigger();
+        application.processEvents();
+        const auto plain_document=zima::document::PartDocument::load(opening_path);
+        const auto* plain_opening=plain_document.find_container(opening.id);
+        if (!verify(plain_opening && !plain_opening->thread.enabled &&
+                !plain_opening->thread.chamfer_enabled &&
+                std::abs(plain_opening->thread.nominal_diameter-2*drill_radius)<1e-6,
+                "Tree Delete did not persist opening options and bore diameter")) return 1;
+        opening_window.findChild<QAction*>("undoAction")->trigger();
+        application.processEvents();
+        if (!verify(find_component("thread") && !find_component("chamfer"),
+                "Undo did not restore the deleted thread")) return 1;
+        opening_window.show_tree_item_properties(find_component("bore"));
+        application.processEvents();
+        zima::app::PrimitivePropertiesDialog* restored_properties=nullptr;
+        for (auto* child : opening_window.findChildren<QDialog*>())
+            if (child->isVisible())
+                if (auto* dialog=dynamic_cast<zima::app::PrimitivePropertiesDialog*>(child))
+                    restored_properties=dialog;
+        if (!verify(restored_properties &&
+                !restored_properties->findChild<QCheckBox*>("threadChamferEnabled")->isChecked(),
+                "Deleted chamfer remains checked in opening Properties")) return 1;
+        restored_properties->findChild<QCheckBox*>("threadChamferEnabled")->setChecked(true);
+        restored_properties->buttons()->button(QDialogButtonBox::Ok)->click();
+        application.processEvents();
+        QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+        application.processEvents();
+        if (!verify(find_component("chamfer")!=nullptr,
+                "Opening Properties did not restore the disabled component in Tree")) return 1;
+        view->clear_selection();
+        if (!verify(view->confirmed_component_edge_indices().empty(),
+                "Clearing selection retained opening component highlights")) return 1;
+        opening_window.close();
     }
 
     about->trigger();

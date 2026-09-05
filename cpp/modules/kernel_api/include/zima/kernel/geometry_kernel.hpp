@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <bit>
 #include <algorithm>
+#include <array>
 #include <string>
 #include <vector>
 #include <variant>
@@ -20,15 +21,42 @@ struct Vec3 {
     bool operator==(const Vec3&) const = default;
 };
 
+// Exact analytic data captured during explicit body calculation. These are
+// measurements of the persisted source face, never topology identity.
+struct SurfaceGeometry {
+    enum class Kind { Plane, Cylinder, Cone };
+    Kind kind{Kind::Plane};
+    Vec3 origin;
+    Vec3 axis{0,0,1};
+    Vec3 radial{1,0,0};
+    double radius{};
+    double semi_angle{};
+    double axial_min{};
+    double axial_max{};
+    bool reversed{};
+    bool operator==(const SurfaceGeometry&) const = default;
+};
+
 struct FaceReference {
     std::string owner_id;
     std::string semantic_key;
     std::string instance_path;
+    std::shared_ptr<const SurfaceGeometry> surface;
 
     [[nodiscard]] bool valid() const {
         return !owner_id.empty() && !semantic_key.empty();
     }
-    bool operator==(const FaceReference&) const = default;
+    // The persisted semantic role is also the surface classification used by
+    // drawing sections. Only the full thread cylinder is threaded; its runout
+    // and the underlying bore wall remain ordinary surfaces. No OCCT lookup.
+    [[nodiscard]] bool is_thread_surface() const {
+        return valid() && (semantic_key == "thread:surface:nominal" ||
+            semantic_key == "thread:surface:root");
+    }
+    bool operator==(const FaceReference& other) const {
+        return owner_id==other.owner_id && semantic_key==other.semantic_key &&
+            instance_path==other.instance_path;
+    }
 };
 
 struct EdgeReference {
@@ -212,11 +240,25 @@ struct CylinderRequest {
     Vec3 rotation_degrees;
 };
 
-// Non-volumetric technological geometry. It participates in explicit OCCT
-// history calculation and can be trimmed by later subtractive operands, but
-// never changes the result solid's volume or Boolean ownership.
+struct FeatureGroupRequest;
+
+// The technological thread itself is non-volumetric. An opening sequences
+// ordinary profile cuts before and after that sheet in one history boundary;
+// cuts_after trims the sheet as well as the solid. A disabled sheet makes a
+// plain opening with the same bore/tip/chamfer contract.
 struct ThreadSurfaceRequest {
     enum class Side { Automatic, Internal, External };
+
+    bool enabled{true};
+    // Standalone shaft threading references original faces; the solid stays unchanged.
+    std::optional<FaceReference> shaft_face;
+    FaceReference shaft_start;
+    std::optional<FaceReference> shaft_chamfer;
+    std::optional<FaceReference> shaft_end;
+    bool shaft_through_all{};
+    bool shaft_runout{true};
+    std::shared_ptr<const FeatureGroupRequest> cuts_before;
+    std::shared_ptr<const FeatureGroupRequest> cuts_after;
 
     double nominal_radius{5.0};
     double root_radius{4.1881};
@@ -224,6 +266,8 @@ struct ThreadSurfaceRequest {
     double length{15.0};
     double runout_start{};
     double runout_end{3.0};
+    std::optional<Vec3> end_plane_origin;
+    Vec3 end_plane_normal{0,0,1};
     bool through_all_forward{};
     bool through_all_reverse{};
     Side side{Side::Automatic};
@@ -516,6 +560,9 @@ struct HistoryOperation {
 };
 
 struct BodyResult {
+    // Last resolved shaft references, isolated from selectable topology.
+    std::string shaft_thread_owner;
+    std::array<FaceReference,4> shaft_thread_references{};
     ViewerMesh mesh;
     double volume{};
     double surface_area{};
@@ -648,6 +695,8 @@ struct PlacedBody {
                     u64(std::bit_cast<std::uint64_t>(value));
                 }
             } else if constexpr (std::is_same_v<Request, ExtrusionRequest>) {
+                // Up-to-plane prisms cover the complete curved profile.
+                if (primitive.extent == ExtrusionRequest::Extent::UpToPlane) byte(1);
                 const auto append_profile = [&](const auto& profile_variant) {
                     byte(static_cast<std::uint8_t>(profile_variant.index()));
                     std::visit([&](const auto& profile) {
@@ -1075,6 +1124,26 @@ struct PlacedBody {
                 u64(primitive.component_path.size());
                 for (const unsigned char value : primitive.component_path) byte(value);
             } else if constexpr (std::is_same_v<Request, ThreadSurfaceRequest>) {
+                if (primitive.shaft_face) {
+                    byte(255); // Standalone external thread reference contract.
+                    for (const auto& face : {primitive.shaft_face, std::optional<FaceReference>{primitive.shaft_start},
+                            primitive.shaft_chamfer,primitive.shaft_end}) {
+                        byte(face.has_value());
+                        if (face) for (const auto* text : {&face->owner_id,&face->semantic_key,&face->instance_path}) {
+                            u64(text->size());for (const unsigned char ch : *text) byte(ch);
+                        }
+                    }
+                    byte(primitive.shaft_through_all);byte(primitive.shaft_runout);
+                }
+                byte(primitive.end_plane_origin.has_value());
+                if (primitive.end_plane_origin) {
+                    for (double value : {primitive.end_plane_origin->x,primitive.end_plane_origin->y,
+                            primitive.end_plane_origin->z,primitive.end_plane_normal.x,
+                            primitive.end_plane_normal.y,primitive.end_plane_normal.z})
+                        u64(std::bit_cast<std::uint64_t>(value));
+                }
+                // Opening result revision: unified source wire and persisted axis.
+                byte(2);
                 for (const double value : {primitive.nominal_radius,
                         primitive.root_radius, primitive.start_offset,
                         primitive.length, primitive.runout_start,
@@ -1090,6 +1159,19 @@ struct PlacedBody {
                 byte(primitive.through_all_forward);
                 byte(primitive.through_all_reverse);
                 byte(static_cast<std::uint8_t>(primitive.side));
+                byte(primitive.enabled);
+                for (const auto& group : {primitive.cuts_before, primitive.cuts_after}) {
+                    byte(static_cast<bool>(group));
+                    if (!group) continue;
+                    HistoryOperation cut;
+                    cut.owner_id = operation.owner_id;
+                    cut.primitive = *group;
+                    cut.operation = BooleanOperation::Subtract;
+                    cut.boolean_tolerance = operation.boolean_tolerance;
+                    const auto fingerprint = history_fingerprint({cut}, 1);
+                    u64(fingerprint.size());
+                    for (const unsigned char value : fingerprint) byte(value);
+                }
             } else if constexpr (std::is_same_v<Request, DrillPointRequest>) {
                 u64(primitive.bottom_faces.size());
                 for (const auto& face : primitive.bottom_faces) {

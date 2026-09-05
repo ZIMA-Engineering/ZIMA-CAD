@@ -1,7 +1,9 @@
+#include <zima/kernel/shaft_thread_geometry.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 
 #include <BRepGProp.hxx>
 #include <BRepBndLib.hxx>
+#include <gp_Ax3.hxx>
 #include <BRepLib.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
@@ -1122,7 +1124,8 @@ void validate_extrusion(const ExtrusionRequest& request) {
 
 TopoDS_Wire make_profile_wire(
     const ExtrusionRequest::ProfileLoop& profile_variant,
-    const Vec3& profile_normal) {
+    const Vec3& profile_normal,
+    const std::optional<Vec3>& circle_radial_direction = std::nullopt) {
     return std::visit([&](const auto& profile) {
         using Profile = std::decay_t<decltype(profile)>;
         if constexpr (std::is_same_v<Profile,
@@ -1140,10 +1143,12 @@ TopoDS_Wire make_profile_wire(
                                  ExtrusionRequest::CircleProfile>) {
             const gp_Dir normal(
                 profile_normal.x, profile_normal.y, profile_normal.z);
-            BRepBuilderAPI_MakeEdge edge(gp_Circ(
-                gp_Ax2(gp_Pnt(profile.center.x, profile.center.y, profile.center.z),
-                       normal),
-                profile.radius));
+            gp_Ax2 frame(gp_Pnt(profile.center.x, profile.center.y, profile.center.z), normal);
+            if (circle_radial_direction) {
+                frame.SetXDirection(gp_Dir(circle_radial_direction->x,
+                    circle_radial_direction->y, circle_radial_direction->z));
+            }
+            BRepBuilderAPI_MakeEdge edge(gp_Circ(frame, profile.radius));
             if (!edge.IsDone()) {
                 throw std::runtime_error("OCCT circular profile edge failed");
             }
@@ -1476,12 +1481,13 @@ PrimitiveData make_extrusion_data(
     const ExtrusionRequest& request, const std::string& owner_id,
     const std::optional<TopoDS_Face>& exact_target = std::nullopt,
     double through_all_forward_span = 2'000'000.0,
-    double through_all_reverse_span = 2'000'000.0) {
+    double through_all_reverse_span = 2'000'000.0,
+    const std::optional<Vec3>& circle_radial_direction = std::nullopt) {
     std::vector<TopoDS_Wire> wires{
-        make_profile_wire(request.outer_profile, request.direction)};
+        make_profile_wire(request.outer_profile, request.direction, circle_radial_direction)};
     BRepBuilderAPI_MakeFace face_builder(wires.front(), true);
     for (const auto& inner_profile : request.inner_profiles) {
-        auto inner_wire = make_profile_wire(inner_profile, request.direction);
+        auto inner_wire = make_profile_wire(inner_profile, request.direction, circle_radial_direction);
         inner_wire.Reverse();
         wires.push_back(std::move(inner_wire));
         face_builder.Add(wires.back());
@@ -1536,6 +1542,23 @@ PrimitiveData make_extrusion_data(
                 }
                 maximum_distance = std::max(maximum_distance, distance_to_plane);
             }
+        }
+        // Closed curves have only a seam vertex; it need not be their point
+        // farthest from an inclined target. Bound the complete profile so the
+        // temporary prism reaches the plane everywhere before clipping.
+        Bnd_Box profile_bounds;
+        BRepBndLib::AddOptimal(face,profile_bounds,false,false);
+        if (!profile_bounds.IsVoid()) {
+            double xmin,ymin,zmin,xmax,ymax,zmax;
+            profile_bounds.Get(xmin,ymin,zmin,xmax,ymax,zmax);
+            for (double x : {xmin,xmax})
+                for (double y : {ymin,ymax})
+                    for (double z : {zmin,zmax}) {
+                        const double distance=((request.target_plane_origin.x-x)*normal.x+
+                            (request.target_plane_origin.y-y)*normal.y+
+                            (request.target_plane_origin.z-z)*normal.z)/denominator;
+                        maximum_distance=std::max(maximum_distance,distance);
+                    }
         }
         const double overrun = maximum_distance +
             std::max(1.0, maximum_distance * 0.01);
@@ -1807,7 +1830,7 @@ PrimitiveData make_extrusion_data(
             additional_request.additional_profile_regions.clear();
             auto additional = make_extrusion_data(
                 additional_request, owner_id, exact_target,
-                through_all_forward_span, through_all_reverse_span);
+                through_all_forward_span, through_all_reverse_span, circle_radial_direction);
             builder.Add(compound, additional.shape);
             result.faces.insert(result.faces.end(),
                 std::make_move_iterator(additional.faces.begin()),
@@ -3586,6 +3609,36 @@ std::vector<Vec3> sampled_inward_face_directions(const TopoDS_Edge& edge,
     return result;
 }
 
+std::optional<SurfaceGeometry> analytic_surface(const TopoDS_Face& face) {
+    BRepAdaptor_Surface surface(face);
+    SurfaceGeometry result;
+    result.reversed=face.Orientation()==TopAbs_REVERSED;
+    gp_Ax3 frame;
+    if (surface.GetType()==GeomAbs_Plane) {
+        result.kind=SurfaceGeometry::Kind::Plane;
+        frame=surface.Plane().Position();
+    } else if (surface.GetType()==GeomAbs_Cylinder) {
+        result.kind=SurfaceGeometry::Kind::Cylinder;
+        const auto cylinder=surface.Cylinder();frame=cylinder.Position();
+        result.radius=cylinder.Radius();
+        result.axial_min=surface.FirstVParameter();result.axial_max=surface.LastVParameter();
+    } else if (surface.GetType()==GeomAbs_Cone) {
+        result.kind=SurfaceGeometry::Kind::Cone;
+        const auto cone=surface.Cone();frame=cone.Position();
+        result.radius=cone.RefRadius();result.semi_angle=cone.SemiAngle();
+        result.axial_min=surface.FirstVParameter()*std::cos(result.semi_angle);
+        result.axial_max=surface.LastVParameter()*std::cos(result.semi_angle);
+    } else return std::nullopt;
+    // OCCT face orientation is relative to the surface parameterization.
+    // An indirect frame reverses its natural normal (common for an extruded
+    // circle), so TopAbs_REVERSED alone does not mean an internal cylinder.
+    result.reversed = result.reversed != !frame.Direct();
+    const auto p=frame.Location();const auto z=frame.Direction();const auto x=frame.XDirection();
+    result.origin={p.X(),p.Y(),p.Z()};result.axis={z.X(),z.Y(),z.Z()};
+    result.radial={x.X(),x.Y(),x.Z()};
+    return result;
+}
+
 BodyResult make_result(
     const TopoDS_Shape& shape,
     const std::vector<OwnedFace>& owned_faces,
@@ -3639,10 +3692,12 @@ BodyResult make_result(
         const Handle(Poly_Triangulation) triangulation =
             BRep_Tool::Triangulation(face, location);
         if (triangulation.IsNull()) continue;
-        const FaceReference reference =
+        FaceReference reference =
             (original_reference_geometry || collect_original_references)
             ? face_references->reference_for(face)
             : FaceReference{};
+        if (reference.valid()) if (const auto surface=analytic_surface(face))
+            reference.surface=std::make_shared<const SurfaceGeometry>(*surface);
         const std::uint32_t base =
             static_cast<std::uint32_t>(result.mesh.vertices.size());
         const gp_Trsf transform = location.Transformation();
@@ -3901,6 +3956,8 @@ TopoDS_Shape make_thread_cone_face(const ThreadSurfaceRequest& request,
     const gp_Pnt origin(request.origin.x + request.axis_direction.x * offset,
         request.origin.y + request.axis_direction.y * offset,
         request.origin.z + request.axis_direction.z * offset);
+    if (std::abs(first_radius-second_radius)<1e-9)
+        return make_thread_cylinder_face(request,first_radius,offset,length);
     const auto solid = BRepPrimAPI_MakeCone(gp_Ax2(origin, axis, radial),
         first_radius, second_radius, length).Shape();
     return technological_lateral_face(solid, GeomAbs_Cone);
@@ -4330,102 +4387,360 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                 boundaries.push_back(std::move(boundary));
                 continue;
             }
+            const auto make_group_child = [&](const FeatureGroupRequest::Child& child) {
+                return std::visit([&](const auto& value)
+                        -> PrimitiveData {
+                    using Child = std::decay_t<decltype(value)>;
+                    if constexpr (std::is_same_v<Child,
+                                      ExtrusionRequest>) {
+                        validate_extrusion(value);
+                        std::optional<TopoDS_Face> exact_target;
+                        if (value.extent ==
+                                ExtrusionRequest::Extent::UpToSurface) {
+                            std::vector<const OwnedFace*> matches;
+                            for (const auto& face : owned_topology->faces) {
+                                if (face.reference.owner_id ==
+                                        value.target_face.owner_id &&
+                                    face.reference.semantic_key ==
+                                        value.target_face.semantic_key) {
+                                    matches.push_back(&face);
+                                }
+                            }
+                            if (matches.size() != 1) {
+                                throw std::runtime_error(
+                                    "Grouped Extrusion target surface is missing or ambiguous");
+                            }
+                            exact_target = TopoDS::Face(matches.front()->shape);
+                        }
+                        double forward_span = 2'000'000.0;
+                        double reverse_span = 2'000'000.0;
+                        if (value.extent ==
+                                ExtrusionRequest::Extent::ThroughAll &&
+                            !result_shape.IsNull()) {
+                            const Vec3 profile_origin = std::visit(
+                                [](const auto& profile) {
+                                    using Profile = std::decay_t<
+                                        decltype(profile)>;
+                                    if constexpr (std::is_same_v<Profile,
+                                            ExtrusionRequest::PolygonProfile>) {
+                                        return profile.vertices.front();
+                                    } else if constexpr (std::is_same_v<Profile,
+                                            ExtrusionRequest::CircleProfile> ||
+                                        std::is_same_v<Profile,
+                                            ExtrusionRequest::EllipseProfile>) {
+                                        return profile.center;
+                                    } else {
+                                        return std::visit([](const auto& curve) {
+                                            return curve.start;
+                                        }, profile.curves.front());
+                                    }
+                                }, value.outer_profile);
+                            const double direction_length = std::hypot(
+                                std::hypot(value.direction.x,
+                                    value.direction.y),
+                                value.direction.z);
+                            const Vec3 unit{value.direction.x /
+                                    direction_length,
+                                value.direction.y / direction_length,
+                                value.direction.z / direction_length};
+                            Bnd_Box bounds;
+                            BRepBndLib::Add(result_shape, bounds);
+                            Standard_Real xmin{}, ymin{}, zmin{},
+                                xmax{}, ymax{}, zmax{};
+                            bounds.Get(xmin, ymin, zmin, xmax, ymax, zmax);
+                            double forward{};
+                            double reverse{};
+                            for (unsigned mask = 0; mask < 8; ++mask) {
+                                const Vec3 corner{mask & 1 ? xmax : xmin,
+                                    mask & 2 ? ymax : ymin,
+                                    mask & 4 ? zmax : zmin};
+                                const double projection =
+                                    (corner.x-profile_origin.x)*unit.x +
+                                    (corner.y-profile_origin.y)*unit.y +
+                                    (corner.z-profile_origin.z)*unit.z;
+                                forward = std::max(forward, projection);
+                                reverse = std::max(reverse, -projection);
+                            }
+                            const double diagonal = std::hypot(std::hypot(
+                                xmax-xmin, ymax-ymin), zmax-zmin);
+                            const double margin = std::max(
+                                1.0, diagonal*1.0e-4);
+                            forward_span = std::max(0.0, forward)+margin;
+                            reverse_span = std::max(0.0, reverse)+margin;
+                        }
+                        const auto* opening = std::get_if<ThreadSurfaceRequest>(&operation.primitive);
+                        // All surfaces of an opening share its radial seam plane.
+                        // Ordinary extrusions retain their existing profile frame.
+                        return make_extrusion_data(value,
+                            operation.owner_id, exact_target,
+                            forward_span, reverse_span, opening
+                                ? std::optional<Vec3>{opening->radial_direction} : std::nullopt);
+                    } else {
+                        validate_revolution(value);
+                        return make_revolution_data(
+                            value, operation.owner_id);
+                    }
+                }, child);
+            };
             if (const auto* thread =
                     std::get_if<ThreadSurfaceRequest>(&operation.primitive)) {
                 if (result_shape.IsNull()) {
-                    throw std::invalid_argument(
-                        "Thread surface requires a preceding solid body");
+                    if (!thread->shaft_face || !thread->shaft_face->surface)
+                        throw std::invalid_argument("Thread surface requires a preceding solid body");
+                    TopoDS_Compound empty;
+                    BRep_Builder builder;builder.MakeCompound(empty);
+                    result_shape=empty;
+                    owned_topology=std::make_shared<LiveCache::Topology>();
                 }
-                auto resolved_thread = *thread;
-                if (thread->through_all_forward || thread->through_all_reverse) {
+                auto shaft_request=*thread;
+                if (thread->shaft_face) {
+                    const auto resolve=[&](FaceReference& reference) {
+                        const auto found=std::ranges::find_if(owned_topology->faces,[&](const auto& face) {
+                            return face.reference==reference;
+                        });
+                        if (found==owned_topology->faces.end()) {
+                            if (reference.surface) return;
+                            throw std::runtime_error("Závit ztratil referenci bez uložené náhradní geometrie.");
+                        }
+                        // An ancestry entry can retain the operand orientation
+                        // after a Boolean. Resolve the actual input-body face
+                        // (same persisted identity/shape), including its current
+                        // material orientation, during this explicit calculation.
+                        for (TopExp_Explorer faces(result_shape,TopAbs_FACE);faces.More();faces.Next()) {
+                            if (!faces.Current().IsSame(found->shape)) continue;
+                            if (const auto surface=analytic_surface(TopoDS::Face(faces.Current())))
+                                reference.surface=std::make_shared<const SurfaceGeometry>(*surface);
+                            break;
+                        }
+                    };
+                    resolve(*shaft_request.shaft_face);resolve(shaft_request.shaft_start);
+                    if (shaft_request.shaft_chamfer) resolve(*shaft_request.shaft_chamfer);
+                    if (shaft_request.shaft_end) resolve(*shaft_request.shaft_end);
+                    shaft_request=resolve_shaft_thread(std::move(shaft_request));
+                    thread=&shaft_request;
+                }
+                std::optional<ViewerAxis> opening_axis;
+                std::optional<PrimitiveData> opening_reference_operand;
+                const auto axial_end = [&](const TopoDS_Shape& shape) {
+                    // Bounds in the opening's own axial frame avoid inflating
+                    // a rotated bore's length by its radius or by world AABB corners.
+                    gp_Trsf local;
+                    local.SetTransformation(gp_Ax3(
+                        gp_Pnt(thread->origin.x, thread->origin.y, thread->origin.z),
+                        gp_Dir(thread->axis_direction.x, thread->axis_direction.y,
+                            thread->axis_direction.z),
+                        gp_Dir(thread->radial_direction.x, thread->radial_direction.y,
+                            thread->radial_direction.z)));
+                    const auto transformed = BRepBuilderAPI_Transform(shape, local, true).Shape();
                     Bnd_Box bounds;
-                    BRepBndLib::Add(result_shape, bounds);
+                    BRepBndLib::AddOptimal(transformed, bounds, false, false);
+                    if (bounds.IsVoid()) throw std::runtime_error("Opening axis has no extent");
                     Standard_Real xmin{}, ymin{}, zmin{}, xmax{}, ymax{}, zmax{};
                     bounds.Get(xmin, ymin, zmin, xmax, ymax, zmax);
-                    double minimum = std::numeric_limits<double>::infinity();
-                    double maximum = -std::numeric_limits<double>::infinity();
-                    for (const double x : {xmin, xmax})
-                        for (const double y : {ymin, ymax})
-                            for (const double z : {zmin, zmax}) {
-                                const double projection =
-                                    (x-thread->origin.x)*thread->axis_direction.x +
-                                    (y-thread->origin.y)*thread->axis_direction.y +
-                                    (z-thread->origin.z)*thread->axis_direction.z;
-                                minimum = std::min(minimum, projection);
-                                maximum = std::max(maximum, projection);
+                    return static_cast<double>(zmax);
+                };
+                const auto cut_group = [&](const std::shared_ptr<const FeatureGroupRequest>& group) {
+                    if (!group) return;
+                    for (const auto& child : group->children) {
+                        auto operand = make_group_child(child);
+                        if (!opening_axis) {
+                            if (const auto* bore = std::get_if<ExtrusionRequest>(&child)) {
+                                const double depth = bore->extent == ExtrusionRequest::Extent::ThroughAll
+                                    ? axial_end(result_shape) : axial_end(operand.shape);
+                                if (!std::isfinite(depth) || depth <= 0.0)
+                                    throw std::runtime_error("Opening axis has an invalid length");
+                                opening_axis = ViewerAxis{
+                                    {thread->origin.x + thread->axis_direction.x*depth*0.5,
+                                     thread->origin.y + thread->axis_direction.y*depth*0.5,
+                                     thread->origin.z + thread->axis_direction.z*depth*0.5},
+                                    thread->axis_direction, depth,
+                                    {operation.owner_id, "axis:primary", {}}, ""};
+                                original_references.axes.push_back(*opening_axis);
                             }
-                    if (thread->through_all_reverse)
-                        resolved_thread.start_offset = minimum;
-                    const double end_offset = thread->through_all_forward
-                        ? maximum : thread->start_offset + thread->length;
-                    resolved_thread.length = end_offset -
-                        resolved_thread.start_offset;
-                }
-                const auto* thread_geometry = &resolved_thread;
-                const double start = thread_geometry->start_offset;
-                const double end = start + thread_geometry->length;
-                const double start_runout = std::clamp(
-                    thread_geometry->runout_start, 0.0,
-                    thread_geometry->length * 0.5);
-                const double end_runout = std::clamp(
-                    thread_geometry->runout_end, 0.0,
-                    thread_geometry->length * 0.5);
-                bool external_thread = thread_geometry->side ==
-                    ThreadSurfaceRequest::Side::External;
-                if (thread_geometry->side ==
-                        ThreadSurfaceRequest::Side::Automatic) {
-                    const double middle = start + thread_geometry->length * 0.5;
-                    const gp_Pnt axis_point(
-                        thread_geometry->origin.x +
-                            thread_geometry->axis_direction.x * middle,
-                        thread_geometry->origin.y +
-                            thread_geometry->axis_direction.y * middle,
-                        thread_geometry->origin.z +
-                            thread_geometry->axis_direction.z * middle);
-                    BRepClass3d_SolidClassifier classifier(
-                        result_shape, axis_point, 1.0e-7);
-                    external_thread = classifier.State() == TopAbs_IN ||
-                        classifier.State() == TopAbs_ON;
-                }
-                const double continuous_radius = external_thread
-                    ? thread_geometry->nominal_radius
-                    : thread_geometry->root_radius;
-                const double interrupted_radius = external_thread
-                    ? thread_geometry->root_radius
-                    : thread_geometry->nominal_radius;
-                technological_surfaces.push_back({
-                    make_thread_cylinder_face(*thread_geometry,
-                        continuous_radius, start,
-                        thread_geometry->length),
-                    operation.owner_id,
-                    external_thread ? "nominal" : "root"});
-                const double interrupted_start = start + start_runout;
-                const double interrupted_length = std::max(
-                    0.0, thread_geometry->length - start_runout - end_runout);
-                technological_surfaces.push_back({
-                    make_thread_cylinder_face(*thread_geometry,
-                        interrupted_radius, interrupted_start,
-                        interrupted_length),
-                    operation.owner_id,
-                    external_thread ? "root" : "nominal"});
-                if (start_runout > 1.0e-9) {
+                        }
+
+                        // The original object of this composite feature is
+                        // the joined cutting solid, not all intermediate tools.
+                        // Its wire must not retain the bore's pre-chamfer rim.
+                        if (!opening_reference_operand) {
+                            opening_reference_operand = operand;
+                        } else {
+                            auto& combined = *opening_reference_operand;
+                            BRepAlgoAPI_Fuse fuse(combined.shape, operand.shape);
+                            fuse.SetToFillHistory(true);
+                            fuse.SetFuzzyValue(std::max(1.0e-7, operation.boolean_tolerance));
+                            fuse.Build();
+                            if (!fuse.IsDone() || fuse.Shape().IsNull() ||
+                                !BRepCheck_Analyzer(fuse.Shape()).IsValid())
+                                throw std::runtime_error("OCCT opening reference union failed");
+                            combined.faces = propagate_topology(fuse, combined.faces, operand.faces);
+                            combined.edges = propagate_topology(fuse, combined.edges, operand.edges);
+                            combined.vertices = propagate_topology(fuse, combined.vertices, operand.vertices);
+                            combined.shape = fuse.Shape();
+                            combined.edges = complete_boolean_edges(combined.shape, combined.faces,
+                                combined.edges, operation.owner_id, "opening");
+                        }
+                        BRepAlgoAPI_Cut cut(result_shape, operand.shape);
+                        cut.SetToFillHistory(true);
+                        cut.SetFuzzyValue(std::max(1.0e-7, operation.boolean_tolerance));
+                        cut.Build();
+                        if (!cut.IsDone() || cut.Shape().IsNull() ||
+                            !BRepCheck_Analyzer(cut.Shape()).IsValid())
+                            throw std::runtime_error("OCCT opening cut failed");
+                        auto topology = std::make_shared<LiveCache::Topology>(LiveCache::Topology{
+                            propagate_topology(cut, owned_topology->faces, operand.faces),
+                            propagate_topology(cut, owned_topology->edges, operand.edges),
+                            propagate_topology(cut, owned_topology->vertices, operand.vertices),
+                            propagate_display_edges(cut, owned_topology->hidden_display_edges)});
+                        result_shape = cut.Shape();
+                        topology->edges = complete_boolean_edges(result_shape,
+                            topology->faces, topology->edges, operation.owner_id, "subtract");
+                        owned_topology = std::move(topology);
+                        for (auto& surface : technological_surfaces) {
+                            if (surface.shape.IsNull()) continue;
+                            BRepAlgoAPI_Cut trim(surface.shape, operand.shape);
+                            trim.SetFuzzyValue(std::max(1.0e-7, operation.boolean_tolerance));
+                            trim.Build();
+                            if (!trim.IsDone())
+                                throw std::runtime_error("OCCT opening thread trim failed");
+                            surface.shape = trim.Shape();
+                        }
+                    }
+                };
+                cut_group(thread->cuts_before);
+                if (thread->enabled) {
+                    const auto surface_begin=technological_surfaces.size();
+                    auto resolved_thread = *thread;
+                    if (thread->through_all_forward || thread->through_all_reverse) {
+                        Bnd_Box bounds;
+                        BRepBndLib::Add(result_shape, bounds);
+                        Standard_Real xmin{}, ymin{}, zmin{}, xmax{}, ymax{}, zmax{};
+                        bounds.Get(xmin, ymin, zmin, xmax, ymax, zmax);
+                        double minimum = std::numeric_limits<double>::infinity();
+                        double maximum = -std::numeric_limits<double>::infinity();
+                        for (const double x : {xmin, xmax})
+                            for (const double y : {ymin, ymax})
+                                for (const double z : {zmin, zmax}) {
+                                    const double projection =
+                                        (x-thread->origin.x)*thread->axis_direction.x +
+                                        (y-thread->origin.y)*thread->axis_direction.y +
+                                        (z-thread->origin.z)*thread->axis_direction.z;
+                                    minimum = std::min(minimum, projection);
+                                    maximum = std::max(maximum, projection);
+                                }
+                        if (thread->through_all_reverse)
+                            resolved_thread.start_offset = minimum;
+                        const double end_offset = thread->through_all_forward
+                            ? maximum : thread->start_offset + thread->length;
+                        resolved_thread.length = end_offset -
+                            resolved_thread.start_offset;
+                    }
+                    const auto* thread_geometry = &resolved_thread;
+                    const double start = thread_geometry->start_offset;
+                    const double end = start + thread_geometry->length;
+                    const double start_runout = std::clamp(
+                        thread_geometry->runout_start, 0.0,
+                        thread_geometry->length);
+                    const double end_runout = std::clamp(
+                        thread_geometry->runout_end, 0.0,
+                        thread_geometry->length);
+                    bool external_thread = thread_geometry->side ==
+                        ThreadSurfaceRequest::Side::External;
+                    if (thread_geometry->side ==
+                            ThreadSurfaceRequest::Side::Automatic) {
+                        const double middle = start + thread_geometry->length * 0.5;
+                        const gp_Pnt axis_point(
+                            thread_geometry->origin.x +
+                                thread_geometry->axis_direction.x * middle,
+                            thread_geometry->origin.y +
+                                thread_geometry->axis_direction.y * middle,
+                            thread_geometry->origin.z +
+                                thread_geometry->axis_direction.z * middle);
+                        BRepClass3d_SolidClassifier classifier(
+                            result_shape, axis_point, 1.0e-7);
+                        external_thread = classifier.State() == TopAbs_IN ||
+                            classifier.State() == TopAbs_ON;
+                    }
+                    const double continuous_radius = external_thread
+                        ? thread_geometry->nominal_radius
+                        : thread_geometry->root_radius;
+                    const double interrupted_radius = external_thread
+                        ? thread_geometry->root_radius
+                        : thread_geometry->nominal_radius;
+                    if (!thread->cuts_before && !thread->shaft_face) technological_surfaces.push_back({
+                        make_thread_cylinder_face(*thread_geometry,
+                            continuous_radius, start,
+                            thread_geometry->length),
+                        operation.owner_id,
+                        external_thread ? "nominal" : "root"});
+                    const double interrupted_start = start + start_runout;
+                    const double interrupted_length = std::max(
+                        0.0, thread_geometry->length - start_runout - end_runout);
                     technological_surfaces.push_back({
-                        make_thread_cone_face(*thread_geometry,
-                            continuous_radius, interrupted_radius,
-                            start, start_runout),
-                        operation.owner_id, "runout:start"});
+                        make_thread_cylinder_face(*thread_geometry,
+                            interrupted_radius, interrupted_start,
+                            interrupted_length),
+                        operation.owner_id,
+                        external_thread ? "root" : "nominal"});
+                    if (start_runout > 1.0e-9) {
+                        technological_surfaces.push_back({
+                            make_thread_cone_face(*thread_geometry,
+                                continuous_radius, interrupted_radius,
+                                start, start_runout),
+                            operation.owner_id, "runout:start"});
+                    }
+                    if (end_runout > 1.0e-9) {
+                        technological_surfaces.push_back({
+                            make_thread_cone_face(*thread_geometry,
+                                interrupted_radius, continuous_radius,
+                                end - end_runout,
+                                end_runout), operation.owner_id, "runout:end"});
+                    }
+                    // Shaft thread dimensions are independent of the solid.
+                    // Keep the sheet even when a later shaft diameter change
+                    // leaves it outside material; analytic end/chamfer references
+                    // still define its axial boundaries.
+                    if (thread->end_plane_origin) {
+                        const auto& p=*thread->end_plane_origin;
+                        const auto& n=thread->end_plane_normal;
+                        const gp_Dir normal(n.x,n.y,n.z);
+                        BRepBuilderAPI_MakeFace face(gp_Pln(gp_Pnt(p.x,p.y,p.z),normal),
+                            -5e6,5e6,-5e6,5e6);
+                        const double side=n.x*thread->axis_direction.x+
+                            n.y*thread->axis_direction.y+n.z*thread->axis_direction.z;
+                        const double sign=std::copysign(1.0,side);
+                        BRepPrimAPI_MakeHalfSpace half(face.Face(),gp_Pnt(
+                            p.x-sign*normal.X(),p.y-sign*normal.Y(),p.z-sign*normal.Z()));
+                        for (auto index=surface_begin;index<technological_surfaces.size();++index) {
+                            BRepAlgoAPI_Common clip(technological_surfaces[index].shape,half.Solid());
+                            clip.Build();
+                            if (!clip.IsDone()) throw std::runtime_error("OCCT thread Up To trim failed");
+                            technological_surfaces[index].shape=clip.Shape();
+                        }
+                    }
                 }
-                if (end_runout > 1.0e-9) {
-                    technological_surfaces.push_back({
-                        make_thread_cone_face(*thread_geometry,
-                            interrupted_radius, continuous_radius,
-                            end - end_runout,
-                            end_runout), operation.owner_id, "runout:end"});
+                cut_group(thread->cuts_after);
+                if (opening_reference_operand) {
+                    const auto& combined = *opening_reference_operand;
+                    const auto unified = unify_preserving_face_provenance(combined.shape,
+                        combined.faces, combined.edges, combined.vertices,
+                        std::max(1.0e-7, operation.boolean_tolerance));
+                    auto references = make_result(unified.shape, unified.faces,
+                        unified.edges, unified.vertices, true, false, false,
+                        unified.hidden_display_edges);
+                    append_original_reference_geometry(original_references,
+                        std::move(references.mesh));
                 }
                 auto boundary = make_result(result_shape,
                     owned_topology->faces, owned_topology->edges,
                     owned_topology->vertices, true, persist_boundary_shape,
                     false, owned_topology->hidden_display_edges);
+                if (thread->shaft_face) {
+                    boundary.shaft_thread_owner=operation.owner_id;
+                    boundary.shaft_thread_references={*thread->shaft_face,thread->shaft_start,
+                        thread->shaft_chamfer.value_or(FaceReference{}),thread->shaft_end.value_or(FaceReference{})};
+                }
+                if (opening_axis) boundary.mesh.axes.push_back(*opening_axis);
                 append_technological_surfaces(boundary);
                 boundary.source_fingerprint = history_fingerprint(
                     operations, boundaries.size() + 1);
@@ -4435,6 +4750,7 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                 continue;
             }
             const auto apply_edge_treatment = [&](const auto& treatment) {
+                const TopoDS_Shape input_shape=result_shape;
                 if (result_shape.IsNull()) {
                     throw std::invalid_argument(
                         "Fillet/Chamfer requires an input body");
@@ -4722,11 +5038,34 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                             std::move(completed_vertices),
                             std::move(unified.hidden_display_edges)});
                 }
+                if (!technological_surfaces.empty()) {
+                    // Thread sheets are separate from the solid B-Rep. Remove
+                    // only material taken by this treatment, preserving their
+                    // original semantic owner and the unaffected sheet area.
+                    BRepAlgoAPI_Cut removed(input_shape,result_shape);
+                    removed.SetFuzzyValue(std::max(1.0e-7,operation.boolean_tolerance));
+                    removed.Build();
+                    if (!removed.IsDone())
+                        throw std::runtime_error("OCCT edge treatment removed volume failed");
+                    for (auto& surface : technological_surfaces) {
+                        if (surface.shape.IsNull()) continue;
+                        BRepAlgoAPI_Cut trim(surface.shape,removed.Shape());
+                        trim.SetFuzzyValue(std::max(1.0e-7,operation.boolean_tolerance));
+                        trim.Build();
+                        if (!trim.IsDone())
+                            throw std::runtime_error("OCCT edge treatment thread trim failed");
+                        surface.shape=trim.Shape();
+                    }
+                }
                 boundaries.push_back(
                     make_result(result_shape, owned_topology->faces,
                         owned_topology->edges, owned_topology->vertices,
-                        true, persist_boundary_shape, false,
+                        true, persist_boundary_shape, true,
                         owned_topology->hidden_display_edges));
+                append_technological_surfaces(boundaries.back());
+                append_reference_geometry(original_references,
+                    reference_geometry_for_owners(boundaries.back().mesh.original_references,
+                        std::unordered_set<std::string>{operation.owner_id}));
                 boundaries.back().source_fingerprint =
                     history_fingerprint(operations, boundaries.size());
                 remember_live_boundary(boundaries.back().source_fingerprint,
@@ -5546,95 +5885,7 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                     }
                     std::optional<PrimitiveData> grouped;
                     for (const auto& child : primitive.children) {
-                        auto child_data = std::visit([&](const auto& value)
-                                -> PrimitiveData {
-                            using Child = std::decay_t<decltype(value)>;
-                            if constexpr (std::is_same_v<Child,
-                                              ExtrusionRequest>) {
-                                validate_extrusion(value);
-                                std::optional<TopoDS_Face> exact_target;
-                                if (value.extent ==
-                                        ExtrusionRequest::Extent::UpToSurface) {
-                                    std::vector<const OwnedFace*> matches;
-                                    for (const auto& face : owned_topology->faces) {
-                                        if (face.reference.owner_id ==
-                                                value.target_face.owner_id &&
-                                            face.reference.semantic_key ==
-                                                value.target_face.semantic_key) {
-                                            matches.push_back(&face);
-                                        }
-                                    }
-                                    if (matches.size() != 1) {
-                                        throw std::runtime_error(
-                                            "Grouped Extrusion target surface is missing or ambiguous");
-                                    }
-                                    exact_target = TopoDS::Face(matches.front()->shape);
-                                }
-                                double forward_span = 2'000'000.0;
-                                double reverse_span = 2'000'000.0;
-                                if (value.extent ==
-                                        ExtrusionRequest::Extent::ThroughAll &&
-                                    !result_shape.IsNull()) {
-                                    const Vec3 profile_origin = std::visit(
-                                        [](const auto& profile) {
-                                            using Profile = std::decay_t<
-                                                decltype(profile)>;
-                                            if constexpr (std::is_same_v<Profile,
-                                                    ExtrusionRequest::PolygonProfile>) {
-                                                return profile.vertices.front();
-                                            } else if constexpr (std::is_same_v<Profile,
-                                                    ExtrusionRequest::CircleProfile> ||
-                                                std::is_same_v<Profile,
-                                                    ExtrusionRequest::EllipseProfile>) {
-                                                return profile.center;
-                                            } else {
-                                                return std::visit([](const auto& curve) {
-                                                    return curve.start;
-                                                }, profile.curves.front());
-                                            }
-                                        }, value.outer_profile);
-                                    const double direction_length = std::hypot(
-                                        std::hypot(value.direction.x,
-                                            value.direction.y),
-                                        value.direction.z);
-                                    const Vec3 unit{value.direction.x /
-                                            direction_length,
-                                        value.direction.y / direction_length,
-                                        value.direction.z / direction_length};
-                                    Bnd_Box bounds;
-                                    BRepBndLib::Add(result_shape, bounds);
-                                    Standard_Real xmin{}, ymin{}, zmin{},
-                                        xmax{}, ymax{}, zmax{};
-                                    bounds.Get(xmin, ymin, zmin, xmax, ymax, zmax);
-                                    double forward{};
-                                    double reverse{};
-                                    for (unsigned mask = 0; mask < 8; ++mask) {
-                                        const Vec3 corner{mask & 1 ? xmax : xmin,
-                                            mask & 2 ? ymax : ymin,
-                                            mask & 4 ? zmax : zmin};
-                                        const double projection =
-                                            (corner.x-profile_origin.x)*unit.x +
-                                            (corner.y-profile_origin.y)*unit.y +
-                                            (corner.z-profile_origin.z)*unit.z;
-                                        forward = std::max(forward, projection);
-                                        reverse = std::max(reverse, -projection);
-                                    }
-                                    const double diagonal = std::hypot(std::hypot(
-                                        xmax-xmin, ymax-ymin), zmax-zmin);
-                                    const double margin = std::max(
-                                        1.0, diagonal*1.0e-4);
-                                    forward_span = std::max(0.0, forward)+margin;
-                                    reverse_span = std::max(0.0, reverse)+margin;
-                                }
-                                return make_extrusion_data(value,
-                                    operation.owner_id, exact_target,
-                                    forward_span, reverse_span);
-                            } else {
-                                validate_revolution(value);
-                                return make_revolution_data(
-                                    value, operation.owner_id);
-                            }
-                        }, child);
+                        auto child_data = make_group_child(child);
                         if (!grouped) {
                             grouped = std::move(child_data);
                             continue;
@@ -5864,6 +6115,27 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                 append_reference_geometry(original_references,
                     std::move(persisted_surface.original_references));
             }
+            // Original geometry retains the source extents, but material
+            // sidedness belongs to the calculated body. A subtractive tool
+            // has the opposite material side from its standalone operand.
+            using FaceIdentity = std::tuple<std::string,std::string,std::string>;
+            std::map<FaceIdentity,bool> material_sides;
+            for (const auto& ref : boundaries.back().mesh.triangle_references)
+                if (ref.surface) material_sides[{ref.owner_id,ref.semantic_key,ref.instance_path}]
+                    = ref.surface->reversed;
+            std::map<FaceIdentity,std::shared_ptr<const SurfaceGeometry>> corrected_surfaces;
+            for (auto& ref : original_references.triangle_references) {
+                if (!ref.surface) continue;
+                const FaceIdentity key{ref.owner_id,ref.semantic_key,ref.instance_path};
+                const auto side=material_sides.find(key);
+                if (side==material_sides.end() || side->second==ref.surface->reversed) continue;
+                auto& corrected=corrected_surfaces[key];
+                if (!corrected) {
+                    auto value=*ref.surface;value.reversed=side->second;
+                    corrected=std::make_shared<const SurfaceGeometry>(std::move(value));
+                }
+                ref.surface=corrected;
+            }
             boundaries.back().mesh.original_references =
                 std::move(original_references);
             // Feature-generated axes are both persisted references and
@@ -5872,8 +6144,12 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
             // user saw no axis in normal View.
             for (const auto& axis :
                  boundaries.back().mesh.original_references.axes) {
-                if (axis.reference.semantic_key == "axis:primary" ||
-                    axis.reference.semantic_key.starts_with("axis:profile:")) {
+                if ((axis.reference.semantic_key == "axis:primary" ||
+                     axis.reference.semantic_key.starts_with("axis:profile:")) &&
+                    std::none_of(boundaries.back().mesh.axes.begin(),
+                        boundaries.back().mesh.axes.end(), [&](const auto& existing) {
+                            return existing.reference == axis.reference;
+                        })) {
                     boundaries.back().mesh.axes.push_back(axis);
                 }
             }

@@ -1,10 +1,14 @@
 #pragma once
 
+#include <QPointer>
+#include "sketch_inference_policy.hpp"
+
 #include <zima/workspace/workspace.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/sketcher/sketch_trim.hpp>
 #include <zima/viewer/picking.hpp>
 #include "application_settings.hpp"
+#include "tree_reference_state.hpp"
 
 #include <QMainWindow>
 
@@ -41,6 +45,7 @@ namespace zima::viewer { class MeshView; struct ViewerCandidate; }
 namespace zima::app {
 
 class PrimitivePropertiesDialog;
+class ShaftThreadDialog;
 class PlacementReferenceDialog;
 class ConstructionPropertiesDialog;
 class ComponentPropertiesDialog;
@@ -56,6 +61,8 @@ public:
     [[nodiscard]] bool open_document_path(const QString& path);
     void show_tree_item_properties(QTreeWidgetItem* item);
     void edit_dimension_inline(const zima::viewer::ViewerCandidate& candidate);
+    void show_parameter_dimensions(const std::string& owner_id,
+        const std::string& component = {});
     // Exposed for regression coverage of nested Assembly occurrence
     // activation through the real window (no context-menu interaction).
     [[nodiscard]] bool activate_occurrence_for_test(const std::string& instance_path);
@@ -80,6 +87,7 @@ private:
     std::filesystem::path working_directory_{std::filesystem::current_path()};
     QTabBar* tabs_{};
     QTreeWidget* tree_{};
+    TreeReferenceState tree_reference_state_;
     QToolButton* document_kind_button_{};
     zima::viewer::MeshView* viewer_{};
     QStackedWidget* workspace_stack_{};
@@ -142,7 +150,6 @@ private:
     ApplicationMode active_application_{ApplicationMode::Modeling};
     QAction* box_action_{};
     QAction* cylinder_action_{};
-    QAction* hole_action_{};
     QAction* thread_action_{};
     QAction* drill_point_action_{};
     QAction* sphere_action_{};
@@ -184,7 +191,11 @@ private:
     QAction* sketch_interpolating_spline_action_{};
     QAction* sketch_text_action_{};
     QAction* sketch_constraints_action_{};
-    QMenu* sketch_constraints_menu_{};
+    SketchInferenceSettings sketch_inference_settings_;
+    QPointer<QDialog> sketch_constraints_dialog_;
+    void show_sketch_constraints();
+    bool automatic_constraint_enabled(zima::sketcher::ConstraintKind kind) const { return sketch_inference_settings_.enabled(kind); }
+    std::optional<SketchPointAlignment> sketch_point_alignment(const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction) const;
     QAction* sketch_horizontal_action_{};
     QAction* sketch_vertical_action_{};
     QAction* sketch_coincident_action_{};
@@ -223,6 +234,11 @@ private:
     QAction* settings_action_{};
     QMenu* standard_views_menu_{};
     QDialog* properties_dialog_{};
+    ShaftThreadDialog* shaft_thread_dialog_{};
+    QAction* shaft_thread_action_{};
+    void show_shaft_thread_properties(const std::string& container_id = {});
+    void refresh_shaft_thread_preview();
+    void accept_shaft_thread_reference(const zima::viewer::ViewerCandidate& candidate);
     std::string properties_dialog_instance_path_;
     QDialog* rename_document_dialog_{};
     QDialog* global_settings_dialog_{};
@@ -285,6 +301,7 @@ private:
     std::string sketch_properties_preview_id_;
     zima::kernel::ViewerReferenceGeometry construction_reference_geometry_;
     std::string construction_dimension_object_id_;
+    std::pair<std::string,std::string> opening_component_edit_;
     bool refreshing_scene_{};
     std::optional<zima::document::HistoryContainer>
         parameter_dimension_preview_;
@@ -562,7 +579,6 @@ private:
     void set_local_origin_selection_mode(bool active);
     void toggle_local_origin_visibility(
         const zima::viewer::ViewerCandidate& candidate);
-    void show_parameter_dimensions(const std::string& owner_id);
     void begin_normal_view_selection();
     void accept_normal_view_reference(const zima::viewer::ViewerCandidate& candidate);
     void show_orientation_dialog();
@@ -900,6 +916,9 @@ private:
         const std::string& sketch_id, const std::string& relation_id,
         bool dimension);
     void toggle_part_container_suppressed(const std::string& container_id);
+    bool tree_item_reorder_enabled(QTreeWidgetItem* item) const;
+    bool reorder_tree_item(QTreeWidgetItem* item, const QString& before, bool commit);
+    bool reorder_part_history(const std::string& id, const std::string& before, bool commit);
     void move_part_container(const std::string& container_id, int direction);
     void delete_part_object(const std::string& object_id, const QString& kind,
         bool ask_confirmation = true);

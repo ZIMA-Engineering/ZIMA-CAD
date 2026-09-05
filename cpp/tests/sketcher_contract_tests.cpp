@@ -1159,7 +1159,8 @@ int main() {
                         .participant_semantic_keys ==
                         std::vector<std::string>{
                             "point:" + loaded_point_tools.segments.front().first_point_id,
-                            "point:" + loaded_point_tools.segments.front().second_point_id},
+                            "point:" + loaded_point_tools.segments.front().second_point_id,
+                            "segment:" + loaded_point_tools.segments.front().id},
                 "Sketch constraint did not publish its persistent View marker");
         require(zima::sketcher::constraint_marker_label(
                     zima::sketcher::ConstraintKind::Horizontal) == "H" &&
@@ -1236,8 +1237,10 @@ int main() {
                         keypoint_markers.front().participant_semantic_keys.end() &&
                     std::ranges::find(
                         keypoint_markers.front().participant_semantic_keys,
-                        "segment:" + keypoint_segment) !=
-                        keypoint_markers.front().participant_semantic_keys.end(),
+                        "segment:" + keypoint_segment) ==
+                        keypoint_markers.front().participant_semantic_keys.end() &&
+                    std::ranges::find(keypoint_markers.front().participant_semantic_keys,
+                        "point:" + keypoint_contact) != keypoint_markers.front().participant_semantic_keys.end(),
                 "Exact curve keypoint reference did not expose one K marker");
         point_tools.remove_point(point_tools.segments.front().first_point_id);
         require(point_tools.find_point(standalone_point) != nullptr &&
@@ -4378,6 +4381,40 @@ int main() {
                     connected_elliptical_arc.constraints ==
                         connected_ellipse_before.constraints,
             "Connected elliptical-arc handle accumulated branch drift");
+        {
+            auto equal_corners=zima::sketcher::Sketch::create_default();
+            const auto a=equal_corners.add_segment(10,0,0,0);
+            const auto b=equal_corners.add_segment(0,0,0,10);
+            const auto c=equal_corners.add_segment(40,0,30,0);
+            const auto d=equal_corners.add_segment(30,0,30,10);
+            const auto first=equal_corners.add_corner_fillet(a,b,2.0).arc_id;
+            const auto second=equal_corners.add_corner_fillet(c,d,3.0).arc_id;
+            const auto relation=equal_corners.add_equal_radius_constraint(first,second);
+            require(std::abs(*equal_corners.circular_radius(second)-2.0)<1e-7,
+                "Equal corner radii did not drive the persisted corner parameter");
+            static_cast<void>(equal_corners.add_corner_fillet(a,b,4.0));
+            require(equal_corners.solve().status!=zima::sketcher::SolveStatus::Conflicting &&
+                std::abs(*equal_corners.circular_radius(second)-4.0)<1e-7,
+                "Corner equality did not follow the changed reference");
+            equal_corners.validate();
+            auto loaded_equal=zima::sketcher::Sketch::from_serialized(equal_corners.serialized());
+            loaded_equal.corner_radii.front().radius=3.0;
+            require(loaded_equal.solve().status!=zima::sketcher::SolveStatus::Conflicting &&
+                std::abs(*loaded_equal.circular_radius(second)-3.0)<1e-7,
+                "Corner equality did not survive serialization");
+            auto conflicting=equal_corners;
+            conflicting.corner_radii.back().dimension_visible=true;
+            conflicting.corner_radii.front().radius=5.0;
+            require(conflicting.solve().status==zima::sketcher::SolveStatus::Conflicting &&
+                std::abs(conflicting.corner_radii.back().radius-4.0)<1e-7,
+                "Corner equality overwrote a driving radius dimension");
+            const auto mesh=equal_corners.viewer_mesh();
+            require(std::ranges::any_of(mesh.constraint_markers,[&](const auto& marker) {
+                return std::ranges::find(marker.participant_semantic_keys,"corner_radius:"+first)!=marker.participant_semantic_keys.end() &&
+                    std::ranges::find(marker.participant_semantic_keys,"corner_radius:"+second)!=marker.participant_semantic_keys.end();
+            }),"Equal corner marker lost its persisted source highlights");
+        }
+
         auto corner_fillet = zima::sketcher::Sketch::create_default();
         const auto fillet_first = corner_fillet.add_segment(
             10.0, 0.0, 0.0, 0.0);

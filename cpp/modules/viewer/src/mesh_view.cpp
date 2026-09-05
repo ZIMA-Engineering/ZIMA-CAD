@@ -231,6 +231,9 @@ struct MeshView::Impl {
     bool has_candidates_position{};
     std::size_t active_candidate{};
     std::optional<ViewerCandidate> confirmed_candidate;
+    std::optional<ViewerCandidate> component_candidate;
+    std::set<std::size_t> component_edge_indices;
+    std::vector<zima::kernel::ViewerEdge> component_wire;
     std::string selected_container_origin_id;
     std::function<void(const ViewerCandidate&)> confirmation_callback;
     std::function<void()> empty_confirmation_callback;
@@ -294,12 +297,14 @@ struct MeshView::Impl {
     std::set<EdgeKey> edge_treatment_selection_edges;
     std::set<EdgeKey> feature_hover_edges;
     std::set<EdgeKey> feature_selected_edges;
+    std::vector<zima::kernel::ViewerEdge> container_inspection_wire;
     std::set<std::size_t> feature_hover_edge_indices;
     std::set<std::size_t> feature_selected_edge_indices;
     std::set<std::string> feature_preview_owner_ids;
     std::string active_sketch_owner_id;
     std::set<std::string> constraint_reference_owner_ids;
     std::set<EdgeKey> constraint_reference_edges;
+    std::set<EdgeKey> sketch_relation_highlights;
     std::set<EdgeKey> assembly_reference_edges;
     std::set<std::string> selected_container_content_ids;
     std::set<EdgeKey> object_overlay_main_edge_keys;
@@ -600,6 +605,7 @@ MeshView::~MeshView() {
 }
 
 void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
+    impl_->container_inspection_wire.clear();
     const auto previous_confirmation = impl_->confirmed_candidate;
     impl_->mesh = std::move(mesh);
     std::erase_if(impl_->mesh.edges, [](const auto& edge) {
@@ -1253,7 +1259,69 @@ std::vector<zima::kernel::Vec3> MeshView::candidate_face_triangles(
         ? resolve(impl_->mesh.original_references) : resolve(impl_->mesh);
 }
 
+const zima::kernel::ViewerMesh& MeshView::mesh() const { return impl_->mesh; }
+
+void MeshView::confirm_container_component(const std::string& owner_id,
+        const std::string& component, std::set<std::size_t> edge_indices,
+        const std::string& instance_path) {
+    clear_selection();
+    impl_->component_candidate=ViewerCandidate{CandidateKind::Container,0.0,0,
+        owner_id,"component:"+component,instance_path,CandidateGeometry::Display};
+    impl_->component_edge_indices=std::move(edge_indices);
+    impl_->component_wire.clear();
+    impl_->confirmed_candidate=impl_->component_candidate;
+    update();
+}
+
+std::set<std::size_t> MeshView::confirmed_component_edge_indices() const {
+    return impl_->confirmed_candidate && impl_->confirmed_candidate==impl_->component_candidate
+        ? impl_->component_edge_indices : std::set<std::size_t>{};
+}
+
+void MeshView::confirm_container_component_wire(const std::string& owner_id,
+        const std::string& component,std::vector<zima::kernel::ViewerEdge> wire,
+        const std::string& instance_path) {
+    confirm_container_component(owner_id,component,{},instance_path);
+    impl_->component_wire=std::move(wire);
+    update();
+}
+
+std::vector<zima::kernel::ViewerEdge> MeshView::confirmed_component_wire() const {
+    return impl_->confirmed_candidate && impl_->confirmed_candidate==impl_->component_candidate
+        ? impl_->component_wire : std::vector<zima::kernel::ViewerEdge>{};
+}
+
+void MeshView::set_container_inspection(const std::string& owner_id,
+        const std::string& instance_path) {
+    auto& wire = impl_->container_inspection_wire;
+    wire.clear();
+    if (!owner_id.empty()) {
+        const auto key = std::make_pair(owner_id, instance_path);
+        const auto treatment = impl_->edge_treatment_boundary_edge_indices.find(key);
+        const auto original = impl_->original_container_edge_indices.find(key);
+        if (treatment != impl_->edge_treatment_boundary_edge_indices.end()) {
+            for (const auto index : treatment->second)
+                if (index < impl_->mesh.edges.size()) wire.push_back(impl_->mesh.edges[index]);
+        } else if (original != impl_->original_container_edge_indices.end()) {
+            for (const auto index : original->second)
+                if (index < impl_->mesh.original_references.edges.size())
+                    wire.push_back(impl_->mesh.original_references.edges[index]);
+        } else {
+            const ViewerCandidate candidate{CandidateKind::Container, 0.0, 0,
+                owner_id, {}, instance_path, CandidateGeometry::Display};
+            for (const auto& edge : impl_->mesh.edges)
+                if (candidate_recolors_wire_edge(candidate, edge)) wire.push_back(edge);
+        }
+    }
+    update();
+}
+
+const std::vector<zima::kernel::ViewerEdge>& MeshView::container_inspection_wire() const {
+    return impl_->container_inspection_wire;
+}
+
 void MeshView::confirm_container(const std::string& owner_id) {
+    impl_->container_inspection_wire.clear();
     auto candidate = container_candidate(impl_->mesh, owner_id);
     if (!candidate) {
         clear_selection();
@@ -1273,6 +1341,7 @@ void MeshView::confirm_container(const std::string& owner_id) {
 }
 
 void MeshView::confirm_occurrence(const std::string& instance_path) {
+    impl_->container_inspection_wire.clear();
     auto candidate = occurrence_candidate(impl_->mesh, instance_path);
     if (!candidate) {
         clear_selection();
@@ -1430,6 +1499,7 @@ void MeshView::confirm_reference(const std::string& owner_id,
 }
 
 void MeshView::clear_selection() {
+    impl_->container_inspection_wire.clear();
     impl_->confirmed_candidate.reset();
     impl_->selected_container_origin_id.clear();
     impl_->candidates.clear();
@@ -1869,6 +1939,10 @@ void MeshView::set_feature_preview_owners(std::set<std::string> owner_ids) {
     if (owner_ids == impl_->feature_preview_owner_ids) return;
     impl_->feature_preview_owner_ids = std::move(owner_ids);
     update();
+}
+
+void MeshView::set_sketch_relation_highlights(std::set<EdgeKey> references) {
+    impl_->sketch_relation_highlights=std::move(references);update();
 }
 
 void MeshView::set_constraint_reference_highlights(
@@ -2888,6 +2962,7 @@ if (impl_->show_origins) {
         return found == impl_->original_container_edge_indices.end()
             ? nullptr : &found->second;
     };
+    const auto component_edges=confirmed_component_edge_indices();
     const auto edge_is_highlighted = [&](const zima::kernel::ViewerEdge& edge,
             std::size_t mesh_edge_index,
             const std::optional<ViewerCandidate>& highlighted) {
@@ -2905,6 +2980,7 @@ if (impl_->show_origins) {
             impl_->feature_selected_edges.contains(key) ||
             impl_->feature_hover_edges.contains(key) ||
             impl_->feature_selected_edge_indices.contains(mesh_edge_index) ||
+            component_edges.contains(mesh_edge_index) ||
             impl_->feature_hover_edge_indices.contains(mesh_edge_index) ||
             impl_->constraint_reference_edges.contains(key) ||
             impl_->assembly_reference_edges.contains(key) ||
@@ -2927,6 +3003,7 @@ if (impl_->show_origins) {
             impl_->edge_treatment_selection_edges.contains(key) ||
             impl_->feature_selected_edges.contains(key) ||
             impl_->feature_selected_edge_indices.contains(mesh_edge_index) ||
+            component_edges.contains(mesh_edge_index) ||
             impl_->constraint_reference_edges.contains(key) ||
             impl_->assembly_reference_edges.contains(key) ||
             impl_->selected_container_content_ids.contains(edge.reference.owner_id) ||
@@ -4350,6 +4427,60 @@ if (impl_->show_origins) {
                     project(segment.second), QColor(0, 209, 255), 1.5);
             }
         }
+        // Relation participants come directly from the persisted Sketch marker.
+        auto relation_keys=impl_->sketch_relation_highlights;
+        QColor relation_color(255,140,12);
+        if (highlighted && highlighted->kind==CandidateKind::SketchConstraint &&
+            highlighted->geometry_index<impl_->mesh.constraint_markers.size()) {
+            relation_keys.clear();
+            const auto& marker=impl_->mesh.constraint_markers[highlighted->geometry_index];
+            for (const auto& semantic : marker.participant_semantic_keys)
+                relation_keys.insert(EdgeKey{marker.reference.owner_id,semantic,marker.reference.instance_path});
+            if (impl_->confirmed_candidate) relation_color=QColor(30,220,240);
+        }
+        painter.save();
+        painter.setPen(QPen(relation_color,2.4));painter.setBrush(relation_color);
+        for (const auto& edge : impl_->mesh.edges) if (relation_keys.contains(edge_key(edge.reference)))
+            for (std::size_t i=1;i<edge.points.size();++i)
+                draw_reference_segment(project(edge.points[i-1]),project(edge.points[i]),relation_color,2.4);
+        for (const auto& axis : impl_->mesh.axes) if (relation_keys.contains(EdgeKey{axis.reference.owner_id,axis.reference.semantic_key,axis.reference.instance_path})) {
+            const double half=axis.display_length*0.5;
+            draw_reference_segment(project({axis.point.x-axis.direction.x*half,axis.point.y-axis.direction.y*half,axis.point.z-axis.direction.z*half}),
+                project({axis.point.x+axis.direction.x*half,axis.point.y+axis.direction.y*half,axis.point.z+axis.direction.z*half}),relation_color,2.4);
+        }
+        for (const auto& point : impl_->mesh.points) if (relation_keys.contains(EdgeKey{
+                point.reference.owner_id,point.reference.semantic_key,point.reference.instance_path}))
+            painter.drawEllipse(project(point.position),4.5,4.5);
+        painter.restore();
+        // Confirmed wires and dimension inspection use one screen-space
+        // presentation, including portions inside the solid. Picking still
+        // consumes the unchanged common candidate stream.
+        const auto draw_selected_wire = [&](const zima::kernel::ViewerEdge& edge) {
+            for (std::size_t i = 1; i < edge.points.size(); ++i)
+                draw_reference_segment(project(edge.points[i - 1]),
+                    project(edge.points[i]), QColor(0, 209, 255), 1.5);
+        };
+        for (const auto& edge : impl_->container_inspection_wire) draw_selected_wire(edge);
+        const auto* treatment_wire = exact_edge_treatment_wire(impl_->confirmed_candidate);
+        for (std::size_t index = 0; index < impl_->mesh.edges.size(); ++index) {
+            const auto& edge = impl_->mesh.edges[index];
+            const auto key = edge_key(edge.reference);
+            const bool candidate_match = impl_->confirmed_candidate &&
+                original_container_wire(impl_->confirmed_candidate) == nullptr &&
+                treatment_wire == nullptr &&
+                candidate_recolors_wire_edge(*impl_->confirmed_candidate, edge);
+            if (candidate_match || component_edges.contains(index) ||
+                impl_->feature_selected_edge_indices.contains(index) ||
+                impl_->feature_selected_edges.contains(key) ||
+                impl_->edge_treatment_selection_edges.contains(key) ||
+                (treatment_wire && std::find(treatment_wire->begin(),
+                    treatment_wire->end(), index) != treatment_wire->end()))
+                draw_selected_wire(edge);
+        }
+        for (const auto& edge : confirmed_component_wire())
+            for (std::size_t i=1;i<edge.points.size();++i)
+                draw_reference_segment(project(edge.points[i-1]),project(edge.points[i]),
+                    QColor(0,209,255),1.5);
         if (highlighted) {
             const QColor color = impl_->confirmed_candidate
                 ? QColor(30, 220, 240) : QColor(255, 140, 12);
@@ -4953,6 +5084,8 @@ void MeshView::mousePressEvent(QMouseEvent* event) {
         // started; that must not make dragging depend on callback side effects.
         const ViewerCandidate pressed_candidate =
             impl_->candidates[impl_->active_candidate];
+        if (pressed_candidate.kind != CandidateKind::Dimension)
+            impl_->container_inspection_wire.clear();
         impl_->confirmed_candidate = pressed_candidate;
         impl_->selected_container_origin_id =
             impl_->confirmed_candidate->kind == CandidateKind::Container &&

@@ -42,3 +42,11 @@ ctest --test-dir build/cpp-debug --output-on-failure
 ```
 
 Architecture and migration notes are in [`doc/`](doc/).
+
+Current modeling tools and interaction contracts:
+
+- [Threaded openings](doc/THREADED_OPENING.md)
+- [External shaft threads](doc/SHAFT_THREAD.md)
+- [View and Tree highlighting](doc/MODELING_INTERACTION.md)
+- [History reordering](doc/HISTORY_TREE_REORDER.md)
+- [Sketch constraint activity](doc/SKETCH_CONSTRAINT_ACTIVITY.md)

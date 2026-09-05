@@ -117,6 +117,7 @@ int main() {
                 "Referenced Hole preview does not follow first-plane normal");
         referenced_hole.hole.bore_end_condition =
             zima::document::EndCondition::ThroughAll;
+        referenced_hole.hole.bore_end_condition = zima::document::EndCondition::ThroughAll;
         zima::kernel::ViewerMesh bounded_input;
         bounded_input.vertices = {{-20.0, -2.0, -20.0},
             {20.0, -2.0, -20.0}, {-20.0, 18.0, -20.0},

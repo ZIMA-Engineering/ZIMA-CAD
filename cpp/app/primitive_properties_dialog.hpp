@@ -66,6 +66,10 @@ public:
         std::vector<zima::kernel::Vec3> triangles, std::string label = {});
     void set_extrusion_target_request(std::function<void()> callback);
     void set_extrusion_target_cancel(std::function<void()> callback);
+    [[nodiscard]] bool requires_planar_end_target() const {
+        return initial_.feature_kind == zima::document::FeatureKind::Thread &&
+            active_end_target_side_ == "reverse";
+    }
     void finish_extrusion_target_entry();
     void set_profile_pick_request(std::function<void(bool)> callback);
     void set_edit_sketch_callback(
@@ -83,6 +87,7 @@ public:
     [[nodiscard]] bool extrusion_direction_reversed() const;
     void set_profile_offset_and_forward_length(double offset, double length);
     void set_forward_extent_length(double length);
+    bool open_thread_catalog();
     void set_forward_extent_and_direction(double length, bool reversed);
     void set_reverse_extent_length(double length);
     void set_reverse_extent_and_direction(double length, bool reversed);
@@ -156,6 +161,8 @@ protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
+    void show_thread_catalog_after_release();
+    bool thread_catalog_pending_{};
     zima::document::HistoryContainer initial_;
     bool edit_mode_{};
     bool commit_required_{};
@@ -190,8 +197,8 @@ private:
     QComboBox* thread_direction_{};
     QComboBox* thread_standard_{};
     QComboBox* thread_size_{};
-    QComboBox* thread_side_{};
-    QLineEdit* thread_dimension_label_{};
+    QCheckBox* thread_chamfer_enabled_{};
+    QDoubleSpinBox* thread_chamfer_angle_{};
     QCheckBox* thread_custom_profile_diameter_{};
     QDoubleSpinBox* thread_profile_diameter_{};
     QDoubleSpinBox* thread_runout_factor_{};

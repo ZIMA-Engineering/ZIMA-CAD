@@ -1,3 +1,5 @@
+#include "../app/edge_treatment_tree_policy.hpp"
+#include "../app/opening_tree_policy.hpp"
 #include <zima/document/part_document.hpp>
 #include <zima/document/document_session.hpp>
 #include <zima/kernel/occt_kernel.hpp>
@@ -1107,6 +1109,46 @@ int main() {
                     std::abs(incremental_fillet.back().volume -
                              full_edited_fillet.back().volume) < 1.0e-7,
                 "Live topology cache changed an incremental Fillet result");
+        {
+            zima::kernel::ViewerMesh input;
+            std::vector<zima::kernel::EdgeReference> refs;
+            for (int i=0;i<4;++i) {
+                zima::kernel::ViewerEdge edge;
+                edge.reference={"profile","edge-"+std::to_string(i),{}};
+                edge.points={{double(i),0,0},{double(i+1),0,0}};
+                edge.edge_treatment_endpoint_references={
+                    {"profile","point-"+std::to_string(i),{}},
+                    {"profile","point-"+std::to_string(i+1),{}}};
+                refs.push_back(edge.reference);input.edges.push_back(edge);
+            }
+            zima::document::EdgeTreatmentParameters parameters;
+            parameters.routes={{refs[2],refs[0],refs[3],refs[1]}};
+            parameters.route_start_vertices={input.edges[0].edge_treatment_endpoint_references.front()};
+            parameters.fillet_mode=zima::document::EdgeTreatmentParameters::FilletMode::Linear;
+            parameters.primary_size=2;parameters.secondary_size=4;
+            require(zima::app::treatment_selection_wire(parameters,0,std::nullopt,input).size()==4 &&
+                zima::app::treatment_selection_wire(parameters,0,0,input).front().reference==refs[2],
+                "Treatment Tree wire does not distinguish route and segment");
+            zima::app::remove_treatment_selection(parameters,0,0,input);
+            require(parameters.routes.size()==2 && parameters.routes[0].size()==2 &&
+                parameters.routes[1].size()==1 && parameters.primary_size==2 && parameters.secondary_size==4 &&
+                parameters.route_start_vertices[0].semantic_key=="point-0" &&
+                parameters.route_start_vertices[1].semantic_key=="point-3",
+                "Deleting an interior segment did not split the route with preserved R1 direction");
+            auto shortened_start=parameters;
+            zima::app::remove_treatment_selection(shortened_start,0,0,input);
+            require(shortened_start.route_start_vertices[0].semantic_key=="point-1",
+                "Deleting the first segment did not move R1 to the surviving route end");
+            zima::app::remove_treatment_selection(parameters,0,1,input);
+            require(parameters.route_start_vertices[0].semantic_key=="point-0",
+                "Deleting the end of a variable Fillet changed its R1 end");
+            zima::app::remove_treatment_selection(parameters,0,std::nullopt,input);
+            require(parameters.routes.size()==1 && parameters.route_start_vertices.size()==1,
+                "Deleting a route did not remove its matching endpoint");
+            zima::app::remove_treatment_selection(parameters,0,0,input);
+            require(parameters.routes.empty() && parameters.route_start_vertices.empty(),
+                "Deleting the final segment left an empty route");
+        }
         const auto chamfer_boundaries = kernel.evaluate_history({
             {"box", zima::kernel::BoxRequest{100.0, 80.0, 50.0},
              zima::kernel::BooleanOperation::Add},
@@ -6344,10 +6386,15 @@ int main() {
         thread_base.box = {40.0, 40.0, 40.0};
         thread_document.history.push_back(thread_base);
         auto thread = zima::document::PartDocument::create_thread_container();
+        require(thread.thread.chamfer_enabled && thread.hole.drill_point_enabled,
+                "New opening must enable the entrance chamfer and drill point");
+        thread.thread.chamfer_enabled = false;
+        thread.hole.drill_point_enabled = false;
         thread.placement.z = -20.0;
         thread.thread.nominal_diameter = 10.0;
         thread.thread.pitch = 1.5;
         thread.thread.length_forward = 25.0;
+        thread.thread.bore_length = 32.0;
         thread_document.history.push_back(thread);
         const auto thread_operations = thread_document.kernel_operations();
         require(thread_operations.size() == 2 &&
@@ -6356,8 +6403,8 @@ int main() {
             "Standalone Thread did not enter OCCT as technological sheet history");
         const auto thread_boundaries = kernel.evaluate_history(thread_operations);
         require(thread_boundaries.size() == 2 &&
-                    std::abs(thread_boundaries.back().volume -
-                        thread_boundaries.front().volume) < 1.0e-7 &&
+                    std::abs(thread_boundaries.front().volume - thread_boundaries.back().volume -
+                        std::numbers::pi * std::pow(thread.thread.profile_diameter*0.5, 2) * 32.0) < 1.0e-5 &&
                     std::ranges::any_of(
                         thread_boundaries.back().mesh.triangle_references,
                         [&](const auto& reference) {
@@ -6365,7 +6412,7 @@ int main() {
                                 reference.semantic_key.starts_with(
                                     "thread:surface:");
                         }),
-            "Standalone Thread sheet changed solid volume or was not meshed");
+            "Threaded opening did not remove its bore or produce the thread sheet");
         auto trimmed_thread_operations = thread_operations;
         zima::kernel::BoxRequest thread_cutter{20.0, 20.0, 10.0};
         thread_cutter.translation = {-10.0, -10.0, -10.0};
@@ -6454,101 +6501,336 @@ int main() {
                     std::numbers::pi * (5.0 * 1.5 * 1.5 +
                         1.5 * 1.5 * 1.5 / 3.0)) < 1.0e-5,
             "Ordinary Chamfer did not chamfer a circular perpendicular bore edge");
-        const auto thread_wire = thread_document.thread_edges(thread, nullptr);
-        require(thread_wire.size() == 6 &&
-                    std::ranges::all_of(thread_wire, [&](const auto& edge) {
-                        return edge.reference.owner_id.empty() &&
-                            edge.reference.semantic_key.starts_with("thread:wire:") &&
-                            edge.display_owner_id == thread.id;
-                    }),
-            "Standalone Thread is not a non-referenceable four-ring/two-line wire");
-        auto external_thread = thread;
-        external_thread.thread.side = zima::document::ThreadSide::External;
-        external_thread.thread.profile_diameter = 8.1593;
-        const auto external_thread_wire =
-            thread_document.thread_edges(external_thread, nullptr);
-        require(!external_thread_wire.empty() &&
-                    std::abs(std::hypot(
-                        external_thread_wire.front().points.front().x-
-                            external_thread.placement.x,
-                        external_thread_wire.front().points.front().y-
-                            external_thread.placement.y)-5.0) < 1.0e-6,
-                "External Thread did not use its nominal continuous cylinder");
-        auto internal_thread = thread;
-        internal_thread.thread.side = zima::document::ThreadSide::Internal;
-        const auto internal_thread_wire =
-            thread_document.thread_edges(internal_thread, nullptr);
-        require(!internal_thread_wire.empty() &&
-                    std::abs(std::hypot(
-                        internal_thread_wire.front().points.front().x-
-                            internal_thread.placement.x,
-                        internal_thread_wire.front().points.front().y-
-                            internal_thread.placement.y)-
-                            internal_thread.thread.profile_diameter*0.5) < 1.0e-6,
-                "Internal Thread did not use its root continuous cylinder");
-        auto axis_plane_thread = thread;
-        axis_plane_thread.placement = {};
-        zima::document::ConstructionReference thread_axis_reference;
-        thread_axis_reference.owner_id = "source-axis";
-        thread_axis_reference.semantic_key = "axis:primary";
-        zima::document::ConstructionReference thread_plane_reference;
-        thread_plane_reference.owner_id = "source-face";
-        thread_plane_reference.semantic_key = "z_max";
-        thread_plane_reference.supports_offset = true;
-        axis_plane_thread.placement.references = {
-            thread_axis_reference, thread_plane_reference};
-        const auto axis_plane_wire =
-            thread_document.thread_edges(axis_plane_thread, nullptr);
-        require(axis_plane_wire.size() == 6 &&
-                    axis_plane_wire[1].points.front().y < -24.999,
-            "Axis + Plane Thread forward direction did not enter the "
-            "FRONT side consistently");
-        axis_plane_thread.thread.direction =
-            zima::document::ExtrusionDirection::Reverse;
-        const auto reversed_axis_plane_wire =
-            thread_document.thread_edges(axis_plane_thread, nullptr);
-        require(reversed_axis_plane_wire.size() == 6 &&
-                    reversed_axis_plane_wire[1].points.front().y > 24.999,
-            "Axis + Plane Thread reverse direction did not invert its wire");
-        auto bidirectional_thread_document = thread_document;
-        auto& bidirectional_thread =
-            bidirectional_thread_document.history.back().thread;
-        bidirectional_thread.extent_mode =
-            zima::document::ProfileExtentMode::TwoSides;
-        bidirectional_thread.length_forward = 20.0;
-        bidirectional_thread.length_reverse = 5.0;
-        bidirectional_thread.end_condition_forward =
-            zima::document::EndCondition::Length;
-        bidirectional_thread.end_condition_reverse =
-            zima::document::EndCondition::Length;
-        bidirectional_thread.runout_pitch_factor = 2.0;
-        bidirectional_thread.side = zima::document::ThreadSide::Internal;
-        const auto bidirectional_operations =
-            bidirectional_thread_document.kernel_operations();
-        const auto& bidirectional_request =
-            std::get<zima::kernel::ThreadSurfaceRequest>(
-                bidirectional_operations.back().primitive);
-        require(std::abs(bidirectional_request.start_offset + 5.0) < 1.0e-9 &&
-                    std::abs(bidirectional_request.length - 25.0) < 1.0e-9 &&
-                    std::abs(bidirectional_request.runout_start - 3.0) < 1.0e-9 &&
-                    std::abs(bidirectional_request.runout_end - 3.0) < 1.0e-9 &&
-                    bidirectional_request.side ==
-                        zima::kernel::ThreadSurfaceRequest::Side::Internal,
-            "Two-sided Thread did not map extents, side and 2xP runouts to its sheet request");
+        // Chamfer is the last subtractive revolution: verify analytic volume,
+        // actual clipped sheet coordinates, runout and source ancestry.
+        auto opening_document = thread_document;
+        auto& opening = opening_document.history.back();
+        opening.thread.chamfer_enabled = true;
+        opening.thread.chamfer_depth = 2.0;
+        opening.thread.chamfer_angle_degrees = 90.0;
+        opening.hole.drill_point_enabled = true;
+        const auto opening_operations = opening_document.kernel_operations();
+        const auto& opening_request = std::get<zima::kernel::ThreadSurfaceRequest>(
+            opening_operations.back().primitive);
+        require(opening_request.cuts_before->children.size() == 2 &&
+                    opening_request.cuts_after->children.size() == 1 &&
+                    std::holds_alternative<zima::kernel::RevolutionRequest>(
+                        opening_request.cuts_after->children.front()) &&
+                    std::abs(opening_request.length - 28.0) < 1.0e-9 &&
+                    std::abs(opening_request.runout_end - 3.0) < 1.0e-9,
+                "Opening did not order bore/tip, thread, chamfer or included runout in the quoted length");
+        const auto opening_boundaries = kernel.evaluate_history(opening_operations);
+        const double bore_radius = opening.thread.profile_diameter*0.5;
+        const double tip_depth = bore_radius/std::tan(118.0*std::numbers::pi/360.0);
+        const double removed = std::numbers::pi*(bore_radius*4.0+8.0/3.0 +
+            bore_radius*bore_radius*tip_depth/3.0);
+        require(opening_boundaries.size() == 2 &&
+                    std::abs(thread_boundaries.back().volume -
+                        opening_boundaries.back().volume - removed) < 1.0e-5,
+                ("Opening tip/chamfer volume differs from analytic cones: actual=" +
+                    std::to_string(thread_boundaries.back().volume-opening_boundaries.back().volume) +
+                    " expected=" + std::to_string(removed)).c_str());
+        const auto& mesh = opening_boundaries.back().mesh;
+        for (const std::string role : {"bore","thread","chamfer","tip"}) {
+            const auto selected=zima::app::opening_component_edges(opening,role,mesh);
+            require(!selected.empty(),("Opening component has no selectable wire: "+role).c_str());
+            const auto elsewhere=zima::app::opening_component_edges(opening,role,mesh,"other-occurrence");
+            require(elsewhere.empty(),"Opening component selected a different occurrence");
+            if (role=="thread") for (const auto index : selected)
+                require(mesh.edges[index].reference.semantic_key.starts_with("thread:boundary:"),
+                    "Thread component selected the bore wire");
+            auto changed=opening_document;
+            const bool disabled=zima::app::disable_opening_component(changed.history.back(),role);
+            require(disabled==(role!="bore"),"Opening allowed deleting its mandatory bore");
+            if (role=="thread") {
+                require(!changed.history.back().thread.enabled &&
+                    changed.history.back().thread.nominal_diameter==opening.thread.profile_diameter,
+                    "Deleting thread did not preserve bore diameter");
+                const auto plain=kernel.evaluate_history(changed.kernel_operations());
+                require(std::abs(plain.back().volume-opening_boundaries.back().volume)<1e-5 &&
+                    std::ranges::none_of(plain.back().mesh.triangle_references,
+                        [](const auto& r){return r.is_thread_surface();}),
+                    "Deleting thread changed the hole solid or left a thread surface");
+            }
+        }
+
+        const auto circle_at = [](const auto& edge, double radius, double z) {
+            return edge.points.size()>3 && std::ranges::all_of(edge.points, [&](const auto& p) {
+                return std::abs(p.z-z)<1e-5 && std::abs(std::hypot(p.x,p.y)-radius)<1e-5;
+            });
+        };
+        bool entrance_ring=false, chamfer_bore_ring=false;
+        for (const auto& edge : mesh.original_references.edges) {
+            if (edge.reference.owner_id != opening.id) continue;
+            require(!circle_at(edge,bore_radius,-20.0),
+                "Container hover retained the bore's original ring before chamfering");
+            entrance_ring |= circle_at(edge,bore_radius+2.0,-20.0);
+            chamfer_bore_ring |= circle_at(edge,bore_radius,-18.0);
+        }
+        require(entrance_ring && chamfer_bore_ring,
+                "Opening source wire lost the real mouth or chamfer/bore boundary");
+        double sheet_min = 1e9, sheet_max = -1e9, runout_min = 1e9, runout_max = -1e9;
+        for (std::size_t i=0; i<mesh.triangle_references.size(); ++i) {
+            const auto& reference=mesh.triangle_references[i];
+            if (reference.owner_id != opening.id) continue;
+            const bool nominal=reference.semantic_key == "thread:surface:nominal";
+            const bool runout=reference.semantic_key == "thread:surface:runout:end";
+            require(reference.is_thread_surface() == nominal,
+                "Thread surface classification incorrectly includes bore or runout");
+            if (!nominal && !runout) continue;
+            for (int corner=0; corner<3; ++corner) {
+                const double z=mesh.vertices[mesh.triangles[i*3+corner]].z+20.0;
+                if (nominal) { sheet_min=std::min(sheet_min,z); sheet_max=std::max(sheet_max,z); }
+                else { runout_min=std::min(runout_min,z); runout_max=std::max(runout_max,z); }
+            }
+        }
+        require(std::abs(sheet_min-(2.0-(5.0-bore_radius)))<1e-5 &&
+                    std::abs(sheet_max-25.0)<1e-5 &&
+                    std::abs(runout_min-25.0)<1e-5 && std::abs(runout_max-28.0)<1e-5,
+                "Chamfer did not clip the thread, or cylinder/runout endpoints moved from the local origin");
+        auto plain_document = opening_document;
+        plain_document.history.back().thread.enabled = false;
+        const auto plain_boundaries = kernel.evaluate_history(plain_document.kernel_operations());
+        require(std::ranges::none_of(plain_boundaries.back().mesh.triangle_references,
+                    [](const auto& ref) { return ref.semantic_key.starts_with("thread:surface:"); }),
+                "Plain opening still generated a thread sheet");
+        auto reverse_document = opening_document;
+        reverse_document.history.back().placement.z = 20.0;
+        reverse_document.history.back().thread.direction = zima::document::ExtrusionDirection::Reverse;
+        const auto reverse_boundaries = kernel.evaluate_history(reverse_document.kernel_operations());
+        require(std::abs(reverse_boundaries.back().volume-opening_boundaries.back().volume)<1e-5,
+                "Reversing the opening did not reverse all its operations consistently");
+        auto front_opening_document = opening_document;
+        auto& front_opening = front_opening_document.history.back();
+        front_opening.placement = {};
+        front_opening.placement.y = 20.0;
+        zima::document::ConstructionReference front_plane;
+        front_plane.owner_id = "front-plane";
+        front_plane.semantic_key = "origin:plane:xz";
+        front_plane.supports_offset = true;
+        front_opening.placement.references = {front_plane};
+        const auto front_boundaries = kernel.evaluate_history(front_opening_document.kernel_operations());
+        require(std::abs(front_boundaries.back().volume-opening_boundaries.back().volume)<1e-5,
+                "FRONT opening bore/thread/rotations disagree about the existing local frame");
+        for (const double angle : {60.0, 120.0}) {
+            auto angled_opening = opening_document;
+            angled_opening.history.back().thread.chamfer_angle_degrees=angle;
+            const auto calculated=kernel.evaluate_history(angled_opening.kernel_operations());
+            const double width=2.0*std::tan(angle*std::numbers::pi/360.0);
+            const double expected=std::numbers::pi*(bore_radius*2.0*width+2.0*width*width/3.0+
+                bore_radius*bore_radius*tip_depth/3.0);
+            require(std::abs(thread_boundaries.back().volume-calculated.back().volume-expected)<1e-5,
+                "Chamfer included angle did not control its revolved profile");
+        }
+        auto up_to_opening = thread_document;
+        auto& up_to_thread = up_to_opening.history.back().thread;
+        up_to_thread.end_condition_forward=zima::document::EndCondition::UpTo;
+        zima::document::ExtrusionParameters::EndTarget opening_target;
+        opening_target.kind=zima::document::EndTargetKind::Plane;
+        opening_target.reference={"end-plane","origin:plane:xy",{}};
+        opening_target.fallback_origin={0,0,10};
+        opening_target.fallback_normal={0,0,1};
+        up_to_thread.end_targets_forward={opening_target};
+        const auto up_to_boundaries=kernel.evaluate_history(up_to_opening.kernel_operations());
+        require(std::abs(up_to_boundaries.back().volume-(64000.0-std::numbers::pi*bore_radius*bore_radius*30.0))<1e-5,
+                "Opening Up To plane did not preserve its independent thread length");
+        auto inclined_opening=up_to_opening;
+        auto& inclined_target=inclined_opening.history.back().thread.end_targets_forward.front();
+        inclined_target.fallback_normal={0.2,0,1};
+        inclined_target.fallback_origin={20,0,6}; // same center intersection z=10
+        const auto inclined_boundaries=kernel.evaluate_history(inclined_opening.kernel_operations());
+        std::optional<zima::kernel::ViewerAxis> inclined_preview_axis;
+        static_cast<void>(inclined_opening.thread_edges(inclined_opening.history.back(),
+            nullptr,&inclined_preview_axis));
+        require(inclined_preview_axis && std::abs(inclined_preview_axis->display_length-30.0)<1e-6 &&
+                    std::abs(inclined_boundaries.back().volume-up_to_boundaries.back().volume)<1e-5,
+            "Opening Up To inclined plane used the picked corner instead of the axis intersection");
+        for (const double slope : {0.0,0.2,-0.3}) {
+            auto limited=thread_document;
+            auto& parameters=limited.history.back().thread;
+            parameters.length_end_condition=zima::document::EndCondition::UpTo;
+            auto target=opening_target;
+            target.fallback_origin={0,0,0};
+            target.fallback_normal={slope,0,1};
+            parameters.length_end_targets={target};
+            const auto operations=limited.kernel_operations();
+            const auto& request=std::get<zima::kernel::ThreadSurfaceRequest>(operations.back().primitive);
+            require(request.runout_end==0 && request.end_plane_origin &&
+                std::abs(limited.thread_length(limited.history.back())-20)<1e-7,
+                "Thread Up To did not independently resolve its length and suppress runout");
+            const auto results=kernel.evaluate_history(operations);
+            require(std::abs(results.back().volume-thread_boundaries.back().volume)<1e-5,
+                "Thread Up To changed the bore depth");
+            const auto& mesh=results.back().mesh;
+            bool nominal=false;
+            for (std::size_t t=0;t<mesh.triangle_references.size();++t) {
+                const auto& ref=mesh.triangle_references[t];
+                require(!ref.semantic_key.starts_with("thread:surface:runout"),
+                    "Thread Up To retained its runout surface");
+                if (!ref.is_thread_surface()) continue;
+                nominal=true;
+                for (int k=0;k<3;++k) {
+                    const auto& p=mesh.vertices[mesh.triangles[t*3+k]];
+                    require(slope*p.x+p.z<1e-5,"Thread sheet crossed its Up To target plane");
+                }
+            }
+            require(nominal,"Thread Up To lost its nominal surface");
+        }
+        auto through_opening_document = thread_document;
+        through_opening_document.history.back().thread.end_condition_forward = zima::document::EndCondition::ThroughAll;
+        through_opening_document.history.back().hole.drill_point_enabled = true;
+        const auto through_operations=through_opening_document.kernel_operations();
+        require(std::get<zima::kernel::ThreadSurfaceRequest>(through_operations.back().primitive)
+                    .cuts_before->children.size()==1,
+                "Through opening retained a blind drill point");
+        const auto through_boundaries=kernel.evaluate_history(through_operations);
+        require(std::abs(through_boundaries.back().volume-(64000.0-std::numbers::pi*bore_radius*bore_radius*40.0))<1e-5,
+                "Through opening did not cut the complete body");
+        auto exit_thread_document=through_opening_document;
+        auto& exit_thread=exit_thread_document.history.back().thread;
+        exit_thread.length_end_condition=zima::document::EndCondition::UpTo;
+        auto exit_target=opening_target;
+        exit_target.fallback_origin={0,0,20};
+        exit_thread.length_end_targets={exit_target};
+        auto exit_operations=exit_thread_document.kernel_operations();
+        const auto exit_input=kernel.evaluate_history(exit_operations);
+        const auto exit_edge=std::ranges::find_if(exit_input.back().mesh.edges,[&](const auto& edge) {
+            return edge.reference.valid() && edge.points.size()>2 &&
+                std::ranges::all_of(edge.points,[&](const auto& point) {
+                    return std::abs(point.z-20)<1e-6 &&
+                        std::abs(std::hypot(point.x,point.y)-bore_radius)<1e-6;
+                });
+        });
+        require(exit_edge!=exit_input.back().mesh.edges.end(),"Threaded opening exit rim is missing");
+        exit_operations.push_back({"exit-chamfer",zima::kernel::ChamferRequest{
+            {exit_edge->reference},2.0},zima::kernel::BooleanOperation::Add});
+        const auto exit_chamfer=kernel.evaluate_history(exit_operations);
+        double thread_end=-1e100;
+        for (std::size_t t=0;t<exit_chamfer.back().mesh.triangle_references.size();++t) {
+            if (!exit_chamfer.back().mesh.triangle_references[t].is_thread_surface()) continue;
+            for (int k=0;k<3;++k)
+                thread_end=std::max(thread_end,exit_chamfer.back().mesh.vertices[
+                    exit_chamfer.back().mesh.triangles[t*3+k]].z);
+        }
+        require(thread_end>-19,"Exit chamfer removed the complete thread surface");
+        require(std::abs(thread_end-(18.0+5.0-bore_radius))<1e-5,
+            "Exit chamfer did not trim the nominal thread at its conical surface");
+        const auto thread_wire = opening_document.thread_edges(opening, nullptr);
+        require(!thread_wire.empty() && std::ranges::all_of(thread_wire, [&](const auto& edge) {
+                    return !edge.reference.valid() && edge.display_owner_id==opening.id;
+                }), "Opening preview offered transient wires as references");
+        for (const std::string role : {"bore:side", "chamfer:side", "tip:side",
+                "nominal:side", "runout:side"}) {
+            require(std::ranges::count_if(thread_wire, [&](const auto& edge) {
+                return edge.reference.semantic_key.ends_with(role) && edge.points.size()==2;
+            })==1, "Opening preview must use one generatrix per cylindrical/conical surface");
+        }
+        for (const auto* axis_document : {&opening_document, &front_opening_document,
+                &reverse_document, &through_opening_document, &up_to_opening}) {
+            const auto& feature = axis_document->history.back();
+            std::optional<zima::kernel::ViewerAxis> opening_axis;
+            static_cast<void>(axis_document->thread_edges(feature,
+                &thread_boundaries.front().mesh, &opening_axis));
+            require(opening_axis.has_value(), "Opening preview omitted its bore axis");
+            const auto& axis = *opening_axis;
+            const double expected_depth = axis_document == &through_opening_document ? 40.0
+                : axis_document == &up_to_opening ? 30.0 : 32.0;
+            require(std::abs(axis.display_length-expected_depth)<1e-5 &&
+                        std::abs(axis.point.x-axis.direction.x*axis.display_length*0.5-feature.placement.x)<1e-5 &&
+                        std::abs(axis.point.y-axis.direction.y*axis.display_length*0.5-feature.placement.y)<1e-5 &&
+                        std::abs(axis.point.z-axis.direction.z*axis.display_length*0.5-feature.placement.z)<1e-5,
+                    "Opening axis does not run from the local origin over the bore depth");
+            require(axis_document == &front_opening_document ? axis.direction.y < -0.999
+                    : axis_document == &reverse_document ? axis.direction.z < -0.999
+                    : axis.direction.z > 0.999,
+                "Opening preview axis left the opening's actual direction");
+            const auto& calculated = axis_document == &opening_document ? opening_boundaries
+                : axis_document == &front_opening_document ? front_boundaries
+                : axis_document == &reverse_document ? reverse_boundaries
+                : axis_document == &through_opening_document ? through_boundaries : up_to_boundaries;
+            const auto matches = [&](const auto& candidate) {
+                return candidate.reference.owner_id == feature.id &&
+                    candidate.reference.semantic_key == "axis:primary";
+            };
+            const auto operations = axis_document->kernel_operations();
+            const auto& request = std::get<zima::kernel::ThreadSurfaceRequest>(operations.back().primitive);
+            const auto& radial = request.radial_direction;
+            const zima::kernel::Vec3 seam_normal{
+                axis.direction.y*radial.z-axis.direction.z*radial.y,
+                axis.direction.z*radial.x-axis.direction.x*radial.z,
+                axis.direction.x*radial.y-axis.direction.y*radial.x};
+            for (const auto& edge : calculated.back().mesh.original_references.edges) {
+                if (edge.reference.owner_id != feature.id || edge.points.size()!=2) continue;
+                for (const auto& point : edge.points) {
+                    const zima::kernel::Vec3 delta{point.x-feature.placement.x,
+                        point.y-feature.placement.y, point.z-feature.placement.z};
+                    require(std::abs(delta.x*seam_normal.x+delta.y*seam_normal.y+delta.z*seam_normal.z)<1e-5 &&
+                                delta.x*radial.x+delta.y*radial.y+delta.z*radial.z >= -1e-5,
+                        "Opening bore/chamfer/thread/tip seams do not share one radial half-plane");
+                }
+            }
+            const auto& axes = calculated.back().mesh.axes;
+            const auto& references = calculated.back().mesh.original_references.axes;
+            require(std::ranges::count_if(axes, matches) == 1 &&
+                        std::ranges::count_if(references, matches) == 1,
+                    "Opening must expose exactly one visible and persisted primary axis");
+            const auto& stored = *std::ranges::find_if(axes, matches);
+            require(std::abs(stored.display_length-axis.display_length)<1e-5 &&
+                        std::abs(stored.point.x-axis.point.x)<1e-5 &&
+                        std::abs(stored.point.y-axis.point.y)<1e-5 &&
+                        std::abs(stored.point.z-axis.point.z)<1e-5 &&
+                        std::abs(stored.direction.x-axis.direction.x)<1e-5 &&
+                        std::abs(stored.direction.y-axis.direction.y)<1e-5 &&
+                        std::abs(stored.direction.z-axis.direction.z)<1e-5,
+                    "Calculated opening axis differs from its preview or includes the drill point");
+        }
+        auto invalid_document=thread_document;
+        invalid_document.history.back().thread.bore_length=26.0;
+        bool rejected=false;
+        try { static_cast<void>(invalid_document.kernel_operations()); }
+        catch (const std::exception&) { rejected=true; }
+        require(rejected,"Opening accepted a thread whose runout exceeds the bore depth");
         const auto thread_path = std::filesystem::temp_directory_path() /
             "zima-cad-thread-contract.prtz";
         require(thread_boundaries.front().source_fingerprint ==
                     zima::kernel::history_fingerprint(
                         thread_document.kernel_operations(), 1),
             "Standalone Thread changed the preceding body fingerprint");
-        thread_document.save(thread_path, thread_boundaries);
-        const auto loaded_thread = zima::document::PartDocument::load(thread_path);
+        opening_document.save(thread_path, opening_boundaries);
+        std::vector<zima::kernel::BodyResult> saved_opening_boundaries;
+        const auto loaded_thread = zima::document::PartDocument::load(
+            thread_path, &saved_opening_boundaries);
         std::filesystem::remove(thread_path);
         require(loaded_thread.history.size() == 2 &&
                     loaded_thread.history.back().feature_kind ==
                         zima::document::FeatureKind::Thread &&
-                    loaded_thread.history.back().thread == thread.thread,
-            "Standalone Thread did not survive save and reopen");
+                    loaded_thread.history.back().thread == opening.thread &&
+                    loaded_thread.history.back().hole == opening.hole,
+            "Opening parameters and persisted source profiles did not survive save and reopen");
+        const auto saved_opening_axis = [&](const auto& axis) {
+            return axis.reference.owner_id == opening.id &&
+                axis.reference.semantic_key == "axis:primary" &&
+                std::abs(axis.display_length-32.0)<1e-5;
+        };
+        require(!saved_opening_boundaries.empty() &&
+                    std::ranges::any_of(saved_opening_boundaries.back().mesh.axes, saved_opening_axis) &&
+                    std::ranges::any_of(saved_opening_boundaries.back().mesh.original_references.axes, saved_opening_axis),
+                "Opening axis disappeared on reopen without regeneration");
+        for (const auto* references : {
+                &saved_opening_boundaries.back().mesh.triangle_references,
+                &saved_opening_boundaries.back().mesh.original_references.triangle_references}) {
+            require(std::ranges::any_of(*references, [](const auto& ref) {
+                        return ref.is_thread_surface(); }),
+                "Persisted thread surface classification was lost on reopen");
+            require(std::ranges::none_of(*references, [](const auto& ref) {
+                        return ref.semantic_key.starts_with("thread:surface:runout:") &&
+                            ref.is_thread_surface(); }),
+                "Runout was classified as thread after reopen");
+        }
+        const auto reloaded_opening=kernel.evaluate_history(loaded_thread.kernel_operations());
+        require(std::abs(reloaded_opening.back().volume-opening_boundaries.back().volume)<1e-5 &&
+                    reloaded_opening.back().source_fingerprint==opening_boundaries.back().source_fingerprint,
+                "Reopened opening lost its geometry or stable operation identity");
         std::cout << "C++ document and OCCT contracts passed\n";
         return 0;
     } catch (const std::exception& error) {

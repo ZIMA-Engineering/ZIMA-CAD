@@ -8,6 +8,33 @@
 namespace zima::document {
 namespace {
 
+void retain_shaft_reference_geometry(PartDocument& document,
+        const std::vector<zima::kernel::BodyResult>& boundaries) {
+    if (boundaries.empty()) return;
+    for (auto& feature : document.history) {
+        if (feature.feature_kind!=FeatureKind::ShaftThread) continue;
+        const auto snapshot=std::ranges::find_if(boundaries,[&](const auto& body) {
+            return body.shaft_thread_owner==feature.id;
+        });
+        auto& p=feature.shaft_thread;
+        const std::array<zima::kernel::FaceReference*,4> refs{
+            &p.cylinder,&p.start,p.chamfer ? &*p.chamfer : nullptr,p.end ? &*p.end : nullptr};
+        for (std::size_t i=0;i<refs.size();++i) {
+            if (!refs[i]) continue;
+            if (snapshot!=boundaries.end() && snapshot->shaft_thread_references[i]==*refs[i] &&
+                snapshot->shaft_thread_references[i].surface) {
+                refs[i]->surface=snapshot->shaft_thread_references[i].surface;
+            } else {
+                const auto& geometry=boundaries.back().mesh.original_references;
+                const auto source=std::ranges::find_if(geometry.triangle_references,[&](const auto& ref) {
+                    return ref==*refs[i] && ref.surface;
+                });
+                if (source!=geometry.triangle_references.end()) refs[i]->surface=source->surface;
+            }
+        }
+    }
+}
+
 zima::kernel::ViewerReferenceGeometry references_for_owners(
     const zima::kernel::ViewerReferenceGeometry& source,
     const std::unordered_set<std::string>& owners) {
@@ -38,7 +65,9 @@ zima::kernel::ViewerReferenceGeometry references_for_owners(
 DocumentSession::DocumentSession(
     PartDocument document,
     std::vector<zima::kernel::BodyResult> calculated_boundaries)
-    : current_{std::move(document), std::move(calculated_boundaries), 0, false} {}
+    : current_{std::move(document), std::move(calculated_boundaries), 0, false} {
+    retain_shaft_reference_geometry(current_.document,current_.calculated_boundaries);
+}
 
 const PartDocument& DocumentSession::document() const { return current_.document; }
 std::uint64_t DocumentSession::revision() const { return current_.revision; }
@@ -139,6 +168,7 @@ std::optional<HistoryRollbackBoundary> DocumentSession::rollback_boundary(
 void DocumentSession::replace(
     PartDocument document,
     std::vector<zima::kernel::BodyResult> calculated_boundaries) {
+    retain_shaft_reference_geometry(document,calculated_boundaries);
     current_ = {std::move(document), std::move(calculated_boundaries), 0, false};
     undo_.clear();
     redo_.clear();
@@ -149,6 +179,7 @@ void DocumentSession::replace(
 void DocumentSession::commit(
     PartDocument document,
     std::vector<zima::kernel::BodyResult> calculated_boundaries) {
+    retain_shaft_reference_geometry(document,calculated_boundaries);
     undo_.push_back(std::move(current_));
     current_ = {
         std::move(document), std::move(calculated_boundaries), next_revision_++, false};
@@ -157,6 +188,7 @@ void DocumentSession::commit(
 
 void DocumentSession::update_calculated_boundaries(
     std::vector<zima::kernel::BodyResult> calculated_boundaries) {
+    retain_shaft_reference_geometry(current_.document,calculated_boundaries);
     current_.calculated_boundaries = std::move(calculated_boundaries);
     current_.calculated_state_dirty = true;
 }

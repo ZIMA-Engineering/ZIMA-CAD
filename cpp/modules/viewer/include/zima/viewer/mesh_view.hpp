@@ -81,6 +81,7 @@ public:
     explicit MeshView(QWidget* parent = nullptr);
     ~MeshView() override;
     void set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view = true);
+    [[nodiscard]] const zima::kernel::ViewerMesh& mesh() const;
     void set_dimension_decimal_places(int decimal_places);
     [[nodiscard]] int dimension_decimal_places() const;
     [[nodiscard]] std::array<float, 8> camera_state() const;
@@ -108,7 +109,19 @@ public:
         std::function<bool(const ViewerCandidate&)> candidate_filter);
     void set_candidate_priority(
         std::function<int(const ViewerCandidate&)> candidate_priority);
+    // Visual inspection does not latch the picker; dimensions remain editable.
+    void set_container_inspection(const std::string& owner_id,
+        const std::string& instance_path = {});
+    [[nodiscard]] const std::vector<zima::kernel::ViewerEdge>& container_inspection_wire() const;
     void confirm_container(const std::string& owner_id);
+    void confirm_container_component(const std::string& owner_id,
+        const std::string& component, std::set<std::size_t> edge_indices,
+        const std::string& instance_path = {});
+    [[nodiscard]] std::set<std::size_t> confirmed_component_edge_indices() const;
+    void confirm_container_component_wire(const std::string& owner_id,
+        const std::string& component, std::vector<zima::kernel::ViewerEdge> wire,
+        const std::string& instance_path = {});
+    [[nodiscard]] std::vector<zima::kernel::ViewerEdge> confirmed_component_wire() const;
     void confirm_occurrence(const std::string& instance_path);
     void confirm_result_body();
     void confirm_origin(const std::string& owner_id,
@@ -201,6 +214,7 @@ public:
     void set_feature_hover_edge_indices(std::set<std::size_t> edges);
     void set_feature_selected_edge_indices(std::set<std::size_t> edges);
     void set_feature_preview_owners(std::set<std::string> owner_ids);
+    void set_sketch_relation_highlights(std::set<EdgeKey> references);
     void set_constraint_reference_highlights(
         std::set<std::string> owner_ids, std::set<EdgeKey> edges);
     void set_assembly_reference_edges(std::set<EdgeKey> edges);

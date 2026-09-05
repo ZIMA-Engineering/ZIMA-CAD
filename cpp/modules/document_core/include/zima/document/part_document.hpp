@@ -16,7 +16,7 @@
 namespace zima::document {
 
 enum class CombineMode { Add, Subtract };
-enum class FeatureKind { Sketch, Box, Cylinder, Sphere, Cone, Pyramid, Wedge, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint };
+enum class FeatureKind { Sketch, Box, Cylinder, Sphere, Cone, Pyramid, Wedge, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint, ShaftThread };
 enum class ExtrusionDirection { Forward, Reverse, Symmetric };
 enum class ExtrusionExtent { Blind, UpToPlane, UpToSurface, ThroughAll };
 enum class ProfileSource { Internal, External };
@@ -472,31 +472,48 @@ struct HoleParameters {
     bool operator==(const HoleParameters&) const = default;
 };
 
-// A cosmetic engineering thread is a standalone history container. Its
-// diameter is a direct parameter and its axis/start plane are borrowed
-// placement references; it intentionally owns no Sketch and contributes no
-// solid volume. Its calculated result is technological sheet geometry, never
-// a helix or a Boolean add/subtract body.
+// One opening: bore, optional drill point, internal thread and entrance cut.
 struct ThreadParameters {
+    bool enabled{true};
+    double bore_length{20.0};
+    bool chamfer_enabled{};
+    double chamfer_depth{1.0};
+    double chamfer_angle_degrees{90.0};
     double nominal_diameter{10.0};
     double pitch{1.5};
     double profile_diameter{8.3762};
     bool custom_profile_diameter{};
     ThreadStandard standard{ThreadStandard::Metric};
-    ThreadSide side{ThreadSide::Automatic};
+    ThreadSide side{ThreadSide::Internal};
     std::string designation{"M10"};
-    std::string dimension_label;
     ExtrusionDirection direction{ExtrusionDirection::Forward};
     ProfileExtentMode extent_mode{ProfileExtentMode::OneSide};
     double length_forward{15.0};
     double length_reverse{15.0};
     EndCondition end_condition_forward{EndCondition::Length};
-    EndCondition end_condition_reverse{EndCondition::Length};
+    EndCondition length_end_condition{EndCondition::Length};
     std::vector<ExtrusionParameters::EndTarget> end_targets_forward;
-    std::vector<ExtrusionParameters::EndTarget> end_targets_reverse;
+    std::vector<ExtrusionParameters::EndTarget> length_end_targets;
     double runout_pitch_factor{2.0};
     bool left_hand{};
     bool operator==(const ThreadParameters&) const = default;
+};
+
+struct ShaftThreadParameters {
+    zima::kernel::FaceReference cylinder;
+    zima::kernel::FaceReference start;
+    std::optional<zima::kernel::FaceReference> chamfer;
+    std::optional<zima::kernel::FaceReference> end;
+    ThreadStandard standard{ThreadStandard::Metric};
+    std::string designation{"M10"};
+    double nominal_diameter{10.0};
+    double root_diameter{8.160};
+    double pitch{1.5};
+    double length{15.0};
+    EndCondition end_condition{EndCondition::Length};
+    bool runout_enabled{true};
+    double runout_pitch_factor{2.0};
+    bool operator==(const ShaftThreadParameters&) const = default;
 };
 
 struct DrillPointParameters {
@@ -635,6 +652,7 @@ struct HistoryContainer {
     ShellParameters shell;
     HoleParameters hole;
     ThreadParameters thread;
+    ShaftThreadParameters shaft_thread;
     DrillPointParameters drill_point;
     bool suppressed{};
     bool operator==(const HistoryContainer&) const = default;
@@ -691,6 +709,10 @@ public:
     [[nodiscard]] static HistoryContainer create_wedge_container();
     [[nodiscard]] static HistoryContainer create_hole_container();
     [[nodiscard]] static HistoryContainer create_thread_container();
+    [[nodiscard]] static HistoryContainer create_shaft_thread_container();
+    [[nodiscard]] static zima::kernel::ThreadSurfaceRequest shaft_thread_request(
+        const HistoryContainer& container,
+        const zima::kernel::ViewerReferenceGeometry* references = nullptr);
     [[nodiscard]] static HistoryContainer create_drill_point_container();
     [[nodiscard]] static ConstructionObject create_construction(
         ConstructionKind kind);
@@ -741,9 +763,11 @@ public:
         const zima::kernel::ViewerMesh* supporting_body = nullptr,
         bool reverse = false,
         bool external_surface = false) const;
+    [[nodiscard]] static double thread_length(const HistoryContainer& container);
     [[nodiscard]] std::vector<zima::kernel::ViewerEdge> thread_edges(
         const HistoryContainer& container,
-        const zima::kernel::ViewerMesh* supporting_body = nullptr) const;
+        const zima::kernel::ViewerMesh* supporting_body = nullptr,
+        std::optional<zima::kernel::ViewerAxis>* preview_axis = nullptr) const;
     [[nodiscard]] std::vector<zima::kernel::ViewerEdge> revolution_preview_edges(
         const HistoryContainer& container) const;
     [[nodiscard]] static HistoryContainer create_extrusion_container(

@@ -1034,6 +1034,9 @@ std::optional<double> circular_curve_radius(
             sketch.arcs.begin(), sketch.arcs.end(),
             [&](const auto& value) { return value.id == geometry_id; });
         arc != sketch.arcs.end()) return arc->radius;
+    if (const auto corner = std::ranges::find_if(sketch.corner_radii,
+            [&](const auto& value) { return value.id == geometry_id && !value.suppressed; });
+        corner != sketch.corner_radii.end()) return corner->radius;
     const auto external = std::find_if(sketch.external_references.begin(),
         sketch.external_references.end(), [&](const auto& value) {
             return value.id == geometry_id && !value.broken &&
@@ -5961,6 +5964,12 @@ CornerFilletResult Sketch::add_corner_fillet(
     // Validate the value by evaluating it transactionally, without modifying
     // the persisted source graph.
     auto evaluated = next;
+    std::erase_if(evaluated.constraints,[&](const auto& relation) {
+        return relation.kind==ConstraintKind::EqualRadius &&
+            std::ranges::any_of(next.corner_radii,[&](const auto& corner) {
+                return corner.id==relation.geometry_id || corner.id==relation.second_geometry_id;
+            });
+    });
     evaluated.corner_radii.clear();
     const auto materialized = materialize_corner_fillet(
         evaluated, first_segment_id, second_segment_id, radius, snap_tolerance);
@@ -5982,6 +5991,15 @@ CornerFilletResult Sketch::add_corner_fillet(
         }
     }
     next.validate();
+    if (std::ranges::any_of(next.constraints,[&](const auto& constraint) {
+            return !constraint.suppressed && constraint.kind==ConstraintKind::EqualRadius &&
+                (constraint.geometry_id==id || constraint.second_geometry_id==id);
+        })) {
+        const auto solved=next.solve();
+        if (solved.status==SolveStatus::Conflicting || solved.status==SolveStatus::Invalid)
+            throw std::runtime_error("Corner radius conflicts with its equal-radius relation");
+        static_cast<void>(next.evaluated_profile_sketch());
+    }
     *this = std::move(next);
     return {id, {}, {}};
 }
@@ -5989,6 +6007,15 @@ CornerFilletResult Sketch::add_corner_fillet(
 Sketch Sketch::evaluated_profile_sketch() const {
     auto result = *this;
     const auto records = result.corner_radii;
+    std::vector<SketchConstraint> corner_relations;
+    std::erase_if(result.constraints,[&](const auto& relation) {
+        if (relation.kind != ConstraintKind::EqualRadius) return false;
+        const bool corner=std::ranges::any_of(records,[&](const auto& record) {
+            return record.id==relation.geometry_id || record.id==relation.second_geometry_id;
+        });
+        if (corner) corner_relations.push_back(relation);
+        return corner;
+    });
     std::erase_if(result.corner_radii, [](const auto& record) {
         return !record.suppressed && record.radius > 1.0e-9;
     });
@@ -6039,6 +6066,7 @@ Sketch Sketch::evaluated_profile_sketch() const {
                 constraint.second_geometry_id = record.id;
         }
     }
+    result.constraints.insert(result.constraints.end(),corner_relations.begin(),corner_relations.end());
     result.validate();
     return result;
 }
@@ -8255,6 +8283,14 @@ SolveResult Sketch::solve_impl(
                                             double target_radius,
                                             const std::set<std::string>&
                                                 protected_points) {
+        if (auto corner = std::ranges::find_if(corner_radii,
+                [&](const auto& value) { return value.id == geometry_id && !value.suppressed; });
+            corner != corner_radii.end()) {
+            if (corner->dimension_visible || !std::isfinite(target_radius) || target_radius <= tolerance)
+                return false;
+            corner->radius=target_radius;
+            return true;
+        }
         std::unordered_map<std::string, std::array<double, 2>> translations;
         const auto add_radial_target = [&](const std::string& point_id,
                                            double target_x,
@@ -10701,6 +10737,14 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
                 edge.reference.semantic_key = "corner_radius:" + arc_id;
             }
         }
+        for (auto& marker : result.constraint_markers) {
+            for (auto& key : marker.participant_semantic_keys) {
+                if (!key.starts_with("arc:")) continue;
+                const auto id=key.substr(4);
+                if (std::ranges::any_of(corner_radii,[&](const auto& radius) { return radius.id==id; }))
+                    key="corner_radius:"+id;
+            }
+        }
         for (auto& dimension : result.dimensions) {
             constexpr std::string_view prefix{"dimension:corner-display:"};
             if (dimension.reference.semantic_key.starts_with(prefix)) {
@@ -11217,47 +11261,6 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
             referenced_keypoint_geometry.has_value();
         const bool geometry_relation =
             coincident_relation || constraint.kind == ConstraintKind::Tangent;
-        const auto append_point_geometry = [&](const std::string& point_id) {
-            for (const auto& segment : segments) {
-                if (segment.first_point_id == point_id ||
-                    segment.second_point_id == point_id) {
-                    participants.push_back("segment:" + segment.id);
-                }
-            }
-            for (const auto& circle : circles) {
-                if (circle.center_point_id == point_id)
-                    participants.push_back("circle:" + circle.id);
-            }
-            for (const auto& arc : arcs) {
-                if (arc.center_point_id == point_id ||
-                    arc.start_point_id == point_id ||
-                    arc.end_point_id == point_id) {
-                    participants.push_back("arc:" + arc.id);
-                }
-            }
-            for (const auto& ellipse : ellipses) {
-                if (ellipse.center_point_id == point_id ||
-                    ellipse.major_point_id == point_id ||
-                    ellipse.minor_point_id == point_id) {
-                    participants.push_back("ellipse:" + ellipse.id);
-                }
-            }
-            for (const auto& arc : elliptical_arcs) {
-                if (arc.center_point_id == point_id ||
-                    arc.major_point_id == point_id ||
-                    arc.minor_point_id == point_id ||
-                    arc.start_point_id == point_id ||
-                    arc.end_point_id == point_id) {
-                    participants.push_back("elliptical_arc:" + arc.id);
-                }
-            }
-            for (const auto& spline : bsplines) {
-                if (std::ranges::find(spline.control_point_ids, point_id) !=
-                    spline.control_point_ids.end()) {
-                    participants.push_back("bspline:" + spline.id);
-                }
-            }
-        };
         const auto append_geometry_points = [&](const std::string& geometry_id) {
             const auto append_point = [&](const std::string& point_id) {
                 if (!point_id.empty()) participants.push_back("point:" + point_id);
@@ -11325,18 +11328,13 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
                 participants.push_back(
                     point_id == "sketch_origin" ? "origin:point"
                                                  : "point:" + point_id);
-                if (coincident_relation && point_id != "sketch_origin")
-                    append_point_geometry(point_id);
             }
         }
         for (const auto& geometry_id : {constraint.geometry_id,
                                         constraint.second_geometry_id}) {
-            if (geometry_relation) {
-                if (const auto key = geometry_semantic_key(geometry_id); !key.empty())
-                    participants.push_back(key);
-            } else {
-                append_geometry_points(geometry_id);
-            }
+            if (const auto key = geometry_semantic_key(geometry_id); !key.empty())
+                participants.push_back(key);
+            if (!geometry_relation) append_geometry_points(geometry_id);
         }
         std::sort(participants.begin(), participants.end());
         participants.erase(

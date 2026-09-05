@@ -39,6 +39,26 @@ zima::kernel::Vec3 load_vec3(const nlohmann::json& source) {
     return point;
 }
 
+nlohmann::json serialize_surface(const zima::kernel::SurfaceGeometry& value) {
+    return {{"kind",static_cast<int>(value.kind)},{"origin",serialize_vec3(value.origin)},
+        {"axis",serialize_vec3(value.axis)},{"radial",serialize_vec3(value.radial)},
+        {"radius",value.radius},{"semi_angle",value.semi_angle},
+        {"min",value.axial_min},{"max",value.axial_max},{"reversed",value.reversed}};
+}
+zima::kernel::SurfaceGeometry load_surface(const nlohmann::json& value) {
+    zima::kernel::SurfaceGeometry result;
+    const int kind=value.at("kind");
+    if (kind<0 || kind>2) throw std::runtime_error("Invalid analytic surface kind");
+    result.kind=static_cast<zima::kernel::SurfaceGeometry::Kind>(kind);
+    result.origin=load_vec3(value.at("origin"));result.axis=load_vec3(value.at("axis"));
+    result.radial=load_vec3(value.at("radial"));result.radius=value.at("radius");
+    result.semi_angle=value.at("semi_angle");result.axial_min=value.at("min");
+    result.axial_max=value.at("max");result.reversed=value.at("reversed");
+    require_finite(result.radius,"surface radius");require_finite(result.semi_angle,"surface angle");
+    require_finite(result.axial_min,"surface min");require_finite(result.axial_max,"surface max");
+    return result;
+}
+
 constexpr std::string_view kBase64Alphabet =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
@@ -197,6 +217,9 @@ nlohmann::json serialize_reference_geometry(
         references.push_back({{"owner", reference.owner_id},
             {"key", reference.semantic_key},
             {"instance_path", reference.instance_path}});
+        if constexpr (requires { reference.surface; }) {
+            if (reference.surface) references.back()["surface"]=serialize_surface(*reference.surface);
+        }
         return index;
     };
 
@@ -272,6 +295,7 @@ zima::kernel::ViewerReferenceGeometry load_reference_geometry(
         if (!reference.valid()) {
             throw std::runtime_error("Persisted original reference is invalid");
         }
+        if (value.contains("surface")) reference.surface=std::make_shared<const zima::kernel::SurfaceGeometry>(load_surface(value.at("surface")));
         references.push_back(std::move(reference));
     }
     const auto reference_at = [&](std::uint32_t index)
@@ -366,6 +390,13 @@ zima::kernel::ViewerReferenceGeometry load_reference_geometry(
 }
 
 }  // namespace
+
+nlohmann::json serialize_surface_geometry(const zima::kernel::SurfaceGeometry& value) {
+    return serialize_surface(value);
+}
+zima::kernel::SurfaceGeometry load_surface_geometry(const nlohmann::json& value) {
+    return load_surface(value);
+}
 
 nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result) {
     nlohmann::json faces = nlohmann::json::array();
