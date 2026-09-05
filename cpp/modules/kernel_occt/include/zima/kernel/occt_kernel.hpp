@@ -26,12 +26,13 @@ public:
     [[nodiscard]] BodyResult compound_bodies(
         const std::vector<PlacedBody>& bodies) const override;
     [[nodiscard]] std::vector<BodyResult> import_step_components(
-        const std::vector<StepRequest>& requests) const;
+        const std::vector<StepRequest>& requests, double mesh_deflection = 0.1) const;
     [[nodiscard]] BodyResult subtract_bodies(
         const BodyResult& target,
         const BodyResult& cutter,
         Vec3 target_translation,
-        Vec3 target_rotation_degrees) const;
+        Vec3 target_rotation_degrees,
+        double linear_tolerance = 0.001, double mesh_deflection = 0.1) const;
     void export_step(
         const std::vector<PlacedBody>& bodies, const std::string& path) const;
     void export_stl(

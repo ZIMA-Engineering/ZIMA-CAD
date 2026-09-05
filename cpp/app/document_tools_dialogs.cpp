@@ -266,6 +266,7 @@ FileSettingsDialog::FileSettingsDialog(
     linear_ = precision("linear_tolerance", "0.001");
     angular_ = precision("angular_tolerance", "0.001");
     mesh_ = precision("mesh_deflection", "0.1");
+    mesh_->setMinimum(0.000000001);
     decimals_ = new QSpinBox(this); decimals_->setRange(0, 12);
     decimals_->setValue(value_or(data_.precision, "decimal_places", "3").toInt());
     form->addRow(settings.text("document.precision.linear_tolerance", "Lineární tolerance"), linear_);

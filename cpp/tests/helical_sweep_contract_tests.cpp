@@ -22,12 +22,44 @@ static document::HistoryContainer fixture(double end_radius=10,bool rectangle=fa
 }
 int main(){try{
     kernel::OcctKernel k;
+    {
+        auto doc=document::PartDocument::create_default();doc.history={fixture()};
+        doc.document_precision["linear_tolerance"]="0.01";
+        const auto coarse=doc.kernel_operations();
+        doc.document_precision["linear_tolerance"]="0.00001";
+        const auto fine=doc.kernel_operations();
+        const auto& a=std::get<kernel::Sweep3DRequest>(coarse.front().primitive);
+        const auto& b=std::get<kernel::Sweep3DRequest>(fine.front().primitive);
+        require(a.linear_tolerance==0.01&&b.linear_tolerance==0.00001,
+            "Document tolerance did not reach sweep request");
+        require(b.path_segments.size()>a.path_segments.size(),
+            "Sweep approximation ignored document precision");
+        require(kernel::history_fingerprint(coarse,1)!=kernel::history_fingerprint(fine,1),
+            "Precision change reused a stale body fingerprint");
+        auto cylinder=document::PartDocument::create_cylinder_container();doc.history={cylinder};
+        doc.document_precision["mesh_deflection"]="0.1";
+        const auto rough=k.evaluate_history(doc.kernel_operations());
+        doc.document_precision["mesh_deflection"]="0.001";
+        const auto smooth=k.evaluate_history_incremental(doc.kernel_operations(),rough);
+        const auto point_count=[](const auto& body){std::size_t count=0;for(const auto& edge:body.mesh.edges)count+=edge.points.size();return count;};
+        require(point_count(smooth.back())>point_count(rough.back()),
+            "Edge sampling ignored mesh deviation or reused coarse cache");
+        require(smooth.back().mesh.triangles.size()>rough.back().mesh.triangles.size(),
+            "Surface tessellation ignored mesh deviation");
+        require(std::abs(smooth.back().volume-rough.back().volume)<1e-8,
+            "Display precision changed body geometry");
+    }
+
     for(bool left:{false,true})for(bool rectangle:{false,true}){
         auto c=fixture(10,rectangle);c.helical.left_handed=left;
         auto p=document::helical_geometry::path(c);
         require(std::abs(p.at(0,1).x+10)<1e-7&&std::abs(p.at(0,1).z-12.5)<1e-7,"Partial-turn endpoint incorrect");
         auto doc=document::PartDocument::create_default();doc.history={c};
         const auto result=k.evaluate_history(doc.kernel_operations());
+        if(!rectangle){
+            require(std::ranges::any_of(result.back().mesh.original_references.edges,[](const auto& edge){return edge.reference.semantic_key.starts_with("seam:generated:")&&edge.points.size()>33;}),
+                "Long helical wire still uses a fixed 33-point approximation");
+        }
         std::set<std::string> caps;
         for(const auto& ref:result.back().mesh.original_references.triangle_references)
             if(ref.owner_id==c.id&&(ref.semantic_key.starts_with("start:from:")||ref.semantic_key.starts_with("end:from:"))){

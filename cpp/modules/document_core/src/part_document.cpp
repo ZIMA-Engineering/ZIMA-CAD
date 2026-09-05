@@ -7417,10 +7417,11 @@ zima::kernel::ExtrusionRequest open_sweep_profile(const zima::sketcher::Sketch& 
 }
 }
 
-zima::kernel::Sweep3DRequest PartDocument::sweep2d_request(const HistoryContainer& input) {
+zima::kernel::Sweep3DRequest PartDocument::sweep2d_request(const HistoryContainer& input, double linear_tolerance) {
+    if(!std::isfinite(linear_tolerance)||linear_tolerance<=0)throw std::invalid_argument("Invalid sweep tolerance");
     using namespace helical_geometry;
     auto c=input;reframe_sweep2d_sketches(c);const auto p=planar_sweep_path(c);
-    zima::kernel::Sweep3DRequest request;request.transported=true;
+    zima::kernel::Sweep3DRequest request;request.transported=true;request.linear_tolerance=linear_tolerance;
     request.path_points.push_back(p.at(0,0));request.path_point_ids.push_back(p.curves.front().start_point_id);
     std::function<void(std::size_t,double,double,unsigned)> approximate;
     approximate=[&](std::size_t i,double a,double b,unsigned depth){
@@ -7428,7 +7429,7 @@ zima::kernel::Sweep3DRequest PartDocument::sweep2d_request(const HistoryContaine
         bool split=dot(unit(p.derivative(i,a)),unit(p.derivative(i,b)))<.95;
         for(double t:{.125,.25,.5,.75,.875}){
             const auto q=add(add(mul(first,std::pow(1-t,3)),mul(c1,3*t*(1-t)*(1-t))),add(mul(c2,3*t*t*(1-t)),mul(last,t*t*t)));
-            split=split||norm(sub(q,p.at(i,a+t*(b-a))))>1e-6;
+            split=split||norm(sub(q,p.at(i,a+t*(b-a))))>linear_tolerance/2;
         }
         if(split){if(depth>=20)throw std::runtime_error("Nelze aproximovat dráhu 2D Sweepu");const auto mid=(a+b)/2;approximate(i,a,mid,depth+1);approximate(i,mid,b,depth+1);return;}
         request.path_segments.push_back({p.curves[i].id,first,last,{first,c1,c2,last}});
@@ -7523,10 +7524,11 @@ void PartDocument::reframe_helical_sketches(HistoryContainer& c,unsigned through
     section.resolved_y_axis=unit(cross(section.resolved_normal,section.resolved_x_axis));
     c.helical.sketches[2]=section.serialized();
 }
-zima::kernel::Sweep3DRequest PartDocument::helical_sweep_request(const HistoryContainer& input) {
+zima::kernel::Sweep3DRequest PartDocument::helical_sweep_request(const HistoryContainer& input, double linear_tolerance) {
+    if(!std::isfinite(linear_tolerance)||linear_tolerance<=0)throw std::invalid_argument("Invalid sweep tolerance");
     using namespace helical_geometry;
     auto c=input; reframe_helical_sketches(c);
-    const auto p=path(c); zima::kernel::Sweep3DRequest request;request.transported=true;
+    const auto p=path(c); zima::kernel::Sweep3DRequest request;request.transported=true;request.linear_tolerance=linear_tolerance;
     request.path_points.push_back(p.at(0,0));request.path_point_ids.push_back(c.helical.start_point_id);
     std::function<void(std::size_t,double,double,unsigned)> approximate;
     approximate=[&](std::size_t i,double a,double b,unsigned depth){
@@ -7536,7 +7538,7 @@ zima::kernel::Sweep3DRequest PartDocument::helical_sweep_request(const HistoryCo
         bool split=std::abs(p.curves[i].at(b)[1]-p.curves[i].at(a)[1])/p.pitch>1./16;
         for(double t:{.25,.5,.75}){
             const auto q=add(add(mul(first,std::pow(1-t,3)),mul(c1,3*t*(1-t)*(1-t))),add(mul(c2,3*t*t*(1-t)),mul(last,t*t*t)));
-            split=split||norm(sub(q,p.at(i,a+t*(b-a))))>1e-5;
+            split=split||norm(sub(q,p.at(i,a+t*(b-a))))>linear_tolerance/2;
         }
         if(split){if(depth>=20)throw std::runtime_error("Nelze aproximovat dráhu v požadované přesnosti");const auto m=(a+b)/2;approximate(i,a,m,depth+1);approximate(i,m,b,depth+1);return;}
         request.path_segments.push_back({p.curves[i].id,first,last,{first,c1,c2,last}});
@@ -7556,6 +7558,24 @@ zima::kernel::Sweep3DRequest PartDocument::helical_sweep_request(const HistoryCo
     region.inner_vertex_source_ids=source.inner_vertex_source_ids;
     request.sections.push_back({section.id,c.helical.start_point_id,0,section.resolved_normal,region});
     return request;
+}
+std::vector<zima::kernel::ViewerEdge> PartDocument::helical_sketch_edges(const HistoryContainer& input) {
+    auto c=input;
+    // Resolve every frame whose inputs are available. An unfinished guide
+    // must not hide the already drawn sketches in their last resolved frames.
+    try { reframe_helical_sketches(c); } catch(const std::exception&) {}
+    std::vector<zima::kernel::ViewerEdge> result;
+    const std::array<std::string,3> roles{"base:","radial:","section:"};
+    for(unsigned i=0;i<3;++i){
+        const auto sketch=zima::sketcher::Sketch::from_serialized(c.helical.sketches[i]);
+        for(auto edge:sketch.viewer_mesh().edges){
+            if(!is_profile_preview_source_edge(edge))continue;
+            edge.reference.owner_id=c.id;
+            edge.reference.semantic_key="helical:sketch:"+roles[i]+edge.reference.semantic_key;
+            result.push_back(std::move(edge));
+        }
+    }
+    return result;
 }
 std::vector<zima::kernel::ViewerEdge> PartDocument::helical_preview_edges(const HistoryContainer& input) {
     using namespace helical_geometry;
@@ -7775,6 +7795,12 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
         }
     }
     boolean_tolerance = std::max(1.0e-7, boolean_tolerance);
+    double mesh_deflection = 0.1;
+    if (const auto found = document_precision.find("mesh_deflection"); found != document_precision.end()) {
+        const double value = std::stod(found->second);
+        if (!std::isfinite(value) || value <= 0) throw std::invalid_argument("Odchylka triangulace musí být kladná");
+        mesh_deflection = value;
+    }
     std::vector<const HistoryContainer*> ordered_history;
     ordered_history.reserve(history.size());
     if (history_order.empty()) {
@@ -8245,10 +8271,10 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             primitive = std::move(revolution);
         } else if (container.feature_kind == FeatureKind::Sweep2D) {
             if(!container.sweep2d.reference_valid)throw std::runtime_error("Neplatné reference 2D Sweepu");
-            primitive = sweep2d_request(container);
+            primitive = sweep2d_request(container, boolean_tolerance);
         } else if (container.feature_kind == FeatureKind::HelicalSweep) {
             if(!container.helical.reference_valid)throw std::runtime_error("Neplatné reference Helical Sweepu");
-            primitive = helical_sweep_request(container);
+            primitive = helical_sweep_request(container, boolean_tolerance);
         } else if (container.feature_kind == FeatureKind::Sweep3D) {
             auto resolved_container = container;
             auto& path = resolved_container.sweep3d.path;
@@ -8269,6 +8295,7 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 }
             }
             zima::kernel::Sweep3DRequest sweep;
+            sweep.linear_tolerance = boolean_tolerance;
             const auto path_rotation = path.rotation;
             const auto container_rotation = zima::kernel::Vec3{
                 container.placement.rotation_x,
@@ -8439,6 +8466,7 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 : zima::kernel::BooleanOperation::Add,
             container.suppressed,
             boolean_tolerance,
+            mesh_deflection,
         });
     }
     return operations;

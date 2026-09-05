@@ -25,10 +25,6 @@ public:
         auto* name=new QLineEdit(QString::fromStdString(pending.name),this);form->addRow(tr("Název"),name);
         connect(name,&QLineEdit::textChanged,this,[this](auto v){pending.name=v.toStdString();});
         content_layout()->addLayout(form);install_placement();form=new QFormLayout;
-        auto* plane=new QComboBox(this);plane->setObjectName("helicalBasePlane");plane->addItems({"XY","XZ / FRONT","YZ"});
-        plane->setCurrentIndex(static_cast<int>(sketcher::Sketch::from_serialized(pending.helical.sketches[0]).plane));
-        form->addRow(tr("Rovina skici v kontejneru"),plane);
-        connect(plane,&QComboBox::activated,this,[this](int i){auto s=sketcher::Sketch::from_serialized(pending.helical.sketches[0]);s.plane=static_cast<sketcher::SketchPlane>(i);set_sketch(0,s);});
         const std::array<QString,3> names{tr("1. Kružnice a počáteční bod…"),tr("2. Radiální vodicí skica…"),tr("3. Skica průřezu…")};
         for(unsigned i=0;i<3;++i){auto* button=new QPushButton(names[i],this);button->setObjectName(QString("helicalSketch%1").arg(i));form->addRow(button);connect(button,&QPushButton::clicked,this,[this,i]{if(edit_sketch)edit_sketch(i);});}
         circle_=new QComboBox(this);point_=new QComboBox(this);circle_->setObjectName("helicalCircle");point_->setObjectName("helicalStartPoint");

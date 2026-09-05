@@ -803,13 +803,14 @@ public:
     [[nodiscard]] static HistoryContainer create_sweep2d_container();
     static void reframe_sweep2d_sketches(HistoryContainer&, unsigned through_stage = 1);
     static void resolve_sweep2d_planes(HistoryContainer&, const zima::kernel::ViewerReferenceGeometry&);
-    [[nodiscard]] static zima::kernel::Sweep3DRequest sweep2d_request(const HistoryContainer&);
+    [[nodiscard]] static zima::kernel::Sweep3DRequest sweep2d_request(const HistoryContainer&, double linear_tolerance = 0.001);
     [[nodiscard]] static std::vector<zima::kernel::ViewerEdge> sweep2d_sketch_edges(const HistoryContainer& container);
     [[nodiscard]] static std::vector<zima::kernel::ViewerEdge> sweep2d_preview_edges(const HistoryContainer&);
     [[nodiscard]] static HistoryContainer create_helical_sweep_container();
     static void reframe_helical_sketches(HistoryContainer& container, unsigned through_stage = 2);
-    [[nodiscard]] static zima::kernel::Sweep3DRequest helical_sweep_request(const HistoryContainer& container);
+    [[nodiscard]] static zima::kernel::Sweep3DRequest helical_sweep_request(const HistoryContainer& container, double linear_tolerance = 0.001);
     [[nodiscard]] static std::vector<zima::kernel::ViewerEdge> helical_preview_edges(const HistoryContainer& container);
+    [[nodiscard]] static std::vector<zima::kernel::ViewerEdge> helical_sketch_edges(const HistoryContainer& container);
 
     // Recomputes the selected embedded profile's invisible Sketch frame from
     // its currently assigned path Point.  The Sketch geometry/identity is

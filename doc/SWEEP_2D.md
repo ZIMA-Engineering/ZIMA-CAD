@@ -71,3 +71,7 @@ The GUI contract also checks camera alignment, the operation buttons, tangent
 line/arc/line continuation and confirmation of the first path segment's
 dimension, both by selecting the segment and by selecting its endpoints.
 The path fixture starts at the origin and verifies shared contact points.
+
+Path approximation and OCCT sweep accuracy use the document linear tolerance;
+wire and surface display use its mesh deviation. There is no separate feature
+precision control. See [Numerical precision](NUMERICAL_PRECISION.md).

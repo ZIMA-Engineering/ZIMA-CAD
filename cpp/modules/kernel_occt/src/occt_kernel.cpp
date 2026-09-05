@@ -60,7 +60,7 @@
 #include <XCAFDoc_ShapeTool.hxx>
 #include <TDF_Tool.hxx>
 #include <GProp_GProps.hxx>
-#include <GCPnts_UniformAbscissa.hxx>
+#include <GCPnts_TangentialDeflection.hxx>
 #include <GC_MakeArcOfCircle.hxx>
 #include <Geom_TrimmedCurve.hxx>
 #include <Geom_BSplineCurve.hxx>
@@ -1324,6 +1324,8 @@ TopoDS_Wire make_profile_wire(
 }
 
 void validate_sweep3d(const Sweep3DRequest& request) {
+    if (!std::isfinite(request.linear_tolerance) || request.linear_tolerance <= 0)
+        throw std::invalid_argument("Invalid sweep tolerance");
     if (request.path_points.size() < 2 ||
         request.path_point_ids.size() != request.path_points.size() ||
         request.path_segments.size() + 1 != request.path_points.size()) {
@@ -1383,6 +1385,16 @@ struct SweepProfileWire {
     std::vector<std::string> curve_ids,point_ids;
 };
 
+// Two-shape Boolean constructors calculate immediately, before tolerances
+// and history settings can be applied. Configure once, then explicitly Build.
+template<class Algorithm>
+void set_boolean_inputs(Algorithm& algorithm, const TopoDS_Shape& argument,
+                        const TopoDS_Shape& tool) {
+    TopTools_ListOfShape arguments, tools;
+    arguments.Append(argument); tools.Append(tool);
+    algorithm.SetArguments(arguments); algorithm.SetTools(tools);
+}
+
 PrimitiveData make_transported_sweep_data(const Sweep3DRequest& request,const std::string& owner_id,
     const SweepProfileWire* prepared=nullptr) {
     if(request.sections.size()!=1)throw std::runtime_error("Sweep vyžaduje jeden průřez");
@@ -1396,7 +1408,7 @@ PrimitiveData make_transported_sweep_data(const Sweep3DRequest& request,const st
     auto spine_edge=BRepBuilderAPI_MakeEdge(curve.BSplineCurve()).Edge();
     auto spine=BRepBuilderAPI_MakeWire(spine_edge).Wire();
     BRepOffsetAPI_MakePipeShell builder(spine);
-    builder.SetDiscreteMode();builder.SetTolerance(1e-5,1e-5,1e-6);
+    builder.SetDiscreteMode();builder.SetTolerance(request.linear_tolerance/2,request.linear_tolerance/2,1e-6);
     builder.SetMaxSegments(2000);
     auto section=request.sections.front();
     std::vector<TopoDS_Edge> profile_edges;
@@ -1474,7 +1486,8 @@ PrimitiveData make_transported_sweep_data(const Sweep3DRequest& request,const st
         region.outer_vertex_source_ids=section.profile.inner_vertex_source_ids.at(i);
         region.region_id=section.profile.inner_boundary_ids.at(i);
         region.inner_profiles.clear();region.inner_edge_source_ids.clear();region.inner_vertex_source_ids.clear();region.inner_boundary_ids.clear();
-        auto tool=make_transported_sweep_data(inner,owner_id);BRepAlgoAPI_Cut cut(result.shape,tool.shape);cut.Build();
+        auto tool=make_transported_sweep_data(inner,owner_id);BRepAlgoAPI_Cut cut;
+        set_boolean_inputs(cut, result.shape, tool.shape);cut.SetFuzzyValue(request.linear_tolerance);cut.Build();
         if(!cut.IsDone()||!BRepCheck_Analyzer(cut.Shape()).IsValid())throw std::runtime_error("Nelze vytvořit dutý průřez");
         result.faces=propagate_topology(cut,result.faces,tool.faces);
         result.edges=propagate_topology(cut,result.edges,tool.edges);
@@ -1542,7 +1555,8 @@ PrimitiveData make_thin_sweep_data(const Sweep3DRequest& request,const std::stri
         const auto rename=[](auto& profile,const std::string& role){for(auto* ids:{&profile.curve_ids,&profile.point_ids})for(auto& id:*ids)id="thin:"+role+id.substr(id.find(":from:"));};
         rename(first,"outside");rename(second,"inside");
         auto outer=make_transported_sweep_data(plain,owner_id,&first),inner=make_transported_sweep_data(plain,owner_id,&second);
-        BRepAlgoAPI_Cut cut(outer.shape,inner.shape);cut.Build();
+        BRepAlgoAPI_Cut cut;
+        set_boolean_inputs(cut, outer.shape, inner.shape);cut.SetFuzzyValue(request.linear_tolerance);cut.Build();
         if(!cut.IsDone()||!BRepCheck_Analyzer(cut.Shape()).IsValid())throw std::runtime_error("Thin Sweep nevytvořil platné těleso");
         outer.faces=propagate_topology(cut,outer.faces,inner.faces);outer.edges=propagate_topology(cut,outer.edges,inner.edges);outer.vertices=propagate_topology(cut,outer.vertices,inner.vertices);outer.shape=cut.Shape();return outer;
     }
@@ -1609,6 +1623,7 @@ PrimitiveData make_sweep3d_data(
     const auto spine = spine_builder.Wire();
     BRepOffsetAPI_MakePipeShell builder(spine);
     builder.SetMode(false);
+    builder.SetTolerance(request.linear_tolerance, request.linear_tolerance, 1e-6);
     if (std::ranges::all_of(request.path_segments,
             [](const auto& segment) {
                 return segment.bezier_control_points.empty();
@@ -1703,7 +1718,8 @@ PrimitiveData make_extrusion_data(
     const std::optional<TopoDS_Face>& exact_target = std::nullopt,
     double through_all_forward_span = 2'000'000.0,
     double through_all_reverse_span = 2'000'000.0,
-    const std::optional<Vec3>& circle_radial_direction = std::nullopt) {
+    const std::optional<Vec3>& circle_radial_direction = std::nullopt,
+    double linear_tolerance = 0.001) {
     std::vector<TopoDS_Wire> wires{
         make_profile_wire(request.outer_profile, request.direction, circle_radial_direction)};
     BRepBuilderAPI_MakeFace face_builder(wires.front(), true);
@@ -2000,7 +2016,9 @@ PrimitiveData make_extrusion_data(
             keep_point = BRep_Tool::Pnt(TopoDS::Vertex(first_vertex.Current()));
         }
         BRepPrimAPI_MakeHalfSpace half_space(limiting_face, keep_point);
-        BRepAlgoAPI_Common clip(result.shape, half_space.Solid());
+        BRepAlgoAPI_Common clip;
+        set_boolean_inputs(clip, result.shape, half_space.Solid());
+        clip.SetFuzzyValue(linear_tolerance);
         clip.SetToFillHistory(true);
         clip.Build();
         if (!clip.IsDone() || clip.Shape().IsNull() ||
@@ -2051,7 +2069,7 @@ PrimitiveData make_extrusion_data(
             additional_request.additional_profile_regions.clear();
             auto additional = make_extrusion_data(
                 additional_request, owner_id, exact_target,
-                through_all_forward_span, through_all_reverse_span, circle_radial_direction);
+                through_all_forward_span, through_all_reverse_span, circle_radial_direction, linear_tolerance);
             builder.Add(compound, additional.shape);
             result.faces.insert(result.faces.end(),
                 std::make_move_iterator(additional.faces.begin()),
@@ -3868,7 +3886,8 @@ BodyResult make_result(
     bool original_reference_geometry = false,
     bool persist_kernel_shape = true,
     bool collect_original_references = false,
-    const std::vector<TopoDS_Shape>& hidden_display_edges = {}) {
+    const std::vector<TopoDS_Shape>& hidden_display_edges = {},
+    double mesh_deflection = 0.0) {
     Bnd_Box mesh_bounds;
     BRepBndLib::Add(shape, mesh_bounds);
     Standard_Real xmin{}, ymin{}, zmin{}, xmax{}, ymax{}, zmax{};
@@ -3882,6 +3901,7 @@ BodyResult make_result(
         // diagonal while retaining the existing detail floor for small work.
         linear_deflection = std::max(0.1, diagonal * 1.0e-4);
     }
+    if (mesh_deflection > 0) linear_deflection = mesh_deflection;
     BRepMesh_IncrementalMesh(
         shape, linear_deflection, false, 0.5, true).Perform();
     BodyResult result;
@@ -3967,9 +3987,8 @@ BodyResult make_result(
         sampled_edges.Add(edge);
         const EdgeReference reference = edge_references->reference_for(edge);
         BRepAdaptor_Curve curve(edge);
-        const int sample_count = curve.GetType() == GeomAbs_Line ? 2 : 33;
-        GCPnts_UniformAbscissa samples(curve, sample_count);
-        if (!samples.IsDone() || samples.NbPoints() < 2) continue;
+        GCPnts_TangentialDeflection samples(curve, 0.5, linear_deflection);
+        if (samples.NbPoints() < 2) continue;
         ViewerEdge viewer_edge;
         viewer_edge.reference = original_reference_geometry
             ? reference : EdgeReference{};
@@ -4185,9 +4204,9 @@ TopoDS_Shape make_thread_cone_face(const ThreadSurfaceRequest& request,
 }
 
 void append_technological_surface(ViewerMesh& target, const TopoDS_Shape& shape,
-        const std::string& owner, const std::string& role) {
+        const std::string& owner, const std::string& role, double mesh_deflection) {
     if (shape.IsNull()) return;
-    auto source = make_result(shape, {}, {}, {}, false, false).mesh;
+    auto source = make_result(shape, {}, {}, {}, false, false, false, {}, mesh_deflection).mesh;
     const FaceReference face_reference{owner, "thread:surface:" + role, {}};
     for (auto& reference : source.triangle_references) reference = face_reference;
     for (auto& edge : source.edges) {
@@ -4350,7 +4369,9 @@ std::vector<BodyResult> OcctKernel::evaluate_box_boundaries(
 }
 
 std::vector<BodyResult> OcctKernel::import_step_components(
-    const std::vector<StepRequest>& requests) const {
+    const std::vector<StepRequest>& requests, double mesh_deflection) const {
+    if (!std::isfinite(mesh_deflection) || mesh_deflection <= 0)
+        throw std::invalid_argument("Invalid STEP mesh deflection");
     std::unordered_map<std::string, StepDocumentCache> documents;
     std::vector<BodyResult> results;
     results.reserve(requests.size());
@@ -4361,7 +4382,7 @@ std::vector<BodyResult> OcctKernel::import_step_components(
         const auto data = make_step_data(requests[index], owner, documents);
         auto result = make_result(data.shape, data.faces, data.edges, data.vertices,
             false, true,
-            !data.faces.empty() || !data.edges.empty() || !data.vertices.empty());
+            !data.faces.empty() || !data.edges.empty() || !data.vertices.empty(), {}, mesh_deflection);
         result.imported_step_topology = data.imported_step_topology;
         if (!requests[index].live_cache_fingerprint.empty()) {
             result.source_fingerprint = requests[index].live_cache_fingerprint;
@@ -4398,7 +4419,9 @@ BodyResult OcctKernel::subtract_bodies(
     const BodyResult& target,
     const BodyResult& cutter,
     Vec3 target_translation,
-    Vec3 target_rotation_degrees) const {
+    Vec3 target_rotation_degrees, double linear_tolerance, double mesh_deflection) const {
+    if(!std::isfinite(linear_tolerance)||linear_tolerance<=0||!std::isfinite(mesh_deflection)||mesh_deflection<=0)
+        throw std::invalid_argument("Invalid assembly cut precision");
     if (target.kernel_shape.empty() || cutter.kernel_shape.empty()) {
         throw std::invalid_argument(
             "Assembly cut requires calculated solid snapshots");
@@ -4420,7 +4443,9 @@ BodyResult OcctKernel::subtract_bodies(
     if (!placed_target.IsDone()) {
         throw std::runtime_error("Assembly cut target placement failed");
     }
-    BRepAlgoAPI_Cut cut(placed_target.Shape(), cutter_shape);
+    BRepAlgoAPI_Cut cut;
+    set_boolean_inputs(cut, placed_target.Shape(), cutter_shape);
+    cut.SetFuzzyValue(linear_tolerance);
     cut.Build();
     if (!cut.IsDone() || cut.Shape().IsNull() ||
         !BRepCheck_Analyzer(cut.Shape()).IsValid()) {
@@ -4431,7 +4456,7 @@ BodyResult OcctKernel::subtract_bodies(
     if (!local_result.IsDone() || local_result.Shape().IsNull()) {
         throw std::runtime_error("Assembly cut result placement failed");
     }
-    auto result = make_result(local_result.Shape(), {}, {}, {});
+    auto result = make_result(local_result.Shape(), {}, {}, {}, false, true, false, {}, mesh_deflection);
     // Stable references remain owned by the original component objects. The
     // boolean result topology itself is deliberately not a reference owner.
     result.mesh.original_references = target.mesh.original_references;
@@ -4491,10 +4516,10 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
             std::string role;
         };
         std::vector<TechnologicalSurface> technological_surfaces;
-        const auto append_technological_surfaces = [&](BodyResult& boundary) {
+        const auto append_technological_surfaces = [&](BodyResult& boundary, double mesh_deflection) {
             for (const auto& surface : technological_surfaces) {
                 append_technological_surface(boundary.mesh, surface.shape,
-                    surface.owner, surface.role);
+                    surface.owner, surface.role, mesh_deflection);
             }
         };
         std::unordered_map<std::string, StepDocumentCache> step_documents;
@@ -4589,6 +4614,16 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
         for (std::size_t operation_index = reusable_prefix;
              operation_index < operations.size(); ++operation_index) {
             const auto& operation = operations[operation_index];
+            if (!std::isfinite(operation.mesh_deflection) || operation.mesh_deflection <= 0)
+                throw std::invalid_argument("Invalid mesh deflection");
+            const auto make_operation_result = [&](const TopoDS_Shape& shape,
+                const std::vector<OwnedFace>& faces, const std::vector<OwnedEdge>& edges,
+                const std::vector<OwnedVertex>& vertices, bool original = false,
+                bool persist = true, bool collect = false,
+                const std::vector<TopoDS_Shape>& hidden = {}) {
+                return make_result(shape, faces, edges, vertices, original, persist,
+                    collect, hidden, operation.mesh_deflection);
+            };
             const bool persist_boundary_shape =
                 operation_index + 1 == operations.size();
             if (operation.owner_id.empty()) {
@@ -4695,7 +4730,7 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                         return make_extrusion_data(value,
                             operation.owner_id, exact_target,
                             forward_span, reverse_span, opening
-                                ? std::optional<Vec3>{opening->radial_direction} : std::nullopt);
+                                ? std::optional<Vec3>{opening->radial_direction} : std::nullopt, operation.boolean_tolerance);
                     } else {
                         validate_revolution(value);
                         return make_revolution_data(
@@ -4787,7 +4822,8 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                             opening_reference_operand = operand;
                         } else {
                             auto& combined = *opening_reference_operand;
-                            BRepAlgoAPI_Fuse fuse(combined.shape, operand.shape);
+                            BRepAlgoAPI_Fuse fuse;
+                            set_boolean_inputs(fuse, combined.shape, operand.shape);
                             fuse.SetToFillHistory(true);
                             fuse.SetFuzzyValue(std::max(1.0e-7, operation.boolean_tolerance));
                             fuse.Build();
@@ -4801,7 +4837,8 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                             combined.edges = complete_boolean_edges(combined.shape, combined.faces,
                                 combined.edges, operation.owner_id, "opening");
                         }
-                        BRepAlgoAPI_Cut cut(result_shape, operand.shape);
+                        BRepAlgoAPI_Cut cut;
+                        set_boolean_inputs(cut, result_shape, operand.shape);
                         cut.SetToFillHistory(true);
                         cut.SetFuzzyValue(std::max(1.0e-7, operation.boolean_tolerance));
                         cut.Build();
@@ -4819,7 +4856,8 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                         owned_topology = std::move(topology);
                         for (auto& surface : technological_surfaces) {
                             if (surface.shape.IsNull()) continue;
-                            BRepAlgoAPI_Cut trim(surface.shape, operand.shape);
+                            BRepAlgoAPI_Cut trim;
+                            set_boolean_inputs(trim, surface.shape, operand.shape);
                             trim.SetFuzzyValue(std::max(1.0e-7, operation.boolean_tolerance));
                             trim.Build();
                             if (!trim.IsDone())
@@ -4933,7 +4971,9 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                         BRepPrimAPI_MakeHalfSpace half(face.Face(),gp_Pnt(
                             p.x-sign*normal.X(),p.y-sign*normal.Y(),p.z-sign*normal.Z()));
                         for (auto index=surface_begin;index<technological_surfaces.size();++index) {
-                            BRepAlgoAPI_Common clip(technological_surfaces[index].shape,half.Solid());
+                            BRepAlgoAPI_Common clip;
+                            set_boolean_inputs(clip, technological_surfaces[index].shape, half.Solid());
+                            clip.SetFuzzyValue(operation.boolean_tolerance);
                             clip.Build();
                             if (!clip.IsDone()) throw std::runtime_error("OCCT thread Up To trim failed");
                             technological_surfaces[index].shape=clip.Shape();
@@ -4946,13 +4986,13 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                     const auto unified = unify_preserving_face_provenance(combined.shape,
                         combined.faces, combined.edges, combined.vertices,
                         std::max(1.0e-7, operation.boolean_tolerance));
-                    auto references = make_result(unified.shape, unified.faces,
+                    auto references = make_operation_result(unified.shape, unified.faces,
                         unified.edges, unified.vertices, true, false, false,
                         unified.hidden_display_edges);
                     append_original_reference_geometry(original_references,
                         std::move(references.mesh));
                 }
-                auto boundary = make_result(result_shape,
+                auto boundary = make_operation_result(result_shape,
                     owned_topology->faces, owned_topology->edges,
                     owned_topology->vertices, true, persist_boundary_shape,
                     false, owned_topology->hidden_display_edges);
@@ -4962,7 +5002,7 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                         thread->shaft_chamfer.value_or(FaceReference{}),thread->shaft_end.value_or(FaceReference{})};
                 }
                 if (opening_axis) boundary.mesh.axes.push_back(*opening_axis);
-                append_technological_surfaces(boundary);
+                append_technological_surfaces(boundary, operation.mesh_deflection);
                 boundary.source_fingerprint = history_fingerprint(
                     operations, boundaries.size() + 1);
                 boundaries.push_back(std::move(boundary));
@@ -5034,6 +5074,11 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                 }
                 if constexpr (std::is_same_v<Treatment, FilletRequest>) {
                     BRepFilletAPI_MakeFillet algorithm(result_shape);
+                    // Preserve OCCT's angular, UV and marching parameters;
+                    // only spatial and 3D approximation tolerances are mm.
+                    const double fillet_tolerance = std::max(1.0e-7, operation.boolean_tolerance);
+                    algorithm.SetParams(1.0e-2, fillet_tolerance, 1.0e-5,
+                        fillet_tolerance, 1.0e-5, 1.0e-3);
                     const TopologyReferenceIndex<VertexReference, OwnedVertex>
                         vertex_references(owned_topology->vertices);
                     for (std::size_t selected_index = 0;
@@ -5263,14 +5308,16 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                     // Thread sheets are separate from the solid B-Rep. Remove
                     // only material taken by this treatment, preserving their
                     // original semantic owner and the unaffected sheet area.
-                    BRepAlgoAPI_Cut removed(input_shape,result_shape);
+                    BRepAlgoAPI_Cut removed;
+                    set_boolean_inputs(removed, input_shape, result_shape);
                     removed.SetFuzzyValue(std::max(1.0e-7,operation.boolean_tolerance));
                     removed.Build();
                     if (!removed.IsDone())
                         throw std::runtime_error("OCCT edge treatment removed volume failed");
                     for (auto& surface : technological_surfaces) {
                         if (surface.shape.IsNull()) continue;
-                        BRepAlgoAPI_Cut trim(surface.shape,removed.Shape());
+                        BRepAlgoAPI_Cut trim;
+                        set_boolean_inputs(trim, surface.shape, removed.Shape());
                         trim.SetFuzzyValue(std::max(1.0e-7,operation.boolean_tolerance));
                         trim.Build();
                         if (!trim.IsDone())
@@ -5279,11 +5326,11 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                     }
                 }
                 boundaries.push_back(
-                    make_result(result_shape, owned_topology->faces,
+                    make_operation_result(result_shape, owned_topology->faces,
                         owned_topology->edges, owned_topology->vertices,
                         true, persist_boundary_shape, true,
                         owned_topology->hidden_display_edges));
-                append_technological_surfaces(boundaries.back());
+                append_technological_surfaces(boundaries.back(), operation.mesh_deflection);
                 append_reference_geometry(original_references,
                     reference_geometry_for_owners(boundaries.back().mesh.original_references,
                         std::unordered_set<std::string>{operation.owner_id}));
@@ -5426,7 +5473,7 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                                     std::move(direct_faces),
                                     std::move(direct_edges),
                                     std::move(direct_vertices), {}});
-                        auto direct_result = make_result(result_shape,
+                        auto direct_result = make_operation_result(result_shape,
                             owned_topology->faces,
                             owned_topology->edges,
                             owned_topology->vertices, true,
@@ -5499,8 +5546,8 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                     no_selected_edges, operation.owner_id,
                     "shell:inner-vertex");
 
-                BRepAlgoAPI_Cut closed_wall(
-                    solids.FindKey(1), inner_offset.Shape());
+                BRepAlgoAPI_Cut closed_wall;
+                set_boolean_inputs(closed_wall, solids.FindKey(1), inner_offset.Shape());
                 closed_wall.SetToFillHistory(true);
                 closed_wall.SetFuzzyValue(shell_tolerance);
                 closed_wall.Build();
@@ -5588,8 +5635,8 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                                         tool->Shape()).IsValid()) {
                                     continue;
                                 }
-                                BRepAlgoAPI_Cut probe(
-                                    shell_shape, tool->Shape());
+                                BRepAlgoAPI_Cut probe;
+                                set_boolean_inputs(probe, shell_shape, tool->Shape());
                                 probe.SetFuzzyValue(shell_tolerance);
                                 probe.Build();
                                 if (!probe.IsDone() ||
@@ -5773,9 +5820,8 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                                 outer_opening_tools[first];
                             auto& second_tool =
                                 outer_opening_tools[second];
-                            BRepAlgoAPI_Common bridge(
-                                first_tool.algorithm->Shape(),
-                                second_tool.algorithm->Shape());
+                            BRepAlgoAPI_Common bridge;
+                            set_boolean_inputs(bridge, first_tool.algorithm->Shape(), second_tool.algorithm->Shape());
                             bridge.SetToFillHistory(true);
                             bridge.SetFuzzyValue(shell_tolerance);
                             bridge.Build();
@@ -5922,7 +5968,7 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                 owned_topology = std::make_shared<LiveCache::Topology>(
                     LiveCache::Topology{std::move(shell_faces),
                         std::move(shell_edges), std::move(shell_vertices), {}});
-                auto shell_result = make_result(result_shape,
+                auto shell_result = make_operation_result(result_shape,
                     owned_topology->faces, owned_topology->edges,
                     owned_topology->vertices, true, persist_boundary_shape,
                     true, owned_topology->hidden_display_edges);
@@ -5950,7 +5996,7 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                             });
                     });
                 if (!has_live_face) {
-                    auto boundary = make_result(result_shape,
+                    auto boundary = make_operation_result(result_shape,
                         owned_topology->faces, owned_topology->edges,
                         owned_topology->vertices, true,
                         persist_boundary_shape, false,
@@ -6098,7 +6144,7 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                     }
                     return make_extrusion_data(
                         primitive, operation.owner_id, exact_target,
-                        through_all_forward_span, through_all_reverse_span);
+                        through_all_forward_span, through_all_reverse_span, std::nullopt, operation.boolean_tolerance);
                 } else if constexpr (std::is_same_v<Request, FeatureGroupRequest>) {
                     if (primitive.children.empty()) {
                         throw std::invalid_argument(
@@ -6111,7 +6157,8 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                             grouped = std::move(child_data);
                             continue;
                         }
-                        BRepAlgoAPI_Fuse fuse(grouped->shape, child_data.shape);
+                        BRepAlgoAPI_Fuse fuse;
+                        set_boolean_inputs(fuse, grouped->shape, child_data.shape);
                         fuse.SetToFillHistory(true);
                         fuse.SetFuzzyValue(std::max(
                             1.0e-7, operation.boolean_tolerance));
@@ -6159,7 +6206,7 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
             if (cached_reference != live_cache_->reference_meshes.end()) {
                 operand_mesh = cached_reference->second;
             } else if (imported_step) {
-                auto operand_result = make_result(
+                auto operand_result = make_operation_result(
                     operand.shape, operand.faces, operand.edges,
                     operand.vertices, standalone_import,
                     standalone_import && persist_boundary_shape, true);
@@ -6169,7 +6216,7 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                     standalone_import_result = std::move(operand_result);
                 }
             } else {
-                auto operand_result = make_result(
+                auto operand_result = make_operation_result(
                     operand.shape, operand.faces, operand.edges,
                     operand.vertices, true, false);
                 operand_result.mesh.axes = axes_for_operation(operation, operand.shape);
@@ -6214,7 +6261,8 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                     operand.vertices.end());
                 owned_topology = std::move(combined_topology);
             } else if (operation.operation == BooleanOperation::Add) {
-                BRepAlgoAPI_Fuse algorithm(result_shape, operand.shape);
+                BRepAlgoAPI_Fuse algorithm;
+                set_boolean_inputs(algorithm, result_shape, operand.shape);
                 algorithm.SetToFillHistory(true);
                 algorithm.SetFuzzyValue(
                     std::max(1.0e-7, operation.boolean_tolerance));
@@ -6247,7 +6295,8 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                         std::move(unified.edges), std::move(unified.vertices),
                         std::move(unified.hidden_display_edges)});
             } else {
-                BRepAlgoAPI_Cut algorithm(result_shape, operand.shape);
+                BRepAlgoAPI_Cut algorithm;
+                set_boolean_inputs(algorithm, result_shape, operand.shape);
                 algorithm.SetToFillHistory(true);
                 algorithm.SetFuzzyValue(
                     std::max(1.0e-7, operation.boolean_tolerance));
@@ -6270,7 +6319,8 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                     std::move(cut_topology));
                 for (auto& surface : technological_surfaces) {
                     if (surface.shape.IsNull()) continue;
-                    BRepAlgoAPI_Cut trim(surface.shape, operand.shape);
+                    BRepAlgoAPI_Cut trim;
+                    set_boolean_inputs(trim, surface.shape, operand.shape);
                     trim.SetFuzzyValue(std::max(
                         1.0e-7, operation.boolean_tolerance));
                     trim.Build();
@@ -6284,13 +6334,13 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
             if (standalone_import_result) {
                 boundaries.push_back(std::move(*standalone_import_result));
             } else {
-                boundaries.push_back(make_result(
+                boundaries.push_back(make_operation_result(
                     result_shape, owned_topology->faces, owned_topology->edges,
                     owned_topology->vertices,
                     true, persist_boundary_shape, false,
                     owned_topology->hidden_display_edges));
             }
-            append_technological_surfaces(boundaries.back());
+            append_technological_surfaces(boundaries.back(), operation.mesh_deflection);
             if (imported_step) {
                 boundaries.back().imported_step_topology =
                     operand.imported_step_topology;
@@ -6332,7 +6382,7 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
             for (const auto& surface : technological_surfaces) {
                 ViewerMesh persisted_surface;
                 append_technological_surface(persisted_surface, surface.shape,
-                    surface.owner, surface.role);
+                    surface.owner, surface.role, operations.back().mesh_deflection);
                 append_reference_geometry(original_references,
                     std::move(persisted_surface.original_references));
             }

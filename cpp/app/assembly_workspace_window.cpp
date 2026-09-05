@@ -9073,9 +9073,9 @@ void AssemblyWorkspaceWindow::import_file() {
                         absolute.string(), {}, {},
                         direct_frozen_boundary
                             ? imported_fingerprint : std::string{},
-                        container_id}] {
+                        container_id}, mesh_deflection = operations.back().mesh_deflection] {
                 zima::kernel::OcctKernel worker_kernel;
-                return worker_kernel.import_step_components({request});
+                return worker_kernel.import_step_components({request}, mesh_deflection);
             });
             if (frozen.size() != 1 || frozen.front().kernel_shape.empty()) {
                 throw std::runtime_error("STEP nebyl zmrazen kompletně");
@@ -9132,9 +9132,16 @@ void AssemblyWorkspaceWindow::import_file() {
 void AssemblyWorkspaceWindow::import_step_into_assembly(
     const std::filesystem::path& source_path) {
     const std::string target_id = workspace_.active_document_id();
-    if (workspace_.open_assembly(target_id) == nullptr) {
+    const auto* target = workspace_.open_assembly(target_id);
+    if (target == nullptr) {
         throw std::runtime_error("Aktivní dokument není sestava");
     }
+    const auto import_precision = target->session.document().document_precision;
+    const auto mesh_setting = import_precision.find("mesh_deflection");
+    const double mesh_deflection = mesh_setting == import_precision.end()
+        ? 0.1 : std::stod(mesh_setting->second);
+    if (!std::isfinite(mesh_deflection) || mesh_deflection <= 0)
+        throw std::invalid_argument("Odchylka triangulace musí být kladná");
     const auto source = std::filesystem::absolute(source_path);
     update_status_operation(
         tr("Čtu produktovou strukturu STEP sestavy…"), -1, 0);
@@ -9171,9 +9178,9 @@ void AssemblyWorkspaceWindow::import_step_into_assembly(
         tr("OCCT převádí %1 unikátních Partů a vytváří jejich sítě…")
             .arg(part_definitions.size()), -1, 0);
     const auto calculated = run_background_task(
-        [requests = std::move(requests)] {
+        [requests = std::move(requests), mesh_deflection] {
             zima::kernel::OcctKernel worker_kernel;
-            return worker_kernel.import_step_components(requests);
+            return worker_kernel.import_step_components(requests, mesh_deflection);
         });
     if (calculated.size() != part_definitions.size()) {
         throw std::runtime_error("STEP díly nebyly vypočteny kompletně");
@@ -9188,6 +9195,7 @@ void AssemblyWorkspaceWindow::import_step_into_assembly(
             static_cast<int>(std::max<std::size_t>(1, part_definitions.size())));
         const auto* node = part_nodes.at(part_definitions[index]);
         auto document = zima::document::PartDocument::create_default();
+        document.document_precision = import_precision;
         document.name = node->name;
         auto container = zima::document::PartDocument::create_imported_step_container(
             source, node->definition_id, node->name);
@@ -9237,6 +9245,7 @@ void AssemblyWorkspaceWindow::import_step_into_assembly(
             static_cast<int>(assembly_index),
             static_cast<int>(std::max<std::size_t>(1, assemblies.size())));
         auto document = zima::assembly::AssemblyDocument::create_default();
+        document.document_precision = import_precision;
         document.name = assembly_node->name;
         for (const auto& child : nodes) {
             if (child.parent_path != assembly_node->component_path) continue;
@@ -9481,6 +9490,7 @@ void AssemblyWorkspaceWindow::calculate_assembly_cuts(
         }
         if (cut.definition.suppressed || cut.target_occurrence_ids.empty()) continue;
         zima::document::PartDocument cutter_document;
+        cutter_document.document_precision = document.document_precision;
         cutter_document.user_parameters = document.user_parameters;
         cutter_document.relations = document.relations;
         cutter_document.sketches = document.sketches;
@@ -9521,7 +9531,8 @@ void AssemblyWorkspaceWindow::calculate_assembly_cuts(
                 target->calculated_source, cutter_boundaries.back(),
                 {target->placement.x, target->placement.y, target->placement.z},
                 {target->placement.rotation_x, target->placement.rotation_y,
-                 target->placement.rotation_z});
+                 target->placement.rotation_z}, cutter_operations.front().boolean_tolerance,
+                cutter_operations.front().mesh_deflection);
         }
     }
 }
@@ -11373,10 +11384,9 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
             edges=planar?zima::document::PartDocument::sweep2d_preview_edges(c):zima::document::PartDocument::helical_preview_edges(c);
             dialog->set_status(tr("Dráha připravena. OK vytvoří těleso."));
         }catch(const std::exception& e){dialog->set_status(QString::fromUtf8(e.what()));}
-        if(planar){
-            auto sketches=zima::document::PartDocument::sweep2d_sketch_edges(c);
-            edges.insert(edges.end(),std::make_move_iterator(sketches.begin()),std::make_move_iterator(sketches.end()));
-        }
+        auto sketches=planar?zima::document::PartDocument::sweep2d_sketch_edges(c):
+            zima::document::PartDocument::helical_sketch_edges(c);
+        edges.insert(edges.end(),std::make_move_iterator(sketches.begin()),std::make_move_iterator(sketches.end()));
         for(auto& e:edges){e.reference.instance_path=properties_dialog_instance_path_;if(!properties_dialog_instance_path_.empty())for(auto& p:e.points)p=workspace_.occurrence_point_to_scene(workspace_.displayed_document_id(),zima::assembly::InstancePath::decode(properties_dialog_instance_path_),p);}
         viewer_->set_transient_edges(std::move(edges));
         if(!pending_primitive_reference_index_&&!sweep_reference_pick_&&!local_origin_selection_active_)set_primitive_properties_dimension_selection();

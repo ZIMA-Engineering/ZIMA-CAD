@@ -1002,6 +1002,7 @@ void Workspace::calculate_assembly_cuts(
         }
         if (cut.definition.suppressed || cut.target_occurrence_ids.empty()) continue;
         zima::document::PartDocument cutter;
+        cutter.document_precision = document.document_precision;
         cutter.user_parameters = document.user_parameters;
         cutter.relations = document.relations;
         cutter.sketches = document.sketches;
@@ -1025,7 +1026,8 @@ void Workspace::calculate_assembly_cuts(
                 target->calculated_source, boundaries.back(),
                 {target->placement.x, target->placement.y, target->placement.z},
                 {target->placement.rotation_x, target->placement.rotation_y,
-                 target->placement.rotation_z});
+                 target->placement.rotation_z}, operations.front().boolean_tolerance,
+                operations.front().mesh_deflection);
         }
     }
 }

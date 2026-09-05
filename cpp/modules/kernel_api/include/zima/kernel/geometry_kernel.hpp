@@ -492,6 +492,7 @@ struct Sweep3DRequest {
     bool thin{};
     std::string thin_end_point_id;
     double thin_first{}, thin_second{};
+    double linear_tolerance{0.001};
 
 };
 
@@ -561,9 +562,11 @@ struct HistoryOperation {
     PrimitiveRequest primitive;
     BooleanOperation operation{BooleanOperation::Add};
     bool suppressed{};
-    // Explicit model resolution used only by the requested OCCT Boolean.
+    // Explicit model resolution for Boolean operations and body treatments.
     // Geometry coordinates remain unchanged binary64 values.
     double boolean_tolerance{1.0e-7};
+    // Absolute display deviation in model millimetres, shared by faces and edges.
+    double mesh_deflection{0.1};
 };
 
 struct BodyResult {
@@ -650,6 +653,7 @@ struct PlacedBody {
         byte(static_cast<std::uint8_t>(operation.operation));
         byte(operation.suppressed ? 1U : 0U);
         u64(std::bit_cast<std::uint64_t>(operation.boolean_tolerance));
+        u64(std::bit_cast<std::uint64_t>(operation.mesh_deflection));
         byte(static_cast<std::uint8_t>(operation.primitive.index()));
         std::visit([&](const auto& primitive) {
             using Request = std::decay_t<decltype(primitive)>;
@@ -1132,6 +1136,7 @@ struct PlacedBody {
                 }
                 byte(primitive.make_solid);
                 byte(primitive.transported);
+                u64(std::bit_cast<std::uint64_t>(primitive.linear_tolerance));
                 byte(primitive.thin);append_string(primitive.thin_end_point_id);
                 u64(std::bit_cast<std::uint64_t>(primitive.thin_first));u64(std::bit_cast<std::uint64_t>(primitive.thin_second));
             } else if constexpr (std::is_same_v<Request, StepRequest>) {

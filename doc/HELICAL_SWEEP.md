@@ -62,13 +62,19 @@ Při vytváření je aktivní první poziční reference. Krátký prostřední 
 ukončí zadávání referencí; dvojklik potvrzuje celé okno.
 
 Základní skica leží v lokální rovině kontejneru (výchozí XZ / FRONT,
-případně XY nebo YZ). Všechny tři skici přebírají stejné umístění; změna
+uložené skici zachovávají svou rovinu). Vlastnosti nemají samostatný řádek
+„Rovina skici v kontejneru“. Všechny tři skici přebírají stejné umístění; změna
 posunu nebo orientace přenese celé vinutí. Odvozené roviny zůstávají
 součástí funkce. Samostatná světová reference základní roviny se nepoužívá.
 Sdílený kontrakt umístění kontejnerů se nemění.
 Náhled umístění zobrazuje počátek bez přidané pomocné konstrukční osy.
 Vstup do vlastněné skici natočí kameru na její skutečnou rovinu stejným
 postupem jako u běžné skici v dokumentu.
+Po celou dobu otevřených Vlastností se vedle náhledu vinutí zobrazují dráty
+všech tří zdrojových skic. Zůstávají viditelné také při neúplné nebo neplatné
+dráze. Odvozené roviny se aktualizují podle dostupných vstupů; pokud vstup
+chybí, skica zůstane v posledním vyřešeném rámci. Zobrazení používá data
+skic bez výpočtu tělesa přes OCCT.
 
 ## Ověření
 
@@ -87,6 +93,10 @@ Prochází vytvoření, vstup do všech tří skic, návrat do Vlastností, OK,
 uložení, znovuotevření, strom vlastněných skic a Cancel bez změny modelu.
 Kontroluje také společná tlačítka Přičíst / Odečíst.
 
-Výpočet dráhy používá kubické úseky s kontrolou vzorkovaných odchylek vůči toleranci 0,00001 mm;
+Výpočet dráhy používá kubické úseky s kontrolou vzorkovaných odchylek podle
+lineární tolerance dokumentu (polovina pro dráhu, polovina pro OCCT sweep);
 parametrizace vzorkování neovlivňuje identity výsledných ploch. Aktuální
 výpočet odmítá více než 1000 otáček v jednom kontejneru.
+
+Přesnost se přebírá z Nastavení souboru, viz [Numerická přesnost](NUMERICAL_PRECISION.md).
+Odchylka triangulace řídí také jemnost vykreslených hran vinutí.

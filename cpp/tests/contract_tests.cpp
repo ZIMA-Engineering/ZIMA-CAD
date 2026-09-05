@@ -8,6 +8,7 @@
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
+#include <BRepPrimAPI_MakeCylinder.hxx>
 #include <STEPControl_Writer.hxx>
 #include <gp_Pnt.hxx>
 
@@ -103,6 +104,22 @@ int main() {
                     fixture_boundaries.empty(),
                 "Python Part fixture identity or cache boundary is invalid");
         zima::kernel::OcctKernel kernel;
+        {
+            const auto path = std::filesystem::temp_directory_path() / "zima-step-precision.step";
+            STEPControl_Writer writer;
+            require(writer.Transfer(BRepPrimAPI_MakeCylinder(10,20).Shape(), STEPControl_AsIs) == IFSelect_RetDone &&
+                writer.Write(path.string().c_str()) == IFSelect_RetDone, "Cannot write STEP precision fixture");
+            const std::vector<zima::kernel::StepRequest> requests{{path.string(), {}, {}, {}, "precision-step"}};
+            const auto rough = kernel.import_step_components(requests, 0.1);
+            const auto fine = kernel.import_step_components(requests, 0.001);
+            const auto wire_points = [](const auto& body){std::size_t n=0;for(const auto& edge:body.mesh.edges)n+=edge.points.size();return n;};
+            require(wire_points(fine.front())>wire_points(rough.front()) &&
+                fine.front().mesh.triangles.size()>rough.front().mesh.triangles.size(),
+                "Direct STEP import ignored requested display precision");
+            require(std::abs(fine.front().volume-rough.front().volume)<1e-8,
+                "STEP display precision changed source geometry");
+            std::filesystem::remove(path);
+        }
         const auto step_path = std::filesystem::temp_directory_path() /
             "zima-cad-imported-step-contract.step";
         STEPControl_Writer step_writer;
