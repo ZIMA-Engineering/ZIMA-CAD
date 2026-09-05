@@ -10,6 +10,7 @@
 #include "helical_sweep_dialog.hpp"
 #include "sweep2d_dialog.hpp"
 #include <zima/document/helical_geometry.hpp>
+#include <zima/document/precision.hpp>
 #include "component_properties_dialog.hpp"
 #include "primitive_properties_dialog.hpp"
 #include "construction_properties_dialog.hpp"
@@ -9137,9 +9138,8 @@ void AssemblyWorkspaceWindow::import_step_into_assembly(
         throw std::runtime_error("Aktivní dokument není sestava");
     }
     const auto import_precision = target->session.document().document_precision;
-    const auto mesh_setting = import_precision.find("mesh_deflection");
-    const double mesh_deflection = mesh_setting == import_precision.end()
-        ? 0.1 : std::stod(mesh_setting->second);
+    const double mesh_deflection = zima::document::precision_value(
+        import_precision, "mesh_deflection", 0.1);
     if (!std::isfinite(mesh_deflection) || mesh_deflection <= 0)
         throw std::invalid_argument("Odchylka triangulace musí být kladná");
     const auto source = std::filesystem::absolute(source_path);

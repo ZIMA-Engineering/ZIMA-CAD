@@ -13,6 +13,8 @@
 #include <gp_Pnt.hxx>
 
 #include <cmath>
+#include <clocale>
+#include <zima/document/precision.hpp>
 #include <algorithm>
 #include <array>
 #include <filesystem>
@@ -80,6 +82,23 @@ int main() {
         }
         require(generated_stable_ids.size() == 4096,
                 "Stable UUID generator produced a collision");
+        {
+            const std::string saved_locale = std::setlocale(LC_NUMERIC, nullptr);
+            struct RestoreLocale { std::string value; ~RestoreLocale(){std::setlocale(LC_NUMERIC,value.c_str());} } restore{saved_locale};
+            for(const auto* locale : {"cs_CZ.UTF-8", "cs_CZ.utf8", "Czech_Czechia.1250"})
+                if(std::setlocale(LC_NUMERIC,locale))break;
+            auto document = zima::document::PartDocument::load(
+                std::filesystem::current_path()/"config/templates/start_part.prtz");
+            document.history.push_back(zima::document::PartDocument::create_box_container());
+            const auto operations=document.kernel_operations();
+            require(operations.front().boolean_tolerance==0.001 && operations.front().mesh_deflection==0.1,
+                "System decimal comma changed template precision or prevented new Part creation");
+            require(zima::document::precision_value(document.document_precision,"mesh_deflection",1)==0.1,
+                "STEP import precision parser depends on locale");
+            document.document_precision["mesh_deflection"]="0.1invalid";
+            bool rejected=false;try{static_cast<void>(document.kernel_operations());}catch(const std::invalid_argument&){rejected=true;}
+            require(rejected,"Partially parsed precision was accepted");
+        }
         const auto start_part_template =
             zima::document::PartDocument::load(
                 std::filesystem::current_path() /

@@ -18,7 +18,11 @@ three independent concepts.
 
 These values already belong to File Settings and are saved with the document.
 New documents inherit them from their template; there is no additional sweep
-precision control or new `config.ini` key.
+precision control or new `config.ini` key. Persisted precision values always
+use a decimal point and are parsed independently of the system locale. The
+whole token must be valid: a Czech decimal-comma locale must not turn `0.1`
+into zero or silently clamp `0.001` to the kernel floor. Template creation,
+Part calculations and Assembly STEP import use the same parser.
 
 **Means**
 

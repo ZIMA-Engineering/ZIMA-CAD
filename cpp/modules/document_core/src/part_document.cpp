@@ -1,4 +1,5 @@
 #include <zima/document/part_document.hpp>
+#include <zima/document/precision.hpp>
 #include <zima/document/helical_geometry.hpp>
 #include <zima/document/versioned_file.hpp>
 #include <zima/document/viewer_packet_json.hpp>
@@ -7782,25 +7783,11 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
     bool allow_persisted_external_target) const {
     std::vector<zima::kernel::HistoryOperation> operations;
     operations.reserve(history.size());
-    double boolean_tolerance = 0.001;
-    if (const auto found = document_precision.find("linear_tolerance");
-        found != document_precision.end()) {
-        try {
-            const double parsed = std::stod(found->second);
-            if (std::isfinite(parsed) && parsed >= 0.0) {
-                boolean_tolerance = parsed;
-            }
-        } catch (const std::exception&) {
-            // Keep the current document default for malformed UI input.
-        }
-    }
-    boolean_tolerance = std::max(1.0e-7, boolean_tolerance);
-    double mesh_deflection = 0.1;
-    if (const auto found = document_precision.find("mesh_deflection"); found != document_precision.end()) {
-        const double value = std::stod(found->second);
-        if (!std::isfinite(value) || value <= 0) throw std::invalid_argument("Odchylka triangulace musí být kladná");
-        mesh_deflection = value;
-    }
+    const double boolean_tolerance = std::max(1.0e-7,
+        precision_value(document_precision, "linear_tolerance", 0.001));
+    const double mesh_deflection = precision_value(document_precision, "mesh_deflection", 0.1);
+    if (mesh_deflection <= 0)
+        throw std::invalid_argument("Odchylka triangulace musí být kladná");
     std::vector<const HistoryContainer*> ordered_history;
     ordered_history.reserve(history.size());
     if (history_order.empty()) {
