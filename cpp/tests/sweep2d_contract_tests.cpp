@@ -48,10 +48,22 @@ int main(){try{
     auto base_bodies=kernel.evaluate_history(base_doc.kernel_operations());
     const auto& geometry=base_bodies.back().mesh.original_references;
     const auto face=[&](const std::string& key){for(const auto& ref:geometry.triangle_references)if(ref.semantic_key==key)return ref;throw std::runtime_error("Missing box reference "+key);};
-    auto attached=fixture();attached.sweep2d.path_plane=face("y_min");
+    const auto reference=[&](const std::string& key){const auto f=face(key);return document::ConstructionReference{f.instance_path,f.owner_id,f.semantic_key};};
+    auto attached=fixture();attached.placement.references={reference("z_min"),reference("y_min")};
+    require(document::resolve_placement(attached.placement,geometry),"Placement references failed");
     document::PartDocument::resolve_sweep2d_planes(attached,geometry);
+    const auto profile_plane=sketcher::Sketch::from_serialized(attached.sweep2d.sketches[0]);
+    const auto path_plane=sketcher::Sketch::from_serialized(attached.sweep2d.sketches[1]);
+    require(std::abs(profile_plane.resolved_normal.z)>1-1e-6&&std::abs(path_plane.resolved_normal.y)>1-1e-6,"Placement rows did not determine Sketch planes");
     static_cast<void>(document::PartDocument::sweep2d_request(attached));
-    for(const auto& key:{"z_max","x_max"}){auto invalid=attached;invalid.sweep2d.path_plane=face(key);bool rejected=false;try{document::PartDocument::resolve_sweep2d_planes(invalid,geometry);}catch(...){rejected=true;}require(rejected,"Invalid path plane accepted");}
+    auto invalid=attached;invalid.placement.references[1]=reference("z_max");
+    bool rejected_planes=false;try{document::PartDocument::resolve_sweep2d_planes(invalid,geometry);}catch(...){rejected_planes=true;}require(rejected_planes,"Parallel Sketch planes accepted");
+    auto incomplete=attached;auto empty=sketcher::Sketch::from_serialized(incomplete.sweep2d.sketches[1]);empty.segments.clear();incomplete.sweep2d.sketches[1]=empty.serialized();
+    auto wire=document::PartDocument::sweep2d_sketch_edges(incomplete);
+    require(std::ranges::any_of(wire,[](const auto& e){return e.reference.semantic_key.starts_with("sweep2d:sketch:profile:circle:");}),"Profile disappeared with an unfinished path");
+    auto invalid_path=attached;auto bad_path=sketcher::Sketch::from_serialized(invalid_path.sweep2d.sketches[1]);static_cast<void>(bad_path.add_segment(0,0,10,5));invalid_path.sweep2d.sketches[1]=bad_path.serialized();
+    wire=document::PartDocument::sweep2d_sketch_edges(invalid_path);
+    require(std::ranges::any_of(wire,[](const auto& e){return e.reference.semantic_key.starts_with("sweep2d:sketch:path:segment:");}),"Invalid path disappeared instead of showing its Sketch");
     auto subtract=fixture();subtract.placement.x=10;subtract.placement.y=10;subtract.combine_mode=document::CombineMode::Subtract;base_doc.history.push_back(subtract);
     auto cut=kernel.evaluate_history(base_doc.kernel_operations());require(std::abs(cut.front().volume-cut.back().volume-80*std::numbers::pi)<.01,"Sweep subtraction failed");
     // Smooth curved law and a tangent line/arc chain.

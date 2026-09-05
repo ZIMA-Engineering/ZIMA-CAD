@@ -580,7 +580,6 @@ struct Sweep3DParameters {
 
 // Two owned Sketches share an origin in perpendicular profile/path planes.
 struct Sweep2DParameters {
-    std::optional<zima::kernel::FaceReference> path_plane;
     std::array<std::string, 2> sketches;
     std::string start_point_id;
     ProfileResultType result_type{ProfileResultType::Solid};
@@ -806,6 +805,7 @@ public:
     static void reframe_sweep2d_sketches(HistoryContainer&, unsigned through_stage = 1);
     static void resolve_sweep2d_planes(HistoryContainer&, const zima::kernel::ViewerReferenceGeometry&);
     [[nodiscard]] static zima::kernel::Sweep3DRequest sweep2d_request(const HistoryContainer&);
+    [[nodiscard]] static std::vector<zima::kernel::ViewerEdge> sweep2d_sketch_edges(const HistoryContainer& container);
     [[nodiscard]] static std::vector<zima::kernel::ViewerEdge> sweep2d_preview_edges(const HistoryContainer&);
     [[nodiscard]] static HistoryContainer create_helical_sweep_container();
     static void reframe_helical_sketches(HistoryContainer& container, unsigned through_stage = 2);

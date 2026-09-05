@@ -13,13 +13,19 @@ placement solver and View/Tree picker. The first position reference is armed
 on creation. Reference inspection and short middle-click cancellation follow
 the standard contract.
 
-The profile uses a local container plane (XZ / FRONT by default, or XY/YZ).
-Its origin and frame inherit the resolved container placement, as do the path
-and transported profile. The default path plane contains the profile's local
-X direction and normal. An optional original path-plane reference must be
-perpendicular to the profile plane and contain the common origin. There is no
-additional offset plane or separate world placement for the first Sketch.
-Both sketches keep their IDs when their frames change.
+The first position reference is the plane of the profile Sketch; the second
+position reference is the plane of the path Sketch. Orientation-only FRONT/TOP
+rows are not counted as position references. Both planes pass through the
+resolved container origin (including their placement offsets) and must be
+perpendicular. Their frames are resolved from persisted original reference
+geometry and saved with the owned Sketches. There are no separate Sketch-plane,
+optional path-plane, or default path-plane controls.
+
+While Properties is open, both Sketch wires are displayed independently of
+whether a valid swept body can already be constructed. A missing, unfinished,
+or invalid path does not hide the profile or the drawn path. The placement
+preview uses a point instead of an extra construction axis. Both Sketches keep
+their IDs when their frames change.
 
 The path starts at the fixed sketch-origin point. Its initial tangent must be
 normal to the profile plane; joined segments must meet tangentially. Lines,

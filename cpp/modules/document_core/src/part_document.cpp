@@ -7341,12 +7341,13 @@ void reframe_sweep_base(HistoryContainer& c,std::string& data,const std::string&
 }
 void PartDocument::reframe_sweep2d_sketches(HistoryContainer& c,unsigned) {
     using namespace helical_geometry;
-    reframe_sweep_base(c,c.sweep2d.sketches[0],"sweep2d:profile");
+    const auto count=std::ranges::count_if(c.placement.references,[](const auto& r){return !r.orientation_only;});
+    if(count==0)reframe_sweep_base(c,c.sweep2d.sketches[0],"sweep2d:profile");
     const auto profile=zima::sketcher::Sketch::from_serialized(c.sweep2d.sketches[0]);
     auto path=zima::sketcher::Sketch::from_serialized(c.sweep2d.sketches[1]);
     path.plane_reference_owner_id=c.id+":sweep2d:path";
     path.resolved_origin=profile.resolved_origin;path.resolved_y_axis=profile.resolved_normal;
-    if(!c.sweep2d.path_plane)path.resolved_normal=unit(cross(profile.resolved_x_axis,profile.resolved_normal));
+    if(count<2)path.resolved_normal=unit(cross(profile.resolved_x_axis,profile.resolved_normal));
     if(std::abs(dot(path.resolved_normal,profile.resolved_normal))>1e-7)
         throw std::runtime_error("Rovina dráhy musí být kolmá k rovině průřezu");
     path.resolved_x_axis=unit(cross(path.resolved_y_axis,path.resolved_normal));
@@ -7354,19 +7355,25 @@ void PartDocument::reframe_sweep2d_sketches(HistoryContainer& c,unsigned) {
 }
 void PartDocument::resolve_sweep2d_planes(HistoryContainer& c,const zima::kernel::ViewerReferenceGeometry& geometry) {
     using namespace helical_geometry;
-    reframe_sweep_base(c,c.sweep2d.sketches[0],"sweep2d:profile");
-    if(c.sweep2d.path_plane){
-        const auto& ref=*c.sweep2d.path_plane;std::vector<V> vertices;
-        for(std::size_t i=0;i<geometry.triangle_references.size();++i)if(geometry.triangle_references[i]==ref)
-            for(unsigned j=0;j<3;++j)vertices.push_back(geometry.vertices.at(geometry.triangles.at(3*i+j)));
-        if(vertices.size()<3)throw std::runtime_error("Chybí reference roviny dráhy 2D Sweepu");
-        const auto n=unit(cross(sub(vertices[1],vertices[0]),sub(vertices[2],vertices[0])));
-        for(const auto& p:vertices)if(std::abs(dot(sub(p,vertices[0]),n))>1e-6)throw std::runtime_error("Vyberte rovinnou plochu");
-        const auto profile=zima::sketcher::Sketch::from_serialized(c.sweep2d.sketches[0]);
-        if(std::abs(dot(sub(profile.resolved_origin,vertices[0]),n))>1e-6)
-            throw std::runtime_error("Rovina dráhy musí procházet počátkem průřezu");
-        auto path=zima::sketcher::Sketch::from_serialized(c.sweep2d.sketches[1]);
-        path.resolved_normal=n;c.sweep2d.sketches[1]=path.serialized();
+    std::vector<ConstructionReference> refs;
+    for(const auto& ref:c.placement.references)if(!ref.orientation_only)refs.push_back(ref);
+    for(std::size_t i=0;i<std::min<std::size_t>(2,refs.size());++i){
+        const auto plane=placement_reference_plane(refs[i],geometry);
+        if(!plane||!construction_reference_is_planar_face(refs[i],geometry))
+            throw std::runtime_error(i==0?"První reference umístění musí být rovina profilu":"Druhá reference umístění musí být rovina dráhy");
+        const V origin{c.placement.x,c.placement.y,c.placement.z};
+        if(std::abs(dot(sub(origin,plane->point),plane->normal)-refs[i].offset)>1e-6)
+            throw std::runtime_error("Počátek kontejneru musí ležet v obou skicových rovinách");
+        auto sketch=zima::sketcher::Sketch::from_serialized(c.sweep2d.sketches[i]);
+        sketch.resolved_origin=origin;sketch.resolved_normal=plane->normal;
+        sketch.plane_reference_owner_id=c.id+(i?":sweep2d:path":":sweep2d:profile");
+        if(i==0){
+            const V rotation{c.placement.rotation_x,c.placement.rotation_y,c.placement.rotation_z};
+            auto x=rotated_vector(V{1,0,0},rotation);x=sub(x,mul(plane->normal,dot(x,plane->normal)));
+            if(dot(x,x)<1e-12)x=plane->front;
+            sketch.resolved_x_axis=unit(x);sketch.resolved_y_axis=unit(cross(plane->normal,sketch.resolved_x_axis));
+        }
+        c.sweep2d.sketches[i]=sketch.serialized();
     }
     reframe_sweep2d_sketches(c);
 }
@@ -7446,6 +7453,19 @@ zima::kernel::Sweep3DRequest PartDocument::sweep2d_request(const HistoryContaine
         request.thin_second=c.sweep2d.thin_mode==ThinMode::OtherSide?0:c.sweep2d.thin_mode==ThinMode::OneSide?c.sweep2d.thickness:c.sweep2d.thickness/2;
     }
     return request;
+}
+std::vector<zima::kernel::ViewerEdge> PartDocument::sweep2d_sketch_edges(const HistoryContainer& input) {
+    std::vector<zima::kernel::ViewerEdge> result;
+    for(unsigned i=0;i<2;++i){
+        const auto sketch=zima::sketcher::Sketch::from_serialized(input.sweep2d.sketches[i]);
+        for(auto edge:sketch.viewer_mesh().edges){
+            if(!is_profile_preview_source_edge(edge))continue;
+            edge.reference.owner_id=input.id;
+            edge.reference.semantic_key=std::string(i?"sweep2d:sketch:path:":"sweep2d:sketch:profile:")+edge.reference.semantic_key;
+            result.push_back(std::move(edge));
+        }
+    }
+    return result;
 }
 std::vector<zima::kernel::ViewerEdge> PartDocument::sweep2d_preview_edges(const HistoryContainer& input) {
     using namespace helical_geometry;
@@ -9650,9 +9670,6 @@ PartDocument PartDocument::load(
             const auto mode=data.at("thin_mode").get<std::string>();
             if(mode!="one_side"&&mode!="other_side"&&mode!="symmetric")throw std::runtime_error("Invalid Sweep thin mode");
             p.thin_mode=mode=="one_side"?ThinMode::OneSide:mode=="other_side"?ThinMode::OtherSide:ThinMode::Symmetric;
-            if(!data.at("path_plane").is_null()){
-                const auto& r=data.at("path_plane");p.path_plane=zima::kernel::FaceReference{r.at("owner_id"),r.at("semantic_key"),r.at("instance_path")};
-            }
             reframe_sweep2d_sketches(container);
         } else if (container.feature_kind == FeatureKind::HelicalSweep) {
             const auto& h=source.at("helical");
@@ -10741,8 +10758,6 @@ void PartDocument::save(
             serialized["sweep2d"]={{"sketches",p.sketches},{"start_point_id",p.start_point_id},{"thickness",p.thickness},
                 {"result_type",p.result_type==ProfileResultType::Thin?"thin":"solid"},
                 {"thin_mode",p.thin_mode==ThinMode::OneSide?"one_side":p.thin_mode==ThinMode::OtherSide?"other_side":"symmetric"}};
-            const auto& r=p.path_plane;
-            serialized["sweep2d"]["path_plane"]=r?nlohmann::json{{"owner_id",r->owner_id},{"semantic_key",r->semantic_key},{"instance_path",r->instance_path}}:nlohmann::json(nullptr);
         } else if (container.feature_kind == FeatureKind::HelicalSweep) {
             const auto& h=container.helical;
             serialized["helical"]={{"sketches",h.sketches},{"circle_id",h.circle_id},

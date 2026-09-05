@@ -276,6 +276,24 @@ int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspac
     QApplication::sendEvent(view,&press);QApplication::sendEvent(view,&release);application.processEvents();
     if(!verify(std::ranges::any_of(dialog->pending.placement.references,[&](const auto& ref){return ref.owner_id==feature_id&&(ref.semantic_key.starts_with("start:from:")||ref.semantic_key.starts_with("end:from:"));}),"Plane reference click did not confirm offered cap"))return 1;
     dialog->buttons()->button(QDialogButtonBox::Cancel)->click();application.processEvents();
+    QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    action->trigger();application.processEvents();
+    dialog=dynamic_cast<zima::app::Sweep2DDialog*>(window.findChild<QDialog*>("sweep2dDialog"));
+    if(!verify(dialog!=nullptr,"Cannot test two-plane sweep placement"))return 1;
+    const auto origin_geometry=doc.origin_viewer_mesh().original_references;
+    for(unsigned i=0;i<2;++i){
+        const auto key=i?"origin:plane:yz":"origin:plane:xz";
+        auto ref=std::ranges::find_if(origin_geometry.triangle_references,[&](const auto& r){return r.semantic_key==key;});
+        if(!verify(ref!=origin_geometry.triangle_references.end(),"Fixture origin plane missing"))return 1;
+        zima::document::ConstructionReference reference{ref->instance_path,ref->owner_id,ref->semantic_key};reference.supports_offset=true;
+        if(!verify(dialog->set_reference(i,reference,QString::fromUtf8(key)),"Sweep placement plane assignment failed"))return 1;
+    }
+    dialog->changed();
+    const auto profile_frame=zima::sketcher::Sketch::from_serialized(dialog->pending.sweep2d.sketches[0]);
+    const auto path_frame=zima::sketcher::Sketch::from_serialized(dialog->pending.sweep2d.sketches[1]);
+    if(!verify(std::abs(profile_frame.resolved_normal.y)>1-1e-6&&std::abs(path_frame.resolved_normal.x)>1-1e-6,"Placement plane rows did not drive the two Sketch frames"))return 1;
+    if(!verify(!dialog->findChild<QComboBox*>("sweep2dBasePlane")&&!dialog->findChild<QTableWidget*>("sweep2dReferences"),"Redundant sweep plane controls remain"))return 1;
+    dialog->buttons()->button(QDialogButtonBox::Cancel)->click();application.processEvents();
     std::cout<<"2D Sweep UI contracts passed\n";return 0;
 }
 

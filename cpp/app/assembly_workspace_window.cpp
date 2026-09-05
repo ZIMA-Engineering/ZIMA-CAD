@@ -11347,67 +11347,49 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
     primitive_reference_geometry_=geometry;
     dialog->request_placement=[this,dialog](std::size_t i){
         sweep_reference_pick_={};
-        if(auto* path=dynamic_cast<Sweep2DDialog*>(dialog)){path->plane_input=false;path->refresh_reference();}
         start_primitive_reference_selection(i);
     };
     dialog->set_origin_selection_mode_callback([this,dialog](bool active){
-        if(active){sweep_reference_pick_={};if(auto* path=dynamic_cast<Sweep2DDialog*>(dialog)){path->plane_input=false;path->refresh_reference();}local_origin_selection_dialog_=dialog;}
+        if(active){sweep_reference_pick_={};local_origin_selection_dialog_=dialog;}
         set_local_origin_selection_mode(active);
     });
-    if(auto* path=dynamic_cast<Sweep2DDialog*>(dialog)){
-        path->select_plane=[this,path,geometry]{
-            pending_primitive_reference_index_.reset();primitive_reference_auto_advance_=false;path->set_active_reference_index(std::nullopt);
-            set_local_origin_selection_mode(false);path->plane_input=true;path->refresh_reference();
-            sweep_reference_pick_=[this,path,geometry](const auto& candidate){
-                if(candidate.instance_path!=properties_dialog_instance_path_)return;
-                auto next=path->pending;next.sweep2d.path_plane=zima::kernel::FaceReference{candidate.owner_id,candidate.semantic_key,{}};
-                try{zima::document::PartDocument::resolve_sweep2d_planes(next,geometry);path->pending=std::move(next);path->plane_input=false;path->refresh_reference();sweep_reference_pick_={};path->changed();}
-                catch(const std::exception& e){path->set_status(QString::fromUtf8(e.what()));}
-            };
-            viewer_->clear_selection();viewer_->set_selection_contract({zima::viewer::CandidateKind::Face});
-            viewer_->set_candidate_filter([this,path,geometry](const auto& candidate){
-                if(candidate.kind!=zima::viewer::CandidateKind::Face||candidate.instance_path!=properties_dialog_instance_path_||path->owns_reference_owner(candidate.owner_id))return false;
-                try{auto c=path->pending;c.sweep2d.path_plane=zima::kernel::FaceReference{candidate.owner_id,candidate.semantic_key,{}};zima::document::PartDocument::resolve_sweep2d_planes(c,geometry);return true;}catch(...){return false;}
-            });
-        };
-        sweep_reference_end_=[this,path]{
-            sweep_reference_pick_={};pending_primitive_reference_index_.reset();primitive_reference_auto_advance_=false;
-            path->set_active_reference_index(std::nullopt);path->clear_reference_highlights();set_local_origin_selection_mode(false);path->end_reference();set_primitive_properties_dimension_selection();
-        };
-    }
     dialog->changed=[this,dialog,planar,geometry]{
         if(!dialog->isVisible())return;
         const bool valid=dialog->resolve_pending_placement(geometry);
         auto& c=dialog->pending;primitive_translation_dof_=zima::document::point_constraint_remaining_dof(c.placement.references,geometry);
         zima::document::PartDocument preview;
         zima::document::ConstructionObject origin;origin.id=c.id;origin.entity_id=c.feature_id;origin.container_origin=c.container_origin;
-        origin.kind=zima::document::ConstructionKind::Axis;origin.origin={c.placement.x,c.placement.y,c.placement.z};origin.rotation={c.placement.rotation_x,c.placement.rotation_y,c.placement.rotation_z};origin.reference_valid=false;
+        origin.kind=planar?zima::document::ConstructionKind::Point:zima::document::ConstructionKind::Axis;origin.origin={c.placement.x,c.placement.y,c.placement.z};origin.rotation={c.placement.rotation_x,c.placement.rotation_y,c.placement.rotation_z};origin.reference_valid=false;
         preview.constructions.push_back(origin);primitive_origin_preview_mesh_=preview.construction_viewer_mesh(c.id);
         parameter_dimension_preview_=c;construction_dimension_object_id_=c.id;
         viewer_->set_feature_preview_owners({c.feature_id,c.container_origin.id});
         preserve_view_on_refresh_=true;refresh_scene();
         auto highlights=highlighted_reference_edge_keys(*dialog);
-        if(auto* path=dynamic_cast<Sweep2DDialog*>(dialog);path&&path->plane_inspected&&c.sweep2d.path_plane){const auto& r=*c.sweep2d.path_plane;highlights.insert({r.owner_id,r.semantic_key,properties_dialog_instance_path_});}
         viewer_->set_constraint_reference_highlights({},std::move(highlights));
+        std::vector<zima::kernel::ViewerEdge> edges;
         try{
             if(!valid&&!c.placement.references.empty())throw std::runtime_error("Chybí reference umístění kontejneru");
             if(planar)zima::document::PartDocument::resolve_sweep2d_planes(c,geometry);
-            auto edges=planar?zima::document::PartDocument::sweep2d_preview_edges(c):zima::document::PartDocument::helical_preview_edges(c);
-            for(auto& e:edges){e.reference.instance_path=properties_dialog_instance_path_;if(!properties_dialog_instance_path_.empty())for(auto& p:e.points)p=workspace_.occurrence_point_to_scene(workspace_.displayed_document_id(),zima::assembly::InstancePath::decode(properties_dialog_instance_path_),p);}
-            viewer_->set_transient_edges(std::move(edges));dialog->set_status(tr("Dráha připravena. OK vytvoří těleso."));
-        }catch(const std::exception& e){viewer_->set_transient_edges({});dialog->set_status(QString::fromUtf8(e.what()));}
+            edges=planar?zima::document::PartDocument::sweep2d_preview_edges(c):zima::document::PartDocument::helical_preview_edges(c);
+            dialog->set_status(tr("Dráha připravena. OK vytvoří těleso."));
+        }catch(const std::exception& e){dialog->set_status(QString::fromUtf8(e.what()));}
+        if(planar){
+            auto sketches=zima::document::PartDocument::sweep2d_sketch_edges(c);
+            edges.insert(edges.end(),std::make_move_iterator(sketches.begin()),std::make_move_iterator(sketches.end()));
+        }
+        for(auto& e:edges){e.reference.instance_path=properties_dialog_instance_path_;if(!properties_dialog_instance_path_.empty())for(auto& p:e.points)p=workspace_.occurrence_point_to_scene(workspace_.displayed_document_id(),zima::assembly::InstancePath::decode(properties_dialog_instance_path_),p);}
+        viewer_->set_transient_edges(std::move(edges));
         if(!pending_primitive_reference_index_&&!sweep_reference_pick_&&!local_origin_selection_active_)set_primitive_properties_dimension_selection();
     };
-    dialog->edit_sketch=[this,dialog,planar](unsigned stage){
+    dialog->edit_sketch=[this,dialog,planar,geometry](unsigned stage){
         try{
-            if(planar)zima::document::PartDocument::reframe_sweep2d_sketches(dialog->pending,stage);else zima::document::PartDocument::reframe_helical_sketches(dialog->pending,stage);
+            if(planar)zima::document::PartDocument::resolve_sweep2d_planes(dialog->pending,geometry);else zima::document::PartDocument::reframe_helical_sketches(dialog->pending,stage);
             sweep_profile_sketch_draft_=zima::sketcher::Sketch::from_serialized(planar?dialog->pending.sweep2d.sketches.at(stage):dialog->pending.helical.sketches.at(stage));
             embedded_sketch_finished_=[this,dialog,stage](auto s){
                 properties_dialog_=dialog;primitive_reference_dialog_=dialog;dialog->set_sketch(stage,s);dialog->show();dialog->raise();
                 preserve_view_on_refresh_=true;refresh_scene();dialog->changed();
             };
             sweep_reference_pick_={};pending_primitive_reference_index_.reset();primitive_reference_auto_advance_=false;dialog->set_active_reference_index(std::nullopt);dialog->clear_reference_highlights();
-            if(auto* path=dynamic_cast<Sweep2DDialog*>(dialog)){path->plane_input=false;path->plane_inspected=false;path->refresh_reference();}
             set_local_origin_selection_mode(false);local_origin_selection_dialog_=nullptr;primitive_reference_dialog_=nullptr;
             viewer_->set_constraint_reference_highlights({},{});primitive_origin_preview_mesh_.reset();parameter_dimension_preview_.reset();
             dialog->hide();properties_dialog_=nullptr;viewer_->set_transient_edges({});
