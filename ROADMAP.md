@@ -44,6 +44,32 @@ nepřidávat bez nové dohody. Booleovské operace, více těles a spolehlivost
 STEP importu/exportu byly zmíněny jako oblasti ke kontrole pokrytí,
 nikoli jako potvrzené chybějící funkce nebo nově objednaná implementace.
 
+### Doplnění: fialové úchopy kót (2026-09-06)
+
+Domluvený budoucí aktivní prvek pro vybranou kótu: **fialový bod u hrotu
+šipky pouze na měnitelném místě**. Pevná nebo vazbami zablokovaná strana
+úchop nemá. Pokud jsou měnitelné obě strany, mohou se zobrazit oba úchopy.
+Dostupnost musí vycházet z vazeb a možností solveru, nikoli jen z typu kóty.
+
+- Tažení fialového úchopu mění hodnotu kóty a odpovídající geometrii;
+  tažení popisku dál mění pouze umístění kóty.
+- U délkové kóty je úchop u šipky, nikoli na začátku vynášecí čáry.
+  Pohyb se promítá do směru měřeného rozměru. Tažená strana je preferovaná
+  pohyblivá strana, ostatní vazby zůstávají respektované.
+- U poloměrové kóty je úchop u šipky na obvodu a mění poloměr radiálně.
+- U průměrové kóty jsou možná místa u obou šipek na obvodu, opět pouze
+  tam, kde lze rozměr měnit. Tažení mění průměr celé kružnice, nikoli
+  nezávisle jednu polovinu. Střed má zůstat zachován, dovolují-li to vazby.
+- Stejné pravidlo má pokrývat i další typy kót; konkrétní vedení úchopu
+  úhlové kóty je ještě potřeba dopracovat.
+- Neplatné řešení nesmí poškodit model. Přesný vztah tohoto ovládání
+  k zamčeným a referenčním kótám je nutné vyjasnit při návrhu implementace;
+  samotná tato dohoda nezavádí automatické odemykání.
+
+Jde o zapsaný požadavek, ne o již implementovanou funkci. Konkrétní zařazení
+do pořadí vývoje zatím nebylo určeno; plošný audit Undo/Redo zůstává až
+po dokončení domluvených funkcí.
+
 ## 1. Core and Parametric Container Model
 
 **Status: In progress**
