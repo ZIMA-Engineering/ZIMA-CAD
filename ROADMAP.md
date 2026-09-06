@@ -13,6 +13,37 @@ will remain a separately built, dynamically linked solid-modeling kernel behind
 a narrow adapter. The approved direction, module boundaries and migration gates
 are documented in [Future C++ migration](doc/CXX_MIGRATION.md).
 
+## Dohodnutý další postup pro Part (2026-09-06)
+
+Při příštím návratu k vývoji uživateli stručně připomenout tento plán.
+Jde o pořadí další práce, nikoli o pokyn všechny funkce ihned implementovat.
+Novější pokyny uživatele mají přednost.
+
+1. **Odsazení ve skicáři dovnitř i ven**, se zadanou vzdáleností; především
+   od hran importovaného STEP promítnutých do skici.
+2. **Dokončit a stabilizovat všechny druhy vytažení**: tvorbu, editaci,
+   přepočet, návazné reference a odmítnutí neplatných vstupů bez poškození modelu.
+3. **Mirror pro Part**: zrcadlení geometrie podle roviny jako editovatelná
+   operace v historii.
+4. **Pattern pro Part**: lineární a kruhové pole, počet, rozteč nebo úhel.
+5. **Obarvování jednotlivých ploch a GUI nástroj**: výběr, nastavení barvy
+   a uložení s dílem.
+6. **Section pro Part i Assembly** se společným principem ovládání,
+   především pro výkresovou dokumentaci: definice řezu, směr pohledu,
+   šrafování a určení řezaných komponent sestavy.
+7. **Uložit jako zrcadlený díl**: po spuštění vybrat rovinnou plochu Partu
+   jako rovinu zrcadlení a zvolit závislou či nezávislou geometrii.
+   Výsledkem je nový Part. Závislá varianta uchovává zdrojovou referenci
+   a změny přebírá při explicitním Regenerate; nezávislá je bez této vazby.
+8. **Kompletně prověřit a doplnit Undo/Redo až poté**, co budou domluvené
+   funkce alespoň rámcově dokončené. Průběžně zachovat možnost vratných
+   transakcí, ale nyní nezačínat samostatný plošný audit Undo/Redo.
+
+Tím je zatím vymezen rozsah obecného modeláře Part. Další velké funkce
+nepřidávat bez nové dohody. Booleovské operace, více těles a spolehlivost
+STEP importu/exportu byly zmíněny jako oblasti ke kontrole pokrytí,
+nikoli jako potvrzené chybějící funkce nebo nově objednaná implementace.
+
 ## 1. Core and Parametric Container Model
 
 **Status: In progress**

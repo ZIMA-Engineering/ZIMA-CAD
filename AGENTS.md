@@ -432,3 +432,13 @@ When it does not, search elsewhere.
 When searching elsewhere, allow mistakes.
 
 When verifying the result, do not.
+
+## Next-session development reminder
+
+When the user next resumes ZIMA-CAD development, read the section
+**Dohodnutý další postup pro Part (2026-09-06)** in `ROADMAP.md` and briefly
+remind them of the agreed next task: Sketcher offsets, especially from STEP
+geometry. Preserve the listed order; the comprehensive Undo/Redo audit comes
+only after the agreed modeling features are broadly implemented. This is a
+reminder and planning preference, not authorization to implement the whole
+roadmap automatically. New user instructions take precedence.
