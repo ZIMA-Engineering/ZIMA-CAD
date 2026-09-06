@@ -7,9 +7,16 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace zima::viewer {
+
+// Rendering and picking share the complete persisted 3D route vocabulary.
+[[nodiscard]] inline bool is_curve3d_edge(std::string_view key) {
+    return key.starts_with("curve:segment:") || key.starts_with("curve:rounding:") || key.starts_with("curve:profile:");
+}
+
 
 struct PickCandidate {
     std::size_t triangle{};

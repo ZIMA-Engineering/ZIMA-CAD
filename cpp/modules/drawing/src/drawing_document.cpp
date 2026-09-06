@@ -462,15 +462,29 @@ void DrawingDocument::refresh_view(
     }
 }
 
+std::vector<zima::document::DimensionParameter> DrawingDocument::dimension_parameters() const {
+    std::vector<zima::document::DimensionParameter> result;
+    for (const auto& sheet : sheets)
+        for (const auto& dimension : sheet.dimensions)
+            result.push_back({document_id, "dimension:" + dimension.id, sheet.name});
+    return result;
+}
+void DrawingDocument::synchronize_dimension_identifiers() {
+    dimension_identifiers.synchronize(dimension_parameters());
+}
+
 void DrawingDocument::save(const std::filesystem::path& path) const {
     if (document_id.empty() || name.empty() || sheets.empty()) {
         throw std::runtime_error("Drawing identity, name and sheets are required");
     }
-    nlohmann::json root{{"format", "zima-cad-drawing"}, {"version", 2},
+    nlohmann::json root{{"format", "zima-cad-drawing"}, {"version", 3},
                         {"document_id", document_id}, {"name", name},
                         {"source_document_id", source_document_id},
                         {"source_path", source_path.generic_string()},
                         {"source_name", source_name}};
+    auto identifiers = dimension_identifiers;
+    identifiers.synchronize(dimension_parameters());
+    root["dimension_identifiers"] = nlohmann::json::parse(identifiers.serialized());
     root["sheets"] = nlohmann::json::array();
     std::unordered_set<std::string> ids;
     for (const auto& sheet : sheets) {
@@ -577,7 +591,7 @@ void DrawingDocument::save(const std::filesystem::path& path) const {
     // C++ drawing model has no Python entity fields, so its complete payload
     // lives in the ordinary param.* namespace.
     stream << "[Document]\n"
-           << "format_version=11\n"
+           << "format_version=12\n"
            << "type=drawing\n"
            << "document_id=" << document_id << "\n"
            << "name=" << name << "\n"
@@ -591,7 +605,7 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
     const auto document_section = ini.find("Document");
     if (document_section == ini.end() ||
         document_section->second.find("format_version") == document_section->second.end() ||
-        document_section->second.at("format_version") != "11" ||
+        document_section->second.at("format_version") != "12" ||
         document_section->second.find("type") == document_section->second.end() ||
         document_section->second.at("type") != "drawing")
         throw std::runtime_error("Unsupported Drawing document format");
@@ -605,11 +619,12 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
         throw std::runtime_error(
             std::string("Invalid C++ Drawing payload: ") + error.what());
     }
-    if (root.value("format", "") != "zima-cad-drawing" || root.value("version", 0) != 2)
+    if (root.value("format", "") != "zima-cad-drawing" || root.value("version", 0) != 3)
         throw std::runtime_error("Unsupported C++ Drawing payload");
     DrawingDocument document;
     document.document_id = root.at("document_id").get<std::string>();
     document.name = root.at("name").get<std::string>();
+    document.dimension_identifiers = zima::document::DimensionIdentifiers::from_serialized(root.at("dimension_identifiers").dump());
     document.source_document_id = root.value("source_document_id", "");
     document.source_path = root.value("source_path", "");
     document.source_name = root.value("source_name", "");
@@ -704,6 +719,7 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
         document.sheets.push_back(std::move(sheet));
     }
     if (document.sheets.empty()) throw std::runtime_error("Drawing has no sheets");
+    document.synchronize_dimension_identifiers();
     return document;
 }
 

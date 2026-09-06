@@ -62,6 +62,10 @@
 #include <GProp_GProps.hxx>
 #include <GCPnts_TangentialDeflection.hxx>
 #include <GC_MakeArcOfCircle.hxx>
+#include <BRepBuilderAPI_GTransform.hxx>
+#include <BRepBuilderAPI_NurbsConvert.hxx>
+#include <gp_GTrsf.hxx>
+#include <gp_Quaternion.hxx>
 #include <Geom_TrimmedCurve.hxx>
 #include <Geom_BSplineCurve.hxx>
 #include <Geom_BezierCurve.hxx>
@@ -1592,7 +1596,12 @@ PrimitiveData make_sweep3d_data(
     for (std::size_t index = 0; index < request.path_segments.size(); ++index) {
         const auto& segment = request.path_segments[index];
         TopoDS_Edge edge;
-        if (segment.bezier_control_points.empty()) {
+        if (segment.arc_midpoint) {
+            const auto& a=segment.start; const auto& m=*segment.arc_midpoint; const auto& b=segment.end;
+            GC_MakeArcOfCircle arc(gp_Pnt(a.x,a.y,a.z),gp_Pnt(m.x,m.y,m.z),gp_Pnt(b.x,b.y,b.z));
+            if(!arc.IsDone())throw std::runtime_error("Nelze vytvořit oblouk dráhy Sweepu");
+            edge=BRepBuilderAPI_MakeEdge(arc.Value(),path_vertices[index],path_vertices[index+1]).Edge();
+        } else if (segment.bezier_control_points.empty()) {
             BRepBuilderAPI_MakeEdge builder(
                 path_vertices[index], path_vertices[index + 1]);
             if (!builder.IsDone()) {
@@ -1620,84 +1629,161 @@ PrimitiveData make_sweep3d_data(
     if (!spine_builder.IsDone()) {
         throw std::runtime_error("OCCT 3D Sweep spine wire failed");
     }
-    const auto spine = spine_builder.Wire();
-    BRepOffsetAPI_MakePipeShell builder(spine);
-    builder.SetMode(false);
-    builder.SetTolerance(request.linear_tolerance, request.linear_tolerance, 1e-6);
-    if (std::ranges::all_of(request.path_segments,
-            [](const auto& segment) {
-                return segment.bezier_control_points.empty();
-            })) {
-        builder.SetTransitionMode(BRepBuilderAPI_RightCorner);
-    }
-    std::vector<TopoDS_Wire> section_wires;
-    section_wires.reserve(request.sections.size());
-    for (const auto& section : request.sections) {
-        section_wires.push_back(make_profile_wire(
-            section.profile.outer_profile, section.profile_normal));
-        builder.Add(section_wires.back(), path_vertices[section.point_index],
-            false, false);
-    }
-    if (!builder.IsReady()) {
-        throw std::runtime_error("OCCT 3D Sweep is not ready");
-    }
-    builder.Build();
-    if (!builder.IsDone() || builder.Shape().IsNull()) {
-        throw std::runtime_error("OCCT 3D Sweep failed");
-    }
-    if (request.make_solid && !builder.MakeSolid()) {
-        throw std::runtime_error(
-            "OCCT 3D Sweep could not close the swept shell into a solid");
-    }
-    if (!BRepCheck_Analyzer(builder.Shape()).IsValid()) {
-        throw std::runtime_error("OCCT 3D Sweep produced an invalid shape");
-    }
-    PrimitiveData result{builder.Shape(), {}, {}, {}};
-    for (std::size_t section_index = 0;
-         section_index < request.sections.size(); ++section_index) {
-        const auto& section = request.sections[section_index];
-        std::size_t edge_index{};
-        for (TopExp_Explorer explorer(section_wires[section_index], TopAbs_EDGE);
-             explorer.More(); explorer.Next(), ++edge_index) {
-            if (edge_index >= section.profile.outer_edge_source_ids.size()) {
-                throw std::runtime_error(
-                    "3D Sweep profile edge provenance mismatch");
+    // One shared section wire per station. At a sharp corner this wire is
+    // projected onto the angle-bisector plane, so both adjacent sweeps meet
+    // at exactly the same boundary, including when profile shapes differ.
+    struct StationWire {
+        TopoDS_Wire wire;
+        std::vector<TopoDS_Edge> edges;
+        std::vector<std::string> curve_ids;
+        std::vector<std::string> point_ids;
+        std::string profile_id;
+    };
+    std::vector<StationWire> stations;
+    const auto tangent = [&](std::size_t segment, bool end) {
+        BRepAdaptor_Curve curve(spine_edges[segment]);
+        gp_Pnt p; gp_Vec d;
+        curve.D1(end ? curve.LastParameter() : curve.FirstParameter(), p, d);
+        if(d.Magnitude()<1e-12)throw std::runtime_error("Dráha nemá platnou tečnu.");
+        return d.Normalized();
+    };
+    std::optional<gp_Vec> previous_direction;
+    std::optional<gp_Vec> transported_radial;
+    for(std::size_t i=0;i<request.path_points.size();++i) {
+        // Empty stations inherit the preceding defined profile. The document
+        // requires the first station to define a profile.
+        const auto* section=&request.sections.front();
+        for(const auto& candidate:request.sections) {
+            if(candidate.point_index>i)break;
+            section=&candidate;
+        }
+        const auto direction=i<spine_edges.size()?tangent(i,false):tangent(i-1,true);
+        if(previous_direction) {
+            gp_Trsf rotation;rotation.SetRotation(gp_Quaternion(*previous_direction,direction));
+            transported_radial=transported_radial->Transformed(rotation);
+        } else transported_radial=gp_Vec(gp_Ax2(gp_Pnt(0,0,0),gp_Dir(direction)).XDirection());
+        previous_direction=direction;
+        auto radial=section->circle_radial_direction;
+        if(std::holds_alternative<ExtrusionRequest::CircleProfile>(section->profile.outer_profile) &&
+           section->profile.outer_vertex_source_ids.empty()) {
+            gp_Trsf back;
+            back.SetRotation(gp_Quaternion(direction,gp_Vec(section->profile_normal.x,
+                section->profile_normal.y,section->profile_normal.z)));
+            const auto v=transported_radial->Transformed(back);
+            radial=Vec3{v.X(),v.Y(),v.Z()};
+        }
+        StationWire station;
+        station.curve_ids=section->profile.outer_edge_source_ids;
+        station.point_ids=section->profile.outer_vertex_source_ids;
+        station.profile_id=section->profile_id;
+        station.wire=make_profile_wire(section->profile.outer_profile,
+            section->profile_normal,radial,&station.edges);
+        BRepBuilderAPI_NurbsConvert nurbs(station.wire,true);
+        station.wire=TopoDS::Wire(nurbs.Shape());
+        for(auto& edge:station.edges)edge=TopoDS::Edge(nurbs.ModifiedShape(edge));
+        const auto& from=request.path_points[section->point_index];
+        const auto& to=request.path_points[i];
+        const auto& normal=section->profile_normal;
+        gp_Trsf movement;
+        movement.SetRotation(gp_Quaternion(gp_Vec(normal.x,normal.y,normal.z),direction));
+        const auto rotated=gp_Pnt(from.x,from.y,from.z).Transformed(movement);
+        movement.SetTranslationPart(gp_Vec(rotated,gp_Pnt(to.x,to.y,to.z)));
+        BRepBuilderAPI_Transform transport(station.wire,movement,true);
+        station.wire=TopoDS::Wire(transport.Shape());
+        for(auto& edge:station.edges)edge=TopoDS::Edge(transport.ModifiedShape(edge));
+        if(i>0&&i<spine_edges.size()) {
+            const auto incoming=tangent(i-1,true);
+            const auto sum=incoming+direction;
+            if(sum.Magnitude()<1e-8)throw std::runtime_error("Ostrý obrat dráhy o 180° nelze spojit.");
+            const auto bisector=sum.Normalized();
+            const double cosine=bisector.Dot(direction);
+            const auto shear=(bisector-direction*cosine)/cosine;
+            if(shear.Magnitude()>1e-9) {
+                gp_Mat matrix;
+                for(int row=1;row<=3;++row)for(int col=1;col<=3;++col)
+                    matrix.SetValue(row,col,(row==col?1.0:0.0)-direction.Coord(row)*shear.Coord(col));
+                const gp_XYZ origin(to.x,to.y,to.z);
+                gp_GTrsf projection(matrix,origin-matrix*origin);
+                BRepBuilderAPI_GTransform project(station.wire,projection,true);
+                station.wire=TopoDS::Wire(project.Shape());
+                for(auto& edge:station.edges)edge=TopoDS::Edge(project.ModifiedShape(edge));
             }
-            const auto& source_id =
-                section.profile.outer_edge_source_ids[edge_index];
-            const auto source_edge = TopoDS::Edge(explorer.Current());
-            const auto& generated = builder.Generated(source_edge);
-            for (TopTools_ListIteratorOfListOfShape iterator(generated);
-                 iterator.More(); iterator.Next()) {
-                if (iterator.Value().ShapeType() == TopAbs_FACE) {
-                    result.faces.push_back({iterator.Value(),
-                        {owner_id, "generated:" + source_id}});
-                } else if (iterator.Value().ShapeType() == TopAbs_EDGE) {
-                    result.edges.push_back({iterator.Value(),
-                        {owner_id, "generated:" + source_id}});
-                }
-            }
-            if (edge_index < section.profile.outer_vertex_source_ids.size()) {
-                const auto source_vertex = TopExp::FirstVertex(source_edge, true);
-                const auto& generated_vertex = builder.Generated(source_vertex);
-                for (TopTools_ListIteratorOfListOfShape iterator(generated_vertex);
-                     iterator.More(); iterator.Next()) {
-                    if (iterator.Value().ShapeType() == TopAbs_EDGE) {
-                        result.edges.push_back({iterator.Value(),
-                            {owner_id, "generated:" +
-                                section.profile.outer_vertex_source_ids[edge_index]}});
-                    } else if (iterator.Value().ShapeType() == TopAbs_VERTEX) {
-                        result.vertices.push_back({iterator.Value(),
-                            {owner_id, "generated:" +
-                                section.profile.outer_vertex_source_ids[edge_index]}});
+        }
+        stations.push_back(std::move(station));
+    }
+    PrimitiveData result;
+    for(std::size_t i=0;i<spine_edges.size();++i) {
+        const auto& segment=request.path_segments[i];
+        const auto collect=[&](auto& builder) {
+            if(!builder.IsDone()||builder.Shape().IsNull()||!BRepCheck_Analyzer(builder.Shape()).IsValid())
+                throw std::runtime_error("Úsek 3D Sweepu nevytvořil platné těleso.");
+            PrimitiveData piece{builder.Shape(),{},{},{}};
+            for(const auto index:{i,i+1}) {
+                const auto& station=stations[index];
+                if(station.edges.size()!=station.curve_ids.size())
+                    throw std::runtime_error("Chybí původ geometrie profilu Sweepu.");
+                for(std::size_t e=0;e<station.edges.size();++e) {
+                    const auto semantic="sweep:"+request.path_segments[i].source_id+":profile:"+
+                        station.profile_id+":from:"+station.curve_ids[e];
+                    const auto& generated=builder.Generated(station.edges[e]);
+                    for(TopTools_ListIteratorOfListOfShape it(generated);it.More();it.Next()) {
+                        if(it.Value().ShapeType()==TopAbs_FACE)piece.faces.push_back({it.Value(),{owner_id,semantic}});
+                        if(it.Value().ShapeType()==TopAbs_EDGE)piece.edges.push_back({it.Value(),{owner_id,semantic}});
+                    }
+                    if(e<station.point_ids.size()) {
+                        // The identity is defined by the persisted profile Point;
+                        // history only locates its swept child on this segment.
+                        const auto point_semantic="sweep:"+segment.source_id+":profile:"+
+                            station.profile_id+":from:"+station.point_ids[e];
+                        const auto vertex=TopExp::FirstVertex(station.edges[e],true);
+                        const auto& rails=builder.Generated(vertex);
+                        for(TopTools_ListIteratorOfListOfShape it(rails);it.More();it.Next()) {
+                            if(it.Value().ShapeType()==TopAbs_EDGE)piece.edges.push_back({it.Value(),{owner_id,point_semantic}});
+                            if(it.Value().ShapeType()==TopAbs_VERTEX)piece.vertices.push_back({it.Value(),{owner_id,point_semantic}});
+                        }
                     }
                 }
             }
+            return piece;
+        };
+        PrimitiveData piece;
+        if(segment.bezier_control_points.empty()&&!segment.arc_midpoint) {
+            // A linear sweep between its true section boundaries. This also
+            // preserves oblique miter sections without the pipe algorithm
+            // reorienting them onto planes normal to the spine.
+            BRepOffsetAPI_ThruSections builder(request.make_solid,false,request.linear_tolerance);
+            if(stations[i].point_ids.size()!=stations[i+1].point_ids.size() ||
+               stations[i].edges.size()!=stations[i+1].edges.size())
+                throw std::runtime_error("Nesouhlasí párování sousedních profilů Sweepu.");
+            builder.CheckCompatibility(stations[i].point_ids.empty() && stations[i+1].point_ids.empty());
+            builder.AddWire(stations[i].wire);builder.AddWire(stations[i+1].wire);
+            builder.Build();piece=collect(builder);
+        } else {
+            BRepOffsetAPI_MakePipeShell builder(BRepBuilderAPI_MakeWire(spine_edges[i]).Wire());
+            builder.SetMode(false);
+            builder.SetTolerance(request.linear_tolerance,request.linear_tolerance,1e-6);
+            builder.Add(stations[i].wire,path_vertices[i],false,false);
+            builder.Add(stations[i+1].wire,path_vertices[i+1],false,false);
+            builder.Build();
+            if(request.make_solid&&!builder.MakeSolid())throw std::runtime_error("Sweep nelze uzavřít.");
+            piece=collect(builder);
         }
-        if (edge_index != section.profile.outer_edge_source_ids.size()) {
-            throw std::runtime_error(
-                "3D Sweep profile edge provenance count mismatch");
+        if(result.shape.IsNull())result=std::move(piece);
+        else {
+            BRepAlgoAPI_Fuse join;set_boolean_inputs(join,result.shape,piece.shape);
+            join.SetFuzzyValue(request.linear_tolerance);join.Build();
+            if(!join.IsDone()||!BRepCheck_Analyzer(join.Shape()).IsValid())
+                throw std::runtime_error("Úseky 3D Sweepu nelze spojit.");
+            result.faces=propagate_topology(join,result.faces,piece.faces);
+            result.edges=propagate_topology(join,result.edges,piece.edges);
+            result.vertices=propagate_topology(join,result.vertices,piece.vertices);
+            result.shape=join.Shape();
         }
+    }
+    if(request.make_solid) {
+        int solids=0;
+        for(TopExp_Explorer it(result.shape,TopAbs_SOLID);it.More();it.Next())++solids;
+        if(solids!=1)throw std::runtime_error("Úseky Sweepu netvoří jedno souvislé těleso.");
     }
     return result;
 }
@@ -3907,7 +3993,19 @@ BodyResult make_result(
     BodyResult result;
     GProp_GProps volume_properties;
     GProp_GProps surface_properties;
-    BRepGProp::VolumeProperties(shape, volume_properties);
+    // Rational sweep surfaces need adaptive integration; fixed Gauss
+    // quadrature can misreport even an exact circular section by percent.
+    bool rational_surface = false;
+    for (TopExp_Explorer face(shape, TopAbs_FACE); face.More(); face.Next()) {
+        BRepAdaptor_Surface surface(TopoDS::Face(face.Current()));
+        if (surface.GetType() == GeomAbs_BSplineSurface ||
+            surface.GetType() == GeomAbs_BezierSurface) {
+            rational_surface = true;
+            break;
+        }
+    }
+    if (rational_surface) BRepGProp::VolumeProperties(shape, volume_properties, 1e-12);
+    else BRepGProp::VolumeProperties(shape, volume_properties);
     BRepGProp::SurfaceProperties(shape, surface_properties);
     result.volume = volume_properties.Mass();
     result.surface_area = surface_properties.Mass();

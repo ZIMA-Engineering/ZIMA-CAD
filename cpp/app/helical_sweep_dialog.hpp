@@ -1,4 +1,5 @@
 #pragma once
+#include "sketch_button_style.hpp"
 #include <zima/document/part_document.hpp>
 #include "sweep_placement_dialog.hpp"
 #include <QComboBox>
@@ -26,7 +27,7 @@ public:
         connect(name,&QLineEdit::textChanged,this,[this](auto v){pending.name=v.toStdString();});
         content_layout()->addLayout(form);install_placement();form=new QFormLayout;
         const std::array<QString,3> names{tr("1. Kružnice a počáteční bod…"),tr("2. Radiální vodicí skica…"),tr("3. Skica průřezu…")};
-        for(unsigned i=0;i<3;++i){auto* button=new QPushButton(names[i],this);button->setObjectName(QString("helicalSketch%1").arg(i));form->addRow(button);connect(button,&QPushButton::clicked,this,[this,i]{if(edit_sketch)edit_sketch(i);});}
+        for(unsigned i=0;i<3;++i){auto* button=new QPushButton(names[i],this);button->setObjectName(QString("helicalSketch%1").arg(i));style_sketch_button(button);form->addRow(button);connect(button,&QPushButton::clicked,this,[this,i]{if(edit_sketch)edit_sketch(i);});}
         circle_=new QComboBox(this);point_=new QComboBox(this);circle_->setObjectName("helicalCircle");point_->setObjectName("helicalStartPoint");
         form->addRow(tr("Základní kružnice"),circle_);form->addRow(tr("Počáteční bod"),point_);
         connect(circle_,&QComboBox::activated,this,[this]{pending.helical.circle_id=circle_->currentData().toString().toStdString();notify();});

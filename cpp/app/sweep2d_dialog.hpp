@@ -1,4 +1,5 @@
 #pragma once
+#include "sketch_button_style.hpp"
 #include <zima/document/part_document.hpp>
 #include "sweep_placement_dialog.hpp"
 #include <zima/ui/reference_cell.hpp>
@@ -24,7 +25,7 @@ public:
         connect(name,&QLineEdit::textChanged,this,[this](const auto& value){pending.name=value.toStdString();});
         content_layout()->addLayout(form);install_placement();form=new QFormLayout;
         auto* planes=new QLabel(tr("1. reference umístění: rovina průřezu\n2. reference umístění: rovina dráhy"),this);planes->setWordWrap(true);form->addRow(planes);
-        for(unsigned i=0;i<2;++i){auto* button=new QPushButton(i?tr("2. Skica dráhy…"):tr("1. Skica průřezu…"),this);button->setObjectName(QString("sweep2dSketch%1").arg(i));form->addRow(button);connect(button,&QPushButton::clicked,this,[this,i]{if(edit_sketch)edit_sketch(i);});}
+        for(unsigned i=0;i<2;++i){auto* button=new QPushButton(i?tr("2. Skica dráhy…"):tr("1. Skica průřezu…"),this);button->setObjectName(QString("sweep2dSketch%1").arg(i));style_sketch_button(button);form->addRow(button);connect(button,&QPushButton::clicked,this,[this,i]{if(edit_sketch)edit_sketch(i);});}
         auto* result=new QComboBox(this);result->setObjectName("sweep2dResultType");result->addItems({"Solid","Thin"});result->setCurrentIndex(pending.sweep2d.result_type==document::ProfileResultType::Thin?1:0);form->addRow(tr("Průřez"),result);
         thickness_=new QDoubleSpinBox(this);thickness_->setObjectName("sweep2dThickness");thickness_->setDecimals(3);thickness_->setRange(.001,100000);thickness_->setSuffix(" mm");thickness_->setValue(pending.sweep2d.thickness);form->addRow(tr("Tloušťka"),thickness_);
         side_=new QComboBox(this);side_->setObjectName("sweep2dThinSide");side_->addItems({tr("Jedna strana"),tr("Druhá strana"),tr("Symetricky")});side_->setCurrentIndex(pending.sweep2d.thin_mode==document::ThinMode::OneSide?0:pending.sweep2d.thin_mode==document::ThinMode::OtherSide?1:2);form->addRow(tr("Strana tloušťky"),side_);

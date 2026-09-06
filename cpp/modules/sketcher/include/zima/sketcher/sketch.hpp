@@ -418,6 +418,8 @@ public:
     [[nodiscard]] std::string add_concentric_constraint(
         const std::string& reference_geometry_id,
         const std::string& driven_geometry_id);
+    [[nodiscard]] std::optional<std::string> spline_tangent_contact(
+        const std::string& first, const std::string& second) const;
     [[nodiscard]] std::string add_tangent_constraint(
         const std::string& reference_geometry_id,
         const std::string& driven_geometry_id,

@@ -30,16 +30,11 @@ struct HistoryDependencyCollector {
     }
     void register_construction(const document::ConstructionObject& object,const std::string& root) {
         alias(object.id,root);alias(object.entity_id,root);origin(object.container_origin,root);
-        for (const auto& connection : object.curve_connections) { alias(connection.id,root);alias(connection.generator_id,root); }
         for (const auto& point : object.curve_points) register_construction(point,root);
     }
     void construction(const document::ConstructionObject& object,const std::string& root) {
         for (const auto& ref : object.references) reference(root,ref);
         for (const auto& point : object.curve_points) construction(point,root);
-        for (const auto& connection : object.curve_connections) {
-            use(root,connection.sketch_plane_reference_owner_id);
-            if (!connection.sketch_serialized.empty()) sketch(sketcher::Sketch::from_serialized(connection.sketch_serialized),root);
-        }
     }
     void sketch(const sketcher::Sketch& sketch,const std::string& root) {
         use(root,sketch.plane_reference_owner_id);

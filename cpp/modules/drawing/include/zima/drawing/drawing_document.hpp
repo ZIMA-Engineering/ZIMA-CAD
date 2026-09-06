@@ -1,6 +1,7 @@
 #pragma once
 
 #include <zima/kernel/geometry_kernel.hpp>
+#include <zima/document/dimension_identifiers.hpp>
 
 #include <filesystem>
 #include <array>
@@ -116,6 +117,9 @@ struct DrawingSheet {
 
 class DrawingDocument {
 public:
+    zima::document::DimensionIdentifiers dimension_identifiers;
+    [[nodiscard]] std::vector<zima::document::DimensionParameter> dimension_parameters() const;
+    void synchronize_dimension_identifiers();
     std::string document_id;
     std::string name{"Nový výkres"};
     // The model document whose Tree-header VÝKRES command created this

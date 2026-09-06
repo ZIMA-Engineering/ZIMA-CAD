@@ -1069,9 +1069,7 @@ void add_construction_tree_children(QTreeWidgetItem* parent,
     if (object.kind == zima::document::ConstructionKind::Point) {
         return;
     }
-    if (object.kind == zima::document::ConstructionKind::Curve3D ||
-        object.kind ==
-            zima::document::ConstructionKind::Curve3DExperimental) {
+    if (object.kind == zima::document::ConstructionKind::Curve3D) {
         for (const auto& point : object.curve_points) {
             auto* point_item = new QTreeWidgetItem(
                 parent, {QString::fromStdString(point.name)});
@@ -1094,8 +1092,7 @@ void add_construction_tree_children(QTreeWidgetItem* parent,
             QString::fromStdString(instance_path.encoded()));
         entity->setData(0, Qt::UserRole + 3, "construction-entity");
         entity->setData(0, Qt::UserRole + 5,
-            object.kind == zima::document::ConstructionKind::Curve3D
-                ? "curve3d" : "curve3d-experimental");
+            "curve3d");
         return;
     }
     const bool axis = object.kind == zima::document::ConstructionKind::Axis;
@@ -3138,8 +3135,6 @@ void AssemblyWorkspaceWindow::create_actions() {
     wedge_action_ = make_action(tr("Klín"), "wedge");
     construction_point_action_ = make_action(tr("Bod"), "point");
     curve_3d_action_ = make_action(tr("3D křivka"), "sketch-3d");
-    curve_3d_experimental_action_ =
-        make_action(tr("3D trajektorie EXP"), "sketch-3d");
     sweep_3d_action_ = make_action(tr("3D Sweep"), "sweep");
     sweep2d_action_ = make_action(tr("2D Sweep"), "sweep2d");
     sweep2d_action_->setObjectName("sweep2dAction");
@@ -3151,8 +3146,6 @@ void AssemblyWorkspaceWindow::create_actions() {
     construction_plane_action_ = make_action(tr("Rovina"), "plane");
     construction_point_action_->setObjectName("constructionPointAction");
     curve_3d_action_->setObjectName("curve3DAction");
-    curve_3d_experimental_action_->setObjectName(
-        "curve3DExperimentalAction");
     sweep_3d_action_->setObjectName("sweep3DAction");
     construction_axis_action_->setObjectName("constructionAxisAction");
     construction_plane_action_->setObjectName("constructionPlaneAction");
@@ -3389,9 +3382,6 @@ void AssemblyWorkspaceWindow::create_actions() {
         show_construction_properties(zima::document::ConstructionKind::Point); });
     connect(curve_3d_action_, &QAction::triggered, this, [this] {
         show_construction_properties(zima::document::ConstructionKind::Curve3D); });
-    connect(curve_3d_experimental_action_, &QAction::triggered, this, [this] {
-        show_construction_properties(
-            zima::document::ConstructionKind::Curve3DExperimental); });
     connect(sweep_3d_action_, &QAction::triggered, this, [this] {
         show_sweep3d_properties(); });
     connect(construction_axis_action_, &QAction::triggered, this, [this] {
@@ -3789,11 +3779,7 @@ void AssemblyWorkspaceWindow::create_layout() {
             color_dialog->select_face(candidate);
             return;
         }
-        if (sweep_profile_point_dialog_ != nullptr &&
-            pending_sweep_profile_index_) {
-            accept_sweep_profile_point(candidate);
-            return;
-        }
+
         if (curve_axis_dialog_ != nullptr && pending_curve_axis_index_) {
             accept_curve_axis_reference(candidate);
             return;
@@ -4863,6 +4849,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         [this] { end_sketch_trim_gesture(); });
     viewer_->set_short_middle_click_callback([this] {
         if (finish_active_reference_selection()) return true;
+        if (finish_parameter_dimensions()) return true;
         // Sketch geometry is confirmed exclusively by LMB.  Consume every
         // short MMB click while Sketcher is active so it can never fall back
         // to world_click_callback() and place a point of any drawing tool.
@@ -4874,7 +4861,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         return false;
     });
     viewer_->set_double_middle_click_callback(
-        [this] { return finish_current_sketch_tool(); });
+        [this] { return finish_parameter_dimensions() || finish_current_sketch_tool(); });
     viewer_->set_empty_right_click_callback(
         [this] { return cancel_current_sketch_step(true); });
     viewer_->set_single_candidate_right_click_callback({});
@@ -4907,6 +4894,10 @@ void AssemblyWorkspaceWindow::create_layout() {
             return true;
         });
     viewer_->set_double_confirmation_callback([this](const auto& candidate) {
+        if (sketch_tangent_active_) {
+            accept_sketch_tangent_selection(candidate);
+            return;
+        }
         if (candidate.kind == zima::viewer::CandidateKind::Dimension &&
             candidate.semantic_key.starts_with("parameter:")) {
             edit_dimension_inline(candidate);
@@ -6272,16 +6263,15 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
     if (active_application_ == ApplicationMode::Modeling) {
         add_command(selection_action_);
         tools_toolbar_->addSeparator();
-        for (auto* action : {construction_point_action_, curve_3d_action_,
-                             curve_3d_experimental_action_, construction_axis_action_,
-                             construction_plane_action_, sketch_action_}) {
+        for (auto* action : {construction_point_action_, construction_axis_action_,
+                             construction_plane_action_, sketch_action_, curve_3d_action_}) {
             add_command(action);
         }
         add_green_separator();
         add_command(extrusion_action_);
         add_command(revolution_action_);
-        add_command(sweep_3d_action_);
         add_command(sweep2d_action_);
+        add_command(sweep_3d_action_);
         add_command(helical_sweep_action_);
         add_green_separator();
         add_command(fillet_action_);
@@ -6303,14 +6293,13 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         tools_toolbar_->addSeparator();
         add_command(insert_action_);
         add_green_separator();
-        for (auto* action : {construction_point_action_, curve_3d_action_,
-                             curve_3d_experimental_action_,
-                             construction_axis_action_,
+        for (auto* action : {construction_point_action_, construction_axis_action_,
                              construction_plane_action_}) {
             add_command(action);
         }
         add_green_separator();
         add_command(sketch_action_);
+        add_command(curve_3d_action_);
         tools_toolbar_->addSeparator();
         add_command(extrusion_action_);
         add_command(revolution_action_);
@@ -6528,6 +6517,13 @@ void AssemblyWorkspaceWindow::edit_relations() {
             else if (auto* assembly = workspace_.open_assembly(id)) { auto next = assembly->session.document(); sync_relation_targets(next, values, next_relations); next.user_parameters = std::move(values); next.relations = std::move(next_relations); assembly->session.commit(std::move(next)); }
             refresh_tabs();
         }, application_settings_, this, std::move(model_values), decimal_places);
+    if (const auto* part = workspace_.open_part(id)) {
+        const auto& document = part->session.document();
+        dialog->set_dimension_catalog(document.dimension_parameters(), document.dimension_identifiers);
+    } else if (const auto* assembly = workspace_.open_assembly(id)) {
+        const auto& document = assembly->session.document();
+        dialog->set_dimension_catalog(document.dimension_parameters(), document.dimension_identifiers);
+    }
     dialog->setAttribute(Qt::WA_DeleteOnClose);
     properties_dialog_ = dialog;
     connect(dialog, &QObject::destroyed, this, [this, dialog] { if (properties_dialog_ == dialog) properties_dialog_ = nullptr; });
@@ -7936,6 +7932,8 @@ bool AssemblyWorkspaceWindow::finish_active_reference_selection() {
 
     if (primitive_reference_dialog_ != nullptr) {
         set_primitive_properties_dimension_selection();
+    } else if (construction_reference_dialog_ != nullptr) {
+        set_construction_properties_dimension_selection();
     } else {
         tree_->setProperty("commandSelectionActive", false);
         viewer_->clear_selection();
@@ -7945,6 +7943,25 @@ bool AssemblyWorkspaceWindow::finish_active_reference_selection() {
     viewer_->set_constraint_reference_highlights({}, {});
     state_->setText(tr("Zadávání referencí ukončeno."));
     return true;
+}
+
+void AssemblyWorkspaceWindow::set_construction_properties_dimension_selection() {
+    tree_->setProperty("commandSelectionActive", false);
+    viewer_->clear_selection();
+    // Curve/Sweep dimensions are owned by their persisted path points.
+    // This is value editing only; it does not offer them as placement references.
+    const bool curve = construction_reference_dialog_ != nullptr &&
+        construction_reference_dialog_->construction_kind() ==
+            zima::document::ConstructionKind::Curve3D;
+    viewer_->set_selection_contract(curve
+        ? std::vector{zima::viewer::CandidateKind::Dimension}
+        : std::vector<zima::viewer::CandidateKind>{});
+    viewer_->set_candidate_filter([this, curve](const auto& candidate) {
+        return curve && construction_reference_dialog_ != nullptr &&
+            candidate.kind == zima::viewer::CandidateKind::Dimension &&
+            candidate.semantic_key.starts_with("parameter:") &&
+            construction_reference_dialog_->owns_reference_owner(candidate.owner_id);
+    });
 }
 
 void AssemblyWorkspaceWindow::set_primitive_properties_dimension_selection() {
@@ -8027,6 +8044,17 @@ void AssemblyWorkspaceWindow::toggle_local_origin_visibility(
     if (!visible_local_origin_ids_.erase(id)) visible_local_origin_ids_.insert(id);
     preserve_view_on_refresh_ = true;
     refresh_scene();
+}
+
+bool AssemblyWorkspaceWindow::finish_parameter_dimensions() {
+    if (properties_dialog_ || !active_sketch_id_.empty() ||
+        construction_dimension_object_id_.empty()) return false;
+    construction_dimension_object_id_.clear();
+    opening_component_edit_ = {};
+    viewer_->clear_selection();
+    preserve_view_on_refresh_ = true;
+    refresh_scene();
+    return true;
 }
 
 void AssemblyWorkspaceWindow::show_parameter_dimensions(
@@ -11482,13 +11510,8 @@ void AssemblyWorkspaceWindow::show_sweep3d_properties(
         pending_curve_axis_index_.reset();
         curve_axis_dialog_ = nullptr;
         viewer_->clear_selection();
-        viewer_->set_selection_contract({});
-        viewer_->set_candidate_filter([](const auto&) { return false; });
+        set_construction_properties_dimension_selection();
     });
-    dialog->set_sweep_profile_point_request_callback(
-        [this, dialog](std::optional<std::size_t> profile_index) {
-            start_sweep_profile_point_selection(dialog, profile_index);
-        });
     dialog->set_sweep_profile_edit_request_callback(
         [this, dialog](std::size_t profile_index) {
             show_sweep_profile_sketch(dialog, profile_index);
@@ -11536,7 +11559,9 @@ void AssemblyWorkspaceWindow::show_sweep3d_properties(
             zima::document::PartDocument carrier;
             carrier.constructions.push_back(display_path);
             construction_preview_mesh_ =
-                carrier.construction_viewer_mesh(display_path.id);
+                carrier.construction_viewer_mesh(display_path.id, 0.0, true);
+            append_mesh(*construction_preview_mesh_,
+                zima::document::sweep3d_profiles_viewer_mesh(*resolved));
             construction_parameter_preview_ = display_path;
             append_reference_geometry(reference_geometry,
                 next.origin_viewer_mesh().original_references);
@@ -11584,12 +11609,9 @@ void AssemblyWorkspaceWindow::show_sweep3d_properties(
             viewer_->set_feature_preview_owners(preview_owners);
             preserve_view_on_refresh_ = true;
             refresh_scene();
-            if (!pending_construction_reference_index_ &&
-                !pending_sweep_profile_index_) {
+            if (!pending_construction_reference_index_) {
                 tree_->setProperty("commandSelectionActive", false);
-                viewer_->set_selection_contract({});
-                viewer_->set_candidate_filter(
-                    [](const auto&) { return false; });
+                set_construction_properties_dimension_selection();
             }
         });
 
@@ -11611,10 +11633,8 @@ void AssemblyWorkspaceWindow::show_sweep3d_properties(
         if (construction_reference_dialog_ == dialog)
             construction_reference_dialog_ = nullptr;
         if (curve_axis_dialog_ == dialog) curve_axis_dialog_ = nullptr;
-        if (sweep_profile_point_dialog_ == dialog)
-            sweep_profile_point_dialog_ = nullptr;
+        construction_dimension_object_id_.clear();
         pending_curve_axis_index_.reset();
-        pending_sweep_profile_index_.reset();
         pending_construction_reference_index_.reset();
         construction_reference_auto_advance_ = false;
         construction_preview_mesh_.reset();
@@ -11639,8 +11659,7 @@ void AssemblyWorkspaceWindow::show_sweep3d_properties(
         start_construction_reference_selection(first, true);
     } else {
         tree_->setProperty("commandSelectionActive", false);
-        viewer_->set_selection_contract({});
-        viewer_->set_candidate_filter([](const auto&) { return false; });
+        set_construction_properties_dimension_selection();
     }
 }
 
@@ -11715,15 +11734,13 @@ void AssemblyWorkspaceWindow::show_construction_properties(
         }, this, decimal_places);
     dialog->set_reference_request_callback(
         [this](std::size_t index) { start_construction_reference_selection(index); });
-    if (kind == zima::document::ConstructionKind::Curve3D ||
-        kind == zima::document::ConstructionKind::Curve3DExperimental) {
+    if (kind == zima::document::ConstructionKind::Curve3D) {
         dialog->set_curve_point_edit_request_callback(
             [this, dialog](std::optional<std::size_t> index) {
                 show_curve_point_properties(dialog, index);
             });
     }
-    if (kind == zima::document::ConstructionKind::Curve3D ||
-        kind == zima::document::ConstructionKind::Curve3DExperimental) {
+    if (kind == zima::document::ConstructionKind::Curve3D) {
         dialog->set_curve_axis_request_callback(
             [this, dialog](std::size_t index) {
                 start_curve_axis_selection(dialog, index);
@@ -11733,18 +11750,12 @@ void AssemblyWorkspaceWindow::show_construction_properties(
             pending_curve_axis_index_.reset();
             curve_axis_dialog_ = nullptr;
             viewer_->clear_selection();
-            viewer_->set_selection_contract({});
-            viewer_->set_candidate_filter([](const auto&) { return false; });
+            set_construction_properties_dimension_selection();
             state_->setText(tr(
                 "Nastavení směru bodu 3D křivky bylo změněno."));
         });
     }
-    if (kind == zima::document::ConstructionKind::Curve3DExperimental) {
-        dialog->set_curve_sketch_edit_request_callback(
-            [this, dialog](std::size_t connection_index) {
-                show_curve_connection_sketch(dialog, connection_index);
-            });
-    }
+
     dialog->set_reference_highlights_changed_callback([this, dialog] {
         viewer_->set_constraint_reference_highlights(
             {}, highlighted_reference_edge_keys(*dialog));
@@ -11904,9 +11915,7 @@ void AssemblyWorkspaceWindow::show_construction_properties(
             refresh_scene();
             if (!pending_construction_reference_index_) {
                 tree_->setProperty("commandSelectionActive", false);
-                viewer_->set_selection_contract({});
-                viewer_->set_candidate_filter(
-                    [](const auto&) { return false; });
+                set_construction_properties_dimension_selection();
             }
             if (preview.kind == zima::document::ConstructionKind::Plane) {
                 viewer_->set_extent_manipulator(zima::viewer::ExtentManipulator{
@@ -11924,6 +11933,7 @@ void AssemblyWorkspaceWindow::show_construction_properties(
         construction_reference_dialog_ = nullptr;
         curve_axis_dialog_ = nullptr;
         pending_curve_axis_index_.reset();
+        construction_dimension_object_id_.clear();
         construction_preview_mesh_.reset();
         construction_parameter_preview_.reset();
         construction_reference_geometry_ = {};
@@ -11964,8 +11974,7 @@ void AssemblyWorkspaceWindow::show_construction_properties(
     } else {
         tree_->setProperty("commandSelectionActive", false);
         viewer_->clear_selection();
-        viewer_->set_selection_contract({});
-        viewer_->set_candidate_filter([](const auto&) { return false; });
+        set_construction_properties_dimension_selection();
     }
 }
 
@@ -12052,119 +12061,16 @@ void AssemblyWorkspaceWindow::accept_curve_axis_reference(
     dialog->set_curve_axis_active(std::nullopt);
     dialog->set_curve_point_tangent(index, tangent);
     viewer_->clear_selection();
-    viewer_->set_selection_contract({});
-    viewer_->set_candidate_filter([](const auto&) { return false; });
+    set_construction_properties_dimension_selection();
     state_->setText(tr("Osa směru bodu 3D křivky byla nastavena."));
 }
 
-void AssemblyWorkspaceWindow::start_sweep_profile_point_selection(
-    ConstructionPropertiesDialog* sweep_dialog,
-    std::optional<std::size_t> profile_index) {
-    if (sweep_dialog == nullptr || properties_dialog_ != sweep_dialog ||
-        sweep_profile_sketch_draft_) return;
-    const auto pending = sweep_dialog->pending_sweep_value();
-    if (pending.feature_kind != zima::document::FeatureKind::Sweep3D ||
-        pending.sweep3d.path.curve_points.size() < 2) {
-        state_->setText(tr(
-            "Nejprve vytvořte alespoň dva body trajektorie Sweepu."));
-        return;
-    }
-    if (profile_index &&
-        *profile_index >= pending.sweep3d.profiles.size()) return;
-    sweep_profile_point_dialog_ = sweep_dialog;
-    pending_sweep_profile_index_.emplace(profile_index);
-    tree_->setProperty("commandSelectionActive", true);
-    viewer_->clear_selection();
-    viewer_->set_selection_contract({zima::viewer::CandidateKind::Vertex});
-    std::set<std::string> point_owners;
-    for (const auto& point : pending.sweep3d.path.curve_points)
-        point_owners.insert(point.container_origin.id);
-    viewer_->set_candidate_filter(
-        [point_owners = std::move(point_owners)](const auto& candidate) {
-            return candidate.kind == zima::viewer::CandidateKind::Vertex &&
-                candidate.geometry ==
-                    zima::viewer::CandidateGeometry::OriginalReference &&
-                point_owners.contains(candidate.owner_id) &&
-                candidate.semantic_key == "point";
-        });
-    state_->setText(profile_index
-        ? tr("3D Sweep: vyberte nový bod trajektorie pro existující skicu.")
-        : tr("3D Sweep: vyberte bod trajektorie pro novou profilovou skicu."));
-}
-
-void AssemblyWorkspaceWindow::accept_sweep_profile_point(
-    const zima::viewer::ViewerCandidate& candidate) {
-    if (sweep_profile_point_dialog_ == nullptr ||
-        !pending_sweep_profile_index_ ||
-        candidate.kind != zima::viewer::CandidateKind::Vertex ||
-        candidate.geometry !=
-            zima::viewer::CandidateGeometry::OriginalReference ||
-        candidate.semantic_key != "point") return;
-    auto* dialog = sweep_profile_point_dialog_;
-    auto pending = dialog->pending_sweep_value();
-    const auto point = std::find_if(
-        pending.sweep3d.path.curve_points.begin(),
-        pending.sweep3d.path.curve_points.end(), [&](const auto& value) {
-            return value.container_origin.id == candidate.owner_id;
-        });
-    if (point == pending.sweep3d.path.curve_points.end()) return;
-
-    const auto requested_profile = *pending_sweep_profile_index_;
-    std::optional<std::size_t> edit_index;
-    bool open_sketch = false;
-    if (requested_profile) {
-        edit_index = *requested_profile;
-        if (!dialog->reassign_sweep_profile(*edit_index, point->id)) {
-            state_->setText(tr(
-                "Na tomto bodu již jiná profilová skica Sweepu leží."));
-            return;
-        }
-    } else {
-        auto sketch = zima::sketcher::Sketch::create_default();
-        sketch.name = tr("Profil %1")
-            .arg(pending.sweep3d.profiles.size() + 1)
-            .toStdString();
-        sketch.owner_container_id = pending.id;
-        const auto new_index = pending.sweep3d.profiles.size();
-        dialog->add_sweep_profile(point->id, sketch);
-        pending = dialog->pending_sweep_value();
-        if (pending.sweep3d.profiles.size() != new_index + 1) {
-            state_->setText(tr(
-                "Na tomto bodu již profilová skica Sweepu leží."));
-            return;
-        }
-        edit_index = new_index;
-        open_sketch = true;
-    }
-
-    pending = dialog->pending_sweep_value();
-    if (!edit_index || *edit_index >= pending.sweep3d.profiles.size()) return;
-    try {
-        const auto sketch = zima::sketcher::Sketch::from_serialized(
-            pending.sweep3d.profiles[*edit_index].sketch_serialized);
-        dialog->set_sweep_profile_sketch(*edit_index, sketch);
-    } catch (const std::exception&) {
-        return;
-    }
-    pending_sweep_profile_index_.reset();
-    sweep_profile_point_dialog_ = nullptr;
-    tree_->setProperty("commandSelectionActive", false);
-    viewer_->clear_selection();
-    viewer_->set_selection_contract({});
-    viewer_->set_candidate_filter([](const auto&) { return false; });
-    if (open_sketch) {
-        show_sweep_profile_sketch(dialog, *edit_index);
-    } else {
-        state_->setText(tr(
-            "Profilová skica byla přeřazena na nový bod bez změny geometrie."));
-    }
-}
 
 void AssemblyWorkspaceWindow::show_sweep_profile_sketch(
     ConstructionPropertiesDialog* sweep_dialog,
     std::size_t profile_index) {
     if (sweep_dialog == nullptr || properties_dialog_ != sweep_dialog ||
-        trajectory_sketch_draft_ || sweep_profile_sketch_draft_) return;
+        sweep_profile_sketch_draft_) return;
     auto pending = sweep_dialog->pending_sweep_value();
     if (pending.feature_kind != zima::document::FeatureKind::Sweep3D ||
         profile_index >= pending.sweep3d.profiles.size()) return;
@@ -12347,9 +12253,7 @@ void AssemblyWorkspaceWindow::show_curve_point_properties(
             refresh_scene();
             if (!pending_construction_reference_index_) {
                 tree_->setProperty("commandSelectionActive", false);
-                viewer_->set_selection_contract({});
-                viewer_->set_candidate_filter(
-                    [](const auto&) { return false; });
+                set_construction_properties_dimension_selection();
             }
         });
 
@@ -12386,164 +12290,10 @@ void AssemblyWorkspaceWindow::show_curve_point_properties(
     if (first < 3) {
         start_construction_reference_selection(first, true);
     } else {
-        viewer_->set_selection_contract({});
-        viewer_->set_candidate_filter([](const auto&) { return false; });
+        set_construction_properties_dimension_selection();
     }
 }
 
-void AssemblyWorkspaceWindow::show_curve_connection_sketch(
-    ConstructionPropertiesDialog* curve_dialog,
-    std::size_t connection_index) {
-    if (curve_dialog == nullptr || properties_dialog_ != curve_dialog ||
-        trajectory_sketch_draft_) return;
-    auto* part = workspace_.open_part(workspace_.active_document_id());
-    auto* assembly = workspace_.open_assembly(workspace_.active_document_id());
-    if (part == nullptr && assembly == nullptr) return;
-
-    auto curve = curve_dialog->pending_value();
-    if (curve.kind !=
-            zima::document::ConstructionKind::Curve3DExperimental ||
-        connection_index >= curve.curve_connections.size() ||
-        connection_index + 1 >= curve.curve_points.size()) return;
-
-    // Resolve the pending child Points through the same persisted ZIMA
-    // construction graph used by the preview. No OCCT calculation belongs to
-    // choosing or editing a trajectory work plane.
-    zima::document::PartDocument preview_document;
-    zima::kernel::ViewerReferenceGeometry reference_geometry;
-    if (part != nullptr) {
-        preview_document = part->session.document();
-        reference_geometry = construction_reference_source_geometry(
-            part->session.calculated_boundaries());
-    } else {
-        auto source = assembly->session.document();
-        preview_document.document_id = source.document_id;
-        preview_document.name = source.name;
-        preview_document.constructions = source.constructions;
-        source.constructions.clear();
-        reference_geometry = source.build_scene().original_references;
-    }
-    if (auto* existing = preview_document.find_construction(curve.id)) {
-        *existing = curve;
-    } else {
-        preview_document.constructions.push_back(curve);
-    }
-    preview_document.resolve_constructions(std::move(reference_geometry));
-    const auto* resolved_curve = preview_document.find_construction(curve.id);
-    if (resolved_curve == nullptr ||
-        connection_index + 1 >= resolved_curve->curve_points.size()) return;
-
-    const auto& connection = curve.curve_connections[connection_index];
-    const auto& start = resolved_curve->curve_points[connection_index].origin;
-    const auto& end = resolved_curve->curve_points[connection_index + 1].origin;
-    const zima::kernel::Vec3 chord{
-        end.x - start.x, end.y - start.y, end.z - start.z};
-    const auto x_axis = edge_preview_normalized(chord);
-    if (!x_axis) {
-        state_->setText(tr(
-            "Sketch trajektorie nelze vytvořit: sousední body splývají."));
-        return;
-    }
-
-    zima::kernel::Vec3 incoming{0.0, 0.0, 1.0};
-    if (connection_index > 0) {
-        const auto& previous =
-            resolved_curve->curve_points[connection_index - 1].origin;
-        incoming = {start.x - previous.x, start.y - previous.y,
-            start.z - previous.z};
-    }
-    const zima::kernel::Vec3 cross{
-        incoming.y * x_axis->z - incoming.z * x_axis->y,
-        incoming.z * x_axis->x - incoming.x * x_axis->z,
-        incoming.x * x_axis->y - incoming.y * x_axis->x};
-    auto normal = edge_preview_normalized(cross);
-    if (!normal) {
-        // First Sketch, or a preceding tangent parallel to the chord: use the
-        // nearest world datum direction not parallel to the chord. The field
-        // stays AUTO and can later be replaced by an explicit custom plane.
-        const zima::kernel::Vec3 datum = std::abs(x_axis->z) < 0.9
-            ? zima::kernel::Vec3{0.0, 0.0, 1.0}
-            : zima::kernel::Vec3{0.0, 1.0, 0.0};
-        const double projection = datum.x * x_axis->x +
-            datum.y * x_axis->y + datum.z * x_axis->z;
-        normal = edge_preview_normalized({
-            datum.x - projection * x_axis->x,
-            datum.y - projection * x_axis->y,
-            datum.z - projection * x_axis->z});
-    }
-    if (!normal) return;
-    const auto y_axis = edge_preview_normalized({
-        normal->y * x_axis->z - normal->z * x_axis->y,
-        normal->z * x_axis->x - normal->x * x_axis->z,
-        normal->x * x_axis->y - normal->y * x_axis->x});
-    if (!y_axis) return;
-    const double chord_length = std::sqrt(chord.x * chord.x +
-        chord.y * chord.y + chord.z * chord.z);
-
-    zima::sketcher::Sketch sketch;
-    std::string start_point_id = connection.sketch_start_point_id;
-    std::string end_point_id = connection.sketch_end_point_id;
-    try {
-        if (!connection.sketch_serialized.empty()) {
-            sketch = zima::sketcher::Sketch::from_serialized(
-                connection.sketch_serialized);
-        } else {
-            sketch = zima::sketcher::Sketch::create_default();
-            sketch.name = tr("Trajektorie %1–%2")
-                .arg(connection_index + 1).arg(connection_index + 2)
-                .toStdString();
-            start_point_id = sketch.add_point(0.0, 0.0);
-            end_point_id = sketch.add_point(chord_length, 0.0);
-        }
-        auto* sketch_start = sketch.find_point(start_point_id);
-        auto* sketch_end = sketch.find_point(end_point_id);
-        if (sketch_start == nullptr || sketch_end == nullptr) {
-            throw std::runtime_error(
-                "Trajectory Sketch system endpoints are missing");
-        }
-        sketch_start->x = 0.0;
-        sketch_start->y = 0.0;
-        sketch_start->fixed = true;
-        sketch_end->x = chord_length;
-        sketch_end->y = 0.0;
-        sketch_end->fixed = true;
-        sketch.owner_container_id = curve.id;
-        // A non-empty owner selects the arbitrary persisted resolved frame in
-        // Sketch::world_point(). This is an internal trajectory-frame token,
-        // never a reference to a Part Plane construction.
-        sketch.plane_reference_owner_id =
-            "trajectory-frame:" + connection.id;
-        sketch.resolved_origin = start;
-        sketch.resolved_x_axis = *x_axis;
-        sketch.resolved_y_axis = *y_axis;
-        sketch.resolved_normal = *normal;
-        sketch.validate();
-    } catch (const std::exception& exception) {
-        state_->setText(tr("Sketch trajektorie nelze otevřít: %1")
-            .arg(QString::fromUtf8(exception.what())));
-        return;
-    }
-
-    trajectory_sketch_draft_ = std::move(sketch);
-    trajectory_sketch_parent_dialog_ = curve_dialog;
-    trajectory_sketch_connection_index_ = connection_index;
-    trajectory_sketch_start_point_id_ = std::move(start_point_id);
-    trajectory_sketch_end_point_id_ = std::move(end_point_id);
-    curve_dialog->hide();
-    properties_dialog_ = nullptr;
-    construction_reference_dialog_ = nullptr;
-    active_sketch_id_ = trajectory_sketch_draft_->id;
-    selected_sketch_id_ = active_sketch_id_;
-    clear_selected_sketch_geometry();
-    viewer_->clear_selection();
-    tree_->clearSelection();
-    preserve_view_on_refresh_ = true;
-    refresh_scene();
-    align_active_sketch_view();
-    state_->setText(tr(
-        "Sketch trajektorie: nakreslete jednu otevřenou cestu START–END a "
-        "zvolte Dokončit skicu."));
-}
 
 void AssemblyWorkspaceWindow::start_construction_reference_selection(
     std::size_t index, bool auto_advance) {
@@ -12612,8 +12362,7 @@ void AssemblyWorkspaceWindow::start_construction_reference_selection(
         construction_reference_auto_advance_ = false;
         construction_reference_dialog_->set_active_reference_index(std::nullopt);
         tree_->setProperty("commandSelectionActive", false);
-        viewer_->set_selection_contract({});
-        viewer_->set_candidate_filter([](const auto&) { return false; });
+        set_construction_properties_dimension_selection();
         viewer_->clear_selection();
         state_->setText(tr("Konstrukce je již plně určená."));
         return;
@@ -12652,8 +12401,11 @@ void AssemblyWorkspaceWindow::start_construction_reference_selection(
             unavailable_construction_owners, auto_advance](const auto& candidate) {
         if (construction_reference_dialog_ == nullptr) return false;
         if (candidate.kind == zima::viewer::CandidateKind::Dimension &&
-            candidate.owner_id ==
-                construction_reference_dialog_->construction_id() &&
+            (candidate.owner_id == construction_reference_dialog_->construction_id() ||
+             (candidate.semantic_key == "parameter:radius" &&
+              construction_reference_dialog_->construction_kind() ==
+                  zima::document::ConstructionKind::Curve3D &&
+              construction_reference_dialog_->owns_reference_owner(candidate.owner_id))) &&
             candidate.semantic_key.starts_with("parameter:")) return true;
         if (!construction_reference_candidate_passes_static_filters(candidate,
                 orientation_reference || direction_reference,
@@ -12946,8 +12698,7 @@ void AssemblyWorkspaceWindow::accept_construction_reference(
     construction_reference_auto_advance_ = false;
     construction_reference_dialog_->set_active_reference_index(std::nullopt);
     tree_->setProperty("commandSelectionActive", false);
-    viewer_->set_selection_contract({});
-    viewer_->set_candidate_filter([](const auto&) { return false; });
+    set_construction_properties_dimension_selection();
     viewer_->clear_selection();
 }
 
@@ -14648,10 +14399,7 @@ const zima::sketcher::Sketch* AssemblyWorkspaceWindow::active_sketch() const {
         sweep_profile_sketch_draft_->id == active_sketch_id_) {
         return &*sweep_profile_sketch_draft_;
     }
-    if (trajectory_sketch_draft_ &&
-        trajectory_sketch_draft_->id == active_sketch_id_) {
-        return &*trajectory_sketch_draft_;
-    }
+
     const std::vector<zima::sketcher::Sketch>* sketches{};
     if (const auto* part = workspace_.open_part(workspace_.active_document_id())) {
         sketches = &part->session.document().sketches;
@@ -14761,14 +14509,7 @@ bool AssemblyWorkspaceWindow::mutate_active_sketch(
         sweep_profile_sketch_draft_ = std::move(next);
         return true;
     }
-    if (trajectory_sketch_draft_ &&
-        trajectory_sketch_draft_->id == active_sketch_id_) {
-        auto next = *trajectory_sketch_draft_;
-        mutation(next);
-        next.validate();
-        trajectory_sketch_draft_ = std::move(next);
-        return true;
-    }
+
     const auto mutate = [&](auto& document) {
         const auto found = std::find_if(document.sketches.begin(),
             document.sketches.end(),
@@ -14843,38 +14584,7 @@ void AssemblyWorkspaceWindow::finish_active_sketch() {
             "kontejner tlačítkem OK."));
         return;
     }
-    if (trajectory_sketch_draft_ &&
-        trajectory_sketch_draft_->id == active_sketch_id_ &&
-        trajectory_sketch_parent_dialog_ != nullptr &&
-        trajectory_sketch_connection_index_) {
-        auto sketch = *trajectory_sketch_draft_;
-        auto* parent = trajectory_sketch_parent_dialog_;
-        const auto connection_index = *trajectory_sketch_connection_index_;
-        const auto start_point_id = trajectory_sketch_start_point_id_;
-        const auto end_point_id = trajectory_sketch_end_point_id_;
-        cancel_sketch_segment();
-        active_sketch_id_.clear();
-        clear_selected_sketch_geometry();
-        viewer_->clear_selection();
-        trajectory_sketch_draft_.reset();
-        trajectory_sketch_parent_dialog_ = nullptr;
-        trajectory_sketch_connection_index_.reset();
-        trajectory_sketch_start_point_id_.clear();
-        trajectory_sketch_end_point_id_.clear();
-        properties_dialog_ = parent;
-        construction_reference_dialog_ = parent;
-        parent->set_curve_connection_sketch(connection_index, sketch,
-            start_point_id, end_point_id, true);
-        parent->show();
-        parent->raise();
-        parent->activateWindow();
-        preserve_view_on_refresh_ = true;
-        refresh_scene();
-        state_->setText(tr(
-            "Sketch byl uložen do návrhu 3D trajektorie. Potvrďte celý "
-            "kontejner tlačítkem OK."));
-        return;
-    }
+
     const std::string finished_sketch_id = active_sketch_id_;
     std::string return_container_id;
     std::optional<zima::document::FeatureKind> return_feature_kind;
@@ -16056,6 +15766,7 @@ void AssemblyWorkspaceWindow::cancel_sketch_bspline() {
     sketch_bspline_active_ = false;
     sketch_bspline_interpolating_ = false;
     pending_bspline_points_.clear();
+    viewer_->set_command_snap_points({});
     pending_curve_point_snaps_.clear();
     viewer_->set_transient_edges({});
 }
@@ -16071,12 +15782,17 @@ bool AssemblyWorkspaceWindow::accept_sketch_bspline_ray(
     if (!pending_bspline_points_.empty()) {
         const auto& previous = pending_bspline_points_.back();
         if (std::hypot((*position)[0] - previous[0], (*position)[1] - previous[1]) <=
-            1.0e-9) {
+            1.0e-6) {
             state_->setText(tr("Po sobě jdoucí body spline musí být odlišné."));
             return true;
         }
     }
     pending_bspline_points_.push_back(*position);
+    if(pending_bspline_points_.size()>=3) {
+        const auto& first=pending_bspline_points_.front();
+        viewer_->set_command_snap_points({{sketch->world_point(first[0],first[1]),
+            {active_sketch_id_,"point:pending-spline-start",{}}}});
+    }
     pending_curve_point_snaps_.push_back({
         std::exchange(pending_sketch_snap_geometry_id_, {}),
         std::exchange(pending_sketch_snap_kind_, std::nullopt)});
@@ -16111,12 +15827,14 @@ bool AssemblyWorkspaceWindow::finish_sketch_bspline() {
                 for (std::size_t index = 0;
                      index < point_ids.size() &&
                          index < pending_curve_point_snaps_.size(); ++index) {
+                    if(pending_curve_point_snaps_[index].first=="pending-spline-start") continue;
                     apply_sketch_point_snap(sketch, point_ids[index],
                         pending_curve_point_snaps_[index].first,
                         pending_curve_point_snaps_[index].second);
                 }
             })) return true;
         pending_bspline_points_.clear();
+    viewer_->set_command_snap_points({});
         pending_curve_point_snaps_.clear();
         clear_completed_sketch_interaction();
         preserve_view_on_refresh_ = true;
@@ -16144,7 +15862,12 @@ void AssemblyWorkspaceWindow::preview_sketch_bspline_ray(
         return;
     }
     auto preview_points = pending_bspline_points_;
-    preview_points.push_back(*position);
+    // The pointer often stays on the just-confirmed point, especially
+    // while snapped to an axis. Do not append a second copy that add_bspline
+    // would merge into an invalid pair of consecutive control-point IDs.
+    const auto& last=preview_points.back();
+    if (std::hypot((*position)[0]-last[0],(*position)[1]-last[1])>1.0e-6)
+        preview_points.push_back(*position);
     if (preview_points.size() < 3) {
         zima::kernel::ViewerEdge preview;
         for (const auto& point : preview_points) {
@@ -16157,20 +15880,27 @@ void AssemblyWorkspaceWindow::preview_sketch_bspline_ray(
         viewer_->set_transient_points(std::move(accepted));
         return;
     }
-    auto preview_sketch = *sketch;
-    const auto degree = std::min<unsigned>(3,
-        static_cast<unsigned>(preview_points.size() - 1));
-    const auto preview_id = preview_sketch.add_bspline(
-        preview_points, degree, false, false, 1.0e-6,
-        sketch_bspline_interpolating_);
-    auto mesh = preview_sketch.viewer_mesh();
-    const auto edge = std::find_if(mesh.edges.rbegin(), mesh.edges.rend(),
-        [&](const auto& value) {
-            return value.reference.semantic_key == "bspline:" + preview_id;
-        });
-    viewer_->set_transient_edges(edge == mesh.edges.rend()
-        ? std::vector<zima::kernel::ViewerEdge>{}
-        : std::vector<zima::kernel::ViewerEdge>{*edge});
+    try {
+        auto preview_sketch = *sketch;
+        const auto degree = std::min<unsigned>(3,
+            static_cast<unsigned>(preview_points.size() - 1));
+        const auto preview_id = preview_sketch.add_bspline(
+            preview_points, degree, false, false, 1.0e-6,
+            sketch_bspline_interpolating_);
+        auto mesh = preview_sketch.viewer_mesh();
+        const auto edge = std::find_if(mesh.edges.rbegin(), mesh.edges.rend(),
+            [&](const auto& value) {
+                return value.reference.semantic_key == "bspline:" + preview_id;
+            });
+        viewer_->set_transient_edges(edge == mesh.edges.rend()
+            ? std::vector<zima::kernel::ViewerEdge>{}
+            : std::vector<zima::kernel::ViewerEdge>{*edge});
+    } catch (const std::exception& error) {
+        // Preview is transient; a temporarily invalid shape must never let
+        // an exception escape into Qt's mouse-event dispatch.
+        viewer_->set_transient_edges({});
+        state_->setText(tr("Náhled spliny: %1").arg(QString::fromUtf8(error.what())));
+    }
     std::vector<zima::kernel::Vec3> accepted;
     for (const auto& point : pending_bspline_points_)
         accepted.push_back(sketch->world_point(point[0], point[1]));
@@ -16321,7 +16051,11 @@ AssemblyWorkspaceWindow::sketch_candidate_snap_ray(
     if (candidate.kind == zima::viewer::CandidateKind::SketchPoint &&
         candidate.semantic_key.starts_with("point:")) {
         support_geometry_id = candidate.semantic_key.substr(6);
-        if (const auto* point = sketch->find_point(support_geometry_id)) {
+        if (support_geometry_id=="pending-spline-start" && sketch_bspline_active_ &&
+            pending_bspline_points_.size()>=3) {
+            position=pending_bspline_points_.front();
+            relation=zima::sketcher::ConstraintKind::Coincident;
+        } else         if (const auto* point = sketch->find_point(support_geometry_id)) {
             position = std::array{point->x, point->y};
             relation = zima::sketcher::ConstraintKind::Coincident;
         }
@@ -17918,7 +17652,8 @@ void AssemblyWorkspaceWindow::set_sketch_tangent_contract() {
             (candidate.semantic_key.starts_with("circle:") ||
              candidate.semantic_key.starts_with("arc:") ||
              candidate.semantic_key.starts_with("ellipse:") ||
-             candidate.semantic_key.starts_with("elliptical_arc:"));
+             candidate.semantic_key.starts_with("elliptical_arc:") ||
+             candidate.semantic_key.starts_with("bspline:"));
     };
     const auto segment_candidate = [](const auto& candidate) {
         return candidate.kind == zima::viewer::CandidateKind::SketchSegment &&
@@ -17929,7 +17664,8 @@ void AssemblyWorkspaceWindow::set_sketch_tangent_contract() {
             (candidate.semantic_key.starts_with("circle:") ||
              candidate.semantic_key.starts_with("arc:") ||
              candidate.semantic_key.starts_with("ellipse:") ||
-             candidate.semantic_key.starts_with("elliptical_arc:"));
+             candidate.semantic_key.starts_with("elliptical_arc:") ||
+             candidate.semantic_key.starts_with("bspline:"));
     };
     if (pending_tangent_geometry_id_.empty()) {
         viewer_->set_selection_contract({
@@ -17951,13 +17687,22 @@ void AssemblyWorkspaceWindow::set_sketch_tangent_contract() {
         pending_tangent_reference_supports_curve_pair_;
     const auto pending_geometry_id = pending_tangent_geometry_id_;
     viewer_->set_candidate_filter(
-        [owner_id, first_pending, reference_is_segment,
+        [this, owner_id, first_pending, reference_is_segment,
          reference_supports_curve_pair, pending_geometry_id,
          curve_candidate, segment_candidate,
          curve_pair_candidate](const auto& candidate) {
             if (candidate.owner_id != owner_id) return false;
             if (!first_pending) {
                 return segment_candidate(candidate) || curve_candidate(candidate);
+            }
+            const auto* sketch=active_sketch();
+            const bool pending_spline=sketch && std::ranges::any_of(sketch->bsplines,
+                [&](const auto& value){return value.id==pending_geometry_id;});
+            const bool candidate_spline=candidate.semantic_key.starts_with("bspline:");
+            if ((pending_spline && candidate.kind==zima::viewer::CandidateKind::SketchCurve) ||
+                (candidate_spline && !reference_is_segment)) {
+                return sketch && sketch->spline_tangent_contact(pending_geometry_id,
+                    candidate.semantic_key.substr(candidate.semantic_key.find(':')+1)).has_value();
             }
             const auto separator = candidate.semantic_key.find(':');
             if (separator != std::string::npos &&
@@ -18007,10 +17752,9 @@ void AssemblyWorkspaceWindow::accept_sketch_tangent_selection(
                 std::string_view{"bspline:"}}) {
             if (candidate.semantic_key.starts_with(prefix)) {
                 geometry_id = candidate.semantic_key.substr(prefix.size());
-                // Analytic conics support curve-to-curve tangency. A B-spline
-                // currently has a persisted local tangent and therefore
-                // supports the unambiguous line-to-curve relation only.
-                supports_curve_pair = prefix != std::string_view{"bspline:"};
+                // Spline pairs require a shared endpoint; the selection
+                // contract checks the persisted C junction before offering them.
+                supports_curve_pair = true;
                 break;
             }
         }
@@ -18021,6 +17765,11 @@ void AssemblyWorkspaceWindow::accept_sketch_tangent_selection(
         pending_tangent_reference_is_segment_ = is_segment;
         pending_tangent_reference_supports_curve_pair_ = supports_curve_pair;
         set_sketch_tangent_contract();
+        if (candidate.semantic_key.starts_with("bspline:")) {
+            state_->setText(tr("Tečná vazba: vyberte druhou splinu se společným koncovým bodem C, "
+                "stejnou splinu s konci spojenými C (alespoň 4 různé body), nebo úsečku."));
+            return;
+        }
         state_->setText(is_segment
             ? tr("Tečná vazba: vyberte řízenou kružnici, oblouk, elipsu, "
                  "eliptický oblouk nebo B-spline.")
@@ -18030,7 +17779,8 @@ void AssemblyWorkspaceWindow::accept_sketch_tangent_selection(
                 : tr("Tečná vazba: vyberte řízenou úsečku."));
         return;
     }
-    if (geometry_id == pending_tangent_geometry_id_) {
+    if (geometry_id == pending_tangent_geometry_id_ &&
+        !active_sketch()->spline_tangent_contact(geometry_id,geometry_id)) {
         state_->setText(tr("Tečná vazba: vyberte jinou druhou geometrii."));
         return;
     }
@@ -21384,6 +21134,7 @@ void AssemblyWorkspaceWindow::show_sketch_dimension_properties(
     }
     auto* dialog = new SketchDimensionPropertiesDialog(
         std::move(initial), true, commit_dimension, this);
+    dialog->set_dimension_identifier(dimension_identifier(sketch_id, "dimension:" + dimension_id));
     properties_dialog_ = dialog;
     connect(dialog, &QObject::destroyed, this, [this] {
         properties_dialog_ = nullptr;
@@ -23726,6 +23477,34 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         auto mesh = construction_preview_mesh_.has_value()
             ? *construction_preview_mesh_
             : document.construction_viewer_mesh({}, scene_size);
+        if constexpr (requires { document.history; }) {
+            std::unordered_set<std::string> visible_ids;
+            for (std::size_t i = 0; i < std::min(document.effective_history_cursor(), document.history_order.size()); ++i)
+                visible_ids.insert(document.history_order[i].id);
+            for (std::size_t i = 0; i < document.history.size(); ++i) {
+                if (part_rollback_ && part_rollback_->part_document_id == document.document_id &&
+                    i >= part_rollback_->history_limit) break;
+                const auto& feature = document.history[i];
+                if (feature.feature_kind != zima::document::FeatureKind::Sweep3D ||
+                    feature.suppressed || (!document.history_order.empty() && !visible_ids.contains(feature.id))) continue;
+                // The live path already supplies pending geometry and annotations.
+                if (construction_parameter_preview_ &&
+                    construction_parameter_preview_->id == feature.sweep3d.path.id) continue;
+                zima::document::PartDocument path_display;
+                path_display.constructions.push_back(sweep_display_path(feature));
+                auto path_mesh = path_display.construction_viewer_mesh();
+                for (auto& edge : path_mesh.edges) {
+                    if (!zima::viewer::is_curve3d_edge(edge.reference.semantic_key)) continue;
+                    edge.display_owner_id = feature.id;
+                    mesh.edges.push_back(std::move(edge));
+                }
+                if (construction_dimension_object_id_ == feature.id) {
+                    const auto radii = zima::document::curve3d_radius_dimensions(
+                        path_display.constructions.front());
+                    mesh.dimensions.insert(mesh.dimensions.end(), radii.begin(), radii.end());
+                }
+            }
+        }
         const auto* stored_object = document.find_construction(
             construction_dimension_object_id_);
         const bool construction_properties_preview =
@@ -23734,6 +23513,11 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                     construction_dimension_object_id_;
         const auto* object = construction_properties_preview
             ? &*construction_parameter_preview_ : stored_object;
+        if (object && object->kind == zima::document::ConstructionKind::Curve3D &&
+            !construction_preview_mesh_) {
+            const auto radii = zima::document::curve3d_radius_dimensions(*object);
+            mesh.dimensions.insert(mesh.dimensions.end(), radii.begin(), radii.end());
+        }
         const auto append_dimension = [&](const std::string& owner,
                 const char* key, const char* label,
                 zima::kernel::Vec3 witness_first,
@@ -24608,7 +24392,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         regenerate_action_->setEnabled(false);
         for (auto* action : {box_action_, cylinder_action_, thread_action_, shaft_thread_action_, drill_point_action_, sphere_action_, cone_action_,
                              pyramid_action_, wedge_action_, construction_point_action_,
-                             curve_3d_action_, curve_3d_experimental_action_,
+                             curve_3d_action_,
                              sweep_3d_action_, helical_sweep_action_, sweep2d_action_,
                              construction_axis_action_, construction_plane_action_,
                              sketch_action_, extrusion_action_, revolution_action_,
@@ -24666,11 +24450,9 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         // Assembly toolbar while a Part tab is actually being displayed.
         active_application_ = ApplicationMode::Modeling;
         tree_->setHeaderLabels({tr("DÍL")});
-        const bool active_trajectory_sketch = trajectory_sketch_draft_ &&
-            trajectory_sketch_draft_->id == active_sketch_id_;
         const bool active_sweep_profile_sketch = sweep_profile_sketch_draft_ &&
             sweep_profile_sketch_draft_->id == active_sketch_id_;
-        if (!active_sketch_id_.empty() && !active_trajectory_sketch &&
+        if (!active_sketch_id_.empty() &&
             !active_sweep_profile_sketch &&
             std::none_of(document.sketches.begin(), document.sketches.end(),
                 [&](const auto& sketch) { return sketch.id == active_sketch_id_; })) {
@@ -24678,8 +24460,6 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             cancel_sketch_segment();
         }
         if (!selected_sketch_id_.empty() &&
-            !(trajectory_sketch_draft_ &&
-              trajectory_sketch_draft_->id == selected_sketch_id_) &&
             !(sweep_profile_sketch_draft_ &&
               sweep_profile_sketch_draft_->id == selected_sketch_id_) &&
             std::none_of(
@@ -24693,8 +24473,6 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                     return sketch.id == active_sketch_id_;
                 });
             if (found != document.sketches.end()) populate_sketch_tree(*found);
-            else if (active_trajectory_sketch)
-                populate_sketch_tree(*trajectory_sketch_draft_);
             else if (active_sweep_profile_sketch)
                 populate_sketch_tree(*sweep_profile_sketch_draft_);
         } else {
@@ -25194,11 +24972,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                 if (active != document.sketches.end()) {
                     append_mesh(display, sketch_viewer_mesh(*active));
                 }
-                if (trajectory_sketch_draft_ &&
-                    trajectory_sketch_draft_->id == active_sketch_id_) {
-                    append_mesh(display,
-                        sketch_viewer_mesh(*trajectory_sketch_draft_));
-                }
+
                 if (sweep_profile_sketch_draft_ &&
                     sweep_profile_sketch_draft_->id == active_sketch_id_) {
                     append_mesh(display,
@@ -25313,11 +25087,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                 }
                 append_mesh(display, std::move(sketch_mesh));
             }
-            if (trajectory_sketch_draft_ &&
-                trajectory_sketch_draft_->id == active_sketch_id_) {
-                append_mesh(display,
-                    sketch_viewer_mesh(*trajectory_sketch_draft_));
-            }
+
             if (sweep_profile_sketch_draft_ &&
                 sweep_profile_sketch_draft_->id == active_sketch_id_) {
                 append_mesh(display,
@@ -25398,7 +25168,6 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         shell_action_->setEnabled(!document.history.empty());
         construction_point_action_->setEnabled(true);
         curve_3d_action_->setEnabled(true);
-        curve_3d_experimental_action_->setEnabled(true);
         sweep_3d_action_->setEnabled(true);
         helical_sweep_action_->setEnabled(true);
         sweep2d_action_->setEnabled(true);
@@ -25530,8 +25299,6 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         ? std::optional<std::string>{}
         : resolve_active_occurrence(active_part->session.document().document_id);
     if (active_part != nullptr && !active_sketch_id_.empty() &&
-        !(trajectory_sketch_draft_ &&
-          trajectory_sketch_draft_->id == active_sketch_id_) &&
         !(sweep_profile_sketch_draft_ &&
           sweep_profile_sketch_draft_->id == active_sketch_id_) &&
         std::none_of(active_part->session.document().sketches.begin(),
@@ -25881,7 +25648,6 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         workspace_.open_assembly(workspace_.active_document_id()) != nullptr;
     construction_point_action_->setEnabled(supports_constructions);
     curve_3d_action_->setEnabled(supports_constructions);
-    curve_3d_experimental_action_->setEnabled(supports_constructions);
     sweep_3d_action_->setEnabled(active_part != nullptr);
     helical_sweep_action_->setEnabled(active_part != nullptr);
     sweep2d_action_->setEnabled(active_part != nullptr);
@@ -26401,9 +26167,7 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
         }
         item->setIcon(0, resource_icon(
             object.kind == zima::document::ConstructionKind::Point ? "point"
-                : object.kind == zima::document::ConstructionKind::Curve3D ||
-                  object.kind ==
-                      zima::document::ConstructionKind::Curve3DExperimental
+                : object.kind == zima::document::ConstructionKind::Curve3D
                     ? "sketch-3d"
                 : object.kind == zima::document::ConstructionKind::Axis
                     ? "axis" : "plane"));
@@ -26548,9 +26312,7 @@ void AssemblyWorkspaceWindow::add_assembly_tree_children(
             item->setData(0, Qt::UserRole + 3, "assembly-construction");
             item->setIcon(0, resource_icon(
                 object.kind == zima::document::ConstructionKind::Point ? "point"
-                    : object.kind == zima::document::ConstructionKind::Curve3D ||
-                      object.kind ==
-                          zima::document::ConstructionKind::Curve3DExperimental
+                    : object.kind == zima::document::ConstructionKind::Curve3D
                         ? "sketch-3d"
                     : object.kind == zima::document::ConstructionKind::Axis
                         ? "axis" : "plane"));
@@ -26812,6 +26574,16 @@ void AssemblyWorkspaceWindow::show_component_properties(
         start_component_placement_reference_selection(0, true, true);
 }
 
+QString AssemblyWorkspaceWindow::dimension_identifier(
+    const std::string& owner, const std::string& key) const {
+    const auto id = workspace_.active_document_id();
+    if (const auto* part = workspace_.open_part(id))
+        return QString::fromStdString(part->session.document().dimension_identifiers.identifier(owner,key));
+    if (const auto* assembly = workspace_.open_assembly(id))
+        return QString::fromStdString(assembly->session.document().dimension_identifiers.identifier(owner,key));
+    return {};
+}
+
 void AssemblyWorkspaceWindow::edit_dimension_inline(
     const zima::viewer::ViewerCandidate& candidate) {
     if (candidate.semantic_key.starts_with("measurement:")) return;
@@ -26893,6 +26665,9 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
     auto* edit = new InlineDimensionEdit(viewer_);
     inline_dimension_edit_ = edit;
     edit->setObjectName("inlineDimensionValueEdit");
+    const auto identifier = dimension_identifier(candidate.owner_id, candidate.semantic_key);
+    edit->setProperty("dimensionIdentifier", identifier);
+    edit->setToolTip(identifier);
     edit->setText(QString::number(
         *value, 'f', viewer_->dimension_decimal_places()));
     edit->setAlignment(Qt::AlignCenter);
@@ -26944,6 +26719,68 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                 if (!shaft_thread_dialog_->set_numeric(std::string_view(candidate.semantic_key).substr(10),next_value))
                     throw std::runtime_error("Tuto kótu nelze upravit.");
                 guarded->deleteLater();return;
+            }
+            if (candidate.semantic_key == "parameter:radius") {
+                if (construction_reference_dialog_ != nullptr &&
+                    construction_reference_dialog_->owns_reference_owner(candidate.owner_id)) {
+                    if (!construction_reference_dialog_->set_curve_point_radius(
+                            candidate.owner_id, next_value))
+                        throw std::runtime_error("Tento radius nelze právě upravit.");
+                    guarded->hide();
+                    guarded->deleteLater();
+                    return;
+                }
+                std::string radius_owner;
+                const auto edit_path = [&](zima::document::ConstructionObject& path,
+                                           const std::string& owner) {
+                    if (path.kind != zima::document::ConstructionKind::Curve3D)
+                        return false;
+                    for (std::size_t i = 1; i + 1 < path.curve_points.size(); ++i) {
+                        if (path.curve_points[i].id != candidate.owner_id) continue;
+                        if (!path.curve_rounding_enabled ||
+                            path.curve_type != zima::document::Curve3DType::Polyline ||
+                            next_value < 0)
+                            throw std::runtime_error("Tento radius nelze právě upravit.");
+                        path.curve_points[i].curve_radius = next_value;
+                        static_cast<void>(zima::document::curve3d_route(path));
+                        radius_owner = owner;
+                        return true;
+                    }
+                    return false;
+                };
+                if (auto* source = workspace_.open_part(workspace_.active_document_id())) {
+                    auto next = source->session.document();
+                    for (auto& path : next.constructions)
+                        if (edit_path(path, path.id)) break;
+                    if (radius_owner.empty()) {
+                        for (auto& feature : next.history)
+                            if (feature.feature_kind == zima::document::FeatureKind::Sweep3D &&
+                                edit_path(feature.sweep3d.path, feature.id)) break;
+                    }
+                    if (!radius_owner.empty()) {
+                        auto calculated = calculate_part_with_resolved_references(
+                            next, &source->session.calculated_boundaries());
+                        source->session.commit(std::move(next), std::move(calculated));
+                    }
+                } else if (auto* source = workspace_.open_assembly(workspace_.active_document_id())) {
+                    auto next = source->session.document();
+                    for (auto& path : next.constructions)
+                        if (edit_path(path, path.id)) break;
+                    if (!radius_owner.empty()) {
+                        next.resolve_constructions();
+                        source->session.commit(std::move(next));
+                    }
+                }
+                if (!radius_owner.empty()) {
+                    guarded->hide();
+                    construction_dimension_object_id_ = radius_owner;
+                    preserve_view_on_refresh_ = true;
+                    refresh_tabs();
+                    refresh_scene();
+                    state_->setText(tr("Radius byl změněn přímo ve view."));
+                    guarded->deleteLater();
+                    return;
+                }
             }
             PlacementReferenceDialog* inline_placement_dialog =
                 construction_reference_dialog_ != nullptr
@@ -27437,9 +27274,7 @@ void AssemblyWorkspaceWindow::show_tree_item_properties(QTreeWidgetItem* item) {
         const auto* curve = part == nullptr
             ? nullptr : part->session.document().find_construction(parent_id);
         if (curve != nullptr &&
-            (curve->kind == zima::document::ConstructionKind::Curve3D ||
-             curve->kind ==
-                 zima::document::ConstructionKind::Curve3DExperimental)) {
+            (curve->kind == zima::document::ConstructionKind::Curve3D)) {
             const auto found = std::find_if(
                 curve->curve_points.begin(), curve->curve_points.end(),
                 [&id](const auto& point) { return point.id == id; });

@@ -170,6 +170,9 @@ struct PointResolution {
 
 class AssemblyDocument {
 public:
+    zima::document::DimensionIdentifiers dimension_identifiers;
+    [[nodiscard]] std::vector<zima::document::DimensionParameter> dimension_parameters() const;
+    void synchronize_dimension_identifiers();
     std::string document_id;
     std::string name{"Nová sestava"};
     std::map<std::string, std::string> user_parameters;

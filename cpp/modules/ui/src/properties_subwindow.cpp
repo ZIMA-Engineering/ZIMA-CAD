@@ -256,7 +256,10 @@ bool PropertiesSubWindow::eventFilter(QObject* watched, QEvent* event) {
             else unsetCursor();
         }
     }
-    if (isVisible() && event->type() == QEvent::MouseButtonDblClick) {
+    const bool inside_owner = watched_widget && parentWidget() &&
+        (watched_widget == parentWidget() || parentWidget()->isAncestorOf(watched_widget));
+    if (isVisible() && (inside_dialog || inside_owner) &&
+        event->type() == QEvent::MouseButtonDblClick) {
         const auto* mouse = static_cast<QMouseEvent*>(event);
         if (mouse->button() == Qt::MiddleButton) {
             if (auto* ok = buttons_->button(QDialogButtonBox::Ok);

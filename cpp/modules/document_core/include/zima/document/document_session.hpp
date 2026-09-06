@@ -56,6 +56,7 @@ private:
     std::vector<State> redo_;
     std::uint64_t next_revision_{1};
     std::uint64_t saved_revision_{};
+    std::uint64_t saved_dimension_allocations_{};
 };
 
 }  // namespace zima::document

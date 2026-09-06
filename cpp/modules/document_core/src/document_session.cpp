@@ -67,12 +67,15 @@ DocumentSession::DocumentSession(
     std::vector<zima::kernel::BodyResult> calculated_boundaries)
     : current_{std::move(document), std::move(calculated_boundaries), 0, false} {
     retain_shaft_reference_geometry(current_.document,current_.calculated_boundaries);
+    current_.document.synchronize_dimension_identifiers();
+    saved_dimension_allocations_ = current_.document.dimension_identifiers.allocation_count();
 }
 
 const PartDocument& DocumentSession::document() const { return current_.document; }
 std::uint64_t DocumentSession::revision() const { return current_.revision; }
 bool DocumentSession::is_dirty() const {
-    return current_.revision != saved_revision_ || current_.calculated_state_dirty;
+    return current_.revision != saved_revision_ || current_.calculated_state_dirty ||
+        current_.document.dimension_identifiers.allocation_count() != saved_dimension_allocations_;
 }
 bool DocumentSession::can_undo() const { return !undo_.empty(); }
 bool DocumentSession::can_redo() const { return !redo_.empty(); }
@@ -174,12 +177,16 @@ void DocumentSession::replace(
     redo_.clear();
     next_revision_ = 1;
     saved_revision_ = 0;
+    current_.document.synchronize_dimension_identifiers();
+    saved_dimension_allocations_ = current_.document.dimension_identifiers.allocation_count();
 }
 
 void DocumentSession::commit(
     PartDocument document,
     std::vector<zima::kernel::BodyResult> calculated_boundaries) {
     retain_shaft_reference_geometry(document,calculated_boundaries);
+    document.dimension_identifiers.retain(current_.document.dimension_identifiers);
+    document.synchronize_dimension_identifiers();
     undo_.push_back(std::move(current_));
     current_ = {
         std::move(document), std::move(calculated_boundaries), next_revision_++, false};
@@ -198,6 +205,7 @@ bool DocumentSession::undo() {
     redo_.push_back(std::move(current_));
     current_ = std::move(undo_.back());
     undo_.pop_back();
+    current_.document.dimension_identifiers.retain(redo_.back().document.dimension_identifiers);
     return true;
 }
 
@@ -206,11 +214,13 @@ bool DocumentSession::redo() {
     undo_.push_back(std::move(current_));
     current_ = std::move(redo_.back());
     redo_.pop_back();
+    current_.document.dimension_identifiers.retain(undo_.back().document.dimension_identifiers);
     return true;
 }
 
 void DocumentSession::mark_saved() {
     saved_revision_ = current_.revision;
+    saved_dimension_allocations_ = current_.document.dimension_identifiers.allocation_count();
     current_.calculated_state_dirty = false;
 }
 

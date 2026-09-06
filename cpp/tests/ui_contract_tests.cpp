@@ -639,6 +639,10 @@ int main(int argc, char* argv[]) {
             Qt::MiddleButton,
             Qt::MiddleButton,
             Qt::NoModifier);
+        QWidget unrelated_window;
+        QApplication::sendEvent(&unrelated_window, &middle_double_click);
+        require(middle_commits == 0,
+            "Middle double-click in another workspace confirmed this dialog");
         QApplication::sendEvent(&parent, &middle_double_click);
         application.processEvents();
         require(middle_commits == 1,
@@ -893,6 +897,34 @@ int main(int argc, char* argv[]) {
             "Tree component selection remained hidden inside the solid");
         internal_wire_view.hide();
 
+        // A rounding edge is an overlay, so it must be painted even when no
+        // straight route segment is present and the solid edge pass skips it.
+        zima::kernel::ViewerMesh rounded_route_mesh;
+        rounded_route_mesh.vertices = {{-2,-2,-1},{2,2,1}};
+        zima::kernel::ViewerEdge rounded_route_edge;
+        rounded_route_edge.reference = {"curve-entity","curve:rounding:point-b",{}};
+        rounded_route_edge.display_owner_id = "curve-container";
+        rounded_route_edge.overlay = true;
+        for (int i=0; i<=24; ++i) {
+            const double angle = std::acos(-1.0) * (1.0 + i / 24.0);
+            rounded_route_edge.points.push_back({std::cos(angle),1+std::sin(angle),0});
+        }
+        rounded_route_mesh.edges.push_back(rounded_route_edge);
+        zima::viewer::MeshView rounded_route_view(&parent);
+        rounded_route_view.setGeometry(0,0,500,360);
+        rounded_route_view.set_mesh(rounded_route_mesh);
+        rounded_route_view.set_view_direction({0,0,1});
+        rounded_route_view.show();
+        for (const auto mode : {zima::viewer::DisplayMode::Wire,
+                zima::viewer::DisplayMode::ShadedWithEdges, zima::viewer::DisplayMode::Shaded}) {
+            rounded_route_view.set_display_mode(mode);
+            application.processEvents();
+            require(framebuffer_contains_color_near(rounded_route_view.grabFramebuffer(),
+                rounded_route_view.size(),QPointF(250,180),QColor(255,255,255)),
+                "3D rounding arc is absent from the rendered View");
+        }
+        rounded_route_view.hide();
+
         zima::kernel::ViewerMesh face_cycle_mesh;
         face_cycle_mesh.vertices = {
             {-1.0, -1.0, 1.0}, {1.0, -1.0, 1.0},
@@ -1005,6 +1037,28 @@ int main(int argc, char* argv[]) {
                 "Viewer could not resolve a calculated display edge by its "
                 "stable ZIMA identity for an analytical preview");
 
+        zima::viewer::MeshView pending_point_view(&parent);
+        pending_point_view.setGeometry(0,0,500,360);
+        zima::kernel::ViewerMesh pending_mesh;
+        pending_mesh.vertices={{-10,-10,0},{10,10,0}};
+        pending_point_view.set_mesh(pending_mesh);
+        pending_point_view.set_view_direction({0,0,1});
+        pending_point_view.set_active_sketch_owner("pending-sketch");
+        pending_point_view.set_selection_contract({zima::viewer::CandidateKind::SketchPoint});
+        pending_point_view.set_command_snap_points({{{0,0,0},
+            {"pending-sketch","point:pending-spline-start",{}}}});
+        pending_point_view.show();
+        application.processEvents();
+        const auto pending_candidates=pending_point_view.selection_candidates_at(QPointF(250,180));
+        require(!pending_candidates.empty() &&
+                pending_candidates.front().semantic_key=="point:pending-spline-start" &&
+                pending_point_view.candidate_point(pending_candidates.front()).has_value(),
+            "Pending spline start is missing from the shared candidate stream");
+        pending_point_view.set_command_snap_points({});
+        require(pending_point_view.selection_candidates_at(QPointF(250,180)).empty(),
+            "Finished spline retained a transient selectable start point");
+        pending_point_view.hide();
+
         zima::kernel::ViewerMesh zero_dimension_mesh;
         zero_dimension_mesh.axes.push_back({
             {0.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, 20.0,
@@ -1018,6 +1072,8 @@ int main(int argc, char* argv[]) {
             {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0},
             {15.0, 0.0, 0.0}, {15.0, 0.0, 0.0}, 0.0,
             {"sketch", "dimension:zero-y", {}}, "Y "});
+        zero_dimension_mesh.dimensions.back().participant_semantic_keys =
+            {"point:dimension-owner", "sketch_axis:y"};
         zima::viewer::MeshView zero_dimension_view(&parent);
         zero_dimension_view.set_dimension_decimal_places(5);
         require(zero_dimension_view.dimension_decimal_places() == 5,
@@ -1042,6 +1098,17 @@ int main(int argc, char* argv[]) {
         require(cyan_pixels>300,"Selected constraint highlighted its glyph but not its participating axis");
         zero_dimension_view.confirm_reference("sketch", "dimension:zero-y", {},
             zima::viewer::CandidateKind::Dimension);
+        application.processEvents();
+        const auto dimension_participants=zero_dimension_view.grabFramebuffer();
+        std::size_t dimension_cyan_pixels=0;
+        for (int y=0;y<dimension_participants.height();++y)
+            for (int x=0;x<dimension_participants.width();++x) {
+                const auto pixel=dimension_participants.pixelColor(x,y);
+                if (pixel.red()<70 && pixel.green()>180 && pixel.blue()>210)
+                    ++dimension_cyan_pixels;
+            }
+        require(dimension_cyan_pixels>300,
+            "Selected dimension did not highlight its participating axis and point");
         const auto zero_dimension_candidate =
             zero_dimension_view.confirmed_candidate();
         const auto zero_dimension_label = zero_dimension_candidate
@@ -2597,6 +2664,7 @@ int main(int argc, char* argv[]) {
         curve_point_b.curve_tangent =
             zima::document::Curve3DTangentMode::PositiveX;
         curve_point_b.curve_tangent_enabled = true;
+        curve_point_b.origin = {0.0, 0.0, 20.0};
         curve_dialog->set_curve_point(std::nullopt, curve_point_a);
         curve_dialog->set_curve_point(std::nullopt, curve_point_b);
         std::optional<std::size_t> requested_curve_axis;
@@ -2606,7 +2674,7 @@ int main(int argc, char* argv[]) {
         application.processEvents();
         auto* curve_table =
             curve_dialog->findChild<QTableWidget*>("curve3DPoints");
-        require(curve_table != nullptr && curve_table->columnCount() == 5 &&
+        require(curve_table != nullptr && curve_table->columnCount() == 6 &&
                     curve_table->rowCount() == 2 &&
                     curve_table->horizontalHeaderItem(0)->text() == "Bod" &&
                     curve_table->horizontalHeaderItem(1)->text() == "Osa směru" &&
@@ -2727,11 +2795,8 @@ int main(int argc, char* argv[]) {
             [&](zima::document::HistoryContainer value) {
                 committed_sweep = std::move(value);
             }, &parent);
-        std::optional<std::optional<std::size_t>> requested_sweep_profile;
-        sweep_dialog->set_sweep_profile_point_request_callback(
-            [&](std::optional<std::size_t> index) {
-                requested_sweep_profile.emplace(index);
-            });
+        std::optional<std::size_t> edited_profile;
+        sweep_dialog->set_sweep_profile_edit_request_callback([&](std::size_t index){edited_profile=index;});
         sweep_dialog->show();
         application.processEvents();
         require(sweep_dialog->windowTitle() ==
@@ -2757,130 +2822,78 @@ int main(int argc, char* argv[]) {
                     sweep_subtract_operation->isChecked(),
                 "3D Sweep Subtract button did not update the pending history "
                 "operation");
-        sweep_dialog->findChild<QPushButton*>("sweep3DAddProfile")->click();
-        require(requested_sweep_profile &&
-                    !requested_sweep_profile->has_value(),
-                "Add Sketch did not request a path Point from the Viewer");
-        requested_sweep_profile.reset();
-        auto sweep_sketch = zima::sketcher::Sketch::create_default();
-        sweep_sketch.name = "Profil 1";
-        sweep_sketch.owner_container_id = sweep_initial.id;
-        static_cast<void>(
-            sweep_sketch.add_rectangle(-2.0, -3.0, 2.0, 3.0));
-        const auto original_sketch_id = sweep_sketch.id;
-        const auto original_points = sweep_sketch.points;
-        const auto original_segments = sweep_sketch.segments;
-        sweep_dialog->add_sweep_profile(sweep_point_a.id, sweep_sketch);
-        require(sweep_dialog->reassign_sweep_profile(0, sweep_point_b.id),
-                "3D Sweep dialog rejected profile reassignment");
-        const auto reassigned = sweep_dialog->pending_sweep_value();
-        const auto reassigned_sketch = zima::sketcher::Sketch::from_serialized(
-            reassigned.sweep3d.profiles.front().sketch_serialized);
-        require(reassigned.sweep3d.profiles.front().point_id == sweep_point_b.id &&
-                    reassigned_sketch.id == original_sketch_id &&
-                    reassigned_sketch.points == original_points &&
-                    reassigned_sketch.segments == original_segments &&
-                    std::abs(reassigned_sketch.resolved_origin.z - 10.0) < 1.0e-9,
-                "Reassigning a Sweep profile changed its Sketch identity or geometry");
-        sweep_dialog->erase_curve_point(1);
-        require(sweep_dialog->pending_sweep_value().sweep3d.profiles.empty(),
-                "Deleting a Sweep Point did not delete its assigned profile "
-                "inside the same pending transaction");
-        sweep_dialog->add_sweep_profile(sweep_point_c.id, sweep_sketch);
+        require(sweep_dialog->findChild<QPushButton*>("sweep3DAddProfile")==nullptr,
+            "Obsolete manual profile controls remain");
+        auto* stations=sweep_dialog->findChild<QTableWidget*>("sweep3DProfiles");
+        require(stations->rowCount()==4,"Automatic station rows missing");
+        require(!qobject_cast<QPushButton*>(stations->cellWidget(1,1))->isEnabled(),"Zero radius input station enabled");
+        qobject_cast<QPushButton*>(stations->cellWidget(2,1))->click();
+        require(edited_profile==0,"Station Sketch did not open its profile");
+        auto sweep_sketch=zima::sketcher::Sketch::from_serialized(sweep_dialog->sweep_profile(0)->sketch_serialized);
+        static_cast<void>(sweep_sketch.add_rectangle(-2,-3,2,3));
+        sweep_dialog->set_sweep_profile_sketch(0,sweep_sketch);
+        const auto identity=sweep_dialog->sweep_profile(0)->id;
+        auto p=sweep_point_c;p.origin={10,0,10};sweep_dialog->set_curve_point(2,p);
+        auto* rounding=sweep_dialog->findChild<QCheckBox*>("curve3DRounding");
+        require(rounding!=nullptr,"Rounding checkbox missing");
+        rounding->setChecked(true);
+        auto* corner_radius=qobject_cast<QDoubleSpinBox*>(sweep_dialog->findChild<QTableWidget*>("curve3DPoints")->cellWidget(1,5));
+        require(corner_radius&&corner_radius->isEnabled(),"Internal corner_radius not editable");corner_radius->setValue(2);
+        require(qobject_cast<QPushButton*>(stations->cellWidget(1,1))->isEnabled(),"Rounded input station not enabled");
+        auto pending=sweep_dialog->pending_sweep_value();
+        auto moved=zima::sketcher::Sketch::from_serialized(pending.sweep3d.profiles[0].sketch_serialized);
+        require(pending.sweep3d.profiles[0].id==identity&&std::abs(moved.resolved_origin.x-2)<1e-9,"Output profile did not follow rounding");
+        require(sweep_dialog->set_curve_point_radius(
+                    pending.sweep3d.path.curve_points[1].id, 3),
+            "Inline sweep radius was not accepted");
+        require(sweep_dialog->pending_value().curve_points[1].curve_radius==3 &&
+                corner_radius->value()==3 &&
+                sweep_dialog->pending_sweep_value().sweep3d.profiles[0].id==identity,
+            "Inline sweep radius lost its table value or station identity");
+        require(sweep_dialog->set_curve_point_radius(
+                    pending.sweep3d.path.curve_points[1].id, 2),
+            "Inline sweep radius could not be restored");
+        rounding->setChecked(false);
+        corner_radius=qobject_cast<QDoubleSpinBox*>(sweep_dialog->findChild<QTableWidget*>("curve3DPoints")->cellWidget(1,5));
+        require(!corner_radius->isEnabled()&&corner_radius->value()==0&&sweep_dialog->pending_value().curve_points[1].curve_radius==2,"Disabled corner_radius lost its stored value");
+        rounding->setChecked(true);
+        require(qobject_cast<QDoubleSpinBox*>(sweep_dialog->findChild<QTableWidget*>("curve3DPoints")->cellWidget(1,5))->value()==2,"Rounding toggle failed to restore corner_radius");
+        require(stations->columnCount()==4 &&
+                stations->item(0,3)->text()==QString::fromUtf8("Vyplňte první profil") &&
+                stations->item(2,3)->text()==QString::fromUtf8("Vlastní") &&
+                stations->item(3,3)->text()==QString::fromUtf8("Z bodu 2.2"),
+            "Sweep table did not identify required, explicit and inherited profiles");
+        auto* order_button=qobject_cast<QPushButton*>(stations->cellWidget(2,2));
+        require(order_button && order_button->isEnabled() &&
+                !qobject_cast<QPushButton*>(stations->cellWidget(3,2))->isEnabled(),
+            "Point order must be edited on the source profile");
+        std::string selected_start;
+        for(bool confirm : {false,true}) {
+            qobject_cast<QPushButton*>(stations->cellWidget(2,2))->click();
+            application.processEvents();
+            auto* order_dialog=dynamic_cast<zima::ui::PropertiesSubWindow*>(parent.findChild<QDialog*>("sweepPointOrderDialog"));
+            require(order_dialog && order_dialog->isVisible() && !sweep_dialog->isVisible() &&
+                    order_dialog->windowType()==Qt::SubWindow,
+                "Point order did not use the shared internal properties window");
+            auto* first=order_dialog->findChild<QComboBox*>("sweepFirstCorrespondencePoint");
+            require(first && first->count()==5,"Rectangle correspondence vertices missing");
+            first->setCurrentIndex(2);
+            selected_start=first->currentData().toString().toStdString();
+            require(sweep_dialog->pending_sweep_value().sweep3d.profiles[0].correspondence_start_point_id==selected_start,
+                "First point selection did not update the pending preview");
+            order_dialog->buttons()->button(confirm?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();
+            application.sendPostedEvents(nullptr,QEvent::DeferredDelete);
+            application.processEvents();
+            require(sweep_dialog->isVisible() &&
+                    sweep_dialog->pending_sweep_value().sweep3d.profiles[0].correspondence_start_point_id==
+                        (confirm?selected_start:std::string{}),
+                "Point order OK/Cancel lost its transaction or parent dialog");
+        }
         sweep_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
-        require(committed_sweep.feature_kind ==
-                    zima::document::FeatureKind::Sweep3D &&
-                    committed_sweep.combine_mode ==
-                        zima::document::CombineMode::Subtract &&
-                    committed_sweep.sweep3d.path.curve_points.size() == 2 &&
-                    committed_sweep.sweep3d.profiles.size() == 1 &&
-                    committed_sweep.sweep3d.profiles.front().point_id ==
-                        sweep_point_c.id,
-                "3D Sweep Properties did not commit its embedded path/profile model");
-
-        auto experimental_initial =
-            zima::document::PartDocument::create_construction(
-                zima::document::ConstructionKind::Curve3DExperimental);
-        zima::document::ConstructionObject committed_experimental;
-        auto* experimental_dialog =
-            new zima::app::ConstructionPropertiesDialog(
-                experimental_initial, false,
-                [&](zima::document::ConstructionObject value) {
-                    committed_experimental = std::move(value);
-                }, &parent);
-        auto experimental_a =
-            zima::document::PartDocument::create_construction(
-                zima::document::ConstructionKind::Point);
-        auto experimental_b =
-            zima::document::PartDocument::create_construction(
-                zima::document::ConstructionKind::Point);
-        auto experimental_c =
-            zima::document::PartDocument::create_construction(
-                zima::document::ConstructionKind::Point);
-        experimental_a.origin = {0.0, 0.0, 0.0};
-        experimental_b.origin = {10.0, 5.0, 0.0};
-        experimental_c.origin = {20.0, 0.0, 5.0};
-        experimental_dialog->set_curve_point(std::nullopt, experimental_a);
-        experimental_dialog->set_curve_point(std::nullopt, experimental_b);
-        experimental_dialog->set_curve_point(std::nullopt, experimental_c);
-        experimental_dialog->show();
-        application.processEvents();
-        auto* experimental_table = experimental_dialog->findChild<QTableWidget*>(
-            "curve3DExperimentalRows");
-        auto* first_connection_type =
-            experimental_dialog->findChild<QComboBox*>(
-                "curve3DExperimentalConnectionType0");
-        auto* second_connection_type =
-            experimental_dialog->findChild<QComboBox*>(
-                "curve3DExperimentalConnectionType1");
-        require(experimental_dialog->findChild<QComboBox*>(
-                    "curve3DExperimentalType") == nullptr &&
-                    experimental_table != nullptr &&
-                    first_connection_type != nullptr &&
-                    second_connection_type != nullptr &&
-                    experimental_table->columnCount() == 6 &&
-                    experimental_table->rowCount() == 5 &&
-                    experimental_table->item(0, 1)->text() == "Bod" &&
-                    experimental_table->item(1, 0)->text().contains("→") &&
-                    experimental_table->item(2, 1)->text() == "Bod",
-                "Experimental 3D trajectory lost its Point/connection sequence");
-        first_connection_type->setCurrentIndex(
-            first_connection_type->findData(
-            static_cast<int>(
-                zima::document::Curve3DConnectionType::InterpolatingSpline)));
-        second_connection_type->setCurrentIndex(
-            second_connection_type->findData(
-            static_cast<int>(
-                zima::document::Curve3DConnectionType::InterpolatingSpline)));
-        application.processEvents();
-        const auto spline_pending = experimental_dialog->pending_value();
-        require(spline_pending.curve_connections.size() == 2 &&
-                    spline_pending.curve_connections[0].type ==
-                        zima::document::Curve3DConnectionType::InterpolatingSpline &&
-                    spline_pending.curve_connections[1].type ==
-                        zima::document::Curve3DConnectionType::InterpolatingSpline &&
-                    spline_pending.curve_connections[0].generator_id ==
-                        spline_pending.curve_connections[1].generator_id,
-                "Adjacent spline rows did not merge into one persisted generator");
-        first_connection_type->setCurrentIndex(
-            first_connection_type->findData(static_cast<int>(
-                zima::document::Curve3DConnectionType::Line)));
-        second_connection_type->setCurrentIndex(
-            second_connection_type->findData(static_cast<int>(
-                zima::document::Curve3DConnectionType::Line)));
-        application.processEvents();
-        experimental_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
-        require(committed_experimental.kind ==
-                    zima::document::ConstructionKind::Curve3DExperimental &&
-                    committed_experimental.curve_connections.size() == 2 &&
-                    std::ranges::all_of(
-                        committed_experimental.curve_connections,
-                        [](const auto& connection) {
-                            return connection.type ==
-                                zima::document::Curve3DConnectionType::Line &&
-                                !connection.id.empty();
-                        }),
-                "Experimental polyline did not commit stable structural intervals");
+        require(committed_sweep.sweep3d.profiles[0].correspondence_start_point_id==selected_start,
+            "Sweep did not persist the chosen first point");
+        require(committed_sweep.sweep3d.path.curve_rounding_enabled&&committed_sweep.sweep3d.profiles.size()==1&&committed_sweep.sweep3d.profiles[0].id==identity,
+            "Sweep did not commit station profile and radii");
 
         auto extrusion_initial =
             zima::document::PartDocument::create_extrusion_container("sketch-profile");
@@ -3504,6 +3517,9 @@ int main(int argc, char* argv[]) {
                 ++dimension_commits;
                 committed_dimension = std::move(committed);
             }, &parent);
+        dimension_dialog->set_dimension_identifier("d42");
+        require(dimension_dialog->findChild<QLabel*>("sketchDimensionIdentifier")->text() == "d42",
+            "Dimension Properties did not expose its immutable identifier");
         dimension_dialog->show();
         auto* dimension_value =
             dimension_dialog->findChild<QDoubleSpinBox*>("sketchDimensionValue");
@@ -3635,6 +3651,16 @@ int main(int argc, char* argv[]) {
                 relation_committed = parameters["result"] == "6.000" &&
                     relations.size() == 1;
             }, tool_settings, &parent);
+        zima::document::DimensionIdentifiers identifiers;
+        const std::vector<zima::document::DimensionParameter> identifier_parameters{
+            {"assembly", "placement-reference:component:0", "Component"}};
+        identifiers.synchronize(identifier_parameters);
+        relations_dialog->set_dimension_catalog(identifier_parameters, identifiers);
+        auto* identifier_table = relations_dialog->findChild<QTableWidget*>("documentDimensionIdentifiers");
+        require(identifier_table && identifier_table->rowCount() == 1 &&
+            identifier_table->item(0,0)->text() == "d1" &&
+            identifier_table->editTriggers() == QAbstractItemView::NoEditTriggers,
+            "Relations dimension catalog omitted zero dimensions or allowed identifier editing");
         relations_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
         require(relation_committed, "Relations OK did not evaluate and commit");
 

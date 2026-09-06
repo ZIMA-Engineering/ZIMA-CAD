@@ -483,6 +483,18 @@ int main() {
                     zima::viewer::candidate_recolors_wire_edge(
                         curve_candidates.front(), curve_second),
                 "3D Curve hover, LMB and Tree did not resolve one complete container");
+        // A rounding-only hit must resolve to the same complete route owner.
+        auto rounding = curve_first;
+        rounding.reference.semantic_key = "curve:rounding:point-b";
+        rounding.points = {{-1,1,5},{0,0,5},{1,1,5}};
+        rounding.overlay = true;
+        curve_mesh.edges = {rounding};
+        const auto rounded_candidates = zima::viewer::filter_candidates(
+            zima::viewer::ordered_viewer_candidates(curve_mesh,
+                {0,0,0}, {0,0,1}, 0.01), {zima::viewer::CandidateKind::Container});
+        require(rounded_candidates.size()==1 && rounded_candidates.front().owner_id=="curve-container" &&
+            zima::viewer::candidate_recolors_wire_edge(rounded_candidates.front(), rounding),
+            "Rounded 3D Curve cannot be selected/highlighted as its owning container");
         zima::kernel::ViewerMesh separated;
         separated.vertices = {
             {-1.0, -1.0, 5.0}, {1.0, -1.0, 5.0}, {0.0, 1.0, 5.0}};

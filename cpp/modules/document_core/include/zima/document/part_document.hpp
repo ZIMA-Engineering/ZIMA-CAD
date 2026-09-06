@@ -3,6 +3,7 @@
 #include <zima/kernel/geometry_kernel.hpp>
 #include <zima/sketcher/sketch.hpp>
 #include <zima/document/relations.hpp>
+#include <zima/document/dimension_identifiers.hpp>
 
 #include <filesystem>
 #include <limits>
@@ -28,7 +29,7 @@ enum class EndTargetKind { Point, Plane, Face };
 enum class HoleType { Plain, MetricThread, PipeThread, WhitworthThread };
 enum class ThreadStandard { Metric, Whitworth, Pipe };
 enum class ThreadSide { Automatic, Internal, External };
-enum class ConstructionKind { Point, Curve3D, Curve3DExperimental, Axis, Plane };
+enum class ConstructionKind { Point, Curve3D, Axis, Plane };
 enum class Curve3DType { Polyline, InterpolatingSpline };
 enum class Curve3DTangentMode {
     Automatic,
@@ -38,51 +39,6 @@ enum class Curve3DTangentMode {
     NegativeY,
     PositiveZ,
     NegativeZ,
-};
-enum class Curve3DConnectionType {
-    Undefined,
-    Line,
-    InterpolatingSpline,
-    Sketch,
-    Biarc,
-    Corner,
-};
-enum class Curve3DSketchPlaneMode { Automatic, Custom };
-
-// One persisted interval between two ordered child Points of the
-// experimental 3D-Curve.  `generator_id` is deliberately distinct from the
-// interval identity: adjacent spline intervals share one generator identity
-// and are solved as one global interpolating spline, while Line/Biarc/Corner
-// intervals own an individual generator.  This keeps the UI's natural
-// Point/connection/Point sequence without falsely turning every spline knot
-// interval into an independent curve object.
-struct Curve3DConnection {
-    std::string id;
-    std::string generator_id;
-    std::string parent_construction_id;
-    std::string start_point_id;
-    std::string end_point_id;
-    Curve3DConnectionType type{Curve3DConnectionType::Undefined};
-    Curve3DTangentMode start_tangent{Curve3DTangentMode::PositiveX};
-    Curve3DTangentMode end_tangent{Curve3DTangentMode::PositiveX};
-    bool start_tangent_enabled{};
-    bool end_tangent_enabled{};
-    // Biarc solution-family selector.  0.5 is the balanced construction;
-    // endpoints/directions remain hard constraints for every value.
-    double weight{0.5};
-    // A trajectory Sketch is owned by this connection, not by Part history
-    // and not by a future Sweep profile.  It is kept as normal persisted ZIMA
-    // Sketch data so the regular Sketcher can edit it without involving OCCT.
-    Curve3DSketchPlaneMode sketch_plane_mode{
-        Curve3DSketchPlaneMode::Automatic};
-    std::string sketch_id;
-    std::string sketch_start_point_id;
-    std::string sketch_end_point_id;
-    std::string sketch_serialized;
-    std::string sketch_plane_reference_owner_id;
-    std::string sketch_plane_reference_semantic_key;
-    bool sketch_plane_valid{};
-    bool operator==(const Curve3DConnection&) const = default;
 };
 enum class LocalDatumPlane { XY, YZ, XZ };
 enum class PartHistoryKind { Feature, Sketch, Construction };
@@ -237,11 +193,10 @@ struct ConstructionObject {
     // Point's tangent automatically. The selected axis/sign above remains
     // persisted so re-enabling direction control restores the user's choice.
     bool curve_tangent_enabled{};
+    // Curve switch and per-child-Point radius. Disabling does not erase radii.
+    bool curve_rounding_enabled{};
+    double curve_radius{};
     std::vector<ConstructionObject> curve_points;
-    // Experimental 3D-Curve only. The legacy Curve3D intentionally keeps
-    // this empty and continues through its original curve_type/curve_points
-    // path unchanged.
-    std::vector<Curve3DConnection> curve_connections;
     // Plane-kind containers only: persisted work-plane offset (mm). The JSON
     // key intentionally remains the legacy generic "offset" because this
     // field was previously persisted-but-dead; reusing it keeps save/load
@@ -254,7 +209,7 @@ struct ConstructionObject {
 
 // Canonical persistence for construction containers shared by Part and
 // Assembly documents. Keeping one codec is essential because 3D-Curves own
-// nested Point containers and experimental interval/sketch data that must not
+// nested Point containers and radius data that must not
 // diverge between the two document types.
 [[nodiscard]] std::string serialize_construction_objects(
     const std::vector<ConstructionObject>& objects);
@@ -522,26 +477,6 @@ struct DrillPointParameters {
     bool operator==(const DrillPointParameters&) const = default;
 };
 
-struct Curve3DSolvedPrimitive {
-    std::string generator_id;
-    std::string semantic_key;
-    std::vector<zima::kernel::Vec3> points;
-    bool operator==(const Curve3DSolvedPrimitive&) const = default;
-};
-
-struct Curve3DSolution {
-    bool valid{};
-    std::string error;
-    std::vector<Curve3DSolvedPrimitive> primitives;
-    bool operator==(const Curve3DSolution&) const = default;
-};
-
-// Pure ZIMA geometry calculation used by the experimental editor, viewer and
-// contract tests. It never calls OCCT. Input/output coordinates are local to
-// the owning ConstructionObject; the viewer applies the container placement.
-[[nodiscard]] Curve3DSolution solve_experimental_curve3d(
-    const ConstructionObject& object);
-
 struct ImportedStepParameters {
     std::string source_path;
     std::string component_path;
@@ -558,25 +493,55 @@ struct ImportedStepParameters {
 };
 
 // One profile owned by a 3D Sweep.  The profile has its own stable identity;
-// `point_id` is only its current placement relation.  Reassigning the profile
-// to another path Point therefore preserves all Sketch geometry and IDs.
+// `point_id` and `incoming` identify its derived station independently of
+// displayed numbering and of the current radius. Inactive inputs persist.
+// Empty station sketches inherit the preceding defined Sweep profile.
+[[nodiscard]] bool sweep3d_profile_has_geometry(const zima::sketcher::Sketch& sketch);
+
 struct Sweep3DProfile {
     std::string id;
     std::string point_id;
     std::string sketch_id;
     std::string sketch_serialized;
+    bool incoming{};
+    std::string correspondence_start_point_id;
     bool operator==(const Sweep3DProfile&) const = default;
 };
 
+struct Sweep3DCorrespondence {
+    std::vector<std::string> point_ids;
+    std::vector<zima::kernel::Vec3> positions;
+};
+[[nodiscard]] Sweep3DCorrespondence sweep3d_profile_correspondence(
+    const zima::sketcher::Sketch& sketch, const std::string& start_point_id = {});
+
 struct Sweep3DParameters {
     // A complete ordinary Curve3D is embedded in the history feature.  Its
-    // child Point IDs are the only valid profile placement targets.  It is
+    // child Point IDs and input/output roles identify profile stations.  It is
     // not duplicated in PartDocument::constructions and consequently does
     // not appear as an independent Tree object.
     ConstructionObject path;
     std::vector<Sweep3DProfile> profiles;
     bool operator==(const Sweep3DParameters&) const = default;
 };
+
+// Derived stations keep their parent Point identity independently of row numbering.
+struct Curve3DStation {
+    std::string point_id;
+    std::string label;
+    zima::kernel::Vec3 origin;
+    zima::kernel::Vec3 tangent;
+    bool incoming{};
+    bool active{true};
+};
+struct Curve3DRoute {
+    std::vector<Curve3DStation> stations;
+    std::vector<zima::kernel::Sweep3DRequest::PathSegment> segments;
+};
+[[nodiscard]] Curve3DRoute curve3d_route(const ConstructionObject& path);
+// Radius annotations derived from the analytical route using the persisted path placement.
+[[nodiscard]] std::vector<zima::kernel::ViewerDimension> curve3d_radius_dimensions(
+    const ConstructionObject& path);
 
 // Two owned Sketches share an origin in perpendicular profile/path planes.
 struct Sweep2DParameters {
@@ -683,8 +648,14 @@ struct HistoryContainer {
     bool operator==(const HistoryContainer&) const = default;
 };
 
+[[nodiscard]] zima::kernel::ViewerMesh sweep3d_profiles_viewer_mesh(
+    const HistoryContainer& container);
+
 class PartDocument {
 public:
+    DimensionIdentifiers dimension_identifiers;
+    [[nodiscard]] std::vector<DimensionParameter> dimension_parameters() const;
+    void synchronize_dimension_identifiers();
     std::string document_id;
     std::string name{"Nový díl"};
     std::map<std::string, std::string> user_parameters;
@@ -762,7 +733,8 @@ public:
     // with existing call sites.
     [[nodiscard]] zima::kernel::ViewerMesh construction_viewer_mesh(
         const std::string& editing_object_id = {},
-        double reference_scene_size = 0.0) const;
+        double reference_scene_size = 0.0,
+        bool show_sweep_stations = false) const;
     [[nodiscard]] zima::kernel::ViewerReferenceGeometry
         construction_reference_geometry_for(
             const std::string& object_id,

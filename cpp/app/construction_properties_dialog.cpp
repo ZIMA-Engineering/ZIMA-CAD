@@ -1,3 +1,4 @@
+#include "sketch_button_style.hpp"
 #include "construction_properties_dialog.hpp"
 
 #include "zima/ui/reference_cell.hpp"
@@ -5,7 +6,11 @@
 #include <zima/kernel/stable_id.hpp>
 
 #include <QDoubleSpinBox>
+#include <QPointer>
+#include <QDialogButtonBox>
+#include <QVBoxLayout>
 #include <QComboBox>
+#include <QCheckBox>
 #include <QFormLayout>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -27,9 +32,68 @@
 namespace zima::app {
 namespace {
 
+class SweepPointOrderDialog final : public zima::ui::PropertiesSubWindow {
+public:
+    SweepPointOrderDialog(const zima::sketcher::Sketch& sketch,
+        const std::string& start, std::function<void(std::string)> preview, QWidget* parent)
+        : PropertiesSubWindow(tr("Pořadí bodů profilu"),parent),
+          sketch_(sketch), preview_(std::move(preview)) {
+        setAttribute(Qt::WA_DeleteOnClose,true);
+        setObjectName("sweepPointOrderDialog");
+        setMinimumWidth(400);
+        auto* help=new QLabel(tr("Zvolte první bod. Další body následují po obvodu proti směru hodinových "
+            "ručiček při pohledu proti normále skici. Mezi profily se spojuje 1 → 1, 2 → 2, …"),this);
+        help->setWordWrap(true);content_layout()->addWidget(help);
+        first_=new QComboBox(this);first_->setObjectName("sweepFirstCorrespondencePoint");
+        first_->addItem(tr("Automaticky"),QString{});
+        table_=new QTableWidget(this);table_->setColumnCount(3);
+        table_->setHorizontalHeaderLabels({tr("Pořadí"),tr("X [mm]"),tr("Y [mm]")});
+        table_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+        table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+        const auto mapping=zima::document::sweep3d_profile_correspondence(sketch_);
+        for(std::size_t i=0;i<mapping.point_ids.size();++i) {
+            const auto* point=sketch_.find_point(mapping.point_ids[i]);
+            first_->addItem(tr("Bod %1 (%2; %3)").arg(i+1).arg(point->x).arg(point->y),
+                QString::fromStdString(point->id));
+        }
+        first_->setCurrentIndex(std::max(0,first_->findData(QString::fromStdString(start))));
+        content_layout()->addWidget(first_);content_layout()->addWidget(table_);
+        if(mapping.point_ids.empty()) {
+            auto* info=new QLabel(tr("Kružnice bez bodů se spojují bez pootočení. Pro řízené párování "
+                "přidejte ve Sketchi body na kružnici s vazbou C."),this);
+            info->setWordWrap(true);content_layout()->addWidget(info);
+            first_->setEnabled(false);
+        }
+        refresh();
+        connect(first_,&QComboBox::currentIndexChanged,this,[this] {
+            refresh();preview_(first_->currentData().toString().toStdString());
+        });
+    }
+protected:
+    bool submit() override {
+        preview_(first_->currentData().toString().toStdString());
+        return true;
+    }
+private:
+    void refresh() {
+        const auto mapping=zima::document::sweep3d_profile_correspondence(
+            sketch_,first_->currentData().toString().toStdString());
+        table_->setRowCount(static_cast<int>(mapping.point_ids.size()));
+        for(std::size_t i=0;i<mapping.point_ids.size();++i) {
+            const auto* point=sketch_.find_point(mapping.point_ids[i]);
+            table_->setItem(i,0,new QTableWidgetItem(i==0?tr("1 – začátek"):QString::number(i+1)));
+            table_->setItem(i,1,new QTableWidgetItem(QString::number(point->x)));
+            table_->setItem(i,2,new QTableWidgetItem(QString::number(point->y)));
+        }
+    }
+    zima::sketcher::Sketch sketch_;
+    std::function<void(std::string)> preview_;
+    QComboBox* first_{};
+    QTableWidget* table_{};
+};
+
 bool is_curve_container_kind(zima::document::ConstructionKind kind) {
-    return kind == zima::document::ConstructionKind::Curve3D ||
-        kind == zima::document::ConstructionKind::Curve3DExperimental;
+    return kind == zima::document::ConstructionKind::Curve3D;
 }
 
 QString construction_properties_title(
@@ -40,9 +104,6 @@ QString construction_properties_title(
             return QObject::tr("Vlastnosti bodu");
         case ConstructionKind::Curve3D:
             return QObject::tr("Vlastnosti 3D křivky");
-        case ConstructionKind::Curve3DExperimental:
-            return QObject::tr(
-                "Vlastnosti 3D trajektorie — EXPERIMENTÁLNÍ");
         case ConstructionKind::Axis:
             return QObject::tr("Vlastnosti osy");
         case ConstructionKind::Plane:
@@ -109,8 +170,7 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
     CommitCallback commit, QWidget* parent, int decimal_places)
     : PropertiesSubWindow(construction_properties_title(initial.kind), parent),
       initial_(initial), commit_(std::move(commit)),
-      curve_points_(initial.curve_points),
-      curve_connections_(initial.curve_connections) {
+      curve_points_(initial.curve_points) {
     setAttribute(Qt::WA_DeleteOnClose, true);
     // Keep Point/Axis/Plane properties as compact as Sketch and feature
     // properties. The reference table stretches inside this width; the old
@@ -144,20 +204,6 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
         static_cast<int>(initial.definition));
     definition_->setCurrentIndex(std::max(0, definition_index));
     definition_->hide();
-    auto* container_type = new QComboBox(this);
-    container_type->addItem(tr("Bod"));
-    container_type->addItem(tr("3D křivka"));
-    container_type->addItem(tr("3D trajektorie — EXPERIMENTÁLNÍ"));
-    container_type->addItem(tr("Osa"));
-    container_type->addItem(tr("Rovina"));
-    container_type->setCurrentIndex(initial.kind ==
-            zima::document::ConstructionKind::Point ? 0
-        : initial.kind == zima::document::ConstructionKind::Curve3D ? 1
-        : initial.kind ==
-                zima::document::ConstructionKind::Curve3DExperimental ? 2
-        : initial.kind == zima::document::ConstructionKind::Axis ? 3 : 4);
-    container_type->setEnabled(false);
-    form->addRow(tr("Typ kontejneru"), container_type);
     const int precision = std::clamp(decimal_places, 0, 12);
     const auto field = [this, precision](
             double value, const char* name, const QString& suffix) {
@@ -309,42 +355,35 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
         content_layout()->addLayout(offset_form);
     }
     if (is_curve_container_kind(initial.kind)) {
-        const bool experimental = initial.kind ==
-            zima::document::ConstructionKind::Curve3DExperimental;
-        setMinimumWidth(experimental ? 720 : 520);
-        setMaximumWidth(experimental ? 820 : 590);
-        if (!experimental) {
-            auto* curve_form = new QFormLayout;
-            curve_type_ = new QComboBox(this);
-            curve_type_->setObjectName("curve3DType");
-            curve_type_->addItem(tr("Lomená čára"),
-                static_cast<int>(zima::document::Curve3DType::Polyline));
-            curve_type_->addItem(tr("Interpolační spline"),
-                static_cast<int>(
-                    zima::document::Curve3DType::InterpolatingSpline));
-            curve_type_->setCurrentIndex(curve_type_->findData(
-                static_cast<int>(initial.curve_type)));
-            curve_form->addRow(tr("Typ celé 3D křivky"), curve_type_);
-            content_layout()->addLayout(curve_form);
-        } else {
-            auto* experimental_label = new QLabel(tr(
-                "Každá mezera mezi dvěma body má vlastní typ spojení. "
-                "Směr patří bodu; úsečka jej ignoruje, spline a generované "
-                "spojení jej mohou použít."),
-                this);
-            experimental_label->setWordWrap(true);
-            experimental_label->setStyleSheet("color:#9fd7e5;");
-            content_layout()->addWidget(experimental_label);
-        }
+
+        setMinimumWidth(720);
+        setMaximumWidth(900);
+
+        auto* curve_form = new QFormLayout;
+        curve_type_ = new QComboBox(this);
+        curve_type_->setObjectName("curve3DType");
+        curve_type_->addItem(tr("Lomená čára"),
+            static_cast<int>(zima::document::Curve3DType::Polyline));
+        curve_type_->addItem(tr("Interpolační spline"),
+            static_cast<int>(
+                zima::document::Curve3DType::InterpolatingSpline));
+        curve_type_->setCurrentIndex(curve_type_->findData(
+            static_cast<int>(initial.curve_type)));
+        curve_form->addRow(tr("Typ celé 3D křivky"), curve_type_);
+        content_layout()->addLayout(curve_form);
+        curve_rounding_ = new QCheckBox(tr("Zaoblení rohů"), this);
+        curve_rounding_->setObjectName("curve3DRounding");
+        curve_rounding_->setChecked(initial.curve_rounding_enabled);
+        content_layout()->addWidget(curve_rounding_);
+        connect(curve_rounding_, &QCheckBox::toggled, this, [this] {
+            refresh_curve_points(); notify_preview();
+        });
+
         curve_points_table_ = new QTableWidget(this);
         curve_points_table_->setObjectName(
-            experimental ? "curve3DExperimentalRows" : "curve3DPoints");
-        curve_points_table_->setColumnCount(experimental ? 6 : 5);
-        curve_points_table_->setHorizontalHeaderLabels(experimental
-            ? QStringList{tr("Entita"), tr("Úsek"), tr("Osa směru"),
-                  QString{}, tr("Flip"), tr("Směr")}
-            : QStringList{tr("Bod"), tr("Osa směru"), QString{},
-                  tr("Flip"), tr("Směr")});
+            "curve3DPoints");
+        curve_points_table_->setColumnCount(6);
+        curve_points_table_->setHorizontalHeaderLabels({tr("Bod"), tr("Osa směru"), QString{}, tr("Flip"), tr("Směr"), tr("R [mm]")});
         curve_points_table_->horizontalHeader()->setSectionResizeMode(
             0, QHeaderView::Stretch);
         curve_points_table_->horizontalHeader()->setSectionResizeMode(
@@ -352,16 +391,12 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
         for (int column = 2; column < curve_points_table_->columnCount(); ++column)
             curve_points_table_->horizontalHeader()->setSectionResizeMode(
                 column, QHeaderView::Fixed);
-        if (experimental) {
-            curve_points_table_->setColumnWidth(2, 84);
-            curve_points_table_->setColumnWidth(3, 66);
-            curve_points_table_->setColumnWidth(4, 48);
-            curve_points_table_->setColumnWidth(5, 52);
-        } else {
-            curve_points_table_->setColumnWidth(2, 66);
-            curve_points_table_->setColumnWidth(3, 48);
-            curve_points_table_->setColumnWidth(4, 52);
-        }
+
+        curve_points_table_->setColumnWidth(2, 66);
+        curve_points_table_->setColumnWidth(3, 48);
+        curve_points_table_->setColumnWidth(4, 52);
+        curve_points_table_->setColumnWidth(5, 100);
+
         curve_points_table_->verticalHeader()->hide();
         curve_points_table_->setSelectionBehavior(
             QAbstractItemView::SelectRows);
@@ -370,7 +405,7 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
         curve_points_table_->setEditTriggers(
             QAbstractItemView::NoEditTriggers);
         zima::ui::install_reference_cell_delegate(curve_points_table_);
-        curve_points_table_->setMinimumHeight(experimental ? 230 : 115);
+        curve_points_table_->setMinimumHeight(150);
         content_layout()->addWidget(curve_points_table_);
 
         auto* point_buttons = new QHBoxLayout;
@@ -432,20 +467,6 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
                     curve_points_[static_cast<std::size_t>(row)]
                         .curve_tangent_enabled && curve_axis_request_) {
                     curve_axis_request_(static_cast<std::size_t>(row));
-                } else if (initial_.kind ==
-                               zima::document::ConstructionKind::
-                                   Curve3DExperimental &&
-                           column == 2 &&
-                           static_cast<std::size_t>(row) <
-                               curve_table_rows_.size()) {
-                    const auto& table_row =
-                        curve_table_rows_[static_cast<std::size_t>(row)];
-                    if (table_row.kind == CurveTableRowKind::Point &&
-                        table_row.index < curve_points_.size() &&
-                        curve_points_[table_row.index].curve_tangent_enabled &&
-                        curve_axis_request_) {
-                        curve_axis_request_(table_row.index);
-                    }
                 }
             });
         connect(delete_curve_point_, &QPushButton::clicked, this,
@@ -458,7 +479,7 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
                 std::erase_if(sweep_profiles_, [&](const auto& profile) {
                     return profile.point_id == removed_id;
                 });
-                synchronize_experimental_connections();
+
                 refresh_curve_points();
                 refresh_sweep_profiles();
                 notify_preview();
@@ -471,22 +492,11 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
                     static_cast<std::ptrdiff_t>(curve_points_.size())) return;
             std::swap(curve_points_[*index],
                 curve_points_[static_cast<std::size_t>(destination)]);
-            synchronize_experimental_connections();
+
             refresh_curve_points();
-            if (initial_.kind ==
-                    zima::document::ConstructionKind::Curve3DExperimental) {
-                for (std::size_t row = 0; row < curve_table_rows_.size(); ++row) {
-                    if (curve_table_rows_[row].kind ==
-                            CurveTableRowKind::Point &&
-                        curve_table_rows_[row].index ==
-                            static_cast<std::size_t>(destination)) {
-                        curve_points_table_->selectRow(static_cast<int>(row));
-                        break;
-                    }
-                }
-            } else {
-                curve_points_table_->selectRow(static_cast<int>(destination));
-            }
+
+            curve_points_table_->selectRow(static_cast<int>(destination));
+
             notify_preview();
         };
         connect(move_curve_point_up_, &QPushButton::clicked, this,
@@ -500,7 +510,7 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
                 refresh_curve_points();
                 notify_preview();
             });
-        synchronize_experimental_connections();
+
         refresh_curve_points();
     }
     refresh_offset_enabled_state();
@@ -533,6 +543,7 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
         &QComboBox::currentIndexChanged, this, [this] { notify_preview(); });
     connect(offset_, &QDoubleSpinBox::valueChanged,
         this, [this] { notify_preview(); });
+    initialized_ = true;
 }
 
 ConstructionPropertiesDialog::ConstructionPropertiesDialog(
@@ -562,9 +573,9 @@ void ConstructionPropertiesDialog::initialize_sweep_ui() {
     content_layout()->addWidget(title);
     sweep_profiles_table_ = new QTableWidget(this);
     sweep_profiles_table_->setObjectName("sweep3DProfiles");
-    sweep_profiles_table_->setColumnCount(2);
+    sweep_profiles_table_->setColumnCount(4);
     sweep_profiles_table_->setHorizontalHeaderLabels(
-        {tr("Skica"), tr("Bod trajektorie")});
+        {tr("Stanice"), tr("Skica profilu"), tr("Pořadí bodů"), tr("Použitý profil")});
     sweep_profiles_table_->horizontalHeader()->setSectionResizeMode(
         QHeaderView::Stretch);
     sweep_profiles_table_->verticalHeader()->hide();
@@ -573,21 +584,6 @@ void ConstructionPropertiesDialog::initialize_sweep_ui() {
     sweep_profiles_table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     sweep_profiles_table_->setMinimumHeight(90);
     content_layout()->addWidget(sweep_profiles_table_);
-    auto* buttons = new QHBoxLayout;
-    add_sweep_profile_ = new QPushButton(tr("Přidat skicu"), this);
-    edit_sweep_profile_ = new QPushButton(tr("Upravit"), this);
-    delete_sweep_profile_ = new QPushButton(tr("Smazat"), this);
-    reassign_sweep_profile_ = new QPushButton(tr("Jiný bod"), this);
-    add_sweep_profile_->setObjectName("sweep3DAddProfile");
-    edit_sweep_profile_->setObjectName("sweep3DEditProfile");
-    delete_sweep_profile_->setObjectName("sweep3DDeleteProfile");
-    reassign_sweep_profile_->setObjectName("sweep3DReassignProfile");
-    for (auto* button : {add_sweep_profile_, edit_sweep_profile_,
-             delete_sweep_profile_, reassign_sweep_profile_}) {
-        buttons->addWidget(button);
-    }
-    content_layout()->addLayout(buttons);
-
     auto* operation_row = new QWidget(this);
     auto* operation_layout = new QHBoxLayout(operation_row);
     operation_layout->setContentsMargins(0, 0, 0, 0);
@@ -621,37 +617,6 @@ void ConstructionPropertiesDialog::initialize_sweep_ui() {
     content_layout()->addLayout(operation_form);
 
     content_layout()->addWidget(error_);
-    connect(add_sweep_profile_, &QPushButton::clicked, this, [this] {
-        if (sweep_profile_point_request_)
-            sweep_profile_point_request_(std::nullopt);
-    });
-    connect(edit_sweep_profile_, &QPushButton::clicked, this, [this] {
-        const auto index = selected_sweep_profile_index();
-        if (index && sweep_profile_edit_request_)
-            sweep_profile_edit_request_(*index);
-    });
-    connect(reassign_sweep_profile_, &QPushButton::clicked, this, [this] {
-        const auto index = selected_sweep_profile_index();
-        if (index && sweep_profile_point_request_)
-            sweep_profile_point_request_(index);
-    });
-    connect(delete_sweep_profile_, &QPushButton::clicked, this, [this] {
-        const auto index = selected_sweep_profile_index();
-        if (!index || *index >= sweep_profiles_.size()) return;
-        sweep_profiles_.erase(sweep_profiles_.begin() +
-            static_cast<std::ptrdiff_t>(*index));
-        refresh_sweep_profiles();
-        notify_preview();
-    });
-    connect(sweep_profiles_table_, &QTableWidget::cellDoubleClicked,
-        this, [this](int row, int) {
-            if (row >= 0 && static_cast<std::size_t>(row) <
-                    sweep_profiles_.size() && sweep_profile_edit_request_) {
-                sweep_profile_edit_request_(static_cast<std::size_t>(row));
-            }
-        });
-    connect(sweep_profiles_table_, &QTableWidget::currentCellChanged,
-        this, [this](int, int, int, int) { refresh_sweep_profiles(); });
     const auto select_operation = [this](bool subtract_selected) {
         sweep_combine_mode_ = subtract_selected
             ? zima::document::CombineMode::Subtract
@@ -716,15 +681,6 @@ void ConstructionPropertiesDialog::set_curve_axis_cycle_callback(
     curve_axis_cycle_ = std::move(callback);
 }
 
-void ConstructionPropertiesDialog::set_curve_sketch_edit_request_callback(
-    CurveSketchEditRequestCallback callback) {
-    curve_sketch_edit_request_ = std::move(callback);
-}
-
-void ConstructionPropertiesDialog::set_sweep_profile_point_request_callback(
-    SweepProfilePointRequestCallback callback) {
-    sweep_profile_point_request_ = std::move(callback);
-}
 
 void ConstructionPropertiesDialog::set_sweep_profile_edit_request_callback(
     SweepProfileEditRequestCallback callback) {
@@ -764,21 +720,12 @@ void ConstructionPropertiesDialog::set_curve_point(
         curve_points_.push_back(std::move(point));
         index = curve_points_.size() - 1;
     }
-    synchronize_experimental_connections();
+
     refresh_curve_points();
     if (index && curve_points_table_ != nullptr) {
-        if (initial_.kind ==
-                zima::document::ConstructionKind::Curve3DExperimental) {
-            for (std::size_t row = 0; row < curve_table_rows_.size(); ++row) {
-                if (curve_table_rows_[row].kind == CurveTableRowKind::Point &&
-                    curve_table_rows_[row].index == *index) {
-                    curve_points_table_->selectRow(static_cast<int>(row));
-                    break;
-                }
-            }
-        } else {
-            curve_points_table_->selectRow(static_cast<int>(*index));
-        }
+
+        curve_points_table_->selectRow(static_cast<int>(*index));
+
     }
     if (update_preview) notify_preview();
 }
@@ -792,7 +739,7 @@ void ConstructionPropertiesDialog::erase_curve_point(
     std::erase_if(sweep_profiles_, [&](const auto& profile) {
         return profile.point_id == removed_id;
     });
-    synchronize_experimental_connections();
+
     refresh_curve_points();
     refresh_sweep_profiles();
     if (update_preview) notify_preview();
@@ -803,89 +750,84 @@ ConstructionPropertiesDialog::curve_point(std::size_t index) const {
     return index < curve_points_.size() ? &curve_points_[index] : nullptr;
 }
 
-const zima::document::Curve3DConnection*
-ConstructionPropertiesDialog::curve_connection(std::size_t index) const {
-    return index < curve_connections_.size() ? &curve_connections_[index] : nullptr;
-}
-
-void ConstructionPropertiesDialog::set_curve_connection_sketch(
-    std::size_t index, const zima::sketcher::Sketch& sketch,
-    std::string start_point_id, std::string end_point_id, bool plane_valid) {
-    if (index >= curve_connections_.size()) return;
-    auto& connection = curve_connections_[index];
-    connection.type = zima::document::Curve3DConnectionType::Sketch;
-    connection.generator_id = connection.id;
-    connection.sketch_id = sketch.id;
-    connection.sketch_start_point_id = std::move(start_point_id);
-    connection.sketch_end_point_id = std::move(end_point_id);
-    connection.sketch_serialized = sketch.serialized();
-    connection.sketch_plane_valid = plane_valid;
-    refresh_curve_points();
-    notify_preview();
-}
-
-std::optional<std::size_t>
-ConstructionPropertiesDialog::selected_sweep_profile_index() const {
-    if (sweep_profiles_table_ == nullptr) return std::nullopt;
-    const int row = sweep_profiles_table_->currentRow();
-    if (row < 0 || static_cast<std::size_t>(row) >= sweep_profiles_.size())
-        return std::nullopt;
-    return static_cast<std::size_t>(row);
-}
 
 void ConstructionPropertiesDialog::refresh_sweep_profiles() {
     if (sweep_profiles_table_ == nullptr) return;
-    const int selected = sweep_profiles_table_->currentRow();
     const QSignalBlocker blocked(sweep_profiles_table_);
-    sweep_profiles_table_->setRowCount(
-        static_cast<int>(sweep_profiles_.size()));
-    for (std::size_t index = 0; index < sweep_profiles_.size(); ++index) {
-        const auto& profile = sweep_profiles_[index];
-        QString sketch_name = tr("Skica %1").arg(index + 1);
-        try {
-            sketch_name = QString::fromStdString(
-                zima::sketcher::Sketch::from_serialized(
-                    profile.sketch_serialized).name);
-        } catch (const std::exception&) {
-            sketch_name = tr("Neplatná skica");
-        }
-        QString point_name = tr("Chybějící bod");
-        const auto point = std::find_if(curve_points_.begin(),
-            curve_points_.end(), [&](const auto& value) {
-                return value.id == profile.point_id;
+    sweep_profiles_table_->setRowCount(0);
+    zima::document::Curve3DRoute route;
+    try { route = zima::document::curve3d_route(current_value()); }
+    catch(const std::exception& error) { error_->setText(QString::fromUtf8(error.what())); return; }
+    QString inherited_from;
+    for (const auto& station : route.stations) {
+        const int row = sweep_profiles_table_->rowCount();
+        sweep_profiles_table_->insertRow(row);
+        auto* item = new QTableWidgetItem(QString::fromStdString(station.label));
+        item->setData(Qt::UserRole, QString::fromStdString(station.point_id));
+        sweep_profiles_table_->setItem(row, 0, item);
+        const auto own = std::ranges::find_if(sweep_profiles_, [&](const auto& profile) {
+            return profile.point_id == station.point_id && profile.incoming == station.incoming;
+        });
+        const bool has_profile = own != sweep_profiles_.end() &&
+            zima::document::sweep3d_profile_has_geometry(
+                zima::sketcher::Sketch::from_serialized(own->sketch_serialized));
+        QString status;
+        if (!station.active) status = tr("Neaktivní");
+        else if (has_profile) {
+            inherited_from = QString::fromStdString(station.label);
+            status = tr("Vlastní");
+        } else if (inherited_from.isEmpty()) status = tr("Vyplňte první profil");
+        else status = tr("Z bodu %1").arg(inherited_from);
+        sweep_profiles_table_->setItem(row, 3, new QTableWidgetItem(status));
+        auto* order=new QPushButton(tr("Pořadí bodů"),sweep_profiles_table_);
+        order->setObjectName(QString("sweep3DPointOrder%1").arg(QString::fromStdString(station.label)));
+        order->setEnabled(station.active && has_profile);
+        order->setToolTip(tr("Určit první bod a zkontrolovat párování obvodu profilu."));
+        const auto profile_index=static_cast<std::size_t>(std::distance(sweep_profiles_.begin(),own));
+        connect(order,&QPushButton::clicked,this,[this,profile_index] {
+            try {
+                const auto initial=sweep_profiles_.at(profile_index).correspondence_start_point_id;
+                const QPointer<ConstructionPropertiesDialog> self(this);
+                const auto preview=[self,profile_index](std::string id) {
+                    if(!self)return;
+                    self->sweep_profiles_.at(profile_index).correspondence_start_point_id=std::move(id);
+                    self->notify_preview();
+                };
+                auto* dialog=new SweepPointOrderDialog(
+                    zima::sketcher::Sketch::from_serialized(sweep_profiles_.at(profile_index).sketch_serialized),
+                    initial,preview,parentWidget());
+                connect(dialog,&QDialog::finished,this,[self,preview,initial](int result) {
+                    if(!self)return;
+                    if(result!=QDialog::Accepted)preview(initial);
+                    self->show();self->raise();
+                });
+                hide();dialog->show();
+            } catch(const std::exception& error) { error_->setText(QString::fromUtf8(error.what())); }
+        });
+        sweep_profiles_table_->setCellWidget(row,2,order);
+        auto* button = new QPushButton(tr("Sketch"), sweep_profiles_table_);
+        button->setObjectName(QString("sweep3DStationSketch%1").arg(QString::fromStdString(station.label)));
+        button->setEnabled(station.active);
+        style_sketch_button(button);
+        connect(button, &QPushButton::clicked, this, [this, station] {
+            auto found=std::ranges::find_if(sweep_profiles_, [&](const auto& profile) {
+                return profile.point_id==station.point_id && profile.incoming==station.incoming;
             });
-        if (point != curve_points_.end())
-            point_name = QString::fromStdString(point->name);
-        auto* sketch_item = new QTableWidgetItem(sketch_name);
-        sketch_item->setData(Qt::UserRole,
-            QString::fromStdString(profile.id));
-        auto* point_item = new QTableWidgetItem(point_name);
-        point_item->setData(Qt::UserRole,
-            QString::fromStdString(profile.point_id));
-        sweep_profiles_table_->setItem(static_cast<int>(index), 0, sketch_item);
-        sweep_profiles_table_->setItem(static_cast<int>(index), 1, point_item);
+            std::size_t index=static_cast<std::size_t>(std::distance(sweep_profiles_.begin(),found));
+            if(found==sweep_profiles_.end()) {
+                auto sketch=zima::sketcher::Sketch::create_default();
+                sketch.name="Profil "+station.label;
+                sketch.owner_container_id=initial_sweep_->id;
+                sweep_profiles_.push_back({zima::kernel::make_stable_id(),station.point_id,sketch.id,sketch.serialized(),station.incoming});
+            }
+            auto pending=pending_sweep_value();
+            sweep_profiles_[index]=pending.sweep3d.profiles[index];
+            if(sweep_profile_edit_request_)sweep_profile_edit_request_(index);
+        });
+        sweep_profiles_table_->setCellWidget(row,1,button);
     }
-    if (selected >= 0 && selected < sweep_profiles_table_->rowCount())
-        sweep_profiles_table_->selectRow(selected);
-    const bool has_selection = selected_sweep_profile_index().has_value();
-    edit_sweep_profile_->setEnabled(has_selection);
-    delete_sweep_profile_->setEnabled(has_selection);
-    reassign_sweep_profile_->setEnabled(has_selection);
 }
 
-void ConstructionPropertiesDialog::add_sweep_profile(
-    std::string point_id, const zima::sketcher::Sketch& sketch) {
-    if (!initial_sweep_ || point_id.empty() ||
-        std::ranges::any_of(sweep_profiles_, [&](const auto& profile) {
-            return profile.point_id == point_id;
-        })) return;
-    sweep_profiles_.push_back({zima::kernel::make_stable_id(),
-        std::move(point_id), sketch.id, sketch.serialized()});
-    refresh_sweep_profiles();
-    sweep_profiles_table_->selectRow(
-        static_cast<int>(sweep_profiles_.size() - 1));
-    notify_preview();
-}
 
 void ConstructionPropertiesDialog::set_sweep_profile_sketch(
     std::size_t index, const zima::sketcher::Sketch& sketch) {
@@ -897,19 +839,6 @@ void ConstructionPropertiesDialog::set_sweep_profile_sketch(
     notify_preview();
 }
 
-bool ConstructionPropertiesDialog::reassign_sweep_profile(
-    std::size_t index, std::string point_id) {
-    if (index >= sweep_profiles_.size() || point_id.empty() ||
-        std::ranges::any_of(sweep_profiles_, [&](const auto& profile) {
-            return profile.point_id == point_id &&
-                profile.id != sweep_profiles_[index].id;
-        })) return false;
-    sweep_profiles_[index].point_id = std::move(point_id);
-    refresh_sweep_profiles();
-    sweep_profiles_table_->selectRow(static_cast<int>(index));
-    notify_preview();
-    return true;
-}
 
 const zima::document::Sweep3DProfile*
 ConstructionPropertiesDialog::sweep_profile(std::size_t index) const {
@@ -1141,6 +1070,26 @@ void ConstructionPropertiesDialog::set_translation_constraint_state(
     }
 }
 
+bool ConstructionPropertiesDialog::set_curve_point_radius(
+    const std::string& point_id, double value) {
+    auto pending = current_value();
+    for (std::size_t index = 1; index + 1 < pending.curve_points.size(); ++index) {
+        if (pending.curve_points[index].id != point_id) continue;
+        auto* field = qobject_cast<QDoubleSpinBox*>(
+            curve_points_table_->cellWidget(static_cast<int>(index), 5));
+        if (field == nullptr || !field->isEnabled()) return false;
+        if (!std::isfinite(value) || value < field->minimum() || value > field->maximum())
+            throw std::runtime_error("Radius je mimo povolený rozsah.");
+        pending.curve_points[index].curve_radius = value;
+        static_cast<void>(zima::document::curve3d_route(pending));
+        // Use the table's normal change notification: preview and station
+        // profiles stay transient until the Properties dialog is confirmed.
+        field->setValue(value);
+        return true;
+    }
+    return false;
+}
+
 bool ConstructionPropertiesDialog::set_inline_parameter_value(
     std::string_view key, double value) {
     constexpr std::string_view placement_prefix{"placement:"};
@@ -1207,368 +1156,13 @@ ConstructionPropertiesDialog::selected_curve_point_index() const {
         curve_points_table_->currentRow() < 0) return std::nullopt;
     const auto row =
         static_cast<std::size_t>(curve_points_table_->currentRow());
-    if (initial_.kind !=
-            zima::document::ConstructionKind::Curve3DExperimental) {
-        return row < curve_points_.size()
-            ? std::optional<std::size_t>{row} : std::nullopt;
-    }
-    if (row >= curve_table_rows_.size() ||
-        curve_table_rows_[row].kind != CurveTableRowKind::Point) {
-        return std::nullopt;
-    }
-    return curve_table_rows_[row].index;
+    return row < curve_points_.size() ? std::optional<std::size_t>{row} : std::nullopt;
 }
 
-void ConstructionPropertiesDialog::merge_experimental_spline_generators() {
-    if (initial_.kind !=
-            zima::document::ConstructionKind::Curve3DExperimental) return;
-    std::unordered_set<std::string> used;
-    for (std::size_t index = 0; index < curve_connections_.size();) {
-        auto& connection = curve_connections_[index];
-        if (connection.type !=
-                zima::document::Curve3DConnectionType::InterpolatingSpline) {
-            connection.generator_id = connection.id;
-            ++index;
-            continue;
-        }
-        std::size_t end = index + 1;
-        while (end < curve_connections_.size() &&
-               curve_connections_[end].type ==
-                   zima::document::Curve3DConnectionType::InterpolatingSpline) {
-            ++end;
-        }
-        std::string generator;
-        for (std::size_t candidate = index; candidate < end; ++candidate) {
-            const auto& existing = curve_connections_[candidate].generator_id;
-            if (!existing.empty() && !used.contains(existing)) {
-                generator = existing;
-                break;
-            }
-        }
-        if (generator.empty()) generator = zima::kernel::make_stable_id();
-        used.insert(generator);
-        for (std::size_t candidate = index; candidate < end; ++candidate)
-            curve_connections_[candidate].generator_id = generator;
-        index = end;
-    }
-}
-
-void ConstructionPropertiesDialog::synchronize_experimental_connections() {
-    if (initial_.kind !=
-            zima::document::ConstructionKind::Curve3DExperimental) return;
-    const auto key = [](const std::string& start, const std::string& end) {
-        return start + '\n' + end;
-    };
-    std::unordered_map<std::string, zima::document::Curve3DConnection> existing;
-    for (auto connection : curve_connections_) {
-        existing.emplace(key(connection.start_point_id,
-            connection.end_point_id), std::move(connection));
-    }
-    std::vector<zima::document::Curve3DConnection> synchronized;
-    if (curve_points_.size() >= 2)
-        synchronized.reserve(curve_points_.size() - 1);
-    for (std::size_t index = 0; index + 1 < curve_points_.size(); ++index) {
-        const auto identity =
-            key(curve_points_[index].id, curve_points_[index + 1].id);
-        auto found = existing.find(identity);
-        zima::document::Curve3DConnection connection;
-        if (found != existing.end()) {
-            connection = std::move(found->second);
-        } else {
-            connection.id = zima::kernel::make_stable_id();
-            connection.generator_id = connection.id;
-            connection.type = zima::document::Curve3DConnectionType::Line;
-        }
-        connection.parent_construction_id = initial_.id;
-        connection.start_point_id = curve_points_[index].id;
-        connection.end_point_id = curve_points_[index + 1].id;
-        connection.start_tangent = curve_points_[index].curve_tangent;
-        connection.start_tangent_enabled =
-            curve_points_[index].curve_tangent_enabled;
-        connection.end_tangent = curve_points_[index + 1].curve_tangent;
-        connection.end_tangent_enabled =
-            curve_points_[index + 1].curve_tangent_enabled;
-        synchronized.push_back(std::move(connection));
-    }
-    curve_connections_ = std::move(synchronized);
-    merge_experimental_spline_generators();
-}
-
-void ConstructionPropertiesDialog::refresh_experimental_curve_rows() {
-    if (curve_points_table_ == nullptr) return;
-    synchronize_experimental_connections();
-
-    std::optional<CurveTableRow> previous;
-    const int selected = curve_points_table_->currentRow();
-    if (selected >= 0 &&
-        static_cast<std::size_t>(selected) < curve_table_rows_.size()) {
-        previous = curve_table_rows_[static_cast<std::size_t>(selected)];
-    }
-
-    const QSignalBlocker blocked(curve_points_table_);
-    curve_points_table_->clearContents();
-    curve_points_table_->clearSpans();
-    curve_table_rows_.clear();
-    curve_table_rows_.reserve(
-        curve_points_.size() + curve_connections_.size());
-    for (std::size_t index = 0; index < curve_points_.size(); ++index) {
-        curve_table_rows_.push_back({CurveTableRowKind::Point, index});
-        if (index < curve_connections_.size()) {
-            curve_table_rows_.push_back({CurveTableRowKind::Connection, index});
-        }
-    }
-    curve_points_table_->setRowCount(
-        static_cast<int>(curve_table_rows_.size()));
-
-    const auto tangent_label = [this](
-            zima::document::Curve3DTangentMode mode, bool enabled) {
-        if (!enabled) return tr("Automaticky");
-        using zima::document::Curve3DTangentMode;
-        switch (mode) {
-            case Curve3DTangentMode::PositiveX: return QStringLiteral("+X");
-            case Curve3DTangentMode::NegativeX: return QStringLiteral("−X");
-            case Curve3DTangentMode::PositiveY: return QStringLiteral("+Y");
-            case Curve3DTangentMode::NegativeY: return QStringLiteral("−Y");
-            case Curve3DTangentMode::PositiveZ: return QStringLiteral("+Z");
-            case Curve3DTangentMode::NegativeZ: return QStringLiteral("−Z");
-            case Curve3DTangentMode::Automatic: return tr("Automaticky");
-        }
-        return tr("Automaticky");
-    };
-    const auto negative_tangent = [](zima::document::Curve3DTangentMode mode) {
-        using zima::document::Curve3DTangentMode;
-        return mode == Curve3DTangentMode::NegativeX ||
-            mode == Curve3DTangentMode::NegativeY ||
-            mode == Curve3DTangentMode::NegativeZ;
-    };
-    const auto cycle_tangent = [](zima::document::Curve3DTangentMode& mode) {
-        using zima::document::Curve3DTangentMode;
-        switch (mode) {
-            case Curve3DTangentMode::PositiveX:
-                mode = Curve3DTangentMode::PositiveY; break;
-            case Curve3DTangentMode::PositiveY:
-                mode = Curve3DTangentMode::PositiveZ; break;
-            case Curve3DTangentMode::PositiveZ:
-                mode = Curve3DTangentMode::PositiveX; break;
-            case Curve3DTangentMode::NegativeX:
-                mode = Curve3DTangentMode::NegativeY; break;
-            case Curve3DTangentMode::NegativeY:
-                mode = Curve3DTangentMode::NegativeZ; break;
-            case Curve3DTangentMode::NegativeZ:
-                mode = Curve3DTangentMode::NegativeX; break;
-            case Curve3DTangentMode::Automatic:
-                mode = Curve3DTangentMode::PositiveX; break;
-        }
-    };
-    const auto flip_tangent = [](zima::document::Curve3DTangentMode& mode,
-                                 bool flipped) {
-        using zima::document::Curve3DTangentMode;
-        switch (mode) {
-            case Curve3DTangentMode::PositiveX:
-            case Curve3DTangentMode::NegativeX:
-                mode = flipped ? Curve3DTangentMode::NegativeX
-                               : Curve3DTangentMode::PositiveX; break;
-            case Curve3DTangentMode::PositiveY:
-            case Curve3DTangentMode::NegativeY:
-                mode = flipped ? Curve3DTangentMode::NegativeY
-                               : Curve3DTangentMode::PositiveY; break;
-            case Curve3DTangentMode::PositiveZ:
-            case Curve3DTangentMode::NegativeZ:
-                mode = flipped ? Curve3DTangentMode::NegativeZ
-                               : Curve3DTangentMode::PositiveZ; break;
-            case Curve3DTangentMode::Automatic:
-                mode = flipped ? Curve3DTangentMode::NegativeX
-                               : Curve3DTangentMode::PositiveX; break;
-        }
-    };
-
-    int row = 0;
-    for (std::size_t point_index = 0;
-         point_index < curve_points_.size(); ++point_index) {
-        auto& point = curve_points_[point_index];
-        auto* point_item = new zima::ui::ReferenceCellItem(
-            QStringLiteral("● %1").arg(QString::fromStdString(point.name)));
-        point_item->set_reference(QString::fromStdString(point.id));
-        point_item->setToolTip(tr(
-            "Bod trajektorie. Jeho lokální Origin určuje volitelný směr "
-            "spline nebo generovaného spojení."));
-        curve_points_table_->setItem(row, 0, point_item);
-        curve_points_table_->setItem(row, 1, new QTableWidgetItem(tr("Bod")));
-
-        auto* axis = new zima::ui::ReferenceCellItem(
-            tangent_label(point.curve_tangent, point.curve_tangent_enabled));
-        axis->set_reference(axis->text());
-        axis->setToolTip(point.curve_tangent_enabled
-            ? tr("Kliknutím lze vybrat osu lokálního Origin tohoto bodu.")
-            : tr("Směr je automatický. Zapněte tlačítko SMĚR."));
-        if (!point.curve_tangent_enabled) {
-            axis->setFlags(axis->flags() & ~Qt::ItemIsEnabled);
-        }
-        curve_points_table_->setItem(row, 2, axis);
-
-        auto* cycle = new QToolButton(curve_points_table_);
-        cycle->setObjectName(QStringLiteral("curve3DExperimentalCycle%1")
-            .arg(point_index));
-        cycle->setText(QStringLiteral("SWITCH"));
-        cycle->setEnabled(point.curve_tangent_enabled);
-        style_curve_switch_button(cycle, 58);
-        connect(cycle, &QToolButton::clicked, this,
-            [this, point_index, cycle_tangent] {
-                if (point_index >= curve_points_.size()) return;
-                cycle_tangent(curve_points_[point_index].curve_tangent);
-                synchronize_experimental_connections();
-                refresh_curve_points();
-                notify_preview();
-            });
-        curve_points_table_->setCellWidget(row, 3,
-            zima::ui::centered_cell_widget(cycle));
-
-        auto* flip_cell = zima::ui::build_reference_row_flip_button(
-            point.curve_tangent_enabled,
-            negative_tangent(point.curve_tangent),
-            [this, point_index, flip_tangent](bool flipped) {
-                if (point_index >= curve_points_.size()) return;
-                flip_tangent(curve_points_[point_index].curve_tangent, flipped);
-                synchronize_experimental_connections();
-                refresh_curve_points();
-                notify_preview();
-            });
-        auto* flip = qobject_cast<QToolButton*>(flip_cell);
-        if (flip == nullptr) flip = flip_cell->findChild<QToolButton*>();
-        if (flip != nullptr) {
-            flip->setText(QStringLiteral("FLIP"));
-            flip->setFixedWidth(40);
-            flip->setObjectName(QStringLiteral("curve3DExperimentalFlip%1")
-                .arg(point_index));
-        }
-        curve_points_table_->setCellWidget(row, 4, flip_cell);
-
-        auto* direction = new QToolButton(curve_points_table_);
-        direction->setObjectName(
-            QStringLiteral("curve3DExperimentalDirection%1").arg(point_index));
-        direction->setText(QStringLiteral("SMĚR"));
-        direction->setCheckable(true);
-        direction->setChecked(point.curve_tangent_enabled);
-        style_curve_switch_button(direction, 44);
-        connect(direction, &QToolButton::toggled, this,
-            [this, point_index](bool checked) {
-                if (point_index >= curve_points_.size()) return;
-                auto& point = curve_points_[point_index];
-                point.curve_tangent_enabled = checked;
-                if (checked && point.curve_tangent ==
-                        zima::document::Curve3DTangentMode::Automatic) {
-                    point.curve_tangent =
-                        zima::document::Curve3DTangentMode::PositiveX;
-                }
-                synchronize_experimental_connections();
-                refresh_curve_points();
-                notify_preview();
-            });
-        curve_points_table_->setCellWidget(row, 5,
-            zima::ui::centered_cell_widget(direction));
-        curve_points_table_->setRowHeight(row, 32);
-        ++row;
-
-        if (point_index >= curve_connections_.size()) continue;
-        auto& connection = curve_connections_[point_index];
-        curve_points_table_->setItem(row, 0, new QTableWidgetItem(
-            tr("↳ %1 → %2")
-                .arg(QString::fromStdString(curve_points_[point_index].name),
-                     QString::fromStdString(curve_points_[point_index + 1].name))));
-
-        auto* type = new QComboBox(curve_points_table_);
-        type->setObjectName(
-            QStringLiteral("curve3DExperimentalConnectionType%1")
-                .arg(point_index));
-        type->addItem(tr("Úsečka"), static_cast<int>(
-            zima::document::Curve3DConnectionType::Line));
-        type->addItem(tr("Spline"), static_cast<int>(
-            zima::document::Curve3DConnectionType::InterpolatingSpline));
-        type->addItem(tr("Sketch"), static_cast<int>(
-            zima::document::Curve3DConnectionType::Sketch));
-        type->addItem(tr("Dvojitý rádius"), static_cast<int>(
-            zima::document::Curve3DConnectionType::Biarc));
-        type->setCurrentIndex(type->findData(static_cast<int>(connection.type)));
-        connect(type, &QComboBox::currentIndexChanged, this,
-            [this, point_index, type] {
-                if (point_index >= curve_connections_.size()) return;
-                auto& connection = curve_connections_[point_index];
-                connection.type =
-                    static_cast<zima::document::Curve3DConnectionType>(
-                        type->currentData().toInt());
-                merge_experimental_spline_generators();
-                refresh_curve_points();
-                notify_preview();
-            });
-        curve_points_table_->setCellWidget(row, 1, type);
-
-        curve_points_table_->setSpan(row, 2, 1, 4);
-        if (connection.type ==
-                zima::document::Curve3DConnectionType::Sketch) {
-            auto* edit_sketch = new QPushButton(
-                connection.sketch_serialized.empty()
-                    ? tr("VYTVOŘIT SKETCH") : tr("UPRAVIT SKETCH"),
-                curve_points_table_);
-            edit_sketch->setObjectName(
-                QStringLiteral("curve3DExperimentalSketch%1").arg(point_index));
-            edit_sketch->setToolTip(tr(
-                "Otevře běžný Skicář. START a END jsou systémové body "
-                "patřící sousedním bodům trajektorie."));
-            connect(edit_sketch, &QPushButton::clicked, this,
-                [this, point_index] {
-                    if (curve_sketch_edit_request_)
-                        curve_sketch_edit_request_(point_index);
-                });
-            curve_points_table_->setCellWidget(row, 2, edit_sketch);
-        } else {
-            QString status;
-            if (connection.type ==
-                    zima::document::Curve3DConnectionType::InterpolatingSpline) {
-                status = tr("Souvislé sousední řádky = jedna globální spline");
-            } else if (connection.type ==
-                    zima::document::Curve3DConnectionType::Biarc) {
-                status = tr("Vyžaduje řešitelné směry na obou koncích");
-            } else {
-                status = tr("Směr bodů se pro úsečku ignoruje");
-            }
-            auto* status_item = new QTableWidgetItem(status);
-            status_item->setFlags(status_item->flags() & ~Qt::ItemIsEditable);
-            status_item->setForeground(QColor(QStringLiteral("#9fd7e5")));
-            curve_points_table_->setItem(row, 2, status_item);
-        }
-        curve_points_table_->setRowHeight(row, 34);
-        ++row;
-    }
-
-    if (previous) {
-        for (std::size_t candidate = 0;
-             candidate < curve_table_rows_.size(); ++candidate) {
-            if (curve_table_rows_[candidate].kind == previous->kind &&
-                curve_table_rows_[candidate].index == previous->index) {
-                curve_points_table_->selectRow(static_cast<int>(candidate));
-                break;
-            }
-        }
-    }
-    const auto selected_point = selected_curve_point_index();
-    if (edit_curve_point_ != nullptr)
-        edit_curve_point_->setEnabled(selected_point.has_value());
-    if (delete_curve_point_ != nullptr)
-        delete_curve_point_->setEnabled(selected_point.has_value());
-    if (move_curve_point_up_ != nullptr)
-        move_curve_point_up_->setEnabled(selected_point && *selected_point > 0);
-    if (move_curve_point_down_ != nullptr)
-        move_curve_point_down_->setEnabled(
-            selected_point && *selected_point + 1 < curve_points_.size());
-}
 
 void ConstructionPropertiesDialog::refresh_curve_points() {
     if (curve_points_table_ == nullptr) return;
-    if (initial_.kind ==
-            zima::document::ConstructionKind::Curve3DExperimental) {
-        refresh_experimental_curve_rows();
-        return;
-    }
+
     const int selected = curve_points_table_->currentRow();
     const QSignalBlocker blocked(curve_points_table_);
     curve_points_table_->setRowCount(static_cast<int>(curve_points_.size()));
@@ -1585,9 +1179,22 @@ void ConstructionPropertiesDialog::refresh_curve_points() {
         }
         return tr("Automaticky");
     };
+    const bool polyline = curve_type_ && curve_type_->currentData().toInt() ==
+        static_cast<int>(zima::document::Curve3DType::Polyline);
+    if(curve_rounding_)curve_rounding_->setEnabled(polyline);
     for (std::size_t index = 0; index < curve_points_.size(); ++index) {
+        auto* radius = new QDoubleSpinBox(curve_points_table_);
+        radius->setObjectName(QString("curve3DRadius%1").arg(index+1));
+        radius->setDecimals(4); radius->setRange(0,1e9);
+        const bool enabled=polyline && curve_rounding_ && curve_rounding_->isChecked() && index>0 && index+1<curve_points_.size();
+        radius->setEnabled(enabled);
+        radius->setValue(enabled?curve_points_[index].curve_radius:0);
+        connect(radius,&QDoubleSpinBox::valueChanged,this,[this,index](double value){
+            curve_points_[index].curve_radius=value; notify_preview();
+        });
+        curve_points_table_->setCellWidget(static_cast<int>(index),5,radius);
         auto* point_item = new zima::ui::ReferenceCellItem(
-            QString::fromStdString(curve_points_[index].name));
+            QString::number(index+1));
         point_item->set_reference(QString::fromStdString(curve_points_[index].id));
         curve_points_table_->setItem(static_cast<int>(index), 0, point_item);
         auto* axis_item = new zima::ui::ReferenceCellItem(
@@ -1790,7 +1397,8 @@ zima::document::ConstructionObject ConstructionPropertiesDialog::current_value()
     value.references = placement_->combined_references(required);
     value.offset = offset_->value();
     value.curve_points = curve_points_;
-    value.curve_connections = curve_connections_;
+    if(curve_rounding_)value.curve_rounding_enabled=curve_rounding_->isChecked();
+
     if (curve_type_ != nullptr) {
         value.curve_type = static_cast<zima::document::Curve3DType>(
             curve_type_->currentData().toInt());
@@ -1804,38 +1412,27 @@ zima::document::ConstructionObject ConstructionPropertiesDialog::current_value()
 }
 
 void ConstructionPropertiesDialog::notify_preview() {
-    if (preview_) preview_(current_value());
+    if (!initialized_) return;
+    refresh_sweep_profiles();
+    try {
+        const auto value=current_value();
+        if(value.kind==zima::document::ConstructionKind::Curve3D)
+            static_cast<void>(zima::document::curve3d_route(value));
+        error_->clear();
+        if (preview_) preview_(value);
+    } catch(const std::exception& error) { error_->setText(QString::fromUtf8(error.what())); }
 }
 
 bool ConstructionPropertiesDialog::submit() {
     auto value = current_value();
-    if ((value.kind == zima::document::ConstructionKind::Curve3D ||
-         value.kind == zima::document::ConstructionKind::Curve3DExperimental) &&
+    try { if(value.kind==zima::document::ConstructionKind::Curve3D)static_cast<void>(zima::document::curve3d_route(value)); }
+    catch(const std::exception& error){error_->setText(QString::fromUtf8(error.what()));return false;}
+    if ((value.kind == zima::document::ConstructionKind::Curve3D) &&
         value.curve_points.size() < 2) {
         error_->setText(tr("3D křivka vyžaduje alespoň dva body."));
         return false;
     }
-    if (value.kind ==
-            zima::document::ConstructionKind::Curve3DExperimental) {
-        if (value.curve_connections.size() + 1 !=
-                value.curve_points.size() ||
-            std::ranges::any_of(value.curve_connections,
-                [](const auto& connection) {
-                    return connection.type ==
-                        zima::document::Curve3DConnectionType::Undefined;
-                })) {
-            error_->setText(tr(
-                "Vyberte typ každého spojení experimentální trajektorie."));
-            return false;
-        }
-        const auto solution =
-            zima::document::solve_experimental_curve3d(value);
-        if (!solution.valid) {
-            error_->setText(tr("Trajektorii nelze vypočítat: %1")
-                .arg(QString::fromStdString(solution.error)));
-            return false;
-        }
-    }
+
     if (direction_combo_ != nullptr) {
         const double length = std::sqrt(value.direction.x * value.direction.x +
                                         value.direction.y * value.direction.y +

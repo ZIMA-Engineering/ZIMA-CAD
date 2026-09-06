@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cmath>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <numbers>
 #include <set>
@@ -2436,6 +2437,52 @@ int main() {
                         merge_absorbed_id) == block_after_merge->point_ids.end() &&
                     dependent_merge.find_point(merge_absorbed_id) == nullptr,
                 "Point merge did not rewire every dependent Sketch identity");
+        // Reproduce Projects/02.prtz: origin--endpoint, midpoint--axis slider,
+        // locked connecting rod and an unlocked angular dimension.
+        auto midpoint_slider = zima::sketcher::Sketch::create_default();
+        const auto base_id=midpoint_slider.add_segment(0,0,-18.63227268983931,-26.92917340451889);
+        const auto base=midpoint_slider.segments.front();
+        static_cast<void>(midpoint_slider.add_point_reference_constraint(base.first_point_id,"sketch_origin"));
+        const auto rod_id=midpoint_slider.add_segment(-9.316136344919655,-13.464586702259445,-51.29233169555664,0);
+        const auto rod=midpoint_slider.segments.back();
+        static_cast<void>(midpoint_slider.add_midpoint_constraint(rod.first_point_id,base_id));
+        static_cast<void>(midpoint_slider.add_point_on_line_constraint(rod.second_point_id,"sketch_axis:x"));
+        auto rod_length=midpoint_slider.create_segment_dimension(rod_id,DimensionKind::Distance);
+        rod_length.locked=true;midpoint_slider.apply_dimension(rod_length);
+        for(const auto target : {std::array{-20.0,-30.0},std::array{-10.0,-20.0},std::array{-25.0,-40.0}}) {
+            require(midpoint_slider.move_point(base.second_point_id,target[0],target[1]),
+                "Locked midpoint-to-axis rod blocked a feasible endpoint drag");
+            const auto* origin=midpoint_slider.find_point(base.first_point_id);
+            const auto* middle=midpoint_slider.find_point(rod.first_point_id);
+            const auto* slider=midpoint_slider.find_point(rod.second_point_id);
+            require(std::hypot(origin->x,origin->y)<1e-7 &&
+                    std::hypot(middle->x-target[0]*.5,middle->y-target[1]*.5)<1e-7 &&
+                    std::abs(slider->y)<1e-7 && slider->x<middle->x &&
+                    std::abs(std::hypot(slider->x-middle->x,slider->y-middle->y)-rod_length.value)<1e-7,
+                "Midpoint slider drag violated the origin, midpoint, axis, length or solution branch");
+        }
+        // Preserve the exact saved Sketch from the reported 02.prtz, including
+        // its unlocked symmetric angle and numerical origin residual.
+        std::ifstream slider_file(std::filesystem::path(__FILE__).parent_path() /
+            "fixtures/midpoint_axis_locked_rod.json");
+        require(slider_file.good(),"Missing saved midpoint-slider regression fixture");
+        const std::string slider_json((std::istreambuf_iterator<char>(slider_file)),{});
+        auto saved_slider=zima::sketcher::Sketch::from_serialized(slider_json);
+        const auto saved_end=saved_slider.segments.front().second_point_id;
+        for(const auto target : {std::array{-20.0,-30.0},std::array{-10.0,-20.0},std::array{-25.0,-40.0}}) {
+            require(saved_slider.move_point(saved_end,target[0],target[1]),
+                "Saved 02.prtz midpoint-slider Sketch still rejects a reachable drag");
+            const auto* end=saved_slider.find_point(saved_end);
+            require(std::hypot(end->x-target[0],end->y-target[1])<1e-8 &&
+                    saved_slider.dimensions.back().locked &&
+                    std::abs(saved_slider.dimensions.back().value-44.08283192964711)<1e-12 &&
+                    saved_slider.dimensions.front().driving && !saved_slider.dimensions.front().locked,
+                "Saved Sketch drag changed the requested handle or dimension locks");
+        }
+        const auto feasible_slider=midpoint_slider;
+        require(!midpoint_slider.move_point(base.second_point_id,-20,-100) &&
+                midpoint_slider.points==feasible_slider.points,
+            "Unreachable midpoint slider drag was accepted or partially committed");
         auto midpoint = zima::sketcher::Sketch::create_default();
         const auto midpoint_segment = midpoint.add_segment(0.0, 0.0, 8.0, 4.0);
         midpoint.find_point(midpoint.segments.front().first_point_id)->fixed = true;
@@ -5647,6 +5694,55 @@ int main() {
                     three_point_interpolation.arcs.empty() &&
                     three_point_interpolation.dimensions.empty(),
                 "Three-point interpolation was incorrectly converted to a radius geometry");
+        for (bool interpolating : {false,true}) {
+            auto joined=zima::sketcher::Sketch::create_default();
+            const auto first=joined.add_bspline({{0,0},{4,0},{6,2},{10,0}},
+                3,false,false,1e-6,interpolating);
+            const auto second=joined.add_bspline({{10,0},{12,5},{18,4},{20,0}},
+                3,false,false,1e-6,interpolating);
+            const auto contact=joined.bsplines[0].control_point_ids.back();
+            require(contact==joined.bsplines[1].control_point_ids.front(),
+                "Connected splines retained duplicate endpoint identities");
+            const auto tangent=joined.add_tangent_constraint(first,second);
+            const auto check=[&](const auto& sketch) {
+                const auto* c=sketch.find_point(contact);
+                const auto* a=sketch.find_point(sketch.bsplines[0].control_point_ids[2]);
+                const auto* b=sketch.find_point(sketch.bsplines[1].control_point_ids[1]);
+                const double ax=a->x-c->x,ay=a->y-c->y,bx=b->x-c->x,by=b->y-c->y;
+                return std::abs(ax*by-ay*bx)<1e-7 && ax*bx+ay*by<0;
+            };
+            require(check(joined),"Spline pair tangent did not align endpoint derivatives");
+            const auto arm=joined.bsplines[1].control_point_ids[1];
+            require(joined.move_point(arm,joined.find_point(arm)->x,
+                    joined.find_point(arm)->y+3),"Spline handle drag was rejected");
+            const auto solved=joined.solve();
+            require(solved.status!=zima::sketcher::SolveStatus::Conflicting && check(joined),
+                "Spline tangent did not follow a moved handle");
+            auto restored=zima::sketcher::Sketch::from_serialized(joined.serialized());
+            require(check(restored) && restored.constraints.back().id==tangent,
+                "Spline tangent did not survive persistence");
+            auto loop=zima::sketcher::Sketch::create_default();
+            const auto id=loop.add_bspline({{0,0},{10,0},{10,10},{-5,5},{0,0}},
+                3,false,false,1e-6,interpolating);
+            require(loop.points.size()==4 && loop.bsplines[0].control_point_ids.front()==
+                    loop.bsplines[0].control_point_ids.back(),
+                "Closed spline must reuse its first point");
+            static_cast<void>(loop.add_tangent_constraint(id,id));
+            const auto& ids=loop.bsplines.front().control_point_ids;
+            const auto* a=loop.find_point(ids[1]);
+            const auto* b=loop.find_point(ids[ids.size()-2]);
+            require(std::abs(a->y)<1e-8 && std::abs(b->y)<1e-8 && a->x*b->x<0,
+                "Self tangent did not smooth the shared spline endpoint");
+            auto disconnected=zima::sketcher::Sketch::create_default();
+            const auto d1=disconnected.add_bspline({{0,0},{1,1},{2,1},{3,0}},3);
+            const auto d2=disconnected.add_bspline({{4,0},{5,1},{6,1},{7,0}},3);
+            const auto before=disconnected.serialized();
+            bool rejected=false;
+            try {static_cast<void>(disconnected.add_tangent_constraint(d1,d2));}
+            catch(const std::exception&){rejected=true;}
+            require(rejected && disconnected.serialized()==before,
+                "Spline tangent without C must reject without changing geometry");
+        }
         auto periodic_spline = zima::sketcher::Sketch::create_default();
         const auto periodic_id = periodic_spline.add_bspline({
             {-20.0, 0.0}, {-15.0, 15.0}, {0.0, 22.0}, {15.0, 15.0},
@@ -5662,6 +5758,21 @@ int main() {
                     zima::sketcher::Sketch::from_serialized(
                         periodic_spline.serialized()).bsplines == periodic_spline.bsplines,
                 "Closed periodic B-spline did not close or survive serialization");
+        for (bool interpolating : {false,true}) {
+            auto closed = periodic_spline;
+            closed.bsplines.front().interpolating=interpolating;
+            const auto mesh=closed.viewer_mesh();
+            const auto& samples=mesh.edges.front().points;
+            const auto& first=samples.front();
+            const auto& last=samples.back();
+            const auto& next=samples[1];
+            const auto& before=samples[samples.size()-2];
+            const double ax=next.x-first.x, ay=next.y-first.y;
+            const double bx=last.x-before.x, by=last.y-before.y;
+            require(std::hypot(first.x-last.x,first.y-last.y)<1e-9 &&
+                    (ax*bx+ay*by)/(std::hypot(ax,ay)*std::hypot(bx,by))>0.99,
+                "Periodic spline has a gap or discontinuous seam tangent");
+        }
         spline_sketch.remove_point(spline_attached);
         spline_sketch.remove_geometry(spline_id);
         require(spline_sketch.bsplines.empty() && spline_sketch.points.empty(),

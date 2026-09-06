@@ -60,7 +60,9 @@ public:
     ~AssemblyWorkspaceWindow() override;
     [[nodiscard]] bool open_document_path(const QString& path);
     void show_tree_item_properties(QTreeWidgetItem* item);
+    [[nodiscard]] QString dimension_identifier(const std::string& owner, const std::string& key) const;
     void edit_dimension_inline(const zima::viewer::ViewerCandidate& candidate);
+    bool finish_parameter_dimensions();
     void show_parameter_dimensions(const std::string& owner_id,
         const std::string& component = {});
     // Exposed for regression coverage of nested Assembly occurrence
@@ -158,7 +160,6 @@ private:
     QAction* wedge_action_{};
     QAction* construction_point_action_{};
     QAction* curve_3d_action_{};
-    QAction* curve_3d_experimental_action_{};
     QAction* sweep_3d_action_{};
     QAction* helical_sweep_action_{};
     QAction* sweep2d_action_{};
@@ -331,14 +332,7 @@ private:
     std::optional<std::size_t> suspended_construction_reference_index_;
     bool suspended_construction_reference_auto_advance_{};
     std::string active_sketch_id_;
-    // A Sketch interval of the experimental 3D trajectory is edited by the
-    // regular Sketcher, but remains a dialog-owned draft until the parent
-    // trajectory dialog commits. It must never be inserted into Part history.
-    std::optional<zima::sketcher::Sketch> trajectory_sketch_draft_;
-    ConstructionPropertiesDialog* trajectory_sketch_parent_dialog_{};
-    std::optional<std::size_t> trajectory_sketch_connection_index_;
-    std::string trajectory_sketch_start_point_id_;
-    std::string trajectory_sketch_end_point_id_;
+
     // A profile Sketch owned by a pending 3D Sweep is edited by the regular
     // Sketcher, but remains inside the parent dialog transaction until the
     // Sweep itself is confirmed with OK.
@@ -348,10 +342,8 @@ private:
     std::function<void()> sweep_reference_end_;
     ConstructionPropertiesDialog* sweep_profile_parent_dialog_{};
     std::optional<std::size_t> sweep_profile_sketch_index_;
-    ConstructionPropertiesDialog* sweep_profile_point_dialog_{};
     // Engaged outer optional means a Point-pick command is active.  The inner
     // empty value creates a new profile; an index reassigns an existing one.
-    std::optional<std::optional<std::size_t>> pending_sweep_profile_index_;
     std::string sketch_view_state_id_;
     bool sketch_view_back_{};
     int sketch_view_quarter_turns_{};
@@ -581,6 +573,7 @@ private:
     void finish_extrusion_target_selection();
     [[nodiscard]] bool finish_active_reference_selection();
     void set_primitive_properties_dimension_selection();
+    void set_construction_properties_dimension_selection();
     void set_local_origin_selection_mode(bool active);
     void toggle_local_origin_visibility(
         const zima::viewer::ViewerCandidate& candidate);
@@ -634,11 +627,6 @@ private:
         ConstructionPropertiesDialog* curve_dialog, std::size_t point_index);
     void accept_curve_axis_reference(
         const zima::viewer::ViewerCandidate& candidate);
-    void start_sweep_profile_point_selection(
-        ConstructionPropertiesDialog* sweep_dialog,
-        std::optional<std::size_t> profile_index);
-    void accept_sweep_profile_point(
-        const zima::viewer::ViewerCandidate& candidate);
     void start_construction_reference_selection(
         std::size_t index, bool auto_advance = false);
     void accept_construction_reference(
@@ -676,9 +664,6 @@ private:
         const QString& owner_id, const QString& instance_path,
         const QString& semantic_key);
     void show_sketch_properties(const std::string& sketch_id = {});
-    void show_curve_connection_sketch(
-        ConstructionPropertiesDialog* curve_dialog,
-        std::size_t connection_index);
     void show_sweep_profile_sketch(
         ConstructionPropertiesDialog* sweep_dialog,
         std::size_t profile_index);

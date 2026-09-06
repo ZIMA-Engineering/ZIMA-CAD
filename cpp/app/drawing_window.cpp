@@ -350,6 +350,7 @@ public:
         update();
     }
     [[nodiscard]] const std::string& selected_view_id() const { return selected_; }
+    [[nodiscard]] const std::string& selected_dimension_id() const { return selected_dimension_id_; }
     void select_view_for_test(const std::string& view_id) {
         selected_ = view_id; selected_dimension_id_.clear();
         if (selection_changed_) selection_changed_();
@@ -857,7 +858,12 @@ void DrawingWindow::create_layout() {
         sync_workspace_document();
         update_action_states();
     });
-    canvas_->set_selection_changed_callback([this] { update_action_states(); });
+    canvas_->set_selection_changed_callback([this] {
+        update_action_states();
+        const auto identifier = document_.dimension_identifiers.identifier(
+            document_.document_id, "dimension:" + canvas_->selected_dimension_id());
+        if (!identifier.empty()) state_->setText(tr("Kóta %1").arg(QString::fromStdString(identifier)));
+    });
     auto* bottom = new QHBoxLayout;
     bottom->setContentsMargins(6, 3, 6, 3);
     auto* remove_sheet = new QPushButton(QStringLiteral("−"), central);
@@ -1263,6 +1269,7 @@ void DrawingWindow::refresh_title_block_context() {
 }
 
 void DrawingWindow::sync_workspace_document() {
+    document_.synchronize_dimension_identifiers();
     if(workspace_!=nullptr) for(auto& sheet:document_.sheets) for(auto& view:sheet.views)
         if(view.source_path.empty()) {
             if(const auto* part=workspace_->open_part(view.source_document_id)) view.source_path=part->path;

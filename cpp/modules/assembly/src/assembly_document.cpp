@@ -1517,7 +1517,7 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene_with_part_override(
 
 AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
     const auto ini = read_ini(path);
-    if (ini_value(ini, "Document", "format_version") != "11" ||
+    if (ini_value(ini, "Document", "format_version") != "12" ||
         ini_value(ini, "Document", "type") != "assembly") {
         throw std::runtime_error("Unsupported ZIMA-CAD Assembly document format");
     }
@@ -1559,6 +1559,7 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
     document.material_parameter_descriptions = root.at("material_parameter_descriptions").get<decltype(document.material_parameter_descriptions)>();
     document.family_table = root.at("family_table").get<std::string>();
     document.named_views = root.value("named_views", std::string("[]"));
+    document.dimension_identifiers = zima::document::DimensionIdentifiers::from_serialized(root.at("dimension_identifiers").dump());
     for (const auto& value : root.at("sketches")) {
         document.sketches.push_back(zima::sketcher::Sketch::from_serialized(
             value.get<std::string>()));
@@ -1715,10 +1716,40 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
         document.add_dependency(std::move(dependency));
     }
     static_cast<void>(document.build_scene());
+    document.synchronize_dimension_identifiers();
     return document;
 }
 
+std::vector<zima::document::DimensionParameter> AssemblyDocument::dimension_parameters() const {
+    zima::document::PartDocument owned;
+    owned.sketches = sketches;
+    owned.constructions = constructions;
+    for (const auto& cut : cuts) owned.history.push_back(cut.definition);
+    auto result = owned.dimension_parameters();
+    for (const auto& component : components) {
+        for (const auto* key : {"x", "y", "z", "rotation_x", "rotation_y", "rotation_z"})
+            result.push_back({component.occurrence_id,
+                std::string("parameter:placement:") + key, component.name});
+        // Match the existing Assembly-owned dimension identity exactly.
+        for (std::size_t i = 0; i < component.placement_references.size(); ++i) {
+            const auto& reference = component.placement_references[i];
+            const auto key = "placement-reference:" + component.occurrence_id + ":" + std::to_string(i);
+            result.push_back({document_id, key, component.name});
+            if (reference.lower_limit)
+                result.push_back({document_id, key + ":lower_limit", component.name});
+            if (reference.upper_limit)
+                result.push_back({document_id, key + ":upper_limit", component.name});
+        }
+    }
+    return result;
+}
+void AssemblyDocument::synchronize_dimension_identifiers() {
+    dimension_identifiers.synchronize(dimension_parameters());
+}
+
 void AssemblyDocument::save(const std::filesystem::path& path) const {
+    auto identifiers = dimension_identifiers;
+    identifiers.synchronize(dimension_parameters());
     static_cast<void>(build_scene());
     auto constructions_json = nlohmann::json::parse(
         zima::document::serialize_construction_objects(constructions));
@@ -1824,13 +1855,14 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
             {"input_component_bodies", std::move(input_bodies)}});
     }
     const nlohmann::json root = {
-        {"format", "zima-cad-cpp"}, {"format_version", 21},
+        {"format", "zima-cad-cpp"}, {"format_version", 22},
         {"type", "assembly"}, {"document_id", document_id}, {"name", name},
         {"user_parameters", user_parameters},
         {"user_parameter_order", user_parameter_order},
         {"user_parameter_labels", user_parameter_labels},
         {"user_parameter_values", user_parameter_values},
         {"relations", std::move(relations_json)},
+        {"dimension_identifiers", nlohmann::json::parse(identifiers.serialized())},
         {"document_units", document_units},
         {"document_precision", document_precision},
         {"physical_parameters", physical_parameters},
@@ -1845,7 +1877,7 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
     };
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "11"},
+        {"format_version", "12"},
         {"type", "assembly"},
         {"document_id", document_id},
         {"name", name},

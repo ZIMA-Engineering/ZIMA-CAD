@@ -638,6 +638,219 @@ int verify_shaft_thread_command(QApplication& application,zima::app::AssemblyWor
     return 0;
 }
 
+int verify_spline_tangent_selection(QApplication& application,
+    const std::filesystem::path& directory) {
+    using namespace zima::document;
+    auto doc=PartDocument::create_default();
+    auto container=PartDocument::create_sketch_container();
+    auto sketch=zima::sketcher::Sketch::create_default();
+    sketch.owner_container_id=container.id;
+    const auto first=sketch.add_bspline({{0,0},{4,0},{6,2},{10,0}},3);
+    const auto second=sketch.add_bspline({{10,0},{12,5},{18,4},{20,0}},3);
+    const auto loop=sketch.add_bspline({{0,15},{10,15},{10,25},{-5,20},{0,15}},3);
+    doc.history={container};doc.sketches={sketch};
+    const auto path=directory/"spline-tangent-ui.prtz";
+    doc.save(path);
+    zima::app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));
+    window.resize(1000,800);window.show();
+    if(!verify(window.open_document_path(QString::fromStdString(path.string())),
+        "Cannot open spline tangent fixture"))return 1;
+    application.processEvents();
+    auto* tree=window.findChild<QTreeWidget*>("documentTree");
+    QTreeWidgetItem* item{};
+    for(QTreeWidgetItemIterator i(tree);*i;++i)
+        if((*i)->data(0,Qt::UserRole).toString().toStdString()==sketch.id &&
+           (*i)->data(0,Qt::UserRole+3).toString()=="part-sketch") {item=*i;break;}
+    if(!verify(item!=nullptr,"Spline fixture Sketch is missing"))return 1;
+    window.show_tree_item_properties(item);application.processEvents();
+    auto* open=window.findChild<QPushButton*>("sketchOpenButton");
+    if(!verify(open!=nullptr,"Cannot enter spline Sketch"))return 1;
+    open->click();application.processEvents();
+    QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    auto* view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
+    auto* tangent=window.findChild<QAction*>("sketchTangentAction");
+    if(!verify(tangent && tangent->isEnabled(),"Spline tangent command unavailable"))return 1;
+    tangent->trigger();application.processEvents();
+    const auto pick=[&](const std::string& id,bool double_click=false) {
+        for(int y=20;y<view->height()-20;y+=5)
+            for(int x=20;x<view->width()-20;x+=5) {
+                const QPointF pos(x,y);
+                const auto candidates=view->selection_candidates_at(pos);
+                if(candidates.empty() || candidates.front().semantic_key!="bspline:"+id)continue;
+                const QPointF global(view->mapToGlobal(pos.toPoint()));
+                QMouseEvent event(double_click?QEvent::MouseButtonDblClick:QEvent::MouseButtonPress,
+                    pos,global,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+                QMouseEvent release(QEvent::MouseButtonRelease,pos,global,
+                    Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+                QApplication::sendEvent(view,&event);
+                QApplication::sendEvent(view,&release);
+                application.processEvents();return true;
+            }
+        return false;
+    };
+    if(!verify(pick(first) && pick(second),"Connected splines cannot be selected for tangency"))return 1;
+    if(!verify(pick(loop) && pick(loop,true),"Self tangent cannot select the same spline twice"))return 1;
+    auto* save=window.findChild<QAction*>("saveDocumentAction");
+    save->trigger();application.processEvents();
+    const auto loaded=PartDocument::load(path);
+    if(!verify(loaded.sketches.front().constraints.size()==2,
+        "Spline tangent clicks did not persist both tangent constraints"))return 1;
+    std::size_t expected_splines=3;
+    for(const auto* action_name : {"sketchBSplineAction","sketchInterpolatingSplineAction"}) {
+    window.findChild<QAction*>(action_name)->trigger();
+    application.processEvents();
+    std::vector<QPointF> inputs{
+        {view->width()*.22,view->height()*.72},
+        {view->width()*.35,view->height()*.66},
+        {view->width()*.40,view->height()*.83},
+        {view->width()*.20,view->height()*.88}};
+    const auto click=[&](const QPointF& pos) {
+        const QPointF global(view->mapToGlobal(pos.toPoint()));
+        QMouseEvent press(QEvent::MouseButtonPress,pos,global,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+        QMouseEvent release(QEvent::MouseButtonRelease,pos,global,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(view,&press);QApplication::sendEvent(view,&release);
+        application.processEvents();
+    };
+    // Find a real offered sketch-axis candidate for the third input.
+    bool axis_found=false;
+    for(int y=25;y<view->height()-25 && !axis_found;y+=5)
+        for(int x=25;x<view->width()-25 && !axis_found;x+=5) {
+            const QPointF pos(x,y);
+            const auto candidates=view->selection_candidates_at(pos);
+            if(!candidates.empty() && candidates.front().kind==zima::viewer::CandidateKind::SketchAxis) {
+                inputs[2]=pos;axis_found=true;
+            }
+        }
+    if(!verify(axis_found,"No axis available for spline crash regression"))return 1;
+    for(const auto& pos:inputs) {
+        click(pos);
+        // Repeated mouse moves over the accepted point used to append that
+        // point again to the preview and terminate Qt with an uncaught error.
+        for(const auto offset : {QPointF{},QPointF(.000001,0),QPointF{}}) {
+            const auto hover=pos+offset;
+            QMouseEvent move(QEvent::MouseMove,hover,
+                QPointF(view->mapToGlobal(hover.toPoint())),
+                Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+            QApplication::sendEvent(view,&move);
+            application.processEvents();
+        }
+    }
+    const auto closure_candidates=view->selection_candidates_at(inputs.front());
+    if(!verify(!closure_candidates.empty() &&
+        closure_candidates.front().semantic_key=="point:pending-spline-start",
+        "Drawn spline start was not offered for closing"))return 1;
+    click(inputs.front());
+    QMouseEvent finish(QEvent::MouseButtonDblClick,inputs.front(),
+        QPointF(view->mapToGlobal(inputs.front().toPoint())),
+        Qt::MiddleButton,Qt::MiddleButton,Qt::NoModifier);
+    QApplication::sendEvent(view,&finish);application.processEvents();
+    save->trigger();application.processEvents();
+    const auto closed_doc=PartDocument::load(path);
+    const auto& splines=closed_doc.sketches.front().bsplines;
+    if(!verify(splines.size()==++expected_splines && splines.back().control_point_ids.size()==5 &&
+        splines.back().control_point_ids.front()==splines.back().control_point_ids.back(),
+        "Clicking the first spline point did not persist a single shared endpoint"))return 1;
+    }
+    return 0;
+}
+
+int verify_curve_radius_edit(QApplication& application,
+    const std::filesystem::path& directory) {
+    using namespace zima::document;
+    auto doc = PartDocument::create_default();
+    auto curve = PartDocument::create_construction(ConstructionKind::Curve3D);
+    curve.curve_type = Curve3DType::Polyline;
+    curve.curve_rounding_enabled = true;
+    for (const auto origin : std::vector<zima::kernel::Vec3>{{0,0,0},{0,0,30},{30,0,30}}) {
+        auto point = PartDocument::create_construction(ConstructionKind::Point);
+        point.parent_construction_id = curve.id;
+        point.origin = origin;
+        curve.curve_points.push_back(point);
+    }
+    curve.curve_points[1].curve_radius = 5;
+    doc.constructions.push_back(curve);
+    const auto path = directory / "curve-radius-inline.prtz";
+    doc.save(path);
+    zima::app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));
+    window.resize(1000,800);
+    window.show();
+    if (!verify(window.open_document_path(QString::fromStdString(path.string())),
+            "Cannot open radius fixture")) return 1;
+    application.processEvents();
+    auto* view = dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
+    auto* save = window.findChild<QAction*>("saveDocumentAction");
+    zima::viewer::ViewerCandidate dimension;
+    dimension.kind = zima::viewer::CandidateKind::Dimension;
+    dimension.owner_id = curve.curve_points[1].id;
+    dimension.semantic_key = "parameter:radius";
+    const auto edit = [&](const char* text) {
+        QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+        const auto position = view->candidate_dimension_label_position(dimension);
+        if (!position) return false;
+        const QPointF local(*position);
+        const QPointF global(view->mapToGlobal(*position));
+        QMouseEvent press(QEvent::MouseButtonPress,local,global,
+            Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+        QMouseEvent release(QEvent::MouseButtonRelease,local,global,
+            Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+        QMouseEvent double_click(QEvent::MouseButtonDblClick,local,global,
+            Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+        QApplication::sendEvent(view,&press);
+        QApplication::sendEvent(view,&release);
+        QApplication::sendEvent(view,&double_click);
+        QApplication::sendEvent(view,&release);
+        application.processEvents();
+        auto* editor = view->findChild<QLineEdit*>("inlineDimensionValueEdit");
+        if (!editor || !editor->isVisible()) return false;
+        editor->setText(text);
+        QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);
+        QApplication::sendEvent(editor,&enter);
+        application.processEvents();
+        return true;
+    };
+    const auto stored_radius = [&] {
+        save->trigger();
+        application.processEvents();
+        return PartDocument::load(path).find_construction(curve.id)->curve_points[1].curve_radius;
+    };
+    window.show_parameter_dimensions(curve.id);
+    application.processEvents();
+    if (!verify(edit("7") && stored_radius()==7 &&
+            view->candidate_dimension_value(dimension)==7,
+            "Inspection radius edit did not persist or refresh its annotation")) return 1;
+    if (!verify(edit("100") && stored_radius()==7,
+            "Invalid radius changed the document")) return 1;
+    auto* tree = window.findChild<QTreeWidget*>("documentTree");
+    QTreeWidgetItem* item{};
+    for (QTreeWidgetItemIterator i(tree); *i; ++i)
+        if ((*i)->data(0,Qt::UserRole).toString().toStdString()==curve.id) { item=*i; break; }
+    window.show_tree_item_properties(item);
+    application.processEvents();
+    zima::app::ConstructionPropertiesDialog* dialog{};
+    for (auto* candidate : window.findChildren<QDialog*>())
+        if (auto* properties = dynamic_cast<zima::app::ConstructionPropertiesDialog*>(candidate))
+            if (properties->isVisible()) { dialog=properties; break; }
+    if (!verify(dialog && edit("9") && dialog->pending_value().curve_points[1].curve_radius==9 &&
+            dialog->findChild<QDoubleSpinBox*>("curve3DRadius2")->value()==9,
+            "Properties radius edit did not update pending point and table")) return 1;
+    if (!verify(edit("8") && dialog->pending_value().curve_points[1].curve_radius==8,
+            "Preview refresh blocked the next radius double click")) return 1;
+    view->confirm_current_pointer();
+    application.processEvents();
+    if (!verify(edit("9") && dialog->pending_value().curve_points[1].curve_radius==9,
+            "Finishing reference entry blocked radius double click")) return 1;
+    dialog->buttons()->button(QDialogButtonBox::Cancel)->click();
+    application.processEvents();
+    if (!verify(stored_radius()==7, "Cancel committed an inline radius preview")) return 1;
+    QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    window.show_parameter_dimensions(curve.id);
+    application.processEvents();
+    if (!verify(edit("0") && stored_radius()==0 &&
+            !view->candidate_dimension_value(dimension),
+            "Zero radius did not restore the sharp corner")) return 1;
+    return 0;
+}
+
 int verify_startup_contract(
     QApplication& application, zima::app::AssemblyWorkspaceWindow& window,
     const std::filesystem::path& test_directory,
@@ -650,6 +863,8 @@ int verify_startup_contract(
         return verify_shaft_thread_command(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_HISTORY_DRAG_ONLY"))
         return verify_history_tree_drag(application,test_directory);
+    if (verify_spline_tangent_selection(application,test_directory) != 0) return 1;
+    if (verify_curve_radius_edit(application,test_directory) != 0) return 1;
     window.show();
     application.processEvents();
 
@@ -1690,7 +1905,7 @@ int verify_startup_contract(
         return 1;
     }
     sketch_constraints->trigger();application.processEvents();
-    auto* constraints_dialog=window.findChild<QDialog*>("sketchConstraintsDialog");
+    QPointer<QDialog> constraints_dialog=window.findChild<QDialog*>("sketchConstraintsDialog");
     auto* horizontal_automatic=constraints_dialog ? constraints_dialog->findChild<QPushButton*>("sketchHorizontalActionAutomatic") : nullptr;
     if (!verify(constraints_dialog && horizontal_automatic && horizontal_automatic->isChecked() &&
             constraints_dialog->windowFlags().testFlag(Qt::SubWindow),"Constraint command did not open its internal activity window")) return 1;
@@ -1713,7 +1928,10 @@ int verify_startup_contract(
     QMouseEvent constraints_middle(QEvent::MouseButtonDblClick,QPointF(40,40),
         QPointF(40,40),QPointF(40,40),Qt::MiddleButton,Qt::MiddleButton,Qt::NoModifier);
     QApplication::sendEvent(window.findChild<QOpenGLWidget*>("modelWorkspace"),&constraints_middle);application.processEvents();
-    if (!verify(!constraints_dialog->isVisible() && !sketch_constraints->isChecked(),
+    // OK may destroy the window during event delivery. Exercise that lifetime
+    // explicitly instead of inspecting a dangling raw QWidget pointer.
+    QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();
+    if (!verify((!constraints_dialog || !constraints_dialog->isVisible()) && !sketch_constraints->isChecked(),
             "Middle double-click did not finish the manual constraint session")) return 1;
     QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();
     sketch_external_reference->trigger();
@@ -4292,6 +4510,20 @@ int verify_startup_contract(
         auto* view=dynamic_cast<zima::viewer::MeshView*>(
             opening_window.findChild<QOpenGLWidget*>("modelWorkspace"));
         if (!verify(view != nullptr,"Opening View is missing")) return 1;
+        const auto has_parameter_dimensions = [&] {
+            return std::any_of(view->mesh().dimensions.begin(), view->mesh().dimensions.end(),
+                [&](const auto& dimension) { return dimension.reference.owner_id == opening.id; });
+        };
+        if (!verify(has_parameter_dimensions() && view->confirm_current_pointer() &&
+                !has_parameter_dimensions(), "Short MMB did not end container dimension inspection")) return 1;
+        opening_window.show_parameter_dimensions(opening.id);
+        QMouseEvent finish_dimensions(QEvent::MouseButtonDblClick,QPointF(40,40),
+            QPointF(40,40),QPointF(40,40),Qt::MiddleButton,Qt::MiddleButton,Qt::NoModifier);
+        QApplication::sendEvent(view,&finish_dimensions);
+        application.processEvents();
+        if (!verify(!has_parameter_dimensions(), "Double MMB did not end container dimension inspection")) return 1;
+        opening_window.show_parameter_dimensions(opening.id);
+        application.processEvents();
         const auto candidate_for=[&](const std::string& key) {
             std::optional<zima::viewer::ViewerCandidate> result;
             for (std::size_t index=0;index<100;++index) {

@@ -275,6 +275,7 @@ struct MeshView::Impl {
     QPoint middle_press_position;
     std::vector<zima::kernel::ViewerEdge> transient_edges;
     std::vector<zima::kernel::ViewerDimension> transient_dimensions;
+    std::vector<zima::kernel::ViewerPoint> command_snap_points;
     std::vector<zima::kernel::Vec3> transient_points;
     std::vector<std::pair<zima::kernel::Vec3, std::string>> transient_labels;
     std::optional<zima::kernel::Vec3> sketch_cursor;
@@ -826,6 +827,16 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
         }
     }
 
+    if (!impl_->command_snap_points.empty()) {
+        zima::kernel::ViewerMesh command_mesh;
+        command_mesh.points=impl_->command_snap_points;
+        auto command_candidates=ordered_viewer_candidates(command_mesh,
+            zima::kernel::ViewerMesh{},ray_origin,ray_direction,world_tolerance);
+        for(auto& candidate:command_candidates)
+            candidate.geometry_index+=impl_->mesh.points.size();
+        candidates.insert(candidates.begin(),command_candidates.begin(),command_candidates.end());
+    }
+
     // Dimensions are painted as a screen-space annotation. Their text,
     // witness lines and leaders therefore cannot be picked reliably by the
     // world-space ray test alone (and the text was not represented there at
@@ -1027,8 +1038,13 @@ std::optional<zima::kernel::ViewerPoint> MeshView::candidate_point(
     const ViewerCandidate& candidate) const {
     const auto& points = candidate.geometry == CandidateGeometry::OriginalReference
         ? impl_->mesh.original_references.points : impl_->mesh.points;
-    if (candidate.geometry_index >= points.size()) return std::nullopt;
-    const auto& point = points[candidate.geometry_index];
+    const auto index=candidate.geometry_index;
+    const auto* source=index<points.size() ? &points[index]
+        : candidate.geometry==CandidateGeometry::Display &&
+          index-points.size()<impl_->command_snap_points.size()
+            ? &impl_->command_snap_points[index-points.size()] : nullptr;
+    if(source==nullptr) return std::nullopt;
+    const auto& point=*source;
     if (point.reference.owner_id != candidate.owner_id ||
         point.reference.semantic_key != candidate.semantic_key ||
         point.reference.instance_path != candidate.instance_path) {
@@ -1783,6 +1799,13 @@ void MeshView::set_transient_dimensions(
 
 std::size_t MeshView::base_mesh_revision() const {
     return impl_->base_mesh_revision;
+}
+
+void MeshView::set_command_snap_points(std::vector<zima::kernel::ViewerPoint> points) {
+    impl_->command_snap_points=std::move(points);
+    impl_->candidates.clear();
+    impl_->active_candidate=0;
+    update();
 }
 
 void MeshView::set_transient_points(std::vector<zima::kernel::Vec3> points) {
@@ -3305,8 +3328,7 @@ if (impl_->show_origins) {
     const bool curve3d_geometry_visible = std::any_of(
         impl_->mesh.edges.begin(), impl_->mesh.edges.end(),
         [](const auto& edge) {
-            return edge.reference.semantic_key.starts_with(
-                "curve:segment:");
+            return is_curve3d_edge(edge.reference.semantic_key);
         });
     const bool external_points_visible = impl_->show_sketches && std::any_of(
         impl_->mesh.points.begin(), impl_->mesh.points.end(), [](const auto& point) {
@@ -3624,8 +3646,7 @@ if (impl_->show_origins) {
             // QPainter only presents those same samples at a stable 1.8 px
             // width on every OpenGL driver.
             for (const auto& edge : impl_->mesh.edges) {
-                if (!edge.reference.semantic_key.starts_with(
-                        "curve:segment:")) continue;
+                if (!is_curve3d_edge(edge.reference.semantic_key)) continue;
                 const bool candidate_match = highlighted &&
                     candidate_recolors_wire_edge(*highlighted, edge);
                 const auto key = edge_key(edge.reference);
@@ -4437,6 +4458,21 @@ if (impl_->show_origins) {
             for (const auto& semantic : marker.participant_semantic_keys)
                 relation_keys.insert(EdgeKey{marker.reference.owner_id,semantic,marker.reference.instance_path});
             if (impl_->confirmed_candidate) relation_color=QColor(30,220,240);
+        }
+        if (highlighted && highlighted->kind==CandidateKind::Dimension) {
+            const auto index=highlighted->geometry_index;
+            const auto* dimension=index<impl_->mesh.dimensions.size()
+                ? &impl_->mesh.dimensions[index]
+                : index-impl_->mesh.dimensions.size()<impl_->transient_dimensions.size()
+                    ? &impl_->transient_dimensions[index-impl_->mesh.dimensions.size()]
+                    : nullptr;
+            if (dimension) {
+                relation_keys.clear();
+                for (const auto& semantic : dimension->participant_semantic_keys)
+                    relation_keys.insert({dimension->reference.owner_id,semantic,
+                        dimension->reference.instance_path});
+                if (impl_->confirmed_candidate) relation_color=QColor(30,220,240);
+            }
         }
         painter.save();
         painter.setPen(QPen(relation_color,2.4));painter.setBrush(relation_color);

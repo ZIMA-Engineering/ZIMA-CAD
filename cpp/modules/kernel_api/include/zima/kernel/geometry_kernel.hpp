@@ -470,6 +470,7 @@ struct Sweep3DRequest {
         // Empty for a line.  A four-point array is an exact cubic Bezier
         // representation of the corresponding ZIMA Hermite Curve3D segment.
         std::vector<Vec3> bezier_control_points;
+        std::optional<Vec3> arc_midpoint;
     };
     struct Section {
         std::string profile_id;
@@ -480,6 +481,7 @@ struct Sweep3DRequest {
         // plane to construct their OCCT wire without falling back to world XY.
         Vec3 profile_normal{0.0, 0.0, 1.0};
         ExtrusionRequest::ProfileRegion profile;
+        std::optional<Vec3> circle_radial_direction;
     };
     std::vector<Vec3> path_points;
     std::vector<std::string> path_point_ids;
@@ -1104,6 +1106,8 @@ struct PlacedBody {
                     append_string(segment.source_id);
                     append_point(segment.start);
                     append_point(segment.end);
+                    u64(segment.arc_midpoint.has_value());
+                    if(segment.arc_midpoint)append_point(*segment.arc_midpoint);
                     u64(segment.bezier_control_points.size());
                     for (const auto& point : segment.bezier_control_points)
                         append_point(point);
@@ -1114,6 +1118,8 @@ struct PlacedBody {
                     append_string(section.point_id);
                     u64(section.point_index);
                     append_point(section.profile_normal);
+                    u64(section.circle_radial_direction.has_value());
+                    if(section.circle_radial_direction) append_point(*section.circle_radial_direction);
                     append_string(section.profile.region_id);
                     append_string(section.profile.outer_boundary_id);
                     u64(section.profile.outer_edge_source_ids.size());

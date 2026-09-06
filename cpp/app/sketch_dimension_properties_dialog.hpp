@@ -24,6 +24,8 @@ public:
         CommitCallback commit, QWidget* parent,
         QString custom_title = {});
 
+    void set_dimension_identifier(const QString& identifier);
+
 protected:
     bool submit() override;
 

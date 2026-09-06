@@ -43,6 +43,7 @@ add_library(zima_document_core
     modules/document_core/src/part_document.cpp
     modules/document_core/src/relations.cpp
     modules/document_core/src/document_session.cpp
+    modules/document_core/src/dimension_identifiers.cpp
     modules/document_core/src/viewer_packet_json.cpp)
 target_include_directories(zima_document_core PUBLIC
     modules/document_core/include)
@@ -191,6 +192,9 @@ if(ZIMA_BUILD_TESTS)
     else()
         set(ZIMA_GUI_TEST_ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     endif()
+    add_executable(zima_cpp_dimension_identifiers_contract_tests tests/dimension_identifiers_contract_tests.cpp)
+    target_link_libraries(zima_cpp_dimension_identifiers_contract_tests PRIVATE zima_document_core zima_assembly zima_drawing zima_kernel_occt)
+    add_test(NAME zima_cpp_dimension_identifiers_contract_tests COMMAND zima_cpp_dimension_identifiers_contract_tests)
     add_executable(zima_cpp_contract_tests tests/contract_tests.cpp)
     target_link_libraries(zima_cpp_contract_tests PRIVATE
         zima_document_core zima_kernel_occt TKPrim TKDESTEP)
@@ -200,6 +204,9 @@ if(ZIMA_BUILD_TESTS)
     add_executable(zima_cpp_sweep2d_contract_tests tests/sweep2d_contract_tests.cpp)
     target_link_libraries(zima_cpp_sweep2d_contract_tests PRIVATE zima_document_core zima_kernel_occt)
     add_test(NAME zima_cpp_sweep2d_contract_tests COMMAND zima_cpp_sweep2d_contract_tests)
+    add_executable(zima_cpp_curve3d_sweep_contract_tests tests/curve3d_sweep_contract_tests.cpp)
+    target_link_libraries(zima_cpp_curve3d_sweep_contract_tests PRIVATE zima_document_core zima_kernel_occt)
+    add_test(NAME zima_cpp_curve3d_sweep_contract_tests COMMAND zima_cpp_curve3d_sweep_contract_tests)
     add_executable(zima_cpp_helical_sweep_contract_tests tests/helical_sweep_contract_tests.cpp)
     target_link_libraries(zima_cpp_helical_sweep_contract_tests PRIVATE zima_document_core zima_kernel_occt)
     add_test(NAME zima_cpp_helical_sweep_contract_tests COMMAND zima_cpp_helical_sweep_contract_tests)

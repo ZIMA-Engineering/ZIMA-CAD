@@ -453,3 +453,40 @@ vyžaduje gesto nástroje nebo již plně zavazbený účastník. Nástroj musí
 oznámit nebo jasně ukázat v náhledu; nesmí pořadí obrátit potichu. Dlouhodobým
 cílem je ukládat u vztahů explicitní role reference a řízeného prvku a použít
 je při řešení i při zobrazení závislostí.
+
+## Uzavření spline, výběr účastníků a posuv po ose (2026-09-06)
+
+Při zadávání spline lze poslední bod přichytit k prvnímu. Uzavření sdílí jednu
+identitu koncového bodu. Příkaz **Tečná** podporuje dvě spline se společným
+koncovým bodem vytvořeným vazbou C i výběr téže spline dvakrát pro tečnost
+v jejím společném začátku a konci. Nejde o periodickou 3D spline; tato změna
+patří výhradně skicáři. Samouzavření s tečností potřebuje dostatek řídicích
+bodů pro nezávislá koncová ramena. Náhled nepřidává druhý shodný bod, pokud
+kurzor zůstává na právě potvrzeném bodě, například na ose.
+
+Výběr kóty nebo značky vazby ve View či Tree zvýrazňuje její související
+geometrii. Účastníci pocházejí z uložených referencí skici. Délková kóta
+vytvořená kliknutím na běžnou úsečku používá její koncové body A a B.
+Kóta viditelně zkrácené úsečky s rádiusem zachovává také referenci úsečky,
+aby měřila skutečné tečné konce.
+
+Zamčená délka spojnice mezi středem úsečky a bodem na ose nefixuje celý
+bod na ose. Při tažení volného konce první úsečky se střed přepočítává a
+konec spojnice může klouzat po ose. Solver pro délkovou podmínku hledá
+průsečík podpůrné přímky s kružnicí danou délkou a zvolí bližší řešení.
+Nedosažitelná poloha se odmítne bez částečného zápisu. Zamčená délka se
+nemění; odemčené kóty při tažení sledují dosaženou geometrii.
+
+Regresní test `zima_cpp_sketcher_contract_tests` obsahuje konstrukci této
+soustavy i uloženou skicu z hlášeného `02.prtz` ve fixture
+`cpp/tests/fixtures/midpoint_axis_locked_rod.json`. Ověřuje několik dosažitelných
+tahů, zachování vazeb a zamčené délky i odmítnutí nedosažitelné polohy.
+
+### Stav ověření
+
+Po opravě prošly testy skicáře, obecné dokumentové testy, testy 3D křivky/Sweepu
+a kontrola aplikace `--verify-startup`. Samostatný test oken naposledy skončil
+na kontrole odloženého otevření katalogu závitů (`Deferred thread catalog did
+not open after the pointer gesture`); tento problém není touto opravou vyřešen.
+Dříve hlášené dočasné zablokování výběru kóty, které uvolnil nový příkaz Kóta,
+nemá zatím potvrzenou příčinu a nelze je považovat za opravené.

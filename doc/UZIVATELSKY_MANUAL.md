@@ -3,7 +3,7 @@
 ## Kompatibilita dokumentů
 
 Každý nativní typ dokumentu má vlastní verzi: C++ Part `.prtz` nyní používá
-`format_version` 12, Assembly `.asmz` verzi 11 a Drawing `.drwz` verzi 11.
+`format_version` 14, Assembly `.asmz` verzi 12 a Drawing `.drwz` verzi 12.
 ZIMA-CAD během vývoje nepoužívá tiché fallbacky pro starší experimentální
 formáty: nepodporovanou verzi odmítne. Budoucí nekompatibilní změna formátu
 musí zvýšit příslušnou verzi a případně nabídnout samostatnou řízenou migraci.
@@ -1052,3 +1052,34 @@ Region s funkcemi **Item Number** a **Quantity** jsou funkční. Zbývá dokonč
 řezy, detaily, úplnou sadu ISO kót, tolerance, pozice, popisky, technické
 symboly a export PDF/DXF. Podrobné ovládání a omezení jsou v dokumentu
 [Výkresy](DRAWINGS.md).
+
+## 3D Sweep: párování profilů
+
+Ve vlastnostech 3D Sweepu se ve View zobrazují trajektorie i skici jednotlivých
+aktivních stanic. Prázdná stanice přebírá poslední vyplněný profil včetně jeho
+pořadí bodů; první stanice proto musí mít vlastní profil.
+
+Za zeleným tlačítkem **Sketch** je u vlastního profilu tlačítko **Pořadí bodů**.
+Vyberte první bod obvodu. Ostatní body následují po obvodu proti směru
+hodinových ručiček při pohledu proti normále skici. View označuje první bod
+**1 – začátek** a další body čísly. Sousední profily se párují 1 → 1, 2 → 2
+atd. Volba začátku používá identitu bodu a ukládá se s dokumentem. **Cancel**
+v okně pořadí vrátí původní volbu; celé těleso přepočítá a změny uloží až
+**OK** ve vlastnostech Sweepu.
+
+Dvě kružnice bez párovacích bodů se spojují bez samovolného pootočení švu.
+Pro řízené pootočení přidejte do každé kružnice bod s vazbou **C** na kružnici.
+Pro přechod kružnice na obdélník přidejte na kružnici čtyři takové body,
+aby odpovídaly čtyřem rohům obdélníku, a zvolte odpovídající první bod.
+Počet párovacích bodů sousedních profilů musí souhlasit; jinak výpočet
+skončí vysvětlující chybou. Převzatý profil upravujte v jeho zdrojové stanici.
+
+## Další podrobnosti k posledním změnám
+
+- [3D křivka a 3D Sweep](3D_CURVE_AND_SWEEP.md): zaoblení, stanice, přebírání skic a párování bodů.
+- [Identifikace kót](DIMENSION_IDENTIFIERS.md): trvalé označení d1, d2, … v rámci dokumentu.
+- [Skicář](SKETCHER.md): uzavření spline, tečnost, zvýraznění účastníků a zamčená spojnice se bodem na ose.
+
+Zelené tlačítko **Sketch** označuje vstup do skici také u 2D Sweepu a Helical
+Sweepu. V nabídce modelování je 3D křivka za skicou a 2D Sweep před 3D Sweepem.
+Vlastnosti kontejnerů již neobsahují redundantní řádek s typem kontejneru.

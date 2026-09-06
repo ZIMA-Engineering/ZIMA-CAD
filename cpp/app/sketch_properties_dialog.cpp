@@ -1,3 +1,4 @@
+#include "sketch_button_style.hpp"
 #include "sketch_properties_dialog.hpp"
 
 #include <QComboBox>
@@ -133,10 +134,7 @@ SketchPropertiesDialog::SketchPropertiesDialog(
     sketch_button_ = new QPushButton(QStringLiteral("SKETCH"), this);
     sketch_button_->setObjectName("sketchOpenButton");
     sketch_button_->setMinimumHeight(40);
-    sketch_button_->setStyleSheet(
-        "QPushButton{background:#4DD811;color:#102027;font-weight:700;"
-        "padding:9px 18px;border-radius:4px}"
-        "QPushButton:hover{background:#65ec2c}");
+    style_sketch_button(sketch_button_);
     content_layout()->addWidget(sketch_button_);
     error_ = new QLabel(this);
     error_->setStyleSheet("color: #c64b4b;");

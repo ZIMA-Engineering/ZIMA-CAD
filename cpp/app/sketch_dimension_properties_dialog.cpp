@@ -161,6 +161,13 @@ void SketchDimensionPropertiesDialog::refresh_tolerance_fields() {
     form_->setRowVisible(lower_tolerance_, mode == "deviations");
 }
 
+void SketchDimensionPropertiesDialog::set_dimension_identifier(const QString& identifier) {
+    auto* label = new QLabel(identifier.isEmpty() ? tr("Přidělí se po potvrzení") : identifier, this);
+    label->setObjectName("sketchDimensionIdentifier");
+    label->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    form_->insertRow(0, tr("Identifikace kóty"), label);
+}
+
 bool SketchDimensionPropertiesDialog::submit() {
     auto result = initial_;
     result.value = value_->value();

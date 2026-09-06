@@ -3,6 +3,7 @@
 #include "application_settings.hpp"
 
 #include <zima/document/relations.hpp>
+#include <zima/document/dimension_identifiers.hpp>
 #include <zima/ui/properties_subwindow.hpp>
 
 #include <functional>
@@ -79,6 +80,8 @@ public:
                     const ApplicationSettings& settings, QWidget* parent,
                     std::map<std::string, double> model_values = {},
                     int decimal_places = 3);
+    void set_dimension_catalog(std::vector<zima::document::DimensionParameter> parameters,
+        const zima::document::DimensionIdentifiers& identifiers);
 protected:
     bool submit() override;
 private:

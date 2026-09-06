@@ -310,6 +310,74 @@ RelationsDialog::RelationsDialog(
     add_delete_row_buttons(content_layout(), table_, settings, [this] { add_row(); });
 }
 
+void RelationsDialog::set_dimension_catalog(
+    std::vector<zima::document::DimensionParameter> parameters,
+    const zima::document::DimensionIdentifiers& identifiers) {
+    std::sort(parameters.begin(), parameters.end(), [&](const auto& a, const auto& b) {
+        const auto first = identifiers.identifier(a.owner_id, a.semantic_key);
+        const auto second = identifiers.identifier(b.owner_id, b.semantic_key);
+        return first.size() != second.size() ? first.size() < second.size() : first < second;
+    });
+    auto* title = new QLabel(tr("Identifikace kót v dokumentu (pro budoucí vzorce)"), this);
+    content_layout()->addWidget(title);
+    auto* catalog = new QTableWidget(static_cast<int>(parameters.size()), 3, this);
+    catalog->setObjectName("documentDimensionIdentifiers");
+    catalog->setHorizontalHeaderLabels({tr("Identifikace"), tr("Objekt"), tr("Kóta / parametr")});
+    catalog->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    catalog->horizontalHeader()->setStretchLastSection(true);
+    const auto parameter_label = [&](const std::string& semantic) -> QString {
+        if (semantic.starts_with("dimension:")) return tr("Kóta skici");
+        if (semantic.starts_with("corner_dimension:")) return tr("Poloměr rohu");
+        auto key = QString::fromStdString(semantic);
+        const bool placement = key.startsWith("parameter:placement:");
+        if (key.startsWith("placement-reference:") || key.contains("reference_offset:")) {
+            const auto parts = key.split(':');
+            const bool lower = parts.back() == "lower_limit";
+            const bool upper = parts.back() == "upper_limit";
+            const int index = parts[parts.size() - (lower || upper ? 2 : 1)].toInt() + 1;
+            return lower ? tr("Vazba %1 – dolní mez").arg(index)
+                : upper ? tr("Vazba %1 – horní mez").arg(index)
+                : tr("Vazba %1 – odsazení / úhel").arg(index);
+        }
+        if (placement) key.remove(0, 20);
+        else if (key.startsWith("parameter:")) key.remove(0, 10);
+        const std::map<QString, QString> labels{
+            {"x",tr("Poloha X")}, {"y",tr("Poloha Y")}, {"z",tr("Poloha Z")},
+            {"rotation_x",tr("Natočení X")}, {"rotation_y",tr("Natočení Y")}, {"rotation_z",tr("Natočení Z")},
+            {"length",tr("Délka")}, {"width",tr("Šířka")}, {"height",tr("Výška")},
+            {"radius",tr("Poloměr")}, {"bottom_radius",tr("Dolní poloměr")}, {"top_radius",tr("Horní poloměr")},
+            {"top_offset",tr("Horní posun")}, {"profile_offset",tr("Odsazení profilu")},
+            {"length_forward",tr("Rozsah vpřed")}, {"length_reverse",tr("Rozsah vzad")},
+            {"thin_thickness",tr("Tloušťka stěny")}, {"thickness",tr("Tloušťka")},
+            {"angle",tr("Úhel")}, {"primary",tr("První rozměr")}, {"secondary",tr("Druhý rozměr")},
+            {"treatment_angle",tr("Úhel sražení")}, {"diameter",tr("Průměr")},
+            {"bore_diameter",tr("Průměr otvoru")}, {"bore_length",tr("Hloubka otvoru")},
+            {"entrance_chamfer",tr("Vstupní sražení")}, {"exit_chamfer",tr("Výstupní sražení")},
+            {"drill_point_angle",tr("Úhel hrotu")}, {"thread_diameter",tr("Průměr závitu")},
+            {"thread_pitch",tr("Stoupání závitu")}, {"thread_length",tr("Délka závitu")},
+            {"thread_designation",tr("Jmenovitý průměr závitu")}, {"pitch",tr("Stoupání")},
+            {"chamfer_depth",tr("Hloubka sražení")}, {"chamfer_angle",tr("Úhel sražení")},
+            {"runout_pitch_factor",tr("Součinitel výběhu")}, {"nominal_diameter",tr("Jmenovitý průměr")},
+            {"root_diameter",tr("Průměr jádra")}, {"offset",tr("Odsazení")}};
+        const auto found = labels.find(key);
+        return found == labels.end() ? key : found->second;
+    };
+    int row = 0;
+    for (const auto& parameter : parameters) {
+        const QStringList cells{QString::fromStdString(identifiers.identifier(parameter.owner_id, parameter.semantic_key)),
+            QString::fromStdString(parameter.owner_name), parameter_label(parameter.semantic_key)};
+        for (int column=0; column<cells.size(); ++column) {
+            auto* item = new QTableWidgetItem(cells[column]);
+            item->setToolTip(QString::fromStdString(parameter.owner_id + " / " + parameter.semantic_key));
+            catalog->setItem(row, column, item);
+        }
+        ++row;
+    }
+    catalog->resizeColumnsToContents();
+    content_layout()->addWidget(catalog);
+    resize(820, 620);
+}
+
 void RelationsDialog::add_row(const std::string& target, const std::string& expression) {
     const int row = table_->rowCount(); table_->insertRow(row);
     auto* combo = new QComboBox(table_); combo->setEditable(true);
