@@ -1,4 +1,5 @@
 #include "derived_copy_dialog.hpp"
+#include "component_properties_dialog.hpp"
 #include "shaft_thread_dialog.hpp"
 #include "body_properties_dialog.hpp"
 #include "sketch_properties_dialog.hpp"
@@ -2395,10 +2396,187 @@ int verify_nested_body_sketch_ui(QApplication& application, const std::filesyste
     return 0;
 }
 
+int verify_component_reference_document(QApplication& application, const std::filesystem::path& directory) {
+    using namespace zima;
+    const auto input=assembly::AssemblyDocument::load(qEnvironmentVariable("ZIMA_VERIFY_COMPONENT_DOCUMENT").toStdString());
+    const auto copy_path=directory/"component-reference-document.asmz";input.save(copy_path);
+    app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1200,900);window.show();
+    const auto flush=[&] {application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+    QString failure;QTimer messages;
+    QObject::connect(&messages,&QTimer::timeout,[&] {
+        if(auto* box=qobject_cast<QMessageBox*>(QApplication::activeModalWidget())){failure=box->text();box->accept();}
+    });messages.start(50);
+    if(!verify(window.open_document_path(QString::fromStdString(copy_path.string())),"Cannot open a copy of the requested assembly"))return 1;
+    flush();
+    auto* tree=window.findChild<QTreeWidget*>("documentTree");
+    for(const auto& component:input.components) {
+        const auto path=assembly::InstancePath{{component.occurrence_id}}.encoded();QTreeWidgetItem* item{};
+        for(QTreeWidgetItemIterator i(tree);*i;++i)
+            if((*i)->data(0,Qt::UserRole).toString().toStdString()==component.occurrence_id &&
+                (*i)->data(0,Qt::UserRole+1).toString().toStdString()==path){item=*i;break;}
+        if(!verify(item!=nullptr,"Requested component is missing from Tree"))return 1;
+        window.show_tree_item_properties(item);flush();app::ComponentPropertiesDialog* dialog{};
+        for(auto* child:window.findChildren<QDialog*>())
+            if(auto* d=dynamic_cast<app::ComponentPropertiesDialog*>(child);d && d->isVisible()){dialog=d;break;}
+        if(!verify(dialog!=nullptr,"Requested component properties did not open"))return 1;
+        std::cout<<component.name<<": "<<dialog->findChild<QLabel*>("componentDegreesOfFreedom")->text().toStdString()<<'\n';
+        dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+        if(!verify(failure.isEmpty(),"Requested component placement failed to commit")){std::cerr<<failure.toStdString()<<'\n';return 1;}
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+    }
+    const auto saved=assembly::AssemblyDocument::load(copy_path);
+    for(const auto& component:saved.components) {
+        for(const auto& row:component.placement_references) {
+            const bool angular=row.mate_type==assembly::MateKind::AxisAngle || row.mate_type==assembly::MateKind::PlaneAngle;
+            const auto expected=row.component_reference.kind==assembly::MateReferenceKind::Point ? assembly::MateKind::PointCoincident :
+                row.component_reference.kind==assembly::MateReferenceKind::Axis ? assembly::MateKind::AxisCoincident : assembly::MateKind::PlaneCoincident;
+            if(!verify(angular || row.mate_type==expected,"Saved reference kind and mate type disagree"))return 1;
+            const auto resolves = [&](const assembly::MateReference& reference) {
+                return reference.kind==assembly::MateReferenceKind::Point ? saved.resolve_point(reference).status :
+                    reference.kind==assembly::MateReferenceKind::Axis ? saved.resolve_axis(reference).status : saved.resolve_plane(reference).status;
+            };
+            if(!verify(resolves(row.component_reference)==assembly::MateStatus::Valid && resolves(row.target_reference)==assembly::MateStatus::Valid,
+                "A reference in the requested assembly does not resolve after confirmation"))return 1;
+        }
+        std::cout<<component.name<<": saved DOF="<<saved.component_constraint_state(component.occurrence_id).remaining_dof<<'\n';
+    }
+    std::cout<<"Requested assembly checked through properties and saved to a test copy\n";return 0;
+}
+
+int verify_component_references(QApplication& application, const std::filesystem::path& directory) {
+    using namespace zima;
+    auto part=document::PartDocument::create_default();
+    auto box=document::PartDocument::create_box_container();box.box={10,10,10};part.history={box};
+    kernel::OcctKernel kernel;
+    const auto calculated=kernel.evaluate_history(part.kernel_operations());
+    const auto part_path=directory/"component-reference.prtz";part.save(part_path,calculated);
+    workspace::Workspace fixture;fixture.add_part(part,calculated,part_path);
+    auto assembly=assembly::AssemblyDocument::create_default();const auto assembly_id=assembly.document_id;
+    const auto assembly_path=directory/"component-reference.asmz";fixture.add_assembly(assembly,assembly_path);
+    const auto first=fixture.insert_open_part(assembly_id,part.document_id,"Pevný díl");
+    const auto second=fixture.insert_open_part(assembly_id,part.document_id,"Pohyblivý díl");
+    assembly=fixture.open_assembly(assembly_id)->session.document();
+    assembly.find_occurrence(second)->placement={50,30,20,0,0,0};
+    fixture.open_assembly(assembly_id)->session.commit(assembly);assembly.save(assembly_path);
+    app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1200,900);window.show();
+    const auto flush=[&] {application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+    if(!verify(window.open_document_path(QString::fromStdString(assembly_path.string())),"Cannot open component reference fixture"))return 1;
+    flush();
+    auto* tree=window.findChild<QTreeWidget*>("documentTree");
+    auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
+    const auto find=[&](const std::string& id,const std::string& path,const std::string& key=std::string{}) -> QTreeWidgetItem* {
+        for(QTreeWidgetItemIterator i(tree);*i;++i)
+            if((*i)->data(0,Qt::UserRole).toString().toStdString()==id &&
+                (*i)->data(0,Qt::UserRole+1).toString().toStdString()==path &&
+                (*i)->data(0,Qt::UserRole+5).toString().toStdString()==key)return *i;
+        return nullptr;
+    };
+    const auto dialog=[&]() -> app::ComponentPropertiesDialog* {
+        for(auto* child:window.findChildren<QDialog*>())
+            if(auto* d=dynamic_cast<app::ComponentPropertiesDialog*>(child);d && d->isVisible())return d;
+        return nullptr;
+    };
+    const auto pick=[&](int row,bool component,const std::string& id,const std::string& path,const std::string& key=std::string{}) {
+        auto* d=dialog();if(!d)return false;
+        d->findChild<QTableWidget*>("componentPlacementTable")->cellClicked(row,component?1:2);flush();
+        auto* item=find(id,path,key);if(!item){std::cerr<<"Missing reference tree item: "<<id<<" / "<<path<<" / "<<key<<'\n';return false;}
+        tree->clearSelection();tree->setCurrentItem(item);flush();return true;
+    };
+    const auto check_freedom=[&](int count,const std::array<bool,6>& editable) {
+        auto* d=dialog();if(!d)return false;
+        const auto translations=d->findChildren<QDoubleSpinBox*>("componentTranslation");
+        const auto rotations=d->findChildren<QDoubleSpinBox*>("componentRotation");
+        if(translations.size()!=3 || rotations.size()!=3 ||
+            !d->findChild<QLabel*>("componentDegreesOfFreedom")->text().endsWith(QString::number(count))){
+            std::cerr<<"Expected DOF="<<count<<", dialog="<<d->findChild<QLabel*>("componentDegreesOfFreedom")->text().toStdString()<<'\n';return false;}
+        for(int i=0;i<6;++i)if((i<3?translations[i]:rotations[i-3])->isEnabled()!=editable[i]){
+            std::cerr<<"Coordinate "<<i<<" expected editable="<<editable[i]<<'\n';return false;}
+        return true;
+    };
+    const auto first_path=assembly::InstancePath{{first}}.encoded(),second_path=assembly::InstancePath{{second}}.encoded();
+    const auto origin=part.document_id+":origin";
+    window.show_tree_item_properties(find(second,second_path));flush();
+    if(!verify(dialog()!=nullptr,"Cannot open component properties"))return 1;
+    dialog()->findChild<QTableWidget*>("componentPlacementTable")->cellClicked(0,1);flush();
+    for(const auto& [kind,key]:std::array{
+            std::pair{viewer::CandidateKind::Vertex,"origin:point"},
+            std::pair{viewer::CandidateKind::Axis,"origin:axis:z"},
+            std::pair{viewer::CandidateKind::Plane,"origin:plane:xy"}}) {
+        viewer::ViewerCandidate candidate;candidate.geometry=viewer::CandidateGeometry::Display;
+        candidate.kind=kind;candidate.owner_id=origin;candidate.semantic_key=key;candidate.instance_path=second_path;
+        if(!verify(view->candidate_filter() && view->candidate_filter()(candidate),"View rejects persisted component origin geometry"))return 1;
+        candidate.instance_path=first_path;
+        if(!verify(!view->candidate_filter()(candidate),"Source picker accepts another occurrence of the same Part"))return 1;
+    }
+    std::optional<QPointF> origin_axis_hit;
+    for(int y=10;y<view->height()-10 && !origin_axis_hit;y+=3)
+        for(int x=10;x<view->width()-10 && !origin_axis_hit;x+=3) {
+            const auto candidates=view->selection_candidates_at(QPointF(x,y));
+            if(!candidates.empty() && candidates.front().kind==viewer::CandidateKind::Axis &&
+                candidates.front().owner_id==origin && candidates.front().instance_path==second_path &&
+                candidates.front().semantic_key=="origin:axis:z")origin_axis_hit=QPointF(x,y);
+        }
+    if(!verify(origin_axis_hit.has_value(),"Component origin Z axis is missing from the common View picker"))return 1;
+    for(const auto type:{QEvent::MouseMove,QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+        QMouseEvent event(type,*origin_axis_hit,QPointF(view->mapToGlobal(origin_axis_hit->toPoint())),
+            type==QEvent::MouseMove?Qt::NoButton:Qt::LeftButton,
+            type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(view,&event);flush();
+    }
+    if(!verify(!dialog()->placement_references().empty() &&
+        dialog()->placement_references()[0].component_reference.semantic_key=="origin:axis:z" &&
+        dialog()->placement_references()[0].component_reference.instance_path.encoded()==second_path,
+        "View click did not store the exact offered origin axis"))return 1;
+    if(!verify(pick(0,true,origin,second_path,"origin:axis:z") && pick(0,false,origin,first_path,"origin:axis:z") &&
+        dialog()->placement_references()[0].mate_type==assembly::MateKind::AxisCoincident &&
+        check_freedom(2,{false,false,true,false,false,true}),"Tree axis pair does not solve and expose two freedoms"))return 1;
+    if(!verify(pick(1,true,origin,second_path,"origin:plane:xy") && pick(1,false,origin,first_path,"origin:plane:xy") &&
+        check_freedom(1,{false,false,false,false,false,true}),"Origin plane does not remove axial translation"))return 1;
+    dialog()->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+    window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+    auto saved=assembly::AssemblyDocument::load(assembly_path);
+    if(!verify(saved.find_occurrence(second)->placement_references.empty() && saved.find_occurrence(second)->placement.x==50,
+        "Cancel changed the component placement or reference rows"))return 1;
+    window.show_tree_item_properties(find(second,second_path));flush();
+    if(!verify(pick(0,true,origin,second_path) && dialog()->placement_references().size()==3 &&
+        dialog()->placement_references()[0].target_reference.owner_id.empty(),"Whole source origin did not fill only its selected side"))return 1;
+    pick(0,false,origin,second_path);
+    if(!verify(dialog()->placement_references()[0].target_reference.owner_id.empty(),"Origin shortcut accepts self-mating"))return 1;
+    if(!verify(pick(0,false,assembly_id+":origin",{}) && check_freedom(0,{false,false,false,false,false,false}),
+        "Assembly origin shortcut does not fully constrain the component"))return 1;
+    window.grab().save(QString::fromStdString((directory/"component-origin-references.png").string()));
+    dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+    if(!verify(!dialog(),"Component origin placement did not commit"))return 1;
+    window.findChild<QAction*>("saveDocumentAction")->trigger();flush();saved=assembly::AssemblyDocument::load(assembly_path);
+    if(!verify(saved.component_constraint_state(second).remaining_dof==0 && saved.find_occurrence(second)->placement_references[0].mate_type==assembly::MateKind::PointCoincident,
+        "Origin mate types or constraints were lost after saving"))return 1;
+
+    // An active nested Assembly owns its local datum and keeps the top-level scene visible.
+    fixture.open_assembly(assembly_id)->session.commit(assembly);
+    auto top=assembly::AssemblyDocument::create_default();const auto top_id=top.document_id;
+    const auto top_path=directory/"component-reference-top.asmz";fixture.add_assembly(top,top_path);
+    const auto outer=fixture.insert_open_assembly(top_id,assembly_id,"Podsestava");
+    const auto passive=fixture.insert_open_part(top_id,part.document_id,"Kontext");
+    top=fixture.open_assembly(top_id)->session.document();top.find_occurrence(passive)->placement.x=200;top.save(top_path);
+    const auto outer_path=assembly::InstancePath{{outer}}.encoded(),nested_path=assembly::InstancePath{{outer,second}}.encoded();
+    if(!verify(window.open_document_path(QString::fromStdString(top_path.string())) && window.activate_occurrence_for_test(outer_path),
+        "Cannot activate owning nested Assembly"))return 1;
+    flush();window.show_tree_item_properties(find(second,nested_path));flush();
+    if(!verify(dialog() && pick(0,true,origin,nested_path) && pick(0,false,assembly_id+":origin",outer_path) &&
+        check_freedom(0,{false,false,false,false,false,false}),"Nested Assembly origin is not accepted as a local target"))return 1;
+    const auto passive_path=assembly::InstancePath{{passive}}.encoded();
+    if(!verify(std::ranges::any_of(view->mesh().triangle_references,[&](const auto& r){return r.instance_path==passive_path;}),
+        "Component preview discarded top-level passive context"))return 1;
+    dialog()->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+    std::cout<<"Component origin, axis and freedom UI contracts passed\n";return 0;
+}
+
 int verify_startup_contract(
     QApplication& application, zima::app::AssemblyWorkspaceWindow& window,
     const std::filesystem::path& test_directory,
     const QString& part_capture_path = {}, const QString& drawing_capture_path = {}) {
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_COMPONENT_DOCUMENT")) return verify_component_reference_document(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_COMPONENT_REFERENCE_ONLY")) return verify_component_references(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_UNRESOLVED_SWEEP_ONLY")) return verify_unresolved_sweep_sketches(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_EXTERNAL_CIRCLE_ONLY")) return verify_external_circle_selection(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_DELETE_DOCUMENT"))
@@ -2505,6 +2683,7 @@ int verify_startup_contract(
         return verify_shaft_thread_command(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_HISTORY_DRAG_ONLY"))
         return verify_history_tree_drag(application,test_directory);
+    if (verify_component_references(application, test_directory) != 0) return 1;
     if (verify_save_copy_ui(application, test_directory) != 0) return 1;
     if (verify_body_placement_offsets(application, test_directory) != 0) return 1;
     if (verify_body_history_ui(application, test_directory) != 0) return 1;

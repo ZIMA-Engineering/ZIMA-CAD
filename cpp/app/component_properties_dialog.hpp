@@ -60,6 +60,8 @@ public:
     // Live-updates the translation spinboxes while a free-component drag is
     // in progress, without touching rotation fields or emitting a commit.
     void set_live_translation(double x, double y, double z);
+    void set_solved_placement(const zima::assembly::ComponentPlacement& placement,
+        const zima::assembly::ComponentConstraintState& state);
 
     void set_reference_request_callback(ReferenceRequestCallback callback);
     void set_preview_callback(PreviewCallback callback);
@@ -89,6 +91,7 @@ private:
     std::array<QDoubleSpinBox*, 3> translation_{};
     std::array<QDoubleSpinBox*, 3> rotation_{};
     QLabel* error_{};
+    QLabel* freedom_{};
 
     QTableWidget* placement_table_{};
     std::vector<zima::assembly::ComponentPlacementReference> placement_references_;

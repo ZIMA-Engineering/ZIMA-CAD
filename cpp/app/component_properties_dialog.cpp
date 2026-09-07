@@ -36,6 +36,22 @@ const char* mate_type_label(zima::assembly::MateKind kind) {
     return "Plocha";
 }
 
+bool mate_type_accepts(zima::assembly::MateKind type, zima::assembly::MateReferenceKind kind) {
+    using namespace zima::assembly;
+    if (kind == MateReferenceKind::Point) return type == MateKind::PointCoincident;
+    if (kind == MateReferenceKind::Axis) return type == MateKind::AxisCoincident || type == MateKind::AxisAngle;
+    return type == MateKind::PlaneCoincident || type == MateKind::PlaneAngle;
+}
+
+void match_reference_type(zima::assembly::ComponentPlacementReference& row) {
+    using namespace zima::assembly;
+    const auto& source = row.component_reference.owner_id.empty() ? row.target_reference : row.component_reference;
+    if (source.owner_id.empty() || mate_type_accepts(row.mate_type, source.kind)) return;
+    row.mate_type = source.kind == MateReferenceKind::Point ? MateKind::PointCoincident :
+        source.kind == MateReferenceKind::Axis ? MateKind::AxisCoincident : MateKind::PlaneCoincident;
+    row.offset = 0; row.lower_limit.reset(); row.upper_limit.reset(); row.flip = false;
+}
+
 bool mate_type_is_angular(zima::assembly::MateKind kind) {
     return kind == zima::assembly::MateKind::AxisAngle ||
         kind == zima::assembly::MateKind::PlaneAngle;
@@ -140,6 +156,7 @@ ComponentPropertiesDialog::ComponentPropertiesDialog(
       initial_(initial), commit_(std::move(commit)),
       placement_references_(initial.placement_references) {
     setAttribute(Qt::WA_DeleteOnClose, true);
+    for (auto& row : placement_references_) match_reference_type(row);
     // The three reference columns must remain readable without horizontal
     // compression; match the proven Python component-properties proportions.
     setMinimumWidth(720);
@@ -246,6 +263,9 @@ ComponentPropertiesDialog::ComponentPropertiesDialog(
     orientation_form->addRow(tr("RY"), rotation_[1]);
     orientation_form->addRow(tr("RZ"), rotation_[2]);
     content_layout()->addLayout(orientation_form);
+    freedom_ = new QLabel(this);
+    freedom_->setObjectName("componentDegreesOfFreedom");
+    content_layout()->addWidget(freedom_);
 
     error_ = new QLabel(this);
     error_->setStyleSheet("color: #c64b4b;");
@@ -264,6 +284,23 @@ ComponentPropertiesDialog::ComponentPropertiesDialog(
     }
 
     refresh_placement_table();
+    set_solved_placement(initial.placement, initial.grounded
+        ? zima::assembly::ComponentConstraintState{0, {false, false, false, false, false, false}}
+        : zima::assembly::ComponentConstraintState{});
+}
+
+void ComponentPropertiesDialog::set_solved_placement(
+    const zima::assembly::ComponentPlacement& placement,
+    const zima::assembly::ComponentConstraintState& state) {
+    const std::array<double, 6> values{placement.x, placement.y, placement.z,
+        placement.rotation_x, placement.rotation_y, placement.rotation_z};
+    for (std::size_t i = 0; i < values.size(); ++i) {
+        auto* field = i < 3 ? translation_[i] : rotation_[i - 3];
+        const QSignalBlocker blocked(field);
+        field->setValue(values[i]);
+        field->setEnabled(state.coordinate_free[i]);
+    }
+    freedom_->setText(tr("Zbývající stupně volnosti: %1").arg(state.remaining_dof));
 }
 
 void ComponentPropertiesDialog::set_live_translation(double x, double y, double z) {
@@ -296,8 +333,16 @@ void ComponentPropertiesDialog::set_placement_reference(
         placement_references_.resize(index + 1);
     }
     auto& row = placement_references_[index];
-    if (component_side) row.component_reference = std::move(reference);
-    else row.target_reference = std::move(reference);
+    if (component_side) {
+        row.component_reference = std::move(reference);
+        if (!row.target_reference.owner_id.empty() && row.target_reference.kind != row.component_reference.kind)
+            row.target_reference = {};
+    } else {
+        row.target_reference = std::move(reference);
+        if (!row.component_reference.owner_id.empty() && row.component_reference.kind != row.target_reference.kind)
+            row.component_reference = {};
+    }
+    match_reference_type(row);
     refresh_placement_table();
     notify_preview();
     static_cast<void>(label);
@@ -450,8 +495,10 @@ void ComponentPropertiesDialog::refresh_placement_table() {
                 zima::assembly::MateKind::PointCoincident,
                 zima::assembly::MateKind::AxisAngle,
                 zima::assembly::MateKind::PlaneAngle}) {
-            mate_type->addItem(tr(mate_type_label(kind)),
-                static_cast<int>(kind));
+            const auto& reference = row.component_reference.owner_id.empty()
+                ? row.target_reference : row.component_reference;
+            if (reference.owner_id.empty() || mate_type_accepts(kind, reference.kind))
+                mate_type->addItem(tr(mate_type_label(kind)), static_cast<int>(kind));
         }
         mate_type->setCurrentIndex(mate_type->findData(
             static_cast<int>(row.mate_type)));

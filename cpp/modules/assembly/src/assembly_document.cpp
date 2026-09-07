@@ -1177,9 +1177,23 @@ void AssemblyDocument::calculate_placement_references() {
 
 int AssemblyDocument::remaining_degrees_of_freedom(
     const std::string& occurrence_id) const {
+    return component_constraint_state(occurrence_id).remaining_dof;
+}
+
+ComponentConstraintState AssemblyDocument::component_constraint_state(
+    const std::string& occurrence_id) const {
     const auto* occurrence = find_occurrence(occurrence_id);
     if (occurrence == nullptr) throw std::invalid_argument("Assembly occurrence does not exist");
-    if (occurrence->grounded) return 0;
+    if (occurrence->grounded) return {0, {false, false, false, false, false, false}};
+    const auto append_angle_residual = [](std::vector<double>& values,
+        const zima::kernel::Vec3& moving, const zima::kernel::Vec3& target, double requested) {
+        // At zero or 180 degrees the dot-product derivative vanishes even
+        // though two rotations are constrained. Use parallelism equations.
+        if (std::abs(std::sin(requested)) < 1.0e-8) {
+            const auto parallel = cross(moving, target);
+            values.insert(values.end(), {parallel.x, parallel.y, parallel.z});
+        } else values.push_back(dot(moving, target) - std::cos(requested));
+    };
     const auto residuals = [&](const AssemblyDocument& document) {
         std::vector<double> values;
         const auto* live_occurrence = document.find_occurrence(occurrence_id);
@@ -1233,8 +1247,8 @@ int AssemblyDocument::remaining_degrees_of_freedom(
                 constexpr double radians = std::numbers::pi / 180.0;
                 const double requested = (row.flip
                     ? 180.0 - row.offset : row.offset) * radians;
-                values.push_back(dot(dependent.axis.direction,
-                    prerequisite.axis.direction) - std::cos(requested));
+                append_angle_residual(values, dependent.axis.direction,
+                    prerequisite.axis.direction, requested);
             } else {
                 const auto dependent = document.resolve_plane(row.component_reference);
                 const auto prerequisite = document.resolve_plane(row.target_reference);
@@ -1243,38 +1257,38 @@ int AssemblyDocument::remaining_degrees_of_freedom(
                 constexpr double radians = std::numbers::pi / 180.0;
                 const double requested = (row.flip
                     ? 180.0 - row.offset : row.offset) * radians;
-                values.push_back(dot(dependent.plane.normal,
-                    prerequisite.plane.normal) - std::cos(requested));
+                append_angle_residual(values, dependent.plane.normal,
+                    prerequisite.plane.normal, requested);
             }
         }
         return values;
     };
     const auto baseline = residuals(*this);
-    if (baseline.empty()) return 6;
+    if (baseline.empty()) return {};
     std::vector<std::vector<double>> jacobian(
         baseline.size(), std::vector<double>(6));
     for (int coordinate = 0; coordinate < 6; ++coordinate) {
-        auto perturbed = *this;
-        auto* moved = perturbed.find_occurrence(occurrence_id);
         constexpr double translation_step = 1.0e-5;
         constexpr double rotation_step_degrees = 1.0e-4;
-        const double step = coordinate < 3
-            ? translation_step : rotation_step_degrees;
-        if (coordinate == 0) moved->placement.x += step;
-        else if (coordinate == 1) moved->placement.y += step;
-        else if (coordinate == 2) moved->placement.z += step;
-        else if (coordinate == 3) moved->placement.rotation_x += step;
-        else if (coordinate == 4) moved->placement.rotation_y += step;
-        else moved->placement.rotation_z += step;
-        const auto changed = residuals(perturbed);
-        if (changed.size() != baseline.size()) continue;
-        const double denominator = coordinate < 3
-            ? step : step * std::numbers::pi / 180.0;
-        for (std::size_t row = 0; row < baseline.size(); ++row) {
-            jacobian[row][coordinate] =
-                (changed[row] - baseline[row]) / denominator;
-        }
+        const double step = coordinate < 3 ? translation_step : rotation_step_degrees;
+        const auto shifted_residuals = [&](double delta) {
+            auto perturbed = *this;
+            auto& p = perturbed.find_occurrence(occurrence_id)->placement;
+            if (coordinate == 0) p.x += delta;
+            else if (coordinate == 1) p.y += delta;
+            else if (coordinate == 2) p.z += delta;
+            else if (coordinate == 3) p.rotation_x += delta;
+            else if (coordinate == 4) p.rotation_y += delta;
+            else p.rotation_z += delta;
+            return residuals(perturbed);
+        };
+        const auto plus = shifted_residuals(step), minus = shifted_residuals(-step);
+        if (plus.size() != baseline.size() || minus.size() != baseline.size()) continue;
+        const double denominator = 2 * (coordinate < 3 ? step : step * std::numbers::pi / 180.0);
+        for (std::size_t row = 0; row < baseline.size(); ++row)
+            jacobian[row][coordinate] = (plus[row] - minus[row]) / denominator;
     }
+    std::vector<int> pivot_columns;
     int rank{};
     constexpr double rank_tolerance = 1.0e-6;
     for (int column = 0; column < 6 && rank < static_cast<int>(jacobian.size());
@@ -1297,9 +1311,20 @@ int AssemblyDocument::remaining_degrees_of_freedom(
                 jacobian[row][value] -= factor * jacobian[rank][value];
             }
         }
+        pivot_columns.push_back(column);
         ++rank;
     }
-    return 6 - rank;
+    ComponentConstraintState state;
+    state.remaining_dof = 6 - rank;
+    state.coordinate_free.fill(false);
+    for (int column = 0; column < 6; ++column) {
+        if (std::ranges::find(pivot_columns, column) != pivot_columns.end()) continue;
+        state.coordinate_free[column] = true;
+        for (int row = 0; row < rank; ++row)
+            if (std::abs(jacobian[row][column]) > rank_tolerance)
+                state.coordinate_free[pivot_columns[row]] = true;
+    }
+    return state;
 }
 
 std::unordered_set<std::string>
@@ -1376,94 +1401,104 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
         if (effectively_suppressed.contains(component.occurrence_id) ||
             !component.visible) continue;
         const std::string path = InstancePath{}.child(component.occurrence_id).encoded();
-        const std::uint32_t vertex_offset =
-            static_cast<std::uint32_t>(scene.vertices.size());
-        const auto& source_mesh = component.calculated_source.mesh;
-        for (const auto& vertex : source_mesh.vertices) {
-            scene.vertices.push_back(transform_point(vertex, component.placement));
-        }
-        for (const auto index : source_mesh.triangles) {
-            if (index >= source_mesh.vertices.size()) {
-                throw std::runtime_error("Component viewer triangle index is invalid");
+        const auto append_component_mesh = [&](const zima::kernel::ViewerMesh& source_mesh) {
+            const std::uint32_t vertex_offset =
+                static_cast<std::uint32_t>(scene.vertices.size());
+            for (const auto& vertex : source_mesh.vertices) {
+                scene.vertices.push_back(transform_point(vertex, component.placement));
             }
-            scene.triangles.push_back(vertex_offset + index);
-        }
-        for (auto reference : source_mesh.triangle_references) {
-            assign_instance(reference, path);
-            scene.triangle_references.push_back(std::move(reference));
-        }
-        for (auto edge : source_mesh.edges) {
-            assign_instance(edge.reference, path);
-            for (auto& point : edge.points) {
-                point = transform_point(point, component.placement);
-            }
-            for (auto& side : edge.edge_treatment_side_directions) {
-                for (auto& direction : side) {
-                    direction = transform_direction(direction, component.placement);
+            for (const auto index : source_mesh.triangles) {
+                if (index >= source_mesh.vertices.size()) {
+                    throw std::runtime_error("Component viewer triangle index is invalid");
                 }
+                scene.triangles.push_back(vertex_offset + index);
             }
-            scene.edges.push_back(std::move(edge));
-        }
-        for (auto point : source_mesh.points) {
-            assign_instance(point.reference, path);
-            point.position = transform_point(point.position, component.placement);
-            scene.points.push_back(std::move(point));
-        }
-        for (auto axis : source_mesh.axes) {
-            assign_instance(axis.reference, path);
-            axis.point = transform_point(axis.point, component.placement);
-            axis.direction = transform_direction(axis.direction, component.placement);
-            scene.axes.push_back(std::move(axis));
-        }
-        for (auto dimension : source_mesh.dimensions) {
-            assign_instance(dimension.reference, path);
-            dimension.witness_first = transform_point(dimension.witness_first, component.placement);
-            dimension.witness_second = transform_point(dimension.witness_second, component.placement);
-            dimension.line_first = transform_point(dimension.line_first, component.placement);
-            dimension.line_second = transform_point(dimension.line_second, component.placement);
-            scene.dimensions.push_back(std::move(dimension));
-        }
-        auto& target_references = scene.original_references;
-        const auto& source_references = source_mesh.original_references;
-        const auto reference_offset =
-            static_cast<std::uint32_t>(target_references.vertices.size());
-        for (const auto& vertex : source_references.vertices) {
-            target_references.vertices.push_back(
-                transform_point(vertex, component.placement));
-        }
-        for (const auto index : source_references.triangles) {
-            if (index >= source_references.vertices.size()) {
-                throw std::runtime_error(
-                    "Component reference triangle index is invalid");
+            for (auto reference : source_mesh.triangle_references) {
+                assign_instance(reference, path);
+                scene.triangle_references.push_back(std::move(reference));
             }
-            target_references.triangles.push_back(reference_offset + index);
-        }
-        for (auto reference : source_references.triangle_references) {
-            assign_instance(reference, path);
-            target_references.triangle_references.push_back(std::move(reference));
-        }
-        for (auto edge : source_references.edges) {
-            assign_instance(edge.reference, path);
-            for (auto& point : edge.points) {
-                point = transform_point(point, component.placement);
-            }
-            for (auto& side : edge.edge_treatment_side_directions) {
-                for (auto& direction : side) {
-                    direction = transform_direction(direction, component.placement);
+            for (auto edge : source_mesh.edges) {
+                assign_instance(edge.reference, path);
+                for (auto& point : edge.points) {
+                    point = transform_point(point, component.placement);
                 }
+                for (auto& side : edge.edge_treatment_side_directions) {
+                    for (auto& direction : side) {
+                        direction = transform_direction(direction, component.placement);
+                    }
+                }
+                scene.edges.push_back(std::move(edge));
             }
-            target_references.edges.push_back(std::move(edge));
-        }
-        for (auto point : source_references.points) {
-            assign_instance(point.reference, path);
-            point.position = transform_point(point.position, component.placement);
-            target_references.points.push_back(std::move(point));
-        }
-        for (auto axis : source_references.axes) {
-            assign_instance(axis.reference, path);
-            axis.point = transform_point(axis.point, component.placement);
-            axis.direction = transform_direction(axis.direction, component.placement);
-            target_references.axes.push_back(std::move(axis));
+            for (auto point : source_mesh.points) {
+                assign_instance(point.reference, path);
+                point.position = transform_point(point.position, component.placement);
+                scene.points.push_back(std::move(point));
+            }
+            for (auto axis : source_mesh.axes) {
+                assign_instance(axis.reference, path);
+                axis.point = transform_point(axis.point, component.placement);
+                axis.direction = transform_direction(axis.direction, component.placement);
+                scene.axes.push_back(std::move(axis));
+            }
+            for (auto dimension : source_mesh.dimensions) {
+                assign_instance(dimension.reference, path);
+                dimension.witness_first = transform_point(dimension.witness_first, component.placement);
+                dimension.witness_second = transform_point(dimension.witness_second, component.placement);
+                dimension.line_first = transform_point(dimension.line_first, component.placement);
+                dimension.line_second = transform_point(dimension.line_second, component.placement);
+                scene.dimensions.push_back(std::move(dimension));
+            }
+            auto& target_references = scene.original_references;
+            const auto& source_references = source_mesh.original_references;
+            const auto reference_offset =
+                static_cast<std::uint32_t>(target_references.vertices.size());
+            for (const auto& vertex : source_references.vertices) {
+                target_references.vertices.push_back(
+                    transform_point(vertex, component.placement));
+            }
+            for (const auto index : source_references.triangles) {
+                if (index >= source_references.vertices.size()) {
+                    throw std::runtime_error(
+                        "Component reference triangle index is invalid");
+                }
+                target_references.triangles.push_back(reference_offset + index);
+            }
+            for (auto reference : source_references.triangle_references) {
+                assign_instance(reference, path);
+                target_references.triangle_references.push_back(std::move(reference));
+            }
+            for (auto edge : source_references.edges) {
+                assign_instance(edge.reference, path);
+                for (auto& point : edge.points) {
+                    point = transform_point(point, component.placement);
+                }
+                for (auto& side : edge.edge_treatment_side_directions) {
+                    for (auto& direction : side) {
+                        direction = transform_direction(direction, component.placement);
+                    }
+                }
+                target_references.edges.push_back(std::move(edge));
+            }
+            for (auto point : source_references.points) {
+                assign_instance(point.reference, path);
+                point.position = transform_point(point.position, component.placement);
+                target_references.points.push_back(std::move(point));
+            }
+            for (auto axis : source_references.axes) {
+                assign_instance(axis.reference, path);
+                axis.point = transform_point(axis.point, component.placement);
+                axis.direction = transform_direction(axis.direction, component.placement);
+                target_references.axes.push_back(std::move(axis));
+            }
+        };
+        append_component_mesh(component.calculated_source.mesh);
+        if (component.source_kind == ComponentSourceKind::Part) {
+            // A Part's built-in Origin is defined by its persisted document
+            // identity and occurrence placement, just like this Assembly's
+            // own Origin. It is independent of the calculated solid cache.
+            zima::document::PartDocument origin;
+            origin.document_id = component.source_document_id;
+            append_component_mesh(origin.origin_viewer_mesh());
         }
     }
     const auto find_axis = [&](const MateReference& reference)

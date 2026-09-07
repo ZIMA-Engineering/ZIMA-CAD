@@ -1,4 +1,6 @@
 #pragma once
+
+#include <array>
 #include <zima/document/document_copy.hpp>
 
 #include <zima/kernel/geometry_kernel.hpp>
@@ -92,6 +94,12 @@ struct ComponentPlacementReference {
     std::optional<double> lower_limit;
     std::optional<double> upper_limit;
     bool operator==(const ComponentPlacementReference&) const = default;
+};
+
+struct ComponentConstraintState {
+    int remaining_dof{6};
+    // Cartesian translations followed by the stored RX/RY/RZ coordinates.
+    std::array<bool, 6> coordinate_free{true, true, true, true, true, true};
 };
 
 struct PartOccurrence {
@@ -274,6 +282,8 @@ public:
     void calculate_placement_references();
     void calculate_derived_copies(const zima::kernel::GeometryKernel& kernel);
     [[nodiscard]] const PartOccurrence* derived_source(const std::string& occurrence_id) const;
+    [[nodiscard]] ComponentConstraintState component_constraint_state(
+        const std::string& occurrence_id) const;
     [[nodiscard]] int remaining_degrees_of_freedom(
         const std::string& occurrence_id) const;
     [[nodiscard]] std::unordered_set<std::string>

@@ -119,8 +119,8 @@ int main() {
         std::set<std::string> display_wire_paths;
         std::size_t component_wire_count = 0;
         for (const auto& edge : scene.edges) {
-            if (!expected_instance_paths.contains(edge.reference.instance_path))
-                continue;
+            if (!expected_instance_paths.contains(edge.reference.instance_path) ||
+                edge.reference.semantic_key.starts_with("origin:")) continue;
             ++component_wire_count;
             require(edge.reference.valid() &&
                         edge.reference.owner_id == "same-source-container",
@@ -135,8 +135,8 @@ int main() {
         std::set<std::string> display_triangle_paths;
         std::size_t component_triangle_count = 0;
         for (const auto& reference : scene.triangle_references) {
-            if (!expected_instance_paths.contains(reference.instance_path))
-                continue;
+            if (!expected_instance_paths.contains(reference.instance_path) ||
+                reference.semantic_key.starts_with("origin:")) continue;
             ++component_triangle_count;
             require(reference.valid() &&
                         reference.owner_id == "same-source-container",
@@ -149,7 +149,7 @@ int main() {
                 "Assembly display triangles do not carry their exact occurrence paths");
         std::set<std::string> instance_paths;
         for (const auto& reference : scene.original_references.triangle_references) {
-            if (reference.owner_id == assembly.document_id + ":origin") continue;
+            if (reference.semantic_key.starts_with("origin:")) continue;
             require(reference.owner_id == "same-source-container" &&
                         !reference.instance_path.empty(),
                     "Assembly changed source ownership or lost occurrence identity");
@@ -164,6 +164,15 @@ int main() {
         }
         require(assembly_axis_paths == instance_paths,
                 "Assembly did not transform and distinguish occurrence axes");
+
+        for (const auto& path : expected_instance_paths) {
+            for (const auto* semantic : {"origin:axis:x", "origin:axis:y", "origin:axis:z"}) {
+                require(std::ranges::count_if(scene.axes, [&](const auto& axis) {
+                    return axis.reference.owner_id == "same-part-document:origin" &&
+                        axis.reference.instance_path == path && axis.reference.semantic_key == semantic;
+                }) == 1, "Each Part occurrence must display exactly its own Origin axes");
+            }
+        }
 
         // A circular Sketch extrusion publishes a persisted primary axis.
         // Insert two occurrences of that Part into an Assembly and mate the
@@ -249,7 +258,7 @@ int main() {
             first_id, zima::kernel::BodyResult{});
         std::set<std::string> rollback_paths;
         for (const auto& reference : rollback_scene.original_references.triangle_references) {
-            if (reference.owner_id == assembly.document_id + ":origin") continue;
+            if (reference.semantic_key.starts_with("origin:")) continue;
             rollback_paths.insert(reference.instance_path);
         }
         require(rollback_paths.size() == 1 && rollback_paths.contains(
@@ -1000,6 +1009,52 @@ int main() {
         require(mate_session.document().components.back().placement_references.empty() &&
                     mate_session.undo(),
                 "Placement-reference removal did not restore its revision through Undo");
+        auto freedom_document = loaded;
+        auto& free_component = freedom_document.components.back();
+        free_component.placement = {}; free_component.grounded = false;
+        free_component.placement_references.clear();
+        auto origin_part = zima::document::PartDocument::create_default();
+        free_component.source_document_id = origin_part.document_id;
+
+        const auto moving_origin = free_component.source_document_id + ":origin";
+        const auto fixed_origin = freedom_document.document_id + ":origin";
+        const auto make_origin_mate = [&](zima::assembly::MateReferenceKind kind, const char* semantic) {
+            return zima::assembly::ComponentPlacementReference{
+                kind == zima::assembly::MateReferenceKind::Point ? zima::assembly::MateKind::PointCoincident :
+                kind == zima::assembly::MateReferenceKind::Axis ? zima::assembly::MateKind::AxisCoincident : zima::assembly::MateKind::PlaneCoincident,
+                {kind, zima::assembly::InstancePath{}.child(second_id), moving_origin, semantic},
+                {kind, {}, fixed_origin, semantic}};
+        };
+        free_component.placement_references.push_back(make_origin_mate(zima::assembly::MateReferenceKind::Axis,"origin:axis:z"));
+        freedom_document.calculate_placement_references();
+        const auto axial_freedom = freedom_document.component_constraint_state(second_id);
+        require(axial_freedom.remaining_dof == 2 &&
+            axial_freedom.coordinate_free == std::array{false,false,true,false,false,true},
+            "Coaxial origins must retain only axial translation and rotation");
+        free_component.placement_references.push_back(free_component.placement_references.front());
+        require(freedom_document.component_constraint_state(second_id).remaining_dof == 2,
+            "Redundant coaxial rows removed additional freedoms");
+        free_component.placement_references.pop_back();
+        free_component.placement_references.push_back(make_origin_mate(zima::assembly::MateReferenceKind::Face,"origin:plane:xy"));
+        freedom_document.calculate_placement_references();
+        const auto planar_axial_freedom = freedom_document.component_constraint_state(second_id);
+        require(planar_axial_freedom.remaining_dof == 1 &&
+            planar_axial_freedom.coordinate_free == std::array{false,false,false,false,false,true},
+            "Coaxial axes and an end plane must retain only axial rotation");
+        free_component.placement_references = {
+            make_origin_mate(zima::assembly::MateReferenceKind::Point,"origin:point"),
+            make_origin_mate(zima::assembly::MateReferenceKind::Axis,"origin:axis:x"),
+            make_origin_mate(zima::assembly::MateReferenceKind::Axis,"origin:axis:y")};
+        freedom_document.calculate_placement_references();
+        const auto fixed_freedom = freedom_document.component_constraint_state(second_id);
+        require(fixed_freedom.remaining_dof == 0 && std::ranges::none_of(fixed_freedom.coordinate_free, [](bool free) { return free; }),
+            "Coincident origin frames leave editable placement coordinates");
+
+        free_component.placement_references = {make_origin_mate(zima::assembly::MateReferenceKind::Axis,"origin:axis:z")};
+        free_component.placement_references[0].mate_type = zima::assembly::MateKind::AxisAngle;
+        require(freedom_document.component_constraint_state(second_id).remaining_dof == 4,
+            "Zero-degree angular mate lost its two rotational constraints");
+
         auto rotated_axis_mate = loaded;
         rotated_axis_mate.components.back().placement.x = 25.0;
         rotated_axis_mate.components.back().placement.rotation_x = 90.0;

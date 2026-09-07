@@ -21,6 +21,9 @@ void append_mesh(zima::kernel::ViewerMesh& target,
     target.constraint_markers.insert(target.constraint_markers.end(),
         source.constraint_markers.begin(), source.constraint_markers.end());
     auto& references = target.original_references;
+    references.edges.insert(references.edges.end(), source.original_references.edges.begin(), source.original_references.edges.end());
+    references.points.insert(references.points.end(), source.original_references.points.begin(), source.original_references.points.end());
+    references.axes.insert(references.axes.end(), source.original_references.axes.begin(), source.original_references.axes.end());
     const auto offset = static_cast<std::uint32_t>(references.vertices.size());
     references.vertices.insert(references.vertices.end(),
         source.original_references.vertices.begin(),
@@ -35,7 +38,16 @@ void append_mesh(zima::kernel::ViewerMesh& target,
 
 zima::kernel::BodyResult part_result(const PartState& part) {
     auto result = part.session.calculated_boundaries().back();
-    append_mesh(result.mesh, part.session.document().construction_viewer_mesh());
+    const auto& document = part.session.document();
+    append_mesh(result.mesh, document.construction_viewer_mesh());
+    // Publish the persisted datum frames in the component snapshot when it
+    // is explicitly inserted or regenerated. Display visibility stays local
+    // to the editing View; mate resolution uses this reference packet.
+    zima::kernel::ViewerMesh origins;
+    origins.original_references = document.body_origin_reference_geometry();
+    append_mesh(result.mesh, origins);
+    origins.original_references = document.history_origin_reference_geometry_before({});
+    append_mesh(result.mesh, origins);
     return result;
 }
 

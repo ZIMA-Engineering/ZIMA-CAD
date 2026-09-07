@@ -3447,6 +3447,39 @@ int main(int argc, char* argv[]) {
                     committed_component.source_document_id == source_id,
                 "Component Properties changed source ownership or lost placement");
 
+        auto* axis_dialog = new zima::app::ComponentPropertiesDialog(component, [](auto) {}, &parent);
+        const auto axis_reference = zima::assembly::MateReference{zima::assembly::MateReferenceKind::Axis,
+            zima::assembly::InstancePath{}.child(component.occurrence_id), "part:origin", "origin:axis:z"};
+        axis_dialog->set_placement_reference(0, true, axis_reference, "Osa");
+        auto target_axis = axis_reference; target_axis.instance_path = {}; target_axis.owner_id = "assembly:origin";
+        axis_dialog->set_placement_reference(0, false, target_axis, "Osa");
+        require(axis_dialog->placement_references()[0].mate_type == zima::assembly::MateKind::AxisCoincident,
+            "Axis picks retained the default Plane mate type");
+        auto* axis_types = qobject_cast<QComboBox*>(axis_dialog->findChild<QTableWidget*>("componentPlacementTable")->cellWidget(0,3));
+        require(axis_types && axis_types->count() == 2, "Axis row offers incompatible Point/Plane mate types");
+        const zima::assembly::ComponentPlacement solved{12,13,14,0,0,25};
+        axis_dialog->set_solved_placement(solved, {2, {false,false,true,false,false,true}});
+        const auto axis_translations = axis_dialog->findChildren<QDoubleSpinBox*>("componentTranslation");
+        const auto axis_rotations = axis_dialog->findChildren<QDoubleSpinBox*>("componentRotation");
+        require(!axis_translations[0]->isEnabled() && !axis_translations[1]->isEnabled() && axis_translations[2]->isEnabled() &&
+            !axis_rotations[0]->isEnabled() && !axis_rotations[1]->isEnabled() && axis_rotations[2]->isEnabled() &&
+            axis_translations[0]->value() == 12 && axis_rotations[2]->value() == 25,
+            "Component fields do not reflect solved coordinates and remaining motion");
+        auto point_reference = axis_reference; point_reference.kind = zima::assembly::MateReferenceKind::Point;
+        point_reference.semantic_key = "origin:point";
+        axis_dialog->set_placement_reference(0, true, point_reference, "Bod");
+        require(axis_dialog->placement_references()[0].mate_type == zima::assembly::MateKind::PointCoincident &&
+            axis_dialog->placement_references()[0].target_reference.owner_id.empty(),
+            "Replacing Axis by Point retained an incompatible target or mate type");
+        delete axis_dialog;
+        auto malformed = component;
+        malformed.placement_references.push_back({zima::assembly::MateKind::PlaneCoincident, axis_reference, target_axis});
+        auto* corrected_dialog = new zima::app::ComponentPropertiesDialog(malformed, [](auto) {}, &parent);
+        require(corrected_dialog->placement_references()[0].mate_type == zima::assembly::MateKind::AxisCoincident &&
+            malformed.placement_references[0].mate_type == zima::assembly::MateKind::PlaneCoincident,
+            "Opening pending axis properties failed to match geometry or mutated the source");
+        delete corrected_dialog;
+
         // Embedded placement-reference table (redesign matching Python's
         // AssemblyComponentPropertiesDialog): the dialog itself requests
         // viewer picks per row/side and stores committed rows in

@@ -9,12 +9,42 @@ ploše celé sestavy.
 Při editaci vložené komponenty se zadává dvojice:
 
 1. **reference dílu** patří původním tělesům právě umisťované komponenty;
-2. **reference sestavy** smí patřit pouze komponentě, která je ve stromu
-   historie před právě umisťovanou komponentou, případně podporované pomocné
-   geometrii sestavy.
+2. **reference sestavy** patří jinému přímému výskytu komponenty nebo
+   počátku či pomocné geometrii bezprostředně vlastnící sestavy.
 
-Toto pořadí brání cyklickým závislostem. Celý kontejner ani výsledné těleso
-sestavy nejsou náhradou za konkrétní plochu, hranu, osu nebo rovinu.
+Opakované výskyty stejného dílu se rozlišují cestou instance. Komponenta se
+nesmí navázat sama na sebe. Nadřazená sestava nesmí přímo umisťovat vnitřní
+komponentu podsestavy; nejprve se aktivuje tato podsestava.
+
+## Počátky, druh vazby a stupně volnosti
+
+Vestavěný počátek dokumentu dílu vychází z uložené identity zdrojového
+Partu a polohy konkrétního výskytu. Nepotřebuje cache výsledného solidu ani
+otevřený zdrojový soubor. Reference počátků těles a kontejnerů se předávají
+v referenční geometrii komponenty při vložení a explicitní regeneraci.
+
+Do referencí lze ve stromu i ve View vybrat bod, osu nebo rovinu počátku dílu,
+tělesa či kontejneru, případně počátku vlastnící sestavy. Výběr celého počátku
+ve stromu vyplní **právě zvolenou stranu** tří řádků jeho bodem a osami X/Y.
+Druhý počátek se zadá na opačné straně. Uloží se přesný vybraný vlastník a
+výskyt; počátek tělesa se nenahrazuje počátkem dokumentu.
+
+Typ vazby se odvodí z geometrie: bod–bod, osa–osa nebo plocha–plocha. U os a
+ploch lze zvolit také úhlovou vazbu. Nabídka neumožní kombinaci typu vazby s
+neodpovídající geometrií. Změna druhu reference vyprázdní neslučitelnou druhou
+stranu. Dialog také sjednotí nesprávný typ rozpracovaného řádku při otevření;
+změna se uloží až potvrzením **OK**.
+
+Vlastnosti zobrazují zbývající stupně volnosti a vypočtené souřadnice
+X/Y/Z a RX/RY/RZ. Souřadnice, které platné vazby určují, nejsou editovatelné.
+Počet volností vychází z nezávislosti geometrických rovnic, nikoliv z počtu
+vyplněných řádků. Souosé osy ponechají posuv a rotaci podél osy; přidaná čelní
+rovina ponechá pouze rotaci. Shodné celé počátky odeberou všech šest volností.
+U šikmého směru může jediný volný pohyb měnit více souřadnic současně.
+
+Náhled používá uloženou referenční geometrii bez OCCT a zachová okolní
+komponenty i při editaci v podsestavě. **OK** uloží vyřešenou polohu a vazby;
+**Zrušit** obnoví původní stav komponenty.
 
 ## Co se ve view skutečně vybírá
 
@@ -48,7 +78,7 @@ následující rovinná reference určí počátek této osy jako průsečík ro
 středovou přímkou.
 
 Při otevření vlastností nebo zvýraznění se používají již uložená data. OCCT
-smí být vyvolán pouze explicitním výpočtem tělesa, například přes **Použít**,
+smí být vyvolán pouze explicitním výpočtem tělesa, například přes
 **OK** nebo regeneraci modelu; hover, výběr a otevření dialogu nesmějí skrytě
 přepočítávat topologii.
 
@@ -63,8 +93,9 @@ Náprava:
 
 1. otevřete zdrojový Part;
 2. spusťte **Regenerovat**;
-3. Part uložte;
-4. vraťte se do sestavy a znovu otevřete vlastnosti komponenty.
+3. vraťte se do sestavy a spusťte **Regenerovat**, aby převzala aktuální
+   referenční data z otevřeného Partu;
+4. otevřete vlastnosti komponenty. Zdrojový Part není nutné předem ukládat.
 
 Jednokontejnerový importovaný Part může použít své finální importované těleso
 jako původní zdroj, protože před ním neexistuje jiný parametrický výsledek.

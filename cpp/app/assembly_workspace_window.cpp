@@ -13402,6 +13402,33 @@ void AssemblyWorkspaceWindow::start_primitive_reference_selection(
     state_->setText(tr("Vyberte stabilní geometrii pro umístění kontejneru."));
 }
 
+bool AssemblyWorkspaceWindow::component_placement_reference_candidate_allowed(
+    const zima::viewer::ViewerCandidate& candidate, bool match_other_side) const {
+    using zima::viewer::CandidateKind;
+    if (!component_placement_dialog_ || !pending_component_placement_index_ ||
+        !placement_reference_candidate_has_stable_geometry(candidate) ||
+        candidate.owner_id.empty() || candidate.semantic_key.empty()) return false;
+    if (candidate.kind != CandidateKind::Vertex && candidate.kind != CandidateKind::Axis &&
+        candidate.kind != CandidateKind::Face && candidate.kind != CandidateKind::Plane) return false;
+    const auto kind = candidate.kind == CandidateKind::Vertex ? zima::assembly::MateReferenceKind::Point :
+        candidate.kind == CandidateKind::Axis ? zima::assembly::MateReferenceKind::Axis : zima::assembly::MateReferenceKind::Face;
+    const auto& rows = component_placement_dialog_->placement_references();
+    if (match_other_side && !pending_component_placement_component_side_ && *pending_component_placement_index_ < rows.size()) {
+        const auto& source = rows[*pending_component_placement_index_].component_reference;
+        if (!source.owner_id.empty() && source.kind != kind) return false;
+    }
+    try {
+        const auto prefix = zima::assembly::InstancePath::decode(properties_dialog_instance_path_)
+            .parent().value_or(zima::assembly::InstancePath{});
+        const auto path = zima::assembly::InstancePath::decode(candidate.instance_path);
+        if (path == prefix) return !pending_component_placement_component_side_;
+        if (path.occurrence_ids.size() != prefix.occurrence_ids.size() + 1 ||
+            !std::equal(prefix.occurrence_ids.begin(), prefix.occurrence_ids.end(), path.occurrence_ids.begin())) return false;
+        const bool own = path.occurrence_ids.back() == component_placement_occurrence_id_;
+        return pending_component_placement_component_side_ ? own : !own;
+    } catch (const std::invalid_argument&) { return false; }
+}
+
 void AssemblyWorkspaceWindow::start_component_placement_reference_selection(
     std::size_t index, bool component_side, bool auto_advance) {
     if (component_placement_dialog_ == nullptr) return;
@@ -13411,45 +13438,10 @@ void AssemblyWorkspaceWindow::start_component_placement_reference_selection(
     component_placement_dialog_->set_active_reference_cell(index, component_side);
     tree_->setProperty("commandSelectionActive", true);
     viewer_->set_selection_contract({zima::viewer::CandidateKind::Vertex,
-        zima::viewer::CandidateKind::Axis,
+        zima::viewer::CandidateKind::Axis, zima::viewer::CandidateKind::Plane,
         zima::viewer::CandidateKind::Face});
-    const auto prefix = active_occurrence_path_.empty()
-        ? zima::assembly::InstancePath{}
-        : zima::assembly::InstancePath::decode(active_occurrence_path_);
-    const std::string occurrence_id = component_placement_occurrence_id_;
-    viewer_->set_candidate_filter(
-        [prefix, component_side, occurrence_id](const auto& candidate) {
-        if (candidate.geometry !=
-                zima::viewer::CandidateGeometry::OriginalReference ||
-            candidate.owner_id.empty() || candidate.semantic_key.empty()) {
-            return false;
-        }
-        try {
-            const auto path = zima::assembly::InstancePath::decode(
-                candidate.instance_path);
-            const bool direct_component =
-                path.occurrence_ids.size() ==
-                    prefix.occurrence_ids.size() + 1 &&
-                std::equal(prefix.occurrence_ids.begin(),
-                    prefix.occurrence_ids.end(), path.occurrence_ids.begin());
-            const bool owning_assembly_datum = path == prefix;
-            if (!direct_component && !owning_assembly_datum) {
-                return false;
-            }
-            // Component-side picks are restricted to geometry that belongs
-            // to the very occurrence being edited (this dialog's own
-            // component); target-side picks accept geometry on any OTHER
-            // direct sibling occurrence or on the immediately owning
-            // Assembly itself. This keeps an Assembly-owned Point/Axis/Plane
-            // usable as a target even though its local instance path is the
-            // parent prefix (empty for a top-level Assembly).
-            if (owning_assembly_datum) return !component_side;
-            const bool is_own_occurrence =
-                path.occurrence_ids.back() == occurrence_id;
-            return component_side ? is_own_occurrence : !is_own_occurrence;
-        } catch (const std::invalid_argument&) {
-            return false;
-        }
+    viewer_->set_candidate_filter([this](const auto& candidate) {
+        return component_placement_reference_candidate_allowed(candidate);
     });
     state_->setText(component_side
         ? tr("Vyberte referenci na tomto dílu.")
@@ -13458,34 +13450,17 @@ void AssemblyWorkspaceWindow::start_component_placement_reference_selection(
 
 void AssemblyWorkspaceWindow::accept_component_placement_reference(
     const zima::viewer::ViewerCandidate& candidate) {
-    if (component_placement_dialog_ == nullptr ||
-        !pending_component_placement_index_ || candidate.owner_id.empty() ||
-        candidate.semantic_key.empty() ||
-        candidate.geometry != zima::viewer::CandidateGeometry::OriginalReference)
-        return;
-    const auto kind = candidate.kind == zima::viewer::CandidateKind::Face
-        ? zima::assembly::MateReferenceKind::Face
-        : candidate.kind == zima::viewer::CandidateKind::Axis
-            ? zima::assembly::MateReferenceKind::Axis
-            : candidate.kind == zima::viewer::CandidateKind::Vertex
-                ? zima::assembly::MateReferenceKind::Point
-                : zima::assembly::MateReferenceKind::Face;
-    if (candidate.kind != zima::viewer::CandidateKind::Face &&
-        candidate.kind != zima::viewer::CandidateKind::Axis &&
-        candidate.kind != zima::viewer::CandidateKind::Vertex) return;
-    auto local_path = candidate.instance_path;
-    if (!active_occurrence_path_.empty()) {
-        auto path = zima::assembly::InstancePath::decode(candidate.instance_path);
-        const auto prefix =
-            zima::assembly::InstancePath::decode(active_occurrence_path_);
-        if (path.occurrence_ids.size() <= prefix.occurrence_ids.size() ||
-            !std::equal(prefix.occurrence_ids.begin(), prefix.occurrence_ids.end(),
-                path.occurrence_ids.begin())) return;
-        path.occurrence_ids.erase(path.occurrence_ids.begin(),
-            path.occurrence_ids.begin() +
-                static_cast<std::ptrdiff_t>(prefix.occurrence_ids.size()));
-        local_path = path.encoded();
-    }
+    if (!component_placement_reference_candidate_allowed(candidate)) return;
+    const auto kind = candidate.kind == zima::viewer::CandidateKind::Axis
+        ? zima::assembly::MateReferenceKind::Axis
+        : candidate.kind == zima::viewer::CandidateKind::Vertex
+            ? zima::assembly::MateReferenceKind::Point : zima::assembly::MateReferenceKind::Face;
+    auto path = zima::assembly::InstancePath::decode(candidate.instance_path);
+    const auto prefix = zima::assembly::InstancePath::decode(properties_dialog_instance_path_)
+        .parent().value_or(zima::assembly::InstancePath{});
+    path.occurrence_ids.erase(path.occurrence_ids.begin(), path.occurrence_ids.begin() +
+        static_cast<std::ptrdiff_t>(prefix.occurrence_ids.size()));
+    const auto local_path = path.encoded();
     const std::size_t selected_index = *pending_component_placement_index_;
     const bool component_side = pending_component_placement_component_side_;
     zima::assembly::MateReference reference{
@@ -13770,85 +13745,53 @@ bool AssemblyWorkspaceWindow::accept_component_placement_tree_reference(
     const auto selected_row = *pending_component_placement_index_;
     const bool component_side = pending_component_placement_component_side_;
 
-    // Clicking the complete Assembly/Part Origin means the conventional
-    // zero-on-zero placement: origin points coincide and X/Y axes remain
-    // parallel.  Capture plain values first because each set call rebuilds
-    // the Tree and invalidates QTreeWidgetItem pointers.
-    if (item_kind == QStringLiteral("document-origin")) {
-        struct CapturedReference {
-            std::string owner_id;
-            std::string instance_path;
-            std::string semantic_key;
-        };
-        std::vector<CapturedReference> captured;
-        for (const auto wanted : {"origin:point", "origin:axis:x",
-                                  "origin:axis:y"}) {
+    // A complete origin fills the selected side with its point and X/Y axes.
+    // Preserve that exact origin and occurrence; never substitute the source
+    // document's origin or silently bind the component to itself.
+    if (item_kind == "document-origin" || item_kind == "construction-origin") {
+        std::vector<zima::viewer::ViewerCandidate> captured;
+        for (const auto wanted : {"origin:point", "origin:axis:x", "origin:axis:y"}) {
             for (int index = 0; index < item->childCount(); ++index) {
                 const auto* child = item->child(index);
-                if (child->data(0, Qt::UserRole + 5).toString().toStdString() !=
-                    wanted) continue;
-                captured.push_back({
-                    child->data(0, Qt::UserRole + 6).isValid()
-                        ? child->data(0, Qt::UserRole + 6).toString().toStdString()
-                        : child->data(0, Qt::UserRole).toString().toStdString(),
-                    child->data(0, Qt::UserRole + 1).toString().toStdString(),
-                    wanted});
-                break;
+                const auto semantic = child->data(0, Qt::UserRole + 5).toString().toStdString();
+                if (semantic != wanted && !(std::string_view(wanted) == "origin:point" && semantic == "point")) continue;
+                zima::viewer::ViewerCandidate candidate;
+                candidate.geometry = zima::viewer::CandidateGeometry::OriginalReference;
+                candidate.kind = captured.empty() ? zima::viewer::CandidateKind::Vertex : zima::viewer::CandidateKind::Axis;
+                candidate.owner_id = child->data(0, Qt::UserRole + 6).isValid()
+                    ? child->data(0, Qt::UserRole + 6).toString().toStdString()
+                    : child->data(0, Qt::UserRole).toString().toStdString();
+                candidate.semantic_key = semantic;
+                candidate.instance_path = child->data(0, Qt::UserRole + 1).toString().toStdString();
+                if (!component_placement_reference_candidate_allowed(candidate, false)) return false;
+                captured.push_back(std::move(candidate)); break;
             }
         }
         if (captured.size() != 3) return false;
-
-        const auto moving_path = zima::assembly::InstancePath{}
-            .child(component_placement_occurrence_id_);
-        const auto moving_owner = [&]() -> std::string {
-            try {
-                const auto full_path = zima::assembly::InstancePath::decode(
-                    properties_dialog_instance_path_);
-                const auto address = workspace_.resolve_occurrence(
-                    workspace_.displayed_document_id(), full_path);
-                return address ? address->source_document_id + ":origin" : std::string{};
-            } catch (const std::invalid_argument&) {
-                return {};
+        const auto prefix = zima::assembly::InstancePath::decode(properties_dialog_instance_path_)
+            .parent().value_or(zima::assembly::InstancePath{});
+        for (std::size_t index = 0; index < captured.size(); ++index) {
+            auto path = zima::assembly::InstancePath::decode(captured[index].instance_path);
+            path.occurrence_ids.erase(path.occurrence_ids.begin(), path.occurrence_ids.begin() +
+                static_cast<std::ptrdiff_t>(prefix.occurrence_ids.size()));
+            component_placement_dialog_->set_placement_reference(index, component_side,
+                {index == 0 ? zima::assembly::MateReferenceKind::Point : zima::assembly::MateReferenceKind::Axis,
+                 path, captured[index].owner_id, captured[index].semantic_key}, index == 0 ? tr("Bod") : tr("Osa"));
+        }
+        const auto& rows = component_placement_dialog_->placement_references();
+        for (std::size_t index = 0; index < rows.size(); ++index) {
+            if (rows[index].component_reference.owner_id.empty()) {
+                start_component_placement_reference_selection(index, true, true); return true;
             }
-        }();
-        if (moving_owner.empty()) return false;
-
-        for (std::size_t row = 0; row < captured.size(); ++row) {
-            const auto kind = row == 0
-                ? zima::assembly::MateReferenceKind::Point
-                : zima::assembly::MateReferenceKind::Axis;
-            component_placement_dialog_->set_placement_reference(row, true,
-                {kind, moving_path, moving_owner, captured[row].semantic_key},
-                row == 0 ? tr("Bod") : tr("Osa"));
-            component_placement_dialog_->set_placement_reference(row, false,
-                {kind, [&] {
-                    auto target_path = zima::assembly::InstancePath::decode(
-                        captured[row].instance_path);
-                    const auto prefix = active_occurrence_path_.empty()
-                        ? zima::assembly::InstancePath{}
-                        : zima::assembly::InstancePath::decode(
-                            active_occurrence_path_);
-                    if (target_path.occurrence_ids.size() >=
-                            prefix.occurrence_ids.size() &&
-                        std::equal(prefix.occurrence_ids.begin(),
-                            prefix.occurrence_ids.end(),
-                            target_path.occurrence_ids.begin())) {
-                        target_path.occurrence_ids.erase(
-                            target_path.occurrence_ids.begin(),
-                            target_path.occurrence_ids.begin() +
-                                static_cast<std::ptrdiff_t>(
-                                    prefix.occurrence_ids.size()));
-                    }
-                    return target_path;
-                }(), captured[row].owner_id,
-                    captured[row].semantic_key},
-                row == 0 ? tr("Bod") : tr("Osa"));
+            if (rows[index].target_reference.owner_id.empty()) {
+                start_component_placement_reference_selection(index, false, true); return true;
+            }
         }
         pending_component_placement_index_.reset();
+        component_placement_dialog_->set_active_reference_cell(std::nullopt);
         tree_->setProperty("commandSelectionActive", false);
-        viewer_->set_candidate_filter({});
-        viewer_->clear_selection();
-        state_->setText(tr("Počátky komponenty a sestavy jsou vyrovnány 0 na 0."));
+        viewer_->set_selection_contract({}); viewer_->set_candidate_filter({}); viewer_->clear_selection();
+        state_->setText(tr("Reference počátků jsou zadány."));
         return true;
     }
 
@@ -13862,7 +13805,7 @@ bool AssemblyWorkspaceWindow::accept_component_placement_tree_reference(
         : item->data(0, Qt::UserRole).toString().toStdString();
     candidate.semantic_key =
         item->data(0, Qt::UserRole + 5).toString().toStdString();
-    candidate.kind = candidate.semantic_key == "origin:point"
+    candidate.kind = (candidate.semantic_key == "origin:point" || candidate.semantic_key == "point")
         ? zima::viewer::CandidateKind::Vertex
         : candidate.semantic_key.starts_with("origin:axis:")
             ? zima::viewer::CandidateKind::Axis
@@ -26266,43 +26209,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     } else {
         const auto* active_assembly =
             workspace_.open_assembly(workspace_.active_document_id());
-        bool showed_component_placement_origin = false;
-        if (component_placement_dialog_ != nullptr &&
-            !properties_dialog_instance_path_.empty()) {
-            try {
-                const auto path = zima::assembly::InstancePath::decode(
-                    properties_dialog_instance_path_);
-                const auto address = workspace_.resolve_occurrence(
-                    document.document_id, path);
-                if (address && address->source_kind ==
-                        zima::assembly::ComponentSourceKind::Part) {
-                    const auto* owner = workspace_.open_assembly(
-                        address->owner_assembly_document_id);
-                    const auto* occurrence = owner == nullptr ? nullptr
-                        : owner->session.document().find_occurrence(
-                            address->occurrence_id);
-                    const auto* source = workspace_.open_part(
-                        address->source_document_id);
-                    if (occurrence != nullptr && source != nullptr) {
-                        auto live_source = occurrence->calculated_source;
-                        append_mesh(live_source.mesh,
-                            source->session.document().origin_viewer_mesh(
-                                zima::document::viewer_mesh_bounds_diagonal(
-                                    live_source.mesh)));
-                        viewer_->set_mesh(workspace_.build_scene_with_part_override(
-                            document.document_id, path, std::move(live_source)));
-                        showed_component_placement_origin = true;
-                    }
-                }
-            } catch (const std::invalid_argument&) {
-                // A stale dialog path is handled by the normal scene branch;
-                // the dialog teardown will clear it immediately afterwards.
-            }
-        }
-        if (showed_component_placement_origin) {
-            // The moving Part's persisted body stays untouched; only its
-            // source-document Origin is overlaid for the placement session.
-        } else if (active_assembly != nullptr &&
+        if (active_assembly != nullptr &&
             active_assembly->session.document().document_id != document.document_id &&
             !active_occurrence_path_.empty()) {
             viewer_->set_mesh(workspace_.build_scene_with_assembly_override(
@@ -27548,7 +27455,7 @@ void AssemblyWorkspaceWindow::show_component_properties(
             viewer_->set_constraint_reference_highlights({}, std::move(keys));
         });
     dialog->set_preview_callback(
-        [this, assembly_id = address->owner_assembly_document_id,
+        [this, dialog, reference_scene_prefix, assembly_id = address->owner_assembly_document_id,
          occurrence_id = address->occurrence_id](const auto& preview) {
             const auto* assembly = workspace_.open_assembly(assembly_id);
             if (assembly == nullptr) return;
@@ -27561,7 +27468,11 @@ void AssemblyWorkspaceWindow::show_component_properties(
             *found = preview;
             try {
                 next.calculate_placement_references();
-                viewer_->set_mesh(next.build_scene(), false);
+                dialog->set_solved_placement(next.find_occurrence(occurrence_id)->placement,
+                    next.component_constraint_state(occurrence_id));
+                viewer_->set_mesh(reference_scene_prefix.occurrence_ids.empty() ? next.build_scene() :
+                    workspace_.build_scene_with_assembly_override(workspace_.displayed_document_id(),
+                        reference_scene_prefix, next), false);
             } catch (const std::exception&) {
                 // An incomplete reference row is intentionally transient.
                 // Keep the last valid view until enough data exists to solve

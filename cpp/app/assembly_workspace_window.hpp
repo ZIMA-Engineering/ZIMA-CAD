@@ -673,6 +673,8 @@ private:
     // but resolves candidates against MateReferenceKind (Face/Axis/Point)
     // instead of ConstructionReference's OCCT-origin-driven contract, and
     // accepts BOTH a component-side and a target-side pick per row.
+    [[nodiscard]] bool component_placement_reference_candidate_allowed(
+        const zima::viewer::ViewerCandidate& candidate, bool match_other_side = true) const;
     void start_component_placement_reference_selection(
         std::size_t index, bool component_side, bool auto_advance = false);
     void accept_component_placement_reference(

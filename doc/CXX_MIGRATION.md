@@ -388,6 +388,15 @@ Odložené jsou zejména:
 Diagnostika stupňů volnosti již nepoužívá prostý součet omezení. Numerický rank
 lokálních rovnic bodových, osových, rovinných a úhlových vazeb rozpozná
 redundantní rovnice a strom živé Assembly zobrazuje výsledný počet DOF bez OCCT.
+Vlastnosti komponenty používají tentýž výpočet pro povolení polí X/Y/Z a
+RX/RY/RZ a po každé změně zobrazí vyřešenou polohu. Nullspace Jacobiánu
+rozlišuje také pohyb, při kterém se mění více souřadnic současně. Úhlové vazby
+v 0°/180° používají rovnice rovnoběžnosti, aby nulová derivace skalárního
+součinu neztratila omezení. Výběr počátků dílů a vlastnící sestavy ve stromu i
+View používá přesnou instanci; typ vazby se odvozuje z bodu, osy či plochy.
+Celý počátek vyplní pouze vybranou stranu tří řádků a druhá strana se zadává
+samostatně. Náhled v podsestavě ponechá zbytek hlavní sestavy viditelný.
+
 Obecný drag a praktické hluboké mechanismové fixture zůstávají cutover bránou,
 nikoli skrytě deklarovanou hotovou paritou; aktuální audit je v
 `doc/CXX_PARITY_AUDIT.md`.
