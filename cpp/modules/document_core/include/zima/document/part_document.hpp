@@ -599,6 +599,7 @@ public:
     [[nodiscard]] PartDocument body_document(const std::string& body_id) const;
     [[nodiscard]] zima::kernel::ViewerReferenceGeometry body_origin_reference_geometry() const;
     void set_body_history(BodyHistoryGraph graph);
+    void erase_history_object(const std::string& id);
     std::vector<HistoryContainer> history;
     std::vector<zima::sketcher::Sketch> sketches;
     std::vector<ConstructionObject> constructions;

@@ -229,6 +229,7 @@ struct MeshView::Impl {
     std::vector<SilhouetteCandidate> silhouette_candidates;
     std::vector<CandidateKind> allowed_kinds{CandidateKind::Container};
     std::function<bool(const ViewerCandidate&)> candidate_filter;
+    bool advance_selection_on_hover{true};
     std::function<int(const ViewerCandidate&)> candidate_priority;
     std::vector<ViewerCandidate> candidates;
     // Position at which `candidates` was last (re)computed. RMB cycling
@@ -718,8 +719,13 @@ void MeshView::set_active_sketch_owner(std::string owner_id) {
     update();
 }
 
+bool MeshView::advances_selection_on_hover() const {
+    return impl_->advance_selection_on_hover;
+}
+
 void MeshView::set_candidate_filter(
-    std::function<bool(const ViewerCandidate&)> candidate_filter) {
+    std::function<bool(const ViewerCandidate&)> candidate_filter, bool advance_on_hover) {
+    impl_->advance_selection_on_hover = advance_on_hover;
     impl_->candidate_filter = std::move(candidate_filter);
     impl_->candidates.clear();
     impl_->active_candidate = 0;
@@ -3713,8 +3719,15 @@ if (impl_->show_origins) {
                     : (referenced || preview)
                         ? QColor(0, 209, 255)
                         : centerline ? QColor(173, 110, 46) : QColor(255, 255, 255);
-                painter.setPen(QPen(color, centerline ? 1.5 : 1.8,
-                    centerline ? Qt::DashDotLine : Qt::SolidLine,Qt::RoundCap,Qt::RoundJoin));
+                QPen curve_pen(color, centerline ? 1.5 : 1.8,
+                    Qt::SolidLine,Qt::RoundCap,Qt::RoundJoin);
+                if (centerline) {
+                    // Match the ordinary axes: 20 px dash, 10 px gaps, 3 px dot.
+                    // QPen dash lengths are expressed in multiples of pen width.
+                    curve_pen.setDashPattern({20.0 / 1.5, 10.0 / 1.5,
+                        3.0 / 1.5, 10.0 / 1.5});
+                }
+                painter.setPen(curve_pen);
                 if (edge.points.empty()) continue;
                 QPainterPath path(project(edge.points.front()));
                 for (std::size_t index = 1;
@@ -5378,7 +5391,7 @@ void MeshView::mouseMoveEvent(QMouseEvent* event) {
         return;
     }
     const bool command_wants_next_candidate =
-        static_cast<bool>(impl_->candidate_filter);
+        static_cast<bool>(impl_->candidate_filter) && impl_->advance_selection_on_hover;
     if (event->buttons() == Qt::NoButton &&
         (!impl_->confirmed_candidate || command_wants_next_candidate)) {
         // A command-local selection filter means that the previous click was

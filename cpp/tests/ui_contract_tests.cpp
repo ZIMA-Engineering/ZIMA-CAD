@@ -1016,6 +1016,25 @@ int main(int argc, char* argv[]) {
         require(framebuffer_contains_color_near(plane_inspection_view.grabFramebuffer(),
             plane_inspection_view.size(), QPointF(250,180), QColor(30,220,240)),
             "Coincident plane erased the Tree-selected Origin frame");
+        plane_inspection_view.set_candidate_filter([](const auto&) { return true; }, false);
+        plane_inspection_view.confirm_origin("point-origin", "first");
+        const auto confirmed_origin = plane_inspection_view.confirmed_candidate();
+        QMouseEvent ordinary_move(QEvent::MouseMove, QPointF(20,20), QPointF(20,20),
+            QPointF(20,20), Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+        QApplication::sendEvent(&plane_inspection_view, &ordinary_move);
+        require(plane_inspection_view.confirmed_candidate() == confirmed_origin,
+            "Ordinary ownership filter cleared a Tree selection on pointer movement");
+        plane_inspection_view.confirm_container_component_wire("body", "body",
+            plane_inspection_view.mesh().edges, {});
+        const auto confirmed_body = plane_inspection_view.confirmed_candidate();
+        QApplication::sendEvent(&plane_inspection_view, &ordinary_move);
+        require(plane_inspection_view.confirmed_candidate() == confirmed_body,
+            "Body selection disappeared on pointer movement");
+        plane_inspection_view.set_candidate_filter([](const auto&) { return true; });
+        plane_inspection_view.confirm_origin("point-origin", "first");
+        QApplication::sendEvent(&plane_inspection_view, &ordinary_move);
+        require(!plane_inspection_view.confirmed_candidate(),
+            "Reference command stopped advancing to the next candidate");
         plane_inspection_view.hide();
 
         zima::kernel::ViewerMesh face_cycle_mesh;

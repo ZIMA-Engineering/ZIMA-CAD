@@ -339,6 +339,7 @@ private:
     QDialog* local_origin_selection_owner_{};
     std::vector<zima::viewer::CandidateKind> origin_suspended_selection_contract_;
     std::function<bool(const zima::viewer::ViewerCandidate&)> origin_suspended_candidate_filter_;
+    bool origin_suspended_advance_on_hover_{true};
     bool origin_suspended_tree_command_{};
     std::set<std::string> visible_local_origin_ids_;
     std::set<std::string> selectable_local_origin_container_ids_;

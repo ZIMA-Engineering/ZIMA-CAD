@@ -4964,7 +4964,14 @@ void AssemblyWorkspaceWindow::create_layout() {
         return false;
     });
     viewer_->set_double_middle_click_callback(
-        [this] { return finish_parameter_dimensions() || finish_current_sketch_tool(); });
+        [this] {
+            if (finish_parameter_dimensions() || finish_current_sketch_tool()) return true;
+            if (properties_dialog_ || tree_->property("commandSelectionActive").toBool()) return false;
+            tree_->clearSelection();
+            viewer_->set_feature_selected_edges({});
+            viewer_->clear_selection();
+            return true;
+        });
     viewer_->set_empty_right_click_callback(
         [this] { return cancel_current_sketch_step(true); });
     viewer_->set_single_candidate_right_click_callback({});
@@ -8446,6 +8453,7 @@ void AssemblyWorkspaceWindow::set_local_origin_selection_mode(bool active) {
     if (active) {
         origin_suspended_selection_contract_ = viewer_->selection_contract();
         origin_suspended_candidate_filter_ = viewer_->candidate_filter();
+        origin_suspended_advance_on_hover_ = viewer_->advances_selection_on_hover();
         origin_suspended_tree_command_ = tree_->property("commandSelectionActive").toBool();
         suspended_primitive_reference_index_ = pending_primitive_reference_index_;
         suspended_primitive_reference_auto_advance_ = primitive_reference_auto_advance_;
@@ -8486,7 +8494,7 @@ void AssemblyWorkspaceWindow::set_local_origin_selection_mode(bool active) {
         start_construction_reference_selection(index, automatic);
     } else {
         viewer_->set_selection_contract(origin_suspended_selection_contract_);
-        viewer_->set_candidate_filter(origin_suspended_candidate_filter_);
+        viewer_->set_candidate_filter(origin_suspended_candidate_filter_, origin_suspended_advance_on_hover_);
         tree_->setProperty("commandSelectionActive", origin_suspended_tree_command_);
     }
 }
@@ -20050,6 +20058,7 @@ void AssemblyWorkspaceWindow::delete_part_object(
             tr("Opravdu chcete vybraný objekt odstranit?"),
             QMessageBox::Yes | QMessageBox::No, QMessageBox::No) !=
         QMessageBox::Yes) return;
+    QString calculation_issue;
     try {
         if (kind == QStringLiteral("assembly-cut")) {
             auto* assembly = workspace_.open_assembly(workspace_.active_document_id());
@@ -20129,87 +20138,24 @@ void AssemblyWorkspaceWindow::delete_part_object(
             auto* part = workspace_.open_part(workspace_.active_document_id());
             if (part == nullptr) return;
             auto next = part->session.document();
-            if (kind == QStringLiteral("sketch")) {
-                if (std::any_of(next.history.begin(), next.history.end(),
-                        [&](const auto& container) {
-                            return (container.feature_kind ==
-                                        zima::document::FeatureKind::Extrusion &&
-                                    container.extrusion.sketch_id == object_id) ||
-                                (container.feature_kind ==
-                                        zima::document::FeatureKind::Revolution &&
-                                    container.revolution.sketch_id == object_id);
-                        })) {
-                    throw std::runtime_error("Sketch is still used by a feature");
-                }
-                std::erase_if(next.sketches,
-                    [&](const auto& sketch) { return sketch.id == object_id; });
-            } else if (kind == QStringLiteral("part-construction")) {
-                const bool used_by_datum = std::any_of(next.constructions.begin(),
-                    next.constructions.end(), [&](const auto& construction) {
-                        return construction.id != object_id &&
-                            std::any_of(construction.references.begin(),
-                                construction.references.end(), [&](const auto& reference) {
-                                    return reference.owner_id == object_id;
-                                });
-                    });
-                const bool used_by_feature = std::any_of(next.history.begin(),
-                    next.history.end(), [&](const auto& container) {
-                        return container.feature_kind ==
-                                zima::document::FeatureKind::Extrusion &&
-                            container.extrusion.target_face.owner_id == object_id;
-                    });
-                const bool used_by_sketch = std::any_of(next.sketches.begin(),
-                    next.sketches.end(), [&](const auto& sketch) {
-                        return std::any_of(sketch.external_references.begin(),
-                            sketch.external_references.end(), [&](const auto& reference) {
-                                return reference.source_document_id == next.document_id &&
-                                    reference.source_owner_id == object_id;
-                            });
-                    });
-                if (used_by_datum || used_by_feature || used_by_sketch) {
-                    throw std::runtime_error(
-                        "Construction object is still used by another definition");
-                }
-                std::erase_if(next.constructions,
-                    [&](const auto& object) { return object.id == object_id; });
-            } else {
-                const auto rollback =
-                    part->session.rollback_boundary(object_id);
-                const auto old_history_size = next.history.size();
-                // An internal profile Sketch is owned by its history
-                // container and must disappear with that container. Keeping
-                // it would leave an unreachable orphan after either single
-                // or multi-selection deletion.
-                std::erase_if(next.sketches, [&](const auto& sketch) {
-                    return sketch.owner_container_id == object_id;
-                });
-                std::erase_if(next.history,
-                    [&](const auto& container) { return container.id == object_id; });
-                if (next.history.size() != old_history_size && rollback &&
-                    rollback->input_body) {
-                    static_cast<void>(
-                        restore_surviving_edge_references_after_history_delete(
-                            next, object_id, *rollback->input_body,
-                            part->session.calculated_boundaries()));
-                }
+            const auto rollback = part->session.rollback_boundary(object_id);
+            next.erase_history_object(object_id);
+            if (rollback && rollback->input_body) {
+                static_cast<void>(restore_surviving_edge_references_after_history_delete(
+                    next, object_id, *rollback->input_body,
+                    part->session.calculated_boundaries()));
             }
-            const auto deleted_order = std::find_if(next.history_order.begin(),
-                next.history_order.end(),
-                [&](const auto& entry) { return entry.id == object_id; });
-            const auto deleted_index = deleted_order == next.history_order.end()
-                ? next.history_order.size()
-                : static_cast<std::size_t>(std::distance(
-                    next.history_order.begin(), deleted_order));
-            const auto cursor_before_delete = next.effective_history_cursor();
-            std::erase_if(next.history_order,
-                [&](const auto& entry) { return entry.id == object_id; });
-            next.set_history_cursor(cursor_before_delete -
-                (deleted_index < cursor_before_delete ? 1U : 0U));
-            auto calculated = calculate_part(next);
-            next.resolve_constructions(calculated.empty()
-                ? zima::kernel::ViewerReferenceGeometry{}
-                : calculated.back().mesh.original_references);
-            static_cast<void>(refresh_sketch_external_references(next, calculated));
+            std::vector<zima::kernel::BodyResult> calculated;
+            try {
+                calculated = calculate_part_with_resolved_references(next);
+            } catch (const std::exception& error) {
+                // Deleting a source is permitted even when a dependent can
+                // no longer calculate. Keep its definition/reference IDs for
+                // repair, and never display the pre-deletion cached solid.
+                calculation_issue = QString::fromUtf8(error.what());
+                next.resolve_constructions({});
+                static_cast<void>(refresh_sketch_external_references(next, {}));
+            }
             part->session.commit(std::move(next), std::move(calculated));
             if (active_sketch_id_ == object_id) active_sketch_id_.clear();
             if (selected_sketch_id_ == object_id) selected_sketch_id_.clear();
@@ -20217,6 +20163,8 @@ void AssemblyWorkspaceWindow::delete_part_object(
         refresh_tabs();
         preserve_view_on_refresh_ = true;
         refresh_scene();
+        if (!calculation_issue.isEmpty())
+            state_->setText(tr("Objekt odstraněn. Navazující geometrii nelze vypočítat: %1").arg(calculation_issue));
     } catch (const std::exception& error) {
         QMessageBox::warning(this, tr("Objekt nelze odstranit"), error.what());
     }
@@ -25825,7 +25773,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             viewer_->set_candidate_filter([active_body, owners = std::move(owners)](const auto& candidate) {
                 const auto owner = owners.find(candidate.owner_id);
                 return active_body.empty() || owner == owners.end() || owner->second == active_body;
-            });
+            }, false);
         }
         // set_mesh() intentionally resets stale picking state. Dimension
         // inspection, however, still owns this exact persisted container, so

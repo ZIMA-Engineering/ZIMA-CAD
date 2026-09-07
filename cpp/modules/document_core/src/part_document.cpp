@@ -4340,14 +4340,19 @@ std::vector<zima::kernel::ViewerDimension> container_placement_dimensions(
         const double radians = degrees * std::numbers::pi / 180.0;
         const bool correction_dimension = orientation_from_reference &&
             orientation_state.constrained_axes[index];
-        const auto axis = correction_dimension
-            ? placement_transform_direction(
-                  correction_frame, canonical_axes[index])
-            : canonical_axes[index];
-        const auto first = correction_dimension
-            ? placement_transform_direction(
-                  correction_frame, canonical_first_rays[index])
-            : canonical_first_rays[index];
+        // The orientation uses Rz * Ry * Rx. Each angular band follows
+        // the rotations outside its own factor: RX follows Rz*Ry, RY
+        // follows Rz, and RZ keeps the parent frame. This is also true
+        // inside the local correction frame.
+        const auto& parameters = correction_dimension ? correction_angles : absolute_angles;
+        const auto outer_rotation = placement_rotation_matrix_from_euler_degrees({
+            0.0, index == 0 ? parameters[1] : 0.0,
+            index < 2 ? parameters[2] : 0.0});
+        const auto dimension_frame = correction_dimension
+            ? placement_rotation_matrix_multiply(correction_frame, outer_rotation)
+            : outer_rotation;
+        const auto axis = placement_transform_direction(dimension_frame, canonical_axes[index]);
+        const auto first = placement_transform_direction(dimension_frame, canonical_first_rays[index]);
         const zima::kernel::Vec3 cross{
             axis.y*first.z-axis.z*first.y,
             axis.z*first.x-axis.x*first.z,
@@ -7538,6 +7543,36 @@ void PartDocument::validate_body_ownership() const {
         throw std::invalid_argument("Part history order must follow its body ownership");
 }
 
+void PartDocument::erase_history_object(const std::string& id) {
+    if (id.empty()) throw std::invalid_argument("Cannot delete an empty object ID");
+    auto next = *this;
+    std::erase_if(next.history, [&](const auto& entry) { return entry.id == id; });
+    std::erase_if(next.constructions, [&](const auto& entry) { return entry.id == id; });
+    std::erase_if(next.sketches, [&](const auto& sketch) {
+        return sketch.id == id || sketch.owner_container_id == id;
+    });
+    if (const auto* owner = next.body_history.owner(id)) {
+        auto body = *owner;
+        const auto entry = std::ranges::find_if(body.entries,
+            [&](const auto& value) { return value.id == id; });
+        const auto index = static_cast<std::size_t>(entry - body.entries.begin());
+        body.entries.erase(entry);
+        if (index < body.cursor) --body.cursor;
+        auto graph = next.body_history;
+        graph.update_body(std::move(body));
+        next.set_body_history(std::move(graph));
+    } else {
+        const auto cursor = next.effective_history_cursor();
+        const auto entry = std::ranges::find_if(next.history_order,
+            [&](const auto& value) { return value.id == id; });
+        const auto index = static_cast<std::size_t>(entry - next.history_order.begin());
+        std::erase_if(next.history_order, [&](const auto& value) { return value.id == id; });
+        next.set_history_cursor(cursor - (index < cursor ? 1U : 0U));
+        next.validate_body_ownership();
+    }
+    *this = std::move(next);
+}
+
 void PartDocument::set_body_history(BodyHistoryGraph graph) {
     auto next = *this;
     next.body_history = std::move(graph);
@@ -7659,6 +7694,19 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
     for (const auto* ordered_container : ordered_history) {
         const auto& container = *ordered_container;
         if (container.feature_kind == FeatureKind::Sketch) continue;
+        const auto profile_id = container.feature_kind == FeatureKind::Extrusion
+            ? container.extrusion.sketch_id
+            : container.feature_kind == FeatureKind::Revolution
+                ? container.revolution.sketch_id : std::string{};
+        if (!profile_id.empty() && std::ranges::none_of(sketches,
+                [&](const auto& sketch) { return sketch.id == profile_id; })) {
+            // Retain a boundary for the broken feature without manufacturing
+            // replacement geometry. Its persisted profile ID remains repairable.
+            operations.push_back({container.id, zima::kernel::FeatureGroupRequest{},
+                zima::kernel::BooleanOperation::Add, true,
+                boolean_tolerance, mesh_deflection});
+            continue;
+        }
         zima::kernel::Vec3 translation{
             container.placement.x, container.placement.y, container.placement.z};
         zima::kernel::Vec3 rotation{
@@ -9732,22 +9780,6 @@ PartDocument PartDocument::load(
     if (document.history_cursor > document.history_order.size()) {
         throw std::runtime_error("Part history cursor is outside history");
     }
-    for (const auto& container : document.history) {
-        if (container.feature_kind == FeatureKind::Extrusion &&
-            std::none_of(document.sketches.begin(), document.sketches.end(),
-                [&](const auto& sketch) {
-                    return sketch.id == container.extrusion.sketch_id;
-                })) {
-            throw std::runtime_error("Extrusion references a missing Sketch");
-        }
-        if (container.feature_kind == FeatureKind::Revolution &&
-            std::none_of(document.sketches.begin(), document.sketches.end(),
-                [&](const auto& sketch) {
-                    return sketch.id == container.revolution.sketch_id;
-                })) {
-            throw std::runtime_error("Revolution references a missing Sketch");
-        }
-    }
     const auto first_active = std::find_if(document.history.begin(),
         document.history.end(), [](const auto& container) {
             return !container.suppressed;
@@ -10023,10 +10055,7 @@ void PartDocument::save(
             }
         } else if (container.feature_kind == FeatureKind::Extrusion) {
             if (!std::isfinite(container.extrusion.profile_plane_offset) ||
-                container.extrusion.sketch_id.empty() ||
-                std::none_of(sketches.begin(), sketches.end(), [&](const auto& sketch) {
-                    return sketch.id == container.extrusion.sketch_id;
-                })) {
+                container.extrusion.sketch_id.empty()) {
                 throw std::runtime_error("Extrusion references a missing Sketch");
             }
             require_positive(container.extrusion.height, "extrusion height");
@@ -10052,9 +10081,6 @@ void PartDocument::save(
             }
         } else if (container.feature_kind == FeatureKind::Revolution) {
             if (container.revolution.sketch_id.empty() ||
-                std::none_of(sketches.begin(), sketches.end(), [&](const auto& sketch) {
-                    return sketch.id == container.revolution.sketch_id;
-                }) ||
                 !std::isfinite(container.revolution.profile_plane_offset) ||
                 !std::isfinite(container.revolution.angle_degrees) ||
                 container.revolution.angle_degrees <= 0.0 ||

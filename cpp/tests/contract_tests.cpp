@@ -2361,6 +2361,66 @@ int main() {
                     std::abs(rotation_radius - 22.0) < 1.0e-9,
                 "Universal container placement did not expose its nonzero "
                 "angle in the separated angular dimension band");
+        // RY must follow RZ instead of remaining in the world's XZ plane.
+        auto combined_angles=rotated_container_placement;
+        combined_angles.absolute_rotation_y=15;
+        combined_angles.absolute_rotation_z=-90;
+        const auto combined_dimensions=zima::document::container_placement_dimensions(
+            "container",combined_angles,document_origin_geometry);
+        const auto combined_y=std::ranges::find_if(combined_dimensions,[](const auto& dimension) {
+            return dimension.reference.semantic_key=="parameter:placement:rotation_y";
+        });
+        require(combined_y!=combined_dimensions.end() &&
+            std::abs(combined_y->plane_normal.x-1)<1e-9 &&
+            std::abs(combined_y->plane_normal.y)<1e-9 &&
+            std::abs(combined_y->plane_normal.z)<1e-9 &&
+            std::abs(combined_y->line_first.x-combined_y->witness_first.x)<1e-9 &&
+            std::abs(combined_y->line_second.x-combined_y->witness_first.x)<1e-9,
+            "RY=15 at RZ=-90 was not drawn in the rotated YZ plane");
+        // Check the arc endpoints against independent scalar Euler rotations.
+        const auto rotate=[](zima::kernel::Vec3 p,double x,double y,double z) {
+            const double factor=std::acos(-1.0)/180;
+            x*=factor;y*=factor;z*=factor;
+            p={p.x,p.y*std::cos(x)-p.z*std::sin(x),p.y*std::sin(x)+p.z*std::cos(x)};
+            p={p.x*std::cos(y)+p.z*std::sin(y),p.y,-p.x*std::sin(y)+p.z*std::cos(y)};
+            return zima::kernel::Vec3{p.x*std::cos(z)-p.y*std::sin(z),p.x*std::sin(z)+p.y*std::cos(z),p.z};
+        };
+        combined_angles.absolute_rotation_x=23;combined_angles.absolute_rotation_y=-31;combined_angles.absolute_rotation_z=57;
+        const auto three_dimensions=zima::document::container_placement_dimensions("container",combined_angles,document_origin_geometry);
+        const std::array axes{zima::kernel::Vec3{1,0,0},zima::kernel::Vec3{0,1,0},zima::kernel::Vec3{0,0,1}};
+        const std::array rays{zima::kernel::Vec3{0,1,0},zima::kernel::Vec3{0,0,1},zima::kernel::Vec3{1,0,0}};
+        const std::array angle_values{23.0,-31.0,57.0};
+        const std::array radii{18.0,22.0,26.0};
+        const std::array keys{"parameter:placement:rotation_x","parameter:placement:rotation_y","parameter:placement:rotation_z"};
+        const auto near_vec=[](const auto& a,const auto& b) {return std::hypot(std::hypot(a.x-b.x,a.y-b.y),a.z-b.z)<1e-8;};
+        for(std::size_t i=0;i<3;++i) {
+            const auto dimension=std::ranges::find_if(three_dimensions,[&](const auto& d){return d.reference.semantic_key==keys[i];});
+            require(dimension!=three_dimensions.end(),"Missing combined angular band");
+            const auto normal=rotate(axes[i],0,i==0?-31:0,i<2?57:0);
+            const auto last=rotate(rays[i],i==0?angle_values[0]:0,i<=1?angle_values[1]:0,angle_values[2]);
+            const auto& o=dimension->witness_first;
+            require(near_vec(dimension->plane_normal,normal) && near_vec(dimension->line_second,
+                zima::kernel::Vec3{o.x+radii[i]*last.x,o.y+radii[i]*last.y,o.z+radii[i]*last.z}),
+                "Combined Euler angle dimension disagrees with the actual rotation order");
+        }
+        auto angular_body_document=zima::document::PartDocument::create_default();
+        zima::document::BodyHistoryGraph angular_bodies;
+        const auto angular_body_id=angular_bodies.create_body("Rotated dimension frame");
+        auto angular_body=*angular_bodies.find(angular_body_id);
+        angular_body.scope.placement={80,40,25};
+        angular_body.scope.placement.absolute_rotation_x=11;angular_body.scope.placement.rotation_x=11;
+        angular_body.scope.placement.absolute_rotation_y=37;angular_body.scope.placement.rotation_y=37;
+        angular_body.scope.placement.absolute_rotation_z=-22;angular_body.scope.placement.rotation_z=-22;
+        angular_bodies.update_body(angular_body);angular_body_document.set_body_history(angular_bodies);
+        zima::kernel::ViewerMesh angular_mesh;angular_mesh.dimensions=three_dimensions;
+        const auto world_angles=angular_body_document.place_body_mesh(angular_mesh,angular_body_id);
+        for(std::size_t i=0;i<angular_mesh.dimensions.size();++i) {
+            const auto& local=angular_mesh.dimensions[i];const auto& world=world_angles.dimensions[i];
+            const auto point=rotate(local.line_second,11,37,-22);
+            require(near_vec(world.plane_normal,rotate(local.plane_normal,11,37,-22)) &&
+                near_vec(world.line_second,zima::kernel::Vec3{point.x+80,point.y+40,point.z+25}),
+                "Angular dimension did not follow its owning Body frame exactly once");
+        }
         auto oriented_correction = container_placement;
         oriented_correction.references = {
             {{}, constructions.document_id + ":origin", "origin:plane:xz",
@@ -2389,8 +2449,8 @@ int main() {
             });
         require(correction_y != oriented_dimensions.end() &&
                     correction_z != oriented_dimensions.end() &&
-                    std::abs(correction_y->plane_normal.x + 1.0) < 1.0e-9 &&
-                    std::abs(correction_y->plane_normal.y) < 1.0e-9 &&
+                    std::abs(correction_y->plane_normal.x + std::cos(10.0*std::acos(-1.0)/180.0)) < 1.0e-9 &&
+                    std::abs(correction_y->plane_normal.y + std::sin(10.0*std::acos(-1.0)/180.0)) < 1.0e-9 &&
                     std::abs(correction_y->plane_normal.z) < 1.0e-9 &&
                     std::abs(correction_z->plane_normal.x) < 1.0e-9 &&
                     std::abs(correction_z->plane_normal.y) < 1.0e-9 &&

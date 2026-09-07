@@ -1213,6 +1213,93 @@ int verify_pending_container_tree(QApplication& application,
     return 0;
 }
 
+int verify_part_deletion(QApplication& application, const std::filesystem::path& directory) {
+    const auto source = qEnvironmentVariable("ZIMA_VERIFY_DELETE_DOCUMENT").toStdString();
+    const auto original = zima::document::PartDocument::load(source);
+    QTemporaryDir temporary(QString::fromStdString((directory / "delete-part-XXXXXX").string()));
+    if (!verify(temporary.isValid(), "Cannot create isolated deletion directory")) return 1;
+    const auto path = std::filesystem::path(temporary.path().toStdString()) / "delete.prtz";
+    for (auto feature = original.history.rbegin(); feature != original.history.rend(); ++feature) {
+        std::filesystem::copy_file(source, path, std::filesystem::copy_options::overwrite_existing);
+        zima::app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));
+        window.resize(1100,850); window.show();
+        if (!verify(window.open_document_path(QString::fromStdString(path.string())), "Cannot open deletion fixture")) return 1;
+        application.processEvents();
+        auto* tree = window.findChild<QTreeWidget*>("documentTree");
+        auto* view = dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
+        const auto row = [&](const std::string& id) -> QTreeWidgetItem* {
+            for (QTreeWidgetItemIterator it(tree); *it; ++it)
+                if ((*it)->data(0,Qt::UserRole).toString().toStdString() == id) return *it;
+            return nullptr;
+        };
+        for (const auto& body : original.body_history.bodies()) {
+            auto* body_item = row(body.scope.id);
+            if (!body_item) continue;
+            tree->setCurrentItem(body_item); body_item->setSelected(true);
+            application.processEvents();
+            const auto confirmed = view->confirmed_candidate();
+            QMouseEvent move(QEvent::MouseMove,QPointF(10,10),QPointF(10,10),QPointF(10,10),
+                Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+            QApplication::sendEvent(view,&move);
+            if (!verify(confirmed && view->confirmed_candidate() == confirmed,
+                    "Selected body disappeared on pointer movement")) return 1;
+            QMouseEvent middle(QEvent::MouseButtonDblClick,QPointF(10,10),QPointF(10,10),QPointF(10,10),
+                Qt::MiddleButton,Qt::MiddleButton,Qt::NoModifier);
+            QApplication::sendEvent(view,&middle);
+            if (!verify(!view->confirmed_candidate() && tree->selectedItems().empty(),
+                    "Middle double-click did not clear View and Tree together")) return 1;
+        }
+        auto* item = row(feature->id);
+        if (!verify(item && view, "Missing deletion tree/view")) return 1;
+        for (auto* parent = item->parent(); parent; parent=parent->parent()) tree->expandItem(parent);
+        tree->setCurrentItem(item); item->setSelected(true); tree->scrollToItem(item);
+        application.processEvents();
+        const auto selected = view->confirmed_candidate();
+        QMouseEvent move(QEvent::MouseMove,QPointF(10,10),QPointF(10,10),QPointF(10,10),
+            Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(view,&move);
+        if (!verify(view->confirmed_candidate() == selected, "Tree selection vanished on hover")) return 1;
+        QString failure;
+        bool invoked = false;
+        QTimer messages;
+        QObject::connect(&messages,&QTimer::timeout,[&] {
+            if (auto* box=qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) {
+                if (box->standardButtons().testFlag(QMessageBox::Yes)) box->button(QMessageBox::Yes)->click();
+                else { failure=box->text(); box->accept(); }
+            }
+        });
+        messages.start(20);
+        QTimer::singleShot(0,&window,[&] {
+            auto* menu=qobject_cast<QMenu*>(QApplication::activePopupWidget());
+            if (!menu) return;
+            for (auto* action : menu->actions()) if (action->text() == QStringLiteral("Odstranit")) {
+                invoked=true; menu->setActiveAction(action);
+                QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);
+                QApplication::sendEvent(menu,&enter); return;
+            }
+            menu->close();
+        });
+        tree->customContextMenuRequested(tree->visualItemRect(item).center());
+        application.processEvents();
+        if (!verify(invoked && failure.isEmpty() && !row(feature->id), "Tree deletion failed")) {
+            std::cerr << "delete=" << feature->id << " invoked=" << invoked << " row=" << (row(feature->id)!=nullptr) << " error=" << failure.toStdString() << std::endl; return 1;
+        }
+        window.findChild<QAction*>("undoAction")->trigger(); application.processEvents();
+        if (!verify(row(feature->id) != nullptr, "Undo failed to restore deleted feature")) return 1;
+        window.findChild<QAction*>("redoAction")->trigger(); application.processEvents();
+        if (!verify(row(feature->id) == nullptr, "Redo failed to delete feature")) return 1;
+        window.findChild<QAction*>("saveDocumentAction")->trigger();
+        application.processEvents();
+        if (!verify(failure.isEmpty(), "Deleted document could not be saved")) return 1;
+        const auto saved=zima::document::PartDocument::load(path);
+        saved.validate_body_ownership();
+        if (!verify(saved.history.size()+1 == original.history.size() &&
+                !saved.body_history.owner(feature->id), "Deletion changed unrelated history")) return 1;
+    }
+    std::cout << "Part deletion and persistent selection contracts passed\n";
+    return 0;
+}
+
 int verify_reopened_sweep_document(QApplication& application, const std::filesystem::path& directory) {
     const auto source=qEnvironmentVariable("ZIMA_VERIFY_REOPEN_DOCUMENT").toStdString();
     QTemporaryDir temporary(QString::fromStdString((directory/"reopen-sweep-XXXXXX").string()));
@@ -2031,6 +2118,8 @@ int verify_startup_contract(
     const QString& part_capture_path = {}, const QString& drawing_capture_path = {}) {
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_UNRESOLVED_SWEEP_ONLY")) return verify_unresolved_sweep_sketches(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_EXTERNAL_CIRCLE_ONLY")) return verify_external_circle_selection(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_DELETE_DOCUMENT"))
+        return verify_part_deletion(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_REOPEN_DOCUMENT"))
         return verify_reopened_sweep_document(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_REFERENCE_DOCUMENT")) {

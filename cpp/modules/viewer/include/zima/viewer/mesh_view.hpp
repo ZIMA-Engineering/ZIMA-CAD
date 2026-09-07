@@ -106,9 +106,11 @@ public:
     void set_selection_contract(std::vector<CandidateKind> allowed_kinds);
     [[nodiscard]] std::vector<CandidateKind> selection_contract() const;
     [[nodiscard]] std::function<bool(const ViewerCandidate&)> candidate_filter() const;
+    [[nodiscard]] bool advances_selection_on_hover() const;
     void set_active_sketch_owner(std::string owner_id);
     void set_candidate_filter(
-        std::function<bool(const ViewerCandidate&)> candidate_filter);
+        std::function<bool(const ViewerCandidate&)> candidate_filter,
+        bool advance_on_hover = true);
     void set_candidate_priority(
         std::function<int(const ViewerCandidate&)> candidate_priority);
     // Visual inspection does not latch the picker; dimensions remain editable.

@@ -100,6 +100,62 @@ int main() {
         second_definition.scope.placement.x = 5;
         part_graph.update_body(second_definition);
         part.set_body_history(part_graph);
+        {
+            auto deleted = part;
+            const auto other_body = *deleted.body_history.find(second_body);
+            deleted.erase_history_object(first.id);
+            deleted.validate_body_ownership();
+            require(!deleted.find_container(first.id) && !deleted.body_history.owner(first.id),
+                "Deleted feature remains in body ownership");
+            require(deleted.body_history.find(first_body)->cursor == 0 &&
+                *deleted.body_history.find(second_body) == other_body,
+                "Deletion moved the wrong body cursor or changed another body");
+            auto sketch = zima::sketcher::Sketch::create_default();
+            auto extrusion = document::PartDocument::create_extrusion_container(sketch.id);
+            sketch.owner_container_id = extrusion.id;
+            deleted.sketches.push_back(sketch);
+            deleted.history.push_back(extrusion);
+            auto graph = deleted.body_history;
+            graph.insert({document::PartHistoryKind::Feature, extrusion.id});
+            deleted.set_body_history(graph);
+            deleted.erase_history_object(extrusion.id);
+            require(deleted.sketches.empty(), "Deleting a feature orphaned its owned Sketch");
+            // Deleting only the profile preserves a repairable broken feature.
+            deleted.history.push_back(extrusion);
+            deleted.sketches.push_back(sketch);
+            graph = deleted.body_history;
+            graph.insert({document::PartHistoryKind::Feature, extrusion.id});
+            deleted.set_body_history(graph);
+            deleted.erase_history_object(sketch.id);
+            require(deleted.find_container(extrusion.id) && deleted.kernel_operations().back().suppressed,
+                "Missing profile blocked deletion or generated replacement geometry");
+            const auto path = std::filesystem::temp_directory_path() /
+                ("zima-delete-" + kernel::make_stable_id() + ".prtz");
+            deleted.save(path, {});
+            const auto reopened = document::PartDocument::load(path);
+            std::filesystem::remove(path);
+            reopened.validate_body_ownership();
+            require(reopened.find_container(extrusion.id)->extrusion.sketch_id == sketch.id,
+                "Save/reopen lost the broken profile reference");
+        }
+        {
+            auto deleted = part;
+            auto datum = document::PartDocument::create_construction(document::ConstructionKind::Point);
+            deleted.constructions.push_back(datum);
+            auto graph = deleted.body_history;
+            graph.insert({document::PartHistoryKind::Construction, datum.id});
+            deleted.set_body_history(graph);
+            deleted.find_container(second.id)->placement.references = {{{}, datum.id, "point"}};
+            deleted.resolve_constructions();
+            deleted.erase_history_object(datum.id);
+            deleted.resolve_constructions();
+            deleted.validate_body_ownership();
+            require(!deleted.find_construction(datum.id) && !deleted.body_history.owner(datum.id),
+                "Referenced construction could not be deleted");
+            require(!deleted.find_container(second.id)->placement.reference_valid &&
+                deleted.find_container(second.id)->placement.references.front().owner_id == datum.id,
+                "Deleted reference was not retained and marked broken");
+        }
         auto framed = part;
         auto frame_graph = framed.body_history;
         auto frame_body = *frame_graph.find(second_body);
