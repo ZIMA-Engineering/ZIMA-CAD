@@ -69,6 +69,7 @@
 #include <Geom_TrimmedCurve.hxx>
 #include <Geom_BSplineCurve.hxx>
 #include <Geom_BezierCurve.hxx>
+#include <GeomAdaptor_Curve.hxx>
 #include <GeomConvert_CompCurveToBSplineCurve.hxx>
 #include <Geom_Surface.hxx>
 #include <GeomAPI_Interpolate.hxx>
@@ -270,8 +271,51 @@ ViewerAxis transformed_axis(
             {owner_id, key}};
 }
 
+std::vector<ViewerEdge> centerlines_for_operation(const HistoryOperation& operation) {
+    const auto* request=std::get_if<Sweep3DRequest>(&operation.primitive);
+    if(!request || !request->make_solid)return {};
+    std::vector<ViewerEdge> result;
+    std::map<std::string,std::size_t> sources;
+    for(const auto& segment:request->path_segments) {
+        std::vector<Vec3> points;
+        if(!segment.arc_midpoint && segment.bezier_control_points.empty()) points={segment.start,segment.end};
+        else {
+            Handle(Geom_Curve) geometry;
+            if(segment.arc_midpoint) {
+                const auto& a=segment.start;const auto& b=*segment.arc_midpoint;const auto& c=segment.end;
+                GC_MakeArcOfCircle arc(gp_Pnt(a.x,a.y,a.z),gp_Pnt(b.x,b.y,b.z),gp_Pnt(c.x,c.y,c.z));
+                if(!arc.IsDone())throw std::runtime_error("Invalid centerline arc");
+                geometry=arc.Value();
+            } else {
+                TColgp_Array1OfPnt poles(1,4);
+                for(int i=0;i<4;++i){const auto& p=segment.bezier_control_points.at(i);poles.SetValue(i+1,gp_Pnt(p.x,p.y,p.z));}
+                geometry=new Geom_BezierCurve(poles);
+            }
+            GeomAdaptor_Curve curve(geometry);
+            GCPnts_TangentialDeflection samples(curve,0.15,request->linear_tolerance);
+            for(int i=1;i<=samples.NbPoints();++i){const auto p=curve.Value(samples.Parameter(i));points.push_back({p.X(),p.Y(),p.Z()});}
+        }
+        if(points.size()<2)continue;
+        // Tessellation pieces of one source curve share one identity. The
+        // source ZIMA segment, not an approximation index, defines the part.
+        const auto [entry,inserted]=sources.emplace(segment.source_id,result.size());
+        if(inserted) {
+            ViewerEdge edge;edge.reference={operation.owner_id,"centerline:from:"+segment.source_id,{}};
+            edge.display_owner_id=operation.owner_id;edge.overlay=true;edge.construction=true;edge.dash_dot=true;
+            edge.points=std::move(points);result.push_back(std::move(edge));
+        } else {
+            auto& edge=result[entry->second];const auto& a=edge.points.back();const auto& b=points.front();
+            if(std::hypot(std::hypot(a.x-b.x,a.y-b.y),a.z-b.z)>1e-7)
+                throw std::runtime_error("Disconnected centerline source segments");
+            edge.points.insert(edge.points.end(),points.begin()+1,points.end());
+        }
+    }
+    return result;
+}
+
 std::vector<ViewerAxis> axes_for_operation(
-    const HistoryOperation& operation, const TopoDS_Shape& calculated_operand) {
+    const HistoryOperation& operation, const TopoDS_Shape& calculated_operand,
+    const std::vector<ViewerEdge>& centerlines) {
     const auto fitted_axis = [&](Vec3 point, Vec3 direction,
             std::string semantic_key, double fallback_length) {
         const double magnitude = std::hypot(
@@ -394,6 +438,24 @@ std::vector<ViewerAxis> axes_for_operation(
                     index == 0 ? "axis:primary"
                                : "axis:profile:" + std::to_string(index + 1),
                     length));
+            }
+            return axes;
+        } else if constexpr (std::is_same_v<Request, Sweep3DRequest>) {
+            std::vector<ViewerAxis> axes;
+            for(const auto& edge:centerlines) {
+                const auto& start=edge.points.front();const auto& end=edge.points.back();
+                const Vec3 delta{end.x-start.x,end.y-start.y,end.z-start.z};
+                const double length=std::hypot(std::hypot(delta.x,delta.y),delta.z);
+                if(!std::isfinite(length) || length<=1e-10)continue;
+                const Vec3 d{delta.x/length,delta.y/length,delta.z/length};
+                const bool straight=std::all_of(edge.points.begin(),edge.points.end(),[&](const auto& p){
+                    const Vec3 v{p.x-start.x,p.y-start.y,p.z-start.z};
+                    return std::hypot(std::hypot(v.y*d.z-v.z*d.y,v.z*d.x-v.x*d.z),v.x*d.y-v.y*d.x)<=1e-9*std::max(1.0,length);
+                });
+                if(!straight)continue;
+                ViewerAxis axis{{(start.x+end.x)*.5,(start.y+end.y)*.5,(start.z+end.z)*.5},d,length,
+                    {operation.owner_id,edge.reference.semantic_key,{}}};
+                axis.label="Osa dráhy";axes.push_back(std::move(axis));
             }
             return axes;
         } else if constexpr (std::is_same_v<Request, RevolutionRequest>) {
@@ -1767,10 +1829,11 @@ PrimitiveData make_sweep3d_data(
             PrimitiveData piece{builder.Shape(),{},{},{}};
             for(const auto index:{first_station(i),first_station(i)+1}) {
                 const auto& station=stations[index];
-                if (request.separate_segments) {
-                    const bool start = index == first_station(i);
+                const bool start = index == first_station(i);
+                const bool route_endpoint = start ? i == 0 : i + 1 == spine_edges.size();
+                if (request.make_solid && (request.separate_segments || route_endpoint)) {
                     const auto& location = request.path_points[index];
-                    const auto normal = tangent(i, false);
+                    const auto normal = tangent(i, !start);
                     const auto key = std::string("sweep:cap:") + (start ? "start:from:" : "end:from:") + segment.source_id;
                     // The ZIMA identity above exists before this lookup. The
                     // plane locates its cap; OCCT enumeration never names it.
@@ -4666,10 +4729,237 @@ std::vector<BodyResult> OcctKernel::evaluate_history(
     return evaluate_history_incremental(operations, {});
 }
 
+namespace {
+
+void place_body_result(BodyResult& result, const gp_Trsf& placement) {
+    auto& mesh = result.mesh;
+    const auto point = [&](Vec3& value) {
+        const auto p = gp_Pnt(value.x, value.y, value.z).Transformed(placement);
+        value = {p.X(), p.Y(), p.Z()};
+    };
+    const auto direction = [&](Vec3& value) {
+        const auto v = gp_Vec(value.x, value.y, value.z).Transformed(placement);
+        value = {v.X(), v.Y(), v.Z()};
+    };
+    const auto face = [&](FaceReference& reference) {
+        if (!reference.surface) return;
+        auto surface = std::make_shared<SurfaceGeometry>(*reference.surface);
+        point(surface->origin);
+        direction(surface->axis);
+        direction(surface->radial);
+        reference.surface = std::move(surface);
+    };
+    const auto geometry = [&](auto& value) {
+        for (auto& vertex : value.vertices) point(vertex);
+        for (auto& reference : value.triangle_references) face(reference);
+        for (auto& edge : value.edges) {
+            for (auto& vertex : edge.points) point(vertex);
+            for (auto& row : edge.edge_treatment_side_directions)
+                for (auto& vector : row) direction(vector);
+            for (auto& reference : edge.edge_treatment_side_references) face(reference);
+        }
+        for (auto& vertex : value.points) point(vertex.position);
+        for (auto& axis : value.axes) {
+            point(axis.point);
+            direction(axis.direction);
+        }
+    };
+    geometry(mesh);
+    geometry(mesh.original_references);
+    for (auto& reference : result.shaft_thread_references) face(reference);
+    for (auto& dimension : mesh.dimensions) {
+        point(dimension.witness_first);
+        point(dimension.witness_second);
+        point(dimension.line_first);
+        point(dimension.line_second);
+        direction(dimension.plane_normal);
+        if (dimension.label_position) point(*dimension.label_position);
+    }
+    for (auto& marker : mesh.constraint_markers) point(marker.position);
+}
+
+void append_body_viewer(ViewerMesh& destination, const ViewerMesh& source) {
+    const auto offset = static_cast<std::uint32_t>(destination.vertices.size());
+    destination.vertices.insert(destination.vertices.end(), source.vertices.begin(), source.vertices.end());
+    for (const auto index : source.triangles) destination.triangles.push_back(offset + index);
+    destination.triangle_references.insert(destination.triangle_references.end(), source.triangle_references.begin(), source.triangle_references.end());
+    destination.edges.insert(destination.edges.end(), source.edges.begin(), source.edges.end());
+    destination.points.insert(destination.points.end(), source.points.begin(), source.points.end());
+    destination.axes.insert(destination.axes.end(), source.axes.begin(), source.axes.end());
+    destination.dimensions.insert(destination.dimensions.end(), source.dimensions.begin(), source.dimensions.end());
+    destination.constraint_markers.insert(destination.constraint_markers.end(), source.constraint_markers.begin(), source.constraint_markers.end());
+    append_reference_geometry(destination.original_references, source.original_references);
+}
+
+} // namespace
+
+std::vector<BodyResult> OcctKernel::evaluate_body_histories(
+    const std::vector<HistoryOperation>& operations,
+    const std::vector<BodyResult>& previous_boundaries) const {
+    struct Branch {
+        BodyHistoryScope scope;
+        std::vector<HistoryOperation> operations;
+    };
+    std::vector<Branch> branches;
+    std::set<std::string> seen;
+    std::set<std::string> owners;
+    std::set<std::string> available;
+    // Validate the entire graph before calculating any branch. A consumed
+    // inputs are replaced by the Boolean step's own result; neither can
+    // be used a second time implicitly.
+    for (std::size_t index = 0; index < operations.size(); ++index) {
+        const auto& operation = operations[index];
+        const auto& scope = operation.body;
+        if (scope.combination != BodyCombination::Separate &&
+            scope.combination != BodyCombination::Add &&
+            scope.combination != BodyCombination::Subtract &&
+            scope.combination != BodyCombination::Intersect)
+            throw std::invalid_argument("Invalid body combination");
+        if (operation.owner_id.empty() || !owners.insert(operation.owner_id).second)
+            throw std::invalid_argument("Body features require distinct persistent owners");
+        if (scope.id.empty()) throw std::invalid_argument("Body history has no owner");
+        for (const auto value : {scope.translation.x, scope.translation.y, scope.translation.z,
+                scope.rotation_degrees.x, scope.rotation_degrees.y, scope.rotation_degrees.z})
+            if (!std::isfinite(value)) throw std::invalid_argument("Body placement must be finite");
+        if (branches.empty() || branches.back().scope.id != scope.id) {
+            if (!seen.insert(scope.id).second)
+                throw std::invalid_argument("Body histories must be contiguous");
+            if (scope.combination == BodyCombination::Separate) {
+                if (!scope.target_id.empty() || !scope.source_id.empty())
+                    throw std::invalid_argument("Independent body cannot define a Boolean");
+            } else {
+                if (scope.target_id == scope.source_id || !available.erase(scope.target_id) || !available.erase(scope.source_id))
+                    throw std::invalid_argument("Boolean requires two distinct available preceding results");
+                if (operation.suppressed || operation.operation != BooleanOperation::Add ||
+                    !(scope.translation == Vec3{}) || !(scope.rotation_degrees == Vec3{}))
+                    throw std::invalid_argument("Boolean step cannot own body placement or feature modifiers");
+            }
+            available.insert(scope.id);
+            branches.push_back({scope, {}});
+        } else if (!(branches.back().scope == scope) || !scope.source_id.empty()) {
+            throw std::invalid_argument("Inconsistent body history scope");
+        }
+        auto local = operation;
+        local.body = {};
+        branches.back().operations.push_back(std::move(local));
+    }
+    if (previous_boundaries.size() == operations.size() &&
+        previous_boundaries.back().source_fingerprint == history_fingerprint(operations, operations.size()) &&
+        previous_boundaries.back().body_boundaries.size() == static_cast<std::size_t>(
+            std::ranges::count_if(branches, [](const auto& branch) { return branch.scope.source_id.empty(); })))
+        return previous_boundaries;
+    const BodyResult empty;
+    const auto& previous = previous_boundaries.empty() ? empty : previous_boundaries.back();
+    BodyResult document;
+    std::vector<BodyResult> boundaries;
+    boundaries.reserve(operations.size());
+    for (const auto& branch : branches) {
+        const auto cached = previous.body_boundaries.find(branch.scope.id);
+        auto local = branch.scope.source_id.empty()
+            ? evaluate_history_incremental(branch.operations,
+                cached == previous.body_boundaries.end() ? std::vector<BodyResult>{} : cached->second)
+            : std::vector<BodyResult>{document.body_outputs.at(branch.scope.source_id)};
+        if (branch.scope.source_id.empty()) document.body_boundaries.emplace(branch.scope.id, local);
+        HistoryOperation placement_key;
+        placement_key.body = branch.scope;
+        // Combination changes do not invalidate the raw placed branch.
+        placement_key.body.combination = BodyCombination::Separate;
+        placement_key.body.target_id.clear();
+        const auto input_key = branch.scope.source_id.empty()
+            ? local.back().source_fingerprint + ":placed:" + history_fingerprint({placement_key}, 1)
+            : local.back().source_fingerprint;
+        BodyResult input;
+        const auto old_input = previous.body_inputs.find(branch.scope.id);
+        if (old_input != previous.body_inputs.end() && old_input->second.source_fingerprint == input_key) {
+            input = old_input->second;
+        } else {
+            input = local.back();
+            if (!(branch.scope.translation == Vec3{}) || !(branch.scope.rotation_degrees == Vec3{})) {
+                const auto placement = primitive_transform(branch.scope.translation, branch.scope.rotation_degrees);
+                if (!input.kernel_shape.empty()) {
+                    BRepBuilderAPI_Transform transform(read_kernel_shape(input), placement, true);
+                    transform.Build();
+                    if (!transform.IsDone()) throw std::runtime_error("Body placement failed");
+                    input.kernel_shape = serialize_kernel_shape(transform.Shape());
+                }
+                place_body_result(input, placement);
+            }
+            input.source_fingerprint = input_key;
+        }
+        if (branch.scope.source_id.empty()) document.body_inputs.emplace(branch.scope.id, input);
+        auto output = input;
+        if (branch.scope.combination != BodyCombination::Separate) {
+            const auto& target = document.body_outputs.at(branch.scope.target_id);
+            const auto output_key = input_key + ":boolean:" +
+                std::to_string(static_cast<int>(branch.scope.combination)) + ":" + target.source_fingerprint + ":" +
+                history_fingerprint(branch.operations, branch.operations.size());
+            const auto old_output = previous.body_outputs.find(branch.scope.id);
+            if (old_output != previous.body_outputs.end() && old_output->second.source_fingerprint == output_key) {
+                output = old_output->second;
+            } else {
+                if (input.kernel_shape.empty() || target.kernel_shape.empty())
+                    throw std::invalid_argument("Boolean requires two calculated bodies");
+                const auto calculate = [&](auto& algorithm) {
+                    set_boolean_inputs(algorithm, read_kernel_shape(target), read_kernel_shape(input));
+                    algorithm.SetFuzzyValue(branch.operations.back().boolean_tolerance);
+                    algorithm.Build();
+                    if (!algorithm.IsDone() || algorithm.Shape().IsNull() || !BRepCheck_Analyzer(algorithm.Shape()).IsValid())
+                        throw std::runtime_error("Body Boolean failed");
+                    auto result = make_result(algorithm.Shape(), {}, {}, {}, false, true, false, {}, branch.operations.back().mesh_deflection);
+                    result.mesh.original_references = target.mesh.original_references;
+                    append_reference_geometry(result.mesh.original_references, input.mesh.original_references);
+                    result.source_fingerprint = output_key;
+                    return result;
+                };
+                if (branch.scope.combination == BodyCombination::Add) {
+                    BRepAlgoAPI_Fuse algorithm;
+                    output = calculate(algorithm);
+                } else if (branch.scope.combination == BodyCombination::Subtract) {
+                    BRepAlgoAPI_Cut algorithm;
+                    output = calculate(algorithm);
+                } else {
+                    BRepAlgoAPI_Common algorithm;
+                    output = calculate(algorithm);
+                }
+            }
+        }
+        if (!branch.scope.source_id.empty()) local = {output};
+        document.body_outputs.emplace(branch.scope.id, std::move(output));
+        for (auto& boundary : local) {
+            boundary.source_fingerprint = history_fingerprint(operations, boundaries.size() + 1);
+            boundaries.push_back(std::move(boundary));
+        }
+    }
+    BRep_Builder builder;
+    TopoDS_Compound compound;
+    builder.MakeCompound(compound);
+    for (const auto& id : available) {
+        const auto& output = document.body_outputs.at(id);
+        if (!output.kernel_shape.empty()) builder.Add(compound, read_kernel_shape(output));
+        document.volume += output.volume;
+        document.surface_area += output.surface_area;
+        append_body_viewer(document.mesh, output.mesh);
+    }
+    document.kernel_shape = serialize_kernel_shape(compound);
+    document.source_fingerprint = history_fingerprint(operations, operations.size());
+    boundaries.back() = std::move(document);
+    compact_history_reference_geometry(boundaries);
+    return boundaries;
+}
+
 std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
     const std::vector<HistoryOperation>& operations,
     const std::vector<BodyResult>& previous_boundaries) const {
     if (operations.empty()) return {};
+    if (std::any_of(operations.begin(), operations.end(), [](const auto& operation) {
+            return !(operation.body == BodyHistoryScope{});
+        })) {
+        try {
+            return evaluate_body_histories(operations, previous_boundaries);
+        } catch (const Standard_Failure& failure) {
+            throw std::runtime_error(failure.GetMessageString());
+        }
+    }
     const auto first_active = std::find_if(operations.begin(), operations.end(),
         [](const auto& operation) { return !operation.suppressed; });
     if (first_active != operations.end() &&
@@ -6402,7 +6692,9 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                 auto operand_result = make_operation_result(
                     operand.shape, operand.faces, operand.edges,
                     operand.vertices, true, false);
-                operand_result.mesh.axes = axes_for_operation(operation, operand.shape);
+                const auto centerlines=centerlines_for_operation(operation);
+                operand_result.mesh.axes = axes_for_operation(operation, operand.shape,centerlines);
+                operand_result.mesh.edges.insert(operand_result.mesh.edges.end(),centerlines.begin(),centerlines.end());
                 operand_mesh = std::move(operand_result.mesh);
                 if (cache_reference_mesh) {
                     live_cache_->reference_meshes.emplace(
@@ -6616,6 +6908,12 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
             }
             boundaries.back().mesh.original_references =
                 std::move(original_references);
+            for(const auto& edge:boundaries.back().mesh.original_references.edges) {
+                if(edge.reference.semantic_key.starts_with("centerline:from:") &&
+                    std::none_of(boundaries.back().mesh.edges.begin(),boundaries.back().mesh.edges.end(),
+                        [&](const auto& existing){return existing.reference==edge.reference;}))
+                    boundaries.back().mesh.edges.push_back(edge);
+            }
             // Feature-generated axes are both persisted references and
             // ordinary visible construction geometry. Keeping them only in
             // original_references made the kernel contract pass while the

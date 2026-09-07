@@ -56,6 +56,18 @@ int main(){try{
         require(std::abs(p.at(0,1).x+10)<1e-7&&std::abs(p.at(0,1).z-12.5)<1e-7,"Partial-turn endpoint incorrect");
         auto doc=document::PartDocument::create_default();doc.history={c};
         const auto result=k.evaluate_history(doc.kernel_operations());
+        const auto guide=sketcher::Sketch::from_serialized(c.helical.sketches[1]);
+        const auto key="centerline:from:"+guide.segments.front().id;
+        const auto centerline=std::ranges::find_if(result.back().mesh.edges,[&](const auto& e){return e.reference.semantic_key==key;});
+        require(centerline!=result.back().mesh.edges.end() && centerline->points.size()>20 && centerline->dash_dot,
+            "Helical solid has no curved centerline");
+        require(std::ranges::count_if(result.back().mesh.edges,[&](const auto& e){return e.reference.semantic_key==key;})==1,
+            "Helical approximation pieces leaked into centerline identity");
+        require(std::ranges::none_of(result.back().mesh.original_references.axes,[&](const auto& a){return a.reference.semantic_key==key;}),
+            "Helix centerline was incorrectly offered as a straight axis");
+        for(const auto& point:centerline->points)require(std::abs(std::hypot(point.x,point.y)-10)<.002,
+            "Helix centerline departed from its radius");
+
         if(!rectangle){
             require(std::ranges::any_of(result.back().mesh.original_references.edges,[](const auto& edge){return edge.reference.semantic_key.starts_with("seam:generated:")&&edge.points.size()>33;}),
                 "Long helical wire still uses a fixed 33-point approximation");

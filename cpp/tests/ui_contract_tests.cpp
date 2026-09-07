@@ -325,8 +325,26 @@ int main(int argc, char* argv[]) {
             require(commits==1 && target.isEmpty(),"Tree drag did not commit end insertion exactly once");
             drag(rows.back(),tree.visualItemRect(rows.front()).topLeft()+QPoint(25,1));
             require(commits==1,"Forbidden Tree drag committed a change");
+            rows[0]->setData(0,Qt::UserRole+3,"part-body");
+            rows[1]->setData(0,Qt::UserRole+3,"part-body-boolean");
+            rows[2]->setData(0,Qt::UserRole+3,"part-body");
+            const int body_commits=commits;
+            drag(rows[0],tree.visualItemRect(rows[1]).topLeft()+QPoint(25,1));
+            require(commits==body_commits+1 && target=="b", "Body and Boolean are not a common drag family");
             drag(rows.front(),bottom,true);
-            require(commits==1,"Escape did not cancel history drag");
+            require(commits==body_commits+1,"Escape did not cancel body history drag");
+            auto* cursor = new QTreeWidgetItem(root,{"Vložit zde"});
+            cursor->setData(0,Qt::UserRole+3,"part-body-insert-here");
+            std::optional<std::size_t> moved_cursor;
+            tree.body_cursor_moved=[&](const QString& owner,std::size_t index) {
+                require(owner.isEmpty(),"Document cursor acquired a body owner"); moved_cursor=index;
+            };
+            application.processEvents();
+            drag(cursor,tree.visualItemRect(rows[1]).topLeft()+QPoint(25,1));
+            require(moved_cursor==1,"Document cursor drag did not count both bodies and Booleans");
+            moved_cursor.reset();
+            drag(cursor,tree.visualItemRect(rows[0]).topLeft()+QPoint(25,1),true);
+            require(!moved_cursor,"Escape committed a body cursor drag");
         }
 
         {
@@ -924,6 +942,24 @@ int main(int argc, char* argv[]) {
                 "3D rounding arc is absent from the rendered View");
         }
         rounded_route_view.hide();
+        auto solid_centerline_mesh=rounded_route_mesh;
+        auto& centerline=solid_centerline_mesh.edges.front();
+        centerline.reference={"solid-sweep","centerline:from:rounding",{}};
+        centerline.display_owner_id="solid-sweep";centerline.construction=true;centerline.dash_dot=true;
+        rounded_route_view.set_mesh(solid_centerline_mesh);rounded_route_view.show();
+        rounded_route_view.set_selection_contract({});
+        for(const auto mode:{zima::viewer::DisplayMode::Wire,zima::viewer::DisplayMode::ShadedWithEdges,zima::viewer::DisplayMode::Shaded}) {
+            rounded_route_view.set_display_mode(mode);
+            rounded_route_view.set_reference_visibility(zima::viewer::ReferenceVisibility::Axes,true);
+            application.processEvents();const auto shown=rounded_route_view.grabFramebuffer();
+            rounded_route_view.set_reference_visibility(zima::viewer::ReferenceVisibility::Axes,false);
+            application.processEvents();const auto hidden=rounded_route_view.grabFramebuffer();
+            require(shown!=hidden,"Curved solid centerline is absent or ignores axis visibility");
+            require(framebuffer_contains_color_near(shown, rounded_route_view.size(),
+                QPointF(250,180),QColor(173,110,46)),
+                "Solid centerline does not use the standard brown axis colour");
+        }
+        rounded_route_view.hide();
 
         // The later coincident plane must not paint over the inspected frame.
         zima::kernel::ViewerMesh plane_inspection_mesh;
@@ -950,6 +986,11 @@ int main(int argc, char* argv[]) {
         require(!framebuffer_contains_color_near(plane_inspection_view.grabFramebuffer(),
             plane_inspection_view.size(), QPointF(250,180), QColor(0,209,255)),
             "Turning off inspection retained the local plane highlight");
+        plane_inspection_view.confirm_origin("point-origin", "first");
+        application.processEvents();
+        require(framebuffer_contains_color_near(plane_inspection_view.grabFramebuffer(),
+            plane_inspection_view.size(), QPointF(250,180), QColor(30,220,240)),
+            "Coincident plane erased the Tree-selected Origin frame");
         plane_inspection_view.hide();
 
         zima::kernel::ViewerMesh face_cycle_mesh;
@@ -1327,6 +1368,21 @@ int main(int argc, char* argv[]) {
         require(origin_mode_changes == std::vector<bool>({true, false}) &&
                     !origin_mode->isChecked(),
                 "POČÁTEK button did not toggle one shared selection mode");
+        for (const auto kind : {zima::document::FeatureKind::Fillet,
+                zima::document::FeatureKind::Chamfer, zima::document::FeatureKind::Shell,
+                zima::document::FeatureKind::DrillPoint}) {
+            auto initial = zima::document::PartDocument::create_box_container();
+            initial.feature_kind = kind;
+            auto* treatment = new zima::app::PrimitivePropertiesDialog(initial, false, false,
+                [](zima::document::HistoryContainer) {}, &parent);
+            auto* action = treatment->findChild<QPushButton*>("containerOriginSelectionButton");
+            require(action && action->isCheckable() && !action->autoDefault(),
+                "A container without a placement table lacks the shared Origin action");
+            require(treatment->ensure_origin_selection_button() == action &&
+                treatment->findChildren<QPushButton*>("containerOriginSelectionButton").size() == 1,
+                "Shared Origin action was duplicated");
+            delete treatment;
+        }
         require(cylinder_dialog->set_reference(
                     0, {{}, "part-origin", "origin:point"}, "Počátek dílu"),
                 "Cylinder Properties rejected its placement reference");

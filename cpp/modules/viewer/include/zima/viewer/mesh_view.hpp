@@ -104,6 +104,8 @@ public:
     [[nodiscard]] bool reference_visible(ReferenceVisibility reference) const;
     void set_editing_origin_visible(bool visible);
     void set_selection_contract(std::vector<CandidateKind> allowed_kinds);
+    [[nodiscard]] std::vector<CandidateKind> selection_contract() const;
+    [[nodiscard]] std::function<bool(const ViewerCandidate&)> candidate_filter() const;
     void set_active_sketch_owner(std::string owner_id);
     void set_candidate_filter(
         std::function<bool(const ViewerCandidate&)> candidate_filter);

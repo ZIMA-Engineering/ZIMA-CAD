@@ -9,6 +9,7 @@
 #include <variant>
 #include <optional>
 #include <memory>
+#include <map>
 #include <type_traits>
 #include <utility>
 
@@ -550,6 +551,19 @@ struct ShellRequest {
 
 enum class BooleanOperation { Add, Subtract };
 
+// Independent histories are combined only at an explicit body boundary.
+enum class BodyCombination { Separate, Add, Subtract, Intersect };
+struct BodyHistoryScope {
+    std::string id;
+    BodyCombination combination{BodyCombination::Separate};
+    std::string target_id;
+    // Nonempty only for an explicit Boolean step; primitive is unused there.
+    std::string source_id;
+    Vec3 translation;
+    Vec3 rotation_degrees;
+    bool operator==(const BodyHistoryScope&) const = default;
+};
+
 struct BoxOperation {
     std::string owner_id;
     BoxRequest box;
@@ -572,6 +586,7 @@ struct HistoryOperation {
     double boolean_tolerance{1.0e-7};
     // Absolute display deviation in model millimetres, shared by faces and edges.
     double mesh_deflection{0.1};
+    BodyHistoryScope body;
 };
 
 struct BodyResult {
@@ -588,6 +603,11 @@ struct BodyResult {
     // Returned only by explicit STEP import so the owning Part container can
     // persist the source topology map with its parameters.
     std::vector<StepRequest::TopologyIdentity> imported_step_topology;
+    // Present on a document result only. Branch snapshots retain their own
+    // fingerprints, so changing another body does not invalidate this cache.
+    std::map<std::string, std::vector<BodyResult>> body_boundaries;
+    std::map<std::string, BodyResult> body_inputs;
+    std::map<std::string, BodyResult> body_outputs;
 };
 
 struct PlacedBody {
@@ -659,6 +679,17 @@ struct PlacedBody {
         byte(operation.suppressed ? 1U : 0U);
         u64(std::bit_cast<std::uint64_t>(operation.boolean_tolerance));
         u64(std::bit_cast<std::uint64_t>(operation.mesh_deflection));
+        if (!operation.body.id.empty()) {
+            for (const auto& text : {operation.body.id, operation.body.target_id, operation.body.source_id}) {
+                u64(text.size());
+                for (const unsigned char value : text) byte(value);
+            }
+            byte(static_cast<std::uint8_t>(operation.body.combination));
+            for (const auto value : {operation.body.translation.x, operation.body.translation.y,
+                    operation.body.translation.z, operation.body.rotation_degrees.x,
+                    operation.body.rotation_degrees.y, operation.body.rotation_degrees.z})
+                u64(std::bit_cast<std::uint64_t>(value));
+        }
         byte(static_cast<std::uint8_t>(operation.primitive.index()));
         std::visit([&](const auto& primitive) {
             using Request = std::decay_t<decltype(primitive)>;

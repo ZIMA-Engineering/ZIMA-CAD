@@ -23,6 +23,7 @@ public:
         : PropertiesSubWindow(tr("Vlastnosti závitu"),parent),pending_(std::move(initial)),commit_(std::move(commit)) {
         setObjectName("shaftThreadDialog");setAttribute(Qt::WA_DeleteOnClose);
         setMinimumWidth(340);
+        static_cast<void>(ensure_origin_selection_button());
         auto* form=new QFormLayout;
         name_=new QLineEdit(QString::fromStdString(pending_.name),this);
         form->addRow(tr("Název"),name_);

@@ -1,4 +1,5 @@
 #pragma once
+#include <zima/document/document_copy.hpp>
 
 #include <zima/kernel/geometry_kernel.hpp>
 #include <zima/document/dimension_identifiers.hpp>
@@ -142,7 +143,8 @@ public:
     void refresh_view(const std::string& view_id,
                       const zima::kernel::ViewerMesh& source_mesh);
     [[nodiscard]] static DrawingDocument load(const std::filesystem::path& path);
-    void save(const std::filesystem::path& path) const;
+    void save(const std::filesystem::path& path,
+        const zima::document::DocumentCopyIdentity& copy = {}) const;
 };
 
 // Mirrors Python's zima_cad.title_block context: the model-level values a

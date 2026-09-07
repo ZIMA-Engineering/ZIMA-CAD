@@ -21,6 +21,39 @@
 
 namespace zima::sketcher {
 
+std::optional<std::array<double, 3>> external_reference_circle(
+    const SketchExternalReference& reference) {
+    if (reference.broken || reference.infinite ||
+        (reference.kind != ExternalReferenceKind::Edge &&
+         reference.kind != ExternalReferenceKind::Face)) return std::nullopt;
+    const auto* points = &reference.cached_points;
+    if (points->empty()) {
+        if (reference.cached_paths.size() != 1) return std::nullopt;
+        points = &reference.cached_paths.front();
+    }
+    if (points->size() < 8) return std::nullopt;
+    const auto& a = points->front();
+    const auto& b = (*points)[points->size()/3];
+    const auto& c = (*points)[2*points->size()/3];
+    const double bx=b[0]-a[0], by=b[1]-a[1];
+    const double cx=c[0]-a[0], cy=c[1]-a[1];
+    const double determinant=2*(bx*cy-by*cx);
+    const double scale=std::max(std::hypot(bx,by),std::hypot(cx,cy));
+    if (!std::isfinite(scale) || scale <= 1e-10 ||
+        std::abs(determinant) <= scale*scale*1e-10) return std::nullopt;
+    const double ux=((bx*bx+by*by)*cy-(cx*cx+cy*cy)*by)/determinant;
+    const double uy=(bx*(cx*cx+cy*cy)-cx*(bx*bx+by*by))/determinant;
+    const double radius=std::hypot(ux,uy);
+    const double tolerance=std::max(1.0,radius)*1e-6;
+    if (!std::isfinite(radius) || radius <= 1e-10) return std::nullopt;
+    for (const auto& point : *points) {
+        const double distance=std::hypot(point[0]-a[0]-ux,point[1]-a[1]-uy);
+        if (!std::isfinite(distance) || std::abs(distance-radius)>tolerance)
+            return std::nullopt;
+    }
+    return std::array{a[0]+ux,a[1]+uy,radius};
+}
+
 std::string constraint_marker_label(ConstraintKind kind) {
     switch (kind) {
     case ConstraintKind::Horizontal: return "H";
@@ -963,6 +996,19 @@ std::optional<std::string> center_curve_point_id(
     return std::nullopt;
 }
 
+std::optional<std::array<double, 2>> curve_center_position(
+    const Sketch& sketch, const std::string& geometry_id) {
+    if (const auto id = center_curve_point_id(sketch, geometry_id)) {
+        if (const auto* point = sketch.find_point(*id)) return std::array{point->x,point->y};
+    }
+    for (const auto& reference : sketch.external_references) {
+        if (reference.id != geometry_id) continue;
+        if (const auto circle = external_reference_circle(reference))
+            return std::array{(*circle)[0],(*circle)[1]};
+    }
+    return std::nullopt;
+}
+
 std::set<std::string> point_translation_closure(
     const Sketch& sketch, const std::string& point_id) {
     if (sketch.find_point(point_id) == nullptr) return {};
@@ -1045,38 +1091,9 @@ std::optional<double> circular_curve_radius(
     if (const auto corner = std::ranges::find_if(sketch.corner_radii,
             [&](const auto& value) { return value.id == geometry_id && !value.suppressed; });
         corner != sketch.corner_radii.end()) return corner->radius;
-    const auto external = std::find_if(sketch.external_references.begin(),
-        sketch.external_references.end(), [&](const auto& value) {
-            return value.id == geometry_id && !value.broken &&
-                value.kind == ExternalReferenceKind::Edge &&
-                value.cached_points.size() >= 8;
-        });
-    if (external != sketch.external_references.end()) {
-        const auto& points = external->cached_points;
-        const auto& first = points.front();
-        const auto& last = points.back();
-        double min_x=first[0], max_x=first[0], min_y=first[1], max_y=first[1];
-        for (const auto& point : points) {
-            min_x=std::min(min_x,point[0]); max_x=std::max(max_x,point[0]);
-            min_y=std::min(min_y,point[1]); max_y=std::max(max_y,point[1]);
-        }
-        const double scale=std::max(1.0,std::hypot(max_x-min_x,max_y-min_y));
-        if (std::hypot(first[0]-last[0],first[1]-last[1]) <= scale*1.0e-4) {
-            const std::size_t count=points.size()-1;
-            double cx{},cy{};
-            for (std::size_t i=0;i<count;++i) { cx+=points[i][0]; cy+=points[i][1]; }
-            cx/=count; cy/=count;
-            double radius{};
-            for (std::size_t i=0;i<count;++i)
-                radius+=std::hypot(points[i][0]-cx,points[i][1]-cy);
-            radius/=count;
-            double error{};
-            for (std::size_t i=0;i<count;++i)
-                error=std::max(error,std::abs(
-                    std::hypot(points[i][0]-cx,points[i][1]-cy)-radius));
-            if (radius>1.0e-10 && error <= std::max(1.0,radius)*2.0e-3)
-                return radius;
-        }
+    for (const auto& reference : sketch.external_references) {
+        if (reference.id != geometry_id) continue;
+        if (const auto circle = external_reference_circle(reference)) return (*circle)[2];
     }
     return std::nullopt;
 }
@@ -2390,7 +2407,7 @@ void Sketch::validate() const {
         const bool tangent = constraint.kind == ConstraintKind::Tangent;
         const bool equal_radius = constraint.kind == ConstraintKind::EqualRadius;
         const auto first_curve_center = concentric
-            ? center_curve_point_id(*this, constraint.geometry_id) : std::nullopt;
+            ? curve_center_position(*this, constraint.geometry_id) : std::nullopt;
         const auto second_curve_center = concentric
             ? center_curve_point_id(*this, constraint.second_geometry_id) : std::nullopt;
         const auto first_tangent_curve = tangent
@@ -2493,7 +2510,7 @@ void Sketch::validate() const {
              !constraint.second_geometry_id.empty())) ||
             (concentric && (!first_curve_center || !second_curve_center ||
              constraint.geometry_id == constraint.second_geometry_id ||
-             *first_curve_center == *second_curve_center)) ||
+             center_curve_point_id(*this, constraint.geometry_id) == second_curve_center)) ||
             (equal_radius && (!first_equal_radius || !second_equal_radius ||
              constraint.geometry_id == constraint.second_geometry_id)) ||
             (tangent && (
@@ -3773,7 +3790,7 @@ void require_constraint_dof_reduction(
     const auto baseline_result = baseline.solve();
     if (after.remaining_degrees_of_freedom >=
         baseline_result.remaining_degrees_of_freedom) {
-        throw std::invalid_argument(redundant_message);
+        throw RedundantConstraint(redundant_message);
     }
 }
 }  // namespace
@@ -4327,6 +4344,34 @@ std::string Sketch::add_common_tangent_segment(
             "Selected curve locations do not define a tangent segment");
     }
 
+    // Equal, horizontally aligned circles can give the iterative tangent
+    // solve a singular starting Jacobian (for example clicks on facing rims).
+    // Enumerate their exact common tangents and use the closest click branch.
+    const auto first_circle=std::ranges::find_if(circles,[&](const auto& c){return c.id==first_curve_id;});
+    const auto second_circle=std::ranges::find_if(circles,[&](const auto& c){return c.id==second_curve_id;});
+    if (first_circle!=circles.end() && second_circle!=circles.end()) {
+        const auto* a=find_point(first_circle->center_point_id);
+        const auto* b=find_point(second_circle->center_point_id);
+        const double dx=b->x-a->x,dy=b->y-a->y,length=std::hypot(dx,dy);
+        double best=std::numeric_limits<double>::infinity();
+        if (length>1e-12) for (const double side : {1.0,-1.0}) {
+            const double cosine=(first_circle->radius-side*second_circle->radius)/length;
+            if (std::abs(cosine)>1.0) continue;
+            const double sine=std::sqrt(std::max(0.0,1.0-cosine*cosine));
+            for (const double branch : {1.0,-1.0}) {
+                const double nx=(dx*cosine-branch*dy*sine)/length;
+                const double ny=(dy*cosine+branch*dx*sine)/length;
+                const std::array first{a->x+first_circle->radius*nx,a->y+first_circle->radius*ny};
+                const std::array second{b->x+side*second_circle->radius*nx,b->y+side*second_circle->radius*ny};
+                if(std::hypot(second[0]-first[0],second[1]-first[1])<=1e-8)continue;
+                const double score=std::hypot(first[0]-first_hint[0],first[1]-first_hint[1])+
+                    std::hypot(second[0]-second_hint[0],second[1]-second_hint[1]);
+                if(score<best){best=score;first_contact=first;second_contact=second;}
+            }
+        }
+        if (!std::isfinite(best)) throw std::invalid_argument("The circles have no nondegenerate common tangent");
+    }
+
     const auto residual = [&](const std::array<double, 2>& first,
                               const std::array<double, 2>& second)
         -> std::optional<std::array<double, 2>> {
@@ -4421,8 +4466,10 @@ std::string Sketch::add_common_tangent_segment(
         first_point_id, first_curve_id));
     static_cast<void>(next.add_point_on_circle_constraint(
         second_point_id, second_curve_id));
-    static_cast<void>(next.add_tangent_constraint(first_curve_id, segment_id));
-    static_cast<void>(next.add_tangent_constraint(second_curve_id, segment_id));
+    for (const auto& curve_id : {first_curve_id,second_curve_id}) {
+        try { static_cast<void>(next.add_tangent_constraint(curve_id,segment_id)); }
+        catch (const RedundantConstraint&) { /* Existing relations already enforce tangency. */ }
+    }
     next.validate();
     *this = std::move(next);
     return segment_id;
@@ -4672,11 +4719,11 @@ std::string Sketch::add_midpoint_constraint(
 std::string Sketch::add_concentric_constraint(
     const std::string& reference_geometry_id,
     const std::string& driven_geometry_id) {
-    const auto reference_center = center_curve_point_id(*this, reference_geometry_id);
+    const auto reference_center = curve_center_position(*this, reference_geometry_id);
     const auto driven_center = center_curve_point_id(*this, driven_geometry_id);
     if (!reference_center || !driven_center ||
         reference_geometry_id == driven_geometry_id ||
-        *reference_center == *driven_center) {
+        center_curve_point_id(*this, reference_geometry_id) == driven_center) {
         throw std::invalid_argument("Concentric constraint input is invalid");
     }
     if (std::any_of(constraints.begin(), constraints.end(), [&](const auto& constraint) {
@@ -6668,6 +6715,29 @@ Sketch::project_external_face_plane(
 }
 
 std::optional<std::vector<std::vector<std::array<double, 2>>>>
+Sketch::external_face_reference_paths(
+    const zima::kernel::ViewerReferenceGeometry& source,
+    const zima::kernel::FaceReference& face) const {
+    if (source.triangles.size()!=source.triangle_references.size()*3) return std::nullopt;
+    bool found=false, coplanar=true;
+    for(std::size_t i=0;i<source.triangle_references.size();++i) {
+        if(source.triangle_references[i]!=face)continue;
+        found=true;
+        for(std::size_t j=0;j<3;++j) {
+            const auto index=source.triangles[i*3+j];
+            if(index>=source.vertices.size())return std::nullopt;
+            const auto& point=source.vertices[index];
+            const auto local=local_point(point);
+            const auto projected=world_point(local[0],local[1]);
+            if(std::hypot(std::hypot(point.x-projected.x,point.y-projected.y),point.z-projected.z)>1e-7)
+                coplanar=false;
+        }
+    }
+    if(found && coplanar)return project_external_face(source,face);
+    return intersect_external_face(source,face);
+}
+
+std::optional<std::vector<std::vector<std::array<double, 2>>>>
 Sketch::intersect_external_face(
     const zima::kernel::ViewerReferenceGeometry& source_geometry,
     const zima::kernel::FaceReference& face) const {
@@ -7004,7 +7074,7 @@ bool Sketch::refresh_external_references(
                 resolved = next.project_external_face_plane(source_geometry, match);
                 if (!resolved) {
                     const auto intersections =
-                        next.intersect_external_face(source_geometry, match);
+                        next.external_face_reference_paths(source_geometry, match);
                     if (intersections) {
                         face_intersection_resolved = true;
                         if (reference.cached_paths != *intersections) {
@@ -8946,10 +9016,10 @@ SolveResult Sketch::solve_impl(
                     *this, constraint.geometry_id);
                 const auto driven_center_id = center_curve_point_id(
                     *this, constraint.second_geometry_id);
-                const auto* reference = find_point(*reference_center_id);
+                const auto reference = curve_center_position(*this, constraint.geometry_id);
                 const auto* driven = find_point(*driven_center_id);
-                const double dx = reference->x - driven->x;
-                const double dy = reference->y - driven->y;
+                const double dx = (*reference)[0] - driven->x;
+                const double dy = (*reference)[1] - driven->y;
                 const double residual = std::hypot(dx, dy);
                 maximum_residual = std::max(maximum_residual, residual);
                 if (residual > tolerance) {
@@ -8958,7 +9028,7 @@ SolveResult Sketch::solve_impl(
                     const bool blocked = std::any_of(
                         translated.begin(), translated.end(), [&](const auto& point_id) {
                             const auto* point = find_point(point_id);
-                            return point_id == *reference_center_id ||
+                            return (reference_center_id && point_id == *reference_center_id) ||
                                 point == nullptr || immutable(*point);
                         });
                     if (blocked) {
@@ -10117,10 +10187,10 @@ SolveResult Sketch::solve_impl(
                     *this, constraint.geometry_id);
                 const auto driven_center_id = center_curve_point_id(
                     *this, constraint.second_geometry_id);
-                const auto* reference = find_point(*reference_center_id);
+                const auto reference = curve_center_position(*this, constraint.geometry_id);
                 const auto* driven = find_point(*driven_center_id);
-                result.push_back(reference->x - driven->x);
-                result.push_back(reference->y - driven->y);
+                result.push_back((*reference)[0] - driven->x);
+                result.push_back((*reference)[1] - driven->y);
                 continue;
             }
             if (constraint.kind == ConstraintKind::MidpointOnLine) {

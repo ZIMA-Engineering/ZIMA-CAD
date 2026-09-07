@@ -11,8 +11,11 @@ class QLabel;
 class QResizeEvent;
 class QVBoxLayout;
 class QWidget;
+class QPushButton;
 
 namespace zima::ui {
+
+[[nodiscard]] QPushButton* create_origin_selection_button(QWidget* parent);
 
 class PropertiesSubWindow : public QDialog {
 public:
@@ -24,6 +27,7 @@ public:
     void set_internal_title(const QString& title);
     void set_centered_on_show(bool centered = true);
     void set_initial_size(const QSize& size);
+    [[nodiscard]] QPushButton* ensure_origin_selection_button();
 
 protected:
     void showEvent(QShowEvent* event) override;

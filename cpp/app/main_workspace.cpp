@@ -1,4 +1,7 @@
 #include "shaft_thread_dialog.hpp"
+#include "body_properties_dialog.hpp"
+#include "sketch_properties_dialog.hpp"
+#include "history_tree_widget.hpp"
 #include "helical_sweep_dialog.hpp"
 #include "sweep2d_dialog.hpp"
 #include "assembly_workspace_window.hpp"
@@ -24,6 +27,8 @@
 #include <QEvent>
 #include <QEventLoop>
 #include <QFileInfo>
+#include <QFileDialog>
+#include <QTemporaryDir>
 #include <QImage>
 #include <QKeyEvent>
 #include <QLabel>
@@ -257,6 +262,23 @@ int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspac
     for(QTreeWidgetItemIterator i(tree);*i;++i){if((*i)->data(0,Qt::UserRole+3).toString()=="part-sweep2d-sketch")++sketches;
         if((*i)->data(0,Qt::UserRole).toString().toStdString()==feature_id&&(*i)->data(0,Qt::UserRole+3).toString()=="part-container")item=*i;}
     if(!verify(item&&sketches==2,"Owned 2D Sweep Sketches absent from Tree"))return 1;
+    for(unsigned stage=0;stage<2;++stage) {
+        QTreeWidgetItem* sketch_item{};
+        for(QTreeWidgetItemIterator i(tree);*i;++i)
+            if((*i)->data(0,Qt::UserRole+3).toString()=="part-sweep2d-sketch" &&
+                (*i)->data(0,Qt::UserRole+6).toUInt()==stage){sketch_item=*i;break;}
+        window.show_tree_item_properties(sketch_item);application.processEvents();
+        if(!verify(finish->isEnabled(),"Embedded Tree Sketch did not activate"))return 1;
+        finish->trigger();application.processEvents();
+        auto* reopened=dynamic_cast<zima::app::Sweep2DDialog*>(window.findChild<QDialog*>("sweep2dDialog"));
+        if(!verify(reopened && reopened->isVisible(),"Embedded Tree Sketch did not return to properties"))return 1;
+        reopened->buttons()->button(QDialogButtonBox::Cancel)->click();application.processEvents();
+        QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    }
+    item=nullptr;
+    for(QTreeWidgetItemIterator i(tree);*i;++i)
+        if((*i)->data(0,Qt::UserRole).toString().toStdString()==feature_id &&
+            (*i)->data(0,Qt::UserRole+3).toString()=="part-container"){item=*i;break;}
     window.show_tree_item_properties(item);application.processEvents();
     dialog=dynamic_cast<zima::app::Sweep2DDialog*>(window.findChild<QDialog*>("sweep2dDialog"));
     if(!verify(dialog!=nullptr,"2D Sweep edit did not reopen same dialog"))return 1;
@@ -445,6 +467,23 @@ int verify_helical_sweep_command(QApplication& application,zima::app::AssemblyWo
     for(QTreeWidgetItemIterator i(tree);*i;++i){if((*i)->data(0,Qt::UserRole+3).toString()=="part-helical-sketch")++sketches;
         if((*i)->data(0,Qt::UserRole).toString().toStdString()==feature_id&&(*i)->data(0,Qt::UserRole+3).toString()=="part-container")item=*i;}
     if(!verify(item&&sketches==3,"Owned Helical Sweep Sketches absent from Tree"))return 1;
+    for(unsigned stage=0;stage<3;++stage) {
+        QTreeWidgetItem* sketch_item{};
+        for(QTreeWidgetItemIterator i(tree);*i;++i)
+            if((*i)->data(0,Qt::UserRole+3).toString()=="part-helical-sketch" &&
+                (*i)->data(0,Qt::UserRole+6).toUInt()==stage){sketch_item=*i;break;}
+        window.show_tree_item_properties(sketch_item);application.processEvents();
+        if(!verify(finish->isEnabled(),"Embedded Tree Sketch did not activate"))return 1;
+        finish->trigger();application.processEvents();
+        auto* reopened=dynamic_cast<zima::app::HelicalSweepDialog*>(window.findChild<QDialog*>("helicalSweepDialog"));
+        if(!verify(reopened && reopened->isVisible(),"Embedded Tree Sketch did not return to properties"))return 1;
+        reopened->buttons()->button(QDialogButtonBox::Cancel)->click();application.processEvents();
+        QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    }
+    item=nullptr;
+    for(QTreeWidgetItemIterator i(tree);*i;++i)
+        if((*i)->data(0,Qt::UserRole).toString().toStdString()==feature_id &&
+            (*i)->data(0,Qt::UserRole+3).toString()=="part-container"){item=*i;break;}
     window.show_tree_item_properties(item);application.processEvents();
     dialog=dynamic_cast<zima::app::HelicalSweepDialog*>(window.findChild<QDialog*>("helicalSweepDialog"));
     if(!verify(dialog!=nullptr,"Helical edit did not reopen same dialog"))return 1;
@@ -636,6 +675,113 @@ int verify_shaft_thread_command(QApplication& application,zima::app::AssemblyWor
             retained.history.back().shaft_thread.start.surface,
             "Cancel erased the durable missing-reference fallback")) return 1;
     return 0;
+}
+
+int verify_unresolved_sweep_sketches(QApplication& application,const std::filesystem::path& directory) {
+    using namespace zima::document;
+    for(bool planar:{true,false}) {
+        auto doc=PartDocument::create_default();
+        auto prior=PartDocument::create_box_container();
+        auto sweep=planar?PartDocument::create_sweep2d_container():PartDocument::create_helical_sweep_container();
+        if(planar) {
+            auto section=zima::sketcher::Sketch::from_serialized(sweep.sweep2d.sketches[0]);
+            static_cast<void>(section.add_circle(0,0,2));sweep.sweep2d.sketches[0]=section.serialized();
+            auto guide=zima::sketcher::Sketch::from_serialized(sweep.sweep2d.sketches[1]);
+            static_cast<void>(guide.add_segment(0,0,0,10));sweep.sweep2d.sketches[1]=guide.serialized();
+        } else {
+            auto base=zima::sketcher::Sketch::from_serialized(sweep.helical.sketches[0]);
+            static_cast<void>(base.add_circle(0,0,5));sweep.helical.circle_id=base.circles.front().id;sweep.helical.start_point_id=base.add_point(5,0);sweep.helical.sketches[0]=base.serialized();
+            auto guide=zima::sketcher::Sketch::from_serialized(sweep.helical.sketches[1]);
+            static_cast<void>(guide.add_segment(0,0,-1,6));sweep.helical.sketches[1]=guide.serialized();
+            auto section=zima::sketcher::Sketch::from_serialized(sweep.helical.sketches[2]);
+            static_cast<void>(section.add_circle(0,0,.4));sweep.helical.sketches[2]=section.serialized();
+            PartDocument::reframe_helical_sketches(sweep);
+        }
+        sweep.placement.references={{{},"missing-source","missing-plane"}};
+        doc.history={prior,sweep};BodyHistoryGraph graph;static_cast<void>(graph.create_body("Body"));
+        graph.insert({PartHistoryKind::Feature,prior.id});graph.insert({PartHistoryKind::Feature,sweep.id});doc.set_body_history(graph);
+        const auto path=directory/(planar?"unresolved-sweep2d-ui.prtz":"unresolved-helical-ui.prtz");doc.save(path);
+        zima::app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1100,850);window.show();
+        const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+        if(!verify(window.open_document_path(QString::fromStdString(path.string())),"Cannot open unresolved Sweep fixture"))return 1;
+        flush();auto* tree=window.findChild<QTreeWidget*>("documentTree");
+        for(unsigned stage=0;stage<(planar?2:3);++stage) {
+            QTreeWidgetItem* item{};
+            for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole+3).toString()==
+                (planar?"part-sweep2d-sketch":"part-helical-sketch") && (*i)->data(0,Qt::UserRole+6).toUInt()==stage){item=*i;break;}
+            if(!verify(item!=nullptr,"Unresolved Sweep lost its Sketch tree entry"))return 1;
+            window.show_tree_item_properties(item);flush();
+            auto* finish=window.findChild<QAction*>("finishSketchAction");
+            if(!verify(finish && finish->isEnabled(),"Missing previous geometry blocked embedded Sketch entry"))return 1;
+            finish->trigger();flush();
+            zima::app::SweepPlacementDialog* dialog{};
+            for(auto* child:window.findChildren<QDialog*>())if(auto* value=dynamic_cast<zima::app::SweepPlacementDialog*>(child);value && value->isVisible()){dialog=value;break;}
+            if(!verify(dialog!=nullptr,"Unresolved Sketch did not return to Sweep properties"))return 1;
+            dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+        }
+        if(!verify(PartDocument::load(path).history==doc.history,"Unresolved Sketch Cancel changed stored history"))return 1;
+    }
+    std::cout << "Unresolved Sweep Sketch contracts passed\n";return 0;
+}
+
+int verify_external_circle_selection(QApplication& application,
+    const std::filesystem::path& directory) {
+    using namespace zima::document;
+    for(bool face:{false,true}) {
+        auto doc=PartDocument::create_default();
+        auto container=PartDocument::create_sketch_container();
+        auto sketch=zima::sketcher::Sketch::create_default();sketch.owner_container_id=container.id;
+        static_cast<void>(sketch.add_circle(12,8,2));
+        const auto circle_id=sketch.circles.front().id;
+        zima::sketcher::SketchExternalReference ref;
+        ref.id="external-circle";ref.source_document_id="remote-part";
+        ref.source_owner_id="source-sweep";ref.source_semantic_key="cap-rim";
+        ref.kind=face ? zima::sketcher::ExternalReferenceKind::Face : zima::sketcher::ExternalReferenceKind::Edge;
+        std::vector<std::array<double,2>> points;
+        for(int i=0;i<=48;++i){const double a=2*std::acos(-1.0)*i/48;points.push_back({5*std::cos(a),5*std::sin(a)});}
+        if(face)ref.cached_paths.push_back(points);else ref.cached_points=points;
+        sketch.external_references.push_back(ref);
+        doc.history={container};doc.sketches={sketch};
+        const auto path=directory/(face ? "external-face-circle-ui.prtz" : "external-edge-circle-ui.prtz");
+        doc.save(path);
+        zima::app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));
+        window.resize(1100,850);window.show();
+        const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+        if(!verify(window.open_document_path(QString::fromStdString(path.string())),"Cannot open external circle fixture"))return 1;
+        flush();
+        auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* item{};
+        for(QTreeWidgetItemIterator i(tree);*i;++i)
+            if((*i)->data(0,Qt::UserRole).toString().toStdString()==sketch.id &&
+                (*i)->data(0,Qt::UserRole+3).toString()=="part-sketch"){item=*i;break;}
+        if(!verify(item!=nullptr,"External circle Sketch missing"))return 1;
+        window.show_tree_item_properties(item);flush();
+        auto* open=window.findChild<QPushButton*>("sketchOpenButton");
+        if(!verify(open!=nullptr,"Cannot enter external circle Sketch"))return 1;
+        open->click();flush();
+        auto* view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
+        const auto pick=[&](const std::string& key) {
+            for(int y=15;y<view->height()-15;y+=3)for(int x=15;x<view->width()-15;x+=3){
+                const QPointF pos(x,y);const auto candidates=view->selection_candidates_at(pos);
+                if(candidates.empty() || candidates.front().semantic_key!=key)continue;
+                const QPointF global(view->mapToGlobal(pos.toPoint()));
+                QMouseEvent press(QEvent::MouseButtonPress,pos,global,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+                QMouseEvent release(QEvent::MouseButtonRelease,pos,global,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+                QApplication::sendEvent(view,&press);QApplication::sendEvent(view,&release);flush();return true;
+            }return false;
+        };
+        const auto reference_key=std::string(face?"external_face:":"external_edge:")+ref.id;
+        window.findChild<QAction*>("sketchEqualAction")->trigger();flush();
+        if(!verify(pick("circle:"+circle_id) && pick(reference_key),"Equal radius cannot select external circle"))return 1;
+        QKeyEvent escape(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);QApplication::sendEvent(&window,&escape);flush();
+        window.findChild<QAction*>("sketchConcentricAction")->trigger();flush();
+        if(!verify(pick("circle:"+circle_id) && pick(reference_key),"Concentric cannot select external circle"))return 1;
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        const auto stored=PartDocument::load(path);
+        const auto& result=stored.sketches.front();const auto* center=result.find_point(result.circles.front().center_point_id);
+        if(!verify(result.constraints.size()==2 && center && std::hypot(center->x,center->y)<1e-7 &&
+                std::abs(result.circles.front().radius-5)<1e-7,"External circle UI constraints did not persist"))return 1;
+    }
+    std::cout << "External circle selection contracts passed\n";return 0;
 }
 
 int verify_spline_tangent_selection(QApplication& application,
@@ -851,6 +997,74 @@ int verify_curve_radius_edit(QApplication& application,
     return 0;
 }
 
+int verify_body_curve_references(QApplication& application, const std::filesystem::path& directory) {
+    using namespace zima::document;
+    for (bool sweep : {false,true}) {
+        auto part=PartDocument::create_default();
+        auto box=PartDocument::create_box_container();box.box={10,10,10};part.history={box};
+        BodyHistoryGraph graph;
+        const auto body_id=graph.create_body("Reference body");
+        graph.insert({PartHistoryKind::Feature,box.id});
+        auto body=*graph.find(body_id);body.scope.placement={20,30,40};graph.update_body(body);
+        part.set_body_history(graph);part.resolve_constructions();
+        zima::kernel::OcctKernel kernel;
+        const auto path=directory/(sweep ? "body-sweep-reference.prtz" : "body-curve-reference.prtz");
+        part.save(path,kernel.evaluate_history(part.kernel_operations()));
+        zima::app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));
+        window.resize(1200,900);window.show();
+        const auto flush=[&] { application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents(); };
+        if (!verify(window.open_document_path(QString::fromStdString(path.string())),"Cannot open Body reference fixture")) return 1;
+        flush();
+        window.findChild<QAction*>(sweep ? "sweep3DAction" : "curve3DAction")->trigger();flush();
+        const auto dialog=[&]() -> zima::app::ConstructionPropertiesDialog* {
+            for(auto* child:window.findChildren<QDialog*>())
+                if(auto* value=dynamic_cast<zima::app::ConstructionPropertiesDialog*>(child);value && value->isVisible()) return value;
+            return nullptr;
+        };
+        auto* parent=dialog();
+        if (!verify(parent!=nullptr,"Cannot open Curve/Sweep properties in Body")) return 1;
+        parent->findChild<QPushButton*>("curve3DAddPoint")->click();flush();
+        auto* point=dialog();
+        if (!verify(point && point!=parent,"Cannot add Curve/Sweep point in Body")) return 1;
+        auto* view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
+        std::optional<QPointF> hit;
+        zima::viewer::ViewerCandidate chosen;
+        for(int y=15;y<view->height()-15 && !hit;y+=3)
+            for(int x=15;x<view->width()-15 && !hit;x+=3) {
+                const auto candidates=view->selection_candidates_at(QPointF(x,y));
+                if(!candidates.empty() && candidates.front().kind==zima::viewer::CandidateKind::Vertex &&
+                        candidates.front().owner_id==box.id) {hit=QPointF(x,y);chosen=candidates.front();}
+            }
+        if (!verify(hit.has_value(),"Box endpoint is not offered to Curve/Sweep point")) return 1;
+        const auto picked_vertex=std::ranges::find_if(view->mesh().original_references.points,[&](const auto& point) {
+            return point.reference.owner_id==chosen.owner_id && point.reference.semantic_key==chosen.semantic_key;
+        });
+        if (!verify(picked_vertex!=view->mesh().original_references.points.end(),"Picked endpoint has no persisted geometry")) return 1;
+        const auto expected=zima::kernel::Vec3{picked_vertex->position.x-20,
+            picked_vertex->position.y-30,picked_vertex->position.z-40};
+        QMouseEvent press(QEvent::MouseButtonPress,*hit,QPointF(view->mapToGlobal(hit->toPoint())),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+        QApplication::sendEvent(view,&press);flush();
+        QMouseEvent release(QEvent::MouseButtonRelease,*hit,QPointF(view->mapToGlobal(hit->toPoint())),Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(view,&release);flush();
+        const auto refs=point->populated_references();
+        if (!verify(!refs.empty() && refs.front().owner_id==box.id && refs.front().semantic_key==chosen.semantic_key,
+                "Curve/Sweep point did not store the exact picked endpoint")) return 1;
+        point->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+        if (!verify(dialog()==parent && parent->pending_value().curve_points.size()==1,
+                "Curve/Sweep point reference failed to validate in Body")) return 1;
+        const auto located=parent->pending_value().curve_points.front().origin;
+        if (!verify(std::hypot(std::hypot(located.x-expected.x,located.y-expected.y),located.z-expected.z)<1e-7,
+                "Endpoint reference did not resolve in the translated Body frame")) return 1;
+        parent->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        const auto canceled=PartDocument::load(path);
+        if (!verify(canceled.history.size()==1 && canceled.constructions.empty(),
+                "Cancel persisted the Curve/Sweep reference preview")) return 1;
+    }
+    std::cout << "Body Curve/Sweep reference contracts passed\n";
+    return 0;
+}
+
 int verify_pending_container_tree(QApplication& application,
     const std::filesystem::path& directory) {
     using namespace zima::document;
@@ -915,6 +1129,18 @@ int verify_pending_container_tree(QApplication& application,
         if (!verify(point && point != parent_dialog && find("construction-origin", origin_id) &&
                 !find(marker), "Nested Point lost its pending parent origin in Tree")) return 1;
         const auto point_id = point->pending_value().id;
+        auto* origin_mode = point->findChild<QPushButton*>("containerOriginSelectionButton");
+        auto* model_view = dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
+        if (!verify(origin_mode && model_view, "Nested Point has no shared Origin action")) return 1;
+        const auto reference_contract = model_view->selection_contract();
+        origin_mode->click(); flush();
+        if (!verify(origin_mode->isChecked() && model_view->selection_contract() ==
+                std::vector{zima::viewer::CandidateKind::Container},
+                "Nested Point Origin action did not enter origin selection")) return 1;
+        origin_mode->click(); flush();
+        if (!verify(!origin_mode->isChecked() && model_view->selection_contract() == reference_contract,
+                "Origin action did not restore nested Point reference entry")) return 1;
+
         click_row(find("construction-origin", point->pending_value().container_origin.id));
         if (!verify(point->populated_references().empty(), "Point accepted its own Origin")) return 1;
         click_row(find("construction-origin", origin_id));
@@ -952,11 +1178,820 @@ int verify_pending_container_tree(QApplication& application,
         dialog()->buttons()->button(QDialogButtonBox::Cancel)->click(); flush();
         if (!verify(find(marker) && find(assembly ? "assembly-construction" : "part-construction", created_id),
                 "Edit Cancel removed the committed container")) return 1;
+        if (!assembly) {
+            window.findChild<QAction*>("boxAction")->trigger(); flush();
+            zima::app::PrimitivePropertiesDialog* box_dialog{};
+            for (auto* child : window.findChildren<QDialog*>())
+                if (auto* value = dynamic_cast<zima::app::PrimitivePropertiesDialog*>(child);
+                    value && value->isVisible()) box_dialog = value;
+            if (!verify(box_dialog, "Missing box fixture for Origin action")) return 1;
+            box_dialog->buttons()->button(QDialogButtonBox::Ok)->click(); flush();
+            window.findChild<QAction*>("shellAction")->trigger(); flush();
+            zima::app::PrimitivePropertiesDialog* shell_dialog{};
+            for (auto* child : window.findChildren<QDialog*>())
+                if (auto* value = dynamic_cast<zima::app::PrimitivePropertiesDialog*>(child);
+                    value && value->isVisible()) shell_dialog = value;
+            if (!verify(shell_dialog, "Missing Shell properties for Origin action")) return 1;
+            auto* shell_origin = shell_dialog->findChild<QPushButton*>("containerOriginSelectionButton");
+            if (!verify(shell_origin, "Shell properties have no Origin action")) return 1;
+            const auto face_contract = model_view->selection_contract();
+            shell_origin->click(); flush();
+            if (!verify(model_view->selection_contract() == std::vector{zima::viewer::CandidateKind::Container},
+                    "Shell Origin action did not suspend face picking")) return 1;
+            shell_origin->click(); flush();
+            if (!verify(model_view->selection_contract() == face_contract,
+                    "Shell Origin action failed to restore face picking")) return 1;
+            shell_dialog->buttons()->button(QDialogButtonBox::Cancel)->click(); flush();
+        }
         // Closing the application with a nested editor must retire its hidden parent too.
         window.findChild<QAction*>(assembly ? "curve3DAction" : "sweep3DAction")->trigger(); flush();
         dialog()->findChild<QPushButton*>("curve3DAddPoint")->click(); flush();
+        dialog()->findChild<QPushButton*>("containerOriginSelectionButton")->click(); flush();
     }
     std::cout << "Pending container Tree contracts passed\n";
+    return 0;
+}
+
+int verify_body_placement_offsets(QApplication& application, const std::filesystem::path& directory) {
+    using namespace zima::document;
+    for (const bool moved : {false,true}) {
+        auto part=PartDocument::create_default();
+        auto box=PartDocument::create_box_container();part.history.push_back(box);
+        BodyHistoryGraph graph;const auto body_id=graph.create_body("Body");
+        graph.insert({PartHistoryKind::Feature,box.id});
+        if (moved) { auto body=*graph.find(body_id);body.scope.placement={80,40,25};
+            body.scope.placement.absolute_rotation_y=90;body.scope.placement.rotation_y=90;graph.update_body(body); }
+        part.set_body_history(graph);
+        const auto path=directory/"body-placement-offsets.prtz";
+        zima::kernel::OcctKernel kernel;part.save(path,kernel.evaluate_history(part.kernel_operations()));
+        zima::app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1100,850);window.show();
+        if (!verify(window.open_document_path(QString::fromStdString(path.string())),"Cannot open offset fixture")) return 1;
+        const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};flush();
+        auto* tree=window.findChild<QTreeWidget*>("documentTree");
+        const auto row=[&](const std::string& id)->QTreeWidgetItem* {
+            for(QTreeWidgetItemIterator it(tree);*it;++it)
+                if((*it)->data(0,Qt::UserRole).toString().toStdString()==id)return *it;
+            return nullptr;
+        };
+        for (const auto* action_name : {"boxAction","extrusionAction","revolutionAction","constructionPointAction","sweep3DAction","sweep2dAction","helicalSweepAction"}) {
+            if (std::string_view(action_name)=="boxAction") window.show_tree_item_properties(row(box.id));
+            else {auto* action=window.findChild<QAction*>(action_name);if(!verify(action!=nullptr,"Missing offset fixture command"))return 1;action->trigger();}
+            flush();
+            zima::ui::PropertiesSubWindow* dialog=nullptr;
+            for(auto* candidate:window.findChildren<QDialog*>())
+                if(auto* value=dynamic_cast<zima::ui::PropertiesSubWindow*>(candidate);value&&value->isVisible())dialog=value;
+            if(!verify(dialog!=nullptr,"Missing offset dialog"))return 1;
+            if (std::string_view(action_name)=="extrusionAction" || std::string_view(action_name)=="revolutionAction") {
+                const auto* primitive=dynamic_cast<zima::app::PrimitivePropertiesDialog*>(dialog);
+                const auto* view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
+                if(!verify(primitive && view && std::ranges::none_of(view->mesh().axes,[&](const auto& axis) {
+                        return axis.reference.owner_id==primitive->pending_value().feature_id &&
+                            axis.reference.semantic_key=="axis";
+                    }),"Profile feature still displays the extra cyan preview axis"))return 1;
+            }
+            zima::ui::ContainerPlacementSection* placement=nullptr;
+            for(auto* child:dialog->findChildren<QObject*>())
+                if(auto* value=dynamic_cast<zima::ui::ContainerPlacementSection*>(child))placement=value;
+            if(!verify(placement!=nullptr,"Missing shared placement section"))return 1;
+            tree->clearSelection();tree->setCurrentItem(row(body_id+":origin"));flush();
+            if(!verify(placement->populated_references().size()==3,"Body Origin did not populate triad"))return 1;
+            for(auto* field:placement->translation_fields())
+                if(!verify(!field->isEnabled(),"Body Origin left XYZ editable")){std::cerr<<action_name<<'\n';return 1;}
+            for(auto* field:placement->rotation_fields())
+                if(field && !verify(!field->isEnabled(),"Body Origin left absolute rotation editable")){std::cerr<<action_name<<'\n';return 1;}
+            if(!verify(placement->set_reference_offset(2,25.25),"Body plane offset is disabled"))return 1;flush();
+            if(!verify(std::abs(placement->numeric_placement().x-25.25)<1e-8 &&
+                    std::abs(placement->numeric_placement().y)<1e-8 && std::abs(placement->numeric_placement().z)<1e-8,
+                    "Body plane offset was not resolved in Body-local coordinates")){std::cerr<<action_name<<'\n';return 1;}
+            dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+        }
+    }
+    std::cout<<"Body placement offset UI contracts passed\n";return 0;
+}
+
+int verify_save_copy_ui(QApplication& application, const std::filesystem::path& parent_directory) {
+    using zima::document::PartDocument;
+    QTemporaryDir temporary(QString::fromStdString((parent_directory/"save-copy-ui-XXXXXX").string()));
+    if (!verify(temporary.isValid(),"Cannot create isolated Save As fixture directory")) return 1;
+    const std::filesystem::path directory=temporary.path().toStdString();
+    auto part=PartDocument::create_default();
+    part.user_parameters["COPY_SOURCE"]=part.document_id;
+    part.history.push_back(PartDocument::create_box_container());
+    zima::kernel::OcctKernel kernel;
+    const auto boundaries=kernel.evaluate_history(part.kernel_operations());
+    const auto source=directory/"save-copy-source.prtz";
+    const auto target=directory/"save-copy-target.prtz";
+    part.save(source,boundaries);
+    auto drawing=zima::drawing::DrawingDocument::create_default();
+    drawing.source_document_id=part.document_id;drawing.source_path=source;
+    drawing.sheets.front().views.push_back(zima::drawing::DrawingDocument::create_view(
+        part.document_id,source,boundaries.back().mesh,zima::drawing::ViewOrientation::Front));
+    drawing.save(directory/"save-copy-source.drwz");
+    zima::app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));
+    window.resize(1100,850);window.show();
+    if (!verify(window.open_document_path(QString::fromStdString(source.string())),
+            "Cannot open Save As fixture")) return 1;
+    application.processEvents();
+    auto* tabs=window.findChild<QTabBar*>("documentTabs");
+    const auto tab_count=tabs->count();
+    const auto tab_label=tabs->tabText(tabs->currentIndex());
+    bool chose_file=false;
+    QTimer::singleShot(0,&window,[&] {
+        auto* dialog=window.findChild<QFileDialog*>();
+        if (!dialog) return;
+        dialog->selectFile(QString::fromStdString(target.string()));
+        chose_file=true;
+        QMetaObject::invokeMethod(dialog,"accept",Qt::DirectConnection);
+    });
+    window.findChild<QAction*>("saveDocumentAsAction")->trigger();
+    application.processEvents();
+    if (!verify(chose_file && std::filesystem::exists(target) &&
+            std::filesystem::exists(directory/"save-copy-target.drwz"),
+            "Save As action failed to publish model and Drawing copies")) return 1;
+    const auto copy=PartDocument::load(target);
+    const auto drawing_copy=zima::drawing::DrawingDocument::load(directory/"save-copy-target.drwz");
+    auto* tree=window.findChild<QTreeWidget*>("documentTree");
+    if (!verify(copy.document_id!=part.document_id && copy.user_parameters.at("COPY_SOURCE")==part.document_id &&
+            drawing_copy.source_document_id==copy.document_id &&
+            tree->topLevelItem(0)->data(0,Qt::UserRole).toString().toStdString()==part.document_id &&
+            tabs->count()==tab_count && tabs->tabText(tabs->currentIndex())==tab_label,
+            "Save As changed the original active document or detached its copied Drawing")) return 1;
+    std::cout << "Save Copy UI contracts passed\n";
+    return 0;
+}
+
+int verify_body_history_ui(QApplication& application, const std::filesystem::path& directory) {
+    using namespace zima::document;
+    auto part = PartDocument::create_default();
+    part.document_precision["decimal_places"]="2";
+    auto first = PartDocument::create_box_container(); first.box = {10,10,10};
+    auto second = PartDocument::create_box_container(); second.box = {10,10,10};
+    auto extra = PartDocument::create_box_container(); extra.box = {2,2,2}; extra.placement.x = 20;
+    part.history = {first,second,extra};
+    BodyHistoryGraph graph;
+    const auto a = graph.create_body("Polotovar"); graph.insert({PartHistoryKind::Feature, first.id});
+    const auto b = graph.create_body("Nástroj"); graph.insert({PartHistoryKind::Feature, second.id});
+    graph.insert({PartHistoryKind::Feature,extra.id});
+    auto tool = *graph.find(b); tool.scope.placement.x = 5; graph.update_body(tool);
+    part.set_body_history(graph);
+    zima::kernel::OcctKernel kernel;
+    const auto path = directory / "body-ui.prtz";
+    part.save(path, kernel.evaluate_history(part.kernel_operations()));
+    zima::app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));
+    window.resize(1100,850); window.show();
+    const auto flush = [&] { application.processEvents(); QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete); application.processEvents(); };
+    if (!verify(window.open_document_path(QString::fromStdString(path.string())), "Cannot open body UI fixture")) return 1;
+    flush();
+    auto* tree = window.findChild<QTreeWidget*>("documentTree");
+    const auto row = [&](const char* kind, const std::string& id = {}) -> QTreeWidgetItem* {
+        for (QTreeWidgetItemIterator it(tree); *it; ++it)
+            if ((*it)->data(0,Qt::UserRole+3).toString() == kind &&
+                (id.empty() || (*it)->data(0,Qt::UserRole).toString().toStdString() == id)) return *it;
+        return nullptr;
+    };
+    const auto body_dialog = [&]() -> zima::app::BodyPropertiesDialog* {
+        for (auto* dialog : window.findChildren<QDialog*>())
+            if (auto* body = dynamic_cast<zima::app::BodyPropertiesDialog*>(dialog); body && body->isVisible()) return body;
+        return nullptr;
+    };
+    if (!verify(row("part-body",a) && row("part-body",b) && row("part-container",first.id)->parent() == row("part-body",a),
+            "Tree did not group features into their body")) return 1;
+    if (!verify(!tree->rootIndex().isValid() && tree->topLevelItem(0)->text(0) == "body-ui.prtz", "Part filename root is hidden")) return 1;
+    tree->setCurrentItem(tree->topLevelItem(0)); flush();
+    zima::viewer::MeshView* viewer = nullptr;
+    for (auto* widget : window.findChildren<QWidget*>())
+        if (auto* view = dynamic_cast<zima::viewer::MeshView*>(widget)) { viewer = view; break; }
+    if (!verify(viewer && !viewer->confirmed_component_wire().empty(), "Document root did not highlight the stored result")) return 1;
+    zima::kernel::ViewerDimension clipped_dimension;
+    clipped_dimension.reference={"projection-check","parameter:placement:x",{}};
+    clipped_dimension.value=1;
+    clipped_dimension.witness_first={1e308,0,0};
+    clipped_dimension.witness_second={1e308,1,0};
+    clipped_dimension.line_first={1e308,0,1};
+    clipped_dimension.line_second={1e308,1,1};
+    viewer->set_transient_dimensions({clipped_dimension});
+    viewer->repaint();
+    if (!verify(!viewer->grabFramebuffer().isNull(),
+            "Unprojectable dimension interrupted viewport rendering")) return 1;
+    viewer->set_transient_dimensions({});
+    zima::viewer::ViewerCandidate passive_candidate;
+    passive_candidate.owner_id = first.id;
+    if (!verify(viewer->candidate_filter() && !viewer->candidate_filter()(passive_candidate),
+            "Inactive body is offered as an editable ordinary candidate")) return 1;
+    passive_candidate.owner_id = second.id;
+    if (!verify(viewer->candidate_filter()(passive_candidate), "Active body was excluded from ordinary selection")) return 1;
+    const auto activate_from_tree = [&](QTreeWidgetItem* item, const char* action_name) {
+        if (!item) return false;
+        for (auto* parent=item->parent();parent;parent=parent->parent()) tree->expandItem(parent);
+        tree->scrollToItem(item);
+        bool invoked=false;
+        QTimer::singleShot(0,&window,[&] {
+            auto* menu=window.findChild<QMenu*>("partActivationMenu");
+            if (!menu) return;
+            auto* action=menu->findChild<QAction*>(action_name);
+            if (!action || !action->isEnabled()) { menu->close();return; }
+            invoked=true;menu->setActiveAction(action);
+            QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);
+            QApplication::sendEvent(menu,&enter);
+        });
+        tree->customContextMenuRequested(tree->visualItemRect(item).center());flush();
+        return invoked;
+    };
+    const auto click_command = [&](const char* name) {
+        auto* action=window.findChild<QAction*>(name);
+        if (!action || !action->isEnabled()) return false;
+        for (auto* button : window.findChildren<QToolButton*>())
+            if (button->defaultAction()==action && button->isVisible() && button->isEnabled()) {
+                button->click();flush();return true;
+            }
+        return false;
+    };
+    if (!verify(activate_from_tree(tree->topLevelItem(0),"activatePartAction") &&
+            !row("part-insert-here") && row("part-body-insert-here"),
+            "Part root context menu did not activate document-level modeling")) return 1;
+    const auto origin_extent = [&](const std::string& owner) {
+        double extent = 0;
+        for (const auto& axis : viewer->mesh().axes)
+            if (axis.reference.owner_id == owner && axis.reference.semantic_key.starts_with("origin:"))
+                extent = std::max(extent, axis.display_length);
+        return extent;
+    };
+    const auto document_origin_extent = origin_extent(part.document_id + ":origin");
+    if (!verify(document_origin_extent > 0 && origin_extent(a+":origin")==0 && origin_extent(b+":origin")==0,
+            "Document activation must display only Document Origin")) return 1;
+    if (!verify(activate_from_tree(row("part-body",a),"activateBodyAction"),
+            "First Body context menu did not activate its history")) return 1;
+    if (!verify(origin_extent(a+":origin") > 0 && origin_extent(b+":origin")==0 &&
+            origin_extent(part.document_id+":origin")==0 &&
+            std::abs(document_origin_extent/origin_extent(a+":origin")-1.25)<1e-9,
+            "Active Body origin visibility or Document/Body size ratio is incorrect")) return 1;
+    window.findChild<QAction*>("constructionPointAction")->trigger();flush();
+    zima::app::ConstructionPropertiesDialog* origin_point_dialog = nullptr;
+    for (auto* dialog : window.findChildren<QDialog*>())
+        if (auto* value=dynamic_cast<zima::app::ConstructionPropertiesDialog*>(dialog); value && value->isVisible())
+            origin_point_dialog=value;
+    if (!verify(origin_point_dialog!=nullptr,"Origin policy fixture could not open Point")) return 1;
+    zima::viewer::ViewerCandidate forbidden_origin;
+    forbidden_origin.kind=zima::viewer::CandidateKind::Plane;
+    forbidden_origin.geometry=zima::viewer::CandidateGeometry::OriginalReference;
+    forbidden_origin.owner_id=part.document_id+":origin";
+    forbidden_origin.semantic_key="origin:plane:xy";
+    if (!verify(viewer->candidate_filter() && !viewer->candidate_filter()(forbidden_origin),
+            "Document Origin is offered to a feature inside a Body")) return 1;
+    tree->setCurrentItem(row("document-origin",part.document_id+":origin"));flush();
+    if (!verify(origin_point_dialog->references_without(99).empty(),
+            "Tree Document Origin bypassed Body feature placement policy")) return 1;
+    auto* origin_button=origin_point_dialog->findChild<QPushButton*>("containerOriginSelectionButton");
+    origin_button->click();flush();
+    auto* other_body_row=row("part-body",b);
+    tree->itemClicked(other_body_row,0);flush();
+    if (!verify(origin_extent(b+":origin")>0,"Origin mode could not reveal another Body origin")) return 1;
+    origin_button->click();flush();
+    tree->setCurrentItem(row("document-origin",a+":origin"));flush();
+    if (!verify(origin_point_dialog->references_without(99).size()>=3,
+            "Feature did not accept the owning Body Origin shortcut")) return 1;
+    origin_point_dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+    if (!verify(origin_extent(b+":origin")==0 && origin_extent(a+":origin")>0,
+            "Cancel retained a temporarily exposed inactive Body origin")) return 1;
+
+    passive_candidate.owner_id=first.id;
+    if (!verify(viewer->candidate_filter()(passive_candidate) && row("part-insert-here"),
+            "Activating first Body did not restore its tools and selection")) return 1;
+    if (!verify(activate_from_tree(row("part-body",b),"activateBodyAction"),
+            "Second Body context menu did not activate its history")) return 1;
+    if (!verify(!window.findChild<QAction*>("createBodyAction")->isEnabled() &&
+            !row("part-body-insert-here") && row("part-insert-here"),
+            "Active Body exposes document-level creation or a second insertion cursor")) return 1;
+    for(auto* button:window.findChildren<QToolButton*>())
+        if(!verify(button->defaultAction()!=window.findChild<QAction*>("createBodyAction") || !button->isVisible(),
+                "Create Body button is visible inside active Body"))return 1;
+    if(!verify(activate_from_tree(tree->topLevelItem(0),"activatePartAction"),"Cannot activate Part before new Body"))return 1;
+    if (!verify(click_command("createBodyAction"),"Visible Create Body button is disabled or missing")) return 1;
+    if (!verify(body_dialog() && body_dialog()->windowFlags().testFlag(Qt::SubWindow), "Body creation did not open shared properties")) return 1;
+    if (!verify(body_dialog()->findChild<QPushButton*>("containerOriginSelectionButton")!=nullptr,
+            "Body placement lost its Origin control")) return 1;
+    for (auto* field : body_dialog()->findChildren<QDoubleSpinBox*>())
+        if (!verify(field->decimals()==2,"Body placement field ignored document precision")) return 1;
+    tree->setCurrentItem(row("document-origin",part.document_id+":origin"));flush();
+    if (!verify(body_dialog()->first_empty_position_index()==3,
+            "New Body did not accept all three document Origin planes without arming a field")) return 1;
+    const auto picked_body=body_dialog()->pending_value();
+    for (std::size_t i=0;i<3;++i)
+        if (!verify(picked_body.scope.placement.references[i].owner_id==part.document_id+":origin",
+                "Body Origin shortcut stored a different reference owner")) return 1;
+    for (auto* field : body_dialog()->findChildren<QDoubleSpinBox*>())
+        if (!verify(field->decimals()==2,"Body reference offset ignored document precision")) return 1;
+    body_dialog()->buttons()->button(QDialogButtonBox::Cancel)->click(); flush();
+    if (!verify(!row("part-body-boolean"), "Cancel inserted an unrelated Boolean")) return 1;
+    if(!verify(activate_from_tree(row("part-body",b),"activateBodyAction"),"Cannot reactivate Body after canceled creation"))return 1;
+    window.show_tree_item_properties(row("part-body",b)); flush();
+    body_dialog()->findChild<QLineEdit*>("bodyName")->setText("Upravený nástroj");
+    auto* body_references=body_dialog()->findChild<QTableWidget*>("bodyReferenceTable");
+    if (!verify(body_references!=nullptr,"Body does not use the shared placement reference table")) return 1;
+    tree->setCurrentItem(row("document-origin",part.document_id+":origin"));flush();
+    if (!verify(body_dialog()->first_empty_position_index()==3,"Body Origin selection did not fill its three planes")) return 1;
+    auto* offset=qobject_cast<QDoubleSpinBox*>(body_references->cellWidget(2,2));
+    if (!verify(offset && offset->isEnabled(),"Body placement does not expose the plane offset")) return 1;
+    offset->setValue(5);flush();
+    zima::viewer::ViewerCandidate offset_dimension;
+    offset_dimension.kind=zima::viewer::CandidateKind::Dimension;
+    offset_dimension.owner_id=b;
+    offset_dimension.semantic_key="parameter:placement:reference_offset:2";
+    if (!verify(viewer->candidate_dimension_value(offset_dimension)==5,
+            "Body reference offset is missing from View")) return 1;
+    if (!verify(!viewer->candidate_filter() || viewer->candidate_filter()(offset_dimension),
+            "Body placement picker excludes its editable dimension")) return 1;
+    if (!verify(!body_dialog()->owns_parameter_owner(second.id),
+            "Body properties claim parameters of their child feature")) return 1;
+    auto locked_dimension=offset_dimension;
+    locked_dimension.semantic_key="parameter:placement:x";
+    const auto find_dimension=[&](zima::viewer::ViewerCandidate& candidate) {
+        const auto& dimensions=viewer->mesh().dimensions;
+        for (std::size_t index=0;index<dimensions.size();++index) {
+            if (dimensions[index].reference.owner_id==candidate.owner_id &&
+                    dimensions[index].reference.semantic_key==candidate.semantic_key) {
+                candidate.geometry_index=index;
+                return true;
+            }
+        }
+        return false;
+    };
+    if (!verify(!find_dimension(locked_dimension) &&
+            !body_dialog()->set_inline_parameter_value("placement:x",12),
+            "Body offers a locked placement coordinate for editing")) return 1;
+    const auto edit_body_offset=[&](const QString& text,double expected) {
+        window.edit_dimension_inline(offset_dimension);flush();
+        auto* editor=viewer->findChild<QLineEdit*>("inlineDimensionValueEdit");
+        if (!editor || !editor->isVisible()) return false;
+        editor->setText(text);
+        QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);
+        QApplication::sendEvent(editor,&enter);flush();
+        if (!body_dialog()) return false;
+        // Updating constraints rebuilds the reference table's cell editors.
+        const auto* current_offset=qobject_cast<QDoubleSpinBox*>(body_references->cellWidget(2,2));
+        return current_offset && std::abs(current_offset->value()-expected)<1e-8 &&
+            viewer->candidate_dimension_value(offset_dimension)==expected;
+    };
+    if (!verify(edit_body_offset("3,25",3.25) && edit_body_offset("5.0",5),
+            "Body View offset edit did not accept decimal input or prematurely committed properties")) return 1;
+    if (!verify(body_dialog()->set_inline_parameter_value("placement:rotation_z",15),
+            "Body angular correction is not editable")) return 1;
+    flush();
+    auto angle_dimension=offset_dimension;
+    angle_dimension.semantic_key="parameter:placement:rotation_z";
+    if (!verify(find_dimension(angle_dimension) &&
+            std::abs(viewer->candidate_dimension_value(angle_dimension).value_or(-999)-15)<1e-8 &&
+            body_dialog()->set_inline_parameter_value("placement:rotation_z",0),
+            "Body angular correction did not update its View dimension")) return 1;
+    flush();
+    if (!verify(!find_dimension(angle_dimension),
+            "Zero body rotation left a stale View dimension")) return 1;
+    if (!verify(!body_dialog()->set_reference(0,{{},tool.origin().id,"origin:point"},"Vlastní počátek"),
+            "Body accepted its own Origin as a placement reference")) return 1;
+
+    QMouseEvent confirm_body(QEvent::MouseButtonDblClick,QPointF(40,40),QPointF(40,40),QPointF(40,40),
+        Qt::MiddleButton,Qt::MiddleButton,Qt::NoModifier);
+    QApplication::sendEvent(&window, &confirm_body); flush();
+    if (!verify(!body_dialog() && row("part-body",b)->text(0) == "Upravený nástroj", "Body edit failed to commit")) return 1;
+    if (!verify(!viewer->candidate_dimension_value(offset_dimension),
+            "Closing body properties left transient placement dimensions in View")) return 1;
+    auto* reorder_tree = dynamic_cast<zima::app::HistoryTreeWidget*>(tree);
+    if (!verify(reorder_tree && !reorder_tree->reorder_requested(row("part-container",extra.id),QString::fromStdString(first.id),false),
+            "Feature drag offered another body as its destination")) return 1;
+    if (!verify(reorder_tree->reorder_requested(row("part-container",extra.id),QString::fromStdString(second.id),true),
+            "Feature reorder inside the active body failed")) return 1;
+    flush();
+    auto* boolean_action=window.findChild<QAction*>("bodyBooleanAction");
+    auto* modeling_toolbar=window.findChild<QToolBar*>("toolsToolbar");
+    if (!verify(modeling_toolbar && !modeling_toolbar->actions().contains(boolean_action),
+            "Boolean is visible while a Body is active")) return 1;
+    if (!verify(activate_from_tree(tree->topLevelItem(0),"activatePartAction"),
+            "Cannot activate Part before creating a document-level Boolean")) return 1;
+    if (!verify(click_command("bodyBooleanAction"),"Visible Boolean button is disabled with two available bodies")) return 1;
+    zima::app::BodyBooleanPropertiesDialog* boolean = nullptr;
+    for (auto* dialog : window.findChildren<QDialog*>())
+        if (auto* value = dynamic_cast<zima::app::BodyBooleanPropertiesDialog*>(dialog); value && value->isVisible()) boolean = value;
+    if (!verify(boolean && row("part-body-boolean"), "Boolean draft is missing from properties or Tree")) return 1;
+    if (!verify(!boolean->findChild<QPushButton*>("containerOriginSelectionButton"),
+            "Boolean exposes an Origin control despite having no placement")) return 1;
+    boolean->buttons()->button(QDialogButtonBox::Ok)->click(); flush();
+    window.findChild<QAction*>("saveDocumentAction")->trigger(); flush();
+    std::vector<zima::kernel::BodyResult> boundaries;
+    const auto saved = PartDocument::load(path, &boundaries);
+    if (!verify(saved.body_history.find(b)->scope.placement.references.size()>=3 &&
+            std::abs(saved.body_history.find(b)->scope.placement.x-5)<1e-7,
+            "Body placement references or offset were not persisted")) return 1;
+    if (!verify(saved.body_history.bodies().size() == 2 && saved.body_history.booleans().size() == 1 &&
+            std::abs(boundaries.back().volume - 500) < 1e-7, "Body UI did not save the correct Boolean result")) return 1;
+    if (!verify(!row("part-insert-here") && row("part-body-insert-here"), "Inactive Part exposes a body feature cursor")) return 1;
+    if (!verify(click_command("createBodyAction"),"Visible Create Body button stayed disabled after Boolean OK")) return 1;
+    if (!verify(body_dialog() != nullptr, "Cannot create body after Boolean")) return 1;
+    body_dialog()->buttons()->button(QDialogButtonBox::Ok)->click(); flush();
+    window.findChild<QAction*>("saveDocumentAction")->trigger(); flush();
+    boundaries.clear();
+    const auto continued = PartDocument::load(path, &boundaries);
+    if (!verify(continued.body_history.bodies().size() == 3 && !continued.body_history.active_body_id().empty() &&
+            std::abs(boundaries.back().volume - 500) < 1e-7 && row("part-insert-here"),
+            "Creating a new body after Boolean changed the previous result or failed activation")) return 1;
+    auto* history_tree = dynamic_cast<zima::app::HistoryTreeWidget*>(tree);
+    const auto c = continued.body_history.active_body_id();
+    const auto boolean_id = continued.body_history.booleans().front().id;
+    if (!verify(history_tree && history_tree->reorder_enabled(row("part-body",c)), "Body row does not allow dragging")) return 1;
+    if (!verify(!history_tree->reorder_requested(row("part-body-boolean",boolean_id),QString::fromStdString(a),false),
+            "Boolean drag offered a boundary before its inputs")) return 1;
+    if (!verify(history_tree->reorder_requested(row("part-body",c),QString::fromStdString(a),false),
+            "Independent body drag rejected an available boundary")) return 1;
+    if (!verify(history_tree->reorder_requested(row("part-body",c),QString::fromStdString(a),true),
+            "Independent body drag failed to commit")) return 1;
+    flush();
+    window.findChild<QAction*>("saveDocumentAction")->trigger(); flush();
+    const auto moved = PartDocument::load(path);
+    if (!verify(moved.body_history.order().front()==c && moved.body_history.find_boolean(boolean_id)->target_id==a,
+            "Body reorder lost its order or detached Boolean inputs")) return 1;
+    history_tree->body_cursor_moved({},1); flush();
+    window.findChild<QAction*>("saveDocumentAction")->trigger(); flush();
+    if (!verify(PartDocument::load(path).body_history.insertion_cursor()==1,
+            "Document-level body cursor was not persisted")) return 1;
+    window.findChild<QAction*>("newDocumentAction")->trigger();flush();
+    auto* new_document=window.findChild<QDialog*>("newDocumentDialog");
+    if (!verify(new_document!=nullptr,"New document dialog is unavailable")) return 1;
+    const auto fresh_name=QStringLiteral("body-new-document-ui-")+QUuid::createUuid().toString(QUuid::Id128);
+    new_document->findChild<QLineEdit*>("newDocumentFileName")->setText(fresh_name);
+    new_document->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+    window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+    const auto fresh=PartDocument::load(directory/(fresh_name.toStdString()+".prtz"));
+    if (!verify(fresh.body_history.bodies().size()==1 &&
+            fresh.body_history.active_body_id()==fresh.body_history.bodies().front().scope.id &&
+            row("part-body",fresh.body_history.active_body_id()) && row("part-insert-here") &&
+            window.findChild<QAction*>("sketchAction")->isEnabled(),
+            "New Part did not start with its first Body active and Sketch available")) return 1;
+    if(!verify(!row("part-body-insert-here") &&
+            activate_from_tree(tree->topLevelItem(0),"activatePartAction"),
+            "New Part exposes duplicate cursor or cannot activate its root"))return 1;
+    if (!verify(click_command("createBodyAction"),
+            "Create Body stayed disabled after activating new Part root")) return 1;
+    if (!verify(body_dialog()!=nullptr,"Create Body button did not open properties in a new Part")) return 1;
+    body_dialog()->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+    std::cout << "Body history UI contracts passed\n";
+    return 0;
+}
+
+int verify_body_sketch_ui(QApplication& application, const std::filesystem::path& directory) {
+    using namespace zima::document;
+    auto document=PartDocument::create_default();
+    auto container=PartDocument::create_sketch_container();
+    auto sketch=zima::sketcher::Sketch::create_default();
+    sketch.owner_container_id=container.id;
+    static_cast<void>(sketch.add_segment(0,0,20,0));
+    static_cast<void>(sketch.add_segment(0,0,0,10));
+    const auto tangent_first=sketch.add_circle(5,0,2);
+    const auto tangent_second=sketch.add_circle(15,0,2);
+    for (const auto circle : std::vector(sketch.circles)) {
+        sketch.set_point_fixed(circle.center_point_id,true);
+        sketch.apply_dimension(sketch.create_circle_radius_dimension(circle.id));
+    }
+    document.history={container}; document.sketches={sketch};
+    auto source_point=PartDocument::create_construction(ConstructionKind::Point);
+    source_point.origin={-25,40,15};
+    auto later_point=PartDocument::create_construction(ConstructionKind::Point);
+    later_point.origin={65,40,15};
+    document.constructions={source_point,later_point};
+    BodyHistoryGraph graph;
+    const auto source_body_id=graph.create_body("Zdroj reference");
+    graph.insert({PartHistoryKind::Construction,source_point.id});
+    auto source_body=*graph.find(source_body_id);
+    source_body.scope.placement.x=100;graph.update_body(source_body);
+    const auto body_id=graph.create_body("Otočené těleso");
+    graph.insert({PartHistoryKind::Feature,container.id});
+    auto body=*graph.find(body_id);
+    body.scope.placement={80,40,25};
+    body.scope.placement.absolute_rotation_y=90;
+    body.scope.placement.absolute_rotation_z=90;
+    graph.update_body(body);
+    static_cast<void>(graph.create_body("Pozdější těleso"));
+    graph.insert({PartHistoryKind::Construction,later_point.id});
+    graph.activate(body_id);document.set_body_history(graph);
+    document.resolve_constructions();
+    const auto path=directory/"body-sketch-ui.prtz";document.save(path);
+    zima::app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));
+    window.resize(1100,850);window.show();
+    const auto flush=[&] { application.processEvents(); QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete); application.processEvents(); };
+    if (!verify(window.open_document_path(QString::fromStdString(path.string())),"Cannot open body Sketch fixture")) return 1;
+    flush();
+    auto* tree=window.findChild<QTreeWidget*>("documentTree");
+    window.findChild<QAction*>("sketchAction")->trigger();flush();
+    zima::app::SketchPropertiesDialog* new_sketch_dialog{};
+    for (auto* candidate : window.findChildren<QDialog*>())
+        if (auto* value=dynamic_cast<zima::app::SketchPropertiesDialog*>(candidate);value && value->isVisible())
+            new_sketch_dialog=value;
+    if (!verify(new_sketch_dialog && new_sketch_dialog->set_reference(0,
+            {{},body.origin().id,"origin:plane:xy",0,true,"front",true},"Rovina XY tělesa"),
+            "New Sketch cannot reference the active Body plane")) return 1;
+    auto* new_offset=new_sketch_dialog->findChild<QDoubleSpinBox*>("sketchPlaneOffset");
+    new_offset->setValue(2);flush();
+    const auto new_owner=new_sketch_dialog->pending_value().first.owner_container_id;
+    auto* new_viewer=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
+    if (!verify(std::ranges::any_of(new_viewer->mesh().dimensions,[&](const auto& dimension) {
+            return dimension.reference.owner_id==new_owner &&
+                dimension.reference.semantic_key=="parameter:profile_offset" &&
+                std::abs(dimension.witness_second.y-42)<1e-6;
+        }),"New Sketch preview does not use the active Body frame")) return 1;
+    bool draft_in_body=false;
+    for (QTreeWidgetItemIterator i(tree);*i;++i)
+        if ((*i)->data(0,Qt::UserRole).toString().toStdString()==new_owner && (*i)->parent())
+            draft_in_body=(*i)->parent()->data(0,Qt::UserRole).toString().toStdString()==body_id;
+    if (!verify(draft_in_body,"Pending Sketch is outside its Body in Tree")) return 1;
+    new_sketch_dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+    if (!verify(std::ranges::none_of(new_viewer->mesh().dimensions,[&](const auto& dimension) {
+            return dimension.reference.owner_id==new_owner;
+        }),"Cancel left pending Sketch dimensions in View")) return 1;
+    QTreeWidgetItem* row{};
+    for (QTreeWidgetItemIterator i(tree);*i;++i)
+        if ((*i)->data(0,Qt::UserRole).toString().toStdString()==sketch.id &&
+                (*i)->data(0,Qt::UserRole+3).toString()=="part-sketch") { row=*i;break; }
+    if (!verify(row!=nullptr,"Body Sketch is missing from Tree")) return 1;
+    window.show_tree_item_properties(row);flush();
+    auto* open=window.findChild<QPushButton*>("sketchOpenButton");
+    if (!verify(open!=nullptr,"Cannot enter body Sketch")) return 1;
+    zima::app::SketchPropertiesDialog* sketch_dialog{};
+    for (auto* dialog : window.findChildren<QDialog*>())
+        if (auto* value=dynamic_cast<zima::app::SketchPropertiesDialog*>(dialog);value && value->isVisible())
+            sketch_dialog=value;
+    if (!verify(sketch_dialog && sketch_dialog->set_reference(0,
+            {{},body.origin().id,"origin:point"},"Počátek tělesa"),
+            "Sketch placement does not accept its Body origin")) return 1;
+    auto* plane_offset=sketch_dialog->findChild<QDoubleSpinBox*>("sketchPlaneOffset");
+    plane_offset->setValue(3.25);flush();
+    auto* preview_viewer=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
+    const auto preview_near=[](const auto& p,const zima::kernel::Vec3& q) {
+        return std::hypot(std::hypot(p.x-q.x,p.y-q.y),p.z-q.z)<1e-6;
+    };
+    const auto& pending_placement=sketch_dialog->pending_value().second;
+    if (!verify(preview_near(zima::kernel::Vec3{pending_placement.x,pending_placement.y,pending_placement.z},{}),
+            "Sketch Properties solved Body origin in document instead of Body coordinates")) return 1;
+    if (!verify(std::ranges::any_of(preview_viewer->mesh().dimensions,[&](const auto& dimension) {
+            return dimension.reference.owner_id==container.id &&
+                dimension.reference.semantic_key=="parameter:profile_offset" &&
+                preview_near(dimension.witness_first,{80,40,25}) &&
+                preview_near(dimension.witness_second,{80,43.25,25});
+        }),"Sketch offset preview is not in its owning Body frame")) return 1;
+    plane_offset->setValue(0);flush();
+    open->click();flush();
+    QEventLoop sketch_animation;
+    QTimer::singleShot(950,&sketch_animation,&QEventLoop::quit);
+    sketch_animation.exec();
+    auto* viewer=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
+    const auto near=[](const auto& p,const zima::kernel::Vec3& q) {
+        return std::hypot(std::hypot(p.x-q.x,p.y-q.y),p.z-q.z)<1e-6;
+    };
+    if (!verify(viewer && std::ranges::any_of(viewer->mesh().points,[&](const auto& point) {
+            return point.reference.owner_id==sketch.id && near(point.position,{80,40,5});
+        }),"Body Sketch was not transformed exactly once into document coordinates")) return 1;
+    if (!verify(std::ranges::any_of(viewer->mesh().axes,[&](const auto& axis) {
+            return axis.reference.owner_id==container.id+":origin";
+        }) && std::ranges::none_of(viewer->mesh().axes,[&](const auto& axis) {
+            return axis.reference.owner_id==body_id+":origin";
+        }),"Sketcher displays Body Origin instead of its container Origin")) return 1;
+    for (const int quarter : {1,3}) {
+        window.findChild<QAction*>("sketchSegmentAction")->trigger();flush();
+        for (const auto& curve : {tangent_first,tangent_second}) {
+            const auto key="sketch_curve_keypoint:circle:"+curve+":"+std::to_string(quarter);
+            std::optional<QPointF> hit;
+            for (int y=10;y<viewer->height()-10 && !hit;y+=2)
+                for (int x=10;x<viewer->width()-10 && !hit;x+=2) {
+                    const auto offered=viewer->selection_candidates_at(QPointF(x,y));
+                    if (!offered.empty() && offered.front().semantic_key==key) hit=QPointF(x,y);
+                }
+            if (!verify(hit.has_value(),"Segment does not offer the selected circle keypoint")) {std::cerr << key << "\n";return 1;}
+            const QPointF global(viewer->mapToGlobal(hit->toPoint()));
+            QMouseEvent move(QEvent::MouseMove,*hit,global,Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+            QApplication::sendEvent(viewer,&move);flush();
+            QMouseEvent press(QEvent::MouseButtonPress,*hit,global,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+            QMouseEvent release(QEvent::MouseButtonRelease,*hit,global,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+            QApplication::sendEvent(viewer,&press);QApplication::sendEvent(viewer,&release);flush();
+        }
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        const auto lower_saved=PartDocument::load(path);
+        if(!verify(lower_saved.sketches.front().segments.size()==sketch.segments.size()+1,
+            "Segment between circle keypoints was not created"))return 1;
+        const auto& committed=lower_saved.sketches.front();
+        const auto& line=committed.segments.back();
+        for (const auto& curve : {tangent_first,tangent_second}) {
+            if(!verify(std::ranges::any_of(committed.constraints,[&](const auto& c) {
+                return c.kind==zima::sketcher::ConstraintKind::Tangent &&
+                    c.geometry_id==curve && c.second_geometry_id==line.id;
+            }),"Common contact lost its tangent constraint"))return 1;
+        }
+        if(!verify(std::ranges::none_of(committed.constraints,[&](const auto& c) {
+            return c.kind==zima::sketcher::ConstraintKind::PointReference &&
+                (c.first_point_id==line.first_point_id || c.first_point_id==line.second_point_id);
+        }),"Common tangent contact was locked to a quadrant"))return 1;
+        sketch=committed;
+    }
+    auto* point_action=window.findChild<QAction*>("sketchPointAction");
+    if (!verify(point_action && point_action->isEnabled(),"Body Sketch point command unavailable")) return 1;
+    point_action->trigger();flush();
+    QPointF position(viewer->width()*0.7,viewer->height()*0.65);
+    for (int y=viewer->height()/3;y<viewer->height()*2/3;y+=17) {
+        const QPointF candidate(viewer->width()*0.7,y);
+        if (viewer->selection_candidates_at(candidate).empty()) { position=candidate;break; }
+    }
+    const QPointF global(viewer->mapToGlobal(position.toPoint()));
+    QMouseEvent move(QEvent::MouseMove,position,global,Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+    QApplication::sendEvent(viewer,&move);flush();
+    QMouseEvent press(QEvent::MouseButtonPress,position,global,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+    QMouseEvent release(QEvent::MouseButtonRelease,position,global,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+    QApplication::sendEvent(viewer,&press);QApplication::sendEvent(viewer,&release);flush();
+    const auto candidates=viewer->selection_candidates_at(position);
+    if (!verify(std::ranges::any_of(candidates,[&](const auto& candidate) {
+            return candidate.owner_id==sketch.id && candidate.kind==zima::viewer::CandidateKind::SketchPoint;
+        }),"Point created by a View ray does not return to the same screen position")) return 1;
+    window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+    const auto saved=PartDocument::load(path);
+    const auto& result=saved.sketches.front();
+    if (!verify(result.points.size()==sketch.points.size()+1 && near(result.resolved_origin,{}),
+            "Body Sketch input was not persisted in local coordinates")) return 1;
+    auto* external=window.findChild<QAction*>("sketchExternalReferenceAction");
+    if (!verify(external && external->isEnabled(),"External reference command unavailable in Body Sketch")) return 1;
+    external->trigger();flush();
+    std::optional<zima::viewer::ViewerCandidate> source_candidate;
+    QPointF source_position;
+    for (int y=15;y<viewer->height()-15 && !source_candidate;y+=3)
+        for (int x=15;x<viewer->width()-15 && !source_candidate;x+=3) {
+            const auto offered=viewer->selection_candidates_at(QPointF(x,y));
+            if (!offered.empty() && offered.front().owner_id==source_point.container_origin.id &&
+                    offered.front().semantic_key=="point") {
+                source_candidate=offered.front();source_position=QPointF(x,y);
+            }
+        }
+    if (!verify(source_candidate.has_value(),"Previous body's persisted point is not offered as a Sketch reference")) return 1;
+    auto future_candidate=*source_candidate;
+    future_candidate.owner_id=later_point.container_origin.id;
+    if (!verify(viewer->candidate_filter() && !viewer->candidate_filter()(future_candidate),
+            "Body Sketch offers a later body's geometry as a reference")) return 1;
+    const QPointF source_global(viewer->mapToGlobal(source_position.toPoint()));
+    QMouseEvent source_move(QEvent::MouseMove,source_position,source_global,Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+    QMouseEvent source_press(QEvent::MouseButtonPress,source_position,source_global,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+    QMouseEvent source_release(QEvent::MouseButtonRelease,source_position,source_global,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+    QApplication::sendEvent(viewer,&source_move);QApplication::sendEvent(viewer,&source_press);
+    QApplication::sendEvent(viewer,&source_release);flush();
+    window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+    const auto referenced=PartDocument::load(path);
+    const auto& references=referenced.sketches.front().external_references;
+    if (!verify(references.size()==1 && references.front().cached_points.size()==1 &&
+            std::hypot(references.front().cached_points.front()[0]-10,
+                references.front().cached_points.front()[1]-5)<1e-6,
+            "Cross-body reference was not projected and persisted in target Sketch coordinates")) return 1;
+    window.findChild<QAction*>("regenerateDocumentAction")->trigger();flush();
+    window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+    const auto regenerated=PartDocument::load(path);
+    const auto& refreshed=regenerated.sketches.front().external_references.front();
+    if (!verify(!refreshed.broken && refreshed.cached_points.size()==1 &&
+            std::hypot(refreshed.cached_points.front()[0]-10,refreshed.cached_points.front()[1]-5)<1e-6 &&
+            std::ranges::find(regenerated.body_history.find(body_id)->dependencies,source_body_id)!=
+                regenerated.body_history.find(body_id)->dependencies.end(),
+            "Regenerate lost the projected reference or its Body dependency")) return 1;
+    std::cout << "Body Sketch frame UI contracts passed\n";
+    return 0;
+}
+
+int verify_nested_body_sketch_ui(QApplication& application, const std::filesystem::path& directory) {
+    using namespace zima::document;
+    auto part=PartDocument::create_default();
+    auto first=PartDocument::create_box_container();first.box={5,5,5};
+    auto middle=PartDocument::create_box_container();middle.box={2,2,2};
+    auto later=PartDocument::create_box_container();later.box={3,3,3};later.placement.x=30;
+    auto container=PartDocument::create_sketch_container();
+    auto sketch=zima::sketcher::Sketch::create_default();sketch.owner_container_id=container.id;
+    static_cast<void>(sketch.add_segment(0,0,20,0));
+    static_cast<void>(sketch.add_segment(0,0,0,10));
+    part.history={first,middle,container,later};part.sketches={sketch};
+    BodyHistoryGraph graph;
+    static_cast<void>(graph.create_body("První těleso"));graph.insert({PartHistoryKind::Feature,first.id});
+    const auto body_id=graph.create_body("Těleso skici");
+    graph.insert({PartHistoryKind::Feature,middle.id});graph.insert({PartHistoryKind::Feature,container.id});
+    auto body=*graph.find(body_id);body.scope.placement={80,40,25};
+    body.scope.placement.absolute_rotation_y=90;body.scope.placement.absolute_rotation_z=90;
+    graph.update_body(body);
+    static_cast<void>(graph.create_body("Pozdější těleso"));graph.insert({PartHistoryKind::Feature,later.id});
+    graph.activate(body_id);part.set_body_history(graph);part.resolve_constructions();
+    zima::kernel::OcctKernel kernel;
+    const auto calculated=kernel.evaluate_history(part.kernel_operations());
+    const auto part_path=directory/"nested-body-part.prtz";
+    part.save(part_path,calculated);
+    zima::workspace::Workspace fixture;
+    fixture.add_part(part,calculated,part_path);
+    auto sub=zima::assembly::AssemblyDocument::create_default();
+    const auto sub_id=sub.document_id;
+    const auto sub_path=directory/"nested-body-sub.asmz";
+    fixture.add_assembly(sub,sub_path);
+    const auto inner=fixture.insert_open_part(sub_id,part.document_id,"Vnořený díl");
+    sub=fixture.open_assembly(sub_id)->session.document();
+    sub.find_occurrence(inner)->placement={10,0,0,0,0,90};
+    fixture.open_assembly(sub_id)->session.commit(sub);sub.save(sub_path);
+    auto top=zima::assembly::AssemblyDocument::create_default();
+    const auto top_id=top.document_id;
+    const auto top_path=directory/"nested-body-top.asmz";
+    fixture.add_assembly(top,top_path);
+    const auto outer=fixture.insert_open_assembly(top_id,sub_id,"Podsestava");
+    const auto passive=fixture.insert_open_part(top_id,part.document_id,"Druhý výskyt stejného dílu");
+    top=fixture.open_assembly(top_id)->session.document();
+    top.find_occurrence(outer)->placement={0,50,0,90,0,0};
+    top.find_occurrence(passive)->placement={200,0,0,0,0,0};top.save(top_path);
+    const auto active_path=zima::assembly::InstancePath{{outer,inner}}.encoded();
+    const auto passive_path=zima::assembly::InstancePath{{passive}}.encoded();
+    zima::app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));
+    window.resize(1200,900);window.show();
+    const auto flush=[&] { application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents(); };
+    if (!verify(window.open_document_path(QString::fromStdString(part_path.string())) &&
+            window.open_document_path(QString::fromStdString(sub_path.string())) &&
+            window.open_document_path(QString::fromStdString(top_path.string())) &&
+            window.activate_occurrence_for_test(active_path),"Cannot activate nested multi-body Part")) return 1;
+    flush();
+    auto* tree=window.findChild<QTreeWidget*>("documentTree");
+    QTreeWidgetItem* row{};
+    for (QTreeWidgetItemIterator i(tree);*i;++i)
+        if ((*i)->data(0,Qt::UserRole).toString().toStdString()==sketch.id &&
+                (*i)->data(0,Qt::UserRole+3).toString()=="part-sketch") { row=*i;break; }
+    if (!verify(row!=nullptr,"Nested Body Sketch missing from Tree")) return 1;
+    window.show_tree_item_properties(row);flush();
+    auto* open=window.findChild<QPushButton*>("sketchOpenButton");
+    if (!verify(open && open->isVisible(),"Cannot edit nested Body Sketch")) return 1;
+    open->click();flush();
+    QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();
+    auto* view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
+    const auto has_later=[&](const std::string& path) {
+        return std::ranges::any_of(view->mesh().triangle_references,[&](const auto& ref) {
+            return ref.owner_id==later.id && ref.instance_path==path;
+        });
+    };
+    if (!verify(view && !has_later(active_path) && has_later(passive_path),
+            "Nested Body history did not isolate the active occurrence from passive context")) return 1;
+    if (!verify(std::ranges::any_of(view->mesh().points,[&](const auto& point) {
+            return point.reference.owner_id==sketch.id && point.reference.instance_path==active_path &&
+                std::hypot(std::hypot(point.position.x+30,point.position.y-45),point.position.z-80)<1e-6;
+        }),"Nested Sketch did not compose Body, Part and Assembly frames exactly once")) return 1;
+    std::optional<QPointF> picked;
+    for (int y=20;y<view->height()-20 && !picked;y+=3)
+        for (int x=20;x<view->width()-20 && !picked;x+=3) {
+            const auto candidates=view->selection_candidates_at(QPointF(x,y));
+            if (!candidates.empty() && candidates.front().kind==zima::viewer::CandidateKind::SketchPoint &&
+                    candidates.front().owner_id==sketch.id && candidates.front().instance_path==active_path &&
+                    candidates.front().semantic_key=="point:"+sketch.points[1].id) picked=QPointF(x,y);
+        }
+    if (!verify(picked.has_value(),"Nested Sketch point is not offered in its exact occurrence")) return 1;
+    const auto send=[&](QEvent::Type type,QPointF position,Qt::MouseButton button,Qt::MouseButtons buttons) {
+        QMouseEvent event(type,position,QPointF(view->mapToGlobal(position.toPoint())),button,buttons,Qt::NoModifier);
+        QApplication::sendEvent(view,&event);flush();
+    };
+    send(QEvent::MouseMove,*picked,Qt::NoButton,Qt::NoButton);
+    send(QEvent::MouseButtonPress,*picked,Qt::LeftButton,Qt::LeftButton);
+    send(QEvent::MouseMove,*picked+QPointF(18,12),Qt::NoButton,Qt::LeftButton);
+    if (!verify(!has_later(active_path) && has_later(passive_path),
+            "Dragging a nested Sketch point discarded Assembly context or restored later Body history")) return 1;
+    send(QEvent::MouseButtonRelease,*picked+QPointF(18,12),Qt::LeftButton,Qt::NoButton);
+    window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+    const auto edited=PartDocument::load(part_path);
+    const auto* moved=edited.sketches.front().find_point(sketch.points[1].id);
+    if (!verify(moved && std::hypot(moved->x-sketch.points[1].x,moved->y-sketch.points[1].y)>1e-4 &&
+            window.active_occurrence_path_for_test()==active_path && has_later(passive_path),
+            "Nested Sketch drag did not persist into its source Part or changed occurrence ownership")) return 1;
+    window.findChild<QAction*>("sketchTrimAction")->trigger();flush();
+    bool has_trim_piece=false;
+    for (const auto& edge : view->mesh().edges) {
+        if (edge.reference.owner_id!=sketch.id || edge.reference.instance_path!=active_path ||
+                !edge.reference.semantic_key.starts_with("trim_piece:")) continue;
+        has_trim_piece=true;
+        for (const auto& point : edge.points)
+            if (!verify(std::abs(point.x+30)<1e-6,
+                    "Nested Sketch trim candidates escaped the placed Body plane")) return 1;
+    }
+    if (!verify(has_trim_piece,"Nested Sketch trim did not offer editable curve pieces")) return 1;
+    std::optional<QPointF> trim_pick;
+    for (int y=20;y<view->height()-20 && !trim_pick;y+=3)
+        for (int x=20;x<view->width()-20 && !trim_pick;x+=3) {
+            const auto candidates=view->selection_candidates_at(QPointF(x,y));
+            if (!candidates.empty() && candidates.front().kind==zima::viewer::CandidateKind::SketchTrimPiece &&
+                    candidates.front().owner_id==sketch.id && candidates.front().instance_path==active_path)
+                trim_pick=QPointF(x,y);
+        }
+    if (!verify(trim_pick.has_value(),"Placed trim piece is not offered by the common viewer picker")) return 1;
+    send(QEvent::MouseMove,*trim_pick,Qt::NoButton,Qt::NoButton);
+    send(QEvent::MouseButtonPress,*trim_pick,Qt::LeftButton,Qt::LeftButton);
+    send(QEvent::MouseButtonRelease,*trim_pick,Qt::LeftButton,Qt::NoButton);
+    const auto remaining=std::ranges::count_if(view->mesh().edges,[&](const auto& edge) {
+        return edge.reference.owner_id==sketch.id && edge.reference.instance_path==active_path &&
+            edge.reference.semantic_key.starts_with("trim_piece:");
+    });
+    if (!verify(remaining==1 && has_later(passive_path),
+            "Trim click did not remove exactly one placed curve or lost passive context")) return 1;
+    QKeyEvent cancel_trim(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);
+    QApplication::sendEvent(&window,&cancel_trim);flush();
+    window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+    const auto canceled_trim=PartDocument::load(part_path);
+    if (!verify(canceled_trim.sketches.front().serialized()==edited.sketches.front().serialized(),
+            "Cancel committed the pending nested Sketch trim")) return 1;
+    std::cout << "Nested Body Sketch UI contracts passed\n";
     return 0;
 }
 
@@ -964,6 +1999,96 @@ int verify_startup_contract(
     QApplication& application, zima::app::AssemblyWorkspaceWindow& window,
     const std::filesystem::path& test_directory,
     const QString& part_capture_path = {}, const QString& drawing_capture_path = {}) {
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_UNRESOLVED_SWEEP_ONLY")) return verify_unresolved_sweep_sketches(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_EXTERNAL_CIRCLE_ONLY")) return verify_external_circle_selection(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_REFERENCE_DOCUMENT")) {
+        QString failure;
+        QTimer messages;
+        QObject::connect(&messages,&QTimer::timeout,[&] {
+            if (auto* box=qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) {
+                failure=box->text(); box->accept();
+            }
+        });
+        messages.start(50);
+        window.show();
+        if (!window.open_document_path(qEnvironmentVariable("ZIMA_VERIFY_REFERENCE_DOCUMENT"))) return 1;
+        application.processEvents();
+        window.findChild<QAction*>("regeneratePartAction")->trigger();
+        application.processEvents();
+        if (!failure.isEmpty()) {std::cerr << failure.toStdString() << '\n';return 1;}
+        std::cout << "Reference document regeneration passed\n";
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CENTERLINE_PICK")) {
+            auto* view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
+            if(!verify(view && std::ranges::any_of(view->mesh().edges,[](const auto& edge){return edge.reference.semantic_key.starts_with("centerline:from:") && edge.dash_dot;}),
+                    "Regenerated Sweep centerlines did not reach the document View"))return 1;
+            for (const auto& axis : view->mesh().edges) {
+                if (!axis.reference.semantic_key.starts_with("centerline:from:")) continue;
+                if (!verify(std::ranges::none_of(view->mesh().edges,[&](const auto& edge) {
+                        return edge.display_owner_id == axis.display_owner_id &&
+                            zima::viewer::is_curve3d_edge(edge.reference.semantic_key);
+                    }),"Solid Sweep axis is obscured by its original trajectory")) return 1;
+            }
+            view->grabFramebuffer().save("/tmp/zima-sweep-centerlines.png");
+            window.findChild<QAction*>("constructionPointAction")->trigger();application.processEvents();
+            zima::app::ConstructionPropertiesDialog* dialog{};
+            for(auto* child:window.findChildren<QDialog*>())if(auto* value=dynamic_cast<zima::app::ConstructionPropertiesDialog*>(child);value && value->isVisible()){dialog=value;break;}
+            if(!verify(dialog!=nullptr,"Cannot open Point for Sweep axis reference"))return 1;
+            std::optional<QPointF> hit;zima::viewer::ViewerCandidate chosen;
+            for(int y=10;y<view->height()-10 && !hit;y+=3)for(int x=10;x<view->width()-10 && !hit;x+=3) {
+                const auto candidates=view->selection_candidates_at(QPointF(x,y));
+                if(!candidates.empty() && candidates.front().kind==zima::viewer::CandidateKind::Axis &&
+                    candidates.front().semantic_key.starts_with("centerline:from:")){hit=QPointF(x,y);chosen=candidates.front();}
+            }
+            if(!verify(hit.has_value(),"Sweep centerline axis is not offered for placement"))return 1;
+            QMouseEvent press(QEvent::MouseButtonPress,*hit,QPointF(view->mapToGlobal(hit->toPoint())),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+            QMouseEvent release(QEvent::MouseButtonRelease,*hit,QPointF(view->mapToGlobal(hit->toPoint())),Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+            QApplication::sendEvent(view,&press);QApplication::sendEvent(view,&release);application.processEvents();
+            const auto references=dialog->populated_references();
+            if(!verify(!references.empty() && references.front().owner_id==chosen.owner_id && references.front().semantic_key==chosen.semantic_key,
+                    "Sweep axis click did not store the exact source reference"))return 1;
+            dialog->buttons()->button(QDialogButtonBox::Cancel)->click();application.processEvents();
+            std::cout << "Sweep centerline document picking passed\n";return 0;
+        }
+        auto* tree=window.findChild<QTreeWidget*>("documentTree");
+        tree->scrollToItem(tree->topLevelItem(0));
+        QTimer::singleShot(0,&window,[&] {
+            if(auto* menu=window.findChild<QMenu*>("partActivationMenu")) {
+                menu->setActiveAction(menu->findChild<QAction*>("activatePartAction"));
+                QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(menu,&enter);
+            }
+        });
+        tree->customContextMenuRequested(tree->visualItemRect(tree->topLevelItem(0)).center());application.processEvents();
+        auto* create=window.findChild<QAction*>("createBodyAction");
+        if(!verify(create && create->isEnabled(),"New Body command unavailable after regeneration"))return 1;
+        create->trigger();application.processEvents();
+        zima::app::BodyPropertiesDialog* body{};
+        for(auto* child:window.findChildren<QDialog*>())
+            if(auto* dialog=dynamic_cast<zima::app::BodyPropertiesDialog*>(child);dialog && dialog->isVisible()){body=dialog;break;}
+        if(!verify(body!=nullptr,"New Body properties did not open"))return 1;
+        const auto input=zima::document::PartDocument::load(qEnvironmentVariable("ZIMA_VERIFY_REFERENCE_DOCUMENT").toStdString());
+        const std::array<std::string,3> planes{"origin:plane:xz","origin:plane:xy","origin:plane:yz"};
+        for(std::size_t i=0;i<planes.size();++i) {
+            zima::document::ConstructionReference reference;
+            reference.owner_id=input.document_id+":origin";reference.semantic_key=planes[i];reference.supports_offset=true;
+            if(!verify(body->set_reference(i,reference,QString::fromStdString(planes[i])),"New Body origin reference rejected"))return 1;
+        }
+        body->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();application.processEvents();
+        if(!verify(!body->isVisible(),"New Body failed to commit after reference regeneration"))return 1;
+        std::cout << "Reference document new Body passed\n";
+        return 0;
+    }
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_BODY_CURVE_REFERENCE_ONLY"))
+        return verify_body_curve_references(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_NESTED_BODY_ONLY"))
+        return verify_nested_body_sketch_ui(application, test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_BODY_SKETCH_ONLY"))
+        return verify_body_sketch_ui(application, test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_BODY_OFFSET_ONLY"))
+        return verify_body_placement_offsets(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SAVE_COPY_ONLY"))
+        return verify_save_copy_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_BODY_UI_ONLY"))
+        return verify_body_history_ui(application, test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PENDING_TREE_ONLY"))
         return verify_pending_container_tree(application, test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SWEEP2D_ONLY"))
@@ -974,7 +2099,15 @@ int verify_startup_contract(
         return verify_shaft_thread_command(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_HISTORY_DRAG_ONLY"))
         return verify_history_tree_drag(application,test_directory);
+    if (verify_save_copy_ui(application, test_directory) != 0) return 1;
+    if (verify_body_placement_offsets(application, test_directory) != 0) return 1;
+    if (verify_body_history_ui(application, test_directory) != 0) return 1;
+    if (verify_body_curve_references(application,test_directory) != 0) return 1;
+    if (verify_body_sketch_ui(application, test_directory) != 0) return 1;
+    if (verify_nested_body_sketch_ui(application, test_directory) != 0) return 1;
     if (verify_pending_container_tree(application, test_directory) != 0) return 1;
+    if (verify_unresolved_sweep_sketches(application,test_directory) != 0) return 1;
+    if (verify_external_circle_selection(application,test_directory) != 0) return 1;
     if (verify_spline_tangent_selection(application,test_directory) != 0) return 1;
     if (verify_curve_radius_edit(application,test_directory) != 0) return 1;
     window.show();
@@ -1351,9 +2484,15 @@ int verify_startup_contract(
     application.processEvents();
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     application.processEvents();
+    const auto part_history_root = [&]() -> QTreeWidgetItem* {
+        for (QTreeWidgetItemIterator it(tree);*it;++it)
+            if ((*it)->data(0,Qt::UserRole+3).toString()=="part-body") return *it;
+        return nullptr;
+    };
+    if (!verify(part_history_root()!=nullptr,"New Part has no Body history branch")) return 1;
     QTreeWidgetItem* box_tree_item{};
     if (tree->topLevelItemCount() == 1) {
-        auto* root = tree->topLevelItem(0);
+        auto* root = part_history_root();
         for (int index = 0; index < root->childCount(); ++index) {
             if (root->child(index)->data(0, Qt::UserRole + 3).toString() ==
                     QStringLiteral("part-container")) {
@@ -1366,6 +2505,7 @@ int verify_startup_contract(
                 "confirming Box must create the first Part history item")) {
         return 1;
     }
+    const auto original_box_id=box_tree_item->data(0,Qt::UserRole).toString().toStdString();
     auto* selection_viewer = dynamic_cast<zima::viewer::MeshView*>(
         window.findChild<QOpenGLWidget*>("modelWorkspace"));
     tree->setCurrentItem(box_tree_item);
@@ -1620,14 +2760,11 @@ int verify_startup_contract(
         for (int x = 2; x < point_viewer->width(); x += 2) {
             const QPointF position{static_cast<qreal>(x), static_cast<qreal>(y)};
             const auto candidates = point_viewer->selection_candidates_at(position);
-            if (std::any_of(candidates.begin(), candidates.end(),
-                    [&](const auto& candidate) {
-                        return candidate.kind ==
-                                zima::viewer::CandidateKind::Dimension &&
-                            candidate.owner_id == point_properties->construction_id() &&
-                            candidate.semantic_key ==
-                                "parameter:placement:x";
-                    })) {
+            // A click confirms the offered first candidate, not an occluded
+            // dimension farther down the shared candidate list.
+            if (!candidates.empty() && candidates.front().kind == zima::viewer::CandidateKind::Dimension &&
+                candidates.front().owner_id == point_properties->construction_id() &&
+                candidates.front().semantic_key == "parameter:placement:x") {
                 point_x_dimension_position = position;
                 break;
             }
@@ -1722,7 +2859,7 @@ int verify_startup_contract(
     QTreeWidgetItem* point_tree_item{};
     box_tree_item = nullptr;
     if (tree->topLevelItemCount() == 1) {
-        auto* root = tree->topLevelItem(0);
+        auto* root = part_history_root();
         for (int index = 0; index < root->childCount(); ++index) {
             auto* child = root->child(index);
             const auto item_kind = child->data(0, Qt::UserRole + 3).toString();
@@ -1753,7 +2890,8 @@ int verify_startup_contract(
         QApplication::sendEvent(tree->viewport(), &release);
         application.processEvents();
     };
-    auto* document_origin = tree->topLevelItem(0)->child(0);
+    // Only the active Body Origin is normally displayed inside a Body.
+    auto* document_origin = part_history_root()->child(0);
     auto* document_x_axis = document_origin == nullptr ||
             document_origin->childCount() < 2
         ? nullptr : document_origin->child(1);
@@ -1906,7 +3044,7 @@ int verify_startup_contract(
                 "Axis or Plane container creation failed")) return 1;
     int datum_container_count = 0;
     if (tree->topLevelItemCount() == 1) {
-        auto* root = tree->topLevelItem(0);
+        auto* root = part_history_root();
         for (int index = 0; index < root->childCount(); ++index) {
             auto* child = root->child(index);
             if (child->data(0, Qt::UserRole + 3).toString() !=
@@ -2901,13 +4039,23 @@ int verify_startup_contract(
                 "finishing owned Sketch did not return to Extrusion Properties")) {
         return 1;
     }
+    const auto preceding_box_visible = [&] {
+        return std::ranges::any_of(selection_viewer->mesh().triangle_references,[&](const auto& reference) {
+            return reference.owner_id==original_box_id;
+        });
+    };
+    if (!verify(preceding_box_visible(),"Pending extrusion hid the preceding calculated solid")) return 1;
+    auto* pending_height=properties->findChild<QDoubleSpinBox*>("extrusionHeight");
+    if (!verify(pending_height!=nullptr,"Pending extrusion has no length input")) return 1;
+    pending_height->setValue(pending_height->value()+2);application.processEvents();
+    if (!verify(preceding_box_visible(),"Changing extrusion length discarded its input solid")) return 1;
     buttons->button(QDialogButtonBox::Ok)->click();
     application.processEvents();
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     application.processEvents();
     bool extrusion_in_tree = false;
     if (tree->topLevelItemCount() == 1) {
-        const auto* root = tree->topLevelItem(0);
+        const auto* root = part_history_root();
         for (int index = 0; index < root->childCount(); ++index) {
             const auto* child = root->child(index);
             if (child->data(0, Qt::UserRole + 3).toString() ==
@@ -2922,8 +4070,23 @@ int verify_startup_contract(
                 "Sketch rectangle must produce a committed Extrusion history item")) {
         return 1;
     }
+    // Offering preceding container references must not invent an axis for
+    // a rectangular extrusion. Real profile axes come from persisted geometry.
+    std::string rectangular_extrusion_id;
+    for (QTreeWidgetItemIterator it(tree);*it;++it)
+        if ((*it)->data(0,Qt::UserRole+3).toString()=="part-container" &&
+                (*it)->text(0).endsWith(QStringLiteral("Vytažení")))
+            rectangular_extrusion_id=(*it)->data(0,Qt::UserRole).toString().toStdString();
+    box->trigger();application.processEvents();
+    auto* axis_check_dialog=window.findChild<QDialog*>("zimaPropertiesSubWindow");
+    if (!verify(axis_check_dialog && !rectangular_extrusion_id.empty() &&
+            std::ranges::none_of(selection_viewer->mesh().axes,[&](const auto& axis) {
+                return axis.reference.owner_id==rectangular_extrusion_id;
+            }),"Rectangular extrusion offered a synthetic extrusion axis")) return 1;
+    axis_check_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();
+    QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();
     auto open_extrusion_properties = [&]() {
-        auto* root = tree->topLevelItem(0);
+        auto* root = part_history_root();
         QTreeWidgetItem* item{};
         if (root != nullptr) {
             for (int index = 0; index < root->childCount(); ++index) {
@@ -3111,7 +4274,7 @@ int verify_startup_contract(
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     application.processEvents();
     std::tie(edit_dialog, edit_height) = open_extrusion_properties();
-    auto* rollback_root = tree->topLevelItem(0);
+    auto* rollback_root = part_history_root();
     QTreeWidgetItem* rollback_extrusion{};
     QTreeWidgetItem* downstream_box{};
     if (rollback_root != nullptr) {
@@ -3141,7 +4304,7 @@ int verify_startup_contract(
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     application.processEvents();
     int saved_history_items = 0;
-    if (const auto* root = tree->topLevelItem(0); root != nullptr) {
+    if (const auto* root = part_history_root(); root != nullptr) {
         for (int index = 0; index < root->childCount(); ++index) {
             if (root->child(index)->data(0, Qt::UserRole + 3).toString() ==
                     QStringLiteral("part-container")) ++saved_history_items;
@@ -3184,7 +4347,7 @@ int verify_startup_contract(
         QString::fromStdString(saved_part_path.string()));
     int reopened_history_items = 0;
     if (reopened && tree->topLevelItemCount() == 1) {
-        const auto* root = tree->topLevelItem(0);
+        const auto* root = part_history_root();
         for (int index = 0; index < root->childCount(); ++index) {
             if (root->child(index)->data(0, Qt::UserRole + 3).toString() ==
                     QStringLiteral("part-container")) ++reopened_history_items;

@@ -100,3 +100,13 @@ výpočet odmítá více než 1000 otáček v jednom kontejneru.
 
 Přesnost se přebírá z Nastavení souboru, viz [Numerická přesnost](NUMERICAL_PRECISION.md).
 Odchylka triangulace řídí také jemnost vykreslených hran vinutí.
+
+### Osová dráha hotového solidu
+
+Solid publikuje čerchovanou osovou dráhu podle zdrojových křivek
+(`centerline:from:<source_id>`). Úsečky, zaoblení, spline i helix zachovávají
+tvar; aproximační části jedné zdrojové křivky mají společnou referenci.
+Pouze přímé části nabízejí také osovou referenci pro další prvky.
+Zobrazení respektuje přepínač Os, včetně stínovaného režimu. Geometrie se
+ukládá při výpočtu solidu; vykreslení a výběr nevolají OCCT. Dříve vypočtený
+model doplní osovou dráhu explicitním příkazem Regenerovat.

@@ -41,6 +41,7 @@ target_link_libraries(zima_sketcher
 
 add_library(zima_document_core
     modules/document_core/src/part_document.cpp
+    modules/document_core/src/body_history.cpp
     modules/document_core/src/relations.cpp
     modules/document_core/src/document_session.cpp
     modules/document_core/src/dimension_identifiers.cpp
@@ -65,10 +66,12 @@ target_link_libraries(zima_drawing
     PUBLIC zima_kernel_api zima_document_core
     PRIVATE nlohmann_json::nlohmann_json)
 
-add_library(zima_workspace modules/workspace/src/workspace.cpp)
+add_library(zima_workspace modules/workspace/src/workspace.cpp
+    modules/workspace/src/document_copy.cpp)
 target_include_directories(zima_workspace PUBLIC modules/workspace/include)
 target_link_libraries(zima_workspace PUBLIC
-    zima_document_core zima_assembly zima_drawing zima_kernel_occt)
+    zima_document_core zima_assembly zima_drawing zima_kernel_occt
+    PRIVATE nlohmann_json::nlohmann_json)
 
 add_library(zima_kernel_occt
     modules/kernel_occt/src/occt_kernel.cpp)
@@ -105,6 +108,7 @@ target_link_libraries(zima_interchange PUBLIC zima_sketcher
 
 add_executable(zima-cad-part-harness
     app/main.cpp app/main_window.cpp app/file_dialog.cpp
+    app/application_settings.cpp
     app/resource_icon.cpp app/zima_resources.qrc
     app/primitive_properties_dialog.cpp)
 target_include_directories(zima-cad-part-harness PRIVATE app)
@@ -195,6 +199,9 @@ if(ZIMA_BUILD_TESTS)
     add_executable(zima_cpp_dimension_identifiers_contract_tests tests/dimension_identifiers_contract_tests.cpp)
     target_link_libraries(zima_cpp_dimension_identifiers_contract_tests PRIVATE zima_document_core zima_assembly zima_drawing zima_kernel_occt)
     add_test(NAME zima_cpp_dimension_identifiers_contract_tests COMMAND zima_cpp_dimension_identifiers_contract_tests)
+    add_executable(zima_cpp_multibody_contract_tests tests/multibody_contract_tests.cpp)
+    target_link_libraries(zima_cpp_multibody_contract_tests PRIVATE zima_document_core zima_kernel_occt nlohmann_json::nlohmann_json)
+    add_test(NAME zima_cpp_multibody_contract_tests COMMAND zima_cpp_multibody_contract_tests)
     add_executable(zima_cpp_contract_tests tests/contract_tests.cpp)
     target_link_libraries(zima_cpp_contract_tests PRIVATE
         zima_document_core zima_kernel_occt TKPrim TKDESTEP)

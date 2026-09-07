@@ -45,6 +45,9 @@ Architecture and migration notes are in [`doc/`](doc/).
 
 Current modeling tools and interaction contracts:
 
+- [Multi-body Part and Boolean operations](doc/MULTIBODY_AND_BOOLEANS.md)
+- [Save As: model and drawing copies](doc/DOCUMENT_COPY.md)
+- [Sweep/Loft and trajectory references](doc/3D_CURVE_AND_SWEEP.md)
 - [Threaded openings](doc/THREADED_OPENING.md)
 - [External shaft threads](doc/SHAFT_THREAD.md)
 - [Helical Sweep](doc/HELICAL_SWEEP.md)

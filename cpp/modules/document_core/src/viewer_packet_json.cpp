@@ -16,6 +16,12 @@
 namespace zima::document {
 namespace {
 
+void restore_reference_curve_style(zima::kernel::ViewerEdge& edge) {
+    if(!edge.reference.semantic_key.starts_with("centerline:from:"))return;
+    edge.construction=true;edge.overlay=true;edge.dash_dot=true;
+    edge.display_owner_id=edge.reference.owner_id;
+}
+
 void require_finite(double value, const char* field) {
     if (!std::isfinite(value)) {
         throw std::runtime_error(std::string(field) + " must be finite");
@@ -359,6 +365,7 @@ zima::kernel::ViewerReferenceGeometry load_reference_geometry(
         edge.points.insert(edge.points.end(),
             edge_points.begin() + edge_offsets[index],
             edge_points.begin() + edge_offsets[index + 1]);
+        restore_reference_curve_style(edge);
         result.edges.push_back(std::move(edge));
     }
 
@@ -494,7 +501,7 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result) {
             {"sweep_degrees", dimension.sweep_degrees},
         });
     }
-    return {
+    nlohmann::json packet = {
         {"volume", result.volume}, {"surface_area", result.surface_area},
         {"source_fingerprint", result.source_fingerprint},
         {"kernel_shape", result.kernel_shape},
@@ -507,6 +514,23 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result) {
         {"original_references", serialize_reference_geometry(
             result.mesh.original_references)},
     };
+    // Only a document aggregate owns branch caches. Ordinary local boundary
+    // packets contain geometry alone, avoiding recursive empty cache fields.
+    if (!result.body_boundaries.empty()) {
+        auto histories = nlohmann::json::object();
+        auto inputs = nlohmann::json::object();
+        auto outputs = nlohmann::json::object();
+        for (const auto& [id, boundaries] : result.body_boundaries) {
+            auto rows = nlohmann::json::array();
+            for (const auto& boundary : boundaries) rows.push_back(serialize_body_result(boundary));
+            histories[id] = std::move(rows);
+        }
+        for (const auto& [id, body] : result.body_inputs) inputs[id] = serialize_body_result(body);
+        for (const auto& [id, body] : result.body_outputs) outputs[id] = serialize_body_result(body);
+        packet["body_histories"] = {{"boundaries", std::move(histories)},
+            {"inputs", std::move(inputs)}, {"outputs", std::move(outputs)}};
+    }
+    return packet;
 }
 
 nlohmann::json serialize_viewer_reference_geometry(
@@ -521,6 +545,14 @@ zima::kernel::ViewerReferenceGeometry load_viewer_reference_geometry(
 
 zima::kernel::BodyResult load_body_result(const nlohmann::json& source) {
     zima::kernel::BodyResult result;
+    if (const auto caches = source.find("body_histories"); caches != source.end()) {
+        for (const auto& [id, rows] : caches->at("boundaries").items())
+            for (const auto& row : rows) result.body_boundaries[id].push_back(load_body_result(row));
+        for (const auto& [id, body] : caches->at("inputs").items())
+            result.body_inputs.emplace(id, load_body_result(body));
+        for (const auto& [id, body] : caches->at("outputs").items())
+            result.body_outputs.emplace(id, load_body_result(body));
+    }
     result.volume = source.at("volume").get<double>();
     result.surface_area = source.at("surface_area").get<double>();
     result.source_fingerprint = source.at("source_fingerprint").get<std::string>();
@@ -629,6 +661,7 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source) {
         if (owner_empty != key_empty || loaded.points.size() < 2) {
             throw std::runtime_error("Persisted viewer edge is invalid");
         }
+        restore_reference_curve_style(loaded);
         result.mesh.edges.push_back(std::move(loaded));
     }
     for (const auto& point : source.at("points")) {

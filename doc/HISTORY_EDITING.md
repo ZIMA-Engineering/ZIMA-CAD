@@ -24,7 +24,9 @@ invalid references for the parent's placement.
 
 This current transient Tree behaviour is separate from the planned
 [multi-body document structure](MULTIBODY_AND_BOOLEANS.md). Independent Body
-histories and document-level Boolean branches are not yet implemented.
+histories and standalone document-level Boolean steps have a persisted
+document/kernel model and an initial Part Tree/Properties integration.
+Full modeling/Sketcher frame routing and nested Assembly integration remain in progress.
 
 ## View behaviour
 
@@ -83,3 +85,26 @@ zoom remain unchanged unless the command explicitly requests Fit.
 
 Feature-specific documents such as [EDGE_TREATMENTS.md](EDGE_TREATMENTS.md)
 describe additional rules layered on this mechanism.
+
+## Shared Origin action in container properties
+
+Every tracked modeling-container properties dialog uses the same `POČÁTEK`
+action, including treatments without an editable placement table and the
+nested Curve3D / Sweep point editor. `PropertiesSubWindow` supplies the button
+when the shared placement section has not already supplied it; it never adds
+a duplicate. New Body properties must use this same helper and command binding.
+
+The action temporarily switches the common viewer candidate stream to selecting
+containers whose local frames should be displayed. Leaving the mode restores
+the previous reference entry or the previous command's selection contract and
+filter (including Shell face and Fillet edge selection). It does not commit
+parameters. Finishing or directly destroying the owning editor retires the mode;
+a nested editor must not leave a dangling callback to its hidden parent.
+
+## Standalone Boolean input snapshots
+
+`DocumentSession::boolean_edit_inputs` returns the exact target and tool
+results stored by the last explicit calculation, in document coordinates.
+It performs no feature compilation or OCCT work. Missing operation or missing
+calculation returns no inputs; it never substitutes the final document solid.
+The Boolean step owns its result ID and leaves both source histories intact.

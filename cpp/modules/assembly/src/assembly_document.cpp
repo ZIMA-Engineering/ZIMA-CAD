@@ -1,3 +1,4 @@
+#include <zima/document/document_copy_json.hpp>
 #include <zima/assembly/assembly_document.hpp>
 #include <zima/document/versioned_file.hpp>
 #include <zima/document/viewer_packet_json.hpp>
@@ -1747,7 +1748,8 @@ void AssemblyDocument::synchronize_dimension_identifiers() {
     dimension_identifiers.synchronize(dimension_parameters());
 }
 
-void AssemblyDocument::save(const std::filesystem::path& path) const {
+void AssemblyDocument::save(const std::filesystem::path& path,
+    const zima::document::DocumentCopyIdentity& copy) const {
     auto identifiers = dimension_identifiers;
     identifiers.synchronize(dimension_parameters());
     static_cast<void>(build_scene());
@@ -1854,7 +1856,7 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
             {"targets", cut.target_occurrence_ids},
             {"input_component_bodies", std::move(input_bodies)}});
     }
-    const nlohmann::json root = {
+    nlohmann::json root = {
         {"format", "zima-cad-cpp"}, {"format_version", 22},
         {"type", "assembly"}, {"document_id", document_id}, {"name", name},
         {"user_parameters", user_parameters},
@@ -1875,12 +1877,15 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
         {"components", std::move(components_json)},
         {"dependencies", std::move(dependencies_json)},
     };
+    zima::document::apply_document_copy_identity(root, copy);
+    const auto saved_id = root.at("document_id").get<std::string>();
+    const auto saved_name = root.at("name").get<std::string>();
     IniSections ini;
     ini["Document"] = {
         {"format_version", "12"},
         {"type", "assembly"},
-        {"document_id", document_id},
-        {"name", name},
+        {"document_id", saved_id},
+        {"name", saved_name},
         {"family_table", family_table},
     };
     ini["DocumentUnits"] = document_units;
@@ -1922,7 +1927,7 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
     }
     if (!relations.empty()) ini["Relations"]["Data"] = root.at("relations").dump();
 
-    std::string container_items = document_id;
+    std::string container_items = saved_id;
     const auto add_container = [&](const std::string& id, const std::string& name,
                                    const std::string& kind, const nlohmann::json& data) {
         if (!id.empty()) {
@@ -1936,9 +1941,9 @@ void AssemblyDocument::save(const std::filesystem::path& path) const {
             section["param.cpp_data"] = data.dump();
         }
     };
-    auto& root_container = ini["Container." + document_id];
+    auto& root_container = ini["Container." + saved_id];
     root_container = {
-        {"id", document_id}, {"name", name}, {"kind", "container"},
+        {"id", saved_id}, {"name", saved_name}, {"kind", "container"},
         {"TYPE", "ASSEMBLY"}, {"param.cpp_kind", "assembly"},
         {"param.cpp_assembly", root.dump()},
     };

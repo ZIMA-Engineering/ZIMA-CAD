@@ -13,6 +13,15 @@ void require(bool condition, const char* message) {
 
 int main() {
     try {
+        {
+            zima::kernel::ViewerEdge line;line.reference={"sweep","centerline:from:source-segment",{}};
+            line.overlay=true;line.construction=true;line.dash_dot=true;
+            zima::viewer::ViewerCandidate axis;axis.kind=zima::viewer::CandidateKind::Axis;
+            axis.owner_id="sweep";axis.semantic_key=line.reference.semantic_key;
+            require(zima::viewer::candidate_recolors_wire_edge(axis,line),"Axis selection does not highlight its Sweep centerline");
+            axis.semantic_key="centerline:from:another-segment";
+            require(!zima::viewer::candidate_recolors_wire_edge(axis,line),"Axis selection highlights another Sweep segment");
+        }
         zima::kernel::ViewerMesh mesh;
         mesh.vertices = {
             {-1.0, -1.0, 5.0}, {1.0, -1.0, 5.0}, {0.0, 1.0, 5.0},

@@ -127,3 +127,23 @@ podřízené prvky nejsou platnou referencí pro umístění jejich rodiče.
 Zobrazení stromu čte rozpracovaná ZIMA data; nevkládá je do uložené historie
 ani nevyvolává výpočet tělesa. OK potvrdí transakci, Cancel odstraní její
 náhled. Po zavření vlastností se obnoví běžné zobrazení „Vložit zde“.
+
+### Osová dráha hotového solidu
+
+Solid publikuje čerchovanou osovou dráhu podle zdrojových křivek
+(`centerline:from:<source_id>`). Úsečky, zaoblení, spline i helix zachovávají
+tvar; aproximační části jedné zdrojové křivky mají společnou referenci.
+Pouze přímé části nabízejí také osovou referenci pro další prvky.
+Zobrazení respektuje přepínač Os, včetně stínovaného režimu. Geometrie se
+ukládá při výpočtu solidu; vykreslení a výběr nevolají OCCT. Dříve vypočtený
+model doplní osovou dráhu explicitním příkazem Regenerovat.
+
+Hotový solid zobrazuje trajektorii standardní hnědou čerchovanou osou,
+rovněž na zakřivených úsecích. Původní plná křivka nepřekrývá vypočítanou osu;
+při editaci zůstává dostupný náhled zdrojové dráhy. Viditelnost výsledných os
+řídí společný přepínač os, stejně jako u 2D Sweepu a Helix Sweepu.
+
+Počáteční a koncová plocha spojeného Sweep/Loftu (zaoblená i spline dráha)
+se při výpočtu publikují do uložené referenční geometrie. Identita vychází
+z role začátku/konce a zdrojového úseku dráhy; koncová tečna určuje rovinu.
+Tyto plochy lze použít k umístění dalšího kontejneru i po načtení dokumentu.

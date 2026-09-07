@@ -50,6 +50,11 @@ public:
     void add_drawing(
         zima::drawing::DrawingDocument document,
         std::filesystem::path path = {});
+    // Save independent copies from the current in-memory state. Does not
+    // retarget/mark saved/activate the original documents or calculate OCCT.
+    [[nodiscard]] std::vector<std::filesystem::path> save_copy(
+        const std::string& document_id, const std::filesystem::path& target,
+        const std::filesystem::path& drawing_search_directory = {}) const;
     [[nodiscard]] bool remove(const std::string& document_id);
 
     [[nodiscard]] std::size_t size() const;

@@ -64,6 +64,87 @@ double viewer_triangle_area(const zima::kernel::ViewerMesh& mesh) {
 
 int main() {
     try {
+        {
+            zima::kernel::ViewerReferenceGeometry geometry;
+            geometry.vertices={{7,11,13},{8,12,13},{7,12,14}};
+            geometry.triangles={0,1,2};geometry.triangle_references={{"cap","oblique",{}}};
+            zima::document::Placement placement;placement.x=50;placement.y=20;placement.z=-5;
+            placement.references={{{},"cap","oblique",2.5,false,"none",false}};
+            require(zima::document::resolve_placement(placement,geometry),"Oblique plane placement failed");
+            const auto solved=placement;
+            for(int i=0;i<100;++i)
+                require(zima::document::resolve_placement(placement,geometry) && placement==solved,
+                    "Repeated plane reference resolution drifted");
+            const double n=1/std::sqrt(3.0);
+            const double distance=((50-7)-(20-11)+(-5-13))*n;
+            const double delta=2.5-distance;
+            require(std::abs(placement.x-(50+delta*n))<1e-9 &&
+                    std::abs(placement.y-(20-delta*n))<1e-9 &&
+                    std::abs(placement.z-(-5+delta*n))<1e-9,
+                "Plane projection changed a free tangential coordinate");
+        }
+        for (const bool face : {false,true}) {
+            auto sketch=zima::sketcher::Sketch::create_default();
+            zima::sketcher::SketchExternalReference reference;
+            reference.id="circle-reference";
+            reference.source_document_id="source";
+            reference.source_owner_id="sweep";
+            reference.source_semantic_key="end-rim";
+            reference.kind=face ? zima::sketcher::ExternalReferenceKind::Face
+                                : zima::sketcher::ExternalReferenceKind::Edge;
+            std::vector<std::array<double,2>> path;
+            for(int i=0;i<=64;++i) {
+                const double angle=2*std::numbers::pi*std::pow(i/64.0,1.2);
+                path.push_back({3+5*std::cos(angle),-2+5*std::sin(angle)});
+            }
+            if(face) {
+                zima::kernel::ViewerReferenceGeometry cap;
+                cap.vertices.push_back({3,-2,0});
+                for(std::size_t i=0;i<path.size()-1;++i)cap.vertices.push_back({path[i][0],path[i][1],0});
+                for(std::uint32_t i=1;i<path.size();++i) {
+                    cap.triangles.insert(cap.triangles.end(),{0,i,i==path.size()-1?1:i+1});
+                    cap.triangle_references.push_back({"sweep","cap",{}});
+                }
+                const auto contours=sketch.external_face_reference_paths(cap,{"sweep","cap",{}});
+                require(contours && contours->size()==1,"Coplanar cap reference lost its circular boundary");
+                reference.cached_paths=*contours;
+            } else reference.cached_points=path;
+            sketch.external_references.push_back(reference);
+            static_cast<void>(sketch.add_circle(8,4,2));
+            const auto circle_id=sketch.circles.front().id;
+            static_cast<void>(sketch.add_equal_radius_constraint(reference.id,circle_id));
+            static_cast<void>(sketch.add_concentric_constraint(reference.id,circle_id));
+            auto restored=zima::sketcher::Sketch::from_serialized(sketch.serialized());
+            restored.validate();
+            const auto* center=restored.find_point(restored.circles.front().center_point_id);
+            require(center && std::hypot(center->x-3,center->y+2)<1e-7 &&
+                std::abs(restored.circles.front().radius-5)<1e-7,
+                "External circular reference failed equality/concentric roundtrip");
+            auto& points=face ? restored.external_references.front().cached_paths.front()
+                             : restored.external_references.front().cached_points;
+            for(auto& point:points) {point[0]=3+(point[0]-3)*1.4;point[1]=-2+(point[1]+2)*1.4;}
+            static_cast<void>(restored.solve());
+            require(std::abs(restored.circles.front().radius-7)<1e-7,
+                "Equal radius did not follow changed external circle");
+            auto invalid=reference;
+            auto& invalid_points=face ? invalid.cached_paths.front() : invalid.cached_points;
+            for(auto& point:invalid_points)point[0]*=2;
+            require(!zima::sketcher::external_reference_circle(invalid),
+                "External ellipse incorrectly accepted as circle");
+            auto arc=reference;
+            auto& arc_points=face ? arc.cached_paths.front() : arc.cached_points;
+            arc_points.resize(arc_points.size()/2);
+            const auto arc_circle=zima::sketcher::external_reference_circle(arc);
+            require(arc_circle && std::abs((*arc_circle)[2]-5)<1e-7,
+                "Circular external arc lost its radius");
+            invalid=reference;invalid.broken=true;
+            require(!zima::sketcher::external_reference_circle(invalid),"Broken circle accepted");
+            if(face) {
+                reference.cached_paths.push_back(path);
+                require(!zima::sketcher::external_reference_circle(reference),
+                    "Ambiguous face contours accepted as one circle");
+            }
+        }
         std::set<std::string> generated_stable_ids;
         std::string previous_stable_id;
         for (int index = 0; index < 4096; ++index) {
@@ -1836,7 +1917,7 @@ int main() {
             (std::istreambuf_iterator<char>(empty_serialized)),
             std::istreambuf_iterator<char>());
         require(empty_text.find("[Document]\n") != std::string::npos &&
-                    empty_text.find("format_version=14\n") != std::string::npos &&
+                    empty_text.find("format_version=15\n") != std::string::npos &&
                     empty_text.find("[DocumentUnits]\n") != std::string::npos &&
                     empty_text.find("[UserParameterValues]\n") != std::string::npos,
                 "Part persistence did not write the Python-compatible INI sections");

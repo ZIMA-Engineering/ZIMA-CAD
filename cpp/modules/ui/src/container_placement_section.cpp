@@ -1,4 +1,5 @@
 #include "zima/ui/container_placement_section.hpp"
+#include <zima/ui/properties_subwindow.hpp>
 
 #include "zima/ui/reference_cell.hpp"
 
@@ -147,13 +148,7 @@ ContainerPlacementSection::ContainerPlacementSection(
         orientation_flip_button_->setObjectName("containerOrientationFlipButton");
         orientation_rotate_button_ = new QPushButton(parent_widget_);
         orientation_rotate_button_->setObjectName("containerOrientationRotateButton");
-        origin_selection_button_ = new QPushButton(tr("POČÁTEK"), parent_widget_);
-        origin_selection_button_->setObjectName("containerOriginSelectionButton");
-        origin_selection_button_->setCheckable(true);
-        origin_selection_button_->setStyleSheet(
-            "QPushButton:checked{background:#4dd811;color:#102010;font-weight:700;}");
-        origin_selection_button_->setToolTip(
-            tr("Kliknutím zobrazit nebo skrýt lokální Počátky kontejnerů"));
+        origin_selection_button_ = create_origin_selection_button(parent_widget_);
         orientation_controls->addWidget(orientation_flip_button_);
         orientation_controls->addWidget(orientation_rotate_button_);
         orientation_controls->addStretch(1);

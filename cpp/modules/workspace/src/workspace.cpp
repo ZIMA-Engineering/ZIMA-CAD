@@ -507,7 +507,7 @@ bool Workspace::refresh_context_external_references(
                         reference.source_document_id == source_document_id;
                 });
             if (owns_context && sketch.refresh_external_references(
-                    source_document_id, geometry)) {
+                    source_document_id, document.sketch_reference_geometry_for(sketch, geometry))) {
                 changed = true;
             }
         }

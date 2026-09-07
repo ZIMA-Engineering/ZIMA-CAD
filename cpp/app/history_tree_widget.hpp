@@ -14,6 +14,8 @@ class HistoryTreeWidget final : public QTreeWidget {
 public:
     using QTreeWidget::QTreeWidget;
     std::function<void(std::size_t)> history_cursor_moved;
+    // Empty owner means the document-level Body/Boolean history.
+    std::function<void(const QString&,std::size_t)> body_cursor_moved;
     std::function<bool(QTreeWidgetItem*)> reorder_enabled;
     // before is the next sibling's stable ID, or empty for the end.
     std::function<bool(QTreeWidgetItem*,const QString&,bool)> reorder_requested;
@@ -40,7 +42,9 @@ protected:
             return;
         }
         if (event->button() == Qt::LeftButton && item != nullptr &&
-            item->data(0, Qt::UserRole + 3).toString() == "part-insert-here") {
+            (item->data(0, Qt::UserRole + 3).toString() == "part-insert-here" ||
+             item->data(0, Qt::UserRole + 3).toString() == "part-body-insert-here")) {
+            cursor_item_ = indexFromItem(item);
             dragging_cursor_ = true;
             drag_started_ = false;
             drag_origin_ = event->position().toPoint();
@@ -95,21 +99,29 @@ protected:
         if (!dragging_cursor_) return QTreeWidget::mouseReleaseEvent(event);
         dragging_cursor_ = false;
         viewport()->unsetCursor();
-        if (drag_started_ && history_cursor_moved) {
+        if (drag_started_ && cursor_item_.isValid()) {
+            auto* marker = itemFromIndex(cursor_item_);
+            auto* parent = marker->parent();
+            const bool document_level = marker->data(0,Qt::UserRole+3).toString() == "part-body-insert-here";
+            const auto owner = marker->data(0,Qt::UserRole).toString();
+            auto* under = itemAt(event->position().toPoint());
+            const bool empty_space = under == nullptr;
+            while (under && under->parent() != parent) under = under->parent();
+            const bool valid_parent = parent && (empty_space || under);
             std::size_t cursor = 0;
-            auto* root = topLevelItemCount() == 1 ? topLevelItem(0) : nullptr;
-            if (root != nullptr) {
-                for (int index = 0; index < root->childCount(); ++index) {
-                    auto* child = root->child(index);
-                    const auto role = child->data(0, Qt::UserRole + 3).toString();
-                    if (role != "part-container" && role != "part-sketch" &&
-                        role != "part-construction") continue;
-                    if (visualItemRect(child).center().y() <
-                        event->position().toPoint().y()) ++cursor;
-                }
+            if (parent) for (int index = 0; index < parent->childCount(); ++index) {
+                auto* child = parent->child(index);
+                const auto role = child->data(0,Qt::UserRole+3).toString();
+                const bool entry = document_level ? role == "part-body" || role == "part-body-boolean"
+                    : role == "part-container" || role == "part-sketch" || role == "part-construction";
+                if (entry && visualItemRect(child).center().y() < event->position().toPoint().y()) ++cursor;
             }
-            history_cursor_moved(cursor);
+            if (valid_parent) {
+                if ((document_level || !owner.isEmpty()) && body_cursor_moved) body_cursor_moved(owner,cursor);
+                else if (history_cursor_moved) history_cursor_moved(cursor);
+            }
         }
+        cursor_item_ = QPersistentModelIndex{};
         drag_started_ = false;
         insertion_y_.reset();
         viewport()->update();
@@ -133,6 +145,10 @@ protected:
     }
 
     void keyPressEvent(QKeyEvent* event) override {
+        if (event->key()==Qt::Key_Escape && dragging_cursor_) {
+            dragging_cursor_=false;cursor_item_=QPersistentModelIndex{};
+            clear_reorder();event->accept();return;
+        }
         if (event->key()==Qt::Key_Escape && dragged_item_.isValid()) {
             clear_reorder();event->accept();return;
         }
@@ -140,6 +156,7 @@ protected:
     }
 private:
     QPersistentModelIndex dragged_item_;
+    QPersistentModelIndex cursor_item_;
     QString before_id_;
     bool drop_allowed_{};
     void clear_reorder() {
@@ -159,6 +176,7 @@ private:
         if (under && under->parent()!=parent) under=nullptr;
         const auto family=[](QTreeWidgetItem* row) {
             const auto role=row->data(0,Qt::UserRole+3).toString();
+            if (role=="part-body" || role=="part-body-boolean") return QString("body-history");
             if (role=="part-occurrence" || role=="assembly-occurrence") return QString("occurrence");
             if (role=="part-container" || role=="part-sketch" || role=="part-construction") return QString("part-history");
             return role;

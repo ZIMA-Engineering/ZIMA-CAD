@@ -120,10 +120,96 @@ std::optional<zima::kernel::BodyResult> DocumentSession::calculated_boundary(
     return result;
 }
 
+zima::kernel::ViewerMesh DocumentSession::body_context_mesh(const BodyHistoryGraph* context) const {
+    zima::kernel::ViewerMesh result;
+    if (current_.calculated_boundaries.empty()) return result;
+    const auto& document = current_.document;
+    const auto& graph = context ? *context : document.body_history;
+    const auto& outputs = current_.calculated_boundaries.back().body_outputs;
+    for (const auto& id : graph.visible_context()) {
+        zima::kernel::ViewerMesh mesh;
+        if (id == graph.active_body_id()) {
+            const auto& body = *graph.find(id);
+            std::size_t count{};
+            for (std::size_t index = 0; index < body.cursor; ++index) {
+                const auto& entry = body.entries[index];
+                const auto* feature = entry.kind == PartHistoryKind::Feature ? document.find_container(entry.id) : nullptr;
+                if (feature && feature->feature_kind != FeatureKind::Sketch) ++count;
+            }
+            const auto local = calculated_body_boundary(id, count);
+            if (!local) continue;
+            mesh = document.place_body_mesh(local->mesh, id);
+        } else {
+            const auto found = outputs.find(id);
+            if (found == outputs.end()) continue;
+            mesh = found->second.mesh;
+        }
+        const auto offset = static_cast<std::uint32_t>(result.vertices.size());
+        result.vertices.insert(result.vertices.end(), mesh.vertices.begin(), mesh.vertices.end());
+        for (const auto index : mesh.triangles) result.triangles.push_back(offset + index);
+        const auto append = [](auto& target, const auto& source) { target.insert(target.end(), source.begin(), source.end()); };
+        append(result.triangle_references, mesh.triangle_references);
+        append(result.edges, mesh.edges); append(result.points, mesh.points); append(result.axes, mesh.axes);
+        append(result.dimensions, mesh.dimensions); append(result.constraint_markers, mesh.constraint_markers);
+        auto& refs = result.original_references;
+        const auto ref_offset = static_cast<std::uint32_t>(refs.vertices.size());
+        append(refs.vertices, mesh.original_references.vertices);
+        for (const auto index : mesh.original_references.triangles) refs.triangles.push_back(ref_offset + index);
+        append(refs.triangle_references, mesh.original_references.triangle_references);
+        append(refs.edges, mesh.original_references.edges); append(refs.points, mesh.original_references.points);
+        append(refs.axes, mesh.original_references.axes);
+    }
+    return result;
+}
+
+std::optional<BooleanEditInputs> DocumentSession::boolean_edit_inputs(const std::string& id) const {
+    const auto* operation = current_.document.body_history.find_boolean(id);
+    if (!operation || current_.calculated_boundaries.empty()) return std::nullopt;
+    const auto& outputs = current_.calculated_boundaries.back().body_outputs;
+    const auto target = outputs.find(operation->target_id);
+    const auto tool = outputs.find(operation->tool_id);
+    if (target == outputs.end() || tool == outputs.end()) return std::nullopt;
+    return BooleanEditInputs{operation->target_id, operation->tool_id, target->second, tool->second};
+}
+
+std::optional<zima::kernel::BodyResult> DocumentSession::calculated_body_boundary(
+    const std::string& body_id, const std::size_t operation_count) const {
+    if (operation_count == 0 || current_.calculated_boundaries.empty()) return std::nullopt;
+    const auto& caches = current_.calculated_boundaries.back().body_boundaries;
+    const auto found = caches.find(body_id);
+    if (found == caches.end() || found->second.size() < operation_count) return std::nullopt;
+    auto result = found->second[operation_count - 1];
+    std::unordered_set<std::string> owners;
+    std::size_t count{};
+    const auto* body = current_.document.body_history.find(body_id);
+    if (!body) return std::nullopt;
+    for (const auto& entry : body->entries) {
+        if (entry.kind != PartHistoryKind::Feature) continue;
+        const auto* feature = current_.document.find_container(entry.id);
+        if (!feature || feature->feature_kind == FeatureKind::Sketch) continue;
+        if (count++ == operation_count) break;
+        if (!feature->suppressed) owners.insert(feature->id);
+    }
+    result.mesh.original_references = references_for_owners(
+        found->second.back().mesh.original_references, owners);
+    return result;
+}
+
 std::optional<HistoryRollbackBoundary> DocumentSession::rollback_boundary(
     const std::string& container_id) const {
     const auto index = current_.document.history_index(container_id);
     if (!index) return std::nullopt;
+    if (!current_.document.body_history.bodies().empty()) {
+        const auto boundary = current_.document.body_history.rollback_before(container_id);
+        const auto* body = current_.document.body_history.find(boundary.body_id);
+        std::size_t operations{};
+        for (std::size_t entry = 0; entry < boundary.entry_count; ++entry) {
+            if (body->entries[entry].kind != PartHistoryKind::Feature) continue;
+            const auto* container = current_.document.find_container(body->entries[entry].id);
+            if (container && container->feature_kind != FeatureKind::Sketch) ++operations;
+        }
+        return HistoryRollbackBoundary{*index, calculated_body_boundary(boundary.body_id, operations)};
+    }
     // Sketch containers occupy real history positions but do not produce an
     // OCCT boundary.  The input boundary index therefore counts only body
     // operations preceding the edited container, while history_index keeps

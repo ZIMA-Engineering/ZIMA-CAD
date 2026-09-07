@@ -1,3 +1,4 @@
+#include <zima/document/document_copy_json.hpp>
 #include <zima/drawing/drawing_document.hpp>
 #include <zima/document/versioned_file.hpp>
 #include <zima/kernel/stable_id.hpp>
@@ -473,7 +474,8 @@ void DrawingDocument::synchronize_dimension_identifiers() {
     dimension_identifiers.synchronize(dimension_parameters());
 }
 
-void DrawingDocument::save(const std::filesystem::path& path) const {
+void DrawingDocument::save(const std::filesystem::path& path,
+    const zima::document::DocumentCopyIdentity& copy) const {
     if (document_id.empty() || name.empty() || sheets.empty()) {
         throw std::runtime_error("Drawing identity, name and sheets are required");
     }
@@ -584,6 +586,7 @@ void DrawingDocument::save(const std::filesystem::path& path) const {
         }
         root["sheets"].push_back(std::move(serialized));
     }
+    zima::document::apply_document_copy_identity(root, copy);
     zima::document::archive_existing_file(path);
     std::ofstream stream(path);
     if (!stream) throw std::runtime_error("Cannot write Drawing document");
@@ -593,8 +596,8 @@ void DrawingDocument::save(const std::filesystem::path& path) const {
     stream << "[Document]\n"
            << "format_version=12\n"
            << "type=drawing\n"
-           << "document_id=" << document_id << "\n"
-           << "name=" << name << "\n"
+           << "document_id=" << root.at("document_id").get<std::string>() << "\n"
+           << "name=" << root.at("name").get<std::string>() << "\n"
            << "param.cpp_drawing=" << root.dump() << "\n\n"
            << "[Containers]\n"
            << "items=\n";

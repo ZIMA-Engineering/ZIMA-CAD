@@ -36,6 +36,16 @@ int main(){try{
     for(bool arc:{false,true}){
         auto c=fixture(arc);doc.history={c};
         auto bodies=kernel.evaluate_history(doc.kernel_operations());
+        const auto guide=sketcher::Sketch::from_serialized(c.sweep2d.sketches[1]);
+        const auto source_id=arc?guide.arcs.front().id:guide.segments.front().id;
+        const auto centerline_key="centerline:from:"+source_id;
+        const auto centerline=std::ranges::find_if(bodies.back().mesh.edges,[&](const auto& e){return e.reference.semantic_key==centerline_key;});
+        require(centerline!=bodies.back().mesh.edges.end() && centerline->dash_dot && centerline->overlay,
+            "2D Sweep centerline is not displayed");
+        require(std::ranges::count_if(bodies.back().mesh.edges,[&](const auto& e){return e.reference.semantic_key==centerline_key;})==1,
+            "2D Sweep approximation pieces became separate centerline identities");
+        require(std::ranges::any_of(bodies.back().mesh.original_references.axes,[&](const auto& a){return a.reference.semantic_key==centerline_key;})==!arc,
+            "2D Sweep did not distinguish a straight axis from an arc");
         const double expected=4*std::numbers::pi*(arc?5*std::numbers::pi:20);
         std::cout<<"solid "<<arc<<" volume "<<bodies.back().volume<<" expected "<<expected<<std::endl;
         require(std::abs(bodies.back().volume-expected)<expected*.002,"Solid volume mismatch");

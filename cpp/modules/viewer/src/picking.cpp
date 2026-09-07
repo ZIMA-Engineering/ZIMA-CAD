@@ -147,6 +147,7 @@ bool candidate_recolors_wire_edge(
             edge.reference.instance_path == candidate.instance_path;
     }
     const bool exact_edge_candidate =
+        (candidate.kind == CandidateKind::Axis && edge.reference.semantic_key.starts_with("centerline:from:")) ||
         candidate.kind == CandidateKind::Edge ||
         candidate.kind == CandidateKind::SketchSegment ||
         candidate.kind == CandidateKind::SketchCurve ||

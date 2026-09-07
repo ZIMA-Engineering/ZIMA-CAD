@@ -23,6 +23,10 @@ public:
         references_without(std::size_t index) const = 0;
     [[nodiscard]] virtual bool owns_reference_owner(
         const std::string& owner_id) const = 0;
+    // A rejected reference source need not belong to the edited object.
+    [[nodiscard]] virtual bool owns_parameter_owner(const std::string& owner_id) const {
+        return owns_reference_owner(owner_id);
+    }
     virtual bool set_reference(std::size_t index,
         zima::document::ConstructionReference reference,
         const QString& label) = 0;

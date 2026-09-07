@@ -965,10 +965,11 @@ int main() {
             {2.0, 2.0, 0.0}, {-2.0, 2.0, 0.0}};
         require(text_sketch.refresh_external_references(
                     "part-source", edge_on_face_sources) &&
-                    text_sketch.external_references[3].broken &&
-                    text_sketch.external_references[3].cached_points ==
-                        valid_external_cache[3].cached_points,
-                "Degenerate external face projection did not preserve its cache");
+                    !text_sketch.external_references[3].broken &&
+                    text_sketch.external_references[3].cached_points.empty() &&
+                    text_sketch.external_references[3].cached_paths.size()==1 &&
+                    !text_sketch.external_references[3].infinite,
+                "Coplanar external face did not expose its finite boundary");
         require(text_sketch.refresh_external_references(
                     "part-source", refreshed_sources) &&
                     !text_sketch.external_references[3].broken,
@@ -3092,6 +3093,27 @@ int main() {
                     }
                 }
             }
+        }
+        for (const double side : {1.0,-1.0}) {
+            auto equal=zima::sketcher::Sketch::create_default();
+            const auto first=equal.add_circle(0,0,2),second=equal.add_circle(10,0,2);
+            for(const auto circle:std::vector(equal.circles)) {
+                equal.set_point_fixed(circle.center_point_id,true);
+                equal.apply_dimension(equal.create_circle_radius_dimension(circle.id));
+            }
+            const auto id=equal.add_common_tangent_segment(first,{0,side*2},second,{10,side*2});
+            const auto line=std::ranges::find_if(equal.segments,[&](const auto& value){return value.id==id;});
+            require(line!=equal.segments.end() && std::abs(equal.find_point(line->first_point_id)->y-side*2)<1e-7 &&
+                std::abs(equal.find_point(line->second_point_id)->y-side*2)<1e-7,
+                "Common tangent lost the selected branch of fixed equal circles");
+            equal.validate();
+        }
+        {
+            auto equal=zima::sketcher::Sketch::create_default();
+            const auto first=equal.add_circle(0,0,2),second=equal.add_circle(10,0,2);
+            static_cast<void>(equal.add_common_tangent_segment(first,{2,0},second,{8,0}));
+            require(equal.segments.size()==1,"Facing clicks on equal circles failed to select a common tangent");
+            equal.validate();
         }
         auto common_tangent = zima::sketcher::Sketch::create_default();
         const auto common_first = common_tangent.add_circle(0.0, 0.0, 2.0);

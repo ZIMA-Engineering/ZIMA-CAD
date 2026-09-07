@@ -1,4 +1,5 @@
 #pragma once
+#include <zima/document/document_copy.hpp>
 
 #include <zima/kernel/geometry_kernel.hpp>
 #include <zima/document/part_document.hpp>
@@ -235,7 +236,8 @@ public:
         const std::string& occurrence_id,
         zima::kernel::BodyResult calculated_source) const;
     [[nodiscard]] static AssemblyDocument load(const std::filesystem::path& path);
-    void save(const std::filesystem::path& path) const;
+    void save(const std::filesystem::path& path,
+        const zima::document::DocumentCopyIdentity& copy = {}) const;
     [[nodiscard]] static ComponentDependency create_dependency(
         std::string dependent_occurrence_id,
         std::string prerequisite_occurrence_id,

@@ -23,6 +23,30 @@
 
 namespace zima::ui {
 
+QPushButton* create_origin_selection_button(QWidget* parent) {
+    auto* button = new QPushButton(QObject::tr("POČÁTEK"), parent);
+    button->setObjectName("containerOriginSelectionButton");
+    button->setCheckable(true);
+    button->setAutoDefault(false);
+    button->setStyleSheet(
+        "QPushButton:checked{background:#4dd811;color:#102010;font-weight:700;}");
+    button->setToolTip(QObject::tr(
+        "Kliknutím zobrazit nebo skrýt lokální Počátky kontejnerů"));
+    return button;
+}
+
+QPushButton* PropertiesSubWindow::ensure_origin_selection_button() {
+    if (auto* button = findChild<QPushButton*>("containerOriginSelectionButton"))
+        return button;
+    auto* button = create_origin_selection_button(this);
+    auto* row = new QHBoxLayout;
+    row->addStretch();
+    row->addWidget(button);
+    content_layout()->insertLayout(0, row);
+    return button;
+}
+
+
 namespace {
 // One application filter also covers numeric editors created later in tables.
 class NumericInputInteraction final : public QObject {

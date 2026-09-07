@@ -490,3 +490,38 @@ na kontrole odloženého otevření katalogu závitů (`Deferred thread catalog 
 not open after the pointer gesture`); tento problém není touto opravou vyřešen.
 Dříve hlášené dočasné zablokování výběru kóty, které uvolnil nový příkaz Kóta,
 nemá zatím potvrzenou příčinu a nelze je považovat za opravené.
+
+### Kruhové externí reference
+
+Vazby Stejné (poloměr) a Soustřednost přijímají také externí kružnici nebo
+kruhový oblouk. Zdrojem může být hrana nebo jediný kruhový obrys/řez externí
+plochy. Externí geometrie zůstává referencí; mění se vlastní kružnice či
+oblouk skici. Stejné sjednotí poloměr, Soustřednost sjednotí střed.
+
+Rozpoznání středu a poloměru používá uložené body reference bez OCCT a
+ověřuje všechny body; není závislé na rovnoměrném vzorkování. Elipsy,
+neplatné reference a více obrysů jedné plochy se nepovažují za jedinou
+kružnici. Plocha ležící v rovině skici poskytuje svůj konečný obrys,
+nekoplanární plocha zachovává dosavadní průsečnici/řez. Uložení a opětovné
+otevření zachová vazby i identitu zdroje; změna reference aktualizuje vazbu.
+
+Skici 2D Sweepu a Helixu lze otevřít ze stromu i při nedořešené předchozí
+geometrii. Pokud nelze aktuálně odvodit jejich rámec, editor použije uloženou
+rovinu a uvede chybějící závislost ve stavovém řádku. Neprovádí při otevření
+OCCT výpočet ani nepotvrzuje neplatný solid; Cancel zachová původní historii.
+Regrese kontroluje všechny dvě, respektive tři skici také bez vypočteného
+předchozího tělesa.
+
+### Automatická tečnost a společná tečna kružnic (2026-09-07)
+
+Při kreslení společné tečny úsečkou mezi dvěma kružnicemi se na obou
+koncích ukládá C + T (bod na kružnici a tečnost). Významné body slouží
+k výběru větve; kontakt se nezamyká do kvadrantu další vazbou K.
+Náhled ukazuje C + T u obou kontaktů. Pokud jiná automatická tečná vazba
+už vyplývá z existujících vazeb, její nadbytečnost nezruší vytvoření úsečky.
+Konfliktní nebo neplatná vazba se tímto pravidlem neignoruje. Ručně zadávaná
+vazba nadále hlásí nadbytečnost.
+
+Společná tečna dvou kružnic používá přesné geometrické kandidáty. Volbu větve
+určují polohy obou kliknutí. Platí to také pro stejně velké kružnice s vodorovně
+zarovnanými středy a pro kružnice s pevně danou polohou a poloměrem.

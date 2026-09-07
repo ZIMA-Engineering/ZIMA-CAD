@@ -113,6 +113,31 @@ inline HistoryDependencyCollector part_history_dependency_graph(const document::
 inline HistoryDependencies part_history_dependencies(const document::PartDocument& document) {
     return part_history_dependency_graph(document).edges;
 }
+inline HistoryDependencies part_body_dependencies(const document::PartDocument& document) {
+    const auto features = part_history_dependency_graph(document);
+    HistoryDependencies result;
+    for (const auto& body : document.body_history.bodies()) {
+        for (const auto& reference : body.scope.placement.references) {
+            if (!reference.instance_path.empty()) continue;
+            const auto* source = document.body_owner_for_object(reference.owner_id);
+            if (source && source->scope.id != body.scope.id)
+                result.emplace(source->scope.id, body.scope.id);
+        }
+    }
+    for (const auto& [consumer,path,owner,key] : features.references) {
+        if (!path.empty()) continue;
+        const auto* from = document.body_owner_for_object(owner);
+        const auto* to = document.body_owner_for_object(consumer);
+        if (from && to && from != to) result.emplace(from->scope.id,to->scope.id);
+    }
+    for (const auto& [source,consumer] : features.edges) {
+        const auto* from = document.body_history.owner(source);
+        const auto* to = document.body_history.owner(consumer);
+        if (from && to && from != to) result.emplace(from->scope.id,to->scope.id);
+    }
+    return result;
+}
+
 inline HistoryDependencies assembly_component_dependencies(const assembly::AssemblyDocument& document) {
     HistoryDependencyCollector graph;
     for (const auto& component : document.components) graph.alias(component.occurrence_id,component.occurrence_id);

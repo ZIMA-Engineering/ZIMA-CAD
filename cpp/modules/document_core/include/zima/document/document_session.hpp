@@ -13,6 +13,13 @@ struct HistoryRollbackBoundary {
     std::optional<zima::kernel::BodyResult> input_body;
 };
 
+struct BooleanEditInputs {
+    std::string target_id;
+    std::string tool_id;
+    zima::kernel::BodyResult target;
+    zima::kernel::BodyResult tool;
+};
+
 class DocumentSession {
 public:
     explicit DocumentSession(
@@ -28,8 +35,13 @@ public:
         calculated_boundaries() const;
     [[nodiscard]] std::optional<zima::kernel::BodyResult>
         calculated_boundary(std::size_t operation_count) const;
+    [[nodiscard]] std::optional<zima::kernel::BodyResult> calculated_body_boundary(
+        const std::string& body_id, std::size_t operation_count) const;
     [[nodiscard]] std::optional<HistoryRollbackBoundary> rollback_boundary(
         const std::string& container_id) const;
+
+    [[nodiscard]] zima::kernel::ViewerMesh body_context_mesh(const BodyHistoryGraph* context = nullptr) const;
+    [[nodiscard]] std::optional<BooleanEditInputs> boolean_edit_inputs(const std::string& id) const;
 
     void replace(
         PartDocument document,

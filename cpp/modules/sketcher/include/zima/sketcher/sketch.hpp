@@ -6,11 +6,19 @@
 #include <array>
 #include <optional>
 #include <string>
+#include <stdexcept>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
 namespace zima::sketcher {
+
+// A valid relation already implied by the existing constraints. Interactive
+// inference may omit it; explicit constraint commands still report it.
+class RedundantConstraint : public std::invalid_argument {
+public:
+    using std::invalid_argument::invalid_argument;
+};
 
 enum class SketchPlane { XY, XZ, YZ };
 // Converts a signed displacement along the Sketch frame normal into the
@@ -177,6 +185,10 @@ struct SketchExternalReference {
     bool broken{};
     bool operator==(const SketchExternalReference&) const = default;
 };
+
+// A unique circular reference (circle or arc) in Sketch coordinates: center X/Y, radius.
+[[nodiscard]] std::optional<std::array<double, 3>> external_reference_circle(
+    const SketchExternalReference& reference);
 
 struct SketchConstraint {
     std::string id;
@@ -502,6 +514,11 @@ public:
     // Intersects a persisted (possibly curved) source face mesh with this
     // Sketch plane.  The result contains one finite path per intersection
     // branch and never invokes the solid kernel.
+    // Coplanar faces expose their boundary; other faces expose their section.
+    [[nodiscard]] std::optional<std::vector<std::vector<std::array<double, 2>>>>
+        external_face_reference_paths(
+            const zima::kernel::ViewerReferenceGeometry& source_geometry,
+            const zima::kernel::FaceReference& face) const;
     [[nodiscard]] std::optional<std::vector<std::vector<std::array<double, 2>>>>
         intersect_external_face(
             const zima::kernel::ViewerReferenceGeometry& source_geometry,

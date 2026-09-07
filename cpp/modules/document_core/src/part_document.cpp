@@ -1,3 +1,4 @@
+#include <zima/document/document_copy_json.hpp>
 #include <zima/document/part_document.hpp>
 #include <zima/document/precision.hpp>
 #include <zima/document/helical_geometry.hpp>
@@ -513,12 +514,12 @@ void add_json_parameters(
 
 nlohmann::json read_part_ini(const std::filesystem::path& path) {
     const auto ini = read_ini(path);
-    if (ini_value(ini, "Document", "format_version") != "14") {
+    if (ini_value(ini, "Document", "format_version") != "15") {
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 40},
+        {"format_version", 41},
         {"document_id", ini_required(ini, "Document", "document_id")},
         {"type", ini_value(ini, "Document", "type", "part")},
         {"name", ini_value(ini, "Document", "name", "Nový díl")},
@@ -526,6 +527,7 @@ nlohmann::json read_part_ini(const std::filesystem::path& path) {
             "{\"columns\":[],\"instances\":[]}")},
         {"named_views", ini_value(ini, "Document", "named_views", "[]")},
         {"dimension_identifiers", nlohmann::json::parse(ini_required(ini, "Document", "dimension_identifiers"))},
+        {"body_history", nlohmann::json::parse(ini_required(ini, "Document", "body_history"))},
         {"body_color", ini_value(ini, "Document", "body_color", "#B9C2CC")},
         {"face_colors", nlohmann::json::object()},
         {"user_parameters", nlohmann::json::object()},
@@ -665,13 +667,14 @@ void write_part_ini(
     const nlohmann::json& root, const std::filesystem::path& path) {
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "14"},
+        {"format_version", "15"},
         {"type", "part"},
         {"document_id", root.at("document_id").get<std::string>()},
         {"name", root.at("name").get<std::string>()},
         {"family_table", root.at("family_table").get<std::string>()},
         {"named_views", root.value("named_views", std::string("[]"))},
         {"dimension_identifiers", root.at("dimension_identifiers").dump()},
+        {"body_history", root.at("body_history").dump()},
         {"body_color", root.value("body_color", std::string("#B9C2CC"))},
         {"history_cursor", std::to_string(root.at("history_cursor").get<std::size_t>())},
     };
@@ -2513,19 +2516,32 @@ zima::kernel::Vec3 placement_inverse_transform_direction(
                 rotation[2][2] * direction.z};
 }
 
-zima::kernel::ViewerReferenceGeometry reference_geometry_in_local_frame(
+zima::kernel::ViewerReferenceGeometry transform_reference_geometry(
     zima::kernel::ViewerReferenceGeometry geometry,
-    const zima::kernel::Vec3& origin, const zima::kernel::Vec3& rotation_degrees) {
+    const zima::kernel::Vec3& origin, const zima::kernel::Vec3& rotation_degrees,
+    bool to_local = true) {
     const auto rotation =
         placement_rotation_matrix_from_euler_degrees(rotation_degrees);
     const auto point = [&](const zima::kernel::Vec3& value) {
-        return placement_inverse_transform_point(rotation, origin, value);
+        return to_local ? placement_inverse_transform_point(rotation, origin, value)
+            : placement_transform_point(rotation, origin, value);
     };
     const auto direction = [&](const zima::kernel::Vec3& value) {
-        return placement_inverse_transform_direction(rotation, value);
+        return to_local ? placement_inverse_transform_direction(rotation, value)
+            : placement_transform_direction(rotation, value);
     };
+    const auto face = [&](auto& reference) {
+        if (!reference.surface) return;
+        auto surface = std::make_shared<zima::kernel::SurfaceGeometry>(*reference.surface);
+        surface->origin = point(surface->origin);
+        surface->axis = direction(surface->axis);
+        surface->radial = direction(surface->radial);
+        reference.surface = std::move(surface);
+    };
+    for (auto& reference : geometry.triangle_references) face(reference);
     for (auto& value : geometry.vertices) value = point(value);
     for (auto& edge : geometry.edges) {
+        for (auto& reference : edge.edge_treatment_side_references) face(reference);
         for (auto& value : edge.points) value = point(value);
         for (auto& side : edge.edge_treatment_side_directions) {
             for (auto& value : side) value = direction(value);
@@ -2537,6 +2553,45 @@ zima::kernel::ViewerReferenceGeometry reference_geometry_in_local_frame(
         value.direction = direction(value.direction);
     }
     return geometry;
+}
+
+zima::kernel::ViewerMesh body_placed_mesh(zima::kernel::ViewerMesh mesh,
+    const zima::document::BodyPlacement& scope) {
+    zima::kernel::ViewerReferenceGeometry display{
+        std::move(mesh.vertices), std::move(mesh.triangles), std::move(mesh.triangle_references),
+        std::move(mesh.edges), std::move(mesh.points), std::move(mesh.axes)};
+    display = transform_reference_geometry(std::move(display), scope.translation(), scope.rotation_degrees(), false);
+    mesh.vertices = std::move(display.vertices);
+    mesh.triangles = std::move(display.triangles);
+    mesh.triangle_references = std::move(display.triangle_references);
+    mesh.edges = std::move(display.edges);
+    mesh.points = std::move(display.points);
+    mesh.axes = std::move(display.axes);
+    mesh.original_references = transform_reference_geometry(std::move(mesh.original_references),
+        scope.translation(), scope.rotation_degrees(), false);
+    const auto rotation = placement_rotation_matrix_from_euler_degrees(scope.rotation_degrees());
+    const auto point = [&](auto& value) { value = placement_transform_point(rotation, scope.translation(), value); };
+    for (auto& dimension : mesh.dimensions) {
+        point(dimension.witness_first); point(dimension.witness_second);
+        point(dimension.line_first); point(dimension.line_second);
+        dimension.plane_normal = placement_transform_direction(rotation, dimension.plane_normal);
+        if (dimension.label_position) point(*dimension.label_position);
+    }
+    for (auto& marker : mesh.constraint_markers) point(marker.position);
+    return mesh;
+}
+
+void append_body_mesh(zima::kernel::ViewerMesh& target, zima::kernel::ViewerMesh source) {
+    const auto offset = static_cast<std::uint32_t>(target.vertices.size());
+    target.vertices.insert(target.vertices.end(), source.vertices.begin(), source.vertices.end());
+    for (const auto index : source.triangles) target.triangles.push_back(offset + index);
+    target.triangle_references.insert(target.triangle_references.end(), source.triangle_references.begin(), source.triangle_references.end());
+    target.edges.insert(target.edges.end(), source.edges.begin(), source.edges.end());
+    target.points.insert(target.points.end(), source.points.begin(), source.points.end());
+    target.axes.insert(target.axes.end(), source.axes.begin(), source.axes.end());
+    target.dimensions.insert(target.dimensions.end(), source.dimensions.begin(), source.dimensions.end());
+    target.constraint_markers.insert(target.constraint_markers.end(), source.constraint_markers.begin(), source.constraint_markers.end());
+    append_reference_geometry(target.original_references, source.original_references);
 }
 
 // Applies a container's resolved placement (rotation about the world origin
@@ -2858,37 +2913,38 @@ bool placement_solve_position(
         }
     }
     if (equations.empty()) return false;
-    constexpr double weight = 1.0e10;
-    double matrix[3][4]{{1.0, 0.0, 0.0, origin.x},
-                        {0.0, 1.0, 0.0, origin.y},
-                        {0.0, 0.0, 1.0, origin.z}};
-    for (const auto& [normal, rhs] : equations) {
-        const double values[3]{normal.x, normal.y, normal.z};
-        for (int row = 0; row < 3; ++row) {
-            for (int column = 0; column < 3; ++column) {
-                matrix[row][column] += weight * values[row] * values[column];
-            }
-            matrix[row][3] += weight * values[row] * rhs;
+    // Project onto an orthonormal basis of the constraint row space.
+    // The old weighted normal equations (weight 1e10) amplified rounding
+    // into tangential motion on oblique planes on every regeneration.
+    // Null-space coordinates must remain exactly those of the input origin.
+    std::vector<std::pair<zima::kernel::Vec3,double>> basis;
+    for (const auto& [normal,rhs] : equations) {
+        auto row=normal;
+        double target=rhs;
+        for(int pass=0;pass<2;++pass) for(const auto& [axis,value]:basis) {
+            const double factor=placement_vec_dot(row,axis);
+            row={row.x-factor*axis.x,row.y-factor*axis.y,row.z-factor*axis.z};
+            target-=factor*value;
         }
+        const double length=std::hypot(std::hypot(row.x,row.y),row.z);
+        if(length<=1e-10) {
+            if(std::abs(target)>1e-5)return false;
+            continue;
+        }
+        basis.push_back({{row.x/length,row.y/length,row.z/length},target/length});
     }
-    for (int column = 0; column < 3; ++column) {
-        int pivot = column;
-        for (int row = column + 1; row < 3; ++row) {
-            if (std::abs(matrix[row][column]) > std::abs(matrix[pivot][column])) pivot = row;
-        }
-        if (std::abs(matrix[pivot][column]) <= 1.0e-12) return false;
-        if (pivot != column) {
-            for (int item = column; item < 4; ++item) std::swap(matrix[pivot][item], matrix[column][item]);
-        }
-        const double divisor = matrix[column][column];
-        for (int item = column; item < 4; ++item) matrix[column][item] /= divisor;
-        for (int row = 0; row < 3; ++row) {
-            if (row == column) continue;
-            const double factor = matrix[row][column];
-            for (int item = column; item < 4; ++item) matrix[row][item] -= factor * matrix[column][item];
-        }
+    auto solved=origin;
+    for(const auto& [axis,target]:basis) {
+        const double current=placement_vec_dot(axis,origin);
+        const double delta=target-current;
+        // Preserve already satisfied coordinates bit-for-bit. This also
+        // prevents roundoff-only changes from invalidating persisted caches.
+        const double tolerance=64*std::numeric_limits<double>::epsilon()*
+            std::max({1.0,std::abs(target),std::abs(current),
+                std::abs(origin.x),std::abs(origin.y),std::abs(origin.z)});
+        if(std::abs(delta)<=tolerance)continue;
+        solved={solved.x+delta*axis.x,solved.y+delta*axis.y,solved.z+delta*axis.z};
     }
-    const zima::kernel::Vec3 solved{matrix[0][3], matrix[1][3], matrix[2][3]};
     const bool consistent = std::all_of(equations.begin(), equations.end(),
         [&](const auto& equation) {
             const auto& [normal, rhs] = equation;
@@ -4465,6 +4521,74 @@ int orientation_constraint_remaining_dof(
         references, geometry, marked_only, orientation_origin).remaining_dof;
 }
 
+zima::kernel::ViewerMesh PartDocument::place_body_mesh(zima::kernel::ViewerMesh mesh, const std::string& body_id) const {
+    const auto* body = body_history.find(body_id);
+    if (!body) throw std::invalid_argument("Body does not exist");
+    return body_placed_mesh(std::move(mesh), body->scope);
+}
+
+const BodyHistory* PartDocument::body_owner_for_object(const std::string& id) const {
+    if (const auto* body = body_history.owner(id)) return body;
+    for (const auto& body : body_history.bodies()) {
+        if (id == body.scope.id || id == body.origin().id) return &body;
+    }
+    const auto owns_construction = [&](const auto& self, const ConstructionObject& object) -> bool {
+        if (id == object.id || id == object.entity_id || id == object.container_origin.id) return true;
+        return std::ranges::any_of(object.curve_points, [&](const auto& child) { return self(self, child); });
+    };
+    for (const auto& object : constructions)
+        if (owns_construction(owns_construction, object)) return body_history.owner(object.id);
+    for (const auto& container : history)
+        if (id == container.id || id == container.feature_id || id == container.container_origin.id ||
+            (container.feature_kind == FeatureKind::Sweep3D && owns_construction(owns_construction, container.sweep3d.path)))
+            return body_history.owner(container.id);
+    for (const auto& sketch : sketches)
+        if (id == sketch.id) return body_history.owner(sketch.owner_container_id.empty() ? sketch.id : sketch.owner_container_id);
+    return nullptr;
+}
+
+zima::kernel::ViewerReferenceGeometry PartDocument::sketch_reference_geometry_for(
+    const zima::sketcher::Sketch& sketch, zima::kernel::ViewerReferenceGeometry geometry) const {
+    const auto* body = body_owner_for_object(sketch.owner_container_id.empty()
+        ? sketch.id : sketch.owner_container_id);
+    if (!body) return geometry;
+    return transform_reference_geometry(std::move(geometry),
+        body->scope.translation(), body->scope.rotation_degrees());
+}
+
+PartDocument PartDocument::body_document(const std::string& body_id) const {
+    const auto* body = body_history.find(body_id);
+    if (!body) throw std::invalid_argument("Body does not exist");
+    auto result = *this;
+    result.body_history = {};
+    result.document_id = body_id;
+    result.name = body->name;
+    result.history_order = body->entries;
+    result.history_cursor = body->cursor;
+    std::map<std::string, std::size_t> order;
+    for (std::size_t index = 0; index < body->entries.size(); ++index) order.emplace(body->entries[index].id, index);
+    std::erase_if(result.history, [&](const auto& feature) { return !order.contains(feature.id); });
+    std::erase_if(result.constructions, [&](const auto& object) { return !order.contains(object.id); });
+    std::erase_if(result.sketches, [&](const auto& sketch) {
+        return !order.contains(sketch.owner_container_id.empty() ? sketch.id : sketch.owner_container_id);
+    });
+    std::ranges::sort(result.history, [&](const auto& a, const auto& b) { return order.at(a.id) < order.at(b.id); });
+    std::ranges::sort(result.constructions, [&](const auto& a, const auto& b) { return order.at(a.id) < order.at(b.id); });
+    return result;
+}
+
+zima::kernel::ViewerReferenceGeometry PartDocument::body_origin_reference_geometry() const {
+    zima::kernel::ViewerReferenceGeometry result;
+    for (const auto& body : body_history.bodies()) {
+        PartDocument carrier;
+        carrier.document_id = body.scope.id;
+        auto origin = transform_reference_geometry(carrier.origin_viewer_mesh().original_references,
+            body.scope.translation(), body.scope.rotation_degrees(), false);
+        append_reference_geometry(result, origin);
+    }
+    return result;
+}
+
 ConstructionObject* PartDocument::find_construction(const std::string& id) {
     for (auto& object : constructions) {
         if (object.id == id) return &object;
@@ -4492,6 +4616,11 @@ zima::kernel::ViewerReferenceGeometry
 PartDocument::construction_reference_geometry_for(
     const std::string& object_id,
     zima::kernel::ViewerReferenceGeometry source_geometry) const {
+    if (const auto* body = body_owner_for_object(object_id)) {
+        append_reference_geometry(source_geometry, body_origin_reference_geometry());
+        source_geometry = transform_reference_geometry(std::move(source_geometry),
+            body->scope.translation(), body->scope.rotation_degrees());
+    }
     for (const auto& object : constructions) {
         const auto child = std::find_if(object.curve_points.begin(),
             object.curve_points.end(),
@@ -4521,7 +4650,7 @@ PartDocument::construction_reference_geometry_for(
                 source.axes.begin(), source.axes.end());
         };
         append(source_geometry, local_origin_mesh);
-        return reference_geometry_in_local_frame(
+        return transform_reference_geometry(
             std::move(source_geometry), object.origin, object.rotation);
     }
     return source_geometry;
@@ -4644,6 +4773,8 @@ PartDocument::history_origin_reference_geometry_before(
             axis.point = placement_transform_point(rotation, translation, axis.point);
             axis.direction = placement_transform_direction(rotation, axis.direction);
         }
+        if (const auto* body = body_history.owner(container.id))
+            origin = transform_reference_geometry(std::move(origin), body->scope.translation(), body->scope.rotation_degrees(), false);
         append(result, std::move(origin));
     }
     return result;
@@ -4721,6 +4852,15 @@ bool viewer_mesh_contains_point(const zima::kernel::ViewerMesh& mesh,
 zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
     const std::string& editing_object_id, double reference_scene_size,
     bool show_sweep_stations) const {
+    if (!body_history.bodies().empty()) {
+        zima::kernel::ViewerMesh result;
+        for (const auto& body : body_history.bodies()) {
+            auto carrier = body_document(body.scope.id);
+            append_body_mesh(result, body_placed_mesh(
+                carrier.construction_viewer_mesh(editing_object_id, reference_scene_size, show_sweep_stations), body.scope));
+        }
+        return result;
+    }
     // Origin sizing no longer depends on scene size (see
     // kDocumentOriginPlaneSize's comment); this parameter is kept only for
     // source compatibility with existing call sites.
@@ -5140,6 +5280,78 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
 
 void PartDocument::resolve_constructions(
     zima::kernel::ViewerReferenceGeometry source_geometry) {
+    if (!body_history.bodies().empty()) {
+        validate_body_ownership();
+        auto next = *this;
+        append_reference_geometry(source_geometry, origin_viewer_mesh().original_references);
+        append_reference_geometry(source_geometry, body_origin_reference_geometry());
+        for (const auto& original_body : body_history.bodies()) {
+            auto body = *next.body_history.find(original_body.scope.id);
+            auto carrier = next.body_document(body.scope.id);
+            const auto dependency = [&](const ConstructionReference& reference) {
+                if (!reference.instance_path.empty()) return;
+                const auto* target = next.body_owner_for_object(reference.owner_id);
+                if (target && target->scope.id != body.scope.id &&
+                    std::ranges::find(body.dependencies, target->scope.id) == body.dependencies.end())
+                    body.dependencies.push_back(target->scope.id);
+            };
+            for (const auto& reference : body.scope.placement.references) {
+                if (const auto* owner = next.body_owner_for_object(reference.owner_id); owner && owner->scope.id == body.scope.id)
+                    throw std::invalid_argument("Těleso nemůže odkazovat na vlastní geometrii.");
+                dependency(reference);
+            }
+            if (!resolve_placement(body.scope.placement, source_geometry))
+                throw std::invalid_argument("Reference umístění tělesa není dostupná.");
+            const auto construction_dependencies = [&](const auto& self, const ConstructionObject& object) -> void {
+                for (const auto& reference : object.references) dependency(reference);
+                for (const auto& point : object.curve_points) self(self, point);
+            };
+            for (const auto& feature : carrier.history) {
+                for (const auto& reference : feature.placement.references) dependency(reference);
+                if (feature.feature_kind == FeatureKind::Sweep3D)
+                    construction_dependencies(construction_dependencies, feature.sweep3d.path);
+            }
+            for (const auto& construction : carrier.constructions)
+                construction_dependencies(construction_dependencies, construction);
+            const auto sketch_dependencies = [&](const zima::sketcher::Sketch& sketch) {
+                for (const auto& reference : sketch.external_references) {
+                    if (reference.source_document_id != next.document_id ||
+                        !reference.source_instance_path.empty()) continue;
+                    dependency({{}, reference.source_owner_id, reference.source_semantic_key});
+                }
+            };
+            for (const auto& sketch : carrier.sketches) sketch_dependencies(sketch);
+            for (const auto& feature : carrier.history)
+                if (feature.feature_kind == FeatureKind::Sweep2D)
+                    for (const auto& data : feature.sweep2d.sketches)
+                        sketch_dependencies(zima::sketcher::Sketch::from_serialized(data));
+            next.body_history.update_body(body);
+            auto local_geometry = transform_reference_geometry(source_geometry,
+                body.scope.translation(), body.scope.rotation_degrees());
+            auto local_origin=carrier.origin_viewer_mesh().original_references;
+            append_reference_geometry(local_origin,local_geometry);
+            carrier.resolve_constructions(std::move(local_origin));
+            for (auto& feature : carrier.history) *next.find_container(feature.id) = std::move(feature);
+            for (auto& construction : carrier.constructions)
+                *next.find_construction(construction.id) = std::move(construction);
+            for (auto& sketch : carrier.sketches) {
+                const auto target = std::ranges::find_if(next.sketches, [&](const auto& value) { return value.id == sketch.id; });
+                *target = std::move(sketch);
+            }
+            // Publish freshly resolved datum frames for the next branch.
+            // They precede older snapshots of the same frame during lookup.
+            auto resolved = next.body_document(body.scope.id);
+            auto published = resolved.origin_viewer_mesh().original_references;
+            append_reference_geometry(published,resolved.history_origin_reference_geometry_before({}));
+            append_reference_geometry(published, resolved.construction_viewer_mesh().original_references);
+            published = transform_reference_geometry(std::move(published),
+                body.scope.translation(), body.scope.rotation_degrees(), false);
+            append_reference_geometry(published, source_geometry);
+            source_geometry = std::move(published);
+        }
+        *this = std::move(next);
+        return;
+    }
     const auto append = [](auto& target, const auto& source) {
         const auto vertex_offset = static_cast<std::uint32_t>(target.vertices.size());
         target.vertices.insert(target.vertices.end(),
@@ -7302,6 +7514,41 @@ HistoryContainer PartDocument::create_imported_step_container(
     return container;
 }
 
+void PartDocument::validate_body_ownership() const {
+    body_history.validate();
+    if (body_history.bodies().empty()) return;
+    std::map<std::string, PartHistoryKind> expected;
+    for (const auto& container : history) expected.emplace(container.id, PartHistoryKind::Feature);
+    for (const auto& sketch : sketches)
+        if (sketch.owner_container_id.empty()) expected.emplace(sketch.id, PartHistoryKind::Sketch);
+    for (const auto& construction : constructions) expected.emplace(construction.id, PartHistoryKind::Construction);
+    for (const auto& body : body_history.bodies()) {
+        for (const auto& entry : body.entries) {
+            const auto found = expected.find(entry.id);
+            if (found == expected.end() || found->second != entry.kind)
+                throw std::invalid_argument("Body history references a missing or mismatched container");
+            expected.erase(found);
+        }
+    }
+    if (!expected.empty()) throw std::invalid_argument("Every Part container must belong to a body");
+    std::vector<PartHistoryEntry> projection;
+    for (const auto& body : body_history.bodies())
+        projection.insert(projection.end(), body.entries.begin(), body.entries.end());
+    if (projection != history_order)
+        throw std::invalid_argument("Part history order must follow its body ownership");
+}
+
+void PartDocument::set_body_history(BodyHistoryGraph graph) {
+    auto next = *this;
+    next.body_history = std::move(graph);
+    next.history_order.clear();
+    for (const auto& body : next.body_history.bodies())
+        next.history_order.insert(next.history_order.end(), body.entries.begin(), body.entries.end());
+    next.history_cursor = next.history_order.size();
+    next.validate_body_ownership();
+    *this = std::move(next);
+}
+
 HistoryContainer* PartDocument::find_container(const std::string& id) {
     const auto found = std::find_if(history.begin(), history.end(),
         [&](const HistoryContainer& container) { return container.id == id; });
@@ -7309,6 +7556,13 @@ HistoryContainer* PartDocument::find_container(const std::string& id) {
 }
 
 std::size_t PartDocument::effective_history_cursor() const {
+    if (const auto* active = body_history.find(body_history.active_body_id())) {
+        std::size_t offset{};
+        for (const auto& body : body_history.bodies()) {
+            if (body.scope.id == active->scope.id) return offset + body.cursor;
+            offset += body.entries.size();
+        }
+    }
     return std::min(history_cursor, history_order.size());
 }
 
@@ -7334,10 +7588,31 @@ std::size_t PartDocument::body_operation_count_at_history_cursor() const {
 }
 
 void PartDocument::set_history_cursor(std::size_t cursor) {
+    if (const auto* active = body_history.find(body_history.active_body_id())) {
+        std::size_t offset{};
+        for (const auto& body : body_history.bodies()) {
+            if (body.scope.id == active->scope.id) break;
+            offset += body.entries.size();
+        }
+        if (cursor < offset || cursor > offset + active->entries.size())
+            throw std::invalid_argument("History cursor must remain in the active body");
+        body_history.set_history_cursor(active->scope.id, cursor - offset);
+    }
     history_cursor = std::min(cursor, history_order.size());
 }
 
 void PartDocument::insert_history_entry(PartHistoryKind kind, std::string id) {
+    if (!body_history.bodies().empty()) {
+        auto graph = body_history;
+        graph.insert({kind, id});
+        std::vector<PartHistoryEntry> order;
+        for (const auto& body : graph.bodies())
+            order.insert(order.end(), body.entries.begin(), body.entries.end());
+        body_history = std::move(graph);
+        history_order = std::move(order);
+        history_cursor = effective_history_cursor();
+        return;
+    }
     const auto cursor = effective_history_cursor();
     history_order.insert(history_order.begin() + static_cast<std::ptrdiff_t>(cursor),
         PartHistoryEntry{kind, std::move(id)});
@@ -8078,6 +8353,23 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             mesh_deflection,
         });
     }
+    if (!body_history.bodies().empty()) {
+        validate_body_ownership();
+        std::map<std::string, zima::kernel::HistoryOperation> local;
+        for (auto& operation : operations) local.emplace(operation.owner_id, std::move(operation));
+        auto compiled = body_history.compile([&](const PartHistoryEntry& entry)
+                -> std::optional<zima::kernel::HistoryOperation> {
+            if (entry.kind != PartHistoryKind::Feature) return std::nullopt;
+            const auto* container = find_container(entry.id);
+            if (container->feature_kind == FeatureKind::Sketch) return std::nullopt;
+            return local.at(entry.id);
+        });
+        for (auto& operation : compiled) {
+            operation.boolean_tolerance = boolean_tolerance;
+            operation.mesh_deflection = mesh_deflection;
+        }
+        return compiled;
+    }
     return operations;
 }
 
@@ -8592,6 +8884,7 @@ PartDocument PartDocument::load(
     PartDocument document;
     document.document_id = root.at("document_id").get<std::string>();
     document.name = root.at("name").get<std::string>();
+    document.body_history = BodyHistoryGraph::from_serialized(root.at("body_history").dump());
     document.user_parameters =
         root.at("user_parameters").get<std::map<std::string, std::string>>();
     document.user_parameter_order =
@@ -9459,7 +9752,7 @@ PartDocument PartDocument::load(
         document.history.end(), [](const auto& container) {
             return !container.suppressed;
         });
-    if (first_active != document.history.end() &&
+    if (document.body_history.bodies().empty() && first_active != document.history.end() &&
         first_active->combine_mode == CombineMode::Subtract) {
         throw std::runtime_error("The first history container cannot subtract");
     }
@@ -9577,7 +9870,8 @@ PartDocument PartDocument::load(
 
 void PartDocument::save(
     const std::filesystem::path& path,
-    const std::vector<zima::kernel::BodyResult>& calculated_boundaries) const {
+    const std::vector<zima::kernel::BodyResult>& calculated_boundaries,
+    const zima::document::DocumentCopyIdentity& copy) const {
     nlohmann::json serialized_history = nlohmann::json::array();
     std::unordered_set<std::string> container_ids;
     for (const auto& container : history) {
@@ -10341,7 +10635,7 @@ void PartDocument::save(
     }
     const auto first_active = std::find_if(history.begin(), history.end(),
         [](const auto& container) { return !container.suppressed; });
-    if (first_active != history.end() &&
+    if (body_history.bodies().empty() && first_active != history.end() &&
         first_active->combine_mode == CombineMode::Subtract) {
         throw std::runtime_error("The first history container cannot subtract");
     }
@@ -10366,7 +10660,10 @@ void PartDocument::save(
          boundary_index < calculated_boundaries.size(); ++boundary_index) {
         const auto& boundary = calculated_boundaries[boundary_index];
         const bool reuses_previous_body = boundary_index > 0 &&
-            expected_operations[boundary_index].suppressed;
+            expected_operations[boundary_index].suppressed &&
+            expected_operations[boundary_index].body.id == expected_operations[boundary_index - 1].body.id &&
+            boundary.body_boundaries.empty() &&
+            boundary.kernel_shape == calculated_boundaries[boundary_index - 1].kernel_shape;
         auto serialized = reuses_previous_body
             ? nlohmann::json{{"body_source", "previous_boundary"},
                   {"source_fingerprint", boundary.source_fingerprint}}
@@ -10437,9 +10734,9 @@ void PartDocument::save(
             constructions.size()) {
         throw std::runtime_error("Part history order does not cover every container");
     }
-    const nlohmann::json root = {
+    nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 40},
+        {"format_version", 41},
         {"document_id", document_id},
         {"type", "part"},
         {"name", name},
@@ -10449,6 +10746,7 @@ void PartDocument::save(
         {"user_parameter_values", user_parameter_values},
         {"relations", std::move(serialized_relations)},
         {"dimension_identifiers", nlohmann::json::parse(identifiers.serialized())},
+        {"body_history", nlohmann::json::parse(body_history.serialized())},
         {"document_units", document_units},
         {"document_precision", document_precision},
         {"physical_parameters", physical_parameters},
@@ -10465,6 +10763,7 @@ void PartDocument::save(
         {"history_cursor", std::min(history_cursor, effective_order.size())},
         {"calculated_boundaries", std::move(serialized_boundaries)},
     };
+    apply_document_copy_identity(root, copy);
     write_part_ini(root, path);
 }
 

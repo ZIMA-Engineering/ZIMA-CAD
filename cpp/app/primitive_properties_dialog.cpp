@@ -197,6 +197,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         placement_->install_dof_label(content_layout());
     }
 
+    static_cast<void>(ensure_origin_selection_button());
     auto* form = new QFormLayout;
 
     const auto dimension = [this](double value, const char* object_name) {

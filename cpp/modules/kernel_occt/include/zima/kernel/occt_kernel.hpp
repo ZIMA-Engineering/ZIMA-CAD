@@ -39,6 +39,9 @@ public:
         const std::vector<PlacedBody>& bodies, const std::string& path) const;
 
 private:
+    [[nodiscard]] std::vector<BodyResult> evaluate_body_histories(
+        const std::vector<HistoryOperation>& operations,
+        const std::vector<BodyResult>& previous_boundaries) const;
     struct LiveCache;
     std::unique_ptr<LiveCache> live_cache_;
 };

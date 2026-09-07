@@ -1,8 +1,9 @@
 [Document]
+body_history = {"bodies":[],"booleans":[],"order":[],"active":"","cursor":0}
 dimension_identifiers = {"next":1,"entries":[]}
 document_id=part-fixture-001
 type=part
-format_version=14
+format_version=15
 name=Fixture Part
 
 [DocumentUnits]

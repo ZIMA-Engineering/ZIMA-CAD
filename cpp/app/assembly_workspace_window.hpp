@@ -31,6 +31,7 @@ class QKeyEvent;
 class QLineEdit;
 class QMenu;
 class QProgressBar;
+class QPushButton;
 class QString;
 class QTabBar;
 class QToolBar;
@@ -237,6 +238,15 @@ private:
     QAction* settings_action_{};
     QMenu* standard_views_menu_{};
     QDialog* properties_dialog_{};
+    std::optional<zima::document::PartDocument> body_dialog_preview_;
+    std::optional<std::vector<std::string>> body_dialog_context_;
+    std::string body_dialog_step_id_;
+    QAction* create_body_action_{};
+    QAction* body_boolean_action_{};
+    void show_body_properties(const std::string& id = {});
+    void show_body_boolean_properties(const std::string& id = {});
+    void activate_body(const std::string& id);
+    void finish_body_dialog(QDialog* dialog);
     ShaftThreadDialog* shaft_thread_dialog_{};
     QAction* shaft_thread_action_{};
     void show_shaft_thread_properties(const std::string& container_id = {});
@@ -302,6 +312,7 @@ private:
     std::optional<zima::kernel::ViewerMesh> construction_preview_mesh_;
     std::optional<zima::kernel::ViewerMesh> primitive_origin_preview_mesh_;
     std::string sketch_properties_preview_id_;
+    std::string sketch_properties_body_id_;
     zima::kernel::ViewerReferenceGeometry construction_reference_geometry_;
     std::string construction_dimension_object_id_;
     std::pair<std::string,std::string> opening_component_edit_;
@@ -324,6 +335,11 @@ private:
     bool primitive_reference_auto_advance_{};
     int primitive_translation_dof_{3};
     bool local_origin_selection_active_{};
+    QPointer<QPushButton> local_origin_selection_button_;
+    QDialog* local_origin_selection_owner_{};
+    std::vector<zima::viewer::CandidateKind> origin_suspended_selection_contract_;
+    std::function<bool(const zima::viewer::ViewerCandidate&)> origin_suspended_candidate_filter_;
+    bool origin_suspended_tree_command_{};
     std::set<std::string> visible_local_origin_ids_;
     std::set<std::string> selectable_local_origin_container_ids_;
     std::optional<std::size_t> suspended_primitive_reference_index_;
@@ -534,6 +550,13 @@ private:
     void update_document_area_visibility();
     void regenerate_active_document();
     [[nodiscard]] const zima::sketcher::Sketch* active_sketch() const;
+    [[nodiscard]] const zima::document::BodyHistory* sketch_body(
+        const zima::sketcher::Sketch& sketch) const;
+    [[nodiscard]] zima::kernel::ViewerMesh place_sketch_mesh(
+        const zima::sketcher::Sketch& sketch, zima::kernel::ViewerMesh mesh) const;
+    [[nodiscard]] zima::kernel::ViewerMesh sketch_input_mesh(
+        const zima::document::DocumentSession& session) const;
+    void show_sketch_drag_preview(const zima::sketcher::Sketch& sketch);
     [[nodiscard]] zima::kernel::ViewerMesh sketch_viewer_mesh(
         const zima::sketcher::Sketch& sketch) const;
     bool mutate_active_sketch(
@@ -574,6 +597,9 @@ private:
     [[nodiscard]] bool finish_active_reference_selection();
     void set_primitive_properties_dimension_selection();
     void set_construction_properties_dimension_selection();
+    bool placement_origin_allowed(const std::string& owner_id) const;
+    zima::kernel::ViewerMesh active_part_origins(const zima::document::PartDocument& document) const;
+    void bind_local_origin_selection(QDialog* dialog);
     void set_local_origin_selection_mode(bool active);
     void toggle_local_origin_visibility(
         const zima::viewer::ViewerCandidate& candidate);

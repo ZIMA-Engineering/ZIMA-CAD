@@ -2,6 +2,7 @@
 #include <zima/kernel/occt_kernel.hpp>
 
 #include <iostream>
+#include <fstream>
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
@@ -17,6 +18,139 @@ void require(bool condition, const char* message) {
 
 int main() {
     try {
+        // Save As creates an independent model/drawing pair from unsaved
+        // state, retaining the original tab, path, dirty state and identities.
+        {
+            namespace fs=std::filesystem;
+            using zima::document::PartDocument;
+            auto original=PartDocument::create_default();
+            const auto directory=fs::temp_directory_path()/("zima-copy-test-"+original.document_id);
+            fs::create_directory(directory);
+            const auto source_path=directory/"original.prtz";
+            const auto drawing_path=directory/"original.drwz";
+            const auto target=directory/"variant.prtz";
+            auto box=PartDocument::create_box_container();
+            original.history.push_back(box);
+            zima::document::BodyHistoryGraph graph;
+            const auto body_id=graph.create_body("Body");
+            graph.insert({zima::document::PartHistoryKind::Feature,box.id});
+            auto body=*graph.find(body_id);
+            body.scope.placement.references.push_back({{},original.document_id+":origin","origin:plane:xy"});
+            graph.update_body(body);
+            original.set_body_history(graph);
+            zima::kernel::OcctKernel copy_kernel;
+            auto boundaries=copy_kernel.evaluate_history(original.kernel_operations());
+            original.save(source_path,boundaries);
+            auto drawing=zima::drawing::DrawingDocument::create_default();
+            drawing.source_document_id=original.document_id;
+            drawing.source_path=source_path;
+            drawing.source_name="original";
+            drawing.sheets.front().views.push_back(zima::drawing::DrawingDocument::create_view(
+                original.document_id,source_path,boundaries.back().mesh,zima::drawing::ViewOrientation::Front));
+            drawing.save(drawing_path);
+            const auto bytes=[](const fs::path& path) {
+                std::ifstream stream(path,std::ios::binary);
+                return std::string(std::istreambuf_iterator<char>(stream),{});
+            };
+            const auto original_bytes=bytes(source_path),drawing_bytes=bytes(drawing_path);
+            zima::workspace::Workspace copies;
+            copies.add_part(original,boundaries,source_path);
+            copies.add_drawing(drawing,drawing_path);
+            auto edited=original;edited.name="Unsaved model";edited.user_parameters["UNSAVED"]="kept";edited.user_parameters["owner_id"]=original.document_id;
+            copies.open_part(original.document_id)->session.commit(edited,boundaries);
+            copies.open_drawing(drawing.document_id)->document.sheets.front().name="Unsaved sheet";
+            copies.activate(original.document_id);
+            const auto revision=copies.open_part(original.document_id)->session.revision();
+            const auto files=copies.save_copy(original.document_id,target,directory);
+            std::vector<zima::kernel::BodyResult> copied_boundaries;
+            const auto model_copy=PartDocument::load(target,&copied_boundaries);
+            const auto drawing_copy=zima::drawing::DrawingDocument::load(directory/"variant.drwz");
+            require(files.size()==2 && model_copy.document_id!=original.document_id &&
+                    drawing_copy.document_id!=drawing.document_id && model_copy.name=="variant" &&
+                    model_copy.user_parameters.at("UNSAVED")=="kept" &&
+                    model_copy.user_parameters.at("owner_id")==original.document_id,
+                    "Copy reused document identity or lost its filename");
+            require(model_copy.body_history.find(body_id)->scope.placement.references.front().owner_id==
+                    model_copy.document_id+":origin" && model_copy.history.front().id==box.id &&
+                    !copied_boundaries.empty() && copied_boundaries.back().volume==boundaries.back().volume,
+                    "Copied Body origin or cached geometry was detached");
+            require(drawing_copy.source_document_id==model_copy.document_id && drawing_copy.source_path==target &&
+                    drawing_copy.sheets.front().views.front().source_document_id==model_copy.document_id &&
+                    drawing_copy.sheets.front().views.front().source_path==target &&
+                    drawing_copy.sheets.front().name=="Unsaved sheet",
+                    "Drawing copy lost unsaved changes or still references original model");
+            require(copies.size()==2 && copies.active_document_id()==original.document_id &&
+                    copies.open_part(original.document_id)->path==source_path &&
+                    copies.open_part(original.document_id)->session.revision()==revision &&
+                    copies.open_part(original.document_id)->session.is_dirty() &&
+                    bytes(source_path)==original_bytes && bytes(drawing_path)==drawing_bytes,
+                    "Save Copy retargeted or changed the original documents");
+            copies.add_part(model_copy,copied_boundaries,target);
+            copies.add_drawing(drawing_copy,directory/"variant.drwz");
+            require(copies.size()==4,"Original and copy cannot be open together");
+            bool rejected=false;
+            { std::ofstream collision(directory/"collision.drwz");collision<<"keep"; }
+            try { static_cast<void>(copies.save_copy(original.document_id,directory/"collision.prtz",directory)); }
+            catch (const std::invalid_argument&) { rejected=true; }
+            require(rejected && !fs::exists(directory/"collision.prtz") && bytes(directory/"collision.drwz")=="keep",
+                    "Drawing collision left a partial model copy or overwrote a file");
+            require(copies.remove(drawing.document_id),"Cannot close original drawing fixture");
+            const auto closed_files=copies.save_copy(original.document_id,directory/"closed.prtz",directory);
+            require(closed_files.size()==2 && zima::drawing::DrawingDocument::load(directory/"closed.drwz").sheets.front().name==drawing.sheets.front().name,
+                    "Closed companion Drawing was not copied from disk");
+            auto assembly=zima::assembly::AssemblyDocument::create_default();
+            auto occurrence=zima::assembly::AssemblyDocument::create_part_occurrence(
+                "Part",original.document_id,source_path,boundaries.back());
+            zima::assembly::ComponentPlacementReference mate;
+            mate.target_reference.owner_id=assembly.document_id+":origin";
+            mate.target_reference.semantic_key="origin:point";
+            mate.component_reference.owner_id=original.document_id+":origin";
+            mate.component_reference.semantic_key="origin:point";
+            occurrence.placement_references.push_back(mate);
+            assembly.components.push_back(occurrence);
+            copies.add_assembly(assembly,directory/"original.asmz");
+            static_cast<void>(copies.save_copy(assembly.document_id,directory/"variant.asmz",directory));
+            const auto assembly_copy=zima::assembly::AssemblyDocument::load(directory/"variant.asmz");
+            require(assembly_copy.document_id!=assembly.document_id &&
+                    assembly_copy.components.front().source_document_id==original.document_id &&
+                    assembly_copy.components.front().placement_references.front().target_reference.owner_id==assembly_copy.document_id+":origin" &&
+                    assembly_copy.components.front().placement_references.front().component_reference.owner_id==original.document_id+":origin",
+                    "Assembly copy detached its mates or copied component identities");
+            static_cast<void>(copies.save_copy(drawing_copy.document_id,directory/"drawing-only.drwz",directory));
+            const auto drawing_only=zima::drawing::DrawingDocument::load(directory/"drawing-only.drwz");
+            require(drawing_only.document_id!=drawing_copy.document_id &&
+                    drawing_only.source_document_id==model_copy.document_id,
+                    "Standalone Drawing copy changed the referenced model");
+            const auto step_path=directory/"shape.step";
+            copy_kernel.export_step({{boundaries.back(),{}, {}}},step_path.string());
+            auto imported=PartDocument::create_default();
+            auto imported_feature=PartDocument::create_imported_step_container("shape.step");
+            const auto imported_geometry=copy_kernel.import_step_components({{
+                step_path.string(),{},{},{},imported_feature.id,{}}});
+            imported_feature.imported_step.frozen_brep=std::make_shared<const std::string>(imported_geometry.front().kernel_shape);
+            imported_feature.imported_step.topology=imported_geometry.front().imported_step_topology;
+            imported.history.push_back(imported_feature);
+            zima::document::BodyHistoryGraph imported_graph;
+            const auto imported_body=imported_graph.create_body("Imported");
+            imported_graph.insert({zima::document::PartHistoryKind::Feature,imported_feature.id});
+            imported.set_body_history(imported_graph);
+            const auto imported_boundaries=copy_kernel.evaluate_history(imported.kernel_operations());
+            copies.add_part(imported,imported_boundaries,directory/"imported.prtz");
+            fs::create_directory(directory/"elsewhere");
+            const auto imported_target=directory/"elsewhere"/"imported-copy.prtz";
+            static_cast<void>(copies.save_copy(imported.document_id,imported_target,directory));
+            std::vector<zima::kernel::BodyResult> imported_copy_boundaries;
+            const auto imported_copy=PartDocument::load(imported_target,&imported_copy_boundaries);
+            require(imported_copy.history.front().imported_step.source_path==step_path.generic_string() &&
+                    imported_copy_boundaries.back().kernel_shape==imported_boundaries.back().kernel_shape &&
+                    imported_copy_boundaries.back().body_boundaries.at(imported_body).size()==1,
+                    "Copy to another directory lost frozen STEP geometry or its source path");
+            const auto branch_ops=imported_copy.body_document(imported_body).kernel_operations();
+            require(imported_copy_boundaries.back().body_boundaries.at(imported_body).back().source_fingerprint==
+                    zima::kernel::history_fingerprint(branch_ops,branch_ops.size()),
+                    "Copied STEP body cache kept the old relative-path fingerprint");
+            fs::remove_all(directory);
+        }
         zima::workspace::Workspace workspace;
         zima::kernel::OcctKernel kernel;
         auto part = zima::document::PartDocument::create_default();

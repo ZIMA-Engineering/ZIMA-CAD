@@ -43,8 +43,16 @@ Tím je zatím vymezen rozsah obecného modeláře Part. Další velké funkce
 nepřidávat bez nové dohody. Vícetělesový Part a booleovské operace byly
 2026-09-07 dopracovány jako dohodnutý architektonický směr:
 [vlastní historie těles a operace mezi větvemi](doc/MULTIBODY_AND_BOOLEANS.md).
-Implementace této změny zatím nebyla zadána; aktuálním pokynem je dokumentace,
-commit a push. Přesné pořadí vůči výše uvedeným úlohám zůstává k dohodě.
+Vícetělesový model je nyní zapojený do Part UI, skicáře i referencí mezi
+souřadnými systémy, včetně editace Partu uvnitř vnořené Assembly. Boolean je
+samostatný krok stromu (Sjednocení / Rozdíl / Průnik); tělesa nemají vlastnost
+přičíst nebo odečíst. Ověřené opravy zahrnují odsazení od počátku tělesa,
+osy a koncové reference Sweep/Loftu a tečné kontakty ve skicáři.
+[Uložit jako](doc/DOCUMENT_COPY.md) vytváří kopii modelu a navázaných výkresů,
+původní dokument zůstává otevřený.
+Pattern celých těles, Boolean v Assembly a přesun těles mezi Party jsou
+budoucí rozšíření. Diskuse o nich nemění pořadí výše uvedených úloh;
+nejbližší plánovanou prací zůstává odsazení ve skicáři, zejména od STEP hran.
 Spolehlivost STEP importu/exportu zůstává také oblastí kontroly pokrytí.
 
 ### Doplnění: fialové úchopy kót (2026-09-06)

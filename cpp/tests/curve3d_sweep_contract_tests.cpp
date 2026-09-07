@@ -87,6 +87,57 @@ int main(){try{
             edge.points.size() >= 2 && std::abs(edge.points.back().z - 20) < 1e-9;
     }), "Route preview did not recover after entering the second Point displacement");
     kernel::OcctKernel k;
+    for(int mode=0;mode<3;++mode) {
+        auto sweep=fixture(mode==1?5:0);
+        if(mode==2)sweep.sweep3d.path.curve_type=document::Curve3DType::InterpolatingSpline;
+        sweep.placement={12,-7,9};
+        document::PartDocument input=document::PartDocument::create_default();input.history={sweep};
+        const auto operations=input.kernel_operations();
+        const auto& request=std::get<kernel::Sweep3DRequest>(operations.front().primitive);
+        const auto calculated=k.evaluate_history(operations);
+        const auto restored=document::load_body_result(document::serialize_body_result(calculated.front()));
+        for (const bool start : {true,false}) {
+            const auto& segment = start ? request.path_segments.front() : request.path_segments.back();
+            const auto key = std::string("sweep:cap:") + (start ? "start:from:" : "end:from:") + segment.source_id;
+            const auto& refs=restored.mesh.original_references;
+            require(std::ranges::any_of(refs.triangle_references,[&](const auto& face) {
+                return face.owner_id==sweep.id && face.semantic_key==key;
+            }),"Sweep endpoint face is missing from persisted placement references");
+            document::Placement placement;
+            placement.references={{{},sweep.id,key}};
+            require(document::resolve_placement(placement,refs),
+                "Cannot place a container on the persisted Sweep endpoint face");
+        }
+        std::size_t straight{};
+        for(const auto& segment:request.path_segments) {
+            const auto key="centerline:from:"+segment.source_id;
+            const auto found=std::ranges::find_if(restored.mesh.edges,[&](const auto& edge){return edge.reference.owner_id==sweep.id && edge.reference.semantic_key==key;});
+            require(found!=restored.mesh.edges.end() && found->overlay && found->construction && found->dash_dot,
+                "Sweep centerline is not persisted as visible dash-dot geometry");
+            const auto near=[](const auto& a,const auto& b){return std::hypot(std::hypot(a.x-b.x,a.y-b.y),a.z-b.z)<1e-7;};
+            require(near(found->points.front(),segment.start) && near(found->points.back(),segment.end),
+                "Sweep centerline lost its placed segment endpoints");
+            require(std::ranges::any_of(restored.mesh.original_references.edges,[&](const auto& edge){return edge.reference==found->reference;}),
+                "Sweep centerline has no persisted source reference");
+            const bool line=!segment.arc_midpoint && segment.bezier_control_points.empty();
+            const auto axis=std::ranges::find_if(restored.mesh.original_references.axes,[&](const auto& value){return value.reference.semantic_key==key;});
+            require((axis!=restored.mesh.original_references.axes.end())==line,
+                "Sweep incorrectly classified a curved centerline as a straight axis");
+            if(!line)require(found->points.size()>2,"Curved centerline was replaced by a chord");
+            else {
+                ++straight;document::Placement placed;placed.x=14;placed.y=11;placed.z=-3;
+                placed.references={{{},sweep.id,key}};
+                require(document::resolve_placement(placed,restored.mesh.original_references),
+                    "Cannot position a container on persisted Sweep centerline axis");
+                const kernel::Vec3 offset{placed.x-axis->point.x,placed.y-axis->point.y,placed.z-axis->point.z};
+                const auto& d=axis->direction;
+                require(std::hypot(std::hypot(offset.y*d.z-offset.z*d.y,offset.z*d.x-offset.x*d.z),offset.x*d.y-offset.y*d.x)<1e-8,
+                    "Sweep axis reference resolved off its line");
+            }
+        }
+        require(straight==(mode==2?0:2),"Unexpected straight Sweep axis count");
+    }
+
     document::PartDocument edited_document;
     edited_document.history = {edited_sweep};
     const auto regenerate_edited = [&] {
