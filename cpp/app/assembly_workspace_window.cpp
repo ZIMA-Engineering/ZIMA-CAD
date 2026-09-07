@@ -3829,7 +3829,7 @@ void AssemblyWorkspaceWindow::create_layout() {
     };
     history_tree->body_cursor_moved = [this](const QString& owner, std::size_t cursor) {
         auto* part = workspace_.open_part(workspace_.active_document_id());
-        if (!part || properties_dialog_ || !active_sketch_id_.empty()) return;
+        if (!part || !part_history_insertion_allowed()) return;
         auto next = part->session.document();
         if (owner.isEmpty()) {
             if (next.body_history.insertion_cursor() == cursor) return;
@@ -3844,7 +3844,7 @@ void AssemblyWorkspaceWindow::create_layout() {
     };
     history_tree->history_cursor_moved = [this](std::size_t cursor) {
         auto* part = workspace_.open_part(workspace_.active_document_id());
-        if (part == nullptr) return;
+        if (part == nullptr || !part_history_insertion_allowed()) return;
         auto next = part->session.document();
         if (next.effective_history_cursor() ==
             std::min(cursor, next.history_order.size())) return;
@@ -26827,6 +26827,13 @@ void AssemblyWorkspaceWindow::populate_sketch_tree(
     dimensions->setExpanded(true);
 }
 
+bool AssemblyWorkspaceWindow::part_history_insertion_allowed() const {
+    // A hidden parent dialog still owns the transaction during Point/Sketch
+    // editing. Do not restore history insertion until that whole command ends.
+    return !properties_dialog_ && !tree_edit_dialog_ && !pending_profile_feature_ &&
+        active_sketch_id_.empty();
+}
+
 void AssemblyWorkspaceWindow::track_tree_edit(QDialog* dialog) {
     bind_local_origin_selection(dialog);
     // Keep the outer transaction while its Point/Sketch sub-editor is open.
@@ -26851,9 +26858,20 @@ void AssemblyWorkspaceWindow::track_tree_edit(QDialog* dialog) {
             if (row->data(0, Qt::UserRole + 3).toString() == "document-origin" &&
                 row->data(0, Qt::UserRole).toString().toStdString() == tree_edit_document_id_ + ":origin" &&
                 row->data(0, Qt::UserRole + 1).toString().toStdString() == active_occurrence_path_) {
+                const bool assembly = workspace_.open_assembly(tree_edit_document_id_) != nullptr;
                 add_pending_tree_item(row->parent(), tree_edit_document_id_,
-                    zima::assembly::InstancePath::decode(active_occurrence_path_),
-                    workspace_.open_assembly(tree_edit_document_id_) != nullptr);
+                    zima::assembly::InstancePath::decode(active_occurrence_path_), assembly);
+                if (!assembly) {
+                    // Editing another body's row must also retire the active
+                    // body's marker, even when the command needed no rebuild.
+                    std::vector<QTreeWidgetItem*> markers;
+                    for (QTreeWidgetItemIterator it(tree_); *it; ++it) {
+                        const auto role = (*it)->data(0, Qt::UserRole + 3).toString();
+                        if (role == "part-insert-here" || role == "part-body-insert-here")
+                            markers.push_back(*it);
+                    }
+                    for (auto* marker : markers) delete marker;
+                }
                 return;
             }
         }
@@ -27172,15 +27190,16 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
         body->setIcon(0, resource_icon("result-body"));
         body->setData(0, Qt::UserRole, QString::fromStdString(document.document_id));
         body->setData(0, Qt::UserRole + 3, "part-result-body");
-        auto* insert_here = new QTreeWidgetItem({tr("← Vložit zde")});
-        insert_here->setData(0, Qt::UserRole + 3, "part-insert-here");
-        auto font = insert_here->font(0);
-        font.setBold(true);
-        insert_here->setFont(0, font);
-        insert_here->setForeground(0, QBrush(QColor("#4DD811")));
         parent->insertChild(std::min(cursor_position, parent->childCount()), body);
-        parent->insertChild(std::min(cursor_position + 1, parent->childCount()),
-            insert_here);
+        if (part_history_insertion_allowed()) {
+            auto* insert_here = new QTreeWidgetItem({tr("← Vložit zde")});
+            insert_here->setData(0, Qt::UserRole + 3, "part-insert-here");
+            auto font = insert_here->font(0);
+            font.setBold(true);
+            insert_here->setFont(0, font);
+            insert_here->setForeground(0, QBrush(QColor("#4DD811")));
+            parent->insertChild(std::min(cursor_position + 1, parent->childCount()), insert_here);
+        }
     }
     add_pending_tree_item(parent, document.document_id, construction_path, false);
     if (!document.body_history.bodies().empty()) {
@@ -27200,7 +27219,7 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
             row->setForeground(0, QBrush(QColor("#4DD811"))); return row;
         };
         for (std::size_t index = 0; index <= graph.order().size(); ++index) {
-            if (index == graph.insertion_cursor() && graph.active_body_id().empty() && !properties_dialog_)
+            if (index == graph.insertion_cursor() && graph.active_body_id().empty() && part_history_insertion_allowed())
                 make_cursor(parent, "part-body-insert-here", {});
             if (index == graph.order().size()) break;
             const auto& id = graph.order()[index];
@@ -27232,7 +27251,7 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
                 row->insertChild(std::min(static_cast<int>(definition->cursor)+1, row->childCount()), pending_entry);
                 pending_entry = nullptr;
             }
-            if (id == graph.active_body_id() && !properties_dialog_) {
+            if (id == graph.active_body_id() && part_history_insertion_allowed()) {
                 auto* cursor = make_cursor(row, "part-insert-here", id);
                 row->removeChild(cursor);
                 row->insertChild(static_cast<int>(definition->cursor)+1, cursor);

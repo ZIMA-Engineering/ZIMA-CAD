@@ -9,7 +9,12 @@ and expose only **OK** and **Cancel**.
 Opening Properties establishes an edit boundary immediately before the selected
 history container. The edited container remains green at its history position;
 downstream containers are suppressed for the edit session. **Insert here is
-hidden while the container is being edited.**
+hidden while the container is being edited.** In a Part this applies to
+both document-level and body-level insertion markers for the entire command,
+including when its Properties window is temporarily hidden by a Point or
+Sketch editor. Returning from a nested editor does not end the outer command.
+History-cursor dragging is disabled for the same interval; only the outer
+OK/Cancel restores insertion.
 
 Creating a container replaces Insert here with a green, transient container row.
 It displays the pending origin and current children, including a Curve/Sweep's

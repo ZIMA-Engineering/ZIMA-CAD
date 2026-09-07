@@ -72,6 +72,15 @@ bool verify(bool condition, const char* message) {
     return condition;
 }
 
+std::size_t part_insertion_marker_count(QTreeWidget* tree) {
+    std::size_t count = 0;
+    for (QTreeWidgetItemIterator it(tree); *it; ++it) {
+        const auto role = (*it)->data(0, Qt::UserRole + 3).toString();
+        if (role == "part-insert-here" || role == "part-body-insert-here") ++count;
+    }
+    return count;
+}
+
 bool contains_rendered_geometry(const QImage& image) {
     if (image.isNull() || image.width() < 2 || image.height() < 2) return false;
     const QColor background = image.pixelColor(0, 0);
@@ -232,6 +241,7 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     tree->setCurrentItem(row(source,"part-body"));flush();action->trigger();flush();
     auto* dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("mirrorDialog"));
     if(!verify(dialog&&dialog->derived_copy.source_id==source,"Mirror did not prefill selected body"))return 1;
+    if(!verify(part_insertion_marker_count(tree)==0,"Mirror creation retained the body-level insertion marker"))return 1;
     if(!verify(dialog->parentWidget()==&window&&(dialog->windowFlags()&Qt::WindowType_Mask)==Qt::SubWindow,"Mirror is not an internal properties window"))return 1;
     if(!verify(!dialog->buttons()->button(QDialogButtonBox::Apply),"Mirror exposes Apply"))return 1;
     const auto id=dialog->pending.id;
@@ -268,6 +278,7 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     tree->setCurrentItem(row(source,"part-body"));flush();pattern_action->trigger();flush();
     dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("patternDialog"));
     if(!verify(dialog&&dialog->derived_copy.source_id==source&&dialog->derived_copy.pattern,"Pattern did not prefill its source"))return 1;
+    if(!verify(part_insertion_marker_count(tree)==0,"Pattern creation retained the body-level insertion marker"))return 1;
     const auto pattern_id=dialog->pending.id;
     auto* mode=dialog->findChild<QComboBox*>("patternMode");auto* refs=dialog->findChild<QTableWidget*>("mirrorReferences");
     if(!verify(mode&&refs->isRowHidden(0),"Linear Pattern displays circular axis input"))return 1;
@@ -1284,12 +1295,35 @@ int verify_body_pending_tree(QApplication& application, const std::filesystem::p
         }
         const auto id = rows.front()->data(0, Qt::UserRole).toString().toStdString();
         if (!verify(unique_in_body(id, body_id), "Pending feature duplicated or outside its owning body")) return 1;
+        if (!verify(part_insertion_marker_count(tree) == 0, "Insert here remained visible during creation")) return 1;
         if (std::string_view(name) == "sweep2dAction")
             window.grab().save(QString::fromStdString((directory / "body-pending-tree.png").string()));
         window.findChild<QAction*>("showAxesAction")->trigger(); flush();
         if (!verify(pending_rows().size() == 1 && unique_in_body(id, body_id),
                 "Tree refresh duplicated or moved the pending feature")) return 1;
+        if (!verify(part_insertion_marker_count(tree) == 0, "Tree refresh restored Insert here during creation")) return 1;
+        if (std::string_view(name) == "sweep2dAction" || std::string_view(name) == "helicalSweepAction") {
+            auto* open_sketch = dialog->findChild<QPushButton*>(
+                std::string_view(name) == "sweep2dAction" ? "sweep2dSketch0" : "helicalSketch0");
+            if (!verify(open_sketch, "Missing owned Sketch button in pending container")) return 1;
+            open_sketch->click(); flush();
+            if (!verify(part_insertion_marker_count(tree) == 0,
+                    "Owned Sketch editor restored Insert here while its container was pending")) return 1;
+            window.findChild<QAction*>("finishSketchAction")->trigger(); flush();
+            if (!verify(dialog->isVisible() && part_insertion_marker_count(tree) == 0,
+                    "Returning from owned Sketch restored Insert here before container confirmation")) return 1;
+        }
+        if (std::string_view(name) == "sweep3DAction" || std::string_view(name) == "curve3DAction") {
+            dialog->findChild<QPushButton*>("curve3DAddPoint")->click(); flush();
+            auto* point_dialog = visible_dialog();
+            if (!verify(point_dialog && point_dialog != dialog && part_insertion_marker_count(tree) == 0,
+                    "Nested Point editor restored Insert here")) return 1;
+            point_dialog->reject(); flush();
+            if (!verify(dialog->isVisible() && part_insertion_marker_count(tree) == 0,
+                    "Point Cancel restored Insert here before the parent finished")) return 1;
+        }
         dialog->reject(); flush();
+        if (!verify(part_insertion_marker_count(tree) == 1, "Cancel did not restore the single body insertion marker")) return 1;
         if (!verify(pending_rows().empty() && unique_in_body(box.id, body_id),
                 "Cancel retained the pending row or changed committed body history")) return 1;
     }
@@ -1302,7 +1336,10 @@ int verify_body_pending_tree(QApplication& application, const std::filesystem::p
     auto* dialog = visible_dialog();
     if (!verify(dialog && pending_rows().size() == 1 && unique_in_body(other_box.id, other_body_id),
             "Editing another body's feature projected a duplicate under the active body")) return 1;
+    if (!verify(part_insertion_marker_count(tree) == 0,
+            "Editing another body's feature retained Insert here in the active body")) return 1;
     dialog->reject(); flush();
+    if (!verify(part_insertion_marker_count(tree) == 1, "Edit Cancel failed to restore Insert here")) return 1;
     window.findChild<QAction*>("saveDocumentAction")->trigger(); flush();
     const auto saved = PartDocument::load(path);
     if (!verify(saved.history.size() == 2 && saved.body_history.bodies().size() == 2,

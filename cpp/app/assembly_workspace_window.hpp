@@ -971,6 +971,7 @@ private:
         zima::assembly::AssemblyDocument& document) const;
     void refresh_tabs();
     void refresh_scene();
+    [[nodiscard]] bool part_history_insertion_allowed() const;
     void track_tree_edit(QDialog* dialog);
     void add_pending_tree_item(QTreeWidgetItem* parent,
         const std::string& document_id,
