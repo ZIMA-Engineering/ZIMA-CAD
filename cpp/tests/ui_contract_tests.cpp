@@ -3021,7 +3021,7 @@ int main(int argc, char* argv[]) {
         thin_result->setCurrentIndex(0);
 
         require(sweep_dialog->windowTitle() ==
-                    QStringLiteral("Vlastnosti 3D Sweep/Loftu") &&
+                    QStringLiteral("Vlastnosti 3D tažení") &&
                     sweep_dialog->findChild<QTableWidget*>(
                         "sweep3DProfiles") != nullptr,
                 "Sweep/Loft does not reuse the 3D Curve Properties dialog with "

@@ -76,7 +76,7 @@ int main() {
         auto embedded=sketch_with_zero_dimension();
         auto sweep=zima::document::PartDocument::create_box_container();
         sweep.feature_kind=zima::document::FeatureKind::Sweep2D;
-        sweep.sweep2d.sketches[0]=embedded.serialized();sweep.sweep2d.thickness=0;
+        sweep.sweep2d.path_sketch=embedded.serialized();sweep.sweep2d.thickness=0;
         copy.history.push_back(sweep);copy.synchronize_dimension_identifiers();
         require(!copy.dimension_identifiers.identifier(embedded.id,"dimension:"+embedded.dimensions.front().id).empty(),
             "Owned Sweep sketch dimension was omitted");

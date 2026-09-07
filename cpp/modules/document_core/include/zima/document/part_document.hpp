@@ -1,4 +1,5 @@
 #pragma once
+#include <ranges>
 #include <zima/document/document_copy.hpp>
 
 #include <zima/kernel/geometry_kernel.hpp>
@@ -489,9 +490,26 @@ struct HistoryContainer;
 [[nodiscard]] std::vector<zima::kernel::ViewerDimension> curve3d_radius_dimensions(
     const ConstructionObject& path);
 
-// Two owned Sketches share an origin in perpendicular profile/path planes.
+// The path owns its plane reference; profile stations belong to persisted
+// Sketch points and use the same correspondence contract as 3D Sweep/Loft.
 struct Sweep2DParameters {
-    std::array<std::string, 2> sketches;
+    std::string path_sketch;
+    std::optional<ConstructionReference> path_plane;
+    std::vector<Sweep3DProfile> profiles;
+    std::string& sketch_data(std::size_t stage) {
+        return stage==0 ? path_sketch : profiles.at(stage-1).sketch_serialized;
+    }
+    const std::string& sketch_data(std::size_t stage) const {
+        return stage==0 ? path_sketch : profiles.at(stage-1).sketch_serialized;
+    }
+    auto sketches() {
+        return std::views::iota(std::size_t{0},profiles.size()+1) |
+            std::views::transform([this](std::size_t i)->std::string& {return sketch_data(i);});
+    }
+    auto sketches() const {
+        return std::views::iota(std::size_t{0},profiles.size()+1) |
+            std::views::transform([this](std::size_t i)->const std::string& {return sketch_data(i);});
+    }
     ProfileResultType result_type{ProfileResultType::Solid};
     ThinMode thin_mode{ThinMode::Symmetric};
     double thickness{1.0};
@@ -694,10 +712,13 @@ public:
     [[nodiscard]] static HistoryContainer create_sweep3d_container();
     [[nodiscard]] static HistoryContainer create_sweep2d_container();
     static void reframe_sweep2d_sketches(HistoryContainer&, unsigned through_stage = 1);
+    [[nodiscard]] static Curve3DRoute sweep2d_route(const HistoryContainer&, double tolerance = 0.001);
+    static std::size_t ensure_sweep2d_profile(HistoryContainer&, const std::string& point_id, bool incoming);
     static void resolve_sweep2d_planes(HistoryContainer&, const zima::kernel::ViewerReferenceGeometry&);
+    [[nodiscard]] static bool sweep2d_accepts_path_plane(const ConstructionReference&, const zima::kernel::ViewerReferenceGeometry&);
     [[nodiscard]] static zima::kernel::Sweep3DRequest sweep2d_request(const HistoryContainer&, double linear_tolerance = 0.001);
     [[nodiscard]] static std::vector<zima::kernel::ViewerEdge> sweep2d_sketch_edges(const HistoryContainer& container);
-    [[nodiscard]] static std::vector<zima::kernel::ViewerEdge> sweep2d_preview_edges(const HistoryContainer&);
+    [[nodiscard]] static zima::kernel::ViewerMesh sweep2d_preview_mesh(const HistoryContainer&);
     [[nodiscard]] static HistoryContainer create_helical_sweep_container();
     static void reframe_helical_sketches(HistoryContainer& container, unsigned through_stage = 2);
     [[nodiscard]] static zima::kernel::Sweep3DRequest helical_sweep_request(const HistoryContainer& container, double linear_tolerance = 0.001);

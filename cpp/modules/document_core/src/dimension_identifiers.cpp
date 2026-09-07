@@ -157,7 +157,7 @@ void append_dimension_parameters(std::vector<DimensionParameter>& out,
         add({"angle"}); break;
     case FeatureKind::Sweep2D:
         add({"thickness"});
-        for (const auto& sketch : feature.sweep2d.sketches) embedded_sketch(out, sketch);
+        for (const auto& sketch : feature.sweep2d.sketches()) embedded_sketch(out, sketch);
         break;
     case FeatureKind::HelicalSweep:
         add({"pitch"});

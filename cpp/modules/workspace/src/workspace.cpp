@@ -476,7 +476,7 @@ bool Workspace::refresh_context_external_references(
     std::set<Context> contexts;
     std::vector<std::pair<std::string*,zima::sketcher::Sketch>> owned;
     for(auto& container:document.history)if(container.feature_kind==zima::document::FeatureKind::Sweep2D)
-        for(auto& data:container.sweep2d.sketches)owned.emplace_back(&data,zima::sketcher::Sketch::from_serialized(data));
+        for(auto& data:container.sweep2d.sketches())owned.emplace_back(&data,zima::sketcher::Sketch::from_serialized(data));
     std::vector<zima::sketcher::Sketch*> sketches;
     for(auto& sketch:document.sketches)sketches.push_back(&sketch);
     for(auto& entry:owned)sketches.push_back(&entry.second);

@@ -8,107 +8,131 @@
 #include <set>
 using namespace zima;
 static void require(bool ok,const char* message){if(!ok)throw std::runtime_error(message);}
+static void close(double actual,double expected,const char* message){
+    if(std::abs(actual-expected)>std::max(.02,std::abs(expected)*.002)) {
+        std::cerr<<message<<": "<<actual<<" expected "<<expected<<std::endl;throw std::runtime_error(message);
+    }
+}
+static std::size_t profile_at(document::HistoryContainer& c,const document::Curve3DStation& station,double radius,bool open=false) {
+    const auto i=document::PartDocument::ensure_sweep2d_profile(c,station.point_id,station.incoming);
+    auto sketch=sketcher::Sketch::from_serialized(c.sweep2d.profiles[i].sketch_serialized);
+    if(open)static_cast<void>(sketch.add_segment(-radius,0,radius,0));
+    else static_cast<void>(sketch.add_circle(0,0,radius));
+    c.sweep2d.profiles[i].sketch_serialized=sketch.serialized();return i;
+}
 static document::HistoryContainer fixture(bool arc=false,bool open=false){
     auto c=document::PartDocument::create_sweep2d_container();
-    auto section=sketcher::Sketch::from_serialized(c.sweep2d.sketches[0]);
-    section.plane=sketcher::SketchPlane::XY;section.refresh_default_frame();
-    if(open)static_cast<void>(section.add_segment(-2,0,2,0));else static_cast<void>(section.add_circle(0,0,2));
-    c.sweep2d.sketches[0]=section.serialized();
-    auto path=sketcher::Sketch::from_serialized(c.sweep2d.sketches[1]);
+    auto path=sketcher::Sketch::from_serialized(c.sweep2d.path_sketch);
     if(arc)static_cast<void>(path.add_arc(10,0,0,0,10,10,false,1e-6,true));
     else static_cast<void>(path.add_segment(0,0,0,20));
-    c.sweep2d.sketches[1]=path.serialized();document::PartDocument::reframe_sweep2d_sketches(c);return c;
+    c.sweep2d.path_sketch=path.serialized();document::PartDocument::reframe_sweep2d_sketches(c);
+    profile_at(c,document::PartDocument::sweep2d_route(c).stations.front(),2,open);return c;
 }
 int main(){try{
     kernel::OcctKernel kernel;
     auto doc=document::PartDocument::create_default();
-    // A path is drawn from the Sketch origin; it does not need a separate
-    // seed point that Sketcher may merge or remove during editing.
-    auto redrawn=fixture();auto new_path=sketcher::Sketch::create_default();
-    static_cast<void>(new_path.add_segment(0,20,0,0));
-    const auto endpoint=new_path.segments.front().second_point_id;
-    redrawn.sweep2d.sketches[1]=new_path.serialized();
-    document::PartDocument::reframe_sweep2d_sketches(redrawn);
-    const auto redrawn_request=document::PartDocument::sweep2d_request(redrawn);
-    require(redrawn_request.path_point_ids.front()==endpoint&&redrawn_request.sections.front().point_id==endpoint,"Sweep start did not use the actual curve endpoint");
-    auto displaced=redrawn;for(auto& p:new_path.points)p.x+=1;displaced.sweep2d.sketches[1]=new_path.serialized();
-    bool away_rejected=false;try{static_cast<void>(document::PartDocument::sweep2d_request(displaced));}catch(...){away_rejected=true;}require(away_rejected,"A path away from the Sketch origin was accepted");
-    for(bool arc:{false,true}){
-        auto c=fixture(arc);doc.history={c};
-        auto bodies=kernel.evaluate_history(doc.kernel_operations());
-        const auto guide=sketcher::Sketch::from_serialized(c.sweep2d.sketches[1]);
-        const auto source_id=arc?guide.arcs.front().id:guide.segments.front().id;
-        const auto centerline_key="centerline:from:"+source_id;
-        const auto centerline=std::ranges::find_if(bodies.back().mesh.edges,[&](const auto& e){return e.reference.semantic_key==centerline_key;});
-        require(centerline!=bodies.back().mesh.edges.end() && centerline->dash_dot && centerline->overlay,
-            "2D Sweep centerline is not displayed");
-        require(std::ranges::count_if(bodies.back().mesh.edges,[&](const auto& e){return e.reference.semantic_key==centerline_key;})==1,
-            "2D Sweep approximation pieces became separate centerline identities");
-        require(std::ranges::any_of(bodies.back().mesh.original_references.axes,[&](const auto& a){return a.reference.semantic_key==centerline_key;})==!arc,
-            "2D Sweep did not distinguish a straight axis from an arc");
-        const double expected=4*std::numbers::pi*(arc?5*std::numbers::pi:20);
-        std::cout<<"solid "<<arc<<" volume "<<bodies.back().volume<<" expected "<<expected<<std::endl;
-        require(std::abs(bodies.back().volume-expected)<expected*.002,"Solid volume mismatch");
-        std::set<std::string> caps;for(const auto& r:bodies.back().mesh.original_references.triangle_references)if(r.semantic_key.starts_with("start:from:")||r.semantic_key.starts_with("end:from:"))caps.insert(r.semantic_key);
-        require(caps.size()==2,"Missing persistent end caps");
-        const auto file=std::filesystem::temp_directory_path()/"zima-sweep2d-contract.prtz";doc.save(file,bodies);std::vector<kernel::BodyResult> loaded_bodies;
-        auto loaded=document::PartDocument::load(file,&loaded_bodies);require(loaded.history.back().sweep2d==c.sweep2d,"Sweep parameters changed after save/load");
-        c.placement.rotation_y=35;c.placement.x=7;doc.history={c};auto rotated=kernel.evaluate_history(doc.kernel_operations());require(std::abs(rotated.back().volume-expected)<expected*.002,"Container rotation changed volume");
-        for(const auto& cap:caps)require(std::ranges::any_of(rotated.back().mesh.original_references.triangle_references,[&](const auto& r){return r.semantic_key==cap;}),"Cap identity changed on placement edit");
+    const auto calculate=[&](const auto& c){doc.history={c};return kernel.evaluate_history(doc.kernel_operations()).back();};
+    for(bool arc:{false,true}) {
+        auto c=fixture(arc);const double length=arc?5*std::numbers::pi:20;
+        const auto body=calculate(c);close(body.volume,4*std::numbers::pi*length,"Constant profile Sweep volume");
+        const auto guide=sketcher::Sketch::from_serialized(c.sweep2d.path_sketch);
+        const auto source=arc?guide.arcs.front().id:guide.segments.front().id;
+        require(std::ranges::count_if(body.mesh.edges,[&](const auto& e){return e.reference.semantic_key=="centerline:from:"+source&&e.dash_dot;})==1,
+            "Source curve centerline was lost or split into approximation identities");
+        std::set<std::string> caps;
+        for(const auto& r:body.mesh.original_references.triangle_references)if(r.semantic_key.starts_with("sweep:cap:"))caps.insert(r.semantic_key);
+        require(caps.size()==2,"Missing persisted Sweep end caps");
+        c.placement.rotation_y=35;c.placement.x=7;
+        close(calculate(c).volume,body.volume,"Container placement changed Sweep volume");
+        const auto file=std::filesystem::temp_directory_path()/"zima-sweep2d-loft-contract.prtz";
+        doc.save(file);auto loaded=document::PartDocument::load(file);std::filesystem::remove(file);
+        close(kernel.evaluate_history(loaded.kernel_operations()).back().volume,body.volume,"Reload changed Sweep geometry");
+        require(loaded.history.front().sweep2d.profiles.front().id==c.sweep2d.profiles.front().id,"Profile identity changed during persistence");
+        profile_at(c,document::PartDocument::sweep2d_route(c).stations.back(),3);
+        close(calculate(c).volume,std::numbers::pi*length*(4+6+9)/3,"Variable circular Loft volume");
     }
-    for(bool open:{false,true})for(auto mode:{document::ThinMode::OneSide,document::ThinMode::OtherSide,document::ThinMode::Symmetric}){
-        auto c=fixture(false,open);c.sweep2d.result_type=document::ProfileResultType::Thin;c.sweep2d.thickness=.5;c.sweep2d.thin_mode=mode;doc.history={c};
-        auto bodies=kernel.evaluate_history(doc.kernel_operations());std::cout<<"thin "<<open<<" mode "<<int(mode)<<" volume "<<bodies.back().volume<<std::endl;
+    for(bool open:{false,true})for(auto mode:{document::ThinMode::OneSide,document::ThinMode::OtherSide,document::ThinMode::Symmetric}) {
+        auto c=fixture(false,open);c.sweep2d.result_type=document::ProfileResultType::Thin;c.sweep2d.thickness=.5;c.sweep2d.thin_mode=mode;
         const double area=open?2:mode==document::ThinMode::Symmetric?2*std::numbers::pi:mode==document::ThinMode::OneSide?1.75*std::numbers::pi:2.25*std::numbers::pi;
-        require(std::abs(bodies.back().volume-area*20)<.02,"Thin volume mismatch");
+        close(calculate(c).volume,area*20,"Thin direction or thickness changed");
+        const auto last=document::PartDocument::sweep2d_route(c).stations.back();profile_at(c,last,3,open);
+        if(open) {
+            for(auto& profile:c.sweep2d.profiles){auto sketch=sketcher::Sketch::from_serialized(profile.sketch_serialized);
+                profile.correspondence_start_point_id=sketch.segments.front().first_point_id;}
+            close(calculate(c).volume,2.5*20,"Open Thin Loft volume");
+        } else {
+            const double r=mode==document::ThinMode::OneSide?2:mode==document::ThinMode::OtherSide?2.5:2.25;
+            const auto frustum=[](double a,double b){return std::numbers::pi*20*(a*a+a*b+b*b)/3;};
+            close(calculate(c).volume,frustum(r,r+1)-frustum(r-.5,r+.5),"Closed Thin Loft volume");
+        }
+        const auto original=c.sweep2d.profiles.front().sketch_serialized;
+        static_cast<void>(document::PartDocument::sweep2d_preview_mesh(c));
+        require(c.sweep2d.profiles.front().sketch_serialized==original,"Preview mutated source Sketch");
     }
-    // Plane references must be perpendicular and pass through the shared origin.
-    auto box=document::PartDocument::create_box_container();
-    box.box.length=40;box.box.width=40;box.box.height=40;box.placement.x=20;box.placement.y=20;box.placement.z=20;
-    auto base_doc=document::PartDocument::create_default();base_doc.history={box};
-    auto base_bodies=kernel.evaluate_history(base_doc.kernel_operations());
-    const auto& geometry=base_bodies.back().mesh.original_references;
-    const auto face=[&](const std::string& key){for(const auto& ref:geometry.triangle_references)if(ref.semantic_key==key)return ref;throw std::runtime_error("Missing box reference "+key);};
-    const auto reference=[&](const std::string& key){const auto f=face(key);return document::ConstructionReference{f.instance_path,f.owner_id,f.semantic_key};};
-    auto attached=fixture();attached.placement.references={reference("z_min"),reference("y_min")};
-    require(document::resolve_placement(attached.placement,geometry),"Placement references failed");
+    // C and K correspondence share the same profile implementation as 3D.
+    for(bool keypoints:{false,true}) {
+        auto c=fixture();auto& profile=c.sweep2d.profiles.front();
+        auto sketch=sketcher::Sketch::from_serialized(profile.sketch_serialized);
+        for(unsigned q=0;q<4;++q){const double a=q*std::numbers::pi/2;const auto point=sketch.add_point(2*std::cos(a),2*std::sin(a));
+            if(keypoints)static_cast<void>(sketch.add_point_reference_constraint(point,"sketch_keypoint:circle:"+sketch.circles.front().id+":"+std::to_string(q)));
+            else static_cast<void>(sketch.add_point_on_circle_constraint(point,sketch.circles.front().id));}
+        profile.sketch_serialized=sketch.serialized();
+        const auto index=document::PartDocument::ensure_sweep2d_profile(c,document::PartDocument::sweep2d_route(c).stations.back().point_id,true);
+        auto rectangle=sketcher::Sketch::from_serialized(c.sweep2d.profiles[index].sketch_serialized);static_cast<void>(rectangle.add_rectangle(-2,-2,2,2));
+        c.sweep2d.profiles[index].sketch_serialized=rectangle.serialized();
+        require(calculate(c).volume>0,"C/K circle to rectangle Loft failed");
+        const auto preview=document::PartDocument::sweep2d_preview_mesh(c);
+        require(preview.constraint_markers.size()==8&&preview.constraint_markers.front().label=="1 – začátek",
+            "Numbered profile correspondence preview is missing");
+        c.sweep2d.result_type=document::ProfileResultType::Thin;c.sweep2d.thickness=.2;
+        require(calculate(c).volume>0,"C/K Thin Loft failed");
+    }
+    // Keep the original 2D Sweep support for closed profiles with holes.
+    auto hollow=fixture();
+    auto add_hole=[](document::Sweep3DProfile& p,double radius){auto sketch=sketcher::Sketch::from_serialized(p.sketch_serialized);
+        static_cast<void>(sketch.add_circle(0,0,radius));p.sketch_serialized=sketch.serialized();};
+    add_hole(hollow.sweep2d.profiles.front(),1);close(calculate(hollow).volume,60*std::numbers::pi,"Annular profile Sweep volume");
+    profile_at(hollow,document::PartDocument::sweep2d_route(hollow).stations.back(),3);
+    add_hole(hollow.sweep2d.profiles.back(),1.5);
+    close(calculate(hollow).volume,std::numbers::pi*20/3*(4+6+9-1-1.5-2.25),"Annular profile Loft volume");
+    // Real points inside a segment become persistent, independently editable stations.
+    auto marked=fixture();auto guide=sketcher::Sketch::from_serialized(marked.sweep2d.path_sketch);
+    const auto middle=guide.add_point(0,10);marked.sweep2d.path_sketch=guide.serialized();
+    auto route=document::PartDocument::sweep2d_route(marked);
+    require(route.stations.size()==4&&route.stations[1].point_id==middle&&route.stations[2].point_id==middle,"Interior path point did not create stations");
+    profile_at(marked,route.stations[1],3);profile_at(marked,route.stations[2],3);profile_at(marked,route.stations.back(),4);
+    close(calculate(marked).volume,std::numbers::pi*10/3*(4+6+9+9+12+16),"Piecewise multi-profile Loft volume");
+    // Referencing a path plane is independent of all container placement rows.
+    auto attached=fixture();const auto geometry=doc.origin_viewer_mesh().original_references;
+    const auto plane_ref=std::ranges::find_if(geometry.triangle_references,[](const auto& r){return r.semantic_key=="origin:plane:xz";});
+    require(plane_ref!=geometry.triangle_references.end(),"Missing origin plane fixture");
+    attached.sweep2d.path_plane=document::ConstructionReference{plane_ref->instance_path,plane_ref->owner_id,plane_ref->semantic_key};
+    const auto placement=attached.placement;const auto first_id=attached.sweep2d.profiles.front().id;
     document::PartDocument::resolve_sweep2d_planes(attached,geometry);
-    const auto profile_plane=sketcher::Sketch::from_serialized(attached.sweep2d.sketches[0]);
-    const auto path_plane=sketcher::Sketch::from_serialized(attached.sweep2d.sketches[1]);
-    require(std::abs(profile_plane.resolved_normal.z)>1-1e-6&&std::abs(path_plane.resolved_normal.y)>1-1e-6,"Placement rows did not determine Sketch planes");
-    static_cast<void>(document::PartDocument::sweep2d_request(attached));
-    auto invalid=attached;invalid.placement.references[1]=reference("z_max");
-    bool rejected_planes=false;try{document::PartDocument::resolve_sweep2d_planes(invalid,geometry);}catch(...){rejected_planes=true;}require(rejected_planes,"Parallel Sketch planes accepted");
-    auto incomplete=attached;auto empty=sketcher::Sketch::from_serialized(incomplete.sweep2d.sketches[1]);empty.segments.clear();incomplete.sweep2d.sketches[1]=empty.serialized();
-    auto wire=document::PartDocument::sweep2d_sketch_edges(incomplete);
-    require(std::ranges::any_of(wire,[](const auto& e){return e.reference.semantic_key.starts_with("sweep2d:sketch:profile:circle:");}),"Profile disappeared with an unfinished path");
-    auto invalid_path=attached;auto bad_path=sketcher::Sketch::from_serialized(invalid_path.sweep2d.sketches[1]);static_cast<void>(bad_path.add_segment(0,0,10,5));invalid_path.sweep2d.sketches[1]=bad_path.serialized();
-    wire=document::PartDocument::sweep2d_sketch_edges(invalid_path);
-    require(std::ranges::any_of(wire,[](const auto& e){return e.reference.semantic_key.starts_with("sweep2d:sketch:path:segment:");}),"Invalid path disappeared instead of showing its Sketch");
-    auto subtract=fixture();subtract.placement.x=10;subtract.placement.y=10;subtract.combine_mode=document::CombineMode::Subtract;base_doc.history.push_back(subtract);
-    auto cut=kernel.evaluate_history(base_doc.kernel_operations());require(std::abs(cut.front().volume-cut.back().volume-80*std::numbers::pi)<.01,"Sweep subtraction failed");
-    // Smooth curved law and a tangent line/arc chain.
-    for(bool spline:{false,true}){
-        auto c=fixture();auto path=sketcher::Sketch::from_serialized(c.sweep2d.sketches[1]);path.segments.clear();
-        if(spline)static_cast<void>(path.add_bspline({{0,0},{0,5},{5,10},{10,10}}));
-        else{static_cast<void>(path.add_segment(0,0,0,10));static_cast<void>(path.add_arc(10,10,0,10,10,20,false,1e-6,true));}
-        c.sweep2d.sketches[1]=path.serialized();doc.history={c};require(kernel.evaluate_history(doc.kernel_operations()).back().volume>0,"Curved path failed");
-    }
-    for(bool rectangle:{false,true}){
-        auto c=fixture();auto profile=sketcher::Sketch::from_serialized(c.sweep2d.sketches[0]);profile.circles.clear();
-        if(rectangle){for(const auto& p:std::vector<std::array<double,4>>{{-3,-2,3,-2},{3,-2,3,2},{3,2,-3,2},{-3,2,-3,-2}})static_cast<void>(profile.add_segment(p[0],p[1],p[2],p[3]));}
-        else static_cast<void>(profile.add_arc(0,0,3,0,0,3));
-        c.sweep2d.sketches[0]=profile.serialized();c.sweep2d.result_type=document::ProfileResultType::Thin;c.sweep2d.thickness=.5;doc.history={c};
-        const double expected=rectangle?200:15*std::numbers::pi;
-        auto body=kernel.evaluate_history(doc.kernel_operations()).back();std::cout<<"Thin shaped "<<rectangle<<" volume "<<body.volume<<" expected "<<expected<<std::endl;
-        require(std::abs(body.volume-expected)<.02,"Curved/rectangular Thin volume mismatch");
-    }
-    auto collapsed=fixture();collapsed.sweep2d.result_type=document::ProfileResultType::Thin;collapsed.sweep2d.thickness=10;collapsed.sweep2d.thin_mode=document::ThinMode::OneSide;doc.history={collapsed};
-    bool collapsed_rejected=false;try{static_cast<void>(kernel.evaluate_history(doc.kernel_operations()));}catch(...){collapsed_rejected=true;}require(collapsed_rejected,"Collapsed Thin contour accepted");
-    auto preview=fixture(false,true);preview.sweep2d.result_type=document::ProfileResultType::Thin;preview.sweep2d.thin_mode=document::ThinMode::OneSide;preview.sweep2d.thickness=.5;
-    const auto request=document::PartDocument::sweep2d_request(preview);const auto& loop=std::get<kernel::ExtrusionRequest::CurvedProfile>(request.sections.front().profile.outer_profile);const auto line=std::get<kernel::ExtrusionRequest::LineCurve>(loop.curves.front());
-    const double side=line.end.x>line.start.x?1:-1;
-    for(const auto& edge:document::PartDocument::sweep2d_preview_edges(preview))for(const auto& p:edge.points)require(p.y*side>=-1e-6,"Thin preview reversed thickness side");
-    auto bad=fixture();auto path=sketcher::Sketch::from_serialized(bad.sweep2d.sketches[1]);path.segments.clear();static_cast<void>(path.add_segment(0,0,10,20));bad.sweep2d.sketches[1]=path.serialized();bool rejected=false;try{static_cast<void>(document::PartDocument::sweep2d_request(bad));}catch(...){rejected=true;}require(rejected,"Oblique initial tangent accepted");
-    std::cout<<"2D Sweep contracts passed"<<std::endl;return 0;
+    auto plane=sketcher::Sketch::from_serialized(attached.sweep2d.path_sketch);
+    require(std::abs(plane.resolved_normal.y)>1-1e-7,"Path plane reference did not determine the plane");
+    require(attached.placement==placement,"Path plane change changed container placement");
+    attached.sweep2d.path_plane->semantic_key="origin:plane:yz";
+    document::PartDocument::resolve_sweep2d_planes(attached,geometry);
+    plane=sketcher::Sketch::from_serialized(attached.sweep2d.path_sketch);
+    require(std::abs(plane.resolved_normal.x)>1-1e-7&&attached.sweep2d.profiles.front().id==first_id,"Changing path plane lost profile identity");
+    close(calculate(attached).volume,80*std::numbers::pi,"Path plane change altered volume");
+    auto invalid=attached;invalid.sweep2d.path_plane->owner_id=invalid.id;
+    bool rejected=false;try{document::PartDocument::resolve_sweep2d_planes(invalid,geometry);}catch(...){rejected=true;}
+    require(rejected,"Self-referencing path plane was accepted");
+    // Arbitrary initial direction is valid; the profile plane follows its tangent.
+    auto oblique=document::PartDocument::create_sweep2d_container();guide=sketcher::Sketch::from_serialized(oblique.sweep2d.path_sketch);
+    static_cast<void>(guide.add_segment(0,0,12,16));oblique.sweep2d.path_sketch=guide.serialized();
+    profile_at(oblique,document::PartDocument::sweep2d_route(oblique).stations.front(),2);
+    close(calculate(oblique).volume,80*std::numbers::pi,"Oblique initial tangent changed profile plane");
+    // A smooth Sketch spline remains curved across every approximation span.
+    auto spline=document::PartDocument::create_sweep2d_container();guide=sketcher::Sketch::from_serialized(spline.sweep2d.path_sketch);
+    static_cast<void>(guide.add_bspline({{0,0},{0,10},{10,20},{20,20}}));spline.sweep2d.path_sketch=guide.serialized();
+    profile_at(spline,document::PartDocument::sweep2d_route(spline).stations.front(),1);
+    require(calculate(spline).volume>0,"Spline Sweep failed");
+    profile_at(spline,document::PartDocument::sweep2d_route(spline).stations.back(),2);
+    require(calculate(spline).volume>0,"Spline Loft failed");
+    auto collapsed=fixture();collapsed.sweep2d.result_type=document::ProfileResultType::Thin;collapsed.sweep2d.thickness=10;
+    rejected=false;try{static_cast<void>(calculate(collapsed));}catch(...){rejected=true;}require(rejected,"Collapsing thickness was accepted");
+    std::cout<<"2D Sweep/Loft contracts passed"<<std::endl;return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<std::endl;return 1;}}

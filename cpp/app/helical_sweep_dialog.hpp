@@ -20,7 +20,7 @@ namespace zima::app {
 class HelicalSweepDialog final : public SweepPlacementDialog {
 public:
     HelicalSweepDialog(document::HistoryContainer initial,std::function<void(document::HistoryContainer)> commit,QWidget* parent)
-      : SweepPlacementDialog(tr("Vlastnosti Helical Sweepu"),std::move(initial),parent),commit_(std::move(commit)) {
+      : SweepPlacementDialog(tr("Vlastnosti šroubovicového tažení"),std::move(initial),parent),commit_(std::move(commit)) {
         setObjectName("helicalSweepDialog");setAttribute(Qt::WA_DeleteOnClose);setMinimumWidth(360);
         auto* form=new QFormLayout;
         auto* name=new QLineEdit(QString::fromStdString(pending.name),this);form->addRow(tr("Název"),name);

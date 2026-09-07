@@ -235,15 +235,23 @@ int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspac
     dialog->findChild<QDoubleSpinBox*>("sweepTranslation2")->setValue(8);
     dialog->findChild<QDoubleSpinBox*>("sweepRotation1")->setValue(25);application.processEvents();
     if(!verify(dialog->pending.placement.x==12&&dialog->pending.placement.y==-3&&dialog->pending.placement.z==8&&std::abs(dialog->pending.placement.rotation_y-25)<1e-6&&placement_view->camera_state()==camera,"Sweep placement fields did not update or moved camera"))return 1;
-    auto section=zima::sketcher::Sketch::from_serialized(dialog->pending.sweep2d.sketches[0]);
-    static_cast<void>(section.add_circle(0,0,2));dialog->set_sketch(0,section);
-    auto guide=zima::sketcher::Sketch::from_serialized(dialog->pending.sweep2d.sketches[1]);
-    static_cast<void>(guide.add_segment(0,0,0,10));dialog->set_sketch(1,guide);
+    auto guide=zima::sketcher::Sketch::from_serialized(dialog->pending.sweep2d.path_sketch);
+    static_cast<void>(guide.add_segment(0,0,0,10));dialog->set_sketch(0,guide);
+    auto section=zima::sketcher::Sketch::from_serialized(dialog->pending.sweep2d.sketch_data(1));
+    static_cast<void>(section.add_circle(0,0,2));dialog->set_sketch(1,section);
     auto* finish=window.findChild<QAction*>("finishSketchAction");
-    for(unsigned stage=0;stage<2;++stage){
-        dialog->findChild<QPushButton*>(QString("sweep2dSketch%1").arg(stage))->click();application.processEvents();
+    auto* profiles=dialog->findChild<QTableWidget*>("sweep2dProfiles");
+    if(!verify(profiles&&profiles->rowCount()==2,"Path endpoints did not offer profile sketches"))return 1;
+    dialog->findChild<QPushButton*>("sweep2dStationSketch1")->click();application.processEvents();
+    if(!verify(finish->isEnabled()&&dialog->pending.sweep2d.profiles.size()==2,"End profile button did not create its owned Sketch"))return 1;
+    finish->trigger();application.processEvents();
+    auto last_section=zima::sketcher::Sketch::from_serialized(dialog->pending.sweep2d.sketch_data(2));
+    static_cast<void>(last_section.add_circle(0,0,3));dialog->set_sketch(2,last_section);
+
+    for(unsigned stage=0;stage<3;++stage){
+        dialog->findChild<QPushButton*>(stage==0?"sweep2dSketch0":stage==1?"sweep2dStationSketch0":"sweep2dStationSketch1")->click();application.processEvents();
         if(!verify(!dialog->isVisible()&&finish&&finish->isEnabled(),"2D Sweep owned Sketch did not enter Sketcher"))return 1;
-        const auto frame=zima::sketcher::Sketch::from_serialized(dialog->pending.sweep2d.sketches[stage]);
+        const auto frame=zima::sketcher::Sketch::from_serialized(dialog->pending.sweep2d.sketch_data(stage));
         QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();
         const auto camera_frame=placement_view->camera_state();
         const auto direction=QQuaternion(camera_frame[0],camera_frame[1],camera_frame[2],camera_frame[3]).inverted().rotatedVector(QVector3D(0,0,1));
@@ -262,8 +270,8 @@ int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspac
     auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* item=nullptr;int sketches=0;
     for(QTreeWidgetItemIterator i(tree);*i;++i){if((*i)->data(0,Qt::UserRole+3).toString()=="part-sweep2d-sketch")++sketches;
         if((*i)->data(0,Qt::UserRole).toString().toStdString()==feature_id&&(*i)->data(0,Qt::UserRole+3).toString()=="part-container")item=*i;}
-    if(!verify(item&&sketches==2,"Owned 2D Sweep Sketches absent from Tree"))return 1;
-    for(unsigned stage=0;stage<2;++stage) {
+    if(!verify(item&&sketches==3,"Owned 2D Sweep Sketches absent from Tree"))return 1;
+    for(unsigned stage=0;stage<3;++stage) {
         QTreeWidgetItem* sketch_item{};
         for(QTreeWidgetItemIterator i(tree);*i;++i)
             if((*i)->data(0,Qt::UserRole+3).toString()=="part-sweep2d-sketch" &&
@@ -293,14 +301,14 @@ int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspac
     dialog=dynamic_cast<zima::app::Sweep2DDialog*>(window.findChild<QDialog*>("sweep2dDialog"));
     auto* view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
     if(!verify(dialog&&view,"Cannot test sweep2d reference selection"))return 1;
-    view->set_standard_view(zima::viewer::StandardView::Isometric);view->fit_all();dialog->request_placement(0);application.processEvents();
+    view->set_standard_view(zima::viewer::StandardView::Isometric);view->fit_all();dialog->request_path_plane();application.processEvents();
     QEventLoop isometric_animation;QTimer::singleShot(950,&isometric_animation,&QEventLoop::quit);isometric_animation.exec();
     std::optional<QPointF> hit;
     std::size_t cap_index{};
     for(int y=4;y<view->height()&&!hit;y+=2)for(int x=4;x<view->width();x+=2){
         auto candidates=view->selection_candidates_at(QPointF(x,y));
         for(std::size_t i=0;i<candidates.size();++i){const auto& candidate=candidates[i];
-            if(candidate.owner_id==feature_id&&candidate.kind==zima::viewer::CandidateKind::Face&&(candidate.semantic_key.starts_with("start:from:")||candidate.semantic_key.starts_with("end:from:"))){hit=QPointF(x,y);cap_index=i;break;}}
+            if(candidate.owner_id==feature_id&&candidate.kind==zima::viewer::CandidateKind::Face&&candidate.semantic_key.starts_with("sweep:cap:")){hit=QPointF(x,y);cap_index=i;break;}}
         if(hit)break;
     }
     if(!verify(hit.has_value(),"Start/end plane not offered to another 2D Sweep"))return 1;
@@ -314,7 +322,9 @@ int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspac
     QMouseEvent press(QEvent::MouseButtonPress,*hit,*hit,*hit,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
     QMouseEvent release(QEvent::MouseButtonRelease,*hit,*hit,*hit,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
     QApplication::sendEvent(view,&press);QApplication::sendEvent(view,&release);application.processEvents();
-    if(!verify(std::ranges::any_of(dialog->pending.placement.references,[&](const auto& ref){return ref.owner_id==feature_id&&(ref.semantic_key.starts_with("start:from:")||ref.semantic_key.starts_with("end:from:"));}),"Plane reference click did not confirm offered cap"))return 1;
+    if(!verify(dialog->pending.sweep2d.path_plane&&dialog->pending.sweep2d.path_plane->owner_id==feature_id&&
+        dialog->pending.sweep2d.path_plane->semantic_key.starts_with("sweep:cap:")&&dialog->pending.placement.references.empty(),
+        "Path plane pick did not confirm the offered cap independently of placement"))return 1;
     dialog->buttons()->button(QDialogButtonBox::Cancel)->click();application.processEvents();
     QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     action->trigger();application.processEvents();
@@ -329,11 +339,24 @@ int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspac
         if(!verify(dialog->set_reference(i,reference,QString::fromUtf8(key)),"Sweep placement plane assignment failed"))return 1;
     }
     dialog->changed();
-    const auto profile_frame=zima::sketcher::Sketch::from_serialized(dialog->pending.sweep2d.sketches[0]);
-    const auto path_frame=zima::sketcher::Sketch::from_serialized(dialog->pending.sweep2d.sketches[1]);
-    if(!verify(std::abs(profile_frame.resolved_normal.y)>1-1e-6&&std::abs(path_frame.resolved_normal.x)>1-1e-6,"Placement plane rows did not drive the two Sketch frames"))return 1;
+    auto path_frame=zima::sketcher::Sketch::from_serialized(dialog->pending.sweep2d.path_sketch);
+    if(!verify(dialog->pending.sweep2d.path_plane&&dialog->pending.sweep2d.path_plane->semantic_key=="origin:plane:xz"&&
+        std::abs(path_frame.resolved_normal.y)>1-1e-6,"First placement plane did not seed the path plane"))return 1;
+    const auto saved_placement=dialog->pending.placement;
+    QTreeWidgetItem* yz_plane{};
+    for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole+3).toString()=="origin-reference"&&
+        (*i)->data(0,Qt::UserRole+5).toString()=="origin:plane:yz"&&
+        ((*i)->data(0,Qt::UserRole+6).isValid()?(*i)->data(0,Qt::UserRole+6):(*i)->data(0,Qt::UserRole)).toString().toStdString()==
+            dialog->pending.sweep2d.path_plane->owner_id){yz_plane=*i;break;}
+    if(!verify(yz_plane!=nullptr,"Document YZ plane missing from Tree"))return 1;
+    dialog->request_path_plane();tree->setCurrentItem(yz_plane);application.processEvents();
+    if(!verify(!dialog->path_active()&&dialog->pending.sweep2d.path_plane->semantic_key=="origin:plane:yz",
+        "Tree did not assign the independent path plane"))return 1;
+    path_frame=zima::sketcher::Sketch::from_serialized(dialog->pending.sweep2d.path_sketch);
+    if(!verify(std::abs(path_frame.resolved_normal.x)>1-1e-6&&dialog->pending.placement==saved_placement,
+        "Independent path plane changed container placement"))return 1;
     if(!verify(!dialog->findChild<QComboBox*>("sweep2dBasePlane")&&!dialog->findChild<QTableWidget*>("sweep2dReferences"),"Redundant sweep plane controls remain"))return 1;
-    dialog->findChild<QPushButton*>("sweep2dSketch1")->click();application.processEvents();
+    dialog->findChild<QPushButton*>("sweep2dSketch0")->click();application.processEvents();
     QEventLoop sketch_animation;QTimer::singleShot(950,&sketch_animation,&QEventLoop::quit);sketch_animation.exec();
     auto* polyline=window.findChild<QAction*>("sketchPolylineAction");
     if(!verify(polyline&&polyline->isEnabled(),"Polyline tool unavailable in owned Sketch"))return 1;
@@ -374,7 +397,7 @@ int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspac
     mouse(first_segment_hit,Qt::LeftButton);
     mouse(QPointF(45,45),Qt::LeftButton);
     finish->trigger();application.processEvents();
-    auto chain=zima::sketcher::Sketch::from_serialized(dialog->pending.sweep2d.sketches[1]);
+    auto chain=zima::sketcher::Sketch::from_serialized(dialog->pending.sweep2d.path_sketch);
     if(!verify(chain.dimensions.size()==1,"Direct switch from polyline failed to commit first segment dimension"))return 1;
     chain.dimensions.clear();
     if(!verify(chain.segments.size()==2&&chain.arcs.size()==1,"Line/arc/line polyline did not create the chain"))return 1;
@@ -389,8 +412,8 @@ int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspac
     for(bool points:{false,true}){
         auto dimension_sketch=chain;
         const auto segment=dimension_sketch.segments.front().id;
-        dialog->set_sketch(1,dimension_sketch);
-        dialog->findChild<QPushButton*>("sweep2dSketch1")->click();application.processEvents();
+        dialog->set_sketch(0,dimension_sketch);
+        dialog->findChild<QPushButton*>("sweep2dSketch0")->click();application.processEvents();
         QEventLoop dimension_animation;QTimer::singleShot(950,&dimension_animation,&QEventLoop::quit);dimension_animation.exec();
         window.findChild<QAction*>("sketchDimensionAction")->trigger();application.processEvents();
         const auto select=[&](const std::string& key){
@@ -410,7 +433,7 @@ int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspac
         }else if(!verify(select("segment:"+segment),"Cannot select axis-aligned segment"))return 1;
         mouse(QPointF(45,45),Qt::LeftButton);
         finish->trigger();application.processEvents();
-        const auto dimension_result=zima::sketcher::Sketch::from_serialized(dialog->pending.sweep2d.sketches[1]);
+        const auto dimension_result=zima::sketcher::Sketch::from_serialized(dialog->pending.sweep2d.path_sketch);
         if(!verify(dimension_result.dimensions.size()==1,"Empty click did not commit dimension on axis from origin"))return 1;
     }
 
@@ -685,10 +708,12 @@ int verify_unresolved_sweep_sketches(QApplication& application,const std::filesy
         auto prior=PartDocument::create_box_container();
         auto sweep=planar?PartDocument::create_sweep2d_container():PartDocument::create_helical_sweep_container();
         if(planar) {
-            auto section=zima::sketcher::Sketch::from_serialized(sweep.sweep2d.sketches[0]);
-            static_cast<void>(section.add_circle(0,0,2));sweep.sweep2d.sketches[0]=section.serialized();
-            auto guide=zima::sketcher::Sketch::from_serialized(sweep.sweep2d.sketches[1]);
-            static_cast<void>(guide.add_segment(0,0,0,10));sweep.sweep2d.sketches[1]=guide.serialized();
+            auto guide=zima::sketcher::Sketch::from_serialized(sweep.sweep2d.path_sketch);
+            static_cast<void>(guide.add_segment(0,0,0,10));sweep.sweep2d.path_sketch=guide.serialized();
+            const auto station=PartDocument::sweep2d_route(sweep).stations.front();
+            PartDocument::ensure_sweep2d_profile(sweep,station.point_id,station.incoming);
+            auto section=zima::sketcher::Sketch::from_serialized(sweep.sweep2d.sketch_data(1));
+            static_cast<void>(section.add_circle(0,0,2));sweep.sweep2d.sketch_data(1)=section.serialized();
         } else {
             auto base=zima::sketcher::Sketch::from_serialized(sweep.helical.sketches[0]);
             static_cast<void>(base.add_circle(0,0,5));sweep.helical.circle_id=base.circles.front().id;sweep.helical.start_point_id=base.add_point(5,0);sweep.helical.sketches[0]=base.serialized();

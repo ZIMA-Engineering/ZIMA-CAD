@@ -271,6 +271,28 @@ ViewerAxis transformed_axis(
             {owner_id, key}};
 }
 
+Handle(Geom_Curve) sweep_spine_curve(const Sweep3DRequest::PathSegment& segment) {
+    if(segment.arc_midpoint) {
+        const auto& a=segment.start;const auto& m=*segment.arc_midpoint;const auto& b=segment.end;
+        GC_MakeArcOfCircle arc(gp_Pnt(a.x,a.y,a.z),gp_Pnt(m.x,m.y,m.z),gp_Pnt(b.x,b.y,b.z));
+        if(!arc.IsDone())throw std::runtime_error("Nelze vytvořit oblouk dráhy Sweepu");
+        return arc.Value();
+    }
+    const auto bezier=[](const auto& points) {
+        TColgp_Array1OfPnt poles(1,4);
+        for(int i=0;i<4;++i){const auto& p=points.at(i);poles.SetValue(i+1,gp_Pnt(p.x,p.y,p.z));}
+        return Handle(Geom_BezierCurve)(new Geom_BezierCurve(poles));
+    };
+    if(!segment.bezier_spans.empty()) {
+        GeomConvert_CompCurveToBSplineCurve curve;
+        for(const auto& span:segment.bezier_spans)
+            if(!curve.Add(bezier(span),1e-7,true,true,1))throw std::runtime_error("Nelze spojit spline dráhy Sweepu");
+        return curve.BSplineCurve();
+    }
+    if(!segment.bezier_control_points.empty())return bezier(segment.bezier_control_points);
+    return {};
+}
+
 std::vector<ViewerEdge> centerlines_for_operation(const HistoryOperation& operation) {
     const auto* request=std::get_if<Sweep3DRequest>(&operation.primitive);
     if(!request || !request->make_solid)return {};
@@ -278,19 +300,9 @@ std::vector<ViewerEdge> centerlines_for_operation(const HistoryOperation& operat
     std::map<std::string,std::size_t> sources;
     for(const auto& segment:request->path_segments) {
         std::vector<Vec3> points;
-        if(!segment.arc_midpoint && segment.bezier_control_points.empty()) points={segment.start,segment.end};
+        const auto geometry=sweep_spine_curve(segment);
+        if(geometry.IsNull()) points={segment.start,segment.end};
         else {
-            Handle(Geom_Curve) geometry;
-            if(segment.arc_midpoint) {
-                const auto& a=segment.start;const auto& b=*segment.arc_midpoint;const auto& c=segment.end;
-                GC_MakeArcOfCircle arc(gp_Pnt(a.x,a.y,a.z),gp_Pnt(b.x,b.y,b.z),gp_Pnt(c.x,c.y,c.z));
-                if(!arc.IsDone())throw std::runtime_error("Invalid centerline arc");
-                geometry=arc.Value();
-            } else {
-                TColgp_Array1OfPnt poles(1,4);
-                for(int i=0;i<4;++i){const auto& p=segment.bezier_control_points.at(i);poles.SetValue(i+1,gp_Pnt(p.x,p.y,p.z));}
-                geometry=new Geom_BezierCurve(poles);
-            }
             GeomAdaptor_Curve curve(geometry);
             GCPnts_TangentialDeflection samples(curve,0.15,request->linear_tolerance);
             for(int i=1;i<=samples.NbPoints();++i){const auto p=curve.Value(samples.Parameter(i));points.push_back({p.X(),p.Y(),p.Z()});}
@@ -1429,10 +1441,8 @@ void validate_sweep3d(const Sweep3DRequest& request) {
     if (request.sections.empty()) {
         throw std::invalid_argument("3D Sweep requires at least one section");
     }
-    if (request.separate_segments && (request.transported ||
-        std::ranges::any_of(request.path_segments, [](const auto& segment) {
-            return segment.arc_midpoint || !segment.bezier_control_points.empty();
-        }))) throw std::invalid_argument("Separate Sweep/Loft segments must be straight");
+    if(request.separate_segments&&request.transported)
+        throw std::invalid_argument("Separate Sweep segments cannot use a single transported profile");
     std::unordered_set<std::size_t> section_locations;
     for (const auto& section : request.sections) {
         if (section.profile_id.empty() || section.point_id.empty() ||
@@ -1454,10 +1464,6 @@ void validate_sweep3d(const Sweep3DRequest& request) {
         profile_request.inner_profiles = section.profile.inner_profiles;
         profile_request.direction = {0.0, 0.0, 1.0};
         validate_extrusion(profile_request, request.thin);
-        if (!request.transported && !section.profile.inner_profiles.empty()) {
-            throw std::invalid_argument(
-                "Basic 3D Sweep does not support profile holes");
-        }
     }
     for (std::size_t index = 0; index < request.path_segments.size(); ++index) {
         const auto& segment = request.path_segments[index];
@@ -1768,6 +1774,37 @@ PrimitiveData make_sweep3d_data(
     const std::vector<SweepProfileWire>* profile_wires) {
     if(request.thin)return make_thin_sweep_data(request,owner_id);
     if(request.transported)return make_transported_sweep_data(request,owner_id);
+    const auto holes=request.sections.front().profile.inner_profiles.size();
+    for(const auto& section:request.sections)
+        if(section.profile.inner_profiles.size()!=holes)throw std::runtime_error("Profily Loftu musí mít stejný počet otvorů");
+    if(holes) {
+        const auto clear_holes=[](auto& region){region.inner_profiles.clear();region.inner_boundary_ids.clear();
+            region.inner_edge_source_ids.clear();region.inner_vertex_source_ids.clear();};
+        auto outside=request;
+        for(auto& section:outside.sections)clear_holes(section.profile);
+        auto result=make_sweep3d_data(outside,owner_id);
+        for(std::size_t i=0;i<holes;++i) {
+            auto inside=request;
+            for(auto& section:inside.sections) {
+                auto& region=section.profile;
+                region.outer_profile=region.inner_profiles.at(i);region.outer_boundary_id=region.inner_boundary_ids.at(i);
+                region.region_id=region.outer_boundary_id;region.outer_edge_source_ids=region.inner_edge_source_ids.at(i);
+                region.outer_vertex_source_ids=region.inner_vertex_source_ids.at(i);clear_holes(region);
+                section.circle_radial_direction.reset();
+            }
+            auto tool=make_sweep3d_data(inside,owner_id);BRepAlgoAPI_Cut cut;
+            set_boolean_inputs(cut,result.shape,tool.shape);cut.SetToFillHistory(true);cut.SetFuzzyValue(request.linear_tolerance);cut.Build();
+            if(!cut.IsDone()||cut.Shape().IsNull()||!BRepCheck_Analyzer(cut.Shape()).IsValid())throw std::runtime_error("Nelze vytvořit otvor taženého průřezu");
+            result.faces=propagate_topology(cut,result.faces,tool.faces);result.edges=propagate_topology(cut,result.edges,tool.edges);
+            result.vertices=propagate_topology(cut,result.vertices,tool.vertices);result.source_caps=propagate_topology(cut,result.source_caps,tool.source_caps);
+            result.shape=cut.Shape();
+        }
+        for(auto* refs:{&result.faces,&result.source_caps})for(auto& ref:*refs)
+            if(ref.reference.semantic_key.starts_with("sweep:cap:"))ref.reference.surface.reset();
+        int solids=0;for(TopExp_Explorer it(result.shape,TopAbs_SOLID);it.More();it.Next())++solids;
+        if(solids!=1)throw std::runtime_error("Průřez s otvorem nevytvořil jedno těleso");
+        return result;
+    }
     const auto first_station = [&](std::size_t segment) {
         return request.separate_segments ? 2 * segment : segment;
     };
@@ -1783,32 +1820,16 @@ PrimitiveData make_sweep3d_data(
     for (std::size_t index = 0; index < request.path_segments.size(); ++index) {
         const auto& segment = request.path_segments[index];
         TopoDS_Edge edge;
-        if (segment.arc_midpoint) {
-            const auto& a=segment.start; const auto& m=*segment.arc_midpoint; const auto& b=segment.end;
-            GC_MakeArcOfCircle arc(gp_Pnt(a.x,a.y,a.z),gp_Pnt(m.x,m.y,m.z),gp_Pnt(b.x,b.y,b.z));
-            if(!arc.IsDone())throw std::runtime_error("Nelze vytvořit oblouk dráhy Sweepu");
-            edge=BRepBuilderAPI_MakeEdge(arc.Value(),path_vertices[index],path_vertices[index+1]).Edge();
-        } else if (segment.bezier_control_points.empty()) {
-            BRepBuilderAPI_MakeEdge builder(
-                path_vertices[first_station(index)], path_vertices[first_station(index) + 1]);
-            if (!builder.IsDone()) {
-                throw std::runtime_error("OCCT 3D Sweep line spine failed");
-            }
-            edge = builder.Edge();
+        const auto geometry=sweep_spine_curve(segment);
+        const auto first=first_station(index),last=first+1;
+        if(geometry.IsNull()) {
+            BRepBuilderAPI_MakeEdge builder(path_vertices[first],path_vertices[last]);
+            if(!builder.IsDone())throw std::runtime_error("OCCT Sweep line spine failed");
+            edge=builder.Edge();
         } else {
-            TColgp_Array1OfPnt poles(1, 4);
-            for (Standard_Integer pole = 1; pole <= 4; ++pole) {
-                const auto& point = segment.bezier_control_points[
-                    static_cast<std::size_t>(pole - 1)];
-                poles.SetValue(pole, gp_Pnt(point.x, point.y, point.z));
-            }
-            Handle(Geom_BezierCurve) curve = new Geom_BezierCurve(poles);
-            BRepBuilderAPI_MakeEdge builder(
-                curve, path_vertices[index], path_vertices[index + 1]);
-            if (!builder.IsDone()) {
-                throw std::runtime_error("OCCT 3D Sweep spline spine failed");
-            }
-            edge = builder.Edge();
+            BRepBuilderAPI_MakeEdge builder(geometry,path_vertices[first],path_vertices[last]);
+            if(!builder.IsDone())throw std::runtime_error("OCCT Sweep curved spine failed");
+            edge=builder.Edge();
         }
         spine_builder.Add(edge);
         spine_edges.push_back(std::move(edge));
@@ -1845,7 +1866,7 @@ PrimitiveData make_sweep3d_data(
             if(candidate.point_index>i)break;
             section=&candidate;
         }
-        const auto direction = request.separate_segments ? tangent(i / 2, false)
+        const auto direction = request.separate_segments ? tangent(i / 2, i % 2 != 0)
             : i<spine_edges.size()?tangent(i,false):tangent(i-1,true);
         if(previous_direction) {
             gp_Trsf rotation;rotation.SetRotation(gp_Quaternion(*previous_direction,direction));
@@ -1985,7 +2006,7 @@ PrimitiveData make_sweep3d_data(
             return piece;
         };
         PrimitiveData piece;
-        if(segment.bezier_control_points.empty()&&!segment.arc_midpoint) {
+        if(segment.bezier_control_points.empty()&&segment.bezier_spans.empty()&&!segment.arc_midpoint) {
             // A linear sweep between its true section boundaries. This also
             // preserves oblique miter sections without the pipe algorithm
             // reorienting them onto planes normal to the spine.
@@ -2001,8 +2022,9 @@ PrimitiveData make_sweep3d_data(
             BRepOffsetAPI_MakePipeShell builder(BRepBuilderAPI_MakeWire(spine_edges[i]).Wire());
             builder.SetMode(false);
             builder.SetTolerance(request.linear_tolerance,request.linear_tolerance,1e-6);
-            builder.Add(stations[i].wire,path_vertices[i],false,false);
-            builder.Add(stations[i+1].wire,path_vertices[i+1],false,false);
+            const auto first=first_station(i),last=first+1;
+            builder.Add(stations[first].wire,path_vertices[first],false,false);
+            builder.Add(stations[last].wire,path_vertices[last],false,false);
             builder.Build();
             if(request.make_solid&&!builder.MakeSolid())throw std::runtime_error("Sweep nelze uzavřít.");
             piece=collect(builder);

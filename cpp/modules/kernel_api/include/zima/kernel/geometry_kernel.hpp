@@ -472,6 +472,7 @@ struct Sweep3DRequest {
         // representation of the corresponding ZIMA Hermite Curve3D segment.
         std::vector<Vec3> bezier_control_points;
         std::optional<Vec3> arc_midpoint;
+        std::vector<std::array<Vec3,4>> bezier_spans;
     };
     struct Section {
         std::string profile_id;
@@ -1146,6 +1147,8 @@ struct PlacedBody {
                     u64(segment.bezier_control_points.size());
                     for (const auto& point : segment.bezier_control_points)
                         append_point(point);
+                    u64(segment.bezier_spans.size());
+                    for(const auto& span:segment.bezier_spans)for(const auto& point:span)append_point(point);
                 }
                 u64(primitive.sections.size());
                 for (const auto& section : primitive.sections) {

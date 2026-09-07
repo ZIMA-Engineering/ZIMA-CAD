@@ -143,7 +143,7 @@ model doplní osovou dráhu explicitním příkazem Regenerovat.
 Hotový solid zobrazuje trajektorii standardní hnědou čerchovanou osou,
 rovněž na zakřivených úsecích. Původní plná křivka nepřekrývá vypočítanou osu;
 při editaci zůstává dostupný náhled zdrojové dráhy. Viditelnost výsledných os
-řídí společný přepínač os, stejně jako u 2D Sweepu a Helix Sweepu.
+řídí společný přepínač os, stejně jako u 2D Sweepu a Helical Sweepu.
 
 Počáteční a koncová plocha spojeného Sweep/Loftu (zaoblená i spline dráha)
 se při výpočtu publikují do uložené referenční geometrie. Identita vychází
@@ -156,9 +156,9 @@ Nehledá ji mezi samostatnými konstrukčními rovinami. Tím se odstraňuje
 falešné červené označení po novém otevření dokumentu; skutečně chybějící
 roviny a rozbité externí reference profilové skici se nadále hlásí.
 
-## Thin — tloušťka 3D Sweep/Loftu
+## Thin — tloušťka 3D Sweepu
 
-Vlastnosti 3D Sweep/Loftu používají stejný dialog pro vytvoření i editaci.
+Vlastnosti 3D Sweepu používají stejný dialog pro vytvoření i editaci.
 Typ výsledku **Těleso / Thin** zpřístupňuje tloušťku a směr **Dovnitř**,
 **Ven** nebo **Symetricky**. Symetricky znamená polovinu celkové zadané
 tloušťky na každou stranu původního profilu. U otevřené kontury stranu určuje
@@ -177,5 +177,42 @@ Regenerate volá OCCT. Cancel zahodí rozpracovanou změnu. Parametry
 `result_type`, `thickness` a `thin_mode` jsou povinnou součástí aktuálního
 uloženého Sweep/Loftu; tloušťka i strana vstupují do otisku výpočtu.
 
-České popisy příkazů: **3D Sweep/Loft — 3D tažení / přechod mezi profily**,
-**2D Sweep — 2D tažení po dráze**, **Helical Sweep — šroubovicové tažení**.
+Příkazy mají krátké české názvy **2D tažení**, **3D tažení** a
+**Šroubovicové tažení** (anglicky 2D Sweep, 3D Sweep a Helical Sweep).
+České nápovědy vysvětlují tažení a přechod mezi profily (Loft), případně
+šroubovicové tažení. Loft zůstává vlastností Sweepu.
+
+## 2D tažení — rovinná dráha, více profilů a Thin
+
+2D Sweep začíná skicou jedné otevřené dráhy z počátku skici. Počáteční směr
+může být libovolný. První rovinná reference umístění kontejneru předvyplní
+samostatné pole před tlačítkem **Skica dráhy**. Uživatel může tuto referenci
+nahradit rovinou nebo rovinnou plochou původního objektu z View či stromu;
+umístění kontejneru se tím nemění. Pole používá společné zelené označení
+vstupu, azurovou inspekci a ukončení krátkým prostředním kliknutím.
+
+Konce křivek a skutečné body Sketcheru ležící na dráze nabízejí profilové
+skici. Středy oblouků a řídicí body neinterpolačních spline nejsou stanice.
+Každý úsek má začátek a konec; v ostrém rohu jsou příchozí a odchozí profily
+samostatné. Roviny profilů jsou kolmé k místní tečně. První profil musí být
+vyplněný, další prázdné stanice přebírají poslední vyplněný profil ve směru
+dráhy. Vyplnění další skici vytvoří Loft. Profily mají trvalá ID a jejich
+skici jsou samostatně dostupné ve stromu.
+
+Párování obvodů, **Pořadí bodů**, značky ve View a vazby **C / K** používají
+stejnou implementaci jako 3D Sweep. Totéž platí pro **Thin**, tloušťku a směr
+**Dovnitř / Ven / Symetricky**, včetně otevřených kontur. U proměnného Loftu
+se tloušťka měří v profilových rovinách, nikoli kolmo k šikmé výsledné stěně.
+Režim Těleso dovoluje i uzavřené průřezy s otvory; například dvě soustředné
+kružnice vytvoří trubku bez Thin. Navazující profily musí mít stejný počet
+odpovídajících otvorů.
+
+Rovina dráhy, zdrojové body, skici a párování jsou uloženy v aktuálním Part
+formátu. Staré uspořádání dvou skic 2D Sweepu se nepřevádí. Úsečky a oblouky
+se počítají přesně, obecné rovinné křivky se adaptivně převedou podle
+výpočetní tolerance. Náhled a Sketcher nevolají OCCT; výpočet provádí OK nebo
+explicitní Regenerovat. Cancel zahodí celý návrh.
+
+Regrese: `zima_cpp_sweep2d_contract_tests`, společné 3D/Helical a UI testy.
+Integrační ověření v aplikaci: `ZIMA_VERIFY_SWEEP2D_ONLY=1` s
+`zima-cad-cpp --verify-startup`.
