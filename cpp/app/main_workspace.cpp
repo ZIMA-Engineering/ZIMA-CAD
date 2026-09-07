@@ -1222,8 +1222,98 @@ int verify_body_curve_references(QApplication& application, const std::filesyste
     return 0;
 }
 
+int verify_body_pending_tree(QApplication& application, const std::filesystem::path& directory) {
+    using namespace zima::document;
+    auto document = PartDocument::create_default();
+    const auto box = PartDocument::create_box_container();
+    auto other_box = PartDocument::create_box_container(); other_box.placement.x = 80;
+    document.history = {box, other_box};
+    BodyHistoryGraph graph;
+    const auto body_id = graph.create_body("Active body");
+    graph.insert({PartHistoryKind::Feature, box.id});
+    const auto other_body_id = graph.create_body("Other body");
+    graph.insert({PartHistoryKind::Feature, other_box.id});
+    graph.activate(body_id); document.set_body_history(graph);
+    zima::kernel::OcctKernel kernel;
+    const auto path = directory / "body-pending-tree.prtz";
+    document.save(path, kernel.evaluate_history(document.kernel_operations()));
+    zima::app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));
+    window.resize(1100, 850); window.show();
+    if (!verify(window.open_document_path(QString::fromStdString(path.string())),
+            "Cannot open body pending Tree fixture")) return 1;
+    const auto flush = [&] {
+        application.processEvents(); QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        application.processEvents();
+    };
+    flush();
+    auto* tree = window.findChild<QTreeWidget*>("documentTree");
+    const auto pending_rows = [&] {
+        std::vector<QTreeWidgetItem*> rows;
+        for (QTreeWidgetItemIterator it(tree); *it; ++it)
+            if ((*it)->data(0, Qt::UserRole + 12).toBool()) rows.push_back(*it);
+        return rows;
+    };
+    const auto unique_in_body = [&](const std::string& id, const std::string& body) {
+        int count = 0; bool owned = false;
+        for (QTreeWidgetItemIterator it(tree); *it; ++it) {
+            const auto role = (*it)->data(0, Qt::UserRole + 3).toString();
+            if (role != "part-container" && role != "part-construction" && role != "part-sketch") continue;
+            if ((*it)->data(0, Qt::UserRole).toString().toStdString() != id) continue;
+            ++count;
+            owned = (*it)->parent() && (*it)->parent()->data(0, Qt::UserRole + 3).toString() == "part-body" &&
+                (*it)->parent()->data(0, Qt::UserRole).toString().toStdString() == body;
+        }
+        return count == 1 && owned;
+    };
+    const auto visible_dialog = [&]() -> QDialog* {
+        for (auto* child : window.findChildren<QDialog*>()) if (child->isVisible()) return child;
+        return nullptr;
+    };
+    for (const char* name : {"sweep2dAction", "sweep3DAction", "helicalSweepAction", "boxAction",
+            "threadAction", "sketchAction", "extrusionAction", "revolutionAction", "curve3DAction",
+            "constructionPointAction", "constructionAxisAction", "constructionPlaneAction", "shellAction"}) {
+        tree->clearSelection(); tree->setCurrentItem(nullptr);
+        auto* action = window.findChild<QAction*>(name);
+        if (!verify(action && action->isEnabled(), name)) return 1;
+        action->trigger(); flush();
+        auto* dialog = visible_dialog();
+        const auto rows = pending_rows();
+        if (!dialog || rows.size() != 1) {
+            std::cerr << name << ": visible dialog=" << (dialog != nullptr) << ", pending rows=" << rows.size() << '\n';
+            return verify(false, "Expected one pending row after command activation") ? 0 : 1;
+        }
+        const auto id = rows.front()->data(0, Qt::UserRole).toString().toStdString();
+        if (!verify(unique_in_body(id, body_id), "Pending feature duplicated or outside its owning body")) return 1;
+        if (std::string_view(name) == "sweep2dAction")
+            window.grab().save(QString::fromStdString((directory / "body-pending-tree.png").string()));
+        window.findChild<QAction*>("showAxesAction")->trigger(); flush();
+        if (!verify(pending_rows().size() == 1 && unique_in_body(id, body_id),
+                "Tree refresh duplicated or moved the pending feature")) return 1;
+        dialog->reject(); flush();
+        if (!verify(pending_rows().empty() && unique_in_body(box.id, body_id),
+                "Cancel retained the pending row or changed committed body history")) return 1;
+    }
+    QTreeWidgetItem* edited = nullptr;
+    for (QTreeWidgetItemIterator it(tree); *it; ++it)
+        if ((*it)->data(0, Qt::UserRole + 3).toString() == "part-container" &&
+                (*it)->data(0, Qt::UserRole).toString().toStdString() == other_box.id) edited = *it;
+    if (!verify(edited, "Other body fixture is absent from Tree")) return 1;
+    window.show_tree_item_properties(edited); flush();
+    auto* dialog = visible_dialog();
+    if (!verify(dialog && pending_rows().size() == 1 && unique_in_body(other_box.id, other_body_id),
+            "Editing another body's feature projected a duplicate under the active body")) return 1;
+    dialog->reject(); flush();
+    window.findChild<QAction*>("saveDocumentAction")->trigger(); flush();
+    const auto saved = PartDocument::load(path);
+    if (!verify(saved.history.size() == 2 && saved.body_history.bodies().size() == 2,
+            "Cancelled feature creation changed persisted body history")) return 1;
+    std::cout << "Body pending Tree ownership contracts passed\n";
+    return 0;
+}
+
 int verify_pending_container_tree(QApplication& application,
     const std::filesystem::path& directory) {
+    if (verify_body_pending_tree(application, directory) != 0) return 1;
     using namespace zima::document;
     for (const bool assembly : {false, true}) {
         const auto path = directory / (assembly ? "pending-tree.asmz" : "pending-tree.prtz");

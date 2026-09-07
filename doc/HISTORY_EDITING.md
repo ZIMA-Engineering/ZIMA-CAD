@@ -15,6 +15,9 @@ Creating a container replaces Insert here with a green, transient container row.
 It displays the pending origin and current children, including a Curve/Sweep's
 points and profiles. The outer container remains visible while its nested Point
 or Sketch editor is open. Part and Assembly use the same presentation rule.
+In a multi-body Part the row appears exactly once inside its owning body,
+also after deferred dialog updates or a Tree refresh. Editing a feature in
+another body retains that owner instead of moving it into the active body.
 
 Tree rows read pending ZIMA data and do not commit them or calculate a body.
 The initial Tree projection must not reset the active View reference picker.
@@ -22,11 +25,15 @@ Clicking a complete parent Origin fills the child's three positional references
 just like clicking the document Origin. Own and downstream geometry remain
 invalid references for the parent's placement.
 
-This current transient Tree behaviour is separate from the planned
-[multi-body document structure](MULTIBODY_AND_BOOLEANS.md). Independent Body
-histories and standalone document-level Boolean steps have a persisted
-document/kernel model and an initial Part Tree/Properties integration.
-Full modeling/Sketcher frame routing and nested Assembly integration remain in progress.
+The [multi-body document structure](MULTIBODY_AND_BOOLEANS.md) defines the
+owning body histories and document-level Boolean steps. Tree projection uses
+those persisted owners and the pending command context without modifying
+container placement or calculating geometry.
+
+The focused GUI regression `ZIMA_VERIFY_PENDING_TREE_ONLY=1` checks draft
+uniqueness and ownership across modeling and construction commands, refresh,
+Cancel and editing a feature in another body, plus nested Point editing and
+Assembly construction history.
 
 ## View behaviour
 

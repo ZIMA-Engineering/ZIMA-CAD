@@ -26902,6 +26902,23 @@ void AssemblyWorkspaceWindow::add_pending_tree_item(QTreeWidgetItem* parent,
     }
     const auto& id = feature ? feature->id : construction ? construction->id : pending_sketch->id;
     const auto& name = feature ? feature->name : construction ? construction->name : pending_sketch->name;
+    // A full rebuild groups draft rows into bodies after this projection.
+    // The deferred dialog update sees that grouped tree and must update the
+    // same body row, rather than append a second draft at document level.
+    if (!assembly) if (const auto* part = workspace_.open_part(document_id)) {
+        const auto& graph = part->session.document().body_history;
+        const auto* owner = graph.owner(id);
+        const auto& body_id = owner ? owner->scope.id : sketch_properties_body_id_.empty()
+            ? graph.active_body_id() : sketch_properties_body_id_;
+        for (int index = 0; index < parent->childCount(); ++index) {
+            auto* body = parent->child(index);
+            if (body->data(0, Qt::UserRole + 3).toString() == "part-body" &&
+                body->data(0, Qt::UserRole).toString().toStdString() == body_id) {
+                parent = body;
+                break;
+            }
+        }
+    }
     QTreeWidgetItem* row = nullptr;
     int insertion = parent->childCount();
     for (int i = parent->childCount() - 1; i >= 0; --i) {
