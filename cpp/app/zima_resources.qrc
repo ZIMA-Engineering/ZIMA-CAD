@@ -36,6 +36,7 @@
     <file alias="icons/sketch-hexagon.svg">../../resources/icons/sketch-hexagon.svg</file>
     <file alias="icons/sketch-trim.svg">../../resources/icons/sketch-trim.svg</file>
     <file alias="icons/sketch-mirror.svg">../../resources/icons/sketch-mirror.svg</file>
+    <file alias="icons/pattern.svg">../../resources/icons/pattern.svg</file>
     <file alias="icons/sketch-circle.svg">../../resources/icons/sketch-circle.svg</file>
     <file alias="icons/sketch-arc.svg">../../resources/icons/sketch-arc.svg</file>
     <file alias="icons/sketch-ellipse.svg">../../resources/icons/sketch-ellipse.svg</file>
@@ -54,6 +55,7 @@
     <file alias="icons/drill-point.svg">../../resources/icons/drill-point.svg</file>
     <file alias="icons/fillet.svg">../../resources/icons/fillet.svg</file>
     <file alias="icons/chamfer.svg">../../resources/icons/chamfer.svg</file>
+    <file alias="icons/mirror.svg">../../resources/icons/mirror.svg</file>
     <file alias="icons/shell.svg">../../resources/icons/shell.svg</file>
     <file alias="icons/box.svg">../../resources/icons/box.svg</file>
     <file alias="icons/result-body.svg">../../resources/icons/result-body.svg</file>

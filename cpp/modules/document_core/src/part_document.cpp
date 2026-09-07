@@ -5307,6 +5307,12 @@ void PartDocument::resolve_constructions(
             }
             if (!resolve_placement(body.scope.placement, source_geometry))
                 throw std::invalid_argument("Reference umístění tělesa není dostupná.");
+            if(body.derived_copy) {
+                dependency(body.derived_copy->reference);
+                if(std::ranges::find(body.dependencies,body.derived_copy->source_id)==body.dependencies.end())
+                    body.dependencies.push_back(body.derived_copy->source_id);
+                resolve_copy_reference(*body.derived_copy,body.scope.id,body.scope.placement,source_geometry);
+            }
             const auto construction_dependencies = [&](const auto& self, const ConstructionObject& object) -> void {
                 for (const auto& reference : object.references) dependency(reference);
                 for (const auto& point : object.curve_points) self(self, point);
@@ -6839,6 +6845,37 @@ PlanarSweepPath planar_sweep_path(const HistoryContainer& c) {
     return path;
 }
 }
+void PartDocument::resolve_copy_reference(DerivedCopyParameters& mirror,const std::string& id,
+    const Placement& placement,const kernel::ViewerReferenceGeometry& geometry) {
+    auto references=geometry;
+    if(mirror.reference.owner_id==id+":origin") {
+        for(auto& ref:references.triangle_references)if(ref.owner_id==id+":origin")ref={};
+        std::erase_if(references.axes,[&](const auto& a){return a.reference.owner_id==id+":origin";});
+        std::erase_if(references.edges,[&](const auto& e){return e.reference.owner_id==id+":origin";});
+        PartDocument carrier;carrier.document_id=id;
+        append_reference_geometry(references,transform_reference_geometry(carrier.origin_viewer_mesh().original_references,
+            {placement.x,placement.y,placement.z},{placement.rotation_x,placement.rotation_y,placement.rotation_z},false));
+    } else if(mirror.reference.owner_id==id)throw std::invalid_argument("Zrcadlo nemůže používat vlastní geometrii jako rovinu.");
+    if(mirror.pattern) {
+        auto& pattern=*mirror.pattern;
+        if(mirror.linear_axis>2)throw std::invalid_argument("Vyberte místní směr X, Y nebo Z.");
+        const std::array<kernel::Vec3,3> basis{{{1,0,0},{0,1,0},{0,0,1}}};
+        pattern.direction=rotated_vector(basis[mirror.linear_axis],{placement.rotation_x,placement.rotation_y,placement.rotation_z});
+        if(pattern.circular) {
+            const auto axis=placement_reference_axis(mirror.reference,references);
+            mirror.reference_valid=axis.has_value();
+            if(!axis)throw std::invalid_argument("Vyberte platnou osu kruhového Pole.");
+            pattern.origin=axis->point;pattern.axis=axis->direction;
+        } else mirror.reference_valid=true;
+        static_cast<void>(kernel::validated_pattern(pattern));return;
+    }
+    const auto plane=placement_reference_plane(mirror.reference,references);
+    mirror.reference_valid=plane.has_value()&&construction_reference_is_planar_face(mirror.reference,references);
+    if(!mirror.reference_valid)throw std::invalid_argument("Vyberte platnou rovinu nebo rovinnou plochu Zrcadla.");
+    const auto p=plane->point,n=plane->normal;
+    mirror.resolved_plane=kernel::normalized_mirror_plane({{p.x+n.x*mirror.reference.offset,p.y+n.y*mirror.reference.offset,p.z+n.z*mirror.reference.offset},n});
+}
+
 HistoryContainer PartDocument::create_sweep2d_container() {
     auto c=create_sweep3d_container();c.sweep3d={};c.name="2D tažení";c.feature_kind=FeatureKind::Sweep2D;
     auto path=zima::sketcher::Sketch::create_default();path.owner_container_id=c.id;path.name="Dráha";

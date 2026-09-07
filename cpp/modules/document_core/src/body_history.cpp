@@ -1,3 +1,4 @@
+#include <zima/document/derived_copy_json.hpp>
 #include <zima/document/body_history.hpp>
 #include <zima/document/placement_json.hpp>
 #include <zima/kernel/stable_id.hpp>
@@ -47,6 +48,12 @@ void BodyHistoryGraph::validate() const {
         if (const auto* body = find(id)) {
             if (body->name.empty() || body->cursor > body->entries.size())
                 throw std::invalid_argument("Invalid body name or history cursor");
+            if(body->derived_copy) {
+                if(!body->entries.empty()||body->cursor||!available.contains(body->derived_copy->source_id))
+                    throw std::invalid_argument("Kopie potřebuje předcházející zdroj a nemůže mít vlastní historii.");
+                if(body->derived_copy->pattern)static_cast<void>(zima::kernel::validated_pattern(*body->derived_copy->pattern));
+                else static_cast<void>(zima::kernel::normalized_mirror_plane(body->derived_copy->resolved_plane));
+            }
             const auto& scope = body->scope;
             for (const auto value : {scope.translation().x, scope.translation().y, scope.translation().z,
                     scope.rotation_degrees().x, scope.rotation_degrees().y, scope.rotation_degrees().z})
@@ -76,7 +83,7 @@ void BodyHistoryGraph::validate() const {
         preceding.insert(id);
         available.insert(id);
     }
-    if (!active_.empty() && !find(active_)) throw std::invalid_argument("Active body does not exist");
+    if (!active_.empty() && (!find(active_) || find(active_)->derived_copy)) throw std::invalid_argument("Active body does not exist");
 }
 
 std::string BodyHistoryGraph::create_boolean(std::string name, zima::kernel::BodyCombination operation,
@@ -116,6 +123,15 @@ std::string BodyHistoryGraph::create_body(std::string name) {
     return active_;
 }
 
+std::string BodyHistoryGraph::create_derived_copy(BodyHistory body) {
+    if(!body.derived_copy)throw std::invalid_argument("Chybí parametry kopie.");
+    if(body.scope.id.empty())body.scope.id=zima::kernel::make_stable_id();
+    const auto id=body.scope.id;auto next=*this;
+    next.order_.insert(next.order_.begin()+static_cast<std::ptrdiff_t>(cursor_),id);
+    next.bodies_.push_back(std::move(body));next.sort_bodies();++next.cursor_;next.active_.clear();
+    next.validate();*this=std::move(next);return id;
+}
+
 void BodyHistoryGraph::update_body(BodyHistory body) {
     auto next = *this;
     const auto found = std::ranges::find_if(next.bodies_, [&](const auto& value) { return value.scope.id == body.scope.id; });
@@ -127,6 +143,7 @@ void BodyHistoryGraph::update_body(BodyHistory body) {
 
 void BodyHistoryGraph::activate(const std::string& id) {
     if (!id.empty() && !find(id)) throw std::invalid_argument("Body does not exist");
+    if(!id.empty()&&find(id)->derived_copy)throw std::invalid_argument("Geometrie kopie se upravuje u zdroje.");
     active_ = id;
 }
 
@@ -232,6 +249,15 @@ std::vector<zima::kernel::HistoryOperation> BodyHistoryGraph::compile(const Comp
             continue;
         }
         const auto& body = *find(id);
+        if(body.derived_copy) {
+            if(!calculated.contains(body.derived_copy->source_id)||!body.derived_copy->reference_valid)
+                throw std::invalid_argument("Kopie nemá platný zdroj nebo referenci.");
+            zima::kernel::HistoryOperation operation;operation.owner_id=id;operation.body.id=id;
+            operation.body.combination=zima::kernel::BodyCombination::Mirror;operation.body.source_id=body.derived_copy->source_id;
+            operation.body.mirror_plane=body.derived_copy->resolved_plane;
+            if(body.derived_copy->pattern){operation.body.combination=zima::kernel::BodyCombination::Pattern;operation.body.pattern=*body.derived_copy->pattern;}
+            result.push_back(std::move(operation));calculated.insert(id);continue;
+        }
         const auto start = result.size();
         for (const auto& entry : body.entries) {
             if (auto operation = compiler(entry)) {
@@ -260,7 +286,7 @@ std::string BodyHistoryGraph::serialized() const {
         for (const auto& entry : body.entries) entries.push_back({{"kind", static_cast<int>(entry.kind)}, {"id", entry.id}});
         const auto& scope = body.scope;
         bodies.push_back({{"id", scope.id}, {"name", body.name}, {"visible", body.visible},
-            {"placement", scope.placement},
+            {"placement", scope.placement},{"derived_copy",body.derived_copy?nlohmann::json(*body.derived_copy):nlohmann::json(nullptr)},
             {"entries", std::move(entries)}, {"cursor", body.cursor}, {"dependencies", body.dependencies}});
     }
     auto booleans = nlohmann::json::array();
@@ -282,6 +308,7 @@ BodyHistoryGraph BodyHistoryGraph::from_serialized(std::string_view source) {
         body.name = row.at("name").get<std::string>();
         body.visible = row.at("visible").get<bool>();
         body.scope.placement = row.at("placement").get<Placement>();
+        if(!row.at("derived_copy").is_null())body.derived_copy=row.at("derived_copy").get<DerivedCopyParameters>();
         body.cursor = row.at("cursor").get<std::size_t>();
         body.dependencies = row.at("dependencies").get<std::vector<std::string>>();
         for (const auto& entry : row.at("entries"))

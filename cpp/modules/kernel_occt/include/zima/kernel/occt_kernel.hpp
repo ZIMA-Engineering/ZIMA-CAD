@@ -33,6 +33,10 @@ public:
         Vec3 target_translation,
         Vec3 target_rotation_degrees,
         double linear_tolerance = 0.001, double mesh_deflection = 0.1) const;
+    [[nodiscard]] BodyResult mirror_body(const BodyResult& source,MirrorPlane plane,
+        const std::string& owner_id={},Vec3 source_translation={},Vec3 source_rotation={}) const override;
+    [[nodiscard]] BodyResult pattern_body(const BodyResult& source,const PatternRequest& pattern,
+        const std::string& owner_id={},Vec3 source_translation={},Vec3 source_rotation={},bool occurrences=false) const override;
     void export_step(
         const std::vector<PlacedBody>& bodies, const std::string& path) const;
     void export_stl(

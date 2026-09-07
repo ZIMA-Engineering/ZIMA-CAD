@@ -318,6 +318,31 @@ std::optional<OccurrenceAddress> Workspace::resolve_occurrence(
         occurrence.source_document_id, occurrence.source_kind, instance_path};
 }
 
+zima::assembly::InstancePath Workspace::derived_source_path(
+    const std::string& top_id,const zima::assembly::InstancePath& path) const {
+    const auto* top=open_assembly(top_id);if(!top)return path;
+    const auto snapshot=top->session.document().occurrence_snapshot();
+    const auto* siblings=&snapshot;auto result=path;
+    for(std::size_t position=0;position<result.occurrence_ids.size();++position) {
+        auto& id=result.occurrence_ids[position];
+        std::unordered_set<std::string> visited;
+        const zima::assembly::OccurrenceSnapshot* selected{};
+        for(;;) {
+            if(!visited.insert(id).second)throw std::invalid_argument("Cyclic derived occurrence");
+            const auto found=std::find_if(siblings->begin(),siblings->end(),[&](const auto& c){return c.occurrence_id==id;});
+            if(found==siblings->end())throw std::invalid_argument("Derived occurrence source is missing");
+            selected=&*found;
+            if(selected->derived_source_id.empty())break;
+            id=selected->derived_source_id;
+            if(selected->pattern_group&&position+1<result.occurrence_ids.size()&&
+                std::ranges::any_of(selected->children,[&](const auto& c){return c.occurrence_id==result.occurrence_ids[position+1];}))
+                result.occurrence_ids.erase(result.occurrence_ids.begin()+static_cast<std::ptrdiff_t>(position+1));
+        }
+        siblings=&selected->children;
+    }
+    return result;
+}
+
 std::optional<OccurrenceAddress> Workspace::activate_occurrence(
     const std::string& top_assembly_document_id,
     const zima::assembly::InstancePath& instance_path) {
@@ -325,7 +350,7 @@ std::optional<OccurrenceAddress> Workspace::activate_occurrence(
         throw std::invalid_argument(
             "Occurrence activation requires an open top-level Assembly");
     }
-    auto address = resolve_occurrence(top_assembly_document_id, instance_path);
+    auto address = resolve_occurrence(top_assembly_document_id, derived_source_path(top_assembly_document_id,instance_path));
     if (!address || find(address->source_document_id) == nullptr) return std::nullopt;
     display_top_level(top_assembly_document_id);
     activate(address->source_document_id);
@@ -941,6 +966,7 @@ zima::assembly::AssemblyDocument Workspace::refreshed_assembly(
     recursion_stack.push_back(assembly_document_id);
     auto refreshed = assembly->session.document();
     for (auto& occurrence : refreshed.components) {
+        if(occurrence.derived_copy)continue;
         if (occurrence.source_kind == zima::assembly::ComponentSourceKind::Assembly) {
             if (open_assembly(occurrence.source_document_id) != nullptr) {
                 auto nested = refreshed_assembly(
@@ -987,6 +1013,7 @@ zima::assembly::AssemblyDocument Workspace::refreshed_assembly(
     recursion_stack.pop_back();
     refreshed.resolve_constructions();
     refreshed.calculate_placement_references();
+    zima::kernel::OcctKernel mirror_kernel;refreshed.calculate_derived_copies(mirror_kernel);
     static_cast<void>(refreshed.build_scene());
     return refreshed;
 }
@@ -1030,6 +1057,7 @@ void Workspace::calculate_assembly_cuts(
                 operations.front().mesh_deflection);
         }
     }
+    document.calculate_derived_copies(kernel);
 }
 
 void Workspace::regenerate_assembly_from_open_dependencies(

@@ -1,3 +1,6 @@
+#include <zima/document/derived_copy_json.hpp>
+#include <set>
+#include <zima/document/placement_json.hpp>
 #include <zima/document/document_copy_json.hpp>
 #include <zima/assembly/assembly_document.hpp>
 #include <zima/document/versioned_file.hpp>
@@ -313,10 +316,11 @@ void assign_instance(Reference& reference, const std::string& instance_path) {
 }
 
 const char* source_kind_name(ComponentSourceKind kind) {
-    return kind == ComponentSourceKind::Part ? "part" : "assembly";
+    return kind == ComponentSourceKind::Part ? "part" : kind==ComponentSourceKind::Pattern ? "pattern" : "assembly";
 }
 
 ComponentSourceKind source_kind_from_name(const std::string& name) {
+    if (name == "pattern") return ComponentSourceKind::Pattern;
     if (name == "part") return ComponentSourceKind::Part;
     if (name == "assembly") return ComponentSourceKind::Assembly;
     throw std::runtime_error("Unknown component source kind");
@@ -324,6 +328,7 @@ ComponentSourceKind source_kind_from_name(const std::string& name) {
 
 const char* dependency_kind_name(ComponentDependencyKind kind) {
     switch (kind) {
+    case ComponentDependencyKind::DerivedCopyReference: return "derived_copy_reference";
     case ComponentDependencyKind::PlacementReference: return "placement_reference";
     case ComponentDependencyKind::ExternalSketchReference:
         return "external_sketch_reference";
@@ -332,6 +337,7 @@ const char* dependency_kind_name(ComponentDependencyKind kind) {
 }
 
 ComponentDependencyKind dependency_kind_from_name(const std::string& name) {
+    if(name=="derived_copy_reference")return ComponentDependencyKind::DerivedCopyReference;
     if (name == "placement_reference") {
         return ComponentDependencyKind::PlacementReference;
     }
@@ -459,6 +465,7 @@ nlohmann::json serialize_snapshot(const OccurrenceSnapshot& snapshot) {
             {"rotation_z", snapshot.placement.rotation_z},
         }},
         {"children", std::move(children)},
+        {"derived_source_id", snapshot.derived_source_id},{"pattern_group",snapshot.pattern_group},
     };
 }
 
@@ -466,6 +473,8 @@ OccurrenceSnapshot load_snapshot(const nlohmann::json& source) {
     OccurrenceSnapshot snapshot;
     snapshot.occurrence_id = source.at("occurrence_id").get<std::string>();
     snapshot.name = source.at("name").get<std::string>();
+    snapshot.derived_source_id = source.at("derived_source_id").get<std::string>();
+    snapshot.pattern_group=source.at("pattern_group").get<bool>();
     snapshot.source_document_id = source.at("source_document_id").get<std::string>();
     snapshot.source_kind = source_kind_from_name(source.at("source_kind").get<std::string>());
     snapshot.manually_suppressed = source.at("manually_suppressed").get<bool>();
@@ -616,7 +625,7 @@ std::vector<OccurrenceSnapshot> AssemblyDocument::occurrence_snapshot() const {
             !component.suppressed &&
                 effectively_suppressed.contains(component.occurrence_id),
             component.visible, component.grounded, component.placement,
-            component.nested_snapshot});
+            component.nested_snapshot,component.derived_copy ? component.derived_copy->source_id : std::string{},component.derived_copy&&component.derived_copy->pattern.has_value()});
     }
     return result;
 }
@@ -684,6 +693,15 @@ zima::kernel::ViewerMesh AssemblyDocument::construction_viewer_mesh(
     carrier.document_id = document_id;
     carrier.name = name;
     carrier.constructions = constructions;
+    for(const auto& component:components)if(component.derived_copy&&component.visible) {
+        document::ConstructionObject origin;
+        origin.id=component.occurrence_id;origin.entity_id=origin.id+":entity";
+        origin.container_origin=document::create_container_origin(origin.id);
+        origin.kind=document::ConstructionKind::Point;origin.reference_valid=false;
+        const auto& p=component.copy_placement;
+        origin.origin={p.x,p.y,p.z};origin.rotation={p.rotation_x,p.rotation_y,p.rotation_z};
+        carrier.constructions.push_back(std::move(origin));
+    }
     return carrier.construction_viewer_mesh(editing_object_id);
 }
 
@@ -898,6 +916,120 @@ PointResolution AssemblyDocument::resolve_point(
 // solve strategy. `flip` mirrors ConstructionReference::flip: it inverts the
 // resolved direction/normal of an orientation-driving reference as a
 // post-solve step, and is a no-op for a PointCoincident row.
+const PartOccurrence* AssemblyDocument::derived_source(const std::string& id) const {
+    const auto* source=find_occurrence(id);std::set<std::string> visited;
+    while(source&&source->derived_copy) {
+        if(!visited.insert(source->occurrence_id).second)throw std::invalid_argument("Cyklická závislost odkazované kopie.");
+        source=find_occurrence(source->derived_copy->source_id);
+    }
+    return source;
+}
+void AssemblyDocument::calculate_derived_copies(const zima::kernel::GeometryKernel& kernel) {
+    if(std::ranges::none_of(components,[](const auto& c){return c.derived_copy.has_value();}))return;
+    const auto reference_owners=[&](const document::ConstructionReference& reference) {
+        std::set<std::string> owners,visiting;
+        std::function<void(const document::ConstructionReference&)> collect;
+        collect=[&](const auto& ref) {
+            if(ref.owner_id.empty())return;
+            if(!ref.instance_path.empty()){owners.insert(InstancePath::decode(ref.instance_path).occurrence_ids.front());return;}
+            for(const auto& c:components)if(ref.owner_id==c.occurrence_id+":origin"){owners.insert(c.occurrence_id);return;}
+            const auto object=std::ranges::find_if(constructions,[&](const auto& c){return c.id==ref.owner_id||c.entity_id==ref.owner_id||c.container_origin.id==ref.owner_id;});
+            if(object==constructions.end())return;
+            if(!visiting.insert(object->id).second)throw std::invalid_argument("Cyklická reference konstrukční geometrie.");
+            for(const auto& ref:object->references)collect(ref);visiting.erase(object->id);
+        };collect(reference);return owners;
+    };
+    std::set<std::string> visiting,done;
+    std::function<void(const std::string&)> calculate;
+    calculate=[&](const std::string& id) {
+        if(done.contains(id))return;
+        auto* result=find_occurrence(id);if(!result)throw std::invalid_argument("Chybí zdrojová komponenta kopie.");
+        if(!visiting.insert(id).second)throw std::invalid_argument("Cyklická závislost odkazované kopie.");
+        if(!result->derived_copy){
+            if(!result->grounded)for(const auto& row:result->placement_references) {
+                const auto& ref=row.target_reference;
+                for(const auto& owner:reference_owners({ref.instance_path.encoded(),ref.owner_id,ref.semantic_key}))
+                    if(owner!=id)calculate(owner);
+            }
+            visiting.erase(id);done.insert(id);return;
+        }
+        calculate(result->derived_copy->source_id);
+        const auto prerequisite=[&](const document::ConstructionReference& ref) {
+            for(const auto& owner:reference_owners(ref)) {
+                if(owner==id) {
+                    if(ref.instance_path.empty()&&ref.owner_id==id+":origin")continue;
+                    throw std::invalid_argument("Kopie nemůže odkazovat na vlastní geometrii.");
+                }
+                calculate(owner);
+            }
+        };
+        prerequisite(result->derived_copy->reference);
+        for(const auto& ref:result->copy_placement.references) {
+            if(ref.instance_path.empty()&&(ref.owner_id==id||ref.owner_id==id+":origin"))
+                throw std::invalid_argument("Umístění kopie nemůže záviset na vlastním počátku.");
+            prerequisite(ref);
+        }
+        auto reference_document=*this;
+        for(auto& component:reference_document.components)component.visible=true;
+        reference_document.resolve_constructions();constructions=reference_document.constructions;
+        auto geometry=reference_document.build_scene().original_references;
+        const auto append=[&](const kernel::ViewerReferenceGeometry& refs) {
+            const auto offset=static_cast<std::uint32_t>(geometry.vertices.size());
+            geometry.vertices.insert(geometry.vertices.end(),refs.vertices.begin(),refs.vertices.end());
+            for(auto i:refs.triangles)geometry.triangles.push_back(offset+i);
+            geometry.triangle_references.insert(geometry.triangle_references.end(),refs.triangle_references.begin(),refs.triangle_references.end());
+            geometry.edges.insert(geometry.edges.end(),refs.edges.begin(),refs.edges.end());geometry.points.insert(geometry.points.end(),refs.points.begin(),refs.points.end());
+            geometry.axes.insert(geometry.axes.end(),refs.axes.begin(),refs.axes.end());
+        };
+        append(origin_viewer_mesh().original_references);append(reference_document.construction_viewer_mesh().original_references);
+        if(!document::resolve_placement(result->copy_placement,geometry))throw std::invalid_argument("Chybí reference umístění kontejneru.");
+        document::PartDocument::resolve_copy_reference(*result->derived_copy,id,result->copy_placement,geometry);
+        const auto* source=find_occurrence(result->derived_copy->source_id);
+        const auto translation=zima::kernel::Vec3{source->placement.x,source->placement.y,source->placement.z};
+        const auto rotation=zima::kernel::Vec3{source->placement.rotation_x,source->placement.rotation_y,source->placement.rotation_z};
+        result->calculated_source=result->derived_copy->pattern
+            ? kernel.pattern_body(source->calculated_source,*result->derived_copy->pattern,id,translation,rotation,true)
+            : kernel.mirror_body(source->calculated_source,result->derived_copy->resolved_plane,{},translation,rotation);
+        result->source_document_id=source->source_document_id;result->source_path=source->source_path;result->source_kind=source->source_kind;
+        result->nested_snapshot=source->nested_snapshot;result->body_color=source->body_color;result->face_colors=source->face_colors;
+        if(result->derived_copy->pattern) {
+            result->source_kind=ComponentSourceKind::Pattern;result->nested_snapshot.clear();
+            for(unsigned index=1;index<result->derived_copy->pattern->count;++index)
+                result->nested_snapshot.push_back({zima::kernel::pattern_copy_id(index),source->name+" ("+std::to_string(index+1)+")",
+                    source->source_document_id,source->source_kind,false,false,true,true,{},source->nested_snapshot});
+        }
+        result->placement={};result->placement_references.clear();result->grounded=true;
+        visiting.erase(id);done.insert(id);
+    };
+    // A follower may use a reflected/patterned reference, and another copy
+    // may in turn use that follower. Settle this finite dependency chain only
+    // during the explicitly requested calculation.
+    for(std::size_t pass=0;;++pass) {
+        if(pass>components.size())throw std::invalid_argument("Umístění odkazovaných kopií se neustálilo.");
+        visiting.clear();done.clear();
+        for(const auto& component:components)calculate(component.occurrence_id);
+        std::vector<ComponentPlacement> before;for(const auto& component:components)before.push_back(component.placement);
+        calculate_placement_references();
+        bool changed=false;
+        for(std::size_t i=0;i<components.size();++i) {
+            const auto& a=before[i];const auto& b=components[i].placement;
+            for(double delta:{a.x-b.x,a.y-b.y,a.z-b.z,a.rotation_x-b.rotation_x,a.rotation_y-b.rotation_y,a.rotation_z-b.rotation_z})
+                if(std::abs(delta)>1e-8)changed=true;
+        }
+        if(!changed)break;
+    }
+    std::erase_if(dependencies,[](const auto& dependency){return dependency.kind==ComponentDependencyKind::DerivedCopyReference;});
+    for(const auto& component:components)if(component.derived_copy) {
+        std::set<std::string> prerequisite_ids{component.derived_copy->source_id};
+        const auto collect=[&](const document::ConstructionReference& ref) {
+            const auto owners=reference_owners(ref);prerequisite_ids.insert(owners.begin(),owners.end());prerequisite_ids.erase(component.occurrence_id);
+        };
+        collect(component.derived_copy->reference);for(const auto& ref:component.copy_placement.references)collect(ref);
+        for(const auto& id:prerequisite_ids)
+            add_dependency(create_dependency(component.occurrence_id,id,ComponentDependencyKind::DerivedCopyReference));
+    }
+}
+
 void AssemblyDocument::calculate_placement_references() {
     constexpr double parallel_tolerance = 1.0e-7;
     for (auto& component : components) {
@@ -1217,7 +1349,7 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
         std::unordered_set<std::string> target_ids;
         for (const auto& target_id : cut.target_occurrence_ids) {
             const auto* target = find_occurrence(target_id);
-            if (!target_ids.insert(target_id).second || target == nullptr) {
+            if (!target_ids.insert(target_id).second || target == nullptr || target->derived_copy) {
                 throw std::runtime_error(
                     "Assembly cut target must be a unique immediate component occurrence");
             }
@@ -1640,6 +1772,10 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
         component.suppressed = source.at("suppressed").get<bool>();
         component.visible = source.at("visible").get<bool>();
         component.grounded = source.at("grounded").get<bool>();
+        if(!source.at("derived_copy").is_null()) {
+            component.derived_copy=source.at("derived_copy").get<document::DerivedCopyParameters>();
+            component.copy_placement=source.at("copy_placement").get<document::Placement>();
+        }
         if (component.occurrence_id.empty() || component.name.empty() ||
             component.source_document_id.empty() ||
             !occurrence_ids.insert(component.occurrence_id).second) {
@@ -1771,6 +1907,8 @@ void AssemblyDocument::save(const std::filesystem::path& path,
             {"suppressed", component.suppressed},
             {"visible", component.visible},
             {"grounded", component.grounded},
+            {"derived_copy",component.derived_copy?nlohmann::json(*component.derived_copy):nlohmann::json(nullptr)},
+            {"copy_placement",component.derived_copy?nlohmann::json(component.copy_placement):nlohmann::json(nullptr)},
             {"placement", {
                 {"x", component.placement.x}, {"y", component.placement.y},
                 {"z", component.placement.z},

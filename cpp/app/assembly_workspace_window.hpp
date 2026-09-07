@@ -241,8 +241,14 @@ private:
     std::optional<zima::document::PartDocument> body_dialog_preview_;
     std::optional<std::vector<std::string>> body_dialog_context_;
     std::string body_dialog_step_id_;
+    std::optional<zima::assembly::AssemblyDocument> derived_copy_assembly_preview_;
     QAction* create_body_action_{};
     QAction* body_boolean_action_{};
+    QAction* mirror_action_{};
+    QAction* pattern_action_{};
+    void show_derived_copy_properties(const std::string& id = {},bool pattern=false);
+    bool accept_derived_copy_tree_reference(QTreeWidgetItem* item);
+    void show_derived_source_properties(const std::string& id);
     void show_body_properties(const std::string& id = {});
     void show_body_boolean_properties(const std::string& id = {});
     void activate_body(const std::string& id);
@@ -355,8 +361,8 @@ private:
     // Sweep itself is confirmed with OK.
     std::optional<zima::sketcher::Sketch> sweep_profile_sketch_draft_;
     std::function<void(zima::sketcher::Sketch)> embedded_sketch_finished_;
-    std::function<void(const zima::viewer::ViewerCandidate&)> sweep_reference_pick_;
-    std::function<void()> sweep_reference_end_;
+    std::function<void(const zima::viewer::ViewerCandidate&)> feature_reference_pick_;
+    std::function<void()> feature_reference_end_;
     ConstructionPropertiesDialog* sweep_profile_parent_dialog_{};
     std::optional<std::size_t> sweep_profile_sketch_index_;
     // Engaged outer optional means a Point-pick command is active.  The inner

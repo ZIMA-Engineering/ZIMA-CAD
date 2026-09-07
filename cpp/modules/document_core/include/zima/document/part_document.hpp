@@ -709,6 +709,8 @@ public:
         std::string sketch_id);
     [[nodiscard]] static HistoryContainer create_revolution_container(
         std::string sketch_id);
+    static void resolve_copy_reference(DerivedCopyParameters&,const std::string& container_id,
+        const Placement&,const zima::kernel::ViewerReferenceGeometry&);
     [[nodiscard]] static HistoryContainer create_sweep3d_container();
     [[nodiscard]] static HistoryContainer create_sweep2d_container();
     static void reframe_sweep2d_sketches(HistoryContainer&, unsigned through_stage = 1);

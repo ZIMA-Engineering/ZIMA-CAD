@@ -1,3 +1,5 @@
+#include <zima/kernel/pattern_geometry.hpp>
+#include <zima/kernel/mirror_geometry.hpp>
 #include <BRepOffsetAPI_MakeOffset.hxx>
 #include <zima/kernel/shaft_thread_geometry.hpp>
 #include <zima/kernel/occt_kernel.hpp>
@@ -4919,6 +4921,47 @@ void append_body_viewer(ViewerMesh& destination, const ViewerMesh& source) {
 
 } // namespace
 
+BodyResult OcctKernel::mirror_body(const BodyResult& source,MirrorPlane plane,const std::string& owner_id,
+    Vec3 translation,Vec3 rotation) const {
+    plane=normalized_mirror_plane(plane);
+    if(source.kernel_shape.empty())throw std::invalid_argument("Zdroj Zrcadla nemá vypočtené těleso.");
+    auto result=source;result.body_boundaries.clear();result.body_inputs.clear();result.body_outputs.clear();
+    const auto placement=primitive_transform(translation,rotation);
+    place_body_result(result,placement);
+    gp_Trsf reflection;reflection.SetMirror(gp_Ax2(gp_Pnt(plane.point.x,plane.point.y,plane.point.z),gp_Dir(plane.normal.x,plane.normal.y,plane.normal.z)));
+    BRepBuilderAPI_Transform transform(read_kernel_shape(source),reflection*placement,true);transform.Build();
+    if(!transform.IsDone()||!BRepCheck_Analyzer(transform.Shape()).IsValid())throw std::runtime_error("Zrcadlo nevytvořilo platné těleso.");
+    result.kernel_shape=serialize_kernel_shape(transform.Shape());
+    result.mesh=mirrored_viewer_mesh(std::move(result.mesh),plane,owner_id);
+    result.shaft_thread_owner.clear();result.shaft_thread_references={};result.imported_step_topology.clear();
+    HistoryOperation key;key.owner_id=owner_id;key.body.combination=BodyCombination::Mirror;key.body.mirror_plane=plane;
+    key.body.translation=translation;key.body.rotation_degrees=rotation;
+    result.source_fingerprint=source.source_fingerprint+":mirror:"+history_fingerprint({key},1);
+    return result;
+}
+
+BodyResult OcctKernel::pattern_body(const BodyResult& source,const PatternRequest& request,const std::string& owner,
+    Vec3 translation,Vec3 rotation,bool occurrences) const {
+    const auto p=validated_pattern(request);
+    if(source.kernel_shape.empty())throw std::invalid_argument("Zdroj Pole nemá vypočtené těleso.");
+    const auto placement=primitive_transform(translation,rotation);auto input=source;place_body_result(input,placement);
+    BRep_Builder builder;TopoDS_Compound compound;builder.MakeCompound(compound);BodyResult result;
+    const auto shape=read_kernel_shape(source);
+    for(unsigned index=1;index<p.count;++index) {
+        gp_Trsf copy;
+        if(p.circular)copy.SetRotation(gp_Ax1(gp_Pnt(p.origin.x,p.origin.y,p.origin.z),gp_Dir(p.axis.x,p.axis.y,p.axis.z)),p.angle_degrees*index*std::numbers::pi/180.0);
+        else copy.SetTranslation(gp_Vec(p.direction.x*p.spacing*index,p.direction.y*p.spacing*index,p.direction.z*p.spacing*index));
+        BRepBuilderAPI_Transform transform(shape,copy*placement,true);transform.Build();
+        if(!transform.IsDone()||!BRepCheck_Analyzer(transform.Shape()).IsValid())throw std::runtime_error("Pole nevytvořilo platné těleso.");
+        builder.Add(compound,transform.Shape());
+        append_body_viewer(result.mesh,pattern_copy_mesh(input.mesh,p,index,owner,occurrences));
+    }
+    result.kernel_shape=serialize_kernel_shape(compound);result.volume=source.volume*(p.count-1);result.surface_area=source.surface_area*(p.count-1);
+    HistoryOperation key;key.owner_id=owner;key.body.id=owner;key.body.combination=BodyCombination::Pattern;key.body.pattern=p;
+    key.body.translation=translation;key.body.rotation_degrees=rotation;
+    result.source_fingerprint=source.source_fingerprint+":pattern:"+history_fingerprint({key},1);return result;
+}
+
 std::vector<BodyResult> OcctKernel::evaluate_body_histories(
     const std::vector<HistoryOperation>& operations,
     const std::vector<BodyResult>& previous_boundaries) const {
@@ -4939,7 +4982,8 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
         if (scope.combination != BodyCombination::Separate &&
             scope.combination != BodyCombination::Add &&
             scope.combination != BodyCombination::Subtract &&
-            scope.combination != BodyCombination::Intersect)
+            scope.combination != BodyCombination::Intersect &&
+            scope.combination != BodyCombination::Mirror && scope.combination != BodyCombination::Pattern)
             throw std::invalid_argument("Invalid body combination");
         if (operation.owner_id.empty() || !owners.insert(operation.owner_id).second)
             throw std::invalid_argument("Body features require distinct persistent owners");
@@ -4953,6 +4997,11 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
             if (scope.combination == BodyCombination::Separate) {
                 if (!scope.target_id.empty() || !scope.source_id.empty())
                     throw std::invalid_argument("Independent body cannot define a Boolean");
+            } else if(scope.combination==BodyCombination::Mirror||scope.combination==BodyCombination::Pattern) {
+                if(!available.contains(scope.source_id)||!scope.target_id.empty()||operation.suppressed)
+                    throw std::invalid_argument("Zrcadlo potřebuje dostupný předcházející zdroj.");
+                if(scope.combination==BodyCombination::Mirror)static_cast<void>(normalized_mirror_plane(scope.mirror_plane));
+                else static_cast<void>(validated_pattern(scope.pattern));
             } else {
                 if (scope.target_id == scope.source_id || !available.erase(scope.target_id) || !available.erase(scope.source_id))
                     throw std::invalid_argument("Boolean requires two distinct available preceding results");
@@ -5014,7 +5063,14 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
         }
         if (branch.scope.source_id.empty()) document.body_inputs.emplace(branch.scope.id, input);
         auto output = input;
-        if (branch.scope.combination != BodyCombination::Separate) {
+        if(branch.scope.combination==BodyCombination::Mirror||branch.scope.combination==BodyCombination::Pattern) {
+            // The source is already in document coordinates; only the plane
+            // belongs to the Mirror container's resolved placement.
+            output=branch.scope.combination==BodyCombination::Mirror
+                ? mirror_body(document.body_outputs.at(branch.scope.source_id),branch.scope.mirror_plane,branch.scope.id)
+                : pattern_body(document.body_outputs.at(branch.scope.source_id),branch.scope.pattern,branch.scope.id);
+            document.body_inputs.emplace(branch.scope.id,output);
+        } else if (branch.scope.combination != BodyCombination::Separate) {
             const auto& target = document.body_outputs.at(branch.scope.target_id);
             const auto output_key = input_key + ":boolean:" +
                 std::to_string(static_cast<int>(branch.scope.combination)) + ":" + target.source_fingerprint + ":" +

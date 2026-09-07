@@ -80,6 +80,11 @@ public:
     [[nodiscard]] std::optional<OccurrenceAddress> resolve_occurrence(
         const std::string& top_assembly_document_id,
         const zima::assembly::InstancePath& instance_path) const;
+    // Resolve read-only derived occurrences to their editable source using
+    // persisted snapshots, including copies inside nested assemblies.
+    [[nodiscard]] zima::assembly::InstancePath derived_source_path(
+        const std::string& top_assembly_document_id,
+        const zima::assembly::InstancePath& instance_path) const;
     [[nodiscard]] std::optional<OccurrenceAddress> activate_occurrence(
         const std::string& top_assembly_document_id,
         const zima::assembly::InstancePath& instance_path);

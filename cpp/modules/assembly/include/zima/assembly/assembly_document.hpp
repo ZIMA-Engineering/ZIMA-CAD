@@ -31,11 +31,13 @@ struct ComponentPlacement {
     double rotation_x{};
     double rotation_y{};
     double rotation_z{};
+    bool operator==(const ComponentPlacement&) const = default;
 };
 
 enum class ComponentSourceKind {
     Part,
     Assembly,
+    Pattern, // Assembly-owned group of dependent occurrences.
 };
 
 struct OccurrenceSnapshot {
@@ -49,6 +51,8 @@ struct OccurrenceSnapshot {
     bool grounded{};
     ComponentPlacement placement;
     std::vector<OccurrenceSnapshot> children;
+    std::string derived_source_id;
+    bool pattern_group{};
     bool operator==(const OccurrenceSnapshot&) const = default;
 };
 
@@ -115,6 +119,10 @@ struct PartOccurrence {
     // Empty means that the occurrence uses the normal silver body colour.
     // A value is an Assembly-owned presentation override for this occurrence.
     std::optional<std::string> body_color_override;
+    // A Mirror is an occurrence owned by this Assembly. Its source is another
+    // immediate occurrence; the reflected snapshot has no editable history.
+    std::optional<zima::document::DerivedCopyParameters> derived_copy;
+    zima::document::Placement copy_placement;
 };
 
 // Assembly-owned subtractive feature. `definition` is deliberately the same
@@ -134,6 +142,7 @@ struct AssemblyCut {
 enum class ComponentDependencyKind {
     PlacementReference,
     ExternalSketchReference,
+    DerivedCopyReference,
 };
 
 struct ComponentDependency {
@@ -263,6 +272,8 @@ public:
     // component -- the embedded per-component reference-row model (see
     // ComponentPlacementReference).
     void calculate_placement_references();
+    void calculate_derived_copies(const zima::kernel::GeometryKernel& kernel);
+    [[nodiscard]] const PartOccurrence* derived_source(const std::string& occurrence_id) const;
     [[nodiscard]] int remaining_degrees_of_freedom(
         const std::string& occurrence_id) const;
     [[nodiscard]] std::unordered_set<std::string>

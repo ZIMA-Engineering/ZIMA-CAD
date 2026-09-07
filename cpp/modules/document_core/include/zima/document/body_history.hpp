@@ -1,6 +1,7 @@
 #pragma once
 
 #include <zima/document/history_identity.hpp>
+#include <zima/document/derived_copy.hpp>
 #include <zima/document/placement_types.hpp>
 #include <zima/kernel/geometry_kernel.hpp>
 #include <string_view>
@@ -38,6 +39,7 @@ struct BodyHistory {
     std::size_t cursor{};
     // Explicit placement/reference dependencies between independent bodies.
     std::vector<std::string> dependencies;
+    std::optional<DerivedCopyParameters> derived_copy;
     [[nodiscard]] ContainerOrigin origin() const { return create_container_origin(scope.id); }
     bool operator==(const BodyHistory&) const = default;
 };
@@ -65,6 +67,7 @@ public:
     [[nodiscard]] const BodyHistory* owner(const std::string& entry_id) const;
     [[nodiscard]] std::string create_body(std::string name);
     void update_body(BodyHistory body);
+    [[nodiscard]] std::string create_derived_copy(BodyHistory body);
     void activate(const std::string& id);
     void set_insertion_cursor(std::size_t cursor);
     void set_history_cursor(const std::string& body_id, std::size_t cursor);

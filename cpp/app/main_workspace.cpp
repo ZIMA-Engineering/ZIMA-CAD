@@ -1,3 +1,4 @@
+#include "derived_copy_dialog.hpp"
 #include "shaft_thread_dialog.hpp"
 #include "body_properties_dialog.hpp"
 #include "sketch_properties_dialog.hpp"
@@ -206,6 +207,136 @@ int verify_history_tree_drag(QApplication& application,const std::filesystem::pa
     }
 
     return 0;
+}
+
+int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWorkspaceWindow& window,
+        const std::filesystem::path& directory) {
+    using namespace zima;
+    auto part=document::PartDocument::create_default();auto box=document::PartDocument::create_box_container();box.box={8,6,4};box.placement.x=4;
+    part.history={box};document::BodyHistoryGraph graph;const auto source=graph.create_body("Zdroj");
+    graph.insert({document::PartHistoryKind::Feature,box.id});graph.activate({});part.set_body_history(graph);
+    kernel::OcctKernel kernel;const auto calculated=kernel.evaluate_history(part.kernel_operations());
+    const auto path=directory/"mirror-ui.prtz";part.save(path,calculated);
+    window.resize(1200,960);window.show();
+    const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+    if(!verify(window.open_document_path(QString::fromStdString(path.string())),"Mirror Part fixture did not open"))return 1;
+    flush();auto* tree=window.findChild<QTreeWidget*>("documentTree");
+    auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
+    auto* action=window.findChild<QAction*>("mirrorAction");auto* save=window.findChild<QAction*>("saveDocumentAction");
+    const auto row=[&](const std::string& id,const char* kind)->QTreeWidgetItem* {
+        for(QTreeWidgetItemIterator it(tree);*it;++it)
+            if((*it)->data(0,Qt::UserRole).toString().toStdString()==id&&(*it)->data(0,Qt::UserRole+3).toString()==kind)return *it;
+        return nullptr;
+    };
+    if(!verify(action&&action->isEnabled()&&!action->icon().isNull()&&view,"Mirror action/icon missing"))return 1;
+    tree->setCurrentItem(row(source,"part-body"));flush();action->trigger();flush();
+    auto* dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("mirrorDialog"));
+    if(!verify(dialog&&dialog->derived_copy.source_id==source,"Mirror did not prefill selected body"))return 1;
+    if(!verify(dialog->parentWidget()==&window&&(dialog->windowFlags()&Qt::WindowType_Mask)==Qt::SubWindow,"Mirror is not an internal properties window"))return 1;
+    if(!verify(!dialog->buttons()->button(QDialogButtonBox::Apply),"Mirror exposes Apply"))return 1;
+    const auto id=dialog->pending.id;
+    dialog->findChild<QDoubleSpinBox*>("sweepTranslation0")->setValue(-2);
+    dialog->findChild<QPushButton*>("mirrorPlane_yz")->click();flush();
+    window.grab().save(QString::fromStdString((directory/"mirror-ui.png").string()));
+    dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+    if(auto* failed=window.findChild<QDialog*>("mirrorDialog")){for(auto* label:failed->findChildren<QLabel*>())std::cerr<<label->text().toStdString()<<"\n";return 1;}
+    save->trigger();flush();auto stored=document::PartDocument::load(path);
+    if(!verify(stored.body_history.find(id)&&stored.body_history.find(id)->derived_copy->source_id==source,"Body Mirror was not persisted"))return 1;
+    auto bodies=kernel.evaluate_history(stored.kernel_operations());
+    if(!verify(std::abs(bodies.back().volume-384)<1e-7&&bodies.back().body_inputs.contains(id),"Mirror is not a selectable full body"))return 1;
+    tree->setCurrentItem(row(id,"part-body"));flush();
+    if(!verify(view->confirmed_candidate()&&view->confirmed_candidate()->owner_id==id,"Tree did not confirm the Mirror body"))return 1;
+    window.show_tree_item_properties(row(id,"part-body"));flush();
+    dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("mirrorDialog"));
+    if(!verify(dialog&&dialog->pending.id==id,"Mirror edit did not reopen the same dialog"))return 1;
+    for(const auto& ref:view->mesh().triangle_references)
+        if(!verify(ref.owner_id!=id,"Mirror edit displays final output instead of rollback input"))return 1;
+    dialog->findChild<QDoubleSpinBox*>("sweepTranslation0")->setValue(90);
+    dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();save->trigger();flush();
+    stored=document::PartDocument::load(path);
+    if(!verify(stored.body_history.find(id)->scope.placement.x==-2,"Cancel committed Mirror placement"))return 1;
+    window.show_tree_item_properties(row(id,"mirror-source"));flush();
+    bool source_dialog=false;for(auto* open:window.findChildren<QDialog*>())if(dynamic_cast<app::PrimitivePropertiesDialog*>(open)&&open->isVisible())source_dialog=true;
+    if(!verify(source_dialog,"Mirror source link did not open source properties"))return 1;
+    for(auto* open:window.findChildren<QDialog*>())if(open->isVisible())open->reject();flush();
+    // Both independent bodies remain valid Boolean operands.
+    auto boolean_graph=stored.body_history;static_cast<void>(boolean_graph.create_boolean("Součet",kernel::BodyCombination::Add,source,id));
+    stored.set_body_history(boolean_graph);bodies=kernel.evaluate_history(stored.kernel_operations());
+    if(!verify(std::abs(bodies.back().volume-384)<1e-7,"Mirror body cannot participate in Boolean"))return 1;
+    auto* pattern_action=window.findChild<QAction*>("patternAction");
+    if(!verify(pattern_action&&pattern_action->isEnabled()&&!pattern_action->icon().isNull(),"Pattern command/icon missing"))return 1;
+    tree->setCurrentItem(row(source,"part-body"));flush();pattern_action->trigger();flush();
+    dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("patternDialog"));
+    if(!verify(dialog&&dialog->derived_copy.source_id==source&&dialog->derived_copy.pattern,"Pattern did not prefill its source"))return 1;
+    const auto pattern_id=dialog->pending.id;
+    auto* mode=dialog->findChild<QComboBox*>("patternMode");auto* refs=dialog->findChild<QTableWidget*>("mirrorReferences");
+    if(!verify(mode&&refs->isRowHidden(0),"Linear Pattern displays circular axis input"))return 1;
+    const auto retained_axis=dialog->derived_copy.reference;
+    dialog->findChild<QDoubleSpinBox*>("sweepRotation2")->setValue(90);
+    dialog->findChild<QDoubleSpinBox*>("patternSpacing")->setValue(20);
+    mode->setCurrentIndex(1);flush();
+    if(!verify(!refs->isRowHidden(0)&&dialog->findChild<QPushButton*>("mirrorPlane_z")->isVisible(),"Circular Pattern cannot select its axis"))return 1;
+    mode->setCurrentIndex(0);flush();
+    if(!verify(dialog->derived_copy.reference==retained_axis,"Mode switch discarded the circular axis"))return 1;
+    window.grab().save(QString::fromStdString((directory/"pattern-ui.png").string()));
+    const QPointF middle(30,30);const auto global=QPointF(view->mapToGlobal(middle.toPoint()));
+    QMouseEvent short_press(QEvent::MouseButtonPress,middle,global,Qt::MiddleButton,Qt::MiddleButton,Qt::NoModifier);
+    QMouseEvent short_release(QEvent::MouseButtonRelease,middle,global,Qt::MiddleButton,Qt::NoButton,Qt::NoModifier);
+    QApplication::sendEvent(view,&short_press);QApplication::sendEvent(view,&short_release);flush();
+    if(!verify(dialog->isVisible(),"Short middle click committed Pattern"))return 1;
+    QMouseEvent confirm(QEvent::MouseButtonDblClick,middle,global,Qt::MiddleButton,Qt::MiddleButton,Qt::NoModifier);
+    QApplication::sendEvent(view,&confirm);flush();
+    if(auto* failed=window.findChild<QDialog*>("patternDialog")){for(auto* label:failed->findChildren<QLabel*>())std::cerr<<label->text().toStdString()<<"\n";return 1;}
+    save->trigger();flush();stored=document::PartDocument::load(path);
+    const auto* pattern_body=stored.body_history.find(pattern_id);
+    if(!verify(pattern_body&&pattern_body->derived_copy->pattern->count==4&&std::abs(pattern_body->derived_copy->pattern->direction.y-1)<1e-7,"Pattern did not persist local direction/count"))return 1;
+    bodies=kernel.evaluate_history(stored.kernel_operations());
+    if(!verify(std::abs(bodies.back().body_outputs.at(pattern_id).volume-576)<1e-7,"Pattern does not produce a full body"))return 1;
+    window.show_tree_item_properties(row(pattern_id,"part-body"));flush();
+    dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("patternDialog"));
+    if(!verify(dialog!=nullptr,"Pattern editing uses a different dialog"))return 1;
+    dialog->findChild<QSpinBox*>("patternCount")->setValue(7);dialog->reject();flush();save->trigger();flush();
+    if(!verify(document::PartDocument::load(path).body_history.find(pattern_id)->derived_copy->pattern->count==4,"Cancel changed Pattern count"))return 1;
+    // Command-first workflow arms the shared Tree/View source field.
+    tree->clearSelection();view->clear_selection();pattern_action->trigger();flush();
+    dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("patternDialog"));
+    if(!verify(dialog&&dialog->derived_copy.source_id.empty(),"Command-first Pattern reused stale selection"))return 1;
+    dialog->request_input(1);tree->setCurrentItem(row(source,"part-body"));flush();
+    if(!verify(dialog->derived_copy.source_id==source,"Command-first source selection failed"))return 1;
+    dialog->reject();flush();
+    auto assembly=assembly::AssemblyDocument::create_default();
+    auto occurrence=assembly::AssemblyDocument::create_part_occurrence("Zdroj",part.document_id,path,calculated.back());
+    occurrence.placement.x=20;assembly.components={occurrence};const auto assembly_path=directory/"mirror-ui.asmz";assembly.save(assembly_path);
+    if(!verify(window.open_document_path(QString::fromStdString(assembly_path.string())),"Mirror Assembly fixture did not open"))return 1;
+    flush();tree->setCurrentItem(row(occurrence.occurrence_id,"part-occurrence"));flush();action->trigger();flush();
+    dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("mirrorDialog"));
+    if(!verify(dialog&&dialog->derived_copy.source_id==occurrence.occurrence_id,"Mirror did not prefill selected component"))return 1;
+    const auto assembly_mirror=dialog->pending.id;dialog->findChild<QPushButton*>("mirrorPlane_yz")->click();flush();
+    dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();save->trigger();flush();
+    const auto saved_assembly=assembly::AssemblyDocument::load(assembly_path);
+    if(!verify(saved_assembly.find_occurrence(assembly_mirror)&&saved_assembly.find_occurrence(assembly_mirror)->derived_copy,"Assembly Mirror not persisted"))return 1;
+    const auto before=saved_assembly.find_occurrence(assembly_mirror)->calculated_source.mesh.vertices.front();
+    if(!verify(std::abs(before.x+calculated.back().mesh.vertices.front().x+20)<1e-7,"Assembly Mirror used the wrong source placement"))return 1;
+    window.show_tree_item_properties(row(assembly_mirror,"part-occurrence"));flush();
+    dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("mirrorDialog"));
+    if(!verify(dialog&&dialog->pending.id==assembly_mirror,"Assembly Mirror container properties missing"))return 1;
+    dialog->reject();flush();
+    tree->setCurrentItem(row(occurrence.occurrence_id,"part-occurrence"));flush();pattern_action->trigger();flush();
+    dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("patternDialog"));
+    if(!verify(dialog&&dialog->derived_copy.source_id==occurrence.occurrence_id,"Assembly Pattern source prefill failed"))return 1;
+    const auto group_id=dialog->pending.id;dialog->findChild<QSpinBox*>("patternCount")->setValue(3);
+    dialog->findChild<QDoubleSpinBox*>("patternSpacing")->setValue(40);dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();save->trigger();flush();
+    const auto patterned_assembly=assembly::AssemblyDocument::load(assembly_path);
+    const auto* group=patterned_assembly.find_occurrence(group_id);
+    if(!verify(group&&group->derived_copy->pattern&&group->nested_snapshot.size()==2,"Assembly Pattern occurrence group missing"))return 1;
+    const auto copy_path=assembly::InstancePath{}.child(group_id).child("copy-1").encoded();QTreeWidgetItem* copy_row{};
+    for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole+1).toString().toStdString()==copy_path){copy_row=*it;break;}
+    if(!verify(copy_row!=nullptr,"Pattern copy is absent from the Assembly tree"))return 1;
+    window.show_tree_item_properties(copy_row);flush();
+    bool linked_properties=false;for(auto* open:window.findChildren<QDialog*>())if(open->isVisible())linked_properties=true;
+    if(!verify(linked_properties,"Pattern copy properties did not resolve its source"))return 1;
+    for(auto* open:window.findChildren<QDialog*>())if(open->isVisible())open->reject();flush();
+    std::cout<<"Mirror and Pattern UI contracts passed\n";return 0;
 }
 
 int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspaceWindow& window,
@@ -2237,6 +2368,8 @@ int verify_startup_contract(
         return verify_body_history_ui(application, test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PENDING_TREE_ONLY"))
         return verify_pending_container_tree(application, test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_DERIVED_COPY_ONLY"))
+        return verify_derived_copy_commands(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SWEEP2D_ONLY"))
         return verify_sweep2d_command(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_HELICAL_SWEEP_ONLY"))

@@ -12,6 +12,7 @@
 #include <map>
 #include <type_traits>
 #include <utility>
+#include <stdexcept>
 
 namespace zima::kernel {
 
@@ -553,15 +554,33 @@ struct ShellRequest {
 enum class BooleanOperation { Add, Subtract };
 
 // Independent histories are combined only at an explicit body boundary.
-enum class BodyCombination { Separate, Add, Subtract, Intersect };
+struct MirrorPlane {
+    Vec3 point;
+    Vec3 normal{0,0,1};
+    bool operator==(const MirrorPlane&) const = default;
+};
+struct PatternRequest {
+    bool circular{};
+    unsigned count{4}; // Total occurrences, including the unchanged source.
+    double spacing{20};
+    double angle_degrees{90};
+    bool full_circle{true};
+    Vec3 origin;
+    Vec3 axis{0,0,1};
+    Vec3 direction{1,0,0};
+    bool operator==(const PatternRequest&) const = default;
+};
+enum class BodyCombination { Separate, Add, Subtract, Intersect, Mirror, Pattern };
 struct BodyHistoryScope {
     std::string id;
     BodyCombination combination{BodyCombination::Separate};
     std::string target_id;
-    // Nonempty only for an explicit Boolean step; primitive is unused there.
+    // Source of an explicit Boolean or Mirror step; primitive is unused there.
     std::string source_id;
     Vec3 translation;
     Vec3 rotation_degrees;
+    MirrorPlane mirror_plane;
+    PatternRequest pattern;
     bool operator==(const BodyHistoryScope&) const = default;
 };
 
@@ -690,6 +709,15 @@ struct PlacedBody {
                     operation.body.translation.z, operation.body.rotation_degrees.x,
                     operation.body.rotation_degrees.y, operation.body.rotation_degrees.z})
                 u64(std::bit_cast<std::uint64_t>(value));
+        }
+        if(operation.body.combination==BodyCombination::Mirror)
+            for(double v:{operation.body.mirror_plane.point.x,operation.body.mirror_plane.point.y,operation.body.mirror_plane.point.z,
+                    operation.body.mirror_plane.normal.x,operation.body.mirror_plane.normal.y,operation.body.mirror_plane.normal.z})
+                u64(std::bit_cast<std::uint64_t>(v));
+        if(operation.body.combination==BodyCombination::Pattern) {
+            const auto& p=operation.body.pattern;u64(p.count);byte(p.circular);byte(p.full_circle);
+            for(double v:{p.spacing,p.angle_degrees,p.origin.x,p.origin.y,p.origin.z,p.axis.x,p.axis.y,p.axis.z,p.direction.x,p.direction.y,p.direction.z})
+                u64(std::bit_cast<std::uint64_t>(v));
         }
         byte(static_cast<std::uint8_t>(operation.primitive.index()));
         std::visit([&](const auto& primitive) {
@@ -1317,6 +1345,14 @@ public:
     [[nodiscard]] virtual std::vector<BodyResult> evaluate_history_incremental(
         const std::vector<HistoryOperation>& operations,
         const std::vector<BodyResult>& previous_boundaries) const = 0;
+    [[nodiscard]] virtual BodyResult pattern_body(const BodyResult&,const PatternRequest&,
+        const std::string& ={},Vec3 ={},Vec3 ={},bool =false) const {
+        throw std::runtime_error("Kernel does not support body patterns");
+    }
+    [[nodiscard]] virtual BodyResult mirror_body(const BodyResult&,MirrorPlane,
+        const std::string& ={},Vec3 ={},Vec3 ={}) const {
+        throw std::runtime_error("Kernel does not support body reflection");
+    }
     [[nodiscard]] virtual BodyResult compound_bodies(
         const std::vector<PlacedBody>& bodies) const = 0;
 };

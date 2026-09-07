@@ -15,6 +15,20 @@ void require(bool condition, const char* message) {
 int main() {
     try {
         {
+            zima::kernel::ViewerMesh copy;copy.vertices={{-1,-1,5},{1,-1,5},{0,1,5}};copy.triangles={0,1,2};
+            copy.triangle_references={{"copy","container:display",{}}};
+            const auto candidates=zima::viewer::ordered_viewer_candidates(copy,{0,0,0},{0,0,1},0.01);
+            bool container=false;
+            for(const auto& candidate:candidates) {
+                require(candidate.kind!=zima::viewer::CandidateKind::Face,"Whole-body display marker became a topology reference");
+                if(candidate.kind==zima::viewer::CandidateKind::Container&&candidate.owner_id=="copy") {
+                    container=true;zima::kernel::ViewerEdge edge;edge.reference={"copy","source-edge",{}};
+                    require(!zima::viewer::candidate_uses_original_container_wire_edge(candidate,edge),"Boolean copy highlights untrimmed source edges");
+                }
+            }
+            require(container,"Boolean copy has no View container candidate");
+        }
+        {
             // A planar quad touches a shallow sloping face. Smoothing across
             // that CAD edge used to reveal a diagonal across the planar quad.
             zima::kernel::ViewerMesh shading_mesh;

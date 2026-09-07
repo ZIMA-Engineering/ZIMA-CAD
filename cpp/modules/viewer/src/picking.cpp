@@ -163,6 +163,7 @@ bool candidate_recolors_wire_edge(
 bool candidate_uses_original_container_wire_edge(
     const ViewerCandidate& candidate,
     const zima::kernel::ViewerEdge& edge) {
+    if(candidate.semantic_key=="container:display")return false;
     return candidate.kind == CandidateKind::Container &&
         (candidate.semantic_key.empty() || candidate.semantic_key == "solid") &&
         !edge.construction && !edge.overlay && edge.reference.valid() &&
@@ -498,7 +499,7 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
                 result.push_back({CandidateKind::Occurrence, face.distance, face.triangle,
                                   {}, {}, face.reference.instance_path, geometry});
             }
-            if (!persisted_occurrence) {
+            if (!persisted_occurrence && face.reference.semantic_key != "container:display") {
                 result.push_back({CandidateKind::Face, face.distance, face.triangle,
                                   face.reference.owner_id, face.reference.semantic_key,
                                   face.reference.instance_path, geometry});
@@ -518,7 +519,7 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
                         item.instance_path == face.reference.instance_path;
                 })) {
                 result.push_back({CandidateKind::Container, face.distance, face.triangle,
-                                  container_owner, datum_entity ? "plane" : "",
+                                  container_owner, datum_entity ? "plane" : face.reference.semantic_key=="container:display" ? "container:display" : "",
                                   face.reference.instance_path, geometry});
             }
         }
