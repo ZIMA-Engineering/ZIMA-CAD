@@ -1,6 +1,11 @@
 #include <zima/ui/properties_subwindow.hpp>
 
 #include <QApplication>
+#include <QAbstractSpinBox>
+#include <QLineEdit>
+#include <QDoubleSpinBox>
+#include <QKeyEvent>
+#include <QPointer>
 #include <QDialogButtonBox>
 #include <QEvent>
 #include <QLabel>
@@ -18,8 +23,72 @@
 
 namespace zima::ui {
 
+namespace {
+// One application filter also covers numeric editors created later in tables.
+class NumericInputInteraction final : public QObject {
+public:
+    explicit NumericInputInteraction(QObject* parent) : QObject(parent) {}
+    bool eventFilter(QObject* watched, QEvent* event) override {
+        auto* edit = qobject_cast<QLineEdit*>(watched);
+        auto* spin = edit ? qobject_cast<QAbstractSpinBox*>(edit->parentWidget())
+                         : qobject_cast<QAbstractSpinBox*>(watched);
+        if (!spin || !spin->isEnabled() || spin->isReadOnly()) return false;
+        // Publishing every keystroke can rebuild a reference table and destroy
+        // its editor halfway through a decimal number. Commit on Enter/focus-out.
+        spin->setKeyboardTracking(false);
+        if (event->type() == QEvent::KeyPress) {
+            const auto* key = static_cast<QKeyEvent*>(event);
+            if (key->key() == Qt::Key_Return || key->key() == Qt::Key_Enter) {
+                const QPointer<QAbstractSpinBox> guarded(spin);
+                spin->interpretText();
+                if (guarded) QMetaObject::invokeMethod(guarded, "editingFinished",
+                    Qt::DirectConnection);
+                event->accept();
+                return true; // Never propagate numeric confirmation to QDialog::accept.
+            }
+            if (qobject_cast<QDoubleSpinBox*>(spin) &&
+                (key->text() == "," || key->text() == ".") &&
+                !(key->modifiers() & (Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier))) {
+                if (!edit) edit = spin->findChild<QLineEdit*>();
+                if (edit) {
+                    edit->insert(spin->locale().decimalPoint());
+                    return true;
+                }
+            }
+        }
+        if (!edit) return false;
+        if (event->type() == QEvent::MouseButtonPress) {
+            const auto* mouse = static_cast<QMouseEvent*>(event);
+            pressed_ = mouse->button() == Qt::LeftButton &&
+                mouse->modifiers() == Qt::NoModifier ? edit : nullptr;
+            origin_ = mouse->globalPosition().toPoint();
+        } else if (event->type() == QEvent::MouseMove && pressed_ == edit) {
+            const auto* mouse = static_cast<QMouseEvent*>(event);
+            if ((mouse->globalPosition().toPoint() - origin_).manhattanLength() >=
+                    QApplication::startDragDistance()) pressed_.clear();
+        } else if (event->type() == QEvent::MouseButtonRelease) {
+            const auto* mouse = static_cast<QMouseEvent*>(event);
+            if (mouse->button() == Qt::LeftButton && pressed_ == edit) {
+                pressed_.clear();
+                spin->selectAll();
+                return true;
+            }
+        }
+        return false;
+    }
+private:
+    QPointer<QLineEdit> pressed_;
+    QPoint origin_;
+};
+}
+
 PropertiesSubWindow::PropertiesSubWindow(const QString& title, QWidget* parent)
     : QDialog(parent) {
+    static QPointer<NumericInputInteraction> numeric_selection;
+    if (!numeric_selection) {
+        numeric_selection = new NumericInputInteraction(qApp);
+        qApp->installEventFilter(numeric_selection);
+    }
     setWindowFlags(Qt::SubWindow | Qt::WindowTitleHint | Qt::WindowCloseButtonHint);
     setModal(false);
     setSizeGripEnabled(true);

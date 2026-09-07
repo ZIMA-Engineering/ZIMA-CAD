@@ -356,8 +356,9 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
     }
     if (is_curve_container_kind(initial.kind)) {
 
-        setMinimumWidth(720);
-        setMaximumWidth(900);
+        setMinimumWidth(340);
+        setMaximumWidth(QWIDGETSIZE_MAX);
+        set_initial_size(QSize(460, 650));
 
         auto* curve_form = new QFormLayout;
         curve_type_ = new QComboBox(this);
@@ -561,14 +562,17 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
     sweep_profiles_ = initial.sweep3d.profiles;
     sweep_combine_mode_ = initial.combine_mode;
     allow_sweep_subtract_ = allow_subtract;
-    set_internal_title(tr("Vlastnosti 3D Sweepu"));
+    set_internal_title(tr("Vlastnosti Sweep/Loftu"));
+    if (curve_rounding_) curve_rounding_->setToolTip(tr(
+        "Vypnuto: samostatné rovné úseky s vlastními profily a kolmými čely. "
+        "Zapnuto: souvislé tažení přes zaoblené rohy."));
     initialize_sweep_ui();
 }
 
 void ConstructionPropertiesDialog::initialize_sweep_ui() {
     if (!initial_sweep_) return;
     content_layout()->removeWidget(error_);
-    auto* title = new QLabel(tr("Profily Sweepu"), this);
+    auto* title = new QLabel(tr("Profily Sweep/Loftu"), this);
     title->setStyleSheet("color:#9fd7e5;font-weight:700;");
     content_layout()->addWidget(title);
     sweep_profiles_table_ = new QTableWidget(this);
@@ -763,6 +767,18 @@ void ConstructionPropertiesDialog::refresh_sweep_profiles() {
         const int row = sweep_profiles_table_->rowCount();
         sweep_profiles_table_->insertRow(row);
         auto* item = new QTableWidgetItem(QString::fromStdString(station.label));
+        if (initial_sweep_ && current_value().curve_type == zima::document::Curve3DType::Polyline &&
+            !current_value().curve_rounding_enabled) {
+            auto container=*initial_sweep_;
+            container.sweep3d.path=current_value();
+            const auto point=std::ranges::find_if(container.sweep3d.path.curve_points,
+                [&](const auto& p){return p.id==station.point_id;});
+            const auto index=static_cast<std::size_t>(std::distance(container.sweep3d.path.curve_points.begin(),point));
+            const bool start=!station.incoming && index+1<container.sweep3d.path.curve_points.size();
+            const auto segment=start?index:index-1;
+            item->setToolTip(QString::fromStdString(zima::document::sweep3d_cap_label(container,
+                zima::document::sweep3d_cap_key(container.sweep3d.path,segment,start))));
+        }
         item->setData(Qt::UserRole, QString::fromStdString(station.point_id));
         sweep_profiles_table_->setItem(row, 0, item);
         const auto own = std::ranges::find_if(sweep_profiles_, [&](const auto& profile) {
@@ -978,6 +994,9 @@ void ConstructionPropertiesDialog::set_plane_offset_and_orientation(
 
 bool ConstructionPropertiesDialog::owns_reference_owner(
     const std::string& owner_id) const {
+    if (initial_sweep_ && (owner_id == initial_sweep_->id ||
+        owner_id == initial_sweep_->feature_id ||
+        owner_id == initial_sweep_->container_origin.id)) return true;
     if (owner_id == initial_.id || owner_id == initial_.entity_id ||
         owner_id == initial_.container_origin.id ||
         (!initial_.parent_construction_id.empty() &&
@@ -1088,6 +1107,37 @@ bool ConstructionPropertiesDialog::set_curve_point_radius(
         return true;
     }
     return false;
+}
+
+void ConstructionPropertiesDialog::filter_parameter_dimensions(
+    std::vector<zima::kernel::ViewerDimension>& dimensions) const {
+    std::erase_if(dimensions, [this](const auto& dimension) {
+        if (dimension.reference.owner_id != initial_.id) return false;
+        std::string_view key = dimension.reference.semantic_key;
+        if (!key.starts_with("parameter:")) return false;
+        key.remove_prefix(std::string_view("parameter:").size());
+        if (key.starts_with("placement:"))
+            key.remove_prefix(std::string_view("placement:").size());
+        const QDoubleSpinBox* field = nullptr;
+        if (key == "x" || key == "y" || key == "z") {
+            field = origin_[key == "x" ? 0 : key == "y" ? 1 : 2];
+        } else if (key == "rotation_x" || key == "rotation_y" || key == "rotation_z") {
+            const auto index = key == "rotation_x" ? 0 : key == "rotation_y" ? 1 : 2;
+            field = rotation_[index]->isEnabled()
+                ? rotation_[index] : rotation_offset_[index];
+        } else if (key == "offset") {
+            field = offset_;
+        } else if (key == "length") {
+            field = display_size_;
+        } else {
+            return false;
+        }
+        // Only offer the live editable value, including the correction
+        // rather than the read-only absolute angle when a reference owns it.
+        return !field || !field->isEnabled() || !field->isVisible() ||
+            std::abs(dimension.value - field->value()) >
+                0.5 * std::pow(10.0, -field->decimals()) + 1e-9;
+    });
 }
 
 bool ConstructionPropertiesDialog::set_inline_parameter_value(
@@ -1468,7 +1518,7 @@ bool ConstructionPropertiesDialog::submit() {
     if (initial_sweep_) {
         if (sweep_profiles_.empty()) {
             error_->setText(tr(
-                "3D Sweep vyžaduje alespoň jednu uzavřenou profilovou skicu."));
+                "Sweep/Loft vyžaduje alespoň jednu uzavřenou profilovou skicu."));
             return false;
         }
         auto sweep = pending_sweep_value();

@@ -199,6 +199,8 @@ struct PrimitiveData {
     std::vector<OwnedEdge> edges;
     std::vector<OwnedVertex> vertices;
     std::vector<StepRequest::TopologyIdentity> imported_step_topology;
+    // Full endpoint faces before intersecting sweep segments are united.
+    std::vector<OwnedFace> source_caps;
 };
 
 gp_Trsf primitive_transform(const Vec3& translation, const Vec3& rotation_degrees) {
@@ -624,7 +626,8 @@ PrimitiveData make_cone_data(const ConeRequest& request, const std::string& owne
 
 PrimitiveData make_drill_point_data(const DrillPointRequest& request,
         const std::vector<TopoDS_Face>& bottom_faces, const TopoDS_Shape& body,
-        const std::string& owner_id) {
+        const std::string& owner_id,
+        const std::vector<std::pair<FaceReference,SurfaceGeometry>>& sweep_ends = {}) {
     if (request.bottom_faces.empty() ||
         !std::isfinite(request.included_angle_degrees) ||
         request.included_angle_degrees <= 0.0 ||
@@ -682,6 +685,30 @@ PrimitiveData make_drill_point_data(const DrillPointRequest& request,
                 result.edges.push_back({edge,
                     {owner_id, "drill-point:" + role + ":base-circle"}});
             }
+        }
+    }
+    for (const auto& [reference, cap] : sweep_ends) {
+        if (!(cap.radius > 1e-9)) continue;
+        const double depth = cap.radius / std::tan(
+            request.included_angle_degrees * std::numbers::pi / 360.0);
+        const auto cone = BRepPrimAPI_MakeCone(gp_Ax2(
+            gp_Pnt(cap.origin.x,cap.origin.y,cap.origin.z),
+            gp_Dir(cap.axis.x,cap.axis.y,cap.axis.z)),cap.radius,0,depth).Shape();
+        if (cone.IsNull() || !BRepCheck_Analyzer(cone).IsValid())
+            throw std::runtime_error("Nelze vytvořit špičku konce Sweep/Loftu");
+        builder.Add(cones,cone);
+        const auto parent = std::to_string(reference.owner_id.size()) + ":" +
+            reference.owner_id + ":" + reference.semantic_key;
+        for (TopExp_Explorer faces(cone,TopAbs_FACE);faces.More();faces.Next()) {
+            const auto face=TopoDS::Face(faces.Current());
+            const auto kind=BRepAdaptor_Surface(face).GetType();
+            result.faces.push_back({face,{owner_id,
+                std::string("drill-point:") + (kind==GeomAbs_Cone?"side:from:":"base:from:") + parent}});
+        }
+        for (TopExp_Explorer edges(cone,TopAbs_EDGE);edges.More();edges.Next()) {
+            const auto edge=TopoDS::Edge(edges.Current());
+            if(BRepAdaptor_Curve(edge).GetType()==GeomAbs_Circle)
+                result.edges.push_back({edge,{owner_id,"drill-point:base-circle:from:"+parent}});
         }
     }
     if (result.faces.empty())
@@ -1332,13 +1359,18 @@ void validate_sweep3d(const Sweep3DRequest& request) {
         throw std::invalid_argument("Invalid sweep tolerance");
     if (request.path_points.size() < 2 ||
         request.path_point_ids.size() != request.path_points.size() ||
-        request.path_segments.size() + 1 != request.path_points.size()) {
+        (request.separate_segments ? request.path_segments.size() * 2
+                                  : request.path_segments.size() + 1) != request.path_points.size()) {
         throw std::invalid_argument(
             "3D Sweep path requires aligned Points and segments");
     }
     if (request.sections.empty()) {
         throw std::invalid_argument("3D Sweep requires at least one section");
     }
+    if (request.separate_segments && (request.transported ||
+        std::ranges::any_of(request.path_segments, [](const auto& segment) {
+            return segment.arc_midpoint || !segment.bezier_control_points.empty();
+        }))) throw std::invalid_argument("Separate Sweep/Loft segments must be straight");
     std::unordered_set<std::size_t> section_locations;
     for (const auto& section : request.sections) {
         if (section.profile_id.empty() || section.point_id.empty() ||
@@ -1584,6 +1616,9 @@ PrimitiveData make_thin_sweep_data(const Sweep3DRequest& request,const std::stri
 PrimitiveData make_sweep3d_data(
     const Sweep3DRequest& request, const std::string& owner_id) {
     if(request.transported)return request.thin?make_thin_sweep_data(request,owner_id):make_transported_sweep_data(request,owner_id);
+    const auto first_station = [&](std::size_t segment) {
+        return request.separate_segments ? 2 * segment : segment;
+    };
     std::vector<TopoDS_Vertex> path_vertices;
     path_vertices.reserve(request.path_points.size());
     for (const auto& point : request.path_points) {
@@ -1603,7 +1638,7 @@ PrimitiveData make_sweep3d_data(
             edge=BRepBuilderAPI_MakeEdge(arc.Value(),path_vertices[index],path_vertices[index+1]).Edge();
         } else if (segment.bezier_control_points.empty()) {
             BRepBuilderAPI_MakeEdge builder(
-                path_vertices[index], path_vertices[index + 1]);
+                path_vertices[first_station(index)], path_vertices[first_station(index) + 1]);
             if (!builder.IsDone()) {
                 throw std::runtime_error("OCCT 3D Sweep line spine failed");
             }
@@ -1638,6 +1673,7 @@ PrimitiveData make_sweep3d_data(
         std::vector<std::string> curve_ids;
         std::vector<std::string> point_ids;
         std::string profile_id;
+        std::optional<SurfaceGeometry> circular_cap;
     };
     std::vector<StationWire> stations;
     const auto tangent = [&](std::size_t segment, bool end) {
@@ -1657,7 +1693,8 @@ PrimitiveData make_sweep3d_data(
             if(candidate.point_index>i)break;
             section=&candidate;
         }
-        const auto direction=i<spine_edges.size()?tangent(i,false):tangent(i-1,true);
+        const auto direction = request.separate_segments ? tangent(i / 2, false)
+            : i<spine_edges.size()?tangent(i,false):tangent(i-1,true);
         if(previous_direction) {
             gp_Trsf rotation;rotation.SetRotation(gp_Quaternion(*previous_direction,direction));
             transported_radial=transported_radial->Transformed(rotation);
@@ -1691,7 +1728,17 @@ PrimitiveData make_sweep3d_data(
         BRepBuilderAPI_Transform transport(station.wire,movement,true);
         station.wire=TopoDS::Wire(transport.Shape());
         for(auto& edge:station.edges)edge=TopoDS::Edge(transport.ModifiedShape(edge));
-        if(i>0&&i<spine_edges.size()) {
+        if (const auto* circle = std::get_if<ExtrusionRequest::CircleProfile>(
+                &section->profile.outer_profile)) {
+            const auto center = gp_Pnt(circle->center.x,circle->center.y,circle->center.z).Transformed(movement);
+            SurfaceGeometry geometry;
+            geometry.origin = {center.X(),center.Y(),center.Z()};
+            geometry.axis = {direction.X(),direction.Y(),direction.Z()};
+            geometry.radial = {transported_radial->X(),transported_radial->Y(),transported_radial->Z()};
+            geometry.radius = circle->radius;
+            station.circular_cap = geometry;
+        }
+        if(!request.separate_segments && i>0&&i<spine_edges.size()) {
             const auto incoming=tangent(i-1,true);
             const auto sum=incoming+direction;
             if(sum.Magnitude()<1e-8)throw std::runtime_error("Ostrý obrat dráhy o 180° nelze spojit.");
@@ -1718,8 +1765,32 @@ PrimitiveData make_sweep3d_data(
             if(!builder.IsDone()||builder.Shape().IsNull()||!BRepCheck_Analyzer(builder.Shape()).IsValid())
                 throw std::runtime_error("Úsek 3D Sweepu nevytvořil platné těleso.");
             PrimitiveData piece{builder.Shape(),{},{},{}};
-            for(const auto index:{i,i+1}) {
+            for(const auto index:{first_station(i),first_station(i)+1}) {
                 const auto& station=stations[index];
+                if (request.separate_segments) {
+                    const bool start = index == first_station(i);
+                    const auto& location = request.path_points[index];
+                    const auto normal = tangent(i, false);
+                    const auto key = std::string("sweep:cap:") + (start ? "start:from:" : "end:from:") + segment.source_id;
+                    // The ZIMA identity above exists before this lookup. The
+                    // plane locates its cap; OCCT enumeration never names it.
+                    for (TopExp_Explorer faces(builder.Shape(),TopAbs_FACE); faces.More(); faces.Next()) {
+                        const auto face = TopoDS::Face(faces.Current());
+                        BRepAdaptor_Surface surface(face);
+                        if (surface.GetType() != GeomAbs_Plane) continue;
+                        const auto plane = surface.Plane();
+                        if (std::abs(plane.Axis().Direction().Dot(gp_Dir(normal))) < 1-1e-9 ||
+                            plane.Distance(gp_Pnt(location.x,location.y,location.z)) > request.linear_tolerance) continue;
+                        FaceReference reference{owner_id,key,{}};
+                        if (station.circular_cap) {
+                            auto geometry = *station.circular_cap;
+                            if (start) geometry.axis = {-geometry.axis.x,-geometry.axis.y,-geometry.axis.z};
+                            reference.surface = std::make_shared<const SurfaceGeometry>(geometry);
+                        }
+                        piece.faces.push_back({face,reference});
+                        piece.source_caps.push_back({face,reference});
+                    }
+                }
                 if(station.edges.size()!=station.curve_ids.size())
                     throw std::runtime_error("Chybí původ geometrie profilu Sweepu.");
                 for(std::size_t e=0;e<station.edges.size();++e) {
@@ -1752,11 +1823,12 @@ PrimitiveData make_sweep3d_data(
             // preserves oblique miter sections without the pipe algorithm
             // reorienting them onto planes normal to the spine.
             BRepOffsetAPI_ThruSections builder(request.make_solid,false,request.linear_tolerance);
-            if(stations[i].point_ids.size()!=stations[i+1].point_ids.size() ||
-               stations[i].edges.size()!=stations[i+1].edges.size())
+            const auto first = first_station(i), last = first + 1;
+            if(stations[first].point_ids.size()!=stations[last].point_ids.size() ||
+               stations[first].edges.size()!=stations[last].edges.size())
                 throw std::runtime_error("Nesouhlasí párování sousedních profilů Sweepu.");
-            builder.CheckCompatibility(stations[i].point_ids.empty() && stations[i+1].point_ids.empty());
-            builder.AddWire(stations[i].wire);builder.AddWire(stations[i+1].wire);
+            builder.CheckCompatibility(stations[first].point_ids.empty() && stations[last].point_ids.empty());
+            builder.AddWire(stations[first].wire);builder.AddWire(stations[last].wire);
             builder.Build();piece=collect(builder);
         } else {
             BRepOffsetAPI_MakePipeShell builder(BRepBuilderAPI_MakeWire(spine_edges[i]).Wire());
@@ -1777,6 +1849,7 @@ PrimitiveData make_sweep3d_data(
             result.faces=propagate_topology(join,result.faces,piece.faces);
             result.edges=propagate_topology(join,result.edges,piece.edges);
             result.vertices=propagate_topology(join,result.vertices,piece.vertices);
+            result.source_caps.insert(result.source_caps.end(),piece.source_caps.begin(),piece.source_caps.end());
             result.shape=join.Shape();
         }
     }
@@ -6085,6 +6158,9 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                     std::get_if<DrillPointRequest>(&operation.primitive)) {
                 const bool has_live_face = std::ranges::any_of(
                     drill->bottom_faces, [&](const auto& requested) {
+                        if (requested.semantic_key.starts_with("sweep:cap:") &&
+                            std::ranges::any_of(original_references.triangle_references,
+                                [&](const auto& ref) { return ref==requested && ref.surface && ref.surface->radius>0; })) return true;
                         return std::ranges::any_of(owned_topology->faces,
                             [&](const auto& owned) {
                                 return owned.reference.owner_id ==
@@ -6126,7 +6202,16 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                     return make_cone_data(primitive, operation.owner_id);
                 } else if constexpr (std::is_same_v<Request, DrillPointRequest>) {
                     std::vector<TopoDS_Face> matches;
+                    std::vector<std::pair<FaceReference,SurfaceGeometry>> sweep_ends;
                     for (const auto& requested : primitive.bottom_faces) {
+                        if (requested.semantic_key.starts_with("sweep:cap:")) {
+                            const auto source=std::ranges::find_if(original_references.triangle_references,
+                                [&](const auto& ref){return ref==requested && ref.surface && ref.surface->radius>0;});
+                            if(source!=original_references.triangle_references.end()) {
+                                sweep_ends.emplace_back(*source,*source->surface);
+                                continue;
+                            }
+                        }
                         const auto found = std::find_if(
                             owned_topology->faces.begin(),
                             owned_topology->faces.end(), [&](const auto& owned) {
@@ -6139,12 +6224,12 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                             matches.push_back(TopoDS::Face(found->shape));
                         }
                     }
-                    if (matches.empty()) {
+                    if (matches.empty() && sweep_ends.empty()) {
                         throw std::runtime_error(
                             "Drill-point has no remaining bottom face");
                     }
                     return make_drill_point_data(primitive, matches,
-                        result_shape, operation.owner_id);
+                        result_shape, operation.owner_id, sweep_ends);
                 } else if constexpr (std::is_same_v<Request, PyramidRequest>) {
                     validate_pyramid(primitive);
                     return make_pyramid_data(primitive, operation.owner_id);
@@ -6335,6 +6420,30 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
             if (!imported_step) {
                 append_original_reference_geometry(
                     original_references, std::move(operand_mesh));
+            }
+            if (!operand.source_caps.empty()) {
+                // Persist the complete original endpoint faces, even where
+                // another segment consumed their visible fragments.
+                std::vector<std::uint32_t> kept_triangles;
+                std::vector<FaceReference> kept_references;
+                for (std::size_t t=0;t<original_references.triangle_references.size();++t) {
+                    const auto& ref=original_references.triangle_references[t];
+                    if (ref.owner_id==operation.owner_id && ref.semantic_key.starts_with("sweep:cap:")) continue;
+                    kept_references.push_back(ref);
+                    for (std::size_t j=0;j<3;++j) kept_triangles.push_back(original_references.triangles[3*t+j]);
+                }
+                original_references.triangles=std::move(kept_triangles);
+                original_references.triangle_references=std::move(kept_references);
+                TopoDS_Compound caps;
+                BRep_Builder cap_builder;cap_builder.MakeCompound(caps);
+                for (const auto& cap:operand.source_caps) cap_builder.Add(caps,cap.shape);
+                auto cap_mesh=make_operation_result(caps,operand.source_caps,{}, {},true,false).mesh;
+                for (auto& ref:cap_mesh.triangle_references) {
+                    const auto source=std::ranges::find_if(operand.source_caps,[&](const auto& cap){return cap.reference==ref;});
+                    if(source!=operand.source_caps.end() && source->reference.surface)
+                        ref.surface=source->reference.surface;
+                }
+                append_original_reference_geometry(original_references,std::move(cap_mesh));
             }
             if (result_shape.IsNull()) {
                 result_shape = operand.shape;

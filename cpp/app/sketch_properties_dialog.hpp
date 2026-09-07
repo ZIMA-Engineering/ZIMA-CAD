@@ -55,6 +55,7 @@ public:
     void set_reference_geometry(
         zima::kernel::ViewerReferenceGeometry geometry);
     void set_preview_callback(PreviewCallback callback);
+    [[nodiscard]] auto pending_value() const { return current_values(); }
     [[nodiscard]] std::vector<zima::document::ConstructionReference>
         highlighted_reference_entries() const;
     [[nodiscard]] std::vector<zima::document::ConstructionReference>

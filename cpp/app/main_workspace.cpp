@@ -851,10 +851,121 @@ int verify_curve_radius_edit(QApplication& application,
     return 0;
 }
 
+int verify_pending_container_tree(QApplication& application,
+    const std::filesystem::path& directory) {
+    using namespace zima::document;
+    for (const bool assembly : {false, true}) {
+        const auto path = directory / (assembly ? "pending-tree.asmz" : "pending-tree.prtz");
+        if (assembly) zima::assembly::AssemblyDocument::create_default().save(path);
+        else PartDocument::create_default().save(path);
+        zima::app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));
+        window.resize(1100, 850); window.show();
+        if (!verify(window.open_document_path(QString::fromStdString(path.string())),
+                "Cannot open pending Tree fixture")) return 1;
+        const auto flush = [&] {
+            application.processEvents();
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            application.processEvents();
+        };
+        flush();
+        auto* tree = window.findChild<QTreeWidget*>("documentTree");
+        const auto find = [&](const QString& role, const std::string& id = {}) -> QTreeWidgetItem* {
+            QTreeWidgetItemIterator iterator(tree);
+            while (*iterator) {
+                auto* row = *iterator++;
+                if (row->data(0, Qt::UserRole + 3).toString() == role &&
+                    (id.empty() || row->data(0, Qt::UserRole).toString().toStdString() == id)) return row;
+            }
+            return nullptr;
+        };
+        const auto marker = assembly ? "assembly-insert-here" : "part-insert-here";
+        const auto dialog = [&]() -> zima::app::ConstructionPropertiesDialog* {
+            for (auto* child : window.findChildren<QDialog*>())
+                if (auto* value = dynamic_cast<zima::app::ConstructionPropertiesDialog*>(child);
+                    value && value->isVisible()) return value;
+            return nullptr;
+        };
+        const auto click_row = [&](QTreeWidgetItem* row) {
+            tree->clearSelection(); tree->setCurrentItem(row);
+            flush();
+        };
+        if (!verify(find(marker), "Idle Tree has no insertion marker")) return 1;
+        window.findChild<QAction*>(assembly ? "curve3DAction" : "sweep3DAction")->trigger();
+        flush();
+        auto* parent_dialog = dialog();
+        if (!verify(parent_dialog, "Missing pending Curve/Sweep dialog")) return 1;
+        const auto parent_id = assembly ? parent_dialog->pending_value().id
+            : parent_dialog->pending_sweep_value().id;
+        const auto origin_id = assembly ? parent_dialog->pending_value().container_origin.id
+            : parent_dialog->pending_sweep_value().container_origin.id;
+        auto* pending = find(assembly ? "assembly-construction" : "part-container", parent_id);
+        if (!verify(pending && pending->foreground(0).color() == QColor(70,190,95) &&
+                !find(marker), "Pending container did not replace insertion marker in green")) return 1;
+        click_row(find("construction-origin", origin_id));
+        if (!verify(parent_dialog->populated_references().empty(),
+                "Container accepted its own local origin and introduced a cycle")) return 1;
+        click_row(find("document-origin"));
+        if (!verify(parent_dialog->populated_references().size() == 3,
+                "Document Origin did not fill the parent placement triad")) return 1;
+        if (!verify(parent_dialog->set_inline_parameter_value("reference_offset:0", 12.5),
+                "Cannot offset the pending parent fixture")) return 1;
+        flush();
+        parent_dialog->findChild<QPushButton*>("curve3DAddPoint")->click(); flush();
+        auto* point = dialog();
+        if (!verify(point && point != parent_dialog && find("construction-origin", origin_id) &&
+                !find(marker), "Nested Point lost its pending parent origin in Tree")) return 1;
+        const auto point_id = point->pending_value().id;
+        click_row(find("construction-origin", point->pending_value().container_origin.id));
+        if (!verify(point->populated_references().empty(), "Point accepted its own Origin")) return 1;
+        click_row(find("construction-origin", origin_id));
+        if (!verify(point->populated_references().size() == 3,
+                "Whole pending local Origin did not populate all three Point references")) return 1;
+        const auto local = point->pending_value().origin;
+        if (!verify(std::abs(local.x) + std::abs(local.y) + std::abs(local.z) < 1e-8,
+                "Point on an offset parent Origin was not resolved in the parent frame")) return 1;
+        for (const auto& reference : point->populated_references())
+            if (!verify(reference.owner_id == origin_id,
+                    "Point reference was redirected away from its parent Origin")) return 1;
+        if (!verify(find("curve3d-point", point_id), "Pending Point is missing from its parent Tree")) return 1;
+        point->buttons()->button(QDialogButtonBox::Ok)->click(); flush();
+        if (!verify(parent_dialog->isVisible() && parent_dialog->pending_value().curve_points.size() == 1,
+                "Point OK did not return to the pending parent")) return 1;
+        parent_dialog->buttons()->button(QDialogButtonBox::Cancel)->click(); flush();
+        if (!verify(find(marker) && !find(assembly ? "assembly-construction" : "part-container", parent_id),
+                "Cancel retained a draft or failed to restore insertion marker")) return 1;
+        window.findChild<QAction*>("saveDocumentAction")->trigger(); flush();
+        if (assembly) {
+            if (!verify(zima::assembly::AssemblyDocument::load(path).constructions.empty(),
+                    "Cancelled Assembly draft was persisted")) return 1;
+        } else if (!verify(PartDocument::load(path).find_container(parent_id) == nullptr,
+                "Cancelled Part draft was persisted")) return 1;
+
+        window.findChild<QAction*>("constructionPointAction")->trigger(); flush();
+        auto* created = dialog();
+        const auto created_id = created->pending_value().id;
+        click_row(find("document-origin"));
+        created->buttons()->button(QDialogButtonBox::Ok)->click(); flush();
+        auto* committed = find(assembly ? "assembly-construction" : "part-construction", created_id);
+        if (!verify(committed && find(marker), "OK did not keep the container and restore marker")) return 1;
+        window.show_tree_item_properties(committed); flush();
+        if (!verify(dialog() && !find(marker), "Editing an existing container retained insertion marker")) return 1;
+        dialog()->buttons()->button(QDialogButtonBox::Cancel)->click(); flush();
+        if (!verify(find(marker) && find(assembly ? "assembly-construction" : "part-construction", created_id),
+                "Edit Cancel removed the committed container")) return 1;
+        // Closing the application with a nested editor must retire its hidden parent too.
+        window.findChild<QAction*>(assembly ? "curve3DAction" : "sweep3DAction")->trigger(); flush();
+        dialog()->findChild<QPushButton*>("curve3DAddPoint")->click(); flush();
+    }
+    std::cout << "Pending container Tree contracts passed\n";
+    return 0;
+}
+
 int verify_startup_contract(
     QApplication& application, zima::app::AssemblyWorkspaceWindow& window,
     const std::filesystem::path& test_directory,
     const QString& part_capture_path = {}, const QString& drawing_capture_path = {}) {
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PENDING_TREE_ONLY"))
+        return verify_pending_container_tree(application, test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SWEEP2D_ONLY"))
         return verify_sweep2d_command(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_HELICAL_SWEEP_ONLY"))
@@ -863,6 +974,7 @@ int verify_startup_contract(
         return verify_shaft_thread_command(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_HISTORY_DRAG_ONLY"))
         return verify_history_tree_drag(application,test_directory);
+    if (verify_pending_container_tree(application, test_directory) != 0) return 1;
     if (verify_spline_tangent_selection(application,test_directory) != 0) return 1;
     if (verify_curve_radius_edit(application,test_directory) != 0) return 1;
     window.show();

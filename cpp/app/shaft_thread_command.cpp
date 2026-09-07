@@ -75,7 +75,7 @@ void AssemblyWorkspaceWindow::show_shaft_thread_properties(const std::string& id
         auto boundaries=calculate_part(next,&target->session.calculated_boundaries());
         target->session.commit(std::move(next),std::move(boundaries));
     },this);
-    shaft_thread_dialog_=dialog;properties_dialog_=dialog;
+    shaft_thread_dialog_=dialog;properties_dialog_=dialog;track_tree_edit(dialog);
     properties_dialog_instance_path_=*occurrence;
     primitive_parameter_owner_id_=initial.id;
     construction_dimension_object_id_=initial.id;

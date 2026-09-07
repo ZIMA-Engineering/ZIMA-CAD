@@ -1,4 +1,4 @@
-# 3D křivka a 3D Sweep
+# 3D křivka a Sweep/Loft
 
 3D křivka uchovává původní konstrukční body s trvalými ID. Čísla v tabulce
 jsou pořadí v dráze, nikoli identita pro reference.
@@ -13,8 +13,8 @@ vytvoří tečný kruhový oblouk v rovině sousedních úseček. Délka odříz
 Sweep sestavuje tabulku profilů automaticky:
 
 - 1: začátek dráhy, kolmo na první úsečku.
-- N.1: začátek zaoblení, kolmo na předchozí úsečku; bez zaoblení neaktivní.
-- N.2: konec zaoblení, kolmo na následující úsečku; bez zaoblení přímo v rohu.
+- N.1: konec předchozího úseku; kolmo na něj. Při zaoblení začátek oblouku.
+- N.2: začátek následujícího úseku; kolmo na něj. Při zaoblení konec oblouku.
 - Poslední N.2: konec dráhy, kolmo na poslední úsečku.
 
 U interpolační spline používají výstupní stanice její tečnu. Vstupní stanice
@@ -28,11 +28,23 @@ První stanice musí mít vlastní neprázdný profil. Další prázdné stanice
 přebírají poslední zadaný profil až do konce dráhy, včetně jeho pořadí bodů.
 Přechod k dalšímu zadanému profilu proběhne na úseku, který v něm končí.
 
-Každý úsek se vypočítá zvlášť a spojí do jednoho tělesa. Rovné části používají
-přechod mezi skutečnými hraničními průřezy, oblouky a spline tažení po dráze.
-V ostrém rohu mají oba úseky společný průřez promítnutý na rovinu půlící úhel.
-To dovoluje měnit rozměr i tvar průřezu. Neplatné nebo nespojené výsledky výpočet
-odmítne. Obrysy profilů musí být uzavřené a bez děr.
+Při vypnutém **Zaoblení rohů** má každá úsečka dvě vlastní stanice. Všechny
+skici jsou přístupné, včetně N.1. Mezi N.1 a N.2 nevzniká žádná spojovací
+geometrie. Každý úsek má kolmá čela a vypočítá se jako sweep se stejnými
+profily nebo loft s rozdílnými profily. Průniky úseků se sjednotí; nevytváří
+se šikmé společné čelo na půlící rovině rohu. Párování obvodů se kontroluje
+uvnitř každého úseku, nikoliv mezi dvěma oddělenými čely v rohu.
+
+Se zapnutým zaoblením zůstává souvislé tažení přes oblouky. Nulový rádius
+v tomto režimu zachovává původní společný průřez ostrého rohu. Spline také
+zůstává souvislou dráhou. Obrysy musí být uzavřené a bez děr.
+
+Čela nezaoblených úseků mají názvy například **Úsek 1 → 2.1 — konec** a
+**Úsek 2.2 → 3.2 — začátek**. Identita používá ID obou původních bodů a roli
+začátek/konec; přečíslování bodů nemění existující reference. Úplné původní
+čelo se ukládá do referenčního paketu i tehdy, když jeho viditelný zbytek
+po sjednocení zanikne. U kruhových profilů paket uchovává původní střed,
+směr a poloměr pro Vrtací špičku. Oříznutá část čela odkazuje na tentýž konec.
 
 Úpravy zůstávají návrhem až do OK společného dialogu. Cancel neukládá změny.
 Náhled dráhy a umístění skic používají ZIMA data a analytickou geometrii;
@@ -79,6 +91,10 @@ Další body následují cyklicky po obvodu. Mezi sousedními profily se spojuje
 nemají nezávislé pořadí, upravuje se jejich zdrojová skica.
 
 View během vlastností zobrazuje všechny aktivní profily včetně převzatých.
+Při otevření profilové skici se náhledové obrysy a jejich párovací značky
+skryjí, aby se nepřekrývaly s editovatelnou geometrií Sketcheru. Dráha zůstává
+jako kontext. Dokončení skici náhled obnoví; vymazání jejího obrysu u další
+stanice obnoví převzetí předchozího profilu.
 První párovací bod má popisek **1 – začátek**, ostatní pořadové číslo.
 Změna začátku aktualizuje pouze náhled; Cancel ji vrátí a až OK vlastností
 Sweepu provede výpočet a změnu dokumentu.
@@ -94,3 +110,20 @@ U neoznačených profilů OCCT ThruSections používá kontrolu kompatibility,
 u explicitního párování zachovává pořadí stanovené ZIMA daty. Podrobnosti API:
 [OCCT ThruSections](https://occt3d.com/dev/doc/refman/html/class_b_rep_offset_a_p_i___thru_sections.html).
 Párovací data jsou součástí aktuálního Part formátu 14.
+
+## Rozpracovaný kontejner ve stromu
+
+Během vytváření kontejneru nahrazuje položku „Vložit zde“ jeho dočasná
+položka se zeleným písmem. Zobrazuje aktuální lokální počátek, dráhu, body
+a profily; zůstává dostupná i při otevřeném editoru bodu nebo skici.
+Stejná prezentace platí pro kontejnery v Partu i Assembly. Při editaci se
+aktualizuje existující položka a ukazatel vložení se dočasně skryje.
+
+Kliknutí na celý počátek nadřazeného kontejneru vyplní bodu jeho tři
+polohové reference stejně jako kliknutí na počátek dokumentu. Samostatný
+výběr jednotlivých rovin zůstává dostupný. Vlastní počátek ani vlastní
+podřízené prvky nejsou platnou referencí pro umístění jejich rodiče.
+
+Zobrazení stromu čte rozpracovaná ZIMA data; nevkládá je do uložené historie
+ani nevyvolává výpočet tělesa. OK potvrdí transakci, Cancel odstraní její
+náhled. Po zavření vlastností se obnoví běžné zobrazení „Vložit zde“.

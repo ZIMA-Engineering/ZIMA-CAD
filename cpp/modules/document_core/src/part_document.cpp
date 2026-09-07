@@ -4957,7 +4957,17 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
             }
 
             if (local_points.size() >= 2) {
-                const auto route=curve3d_route(object);
+                Curve3DRoute route;
+                try {
+                    route = curve3d_route(object);
+                } catch (const std::runtime_error&) {
+                    // A pending child Point can coincide with its neighbor
+                    // before the user enters its offset. Keep the point/origin
+                    // references above available to placement and the viewer;
+                    // only the unfinished route has no drawable geometry.
+                    // Confirmation and body calculation validate it separately.
+                    continue;
+                }
                 if (editing_curve_geometry) {
                     const auto radii = curve3d_radius_dimensions(object);
                     mesh.dimensions.insert(mesh.dimensions.end(), radii.begin(), radii.end());
@@ -6908,7 +6918,7 @@ HistoryContainer PartDocument::create_sweep3d_container() {
     container.feature_id = make_id();
     container.feature_parent_id = container.id;
     container.container_origin = create_container_origin(container.id);
-    container.name = "3D Sweep";
+    container.name = "Sweep/Loft";
     container.feature_kind = FeatureKind::Sweep3D;
     container.sweep3d.path = create_construction(ConstructionKind::Curve3D);
     container.sweep3d.path.name = "Trajektorie";
@@ -6977,7 +6987,8 @@ Curve3DRoute curve3d_route(const ConstructionObject& path) {
         const auto label = std::to_string(i+1);
         if (i > 0 && i+1 < count) {
             result.stations.push_back({point.id, label+".1", entry[i],
-                directions[i-1], true, trim[i] > 0});
+                directions[i-1], true, trim[i] > 0 ||
+                    (polyline && !path.curve_rounding_enabled)});
         }
         result.stations.push_back({point.id, i == 0 ? label : label+".2",
             exit[i], polyline ? directions[std::min(i, count-2)] : derivatives[i],
@@ -7003,6 +7014,28 @@ Curve3DRoute curve3d_route(const ConstructionObject& path) {
         }
     }
     return result;
+}
+
+std::string sweep3d_cap_key(const ConstructionObject& path,
+    std::size_t segment, bool start) {
+    if (segment + 1 >= path.curve_points.size()) return {};
+    return std::string("sweep:cap:") + (start ? "start:from:" : "end:from:") +
+        "curve:segment:" + path.curve_points[segment].id + ":" +
+        path.curve_points[segment+1].id;
+}
+
+std::string sweep3d_cap_label(const HistoryContainer& container, std::string_view key) {
+    if (container.feature_kind != FeatureKind::Sweep3D) return {};
+    const auto& path=container.sweep3d.path;
+    for (std::size_t i=0;i+1<path.curve_points.size();++i) {
+        for (bool start : {true,false}) {
+            if (key!=sweep3d_cap_key(path,i,start)) continue;
+            const auto first=i==0 ? "1" : std::to_string(i+1)+".2";
+            const auto last=std::to_string(i+2)+(i+2<path.curve_points.size()?".1":".2");
+            return "Úsek "+first+" → "+last+(start?" — začátek":" — konec");
+        }
+    }
+    return {};
 }
 
 std::vector<zima::kernel::ViewerDimension> curve3d_radius_dimensions(
@@ -7203,22 +7236,29 @@ bool PartDocument::reframe_sweep3d_profile(
     const auto dot = [](const auto& first, const auto& second) {
         return first.x*second.x + first.y*second.y + first.z*second.z;
     };
-    x_axis = subtract(x_axis, scale(normal, dot(x_axis, normal)));
-    if (length(x_axis) <= 1.0e-9) {
-        x_axis = rotated_vector({1.0, 0.0, 0.0}, found->rotation);
-        x_axis = rotated_vector(x_axis, path.rotation);
-        x_axis = rotated_vector(x_axis, {
-            container.placement.rotation_x, container.placement.rotation_y,
-            container.placement.rotation_z});
+    // Reproject only when the plane actually changes. Repeated normalization
+    // of an already valid frame changed its serialized doubles each pass,
+    // preventing the document regeneration loop from reaching a fixed state.
+    if (sketch.resolved_normal != normal ||
+        std::abs(dot(x_axis, normal)) > 1e-12 ||
+        std::abs(length(x_axis) - 1.0) > 1e-12) {
         x_axis = subtract(x_axis, scale(normal, dot(x_axis, normal)));
+        if (length(x_axis) <= 1.0e-9) {
+            x_axis = rotated_vector({1.0, 0.0, 0.0}, found->rotation);
+            x_axis = rotated_vector(x_axis, path.rotation);
+            x_axis = rotated_vector(x_axis, {
+                container.placement.rotation_x, container.placement.rotation_y,
+                container.placement.rotation_z});
+            x_axis = subtract(x_axis, scale(normal, dot(x_axis, normal)));
+        }
+        if (length(x_axis) <= 1.0e-9) {
+            const zima::kernel::Vec3 fallback =
+                std::abs(normal.z) < 0.9 ? zima::kernel::Vec3{0,0,1}
+                                        : zima::kernel::Vec3{0,1,0};
+            x_axis = subtract(fallback, scale(normal, dot(fallback, normal)));
+        }
+        x_axis = scale(x_axis, 1.0 / length(x_axis));
     }
-    if (length(x_axis) <= 1.0e-9) {
-        const zima::kernel::Vec3 fallback =
-            std::abs(normal.z) < 0.9 ? zima::kernel::Vec3{0,0,1}
-                                    : zima::kernel::Vec3{0,1,0};
-        x_axis = subtract(fallback, scale(normal, dot(fallback, normal)));
-    }
-    x_axis = scale(x_axis, 1.0 / length(x_axis));
     const zima::kernel::Vec3 y_axis{
         normal.y*x_axis.z-normal.z*x_axis.y,
         normal.z*x_axis.x-normal.x*x_axis.z,
@@ -7807,20 +7847,22 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             if (path.kind != ConstructionKind::Curve3D ||
                 path.curve_points.size() < 2) {
                 throw std::runtime_error(
-                    "3D Sweep requires an ordinary 3D Curve with at least two Points");
+                    "Sweep/Loft requires an ordinary 3D Curve with at least two Points");
             }
             if (resolved_container.sweep3d.profiles.empty()) {
-                throw std::runtime_error("3D Sweep requires at least one profile Sketch");
+                throw std::runtime_error("Sweep/Loft requires at least one profile Sketch");
             }
             for (std::size_t profile_index = 0;
                  profile_index < resolved_container.sweep3d.profiles.size();
                  ++profile_index) {
                 if (!reframe_sweep3d_profile(resolved_container, profile_index)) {
                     throw std::runtime_error(
-                        "3D Sweep profile references a missing or degenerate path Point");
+                        "Sweep/Loft profile references a missing or degenerate path Point");
                 }
             }
             zima::kernel::Sweep3DRequest sweep;
+            sweep.separate_segments = path.curve_type == Curve3DType::Polyline &&
+                !path.curve_rounding_enabled;
             sweep.linear_tolerance = boolean_tolerance;
             const auto path_rotation = path.rotation;
             const auto container_rotation = zima::kernel::Vec3{
@@ -7859,7 +7901,7 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 if (point == sweep.path_point_ids.end() ||
                     !assigned_points.insert(profile.point_id + (profile.incoming ? ":in" : ":out")).second) {
                     throw std::runtime_error(
-                        "3D Sweep permits at most one profile per path Point");
+                        "Sweep/Loft permits at most one profile per path Point");
                 }
                 const auto sketch = zima::sketcher::Sketch::from_serialized(
                     profile.sketch_serialized);
@@ -7869,7 +7911,7 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 if (!source.inner_profiles.empty() ||
                     !source.additional_profile_regions.empty()) {
                     throw std::runtime_error(
-                        "Basic 3D Sweep currently requires one closed profile without islands or holes");
+                        "Basic Sweep/Loft currently requires one closed profile without islands or holes");
                 }
                 zima::kernel::ExtrusionRequest::ProfileRegion region;
                 region.region_id = std::move(source.profile_region_id);
@@ -7948,15 +7990,28 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                     return first.point_index < second.point_index;
                 });
             if (sweep.sections.empty() || sweep.sections.front().point_index != 0) {
-                throw std::runtime_error("3D Sweep vyžaduje vyplněnou skicu v prvním bodě dráhy.");
+                throw std::runtime_error("Sweep/Loft vyžaduje vyplněnou skicu v prvním bodě dráhy.");
             }
-            for(std::size_t i=1;i<sweep.sections.size();++i) {
-                const auto first=sweep.sections[i-1].profile.outer_vertex_source_ids.size();
-                const auto second=sweep.sections[i].profile.outer_vertex_source_ids.size();
+            const auto check_pair = [](const auto& left, const auto& right) {
+                const auto first=left.profile.outer_vertex_source_ids.size();
+                const auto second=right.profile.outer_vertex_source_ids.size();
                 if(first!=second) throw std::runtime_error(
-                    "Sousední profily 3D Sweepu mají rozdílný počet párovacích bodů ("+
+                    "Sousední profily Sweep/Loftu mají rozdílný počet párovacích bodů ("+
                     std::to_string(first)+" a "+std::to_string(second)+
                     "). Na kružnici přidejte body s vazbou C; obdélník má 4 vrcholy.");
+            };
+            if (sweep.separate_segments) {
+                const auto source_at = [&](std::size_t station) -> const auto& {
+                    auto source=sweep.sections.begin();
+                    for(auto next=source;next!=sweep.sections.end() && next->point_index<=station;++next)
+                        source=next;
+                    return *source;
+                };
+                for(std::size_t segment=0;segment<sweep.path_segments.size();++segment)
+                    check_pair(source_at(2*segment),source_at(2*segment+1));
+            } else {
+                for(std::size_t i=1;i<sweep.sections.size();++i)
+                    check_pair(sweep.sections[i-1],sweep.sections[i]);
             }
             primitive = std::move(sweep);
         } else if (container.feature_kind == FeatureKind::ImportedStep) {
@@ -9133,7 +9188,7 @@ PartDocument PartDocument::load(
                 ? Curve3DType::Polyline
                 : serialized_path.at("curve_type") == "interpolating_spline"
                     ? Curve3DType::InterpolatingSpline
-                    : throw std::runtime_error("Invalid 3D Sweep path type");
+                    : throw std::runtime_error("Invalid Sweep/Loft path type");
             if (path.id.empty() || path.name.empty() ||
                 !construction_ids.insert(path.id).second ||
                 path.entity_id != path.id + ":entity" ||
@@ -9141,7 +9196,7 @@ PartDocument PartDocument::load(
                 !std::isfinite(path.origin.x) ||
                 !std::isfinite(path.origin.y) ||
                 !std::isfinite(path.origin.z)) {
-                throw std::runtime_error("Invalid 3D Sweep path container");
+                throw std::runtime_error("Invalid Sweep/Loft path container");
             }
             for (const auto& serialized_point :
                  serialized_path.at("curve_points")) {
@@ -9150,7 +9205,7 @@ PartDocument PartDocument::load(
             }
             if (path.curve_points.size() < 2) {
                 throw std::runtime_error(
-                    "3D Sweep path requires at least two Points");
+                    "Sweep/Loft path requires at least two Points");
             }
             std::unordered_set<std::string> profile_ids;
             std::unordered_set<std::string> profile_points;
@@ -9171,20 +9226,20 @@ PartDocument PartDocument::load(
                             return point.id == profile.point_id;
                         })) {
                     throw std::runtime_error(
-                        "Invalid 3D Sweep profile relation");
+                        "Invalid Sweep/Loft profile relation");
                 }
                 const auto sketch = zima::sketcher::Sketch::from_serialized(
                     profile.sketch_serialized);
                 if (sketch.id != profile.sketch_id ||
                     sketch.owner_container_id != container.id) {
                     throw std::runtime_error(
-                        "Invalid 3D Sweep profile Sketch identity");
+                        "Invalid Sweep/Loft profile Sketch identity");
                 }
                 container.sweep3d.profiles.push_back(std::move(profile));
             }
             if (container.sweep3d.profiles.empty()) {
                 throw std::runtime_error(
-                    "3D Sweep requires at least one profile Sketch");
+                    "Sweep/Loft requires at least one profile Sketch");
             }
         } else if (container.feature_kind == FeatureKind::ImportedStep) {
             container.imported_step.source_path = source.at("source_path").get<std::string>();
@@ -9326,7 +9381,7 @@ PartDocument PartDocument::load(
                  index < container.sweep3d.profiles.size(); ++index) {
                 if (!reframe_sweep3d_profile(container, index)) {
                     throw std::runtime_error(
-                        "3D Sweep profile frame cannot be resolved");
+                        "Sweep/Loft profile frame cannot be resolved");
                 }
             }
         }
@@ -9739,7 +9794,7 @@ void PartDocument::save(
                 path.container_origin != create_container_origin(path.id) ||
                 path.curve_points.size() < 2 ||
                 container.sweep3d.profiles.empty()) {
-                throw std::runtime_error("Invalid 3D Sweep path");
+                throw std::runtime_error("Invalid Sweep/Loft path");
             }
             std::unordered_set<std::string> profile_ids;
             std::unordered_set<std::string> profile_points;
@@ -9753,14 +9808,14 @@ void PartDocument::save(
                             return point.id == profile.point_id;
                         })) {
                     throw std::runtime_error(
-                        "Invalid 3D Sweep profile relation");
+                        "Invalid Sweep/Loft profile relation");
                 }
                 const auto sketch = zima::sketcher::Sketch::from_serialized(
                     profile.sketch_serialized);
                 if (sketch.id != profile.sketch_id ||
                     sketch.owner_container_id != container.id) {
                     throw std::runtime_error(
-                        "Invalid 3D Sweep profile Sketch identity");
+                        "Invalid Sweep/Loft profile Sketch identity");
                 }
             }
         } else if (container.feature_kind == FeatureKind::ImportedStep) {
@@ -10201,7 +10256,7 @@ void PartDocument::save(
             const auto& path = container.sweep3d.path;
             std::unordered_set<std::string> embedded_construction_ids;
             if (!embedded_construction_ids.insert(path.id).second) {
-                throw std::runtime_error("Duplicate 3D Sweep path ID");
+                throw std::runtime_error("Duplicate Sweep/Loft path ID");
             }
             nlohmann::json curve_points = nlohmann::json::array();
             for (const auto& point : path.curve_points) {

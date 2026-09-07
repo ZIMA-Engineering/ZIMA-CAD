@@ -1,69 +1,85 @@
 # History-container editing and rollback
 
-This is the shared contract for editing every Part history container. It is not
-specific to Fillet, Protrusion, Revolve, Sketch, or a primitive.
+This is the shared contract for editing Part history containers, not a
+Fillet-specific workflow. Properties use the common in-application SubWindow
+and expose only **OK** and **Cancel**.
 
 ## Entering Properties and the tree
 
-Opening **Properties** establishes an edit boundary immediately before the
-selected container. The tree remains structurally visible in this order:
+Opening Properties establishes an edit boundary immediately before the selected
+history container. The edited container remains green at its history position;
+downstream containers are suppressed for the edit session. **Insert here is
+hidden while the container is being edited.**
 
-```text
-Body
-├── preceding history containers
-├── edited container          <- green, active, still visible
-├── Insert here               <- active history boundary
-└── downstream containers     <- suppressed for this edit session
-```
+Creating a container replaces Insert here with a green, transient container row.
+It displays the pending origin and current children, including a Curve/Sweep's
+points and profiles. The outer container remains visible while its nested Point
+or Sketch editor is open. Part and Assembly use the same presentation rule.
 
-The edited container must not disappear, be struck through, or move outside
-its real history position. Green identifies the item currently being edited.
-Only later containers are shown as suppressed.
+Tree rows read pending ZIMA data and do not commit them or calculate a body.
+The initial Tree projection must not reset the active View reference picker.
+Clicking a complete parent Origin fills the child's three positional references
+just like clicking the document Origin. Own and downstream geometry remain
+invalid references for the parent's placement.
+
+This current transient Tree behaviour is separate from the planned
+[multi-body document structure](MULTIBODY_AND_BOOLEANS.md). Independent Body
+histories and document-level Boolean branches are not yet implemented.
 
 ## View behaviour
 
-On entry, the 3D view is rebuilt at the boundary immediately before the edited
-container. It shows the real input body for that operation. The edited result,
-all downstream results, and any cached final body must be absent. Picking and
-stable-reference resolution operate on this rollback geometry.
+The View shows the real input body at the operation boundary, not a cached final
+body. Selection resolves against that input. Pending analytical previews may
+replace or augment the display while Properties remain open; no hidden OCCT
+calculation belongs in Tree, hover, selection, or ordinary UI refresh paths.
+Body calculation is explicit through OK or Regenerate.
 
-An `Apply` operation may replace the input display with a transient preview of
-the edited result. Repeated previews must be recalculated from the same history
-boundary, not cumulatively from an earlier preview. Selection highlights use
-the shared viewer conventions and must survive camera rotation. Clicking empty
-space clears selection according to the ordinary view-selection rules. While a
-properties window is active, a short middle click remains Apply and a middle
-double-click remains OK, even when the pointer is over the view.
+Highlights use the shared viewer conventions and survive camera navigation.
+Clicking empty space clears selection according to the active command contract.
+A short middle click ends reference entry and clears temporary inspection; it
+does not commit. Middle drag navigates the View. A middle-button double-click
+invokes the enabled OK action, including when the pointer is over the View.
 
-When editing ends through `OK` or `Cancel`, the view returns to the normally
-evaluated complete history. Temporary preview geometry, edit-only dimensions,
-edge highlights, selection filters, and topology-picking mode are removed or
-restored to their normal state. The current camera orientation and zoom remain
-unchanged unless the command explicitly requests Fit.
+## Numeric values
 
-## Applying and leaving the edit
+Clicking a numeric spin-box value selects the complete number, including its
+sign, while retaining its unit suffix. Deliberate text dragging and modified
+clicks keep the normal text-selection behaviour. Keyboard arrows and spin-box
+stepping remain available.
 
-`Apply` recalculates the same existing container and keeps Properties open at
-the same edit boundary. It must not append a duplicate container. Downstream
-history remains suppressed while the window is open.
+Typing a number does not publish every intermediate digit to the preview:
+Enter or leaving the field commits the complete value. Decimal input accepts
+both comma and dot. Return and numeric-keypad Enter confirm only the field;
+they must not accept the enclosing Properties dialog.
 
-`OK` includes the same operation as `Apply`, ends the edit session, moves
-`Insert here` back to the end of history, restores normal tree presentation,
-and re-evaluates downstream containers from the changed result.
+Editable parameter dimensions in the View update the same live controls as
+Properties. Read-only or constrained values must not be offered as editable
+annotations. Construction dimension selection remains available for Points,
+Axes and Planes as well as Curve/Sweep parameters after reference entry ends.
 
-`Cancel` restores the state saved when Properties opened or by the most recent
-successful Apply, then ends rollback and evaluates the complete history again.
-Closing the internal title-bar cross has the same cancellation semantics.
+## Leaving the edit
+
+OK validates, calculates and commits the pending operation, then closes the
+dialog. A calculation failure preserves the last valid stored result and keeps
+Properties open for correction. There is no intermediate Apply transaction.
+
+Cancel restores the unchanged input/history and closes the dialog. The title-bar
+cross has the same cancellation semantics. A nested editor's OK only accepts its
+changes into the outer pending transaction; it does not commit the outer feature.
+
+After the outer edit ends, the normal history cursor and Insert here are shown
+again. Pending rows are removed or replaced by committed rows; complete history
+display, selection filters and inspection are restored. Camera orientation and
+zoom remain unchanged unless the command explicitly requests Fit.
 
 ## Invariants
 
-- A container cannot consume references belonging only to its own result or a
-  downstream result.
-- Viewer previews are transient and never alter stored history order.
-- Tree selection, view selection, and context-menu Properties enter the same
-  edit session.
-- A calculation failure preserves the last valid stored result and leaves
-  Properties open for correction.
+- A container cannot consume its own result or a downstream result as a placement
+  reference; dependencies remain one-way.
+- Pending previews never change persisted history order.
+- Tree and View Properties enter the same edit session.
+- Closing the application with a nested editor also retires its hidden parent
+  while workspace state is still alive.
 
-Feature-specific documents, such as [`EDGE_TREATMENTS.md`](EDGE_TREATMENTS.md),
-only describe the additional rules layered on this common mechanism.
+Feature-specific documents such as [EDGE_TREATMENTS.md](EDGE_TREATMENTS.md)
+describe additional rules layered on this mechanism.

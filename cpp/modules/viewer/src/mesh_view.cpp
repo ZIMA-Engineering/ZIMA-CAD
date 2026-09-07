@@ -2705,6 +2705,19 @@ void MeshView::upload_mesh() {
 }
 
 void MeshView::paintGL() {
+    // Coincident local planes are common while entering Curve/Sweep Points.
+    // Paint inspected frames last so a later ordinary frame cannot erase
+    // their cyan outline while leaving only the label visibly highlighted.
+    std::vector<const zima::kernel::ViewerEdge*> plane_edges;
+    for (const auto& edge : impl_->mesh.edges) {
+        if (edge.reference.semantic_key == "border" ||
+            edge.reference.semantic_key.starts_with("origin:plane:"))
+            plane_edges.push_back(&edge);
+    }
+    std::stable_partition(plane_edges.begin(), plane_edges.end(),
+        [&](const auto* edge) {
+            return !impl_->constraint_reference_edges.contains(edge_key(edge->reference));
+        });
     glClear(GL_DEPTH_BUFFER_BIT);
     // QPainter overlays and the individual display-mode passes modify GL
     // state.  Re-establish the Python viewer's common baseline every frame.
@@ -2764,7 +2777,8 @@ void MeshView::paintGL() {
         };
 if (impl_->show_origins) {
             painter.setPen(QPen(QColor(173, 110, 46), 1.5));
-            for (const auto& edge : impl_->mesh.edges) {
+            for (const auto* plane_edge : plane_edges) {
+                const auto& edge = *plane_edge;
                 const bool origin = edge.reference.semantic_key.starts_with(
                     "origin:plane:");
                 if (!origin) continue;
@@ -3703,7 +3717,8 @@ if (impl_->show_origins) {
         }
         if (planes_visible) {
             painter.setPen(QPen(QColor(173, 110, 46), 1.5));
-            for (const auto& edge : impl_->mesh.edges) {
+            for (const auto* plane_edge : plane_edges) {
+                const auto& edge = *plane_edge;
                 const bool origin = edge.reference.semantic_key.starts_with(
                     "origin:plane:");
                 if (edge.reference.semantic_key != "border" && !origin) continue;

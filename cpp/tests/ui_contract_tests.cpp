@@ -925,6 +925,33 @@ int main(int argc, char* argv[]) {
         }
         rounded_route_view.hide();
 
+        // The later coincident plane must not paint over the inspected frame.
+        zima::kernel::ViewerMesh plane_inspection_mesh;
+        plane_inspection_mesh.vertices = {{-2,-2,-1},{2,2,1}};
+        plane_inspection_mesh.edges.push_back({{{-1,0,0},{1,0,0},{1,1,0},
+            {-1,1,0},{-1,0,0}}, {"point-origin","origin:plane:xy","first"}});
+        auto coincident_plane = plane_inspection_mesh.edges.front();
+        coincident_plane.reference.instance_path = "second";
+        plane_inspection_mesh.edges.push_back(coincident_plane);
+        zima::viewer::MeshView plane_inspection_view(&parent);
+        plane_inspection_view.setGeometry(0,0,500,360);
+        plane_inspection_view.set_mesh(plane_inspection_mesh);
+        plane_inspection_view.set_view_direction({0,0,1});
+        plane_inspection_view.set_editing_origin_visible(true);
+        plane_inspection_view.show();
+        plane_inspection_view.set_constraint_reference_highlights({},
+            {{"point-origin","origin:plane:xy","first"}});
+        application.processEvents();
+        require(framebuffer_contains_color_near(plane_inspection_view.grabFramebuffer(),
+            plane_inspection_view.size(), QPointF(250,180), QColor(0,209,255)),
+            "Coincident plane erased the inspected local plane frame");
+        plane_inspection_view.set_constraint_reference_highlights({}, {});
+        application.processEvents();
+        require(!framebuffer_contains_color_near(plane_inspection_view.grabFramebuffer(),
+            plane_inspection_view.size(), QPointF(250,180), QColor(0,209,255)),
+            "Turning off inspection retained the local plane highlight");
+        plane_inspection_view.hide();
+
         zima::kernel::ViewerMesh face_cycle_mesh;
         face_cycle_mesh.vertices = {
             {-1.0, -1.0, 1.0}, {1.0, -1.0, 1.0},
@@ -2506,6 +2533,66 @@ int main(int argc, char* argv[]) {
                         "z", 99.0),
                 "Inline Point dimension edit did not update the matching live "
                 "dialog value and preview at document precision");
+        // Clicking a numeric value replaces it even when it already has focus.
+        auto* offset_editor = construction_point_offset->findChild<QLineEdit*>();
+        require(offset_editor != nullptr, "Offset has no numeric editor");
+        for (const auto value : {-123.45, 98.76}) {
+            construction_point_offset->setValue(value);
+            const QPointF local(8, offset_editor->height() / 2);
+            const QPointF global(offset_editor->mapToGlobal(local.toPoint()));
+            QMouseEvent press(QEvent::MouseButtonPress, local, global,
+                Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+            QApplication::sendEvent(offset_editor, &press);
+            QMouseEvent release(QEvent::MouseButtonRelease, local, global,
+                Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+            QApplication::sendEvent(offset_editor, &release);
+            require(offset_editor->selectedText() == construction_point_offset->cleanText(),
+                "Numeric click did not select the complete signed decimal value");
+            QKeyEvent type(QEvent::KeyPress, Qt::Key_7, Qt::NoModifier, "7");
+            QApplication::sendEvent(offset_editor, &type);
+            construction_point_offset->interpretText();
+            require(construction_point_offset->value() == 7.0,
+                "Typing after numeric click appended to the previous value");
+            QKeyEvent up(QEvent::KeyPress, Qt::Key_Up, Qt::NoModifier);
+            QApplication::sendEvent(construction_point_offset, &up);
+            require(construction_point_offset->value() ==
+                    7.0 + construction_point_offset->singleStep(),
+                "Numeric click changed keyboard stepping");
+        }
+        int numeric_dialog_accepts = 0;
+        QObject::connect(construction_point_dialog, &QDialog::accepted,
+            [&] { ++numeric_dialog_accepts; });
+        for (const auto& locale : {QLocale::c(), QLocale(QLocale::Czech)}) {
+            construction_point_offset->setLocale(locale);
+            for (const auto& input : {QString("24,24"), QString("25.25")}) {
+                construction_point_offset->setValue(-123.45);
+                construction_point_offset->selectAll();
+                for (const auto character : input) {
+                    QKeyEvent key(QEvent::KeyPress, 0, Qt::NoModifier, QString(character));
+                    QApplication::sendEvent(offset_editor, &key);
+                    application.processEvents();
+                    require(construction_point_offset->value() == -123.45,
+                        "Numeric typing published an incomplete value before Enter");
+                }
+                QKeyEvent enter(QEvent::KeyPress,
+                    input.contains(',') ? Qt::Key_Return : Qt::Key_Enter,
+                    Qt::NoModifier);
+                QApplication::sendEvent(offset_editor, &enter);
+                application.processEvents();
+                const double expected = input.contains(',') ? 24.24 : 25.25;
+                require(std::abs(construction_point_offset->value() - expected) < 1e-9 &&
+                        inline_point_preview &&
+                        std::abs(inline_point_preview->references.front().offset - expected) < 1e-9,
+                    "Enter did not commit the complete comma/dot decimal to the preview");
+                require(numeric_dialog_accepts == 0 && construction_point_dialog->isVisible(),
+                    "Numeric Enter accepted the entire Properties dialog");
+            }
+        }
+        construction_point_offset->setLocale(QLocale());
+        require(construction_point_dialog->set_inline_parameter_value(
+                    "placement:reference_offset:0", -8.25) &&
+                construction_point_offset->value() == -8.25,
+            "View placement offset key did not update the live signed offset");
         construction_point_offset->setValue(17.0);
         require(construction_point_dialog->findChild<QTableWidget*>(
                     "constructionReferenceTable")->rowCount() == 2,
@@ -2622,6 +2709,25 @@ int main(int argc, char* argv[]) {
         require(std::ranges::all_of(point_frame_offsets,
                     [](const auto* field) { return field->isEnabled(); }),
                 "Point plus two planes did not enable fully constrained corrections");
+        auto* correction_rx = point_frame_dialog->findChild<QDoubleSpinBox*>(
+            "constructionRotationOffsetX");
+        require(correction_rx != nullptr, "Point correction field missing");
+        correction_rx->setValue(7.0);
+        std::vector<zima::kernel::ViewerDimension> field_dimensions;
+        const auto add_field_dimension = [&](const char* key, double value) {
+            zima::kernel::ViewerDimension dimension;
+            dimension.reference = {point_frame_dialog->pending_value().id, key, {}};
+            dimension.value = value;
+            field_dimensions.push_back(dimension);
+        };
+        add_field_dimension("parameter:placement:x", 10);
+        add_field_dimension("parameter:placement:y", 20);
+        add_field_dimension("parameter:placement:z", 30);
+        add_field_dimension("parameter:placement:rotation_x", 90);
+        add_field_dimension("parameter:placement:rotation_x", 7);
+        point_frame_dialog->filter_parameter_dimensions(field_dimensions);
+        require(field_dimensions.size() == 1 && field_dimensions.front().value == 7,
+            "Point dimensions offered locked coordinates or absolute angles instead of the editable correction");
         point_frame_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
         require(committed_point_frame.references.size() == 3 &&
                     !committed_point_frame.references[0].orientation_only &&
@@ -2799,11 +2905,13 @@ int main(int argc, char* argv[]) {
         sweep_dialog->set_sweep_profile_edit_request_callback([&](std::size_t index){edited_profile=index;});
         sweep_dialog->show();
         application.processEvents();
+        require(sweep_dialog->width() <= 500,
+                "Sweep/Loft properties retained the oversized dialog width");
         require(sweep_dialog->windowTitle() ==
-                    QStringLiteral("Vlastnosti 3D Sweepu") &&
+                    QStringLiteral("Vlastnosti Sweep/Loftu") &&
                     sweep_dialog->findChild<QTableWidget*>(
                         "sweep3DProfiles") != nullptr,
-                "3D Sweep does not reuse the 3D Curve Properties dialog with "
+                "Sweep/Loft does not reuse the 3D Curve Properties dialog with "
                 "its profile table");
         auto* sweep_add_operation = sweep_dialog->findChild<QPushButton*>(
             "sweep3DAddOperation");
@@ -2813,20 +2921,23 @@ int main(int argc, char* argv[]) {
                     sweep_subtract_operation != nullptr &&
                     sweep_add_operation->isChecked() &&
                     sweep_subtract_operation->isEnabled(),
-                "3D Sweep does not expose the same Add/Subtract operation "
+                "Sweep/Loft does not expose the same Add/Subtract operation "
                 "contract as Protrusion");
         sweep_subtract_operation->click();
         require(sweep_dialog->pending_sweep_value().combine_mode ==
                     zima::document::CombineMode::Subtract &&
                     !sweep_add_operation->isChecked() &&
                     sweep_subtract_operation->isChecked(),
-                "3D Sweep Subtract button did not update the pending history "
+                "Sweep/Loft Subtract button did not update the pending history "
                 "operation");
         require(sweep_dialog->findChild<QPushButton*>("sweep3DAddProfile")==nullptr,
             "Obsolete manual profile controls remain");
         auto* stations=sweep_dialog->findChild<QTableWidget*>("sweep3DProfiles");
         require(stations->rowCount()==4,"Automatic station rows missing");
-        require(!qobject_cast<QPushButton*>(stations->cellWidget(1,1))->isEnabled(),"Zero radius input station enabled");
+        require(qobject_cast<QPushButton*>(stations->cellWidget(1,1))->isEnabled(),"Separate segment input station disabled");
+        require(stations->item(1,0)->toolTip()==QString::fromUtf8("Úsek 1 → 2.1 — konec") &&
+                stations->item(2,0)->toolTip()==QString::fromUtf8("Úsek 2.2 → 3.2 — začátek"),
+            "Sweep/Loft station labels lost their endpoint roles");
         qobject_cast<QPushButton*>(stations->cellWidget(2,1))->click();
         require(edited_profile==0,"Station Sketch did not open its profile");
         auto sweep_sketch=zima::sketcher::Sketch::from_serialized(sweep_dialog->sweep_profile(0)->sketch_serialized);

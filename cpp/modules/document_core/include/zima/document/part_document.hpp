@@ -539,6 +539,11 @@ struct Curve3DRoute {
     std::vector<zima::kernel::Sweep3DRequest::PathSegment> segments;
 };
 [[nodiscard]] Curve3DRoute curve3d_route(const ConstructionObject& path);
+struct HistoryContainer;
+[[nodiscard]] std::string sweep3d_cap_key(
+    const ConstructionObject& path, std::size_t segment, bool start);
+[[nodiscard]] std::string sweep3d_cap_label(
+    const HistoryContainer& container, std::string_view key);
 // Radius annotations derived from the analytical route using the persisted path placement.
 [[nodiscard]] std::vector<zima::kernel::ViewerDimension> curve3d_radius_dimensions(
     const ConstructionObject& path);

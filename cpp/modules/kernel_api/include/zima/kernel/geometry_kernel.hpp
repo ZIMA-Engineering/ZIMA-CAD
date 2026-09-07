@@ -491,6 +491,9 @@ struct Sweep3DRequest {
     // A smooth, single-section sweep with a transported normal frame.
     // Sampling indices are transient approximation data, never topology IDs.
     bool transported{};
+    // Unrounded polyline: each segment owns two endpoint stations and
+    // perpendicular caps. No corner projection or transition joins segments.
+    bool separate_segments{};
     bool thin{};
     std::string thin_end_point_id;
     double thin_first{}, thin_second{};
@@ -1096,6 +1099,7 @@ struct PlacedBody {
                     }, profile_variant);
                 };
                 u64(primitive.path_points.size());
+                byte(primitive.separate_segments);
                 for (const auto& point : primitive.path_points)
                     append_point(point);
                 u64(primitive.path_point_ids.size());

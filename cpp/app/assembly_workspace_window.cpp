@@ -873,6 +873,10 @@ QString feature_icon_name(zima::document::FeatureKind kind) {
     return {};
 }
 
+void add_construction_tree_children(QTreeWidgetItem* parent,
+    const zima::document::ConstructionObject& object,
+    const zima::assembly::InstancePath& instance_path);
+
 void add_history_container_tree_children(QTreeWidgetItem* parent,
     const zima::document::HistoryContainer& container,
     const zima::assembly::InstancePath& instance_path = {},
@@ -882,6 +886,28 @@ void add_history_container_tree_children(QTreeWidgetItem* parent,
         container.feature_kind != zima::document::FeatureKind::DrillPoint) {
         add_construction_origin_tree_item(
             parent, container.container_origin, container.name, instance_path);
+    }
+    if (container.feature_kind == zima::document::FeatureKind::Sweep3D) {
+        auto* path = new QTreeWidgetItem(parent, {QObject::tr("Dráha")});
+        path->setData(0, Qt::UserRole, QString::fromStdString(container.sweep3d.path.id));
+        path->setData(0, Qt::UserRole + 1, QString::fromStdString(instance_path.encoded()));
+        path->setData(0, Qt::UserRole + 3, "sweep3d-path");
+        path->setIcon(0, resource_icon("sketch-3d"));
+        add_construction_tree_children(path, container.sweep3d.path, instance_path);
+        path->setExpanded(true);
+        for (const auto& profile : container.sweep3d.profiles) {
+            const auto point = std::ranges::find(container.sweep3d.path.curve_points,
+                profile.point_id, &zima::document::ConstructionObject::id);
+            const auto number = std::distance(container.sweep3d.path.curve_points.begin(), point) + 1;
+            const auto station = number == 1 ? QStringLiteral("1")
+                : QStringLiteral("%1.%2").arg(number).arg(profile.incoming ? 1 : 2);
+            auto* sketch = new QTreeWidgetItem(parent, {QObject::tr("Skica %1").arg(station)});
+            sketch->setIcon(0, resource_icon("sketch"));
+            sketch->setData(0, Qt::UserRole, QString::fromStdString(profile.id));
+            sketch->setData(0, Qt::UserRole + 1, QString::fromStdString(instance_path.encoded()));
+            sketch->setData(0, Qt::UserRole + 3, "sweep3d-profile");
+        }
+        return;
     }
     if(container.feature_kind==zima::document::FeatureKind::Sweep2D){
         const std::array<QString,2> names{QObject::tr("Průřez"),QObject::tr("Dráha")};
@@ -2690,7 +2716,11 @@ AssemblyWorkspaceWindow::~AssemblyWorkspaceWindow() {
     // heap (observed as a double free on exit). Deleting the dialog here,
     // while the destructor body is still executing and every member is
     // still valid, guarantees its `destroyed` handler runs safely.
+    const QPointer<QDialog> outer_dialog = tree_edit_dialog_;
     delete properties_dialog_;
+    // A nested Point can restore its hidden parent during its destroyed
+    // callback. Retire that outer transaction while members are still alive.
+    if (outer_dialog) delete outer_dialog.data();
     delete rename_document_dialog_;
 }
 
@@ -3135,7 +3165,8 @@ void AssemblyWorkspaceWindow::create_actions() {
     wedge_action_ = make_action(tr("Klín"), "wedge");
     construction_point_action_ = make_action(tr("Bod"), "point");
     curve_3d_action_ = make_action(tr("3D křivka"), "sketch-3d");
-    sweep_3d_action_ = make_action(tr("3D Sweep"), "sweep");
+    sweep_3d_action_ = make_action(tr("Sweep/Loft"), "sweep");
+    sweep_3d_action_->setToolTip(tr("Tažení a přechod mezi profily podél prostorové dráhy."));
     sweep2d_action_ = make_action(tr("2D Sweep"), "sweep2d");
     sweep2d_action_->setObjectName("sweep2dAction");
     connect(sweep2d_action_, &QAction::triggered, this, [this] { show_sweep2d_properties(); });
@@ -6914,6 +6945,7 @@ void AssemblyWorkspaceWindow::start_edge_treatment(
             target->session.commit(std::move(next), std::move(calculated));
         }, this);
     properties_dialog_ = dialog;
+    track_tree_edit(dialog);
     edge_treatment_dialog_ = dialog;
     dialog->set_edge_group_callbacks(
         [this](std::size_t group, std::optional<std::size_t> member) {
@@ -7209,6 +7241,7 @@ void AssemblyWorkspaceWindow::start_shell() {
             target->session.commit(std::move(next), std::move(calculated));
         }, this);
     properties_dialog_ = dialog;
+    track_tree_edit(dialog);
     shell_dialog_ = dialog;
     dialog->set_shell_face_callbacks(
         [this](std::size_t index) { remove_shell_face(index); },
@@ -7324,7 +7357,8 @@ void AssemblyWorkspaceWindow::accept_drill_point_face(
     if (!drill_point_face_selection_active_ || drill_point_dialog_ == nullptr)
         return;
     if (candidate.kind != zima::viewer::CandidateKind::Face ||
-        candidate.geometry != zima::viewer::CandidateGeometry::Display ||
+        (candidate.geometry != zima::viewer::CandidateGeometry::Display &&
+         !candidate.semantic_key.starts_with("sweep:cap:")) ||
         candidate.owner_id.empty() || candidate.semantic_key.empty()) {
         state_->setText(tr("Vyberte kruhovou koncovou plochu otvoru."));
         return;
@@ -7351,7 +7385,14 @@ void AssemblyWorkspaceWindow::refresh_drill_point_selection_ui() {
     const std::string instance_path = part == nullptr ? std::string{}
         : resolve_active_occurrence(part->session.document().document_id)
             .value_or(std::string{});
-    drill_point_dialog_->set_drill_point_faces(pending_drill_point_faces_);
+    std::vector<QString> labels;
+    for (const auto& face : pending_drill_point_faces_) {
+        QString label;
+        if (part) if (const auto* owner=part->session.document().find_container(face.owner_id))
+            label=QString::fromStdString(zima::document::sweep3d_cap_label(*owner,face.semantic_key));
+        labels.push_back(std::move(label));
+    }
+    drill_point_dialog_->set_drill_point_faces(pending_drill_point_faces_, labels);
     drill_point_dialog_->set_drill_point_face_selection_active(
         drill_point_face_selection_active_);
     std::set<zima::viewer::EdgeKey> highlighted_faces;
@@ -7373,8 +7414,8 @@ void AssemblyWorkspaceWindow::refresh_drill_point_selection_ui() {
     viewer_->set_candidate_filter(
         [expected_path = instance_path](const auto& candidate) {
             return candidate.kind == zima::viewer::CandidateKind::Face &&
-                candidate.geometry ==
-                    zima::viewer::CandidateGeometry::Display &&
+                (candidate.geometry == zima::viewer::CandidateGeometry::Display ||
+                 candidate.semantic_key.starts_with("sweep:cap:")) &&
                 candidate.instance_path == expected_path &&
                 !candidate.owner_id.empty() &&
                 !candidate.semantic_key.empty();
@@ -7948,16 +7989,11 @@ bool AssemblyWorkspaceWindow::finish_active_reference_selection() {
 void AssemblyWorkspaceWindow::set_construction_properties_dimension_selection() {
     tree_->setProperty("commandSelectionActive", false);
     viewer_->clear_selection();
-    // Curve/Sweep dimensions are owned by their persisted path points.
-    // This is value editing only; it does not offer them as placement references.
-    const bool curve = construction_reference_dialog_ != nullptr &&
-        construction_reference_dialog_->construction_kind() ==
-            zima::document::ConstructionKind::Curve3D;
-    viewer_->set_selection_contract(curve
-        ? std::vector{zima::viewer::CandidateKind::Dimension}
-        : std::vector<zima::viewer::CandidateKind>{});
-    viewer_->set_candidate_filter([this, curve](const auto& candidate) {
-        return curve && construction_reference_dialog_ != nullptr &&
+    // All construction parameter dimensions edit the corresponding live field.
+    // This contract offers annotations only, never placement references.
+    viewer_->set_selection_contract({zima::viewer::CandidateKind::Dimension});
+    viewer_->set_candidate_filter([this](const auto& candidate) {
+        return construction_reference_dialog_ != nullptr &&
             candidate.kind == zima::viewer::CandidateKind::Dimension &&
             candidate.semantic_key.starts_with("parameter:") &&
             construction_reference_dialog_->owns_reference_owner(candidate.owner_id);
@@ -11050,6 +11086,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             }, [] {});
     }
     properties_dialog_ = dialog;
+    track_tree_edit(dialog);
     tree_reference_state_.watch(dialog,this,owner_id,initial.id);
     const std::string dialog_container_id = initial.id;
     if (!assembly_cut &&
@@ -11363,7 +11400,7 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
     };
     SweepPlacementDialog* dialog=planar?static_cast<SweepPlacementDialog*>(new Sweep2DDialog(initial,commit,this)):
         static_cast<SweepPlacementDialog*>(new HelicalSweepDialog(initial,commit,this));
-    properties_dialog_=dialog;properties_dialog_instance_path_=*occurrence;
+    properties_dialog_=dialog;track_tree_edit(dialog);properties_dialog_instance_path_=*occurrence;
     primitive_parameter_owner_id_=initial.id;primitive_reference_dialog_=dialog;
     tree_reference_state_.watch(dialog,this,document_id,initial.id);
     auto geometry=part->session.calculated_boundaries().empty()?zima::kernel::ViewerReferenceGeometry{}:part->session.calculated_boundaries().back().mesh.original_references;
@@ -11479,7 +11516,7 @@ void AssemblyWorkspaceWindow::show_sweep3d_properties(
             if (edit_mode) {
                 auto* target = next.find_container(committed.id);
                 if (target == nullptr)
-                    throw std::runtime_error("3D Sweep no longer exists");
+                    throw std::runtime_error("Sweep/Loft no longer exists");
                 *target = std::move(committed);
             } else {
                 next.insert_history_entry(
@@ -11535,6 +11572,7 @@ void AssemblyWorkspaceWindow::show_sweep3d_properties(
         suspended_construction_reference_index_.reset();
     });
     properties_dialog_ = dialog;
+    track_tree_edit(dialog);
     tree_reference_state_.watch(dialog,this,document_id,initial.id);
 
     dialog->set_preview_callback(
@@ -11925,6 +11963,7 @@ void AssemblyWorkspaceWindow::show_construction_properties(
         });
     viewer_->set_editing_origin_visible(true);
     properties_dialog_ = dialog;
+    track_tree_edit(dialog);
     tree_reference_state_.watch(dialog,this,document_id,initial.id);
     for (const auto& point : initial.curve_points)
         tree_reference_state_.watch(dialog,this,document_id,point.id);
@@ -12081,7 +12120,7 @@ void AssemblyWorkspaceWindow::show_sweep_profile_sketch(
         sketch.validate();
         sweep_profile_sketch_draft_ = std::move(sketch);
     } catch (const std::exception& exception) {
-        state_->setText(tr("Profilovou skicu Sweepu nelze otevřít: %1")
+        state_->setText(tr("Profilovou skicu Sweep/Loftu nelze otevřít: %1")
             .arg(QString::fromUtf8(exception.what())));
         return;
     }
@@ -12099,7 +12138,7 @@ void AssemblyWorkspaceWindow::show_sweep_profile_sketch(
     refresh_scene();
     align_active_sketch_view();
     state_->setText(tr(
-        "Profil 3D Sweepu: nakreslete uzavřený obrys a zvolte Dokončit skicu."));
+        "Profil Sweep/Loftu: nakreslete uzavřený obrys a zvolte Dokončit skicu."));
 }
 
 void AssemblyWorkspaceWindow::show_curve_point_properties(
@@ -12188,12 +12227,24 @@ void AssemblyWorkspaceWindow::show_curve_point_properties(
                 reference_geometry =
                     source.build_scene().original_references;
             }
-            if (auto* target = next.find_construction(curve_preview.id)) {
+            if (parent_guard->is_sweep()) {
+                auto sweep = parent_guard->pending_sweep_value();
+                sweep.sweep3d.path.curve_points = curve_preview.curve_points;
+                if (auto* target = next.find_container(sweep.id)) *target = sweep;
+                else next.history.push_back(sweep);
+            } else if (auto* target = next.find_construction(curve_preview.id)) {
                 *target = curve_preview;
             } else {
                 next.constructions.push_back(curve_preview);
             }
             next.resolve_constructions(reference_geometry);
+            // Display the resolved embedded path through the ordinary
+            // construction carrier; find_construction addresses that carrier.
+            if (parent_guard->is_sweep()) {
+                const auto* sweep = next.find_container(parent_guard->pending_sweep_value().id);
+                if (sweep) next.constructions.push_back(sweep_display_path(*sweep));
+            }
+
             const auto* resolved = next.find_construction(preview.id);
             if (resolved == nullptr) return;
 
@@ -12203,6 +12254,8 @@ void AssemblyWorkspaceWindow::show_curve_point_properties(
                 append_reference_geometry(reference_geometry,
                     next.origin_viewer_mesh().original_references);
             }
+            append_reference_geometry(reference_geometry,
+                next.history_origin_reference_geometry_before(""));
             append_reference_geometry(reference_geometry,
                 next.construction_viewer_mesh().original_references);
             construction_reference_geometry_ =
@@ -12649,6 +12702,12 @@ void AssemblyWorkspaceWindow::accept_construction_reference(
         : tr("Plocha");
     reference_label = reference_label.isEmpty()
         ? semantic_label : reference_label + QStringLiteral(" — ") + semantic_label;
+    if (const auto* part=workspace_.open_part(workspace_.active_document_id())) {
+        if (const auto* owner=part->session.document().find_container(candidate.owner_id)) {
+            const auto cap_label=zima::document::sweep3d_cap_label(*owner,candidate.semantic_key);
+            if (!cap_label.empty()) reference_label=QString::fromStdString(owner->name+" — "+cap_label);
+        }
+    }
     auto committed_reference = zima::document::ConstructionReference{
         std::move(local_path), candidate.owner_id, candidate.semantic_key, 0.0,
         candidate_supports_offset(candidate)};
@@ -13057,6 +13116,12 @@ void AssemblyWorkspaceWindow::accept_primitive_reference(
         : tr("Plocha");
     reference_label = reference_label.isEmpty()
         ? semantic_label : reference_label + QStringLiteral(" — ") + semantic_label;
+    if (const auto* part=workspace_.open_part(workspace_.active_document_id())) {
+        if (const auto* owner=part->session.document().find_container(candidate.owner_id)) {
+            const auto cap_label=zima::document::sweep3d_cap_label(*owner,candidate.semantic_key);
+            if (!cap_label.empty()) reference_label=QString::fromStdString(owner->name+" — "+cap_label);
+        }
+    }
     const bool auto_advance = primitive_reference_auto_advance_;
     if (!primitive_reference_dialog_->set_reference(
         selected_index, std::move(committed_reference), reference_label)) {
@@ -13283,8 +13348,7 @@ bool AssemblyWorkspaceWindow::accept_construction_tree_reference(
          item_kind == QStringLiteral("construction-origin"))) {
         const auto origin_id =
             item->data(0, Qt::UserRole).toString().toStdString();
-        if (origin_id == construction_reference_dialog_->construction_id() +
-                ":origin") return false;
+        if (construction_reference_dialog_->owns_reference_owner(origin_id)) return false;
         const std::size_t selected_index = *pending_construction_reference_index_;
         // Matches Python's PointConstraintDialog.add_reference() Origin-kind
         // branch (shared, unoverridden, by Point/Axis/every placement
@@ -13919,6 +13983,15 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
         });
     }
     properties_dialog_ = dialog;
+    track_tree_edit(dialog);
+    if (tree_edit_dialog_ == dialog) {
+        tree_edit_sketch_container_ = new_sketch_container;
+        if (!tree_edit_sketch_container_ && part) {
+            if (const auto* owner = part->session.document().find_container(dialog->pending_value().first.owner_container_id))
+                tree_edit_sketch_container_ = *owner;
+        }
+    }
+
     tree_reference_state_.watch(dialog,this,owner_id,initial.id);
     if (!initial.owner_container_id.empty())
         tree_reference_state_.watch(dialog,this,owner_id,initial.owner_container_id);
@@ -14580,7 +14653,7 @@ void AssemblyWorkspaceWindow::finish_active_sketch() {
         preserve_view_on_refresh_ = true;
         refresh_scene();
         state_->setText(tr(
-            "Skica byla uložena do návrhu 3D Sweepu. Potvrďte celý "
+            "Skica byla uložena do návrhu Sweep/Loftu. Potvrďte celý "
             "kontejner tlačítkem OK."));
         return;
     }
@@ -23610,7 +23683,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             placement.references = object->references;
             auto dimensions =
                 zima::document::container_placement_dimensions(
-                    object->id, placement, reference_geometry);
+                    object->id, placement, construction_properties_preview
+                        ? construction_reference_geometry_ : reference_geometry);
             append_nonzero_parameter_dimensions(
                 mesh.dimensions, std::move(dimensions));
             if (object->kind == zima::document::ConstructionKind::Axis) {
@@ -24344,6 +24418,21 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                         sketch->plane_offset);
                 }
             }
+        }
+        if (construction_reference_dialog_ && construction_properties_preview)
+            construction_reference_dialog_->filter_parameter_dimensions(mesh.dimensions);
+        if (sweep_profile_parent_dialog_ && sweep_profile_sketch_draft_ &&
+            sweep_profile_sketch_draft_->id == active_sketch_id_) {
+            // Station profiles are a Properties preview, not Sketcher
+            // geometry. Keep the path as context, but show only the active
+            // Sketch's own curves while editing it.
+            const auto profile_preview = [](const auto& item) {
+                return item.reference.semantic_key.starts_with("curve:profile:") ||
+                    item.reference.semantic_key.starts_with("profile-point:");
+            };
+            std::erase_if(mesh.edges, profile_preview);
+            std::erase_if(mesh.points, profile_preview);
+            std::erase_if(mesh.constraint_markers, profile_preview);
         }
         return mesh;
     };
@@ -26041,14 +26130,142 @@ void AssemblyWorkspaceWindow::populate_sketch_tree(
     dimensions->setExpanded(true);
 }
 
+void AssemblyWorkspaceWindow::track_tree_edit(QDialog* dialog) {
+    // Keep the outer transaction while its Point/Sketch sub-editor is open.
+    if (tree_edit_dialog_ || !dialog) return;
+    tree_edit_dialog_ = dialog;
+    tree_edit_document_id_ = workspace_.active_document_id();
+    connect(dialog, &QDialog::finished, this, [this, dialog] {
+        if (tree_edit_dialog_ != dialog) return;
+        tree_edit_dialog_.clear();
+        tree_edit_document_id_.clear();
+        tree_edit_sketch_container_.reset();
+        // The command's normal cleanup restores the committed Tree and View.
+    });
+    QTimer::singleShot(0, this, [this] {
+        if (!tree_edit_dialog_) return;
+        // Project only the Tree. A full scene refresh here would erase the
+        // reference picker installed by the command after opening Properties.
+        const QSignalBlocker blocked(tree_);
+        QTreeWidgetItemIterator rows(tree_);
+        while (*rows) {
+            auto* row = *rows++;
+            if (row->data(0, Qt::UserRole + 3).toString() == "document-origin" &&
+                row->data(0, Qt::UserRole).toString().toStdString() == tree_edit_document_id_ + ":origin" &&
+                row->data(0, Qt::UserRole + 1).toString().toStdString() == active_occurrence_path_) {
+                add_pending_tree_item(row->parent(), tree_edit_document_id_,
+                    zima::assembly::InstancePath::decode(active_occurrence_path_),
+                    workspace_.open_assembly(tree_edit_document_id_) != nullptr);
+                return;
+            }
+        }
+    });
+}
+
+void AssemblyWorkspaceWindow::add_pending_tree_item(QTreeWidgetItem* parent,
+    const std::string& document_id,
+    const zima::assembly::InstancePath& instance_path, bool assembly) {
+    if (document_id != workspace_.active_document_id() ||
+        instance_path.encoded() != active_occurrence_path_) return;
+    std::optional<zima::document::HistoryContainer> feature;
+    std::optional<zima::document::ConstructionObject> construction;
+    std::optional<zima::sketcher::Sketch> pending_sketch;
+    if (tree_edit_dialog_ && tree_edit_document_id_ == document_id) {
+        if (auto* dialog = dynamic_cast<PrimitivePropertiesDialog*>(tree_edit_dialog_.data()))
+            feature = dialog->pending_value();
+        else if (auto* dialog = dynamic_cast<SweepPlacementDialog*>(tree_edit_dialog_.data()))
+            feature = dialog->pending;
+        else if (auto* dialog = dynamic_cast<ShaftThreadDialog*>(tree_edit_dialog_.data()))
+            feature = dialog->pending();
+        else if (auto* dialog = dynamic_cast<SketchPropertiesDialog*>(tree_edit_dialog_.data())) {
+            auto value = dialog->pending_value();
+            pending_sketch = std::move(value.first);
+            feature = tree_edit_sketch_container_;
+            if (feature) { feature->name = pending_sketch->name; feature->placement = value.second; }
+        }
+        else if (auto* dialog = dynamic_cast<ConstructionPropertiesDialog*>(tree_edit_dialog_.data())) {
+            if (dialog->is_sweep()) feature = dialog->pending_sweep_value();
+            else construction = dialog->pending_value();
+        }
+    } else if (pending_profile_feature_) {
+        feature = *pending_profile_feature_;
+    }
+    if (!feature && !construction && !pending_sketch) return;
+    auto* path = feature && feature->feature_kind == zima::document::FeatureKind::Sweep3D
+        ? &feature->sweep3d.path : construction ? &*construction : nullptr;
+    // A nested Point is still pending in its own dialog until its OK.
+    if (path && construction_parameter_preview_ &&
+        construction_parameter_preview_->parent_construction_id == path->id) {
+        const auto& point = *construction_parameter_preview_;
+        const auto found = std::ranges::find(path->curve_points, point.id,
+            &zima::document::ConstructionObject::id);
+        if (found == path->curve_points.end()) path->curve_points.push_back(point);
+        else *found = point;
+    }
+    const auto& id = feature ? feature->id : construction ? construction->id : pending_sketch->id;
+    const auto& name = feature ? feature->name : construction ? construction->name : pending_sketch->name;
+    QTreeWidgetItem* row = nullptr;
+    int insertion = parent->childCount();
+    for (int i = parent->childCount() - 1; i >= 0; --i) {
+        auto* child = parent->child(i);
+        const auto role = child->data(0, Qt::UserRole + 3).toString();
+        if (role == "part-insert-here" || role == "assembly-insert-here") {
+            insertion = i;
+            delete parent->takeChild(i);
+        } else if (child->data(0, Qt::UserRole).toString().toStdString() == id) {
+            row = child;
+        }
+    }
+    if (!row) {
+        row = new QTreeWidgetItem;
+        parent->insertChild(std::min(insertion, parent->childCount()), row);
+    } else {
+        qDeleteAll(row->takeChildren());
+    }
+    row->setText(0, QString::fromStdString(name));
+    row->setData(0, Qt::UserRole, QString::fromStdString(id));
+    row->setData(0, Qt::UserRole + 1, QString::fromStdString(instance_path.encoded()));
+    row->setData(0, Qt::UserRole + 3, feature
+        ? (assembly ? "assembly-cut" : "part-container")
+        : construction ? (assembly ? "assembly-construction" : "part-construction")
+        : (assembly ? "assembly-sketch" : "part-sketch"));
+    row->setData(0, Qt::UserRole + 12, true);
+    row->setForeground(0, QBrush(QColor(70, 190, 95)));
+    auto font = row->font(0);
+    font.setBold(true);
+    font.setItalic(false);
+    font.setStrikeOut(false);
+    row->setFont(0, font);
+    if (feature) {
+        row->setIcon(0, resource_icon(feature_icon_name(feature->feature_kind)));
+        const zima::sketcher::Sketch* sketch = nullptr;
+        const auto find_sketch = [&](const auto& document) {
+            const auto found = std::ranges::find(document.sketches, id,
+                &zima::sketcher::Sketch::owner_container_id);
+            if (found != document.sketches.end()) sketch = &*found;
+        };
+        if (const auto* part = workspace_.open_part(document_id)) find_sketch(part->session.document());
+        else if (const auto* source = workspace_.open_assembly(document_id)) find_sketch(source->session.document());
+        if (pending_sketch) sketch = &*pending_sketch;
+        add_history_container_tree_children(row, *feature, instance_path, sketch, assembly);
+    } else if (construction) {
+        row->setIcon(0, resource_icon(construction->kind == zima::document::ConstructionKind::Curve3D
+            ? "sketch-3d" : construction->kind == zima::document::ConstructionKind::Point
+                ? "point" : construction->kind == zima::document::ConstructionKind::Axis ? "axis" : "plane"));
+        add_construction_tree_children(row, *construction, instance_path);
+    } else {
+        row->setIcon(0, resource_icon("sketch"));
+    }
+    row->setExpanded(true);
+}
+
 void AssemblyWorkspaceWindow::add_part_tree_children(
     QTreeWidgetItem* parent,
     const zima::document::PartDocument& document) {
     // A brand-new Extrusion/Revolution temporarily places its owned Sketch
     // and draft owner in DocumentSession while the Sketcher sub-editor is
-    // active. That is transaction working state, not committed history. Keep
-    // it out of Tree until Properties accepts it with OK. Existing containers
-    // being edited remain visible according to the rollback contract.
+    // active. Show it exactly once through the pending Tree projection below.
+    // Existing containers being edited remain visible at the rollback boundary.
     const std::string pending_creation_id =
         pending_profile_feature_ && !pending_profile_transform_original_
         ? pending_profile_feature_->id : std::string{};
@@ -26247,6 +26464,7 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
     parent->insertChild(std::min(cursor_position, parent->childCount()), body);
     parent->insertChild(std::min(cursor_position + 1, parent->childCount()),
         insert_here);
+    add_pending_tree_item(parent, document.document_id, construction_path, false);
 }
 
 void AssemblyWorkspaceWindow::add_assembly_tree_children(
@@ -26331,7 +26549,9 @@ void AssemblyWorkspaceWindow::add_assembly_tree_children(
         font.setBold(true);
         insert_here->setFont(0, font);
         insert_here->setForeground(0, QBrush(QColor("#4DD811")));
-    }
+    }    if (assembly_document_id == workspace_.active_document_id())
+        add_pending_tree_item(parent, assembly_document_id, parent_path, true);
+
 }
 
 void AssemblyWorkspaceWindow::add_snapshot_tree_children(

@@ -1,4 +1,6 @@
 #include <zima/document/part_document.hpp>
+#include <zima/document/viewer_packet_json.hpp>
+#include <nlohmann/json.hpp>
 #include <zima/kernel/stable_id.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 #include <iostream>
@@ -31,7 +33,86 @@ static void mark_circle(sketcher::Sketch& sketch,std::size_t count,double phase=
     }
 }
 int main(){try{
+    // Adding a second circular profile on an oblique sharp corner must
+    // produce a stable serialized frame under repeated regeneration.
+    auto edited_sweep = fixture(0);
+    edited_sweep.sweep3d.path.curve_points[1].origin = {23,17,31};
+    edited_sweep.sweep3d.path.curve_points[2].origin = {50,47,9};
+    auto second_profile = sketcher::Sketch::create_default();
+    static_cast<void>(second_profile.add_circle(0,0,1.5));
+    edited_sweep.sweep3d.profiles.push_back({kernel::make_stable_id(),
+        edited_sweep.sweep3d.path.curve_points[1].id,
+        second_profile.id,second_profile.serialized()});
+    for (std::size_t i = 0; i < edited_sweep.sweep3d.profiles.size(); ++i) {
+        require(document::PartDocument::reframe_sweep3d_profile(edited_sweep,i),
+            "Cannot frame edited Sweep profile");
+        const auto stable_profile = edited_sweep.sweep3d.profiles[i].sketch_serialized;
+        for (int pass = 0; pass < 8; ++pass) {
+            require(document::PartDocument::reframe_sweep3d_profile(edited_sweep,i),
+                "Cannot reframe edited Sweep profile");
+            require(edited_sweep.sweep3d.profiles[i].sketch_serialized == stable_profile,
+                "Unchanged Sweep profile frame drifts on repeated regeneration");
+        }
+    }
+    // A new second Point initially overlaps the first. Reference resolution
+    // and preview must still run so the user can enter its displacement.
+    document::PartDocument draft;
+    auto unfinished = fixture(0).sweep3d.path;
+    unfinished.curve_points.resize(2);
+    unfinished.curve_points[1].origin = unfinished.curve_points[0].origin;
+    draft.constructions.push_back(unfinished);
+    draft.resolve_constructions();
+    const auto point_id = unfinished.curve_points[1].id;
+    const auto mesh = draft.construction_viewer_mesh(point_id);
+    for (const auto& point : unfinished.curve_points) {
+        require(std::ranges::any_of(mesh.original_references.points,
+            [&](const auto& ref) { return ref.reference.owner_id == point.container_origin.id; }),
+            "Coincident draft Points lost their editable origin references");
+    }
+    require(std::ranges::none_of(mesh.edges, [&](const auto& edge) {
+        return edge.reference.owner_id == unfinished.entity_id;
+    }), "Unfinished route published invalid edges");
+    const auto references = draft.construction_reference_geometry_for(point_id,
+        draft.construction_viewer_mesh().original_references);
+    require(!references.axes.empty(), "Unfinished route lost placement frame");
+    bool coincident_rejected = false;
+    try { static_cast<void>(document::curve3d_route(draft.constructions.front())); }
+    catch (const std::runtime_error&) { coincident_rejected = true; }
+    require(coincident_rejected, "Final route validation accepted coincident Points");
+    draft.constructions.front().curve_points[1].origin.z = 20;
+    draft.resolve_constructions();
+    const auto recovered = draft.construction_viewer_mesh(point_id);
+    require(std::ranges::any_of(recovered.edges, [&](const auto& edge) {
+        return edge.reference.owner_id == unfinished.entity_id &&
+            edge.points.size() >= 2 && std::abs(edge.points.back().z - 20) < 1e-9;
+    }), "Route preview did not recover after entering the second Point displacement");
     kernel::OcctKernel k;
+    document::PartDocument edited_document;
+    edited_document.history = {edited_sweep};
+    const auto regenerate_edited = [&] {
+        // Same exact-state convergence contract as the application. These
+        // fixture Points are absolute, so no body references are required.
+        for (std::size_t pass = 0; pass < edited_document.history.size() + 2; ++pass) {
+            const auto before = edited_document.history;
+            auto result = k.evaluate_history(edited_document.kernel_operations());
+            edited_document.resolve_constructions();
+            if (edited_document.history == before) return result;
+        }
+        throw std::runtime_error("Edited Sweep did not converge");
+    };
+    const auto variable_body = regenerate_edited();
+    auto& emptied_definition = edited_document.history.front().sweep3d.profiles[1];
+    auto emptied_sketch = sketcher::Sketch::from_serialized(emptied_definition.sketch_serialized);
+    emptied_sketch.circles.clear();
+    emptied_definition.sketch_serialized = emptied_sketch.serialized();
+    const auto restored_body = regenerate_edited();
+    edited_document.history.front().sweep3d.profiles.resize(1);
+    const auto original_body = regenerate_edited();
+    require(restored_body.size() == 1 && original_body.size() == 1 &&
+        std::abs(restored_body.front().volume - original_body.front().volume) < 1e-7,
+        "Clearing second profile did not restore the original solid");
+    require(std::abs(variable_body.front().volume - original_body.front().volume) > 1,
+        "Second circular profile had no effect on the solid");
     auto c=fixture(5);auto route=document::curve3d_route(c.sweep3d.path);
     require(route.stations.size()==4&&route.segments.size()==3,"rounded route count");
     require(route.stations[1].label=="2.1"&&route.stations[2].label=="2.2","station labels");
@@ -96,11 +177,74 @@ int main(){try{
     require(body.size()==1&&std::abs(body[0].volume-expected)<1e-4,"rounded pipe volume");
     c.sweep3d.path.curve_rounding_enabled=false;
     route=document::curve3d_route(c.sweep3d.path);
-    require(!route.stations[1].active&&route.stations[2].active&&route.segments.size()==2,"disabled radius stations");
+    require(route.stations[1].active&&route.stations[2].active&&route.segments.size()==2,"disabled radius stations");
     require(c.sweep3d.path.curve_points[1].curve_radius==5,"disabled radius forgotten");
     doc.history={c};body=k.evaluate_history(doc.kernel_operations());
-    std::cout<<"Sharp volume "<<body[0].volume<<" expected "<<60*std::numbers::pi<<std::endl;
-    require(std::abs(body[0].volume-60*std::numbers::pi)<1e-4,"sharp pipe volume");
+    std::cout<<"Sharp volume "<<body[0].volume<<" expected "<<(60*std::numbers::pi-4.0/3)<<std::endl;
+    require(std::abs(body[0].volume-(60*std::numbers::pi-4.0/3))<1e-4,"sharp pipe volume");
+    const auto first_end=document::sweep3d_cap_key(c.sweep3d.path,0,false);
+    const auto second_start=document::sweep3d_cap_key(c.sweep3d.path,1,true);
+    const auto area_for=[](const auto& mesh,const std::string& key) {
+        double area=0;
+        for(std::size_t i=0;i<mesh.triangle_references.size();++i) {
+            if(mesh.triangle_references[i].semantic_key!=key)continue;
+            const auto a=mesh.vertices[mesh.triangles[3*i]],b=mesh.vertices[mesh.triangles[3*i+1]],d=mesh.vertices[mesh.triangles[3*i+2]];
+            const kernel::Vec3 u{b.x-a.x,b.y-a.y,b.z-a.z},v{d.x-a.x,d.y-a.y,d.z-a.z};
+            area+=std::hypot(u.y*v.z-u.z*v.y,u.z*v.x-u.x*v.z,u.x*v.y-u.y*v.x)/2;
+        }
+        return area;
+    };
+    for(const auto& key:{first_end,second_start}) {
+        require(std::abs(area_for(body[0].mesh,key)-std::numbers::pi/2)<0.03,
+            "Right-angle channels did not retain two semicircular caps");
+        require(std::abs(area_for(body[0].mesh.original_references,key)-std::numbers::pi)<0.03,
+            "Original full endpoint circle was not persisted");
+    }
+    require(document::sweep3d_cap_label(c,first_end)=="Úsek 1 → 2.1 — konec" &&
+        document::sweep3d_cap_label(c,second_start)=="Úsek 2.2 → 3.2 — začátek",
+        "Endpoint names do not distinguish incoming and outgoing segments");
+    auto independent_profiles=fixture(0);
+    auto rectangular_section=sketcher::Sketch::create_default();
+    static_cast<void>(rectangular_section.add_rectangle(-2,-2,2,2));
+    independent_profiles.sweep3d.profiles.push_back({kernel::make_stable_id(),
+        independent_profiles.sweep3d.path.curve_points[1].id,
+        rectangular_section.id,rectangular_section.serialized(),false});
+    document::PartDocument separate_profiles;separate_profiles.history={independent_profiles};
+    require(k.evaluate_history(separate_profiles.kernel_operations()).size()==1,
+        "Independent circle and rectangle segments incorrectly required a corner loft");
+    const auto inherited_preview=document::sweep3d_profiles_viewer_mesh(independent_profiles);
+    require(inherited_preview.edges.size()==10,
+        "Preview omitted inherited circular or rectangular endpoint profiles");
+    auto continued=fixture(0);continued.sweep3d.path.curve_points[2].origin={0,0,60};
+    document::PartDocument straight;straight.history={continued};
+    const auto straight_body=k.evaluate_history(straight.kernel_operations());
+    const auto buried_end=document::sweep3d_cap_key(continued.sweep3d.path,0,false);
+    require(area_for(straight_body[0].mesh,buried_end)==0 &&
+        area_for(straight_body[0].mesh.original_references,buried_end)>3,
+        "Straight continuation lost the source identity of its consumed cap");
+    // Persisted original cap metadata, not the clipped circular fragment,
+    // supplies a drill point after subtracting a channel from a block.
+    auto channel=fixture(0);channel.combine_mode=document::CombineMode::Subtract;
+    for(auto& point:channel.sweep3d.path.curve_points) {
+        point.origin.x+=10;point.origin.y+=10;point.origin.z+=10;
+    }
+    auto block=document::PartDocument::create_box_container();
+    block.box.height=100;
+    document::PartDocument drilling;drilling.history={block,channel};
+    const auto cut=k.evaluate_history(drilling.kernel_operations());
+    auto tip=document::PartDocument::create_drill_point_container();
+    tip.drill_point.bottom_faces={{channel.id,document::sweep3d_cap_key(channel.sweep3d.path,0,false),{}}};
+    drilling.history.push_back(tip);
+    const auto persisted_cut=document::load_body_result(document::serialize_body_result(cut.back()));
+    const auto& persisted_refs=persisted_cut.mesh.original_references.triangle_references;
+    require(std::ranges::any_of(persisted_refs,[&](const auto& ref){return ref==tip.drill_point.bottom_faces[0] &&
+        ref.surface && std::abs(ref.surface->radius-1)<1e-9 && ref.surface->axis.z>0.99;}),
+        "Saved endpoint lost its original circle and outward direction");
+    kernel::OcctKernel reopened_kernel;
+    auto saved_cut=cut;saved_cut.back()=persisted_cut;
+    const auto tipped=reopened_kernel.evaluate_history_incremental(drilling.kernel_operations(),saved_cut);
+    require(tipped.back().volume<cut.back().volume-0.01,
+        "Drill point could not extend a clipped Sweep/Loft endpoint");
     c.sweep3d.path.curve_rounding_enabled=true;c.sweep3d.path.curve_points[1].curve_radius=31;
     bool rejected=false;try{static_cast<void>(document::curve3d_route(c.sweep3d.path));}catch(const std::exception&){rejected=true;}
     require(rejected,"oversized radius accepted");
@@ -145,7 +289,7 @@ int main(){try{
         doc.history = {inherited};
         const auto result = k.evaluate_history(doc.kernel_operations());
         const double length = radius == 0 ? 60 : 50 + 5*std::numbers::pi/2;
-        require(std::abs(result.front().volume-length*std::numbers::pi)<1e-4,
+        require(std::abs(result.front().volume-(length*std::numbers::pi-(radius==0?4.0/3:0)))<1e-4,
             "Empty station Sketch interrupted profile inheritance");
         auto larger = sketcher::Sketch::create_default();
         larger.owner_container_id = inherited.id;
@@ -154,7 +298,7 @@ int main(){try{
         inherited.sweep3d.profiles.front().sketch_serialized = larger.serialized();
         doc.history = {inherited};
         const auto updated = k.evaluate_history(doc.kernel_operations());
-        require(std::abs(updated.front().volume-4*length*std::numbers::pi)<1e-3,
+        require(std::abs(updated.front().volume-(4*length*std::numbers::pi-(radius==0?32.0/3:0)))<1e-3,
             "Inherited profiles did not follow the source edit");
         auto missing_first = inherited;
         missing_first.sweep3d.profiles.erase(missing_first.sweep3d.profiles.begin());
@@ -183,7 +327,7 @@ int main(){try{
     std::reverse(switched.sweep3d.profiles.begin(),switched.sweep3d.profiles.end());
     doc.history = {switched};
     auto switch_body = k.evaluate_history(doc.kernel_operations());
-    require(std::abs(switch_body.front().volume-310*std::numbers::pi)<1e-3,
+    require(std::abs(switch_body.front().volume-270*std::numbers::pi)<1e-3,
         "Empty stations did not inherit the latest profile in path order");
     static_cast<void>(blank.add_segment(0,0,1,0));
     switched.sweep3d.profiles.front().sketch_serialized=blank.serialized();

@@ -81,6 +81,7 @@ public:
     void set_preview_callback(
         std::function<void(const zima::document::HistoryContainer&)> callback);
     [[nodiscard]] double profile_plane_offset() const;
+    [[nodiscard]] zima::document::HistoryContainer pending_value() const { return values(); }
     [[nodiscard]] double forward_extent_length() const;
     [[nodiscard]] double reverse_extent_length() const;
     [[nodiscard]] zima::document::ProfileExtentMode profile_extent_mode() const;
@@ -106,7 +107,8 @@ public:
         std::function<void()> request_selection);
     void set_shell_face_selection_active(bool active);
     void set_drill_point_faces(
-        std::vector<zima::kernel::FaceReference> faces);
+        std::vector<zima::kernel::FaceReference> faces,
+        const std::vector<QString>& labels = {});
     void set_drill_point_face_callbacks(
         std::function<void(std::size_t)> remove,
         std::function<void()> request_selection);

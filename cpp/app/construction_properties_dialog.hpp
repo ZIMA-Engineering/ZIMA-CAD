@@ -70,6 +70,7 @@ public:
         std::size_t index) const;
     [[nodiscard]] zima::document::ConstructionObject pending_value() const;
     [[nodiscard]] zima::document::HistoryContainer pending_sweep_value() const;
+    [[nodiscard]] bool is_sweep() const { return initial_sweep_.has_value(); }
     void set_sweep_profile_sketch(
         std::size_t index, const zima::sketcher::Sketch& sketch);
     [[nodiscard]] const zima::document::Sweep3DProfile* sweep_profile(
@@ -123,6 +124,8 @@ public:
     bool set_curve_point_radius(const std::string& point_id, double value);
     bool set_inline_parameter_value(
         std::string_view key, double value) override;
+    void filter_parameter_dimensions(
+        std::vector<zima::kernel::ViewerDimension>& dimensions) const;
     // Refreshes the "Absolutní" rotation column from the base rotation
     // implied by orientation-driving references (front/top), disabling it
     // while such references are present; matches Python's

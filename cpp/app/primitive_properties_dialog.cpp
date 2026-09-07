@@ -84,7 +84,7 @@ QString primitive_properties_title(zima::document::FeatureKind kind) {
         case FeatureKind::Wedge: return QObject::tr("Vlastnosti klínu");
         case FeatureKind::Extrusion: return QObject::tr("Vlastnosti vytažení");
         case FeatureKind::Revolution: return QObject::tr("Vlastnosti rotace");
-        case FeatureKind::Sweep3D: return QObject::tr("Vlastnosti 3D Sweepu");
+        case FeatureKind::Sweep3D: return QObject::tr("Vlastnosti Sweep/Loftu");
         case FeatureKind::ImportedStep:
             return QObject::tr("Vlastnosti importu STEP");
         case FeatureKind::Fillet: return QObject::tr("Vlastnosti zaoblení");
@@ -1902,14 +1902,16 @@ void PrimitivePropertiesDialog::set_shell_faces(
 }
 
 void PrimitivePropertiesDialog::set_drill_point_faces(
-        std::vector<zima::kernel::FaceReference> faces) {
+        std::vector<zima::kernel::FaceReference> faces,
+        const std::vector<QString>& labels) {
     drill_point_faces_ = std::move(faces);
     initial_.drill_point.bottom_faces = drill_point_faces_;
     if (drill_point_face_list_ == nullptr) return;
     drill_point_face_list_->clear();
     for (std::size_t index = 0; index < drill_point_faces_.size(); ++index) {
         auto* item = new QListWidgetItem(
-            tr("Dno otvoru %1").arg(index + 1), drill_point_face_list_);
+            index < labels.size() && !labels[index].isEmpty() ? labels[index]
+                : tr("Dno otvoru %1").arg(index + 1), drill_point_face_list_);
         item->setToolTip(QString::fromStdString(
             drill_point_faces_[index].owner_id + " / " +
             drill_point_faces_[index].semantic_key));

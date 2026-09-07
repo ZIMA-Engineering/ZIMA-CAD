@@ -938,6 +938,13 @@ private:
         zima::assembly::AssemblyDocument& document) const;
     void refresh_tabs();
     void refresh_scene();
+    void track_tree_edit(QDialog* dialog);
+    void add_pending_tree_item(QTreeWidgetItem* parent,
+        const std::string& document_id,
+        const zima::assembly::InstancePath& instance_path, bool assembly);
+    QPointer<QDialog> tree_edit_dialog_;
+    std::string tree_edit_document_id_;
+    std::optional<zima::document::HistoryContainer> tree_edit_sketch_container_;
     void apply_body_color(const QColor& color);
     void apply_body_appearance(const QColor& color,
         const std::map<std::string, QColor>& face_colors);

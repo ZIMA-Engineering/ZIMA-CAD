@@ -40,9 +40,12 @@ Novější pokyny uživatele mají přednost.
    transakcí, ale nyní nezačínat samostatný plošný audit Undo/Redo.
 
 Tím je zatím vymezen rozsah obecného modeláře Part. Další velké funkce
-nepřidávat bez nové dohody. Booleovské operace, více těles a spolehlivost
-STEP importu/exportu byly zmíněny jako oblasti ke kontrole pokrytí,
-nikoli jako potvrzené chybějící funkce nebo nově objednaná implementace.
+nepřidávat bez nové dohody. Vícetělesový Part a booleovské operace byly
+2026-09-07 dopracovány jako dohodnutý architektonický směr:
+[vlastní historie těles a operace mezi větvemi](doc/MULTIBODY_AND_BOOLEANS.md).
+Implementace této změny zatím nebyla zadána; aktuálním pokynem je dokumentace,
+commit a push. Přesné pořadí vůči výše uvedeným úlohám zůstává k dohodě.
+Spolehlivost STEP importu/exportu zůstává také oblastí kontroly pokrytí.
 
 ### Doplnění: fialové úchopy kót (2026-09-06)
 
@@ -213,7 +216,16 @@ po dokončení domluvených funkcí.
 
 ## 5. Sweep
 
-**Status: Planned**
+**Status: Partially implemented**
+
+The C++ application provides Sweep/Loft along a polyline or interpolating
+3D curve, profile stations and correspondence. With corner rounding disabled,
+straight segments have independent perpendicular caps and no corner transition;
+their overlapping volumes are united. Original cap references remain available
+for subsequent drill-point operations. See [3D Curve and Sweep/Loft](doc/3D_CURVE_AND_SWEEP.md).
+This is distinct from the planned multi-body document architecture.
+
+Further sweep scope:
 
 - profile sweep along a path
 - profile orientation control
@@ -239,7 +251,7 @@ po dokončení domluvených funkcí.
 
 ## 6. Blend / Loft
 
-**Status: Planned**
+**Status: Partially implemented through Sweep/Loft; general Blend remains planned**
 
 - transitions between multiple profiles
 - guide curves

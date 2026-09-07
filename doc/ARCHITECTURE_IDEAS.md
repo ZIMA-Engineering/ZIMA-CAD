@@ -3,6 +3,11 @@
 > Tento dokument je pracovní poznámka z neformální diskuse. Nejde o schválenou
 > specifikaci ani závazný plán implementace.
 
+Aktualizace 2026-09-07: konkrétní dohodnutý směr pro vícetělesový Part,
+výsledky větví a booleovské operace je veden samostatně v
+[MULTIBODY_AND_BOOLEANS.md](MULTIBODY_AND_BOOLEANS.md). Jde stále o návrh
+před implementací; starší náměty níže jej nenahrazují.
+
 ## Jednotný kontejnerový model
 
 - Základní abstrakcí ZIMA-CADu je kontejner.
