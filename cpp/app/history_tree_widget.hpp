@@ -12,7 +12,9 @@
 namespace zima::app {
 class HistoryTreeWidget final : public QTreeWidget {
 public:
-    using QTreeWidget::QTreeWidget;
+    explicit HistoryTreeWidget(QWidget* parent=nullptr) : QTreeWidget(parent) {
+        setIndentation(12);
+    }
     std::function<void(std::size_t)> history_cursor_moved;
     // Empty owner means the document-level Body/Boolean history.
     std::function<void(const QString&,std::size_t)> body_cursor_moved;

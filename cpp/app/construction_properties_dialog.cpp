@@ -35,9 +35,9 @@ namespace {
 class SweepPointOrderDialog final : public zima::ui::PropertiesSubWindow {
 public:
     SweepPointOrderDialog(const zima::sketcher::Sketch& sketch,
-        const std::string& start, std::function<void(std::string)> preview, QWidget* parent)
+        const std::string& start, std::function<void(std::string)> preview, QWidget* parent, bool allow_open)
         : PropertiesSubWindow(tr("Pořadí bodů profilu"),parent),
-          sketch_(sketch), preview_(std::move(preview)) {
+          sketch_(sketch), preview_(std::move(preview)), allow_open_(allow_open) {
         setAttribute(Qt::WA_DeleteOnClose,true);
         setObjectName("sweepPointOrderDialog");
         setMinimumWidth(400);
@@ -50,11 +50,16 @@ public:
         table_->setHorizontalHeaderLabels({tr("Pořadí"),tr("X [mm]"),tr("Y [mm]")});
         table_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
         table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
-        const auto mapping=zima::document::sweep3d_profile_correspondence(sketch_);
+        const auto mapping=zima::document::sweep3d_profile_correspondence(sketch_,{},allow_open_);
         for(std::size_t i=0;i<mapping.point_ids.size();++i) {
+            if (!mapping.closed && i!=0 && i+1!=mapping.point_ids.size()) continue;
             const auto* point=sketch_.find_point(mapping.point_ids[i]);
             first_->addItem(tr("Bod %1 (%2; %3)").arg(i+1).arg(point->x).arg(point->y),
                 QString::fromStdString(point->id));
+        }
+        if (!mapping.closed) {
+            help->setText(tr("Otevřený profil se páruje od zvoleného koncového bodu. "
+                "Volbou druhého konce obrátíte pořadí párování i stranu tloušťky."));
         }
         first_->setCurrentIndex(std::max(0,first_->findData(QString::fromStdString(start))));
         content_layout()->addWidget(first_);content_layout()->addWidget(table_);
@@ -77,7 +82,7 @@ protected:
 private:
     void refresh() {
         const auto mapping=zima::document::sweep3d_profile_correspondence(
-            sketch_,first_->currentData().toString().toStdString());
+            sketch_,first_->currentData().toString().toStdString(),allow_open_);
         table_->setRowCount(static_cast<int>(mapping.point_ids.size()));
         for(std::size_t i=0;i<mapping.point_ids.size();++i) {
             const auto* point=sketch_.find_point(mapping.point_ids[i]);
@@ -88,6 +93,7 @@ private:
     }
     zima::sketcher::Sketch sketch_;
     std::function<void(std::string)> preview_;
+    bool allow_open_{};
     QComboBox* first_{};
     QTableWidget* table_{};
 };
@@ -562,7 +568,7 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
     sweep_profiles_ = initial.sweep3d.profiles;
     sweep_combine_mode_ = initial.combine_mode;
     allow_sweep_subtract_ = allow_subtract;
-    set_internal_title(tr("Vlastnosti Sweep/Loftu"));
+    set_internal_title(tr("Vlastnosti 3D Sweep/Loftu"));
     if (curve_rounding_) curve_rounding_->setToolTip(tr(
         "Vypnuto: samostatné rovné úseky s vlastními profily a kolmými čely. "
         "Zapnuto: souvislé tažení přes zaoblené rohy."));
@@ -574,7 +580,42 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
 void ConstructionPropertiesDialog::initialize_sweep_ui() {
     if (!initial_sweep_) return;
     content_layout()->removeWidget(error_);
-    auto* title = new QLabel(tr("Profily Sweep/Loftu"), this);
+    auto* thin_form = new QFormLayout;
+    sweep_result_type_ = new QComboBox(this);
+    sweep_result_type_->setObjectName("sweep3DResultType");
+    sweep_result_type_->addItems({tr("Těleso"),tr("Thin")});
+    sweep_result_type_->setCurrentIndex(initial_sweep_->sweep3d.result_type ==
+        zima::document::ProfileResultType::Thin ? 1 : 0);
+    thin_form->addRow(tr("Typ výsledku"),sweep_result_type_);
+    sweep_thickness_ = new QDoubleSpinBox(this);
+    sweep_thickness_->setObjectName("sweep3DThickness");
+    sweep_thickness_->setDecimals(offset_->decimals());
+    sweep_thickness_->setRange(0.001,1'000'000.0);
+    sweep_thickness_->setSuffix(tr(" mm"));
+    sweep_thickness_->setValue(initial_sweep_->sweep3d.thickness);
+    thin_form->addRow(tr("Tloušťka"),sweep_thickness_);
+    sweep_thin_mode_ = new QComboBox(this);
+    sweep_thin_mode_->setObjectName("sweep3DThinSide");
+    sweep_thin_mode_->addItems({tr("Dovnitř"),tr("Ven"),tr("Symetricky")});
+    sweep_thin_mode_->setCurrentIndex(initial_sweep_->sweep3d.thin_mode ==
+        zima::document::ThinMode::OneSide ? 0 : initial_sweep_->sweep3d.thin_mode ==
+        zima::document::ThinMode::OtherSide ? 1 : 2);
+    sweep_thin_mode_->setToolTip(tr("Symetricky: polovina zadané tloušťky na každou stranu profilu. "
+        "U otevřené kontury určuje stranu směr jejího obvodu."));
+    thin_form->addRow(tr("Strana tloušťky"),sweep_thin_mode_);
+    content_layout()->addLayout(thin_form);
+    const auto update_thin=[this,thin_form] {
+        const bool thin=sweep_result_type_->currentIndex()==1;
+        thin_form->setRowVisible(sweep_thickness_,thin);
+        thin_form->setRowVisible(sweep_thin_mode_,thin);
+        set_initial_size(QSize(460,std::max(900,sizeHint().height())));
+    };
+    update_thin();
+    connect(sweep_result_type_,&QComboBox::currentIndexChanged,this,
+        [this,update_thin] { update_thin();notify_preview(); });
+    connect(sweep_thickness_,&QDoubleSpinBox::valueChanged,this,[this] { notify_preview(); });
+    connect(sweep_thin_mode_,&QComboBox::currentIndexChanged,this,[this] { notify_preview(); });
+    auto* title = new QLabel(tr("Profily 3D Sweep/Loftu"), this);
     title->setStyleSheet("color:#9fd7e5;font-weight:700;");
     content_layout()->addWidget(title);
     sweep_profiles_table_ = new QTableWidget(this);
@@ -813,7 +854,7 @@ void ConstructionPropertiesDialog::refresh_sweep_profiles() {
                 };
                 auto* dialog=new SweepPointOrderDialog(
                     zima::sketcher::Sketch::from_serialized(sweep_profiles_.at(profile_index).sketch_serialized),
-                    initial,preview,parentWidget());
+                    initial,preview,parentWidget(),sweep_result_type_->currentIndex()==1);
                 connect(dialog,&QDialog::finished,this,[self,preview,initial](int result) {
                     if(!self)return;
                     if(result!=QDialog::Accepted)preview(initial);
@@ -897,6 +938,11 @@ ConstructionPropertiesDialog::pending_sweep_value() const {
         point.parent_construction_id = stored_path.id;
     container.sweep3d.path = std::move(stored_path);
     container.sweep3d.profiles = sweep_profiles_;
+    container.sweep3d.result_type = sweep_result_type_->currentIndex()==1 ?
+        zima::document::ProfileResultType::Thin : zima::document::ProfileResultType::Solid;
+    container.sweep3d.thickness = sweep_thickness_->value();
+    container.sweep3d.thin_mode = sweep_thin_mode_->currentIndex()==0 ? zima::document::ThinMode::OneSide
+        : sweep_thin_mode_->currentIndex()==1 ? zima::document::ThinMode::OtherSide : zima::document::ThinMode::Symmetric;
     for (std::size_t index = 0;
          index < container.sweep3d.profiles.size(); ++index) {
         static_cast<void>(
@@ -1163,6 +1209,7 @@ bool ConstructionPropertiesDialog::set_inline_parameter_value(
         if (set_field(rotation_[index])) return true;
         return set_field(rotation_offset_[index]);
     }
+    if (key == "thickness") return set_field(sweep_thickness_);
     if (key == "offset") return set_field(offset_);
     if (key == "length") return set_field(display_size_);
     constexpr std::string_view prefix{"reference_offset:"};
@@ -1520,7 +1567,7 @@ bool ConstructionPropertiesDialog::submit() {
     if (initial_sweep_) {
         if (sweep_profiles_.empty()) {
             error_->setText(tr(
-                "Sweep/Loft vyžaduje alespoň jednu uzavřenou profilovou skicu."));
+                "3D Sweep/Loft vyžaduje alespoň jednu profilovou skicu."));
             return false;
         }
         auto sweep = pending_sweep_value();

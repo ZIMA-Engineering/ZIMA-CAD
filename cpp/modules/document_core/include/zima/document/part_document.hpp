@@ -448,9 +448,10 @@ struct Sweep3DProfile {
 struct Sweep3DCorrespondence {
     std::vector<std::string> point_ids;
     std::vector<zima::kernel::Vec3> positions;
+    bool closed{true};
 };
 [[nodiscard]] Sweep3DCorrespondence sweep3d_profile_correspondence(
-    const zima::sketcher::Sketch& sketch, const std::string& start_point_id = {});
+    const zima::sketcher::Sketch& sketch, const std::string& start_point_id = {}, bool allow_open = false);
 
 struct Sweep3DParameters {
     // A complete ordinary Curve3D is embedded in the history feature.  Its
@@ -459,6 +460,9 @@ struct Sweep3DParameters {
     // not appear as an independent Tree object.
     ConstructionObject path;
     std::vector<Sweep3DProfile> profiles;
+    ProfileResultType result_type{ProfileResultType::Solid};
+    ThinMode thin_mode{ThinMode::OneSide};
+    double thickness{1.0};
     bool operator==(const Sweep3DParameters&) const = default;
 };
 

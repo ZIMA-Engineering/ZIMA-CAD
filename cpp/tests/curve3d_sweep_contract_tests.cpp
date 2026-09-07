@@ -32,7 +32,129 @@ static void mark_circle(sketcher::Sketch& sketch,std::size_t count,double phase=
         static_cast<void>(sketch.add_point_on_circle_constraint(point,circle.id));
     }
 }
+static void thin_sweep_contracts() {
+    kernel::OcctKernel kernel;
+    auto doc=document::PartDocument::create_default();
+    const auto close=[&](double actual,double expected,const char* message) {
+        require(std::abs(actual-expected)<std::max(0.01,std::abs(expected)*2e-4),message);
+    };
+    for (auto mode : {document::ThinMode::OneSide,document::ThinMode::OtherSide,document::ThinMode::Symmetric}) {
+        auto c=fixture(0);c.sweep3d.path.curve_points.resize(2);
+        c.sweep3d.result_type=document::ProfileResultType::Thin;
+        c.sweep3d.thickness=.2;c.sweep3d.thin_mode=mode;
+        const double outside=mode==document::ThinMode::OneSide?1:mode==document::ThinMode::OtherSide?1.2:1.1;
+        const double inside=outside-.2;
+        doc.history={c};const auto operations=doc.kernel_operations();
+        const auto body=kernel.evaluate_history(operations).back();
+        close(body.volume,30*std::numbers::pi*(outside*outside-inside*inside),
+            "Thin 3D Sweep volume does not match an analytical hollow cylinder");
+        bool inner=false,outer=false;
+        for(const auto& ref:body.mesh.original_references.triangle_references) {
+            inner|=ref.semantic_key.find("thin:inside:from:")!=std::string::npos;
+            outer|=ref.semantic_key.find("thin:outside:from:")!=std::string::npos;
+        }
+        require(inner&&outer,"Thin Sweep lost the original profile ancestry of its two walls");
+        auto changed=c;changed.sweep3d.thickness=.25;doc.history={changed};
+        require(kernel::history_fingerprint(doc.kernel_operations(),1)!=kernel::history_fingerprint(operations,1),
+            "Changing Thin thickness failed to invalidate calculated history");
+        doc.history={c};const auto file=std::filesystem::temp_directory_path()/"zima-thin-sweep-contract.prtz";
+        doc.save(file);auto loaded=document::PartDocument::load(file);std::filesystem::remove(file);
+        require(loaded.history.front().sweep3d.result_type==c.sweep3d.result_type &&
+                loaded.history.front().sweep3d.thin_mode==c.sweep3d.thin_mode &&
+                loaded.history.front().sweep3d.thickness==c.sweep3d.thickness,
+            "Thin parameters did not survive Part persistence");
+        close(kernel.evaluate_history(loaded.kernel_operations()).back().volume,body.volume,
+            "Reloaded Thin Sweep changed volume");
+        auto second=sketcher::Sketch::create_default();second.owner_container_id=c.id;
+        static_cast<void>(second.add_circle(0,0,1.5));
+        c.sweep3d.profiles.push_back({kernel::make_stable_id(),c.sweep3d.path.curve_points.back().id,
+            second.id,second.serialized(),false});
+        doc.history={c};
+        const double outside2=outside+.5,inside2=inside+.5;
+        close(kernel.evaluate_history(doc.kernel_operations()).back().volume,
+            30*std::numbers::pi/3*(outside*outside+outside*outside2+outside2*outside2
+                -inside*inside-inside*inside2-inside2*inside2),
+            "Thin Loft between different circular profiles has incorrect wall volume");
+        auto open=fixture(0);open.sweep3d.path.curve_points.resize(2);
+        auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=open.id;
+        static_cast<void>(sketch.add_segment(-2,0,2,0));
+        open.sweep3d.profiles.front().sketch_id=sketch.id;
+        open.sweep3d.profiles.front().sketch_serialized=sketch.serialized();
+        open.sweep3d.result_type=document::ProfileResultType::Thin;
+        open.sweep3d.thickness=.2;open.sweep3d.thin_mode=mode;doc.history={open};
+        require(!document::sweep3d_profile_correspondence(sketch,{},true).closed,
+            "Open Thin profile was classified as closed");
+        close(kernel.evaluate_history(doc.kernel_operations()).back().volume,4*.2*30,
+            "Open Thin 3D Sweep did not form the expected wall");
+        const auto start=sketch.segments.front().first_point_id;
+        open.sweep3d.profiles.front().correspondence_start_point_id=start;
+        auto wider=sketcher::Sketch::create_default();wider.owner_container_id=open.id;
+        static_cast<void>(wider.add_segment(-3,0,3,0));
+        document::Sweep3DProfile end_profile{kernel::make_stable_id(),
+            open.sweep3d.path.curve_points.back().id,wider.id,wider.serialized()};
+        end_profile.correspondence_start_point_id=wider.segments.front().first_point_id;
+        open.sweep3d.profiles.push_back(end_profile);doc.history={open};
+        close(kernel.evaluate_history(doc.kernel_operations()).back().volume,5*.2*30,
+            "Open Thin Loft between different profiles has incorrect wall volume");
+        open.sweep3d.path.curve_points.back().origin={18,0,24};doc.history={open};
+        close(kernel.evaluate_history(doc.kernel_operations()).back().volume,5*.2*30,
+            "Rotating an open Thin Loft changed its profile plane or volume");
+        const auto reversed=document::sweep3d_profile_correspondence(sketch,
+            sketch.segments.front().second_point_id,true);
+        require(reversed.point_ids.front()==sketch.segments.front().second_point_id &&
+            reversed.point_ids.back()==start,"Open profile endpoint selection did not reverse correspondence");
+    }
+    for (unsigned markers : {1u,4u}) for (bool keypoints : {false,true}) {
+        auto marked=fixture(0);marked.sweep3d.path.curve_points.resize(2);
+        auto sketch=sketcher::Sketch::from_serialized(marked.sweep3d.profiles.front().sketch_serialized);
+        if (keypoints) {
+            const auto circle_id=sketch.circles.front().id;
+            for (unsigned i=0;i<markers;++i) {
+                const unsigned quarter=i*4/markers;
+                const double angle=quarter*std::numbers::pi/2;
+                const auto point=sketch.add_point(std::cos(angle),std::sin(angle));
+                static_cast<void>(sketch.add_point_reference_constraint(point,
+                    "sketch_keypoint:circle:"+circle_id+":"+std::to_string(quarter)));
+            }
+        } else mark_circle(sketch,markers);
+        marked.sweep3d.profiles.front().sketch_serialized=sketch.serialized();
+        marked.sweep3d.result_type=document::ProfileResultType::Thin;
+        marked.sweep3d.thickness=.2;doc.history={marked};
+        close(kernel.evaluate_history(doc.kernel_operations()).back().volume,30*std::numbers::pi*.36,
+            "Correspondence markers changed the thickness or volume of a circular Thin Sweep");
+    }
+    auto polygon=fixture(0);polygon.sweep3d.path.curve_points.resize(2);
+    auto square=sketcher::Sketch::create_default();square.owner_container_id=polygon.id;
+    static_cast<void>(square.add_rectangle(-2,-2,2,2));
+    polygon.sweep3d.profiles.front().sketch_id=square.id;
+    polygon.sweep3d.profiles.front().sketch_serialized=square.serialized();
+    polygon.sweep3d.result_type=document::ProfileResultType::Thin;
+    polygon.sweep3d.thickness=.2;doc.history={polygon};
+    close(kernel.evaluate_history(doc.kernel_operations()).back().volume,30*(16-3.6*3.6),
+        "Thin rectangular profile does not have the requested inward wall thickness");
+    auto rounded=fixture(5);rounded.sweep3d.result_type=document::ProfileResultType::Thin;
+    rounded.sweep3d.thickness=.2;doc.history={rounded};
+    close(kernel.evaluate_history(doc.kernel_operations()).back().volume,
+        (50+5*std::numbers::pi/2)*std::numbers::pi*.36,
+        "Rounded Thin 3D Sweep does not preserve its annular section");
+    auto sharp=fixture(0);sharp.sweep3d.result_type=document::ProfileResultType::Thin;
+    sharp.sweep3d.thickness=.2;doc.history={sharp};
+    // Two perpendicular cylindrical segments overlap by one quarter of
+    // the Steinmetz solid (4 r^3 / 3). Subtract their inner union as well.
+    close(kernel.evaluate_history(doc.kernel_operations()).back().volume,
+        60*std::numbers::pi*.36-4.0/3*(1-.8*.8*.8),
+        "Sharp Thin Sweep corner has an incorrect wall volume");
+    auto invalid=fixture(0);invalid.sweep3d.path.curve_points.resize(2);
+    invalid.sweep3d.result_type=document::ProfileResultType::Thin;
+    for (double thickness : {0.0,-1.0,2.0}) {
+        invalid.sweep3d.thickness=thickness;doc.history={invalid};bool rejected=false;
+        try { static_cast<void>(kernel.evaluate_history(doc.kernel_operations())); }
+        catch(const std::exception&) {rejected=true;}
+        require(rejected,"Invalid or collapsing Thin thickness was accepted");
+    }
+}
 int main(){try{
+    thin_sweep_contracts();
     // Adding a second circular profile on an oblique sharp corner must
     // produce a stable serialized frame under repeated regeneration.
     auto edited_sweep = fixture(0);

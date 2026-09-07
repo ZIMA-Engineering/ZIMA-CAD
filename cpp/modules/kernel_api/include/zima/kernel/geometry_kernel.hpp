@@ -483,6 +483,7 @@ struct Sweep3DRequest {
         Vec3 profile_normal{0.0, 0.0, 1.0};
         ExtrusionRequest::ProfileRegion profile;
         std::optional<Vec3> circle_radial_direction;
+        std::string thin_end_point_id;
     };
     std::vector<Vec3> path_points;
     std::vector<std::string> path_point_ids;
@@ -496,7 +497,6 @@ struct Sweep3DRequest {
     // perpendicular caps. No corner projection or transition joins segments.
     bool separate_segments{};
     bool thin{};
-    std::string thin_end_point_id;
     double thin_first{}, thin_second{};
     double linear_tolerance{0.001};
 
@@ -1173,12 +1173,13 @@ struct PlacedBody {
                     for(const auto& id:section.profile.inner_boundary_ids)append_string(id);
                     for(const auto& loop:section.profile.inner_edge_source_ids){u64(loop.size());for(const auto& id:loop)append_string(id);}
                     for(const auto& loop:section.profile.inner_vertex_source_ids){u64(loop.size());for(const auto& id:loop)append_string(id);}
+                    append_string(section.thin_end_point_id);
 
                 }
                 byte(primitive.make_solid);
                 byte(primitive.transported);
                 u64(std::bit_cast<std::uint64_t>(primitive.linear_tolerance));
-                byte(primitive.thin);append_string(primitive.thin_end_point_id);
+                byte(primitive.thin);
                 u64(std::bit_cast<std::uint64_t>(primitive.thin_first));u64(std::bit_cast<std::uint64_t>(primitive.thin_second));
             } else if constexpr (std::is_same_v<Request, StepRequest>) {
                 u64(primitive.source_path.size());

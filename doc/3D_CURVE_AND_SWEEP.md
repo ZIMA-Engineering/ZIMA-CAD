@@ -155,3 +155,27 @@ Kontrola referencí ve stromu rozpoznává vlastní rovinu vloženého profilu
 Nehledá ji mezi samostatnými konstrukčními rovinami. Tím se odstraňuje
 falešné červené označení po novém otevření dokumentu; skutečně chybějící
 roviny a rozbité externí reference profilové skici se nadále hlásí.
+
+## Thin — tloušťka 3D Sweep/Loftu
+
+Vlastnosti 3D Sweep/Loftu používají stejný dialog pro vytvoření i editaci.
+Typ výsledku **Těleso / Thin** zpřístupňuje tloušťku a směr **Dovnitř**,
+**Ven** nebo **Symetricky**. Symetricky znamená polovinu celkové zadané
+tloušťky na každou stranu původního profilu. U otevřené kontury stranu určuje
+její orientace. V pořadí bodů lze zvolit kterýkoli koncový bod a tím obrátit
+párování otevřeného profilu. Tloušťka se měří v rovinách profilů; u proměnného Loftu to
+není záruka konstantní vzdálenosti kolmo k výsledné šikmé stěně.
+
+Každý uzavřený profil vytvoří vnější a vnitřní obrys; jejich tažením vznikne
+duté těleso s otevřenými konci. Otevřený profil vytvoří pás uzavřený na svých
+koncích. Jeden Loft nekombinuje otevřené a uzavřené profily. Počet navazujících
+hran a párování musí odpovídat; příliš velké odsazení nebo změna topologie
+odsazeného profilu se odmítne. Zdrojové skici se nemění.
+
+Náhled odsazených obrysů spotřebovává pouze data Sketcheru. Až OK nebo explicitní
+Regenerate volá OCCT. Cancel zahodí rozpracovanou změnu. Parametry
+`result_type`, `thickness` a `thin_mode` jsou povinnou součástí aktuálního
+uloženého Sweep/Loftu; tloušťka i strana vstupují do otisku výpočtu.
+
+České popisy příkazů: **3D Sweep/Loft — 3D tažení / přechod mezi profily**,
+**2D Sweep — 2D tažení po dráze**, **Helical Sweep — šroubovicové tažení**.

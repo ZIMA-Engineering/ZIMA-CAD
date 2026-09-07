@@ -193,6 +193,9 @@ private:
     SweepCommitCallback sweep_commit_;
     std::vector<zima::document::Sweep3DProfile> sweep_profiles_;
     QTableWidget* sweep_profiles_table_{};
+    QComboBox* sweep_result_type_{};
+    QComboBox* sweep_thin_mode_{};
+    QDoubleSpinBox* sweep_thickness_{};
     QPushButton* add_sweep_operation_{};
     QPushButton* subtract_sweep_operation_{};
     zima::document::CombineMode sweep_combine_mode_{

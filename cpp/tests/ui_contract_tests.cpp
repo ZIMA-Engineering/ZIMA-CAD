@@ -3007,8 +3007,21 @@ int main(int argc, char* argv[]) {
         application.processEvents();
         require(sweep_dialog->width() <= 500,
                 "Sweep/Loft properties retained the oversized dialog width");
+        auto* thin_result=sweep_dialog->findChild<QComboBox*>("sweep3DResultType");
+        auto* thin_side=sweep_dialog->findChild<QComboBox*>("sweep3DThinSide");
+        auto* thin_thickness=sweep_dialog->findChild<QDoubleSpinBox*>("sweep3DThickness");
+        require(thin_result && thin_side && thin_thickness && !thin_thickness->isVisible(),
+            "Solid Sweep must hide the optional thickness controls");
+        thin_result->setCurrentIndex(1);thin_thickness->setValue(.4);thin_side->setCurrentIndex(2);
+        require(thin_thickness->isVisible() && sweep_dialog->pending_sweep_value().sweep3d.result_type==
+                zima::document::ProfileResultType::Thin &&
+                sweep_dialog->pending_sweep_value().sweep3d.thin_mode==zima::document::ThinMode::Symmetric &&
+                sweep_dialog->pending_sweep_value().sweep3d.thickness==.4 && committed_sweep.id.empty(),
+            "Thin controls must update only the pending Sweep until OK");
+        thin_result->setCurrentIndex(0);
+
         require(sweep_dialog->windowTitle() ==
-                    QStringLiteral("Vlastnosti Sweep/Loftu") &&
+                    QStringLiteral("Vlastnosti 3D Sweep/Loftu") &&
                     sweep_dialog->findChild<QTableWidget*>(
                         "sweep3DProfiles") != nullptr,
                 "Sweep/Loft does not reuse the 3D Curve Properties dialog with "
@@ -3103,6 +3116,19 @@ int main(int argc, char* argv[]) {
         sweep_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
         require(committed_sweep.sweep3d.profiles[0].correspondence_start_point_id==selected_start,
             "Sweep did not persist the chosen first point");
+        bool thin_edit_committed=false;
+        auto* thin_edit=new zima::app::ConstructionPropertiesDialog(committed_sweep,true,true,
+            [&](zima::document::HistoryContainer){thin_edit_committed=true;},&parent);
+        thin_edit->show();application.processEvents();
+        require(thin_edit->findChild<QDoubleSpinBox*>("sweep3DThickness")->value()==.4 &&
+                thin_edit->findChild<QComboBox*>("sweep3DThinSide")->currentIndex()==2,
+            "Editing a Sweep lost its saved thickness parameters");
+        thin_edit->findChild<QComboBox*>("sweep3DResultType")->setCurrentIndex(1);
+        thin_edit->findChild<QDoubleSpinBox*>("sweep3DThickness")->setValue(.8);
+        thin_edit->buttons()->button(QDialogButtonBox::Cancel)->click();
+        require(!thin_edit_committed && committed_sweep.sweep3d.thickness==.4,
+            "Cancel committed the pending thickness change");
+
         require(committed_sweep.sweep3d.path.curve_rounding_enabled&&committed_sweep.sweep3d.profiles.size()==1&&committed_sweep.sweep3d.profiles[0].id==identity,
             "Sweep did not commit station profile and radii");
 

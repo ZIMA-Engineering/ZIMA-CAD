@@ -3222,13 +3222,15 @@ void AssemblyWorkspaceWindow::create_actions() {
     wedge_action_ = make_action(tr("Klín"), "wedge");
     construction_point_action_ = make_action(tr("Bod"), "point");
     curve_3d_action_ = make_action(tr("3D křivka"), "sketch-3d");
-    sweep_3d_action_ = make_action(tr("Sweep/Loft"), "sweep");
-    sweep_3d_action_->setToolTip(tr("Tažení a přechod mezi profily podél prostorové dráhy."));
+    sweep_3d_action_ = make_action(tr("3D Sweep/Loft"), "sweep");
+    sweep_3d_action_->setToolTip(tr("3D tažení / přechod mezi profily podél prostorové dráhy."));
     sweep2d_action_ = make_action(tr("2D Sweep"), "sweep2d");
     sweep2d_action_->setObjectName("sweep2dAction");
+    sweep2d_action_->setToolTip(tr("2D tažení profilu po rovinné dráze."));
     connect(sweep2d_action_, &QAction::triggered, this, [this] { show_sweep2d_properties(); });
     helical_sweep_action_ = make_action(tr("Helical Sweep"), "helical-sweep");
     helical_sweep_action_->setObjectName("helicalSweepAction");
+    helical_sweep_action_->setToolTip(tr("Šroubovicové tažení profilu."));
     connect(helical_sweep_action_, &QAction::triggered, this, [this] { show_helical_sweep_properties(); });
     construction_axis_action_ = make_action(tr("Osa"), "axis");
     construction_plane_action_ = make_action(tr("Rovina"), "plane");

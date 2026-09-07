@@ -164,6 +164,7 @@ void append_dimension_parameters(std::vector<DimensionParameter>& out,
         for (const auto& sketch : feature.helical.sketches) embedded_sketch(out, sketch);
         break;
     case FeatureKind::Sweep3D:
+        add({"thickness"});
         if (!feature.sweep3d.path.id.empty())
             append_dimension_parameters(out, feature.sweep3d.path);
         for (const auto& profile : feature.sweep3d.profiles)

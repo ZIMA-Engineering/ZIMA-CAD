@@ -73,6 +73,7 @@ void MainWindow::create_layout() {
     auto* left = new QWidget(splitter);
     auto* left_layout = new QVBoxLayout(left);
     tree_ = new QTreeWidget(left);
+    tree_->setIndentation(12);
     tree_->setHeaderHidden(true);
     tree_->setContextMenuPolicy(Qt::CustomContextMenu);
     left_layout->addWidget(tree_, 1);
