@@ -10,6 +10,7 @@
 #include "primitive_properties_dialog.hpp"
 #include "drawing_window.hpp"
 #include "resource_icon.hpp"
+#include "tree_reference_state.hpp"
 
 #include <zima/ui/reference_cell.hpp>
 #include <zima/viewer/mesh_view.hpp>
@@ -1212,6 +1213,35 @@ int verify_pending_container_tree(QApplication& application,
     return 0;
 }
 
+int verify_reopened_sweep_document(QApplication& application, const std::filesystem::path& directory) {
+    const auto source=qEnvironmentVariable("ZIMA_VERIFY_REOPEN_DOCUMENT").toStdString();
+    QTemporaryDir temporary(QString::fromStdString((directory/"reopen-sweep-XXXXXX").string()));
+    if(!verify(temporary.isValid(),"Cannot create isolated reopen directory"))return 1;
+    const auto path=std::filesystem::path(temporary.path().toStdString())/"reopened.prtz";
+    std::filesystem::copy_file(source,path);
+    const auto original=zima::document::PartDocument::load(path);
+    for(int pass=0;pass<3;++pass) {
+        zima::app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));
+        window.resize(1100,850);window.show();
+        if(!verify(window.open_document_path(QString::fromStdString(path.string())),"Cannot reopen Sweep document"))return 1;
+        application.processEvents();
+        auto* tree=window.findChild<QTreeWidget*>("documentTree");
+        for(const auto& feature:original.history) {
+            if(feature.feature_kind!=zima::document::FeatureKind::Sweep3D)continue;
+            QTreeWidgetItem* row=nullptr;
+            for(QTreeWidgetItemIterator it(tree);*it;++it)
+                if((*it)->data(0,Qt::UserRole).toString().toStdString()==feature.id &&
+                    (*it)->data(0,Qt::UserRole+3).toString()=="part-container") {row=*it;break;}
+            if(!verify(row && !row->data(0,zima::app::missing_reference_role).toBool(),
+                "Sweep has a false missing-reference warning after reopening"))return 1;
+        }
+        window.findChild<QAction*>("saveDocumentAction")->trigger();application.processEvents();
+        const auto saved=zima::document::PartDocument::load(path);
+        if(!verify(saved.history==original.history,"Save/reopen changed Sweep definitions"))return 1;
+    }
+    std::cout << "Sweep document save/reopen contracts passed\n";return 0;
+}
+
 int verify_body_placement_offsets(QApplication& application, const std::filesystem::path& directory) {
     using namespace zima::document;
     for (const bool moved : {false,true}) {
@@ -2001,6 +2031,8 @@ int verify_startup_contract(
     const QString& part_capture_path = {}, const QString& drawing_capture_path = {}) {
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_UNRESOLVED_SWEEP_ONLY")) return verify_unresolved_sweep_sketches(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_EXTERNAL_CIRCLE_ONLY")) return verify_external_circle_selection(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_REOPEN_DOCUMENT"))
+        return verify_reopened_sweep_document(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_REFERENCE_DOCUMENT")) {
         QString failure;
         QTimer messages;

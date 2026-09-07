@@ -85,7 +85,15 @@ template<class Document> std::string feature_reference_issue(const document::His
         for (const auto& entry : feature.sweep3d.profiles) {
             if (std::ranges::none_of(feature.sweep3d.path.curve_points,[&](const auto& point){return point.id==entry.point_id;}))
                 issue+="profile-point:"+entry.point_id;
-            if (!entry.sketch_serialized.empty()) issue+=sketch_reference_issue(sketcher::Sketch::from_serialized(entry.sketch_serialized),document);
+            if (!entry.sketch_serialized.empty()) {
+                auto sketch=sketcher::Sketch::from_serialized(entry.sketch_serialized);
+                // This frame belongs to the embedded profile station, not to
+                // the document's registry of independent construction planes.
+                if (sketch.owner_container_id==feature.id && sketch.id==entry.sketch_id &&
+                    sketch.plane_reference_owner_id=="sweep3d:profile:"+entry.id)
+                    sketch.plane_reference_owner_id.clear();
+                issue+=sketch_reference_issue(sketch,document);
+            }
         }
         break;
     case FeatureKind::ShaftThread:

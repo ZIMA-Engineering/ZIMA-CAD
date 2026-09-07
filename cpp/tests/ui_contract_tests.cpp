@@ -389,6 +389,31 @@ int main(int argc, char* argv[]) {
             require(!sketch_reference_issue(sketch,document).empty(),
                 "Deleted Sketch plane was not detected");
 
+            auto sweep=zima::document::PartDocument::create_sweep3d_container();
+            auto point=zima::document::PartDocument::create_construction(zima::document::ConstructionKind::Point);
+            sweep.sweep3d.path.curve_points.push_back(point);
+            auto owned=zima::sketcher::Sketch::create_default();
+            owned.owner_container_id=sweep.id;
+            zima::document::Sweep3DProfile profile;
+            profile.id="embedded-profile";profile.point_id=point.id;profile.sketch_id=owned.id;
+            owned.plane_reference_owner_id="sweep3d:profile:"+profile.id;
+            profile.sketch_serialized=owned.serialized();sweep.sweep3d.profiles.push_back(profile);
+            require(feature_reference_issue(sweep,document,references).empty(),
+                "Owned Sweep profile plane was mistaken for a missing construction");
+            owned.plane_reference_owner_id="deleted-plane";
+            sweep.sweep3d.profiles.front().sketch_serialized=owned.serialized();
+            require(!feature_reference_issue(sweep,document,references).empty(),
+                "Sweep ignored a genuinely missing profile plane");
+            owned.plane_reference_owner_id="sweep3d:profile:"+profile.id;
+            zima::sketcher::SketchExternalReference broken;
+            broken.id="deleted-external";broken.broken=true;
+            broken.source_document_id="source-document";broken.source_owner_id="source-feature";
+            broken.source_semantic_key="source-edge";broken.cached_points={{0,0},{1,0}};
+            owned.external_references.push_back(broken);
+            sweep.sweep3d.profiles.front().sketch_serialized=owned.serialized();
+            require(!feature_reference_issue(sweep,document,references).empty(),
+                "Owned Sweep profile plane hid a broken external reference");
+
             QTreeWidget tree;
             tree.setColumnCount(1);
             tree.setItemDelegate(new ReferenceTreeDelegate(&tree));

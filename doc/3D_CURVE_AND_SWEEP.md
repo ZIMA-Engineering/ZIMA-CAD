@@ -147,3 +147,9 @@ Počáteční a koncová plocha spojeného Sweep/Loftu (zaoblená i spline dráh
 se při výpočtu publikují do uložené referenční geometrie. Identita vychází
 z role začátku/konce a zdrojového úseku dráhy; koncová tečna určuje rovinu.
 Tyto plochy lze použít k umístění dalšího kontejneru i po načtení dokumentu.
+
+Kontrola referencí ve stromu rozpoznává vlastní rovinu vloženého profilu
+`sweep3d:profile:<id>` podle identity profilu a vlastnícího Sweep/Loftu.
+Nehledá ji mezi samostatnými konstrukčními rovinami. Tím se odstraňuje
+falešné červené označení po novém otevření dokumentu; skutečně chybějící
+roviny a rozbité externí reference profilové skici se nadále hlásí.
