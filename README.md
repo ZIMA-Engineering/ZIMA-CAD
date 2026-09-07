@@ -45,13 +45,15 @@ Architecture and migration notes are in [`doc/`](doc/).
 
 Current modeling tools and interaction contracts:
 
+- [Uživatelský manuál](doc/UZIVATELSKY_MANUAL.md)
 - [Multi-body Part and Boolean operations](doc/MULTIBODY_AND_BOOLEANS.md)
+- [Zrcadlo a Pole: linked body and component copies](doc/MIRROR_AND_PATTERN.md)
 - [Save As: model and drawing copies](doc/DOCUMENT_COPY.md)
-- [Sweep/Loft and trajectory references](doc/3D_CURVE_AND_SWEEP.md)
+- [3D tažení (3D Sweep): Loft, Thin and trajectory references](doc/3D_CURVE_AND_SWEEP.md)
 - [Threaded openings](doc/THREADED_OPENING.md)
 - [External shaft threads](doc/SHAFT_THREAD.md)
-- [Helical Sweep](doc/HELICAL_SWEEP.md)
-- [2D Sweep: dvě skici, roviny a Solid/Thin](doc/SWEEP_2D.md)
+- [Šroubovicové tažení (Helical Sweep)](doc/HELICAL_SWEEP.md)
+- [2D tažení (2D Sweep): rovinná dráha, Loft a Thin](doc/SWEEP_2D.md)
 - [View and Tree highlighting](doc/MODELING_INTERACTION.md)
 - [History reordering](doc/HISTORY_TREE_REORDER.md)
 - [Sketch constraint activity](doc/SKETCH_CONSTRAINT_ACTIVITY.md)

@@ -1053,9 +1053,32 @@ Region s funkcemi **Item Number** a **Quantity** jsou funkční. Zbývá dokonč
 symboly a export PDF/DXF. Podrobné ovládání a omezení jsou v dokumentu
 [Výkresy](DRAWINGS.md).
 
-## 3D Sweep: párování profilů
+## 2D tažení: rovinná dráha a více profilů
 
-Ve vlastnostech 3D Sweepu se ve View zobrazují trajektorie i skici jednotlivých
+Příkazy **2D tažení**, **3D tažení** a **Šroubovicové tažení** odpovídají
+anglickým názvům 2D Sweep, 3D Sweep a Helical Sweep. Loft je možnost přechodu
+mezi profily uvnitř 2D a 3D tažení.
+
+U 2D tažení umístěte kontejner a otevřete **Skicu dráhy**. První rovinná
+reference umístění předvyplní samostatné zelené pole před tímto tlačítkem.
+Výběrem jiné roviny nebo rovinné plochy v tomto poli můžete změnit rovinu
+dráhy bez změny umístění kontejneru. Nakreslete otevřenou dráhu z počátku
+skici; její počáteční směr je libovolný.
+
+Po návratu ze skici vyplňte první profil v tabulce stanic. Profily leží
+kolmo k místní tečně dráhy. Další prázdná stanice přebírá předchozí profil;
+vyplněním jiné profilové skici vytvoříte Loft. Vlastněné skici jsou dostupné
+i ve stromu. Párování bodů odpovídá 3D tažení popsanému níže.
+
+U 2D i 3D tažení volba **Thin** přidá tloušťku **Dovnitř / Ven / Symetricky**.
+Symetricky znamená polovinu celkové tloušťky na každou stranu profilu.
+Otevřená kontura vytvoří pás; uzavřená dutý průřez. U proměnného Loftu se
+tloušťka měří v profilových rovinách. Šroubovicové tažení vytváří dutý průřez
+pomocí vnitřního obrysu v profilové skici, například druhé soustředné kružnice.
+
+## 3D tažení: párování profilů
+
+Ve vlastnostech 3D tažení se ve View zobrazují trajektorie i skici jednotlivých
 aktivních stanic. Prázdná stanice přebírá poslední vyplněný profil včetně jeho
 pořadí bodů; první stanice proto musí mít vlastní profil.
 
@@ -1065,21 +1088,50 @@ hodinových ručiček při pohledu proti normále skici. View označuje první b
 **1 – začátek** a další body čísly. Sousední profily se párují 1 → 1, 2 → 2
 atd. Volba začátku používá identitu bodu a ukládá se s dokumentem. **Cancel**
 v okně pořadí vrátí původní volbu; celé těleso přepočítá a změny uloží až
-**OK** ve vlastnostech Sweepu.
+**OK** ve vlastnostech tažení.
 
 Dvě kružnice bez párovacích bodů se spojují bez samovolného pootočení švu.
-Pro řízené pootočení přidejte do každé kružnice bod s vazbou **C** na kružnici.
+Pro řízené pootočení přidejte do každé kružnice bod s vazbou **C** nebo **K**
+na kružnici.
 Pro přechod kružnice na obdélník přidejte na kružnici čtyři takové body,
 aby odpovídaly čtyřem rohům obdélníku, a zvolte odpovídající první bod.
 Počet párovacích bodů sousedních profilů musí souhlasit; jinak výpočet
 skončí vysvětlující chybou. Převzatý profil upravujte v jeho zdrojové stanici.
 
+## Zrcadlo a Pole
+
+Oba příkazy jsou dostupné pro tělesa v dílu a komponenty v sestavě. Můžete
+nejprve vybrat zdroj ve View nebo Tree a poté spustit příkaz; výběr se
+předvyplní. Nebo spusťte příkaz, umístěte vlastní počátek kontejneru a
+vyberte objekt zeleným polem **Zdroj**.
+
+- **Zrcadlo:** vyberte rovinu zrcadlení nebo rovinnou plochu. Tlačítka
+  XY/YZ/XZ použijí rovinu vlastního počátku kontejneru.
+- **Pole – lineární:** zvolte místní X/Y/Z, počet a rozteč. Záporná rozteč
+  obrátí směr. Uložená osa pro kruhový režim zůstává zachovaná a skrytá.
+- **Pole – kruhové:** zvolte osu, počet a úhel mezi výskyty, nebo rozdělení
+  celého kruhu. Osu lze zadat osovou referencí, přímou či kruhovou hranou.
+
+Počet Pole zahrnuje původní objekt. Například počet 4 vytvoří tři další
+kopie a zdroj ponechá samostatný. Kopie nemají vlastní editovatelné rozměry;
+vlastnosti geometrie vedou na zdroj. Vlastnosti hlavního kontejneru v Tree
+upravují jeho umístění, zdroj a parametry kopírování. Změny uloží **OK**,
+**Cancel** je zahodí.
+
+V dílu je Zrcadlo samostatným tělesem a celé Pole jedním společným výsledkem
+vytvořených kopií. Lze je skrýt nebo použít jako nástroj či cíl Booleanu.
+V sestavě má každý výskyt vlastní identitu. Po změně otevřeného zdrojového
+dokumentu aktualizujte sestavu příkazem **Regenerovat**.
+
 ## Další podrobnosti k posledním změnám
 
-- [3D křivka a 3D Sweep](3D_CURVE_AND_SWEEP.md): zaoblení, stanice, přebírání skic a párování bodů.
+- [2D tažení](SWEEP_2D.md): rovina dráhy, profilové stanice, Loft a Thin.
+- [3D křivka a 3D tažení](3D_CURVE_AND_SWEEP.md): zaoblení, stanice, přebírání skic, párování bodů a Thin.
+- [Šroubovicové tažení](HELICAL_SWEEP.md): tři skici, stoupání a dutý průřez.
+- [Zrcadlo a Pole](MIRROR_AND_PATTERN.md): odkazované kopie těles a komponent.
 - [Identifikace kót](DIMENSION_IDENTIFIERS.md): trvalé označení d1, d2, … v rámci dokumentu.
 - [Skicář](SKETCHER.md): uzavření spline, tečnost, zvýraznění účastníků a zamčená spojnice se bodem na ose.
 
-Zelené tlačítko **Sketch** označuje vstup do skici také u 2D Sweepu a Helical
-Sweepu. V nabídce modelování je 3D křivka za skicou a 2D Sweep před 3D Sweepem.
+Zelené tlačítko **Sketch** označuje vstup do skici také u 2D a šroubovicového
+tažení. V nabídce modelování je 3D křivka za skicou a 2D tažení před 3D tažením.
 Vlastnosti kontejnerů již neobsahují redundantní řádek s typem kontejneru.

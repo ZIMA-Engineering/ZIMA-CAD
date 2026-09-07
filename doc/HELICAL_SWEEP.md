@@ -1,6 +1,6 @@
-# Helical Sweep
+# Šroubovicové tažení (Helical Sweep)
 
-Helical Sweep je jeden kontejner historie Partu s operací Přičíst nebo
+Šroubovicové tažení je jeden kontejner historie Partu s operací Přičíst nebo
 Odečíst. Vlastní tři skici; jejich vytvoření a změny zůstávají rozpracované
 ve společném interním okně až do OK. Dokončit skicu se vrací do tohoto okna.
 Cancel zahodí celý rozpracovaný kontejner. Editace používá uložený vstup
@@ -25,7 +25,9 @@ s Protrusion. Volba je do potvrzení OK pouze rozpracovaná.
    mění smysl obíhání. Výchozí je pravé vinutí.
 4. Skica průřezu má počátek na začátku prostorové dráhy a rovinu kolmou
    k její tečně. Přijímá jednu uzavřenou oblast včetně vnitřních otvorů.
-   Průřez může být vůči počátku posunutý.
+   Průřez může být vůči počátku posunutý. Dvě soustředné kružnice
+   v této profilové skici vytvoří dutý průřez; tloušťku určuje rozdíl
+   jejich poloměrů. Samostatný přepínač Thin tento příkaz nemá.
 
 Konec radiální křivky ukončuje vinutí i uprostřed otáčky. Počet otáček
 plyne z absolutní osové výšky dělené stoupáním; délka radiální křivky

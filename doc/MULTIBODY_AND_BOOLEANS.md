@@ -6,9 +6,10 @@ Strom, aktivace, rollback, skicář a reference pracují s vlastnícím tělesem
 včetně editace Partu ve vnořené Assembly. Sjednocení, rozdíl a průnik jsou
 samostatné položky historie Partu. Nový Part aktivuje první těleso.
 
-Assembly Boolean, Pattern celých těles a přesun těles mezi Party zůstávají
-budoucími rozšířeními. Podrobné zápisy implementačních etap níže zachycují
-postup vývoje; aktuální stav shrnuje tento úvod a závěrečné oddíly.
+Zrcadlo a lineární/kruhové Pole celých těles jsou implementované; jejich
+výsledky lze použít v booleovských operacích. Assembly Boolean a přesun
+těles mezi Party zůstávají budoucími rozšířeními. Podrobné zápisy
+implementačních etap níže zachycují postup vývoje; aktuální stav shrnuje tento úvod a závěrečné oddíly.
 
 ## Účel a model
 
@@ -99,16 +100,22 @@ sleduje skutečné reference a vstupy Booleanů; samotné pořadí pozdějšího
 není závislost. Při explicitním výpočtu se obnovují změněné větve a jejich
 závislé výsledky. Běžné zobrazení a aktivace používají uložené výsledky.
 
-## Budoucí Pattern celých těles
+## Zrcadlo a Pole celých těles
 
-Počítat s lineárním a kruhovým Patternem nad výsledkem tělesa, s počtem,
-roztečí nebo úhlem. Kopie odkazují na zdroj a neduplikují jeho modelovací
-historii. Výsledek lze ponechat samostatný nebo použít jako nástroj Booleanu,
-například více otisků odečtených od polotovaru formy.
+Zrcadlo a lineární/kruhové Pole odkazují na výsledek zdrojového tělesa
+nebo Booleanu a mají vlastní počátek a umístění. Kopie neduplikují
+modelovací historii; jejich rozměry se upravují ve zdroji.
 
-Datový model musí umožnit více výstupů jedné operace se stabilními identitami
-jednotlivých instancí. Pattern je budoucí rozšíření, nikoli nutná součást první
-implementace vícetělesového modelu.
+Zrcadlo vytváří samostatný výsledek typu těleso. Celé Pole představuje
+jeden společný výsledek obsahující vytvořené kopie. Oba lze skrýt nebo
+použít jako cíl či nástroj Booleanu, například k odečtení více otisků
+z polotovaru. Zdroj zůstává samostatný; počet Pole zahrnuje i zdroj.
+
+Lineární Pole používá místní X/Y/Z a rozteč. Kruhové Pole používá osu,
+počet a úhel nebo rozdělení celého kruhu. Osa se při přepnutí na lineární
+režim zachová. Kontejnery lze upravit, geometrie kopií nemá vlastní
+editovatelnou historii. Ovládání a chování v sestavách popisuje
+[Zrcadlo a Pole](MIRROR_AND_PATTERN.md).
 
 ## Assembly a Drawing
 

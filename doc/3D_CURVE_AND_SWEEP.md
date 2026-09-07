@@ -1,4 +1,4 @@
-# 3D křivka a Sweep/Loft
+# 3D křivka a 3D tažení (3D Sweep)
 
 3D křivka uchovává původní konstrukční body s trvalými ID. Čísla v tabulce
 jsou pořadí v dráze, nikoli identita pro reference.

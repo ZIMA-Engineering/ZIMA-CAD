@@ -413,39 +413,29 @@
 
 ## Pattern and Mirror
 
-- Implement Pattern as a general semantic history feature after the main Part
-  feature set is stable. Begin with linear and circular patterns; curve-driven,
-  table-driven and reference-driven patterns can follow.
-- A pattern references one or more source features/bodies, not transient result
-  topology. Every occurrence has a deterministic persistent identity derived
-  from the Pattern ID and its semantic occurrence key, never only its current
-  array index.
-- Editing count, spacing, angle, direction or suppressed occurrences preserves
-  identities of surviving occurrences. Deleted occurrences become unresolved;
-  later references must not slide silently to the next array item.
-- Pattern direction/axis references obey mandatory own-value fallback. Preserve
-  the last valid spacing, angle and direction while reporting a lost driver.
-- Implement Part Mirror for selected features and bodies about a stable datum
-  plane or planar face. Mirrored faces, edges and vertices receive provenance
-  from the source semantic identity plus the Mirror operation, including
-  explicit handling of topology lying on the mirror plane.
-- Do not implement a general reflection-matrix Assembly Mirror initially. A
-  negative-handed component transform confuses normals, FRONT/BACK semantics,
-  mates, threads, exports, Drawings and BOM identity.
-- Instead provide **Create mirrored Part** with two explicit document modes:
-  - **Dependent** creates a new derived `.prtz` whose mirror feature references
-    the source Part/document and regenerates when that source changes. It has
-    its own document identity, part number, metadata and Drawing, while its
-    inherited geometry remains associative with the source.
-  - **Independent** creates a new standalone `.prtz` from the mirrored result.
-    It has no regeneration link to the source and can be edited as an ordinary
-    unrelated Part from that point onward.
-- Both modes require an explicit stable mirror plane, output path/name and
-  left/right-hand metadata policy. Assembly then inserts the resulting `.prtz`
-  as an ordinary right-handed component with normal mates and BOM behavior.
-- Pattern and Part Mirror creation/editing use the ordinary rollback, transient
-  preview, selection-contract and own-value-fallback rules. Viewer inspection
-  consumes persisted occurrence/topology data without hidden OCCT traversal.
+Implemented as of 2026-09-07: **Zrcadlo** and linear/circular **Pole** for
+Part bodies and Assembly components. Both use one source, their own origin
+and the shared creation/editing contract. Copies retain source geometry
+provenance and are edited through their source. Part results are available
+as Boolean operands; an Assembly pattern stores distinct occurrence paths.
+Assembly copies are calculated geometry snapshots, including reflected
+geometry, rather than ordinary components with a negative-handed placement.
+Open dependency changes are pulled only by explicit Regenerate.
+See [Mirror and Pattern](MIRROR_AND_PATTERN.md) for the current behavior.
+
+Possible extensions beyond this implementation:
+
+- Curve-driven, table-driven and reference-driven patterns, multiple sources,
+  and patterns of individual history features.
+- Per-occurrence suppression with stable identities for surviving occurrences;
+  deleted occurrences must not silently redirect references to another copy.
+- Reference-loss recovery that preserves the last valid own direction/axis
+  while displaying the unresolved driver.
+- **Create mirrored Part** as a separate document workflow: a dependent `.prtz`
+  linked to its source or an independent `.prtz` with no regeneration link.
+  These modes would require an output path, document identity, metadata and
+  Drawing/BOM policy. They are distinct from the implemented linked Assembly
+  container and are not implemented by it.
 
 ## Undo and Redo
 
