@@ -6475,6 +6475,39 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                 }
             }
             const bool imported_step = std::holds_alternative<StepRequest>(operation.primitive);
+            // Keep drill-point lookup outside the generic visitor to avoid an MSVC C1001.
+            const auto make_drill_point_operand = [&](const DrillPointRequest& primitive)
+                -> PrimitiveData {
+                std::vector<TopoDS_Face> matches;
+                std::vector<std::pair<FaceReference,SurfaceGeometry>> sweep_ends;
+                for (const auto& requested : primitive.bottom_faces) {
+                    if (requested.semantic_key.starts_with("sweep:cap:")) {
+                        const auto source=std::ranges::find_if(original_references.triangle_references,
+                            [&](const auto& ref){return ref==requested && ref.surface && ref.surface->radius>0;});
+                        if(source!=original_references.triangle_references.end()) {
+                            sweep_ends.emplace_back(*source,*source->surface);
+                            continue;
+                        }
+                    }
+                    const auto found = std::find_if(
+                        owned_topology->faces.begin(),
+                        owned_topology->faces.end(), [&](const auto& owned) {
+                            return owned.reference.owner_id ==
+                                    requested.owner_id &&
+                                owned.reference.semantic_key ==
+                                    requested.semantic_key;
+                        });
+                    if (found != owned_topology->faces.end()) {
+                        matches.push_back(TopoDS::Face(found->shape));
+                    }
+                }
+                if (matches.empty() && sweep_ends.empty()) {
+                    throw std::runtime_error(
+                        "Drill-point has no remaining bottom face");
+                }
+                return make_drill_point_data(primitive, matches,
+                    result_shape, operation.owner_id, sweep_ends);
+            };
             const PrimitiveData operand = std::visit([&](const auto& primitive)
                 -> PrimitiveData {
                 using Request = std::decay_t<decltype(primitive)>;
@@ -6491,35 +6524,7 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                     validate_cone(primitive);
                     return make_cone_data(primitive, operation.owner_id);
                 } else if constexpr (std::is_same_v<Request, DrillPointRequest>) {
-                    std::vector<TopoDS_Face> matches;
-                    std::vector<std::pair<FaceReference,SurfaceGeometry>> sweep_ends;
-                    for (const auto& requested : primitive.bottom_faces) {
-                        if (requested.semantic_key.starts_with("sweep:cap:")) {
-                            const auto source=std::ranges::find_if(original_references.triangle_references,
-                                [&](const auto& ref){return ref==requested && ref.surface && ref.surface->radius>0;});
-                            if(source!=original_references.triangle_references.end()) {
-                                sweep_ends.emplace_back(*source,*source->surface);
-                                continue;
-                            }
-                        }
-                        const auto found = std::find_if(
-                            owned_topology->faces.begin(),
-                            owned_topology->faces.end(), [&](const auto& owned) {
-                                return owned.reference.owner_id ==
-                                        requested.owner_id &&
-                                    owned.reference.semantic_key ==
-                                        requested.semantic_key;
-                            });
-                        if (found != owned_topology->faces.end()) {
-                            matches.push_back(TopoDS::Face(found->shape));
-                        }
-                    }
-                    if (matches.empty() && sweep_ends.empty()) {
-                        throw std::runtime_error(
-                            "Drill-point has no remaining bottom face");
-                    }
-                    return make_drill_point_data(primitive, matches,
-                        result_shape, operation.owner_id, sweep_ends);
+                    return make_drill_point_operand(primitive);
                 } else if constexpr (std::is_same_v<Request, PyramidRequest>) {
                     validate_pyramid(primitive);
                     return make_pyramid_data(primitive, operation.owner_id);
