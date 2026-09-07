@@ -60,7 +60,7 @@ public:
         content_layout()->addWidget(first_);content_layout()->addWidget(table_);
         if(mapping.point_ids.empty()) {
             auto* info=new QLabel(tr("Kružnice bez bodů se spojují bez pootočení. Pro řízené párování "
-                "přidejte ve Sketchi body na kružnici s vazbou C."),this);
+                "přidejte ve Sketchi body s vazbou C na kružnici nebo K na její kvadranty."),this);
             info->setWordWrap(true);content_layout()->addWidget(info);
             first_->setEnabled(false);
         }
@@ -567,6 +567,8 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
         "Vypnuto: samostatné rovné úseky s vlastními profily a kolmými čely. "
         "Zapnuto: souvislé tažení přes zaoblené rohy."));
     initialize_sweep_ui();
+    // Sweep adds profile and operation controls below the Curve3D editor.
+    set_initial_size(QSize(460, std::max(900, sizeHint().height())));
 }
 
 void ConstructionPropertiesDialog::initialize_sweep_ui() {

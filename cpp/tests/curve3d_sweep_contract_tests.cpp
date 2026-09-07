@@ -441,6 +441,52 @@ int main(){try{
         rectangle_mapping.point_ids[1],"Profile correspondence start did not persist");
     mapped_body=k.evaluate_history(mapping_loaded.kernel_operations());
     require(mapped_body.front().volume>0,"Rotated correspondence did not calculate");
+    for (const bool mixed : {false, true}) {
+        auto keypoint_sketch = sketcher::Sketch::create_default();
+        keypoint_sketch.owner_container_id = mapping_fixture.id;
+        const auto circle_id = keypoint_sketch.add_circle(0,0,1);
+        std::vector<std::string> marker_ids;
+        std::string first_keypoint_constraint;
+        for (unsigned quarter = 0; quarter < 4; ++quarter) {
+            const double angle = quarter * std::numbers::pi / 2;
+            const auto point = keypoint_sketch.add_point(std::cos(angle),std::sin(angle));
+            marker_ids.push_back(point);
+            if (mixed && quarter % 2) {
+                static_cast<void>(keypoint_sketch.add_point_on_circle_constraint(point,circle_id));
+            } else {
+                const auto id = keypoint_sketch.add_point_reference_constraint(point,
+                    "sketch_keypoint:circle:" + circle_id + ":" + std::to_string(quarter));
+                if (first_keypoint_constraint.empty()) first_keypoint_constraint = id;
+            }
+        }
+        // A K on another (construction) circle must not enter this profile.
+        const auto other_circle = keypoint_sketch.add_circle(4,0,1,true);
+        const auto other_point = keypoint_sketch.add_point(5,0);
+        static_cast<void>(keypoint_sketch.add_point_reference_constraint(other_point,
+            "sketch_keypoint:circle:" + other_circle + ":0"));
+        const auto keypoint_mapping = document::sweep3d_profile_correspondence(keypoint_sketch);
+        require(keypoint_mapping.point_ids == marker_ids,
+            "Circle K or mixed C/K markers lost their counterclockwise order");
+        const auto selected_mapping = document::sweep3d_profile_correspondence(
+            keypoint_sketch,marker_ids[2]);
+        require(selected_mapping.point_ids.front() == marker_ids[2],
+            "K marker cannot be the first Loft correspondence point");
+        for (auto& constraint : keypoint_sketch.constraints)
+            if (constraint.id == first_keypoint_constraint) constraint.suppressed = true;
+        require(document::sweep3d_profile_correspondence(keypoint_sketch).point_ids.size() == 3,
+            "Suppressed K marker still participates in Loft correspondence");
+        for (auto& constraint : keypoint_sketch.constraints)
+            if (constraint.id == first_keypoint_constraint) constraint.suppressed = false;
+        const auto restored = sketcher::Sketch::from_serialized(keypoint_sketch.serialized());
+        require(document::sweep3d_profile_correspondence(restored).point_ids == marker_ids,
+            "K correspondence did not survive Sketch persistence");
+        auto keypoint_sweep = mapping_fixture;
+        keypoint_sweep.sweep3d.profiles.front().sketch_id = keypoint_sketch.id;
+        keypoint_sweep.sweep3d.profiles.front().sketch_serialized = keypoint_sketch.serialized();
+        doc.history = {keypoint_sweep};
+        require(k.evaluate_history(doc.kernel_operations()).front().volume > 0,
+            "Circle K or mixed C/K markers failed to loft to rectangle corners");
+    }
     auto missing_markers=fixture(0);missing_markers.sweep3d.path.curve_points.resize(2);
     missing_markers.sweep3d.profiles.push_back(mapping_fixture.sweep3d.profiles.back());
     missing_markers.sweep3d.profiles.back().point_id=missing_markers.sweep3d.path.curve_points.back().id;

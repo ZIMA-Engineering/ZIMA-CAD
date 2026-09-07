@@ -7321,13 +7321,22 @@ Sweep3DCorrespondence sweep3d_profile_correspondence(
             [&](const auto& value){return value.id==circle_id;});
         if(curve==sketch.circles.end()) throw std::runtime_error("Chybí kružnice profilu.");
         const auto* center=sketch.find_point(curve->center_point_id);
+        const std::string keypoint_prefix = "sketch_keypoint:circle:" + circle_id + ":";
         for(const auto& constraint:sketch.constraints) {
-            if(constraint.suppressed || constraint.kind!=zima::sketcher::ConstraintKind::PointOnCircle ||
-               constraint.geometry_id!=circle_id || !seen.insert(constraint.first_point_id).second) continue;
+            if (constraint.suppressed) continue;
+            const bool on_circle = constraint.kind == zima::sketcher::ConstraintKind::PointOnCircle &&
+                constraint.geometry_id == circle_id;
+            const auto& reference = constraint.second_point_id;
+            const bool on_keypoint = constraint.kind == zima::sketcher::ConstraintKind::PointReference &&
+                reference.starts_with(keypoint_prefix) &&
+                reference.size() == keypoint_prefix.size() + 1 &&
+                reference.back() >= '0' && reference.back() <= '3';
+            if ((!on_circle && !on_keypoint) ||
+                !seen.insert(constraint.first_point_id).second) continue;
             const auto* point=sketch.find_point(constraint.first_point_id);
             if(!point || std::abs(std::hypot(point->x-center->x,point->y-center->y)-circle->radius)>
                     std::max(1e-6,circle->radius*1e-7))
-                throw std::runtime_error("Párovací bod neleží na kružnici; opravte vazbu C.");
+                throw std::runtime_error("Párovací bod neleží na kružnici; opravte vazbu C nebo K.");
             double angle=std::atan2(point->y-center->y,point->x-center->x);
             if(angle<0)angle+=2*std::numbers::pi;
             angular.emplace_back(angle,point->id);

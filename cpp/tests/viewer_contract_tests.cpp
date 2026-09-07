@@ -1,4 +1,5 @@
 #include <zima/viewer/picking.hpp>
+#include <zima/viewer/shading.hpp>
 
 #include <cmath>
 #include <iostream>
@@ -13,6 +14,46 @@ void require(bool condition, const char* message) {
 
 int main() {
     try {
+        {
+            // A planar quad touches a shallow sloping face. Smoothing across
+            // that CAD edge used to reveal a diagonal across the planar quad.
+            zima::kernel::ViewerMesh shading_mesh;
+            shading_mesh.vertices = {{0,0,0}, {1,0,0}, {1,1,0}, {0,1,0}, {0,-1,0.2}};
+            shading_mesh.triangles = {0,1,2, 0,2,3, 0,4,1};
+            shading_mesh.triangle_references = {{"body","plane","a"},
+                {"body","plane","a"}, {"body","slope","a"}};
+            const auto require_planar = [&](const auto& vertices) {
+                for (std::size_t corner = 0; corner < 6; ++corner) {
+                    require(std::abs(vertices[corner*6+3]) < 1e-6 &&
+                            std::abs(vertices[corner*6+4]) < 1e-6 &&
+                            std::abs(std::abs(vertices[corner*6+5])-1) < 1e-6,
+                        "Shading bends a planar CAD face across its triangulation");
+                }
+            };
+            require_planar(zima::viewer::shaded_triangle_vertices(shading_mesh));
+            shading_mesh.triangle_references[2] = {"body","plane","b"};
+            require_planar(zima::viewer::shaded_triangle_vertices(shading_mesh));
+            shading_mesh.triangle_references[2] = {"body","plane","a"};
+            const auto smooth = zima::viewer::shaded_triangle_vertices(shading_mesh);
+            require(smooth[4] > 0.01F && smooth[4] < 0.2F,
+                "Curved triangles belonging to one face no longer shade smoothly");
+            shading_mesh.triangle_references[2] = {"body","slope","a"};
+            // Calculated result meshes deliberately omit selectable owners and
+            // keep separate vertex indices on either side of each CAD edge.
+            shading_mesh.vertices.push_back(shading_mesh.vertices[0]);
+            shading_mesh.vertices.push_back(shading_mesh.vertices[1]);
+            shading_mesh.triangles[6] = 5;
+            shading_mesh.triangles[8] = 6;
+            shading_mesh.triangle_references.clear();
+            require_planar(zima::viewer::shaded_triangle_vertices(shading_mesh));
+            zima::kernel::ViewerMesh curved_result;
+            curved_result.vertices = {{0,0,0}, {1,0,0}, {0,1,0}, {0,-1,0.2}};
+            curved_result.triangles = {0,1,2, 0,3,1};
+            require(zima::viewer::shaded_triangle_vertices(curved_result)[4] > 0.01F,
+                "Unselectable curved result mesh lost smooth shading within a face");
+            std::swap(shading_mesh.triangles[1], shading_mesh.triangles[2]);
+            require_planar(zima::viewer::shaded_triangle_vertices(shading_mesh));
+        }
         {
             zima::kernel::ViewerEdge line;line.reference={"sweep","centerline:from:source-segment",{}};
             line.overlay=true;line.construction=true;line.dash_dot=true;

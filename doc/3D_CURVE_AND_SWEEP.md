@@ -101,7 +101,9 @@ Sweepu provede výpočet a změnu dokumentu.
 
 Kružnice bez bodů používají podél dráhy přenášenou orientaci švu, aby rozdílná
 lokální orientace skic nezpůsobila samovolné zkroucení a zúžení. Jeden bod
-s vazbou C na každé kružnici dovoluje řídit šev a pootočení. Více bodů rozdělí
+s vazbou C na kružnici nebo K na její kvadrant dovoluje řídit šev a pootočení.
+V jednom profilu lze body C a K kombinovat; potlačené vazby se nezapočítají.
+Více bodů rozdělí
 kružnici na přesné oblouky; jejich identity vycházejí ze zdrojové kružnice
 a dvojic bodů. Kružnice → obdélník proto vyžaduje čtyři body na kružnici
 odpovídající čtyřem rohům obdélníku.

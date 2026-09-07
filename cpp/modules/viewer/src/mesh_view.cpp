@@ -1,5 +1,6 @@
 #include <zima/viewer/mesh_view.hpp>
 #include <zima/viewer/picking.hpp>
+#include <zima/viewer/shading.hpp>
 
 #include <QMatrix4x4>
 #include <QKeyEvent>
@@ -2540,70 +2541,7 @@ void MeshView::resizeGL(int, int height) {
 
 void MeshView::upload_mesh() {
     if (!isValid() || !impl_->gpu_dirty) return;
-    // Build crease-aware vertex normals.  Corners at the same geometric
-    // position are smoothed only when their triangle normals describe the
-    // same continuous surface.  This keeps Box edges sharp while Sphere and
-    // Cylinder side faces shade continuously instead of exposing every OCCT
-    // tessellation triangle.
-    using NormalPointKey = std::array<long long, 3>;
-    const auto normal_point_key = [](const zima::kernel::Vec3& point) {
-        constexpr double scale = 1.0e7;
-        return NormalPointKey{std::llround(point.x * scale),
-            std::llround(point.y * scale), std::llround(point.z * scale)};
-    };
-    const std::size_t triangle_count = impl_->mesh.triangles.size() / 3;
-    std::vector<QVector3D> triangle_normals(triangle_count);
-    std::map<NormalPointKey, std::vector<QVector3D>> normals_at_point;
-    for (std::size_t triangle = 0; triangle < triangle_count; ++triangle) {
-        const auto a = impl_->mesh.triangles[triangle * 3];
-        const auto b = impl_->mesh.triangles[triangle * 3 + 1];
-        const auto c = impl_->mesh.triangles[triangle * 3 + 2];
-        if (a >= impl_->mesh.vertices.size() || b >= impl_->mesh.vertices.size() ||
-            c >= impl_->mesh.vertices.size()) continue;
-        const auto& pa = impl_->mesh.vertices[a];
-        const auto& pb = impl_->mesh.vertices[b];
-        const auto& pc = impl_->mesh.vertices[c];
-        QVector3D normal = QVector3D::crossProduct(
-            QVector3D(pb.x - pa.x, pb.y - pa.y, pb.z - pa.z),
-            QVector3D(pc.x - pa.x, pc.y - pa.y, pc.z - pa.z));
-        if (normal.lengthSquared() > 1.0e-12F) normal.normalize();
-        triangle_normals[triangle] = normal;
-        for (const auto index : {a, b, c}) {
-            normals_at_point[normal_point_key(impl_->mesh.vertices[index])]
-                .push_back(normal);
-        }
-    }
-    std::vector<float> vertex_data;
-    vertex_data.reserve(impl_->mesh.triangles.size() * 6);
-    constexpr float smooth_crease_cosine = 0.75F;
-    for (std::size_t triangle = 0; triangle < triangle_count; ++triangle) {
-        const std::size_t offset = triangle * 3;
-        const auto a = impl_->mesh.triangles[offset];
-        const auto b = impl_->mesh.triangles[offset + 1];
-        const auto c = impl_->mesh.triangles[offset + 2];
-        if (a < impl_->mesh.vertices.size() && b < impl_->mesh.vertices.size() &&
-            c < impl_->mesh.vertices.size()) {
-            for (const auto index : {a, b, c}) {
-                const auto& point = impl_->mesh.vertices[index];
-                const QVector3D face_normal = triangle_normals[triangle];
-                QVector3D normal;
-                for (auto adjacent : normals_at_point[normal_point_key(point)]) {
-                    const float alignment = QVector3D::dotProduct(
-                        face_normal, adjacent);
-                    if (std::abs(alignment) < smooth_crease_cosine) continue;
-                    // Mirrored/reversed tessellation is not a geometric
-                    // crease. Align its hemisphere before averaging.
-                    if (alignment < 0.0F) adjacent = -adjacent;
-                    normal += adjacent;
-                }
-                if (normal.lengthSquared() > 1.0e-12F) normal.normalize();
-                else normal = face_normal;
-                vertex_data.insert(vertex_data.end(), {
-                    static_cast<float>(point.x), static_cast<float>(point.y),
-                    static_cast<float>(point.z), normal.x(), normal.y(), normal.z()});
-            }
-        }
-    }
+    const auto vertex_data = shaded_triangle_vertices(impl_->mesh);
     impl_->vertices.bind();
     impl_->vertices.allocate(vertex_data.data(),
         static_cast<int>(vertex_data.size() * sizeof(float)));
