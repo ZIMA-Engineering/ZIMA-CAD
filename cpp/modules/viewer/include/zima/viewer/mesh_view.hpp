@@ -103,6 +103,9 @@ public:
     void set_reference_visibility(ReferenceVisibility reference, bool visible);
     [[nodiscard]] bool reference_visible(ReferenceVisibility reference) const;
     void set_editing_origin_visible(bool visible);
+    // Exact persisted origin, offered through the common candidate list and
+    // painted with the same 6 px purple marker as Part manipulators.
+    void set_component_origin_handle(std::optional<EdgeKey> reference);
     void set_selection_contract(std::vector<CandidateKind> allowed_kinds);
     [[nodiscard]] std::vector<CandidateKind> selection_contract() const;
     [[nodiscard]] std::function<bool(const ViewerCandidate&)> candidate_filter() const;

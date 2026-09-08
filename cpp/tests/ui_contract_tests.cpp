@@ -3436,6 +3436,7 @@ int main(int argc, char* argv[]) {
             }, &parent);
         component_dialog->show();
         application.processEvents();
+        require(component_dialog->windowTitle() == QStringLiteral("Vlastnosti dílu"), "Part properties title is incorrect");
         const auto component_translations =
             component_dialog->findChildren<QDoubleSpinBox*>("componentTranslation");
         require(component_translations.size() == 3,
@@ -3447,6 +3448,11 @@ int main(int argc, char* argv[]) {
                     committed_component.source_document_id == source_id,
                 "Component Properties changed source ownership or lost placement");
 
+        auto subassembly = component;
+        subassembly.source_kind = zima::assembly::ComponentSourceKind::Assembly;
+        auto* assembly_properties = new zima::app::ComponentPropertiesDialog(subassembly, [](auto) {}, &parent);
+        require(assembly_properties->windowTitle() == QStringLiteral("Vlastnosti sestavy"), "Assembly properties title is incorrect");
+        delete assembly_properties;
         auto* axis_dialog = new zima::app::ComponentPropertiesDialog(component, [](auto) {}, &parent);
         const auto axis_reference = zima::assembly::MateReference{zima::assembly::MateReferenceKind::Axis,
             zima::assembly::InstancePath{}.child(component.occurrence_id), "part:origin", "origin:axis:z"};

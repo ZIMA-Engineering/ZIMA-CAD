@@ -152,7 +152,8 @@ ComponentPropertiesDialog::ComponentPropertiesDialog(
     const zima::assembly::PartOccurrence& initial,
     CommitCallback commit,
     QWidget* parent)
-    : PropertiesSubWindow(tr("Vlastnosti komponenty"), parent),
+    : PropertiesSubWindow(initial.source_kind == zima::assembly::ComponentSourceKind::Assembly
+          ? tr("Vlastnosti sestavy") : tr("Vlastnosti dílu"), parent),
       initial_(initial), commit_(std::move(commit)),
       placement_references_(initial.placement_references) {
     setAttribute(Qt::WA_DeleteOnClose, true);
@@ -311,16 +312,16 @@ void ComponentPropertiesDialog::set_placement_error(const QString& message) {
     for (auto* field : rotation_) field->setEnabled(false);
 }
 
-void ComponentPropertiesDialog::set_live_translation(double x, double y, double z) {
-    translation_[0]->blockSignals(true);
-    translation_[1]->blockSignals(true);
-    translation_[2]->blockSignals(true);
-    translation_[0]->setValue(x);
-    translation_[1]->setValue(y);
-    translation_[2]->setValue(z);
-    translation_[0]->blockSignals(false);
-    translation_[1]->blockSignals(false);
-    translation_[2]->blockSignals(false);
+void ComponentPropertiesDialog::set_pending_placement(
+    const zima::assembly::ComponentPlacement& placement) {
+    const std::array<double,6> values{placement.x,placement.y,placement.z,
+        placement.rotation_x,placement.rotation_y,placement.rotation_z};
+    for (std::size_t i=0;i<values.size();++i) {
+        auto* field = i<3 ? translation_[i] : rotation_[i-3];
+        const QSignalBlocker blocked(field);
+        field->setValue(values[i]);
+    }
+    notify_preview();
 }
 
 void ComponentPropertiesDialog::set_reference_request_callback(
@@ -335,7 +336,8 @@ void ComponentPropertiesDialog::set_preview_callback(PreviewCallback callback) {
 
 void ComponentPropertiesDialog::set_placement_reference(
     std::size_t index, bool component_side,
-    zima::assembly::MateReference reference, const QString& label) {
+    zima::assembly::MateReference reference, const QString& label,
+    std::optional<bool> initial_flip) {
     if (index >= 3) return;
     if (placement_references_.size() <= index) {
         placement_references_.resize(index + 1);
@@ -351,9 +353,22 @@ void ComponentPropertiesDialog::set_placement_reference(
             row.component_reference = {};
     }
     match_reference_type(row);
+    if (initial_flip && row.mate_type != zima::assembly::MateKind::PlaneAngle) row.flip = *initial_flip;
     refresh_placement_table();
     notify_preview();
     static_cast<void>(label);
+}
+
+void ComponentPropertiesDialog::set_placement_references(
+    std::vector<zima::assembly::ComponentPlacementReference> references) {
+    if (references.size() > 3) return;
+    for (auto& row : references) match_reference_type(row);
+    placement_references_ = std::move(references);
+    active_reference_index_.reset();
+    inspected_reference_cells_.clear();
+    refresh_placement_table();
+    if (reference_highlights_changed_) reference_highlights_changed_();
+    notify_preview();
 }
 
 void ComponentPropertiesDialog::set_active_reference_cell(

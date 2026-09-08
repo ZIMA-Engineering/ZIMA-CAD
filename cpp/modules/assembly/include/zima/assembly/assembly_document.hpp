@@ -282,6 +282,10 @@ public:
     [[nodiscard]] const PartOccurrence* derived_source(const std::string& occurrence_id) const;
     [[nodiscard]] ComponentConstraintState component_constraint_state(
         const std::string& occurrence_id) const;
+    // Project an origin drag into the translation-only nullspace of the same
+    // equations used by the placement solver (in the owning Assembly frame).
+    [[nodiscard]] zima::kernel::Vec3 component_drag_translation(
+        const std::string& occurrence_id, const zima::kernel::Vec3& delta) const;
     [[nodiscard]] int remaining_degrees_of_freedom(
         const std::string& occurrence_id) const;
     [[nodiscard]] std::unordered_set<std::string>

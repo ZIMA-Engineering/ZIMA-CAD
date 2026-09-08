@@ -512,10 +512,10 @@ PlacementSystem make_placement_system(const AssemblyDocument& document,const Par
             if(row.offset<0 || row.offset>180) throw std::runtime_error("Úhel ploch musí být v rozsahu 0 až 180 stupňů.");
             equation.value=(row.flip?180-row.offset:row.offset)*std::numbers::pi/180.0;
         } else if(row.mate_type!=MateKind::PointCoincident) {
-            // Keep the closest parallel branch unless Flip explicitly requests
-            // opposite directions. Offset remains measured along the target normal.
-            equation.direction=scaled(equation.direction,row.flip?-1.0:
-                dot(moving_direction,equation.target_direction)<0?-1.0:1.0);
+            // Flip is an absolute orientation choice, independent of the last
+            // preview pose: off aligns directions, on makes them opposite.
+            // Choosing the nearest branch here would make toggling back a no-op.
+            equation.direction=scaled(equation.direction,row.flip?-1.0:1.0);
         }
         system.scale=std::max(system.scale,length(equation.point));
         system.constraints.push_back(equation);
@@ -1149,6 +1149,25 @@ void AssemblyDocument::calculate_placement_references() {
     }
     for (std::size_t i = 0; i < components.size(); ++i)
         components[i].placement = pending.components[i].placement;
+}
+
+zima::kernel::Vec3 AssemblyDocument::component_drag_translation(
+    const std::string& occurrence_id, const zima::kernel::Vec3& delta) const {
+    const auto* component = find_occurrence(occurrence_id);
+    if (!component) throw std::invalid_argument("Assembly occurrence does not exist");
+    if (component->grounded) return {};
+    const auto system = make_placement_system(*this, *component);
+    auto jacobian = placement_jacobian(system, placement_pose(component->placement));
+    // An origin handle requests translation. Rotational freedoms remain for
+    // their angle controls; dragging must never rotate a seated component.
+    for (int i=3;i<6;++i) { Motion row{}; row[i]=1; jacobian.push_back(row); }
+    const Motion requested{delta.x,delta.y,delta.z,0,0,0};
+    Motion projected{};
+    for (const auto& motion : nullspace(jacobian)) {
+        const double amount = motion_dot(requested,motion);
+        for (int i=0;i<3;++i) projected[i] += amount*motion[i];
+    }
+    return {projected[0],projected[1],projected[2]};
 }
 
 int AssemblyDocument::remaining_degrees_of_freedom(const std::string& occurrence_id) const {

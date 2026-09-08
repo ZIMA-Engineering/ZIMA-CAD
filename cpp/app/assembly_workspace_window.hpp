@@ -514,18 +514,19 @@ private:
     zima::kernel::Vec3 placement_reference_drag_axis_direction_;
     bool placement_reference_drag_angular_{};
     bool placement_reference_drag_changed_{};
-    // Free-component drag (matches Python's `_on_insertion_origin_dragged`):
-    // active only while `properties_dialog_` is a ComponentPropertiesDialog
-    // editing the dragged occurrence. Translates the occurrence's
-    // coordinate-system origin along the camera view plane.
+    // The exact selected occurrence's origin handle projects camera-plane
+    // motion into mate-free translations. Properties owns OK/Cancel; direct
+    // dragging commits one undoable placement on release.
     std::optional<zima::assembly::AssemblyDocument> component_drag_document_;
+    std::optional<zima::assembly::AssemblyDocument> component_drag_preview_;
+    std::string selected_component_origin_path_;
     std::string component_drag_document_id_;
+    std::string component_drag_instance_path_;
     std::string component_drag_occurrence_id_;
     zima::kernel::Vec3 component_drag_plane_point_;
     zima::kernel::Vec3 component_drag_plane_normal_;
     zima::kernel::Vec3 component_drag_start_hit_;
     zima::kernel::Vec3 component_drag_start_local_origin_;
-    bool component_drag_changed_{};
     // Embedded placement-reference picking state for ComponentPropertiesDialog
     // (mirrors pending_construction_reference_index_/construction_reference_dialog_
     // above, but a row has two independently pickable cells).
@@ -928,6 +929,7 @@ private:
         const zima::kernel::Vec3& ray_origin,
         const zima::kernel::Vec3& ray_direction);
     void end_placement_reference_drag();
+    void set_selected_component_origin(const std::string& instance_path);
     [[nodiscard]] bool begin_component_drag(
         const zima::viewer::ViewerCandidate& candidate,
         const zima::kernel::Vec3& ray_origin,

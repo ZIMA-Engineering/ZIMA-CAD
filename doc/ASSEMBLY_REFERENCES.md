@@ -25,9 +25,16 @@ v referenční geometrii komponenty při vložení a explicitní regeneraci.
 
 Do referencí lze ve stromu i ve View vybrat bod, osu nebo rovinu počátku dílu,
 tělesa či kontejneru, případně počátku vlastnící sestavy. Výběr celého počátku
-ve stromu vyplní **právě zvolenou stranu** tří řádků jeho bodem a osami X/Y.
-Druhý počátek se zadá na opačné straně. Uloží se přesný vybraný vlastník a
-výskyt; počátek tělesa se nenahrazuje počátkem dokumentu.
+vlastnící sestavy ve stromu automaticky spáruje oba počátky třemi vazbami
+**XY–XY, YZ–YZ a XZ–XZ**, s nulovým odsazením. Stačí mít otevřené
+**Vlastnosti dílu** nebo **Vlastnosti sestavy**; není nutné nejdříve vybrat
+zdrojový počátek ani aktivovat cílové pole. Zadané řádky se nahradí najednou
+jako rozpracovaná změna, kterou uloží až OK. V aktivované podsestavě se vybírá
+její vlastní počátek; počátek vyšší sestavy tento výběr nenahradí.
+
+Výběr jiného celého počátku vyplní právě zvolenou stranu tří řádků jeho bodem
+a osami X/Y. Uloží se přesný vybraný vlastník a výskyt; počátek tělesa se
+nenahrazuje počátkem dokumentu. Jednotlivé roviny, osy a body lze zadat ručně.
 
 Typ vazby se odvodí z geometrie: bod–bod, osa–osa nebo plocha–plocha. U ploch
 lze zvolit také úhlovou vazbu. Osy nabízejí pouze souosost; Úhel os byl
@@ -49,7 +56,11 @@ Všechny platné řádky jedné komponenty se řeší společně. Úhel ploch vy
 pohyb, který dovolují ostatní vazby: u souosého a čelně ustaveného dílu
 otáčí právě kolem společné osy a zachová dosednutí. Výsledek se přijme pouze
 při splnění všech rovnic. Pořadí řádků neopravňuje pozdější vazbu porušit
-předchozí vazbu. Flip úhlové vazby požaduje doplňkový úhel.
+předchozí vazbu. **Obrátit** u souososti a shody ploch přepíná mezi shodným
+a opačným směrem normál/os. Při výběru nové dvojice se bližší orientace uloží
+do přepínače; následný výpočet ji už nemění podle aktuální polohy. Opakované
+zapnutí a vypnutí proto skutečně vrací směr zpět, také po uložení dokumentu.
+Flip úhlové vazby požaduje doplňkový úhel.
 
 Nesplnitelná kombinace vyvolá v dialogu **Konflikt vazeb**. Náhled ponechá
 poslední platnou polohu, **OK** neuloží chybný výsledek a **Zrušit** zahodí
@@ -59,6 +70,27 @@ rozpracované změny. Totéž platí pro neplatný krok při tažení hodnotové
 Náhled používá uloženou referenční geometrii bez OCCT a zachová okolní
 komponenty i při editaci v podsestavě. **OK** uloží vyřešenou polohu a vazby;
 **Zrušit** obnoví původní stav komponenty.
+
+## Přesouvání za počátek
+
+Označený přímý díl nebo podsestava zobrazí v počátku zdrojového dokumentu
+fialový bod stejné velikosti jako manipulátory v Partu (poloměr 6 obrazových
+bodů). Úchyt používá společný výběr ve View a funguje i bez otevřených
+vlastností. Při výběru jiného objektu nebo zrušení výběru zmizí.
+
+Tažení promítá pohyb kurzoru do zbývajících **posuvných** volností ze stejných
+geometrických rovnic jako výpočet vazeb. Volný díl se přesouvá v rovině
+pohledu; souosost dovolí posuv podél osy, rovinná vazba pohyb v rovině.
+Uzemněný nebo plně zavazbený díl se nepohne. Samotná rotační volnost
+neopravňuje úchyt počátku měnit polohu ani úhly; pro rotaci slouží úhlové
+hodnoty a jejich ovladače. To platí i pro šikmé směry a natočené podsestavy.
+
+Bez vlastností uvolnění myši uloží jeden přesun, který vrátí jediné **Zpět**.
+**Escape** během tažení obnoví polohu před začátkem gesta. Jsou-li otevřené
+vlastnosti, úchyt respektuje jejich rozpracované vazby a přesun zůstane
+náhledem až do **OK**; **Zrušit** vrátí původní polohu i reference. Podsestava
+vždy vlastní umístění svých přímých komponent; pro přesun vnitřního dílu
+se nejprve aktivuje tato podsestava. Okolní sestava zůstává viditelná.
 
 ## Co se ve view skutečně vybírá
 

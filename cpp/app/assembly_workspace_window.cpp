@@ -3882,6 +3882,12 @@ void AssemblyWorkspaceWindow::create_layout() {
     viewer_->set_selection_contract({zima::viewer::CandidateKind::Dimension,
                                      zima::viewer::CandidateKind::Occurrence});
     viewer_->set_confirmation_callback([this](const auto& candidate) {
+        if (!properties_dialog_ && candidate.kind==zima::viewer::CandidateKind::Vertex &&
+            candidate.semantic_key=="origin:point" && candidate.instance_path==selected_component_origin_path_) return;
+        // The purple origin is a drag control, not a replacement reference.
+        if (component_placement_dialog_ && candidate.kind == zima::viewer::CandidateKind::Vertex &&
+            candidate.semantic_key == "origin:point" && candidate.instance_path == properties_dialog_instance_path_ &&
+            candidate.owner_id == component_placement_dialog_->pending_value().source_document_id + ":origin") return;
         if (local_origin_selection_active_) {
             toggle_local_origin_visibility(candidate);
             return;
@@ -5204,6 +5210,7 @@ void AssemblyWorkspaceWindow::create_layout() {
     });
     const auto synchronize_tree_selection = [this] {
             if (local_origin_selection_active_) return;
+            if (!component_drag_document_) set_selected_component_origin({});
             const auto selected_items = tree_->selectedItems();
             if (selected_items.empty()) {
                 if (!refreshing_scene_) {
@@ -5258,13 +5265,13 @@ void AssemblyWorkspaceWindow::create_layout() {
                 }
                 return;
             }
-            if (component_placement_dialog_ != nullptr &&
-                pending_component_placement_index_) {
-                if (!accept_component_placement_tree_reference(item)) {
+            if (component_placement_dialog_ != nullptr) {
+                if (accept_component_placement_tree_reference(item)) return;
+                if (pending_component_placement_index_) {
                     state_->setText(tr(
                         "Tato položka stromu není platná reference pro umístění komponenty."));
+                    return;
                 }
-                return;
             }
             // Tree and View share one confirmed-selection state. Switching
             // to any ordinary Tree item must release the previous Sketch
@@ -5560,8 +5567,9 @@ void AssemblyWorkspaceWindow::create_layout() {
                            "assembly-construction") {
                 return;
             } else {
-                viewer_->confirm_occurrence(
-                    item->data(0, Qt::UserRole + 1).toString().toStdString());
+                const auto path=item->data(0, Qt::UserRole + 1).toString().toStdString();
+                viewer_->confirm_occurrence(path);
+                set_selected_component_origin(path);
             }
         };
     connect(tree_, &QTreeWidget::itemSelectionChanged, this,
@@ -5618,9 +5626,13 @@ void AssemblyWorkspaceWindow::create_layout() {
                     workspace_.open_part(workspace_.displayed_document_id()) == nullptr) return;
                 QMenu menu(this);
                 menu.setObjectName("partActivationMenu");
-                auto* activate = menu.addAction(tr("Udělat aktivní"));
+                auto* activate = menu.addAction(tr("Aktivní"));
                 activate->setObjectName("activatePartAction");
-                if (menu.exec(tree_->viewport()->mapToGlobal(position)) == activate) activate_body({});
+                auto* create_body = menu.addAction(resource_icon("result-body"), tr("Vytvořit těleso"));
+                create_body->setObjectName("createBodyFromPartAction");
+                const auto selected=menu.exec(tree_->viewport()->mapToGlobal(position));
+                if (selected==activate) activate_body({});
+                else if (selected==create_body) { activate_body({});show_body_properties(); }
                 return;
             }
             if (item->parent() == nullptr) return;
@@ -5635,9 +5647,9 @@ void AssemblyWorkspaceWindow::create_layout() {
                 const auto* body=part->session.document().body_history.find(id);
                 auto* source_properties=body&&body->derived_copy ? menu.addAction(tr("Vlastnosti zdroje")) : nullptr;
                 auto* visibility=body ? menu.addAction(body->visible?tr("Skrýt těleso"):tr("Zobrazit těleso")) : nullptr;
-                QAction* activate = step_kind == "part-body" && !(body&&body->derived_copy) ? menu.addAction(tr("Udělat aktivní")) : nullptr;
+                QAction* activate = step_kind == "part-body" && !(body&&body->derived_copy) ? menu.addAction(tr("Aktivní")) : nullptr;
                 if (activate) activate->setObjectName("activateBodyAction");
-                auto* document = menu.addAction(tr("Aktivovat díl"));
+                auto* document = menu.addAction(tr("Zpět do dílu"));
                 document->setObjectName("activatePartAction");
                 menu.addSeparator();
                 auto* before = menu.addAction(tr("Vložit před"));
@@ -13469,8 +13481,31 @@ void AssemblyWorkspaceWindow::accept_component_placement_reference(
     const auto semantic_label = candidate.kind == zima::viewer::CandidateKind::Vertex
         ? tr("Bod") : candidate.kind == zima::viewer::CandidateKind::Axis
             ? tr("Osa") : tr("Plocha");
+    // Preserve the nearest orientation when a new pair is picked, but persist
+    // that choice in Flip. Subsequent toggles/recalculations use its absolute
+    // value and can therefore return from the opposite orientation reliably.
+    std::optional<bool> initial_flip;
+    const auto& existing=component_placement_dialog_->placement_references();
+    if (selected_index<existing.size() && kind!=zima::assembly::MateReferenceKind::Point) {
+        const auto other=component_side?existing[selected_index].target_reference:existing[selected_index].component_reference;
+        const auto* assembly=workspace_.open_assembly(component_placement_assembly_document_id_);
+        if (assembly && !other.owner_id.empty() && other.kind==kind) {
+            auto geometry=assembly->session.document();
+            *geometry.find_occurrence(component_placement_occurrence_id_)=component_placement_dialog_->pending_value();
+            const auto source=component_side?reference:other,target=component_side?other:reference;
+            if (kind==zima::assembly::MateReferenceKind::Axis) {
+                const auto a=geometry.resolve_axis(source),b=geometry.resolve_axis(target);
+                if(a.status==zima::assembly::MateStatus::Valid && b.status==zima::assembly::MateStatus::Valid)
+                    initial_flip=a.axis.direction.x*b.axis.direction.x+a.axis.direction.y*b.axis.direction.y+a.axis.direction.z*b.axis.direction.z<0;
+            } else {
+                const auto a=geometry.resolve_plane(source),b=geometry.resolve_plane(target);
+                if(a.status==zima::assembly::MateStatus::Valid && b.status==zima::assembly::MateStatus::Valid)
+                    initial_flip=a.plane.normal.x*b.plane.normal.x+a.plane.normal.y*b.plane.normal.y+a.plane.normal.z*b.plane.normal.z<0;
+            }
+        }
+    }
     component_placement_dialog_->set_placement_reference(
-        selected_index, component_side, std::move(reference), semantic_label);
+        selected_index, component_side, std::move(reference), semantic_label, initial_flip);
     const bool auto_advance = component_placement_auto_advance_;
     if (auto_advance)
         component_placement_dialog_->set_reference_inspected(
@@ -13738,10 +13773,37 @@ bool AssemblyWorkspaceWindow::accept_primitive_tree_reference(
 
 bool AssemblyWorkspaceWindow::accept_component_placement_tree_reference(
     const QTreeWidgetItem* item) {
-    if (item == nullptr || component_placement_dialog_ == nullptr ||
-        !pending_component_placement_index_) return false;
+    if (item == nullptr || component_placement_dialog_ == nullptr) return false;
 
     const auto item_kind = item->data(0, Qt::UserRole + 3).toString();
+    const auto prefix = zima::assembly::InstancePath::decode(properties_dialog_instance_path_)
+        .parent().value_or(zima::assembly::InstancePath{});
+    // The owning Assembly origin is a complete placement shortcut even when
+    // insertion has armed the source cell, or reference entry has ended.
+    if (item_kind == "document-origin" &&
+        item->data(0, Qt::UserRole).toString().toStdString() ==
+            component_placement_assembly_document_id_ + ":origin" &&
+        item->data(0, Qt::UserRole + 1).toString().toStdString() == prefix.encoded()) {
+        const auto pending = component_placement_dialog_->pending_value();
+        std::vector<zima::assembly::ComponentPlacementReference> rows;
+        for (const auto key : {"origin:plane:xy", "origin:plane:yz", "origin:plane:xz"}) {
+            rows.push_back({zima::assembly::MateKind::PlaneCoincident,
+                {zima::assembly::MateReferenceKind::Face,
+                    zima::assembly::InstancePath{}.child(pending.occurrence_id),
+                    pending.source_document_id + ":origin", key},
+                {zima::assembly::MateReferenceKind::Face, {},
+                    component_placement_assembly_document_id_ + ":origin", key}});
+        }
+        pending_component_placement_index_.reset();
+        component_placement_dialog_->set_placement_references(std::move(rows));
+        tree_->setProperty("commandSelectionActive", false);
+        viewer_->set_selection_contract({});
+        viewer_->set_candidate_filter({});
+        viewer_->clear_selection();
+        state_->setText(tr("Roviny počátků XY, YZ a XZ jsou spárovány."));
+        return true;
+    }
+    if (!pending_component_placement_index_) return false;
     const auto selected_row = *pending_component_placement_index_;
     const bool component_side = pending_component_placement_component_side_;
 
@@ -19572,130 +19634,137 @@ void AssemblyWorkspaceWindow::end_sketch_dimension_drag() {
     // selection and return the dimension to its ordinary yellow colour.
 }
 
+void AssemblyWorkspaceWindow::set_selected_component_origin(const std::string& instance_path) {
+    if (component_placement_dialog_) return;
+    selected_component_origin_path_.clear();
+    viewer_->set_component_origin_handle(std::nullopt);
+    if (properties_dialog_ || instance_path.empty()) return;
+    try {
+        const auto path=zima::assembly::InstancePath::decode(instance_path);
+        const auto address=workspace_.resolve_occurrence(workspace_.displayed_document_id(),path);
+        if (!address || address->owner_assembly_document_id!=workspace_.active_document_id() ||
+            path.parent().value_or(zima::assembly::InstancePath{}).encoded()!=active_occurrence_path_) return;
+        const auto* owner=workspace_.open_assembly(address->owner_assembly_document_id);
+        const auto* occurrence=owner?owner->session.document().find_occurrence(address->occurrence_id):nullptr;
+        if (!occurrence || occurrence->derived_copy || occurrence->source_kind==zima::assembly::ComponentSourceKind::Pattern) return;
+        selected_component_origin_path_=instance_path;
+        viewer_->set_component_origin_handle(zima::viewer::EdgeKey{occurrence->source_document_id+":origin","origin:point",instance_path});
+    } catch (const std::exception&) { return; }
+}
+
 bool AssemblyWorkspaceWindow::begin_component_drag(
     const zima::viewer::ViewerCandidate& candidate,
-    const zima::kernel::Vec3& ray_origin,
-    const zima::kernel::Vec3& ray_direction) {
-    // Mirrors Python's `_on_insertion_origin_dragged` guard: free-component
-    // drag is only offered while the ComponentPropertiesDialog for exactly
-    // this occurrence is open (`dialog is None or not dialog.isVisible()`).
-    if (properties_dialog_ == nullptr ||
-        candidate.kind != zima::viewer::CandidateKind::Occurrence ||
-        candidate.instance_path != properties_dialog_instance_path_ ||
-        placement_reference_drag_document_ ||
-        sketch_drag_document_ ||
-        assembly_sketch_drag_document_) return false;
-    zima::assembly::InstancePath path;
-    try {
-        path = zima::assembly::InstancePath::decode(candidate.instance_path);
-    } catch (const std::invalid_argument&) {
-        return false;
+    const zima::kernel::Vec3& scene_origin,
+    const zima::kernel::Vec3& scene_direction) {
+    const auto path=component_placement_dialog_?properties_dialog_instance_path_:selected_component_origin_path_;
+    if (path.empty() || candidate.instance_path!=path ||
+        (properties_dialog_ && !component_placement_dialog_) ||
+        placement_reference_drag_document_ || sketch_drag_document_ || assembly_sketch_drag_document_) return false;
+    const auto address=workspace_.resolve_occurrence(workspace_.displayed_document_id(),zima::assembly::InstancePath::decode(path));
+    if (!address) return false;
+    auto* assembly=workspace_.open_assembly(address->owner_assembly_document_id);
+    if (!assembly) return false;
+    const auto* stored=assembly->session.document().find_occurrence(address->occurrence_id);
+    if (!stored) return false;
+    const auto pending=component_placement_dialog_?component_placement_dialog_->pending_value():*stored;
+    const bool origin_handle = candidate.kind == zima::viewer::CandidateKind::Vertex &&
+        candidate.owner_id == pending.source_document_id + ":origin" && candidate.semantic_key == "origin:point";
+    if (!origin_handle && (!component_placement_dialog_ || candidate.kind != zima::viewer::CandidateKind::Occurrence)) return false;
+    if (pending.grounded || pending.derived_copy) return false;
+    auto baseline = assembly->session.document();
+    auto* occurrence = baseline.find_occurrence(pending.occurrence_id);
+    if (!occurrence) return false;
+    *occurrence = pending;
+    try { baseline.calculate_placement_references(); }
+    catch (const std::exception&) { return false; }
+    const auto freedom = baseline.component_constraint_state(pending.occurrence_id);
+    if (!freedom.coordinate_free[0] && !freedom.coordinate_free[1] && !freedom.coordinate_free[2]) return false;
+    auto ray_origin = scene_origin, ray_direction = scene_direction;
+    const auto prefix = zima::assembly::InstancePath::decode(path)
+        .parent().value_or(zima::assembly::InstancePath{});
+    if (!prefix.occurrence_ids.empty()) {
+        ray_origin = workspace_.occurrence_point_from_scene(workspace_.displayed_document_id(),prefix,scene_origin);
+        ray_direction = workspace_.occurrence_direction_from_scene(workspace_.displayed_document_id(),prefix,scene_direction);
     }
-    const auto address = workspace_.resolve_occurrence(
-        workspace_.displayed_document_id(), path);
-    // Free-drag currently supports occurrences owned directly by the
-    // displayed top-level Assembly, where scene-space translation equals the
-    // occurrence's own placement delta without an intermediate parent
-    // transform.
-    if (!address || address->owner_assembly_document_id !=
-            workspace_.displayed_document_id()) return false;
-    auto* assembly = workspace_.open_assembly(address->owner_assembly_document_id);
-    if (assembly == nullptr) return false;
-    const auto* occurrence =
-        assembly->session.document().find_occurrence(address->occurrence_id);
-    if (occurrence == nullptr || occurrence->grounded) return false;
-    component_drag_document_ = assembly->session.document();
-    component_drag_document_id_ = address->owner_assembly_document_id;
-    component_drag_occurrence_id_ = address->occurrence_id;
-    component_drag_start_local_origin_ =
-        {occurrence->placement.x, occurrence->placement.y, occurrence->placement.z};
+    const double ray_length = std::hypot(ray_direction.x,ray_direction.y,ray_direction.z);
+    if (ray_length <= 1e-12) return false;
+    component_drag_start_local_origin_ = {occurrence->placement.x,occurrence->placement.y,occurrence->placement.z};
+    component_drag_document_ = std::move(baseline);
+    component_drag_preview_.reset();
+    component_drag_document_id_=address->owner_assembly_document_id;
+    component_drag_instance_path_=path;
+    component_drag_occurrence_id_ = pending.occurrence_id;
     component_drag_plane_point_ = component_drag_start_local_origin_;
-    const double ray_length = std::sqrt(ray_direction.x * ray_direction.x +
-        ray_direction.y * ray_direction.y + ray_direction.z * ray_direction.z);
-    if (ray_length <= 1.0e-12) {
-        component_drag_document_.reset();
-        return false;
-    }
-    component_drag_plane_normal_ = {ray_direction.x / ray_length,
-        ray_direction.y / ray_length, ray_direction.z / ray_length};
-    const zima::kernel::Vec3 press_to_plane{
-        component_drag_plane_point_.x - ray_origin.x,
-        component_drag_plane_point_.y - ray_origin.y,
-        component_drag_plane_point_.z - ray_origin.z};
-    const double press_t = press_to_plane.x * component_drag_plane_normal_.x +
-        press_to_plane.y * component_drag_plane_normal_.y +
-        press_to_plane.z * component_drag_plane_normal_.z;
-    component_drag_start_hit_ = {
-        ray_origin.x + press_t * component_drag_plane_normal_.x,
-        ray_origin.y + press_t * component_drag_plane_normal_.y,
-        ray_origin.z + press_t * component_drag_plane_normal_.z};
-    component_drag_changed_ = false;
-    state_->setText(tr("Tažením přesouváte komponentu; polohu potvrdí dialog Vlastnosti."));
+    component_drag_plane_normal_ = {ray_direction.x/ray_length,ray_direction.y/ray_length,ray_direction.z/ray_length};
+    const zima::kernel::Vec3 delta{component_drag_plane_point_.x-ray_origin.x,
+        component_drag_plane_point_.y-ray_origin.y,component_drag_plane_point_.z-ray_origin.z};
+    const double t = delta.x*component_drag_plane_normal_.x + delta.y*component_drag_plane_normal_.y + delta.z*component_drag_plane_normal_.z;
+    component_drag_start_hit_ = {ray_origin.x+t*component_drag_plane_normal_.x,
+        ray_origin.y+t*component_drag_plane_normal_.y,ray_origin.z+t*component_drag_plane_normal_.z};
+    state_->setText(component_placement_dialog_
+        ? tr("Tažením přesouváte díl podle volných směrů; polohu potvrdí OK.")
+        : tr("Tažením přesouváte díl podle volných směrů; uvolnění myši uloží přesun, Escape jej zruší."));
     return true;
 }
 
 void AssemblyWorkspaceWindow::update_component_drag(
-    const zima::kernel::Vec3& ray_origin,
-    const zima::kernel::Vec3& ray_direction) {
+    const zima::kernel::Vec3& scene_origin,
+    const zima::kernel::Vec3& scene_direction) {
     if (!component_drag_document_) return;
-    const double direction_length = std::sqrt(
-        ray_direction.x * ray_direction.x + ray_direction.y * ray_direction.y +
-        ray_direction.z * ray_direction.z);
-    if (direction_length <= 1.0e-12) return;
-    const zima::kernel::Vec3 direction{ray_direction.x / direction_length,
-        ray_direction.y / direction_length, ray_direction.z / direction_length};
-    // Intersects the drag ray with the camera-facing plane through the
-    // component's starting position, matching Python's screen-delta ->
-    // world-delta translation for an orthographic camera.
-    const zima::kernel::Vec3 to_plane{
-        component_drag_plane_point_.x - ray_origin.x,
-        component_drag_plane_point_.y - ray_origin.y,
-        component_drag_plane_point_.z - ray_origin.z};
-    const double denominator = direction.x * component_drag_plane_normal_.x +
-        direction.y * component_drag_plane_normal_.y +
-        direction.z * component_drag_plane_normal_.z;
-    if (std::abs(denominator) <= 1.0e-12) return;
-    const double t = (to_plane.x * component_drag_plane_normal_.x +
-        to_plane.y * component_drag_plane_normal_.y +
-        to_plane.z * component_drag_plane_normal_.z) / denominator;
-    const zima::kernel::Vec3 hit{ray_origin.x + t * direction.x,
-        ray_origin.y + t * direction.y, ray_origin.z + t * direction.z};
-    const zima::kernel::Vec3 new_origin{
-        component_drag_start_local_origin_.x + (hit.x - component_drag_start_hit_.x),
-        component_drag_start_local_origin_.y + (hit.y - component_drag_start_hit_.y),
-        component_drag_start_local_origin_.z + (hit.z - component_drag_start_hit_.z)};
-    auto* occurrence = component_drag_document_->find_occurrence(component_drag_occurrence_id_);
-    if (occurrence == nullptr) return;
-    occurrence->placement.x = new_origin.x;
-    occurrence->placement.y = new_origin.y;
-    occurrence->placement.z = new_origin.z;
-    component_drag_changed_ = true;
-    viewer_->set_mesh(component_drag_document_->build_scene(), false);
-    if (auto* dialog = dynamic_cast<ComponentPropertiesDialog*>(properties_dialog_);
-        dialog != nullptr && dialog->occurrence_id() == component_drag_occurrence_id_) {
-        dialog->set_live_translation(new_origin.x, new_origin.y, new_origin.z);
+    auto ray_origin = scene_origin, direction = scene_direction;
+    const auto prefix = zima::assembly::InstancePath::decode(component_drag_instance_path_)
+        .parent().value_or(zima::assembly::InstancePath{});
+    if (!prefix.occurrence_ids.empty()) {
+        ray_origin = workspace_.occurrence_point_from_scene(workspace_.displayed_document_id(),prefix,scene_origin);
+        direction = workspace_.occurrence_direction_from_scene(workspace_.displayed_document_id(),prefix,scene_direction);
     }
-    state_->setText(tr("Poloha komponenty: X %1  Y %2  Z %3 mm")
-        .arg(new_origin.x, 0, 'f', 3).arg(new_origin.y, 0, 'f', 3)
-        .arg(new_origin.z, 0, 'f', 3));
+    const zima::kernel::Vec3 to_plane{component_drag_plane_point_.x-ray_origin.x,
+        component_drag_plane_point_.y-ray_origin.y,component_drag_plane_point_.z-ray_origin.z};
+    const double denominator = direction.x*component_drag_plane_normal_.x +
+        direction.y*component_drag_plane_normal_.y + direction.z*component_drag_plane_normal_.z;
+    if (std::abs(denominator)<=1e-12) return;
+    const double t=(to_plane.x*component_drag_plane_normal_.x + to_plane.y*component_drag_plane_normal_.y +
+        to_plane.z*component_drag_plane_normal_.z)/denominator;
+    const zima::kernel::Vec3 delta{ray_origin.x+t*direction.x-component_drag_start_hit_.x,
+        ray_origin.y+t*direction.y-component_drag_start_hit_.y,
+        ray_origin.z+t*direction.z-component_drag_start_hit_.z};
+    const auto allowed = component_drag_document_->component_drag_translation(component_drag_occurrence_id_,delta);
+    auto placement = component_drag_document_->find_occurrence(component_drag_occurrence_id_)->placement;
+    placement.x += allowed.x; placement.y += allowed.y; placement.z += allowed.z;
+    if (component_placement_dialog_) {
+        component_placement_dialog_->set_pending_placement(placement);
+    } else {
+        auto preview=*component_drag_document_;
+        preview.find_occurrence(component_drag_occurrence_id_)->placement=placement;
+        try {
+            preview.calculate_placement_references();
+            viewer_->set_mesh(prefix.occurrence_ids.empty()?preview.build_scene():
+                workspace_.build_scene_with_assembly_override(workspace_.displayed_document_id(),prefix,preview),false);
+            component_drag_preview_=std::move(preview);
+        } catch (const std::exception&) { return; }
+    }
 }
 
 void AssemblyWorkspaceWindow::end_component_drag() {
-    if (!component_drag_document_) return;
-    const std::string document_id = component_drag_document_id_;
-    auto result = std::move(*component_drag_document_);
-    const bool changed = component_drag_changed_;
-    component_drag_document_.reset();
-    component_drag_document_id_.clear();
-    component_drag_occurrence_id_.clear();
-    component_drag_changed_ = false;
-    if (changed) {
-        if (auto* assembly = workspace_.open_assembly(document_id)) {
-            assembly->session.commit(std::move(result));
+    // An open dialog owns OK/Cancel. Without a dialog, release is one undoable
+    // placement transaction; intermediate pointer samples never enter history.
+    const auto path=component_drag_instance_path_;
+    bool committed=false;
+    if (!component_placement_dialog_ && component_drag_preview_ && component_drag_document_) {
+        const auto& start=component_drag_document_->find_occurrence(component_drag_occurrence_id_)->placement;
+        const auto& finish=component_drag_preview_->find_occurrence(component_drag_occurrence_id_)->placement;
+        if (start!=finish) {
+            if (auto* assembly=workspace_.open_assembly(component_drag_document_id_)) {
+                assembly->session.commit(std::move(*component_drag_preview_));committed=true;
+            }
         }
     }
-    refresh_tabs();
-    refresh_scene();
+    component_drag_document_.reset();component_drag_preview_.reset();
+    component_drag_occurrence_id_.clear();component_drag_document_id_.clear();component_drag_instance_path_.clear();
+    if (committed) {
+        preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();select_occurrence(path);
+        set_selected_component_origin(path);
+    }
 }
 
 void AssemblyWorkspaceWindow::clear_selected_sketch_geometry() {
@@ -23449,12 +23518,12 @@ void AssemblyWorkspaceWindow::keyPressEvent(QKeyEvent* event) {
         return;
     }
     if (event->key() == Qt::Key_Escape && component_drag_document_) {
-        component_drag_document_.reset();
-        component_drag_document_id_.clear();
-        component_drag_occurrence_id_.clear();
-        component_drag_changed_ = false;
-        preserve_view_on_refresh_ = true;
-        refresh_scene();
+        const auto placement = component_drag_document_->find_occurrence(component_drag_occurrence_id_)->placement;
+        const auto path=component_drag_instance_path_;
+        component_drag_preview_.reset();
+        end_component_drag();
+        if (component_placement_dialog_) component_placement_dialog_->set_pending_placement(placement);
+        else { preserve_view_on_refresh_=true;refresh_scene();select_occurrence(path);set_selected_component_origin(path); }
         state_->setText(tr("Tažení komponenty bylo zrušeno beze změny."));
         event->accept();
         return;
@@ -24080,6 +24149,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     update_body_color_actions();
     viewer_->set_active_sketch_owner(active_sketch_id_);
     QScopedValueRollback refreshing_guard(refreshing_scene_, true);
+    set_selected_component_origin({});
     update_document_area_visibility();
     tree_->setRootIndex(QModelIndex{});
     tree_->clear();
@@ -25041,6 +25111,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         tree_->setHeaderLabels({tr("VÝKRES")});
         auto* root = new QTreeWidgetItem(
             tree_, {QString::fromStdString(drawing->path.empty() ? drawing->document.name : drawing->path.filename().string())});
+        root->setIcon(0, resource_icon("drawing"));
         for (const auto& sheet : drawing->document.sheets) {
             auto* sheet_item = new QTreeWidgetItem(
                 root, {QString::fromStdString(sheet.name)});
@@ -25143,6 +25214,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         } else {
             auto* root = new QTreeWidgetItem(
                 tree_, {QString::fromStdString(part->path.empty() ? document.name : part->path.filename().string())});
+            root->setIcon(0, resource_icon("part"));
             root->setData(0, Qt::UserRole, QString::fromStdString(document.document_id));
             root->setData(0, Qt::UserRole + 3, "part-result-body");
             if (document.body_history.active_body_id().empty() && !properties_dialog_) {
@@ -26065,6 +26137,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         tree_->setHeaderLabels({tr("SESTAVA")});
         auto* root = new QTreeWidgetItem(
             tree_, {QString::fromStdString(assembly->path.empty() ? document.name : assembly->path.filename().string())});
+        root->setIcon(0, resource_icon("assembly"));
         add_assembly_tree_children(root, document.document_id, {});
         root->setExpanded(true);
         tree_->setRootIndex(QModelIndex{});
@@ -27274,6 +27347,8 @@ void AssemblyWorkspaceWindow::add_snapshot_tree_children(
         else if (!component.visible) label += tr(" [skryto]");
         if (component.grounded && component.derived_source_id.empty()) label += tr(" [uzemněno]");
         auto* item = new QTreeWidgetItem(parent, {label});
+        item->setIcon(0, resource_icon(component.source_kind == zima::assembly::ComponentSourceKind::Assembly
+            ? "assembly" : "part"));
         const auto path = parent_path.child(component.occurrence_id);
         if(!component.derived_source_id.empty()) {
             item->setIcon(0,resource_icon(component.pattern_group?"pattern":"mirror"));
@@ -27452,6 +27527,8 @@ void AssemblyWorkspaceWindow::show_component_properties(
     component_placement_dialog_ = dialog;
     component_placement_assembly_document_id_ = address->owner_assembly_document_id;
     component_placement_occurrence_id_ = address->occurrence_id;
+    viewer_->set_component_origin_handle(zima::viewer::EdgeKey{
+        occurrence->source_document_id + ":origin", "origin:point", instance_path});
     properties_dialog_ = dialog;
     tree_reference_state_.watch(dialog,this,address->owner_assembly_document_id,address->occurrence_id);
     properties_dialog_instance_path_ = instance_path;
@@ -27495,6 +27572,9 @@ void AssemblyWorkspaceWindow::show_component_properties(
         viewer_->clear_selection();
         viewer_->set_constraint_reference_highlights({}, {});
         viewer_->set_editing_origin_visible(false);
+        viewer_->set_component_origin_handle(std::nullopt);
+        component_drag_document_.reset();component_drag_preview_.reset();
+        component_drag_occurrence_id_.clear();component_drag_document_id_.clear();component_drag_instance_path_.clear();
         refresh_scene();
     });
     dialog->show();
@@ -28340,8 +28420,9 @@ void AssemblyWorkspaceWindow::show_component_context_menu(
         ? menu.addAction(tr("Vybrat rodiče")) : nullptr;
     auto* activate_or_deactivate = is_active_occurrence
         ? menu.addAction(tr("Zpět do sestavy"))
-        : menu.addAction(source_is_assembly
-            ? tr("Aktivovat podsestavu") : tr("Aktivovat komponentu"));
+        : menu.addAction(tr("Aktivní"));
+    auto* create_body=is_active_occurrence && !source_is_assembly && !properties_dialog_
+        ? menu.addAction(resource_icon("result-body"),tr("Vytvořit těleso")) : nullptr;
     auto* properties = menu.addAction(tr("Vlastnosti"));
     auto* mirror_properties=occurrence->derived_copy&&address->owner_assembly_document_id==workspace_.active_document_id()
         ? menu.addAction(occurrence->derived_copy->pattern?tr("Vlastnosti Pole"):tr("Vlastnosti Zrcadla")) : nullptr;
@@ -28369,6 +28450,7 @@ void AssemblyWorkspaceWindow::show_component_context_menu(
         }
         return;
     }
+    if(create_body && selected==create_body) { activate_body({});show_body_properties();return; }
     if(mirror_properties&&selected==mirror_properties){show_derived_copy_properties(address->occurrence_id);return;}
     if (selected == properties) {
         show_component_properties(instance_path);

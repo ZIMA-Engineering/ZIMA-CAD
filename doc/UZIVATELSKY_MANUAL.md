@@ -813,6 +813,25 @@ přepne editovatelný dokument na konkrétní zdrojový Part. U vnořené Assemb
 stejné pravidlo aplikuje rekurzivně a každá komponenta je upravována pouze ve
 své bezprostředně vlastnící sestavě.
 
+Kontextová nabídka nad dílem obsahuje **Aktivní** a **Vytvořit těleso**.
+Tvorba tělesa otevře stejné vlastnosti jako příkaz v panelu nástrojů.
+Také aktivace tělesa, vloženého dílu nebo podsestavy používá krátký název
+**Aktivní**; obsah upravuje až aktivovaný dokument.
+
+Strom označuje dokumenty i vložené díly a podsestavy stejnými ikonami jako
+záložky: díl modrou kostkou, sestavu zlatou kostkou a výkres drátovou kostkou
+bez barevné výplně.
+
+Okno se jmenuje **Vlastnosti dílu** nebo **Vlastnosti sestavy** podle vloženého
+objektu. Kliknutí na celý počátek vlastnící sestavy v tomto okně najednou
+vyplní tři dvojice rovin XY–XY, YZ–YZ a XZ–XZ. Změnu potvrdí OK.
+
+Po označení dílu se v jeho počátku zobrazí fialový bod. Za něj lze díl
+přesouvat i bez otevřených vlastností; vazby povolí jen zbývající posuvy.
+Uvolnění myši uloží jeden vratný přesun, Escape probíhající přesun zruší.
+S otevřenými vlastnostmi zůstává přesun náhledem do OK a Zrušit jej zahodí.
+Podrobnosti a chování podsestav popisují [reference sestavy](ASSEMBLY_REFERENCES.md).
+
 Skutečná plocha pod kurzorem se zvýrazní oranžově. Po potvrzení zůstane plocha
 ve view azurová a azurové zůstane také příslušné pole reference ve
 Vlastnostech. Toto zobrazení používá dočasný index aktuálního sestavového

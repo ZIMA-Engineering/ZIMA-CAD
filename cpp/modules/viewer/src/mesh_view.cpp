@@ -1,3 +1,4 @@
+#include <QOpenGLPaintDevice>
 #include <zima/viewer/mesh_view.hpp>
 #include <zima/viewer/picking.hpp>
 #include <zima/viewer/shading.hpp>
@@ -355,6 +356,7 @@ struct MeshView::Impl {
     bool show_planes{true};
     bool show_sketches{true};
     bool editing_origin_visible{};
+    std::optional<EdgeKey> component_origin_handle;
     bool gpu_dirty{true};
     std::size_t base_mesh_revision{};
 
@@ -780,7 +782,7 @@ std::optional<ViewerCandidate> MeshView::offered_candidate() const {
 
 std::vector<ViewerCandidate> MeshView::selection_candidates_at(
     const QPointF& position) const {
-    if (width() <= 0 || height() <= 0 || impl_->allowed_kinds.empty()) {
+    if (width() <= 0 || height() <= 0 || (impl_->allowed_kinds.empty() && !impl_->component_origin_handle)) {
         return {};
     }
     const auto ray = ray_at(position);
@@ -997,7 +999,7 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
                 candidate.owner_id != impl_->active_sketch_owner_id;
         });
     }
-    const bool origin_geometry_requested = impl_->editing_origin_visible ||
+    const bool origin_geometry_requested = impl_->component_origin_handle || impl_->editing_origin_visible ||
         std::ranges::any_of(impl_->allowed_kinds, [](CandidateKind kind) {
             return kind == CandidateKind::Vertex ||
                 kind == CandidateKind::Axis || kind == CandidateKind::Plane;
@@ -1031,6 +1033,20 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
                 return impl_->candidate_priority(left) <
                     impl_->candidate_priority(right);
             });
+    }
+    if (impl_->component_origin_handle) {
+        const auto& key = *impl_->component_origin_handle;
+        const auto is_handle = [&](const auto& candidate) {
+            return candidate.kind == CandidateKind::Vertex && candidate.owner_id == key.owner_id &&
+                candidate.semantic_key == key.semantic_key && candidate.instance_path == key.instance_path;
+        };
+        // Reuse the original point hit and tolerance. A manipulator is an
+        // explicit command candidate even while a reference field owns input.
+        if (const auto point = std::find_if(candidates.begin(), candidates.end(), is_handle);
+            point != candidates.end()) {
+            std::erase_if(filtered,is_handle);
+            filtered.insert(filtered.begin(),*point);
+        }
     }
     return filtered;
 }
@@ -2484,6 +2500,11 @@ bool MeshView::reference_visible(ReferenceVisibility reference) const {
     return false;
 }
 
+void MeshView::set_component_origin_handle(std::optional<EdgeKey> reference) {
+    impl_->component_origin_handle = std::move(reference);
+    update();
+}
+
 void MeshView::set_editing_origin_visible(bool visible) {
     if (impl_->editing_origin_visible == visible) return;
     impl_->editing_origin_visible = visible;
@@ -2736,7 +2757,9 @@ void MeshView::paintGL() {
         };
         const double reference_scale = impl_->view_scale /
             std::max(impl_->reference_view_scale, 1.0e-6F);
-        QPainter painter(this);
+        QOpenGLPaintDevice overlay_device(QSize(framebuffer_width,framebuffer_height));
+        overlay_device.setDevicePixelRatio(pixel_ratio);
+        QPainter painter(&overlay_device);
         painter.setRenderHint(QPainter::Antialiasing);
         const auto draw_reference_segment = [&](const QPointF& first,
                 const QPointF& second, const QColor& color, double width) {
@@ -3368,7 +3391,7 @@ if (impl_->show_origins) {
         !impl_->transient_edges.empty() || !impl_->transient_points.empty() ||
         !impl_->transient_labels.empty() ||
         impl_->sketch_cursor.has_value() ||
-        !impl_->extent_manipulators.empty() ||
+        impl_->component_origin_handle || !impl_->extent_manipulators.empty() ||
         !impl_->operation_direction_indicators.empty() ||
         // Every candidate kind has an overlay below.  Restricting entry to
         // point/edge/axis candidates accidentally made Face, Container and
@@ -3386,7 +3409,9 @@ if (impl_->show_origins) {
         };
         const double reference_scale = impl_->view_scale /
             std::max(impl_->reference_view_scale, 1.0e-6F);
-        QPainter painter(this);
+        QOpenGLPaintDevice overlay_device(QSize(framebuffer_width,framebuffer_height));
+        overlay_device.setDevicePixelRatio(pixel_ratio);
+        QPainter painter(&overlay_device);
         painter.setRenderHint(QPainter::Antialiasing);
         const auto draw_reference_segment = [&](const QPointF& first,
                 const QPointF& second, const QColor& color, double width) {
@@ -3531,11 +3556,11 @@ if (impl_->show_origins) {
                 const QColor start_color = purple;
                 painter.setPen(QPen(start_color, 1.0));
                 painter.setBrush(start_color);
-                painter.drawEllipse(start, 6.0, 6.0);
+                draw_circular_marker(painter,start,start_color,6.0);
                 if (!handle.point_only) {
                     painter.setPen(QPen(purple, 1.0));
                     painter.setBrush(purple);
-                    painter.drawEllipse(finish, 6.0, 6.0);
+                    draw_circular_marker(painter,finish,purple,6.0);
                 }
                 painter.setBrush(Qt::NoBrush);
             }
@@ -4853,6 +4878,16 @@ if (impl_->show_origins) {
                     painter.drawText(center + QPointF(8.5, -6.5),
                         QString::fromStdString(point.label));
                 }
+            }
+        }
+        if (impl_->component_origin_handle) {
+            const auto& key = *impl_->component_origin_handle;
+            for (const auto& point : impl_->mesh.points) {
+                if (point.reference.owner_id != key.owner_id ||
+                    point.reference.semantic_key != key.semantic_key ||
+                    point.reference.instance_path != key.instance_path) continue;
+                draw_circular_marker(painter,project(point.position),QColor("#D05CFF"),6.0);
+                break;
             }
         }
         painter.setPen(QPen(QColor(30, 220, 240), 2.0,

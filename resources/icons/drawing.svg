@@ -1,11 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
   <title id="title">Drawing</title>
-  <path d="M14 3v5.5h5.5z" fill="#80AA1A"/>
   <g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M4.5 3h9.5l5.5 5.5V21h-15z"/>
-    <path d="M14 3v5.5h5.5"/>
-    <circle cx="9" cy="13.2" r="2.4" stroke="#3E82C4"/>
-    <path d="M13.4 11h3.2v4.4h-3.2z" stroke="#D99B2B"/>
-    <path d="M7 18h10M7 16.8v2.4M17 16.8v2.4" stroke="#80AA1A"/>
+    <path d="M4.3 7.3 12 3l7.7 4.3-7.7 4.4-7.7-4.4z"/>
+    <path d="M4.3 7.3v9.1L12 21l7.7-4.6V7.3"/>
+    <path d="M12 11.7V21"/>
   </g>
 </svg>

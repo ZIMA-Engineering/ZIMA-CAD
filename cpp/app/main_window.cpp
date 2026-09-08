@@ -1,6 +1,7 @@
 #include "main_window.hpp"
 #include "primitive_properties_dialog.hpp"
 #include "file_dialog.hpp"
+#include "resource_icon.hpp"
 
 #include <zima/viewer/mesh_view.hpp>
 
@@ -197,6 +198,7 @@ void MainWindow::rebuild(std::optional<std::size_t> history_limit,
     rebuilding_tree_ = true;
     tree_->clear();
     auto* root = new QTreeWidgetItem(tree_, {QString::fromStdString(document.name)});
+    root->setIcon(0, resource_icon("part"));
     for (std::size_t index = 0; index < document.history.size(); ++index) {
         const auto& container = document.history[index];
         auto* item = new QTreeWidgetItem({QString::fromStdString(container.name)});

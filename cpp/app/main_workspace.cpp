@@ -1866,8 +1866,8 @@ int verify_body_history_ui(QApplication& application, const std::filesystem::pat
     for(auto* button:window.findChildren<QToolButton*>())
         if(!verify(button->defaultAction()!=window.findChild<QAction*>("createBodyAction") || !button->isVisible(),
                 "Create Body button is visible inside active Body"))return 1;
-    if(!verify(activate_from_tree(tree->topLevelItem(0),"activatePartAction"),"Cannot activate Part before new Body"))return 1;
-    if (!verify(click_command("createBodyAction"),"Visible Create Body button is disabled or missing")) return 1;
+    if(!verify(activate_from_tree(tree->topLevelItem(0),"createBodyFromPartAction"),
+        "Part root context menu cannot create a Body while another Body is active"))return 1;
     if (!verify(body_dialog() && body_dialog()->windowFlags().testFlag(Qt::SubWindow), "Body creation did not open shared properties")) return 1;
     if (!verify(body_dialog()->findChild<QPushButton*>("containerOriginSelectionButton")!=nullptr,
             "Body placement lost its Origin control")) return 1;
@@ -2421,12 +2421,12 @@ bool verify_mates_in_view(const zima::kernel::ViewerMesh& scene,
             if(a==g.axes.end() || b==g.axes.end())return false;
             const auto separation=delta(a->point,b->point);const double axial=dot(separation,b->direction);
             if(std::hypot(separation.x-axial*b->direction.x,separation.y-axial*b->direction.y,separation.z-axial*b->direction.z)>1e-7 ||
-                std::abs(std::abs(dot(a->direction,b->direction))-1)>1e-8)return false;
+                std::abs(dot(a->direction,b->direction)-(row.flip?-1.0:1.0))>1e-8)return false;
         } else if(row.mate_type==assembly::MateKind::PlaneCoincident || row.mate_type==assembly::MateKind::PlaneAngle) {
             const auto a=plane(row.component_reference),b=plane(row.target_reference);if(!a || !b)return false;
             const double alignment=dot(a->normal,b->normal);
             if(row.mate_type==assembly::MateKind::PlaneCoincident) {
-                if(std::abs(std::abs(alignment)-1)>1e-8 || std::abs(dot(delta(a->point,b->point),b->normal)-row.offset)>1e-7)return false;
+                if(std::abs(alignment-(row.flip?-1.0:1.0))>1e-8 || std::abs(dot(delta(a->point,b->point),b->normal)-row.offset)>1e-7)return false;
             } else if(std::abs(alignment-std::cos((row.flip?180-row.offset:row.offset)*std::acos(-1.0)/180))>1e-8)return false;
         }
     }
@@ -2563,10 +2563,52 @@ int verify_component_references(QApplication& application, const std::filesystem
             std::cerr<<"Coordinate "<<i<<" expected editable="<<editable[i]<<'\n';return false;}
         return true;
     };
+    const auto drag_origin=[&](const std::string& path,bool cancel=false) {
+        std::optional<QPointF> hit;
+        view->clear_selection();
+        for(int y=10;y<view->height()-10 && !hit;y+=3)
+            for(int x=10;x<view->width()-10 && !hit;x+=3) {
+                const auto candidates=view->selection_candidates_at(QPointF(x,y));
+                if(!candidates.empty() && candidates.front().kind==viewer::CandidateKind::Vertex &&
+                    candidates.front().semantic_key=="origin:point" && candidates.front().instance_path==path)hit=QPointF(x,y);
+            }
+        if(!verify(hit.has_value(),"Purple origin handle is missing from the common picker"))return false;
+        const auto target=*hit+QPointF(31,23);
+        for(const auto type:{QEvent::MouseButtonPress,QEvent::MouseMove,QEvent::MouseButtonRelease}) {
+            if(cancel && type==QEvent::MouseButtonRelease) {
+                QKeyEvent escape(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);
+                QApplication::sendEvent(&window,&escape);flush();
+            }
+            const auto position=type==QEvent::MouseButtonPress?*hit:target;
+            QMouseEvent event(type,position,QPointF(view->mapToGlobal(position.toPoint())),
+                type==QEvent::MouseMove?Qt::NoButton:Qt::LeftButton,
+                type==QEvent::MouseButtonRelease?Qt::NoButton:Qt::LeftButton,Qt::NoModifier);
+            QApplication::sendEvent(view,&event);flush();
+        }
+        return true;
+    };
     const auto first_path=assembly::InstancePath{{first}}.encoded(),second_path=assembly::InstancePath{{second}}.encoded();
     const auto origin=part.document_id+":origin";
     window.show_tree_item_properties(find(second,second_path));flush();
     if(!verify(dialog()!=nullptr,"Cannot open component properties"))return 1;
+    if(!verify(pick(0,true,origin,second_path,"origin:plane:xy") && pick(0,false,origin,first_path,"origin:plane:xy"),
+        "Cannot prepare reversible plane Flip"))return 1;
+    for(const bool flipped:{true,false,true,false}) {
+        auto* button=dialog()->findChild<QTableWidget*>("componentPlacementTable")->cellWidget(0,5)->findChild<QToolButton*>("referenceRowFlipButton");
+        button->click();flush();
+        if(!verify(dialog()->placement_references()[0].flip==flipped &&
+            verify_mates_in_view(view->mesh(),dialog()->placement_references()),"Plane Flip button failed to reverse back in the actual preview"))return 1;
+    }
+    dialog()->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+    window.show_tree_item_properties(find(second,second_path));flush();
+    const auto original_placement=dialog()->pending_value().placement;
+    if(!verify(drag_origin(second_path,true) && dialog()->pending_value().placement==original_placement,
+        "Escape failed to restore the pending origin drag"))return 1;
+    if(!verify(drag_origin(second_path) && dialog()->pending_value().placement!=original_placement,
+        "Free purple origin handle did not move its component"))return 1;
+    dialog()->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+    window.show_tree_item_properties(find(second,second_path));flush();
+    if(!verify(dialog()->pending_value().placement==original_placement,"Cancel persisted a released origin drag"))return 1;
     dialog()->findChild<QTableWidget*>("componentPlacementTable")->cellClicked(0,1);flush();
     for(const auto& [kind,key]:std::array{
             std::pair{viewer::CandidateKind::Vertex,"origin:point"},
@@ -2600,8 +2642,18 @@ int verify_component_references(QApplication& application, const std::filesystem
     if(!verify(pick(0,true,origin,second_path,"origin:axis:z") && pick(0,false,origin,first_path,"origin:axis:z") &&
         dialog()->placement_references()[0].mate_type==assembly::MateKind::AxisCoincident &&
         check_freedom(2,{false,false,true,false,false,true}),"Tree axis pair does not solve and expose two freedoms"))return 1;
+    const auto axis_start=dialog()->pending_value().placement;
+    if(!verify(drag_origin(second_path),"Cannot drag coaxial component origin"))return 1;
+    const auto axis_end=dialog()->pending_value().placement;
+    if(!verify(std::abs(axis_start.x-axis_end.x)<1e-6 && std::abs(axis_start.y-axis_end.y)<1e-6 &&
+        std::abs(axis_start.z-axis_end.z)>1e-3 && axis_start.rotation_x==axis_end.rotation_x && axis_start.rotation_y==axis_end.rotation_y &&
+        axis_start.rotation_z==axis_end.rotation_z && verify_mates_in_view(view->mesh(),dialog()->placement_references()),
+        "Purple origin drag escaped its remaining axial translation"))return 1;
     if(!verify(pick(1,true,origin,second_path,"origin:plane:xy") && pick(1,false,origin,first_path,"origin:plane:xy") &&
         check_freedom(1,{false,false,false,false,false,true}),"Origin plane does not remove axial translation"))return 1;
+    const auto seat_start=dialog()->pending_value().placement;
+    if(!verify(drag_origin(second_path) && dialog()->pending_value().placement==seat_start,
+        "Seated origin moved despite having only a rotational freedom"))return 1;
     if(!verify(pick(2,true,origin,second_path,"origin:plane:yz") && pick(2,false,origin,first_path,"origin:plane:yz"),
         "Cannot add hinge phase reference"))return 1;
     auto* phase_type=qobject_cast<QComboBox*>(dialog()->findChild<QTableWidget*>("componentPlacementTable")->cellWidget(2,3));
@@ -2619,12 +2671,72 @@ int verify_component_references(QApplication& application, const std::filesystem
     if(!verify(dialog()->placement_references()[0].target_reference.owner_id.empty(),"Origin shortcut accepts self-mating"))return 1;
     if(!verify(pick(0,false,assembly_id+":origin",{}) && check_freedom(0,{false,false,false,false,false,false}),
         "Assembly origin shortcut does not fully constrain the component"))return 1;
+    const auto check_origin_rows = [&](const std::string& source_id, const std::string& source_occurrence,
+            const std::string& target_id) {
+        const auto& rows=dialog()->placement_references();
+        if(rows.size()!=3)return false;
+        const std::array<std::string,3> keys{"origin:plane:xy","origin:plane:yz","origin:plane:xz"};
+        for(std::size_t i=0;i<3;++i) {
+            if(rows[i].mate_type!=assembly::MateKind::PlaneCoincident || rows[i].flip || rows[i].offset!=0 ||
+                rows[i].component_reference!=assembly::MateReference{assembly::MateReferenceKind::Face,
+                    assembly::InstancePath{}.child(source_occurrence),source_id+":origin",keys[i]} ||
+                rows[i].target_reference!=assembly::MateReference{assembly::MateReferenceKind::Face,{},target_id+":origin",keys[i]})return false;
+        }
+        return true;
+    };
+    if(!verify(check_origin_rows(part.document_id,second,assembly_id),"Origin shortcut did not store three exact plane pairs"))return 1;
+    dialog()->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+    window.show_tree_item_properties(find(second,second_path));flush();
+    // No cell is armed: clicking the owning Assembly origin must still work.
+    tree->clearSelection();tree->setCurrentItem(find(assembly_id+":origin",{}));flush();
+    if(!verify(dialog() && check_origin_rows(part.document_id,second,assembly_id) &&
+        check_freedom(0,{false,false,false,false,false,false}),"Idle properties did not accept Assembly origin shortcut"))return 1;
+    const auto fully_fixed=dialog()->pending_value().placement;
+    if(!verify(drag_origin(second_path) && dialog()->pending_value().placement==fully_fixed,
+        "Fully constrained origin handle moved the component"))return 1;
     window.grab().save(QString::fromStdString((directory/"component-origin-references.png").string()));
     dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();
     if(!verify(!dialog(),"Component origin placement did not commit"))return 1;
     window.findChild<QAction*>("saveDocumentAction")->trigger();flush();saved=assembly::AssemblyDocument::load(assembly_path);
-    if(!verify(saved.component_constraint_state(second).remaining_dof==0 && saved.find_occurrence(second)->placement_references[0].mate_type==assembly::MateKind::PointCoincident,
+    if(!verify(saved.component_constraint_state(second).remaining_dof==0 && saved.find_occurrence(second)->placement_references[0].mate_type==assembly::MateKind::PlaneCoincident,
         "Origin mate types or constraints were lost after saving"))return 1;
+
+    window.show_tree_item_properties(find(second,second_path));flush();
+    auto sliding=dialog()->placement_references();
+    sliding.resize(1);sliding[0]={assembly::MateKind::AxisCoincident,
+        {assembly::MateReferenceKind::Axis,assembly::InstancePath{}.child(second),origin,"origin:axis:z"},
+        {assembly::MateReferenceKind::Axis,{},assembly_id+":origin","origin:axis:z"}};
+    dialog()->set_placement_references(sliding);
+    dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+    window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+    const auto direct_before=assembly::AssemblyDocument::load(assembly_path).find_occurrence(second)->placement;
+    tree->clearSelection();tree->setCurrentItem(find(second,second_path));flush();
+    if(!verify(!dialog() && drag_origin(second_path),"Selected component origin cannot be dragged without Properties"))return 1;
+    window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+    tree->clearSelection();tree->setCurrentItem(find(second,second_path));flush();
+    const auto handle_image=view->grab().toImage();
+    int purple_pixels=0;
+    for(int y=0;y<handle_image.height();++y)for(int x=0;x<handle_image.width();++x) {
+        const auto color=handle_image.pixelColor(x,y);
+        if(std::abs(color.red()-208)<6 && std::abs(color.green()-92)<6 && std::abs(color.blue()-255)<6)++purple_pixels;
+    }
+    handle_image.save(QString::fromStdString((directory/"handle-frame.png").string()));
+    if(!verify(purple_pixels>=40,"Selectable component origin handle was not painted purple"))return 1;
+    window.grab().save(QString::fromStdString((directory/"component-direct-origin.png").string()));
+    const auto directly_moved=assembly::AssemblyDocument::load(assembly_path);
+    const auto direct_after=directly_moved.find_occurrence(second)->placement;
+    if(!verify(std::abs(direct_after.z-direct_before.z)>1e-3 && std::abs(direct_after.x-direct_before.x)<1e-7 &&
+        std::abs(direct_after.y-direct_before.y)<1e-7 && directly_moved.find_occurrence(second)->placement_references==sliding,
+        "Direct origin drag escaped its axis or lost its stored mates"))return 1;
+    window.findChild<QAction*>("undoAction")->trigger();flush();
+    window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+    if(!verify(assembly::AssemblyDocument::load(assembly_path).find_occurrence(second)->placement==direct_before,
+        "Direct origin drag was not exactly one undoable transaction"))return 1;
+    tree->clearSelection();tree->setCurrentItem(find(second,second_path));flush();
+    if(!verify(drag_origin(second_path,true),"Cannot cancel direct component origin drag"))return 1;
+    window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+    if(!verify(assembly::AssemblyDocument::load(assembly_path).find_occurrence(second)->placement==direct_before,
+        "Escape committed direct component origin drag"))return 1;
 
     // An active nested Assembly owns its local datum and keeps the top-level scene visible.
     fixture.open_assembly(assembly_id)->session.commit(assembly);
@@ -2632,16 +2744,38 @@ int verify_component_references(QApplication& application, const std::filesystem
     const auto top_path=directory/"component-reference-top.asmz";fixture.add_assembly(top,top_path);
     const auto outer=fixture.insert_open_assembly(top_id,assembly_id,"Podsestava");
     const auto passive=fixture.insert_open_part(top_id,part.document_id,"Kontext");
-    top=fixture.open_assembly(top_id)->session.document();top.find_occurrence(passive)->placement.x=200;top.save(top_path);
+    top=fixture.open_assembly(top_id)->session.document();top.find_occurrence(passive)->placement.x=200;top.find_occurrence(outer)->placement={30,40,10,20,35,15};top.save(top_path);
     const auto outer_path=assembly::InstancePath{{outer}}.encoded(),nested_path=assembly::InstancePath{{outer,second}}.encoded();
     if(!verify(window.open_document_path(QString::fromStdString(top_path.string())) && window.activate_occurrence_for_test(outer_path),
         "Cannot activate owning nested Assembly"))return 1;
     flush();window.show_tree_item_properties(find(second,nested_path));flush();
-    if(!verify(dialog() && pick(0,true,origin,nested_path) && pick(0,false,assembly_id+":origin",outer_path) &&
+    if(!verify(dialog()!=nullptr,"Cannot open nested Part properties"))return 1;
+    const auto nested_before=dialog()->pending_value().placement;
+    if(!verify(drag_origin(nested_path) && std::abs(dialog()->pending_value().placement.x-nested_before.x)<1e-3 &&
+        std::abs(dialog()->pending_value().placement.y-nested_before.y)<1e-3 &&
+        std::abs(dialog()->pending_value().placement.z-nested_before.z)>1e-3,
+        "Nested origin drag did not preserve local axial freedom"))return 1;
+    const auto nested_initial_rows=dialog()->placement_references();
+    // Insertion starts on the source cell; the target-origin shortcut bypasses
+    // that side selection, but never crosses into a higher Assembly owner.
+    dialog()->findChild<QTableWidget*>("componentPlacementTable")->cellClicked(0,1);flush();
+    tree->clearSelection();tree->setCurrentItem(find(top_id+":origin",{}));flush();
+    if(!verify(dialog()->placement_references()==nested_initial_rows,"Nested placement accepted higher Assembly origin"))return 1;
+    tree->clearSelection();tree->setCurrentItem(find(assembly_id+":origin",outer_path));flush();
+    if(!verify(check_origin_rows(part.document_id,second,assembly_id) &&
         check_freedom(0,{false,false,false,false,false,false}),"Nested Assembly origin is not accepted as a local target"))return 1;
     const auto passive_path=assembly::InstancePath{{passive}}.encoded();
     if(!verify(std::ranges::any_of(view->mesh().triangle_references,[&](const auto& r){return r.instance_path==passive_path;}),
         "Component preview discarded top-level passive context"))return 1;
+    dialog()->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+    window.deactivate_active_occurrence_for_test();flush();
+    window.show_tree_item_properties(find(outer,outer_path));flush();
+    if(!verify(dialog() && dialog()->windowTitle()==QStringLiteral("Vlastnosti sestavy"),
+        "Inserted Assembly does not use Assembly properties"))return 1;
+    dialog()->findChild<QTableWidget*>("componentPlacementTable")->cellClicked(0,1);flush();
+    tree->clearSelection();tree->setCurrentItem(find(top_id+":origin",{}));flush();
+    if(!verify(check_origin_rows(assembly_id,outer,top_id) && check_freedom(0,{false,false,false,false,false,false}),
+        "Assembly origin shortcut failed for an inserted subassembly"))return 1;
     dialog()->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
     std::cout<<"Component origin, axis and freedom UI contracts passed\n";return 0;
 }
@@ -5821,7 +5955,7 @@ int verify_startup_contract(
         application.processEvents();
         if (auto* reopened_drag_buttons =
                 reopened_drag_dialog->findChild<QDialogButtonBox*>()) {
-            reopened_drag_buttons->button(QDialogButtonBox::Cancel)->click();
+            reopened_drag_buttons->button(QDialogButtonBox::Ok)->click();
         }
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
         application.processEvents();

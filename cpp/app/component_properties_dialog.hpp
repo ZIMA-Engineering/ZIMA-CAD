@@ -57,9 +57,8 @@ public:
         return initial_.occurrence_id;
     }
 
-    // Live-updates the translation spinboxes while a free-component drag is
-    // in progress, without touching rotation fields or emitting a commit.
-    void set_live_translation(double x, double y, double z);
+    // Updates a pending drag pose and recalculates its transient preview.
+    void set_pending_placement(const zima::assembly::ComponentPlacement& placement);
     void set_placement_error(const QString& message);
     void set_solved_placement(const zima::assembly::ComponentPlacement& placement,
         const zima::assembly::ComponentConstraintState& state);
@@ -69,7 +68,12 @@ public:
     // Assigns the picked reference to row `index`'s component-side or
     // target-side cell and refreshes that row's display.
     void set_placement_reference(std::size_t index, bool component_side,
-        zima::assembly::MateReference reference, const QString& label);
+        zima::assembly::MateReference reference, const QString& label,
+        std::optional<bool> initial_flip = std::nullopt);
+    // Replace the complete pending placement in one preview transaction.
+    void set_placement_references(
+        std::vector<zima::assembly::ComponentPlacementReference> references);
+    [[nodiscard]] zima::assembly::PartOccurrence pending_value() const { return current_value(); }
     void set_active_reference_cell(
         std::optional<std::size_t> index, bool component_side = true);
     void set_reference_inspected(

@@ -936,6 +936,15 @@ int main() {
             flipped_dependent.plane.normal.z * flipped_prerequisite.plane.normal.z;
         require(std::abs(flipped_alignment + 1.0) < 1.0e-7,
                 "Flipped plane placement reference did not preserve opposite face orientation");
+        for (const bool flip : {false, true, false, true}) {
+            flipped_component_it->placement_references.front().flip = flip;
+            flipped_plane_assembly.calculate_placement_references();
+            const auto& row = flipped_component_it->placement_references.front();
+            const auto a = flipped_plane_assembly.resolve_plane(row.component_reference).plane.normal;
+            const auto b = flipped_plane_assembly.resolve_plane(row.target_reference).plane.normal;
+            require(std::abs(a.x*b.x+a.y*b.y+a.z*b.z-(flip?-1.0:1.0)) < 1e-7,
+                "Plane Flip failed to restore its absolute orientation on repeated toggles");
+        }
         const auto zero_offset_scene = flipped_plane_assembly.build_scene();
         require(std::none_of(zero_offset_scene.dimensions.begin(),
                     zero_offset_scene.dimensions.end(),
@@ -1159,7 +1168,7 @@ int main() {
              {zima::assembly::MateReferenceKind::Face,
               zima::assembly::InstancePath{}.child(first_id),
               "same-source-container", "z_max"},
-             0.0, false});
+             0.0, true});
         combined_mates.calculate_placement_references();
         const auto combined_axis_dependent = combined_mates.resolve_axis(
             combined_mates.components.back().placement_references.front()
@@ -1248,7 +1257,7 @@ int main() {
         };
         moving_hinge.placement_references={
             {zima::assembly::MateKind::AxisCoincident,reference(true,zima::assembly::MateReferenceKind::Axis,"axis:z"),reference(false,zima::assembly::MateReferenceKind::Axis,"axis:z")},
-            {zima::assembly::MateKind::PlaneCoincident,reference(true,zima::assembly::MateReferenceKind::Face,"z_min"),reference(false,zima::assembly::MateReferenceKind::Face,"z_max")}};
+            {zima::assembly::MateKind::PlaneCoincident,reference(true,zima::assembly::MateReferenceKind::Face,"z_min"),reference(false,zima::assembly::MateReferenceKind::Face,"z_max"),0.0,true}};
         hinge.calculate_placement_references();
         require(hinge.remaining_degrees_of_freedom(second_id)==1,"Seated hinge does not retain one physical rotation");
         moving_hinge.placement_references.push_back({zima::assembly::MateKind::PlaneAngle,
@@ -1304,6 +1313,46 @@ int main() {
             require(freedom.remaining_dof==0 && std::ranges::none_of(freedom.coordinate_free,[](bool value){return value;}),
                 "Euler singularity created a false degree of freedom on a fixed component");
         }
+
+        // Origin dragging projects onto physical translation freedoms, including
+        // oblique axes/planes; it never frees a constrained direction or rotates.
+        auto drag_document=loaded;
+        auto& drag_fixed=drag_document.components.front();
+        auto& drag_moving=drag_document.components.back();
+        drag_fixed.placement={0,0,0,20,35,40};drag_moving.placement=drag_fixed.placement;
+        drag_moving.placement_references.clear();
+        const zima::kernel::Vec3 requested_drag{17,-8,13};
+        const auto close_vector=[](const auto& a,const auto& b) {
+            return std::hypot(a.x-b.x,a.y-b.y,a.z-b.z)<1e-7;
+        };
+        require(close_vector(drag_document.component_drag_translation(second_id,requested_drag),requested_drag),
+            "Free origin drag lost a translation direction");
+        const auto drag_ref=[&](bool moving,zima::assembly::MateReferenceKind kind,const char* key) {
+            const auto& component=moving?drag_moving:drag_fixed;
+            return zima::assembly::MateReference{kind,zima::assembly::InstancePath{}.child(component.occurrence_id),
+                component.source_document_id+":origin",key};
+        };
+        drag_moving.placement_references={{zima::assembly::MateKind::AxisCoincident,
+            drag_ref(true,zima::assembly::MateReferenceKind::Axis,"origin:axis:z"),
+            drag_ref(false,zima::assembly::MateReferenceKind::Axis,"origin:axis:z")}};
+        const auto direction=drag_document.resolve_axis(drag_moving.placement_references[0].target_reference).axis.direction;
+        const double along=requested_drag.x*direction.x+requested_drag.y*direction.y+requested_drag.z*direction.z;
+        require(close_vector(drag_document.component_drag_translation(second_id,requested_drag),
+            zima::kernel::Vec3{direction.x*along,direction.y*along,direction.z*along}),"Oblique axis drag escaped its single sliding freedom");
+        drag_moving.placement_references={{zima::assembly::MateKind::PlaneCoincident,
+            drag_ref(true,zima::assembly::MateReferenceKind::Face,"origin:plane:xy"),
+            drag_ref(false,zima::assembly::MateReferenceKind::Face,"origin:plane:xy")}};
+        require(close_vector(drag_document.component_drag_translation(second_id,requested_drag),
+            zima::kernel::Vec3{requested_drag.x-direction.x*along,requested_drag.y-direction.y*along,requested_drag.z-direction.z*along}),
+            "Plane drag changed its normal offset");
+        drag_moving.placement_references={{zima::assembly::MateKind::PointCoincident,
+            drag_ref(true,zima::assembly::MateReferenceKind::Point,"origin:point"),
+            drag_ref(false,zima::assembly::MateReferenceKind::Point,"origin:point")}};
+        require(close_vector(drag_document.component_drag_translation(second_id,requested_drag),zima::kernel::Vec3{}),
+            "Point coincidence allowed the origin to move");
+        drag_moving.placement_references.clear();drag_moving.grounded=true;
+        require(close_vector(drag_document.component_drag_translation(second_id,requested_drag),zima::kernel::Vec3{}),
+            "Grounded component moved through origin drag");
 
         auto state_document = loaded;
         state_document.components.front().suppressed = true;
