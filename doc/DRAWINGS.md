@@ -271,9 +271,10 @@ a kóty používají slabou tloušťku 0,25 mm. Přepínač
 **Náhled tlouštěk** zapíná tyto tloušťky na obrazovce; výchozí režim **Tenké
 čáry** umožňuje kreslit bez zobrazení fyzických tlouštěk. Export používá
 skutečné tloušťky vždy, nezávisle na pracovním náhledu.
-Na černém pracovním pozadí se všechny skryté hrany kreslí tlumenou tmavě
-šedou (#666666), včetně čárkovaného režimu. PDF zachovává černé čárkované
-hrany nebo zvolenou šedou souvislou variantu.
+Na černém pracovním pozadí se všechny skryté i viditelné tečné hrany kreslí
+tlumenou tmavě šedou (#666666), včetně čárkovaného režimu skrytých hran.
+PDF zachovává černé čárkované skryté hrany nebo zvolenou šedou souvislou
+variantu; tečné hrany se tisknou podle nastaveného pera a tloušťky.
 Čárkovaná skrytá hrana má na papíře čárku 3 mm a mezeru 1,5 mm nezávisle
 na měřítku modelu.
 
