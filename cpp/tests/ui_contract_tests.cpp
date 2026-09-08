@@ -3456,7 +3456,7 @@ int main(int argc, char* argv[]) {
         require(axis_dialog->placement_references()[0].mate_type == zima::assembly::MateKind::AxisCoincident,
             "Axis picks retained the default Plane mate type");
         auto* axis_types = qobject_cast<QComboBox*>(axis_dialog->findChild<QTableWidget*>("componentPlacementTable")->cellWidget(0,3));
-        require(axis_types && axis_types->count() == 2, "Axis row offers incompatible Point/Plane mate types");
+        require(axis_types && axis_types->count() == 1, "Axis row must offer only coaxiality");
         const zima::assembly::ComponentPlacement solved{12,13,14,0,0,25};
         axis_dialog->set_solved_placement(solved, {2, {false,false,true,false,false,true}});
         const auto axis_translations = axis_dialog->findChildren<QDoubleSpinBox*>("componentTranslation");

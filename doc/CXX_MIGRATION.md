@@ -334,12 +334,12 @@ výsledného OCCT tělesa nejsou nabízeny. Vazba přenese pohyblivý výskyt ta
 se zvolené body shodovaly, odebere tři translační stupně volnosti a nepoužívá
 nesmyslné odsazení ani Flip.
 
-Úhlová vazba dvou persistovaných os nebo dvou původních rovinných ploch používá
-samostatnou hodnotu ve stupních v rozsahu 0–180°, nikoliv milimetrové pole
-odsazení. Solver volí nejbližší směr na kuželu kolem referenční osy nebo normály,
-takže vazba odebere právě jeden rotační stupeň volnosti a neurčuje svévolně
-zbývající natočení. Flip volí doplňkový úhel a hodnota i vypočtená orientace
-přežijí uložení a opakovanou regeneraci.
+Úhlová vazba dvou původních rovinných ploch používá samostatnou hodnotu
+ve stupních v rozsahu 0–180°. Samostatný typ Úhel os byl odstraněn; osy
+nabízejí souosost. U ploch obecný úhel odebírá jednu rotační volnost,
+rovnoběžnost v 0°/180° omezuje dvě. Flip požaduje doplňkový úhel.
+Řešič splňuje všechny řádky jedné komponenty současně a zachovává ostatní
+geometrická omezení i při změně úhlu od počáteční rovnoběžné polohy.
 
 Hodnotové sestavové vazby mají stejné nezávislé absolutní dolní a horní meze
 jako kóty Sketcheru. Platí pro rovinné odsazení a úhlové vazby; bezhodnotové
@@ -348,14 +348,14 @@ předvyplní nulou a horní současnou hodnotou. Obrácené meze nebo hodnota mi
 rozsah jsou odmítnuty před výpočtem a meze se persistují v Assembly formátu 5.
 
 Změna číselné hodnoty sestavové vazby má jednu transakční modelovou cestu.
-Podporuje rovinné odsazení a oba druhy úhlových vazeb, ověří konečnost a
+Podporuje rovinné odsazení a úhel ploch, ověří konečnost a
 absolutní meze, přepočítá všechny vazby stejného pohyblivého výskytu a změnu
 přijme jen tehdy, když zůstanou platné. Neplatná hodnota nebo konflikt zachová
 přesnou předchozí hodnotu i placement. Stejnou cestu používá Properties a je
 připravená pro budoucí editaci kóty ve view a tažení mechanismu.
 
 Platné hodnotové sestavové vazby se skládají do viewer scény jako obecné
-klikací kóty. Rovinné odsazení zobrazuje milimetry, úhel os a ploch stupně.
+klikací kóty. Rovinné odsazení zobrazuje milimetry, úhel ploch stupně.
 Geometrie kóty vzniká pouze z persistovaných původních ploch a os; sestavení
 scény nevolá OCCT. Obecný viewer kandidát `Dimension` nyní společně obsluhuje
 Sketcher i Assembly a nese vlastníka dokumentu a stabilní ID vazby. Dvojklik
@@ -380,22 +380,24 @@ Odložené jsou zejména:
 - tažení úhlových vazeb přímo ve 3D view,
 - obecné tažení dílu ve zbývajících stupních volnosti,
 - zobrazovací značky bezhodnotových vazeb osa–osa a bod–bod,
-- obecný společný solver více sestavových vazeb a podrobná diagnostika
-  přeurčení,
+- globální mechanismový solver pohybující více komponentami současně a
+  podrobná diagnostika přeurčení,
 - úplné praktické ověření mechanismů v hluboce vnořených a opakovaných
   podsestavách.
 
-Diagnostika stupňů volnosti již nepoužívá prostý součet omezení. Numerický rank
-lokálních rovnic bodových, osových, rovinných a úhlových vazeb rozpozná
-redundantní rovnice a strom živé Assembly zobrazuje výsledný počet DOF bez OCCT.
-Vlastnosti komponenty používají tentýž výpočet pro povolení polí X/Y/Z a
-RX/RY/RZ a po každé změně zobrazí vyřešenou polohu. Nullspace Jacobiánu
-rozlišuje také pohyb, při kterém se mění více souřadnic současně. Úhlové vazby
-v 0°/180° používají rovnice rovnoběžnosti, aby nulová derivace skalárního
-součinu neztratila omezení. Výběr počátků dílů a vlastnící sestavy ve stromu i
-View používá přesnou instanci; typ vazby se odvozuje z bodu, osy či plochy.
-Celý počátek vyplní pouze vybranou stranu tří řádků a druhá strana se zadává
-samostatně. Náhled v podsestavě ponechá zbytek hlavní sestavy viditelný.
+Diagnostika stupňů volnosti a společný řešič používají stejné geometrické
+rovnice nad šesti fyzickými posuvy a rotacemi komponenty. Numerické iterace
+pracují s lokálními referencemi načtenými před výpočtem; neskládají opakovaně
+scénu a nevolají OCCT. Rotace se skládají maticově, takže RY = 90° nevytváří
+falešnou volnost. Do Eulerových souřadnic se převádí až poloha pro uložení a
+zobrazení. Z nezávislosti rovnic se určí počet DOF a z povolených pohybů
+editovatelnost polí X/Y/Z a RX/RY/RZ.
+
+Při změně úhlu z rovnoběžných ploch se ověřují směry dovolené ostatními
+vazbami. Přijme se pouze poloha splňující všechny vazby; nesplnitelný krok
+zachová vstupní polohu a dialog zobrazí konflikt. Testy pokrývají souosost
+mimo počátek, dosednutí, úhly 0–180°, Flip, změnu pořadí řádků, opakovaný
+výpočet, okolí RY = 90° i odmítnutí konfliktu v náhledu a při OK.
 
 Obecný drag a praktické hluboké mechanismové fixture zůstávají cutover bránou,
 nikoli skrytě deklarovanou hotovou paritou; aktuální audit je v

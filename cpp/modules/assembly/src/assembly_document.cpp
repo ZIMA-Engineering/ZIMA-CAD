@@ -211,71 +211,10 @@ RotationMatrix placement_rotation(const ComponentPlacement& placement) {
              {-sy, cy * sx, cx * cy}}};
 }
 
-RotationMatrix shortest_rotation(
-    const zima::kernel::Vec3& source, const zima::kernel::Vec3& target) {
-    constexpr double epsilon = 1.0e-12;
-    const auto axis = cross(source, target);
-    const double sine = length(axis);
-    const double cosine = std::clamp(dot(source, target), -1.0, 1.0);
-    if (sine < epsilon && cosine > 0.0) {
-        return {{{1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}}};
-    }
-    zima::kernel::Vec3 unit;
-    if (sine < epsilon) {
-        const zima::kernel::Vec3 basis = std::abs(source.x) < 0.9
-            ? zima::kernel::Vec3{1.0, 0.0, 0.0}
-            : zima::kernel::Vec3{0.0, 1.0, 0.0};
-        unit = cross(source, basis);
-        const double magnitude = length(unit);
-        unit = {unit.x / magnitude, unit.y / magnitude, unit.z / magnitude};
-    } else {
-        unit = {axis.x / sine, axis.y / sine, axis.z / sine};
-    }
-    const double rotation_sine = sine < epsilon ? 0.0 : sine;
-    const double one_minus_cosine = 1.0 - cosine;
-    return {{{
-        cosine + unit.x * unit.x * one_minus_cosine,
-        unit.x * unit.y * one_minus_cosine - unit.z * rotation_sine,
-        unit.x * unit.z * one_minus_cosine + unit.y * rotation_sine}, {
-        unit.y * unit.x * one_minus_cosine + unit.z * rotation_sine,
-        cosine + unit.y * unit.y * one_minus_cosine,
-        unit.y * unit.z * one_minus_cosine - unit.x * rotation_sine}, {
-        unit.z * unit.x * one_minus_cosine - unit.y * rotation_sine,
-        unit.z * unit.y * one_minus_cosine + unit.x * rotation_sine,
-        cosine + unit.z * unit.z * one_minus_cosine}}};
-}
-
-zima::kernel::Vec3 nearest_direction_at_angle(
-    const zima::kernel::Vec3& source,
-    const zima::kernel::Vec3& reference,
-    double requested_radians) {
-    const double projection = dot(source, reference);
-    zima::kernel::Vec3 tangent{
-        source.x - projection * reference.x,
-        source.y - projection * reference.y,
-        source.z - projection * reference.z};
-    double tangent_length = length(tangent);
-    if (tangent_length <= 1.0e-12) {
-        const zima::kernel::Vec3 basis = std::abs(reference.x) < 0.9
-            ? zima::kernel::Vec3{1.0, 0.0, 0.0}
-            : zima::kernel::Vec3{0.0, 1.0, 0.0};
-        tangent = cross(reference, basis);
-        tangent_length = length(tangent);
-    }
-    tangent = {tangent.x / tangent_length, tangent.y / tangent_length,
-               tangent.z / tangent_length};
-    return {
-        reference.x * std::cos(requested_radians) +
-            tangent.x * std::sin(requested_radians),
-        reference.y * std::cos(requested_radians) +
-            tangent.y * std::sin(requested_radians),
-        reference.z * std::cos(requested_radians) +
-            tangent.z * std::sin(requested_radians)};
-}
-
 void set_placement_rotation(ComponentPlacement& placement, const RotationMatrix& rotation) {
     constexpr double degrees = 180.0 / 3.14159265358979323846;
-    const double y = std::asin(std::clamp(-rotation.value[2][0], -1.0, 1.0));
+    const double y = std::atan2(-rotation.value[2][0],
+        std::hypot(rotation.value[0][0], rotation.value[1][0]));
     const double cy = std::cos(y);
     double x{};
     double z{};
@@ -289,21 +228,6 @@ void set_placement_rotation(ComponentPlacement& placement, const RotationMatrix&
     placement.rotation_x = x * degrees;
     placement.rotation_y = y * degrees;
     placement.rotation_z = z * degrees;
-}
-
-void rotate_occurrence_about(
-    PartOccurrence& occurrence, const RotationMatrix& world_rotation,
-    const zima::kernel::Vec3& fixed_point) {
-    const zima::kernel::Vec3 translation{
-        occurrence.placement.x, occurrence.placement.y, occurrence.placement.z};
-    const auto rotated_translation = multiply(world_rotation, translation);
-    const auto rotated_fixed = multiply(world_rotation, fixed_point);
-    occurrence.placement.x = rotated_translation.x + fixed_point.x - rotated_fixed.x;
-    occurrence.placement.y = rotated_translation.y + fixed_point.y - rotated_fixed.y;
-    occurrence.placement.z = rotated_translation.z + fixed_point.z - rotated_fixed.z;
-    set_placement_rotation(
-        occurrence.placement,
-        multiply(world_rotation, placement_rotation(occurrence.placement)));
 }
 
 template <typename Reference>
@@ -368,7 +292,6 @@ const char* mate_kind_name(MateKind kind) {
     case MateKind::PlaneCoincident: return "plane_coincident";
     case MateKind::AxisCoincident: return "axis_coincident";
     case MateKind::PointCoincident: return "point_coincident";
-    case MateKind::AxisAngle: return "axis_angle";
     case MateKind::PlaneAngle: return "plane_angle";
     }
     throw std::invalid_argument("Unknown Assembly mate kind");
@@ -378,7 +301,6 @@ MateKind mate_kind_from_name(const std::string& name) {
     if (name == "plane_coincident") return MateKind::PlaneCoincident;
     if (name == "axis_coincident") return MateKind::AxisCoincident;
     if (name == "point_coincident") return MateKind::PointCoincident;
-    if (name == "axis_angle") return MateKind::AxisAngle;
     if (name == "plane_angle") return MateKind::PlaneAngle;
     throw std::runtime_error("Unknown Assembly mate kind");
 }
@@ -526,6 +448,199 @@ void validate_snapshot_list(const std::vector<OccurrenceSnapshot>& snapshots) {
         }
         validate_snapshot_list(snapshot.children);
     }
+}
+
+// The placement solve and mobility report share these same local reference
+// equations. OCCT and scene reconstruction are absent from numerical iterations.
+using Motion = std::array<double,6>;
+using Jacobian = std::vector<Motion>;
+using Vec3 = zima::kernel::Vec3;
+struct PlacementPose { Vec3 position; RotationMatrix rotation; };
+struct PlacementEquation {
+    MateKind kind;
+    Vec3 point, direction, target_point, target_direction;
+    double value{};
+};
+struct PlacementSystem { std::vector<PlacementEquation> constraints; double scale{1.0}; };
+Vec3 subtract(Vec3 a,Vec3 b) { return {a.x-b.x,a.y-b.y,a.z-b.z}; }
+Vec3 add(Vec3 a,Vec3 b) { return {a.x+b.x,a.y+b.y,a.z+b.z}; }
+Vec3 scaled(Vec3 a,double s) { return {a.x*s,a.y*s,a.z*s}; }
+Vec3 unrotate(const RotationMatrix& r,Vec3 v) {
+    return {r.value[0][0]*v.x+r.value[1][0]*v.y+r.value[2][0]*v.z,
+        r.value[0][1]*v.x+r.value[1][1]*v.y+r.value[2][1]*v.z,
+        r.value[0][2]*v.x+r.value[1][2]*v.y+r.value[2][2]*v.z};
+}
+PlacementPose placement_pose(const ComponentPlacement& p) { return {{p.x,p.y,p.z},placement_rotation(p)}; }
+PlacementPose step_pose(PlacementPose pose,const Motion& step,double factor,double scale) {
+    pose.position=add(pose.position,{step[0]*factor*scale,step[1]*factor*scale,step[2]*factor*scale});
+    const Vec3 w{step[3]*factor,step[4]*factor,step[5]*factor};
+    const double angle=length(w);
+    if(angle>1e-16) {
+        const auto n=scaled(w,1.0/angle);const double c=std::cos(angle),sn=std::sin(angle),v=1-c;
+        const RotationMatrix r{{{c+n.x*n.x*v,n.x*n.y*v-n.z*sn,n.x*n.z*v+n.y*sn},
+            {n.y*n.x*v+n.z*sn,c+n.y*n.y*v,n.y*n.z*v-n.x*sn},
+            {n.z*n.x*v-n.y*sn,n.z*n.y*v+n.x*sn,c+n.z*n.z*v}}};
+        pose.rotation=multiply(r,pose.rotation);
+    }
+    return pose;
+}
+PlacementSystem make_placement_system(const AssemblyDocument& document,const PartOccurrence& component) {
+    PlacementSystem system;
+    const auto pose=placement_pose(component.placement);
+    for(const auto& row:component.placement_references) {
+        PlacementEquation equation;equation.kind=row.mate_type;equation.value=row.offset;
+        if(!std::isfinite(row.offset)) throw std::runtime_error("Hodnota vazby musí být konečné číslo.");
+        Vec3 moving_point{},moving_direction{};
+        if(row.mate_type==MateKind::PointCoincident) {
+            const auto moving=document.resolve_point(row.component_reference),target=document.resolve_point(row.target_reference);
+            if(moving.status!=MateStatus::Valid || target.status!=MateStatus::Valid)continue;
+            moving_point=moving.point;equation.target_point=target.point;
+        } else if(row.mate_type==MateKind::AxisCoincident) {
+            const auto moving=document.resolve_axis(row.component_reference),target=document.resolve_axis(row.target_reference);
+            if(moving.status!=MateStatus::Valid || target.status!=MateStatus::Valid)continue;
+            moving_point=moving.axis.point;moving_direction=moving.axis.direction;
+            equation.target_point=target.axis.point;equation.target_direction=target.axis.direction;
+        } else {
+            const auto moving=document.resolve_plane(row.component_reference),target=document.resolve_plane(row.target_reference);
+            if(moving.status!=MateStatus::Valid || target.status!=MateStatus::Valid)continue;
+            moving_point=moving.plane.point;moving_direction=moving.plane.normal;
+            equation.target_point=target.plane.point;equation.target_direction=target.plane.normal;
+        }
+        equation.point=unrotate(pose.rotation,subtract(moving_point,pose.position));
+        equation.direction=unrotate(pose.rotation,moving_direction);
+        if(row.mate_type==MateKind::PlaneAngle) {
+            if(row.offset<0 || row.offset>180) throw std::runtime_error("Úhel ploch musí být v rozsahu 0 až 180 stupňů.");
+            equation.value=(row.flip?180-row.offset:row.offset)*std::numbers::pi/180.0;
+        } else if(row.mate_type!=MateKind::PointCoincident) {
+            // Keep the closest parallel branch unless Flip explicitly requests
+            // opposite directions. Offset remains measured along the target normal.
+            equation.direction=scaled(equation.direction,row.flip?-1.0:
+                dot(moving_direction,equation.target_direction)<0?-1.0:1.0);
+        }
+        system.scale=std::max(system.scale,length(equation.point));
+        system.constraints.push_back(equation);
+    }
+    return system;
+}
+std::vector<double> placement_residuals(const PlacementSystem& system,const PlacementPose& pose,bool angles=true) {
+    std::vector<double> values;
+    const auto vector=[&](Vec3 v){values.insert(values.end(),{v.x,v.y,v.z});};
+    for(const auto& equation:system.constraints) {
+        if(!angles && equation.kind==MateKind::PlaneAngle)continue;
+        const auto direction=multiply(pose.rotation,equation.direction);
+        const auto delta=subtract(add(pose.position,multiply(pose.rotation,equation.point)),equation.target_point);
+        if(equation.kind==MateKind::PointCoincident) vector(scaled(delta,1/system.scale));
+        else if(equation.kind==MateKind::PlaneAngle) {
+            if(equation.value<1e-10 || std::numbers::pi-equation.value<1e-10)
+                vector(subtract(direction,scaled(equation.target_direction,equation.value<1e-10?1.0:-1.0)));
+            else values.push_back(std::atan2(length(cross(direction,equation.target_direction)),
+                dot(direction,equation.target_direction))-equation.value);
+        } else {
+            vector(subtract(direction,equation.target_direction));
+            if(equation.kind==MateKind::AxisCoincident)
+                vector(scaled(subtract(delta,scaled(equation.target_direction,dot(delta,equation.target_direction))),1/system.scale));
+            else values.push_back((dot(delta,equation.target_direction)-equation.value)/system.scale);
+        }
+    }
+    return values;
+}
+Jacobian placement_jacobian(const PlacementSystem& system,const PlacementPose& pose,bool angles=true) {
+    Jacobian result(placement_residuals(system,pose,angles).size());
+    constexpr double step=1e-6;
+    for(int column=0;column<6;++column) {
+        Motion motion{};motion[column]=1;
+        const auto plus=placement_residuals(system,step_pose(pose,motion,step,system.scale),angles);
+        const auto minus=placement_residuals(system,step_pose(pose,motion,-step,system.scale),angles);
+        for(std::size_t row=0;row<result.size();++row)result[row][column]=(plus[row]-minus[row])/(2*step);
+    }
+    return result;
+}
+double motion_dot(const Motion& a,const Motion& b) {
+    double result{};for(int i=0;i<6;++i)result+=a[i]*b[i];return result;
+}
+std::vector<Motion> nullspace(const Jacobian& jacobian) {
+    std::vector<Motion> rows,basis;
+    const auto project=[](Motion& value,const std::vector<Motion>& orthogonal) {
+        for(int pass=0;pass<2;++pass)for(const auto& axis:orthogonal) {
+            const double coefficient=motion_dot(value,axis);
+            for(int i=0;i<6;++i)value[i]-=coefficient*axis[i];
+        }
+    };
+    for(auto row:jacobian) {
+        project(row,rows);const double norm=std::sqrt(motion_dot(row,row));
+        if(norm>1e-7){for(auto& x:row)x/=norm;rows.push_back(row);}
+    }
+    for(int i=0;i<6;++i) {
+        Motion value{};value[i]=1;project(value,rows);project(value,basis);
+        const double norm=std::sqrt(motion_dot(value,value));
+        if(norm>1e-7){for(auto& x:value)x/=norm;basis.push_back(value);}
+    }
+    return basis;
+}
+Motion damped_step(const Jacobian& jacobian,const std::vector<double>& residual,double damping) {
+    std::array<std::array<double,7>,6> normal{};
+    for(std::size_t row=0;row<jacobian.size();++row)for(int i=0;i<6;++i) {
+        for(int j=0;j<6;++j)normal[i][j]+=jacobian[row][i]*jacobian[row][j];
+        normal[i][6]-=jacobian[row][i]*residual[row];
+    }
+    for(int i=0;i<6;++i)normal[i][i]+=damping;
+    for(int i=0;i<6;++i) {
+        int pivot=i;for(int row=i+1;row<6;++row)if(std::abs(normal[row][i])>std::abs(normal[pivot][i]))pivot=row;
+        std::swap(normal[i],normal[pivot]);const double divisor=normal[i][i];
+        for(int j=i;j<7;++j)normal[i][j]/=divisor;
+        for(int row=0;row<6;++row)if(row!=i) {
+            const double factor=normal[row][i];for(int j=i;j<7;++j)normal[row][j]-=factor*normal[i][j];
+        }
+    }
+    Motion result{};for(int i=0;i<6;++i)result[i]=normal[i][6];return result;
+}
+ComponentPlacement solve_placement(const PlacementSystem& system,const PartOccurrence& component) {
+    if(system.constraints.empty())return component.placement;
+    auto pose=placement_pose(component.placement);
+    const auto cost=[](const std::vector<double>& residual){double sum{};for(double x:residual)sum+=x*x;return sum;};
+    bool changed=false;
+    double damping=1e-6;
+    for(int iteration=0;iteration<100;++iteration) {
+        const auto residual=placement_residuals(system,pose);
+        if(std::ranges::all_of(residual,[](double x){return std::abs(x)<1e-10;})) {
+            if(!changed)return component.placement;
+            ComponentPlacement result{pose.position.x,pose.position.y,pose.position.z};
+            set_placement_rotation(result,pose.rotation);return result;
+        }
+        const double current_cost=cost(residual);
+        const auto jacobian=placement_jacobian(system,pose);
+        bool accepted=false;
+        for(int attempt=0;attempt<10 && !accepted;++attempt) {
+            auto step=damped_step(jacobian,residual,damping);
+            const double rotation=std::hypot(step[3],step[4],step[5]);
+            if(rotation>0.5)for(auto& x:step)x*=0.5/rotation;
+            auto next=step_pose(pose,step,1,system.scale);
+            if(cost(placement_residuals(system,next))<current_cost-std::max(1e-25,current_cost*1e-12)) {
+                pose=next;damping=std::max(1e-12,damping*0.1);accepted=true;
+            } else damping=std::min(1e6,damping*10);
+        }
+        if(!accepted) {
+            // Parallel planes have no preferred angular departure direction.
+            // First explore the freedoms left by the other rows, including
+            // the coupled translation of a hinge whose axis is off the origin.
+            auto directions=nullspace(placement_jacobian(system,pose,false));
+            for(int i=3;i<6;++i){Motion direction{};direction[i]=1;directions.push_back(direction);}
+            double best_cost=current_cost;
+            auto best=pose;
+            for(const auto& direction:directions) {
+                const double angular=std::hypot(direction[3],direction[4],direction[5]);
+                if(angular<1e-8)continue;
+                for(double angle:{-0.5,-0.15,0.15,0.5}) {
+                    const auto next=step_pose(pose,direction,angle/angular,system.scale);
+                    const double score=cost(placement_residuals(system,next));
+                    if(score<best_cost-1e-14){best_cost=score;best=next;accepted=true;}
+                }
+            }
+            if(accepted){pose=best;damping=1e-6;}else break;
+        }
+        changed=true;
+    }
+    throw std::runtime_error("Nelze současně splnit vazby komponenty „"+component.name+"“. Zkontrolujte úhel a ostatní reference.");
 }
 
 }  // namespace
@@ -910,12 +1025,6 @@ PointResolution AssemblyDocument::resolve_point(
 }
 
 
-// Solves PartOccurrence::placement_references (the embedded, Python-style
-// per-component reference rows) using the per-kind resolution functions
-// (resolve_plane/resolve_axis/resolve_point) and a rotate-then-translate
-// solve strategy. `flip` mirrors ConstructionReference::flip: it inverts the
-// resolved direction/normal of an orientation-driving reference as a
-// post-solve step, and is a no-op for a PointCoincident row.
 const PartOccurrence* AssemblyDocument::derived_source(const std::string& id) const {
     const auto* source=find_occurrence(id);std::set<std::string> visited;
     while(source&&source->derived_copy) {
@@ -1031,298 +1140,47 @@ void AssemblyDocument::calculate_derived_copies(const zima::kernel::GeometryKern
 }
 
 void AssemblyDocument::calculate_placement_references() {
-    constexpr double parallel_tolerance = 1.0e-7;
-    for (auto& component : components) {
+    // No partial placement changes escape if any component has conflicting rows.
+    auto pending = *this;
+    for (auto& component : pending.components) {
         if (component.grounded || component.placement_references.empty()) continue;
-        for (const auto& row : component.placement_references) {
-            if (row.mate_type == MateKind::PlaneCoincident) {
-                if (row.component_reference.kind != MateReferenceKind::Face ||
-                    row.target_reference.kind != MateReferenceKind::Face) {
-                    continue;
-                }
-                const auto moving = resolve_plane(row.component_reference);
-                const auto target = resolve_plane(row.target_reference);
-                if (moving.status != MateStatus::Valid ||
-                    target.status != MateStatus::Valid) {
-                    continue;
-                }
-                const auto& moving_normal = moving.plane.normal;
-                const auto& target_normal = target.plane.normal;
-                const double alignment = dot(moving_normal, target_normal);
-                const zima::kernel::Vec3 desired_normal = row.flip
-                    ? zima::kernel::Vec3{-target_normal.x, -target_normal.y,
-                                         -target_normal.z}
-                    : alignment < 0.0
-                        ? zima::kernel::Vec3{-target_normal.x, -target_normal.y,
-                                             -target_normal.z}
-                        : target_normal;
-                const bool orientation_satisfied = row.flip
-                    ? std::abs(alignment + 1.0) <= parallel_tolerance
-                    : std::abs(std::abs(alignment) - 1.0) <= parallel_tolerance;
-                if (!orientation_satisfied) {
-                    rotate_occurrence_about(component,
-                        shortest_rotation(moving_normal, desired_normal),
-                        moving.plane.point);
-                }
-                const auto aligned = resolve_plane(row.component_reference);
-                if (aligned.status != MateStatus::Valid) continue;
-                const auto& aligned_point = aligned.plane.point;
-                const auto& target_point = target.plane.point;
-                const double current_offset =
-                    (aligned_point.x - target_point.x) * target_normal.x +
-                    (aligned_point.y - target_point.y) * target_normal.y +
-                    (aligned_point.z - target_point.z) * target_normal.z;
-                const double correction = row.offset - current_offset;
-                component.placement.x += target_normal.x * correction;
-                component.placement.y += target_normal.y * correction;
-                component.placement.z += target_normal.z * correction;
-            } else if (row.mate_type == MateKind::AxisCoincident) {
-                if (row.component_reference.kind != MateReferenceKind::Axis ||
-                    row.target_reference.kind != MateReferenceKind::Axis) {
-                    continue;
-                }
-                const auto moving = resolve_axis(row.component_reference);
-                const auto target = resolve_axis(row.target_reference);
-                if (moving.status != MateStatus::Valid ||
-                    target.status != MateStatus::Valid) {
-                    continue;
-                }
-                const double alignment =
-                    dot(moving.axis.direction, target.axis.direction);
-                const zima::kernel::Vec3 desired_direction = row.flip
-                    ? zima::kernel::Vec3{-target.axis.direction.x,
-                                         -target.axis.direction.y,
-                                         -target.axis.direction.z}
-                    : alignment < 0.0
-                        ? zima::kernel::Vec3{-target.axis.direction.x,
-                                             -target.axis.direction.y,
-                                             -target.axis.direction.z}
-                        : target.axis.direction;
-                const bool orientation_satisfied = row.flip
-                    ? std::abs(alignment + 1.0) <= parallel_tolerance
-                    : std::abs(std::abs(alignment) - 1.0) <= parallel_tolerance;
-                if (!orientation_satisfied) {
-                    rotate_occurrence_about(component,
-                        shortest_rotation(moving.axis.direction, desired_direction),
-                        moving.axis.point);
-                }
-                const auto aligned = resolve_axis(row.component_reference);
-                if (aligned.status != MateStatus::Valid) continue;
-                const zima::kernel::Vec3 delta{
-                    target.axis.point.x - aligned.axis.point.x,
-                    target.axis.point.y - aligned.axis.point.y,
-                    target.axis.point.z - aligned.axis.point.z};
-                const double axial = dot(delta, target.axis.direction);
-                const zima::kernel::Vec3 correction{
-                    delta.x - axial * target.axis.direction.x,
-                    delta.y - axial * target.axis.direction.y,
-                    delta.z - axial * target.axis.direction.z};
-                component.placement.x += correction.x;
-                component.placement.y += correction.y;
-                component.placement.z += correction.z;
-            } else if (row.mate_type == MateKind::PointCoincident) {
-                if (row.component_reference.kind != MateReferenceKind::Point ||
-                    row.target_reference.kind != MateReferenceKind::Point) {
-                    continue;
-                }
-                const auto moving = resolve_point(row.component_reference);
-                const auto target = resolve_point(row.target_reference);
-                if (moving.status != MateStatus::Valid ||
-                    target.status != MateStatus::Valid) {
-                    continue;
-                }
-                component.placement.x += target.point.x - moving.point.x;
-                component.placement.y += target.point.y - moving.point.y;
-                component.placement.z += target.point.z - moving.point.z;
-            } else if (row.mate_type == MateKind::AxisAngle) {
-                if (row.component_reference.kind != MateReferenceKind::Axis ||
-                    row.target_reference.kind != MateReferenceKind::Axis) {
-                    continue;
-                }
-                const auto moving = resolve_axis(row.component_reference);
-                const auto target = resolve_axis(row.target_reference);
-                if (moving.status != MateStatus::Valid ||
-                    target.status != MateStatus::Valid) {
-                    continue;
-                }
-                constexpr double radians = 3.14159265358979323846 / 180.0;
-                const double requested = row.offset * radians;
-                const auto direction = nearest_direction_at_angle(
-                    moving.axis.direction, target.axis.direction, requested);
-                rotate_occurrence_about(component,
-                    shortest_rotation(moving.axis.direction, direction),
-                    moving.axis.point);
-            } else if (row.mate_type == MateKind::PlaneAngle) {
-                if (row.component_reference.kind != MateReferenceKind::Face ||
-                    row.target_reference.kind != MateReferenceKind::Face) {
-                    continue;
-                }
-                const auto moving = resolve_plane(row.component_reference);
-                const auto target = resolve_plane(row.target_reference);
-                if (moving.status != MateStatus::Valid ||
-                    target.status != MateStatus::Valid) {
-                    continue;
-                }
-                constexpr double radians = 3.14159265358979323846 / 180.0;
-                const double requested = row.offset * radians;
-                const auto direction = nearest_direction_at_angle(
-                    moving.plane.normal, target.plane.normal, requested);
-                rotate_occurrence_about(component,
-                    shortest_rotation(moving.plane.normal, direction),
-                    moving.plane.point);
-            }
-        }
+        const auto system = make_placement_system(pending, component);
+        component.placement = solve_placement(system, component);
     }
+    for (std::size_t i = 0; i < components.size(); ++i)
+        components[i].placement = pending.components[i].placement;
 }
 
-int AssemblyDocument::remaining_degrees_of_freedom(
-    const std::string& occurrence_id) const {
+int AssemblyDocument::remaining_degrees_of_freedom(const std::string& occurrence_id) const {
     return component_constraint_state(occurrence_id).remaining_dof;
 }
 
-ComponentConstraintState AssemblyDocument::component_constraint_state(
-    const std::string& occurrence_id) const {
-    const auto* occurrence = find_occurrence(occurrence_id);
-    if (occurrence == nullptr) throw std::invalid_argument("Assembly occurrence does not exist");
-    if (occurrence->grounded) return {0, {false, false, false, false, false, false}};
-    const auto append_angle_residual = [](std::vector<double>& values,
-        const zima::kernel::Vec3& moving, const zima::kernel::Vec3& target, double requested) {
-        // At zero or 180 degrees the dot-product derivative vanishes even
-        // though two rotations are constrained. Use parallelism equations.
-        if (std::abs(std::sin(requested)) < 1.0e-8) {
-            const auto parallel = cross(moving, target);
-            values.insert(values.end(), {parallel.x, parallel.y, parallel.z});
-        } else values.push_back(dot(moving, target) - std::cos(requested));
-    };
-    const auto residuals = [&](const AssemblyDocument& document) {
-        std::vector<double> values;
-        const auto* live_occurrence = document.find_occurrence(occurrence_id);
-        if (live_occurrence == nullptr) return values;
-        for (const auto& row : live_occurrence->placement_references) {
-            if (row.mate_type == MateKind::PointCoincident) {
-                const auto dependent = document.resolve_point(row.component_reference);
-                const auto prerequisite = document.resolve_point(row.target_reference);
-                if (dependent.status != MateStatus::Valid ||
-                    prerequisite.status != MateStatus::Valid) continue;
-                values.insert(values.end(), {
-                    dependent.point.x - prerequisite.point.x,
-                    dependent.point.y - prerequisite.point.y,
-                    dependent.point.z - prerequisite.point.z});
-            } else if (row.mate_type == MateKind::AxisCoincident) {
-                const auto dependent = document.resolve_axis(row.component_reference);
-                const auto prerequisite = document.resolve_axis(row.target_reference);
-                if (dependent.status != MateStatus::Valid ||
-                    prerequisite.status != MateStatus::Valid) continue;
-                const auto orientation = cross(
-                    dependent.axis.direction, prerequisite.axis.direction);
-                const zima::kernel::Vec3 delta{
-                    dependent.axis.point.x - prerequisite.axis.point.x,
-                    dependent.axis.point.y - prerequisite.axis.point.y,
-                    dependent.axis.point.z - prerequisite.axis.point.z};
-                const double axial = dot(delta, prerequisite.axis.direction);
-                values.insert(values.end(), {
-                    orientation.x, orientation.y, orientation.z,
-                    delta.x - axial * prerequisite.axis.direction.x,
-                    delta.y - axial * prerequisite.axis.direction.y,
-                    delta.z - axial * prerequisite.axis.direction.z});
-            } else if (row.mate_type == MateKind::PlaneCoincident) {
-                const auto dependent = document.resolve_plane(row.component_reference);
-                const auto prerequisite = document.resolve_plane(row.target_reference);
-                if (dependent.status != MateStatus::Valid ||
-                    prerequisite.status != MateStatus::Valid) continue;
-                const auto orientation = cross(
-                    dependent.plane.normal, prerequisite.plane.normal);
-                const zima::kernel::Vec3 delta{
-                    dependent.plane.point.x - prerequisite.plane.point.x,
-                    dependent.plane.point.y - prerequisite.plane.point.y,
-                    dependent.plane.point.z - prerequisite.plane.point.z};
-                values.insert(values.end(), {orientation.x, orientation.y,
-                    orientation.z,
-                    dot(delta, prerequisite.plane.normal) - row.offset});
-            } else if (row.mate_type == MateKind::AxisAngle) {
-                const auto dependent = document.resolve_axis(row.component_reference);
-                const auto prerequisite = document.resolve_axis(row.target_reference);
-                if (dependent.status != MateStatus::Valid ||
-                    prerequisite.status != MateStatus::Valid) continue;
-                constexpr double radians = std::numbers::pi / 180.0;
-                const double requested = (row.flip
-                    ? 180.0 - row.offset : row.offset) * radians;
-                append_angle_residual(values, dependent.axis.direction,
-                    prerequisite.axis.direction, requested);
-            } else {
-                const auto dependent = document.resolve_plane(row.component_reference);
-                const auto prerequisite = document.resolve_plane(row.target_reference);
-                if (dependent.status != MateStatus::Valid ||
-                    prerequisite.status != MateStatus::Valid) continue;
-                constexpr double radians = std::numbers::pi / 180.0;
-                const double requested = (row.flip
-                    ? 180.0 - row.offset : row.offset) * radians;
-                append_angle_residual(values, dependent.plane.normal,
-                    prerequisite.plane.normal, requested);
-            }
-        }
-        return values;
-    };
-    const auto baseline = residuals(*this);
-    if (baseline.empty()) return {};
-    std::vector<std::vector<double>> jacobian(
-        baseline.size(), std::vector<double>(6));
-    for (int coordinate = 0; coordinate < 6; ++coordinate) {
-        constexpr double translation_step = 1.0e-5;
-        constexpr double rotation_step_degrees = 1.0e-4;
-        const double step = coordinate < 3 ? translation_step : rotation_step_degrees;
-        const auto shifted_residuals = [&](double delta) {
-            auto perturbed = *this;
-            auto& p = perturbed.find_occurrence(occurrence_id)->placement;
-            if (coordinate == 0) p.x += delta;
-            else if (coordinate == 1) p.y += delta;
-            else if (coordinate == 2) p.z += delta;
-            else if (coordinate == 3) p.rotation_x += delta;
-            else if (coordinate == 4) p.rotation_y += delta;
-            else p.rotation_z += delta;
-            return residuals(perturbed);
-        };
-        const auto plus = shifted_residuals(step), minus = shifted_residuals(-step);
-        if (plus.size() != baseline.size() || minus.size() != baseline.size()) continue;
-        const double denominator = 2 * (coordinate < 3 ? step : step * std::numbers::pi / 180.0);
-        for (std::size_t row = 0; row < baseline.size(); ++row)
-            jacobian[row][coordinate] = (plus[row] - minus[row]) / denominator;
-    }
-    std::vector<int> pivot_columns;
-    int rank{};
-    constexpr double rank_tolerance = 1.0e-6;
-    for (int column = 0; column < 6 && rank < static_cast<int>(jacobian.size());
-         ++column) {
-        int pivot = rank;
-        for (int row = rank + 1; row < static_cast<int>(jacobian.size()); ++row) {
-            if (std::abs(jacobian[row][column]) >
-                std::abs(jacobian[pivot][column])) pivot = row;
-        }
-        if (std::abs(jacobian[pivot][column]) <= rank_tolerance) continue;
-        std::swap(jacobian[pivot], jacobian[rank]);
-        const double divisor = jacobian[rank][column];
-        for (int value = column; value < 6; ++value) {
-            jacobian[rank][value] /= divisor;
-        }
-        for (int row = 0; row < static_cast<int>(jacobian.size()); ++row) {
-            if (row == rank) continue;
-            const double factor = jacobian[row][column];
-            for (int value = column; value < 6; ++value) {
-                jacobian[row][value] -= factor * jacobian[rank][value];
-            }
-        }
-        pivot_columns.push_back(column);
-        ++rank;
-    }
+ComponentConstraintState AssemblyDocument::component_constraint_state(const std::string& occurrence_id) const {
+    const auto* component = find_occurrence(occurrence_id);
+    if (!component) throw std::invalid_argument("Assembly occurrence does not exist");
+    if (component->grounded) return {0, {false,false,false,false,false,false}};
+    const auto system = make_placement_system(*this, *component);
+    if (system.constraints.empty()) return {};
+    const auto pose = placement_pose(component->placement);
+    const auto basis = nullspace(placement_jacobian(system, pose));
     ComponentConstraintState state;
-    state.remaining_dof = 6 - rank;
+    state.remaining_dof = static_cast<int>(basis.size());
     state.coordinate_free.fill(false);
-    for (int column = 0; column < 6; ++column) {
-        if (std::ranges::find(pivot_columns, column) != pivot_columns.end()) continue;
-        state.coordinate_free[column] = true;
-        for (int row = 0; row < rank; ++row)
-            if (std::abs(jacobian[row][column]) > rank_tolerance)
-                state.coordinate_free[pivot_columns[row]] = true;
+    // Mobility is computed in physical world translations/rotations, not in
+    // Euler coordinates (which lose rank at RY=90 degrees). Convert actual
+    // free motions back to the displayed coordinates only after counting DOF.
+    auto base = component->placement;
+    set_placement_rotation(base, pose.rotation);
+    const std::array<double,3> initial{base.rotation_x,base.rotation_y,base.rotation_z};
+    for (const auto& motion : basis) {
+        for (int i=0;i<3;++i) if (std::abs(motion[i])>1e-7) state.coordinate_free[i]=true;
+        for (double sign : {-1.0,1.0}) {
+            auto shifted=base;
+            set_placement_rotation(shifted,step_pose(pose,motion,sign*1e-4,system.scale).rotation);
+            const std::array<double,3> angles{shifted.rotation_x,shifted.rotation_y,shifted.rotation_z};
+            for(int i=0;i<3;++i)
+                if(std::abs(std::remainder(angles[i]-initial[i],360.0))>1e-5) state.coordinate_free[i+3]=true;
+        }
     }
     return state;
 }
@@ -1501,18 +1359,6 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
             append_component_mesh(origin.origin_viewer_mesh());
         }
     }
-    const auto find_axis = [&](const MateReference& reference)
-        -> std::optional<ResolvedAxis> {
-        const auto path = reference.instance_path.encoded();
-        const auto found = std::ranges::find_if(scene.original_references.axes,
-            [&](const auto& axis) {
-                return axis.reference.instance_path == path &&
-                    axis.reference.owner_id == reference.owner_id &&
-                    axis.reference.semantic_key == reference.semantic_key;
-            });
-        if (found == scene.original_references.axes.end()) return std::nullopt;
-        return ResolvedAxis{found->point, found->direction};
-    };
     const auto find_plane = [&](const MateReference& reference)
         -> std::optional<ResolvedPlane> {
         const auto path = reference.instance_path.encoded();
@@ -1580,27 +1426,6 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
                 // offset define one stable dimension plane.  Do not leave
                 // the default global-Z plane on an arbitrarily oriented mate.
                 dimension.plane_normal = cross(normal, side);
-            } else if (row.mate_type == MateKind::AxisAngle) {
-                const auto moving = find_axis(row.component_reference);
-                const auto target = find_axis(row.target_reference);
-                if (!moving || !target) continue;
-                dimension.witness_first = target->point;
-                dimension.witness_second = target->point;
-                dimension.line_first = {
-                    target->point.x + target->direction.x * 30.0,
-                    target->point.y + target->direction.y * 30.0,
-                    target->point.z + target->direction.z * 30.0};
-                dimension.line_second = {
-                    target->point.x + moving->direction.x * 30.0,
-                    target->point.y + moving->direction.y * 30.0,
-                    target->point.z + moving->direction.z * 30.0};
-                dimension.value = row.offset;
-                dimension.label_prefix.clear();
-                dimension.unit_suffix = " °";
-                dimension.kind = zima::kernel::ViewerDimensionKind::Angular;
-                dimension.sweep_degrees = row.offset;
-                dimension.plane_normal = cross(
-                    target->direction, moving->direction);
             } else if (row.mate_type == MateKind::PlaneAngle) {
                 const auto moving = find_plane(row.component_reference);
                 const auto target = find_plane(row.target_reference);

@@ -29,9 +29,9 @@ ve stromu vyplní **právě zvolenou stranu** tří řádků jeho bodem a osami 
 Druhý počátek se zadá na opačné straně. Uloží se přesný vybraný vlastník a
 výskyt; počátek tělesa se nenahrazuje počátkem dokumentu.
 
-Typ vazby se odvodí z geometrie: bod–bod, osa–osa nebo plocha–plocha. U os a
-ploch lze zvolit také úhlovou vazbu. Nabídka neumožní kombinaci typu vazby s
-neodpovídající geometrií. Změna druhu reference vyprázdní neslučitelnou druhou
+Typ vazby se odvodí z geometrie: bod–bod, osa–osa nebo plocha–plocha. U ploch
+lze zvolit také úhlovou vazbu. Osy nabízejí pouze souosost; Úhel os byl
+odstraněn. Nabídka neumožní kombinaci typu vazby s neodpovídající geometrií. Změna druhu reference vyprázdní neslučitelnou druhou
 stranu. Dialog také sjednotí nesprávný typ rozpracovaného řádku při otevření;
 změna se uloží až potvrzením **OK**.
 
@@ -41,6 +41,20 @@ Počet volností vychází z nezávislosti geometrických rovnic, nikoliv z poč
 vyplněných řádků. Souosé osy ponechají posuv a rotaci podél osy; přidaná čelní
 rovina ponechá pouze rotaci. Shodné celé počátky odeberou všech šest volností.
 U šikmého směru může jediný volný pohyb měnit více souřadnic současně.
+Počet se počítá ze skutečných posuvů a rotací v prostoru. Singularita zápisu
+Eulerových úhlů u RY = 90° nevytváří další volnost. U plně zavazbeného dílu
+zůstanou všechna pole polohy a natočení zamknutá i v této orientaci.
+
+Všechny platné řádky jedné komponenty se řeší společně. Úhel ploch využije
+pohyb, který dovolují ostatní vazby: u souosého a čelně ustaveného dílu
+otáčí právě kolem společné osy a zachová dosednutí. Výsledek se přijme pouze
+při splnění všech rovnic. Pořadí řádků neopravňuje pozdější vazbu porušit
+předchozí vazbu. Flip úhlové vazby požaduje doplňkový úhel.
+
+Nesplnitelná kombinace vyvolá v dialogu **Konflikt vazeb**. Náhled ponechá
+poslední platnou polohu, **OK** neuloží chybný výsledek a **Zrušit** zahodí
+rozpracované změny. Totéž platí pro neplatný krok při tažení hodnotové vazby.
+
 
 Náhled používá uloženou referenční geometrii bez OCCT a zachová okolní
 komponenty i při editaci v podsestavě. **OK** uloží vyřešenou polohu a vazby;

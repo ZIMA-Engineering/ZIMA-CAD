@@ -30,7 +30,6 @@ const char* mate_type_label(zima::assembly::MateKind kind) {
     case zima::assembly::MateKind::PlaneCoincident: return "Plocha";
     case zima::assembly::MateKind::AxisCoincident: return "Osa";
     case zima::assembly::MateKind::PointCoincident: return "Bod";
-    case zima::assembly::MateKind::AxisAngle: return "Úhel os";
     case zima::assembly::MateKind::PlaneAngle: return "Úhel ploch";
     }
     return "Plocha";
@@ -39,7 +38,7 @@ const char* mate_type_label(zima::assembly::MateKind kind) {
 bool mate_type_accepts(zima::assembly::MateKind type, zima::assembly::MateReferenceKind kind) {
     using namespace zima::assembly;
     if (kind == MateReferenceKind::Point) return type == MateKind::PointCoincident;
-    if (kind == MateReferenceKind::Axis) return type == MateKind::AxisCoincident || type == MateKind::AxisAngle;
+    if (kind == MateReferenceKind::Axis) return type == MateKind::AxisCoincident;
     return type == MateKind::PlaneCoincident || type == MateKind::PlaneAngle;
 }
 
@@ -53,8 +52,7 @@ void match_reference_type(zima::assembly::ComponentPlacementReference& row) {
 }
 
 bool mate_type_is_angular(zima::assembly::MateKind kind) {
-    return kind == zima::assembly::MateKind::AxisAngle ||
-        kind == zima::assembly::MateKind::PlaneAngle;
+    return kind == zima::assembly::MateKind::PlaneAngle;
 }
 
 class MateLimitsDialog final : public zima::ui::PropertiesSubWindow {
@@ -100,6 +98,8 @@ public:
         form->addRow(tr("Dolní mez"), limit_row(lower_enabled_, lower_));
         form->addRow(tr("Horní mez"), limit_row(upper_enabled_, upper_));
         error_ = new QLabel(this);
+    error_->setObjectName("componentPlacementError");
+    error_->setWordWrap(true);
         error_->setStyleSheet("color:#c64b4b;");
         error_->setWordWrap(true);
         content_layout()->addLayout(form);
@@ -292,6 +292,7 @@ ComponentPropertiesDialog::ComponentPropertiesDialog(
 void ComponentPropertiesDialog::set_solved_placement(
     const zima::assembly::ComponentPlacement& placement,
     const zima::assembly::ComponentConstraintState& state) {
+    error_->clear();
     const std::array<double, 6> values{placement.x, placement.y, placement.z,
         placement.rotation_x, placement.rotation_y, placement.rotation_z};
     for (std::size_t i = 0; i < values.size(); ++i) {
@@ -301,6 +302,13 @@ void ComponentPropertiesDialog::set_solved_placement(
         field->setEnabled(state.coordinate_free[i]);
     }
     freedom_->setText(tr("Zbývající stupně volnosti: %1").arg(state.remaining_dof));
+}
+
+void ComponentPropertiesDialog::set_placement_error(const QString& message) {
+    error_->setText(message);
+    freedom_->setText(tr("Konflikt vazeb"));
+    for (auto* field : translation_) field->setEnabled(false);
+    for (auto* field : rotation_) field->setEnabled(false);
 }
 
 void ComponentPropertiesDialog::set_live_translation(double x, double y, double z) {
@@ -493,7 +501,6 @@ void ComponentPropertiesDialog::refresh_placement_table() {
         for (const auto kind : {zima::assembly::MateKind::PlaneCoincident,
                 zima::assembly::MateKind::AxisCoincident,
                 zima::assembly::MateKind::PointCoincident,
-                zima::assembly::MateKind::AxisAngle,
                 zima::assembly::MateKind::PlaneAngle}) {
             const auto& reference = row.component_reference.owner_id.empty()
                 ? row.target_reference : row.component_reference;

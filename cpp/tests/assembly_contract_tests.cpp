@@ -687,13 +687,13 @@ int main() {
                 "Second occurrence missing before placement-reference dimension test");
         placement_angle_component_it->placement_references.clear();
         placement_angle_component_it->placement_references.push_back(
-            {zima::assembly::MateKind::AxisAngle,
-             {zima::assembly::MateReferenceKind::Axis,
+            {zima::assembly::MateKind::PlaneAngle,
+             {zima::assembly::MateReferenceKind::Face,
               zima::assembly::InstancePath{}.child(second_id),
-              "same-source-container", "axis:z"},
-             {zima::assembly::MateReferenceKind::Axis,
+              "same-source-container", "z_min"},
+             {zima::assembly::MateReferenceKind::Face,
               zima::assembly::InstancePath{}.child(first_id),
-              "same-source-container", "axis:z"},
+              "same-source-container", "z_min"},
              45.0, false});
         placement_reference_angle_assembly.calculate_placement_references();
         const auto placement_angle_scene =
@@ -711,7 +711,7 @@ int main() {
                     placement_dimension_it->unit_suffix == " °" &&
                     std::abs(placement_dimension_it->value - 45.0) < 1.0e-7,
                 "build_scene() did not emit a dimension overlay for the "
-                "embedded AxisAngle placement reference");
+                "embedded PlaneAngle placement reference");
         placement_angle_component_it->placement_references.front().offset = 0.0;
         placement_reference_angle_assembly.calculate_placement_references();
         const auto zero_angle_scene =
@@ -730,28 +730,28 @@ int main() {
             angled_assembly.components.begin(), angled_assembly.components.end(),
             [&](const auto& component) { return component.occurrence_id == second_id; });
         require(angled_component_it != angled_assembly.components.end(),
-                "Second occurrence missing before axis-angle test");
+                "Second occurrence missing before plane-angle test");
         angled_component_it->placement_references.push_back(
-            {zima::assembly::MateKind::AxisAngle,
-             {zima::assembly::MateReferenceKind::Axis,
+            {zima::assembly::MateKind::PlaneAngle,
+             {zima::assembly::MateReferenceKind::Face,
               zima::assembly::InstancePath{}.child(second_id),
-              "same-source-container", "axis:z"},
-             {zima::assembly::MateReferenceKind::Axis,
+              "same-source-container", "z_min"},
+             {zima::assembly::MateReferenceKind::Face,
               zima::assembly::InstancePath{}.child(first_id),
-              "same-source-container", "axis:z"},
+              "same-source-container", "z_min"},
              60.0, false, 30.0, 90.0});
         angled_assembly.calculate_placement_references();
-        const auto angled_dependent = angled_assembly.resolve_axis(
+        const auto angled_dependent = angled_assembly.resolve_plane(
             angled_component_it->placement_references.front().component_reference);
-        const auto angled_prerequisite = angled_assembly.resolve_axis(
+        const auto angled_prerequisite = angled_assembly.resolve_plane(
             angled_component_it->placement_references.front().target_reference);
         const double angle_alignment =
-            angled_dependent.axis.direction.x * angled_prerequisite.axis.direction.x +
-            angled_dependent.axis.direction.y * angled_prerequisite.axis.direction.y +
-            angled_dependent.axis.direction.z * angled_prerequisite.axis.direction.z;
+            angled_dependent.plane.normal.x * angled_prerequisite.plane.normal.x +
+            angled_dependent.plane.normal.y * angled_prerequisite.plane.normal.y +
+            angled_dependent.plane.normal.z * angled_prerequisite.plane.normal.z;
         require(std::abs(angle_alignment - 0.5) < 1.0e-7 &&
                     angled_assembly.remaining_degrees_of_freedom(second_id) == 5,
-                "Axis angle placement reference did not reach its requested angle");
+                "Plane angle placement reference did not reach its requested angle");
         const auto angled_placement = angled_assembly.components.back().placement;
         angled_assembly.calculate_placement_references();
         require(angled_assembly.components.back().placement.rotation_x ==
@@ -760,7 +760,7 @@ int main() {
                     angled_placement.rotation_y &&
                     angled_assembly.components.back().placement.rotation_z ==
                     angled_placement.rotation_z,
-                "Axis angle placement reference was not idempotent");
+                "Plane angle placement reference was not idempotent");
         const auto angled_scene = angled_assembly.build_scene();
         require(angled_scene.dimensions.size() == 1 &&
                     angled_scene.dimensions.front().reference.owner_id ==
@@ -769,7 +769,7 @@ int main() {
                         "placement-reference:" + second_id + ":0" &&
                     angled_scene.dimensions.front().unit_suffix == " °" &&
                     angled_scene.dimensions.front().value == 60.0,
-                "Axis angle placement reference did not create its editable viewer dimension");
+                "Plane angle placement reference did not create its editable viewer dimension");
         const auto limited_mate_path = std::filesystem::temp_directory_path() /
             "zima-cad-cpp-limited-mate-contract.asmz";
         angled_assembly.save(limited_mate_path);
@@ -799,12 +799,9 @@ int main() {
                 "Placement reference edit outside persisted limits did not re-solve as stored");
         limited_value_row.offset = 75.0;
         value_edit.calculate_placement_references();
-        require(value_edit.components.back().placement.rotation_x ==
-                    valid_value_placement.rotation_x &&
-                    value_edit.components.back().placement.rotation_y ==
-                        valid_value_placement.rotation_y &&
-                    value_edit.components.back().placement.rotation_z ==
-                        valid_value_placement.rotation_z,
+        require(std::abs(value_edit.components.back().placement.rotation_x-valid_value_placement.rotation_x)<1e-7 &&
+                    std::abs(value_edit.components.back().placement.rotation_y-valid_value_placement.rotation_y)<1e-7 &&
+                    std::abs(value_edit.components.back().placement.rotation_z-valid_value_placement.rotation_z)<1e-7,
                 "Restoring a valid placement-reference value did not restore the valid solve");
         require(std::abs(zima::assembly::AssemblyDocument::project_linear_drag_value(
                     {0.0, 0.0, 0.0}, {0.0, 0.0, 1.0},
@@ -1050,8 +1047,8 @@ int main() {
         require(fixed_freedom.remaining_dof == 0 && std::ranges::none_of(fixed_freedom.coordinate_free, [](bool free) { return free; }),
             "Coincident origin frames leave editable placement coordinates");
 
-        free_component.placement_references = {make_origin_mate(zima::assembly::MateReferenceKind::Axis,"origin:axis:z")};
-        free_component.placement_references[0].mate_type = zima::assembly::MateKind::AxisAngle;
+        free_component.placement_references = {make_origin_mate(zima::assembly::MateReferenceKind::Face,"origin:plane:xy")};
+        free_component.placement_references[0].mate_type = zima::assembly::MateKind::PlaneAngle;
         require(freedom_document.component_constraint_state(second_id).remaining_dof == 4,
             "Zero-degree angular mate lost its two rotational constraints");
 
@@ -1235,9 +1232,79 @@ int main() {
               zima::assembly::InstancePath{}.child(first_id),
               "same-source-container", "x_max"},
              0.0, false});
-        conflicting_mates.calculate_placement_references();
-        require(conflicting_mates.components.back().placement_references.size() == 2,
-                "Conflicting placement references were not retained on the component");
+        const auto before_conflict=conflicting_mates.components.back().placement;
+        bool conflict_rejected=false;
+        try { conflicting_mates.calculate_placement_references(); }
+        catch(const std::runtime_error&) { conflict_rejected=true; }
+        require(conflict_rejected && conflicting_mates.components.back().placement==before_conflict &&
+                conflicting_mates.components.back().placement_references.size()==2,
+                "Conflicting placement rows changed the previously valid component pose");
+        // A planar angle consumes the hinge's remaining rotation; it must
+        // preserve both the off-origin axis and the seated end face.
+        auto hinge=loaded;
+        auto& moving_hinge=hinge.components.back();moving_hinge.placement={23,9,14,0,0,0};
+        const auto reference=[&](bool moving,zima::assembly::MateReferenceKind kind,const char* key) {
+            return zima::assembly::MateReference{kind,zima::assembly::InstancePath{}.child(moving?second_id:first_id),"same-source-container",key};
+        };
+        moving_hinge.placement_references={
+            {zima::assembly::MateKind::AxisCoincident,reference(true,zima::assembly::MateReferenceKind::Axis,"axis:z"),reference(false,zima::assembly::MateReferenceKind::Axis,"axis:z")},
+            {zima::assembly::MateKind::PlaneCoincident,reference(true,zima::assembly::MateReferenceKind::Face,"z_min"),reference(false,zima::assembly::MateReferenceKind::Face,"z_max")}};
+        hinge.calculate_placement_references();
+        require(hinge.remaining_degrees_of_freedom(second_id)==1,"Seated hinge does not retain one physical rotation");
+        moving_hinge.placement_references.push_back({zima::assembly::MateKind::PlaneAngle,
+            reference(true,zima::assembly::MateReferenceKind::Face,"x_min"),reference(false,zima::assembly::MateReferenceKind::Face,"x_min")});
+        const auto check_hinge=[&](const zima::assembly::AssemblyDocument& document,double requested) {
+            const auto& rows=document.components.back().placement_references;
+            const auto axis=document.resolve_axis(rows[0].component_reference).axis,target=document.resolve_axis(rows[0].target_reference).axis;
+            const auto plane=document.resolve_plane(rows[1].component_reference).plane,seat=document.resolve_plane(rows[1].target_reference).plane;
+            const auto phase=document.resolve_plane(rows[2].component_reference).plane,datum=document.resolve_plane(rows[2].target_reference).plane;
+            const auto dot=[](const auto& a,const auto& b){return a.x*b.x+a.y*b.y+a.z*b.z;};
+            const zima::kernel::Vec3 delta{axis.point.x-target.point.x,axis.point.y-target.point.y,axis.point.z-target.point.z};
+            const double along=dot(delta,target.direction);
+            const double transverse=std::hypot(delta.x-along*target.direction.x,delta.y-along*target.direction.y,delta.z-along*target.direction.z);
+            const zima::kernel::Vec3 gap{plane.point.x-seat.point.x,plane.point.y-seat.point.y,plane.point.z-seat.point.z};
+            require(transverse<1e-7 && std::abs(std::abs(dot(axis.direction,target.direction))-1)<1e-8 &&
+                std::abs(dot(gap,seat.normal))<1e-7 && std::abs(std::abs(dot(plane.normal,seat.normal))-1)<1e-8 &&
+                std::abs(dot(phase.normal,datum.normal)-std::cos(requested*std::acos(-1.0)/180))<1e-8,
+                "Plane angle rotated outside the hinge freedom or broke an earlier mate");
+            const auto freedom=document.component_constraint_state(second_id);
+            require(freedom.remaining_dof==0 && std::ranges::none_of(freedom.coordinate_free,[](bool value){return value;}),
+                "Fully constrained hinge exposes a physical/Euler freedom");
+        };
+        for(double angle:{0.0,15.0,45.0,90.0,135.0,180.0,0.0}) {
+            moving_hinge.placement_references[2].offset=angle;
+            hinge.calculate_placement_references();check_hinge(hinge,angle);
+            const auto stable=moving_hinge.placement;hinge.calculate_placement_references();
+            require(moving_hinge.placement==stable,"Repeated hinge calculation drifted its solved pose");
+        }
+        moving_hinge.placement_references[2].offset=45;moving_hinge.placement_references[2].flip=true;
+        hinge.calculate_placement_references();check_hinge(hinge,135);
+        auto reordered=hinge;
+        std::reverse(reordered.components.back().placement_references.begin(),reordered.components.back().placement_references.end());
+        reordered.components.back().placement={23,9,14,0,0,0};reordered.calculate_placement_references();
+        std::reverse(reordered.components.back().placement_references.begin(),reordered.components.back().placement_references.end());
+        check_hinge(reordered,135);
+
+        // Identical fixed origin frames at Euler's singular orientation must
+        // have zero physical freedoms, including at and across RY=90 degrees.
+        auto singular=freedom_document;
+        for(double angle:{89.999,90.0,90.001}) {
+            auto& fixed=singular.components.front();auto& moving=singular.components.back();
+            fixed.placement={0,0,0,0,angle,0};moving.placement=fixed.placement;
+            moving.placement_references.clear();
+            for(const auto& [kind,key]:std::array{
+                std::pair{zima::assembly::MateReferenceKind::Point,"origin:point"},
+                std::pair{zima::assembly::MateReferenceKind::Axis,"origin:axis:x"},
+                std::pair{zima::assembly::MateReferenceKind::Axis,"origin:axis:y"}}) {
+                moving.placement_references.push_back({kind==zima::assembly::MateReferenceKind::Point?zima::assembly::MateKind::PointCoincident:zima::assembly::MateKind::AxisCoincident,
+                    {kind,zima::assembly::InstancePath{}.child(second_id),moving.source_document_id+":origin",key},
+                    {kind,zima::assembly::InstancePath{}.child(first_id),fixed.source_document_id+":origin",key}});
+            }
+            singular.calculate_placement_references();const auto freedom=singular.component_constraint_state(second_id);
+            require(freedom.remaining_dof==0 && std::ranges::none_of(freedom.coordinate_free,[](bool value){return value;}),
+                "Euler singularity created a false degree of freedom on a fixed component");
+        }
+
         auto state_document = loaded;
         state_document.components.front().suppressed = true;
         state_document.components.front().grounded = true;

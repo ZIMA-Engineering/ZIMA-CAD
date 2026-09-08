@@ -60,6 +60,7 @@ public:
     // Live-updates the translation spinboxes while a free-component drag is
     // in progress, without touching rotation fields or emitting a commit.
     void set_live_translation(double x, double y, double z);
+    void set_placement_error(const QString& message);
     void set_solved_placement(const zima::assembly::ComponentPlacement& placement,
         const zima::assembly::ComponentConstraintState& state);
 

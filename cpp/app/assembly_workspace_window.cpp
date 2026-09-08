@@ -19403,17 +19403,10 @@ bool AssemblyWorkspaceWindow::begin_placement_reference_drag(
         row_index >= occurrence->placement_references.size()) return false;
     const auto& row = occurrence->placement_references[row_index];
     if (row.mate_type != zima::assembly::MateKind::PlaneCoincident &&
-        row.mate_type != zima::assembly::MateKind::AxisAngle &&
         row.mate_type != zima::assembly::MateKind::PlaneAngle) return false;
     zima::kernel::Vec3 reference_point;
     zima::kernel::Vec3 reference_direction;
-    if (row.mate_type == zima::assembly::MateKind::AxisAngle) {
-        const auto target =
-            assembly->session.document().resolve_axis(row.target_reference);
-        if (target.status != zima::assembly::MateStatus::Valid) return false;
-        reference_point = target.axis.point;
-        reference_direction = target.axis.direction;
-    } else {
+    {
         const auto target =
             assembly->session.document().resolve_plane(row.target_reference);
         if (target.status != zima::assembly::MateStatus::Valid) return false;
@@ -19427,7 +19420,6 @@ bool AssemblyWorkspaceWindow::begin_placement_reference_drag(
     placement_reference_drag_axis_point_ = reference_point;
     placement_reference_drag_axis_direction_ = reference_direction;
     placement_reference_drag_angular_ =
-        row.mate_type == zima::assembly::MateKind::AxisAngle ||
         row.mate_type == zima::assembly::MateKind::PlaneAngle;
     placement_reference_drag_changed_ = false;
     state_->setText(placement_reference_drag_angular_
@@ -19463,8 +19455,14 @@ void AssemblyWorkspaceWindow::update_placement_reference_drag(
     if (row.lower_limit) value = std::max(value, *row.lower_limit);
     if (row.upper_limit) value = std::min(value, *row.upper_limit);
     if (std::abs(value - row.offset) <= 1.0e-9) return;
+    const double previous_value = row.offset;
     row.offset = value;
-    placement_reference_drag_document_->calculate_placement_references();
+    try { placement_reference_drag_document_->calculate_placement_references(); }
+    catch (const std::exception& error) {
+        row.offset = previous_value;
+        state_->setText(QString::fromUtf8(error.what()));
+        return;
+    }
     placement_reference_drag_changed_ = true;
     if (placement_reference_drag_document_id_ != workspace_.displayed_document_id() &&
         !active_occurrence_path_.empty()) {
@@ -27426,10 +27424,7 @@ void AssemblyWorkspaceWindow::show_component_properties(
                 throw std::runtime_error("Assembly occurrence no longer exists");
             }
             *found = std::move(committed);
-            // Apply the embedded placement-reference rows (Python-style,
-            // stored directly on the occurrence) using the same solver
-            // family as calculate_mates() -- explicit, on-commit only, no
-            // auto-regeneration on later unrelated commits.
+            // Solve all embedded rows together before committing the occurrence.
             next.calculate_placement_references();
             assembly->session.commit(std::move(next));
         }, this);
@@ -27454,6 +27449,15 @@ void AssemblyWorkspaceWindow::show_component_properties(
             }
             viewer_->set_constraint_reference_highlights({}, std::move(keys));
         });
+    component_placement_dialog_ = dialog;
+    component_placement_assembly_document_id_ = address->owner_assembly_document_id;
+    component_placement_occurrence_id_ = address->occurrence_id;
+    properties_dialog_ = dialog;
+    tree_reference_state_.watch(dialog,this,address->owner_assembly_document_id,address->occurrence_id);
+    properties_dialog_instance_path_ = instance_path;
+    viewer_->set_editing_origin_visible(true);
+    preserve_view_on_refresh_ = true;
+    refresh_scene();
     dialog->set_preview_callback(
         [this, dialog, reference_scene_prefix, assembly_id = address->owner_assembly_document_id,
          occurrence_id = address->occurrence_id](const auto& preview) {
@@ -27473,21 +27477,10 @@ void AssemblyWorkspaceWindow::show_component_properties(
                 viewer_->set_mesh(reference_scene_prefix.occurrence_ids.empty() ? next.build_scene() :
                     workspace_.build_scene_with_assembly_override(workspace_.displayed_document_id(),
                         reference_scene_prefix, next), false);
-            } catch (const std::exception&) {
-                // An incomplete reference row is intentionally transient.
-                // Keep the last valid view until enough data exists to solve
-                // the next placement state.
+            } catch (const std::exception& error) {
+                dialog->set_placement_error(QString::fromUtf8(error.what()));
             }
         });
-    component_placement_dialog_ = dialog;
-    component_placement_assembly_document_id_ = address->owner_assembly_document_id;
-    component_placement_occurrence_id_ = address->occurrence_id;
-    properties_dialog_ = dialog;
-    tree_reference_state_.watch(dialog,this,address->owner_assembly_document_id,address->occurrence_id);
-    properties_dialog_instance_path_ = instance_path;
-    viewer_->set_editing_origin_visible(true);
-    preserve_view_on_refresh_ = true;
-    refresh_scene();
     connect(dialog, &QObject::destroyed, this, [this] {
         properties_dialog_ = nullptr;
         properties_dialog_instance_path_.clear();

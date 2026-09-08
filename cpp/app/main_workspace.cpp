@@ -2396,6 +2396,70 @@ int verify_nested_body_sketch_ui(QApplication& application, const std::filesyste
     return 0;
 }
 
+bool verify_mates_in_view(const zima::kernel::ViewerMesh& scene,
+    const std::vector<zima::assembly::ComponentPlacementReference>& rows) {
+    using namespace zima;
+    const auto& g=scene.original_references;
+    const auto dot=[](const auto& a,const auto& b){return a.x*b.x+a.y*b.y+a.z*b.z;};
+    const auto delta=[](const auto& a,const auto& b){return kernel::Vec3{a.x-b.x,a.y-b.y,a.z-b.z};};
+    const auto matches=[](const auto& a,const assembly::MateReference& b){return a.owner_id==b.owner_id && a.semantic_key==b.semantic_key && a.instance_path==b.instance_path.encoded();};
+    const auto plane=[&](const assembly::MateReference& ref) -> std::optional<assembly::ResolvedPlane> {
+        for(std::size_t i=0;i<g.triangle_references.size();++i) {
+            if(!matches(g.triangle_references[i],ref))continue;
+            const auto a=g.vertices[g.triangles[3*i]];
+            const auto u=delta(g.vertices[g.triangles[3*i+1]],a),v=delta(g.vertices[g.triangles[3*i+2]],a);
+            kernel::Vec3 n{u.y*v.z-u.z*v.y,u.z*v.x-u.x*v.z,u.x*v.y-u.y*v.x};
+            const double len=std::hypot(n.x,n.y,n.z);if(len<1e-12)continue;
+            return assembly::ResolvedPlane{a,{n.x/len,n.y/len,n.z/len}};
+        }
+        return {};
+    };
+    for(const auto& row:rows) {
+        if(row.mate_type==assembly::MateKind::AxisCoincident) {
+            const auto a=std::ranges::find_if(g.axes,[&](const auto& axis){return matches(axis.reference,row.component_reference);});
+            const auto b=std::ranges::find_if(g.axes,[&](const auto& axis){return matches(axis.reference,row.target_reference);});
+            if(a==g.axes.end() || b==g.axes.end())return false;
+            const auto separation=delta(a->point,b->point);const double axial=dot(separation,b->direction);
+            if(std::hypot(separation.x-axial*b->direction.x,separation.y-axial*b->direction.y,separation.z-axial*b->direction.z)>1e-7 ||
+                std::abs(std::abs(dot(a->direction,b->direction))-1)>1e-8)return false;
+        } else if(row.mate_type==assembly::MateKind::PlaneCoincident || row.mate_type==assembly::MateKind::PlaneAngle) {
+            const auto a=plane(row.component_reference),b=plane(row.target_reference);if(!a || !b)return false;
+            const double alignment=dot(a->normal,b->normal);
+            if(row.mate_type==assembly::MateKind::PlaneCoincident) {
+                if(std::abs(std::abs(alignment)-1)>1e-8 || std::abs(dot(delta(a->point,b->point),b->normal)-row.offset)>1e-7)return false;
+            } else if(std::abs(alignment-std::cos((row.flip?180-row.offset:row.offset)*std::acos(-1.0)/180))>1e-8)return false;
+        }
+    }
+    return true;
+}
+
+bool verify_plane_angle_dialog(QApplication& application,zima::app::ComponentPropertiesDialog* dialog,zima::viewer::MeshView* view) {
+    using namespace zima;
+    const auto flush=[&] {application.processEvents();};
+    const auto rows=dialog->placement_references();
+    auto* table=dialog->findChild<QTableWidget*>("componentPlacementTable");
+    for(double angle:{15.0,45.0,90.0,135.0,180.0,0.0}) {
+        qobject_cast<QDoubleSpinBox*>(table->cellWidget(2,4))->setValue(angle);flush();
+        if(!verify(dialog->findChild<QLabel*>("componentDegreesOfFreedom")->text().endsWith("0") &&
+            verify_mates_in_view(view->mesh(),dialog->placement_references()),"Plane angle preview broke coaxiality, seating or the requested angle"))return false;
+        for(const auto* name:{"componentTranslation","componentRotation"})for(auto* field:dialog->findChildren<QDoubleSpinBox*>(name))
+            if(!verify(!field->isEnabled(),"Constrained angle preview exposes an editable pose coordinate"))return false;
+    }
+    const auto valid=dialog->placement_references();
+    dialog->set_placement_reference(2,true,rows[1].component_reference,"Plocha");
+    dialog->set_placement_reference(2,false,rows[1].target_reference,"Plocha");
+    qobject_cast<QDoubleSpinBox*>(table->cellWidget(2,4))->setValue(45);flush();
+    if(!verify(dialog->findChild<QLabel*>("componentDegreesOfFreedom")->text()=="Konflikt vazeb" &&
+        verify_mates_in_view(view->mesh(),valid),"Conflicting angle replaced the last valid scene or reports a false DOF"))return false;
+    dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+    if(!verify(dialog->isVisible(),"Conflicting angle was committed by OK"))return false;
+    dialog->set_placement_reference(2,true,rows[2].component_reference,"Plocha");
+    dialog->set_placement_reference(2,false,rows[2].target_reference,"Plocha");
+    qobject_cast<QDoubleSpinBox*>(table->cellWidget(2,4))->setValue(rows[2].offset);flush();
+    return verify(verify_mates_in_view(view->mesh(),dialog->placement_references()) &&
+        dialog->findChild<QLabel*>("componentDegreesOfFreedom")->text().endsWith("0"),"Correcting the angle did not restore valid placement and DOF");
+}
+
 int verify_component_reference_document(QApplication& application, const std::filesystem::path& directory) {
     using namespace zima;
     const auto input=assembly::AssemblyDocument::load(qEnvironmentVariable("ZIMA_VERIFY_COMPONENT_DOCUMENT").toStdString());
@@ -2420,6 +2484,12 @@ int verify_component_reference_document(QApplication& application, const std::fi
             if(auto* d=dynamic_cast<app::ComponentPropertiesDialog*>(child);d && d->isVisible()){dialog=d;break;}
         if(!verify(dialog!=nullptr,"Requested component properties did not open"))return 1;
         std::cout<<component.name<<": "<<dialog->findChild<QLabel*>("componentDegreesOfFreedom")->text().toStdString()<<'\n';
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_COMPONENT_ANGLE") && dialog->placement_references().size()==3 &&
+                dialog->placement_references()[2].mate_type==assembly::MateKind::PlaneAngle) {
+            auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
+            if(!verify_plane_angle_dialog(application,dialog,view))return 1;
+            window.grab().save(QString::fromStdString((directory/"component-plane-angle.png").string()));
+        }
         dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
         if(!verify(failure.isEmpty(),"Requested component placement failed to commit")){std::cerr<<failure.toStdString()<<'\n';return 1;}
         window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
@@ -2427,7 +2497,7 @@ int verify_component_reference_document(QApplication& application, const std::fi
     const auto saved=assembly::AssemblyDocument::load(copy_path);
     for(const auto& component:saved.components) {
         for(const auto& row:component.placement_references) {
-            const bool angular=row.mate_type==assembly::MateKind::AxisAngle || row.mate_type==assembly::MateKind::PlaneAngle;
+            const bool angular=row.mate_type==assembly::MateKind::PlaneAngle;
             const auto expected=row.component_reference.kind==assembly::MateReferenceKind::Point ? assembly::MateKind::PointCoincident :
                 row.component_reference.kind==assembly::MateReferenceKind::Axis ? assembly::MateKind::AxisCoincident : assembly::MateKind::PlaneCoincident;
             if(!verify(angular || row.mate_type==expected,"Saved reference kind and mate type disagree"))return 1;
@@ -2532,6 +2602,11 @@ int verify_component_references(QApplication& application, const std::filesystem
         check_freedom(2,{false,false,true,false,false,true}),"Tree axis pair does not solve and expose two freedoms"))return 1;
     if(!verify(pick(1,true,origin,second_path,"origin:plane:xy") && pick(1,false,origin,first_path,"origin:plane:xy") &&
         check_freedom(1,{false,false,false,false,false,true}),"Origin plane does not remove axial translation"))return 1;
+    if(!verify(pick(2,true,origin,second_path,"origin:plane:yz") && pick(2,false,origin,first_path,"origin:plane:yz"),
+        "Cannot add hinge phase reference"))return 1;
+    auto* phase_type=qobject_cast<QComboBox*>(dialog()->findChild<QTableWidget*>("componentPlacementTable")->cellWidget(2,3));
+    phase_type->setCurrentIndex(phase_type->findData(static_cast<int>(assembly::MateKind::PlaneAngle)));flush();
+    if(!verify_plane_angle_dialog(application,dialog(),view))return 1;
     dialog()->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
     window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
     auto saved=assembly::AssemblyDocument::load(assembly_path);

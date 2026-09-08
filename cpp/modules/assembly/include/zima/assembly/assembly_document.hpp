@@ -60,7 +60,7 @@ struct OccurrenceSnapshot {
 
 enum class MateReferenceKind { Face, Axis, Point };
 enum class MateKind {
-    PlaneCoincident, AxisCoincident, PointCoincident, AxisAngle, PlaneAngle
+    PlaneCoincident, AxisCoincident, PointCoincident, PlaneAngle
 };
 enum class MateStatus { Uncalculated, Valid, MissingReference, UnsupportedGeometry };
 
@@ -81,10 +81,8 @@ struct MateReference {
 // the assembly's own origin/constructions or on another already-placed
 // component. `mate_type`/`offset` select the solving semantics
 // (PlaneCoincident/AxisCoincident/PointCoincident distance-or-coincidence,
-// AxisAngle/PlaneAngle angle). `flip` mirrors ConstructionReference::flip: it
-// inverts the resolved direction/normal of an orientation-driving reference
-// as a post-solve step, and is a no-op for a PointCoincident row (no
-// direction to invert).
+// PlaneAngle angle). Flip requests opposite directions for coincidence or
+// the supplementary plane angle. It has no effect on a point coincidence.
 struct ComponentPlacementReference {
     MateKind mate_type{MateKind::PlaneCoincident};
     MateReference component_reference;
