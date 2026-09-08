@@ -550,6 +550,7 @@ void DrawingDocument::save(const std::filesystem::path& path,
                             {"vertical", {view.camera.vertical.x, view.camera.vertical.y, view.camera.vertical.z}},
                             {"depth", {view.camera.depth.x, view.camera.depth.y, view.camera.depth.z}}}},
                 {"display_style", display_name(view.display_style)},
+                {"use_sheet_scale", view.use_sheet_scale}, {"show_caption", view.show_caption},
                 {"x", view.x}, {"y", view.y}, {"scale", view.scale}};
             item["projected_edges"] = nlohmann::json::array();
             for (const auto& edge : view.projected_edges) {
@@ -682,6 +683,8 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
             view.camera.vertical = vector(camera.at("vertical"));
             view.camera.depth = vector(camera.at("depth"));
             view.display_style = parse_display(item.value("display_style", "visible_edges"));
+            view.use_sheet_scale = item.value("use_sheet_scale", true);
+            view.show_caption = item.value("show_caption", false);
             view.x = item.at("x").get<double>(); view.y = item.at("y").get<double>();
             view.scale = item.at("scale").get<double>();
             for (const auto& edge_json : item.at("projected_edges")) {

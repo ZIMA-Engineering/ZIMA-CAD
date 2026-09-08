@@ -2875,10 +2875,77 @@ int verify_component_references(QApplication& application, const std::filesystem
     std::cout<<"Component origin, axis and freedom UI contracts passed\n";return 0;
 }
 
+int verify_drawing_workspace(QApplication& application, zima::app::AssemblyWorkspaceWindow& window,
+                             const std::filesystem::path& directory) {
+    auto part=zima::document::PartDocument::create_default();
+    part.name="drawing-parameter-source"; part.user_parameters["name"]="Drawing source marker";
+    part.user_parameter_order={"name"}; part.user_parameter_values["name"][""]="Drawing source marker";
+    part.history.push_back(zima::document::PartDocument::create_box_container());
+    zima::kernel::OcctKernel kernel;
+    const auto cache=kernel.evaluate_history(part.kernel_operations());
+    const auto source=directory/"drawing-parameter-source.prtz"; part.save(source,cache);
+    auto drawing=zima::drawing::DrawingDocument::create_default();
+    drawing.source_document_id=part.document_id; drawing.source_path=source; drawing.source_name=part.name;
+    drawing.sheets.front().views.push_back(zima::drawing::DrawingDocument::create_view(part.document_id,source,cache.back().mesh));
+    const auto drawing_path=directory/"drawing-workspace.drwz"; drawing.save(drawing_path);
+    const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);};
+    window.show();
+    if(!verify(window.open_document_path(QString::fromStdString(drawing_path.string())),"Cannot open drawing workspace fixture")) return 1;
+    flush();
+    auto* tree=window.findChild<QTreeWidget*>("documentTree");
+    auto* canvas=window.findChild<QWidget*>("drawingCanvas");
+    auto* parameters=window.findChild<QAction*>("documentParametersAction");
+    auto* view_toolbar=window.findChild<QToolBar*>("viewToolbar");
+    auto* edit=window.findChild<QAction*>("editDrawingViewAction");
+    if(!verify(tree && canvas && parameters && view_toolbar->actions().contains(parameters),"Drawing parameters button is missing"))return 1;
+    parameters->trigger();flush();
+    QDialog* properties{};
+    for(auto* dialog:window.findChildren<QDialog*>()) if(dialog->isVisible() && dialog->findChild<QDialogButtonBox*>()) {properties=dialog;break;}
+    bool found=false;
+    if(properties) for(auto* table:properties->findChildren<QTableWidget*>())
+        for(int row=0;row<table->rowCount();++row) for(int column=0;column<table->columnCount();++column)
+            if(auto* item=table->item(row,column);item && item->text()=="Drawing source marker") found=true;
+    if(!verify(properties && found,"Drawing Parameters did not load the closed source document"))return 1;
+    if(!verify(canvas->isVisible(),"Opening source parameters replaced the displayed Drawing"))return 1;
+    properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+    auto* root=tree->topLevelItem(0);auto* item=root->child(0)->child(0);
+    tree->setCurrentItem(item);flush();
+    if(!verify(edit->isEnabled(),"Tree did not select the exact drawing view"))return 1;
+    const QPointF empty(3,3);
+    QMouseEvent press(QEvent::MouseButtonPress,empty,QPointF(canvas->mapToGlobal(empty.toPoint())),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+    QMouseEvent release(QEvent::MouseButtonRelease,empty,QPointF(canvas->mapToGlobal(empty.toPoint())),Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+    QApplication::sendEvent(canvas,&press);QApplication::sendEvent(canvas,&release);flush();
+    if(!verify(tree->selectedItems().empty() && !edit->isEnabled(),"Empty drawing click left a stale Tree selection"))return 1;
+    tree->setCurrentItem(root->child(0)->child(0));flush();edit->trigger();flush();
+    properties=window.findChild<QDialog*>("drawingViewProperties");
+    if(!verify(properties && properties->isVisible() && properties->parentWidget()==&window,"Drawing properties are not inside the main application"))return 1;
+    properties->findChild<QLineEdit*>("drawingViewName")->setText("Renamed drawing view");
+    properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+    root=tree->topLevelItem(0);
+    if(!verify(root->child(0)->child(0)->text(0)=="Renamed drawing view" && tree->selectedItems().size()==1,
+        "Committing properties did not refresh and select the matching Tree row"))return 1;
+    window.grab().save(QString::fromStdString((directory/"drawing-workspace.png").string()));
+    // Filename context menu must route to the same source-parameter dialog.
+    bool has_context=false;
+    QTimer::singleShot(0,[&] {
+        for(auto* menu:window.findChildren<QMenu*>()) if(menu->isVisible())
+            for(auto* action:menu->actions()) if(action->objectName()=="treeDocumentParametersAction") {
+                has_context=true; menu->setActiveAction(action);
+                QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(menu,&enter);return;
+            }
+    });
+    tree->customContextMenuRequested(tree->visualItemRect(root).center());flush();
+    if(!verify(has_context,"Filename menu lacks document Parameters"))return 1;
+    for(auto* dialog:window.findChildren<QDialog*>()) if(dialog->isVisible()) dialog->reject();flush();
+    std::cout<<"Drawing workspace source parameters, toolbar, tree selection and properties passed\n";
+    return 0;
+}
+
 int verify_startup_contract(
     QApplication& application, zima::app::AssemblyWorkspaceWindow& window,
     const std::filesystem::path& test_directory,
     const QString& part_capture_path = {}, const QString& drawing_capture_path = {}) {
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_DRAWING_ONLY")) return verify_drawing_workspace(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_COMPONENT_DOCUMENT")) return verify_component_reference_document(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_COMPONENT_REFERENCE_ONLY")) return verify_component_references(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_UNRESOLVED_SWEEP_ONLY")) return verify_unresolved_sweep_sketches(application,test_directory);
@@ -6155,37 +6222,23 @@ int verify_startup_contract(
         }
         insert_view->trigger();
         application.processEvents();
-        auto* source_dialog = window.findChild<QDialog*>("zimaPropertiesSubWindow");
-        auto* source_combo = source_dialog == nullptr
-            ? nullptr : source_dialog->findChild<QComboBox*>();
-        if (!verify(source_dialog != nullptr && source_combo != nullptr,
-                    "inserting a Drawing view did not open the source-selection dialog")) {
-            return 1;
-        }
-        int assembly_source_index = -1;
-        for (int index = 0; index < source_combo->count(); ++index) {
-            if (source_combo->itemText(index).startsWith(assembly_name)) {
-                assembly_source_index = index;
-                break;
-            }
-        }
-        if (!verify(assembly_source_index >= 0,
-                    "Drawing view source dialog did not offer the inner Assembly")) {
-            return 1;
-        }
-        source_combo->setCurrentIndex(assembly_source_index);
-        source_dialog->findChild<QDialogButtonBox*>()
-            ->button(QDialogButtonBox::Ok)->click();
-        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        const QPointF insertion_point=drawing_canvas->rect().center();
+        QMouseEvent place_press(QEvent::MouseButtonPress,insertion_point,
+            QPointF(drawing_canvas->mapToGlobal(insertion_point.toPoint())),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+        QMouseEvent place_release(QEvent::MouseButtonRelease,insertion_point,
+            QPointF(drawing_canvas->mapToGlobal(insertion_point.toPoint())),Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(drawing_canvas,&place_press); QApplication::sendEvent(drawing_canvas,&place_release);
         application.processEvents();
-        auto* view_dialog = window.findChild<QDialog*>("zimaPropertiesSubWindow");
-        if (!verify(view_dialog != nullptr,
-                    "selecting the Assembly source did not open the view Properties dialog")) {
-            return 1;
-        }
-        view_dialog->findChild<QDialogButtonBox*>()
-            ->button(QDialogButtonBox::Ok)->click();
-        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        auto* view_dialog=window.findChild<QDialog*>("drawingViewProperties");
+        auto* source_combo=view_dialog?view_dialog->findChild<QComboBox*>("drawingViewSource"):nullptr;
+        if (!verify(source_combo!=nullptr,"placing a Drawing view did not open unified Properties")) return 1;
+        int assembly_source_index=-1;
+        for(int index=0;index<source_combo->count();++index)
+            if(source_combo->itemText(index).startsWith(assembly_name)) {assembly_source_index=index;break;}
+        if(!verify(assembly_source_index>=0,"View Properties did not offer the inner Assembly")) return 1;
+        source_combo->setCurrentIndex(assembly_source_index);
+        view_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();
+        QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
         application.processEvents();
         const int bom_quantity_after_insertion =
             drawing_window->document_for_test().sheets.empty() ||

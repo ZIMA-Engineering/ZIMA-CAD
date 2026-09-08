@@ -7258,7 +7258,7 @@ zima::kernel::ViewerMesh PartDocument::sweep2d_preview_mesh(const HistoryContain
 
 HistoryContainer PartDocument::create_helical_sweep_container() {
     auto c=create_sweep3d_container();
-    c.feature_kind=FeatureKind::HelicalSweep;c.name="Šroubovicové tažení";
+    c.feature_kind=FeatureKind::HelicalSweep;c.name="H-tažení";
     c.sweep3d={};
     for(unsigned i=0;i<3;++i){
         auto s=zima::sketcher::Sketch::create_default();s.owner_container_id=c.id;s.plane=zima::sketcher::SketchPlane::XZ;s.refresh_default_frame();

@@ -569,7 +569,9 @@ private:
         const zima::sketcher::Sketch& sketch) const;
     bool mutate_active_sketch(
         const std::function<void(zima::sketcher::Sketch&)>& mutation);
+    void refresh_drawing_tree();
     void edit_document_parameters();
+    void edit_parameters_for_document(std::string document_id);
     void edit_material();
     void edit_relations();
     void edit_family_table();

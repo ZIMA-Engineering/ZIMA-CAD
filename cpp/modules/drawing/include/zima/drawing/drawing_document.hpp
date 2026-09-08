@@ -59,6 +59,8 @@ struct DrawingView {
     double x{100.0};
     double y{100.0};
     double scale{1.0};
+    bool use_sheet_scale{true};
+    bool show_caption{};
     std::vector<ProjectedEdge> projected_edges;
     std::vector<ProjectedTriangle> projected_triangles;
 };

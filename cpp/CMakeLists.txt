@@ -174,7 +174,8 @@ if(UNIX AND NOT APPLE)
 endif()
 
 add_executable(zima-cad-drawing-harness
-    app/main_drawing.cpp app/drawing_window.cpp app/file_dialog.cpp
+    app/main_drawing.cpp app/drawing_window.cpp app/file_dialog.cpp app/application_settings.cpp
+    tests/drawing_ui_contract.cpp
     app/resource_icon.cpp app/zima_resources.qrc)
 target_include_directories(zima-cad-drawing-harness PRIVATE app)
 target_link_libraries(zima-cad-drawing-harness PRIVATE
@@ -270,6 +271,10 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_workspace_startup_contract
         COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_workspace_startup_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    add_test(NAME zima_cpp_drawing_ui_contract COMMAND zima-cad-drawing-harness --verify-ui)
+    set_tests_properties(zima_cpp_drawing_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_executable(zima_cpp_drawing_contract_tests tests/drawing_contract_tests.cpp)

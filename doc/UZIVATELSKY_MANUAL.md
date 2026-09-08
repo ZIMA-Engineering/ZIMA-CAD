@@ -1001,7 +1001,9 @@ a nemění zdrojový model ani šablonu razítka. Tokeny `&document.file_stem`,
 hodnoty. Kód lze upravit jako běžný text; po uložení se zapíše zpět jako
 programovatelné pole razítka, nikoli jako statický nápis.
 
-Formáty a razítka jsou uloženy společně v adresáři `config/formats`. Při
+Formáty a razítka jsou uloženy společně v cestě **Formats** z globálního
+nastavení (výchozí `config/formats`). Tlačítka **Přidat formát** a
+**Přidat razítko** otevírají výběr souboru přímo v této cestě. Při
 uložení se předchozí obsah automaticky archivuje jako `soubor.frmz.1`,
 `soubor.frmz.2` nebo obdobně `soubor.tblz.1`, `soubor.tblz.2`.
 
@@ -1034,10 +1036,9 @@ znázorňuje pouze bílý obdélník. Výkresová geometrie je rovněž bílá.
 | Ovládání | Funkce |
 | --- | --- |
 | Kolečko myši | Přiblížení a oddálení kolem kurzoru |
-| Prostřední tlačítko + pohyb | Posun výkresové plochy |
+| Prostřední + pravé tlačítko a pohyb | Posun výkresové plochy |
 | Obnovit pohled | Animovaně zobrazit celý aktivní list |
 | Levé tlačítko + pohyb na pohledu | Přesunutí vloženého pohledu |
-| Levé tlačítko + pohyb na popisku | Přesunutí názvu a měřítka pohledu |
 | Delete | Odstranění vybraného pohledu |
 | Esc | Zrušit právě umisťovaný pohled |
 
@@ -1045,24 +1046,37 @@ Výkresová plocha je čistě 2D a nepodporuje rotaci.
 
 ### Vložení pohledu
 
-V pravém panelu aplikace Výkres je příkaz **Vložit pohled**. První pohled je
-standardně izometrický; náhled se připojí ke kurzoru a levým kliknutím se
-umístí na aktivní list. Příkaz **Vytvoř projekci** v kontextové nabídce pohledu
-vytváří navázaný pohled podle evropské nebo americké projekční metody. Směr se
-přichytává v osmi polohách po 45 stupních. Přesun rodiče přenese jeho odvozené
-pohledy, zatímco samostatný přesun potomka zůstává na jeho projekčním paprsku.
+V pravém panelu zvolte **Vložit pohled** a klikněte na jeho místo na listu.
+První pohled je izometrický. Po kliknutí se otevřou **Vlastnosti pohledu**:
+zdrojový otevřený díl/sestava nebo soubor, název a jeho zobrazení, standardní
+orientace, styl hran/stínování, měřítko podle listu nebo vlastní a poloha.
+Samostatné meziokno pro výběr zdroje se neotevírá. Stejné vlastnosti slouží
+pro vložení i pozdější editaci. Náhled je dočasný; **OK** změnu uloží,
+**Zrušit** ji zahodí. Prostřední dvojklik nad výkresem rovněž potvrdí OK;
+krátký prostřední klik nepotvrzuje.
 
-Pohled uchovává odkaz na zdrojový model. Při aktivaci tabu se jeho geometrie
-obnoví ze skutečné topologie nativního rendereru; stará uložená 2D cache
-promítnutých čar se nepoužívá.
+Pohled lze označit kliknutím kamkoliv do celé obdélníkové oblasti kolem jeho
+geometrie. Rámeček je jinak neviditelný; hover ho zvýrazní oranžově a výběr
+azurově. Výběr se synchronizuje se stromem. Kliknutí mimo pohledy jej zruší.
+Pravým tlačítkem otevřete vlastnosti nebo **Projekční pohled**. Ten se
+při umisťování přichytává k osmi směrům po 45 stupních a respektuje metodu
+promítání listu. Přesun rodiče přesune potomky, jednotlivý potomek zůstává
+na svém projekčním paprsku. Esc ruší právě umisťovaný pohled.
 
-Vlastnosti pohledu nabízejí drátové zobrazení, skryté hrany, zobrazení bez
-skrytých hran, stínované zobrazení s hranami a čisté stínované zobrazení.
-Globální tlačítka režimu modelu jsou ve výkresu vypnutá, protože styl patří
-každému pohledu samostatně. Stínování zachovává barvy modelu a komponent.
-Zaškrtávací skupina **Zobrazit popisek pohledu** obsahuje název, zdroj měřítka
-a měřítko. Nad obrysem pohledu zobrazí bílý popisek o velikosti 5 mm ve tvaru
-`Název` a `M1:1`; popisek lze samostatně vybrat a přesunout.
+Každý pohled nabízí viditelné hrany, viditelné a skryté hrany nebo stínování
+s hranami. U názvu lze zapnout popisek pod pohledem. Měřítko podle listu
+sleduje změnu měřítka listu; vlastní měřítko zůstává nezávislé.
+Přepnutí tabu používá poslední uloženou/vypočtenou projekci. Nový stav zdroje
+se do pohledu načte výslovným příkazem **Regenerovat**.
+
+Dole je roletka **Varianta**, zatím s jedinou položkou: názvem zdrojového
+souboru. Jde o přípravu pro budoucí Family Table; přepočet a výběr jejích
+variant zatím implementovaný není.
+
+Příkaz **Parametry** je nad View a v kontextové nabídce názvu souboru ve
+stromu dílu, sestavy i výkresu. U výkresu otevře parametry jeho zdrojového
+dílu nebo sestavy. Zdroj lze otevřít i z uložené cesty a výkres zůstane
+zobrazený. Změna parametrů sama neregenuje nadřazené sestavy.
 
 První lineární výkresová kóta se vytváří výběrem dvou rovnoběžných přímých
 hran modelu a umístěním žluté kóty v listu. Hover je oranžový, potvrzené hrany
@@ -1078,8 +1092,8 @@ symboly a export PDF/DXF. Podrobné ovládání a omezení jsou v dokumentu
 
 ## 2D tažení: rovinná dráha a více profilů
 
-Příkazy **2D tažení**, **3D tažení** a **Šroubovicové tažení** odpovídají
-anglickým názvům 2D Sweep, 3D Sweep a Helical Sweep. Loft je možnost přechodu
+Příkazy **2D tažení**, **3D tažení** a **H-tažení** odpovídají
+anglickým názvům 2D Sweep, 3D Sweep a Helix Sweep. Loft je možnost přechodu
 mezi profily uvnitř 2D a 3D tažení.
 
 U 2D tažení umístěte kontejner a otevřete **Skicu dráhy**. První rovinná
@@ -1096,7 +1110,7 @@ i ve stromu. Párování bodů odpovídá 3D tažení popsanému níže.
 U 2D i 3D tažení volba **Thin** přidá tloušťku **Dovnitř / Ven / Symetricky**.
 Symetricky znamená polovinu celkové tloušťky na každou stranu profilu.
 Otevřená kontura vytvoří pás; uzavřená dutý průřez. U proměnného Loftu se
-tloušťka měří v profilových rovinách. Šroubovicové tažení vytváří dutý průřez
+tloušťka měří v profilových rovinách. H-tažení vytváří dutý průřez
 pomocí vnitřního obrysu v profilové skici, například druhé soustředné kružnice.
 
 ## 3D tažení: párování profilů
@@ -1159,7 +1173,7 @@ dokumentu aktualizujte sestavu příkazem **Regenerovat**.
 
 - [2D tažení](SWEEP_2D.md): rovina dráhy, profilové stanice, Loft a Thin.
 - [3D křivka a 3D tažení](3D_CURVE_AND_SWEEP.md): zaoblení, stanice, přebírání skic, párování bodů a Thin.
-- [Šroubovicové tažení](HELICAL_SWEEP.md): tři skici, stoupání a dutý průřez.
+- [H-tažení](HELICAL_SWEEP.md): tři skici, stoupání a dutý průřez.
 - [Zrcadlo a Pole](MIRROR_AND_PATTERN.md): odkazované kopie těles a komponent.
 - [Identifikace kót](DIMENSION_IDENTIFIERS.md): trvalé označení d1, d2, … v rámci dokumentu.
 - [Skicář](SKETCHER.md): uzavření spline, tečnost, zvýraznění účastníků a zamčená spojnice se bodem na ose.

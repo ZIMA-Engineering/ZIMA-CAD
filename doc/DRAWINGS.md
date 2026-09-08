@@ -67,11 +67,36 @@ v regionu a vytvoří řádky kusovníku.
 
 ## Vložené pohledy a aktualizace
 
-Pohled uchovává vazbu na zdrojový model a jeho aktuální topologii, nikoliv
-neměnný obrázek. Při otevření nebo aktivaci výkresu se zastaralá projekce
-obnoví. U sestavy zahrnuje podpis závislosti také aktuální geometrii zdrojových
-dílů, včetně dosud neuloženého stavu otevřeného dílu. Změna rozměru modelu
-proto zneplatní starý výsledek sestavy i navázaný výkresový pohled.
+**Vložit pohled → kliknout na list → Vlastnosti pohledu** je společný postup
+pro všechny zdroje. První pohled je izometrický. Zdrojový otevřený model nebo
+soubor se vybírá přímo ve vlastnostech, společně s názvem, popiskem,
+orientací, stylem, měřítkem a polohou. Vytváření a editace používají stejný
+interní dialog. Změny jsou do OK jen náhled; Zrušit nevytvoří nový pohled ani
+nezmění existující. Prostřední dvojklik nad listem potvrdí OK.
+
+Výběr pohledu používá celou obdélníkovou oblast jeho projekce včetně prázdného
+vnitřku. Hover, kliknutí a kontextová nabídka používají stejnou oblast a
+pořadí překrývajících se pohledů. Rámeček je vidět jen při hoveru a výběru.
+Strom a View označují tentýž pohled; kliknutí mimo pohledy výběr zruší.
+
+Kontextový příkaz **Projekční pohled** připojí náhled ke kurzoru a přichytává
+směr po 45 stupních podle rodiče a metody promítání listu. Potomek ukládá ID
+rodiče, směr a kameru. Přesun rodiče přenese potomky, přesun potomka se drží
+projekčního paprsku. Název/popisek a volba vlastního či listového měřítka se
+ukládají do `.drwz`.
+
+Pohled uchovává odkaz na zdrojový model a poslední vypočtenou projekci.
+Otevření či přepnutí tabu nevyvolává výpočet OCCT ani automatickou obnovu
+závislostí. **Regenerovat** výslovně načte poslední vypočtený stav otevřeného
+zdroje, případně jeho uložený soubor, a z něj obnoví projekci a kóty.
+
+Roletka **Varianta** dole obsahuje zatím pouze jméno zdrojového souboru.
+Přepínání a výpočet variant Family Table jsou budoucí funkce. **Parametry**
+nad View nebo v kontextové nabídce názvu výkresu otevřou parametry zdrojového
+dílu/sestavy při zachování zobrazeného výkresu.
+
+Výběr formátu a razítka začíná v adresáři **Formats** z globální konfigurace,
+a to i po změně konfigurace za běhu aplikace.
 
 ## Lineární kóta
 

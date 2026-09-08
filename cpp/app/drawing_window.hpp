@@ -3,11 +3,13 @@
 #include <zima/drawing/drawing_document.hpp>
 
 #include <QMainWindow>
+#include <QPointer>
 
 #include <filesystem>
 #include <functional>
 
 class QAction;
+class QDialog;
 class QComboBox;
 class QLabel;
 class QPushButton;
@@ -27,10 +29,15 @@ public:
         zima::workspace::Workspace* workspace = nullptr,
         bool create_initial_document = true);
     void edit_workspace_document(const std::string& document_id);
+    void set_formats_directory(const QString& directory);
     void set_status_handler(std::function<void(const QString&)> handler);
     [[nodiscard]] const zima::drawing::DrawingDocument& document_for_test() const {
         return document_;
     }
+    void set_document_changed_handler(std::function<void()> handler) { changed_handler_=std::move(handler); }
+    void set_selection_handler(std::function<void(const std::string&)> handler) { selection_handler_=std::move(handler); }
+    void set_properties_handler(std::function<void(QDialog*)> handler) { properties_handler_=std::move(handler); }
+    void select_view(const std::string& view_id);
     void select_view_for_test(const std::string& view_id);
     void load_frame_for_test(const std::filesystem::path& path);
     void load_title_block_for_test(const std::filesystem::path& path);
@@ -41,9 +48,16 @@ private:
     zima::workspace::Workspace* workspace_{};
     std::string workspace_document_id_;
     QTabBar* sheets_{};
+    QString formats_directory_;
+    QComboBox* source_variant_{};
+    QWidget* sheet_controls_{};
+    QPointer<QDialog> view_dialog_;
     DrawingCanvas* canvas_{};
     QLabel* state_{};
     std::function<void(const QString&)> status_handler_;
+    std::function<void()> changed_handler_;
+    std::function<void(const std::string&)> selection_handler_;
+    std::function<void(QDialog*)> properties_handler_;
     void set_status_message(const QString& message);
     QComboBox* sheet_format_{};
     QComboBox* projection_method_{};
@@ -78,10 +92,8 @@ private:
     void remove_title_block();
     void edit_title_block();
     void insert_view();
-    void insert_view_from_file();
-    void begin_view_insertion(
-        std::string source_id, std::filesystem::path source_path,
-        zima::kernel::ViewerMesh mesh);
+    void show_view_properties(zima::drawing::DrawingView view, bool creating);
+    void update_source_variant();
     void create_projected_view();
     void edit_selected_view();
     void regenerate_selected_view();

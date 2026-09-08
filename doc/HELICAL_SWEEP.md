@@ -1,6 +1,6 @@
-# Šroubovicové tažení (Helical Sweep)
+# H-tažení (Helix Sweep)
 
-Šroubovicové tažení je jeden kontejner historie Partu s operací Přičíst nebo
+H-tažení je jeden kontejner historie Partu s operací Přičíst nebo
 Odečíst. Vlastní tři skici; jejich vytvoření a změny zůstávají rozpracované
 ve společném interním okně až do OK. Dokončit skicu se vrací do tohoto okna.
 Cancel zahodí celý rozpracovaný kontejner. Editace používá uložený vstup

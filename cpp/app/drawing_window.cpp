@@ -1,5 +1,6 @@
 #include "drawing_window.hpp"
 #include "file_dialog.hpp"
+#include "application_settings.hpp"
 
 #include <zima/assembly/assembly_document.hpp>
 #include <zima/document/part_document.hpp>
@@ -8,6 +9,10 @@
 
 #include <QAction>
 #include <QComboBox>
+#include <QCheckBox>
+#include <QContextMenuEvent>
+#include <QMenu>
+#include <QSignalBlocker>
 #include <QCoreApplication>
 #include <QDir>
 #include <QDoubleSpinBox>
@@ -33,9 +38,18 @@
 #include <chrono>
 #include <cmath>
 #include <sstream>
+#include <memory>
 
 namespace zima::app {
 namespace {
+
+bool raise_open_properties(QWidget* owner) {
+    for (auto* dialog : owner->findChildren<QDialog*>())
+        if (dynamic_cast<zima::ui::PropertiesSubWindow*>(dialog) && dialog->isVisible()) {
+            dialog->raise(); return true;
+        }
+    return false;
+}
 
 QString drawing_font_family() {
     static const QString family = [] {
@@ -53,63 +67,133 @@ QString drawing_font_family() {
     return family;
 }
 
+struct DrawingSourceChoice {
+    std::string id;
+    std::filesystem::path path;
+    QString name;
+};
+
 class ViewPropertiesDialog final : public zima::ui::PropertiesSubWindow {
 public:
     ViewPropertiesDialog(QMainWindow* parent, zima::drawing::DrawingView initial,
-                         std::function<void(zima::drawing::DrawingView)> accepted)
-        : PropertiesSubWindow(QObject::tr("Pohled"), parent),
-          value_(std::move(initial)), accepted_(std::move(accepted)) {
+        std::vector<DrawingSourceChoice> sources, double sheet_scale,
+        std::function<bool(zima::drawing::DrawingView)> accepted,
+        std::function<void(zima::drawing::DrawingView)> preview)
+        : PropertiesSubWindow(QObject::tr("Vlastnosti pohledu"), parent),
+          value_(std::move(initial)), sources_(std::move(sources)),
+          sheet_scale_(sheet_scale), accepted_(std::move(accepted)), preview_(std::move(preview)) {
+        setObjectName("drawingViewProperties");
         auto* content = new QWidget(this);
         auto* form = new QFormLayout(content);
+        name_ = new QLineEdit(QString::fromStdString(value_.name), content);
+        name_->setObjectName("drawingViewName");
+        caption_ = new QCheckBox(QObject::tr("Zobrazit název pod pohledem"), content);
+        caption_->setChecked(value_.show_caption);
+        source_ = new QComboBox(content);
+        source_->setObjectName("drawingViewSource");
+        source_->setMinimumContentsLength(24);
+        source_->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+        int selected = -1;
+        for (std::size_t i = 0; i < sources_.size(); ++i) {
+            source_->addItem(sources_[i].name);
+            if ((!value_.source_document_id.empty() && sources_[i].id == value_.source_document_id) ||
+                (!value_.source_path.empty() && sources_[i].path == value_.source_path)) selected = static_cast<int>(i);
+        }
+        source_->setCurrentIndex(selected >= 0 ? selected : (sources_.empty() ? -1 : 0));
+        auto* source_row = new QWidget(content);
+        auto* source_layout = new QHBoxLayout(source_row);
+        source_layout->setContentsMargins(0,0,0,0);
+        auto* browse = new QPushButton(QObject::tr("Soubor…"), source_row);
+        browse->setObjectName("drawingViewBrowseSource");
+        source_layout->addWidget(source_, 1); source_layout->addWidget(browse);
+        source_row->setEnabled(value_.parent_view_id.empty());
+        connect(browse, &QPushButton::clicked, this, [this] {
+            const auto path = open_file(this, tr("Zdroj pohledu"),
+                QString::fromStdString(value_.source_path.string()), tr("Model ZIMA-CAD (*.prtz *.asmz)"));
+            if (path.isEmpty()) return;
+            sources_.push_back({{}, path.toStdString(), QFileInfo(path).fileName()});
+            source_->addItem(sources_.back().name);
+            source_->setCurrentIndex(source_->count()-1);
+        });
         orientation_ = new QComboBox(content);
-        orientation_->addItem(QObject::tr("Přední"), static_cast<int>(zima::drawing::ViewOrientation::Front));
-        orientation_->addItem(QObject::tr("Zadní"), static_cast<int>(zima::drawing::ViewOrientation::Back));
-        orientation_->addItem(QObject::tr("Levý"), static_cast<int>(zima::drawing::ViewOrientation::Left));
-        orientation_->addItem(QObject::tr("Pravý"), static_cast<int>(zima::drawing::ViewOrientation::Right));
-        orientation_->addItem(QObject::tr("Horní"), static_cast<int>(zima::drawing::ViewOrientation::Top));
-        orientation_->addItem(QObject::tr("Dolní"), static_cast<int>(zima::drawing::ViewOrientation::Bottom));
-        orientation_->addItem(QObject::tr("Izometrický"), static_cast<int>(zima::drawing::ViewOrientation::Isometric));
-        orientation_->setCurrentIndex(orientation_->findData(static_cast<int>(value_.orientation)));
+        orientation_->setObjectName("drawingViewOrientation");
+        const char* orientations[]{"Přední", "Zadní", "Levý", "Pravý", "Horní", "Dolní", "Izometrický"};
+        for (int i=0; i<7; ++i) orientation_->addItem(QObject::tr(orientations[i]), i);
+        orientation_->setCurrentIndex(static_cast<int>(value_.orientation));
         orientation_->setEnabled(value_.parent_view_id.empty());
         display_ = new QComboBox(content);
-        display_->addItem(QObject::tr("Pouze viditelné hrany"),
-                          static_cast<int>(zima::drawing::DisplayStyle::VisibleEdges));
-        display_->addItem(QObject::tr("Viditelné a skryté hrany"),
-                          static_cast<int>(zima::drawing::DisplayStyle::HiddenEdges));
-        display_->addItem(QObject::tr("Stínované s hranami"),
-                          static_cast<int>(zima::drawing::DisplayStyle::ShadedWithEdges));
-        display_->setCurrentIndex(display_->findData(static_cast<int>(value_.display_style)));
+        display_->setObjectName("drawingViewDisplay");
+        display_->addItem(QObject::tr("Pouze viditelné hrany"));
+        display_->addItem(QObject::tr("Viditelné a skryté hrany"));
+        display_->addItem(QObject::tr("Stínované s hranami"));
+        display_->setCurrentIndex(static_cast<int>(value_.display_style));
+        scale_mode_ = new QComboBox(content);
+        scale_mode_->setObjectName("drawingViewScaleMode");
+        scale_mode_->addItem(QObject::tr("Podle listu"));
+        scale_mode_->addItem(QObject::tr("Vlastní"));
+        scale_mode_->setCurrentIndex(value_.use_sheet_scale ? 0 : 1);
         scale_ = new QDoubleSpinBox(content);
-        scale_->setDecimals(3); scale_->setRange(0.001, 1000.0); scale_->setValue(value_.scale);
-        x_ = new QDoubleSpinBox(content);
-        y_ = new QDoubleSpinBox(content);
-        for (auto* field : {x_, y_}) { field->setDecimals(3); field->setRange(-10000.0, 10000.0); }
+        scale_->setObjectName("drawingViewScale");
+        scale_->setDecimals(3); scale_->setRange(0.001,1000.0); scale_->setValue(value_.scale);
+        scale_->setEnabled(!value_.use_sheet_scale);
+        x_ = new QDoubleSpinBox(content); y_ = new QDoubleSpinBox(content);
+        for (auto* field : {x_, y_}) { field->setDecimals(3); field->setRange(-10000,10000); }
         x_->setValue(value_.x); y_->setValue(value_.y);
+        x_->setObjectName("drawingViewX"); y_->setObjectName("drawingViewY");
+        // Projected views keep the position constrained by their parent's ray.
+        x_->setEnabled(value_.parent_view_id.empty()); y_->setEnabled(value_.parent_view_id.empty());
+        form->addRow(QObject::tr("Název"), name_); form->addRow(caption_);
+        form->addRow(QObject::tr("Zdroj"), source_row);
         form->addRow(QObject::tr("Orientace"), orientation_);
         form->addRow(QObject::tr("Zobrazení"), display_);
-        form->addRow(QObject::tr("Měřítko"), scale_);
+        form->addRow(QObject::tr("Měřítko"), scale_mode_);
+        form->addRow(QObject::tr("Hodnota měřítka"), scale_);
         form->addRow(QObject::tr("Poloha X [mm]"), x_);
         form->addRow(QObject::tr("Poloha Y [mm]"), y_);
+        error_ = new QLabel(content); error_->setWordWrap(true);
+        error_->setObjectName("drawingViewError");
+        form->addRow(error_);
         content_layout()->addWidget(content);
+        setMinimumWidth(460);
+        const auto preview_change = [this] { preview_(values()); };
+        for (auto* combo : {source_, orientation_, display_, scale_mode_})
+            connect(combo, &QComboBox::currentIndexChanged, this, [this,preview_change] {
+                scale_->setEnabled(scale_mode_->currentIndex()==1);
+                preview_change();
+            });
+        for (auto* spin : {scale_,x_,y_})
+            connect(spin, &QDoubleSpinBox::valueChanged, this, preview_change);
+        connect(name_, &QLineEdit::textChanged, this, preview_change);
+        connect(caption_, &QCheckBox::toggled, this, preview_change);
         setAttribute(Qt::WA_DeleteOnClose);
+    }
+    void set_error(const QString& error) { error_->setText(error); }
+    zima::drawing::DrawingView values() const {
+        auto result = value_;
+        result.name = name_->text().trimmed().toStdString();
+        result.show_caption = caption_->isChecked();
+        if (const int i = source_->currentIndex(); i>=0 && i<static_cast<int>(sources_.size())) {
+            result.source_document_id = sources_[i].id; result.source_path = sources_[i].path;
+        }
+        result.orientation = static_cast<zima::drawing::ViewOrientation>(orientation_->currentIndex());
+        result.display_style = static_cast<zima::drawing::DisplayStyle>(display_->currentIndex());
+        result.use_sheet_scale = scale_mode_->currentIndex()==0;
+        result.scale = result.use_sheet_scale ? sheet_scale_ : scale_->value();
+        result.x=x_->value(); result.y=y_->value();
+        return result;
     }
 private:
     zima::drawing::DrawingView value_;
-    std::function<void(zima::drawing::DrawingView)> accepted_;
-    QComboBox* orientation_{};
-    QComboBox* display_{};
-    QDoubleSpinBox* scale_{};
-    QDoubleSpinBox* x_{};
-    QDoubleSpinBox* y_{};
-    bool submit() override {
-        value_.orientation = static_cast<zima::drawing::ViewOrientation>(
-            orientation_->currentData().toInt());
-        value_.display_style = static_cast<zima::drawing::DisplayStyle>(
-            display_->currentData().toInt());
-        value_.scale = scale_->value(); value_.x = x_->value(); value_.y = y_->value();
-        accepted_(std::move(value_));
-        return true;
-    }
+    std::vector<DrawingSourceChoice> sources_;
+    double sheet_scale_;
+    std::function<bool(zima::drawing::DrawingView)> accepted_;
+    std::function<void(zima::drawing::DrawingView)> preview_;
+    QLineEdit* name_{};
+    QCheckBox* caption_{};
+    QComboBox *source_{}, *orientation_{}, *display_{}, *scale_mode_{};
+    QDoubleSpinBox *scale_{}, *x_{}, *y_{};
+    QLabel* error_{};
+    bool submit() override { return accepted_(values()); }
 };
 
 class SheetPropertiesDialog final : public zima::ui::PropertiesSubWindow {
@@ -146,39 +230,6 @@ private:
     }
 };
 
-class ProjectionPropertiesDialog final : public zima::ui::PropertiesSubWindow {
-public:
-    ProjectionPropertiesDialog(QMainWindow* parent,
-        std::function<void(zima::drawing::ProjectionDirection)> accepted)
-        : PropertiesSubWindow(QObject::tr("Promítnutý pohled"), parent),
-          accepted_(std::move(accepted)) {
-        auto* content = new QWidget(this); auto* form = new QFormLayout(content);
-        direction_ = new QComboBox(content);
-        const std::pair<const char*, zima::drawing::ProjectionDirection> choices[] = {
-            {"Vpravo", zima::drawing::ProjectionDirection::Right},
-            {"Vpravo nahoře", zima::drawing::ProjectionDirection::TopRight},
-            {"Nahoře", zima::drawing::ProjectionDirection::Top},
-            {"Vlevo nahoře", zima::drawing::ProjectionDirection::TopLeft},
-            {"Vlevo", zima::drawing::ProjectionDirection::Left},
-            {"Vlevo dole", zima::drawing::ProjectionDirection::BottomLeft},
-            {"Dole", zima::drawing::ProjectionDirection::Bottom},
-            {"Vpravo dole", zima::drawing::ProjectionDirection::BottomRight},
-        };
-        for (const auto& [label, value] : choices)
-            direction_->addItem(QObject::tr(label), static_cast<int>(value));
-        form->addRow(QObject::tr("Směr umístění"), direction_);
-        content_layout()->addWidget(content); setAttribute(Qt::WA_DeleteOnClose);
-    }
-private:
-    std::function<void(zima::drawing::ProjectionDirection)> accepted_;
-    QComboBox* direction_{};
-    bool submit() override {
-        accepted_(static_cast<zima::drawing::ProjectionDirection>(
-            direction_->currentData().toInt()));
-        return true;
-    }
-};
-
 class TitleBlockPropertiesDialog final : public zima::ui::PropertiesSubWindow {
 public:
     TitleBlockPropertiesDialog(QMainWindow* parent,
@@ -203,26 +254,6 @@ private:
             if(field.id==id) field.value=editor->text().toStdString();
         accepted_(std::move(fields_)); return true;
     }
-};
-
-class DrawingSourceDialog final : public zima::ui::PropertiesSubWindow {
-public:
-    DrawingSourceDialog(QMainWindow* parent,
-        const std::vector<std::pair<std::string,std::string>>& sources,
-        std::function<void(std::string)> accepted)
-        : PropertiesSubWindow(QObject::tr("Zdroj výkresového pohledu"),parent),
-          accepted_(std::move(accepted)) {
-        auto* content=new QWidget(this); auto* form=new QFormLayout(content);
-        source_=new QComboBox(content);
-        for(const auto& [id,name]:sources)
-            source_->addItem(QString::fromStdString(name),QString::fromStdString(id));
-        source_->addItem(QObject::tr("Vybrat soubor…"),QString{});
-        form->addRow(QObject::tr("Zdroj"),source_); content_layout()->addWidget(content);
-        setAttribute(Qt::WA_DeleteOnClose);
-    }
-private:
-    QComboBox* source_{}; std::function<void(std::string)> accepted_;
-    bool submit() override { accepted_(source_->currentData().toString().toStdString()); return true; }
 };
 
 zima::drawing::Point2 projection_placement(
@@ -364,10 +395,94 @@ public:
     void set_selection_changed_callback(std::function<void()> callback) {
         selection_changed_ = std::move(callback);
     }
+    void set_preview(std::optional<zima::drawing::DrawingView> view) {
+        preview_ = std::move(view); update();
+    }
+    void begin_placement(zima::drawing::DrawingView view,
+        std::function<void(zima::drawing::DrawingView)> placed,
+        std::function<void()> canceled,
+        std::function<void(zima::drawing::DrawingView&, zima::drawing::Point2)> position = {}) {
+        start_selection(); selected_.clear(); selected_dimension_id_.clear();
+        if (selection_changed_) selection_changed_();
+        preview_ = std::move(view); placed_ = std::move(placed);
+        canceled_ = std::move(canceled); position_ = std::move(position);
+        setCursor(Qt::CrossCursor); setFocus(); update();
+    }
+    void cancel_placement() {
+        placed_ = {}; position_ = {}; preview_.reset(); unsetCursor();
+        auto callback = std::move(canceled_); canceled_ = {};
+        if (callback) callback();
+        update();
+    }
+    void set_context_actions(QAction* insert, QAction* edit, QAction* projected, QAction* remove) {
+        insert_action_=insert; edit_action_=edit; projected_action_=projected; remove_action_=remove;
+    }
     void start_linear_dimension() { dimension_mode_ = true; first_edge_.reset(); update(); }
     void start_selection() { dimension_mode_ = false; first_edge_.reset(); update(); }
     [[nodiscard]] bool dimension_mode() const { return dimension_mode_; }
+    bool interacting() const { return bool(preview_); }
 protected:
+    QPointF view_screen_point(const zima::drawing::DrawingView& view,
+                            const zima::drawing::Point2& point) const {
+        const double zoom = canvas_zoom(); const auto origin = canvas_origin(zoom);
+        return {origin.x() + (sheet_->width_mm() - view.x + point.x * view.scale)*zoom,
+                origin.y() + (sheet_->height_mm() - view.y - point.y * view.scale)*zoom};
+    }
+    QRectF view_bounds(const zima::drawing::DrawingView& view) const {
+        bool first = true; double xmin{}, xmax{}, ymin{}, ymax{};
+        const auto include = [&](const zima::drawing::Point2& point) {
+            const auto screen = view_screen_point(view,point);
+            if (first) { xmin=xmax=screen.x(); ymin=ymax=screen.y(); first=false; }
+            else { xmin=std::min(xmin,screen.x()); xmax=std::max(xmax,screen.x());
+                   ymin=std::min(ymin,screen.y()); ymax=std::max(ymax,screen.y()); }
+        };
+        for (const auto& edge : view.projected_edges) for (const auto& point : edge.points) include(point);
+        for (const auto& triangle : view.projected_triangles) for (const auto& point : triangle.points) include(point);
+        if (first) include({});
+        return QRectF(QPointF(xmin,ymin),QPointF(xmax,ymax)).adjusted(-8,-8,8,8);
+    }
+    std::string view_at(QPointF point) const {
+        if (!sheet_) return {};
+        // Later views are painted on top. Hover and all confirmation paths
+        // consume this same order and the same complete rectangular region.
+        for (auto it=sheet_->views.rbegin(); it!=sheet_->views.rend(); ++it)
+            if (view_bounds(*it).contains(point)) return it->id;
+        return {};
+    }
+    void position_preview(QPointF point) {
+        if (!preview_ || !sheet_) return;
+        const double zoom=canvas_zoom(); const auto origin=canvas_origin(zoom);
+        const zima::drawing::Point2 position{sheet_->width_mm()-(point.x()-origin.x())/zoom,
+            sheet_->height_mm()-(point.y()-origin.y())/zoom};
+        if (position_) position_(*preview_, position);
+        else { preview_->x=position.x; preview_->y=position.y; }
+        update();
+    }
+    void contextMenuEvent(QContextMenuEvent* event) override {
+        if (placed_ || preview_ || dimension_mode_ || view_panning_) return;
+        const auto hit = view_at(event->pos());
+        if (hit != selected_) {
+            selected_=hit; selected_dimension_id_.clear();
+            if (selection_changed_) selection_changed_();
+            update();
+        }
+        auto* menu = new QMenu(this); menu->setObjectName("drawingViewContextMenu");
+        menu->setAttribute(Qt::WA_DeleteOnClose);
+        if (hit.empty()) menu->addAction(insert_action_);
+        else { menu->addAction(edit_action_); menu->addAction(projected_action_);
+               menu->addSeparator(); menu->addAction(remove_action_); }
+        menu->popup(event->globalPos()); event->accept();
+    }
+    void mouseDoubleClickEvent(QMouseEvent* event) override {
+        if (event->button()==Qt::LeftButton && !preview_ && !dimension_mode_ && !view_at(event->position()).empty()) {
+            selected_=view_at(event->position()); drag_view_id_.clear();
+            if(selection_changed_) selection_changed_();
+            if(edit_action_) edit_action_->trigger();
+            event->accept(); return;
+        }
+        QWidget::mouseDoubleClickEvent(event);
+    }
+    void leaveEvent(QEvent* event) override { hovered_.clear(); update(); QWidget::leaveEvent(event); }
     [[nodiscard]] double canvas_zoom() const {
         if (sheet_ == nullptr) return 1.0;
         const double margin = 24.0;
@@ -384,6 +499,10 @@ protected:
         QPainter painter(this);
         painter.fillRect(rect(), QColor("#000000"));
         if (sheet_ == nullptr) return;
+        std::vector<const zima::drawing::DrawingView*> views;
+        for (const auto& view : sheet_->views)
+            if (!preview_ || preview_->id!=view.id) views.push_back(&view);
+        if (preview_) views.push_back(&*preview_);
         const double zoom = canvas_zoom();
         const QPointF origin = canvas_origin(zoom);
         const QRectF paper(origin.x(), origin.y(), sheet_->width_mm() * zoom,
@@ -433,7 +552,8 @@ protected:
             painter.drawText(screen({35.0,y}),QString::number(row.quantity));
             painter.drawText(screen({100.0,y}),QString::fromStdString(row.name));
         }
-        for (const auto& view : sheet_->views) {
+        for (const auto* rendered_view : views) {
+            const auto& view = *rendered_view;
             if (view.display_style != zima::drawing::DisplayStyle::ShadedWithEdges) continue;
             painter.setPen(Qt::NoPen);
             for (const auto& triangle : view.projected_triangles) {
@@ -451,7 +571,9 @@ protected:
                 painter.drawPolygon(polygon);
             }
         }
-        for (const auto& view : sheet_->views) {
+        painter.setBrush(Qt::NoBrush);
+        for (const auto* rendered_view : views) {
+            const auto& view = *rendered_view;
             for (const auto& edge : view.projected_edges) {
                 if (edge.hidden && view.display_style == zima::drawing::DisplayStyle::VisibleEdges)
                     continue;
@@ -469,6 +591,20 @@ protected:
                                         (view.y + point.y * view.scale) * zoom);
                 }
                 painter.drawPolyline(line);
+            }
+        }
+        painter.setBrush(Qt::NoBrush);
+        for (const auto* view : views) {
+            const auto bounds = view_bounds(*view);
+            if (view->id==selected_ || view->id==hovered_ || (preview_ && preview_->id==view->id)) {
+                painter.setPen(QPen(view->id==hovered_ && view->id!=selected_ ? QColor("#FF9300")
+                    : QColor("#00D1FF"), 1, Qt::DashLine));
+                painter.drawRect(bounds);
+            }
+            if (view->show_caption) {
+                painter.setPen(QColor("#FFFFFF"));
+                painter.drawText(QRectF(bounds.left(),bounds.bottom()+3,bounds.width(),24),
+                    Qt::AlignHCenter | Qt::AlignTop, QString::fromStdString(view->name));
             }
         }
         for (const auto& dimension : sheet_->dimensions) {
@@ -533,6 +669,13 @@ protected:
             return;
         }
         if (event->button() != Qt::LeftButton) return;
+        if (placed_) {
+            position_preview(event->position());
+            const auto value = *preview_;
+            auto callback = std::move(placed_); placed_={}; position_={}; canceled_={};
+            unsetCursor(); callback(value); event->accept(); return;
+        }
+        if (preview_) return;
         const double zoom = canvas_zoom();
         const QPointF origin = canvas_origin(zoom);
         const auto segment_distance = [](QPointF point, QPointF a, QPointF b) {
@@ -584,7 +727,7 @@ protected:
         std::string hit;
         const zima::drawing::DrawingView* hit_view{};
         const zima::drawing::ProjectedEdge* hit_edge{};
-        for (const auto& view : sheet_->views) for (const auto& edge : view.projected_edges) {
+        if (dimension_mode_) for (const auto& view : sheet_->views) for (const auto& edge : view.projected_edges) {
             if (edge.points.size() < 2 ||
                 (edge.hidden && view.display_style == zima::drawing::DisplayStyle::VisibleEdges)) continue;
             for (std::size_t point = 1; point < edge.points.size(); ++point) {
@@ -635,7 +778,8 @@ protected:
             }
             update(); return;
         }
-        selected_ = std::move(hit);
+        selected_ = dimension_mode_ ? std::move(hit) : view_at(event->position());
+        drag_view_id_.clear();
         if (!selected_.empty()) {
             drag_view_id_ = selected_; drag_start_ = event->position();
             if (const auto found = std::find_if(sheet_->views.begin(), sheet_->views.end(),
@@ -646,6 +790,11 @@ protected:
         update();
     }
     void mouseMoveEvent(QMouseEvent* event) override {
+        if (placed_ && !view_panning_) { position_preview(event->position()); return; }
+        if (!preview_ && !dimension_mode_) {
+            const auto hit=view_at(event->position());
+            if(hit!=hovered_) { hovered_=hit; update(); }
+        }
         if(sheet_==nullptr) return;
         if (view_panning_) {
             if ((event->buttons() & Qt::MiddleButton) &&
@@ -730,6 +879,7 @@ protected:
     }
     void keyPressEvent(QKeyEvent* event) override {
         if(event->key()==Qt::Key_Escape) {
+            if (placed_) { cancel_placement(); event->accept(); return; }
             if(dimension_mode_ && first_edge_) first_edge_.reset();
             else if(dimension_mode_) dimension_mode_=false;
             else { selected_dimension_id_.clear(); selected_.clear(); }
@@ -749,6 +899,12 @@ protected:
 private:
     zima::drawing::DrawingSheet* sheet_{};
     std::string selected_;
+    std::string hovered_;
+    std::optional<zima::drawing::DrawingView> preview_;
+    std::function<void(zima::drawing::DrawingView)> placed_;
+    std::function<void()> canceled_;
+    std::function<void(zima::drawing::DrawingView&, zima::drawing::Point2)> position_;
+    QAction *insert_action_{}, *edit_action_{}, *projected_action_{}, *remove_action_{};
     struct PickedEdge { std::string view_id; zima::drawing::ProjectedEdge edge; };
     std::optional<PickedEdge> first_edge_;
     bool dimension_mode_{};
@@ -773,8 +929,13 @@ DrawingWindow::DrawingWindow(
     zima::workspace::Workspace* workspace, bool create_initial_document)
     : workspace_(workspace) {
     setWindowTitle(tr("ZIMA-CAD – Výkres")); resize(1180, 760);
+    formats_directory_ = ApplicationSettings::load().resolved_paths.value("Formats");
     create_actions(); create_layout();
     if(create_initial_document) new_document();
+}
+
+void DrawingWindow::set_formats_directory(const QString& directory) {
+    formats_directory_ = directory;
 }
 
 void DrawingWindow::create_actions() {
@@ -810,7 +971,7 @@ void DrawingWindow::create_actions() {
         [this] { insert_view(); });
     insert_view_action_->setObjectName("insertDrawingViewAction");
     projected_view_action_ = drawing->addAction(
-        tr("Vytvořit promítnutý pohled…"), this,
+        tr("Projekční pohled"), this,
         [this] { create_projected_view(); });
     projected_view_action_->setObjectName("projectDrawingViewAction");
     edit_view_action_ = drawing->addAction(tr("Vlastnosti pohledu…"), this,
@@ -860,11 +1021,14 @@ void DrawingWindow::create_layout() {
     });
     canvas_->set_selection_changed_callback([this] {
         update_action_states();
+        if (selection_handler_) selection_handler_(canvas_->selected_view_id());
         const auto identifier = document_.dimension_identifiers.identifier(
             document_.document_id, "dimension:" + canvas_->selected_dimension_id());
         if (!identifier.empty()) set_status_message(tr("Kóta %1").arg(QString::fromStdString(identifier)));
     });
-    auto* bottom = new QHBoxLayout;
+    canvas_->set_context_actions(insert_view_action_,edit_view_action_,projected_view_action_,delete_view_action_);
+    sheet_controls_ = new QWidget(central);
+    auto* bottom = new QHBoxLayout(sheet_controls_);
     bottom->setContentsMargins(6, 3, 6, 3);
     auto* remove_sheet = new QPushButton(QStringLiteral("−"), central);
     auto* add_sheet = new QPushButton(QStringLiteral("+"), central);
@@ -887,13 +1051,22 @@ void DrawingWindow::create_layout() {
     for (const auto* format : {"A4", "A3", "A2", "A1", "A0"})
         sheet_format_->addItem(QString::fromLatin1(format));
     auto* add_format = new QPushButton(tr("Přidat formát"), central);
+    add_format->setObjectName("drawingAddFormatButton");
     auto* remove_format = new QPushButton(tr("Odebrat formát"), central);
     auto* add_title = new QPushButton(tr("Přidat razítko"), central);
+    add_title->setObjectName("drawingAddTitleBlockButton");
     auto* remove_title = new QPushButton(tr("Odebrat razítko"), central);
     projection_method_ = new QComboBox(central);
     projection_method_->setObjectName("drawingProjectionMethodCombo");
     projection_method_->addItem(tr("První kvadrant"));
     projection_method_->addItem(tr("Třetí kvadrant"));
+    source_variant_ = new QComboBox(central);
+    source_variant_->setObjectName("drawingSourceVariant");
+    source_variant_->setMinimumContentsLength(14);
+    source_variant_->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    source_variant_->setToolTip(tr("Zdrojový díl nebo sestava. Varianty z Family Table budou doplněny později."));
+    bottom->addWidget(new QLabel(tr("Varianta:"), central));
+    bottom->addWidget(source_variant_);
     bottom->addWidget(sheets_, 1); bottom->addWidget(remove_sheet);
     bottom->addWidget(add_sheet); bottom->addSpacing(16);
     bottom->addWidget(new QLabel(tr("Tloušťky:"), central));
@@ -921,8 +1094,9 @@ void DrawingWindow::create_layout() {
     });
     const auto change_scale = [this] {
         auto* sheet = active_sheet(); if (sheet == nullptr) return;
-        sheet->default_scale = scale_numerator_->value() /
-            scale_denominator_->value(); canvas_->update(); sync_workspace_document();
+        sheet->default_scale = scale_numerator_->value() / scale_denominator_->value();
+        for (auto& view : sheet->views) if (view.use_sheet_scale) view.scale = sheet->default_scale;
+        canvas_->update(); sync_workspace_document();
     };
     connect(scale_numerator_, &QDoubleSpinBox::valueChanged, this,
         [change_scale](double) { change_scale(); });
@@ -936,7 +1110,7 @@ void DrawingWindow::create_layout() {
                 : zima::drawing::ProjectionMethod::ThirdAngle;
             sync_workspace_document();
         });
-    layout->addWidget(canvas_, 1); layout->addLayout(bottom); layout->addWidget(state_);
+    layout->addWidget(canvas_, 1); layout->addWidget(sheet_controls_); layout->addWidget(state_);
     setCentralWidget(central);
     connect(sheets_, &QTabBar::currentChanged, this, [this] { refresh(); });
 }
@@ -964,11 +1138,22 @@ void DrawingWindow::new_document() {
 void DrawingWindow::edit_workspace_document(const std::string& document_id) {
     if(workspace_==nullptr) return;
     auto* state=workspace_->open_drawing(document_id); if(state==nullptr) return;
+    if (workspace_document_id_ == document_id && canvas_->interacting()) return;
+    if (view_dialog_) view_dialog_->reject();
+    canvas_->cancel_placement();
     workspace_document_id_=document_id; document_=state->document; path_=state->path; refresh();
 }
-void DrawingWindow::select_view_for_test(const std::string& view_id) {
+void DrawingWindow::select_view(const std::string& view_id) {
+    if (view_dialog_) return;
+    for (std::size_t i=0;i<document_.sheets.size();++i)
+        if (std::any_of(document_.sheets[i].views.begin(),document_.sheets[i].views.end(),
+            [&](const auto& view){return view.id==view_id;})) {
+            if (sheets_->currentIndex()!=static_cast<int>(i)) sheets_->setCurrentIndex(static_cast<int>(i));
+            break;
+        }
     canvas_->select_view_for_test(view_id);
 }
+void DrawingWindow::select_view_for_test(const std::string& view_id) { select_view(view_id); }
 void DrawingWindow::load_frame_for_test(const std::filesystem::path& path) {
     auto* sheet = active_sheet(); if (sheet == nullptr) return;
     zima::drawing::load_frame_template(*sheet, path); refresh();
@@ -1017,13 +1202,14 @@ void DrawingWindow::edit_sheet() {
             accepted.title_block_lines.clear(); accepted.title_block_texts.clear();
             accepted.title_block_fields.clear();
         }
+        for (auto& view : accepted.views) if (view.use_sheet_scale) view.scale=accepted.default_scale;
         accepted.id = id; *target = std::move(accepted); refresh();
     });
     dialog->show();
 }
 void DrawingWindow::load_frame() {
     auto* sheet=active_sheet(); if(sheet==nullptr) return;
-    const auto path=open_file(this,tr("Načíst formát"),"config/formats",
+    const auto path=open_file(this,tr("Načíst formát"),formats_directory_,
                                                  tr("Formát výkresu (*.frmz)"));
     if(path.isEmpty()) return;
     try { zima::drawing::load_frame_template(*sheet,path.toStdString()); refresh(); }
@@ -1040,7 +1226,7 @@ void DrawingWindow::remove_title_block() {
 }
 void DrawingWindow::load_title_block() {
     auto* sheet=active_sheet(); if(sheet==nullptr) return;
-    const auto path=open_file(this,tr("Načíst razítko"),"config/formats",
+    const auto path=open_file(this,tr("Načíst razítko"),formats_directory_,
                                                  tr("Razítko výkresu (*.tblz)"));
     if(path.isEmpty()) return;
     try { zima::drawing::load_title_block_template(*sheet,path.toStdString()); refresh(); }
@@ -1058,87 +1244,187 @@ void DrawingWindow::edit_title_block() {
 zima::drawing::DrawingSheet* DrawingWindow::active_sheet() { const auto index = sheets_->currentIndex(); return index < 0 || index >= static_cast<int>(document_.sheets.size()) ? nullptr : &document_.sheets[index]; }
 
 void DrawingWindow::insert_view() {
-    if(active_sheet()==nullptr) return;
-    std::vector<std::pair<std::string,std::string>> sources;
-    if(workspace_!=nullptr) for(const auto& state:workspace_->documents())
+    if (view_dialog_) { view_dialog_->raise(); return; }
+    if (raise_open_properties(window())) return;
+    const auto* sheet=active_sheet(); if (!sheet) return;
+    auto source_id=document_.source_document_id;
+    auto source_path=document_.source_path;
+    if (source_id.empty() && source_path.empty() && workspace_) {
+        for (const auto& state : workspace_->documents()) {
+            std::visit([&](const auto& item) {
+                using State=std::decay_t<decltype(item)>;
+                if constexpr (std::is_same_v<State,zima::workspace::PartState> ||
+                              std::is_same_v<State,zima::workspace::AssemblyState>) {
+                    if (source_id.empty()) { source_id=item.session.document().document_id; source_path=item.path; }
+                }
+            },state);
+        }
+    }
+    if (!source_path.empty() && source_path.is_relative() && !path_.empty())
+        source_path=path_.parent_path()/source_path;
+    zima::kernel::ViewerMesh mesh;
+    try {
+        if (!source_id.empty() || !source_path.empty()) {
+            auto source=load_drawing_source(source_path,workspace_,source_id);
+            source_id=source.first; mesh=std::move(source.second);
+        }
+    } catch (const std::exception&) {
+        // The source can be replaced in the same Properties window after placement.
+    }
+    auto view=zima::drawing::DrawingDocument::create_view(source_id,source_path,mesh,
+        zima::drawing::ViewOrientation::Isometric);
+    view.scale=sheet->default_scale; view.use_sheet_scale=true;
+    canvas_->begin_placement(std::move(view), [this](auto placed) {
+        show_view_properties(std::move(placed),true);
+    }, [this] { start_selection(); });
+    set_status_message(tr("Vložit pohled: klikněte na místo na listu. Esc zruší vložení."));
+}
+
+void DrawingWindow::show_view_properties(zima::drawing::DrawingView view, bool creating) {
+    if (view_dialog_) { view_dialog_->raise(); return; }
+    if (raise_open_properties(window())) { canvas_->set_preview({}); return; }
+    auto* sheet=active_sheet(); if (!sheet) return;
+    const auto sheet_id=sheet->id;
+    const auto drawing_id=document_.document_id;
+    std::vector<DrawingSourceChoice> sources;
+    if (workspace_) for (const auto& state : workspace_->documents())
         std::visit([&](const auto& item) {
             using State=std::decay_t<decltype(item)>;
-            if constexpr(std::is_same_v<State,zima::workspace::PartState> ||
-                         std::is_same_v<State,zima::workspace::AssemblyState>)
-                sources.push_back({item.session.document().document_id,item.session.document().name});
+            if constexpr (std::is_same_v<State,zima::workspace::PartState> ||
+                          std::is_same_v<State,zima::workspace::AssemblyState>)
+                sources.push_back({item.session.document().document_id,item.path,
+                    QString::fromStdString(item.path.empty() ? item.session.document().name : item.path.filename().string())});
         },state);
-    if(!sources.empty()) {
-        auto* dialog=new DrawingSourceDialog(this,sources,[this](std::string id) {
-            if(id.empty()) { insert_view_from_file(); return; }
+    if ((!view.source_document_id.empty() || !view.source_path.empty()) &&
+        std::none_of(sources.begin(),sources.end(),[&](const auto& source) {
+            return source.id==view.source_document_id && source.path==view.source_path;
+        })) sources.push_back({view.source_document_id,view.source_path,
+            QString::fromStdString(view.source_path.empty() ? view.source_document_id : view.source_path.filename().string())});
+    struct SourceCache {
+        std::string key;
+        std::string id;
+        zima::kernel::ViewerMesh mesh;
+    };
+    auto cache=std::make_shared<SourceCache>();
+    const auto project=[this,cache](zima::drawing::DrawingView& value) {
+        auto source_path=value.source_path;
+        if (!source_path.empty() && source_path.is_relative() && !path_.empty())
+            source_path=path_.parent_path()/source_path;
+        const auto key=value.source_document_id+"|"+source_path.generic_string();
+        if (cache->key!=key) {
+            auto [id,mesh]=load_drawing_source(source_path,workspace_,value.source_document_id);
+            if (!value.source_document_id.empty() && id!=value.source_document_id)
+                throw std::runtime_error("Zdroj pohledu patří jinému dokumentu.");
+            if (mesh.edges.empty() && mesh.triangles.empty())
+                throw std::runtime_error("Zdroj nemá vypočtenou geometrii. Nejprve jej regenerujte.");
+            cache->key=key; cache->id=std::move(id); cache->mesh=std::move(mesh);
+        }
+        value.source_document_id=cache->id; value.source_path=source_path;
+        if (value.parent_view_id.empty()) value.camera=zima::drawing::standard_camera(value.orientation);
+        value.projected_edges=zima::drawing::project_edges(cache->mesh,value.camera);
+        value.projected_triangles=zima::drawing::project_triangles(cache->mesh,value.camera);
+    };
+    const auto error=[this](const QString& message) {
+        if (auto* dialog=dynamic_cast<ViewPropertiesDialog*>(view_dialog_.data())) dialog->set_error(message);
+    };
+    auto* owner=qobject_cast<QMainWindow*>(window());
+    auto* dialog=new ViewPropertiesDialog(owner ? owner : this, view, std::move(sources),sheet->default_scale,
+        [this,project,cache,error,sheet_id,drawing_id,creating](auto accepted) {
+            if (document_.document_id!=drawing_id) return false;
             try {
-                std::filesystem::path path;
-                if(const auto* part=workspace_->open_part(id)) path=part->path;
-                else if(const auto* assembly=workspace_->open_assembly(id)) path=assembly->path;
-                begin_view_insertion(id,path,workspace_->authoritative_viewer_mesh(id));
-            } catch(const std::exception& error) {
-                QMessageBox::warning(this,tr("Nelze vložit pohled"),error.what()); }
+                if (accepted.name.empty()) throw std::runtime_error("Vyplňte název pohledu.");
+                project(accepted);
+                auto* target_sheet=document_.find_sheet(sheet_id); if (!target_sheet) return false;
+                auto next=*target_sheet;
+                const auto id=accepted.id;
+                std::vector<std::string> refreshed_views{id};
+                if (creating) next.views.push_back(accepted);
+                else {
+                    const auto target=std::find_if(next.views.begin(),next.views.end(),[&](const auto& item) {return item.id==id;});
+                    if (target==next.views.end()) return false;
+                    const double dx=accepted.x-target->x, dy=accepted.y-target->y;
+                    *target=accepted;
+                    std::function<void(const zima::drawing::DrawingView&)> update_children;
+                    update_children=[&](const auto& parent) {
+                        for (auto& child : next.views) if (child.parent_view_id==parent.id) {
+                            child.source_document_id=parent.source_document_id; child.source_path=parent.source_path;
+                            child.camera=zima::drawing::projected_camera(parent.camera,child.projection_direction,next.projection_method);
+                            child.x+=dx; child.y+=dy;
+                            project(child); refreshed_views.push_back(child.id); update_children(child);
+                        }
+                    };
+                    update_children(*target);
+                }
+                auto bom=build_bom_rows_for_source(accepted.source_document_id,accepted.source_path,workspace_);
+                if (!bom.empty()) next.bom_rows=std::move(bom);
+                *target_sheet=std::move(next);
+                if (document_.source_document_id.empty()) {
+                    document_.source_document_id=accepted.source_document_id;
+                    document_.source_path=accepted.source_path;
+                    document_.source_name=accepted.source_path.stem().string();
+                    if (document_.source_name.empty()) {
+                        if (workspace_) {
+                            if (const auto* part=workspace_->open_part(accepted.source_document_id)) document_.source_name=part->session.document().name;
+                            else if (const auto* assembly=workspace_->open_assembly(accepted.source_document_id)) document_.source_name=assembly->session.document().name;
+                        }
+                    }
+                }
+                // Re-resolve dimensions against the exact stable projected edge references.
+                for (const auto& refreshed_id:refreshed_views) document_.refresh_view(refreshed_id,cache->mesh);
+                canvas_->set_preview({}); refresh(); canvas_->select_view_for_test(id);
+                return true;
+            } catch (const std::exception& exception) { error(QString::fromUtf8(exception.what())); return false; }
+        }, [this,project,error](auto pending) {
+            try { project(pending); canvas_->set_preview(std::move(pending)); error({}); }
+            catch (const std::exception& exception) { error(QString::fromUtf8(exception.what())); }
         });
-        dialog->show(); return;
-    }
-    insert_view_from_file();
-}
-
-void DrawingWindow::insert_view_from_file() {
-    const auto path = open_file(this, tr("Vybrat zdroj pohledu"), {},
-        tr("Model ZIMA-CAD (*.prtz *.asmz)"));
-    if (path.isEmpty() || active_sheet() == nullptr) return;
-    try {
-        auto [source_id, mesh] = load_drawing_source(path.toStdString(),workspace_);
-        begin_view_insertion(std::move(source_id),path.toStdString(),std::move(mesh));
-    } catch (const std::exception& error) { QMessageBox::warning(this, tr("Nelze vložit pohled"), error.what()); }
-}
-
-void DrawingWindow::begin_view_insertion(
-    std::string source_id,std::filesystem::path source_path,zima::kernel::ViewerMesh mesh) {
-    auto bom = build_bom_rows_for_source(source_id, source_path, workspace_);
-    auto view=zima::drawing::DrawingDocument::create_view(source_id,source_path,mesh);
-        auto* dialog = new ViewPropertiesDialog(this, view,
-            [this, mesh = std::move(mesh), bom = std::move(bom)](auto accepted) mutable {
-            accepted.camera = zima::drawing::standard_camera(accepted.orientation);
-            accepted.projected_edges = zima::drawing::project_edges(mesh, accepted.camera);
-            accepted.projected_triangles = zima::drawing::project_triangles(mesh, accepted.camera);
-            if(!bom.empty() && active_sheet()->bom_rows.empty()) active_sheet()->bom_rows=std::move(bom);
-            active_sheet()->views.push_back(std::move(accepted)); refresh();
-        });
+    view_dialog_=dialog;
+    if (properties_handler_) properties_handler_(dialog);
+    canvas_->set_preview(view);
+    connect(dialog,&QDialog::finished,this,[this,dialog] {
+        if (view_dialog_==dialog) { view_dialog_.clear(); if (properties_handler_) properties_handler_(nullptr); }
+        canvas_->set_preview({}); update_action_states();
+        set_status_message(tr("Výběr: kliknutím do obdélníkové oblasti vyberte pohled."));
+    });
     dialog->show();
+    update_action_states();
+    set_status_message(tr("Vlastnosti pohledu: OK vloží nebo upraví pohled; Zrušit ponechá výkres beze změny."));
 }
+
 void DrawingWindow::create_projected_view() {
-    const auto* parent = document_.find_view(canvas_->selected_view_id());
-    if (parent == nullptr || active_sheet() == nullptr) {
-        set_status_message(tr("Nejprve vyberte rodičovský pohled.")); return;
-    }
-    const auto parent_copy = *parent;
-    auto* dialog = new ProjectionPropertiesDialog(this,
-        [this, parent_copy](zima::drawing::ProjectionDirection direction) {
-            try {
-                auto [source_id, mesh] = load_drawing_source(
-                    parent_copy.source_path,workspace_,parent_copy.source_document_id);
-                if (source_id != parent_copy.source_document_id)
-                    throw std::runtime_error("Zdrojový soubor patří jinému dokumentu.");
-                auto view = zima::drawing::DrawingDocument::create_view(
-                    source_id, parent_copy.source_path, mesh,
-                    zima::drawing::ViewOrientation::Right);
-                view.name = tr("Promítnutý pohled").toStdString();
-                view.parent_view_id = parent_copy.id;
-                view.projection_direction = direction;
-                view.camera = zima::drawing::projected_camera(
-                    parent_copy.camera, direction, active_sheet()->projection_method);
-                const auto placement = projection_placement(direction, 70.0);
-                view.x = parent_copy.x + placement.x; view.y = parent_copy.y + placement.y;
-                view.scale = parent_copy.scale; view.display_style = parent_copy.display_style;
-                view.projected_edges = zima::drawing::project_edges(mesh, view.camera);
-                view.projected_triangles = zima::drawing::project_triangles(mesh, view.camera);
-                active_sheet()->views.push_back(std::move(view)); refresh();
-            } catch (const std::exception& error) {
-                QMessageBox::warning(this, tr("Nelze vytvořit promítnutý pohled"), error.what());
+    if (view_dialog_) { view_dialog_->raise(); return; }
+    if (raise_open_properties(window())) return;
+    const auto* parent=document_.find_view(canvas_->selected_view_id());
+    const auto* sheet=active_sheet(); if (!parent || !sheet) return;
+    try {
+        const auto parent_copy=*parent;
+        auto [source_id,source_mesh]=load_drawing_source(parent_copy.source_path,workspace_,parent_copy.source_document_id);
+        if (source_id!=parent_copy.source_document_id) throw std::runtime_error("Zdroj pohledu patří jinému dokumentu.");
+        auto mesh=std::make_shared<zima::kernel::ViewerMesh>(std::move(source_mesh));
+        auto view=zima::drawing::DrawingDocument::create_view(source_id,parent_copy.source_path,*mesh);
+        view.name=tr("Projekční pohled").toStdString(); view.parent_view_id=parent_copy.id;
+        view.scale=parent_copy.scale; view.use_sheet_scale=parent_copy.use_sheet_scale;
+        view.display_style=parent_copy.display_style;
+        canvas_->begin_placement(std::move(view), [this](auto placed) {
+            show_view_properties(std::move(placed),true);
+        }, [this] { start_selection(); },
+        [parent_copy,mesh,method=sheet->projection_method](auto& pending,auto point) {
+            const double dx=point.x-parent_copy.x, dy=point.y-parent_copy.y;
+            constexpr double quarter_turn=0.7853981633974483;
+            const int sector=(static_cast<int>(std::lround(std::atan2(dy,-dx)/quarter_turn))+8)%8;
+            const auto direction=static_cast<zima::drawing::ProjectionDirection>(sector+1);
+            if (direction!=pending.projection_direction) {
+                pending.projection_direction=direction;
+                pending.camera=zima::drawing::projected_camera(parent_copy.camera,direction,method);
+                pending.projected_edges=zima::drawing::project_edges(*mesh,pending.camera);
+                pending.projected_triangles=zima::drawing::project_triangles(*mesh,pending.camera);
             }
+            const auto ray=projection_placement(direction,1.0);
+            const double distance=dx*ray.x+dy*ray.y;
+            pending.x=parent_copy.x+distance*ray.x; pending.y=parent_copy.y+distance*ray.y;
         });
-    dialog->show();
+        set_status_message(tr("Projekční pohled: pohybem zvolte směr, kliknutím umístěte. Esc zruší vložení."));
+    } catch (const std::exception& exception) { QMessageBox::warning(this,tr("Projekční pohled"),exception.what()); }
 }
 void DrawingWindow::regenerate_selected_view() {
     auto* view = document_.find_view(canvas_->selected_view_id()); if (view == nullptr) return;
@@ -1181,31 +1467,7 @@ void DrawingWindow::delete_selected_view() {
     refresh();
 }
 void DrawingWindow::edit_selected_view() {
-    auto* view = document_.find_view(canvas_->selected_view_id()); if (view == nullptr) return;
-    auto* dialog = new ViewPropertiesDialog(this, *view,
-        [this, id = view->id, old_orientation = view->orientation](auto accepted) {
-        auto* target = document_.find_view(id); if (target == nullptr) return;
-        accepted.id = id;
-        if (accepted.orientation == old_orientation) {
-            accepted.projected_edges = target->projected_edges;
-            accepted.projected_triangles = target->projected_triangles;
-        } else {
-            try {
-                auto [source_id, mesh] = load_drawing_source(
-                    accepted.source_path,workspace_,accepted.source_document_id);
-                if (source_id != accepted.source_document_id)
-                    throw std::runtime_error("Zdrojový soubor patří jinému dokumentu.");
-                accepted.camera = zima::drawing::standard_camera(accepted.orientation);
-                accepted.projected_edges = zima::drawing::project_edges(mesh, accepted.camera);
-                accepted.projected_triangles = zima::drawing::project_triangles(mesh, accepted.camera);
-            } catch (const std::exception& error) {
-                QMessageBox::warning(this, tr("Nelze změnit orientaci pohledu"), error.what());
-                return;
-            }
-        }
-        *target = std::move(accepted); refresh();
-    });
-    dialog->show();
+    if (const auto* view=document_.find_view(canvas_->selected_view_id())) show_view_properties(*view,false);
 }
 void DrawingWindow::start_linear_dimension() {
     canvas_->start_linear_dimension();
@@ -1219,13 +1481,14 @@ void DrawingWindow::start_selection() {
 }
 void DrawingWindow::update_action_states() {
     const auto* sheet = active_sheet();
-    const bool has_sheet = sheet != nullptr;
+    const bool has_sheet = sheet != nullptr && !view_dialog_;
+    sheet_controls_->setEnabled(!view_dialog_);
     const bool has_view = has_sheet && !sheet->views.empty();
     const bool selected_view = has_sheet &&
         document_.find_view(canvas_->selected_view_id()) != nullptr;
     save_action_->setEnabled(has_sheet);
-    add_sheet_action_->setEnabled(true);
-    remove_sheet_action_->setEnabled(document_.sheets.size() > 1);
+    add_sheet_action_->setEnabled(!view_dialog_);
+    remove_sheet_action_->setEnabled(!view_dialog_ && document_.sheets.size() > 1);
     edit_sheet_action_->setEnabled(has_sheet);
     edit_title_block_action_->setEnabled(
         has_sheet && !sheet->title_block_fields.empty());
@@ -1239,7 +1502,20 @@ void DrawingWindow::update_action_states() {
     selection_action_->setEnabled(has_sheet);
     selection_action_->setChecked(!canvas_->dimension_mode());
 }
+void DrawingWindow::update_source_variant() {
+    QSignalBlocker blocker(source_variant_);
+    source_variant_->clear();
+    auto label = QString::fromStdString(document_.source_path.filename().string());
+    if (label.isEmpty()) label = QString::fromStdString(document_.source_name);
+    if (label.isEmpty() && workspace_) {
+        if (const auto* part=workspace_->open_part(document_.source_document_id)) label=QString::fromStdString(part->session.document().name);
+        else if (const auto* assembly=workspace_->open_assembly(document_.source_document_id)) label=QString::fromStdString(assembly->session.document().name);
+    }
+    if (label.isEmpty()) label=tr("Bez zdroje");
+    source_variant_->addItem(label,QString::fromStdString(document_.source_document_id));
+}
 void DrawingWindow::refresh() {
+    update_source_variant();
     const int wanted = std::clamp(sheets_ ? sheets_->currentIndex() : 0, 0, static_cast<int>(document_.sheets.size() - 1));
     sheets_->blockSignals(true); while (sheets_->count()) sheets_->removeTab(0);
     for (const auto& sheet : document_.sheets) sheets_->addTab(QString::fromStdString(sheet.name));
@@ -1291,6 +1567,8 @@ void DrawingWindow::sync_workspace_document() {
         if(auto* state=workspace_->open_drawing(workspace_document_id_)) {
             state->document=document_; state->path=path_;
         }
+    if (changed_handler_) changed_handler_();
+    if (selection_handler_) selection_handler_(canvas_->selected_view_id());
 }
 
 }  // namespace zima::app

@@ -268,39 +268,40 @@ protected:
     }
 };
 
-class LeftAlignedToolButtonStyle final : public QProxyStyle {
+// Stylesheets may bypass CE_ToolButtonLabel in a proxy style. Paint the
+// command label explicitly while retaining the real toolbar QAction.
+class LeftAlignedCommandLabel final : public QObject {
 public:
-    explicit LeftAlignedToolButtonStyle(QObject* parent)
-        : QProxyStyle() {
-        setParent(parent);
+    explicit LeftAlignedCommandLabel(QToolButton* button) : QObject(button), button_(button) {
+        button->installEventFilter(this);
     }
-
-    void drawControl(ControlElement element, const QStyleOption* option,
-        QPainter* painter, const QWidget* widget = nullptr) const override {
-        if (element != CE_ToolButtonLabel) {
-            QProxyStyle::drawControl(element, option, painter, widget);
-            return;
-        }
-        const auto* button = qstyleoption_cast<const QStyleOptionToolButton*>(option);
-        if (button == nullptr ||
-            button->toolButtonStyle != Qt::ToolButtonTextBesideIcon) {
-            QProxyStyle::drawControl(element, option, painter, widget);
-            return;
-        }
-        QStyleOptionToolButton aligned = *button;
-        const int icon_width = button->icon.isNull() ? 0 : button->iconSize.width();
-        const int icon_gap = icon_width == 0 || button->text.isEmpty() ? 0 : 4;
-        const int text_width = button->fontMetrics.horizontalAdvance(button->text);
-        const int menu_width = button->features.testFlag(
-                QStyleOptionToolButton::HasMenu)
-            ? pixelMetric(PM_MenuButtonIndicator, button, widget) : 0;
-        constexpr int horizontal_padding = 6;
-        aligned.rect.setLeft(button->rect.left() + horizontal_padding);
-        aligned.rect.setWidth(std::min(
-            button->rect.width() - horizontal_padding,
-            icon_width + icon_gap + text_width + menu_width));
-        QProxyStyle::drawControl(element, &aligned, painter, widget);
+protected:
+    bool eventFilter(QObject*, QEvent* event) override {
+        if (event->type()!=QEvent::Paint) return false;
+        QStyleOptionToolButton option;
+        option.initFrom(button_);
+        option.iconSize=button_->iconSize();
+        option.toolButtonStyle=Qt::ToolButtonTextBesideIcon;
+        if (button_->isDown()) option.state|=QStyle::State_Sunken;
+        if (button_->isChecked()) option.state|=QStyle::State_On;
+        if (button_->autoRaise()) option.state|=QStyle::State_AutoRaise;
+        if (button_->menu()) option.features|=QStyleOptionToolButton::HasMenu;
+        QPainter painter(button_);
+        button_->style()->drawComplexControl(QStyle::CC_ToolButton,&option,&painter,button_);
+        const int extent=button_->iconSize().width();
+        const QRect icon_rect(6,(button_->height()-extent)/2,extent,extent);
+        const auto icon=button_->icon();
+        if (!icon.isNull()) icon.paint(&painter,icon_rect,Qt::AlignCenter,
+            button_->isEnabled()?QIcon::Normal:QIcon::Disabled,
+            button_->isChecked()?QIcon::On:QIcon::Off);
+        const int left=icon.isNull()?6:icon_rect.right()+5;
+        button_->style()->drawItemText(&painter,button_->rect().adjusted(left,0,-16,0),
+            Qt::AlignLeft|Qt::AlignVCenter|Qt::TextShowMnemonic,
+            button_->palette(),button_->isEnabled(),button_->text(),QPalette::ButtonText);
+        return true;
     }
+private:
+    QToolButton* button_;
 };
 
 int document_decimal_places(const auto& document) noexcept {
@@ -1460,10 +1461,9 @@ QString sketch_constraint_label(zima::sketcher::ConstraintKind kind) {
 QIcon sketch_constraint_tree_icon(zima::sketcher::ConstraintKind kind) {
     QString symbol = QString::fromStdString(
         zima::sketcher::constraint_marker_label(kind));
-    // A point-point identity is represented by one merged point in the View,
-    // so it has no separate text marker there. Keep its list row visually
-    // aligned with all other relations by using one small green point.
-    if (symbol.isEmpty()) symbol = QStringLiteral("•");
+    // Coincident points merge in the View; use the same C identity symbol
+    // as point-on-curve constraints in the constraints list.
+    if (kind == zima::sketcher::ConstraintKind::Coincident) symbol = QStringLiteral("C");
     QPixmap pixmap(18, 18);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
@@ -3156,6 +3156,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     parameters_action_ = tools->addAction(
         t("menu.tools.parameters", "Parametry..."));
     parameters_action_->setObjectName("documentParametersAction");
+    parameters_action_->setIcon(resource_icon("parameters"));
     connect(parameters_action_, &QAction::triggered,
         this, &AssemblyWorkspaceWindow::edit_document_parameters);
     relations_action_ = tools->addAction(t("menu.tools.relations", "Relace..."));
@@ -3236,7 +3237,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     sweep2d_action_->setObjectName("sweep2dAction");
     sweep2d_action_->setToolTip(tr("2D tažení / přechod mezi profily po rovinné dráze."));
     connect(sweep2d_action_, &QAction::triggered, this, [this] { show_sweep2d_properties(); });
-    helical_sweep_action_ = make_action(tr("Šroubovicové tažení"), "helical-sweep");
+    helical_sweep_action_ = make_action(t("command.helix_sweep", "H-tažení"), "helical-sweep");
     helical_sweep_action_->setObjectName("helicalSweepAction");
     helical_sweep_action_->setToolTip(tr("Šroubovicové tažení profilu."));
     connect(helical_sweep_action_, &QAction::triggered, this, [this] { show_helical_sweep_properties(); });
@@ -3718,6 +3719,7 @@ void AssemblyWorkspaceWindow::create_actions() {
         " color:#fff; border:1px solid #80AA1A; border-radius:4px; }"
         "QToolButton:pressed { background-color:rgba(77,216,17,165);"
         " color:#fff; border:1px solid #9BCC32; border-radius:4px; }");
+    view_toolbar_->addAction(parameters_action_);
     view_toolbar_->addAction(regenerate_document_action_);
     view_toolbar_->addSeparator();
     view_toolbar_->addAction(fit_view_action_);
@@ -5129,6 +5131,18 @@ void AssemblyWorkspaceWindow::create_layout() {
     workspace_stack_->setObjectName("workspaceStack");
     workspace_stack_->addWidget(model_workspace_);
     drawing_workspace_ = new DrawingWindow(&workspace_, false);
+    drawing_workspace_->set_formats_directory(application_settings_.resolved_paths.value("Formats"));
+    drawing_workspace_->set_document_changed_handler([this] { refresh_drawing_tree(); });
+    drawing_workspace_->set_properties_handler([this](QDialog* dialog) { properties_dialog_=dialog; });
+    drawing_workspace_->set_selection_handler([this](const std::string& id) {
+        if (!workspace_.open_drawing(workspace_.displayed_document_id())) return;
+        const QSignalBlocker blocker(tree_);
+        tree_->clearSelection(); tree_->setCurrentItem(nullptr);
+        for(QTreeWidgetItemIterator it(tree_); *it; ++it)
+            if ((*it)->data(0,Qt::UserRole).toString().toStdString()==id && !id.empty()) {
+                tree_->setCurrentItem(*it); (*it)->setSelected(true); break;
+            }
+    });
     drawing_workspace_->setObjectName("drawingWorkspace");
     drawing_workspace_->setWindowFlags(Qt::Widget);
     drawing_workspace_->menuBar()->hide();
@@ -5213,6 +5227,13 @@ void AssemblyWorkspaceWindow::create_layout() {
         }
     });
     const auto synchronize_tree_selection = [this] {
+            if (workspace_.open_drawing(workspace_.displayed_document_id())) {
+                const auto items=tree_->selectedItems();
+                auto* item=items.empty()?nullptr:items.front();
+                drawing_workspace_->select_view(item && item->data(0,Qt::UserRole+3).toString()=="drawing-view"
+                    ? item->data(0,Qt::UserRole).toString().toStdString() : std::string{});
+                return;
+            }
             if (local_origin_selection_active_) return;
             if (!component_drag_document_) set_selected_component_origin({});
             const auto selected_items = tree_->selectedItems();
@@ -5634,12 +5655,32 @@ void AssemblyWorkspaceWindow::create_layout() {
                 activate->setObjectName("activatePartAction");
                 auto* create_body = menu.addAction(resource_icon("result-body"), tr("Vytvořit těleso"));
                 create_body->setObjectName("createBodyFromPartAction");
+                auto* parameters = menu.addAction(resource_icon("parameters"), tr("Parametry…"));
+                parameters->setObjectName("treeDocumentParametersAction");
                 const auto selected=menu.exec(tree_->viewport()->mapToGlobal(position));
-                if (selected==activate) activate_body({});
+                if (selected==parameters) edit_parameters_for_document(workspace_.displayed_document_id());
+                else if (selected==activate) activate_body({});
                 else if (selected==create_body) { activate_body({});show_body_properties(); }
                 return;
             }
-            if (item->parent() == nullptr) return;
+            if (step_kind=="drawing-view") {
+                if (properties_dialog_) return;
+                drawing_workspace_->select_view(item->data(0,Qt::UserRole).toString().toStdString());
+                QMenu menu(this);
+                for(const auto* id:{"editDrawingViewAction","projectDrawingViewAction","deleteDrawingViewAction"})
+                    menu.addAction(drawing_workspace_->findChild<QAction*>(id));
+                menu.exec(tree_->viewport()->mapToGlobal(position));
+                return;
+            }
+            if (item->parent() == nullptr) {
+                if (properties_dialog_) return;
+                QMenu menu(this);
+                auto* parameters = menu.addAction(resource_icon("parameters"), tr("Parametry…"));
+                parameters->setObjectName("treeDocumentParametersAction");
+                if (menu.exec(tree_->viewport()->mapToGlobal(position)) == parameters)
+                    edit_parameters_for_document(workspace_.displayed_document_id());
+                return;
+            }
             if (step_kind == "part-body" || step_kind == "part-body-boolean") {
                 if (properties_dialog_) return;
                 const auto id = item->data(0, Qt::UserRole).toString().toStdString();
@@ -5650,7 +5691,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 auto* edit = menu.addAction(tr("Vlastnosti"));
                 const auto* body=part->session.document().body_history.find(id);
                 auto* source_properties=body&&body->derived_copy ? menu.addAction(tr("Vlastnosti zdroje")) : nullptr;
-                auto* visibility=body ? menu.addAction(body->visible?tr("Skrýt těleso"):tr("Zobrazit těleso")) : nullptr;
+                auto* visibility=body ? menu.addAction(body->visible?tr("Skrýt"):tr("Zobrazit")) : nullptr;
                 QAction* activate = step_kind == "part-body" && !(body&&body->derived_copy) ? menu.addAction(tr("Aktivní")) : nullptr;
                 if (activate) activate->setObjectName("activateBodyAction");
                 auto* document = menu.addAction(tr("Zpět do dílu"));
@@ -6406,6 +6447,17 @@ void AssemblyWorkspaceWindow::set_active_application(ApplicationMode mode) {
 void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
     if (tools_toolbar_ == nullptr) return;
     tools_toolbar_->clear();
+    // QToolBar recalculates its minimum width after clear() and centers
+    // narrower items. Give every command the width of the longest label.
+    QTimer::singleShot(0,tools_toolbar_,[this] {
+        int width=146;
+        std::vector<QToolButton*> buttons;
+        for(auto* action:tools_toolbar_->actions())
+            if(auto* button=qobject_cast<QToolButton*>(tools_toolbar_->widgetForAction(action))) {
+                width=std::max(width,button->sizeHint().width()); buttons.push_back(button);
+            }
+        for(auto* button:buttons) button->setFixedWidth(width);
+    });
     const bool drawing =
         workspace_.open_drawing(workspace_.displayed_document_id()) != nullptr;
     const QString heading_text = drawing ? tr("Výkres")
@@ -6433,15 +6485,14 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
     const auto add_command = [this](QAction* action) {
         if (action == nullptr) return;
         tools_toolbar_->addAction(action);
-        if (auto* button = qobject_cast<QToolButton*>(
-                tools_toolbar_->widgetForAction(action))) {
+        if (auto* button=qobject_cast<QToolButton*>(tools_toolbar_->widgetForAction(action))) {
+            new LeftAlignedCommandLabel(button);
             button->setObjectName("applicationCommandButton");
-            button->setStyle(new LeftAlignedToolButtonStyle(button));
             if (action->menu() != nullptr) {
                 button->setPopupMode(QToolButton::InstantPopup);
             }
             button->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-            button->setMinimumWidth(std::max(0, tools_toolbar_->minimumWidth() - 12));
+            button->setMinimumWidth(146);
         }
     };
     add_green_separator();
@@ -6660,12 +6711,67 @@ void AssemblyWorkspaceWindow::regenerate_active_document() {
     }
 }
 
+void AssemblyWorkspaceWindow::refresh_drawing_tree() {
+    if (!drawing_workspace_ || !workspace_.open_drawing(workspace_.displayed_document_id())) return;
+    const auto& document=drawing_workspace_->document_for_test();
+    const auto* state=workspace_.open_drawing(document.document_id); if (!state) return;
+    const QSignalBlocker blocker(tree_);
+    tree_->clear(); tree_->setHeaderLabels({tr("VÝKRES")});
+    auto* root=new QTreeWidgetItem(tree_,{QString::fromStdString(state->path.empty()?document.name:state->path.filename().string())});
+    root->setIcon(0,resource_icon("drawing"));
+    for(const auto& sheet:document.sheets) {
+        auto* sheet_item=new QTreeWidgetItem(root,{QString::fromStdString(sheet.name)});
+        for(const auto& view:sheet.views) {
+            auto* item=new QTreeWidgetItem(sheet_item,{QString::fromStdString(view.name)});
+            item->setData(0,Qt::UserRole,QString::fromStdString(view.id));
+            item->setData(0,Qt::UserRole+3,"drawing-view");
+        }
+        sheet_item->setExpanded(true);
+    }
+    root->setExpanded(true); tree_->setRootIndex(QModelIndex{});
+}
+
 void AssemblyWorkspaceWindow::edit_document_parameters() {
+    edit_parameters_for_document(workspace_.active_document_id());
+}
+
+void AssemblyWorkspaceWindow::edit_parameters_for_document(std::string active_id) {
     if (properties_dialog_ != nullptr) {
         properties_dialog_->raise();
         return;
     }
-    const std::string active_id = workspace_.active_document_id();
+    if (const auto* drawing = workspace_.open_drawing(active_id)) {
+        const auto source_id = drawing->document.source_document_id;
+        auto source_path = drawing->document.source_path;
+        if (source_path.is_relative() && !drawing->path.empty())
+            source_path = drawing->path.parent_path() / source_path;
+        active_id = source_id;
+        try {
+            if (!workspace_.find(active_id) && !source_path.empty()) {
+                if (const auto open = workspace_.document_id_for_path(source_path)) active_id = *open;
+                else if (source_path.extension() == ".prtz") {
+                    std::vector<zima::kernel::BodyResult> cache;
+                    auto source = zima::document::PartDocument::load(source_path, &cache);
+                    if (!source_id.empty() && source.document_id != source_id)
+                        throw std::runtime_error("Zdroj výkresu patří jinému dokumentu.");
+                    active_id = source.document_id;
+                    workspace_.add_part(std::move(source), std::move(cache), source_path);
+                } else if (source_path.extension() == ".asmz") {
+                    auto source = zima::assembly::AssemblyDocument::load(source_path);
+                    if (!source_id.empty() && source.document_id != source_id)
+                        throw std::runtime_error("Zdroj výkresu patří jinému dokumentu.");
+                    active_id = source.document_id;
+                    workspace_.add_assembly(std::move(source), source_path);
+                }
+                refresh_tabs();
+            }
+            if (!workspace_.find(active_id))
+                throw std::runtime_error("Nejprve zvolte zdrojový díl nebo sestavu ve vlastnostech pohledu.");
+        } catch (const std::exception& error) {
+            QMessageBox::warning(this, tr("Parametry zdroje výkresu"), error.what());
+            return;
+        }
+    }
     UserParameterData data;
     if (const auto* part = workspace_.open_part(active_id)) {
         const auto& document = part->session.document();
@@ -9479,6 +9585,7 @@ void AssemblyWorkspaceWindow::show_global_settings() {
     global_settings_dialog_ = dialog;
     connect(dialog, &QDialog::accepted, this, [this] {
         application_settings_ = ApplicationSettings::load();
+        drawing_workspace_->set_formats_directory(application_settings_.resolved_paths.value("Formats"));
         apply_application_font(*qApp, application_settings_);
         const QString configured =
             application_settings_.resolved_paths.value("WorkingDirectory");
@@ -25112,21 +25219,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             workspace_.open_drawing(workspace_.displayed_document_id())) {
         workspace_stack_->setCurrentWidget(drawing_workspace_);
         drawing_workspace_->edit_workspace_document(drawing->document.document_id);
-        tree_->setHeaderLabels({tr("VÝKRES")});
-        auto* root = new QTreeWidgetItem(
-            tree_, {QString::fromStdString(drawing->path.empty() ? drawing->document.name : drawing->path.filename().string())});
-        root->setIcon(0, resource_icon("drawing"));
-        for (const auto& sheet : drawing->document.sheets) {
-            auto* sheet_item = new QTreeWidgetItem(
-                root, {QString::fromStdString(sheet.name)});
-            for (const auto& drawing_view : sheet.views) {
-                new QTreeWidgetItem(
-                    sheet_item, {QString::fromStdString(drawing_view.name)});
-            }
-            sheet_item->setExpanded(true);
-        }
-        root->setExpanded(true);
-        tree_->setRootIndex(QModelIndex{});
+        refresh_drawing_tree();
         active_application_ = ApplicationMode::Drawing;
         insert_action_->setEnabled(false);
         regenerate_action_->setEnabled(false);
