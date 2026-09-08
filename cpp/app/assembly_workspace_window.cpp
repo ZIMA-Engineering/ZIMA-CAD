@@ -5171,6 +5171,10 @@ void AssemblyWorkspaceWindow::create_layout() {
     state_->setObjectName("workspaceState");
     state_->setText(tr("Připraveno."));
     statusBar()->addWidget(state_, 1);
+    drawing_workspace_->set_status_handler([this](const QString& message) {
+        if (workspace_stack_->currentWidget() == drawing_workspace_)
+            state_->setText(message);
+    });
     operation_progress_ = new StatusOperationProgressBar(this);
     operation_progress_->setObjectName("fileOperationProgress");
     operation_progress_->setMinimumWidth(360);
@@ -25158,8 +25162,6 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         regenerate_document_action_->setEnabled(true);
         undo_action_->setEnabled(false);
         redo_action_->setEnabled(false);
-        state_->setText(tr("Zobrazený výkres: %1").arg(
-            QString::fromStdString(drawing->document.name)));
         update_application_actions();
         rebuild_application_toolbar();
         return;

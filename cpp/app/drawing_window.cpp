@@ -862,7 +862,7 @@ void DrawingWindow::create_layout() {
         update_action_states();
         const auto identifier = document_.dimension_identifiers.identifier(
             document_.document_id, "dimension:" + canvas_->selected_dimension_id());
-        if (!identifier.empty()) state_->setText(tr("Kóta %1").arg(QString::fromStdString(identifier)));
+        if (!identifier.empty()) set_status_message(tr("Kóta %1").arg(QString::fromStdString(identifier)));
     });
     auto* bottom = new QHBoxLayout;
     bottom->setContentsMargins(6, 3, 6, 3);
@@ -941,6 +941,17 @@ void DrawingWindow::create_layout() {
     connect(sheets_, &QTabBar::currentChanged, this, [this] { refresh(); });
 }
 
+void DrawingWindow::set_status_handler(std::function<void(const QString&)> handler) {
+    status_handler_ = std::move(handler);
+    state_->setVisible(!status_handler_);
+    if (status_handler_) status_handler_(state_->text());
+}
+
+void DrawingWindow::set_status_message(const QString& message) {
+    state_->setText(message);
+    if (status_handler_) status_handler_(message);
+}
+
 void DrawingWindow::new_document() {
     document_ = zima::drawing::DrawingDocument::create_default(); path_.clear();
     workspace_document_id_.clear();
@@ -988,7 +999,7 @@ void DrawingWindow::save_document() {
     if (path.isEmpty()) return;
     if (!path.endsWith(".drwz", Qt::CaseInsensitive)) path += ".drwz";
     try { document_.save(path.toStdString()); path_ = path.toStdString();
-        sync_workspace_document(); state_->setText(tr("Výkres uložen.")); }
+        sync_workspace_document(); set_status_message(tr("Výkres uložen.")); }
     catch (const std::exception& error) { QMessageBox::warning(this, tr("Nelze uložit výkres"), error.what()); }
 }
 void DrawingWindow::add_sheet() {
@@ -1099,7 +1110,7 @@ void DrawingWindow::begin_view_insertion(
 void DrawingWindow::create_projected_view() {
     const auto* parent = document_.find_view(canvas_->selected_view_id());
     if (parent == nullptr || active_sheet() == nullptr) {
-        state_->setText(tr("Nejprve vyberte rodičovský pohled.")); return;
+        set_status_message(tr("Nejprve vyberte rodičovský pohled.")); return;
     }
     const auto parent_copy = *parent;
     auto* dialog = new ProjectionPropertiesDialog(this,
@@ -1146,7 +1157,7 @@ void DrawingWindow::regenerate_selected_view() {
         if (!refreshed_bom.empty()) {
             if (auto* sheet = active_sheet()) sheet->bom_rows = std::move(refreshed_bom);
         }
-        refresh(); state_->setText(tr("Pohled regenerován."));
+        refresh(); set_status_message(tr("Pohled regenerován."));
     } catch (const std::exception& error) {
         QMessageBox::warning(this, tr("Nelze regenerovat pohled"), error.what());
     }
@@ -1199,12 +1210,12 @@ void DrawingWindow::edit_selected_view() {
 void DrawingWindow::start_linear_dimension() {
     canvas_->start_linear_dimension();
     update_action_states();
-    state_->setText(tr("Lineární kóta: vyberte dvě rovnoběžné hrany stejného pohledu."));
+    set_status_message(tr("Lineární kóta: vyberte dvě rovnoběžné hrany stejného pohledu."));
 }
 void DrawingWindow::start_selection() {
     canvas_->start_selection();
     update_action_states();
-    state_->setText(tr("Výběr: kliknutím vyberte pohled nebo kótu."));
+    set_status_message(tr("Výběr: kliknutím vyberte pohled nebo kótu."));
 }
 void DrawingWindow::update_action_states() {
     const auto* sheet = active_sheet();
@@ -1245,7 +1256,7 @@ void DrawingWindow::refresh() {
         scale_denominator_->setValue(1.0 / std::max(sheet->default_scale, 0.001));
     }
     const auto view_count = active_sheet() ? active_sheet()->views.size() : 0;
-    state_->setText(view_count == 0
+    set_status_message(view_count == 0
         ? tr("Nový výkres: použijte Vložit pohled a vyberte otevřený Part nebo sestavu.")
         : tr("Výkres: %1 listů, %2 pohledů")
             .arg(document_.sheets.size()).arg(view_count));

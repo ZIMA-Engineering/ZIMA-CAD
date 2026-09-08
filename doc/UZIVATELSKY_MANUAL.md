@@ -955,6 +955,10 @@ přejmenovaný model stejně pojmenovaný `.drwz`, přejmenuje se s ním.
 
 ## Základní práce s výkresem
 
+Výkres používá společný spodní stavový řádek aplikace. Zobrazuje v něm
+nápovědu aktivního příkazu i zprávy o uložení; další informační řádek
+pod záložkami listů se nezobrazuje.
+
 Výkres používá příponu `.drwz` a je navázaný na zdrojový díl `.prtz` nebo
 sestavu `.asmz`. Lze jej založit přes **Soubor → Nový → Výkres**, nebo
 tlačítkem **Výkres** v záhlaví stromu otevřeného dílu či sestavy. Tlačítko

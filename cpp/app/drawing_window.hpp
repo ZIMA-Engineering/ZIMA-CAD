@@ -5,6 +5,7 @@
 #include <QMainWindow>
 
 #include <filesystem>
+#include <functional>
 
 class QAction;
 class QComboBox;
@@ -26,6 +27,7 @@ public:
         zima::workspace::Workspace* workspace = nullptr,
         bool create_initial_document = true);
     void edit_workspace_document(const std::string& document_id);
+    void set_status_handler(std::function<void(const QString&)> handler);
     [[nodiscard]] const zima::drawing::DrawingDocument& document_for_test() const {
         return document_;
     }
@@ -41,6 +43,8 @@ private:
     QTabBar* sheets_{};
     DrawingCanvas* canvas_{};
     QLabel* state_{};
+    std::function<void(const QString&)> status_handler_;
+    void set_status_message(const QString& message);
     QComboBox* sheet_format_{};
     QComboBox* projection_method_{};
     QComboBox* lineweight_mode_{};
