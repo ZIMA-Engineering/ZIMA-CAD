@@ -3872,6 +3872,16 @@ int main(int argc, char* argv[]) {
         initial_text.value = "O";
         int text_commits = 0;
         zima::sketcher::SketchText committed_text;
+        for(const auto value:{"abc", "ZIMA-Engineering", "Příliš žluťoučký", "Horní\nDolní"})for(bool y_up:{false,true})for(int alignment=0;alignment<3;++alignment) {
+            zima::sketcher::SketchText text;text.value=value;text.anchor_x=12;text.anchor_y=25;text.height=3;
+            text.vertical=static_cast<zima::sketcher::TextVerticalAlignment>(alignment);
+            zima::app::rebuild_sketch_text_contours(text,y_up);
+            double low=1e30,high=-1e30;
+            for(const auto& contour:text.contours)for(const auto& point:contour){low=std::min(low,point[1]);high=std::max(high,point[1]);}
+            const double anchor=text.vertical==zima::sketcher::TextVerticalAlignment::Middle?(low+high)/2:
+                text.vertical==zima::sketcher::TextVerticalAlignment::Top?(y_up?high:low):(y_up?low:high);
+            require(std::abs(anchor-text.anchor_y)<1e-7,"Text ink alignment drifted from its anchor");
+        }
         auto* text_dialog = new zima::app::SketchTextPropertiesDialog(
             initial_text, std::array{5.0, 7.0},
             [](const std::optional<zima::sketcher::SketchText>&) {},

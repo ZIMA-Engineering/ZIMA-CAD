@@ -149,6 +149,7 @@ zima::sketcher::Sketch load_template_sketch(const std::filesystem::path& path,co
         if(raw.value("format","")=="zima-cad-cpp-sketch") {
             s=Sketch::from_serialized(raw.dump());
             if(!s.drawing_template||s.drawing_template->kind!=(title?"title_block":"drawing_format"))throw std::runtime_error("Typ skici neodpovídá příponě šablony.");
+            for(auto& text:s.texts)prepare(text);
             s.validate();return s;
         }
         import_python(s,raw,prepare);

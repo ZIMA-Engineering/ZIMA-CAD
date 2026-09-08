@@ -4868,6 +4868,13 @@ if (impl_->show_origins) {
                                          project(edge.points[index]));
                     }
                 }
+                if(highlighted->kind==CandidateKind::SketchText) {
+                    painter.setPen(QPen(color,2.0));painter.setBrush(color);
+                    for(const auto& point:selectable_points)
+                        if(point.reference.owner_id==highlighted->owner_id&&point.reference.instance_path==highlighted->instance_path&&
+                           point.sketch_text_key==highlighted->semantic_key)
+                            painter.drawEllipse(project(point.position),5.0,5.0);
+                }
             } else if ((highlighted->kind == CandidateKind::Vertex ||
                         highlighted->kind == CandidateKind::SketchPoint ||
                         (highlighted->kind == CandidateKind::SketchExternalReference &&
@@ -4953,6 +4960,11 @@ if (impl_->show_origins) {
                  (selected.kind == CandidateKind::SketchExternalReference &&
                   !selected.semantic_key.starts_with("external_point:"))) &&
                 selected.geometry_index < impl_->mesh.edges.size()) {
+                if(selected.kind==CandidateKind::SketchText) {
+                    for(const auto& point:impl_->mesh.points)
+                        if(point.reference.owner_id==selected.owner_id&&point.reference.instance_path==selected.instance_path&&point.sketch_text_key==selected.semantic_key)
+                            painter.drawEllipse(project(point.position),5.0,5.0);
+                }
                 const auto& edge = impl_->mesh.edges[selected.geometry_index];
                 for (std::size_t index = 1; index < edge.points.size(); ++index) {
                     draw_reference_segment(project(edge.points[index - 1]),

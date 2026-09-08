@@ -34,6 +34,33 @@ static kernel::HistoryOperation box(const std::string& owner, const std::string&
 
 int main() {
     try {
+        {
+            auto part=document::PartDocument::create_default();document::BodyHistoryGraph history;
+            const auto a=history.create_body("A");auto feature=document::PartDocument::create_box_container();
+            part.history.push_back(feature);history.insert({document::PartHistoryKind::Feature,feature.id});
+            const auto b=history.create_body("B");const auto cut=history.create_boolean("Cut",kernel::BodyCombination::Subtract,a,b);
+            history.activate({});part.set_body_history(history);
+            const auto unchanged=part.body_history.serialized();
+            rejects([&]{part.erase_history_object(a);});
+            require(part.body_history.serialized()==unchanged&&part.history.size()==1,"Rejected deletion changed source body");
+            part.erase_history_object(cut);
+            require(part.body_history.available_before(part.body_history.order().size())==std::vector<std::string>({a,b}),"Deleting Boolean failed to restore input bodies");
+            for(bool pattern:{false,true}) {
+                auto graph=part.body_history;document::BodyHistory copy;copy.name=pattern?"Pattern":"Mirror";
+                copy.derived_copy=document::DerivedCopyParameters{};copy.derived_copy->source_id=a;
+                copy.derived_copy->resolved_plane={{0,0,0},{1,0,0}};
+                if(pattern)copy.derived_copy->pattern=kernel::PatternRequest{};
+                const auto id=graph.create_derived_copy(copy);part.set_body_history(graph);
+                const auto before=part.body_history.serialized();rejects([&]{part.erase_history_object(a);});
+                require(part.body_history.serialized()==before,"Dependent copy rejection modified source");
+                part.erase_history_object(id);
+                require(part.body_history.find(a)&&!part.body_history.find(id),"Deleting Mirror/Pattern deleted its source");
+            }
+            document::DocumentSession session(part);auto next=part;next.erase_history_object(a);session.commit(next,{});
+            require(session.document().history.empty()&&!session.document().body_history.find(a)&&session.document().body_history.find(b),"Deleting Body left owned features or deleted sibling");
+            session.undo();require(session.document().history.size()==1&&session.document().body_history.find(a),"Undo did not restore deleted Body");
+            next.erase_history_object(b);require(next.body_history.order().empty(),"Cannot delete the last Body");
+        }
         document::BodyHistoryGraph graph;
         rejects([&] { graph.insert({document::PartHistoryKind::Feature, "orphan"}); });
         const auto a = graph.create_body("Polotovar");

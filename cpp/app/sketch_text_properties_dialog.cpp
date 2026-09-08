@@ -214,9 +214,9 @@ void rebuild_sketch_text_contours(zima::sketcher::SketchText& text, bool y_up) {
         : 0.0;
     const double vertical_offset = vertical ==
             zima::sketcher::TextVerticalAlignment::Middle
-            ? 0.5 * text.height
+            ? 0.5 * bounds.height() * scale
         : vertical == zima::sketcher::TextVerticalAlignment::Top
-            ? text.height : 0.0;
+            ? bounds.height() * scale : 0.0;
     constexpr double pi = 3.14159265358979323846;
     const double angle = text.angle_degrees * pi / 180.0;
     const double cosine = std::cos(angle);

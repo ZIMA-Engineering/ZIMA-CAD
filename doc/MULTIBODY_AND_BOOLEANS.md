@@ -573,3 +573,17 @@ scénáře ověřují také horní a dolní tečné spojení pevných kružnic s
 Viz také [kopie dokumentu a výkresu](DOCUMENT_COPY.md),
 [osy a koncové plochy Sweep/Loftu](3D_CURVE_AND_SWEEP.md)
 a [chování skicáře](SKETCHER.md).
+
+### Mazání na úrovni Partu
+
+Když je aktivní celý Part (žádné těleso není aktivní), kontextové menu uzlů
+Těleso, Boolean, Zrcadlo a Pole nabízí **Smazat**. Běžné těleso se odstraní
+včetně své historie, skic a konstrukčních objektů. Odstranění Booleanu zachová
+jeho vstupní tělesa a vrátí je mezi dostupné výsledky. Zrcadlo nebo pole lze
+odstranit bez odstranění zdroje. Operace podporuje Undo/Redo.
+
+Pokud uzel používá další Boolean, zrcadlo, pole nebo explicitně závislé těleso,
+mazání se odmítne s názvem závislého objektu a dokument zůstane nezměněný.
+Nejprve odstraňte nebo upravte tuto navazující operaci. Ostatní nevyřešitelné
+geometrické reference zachovávají běžné chování mazání historie: definice
+zůstanou pro opravu, ale starý vypočtený tvar se nezobrazuje.

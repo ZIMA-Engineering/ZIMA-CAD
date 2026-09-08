@@ -26,6 +26,26 @@ const BodyBoolean* BodyHistoryGraph::find_boolean(const std::string& id) const {
     return found == booleans_.end() ? nullptr : &*found;
 }
 
+void BodyHistoryGraph::erase_step(const std::string& id) {
+    auto next=*this;
+    const auto found=std::ranges::find(next.order_,id);
+    if(found==next.order_.end())throw std::invalid_argument("Body history object does not exist");
+    for(const auto& body:next.bodies_)if(body.scope.id!=id&&
+        (std::ranges::find(body.dependencies,id)!=body.dependencies.end() ||
+         (body.derived_copy&&body.derived_copy->source_id==id)))
+        throw std::invalid_argument("Objekt používá navazující těleso: "+body.name);
+    for(const auto& op:next.booleans_)if(op.target_id==id||op.tool_id==id)
+        throw std::invalid_argument("Objekt používá navazující Boolean: "+op.name);
+    const auto position=static_cast<std::size_t>(found-next.order_.begin());
+    next.order_.erase(found);
+    if(position<next.cursor_)--next.cursor_;
+    if(next.active_==id)next.active_.clear();
+    std::erase_if(next.bodies_,[&](const auto& body){return body.scope.id==id;});
+    std::erase_if(next.booleans_,[&](const auto& op){return op.id==id;});
+    next.validate();
+    *this=std::move(next);
+}
+
 void BodyHistoryGraph::sort_bodies() {
     std::ranges::sort(bodies_, [&](const auto& a, const auto& b) {
         return std::ranges::find(order_, a.scope.id) < std::ranges::find(order_, b.scope.id);

@@ -11074,6 +11074,8 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         result.points.push_back(
             {project(point), {id, "point:" + point.id, {}}, {}, true,
              point.construction});
+        const auto text=std::ranges::find_if(texts,[&](const auto& value){return value.anchor_point_id==point.id;});
+        if(text!=texts.end())result.points.back().sketch_text_key="text:"+text->id+":"+text_color_name(text->color);
     }
     for (const auto& segment : segments) {
         const auto* first = find_point(segment.first_point_id);

@@ -489,7 +489,18 @@ int verify_template_commands(QApplication& application,zima::app::AssemblyWorksp
                     QMouseEvent release(QEvent::MouseButtonRelease,pixel,global,Qt::RightButton,Qt::NoButton,Qt::NoModifier);
                     QApplication::sendEvent(view,&press);QApplication::sendEvent(view,&release);
                 }
+                const auto anchor_pixel=screen_for(text.anchor_x,text.anchor_y);
+                const auto anchor_colored=[&](bool selected) {
+                    flush();const auto image=view->grab().toImage();const auto p=anchor_pixel*image.devicePixelRatio();
+                    for(int y=static_cast<int>(p.y())-6;y<=p.y()+6;++y)for(int x=static_cast<int>(p.x())-6;x<=p.x()+6;++x) {
+                        if(x<0||y<0||x>=image.width()||y>=image.height())continue;const auto c=image.pixelColor(x,y);
+                        if(selected?(c.red()<80&&c.green()>180&&c.blue()>190):(c.red()>220&&c.green()>70&&c.green()<170&&c.blue()<80))return true;
+                    }
+                    return false;
+                };
+                if(!verify(anchor_colored(false),"Text hover did not highlight its anchor orange"))return 1;
                 click(pixel);
+                if(!verify(anchor_colored(true),"Text confirmation did not highlight its anchor cyan"))return 1;
                 QMouseEvent dbl(QEvent::MouseButtonDblClick,pixel,QPointF(view->mapToGlobal(pixel.toPoint())),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
                 QApplication::sendEvent(view,&dbl);flush();
                 auto* properties=window.findChild<QDialog*>("sketchTextProperties");
@@ -2071,7 +2082,7 @@ int verify_body_activation(QApplication& application, const std::filesystem::pat
     auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
     const auto row=[&](const std::string& id)->QTreeWidgetItem* {
         for(QTreeWidgetItemIterator it(tree);*it;++it)
-            if((*it)->data(0,Qt::UserRole).toString().toStdString()==id&&(*it)->data(0,Qt::UserRole+3).toString()=="part-body")return *it;
+            if((*it)->data(0,Qt::UserRole).toString().toStdString()==id&&((*it)->data(0,Qt::UserRole+3).toString()=="part-body"||(*it)->data(0,Qt::UserRole+3).toString()=="part-body-boolean"))return *it;
         return nullptr;
     };
     const auto activate=[&](QTreeWidgetItem* item,const char* action_name) {
@@ -2084,6 +2095,7 @@ int verify_body_activation(QApplication& application, const std::filesystem::pat
     const auto original=view->mesh().triangles.size();
     const auto& body=part.body_history.bodies().front();
     if(!verify(activate(row(body.scope.id),"activateBodyAction"),"Cannot activate consumed body after Boolean and Mirror"))return 1;
+    if(!verify(!activate(row(body.scope.id),"deleteBodyAction"),"Body-level delete is offered while a Body is active"))return 1;
     if(!verify(!view->mesh().triangles.empty(),"Activating hidden body displayed no original geometry"))return 1;
     std::set<std::string> owners;for(const auto& entry:body.entries)owners.insert(entry.id);
     for(const auto& face:view->mesh().triangle_references)
@@ -2098,6 +2110,22 @@ int verify_body_activation(QApplication& application, const std::filesystem::pat
     if(!verify(restored.body_history.serialized()==part.body_history.serialized()&&
         document::serialize_body_result(saved.back())==document::serialize_body_result(boundaries.back()),
         "Body activation modified persisted history or geometry"))return 1;
+    if(!qEnvironmentVariableIsSet("ZIMA_VERIFY_BODY_DOCUMENT")) {
+        QString failure;QTimer messages;
+        QObject::connect(&messages,&QTimer::timeout,[&]{
+            if(auto* box=qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) {
+                if(box->standardButtons().testFlag(QMessageBox::Yes))box->button(QMessageBox::Yes)->click();
+                else {failure=box->text();box->accept();}
+            }
+        });messages.start(20);
+        const auto mirror_id=part.body_history.order().back();
+        for(const auto& id:{mirror_id,cut,b,a}) {
+            if(!verify(activate(row(id),"deleteBodyAction")&&failure.isEmpty()&&!row(id),"Part-level delete failed to remove Body/Mirror/Boolean"))return 1;
+        }
+        if(!verify(view->mesh().triangles.empty(),"Deleting the last Body retained cached geometry"))return 1;
+        window.findChild<QAction*>("undoAction")->trigger();flush();
+        if(!verify(row(a)!=nullptr,"Undo did not restore deleted Body in Tree"))return 1;
+    }
     std::cout<<"Body activation after Boolean and Mirror passed\n";return 0;
 }
 

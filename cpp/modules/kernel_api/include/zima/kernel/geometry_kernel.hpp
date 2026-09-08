@@ -146,6 +146,8 @@ struct ViewerPoint {
     // Sketch geometry role. Ordinary/profile points render white; auxiliary
     // construction points render green, matching construction edges.
     bool construction{};
+    // Sketch display association, derived from persisted SketchText.anchor_point_id.
+    std::string sketch_text_key;
 };
 
 struct ViewerAxis {

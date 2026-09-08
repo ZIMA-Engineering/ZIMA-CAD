@@ -539,3 +539,11 @@ vazba nadále hlásí nadbytečnost.
 Společná tečna dvou kružnic používá přesné geometrické kandidáty. Volbu větve
 určují polohy obou kliknutí. Platí to také pro stejně velké kružnice s vodorovně
 zarovnanými středy a pro kružnice s pevně danou polohou a poloměrem.
+
+### Kotevní bod textu
+
+Text razítka zvýrazňuje při hoveru oranžově a při potvrzení azurově také svůj
+kotevní bod. Bod zůstává samostatným bodem skici; zvýraznění nepřidává druhý
+objekt do výběru. Svislé zarovnání Dole / Uprostřed / Nahoře se vztahuje ke
+skutečnému rozsahu znaků, včetně diakritiky a více řádků. Při otevření šablony
+se obrysy textů znovu odvodí z jejich hodnot, kotev a nastavení zarovnání.

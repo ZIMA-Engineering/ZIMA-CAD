@@ -60,6 +60,7 @@ public:
     [[nodiscard]] std::string create_boolean(std::string name, zima::kernel::BodyCombination operation,
         std::string target_id, std::string tool_id);
     void update_boolean(BodyBoolean operation);
+    void erase_step(const std::string& id);
     void move_step(const std::string& id, std::size_t destination);
     [[nodiscard]] const std::string& active_body_id() const { return active_; }
     [[nodiscard]] std::size_t insertion_cursor() const { return cursor_; }

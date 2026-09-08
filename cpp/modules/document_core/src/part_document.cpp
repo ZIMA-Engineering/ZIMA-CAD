@@ -7844,6 +7844,19 @@ void PartDocument::validate_body_ownership() const {
 
 void PartDocument::erase_history_object(const std::string& id) {
     if (id.empty()) throw std::invalid_argument("Cannot delete an empty object ID");
+    if(body_history.find(id)||body_history.find_boolean(id)) {
+        auto next=*this;
+        std::set<std::string> removed{id};
+        if(const auto* body=next.body_history.find(id))
+            for(const auto& entry:body->entries)removed.insert(entry.id);
+        next.body_history.erase_step(id);
+        std::erase_if(next.history,[&](const auto& entry){return removed.contains(entry.id);});
+        std::erase_if(next.constructions,[&](const auto& entry){return removed.contains(entry.id);});
+        std::erase_if(next.sketches,[&](const auto& sketch){return removed.contains(sketch.id)||removed.contains(sketch.owner_container_id);});
+        next.set_body_history(next.body_history);
+        *this=std::move(next);
+        return;
+    }
     auto next = *this;
     std::erase_if(next.history, [&](const auto& entry) { return entry.id == id; });
     std::erase_if(next.constructions, [&](const auto& entry) { return entry.id == id; });
