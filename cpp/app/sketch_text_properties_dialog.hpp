@@ -15,6 +15,8 @@ class QPlainTextEdit;
 
 namespace zima::app {
 
+void rebuild_sketch_text_contours(zima::sketcher::SketchText& text, bool y_up = false);
+
 class SketchTextPropertiesDialog final : public zima::ui::PropertiesSubWindow {
 public:
     using PreviewCallback = std::function<void(
@@ -24,7 +26,7 @@ public:
     SketchTextPropertiesDialog(
         zima::sketcher::SketchText initial,
         std::optional<std::array<double, 2>> anchor,
-        PreviewCallback preview, CommitCallback commit, QWidget* parent);
+        PreviewCallback preview, CommitCallback commit, QWidget* parent, bool y_up = false);
 
     void set_anchor(double x, double y);
 
@@ -48,6 +50,7 @@ private:
     QDoubleSpinBox* angle_{};
     QCheckBox* flipped_{};
     QLabel* error_{};
+    bool y_up_{};
 };
 
 }  // namespace zima::app

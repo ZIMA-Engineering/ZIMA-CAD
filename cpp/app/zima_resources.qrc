@@ -14,6 +14,8 @@
     <file alias="icons/assembly.svg">../../resources/icons/assembly.svg</file>
     <file alias="icons/drawing.svg">../../resources/icons/drawing.svg</file>
     <file alias="icons/drawing-format.svg">../../resources/icons/drawing-format.svg</file>
+    <file alias="icons/template-image.svg">../../resources/icons/template-image.svg</file>
+    <file alias="icons/bom-region.svg">../../resources/icons/bom-region.svg</file>
     <file alias="icons/title-block.svg">../../resources/icons/title-block.svg</file>
     <file alias="icons/select.svg">../../resources/icons/select.svg</file>
     <file alias="icons/view-fit.svg">../../resources/icons/view-fit.svg</file>

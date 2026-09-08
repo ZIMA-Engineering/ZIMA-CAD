@@ -1,5 +1,6 @@
 #include <QOpenGLPaintDevice>
 #include <zima/viewer/mesh_view.hpp>
+#include <zima/viewer/embedded_image.hpp>
 #include <zima/viewer/picking.hpp>
 #include <zima/viewer/shading.hpp>
 
@@ -1048,6 +1049,9 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
             filtered.insert(filtered.begin(),*point);
         }
     }
+    // BOM regions stay above text/dimension hit boxes and Sketch drag priorities.
+    // Apply this once to the final shared list used by hover, LMB and RMB.
+    std::stable_partition(filtered.begin(),filtered.end(),[](const auto& candidate){return candidate.kind==CandidateKind::TemplateRegion;});
     return filtered;
 }
 
@@ -1450,6 +1454,8 @@ void MeshView::confirm_reference(const std::string& owner_id,
     } else if (kind == CandidateKind::SketchSegment ||
                kind == CandidateKind::SketchCurve ||
                kind == CandidateKind::SketchText ||
+               kind == CandidateKind::TemplateRegion ||
+               kind == CandidateKind::TemplateImage ||
                kind == CandidateKind::SketchExternalReference) {
         const auto found = std::find_if(impl_->mesh.edges.begin(),
             impl_->mesh.edges.end(), [&](const auto& value) {
@@ -2125,6 +2131,10 @@ void MeshView::fit_all() {
     }
     for (const auto& axis : impl_->mesh.axes) {
         const bool origin = axis.reference.semantic_key.starts_with("origin:axis:");
+        if (axis.reference.semantic_key.starts_with("sketch_axis:")) {
+            reference_centers.push_back(axis.point);
+            continue;
+        }
         if (origin) {
             reference_centers.push_back(axis.point);
             reference_extent = std::max(reference_extent, axis.display_length);
@@ -2761,6 +2771,14 @@ void MeshView::paintGL() {
         overlay_device.setDevicePixelRatio(pixel_ratio);
         QPainter painter(&overlay_device);
         painter.setRenderHint(QPainter::Antialiasing);
+        for(const auto& image:impl_->mesh.images) {
+            QPolygonF target;for(const auto& p:image.corners)target<<project(p);
+            paint_embedded_image(painter,image.data_base64,image.format,target);
+            const auto matches=[&](const auto& c){return c && c->kind==CandidateKind::TemplateImage && c->owner_id==image.reference.owner_id && c->semantic_key==image.reference.semantic_key;};
+            if(matches(impl_->confirmed_candidate)||matches(hovered_candidate())) {
+                painter.setPen(QPen(matches(impl_->confirmed_candidate)?QColor("#00D1FF"):QColor("#FF8C0C"),2));painter.setBrush(Qt::NoBrush);painter.drawPolygon(target);
+            }
+        }
         const auto draw_reference_segment = [&](const QPointF& first,
                 const QPointF& second, const QColor& color, double width) {
             const QLineF line(first, second);
@@ -3413,6 +3431,14 @@ if (impl_->show_origins) {
         overlay_device.setDevicePixelRatio(pixel_ratio);
         QPainter painter(&overlay_device);
         painter.setRenderHint(QPainter::Antialiasing);
+        for(const auto& image:impl_->mesh.images) {
+            QPolygonF target;for(const auto& p:image.corners)target<<project(p);
+            paint_embedded_image(painter,image.data_base64,image.format,target);
+            const auto matches=[&](const auto& c){return c && c->kind==CandidateKind::TemplateImage && c->owner_id==image.reference.owner_id && c->semantic_key==image.reference.semantic_key;};
+            if(matches(impl_->confirmed_candidate)||matches(hovered_candidate())) {
+                painter.setPen(QPen(matches(impl_->confirmed_candidate)?QColor("#00D1FF"):QColor("#FF8C0C"),2));painter.setBrush(Qt::NoBrush);painter.drawPolygon(target);
+            }
+        }
         const auto draw_reference_segment = [&](const QPointF& first,
                 const QPointF& second, const QColor& color, double width) {
             const QLineF line(first, second);
@@ -3578,7 +3604,8 @@ if (impl_->show_origins) {
                     !edge.reference.semantic_key.starts_with("text:") &&
                     !edge.reference.semantic_key.starts_with("external_edge:") &&
                     !edge.reference.semantic_key.starts_with("external_axis:") &&
-                    !edge.reference.semantic_key.starts_with("external_face:")) continue;
+                    !edge.reference.semantic_key.starts_with("external_face:") &&
+                    !edge.reference.semantic_key.starts_with("repeat_region:")) continue;
                 const bool text = edge.reference.semantic_key.starts_with("text:");
                 const bool external = edge.reference.semantic_key.starts_with(
                         "external_edge:") ||
@@ -3597,6 +3624,7 @@ if (impl_->show_origins) {
                     : edge.construction
                         ? QPen(QColor(77, 216, 17), 1.5, Qt::DashLine)
                         : QPen(QColor(255, 255, 255), 1.8);
+                if (!edge.color.empty()) edge_pen.setColor(QColor(QString::fromStdString(edge.color)));
                 const bool candidate_match = highlighted &&
                     candidate_recolors_wire_edge(*highlighted, edge);
                 const auto key = edge_key(edge.reference);
@@ -3888,7 +3916,7 @@ if (impl_->show_origins) {
                 const QColor idle_color = !dimension.driving
                     ? QColor(173, 110, 46)  // measured; same as Sketch axes
                     : dimension.locked
-                        ? QColor(216, 138, 216)  // locked driver
+                        ? QColor(0, 0, 0)  // locked dimension value
                         : QColor(245, 205, 80);  // editable driver
                 const QColor color = selected
                     ? (impl_->confirmed_candidate ? QColor(30, 220, 240)
@@ -4925,6 +4953,15 @@ if (impl_->show_origins) {
             draw_reference_segment(box.topRight(), box.bottomRight(), border, 1.0);
             draw_reference_segment(box.bottomRight(), box.bottomLeft(), border, 1.0);
             draw_reference_segment(box.bottomLeft(), box.topLeft(), border, 1.0);
+        }
+        // Editor-only repeat regions are the topmost wire, including over text
+        // and constraint labels. They never become printable template geometry.
+        for(const auto& edge:impl_->mesh.edges)if(edge.reference.semantic_key.starts_with("repeat_region:")) {
+            QColor color("#D580FF");
+            if(impl_->confirmed_candidate&&candidate_recolors_wire_edge(*impl_->confirmed_candidate,edge))color=QColor(30,220,240);
+            else if(hovered_candidate()&&candidate_recolors_wire_edge(*hovered_candidate(),edge))color=QColor("#FF8C00");
+            painter.setPen(QPen(color,2.0));painter.setBrush(Qt::NoBrush);
+            for(std::size_t i=1;i<edge.points.size();++i)painter.drawLine(project(edge.points[i-1]),project(edge.points[i]));
         }
     }
 }

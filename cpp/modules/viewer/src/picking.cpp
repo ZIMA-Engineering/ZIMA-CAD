@@ -149,6 +149,8 @@ bool candidate_recolors_wire_edge(
     const bool exact_edge_candidate =
         (candidate.kind == CandidateKind::Axis && edge.reference.semantic_key.starts_with("centerline:from:")) ||
         candidate.kind == CandidateKind::Edge ||
+        candidate.kind == CandidateKind::TemplateRegion ||
+        candidate.kind == CandidateKind::TemplateImage ||
         candidate.kind == CandidateKind::SketchSegment ||
         candidate.kind == CandidateKind::SketchCurve ||
         candidate.kind == CandidateKind::SketchTrimPiece ||
@@ -195,6 +197,17 @@ std::vector<EdgePickCandidate> ordered_edge_candidates(
             edge.points.size() < 2) continue;
         double nearest_ray_distance = std::numeric_limits<double>::max();
         bool hit = false;
+        // The same candidate list offers a raster through its complete rectangular area.
+        if(edge.reference.semantic_key.starts_with("template_image:") && edge.points.size()==5) {
+            const auto a=edge.points[0],u=subtract(edge.points[1],a),v=subtract(edge.points[3],a);
+            const auto normal=cross(u,v);const double denominator=dot(ray_direction,normal);
+            if(std::abs(denominator)>1e-18) {
+                const double t=dot(subtract(a,ray_origin),normal)/denominator;
+                const auto p=subtract(add_scaled(ray_origin,ray_direction,t),a);
+                const double du=dot(p,u),dv=dot(p,v);
+                if(t>=0 && du>=0 && du<=dot(u,u) && dv>=0 && dv<=dot(v,v)) {hit=true;nearest_ray_distance=t;}
+            }
+        }
         for (std::size_t segment = 1; segment < edge.points.size(); ++segment) {
             const Vec3& p0 = edge.points[segment - 1];
             const Vec3 segment_direction = subtract(edge.points[segment], p0);
@@ -596,7 +609,11 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
                 }
                 continue;
             }
-            const auto kind = edge.reference.semantic_key.starts_with("trim_piece:")
+            const auto kind = edge.reference.semantic_key.starts_with("repeat_region:")
+                ? CandidateKind::TemplateRegion
+                : edge.reference.semantic_key.starts_with("template_image:")
+                ? CandidateKind::TemplateImage
+                : edge.reference.semantic_key.starts_with("trim_piece:")
                 ? CandidateKind::SketchTrimPiece
                 : edge.reference.semantic_key.starts_with("external_edge:")
                   || edge.reference.semantic_key.starts_with("external_axis:")
@@ -773,10 +790,12 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
             return 0;
         }
         switch (candidate.kind) {
+        case CandidateKind::TemplateRegion: return -1;
         case CandidateKind::SketchConstraint: return 0;
         case CandidateKind::Dimension: return 0;
         case CandidateKind::SketchTrimPiece: return 0;
         case CandidateKind::SketchExternalReference: return 1;
+        case CandidateKind::TemplateImage: return 3;
         case CandidateKind::SketchText: return 2;
         case CandidateKind::SketchCurve: return 2;
         // A real editable Sketch point owns an ordinary LMB gesture wherever
@@ -801,6 +820,8 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
             return candidate.kind == CandidateKind::Container &&
                 candidate.semantic_key == "point";
         };
+        if ((left.kind==CandidateKind::TemplateRegion)!=(right.kind==CandidateKind::TemplateRegion))
+            return left.kind==CandidateKind::TemplateRegion;
         if (point_container(left) != point_container(right)) {
             return point_container(left);
         }

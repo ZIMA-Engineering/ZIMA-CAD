@@ -36,10 +36,10 @@ QString iso_font_family() {
 SketchTextPropertiesDialog::SketchTextPropertiesDialog(
     zima::sketcher::SketchText initial,
     std::optional<std::array<double, 2>> anchor,
-    PreviewCallback preview, CommitCallback commit, QWidget* parent)
+    PreviewCallback preview, CommitCallback commit, QWidget* parent, bool y_up)
     : PropertiesSubWindow(tr("Text skici"), parent),
       initial_(std::move(initial)), anchor_(anchor),
-      preview_(std::move(preview)), commit_(std::move(commit)) {
+      preview_(std::move(preview)), commit_(std::move(commit)), y_up_(y_up) {
     setAttribute(Qt::WA_DeleteOnClose, true);
     setProperty("dialogKind", QStringLiteral("sketchText"));
     setMinimumWidth(420);
@@ -143,11 +143,8 @@ void SketchTextPropertiesDialog::set_anchor(double x, double y) {
     update_preview();
 }
 
-zima::sketcher::SketchText SketchTextPropertiesDialog::build_text() const {
-    if (!anchor_) throw std::runtime_error("Nejprve určete polohu textu ve skice.");
-    const QString value = value_->toPlainText();
-    if (value.isEmpty()) throw std::runtime_error("Text nesmí být prázdný.");
-
+void rebuild_sketch_text_contours(zima::sketcher::SketchText& text, bool y_up) {
+    const QString value = QString::fromStdString(text.value);
     QFont font(iso_font_family());
     font.setPixelSize(1000);
     const QFontMetricsF metrics(font);
@@ -161,7 +158,7 @@ zima::sketcher::SketchText SketchTextPropertiesDialog::build_text() const {
     if (bounds.height() <= 1.0e-9) {
         throw std::runtime_error("Text nevytváří žádný platný obrys.");
     }
-    const double scale = height_->value() / std::max(metrics.capHeight(), 1.0);
+    const double scale = text.height / std::max(metrics.capHeight(), 1.0);
     const double scaled_left = bounds.left() * scale;
     const double scaled_bottom = bounds.bottom() * scale;
     std::vector<std::vector<std::array<double, 2>>> local_contours;
@@ -199,48 +196,51 @@ zima::sketcher::SketchText SketchTextPropertiesDialog::build_text() const {
     for (const auto& contour : local_contours) {
         for (const auto& point : contour) width = std::max(width, point[0]);
     }
-    const auto horizontal = static_cast<zima::sketcher::TextHorizontalAlignment>(
-        horizontal_->currentData().toInt());
-    const auto vertical = static_cast<zima::sketcher::TextVerticalAlignment>(
-        vertical_->currentData().toInt());
+    const auto horizontal = text.horizontal;
+    const auto vertical = text.vertical;
     const double horizontal_offset = horizontal ==
             zima::sketcher::TextHorizontalAlignment::Center ? -0.5 * width
         : horizontal == zima::sketcher::TextHorizontalAlignment::Right ? -width
         : 0.0;
     const double vertical_offset = vertical ==
             zima::sketcher::TextVerticalAlignment::Middle
-            ? 0.5 * height_->value()
+            ? 0.5 * text.height
         : vertical == zima::sketcher::TextVerticalAlignment::Top
-            ? height_->value() : 0.0;
+            ? text.height : 0.0;
     constexpr double pi = 3.14159265358979323846;
-    const double angle = angle_->value() * pi / 180.0;
+    const double angle = text.angle_degrees * pi / 180.0;
     const double cosine = std::cos(angle);
     const double sine = std::sin(angle);
 
-    auto text = initial_;
-    text.value = value.toStdString();
-    text.anchor_x = (*anchor_)[0];
-    text.anchor_y = (*anchor_)[1];
-    text.height = height_->value();
-    text.horizontal = horizontal;
-    text.vertical = vertical;
-    text.angle_degrees = angle_->value();
-    text.flipped = flipped_->isChecked();
-    text.color = static_cast<zima::sketcher::SketchTextColor>(
-        color_->currentData().toInt());
-    text.font = font_->currentData().toString().toStdString();
     text.contours.clear();
     text.contours.reserve(local_contours.size());
     for (auto contour : local_contours) {
         for (auto& point : contour) {
             double x = point[0] + horizontal_offset;
-            const double y = point[1] + vertical_offset;
+            const double y = (point[1] + vertical_offset) * (y_up ? -1.0 : 1.0);
             if (text.flipped) x = -x;
             point = {text.anchor_x + x * cosine - y * sine,
                      text.anchor_y + x * sine + y * cosine};
         }
         text.contours.push_back(std::move(contour));
     }
+}
+
+zima::sketcher::SketchText SketchTextPropertiesDialog::build_text() const {
+    if (!anchor_) throw std::runtime_error("Nejprve určete polohu textu ve skice.");
+    const QString value = value_->toPlainText();
+    if (value.isEmpty()) throw std::runtime_error("Text nesmí být prázdný.");
+
+    auto text = initial_;
+    text.value = value.toStdString();
+    text.anchor_x = (*anchor_)[0]; text.anchor_y = (*anchor_)[1];
+    text.height = height_->value();
+    text.horizontal = static_cast<zima::sketcher::TextHorizontalAlignment>(horizontal_->currentData().toInt());
+    text.vertical = static_cast<zima::sketcher::TextVerticalAlignment>(vertical_->currentData().toInt());
+    text.angle_degrees = angle_->value(); text.flipped = flipped_->isChecked();
+    text.color = static_cast<zima::sketcher::SketchTextColor>(color_->currentData().toInt());
+    text.font = font_->currentData().toString().toStdString();
+    rebuild_sketch_text_contours(text, y_up_);
     return text;
 }
 

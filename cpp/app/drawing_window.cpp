@@ -1,4 +1,5 @@
 #include "drawing_window.hpp"
+#include <zima/viewer/embedded_image.hpp>
 #include "file_dialog.hpp"
 #include "application_settings.hpp"
 
@@ -299,6 +300,9 @@ std::pair<std::string, zima::kernel::ViewerMesh> load_drawing_source(
     throw std::runtime_error("Nepodporovaný zdroj výkresového pohledu.");
 }
 
+zima::drawing::TitleBlockContext build_title_block_context_for_source(
+    const std::string&, const std::filesystem::path&, zima::workspace::Workspace*);
+
 // Builds BOM rows from the current state of an Assembly source (by open
 // workspace document if available, otherwise by loading the .asmz file),
 // so both initial view insertion and later view regeneration can rebuild
@@ -314,13 +318,20 @@ std::vector<zima::drawing::BomRow> build_bom_rows_for_source(
     if (assembly == nullptr && !source_path.empty() && source_path.extension() == ".asmz") {
         loaded = zima::assembly::AssemblyDocument::load(source_path); assembly = &*loaded;
     }
-    if (assembly != nullptr) for (const auto& component : assembly->components) {
-        const auto existing = std::find_if(bom.begin(), bom.end(), [&](const auto& row) {
-            return row.designation == component.source_document_id; });
-        if (existing == bom.end()) bom.push_back({static_cast<int>(bom.size() + 1), 1,
-            component.name, component.source_document_id, {}});
-        else ++existing->quantity;
-    }
+    const auto append=[&](const std::string& id,std::filesystem::path path,const std::string& name) {
+        if(path.is_relative()&&!source_path.empty())path=source_path.parent_path()/path;
+        const auto key=id+"|"+path.lexically_normal().string();
+        const auto existing=std::ranges::find(bom,key,&zima::drawing::BomRow::designation);
+        if(existing!=bom.end()){++existing->quantity;return;}
+        auto context=build_title_block_context_for_source(id,path,workspace);
+        zima::drawing::BomRow row{static_cast<int>(bom.size()+1),1,name,key,{}};
+        row.file_stem=context.file_stem;row.parameters=std::move(context.parameters);
+        row.parameter_values=std::move(context.parameter_values);row.parameter_aliases=std::move(context.parameter_aliases);
+        bom.push_back(std::move(row));
+    };
+    if(assembly)for(const auto& component:assembly->components)append(component.source_document_id,component.source_path,component.name);
+    else if((workspace&&workspace->open_part(source_id))||source_path.extension()==".prtz")
+        append(source_id,source_path.is_relative()?std::filesystem::absolute(source_path):source_path,source_path.stem().string());
     return bom;
 }
 
@@ -346,12 +357,19 @@ zima::drawing::TitleBlockContext build_title_block_context_for_source(
         try { loaded_part = zima::document::PartDocument::load(source_path); part = &*loaded_part; }
         catch (const std::exception&) { part = nullptr; }
     }
-    if (part != nullptr) {
-        context.parameters = part->user_parameters;
-        context.parameter_values = part->user_parameter_values;
-        for (const auto& [key, labels] : part->user_parameter_labels)
+    const auto use_parameters=[&](const auto& document) {
+        if(context.file_stem.empty())context.file_stem=document.name;
+        context.parameters = document.user_parameters;
+        context.parameter_values = document.user_parameter_values;
+        for (const auto& [key, labels] : document.user_parameter_labels)
             for (const auto& [locale, label] : labels)
                 if (!label.empty()) context.parameter_aliases[label] = key;
+    };
+    if (part != nullptr) use_parameters(*part);
+    else if(workspace && workspace->open_assembly(source_id))
+        use_parameters(workspace->open_assembly(source_id)->session.document());
+    else if(!source_path.empty() && source_path.extension()==".asmz") {
+        const auto assembly=zima::assembly::AssemblyDocument::load(source_path);use_parameters(assembly);
     }
     return context;
 }
@@ -523,35 +541,33 @@ protected:
             const double frame = 10.0 * zoom;
             painter.drawRect(paper.adjusted(frame, frame, -frame, -frame));
         }
-        const auto draw_template=[&](const auto& lines,const auto& texts) {
-            for(const auto& line:lines) { painter.setPen(QPen(pen_color(line.pen),1.0));
-                painter.drawLine(screen(line.first),screen(line.second)); }
-            for(const auto& text:texts) { painter.setPen(pen_color(text.pen)); QFont font=painter.font();
-                font.setPixelSize(std::max(1,static_cast<int>(text.height*zoom))); painter.setFont(font);
-                painter.drawText(screen(text.position),QString::fromStdString(text.text)); }
+        const auto draw_text=[&](const zima::drawing::TemplateText& text) {
+            painter.save();painter.setPen(pen_color(text.pen));
+            QFont font(QString::fromStdString(text.font));font.setPixelSize(1000);painter.setFont(font);
+            const QFontMetricsF metrics(font);const auto value=QString::fromStdString(text.text);
+            const auto ink=metrics.tightBoundingRect(value);const auto anchor=screen(text.position);
+            const double scale=text.height/std::max(1.0,metrics.capHeight());
+            const double angle=text.angle*3.141592653589793/180.0,flip=text.flipped?-1:1;
+            const QPointF x=screen({text.position.x+flip*std::cos(angle)*scale,text.position.y+flip*std::sin(angle)*scale})-anchor;
+            const QPointF y=screen({text.position.x+std::sin(angle)*scale,text.position.y-std::cos(angle)*scale})-anchor;
+            painter.setTransform(QTransform(x.x(),x.y(),y.x(),y.y(),anchor.x(),anchor.y()),true);
+            auto alignment=QString::fromStdString(text.alignment).toLower();
+            const double dx=alignment=="center"?-ink.center().x():alignment=="right"?-ink.right():-ink.left();
+            const double dy=text.vertical_alignment=="top"?-ink.top():text.vertical_alignment=="middle"||text.vertical_alignment=="center"?-ink.center().y():text.vertical_alignment=="baseline"?0:-ink.bottom();
+            painter.drawText(QPointF(dx,dy),value);painter.restore();
         };
-        draw_template(sheet_->frame_lines,sheet_->frame_texts);
-        draw_template(sheet_->title_block_lines,sheet_->title_block_texts);
-        for(const auto& field:sheet_->title_block_fields) {
-            painter.setPen(QColor("#FFFFFF")); QFont font=painter.font();
-            font.setPixelSize(std::max(1,static_cast<int>(field.height*zoom))); painter.setFont(font);
-            QString value;
-            if (title_block_context_) value = QString::fromStdString(
-                zima::drawing::resolve_title_block_text(field, *title_block_context_, *sheet_));
-            else if(field.expression=="&sheet.format") value=QString::fromStdString(
-                sheet_->format==zima::drawing::SheetFormat::A4?"A4":sheet_->format==zima::drawing::SheetFormat::A3?"A3":
-                sheet_->format==zima::drawing::SheetFormat::A2?"A2":sheet_->format==zima::drawing::SheetFormat::A1?"A1":"A0");
-            else if(field.expression=="&sheet.scale") value=tr("M1:%1").arg(1.0/sheet_->default_scale,0,'g',4);
-            else value=QString::fromStdString(field.value);
-            painter.drawText(screen(field.position),value);
+        const auto draw_template=[&](const auto& lines,const auto& texts,const auto& circles) {
+            for(const auto& line:lines){painter.setPen(QPen(pen_color(line.pen),1.0));painter.drawLine(screen(line.first),screen(line.second));}
+            for(const auto& circle:circles){painter.setPen(QPen(pen_color(circle.pen),1.0));painter.setBrush(Qt::NoBrush);painter.drawEllipse(screen(circle.center),circle.radius*zoom,circle.radius*zoom);}
+            for(const auto& text:texts)draw_text(text);
+        };
+        draw_template(sheet_->frame_lines,sheet_->frame_texts,sheet_->frame_circles);
+        const auto layout=zima::drawing::title_block_layout(*sheet_,title_block_context_.value_or(zima::drawing::TitleBlockContext{}));
+        for(const auto& image:layout.images) {
+            QPolygonF target;for(const auto& point:image.corners())target<<screen({point[0],point[1]});
+            zima::viewer::paint_embedded_image(painter,image.data_base64,image.format,target);
         }
-        for(std::size_t index=0;index<sheet_->bom_rows.size();++index) {
-            const auto& row=sheet_->bom_rows[index]; const double y=75.0+index*6.0;
-            painter.setPen(QColor("#FFFFFF"));
-            painter.drawText(screen({18.0,y}),QString::number(row.item_number));
-            painter.drawText(screen({35.0,y}),QString::number(row.quantity));
-            painter.drawText(screen({100.0,y}),QString::fromStdString(row.name));
-        }
+        draw_template(layout.lines,layout.texts,layout.circles);
         for (const auto* rendered_view : views) {
             const auto& view = *rendered_view;
             if (view.display_style != zima::drawing::DisplayStyle::ShadedWithEdges) continue;
@@ -1088,9 +1104,9 @@ void DrawingWindow::create_layout() {
         auto* sheet = active_sheet(); if (sheet == nullptr || index < 0) return;
         const auto format = static_cast<zima::drawing::SheetFormat>(index);
         if (sheet->format == format) return;
-        sheet->format = format; sheet->frame_lines.clear(); sheet->frame_texts.clear();
+        sheet->format = format; sheet->frame_lines.clear(); sheet->frame_texts.clear(); sheet->frame_circles.clear();
         sheet->title_block_lines.clear(); sheet->title_block_texts.clear();
-        sheet->title_block_fields.clear(); refresh();
+        sheet->title_block_fields.clear();sheet->title_block_images.clear();sheet->title_block_circles.clear();sheet->repeat_regions.clear(); refresh();
     });
     const auto change_scale = [this] {
         auto* sheet = active_sheet(); if (sheet == nullptr) return;
@@ -1217,7 +1233,7 @@ void DrawingWindow::load_frame() {
 }
 void DrawingWindow::remove_frame() {
     auto* sheet=active_sheet(); if(sheet==nullptr) return;
-    sheet->frame_lines.clear(); sheet->frame_texts.clear(); refresh();
+    sheet->frame_lines.clear(); sheet->frame_texts.clear();sheet->frame_circles.clear(); refresh();
 }
 void DrawingWindow::remove_title_block() {
     auto* sheet=active_sheet(); if(sheet==nullptr) return;

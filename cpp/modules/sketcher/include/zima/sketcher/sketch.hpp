@@ -1,8 +1,10 @@
 #pragma once
 
 #include <zima/kernel/geometry_kernel.hpp>
+#include <zima/sketcher/template_image.hpp>
 
 #include <filesystem>
+#include <map>
 #include <array>
 #include <optional>
 #include <string>
@@ -167,6 +169,7 @@ struct SketchText {
     SketchTextColor color{SketchTextColor::Green};
     std::string font{"osifont"};
     std::vector<std::vector<std::array<double, 2>>> contours;
+    std::string anchor_point_id; // Optional constrained anchor in a template Sketch.
     bool operator==(const SketchText&) const = default;
 };
 
@@ -295,6 +298,26 @@ struct SketchCornerRadius {
     bool operator==(const SketchCornerRadius&) const = default;
 };
 
+struct SketchRepeatRegion {
+    std::string id;
+    double x{}, y{}, width{180.0}, height{10.0};
+    std::string direction{"up"};
+    double step{10.0};
+    bool operator==(const SketchRepeatRegion&) const = default;
+};
+
+// Authoring metadata for .frmz/.tblz documents. The ordinary Sketch owns
+// editable geometry and constraints; repeat regions are non-printing helpers.
+struct SketchTemplateData {
+    std::string kind;
+    std::map<std::string, std::map<std::string, std::string>> sections;
+    std::map<std::string, std::string> pens;
+    std::map<std::string, std::string> field_ids;
+    std::vector<SketchRepeatRegion> repeat_regions;
+    std::vector<TemplateImage> images;
+    bool operator==(const SketchTemplateData&) const = default;
+};
+
 class Sketch {
 public:
     std::string id;
@@ -302,6 +325,7 @@ public:
     // retained when the container is transformed in-place into Extrusion or
     // Revolution.
     std::string owner_container_id;
+    std::optional<SketchTemplateData> drawing_template;
     std::string name{"Skica"};
     bool suppressed{};
     SketchPlane plane{SketchPlane::XY};

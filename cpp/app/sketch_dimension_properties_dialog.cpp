@@ -72,7 +72,7 @@ SketchDimensionPropertiesDialog::SketchDimensionPropertiesDialog(
     driving_->setChecked(initial_.driving);
     value_->setEnabled(initial_.driving);
     form_->addRow(tr("Stav kóty"), driving_);
-    locked_ = new QCheckBox(tr("Zamknout hodnotu"), this);
+    locked_ = new QCheckBox(tr("Zamknout rozměr"), this);
     locked_->setObjectName("sketchDimensionLocked");
     locked_->setChecked(initial_.locked);
     locked_->setEnabled(initial_.driving);

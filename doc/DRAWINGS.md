@@ -131,3 +131,87 @@ Podporována je první asociativní lineární kóta mezi dvěma rovnoběžnými
 přímými hranami. Další typy ISO kót, řezy, detaily, tolerance, pozice,
 technické symboly a export PDF/DXF jsou další vývojové kroky. BOM v razítku
 už není v této skupině: Repeat Region, Item Number a Quantity jsou funkční.
+
+
+## Editace rámečků a razítek v C++ aplikaci
+
+Příkaz **Otevřít** přijímá `.frmz` a `.tblz` a otevře je přímo ve
+stávajícím skicáři v kartě dokumentu. **Nový** umí oba typy vytvořit.
+**Uložit** zapisuje původní typ souboru; **Uložit jako** vytváří samostatnou
+kopii. Před přepsáním se uchová číslovaná předchozí verze souboru.
+Geometrie se při otevření automaticky nerozmisťuje ani nevyrovnává.
+
+Původní knihovní šablony se převádějí včetně geometrie, kotev textu, vazeb,
+kót, barev per a vlastností parametrických polí. Záporné délkové kóty mezi
+body se převedou na kladnou velikost a opačné pořadí bodů, se stejnou rovnicí
+pro jejich polohu. Souřadnicové umístění vůči osám a počátku si znaménko
+ponechává. Uložená šablona používá SchemaVersion 4 a nativní C++ data skici.
+
+Ve skicáři razítka je příkaz **Oblast kusovníku**. Dvěma kliknutími se zadají
+rohy fialového obdélníku, poté se v jeho vlastnostech nastaví poloha, rozměry,
+směr a rozteč opakování. OK oblast uloží, Storno návrh zahodí. Stejné vlastnosti
+se otevírají dvojklikem na existující oblast nebo ze stromu; nabídka umožňuje
+oblast odstranit. Platí i potvrzení dvojklikem prostředního tlačítka nad View.
+
+Fialový obrys nemá výplň, je kreslený nad ostatní geometrií a při hoveru má
+nejvyšší prioritu. LMB vybírá celou oblast a synchronizuje strom. Před potvrzením
+lze RMB přepnout na další geometrii pod obrysem. Pomocný obdélník se do výkresu
+netiskne. Ve výkresu se opakují skutečné čáry, kružnice a texty uvnitř oblasti
+podle jejího směru a rozteče. Výrazy `&bom.item_number` a `&bom.quantity` dávají
+číslo položky a počet; ostatní modelové parametry patří zdrojovému dílu daného
+řádku. Pro samostatný díl vzniká jeden řádek. Výkres ukládá vlastní vloženou
+kopii šablony včetně oblasti BOM, takže pozdější editace knihovny jeho vzhled
+sama nezmění.
+
+### Obrázky v razítku (C++)
+
+Editor `.tblz` nabízí příkaz **Obrázek** s vlastní ikonou. Po výběru SVG, PNG,
+JPEG, BMP nebo WebP se otevřou společné vnitřní **Vlastnosti obrázku**.
+Umístění určuje bod kliknutý ve skice nebo souřadnice X/Y. Vodorovné
+zarovnání Vlevo / Na střed / Vpravo a svislé Dole / Uprostřed / Nahoře
+vztahují obdélník k tomuto bodu. Souřadnice mohou být záporné, rozměry jsou kladné.
+
+Šířka a výška jsou v milimetrech. Volba **Zachovat poměr stran** je při
+vložení zapnutá; změna kteréhokoli rozměru dopočítá druhý podle původního
+obrázku. Po odemčení lze rozměry nastavit samostatně. **Vybrat soubor…**
+umožní v témže dialogu vyměnit obsah. Náhled je dočasný: pouze OK změnu
+uloží, Zrušit obnoví původní stav. OK funguje také dvojklikem prostředního
+tlačítka nad View.
+
+Obrázek lze vybrat přes celou jeho obdélníkovou plochu nebo ve stromu.
+Dvojklik otevře stejné vlastnosti; kontextové menu nabízí Vlastnosti a
+Odstranit. Fialová oblast kusovníku se kreslí poslední a má vyšší prioritu
+výběru než obrázek. Obrázek uvnitř oblasti se opakuje spolu s jejím obsahem.
+
+Rastr se normalizuje na PNG, zachová průhlednost a uloží přímo do `.tblz`
+i do výkresu `.drwz`. Původní externí soubor není po vložení potřeba.
+Příkaz je dostupný pouze v razítku. Dekódované obrázky používají omezenou
+sdílenou paměťovou cache, takže pohyb kurzoru znovu nenačítá zdrojové soubory.
+
+SVG se ukládá jako původní vektorová data a v editoru i výkresu se vykresluje
+vektorově prostřednictvím Qt SVG. Zvětšení ani změna rozměrů jej nepřevádí
+na bitmapu. Poměr stran vychází z přesného `viewBox`; rastry používají
+původní rozlišení. Podpora obsahu SVG odpovídá rendereru Qt SVG; pro přenosné
+firemní logo je vhodné mít text převedený na křivky a případné další obrázky
+vložené přímo do SVG. Animace se v technickém výkresu nepřehrávají.
+
+### Vazby dodávaných razítek
+
+České a anglické razítko ponechává 14 unikátních řídicích rozměrů místo
+52 opakovaných kót. První 10mm odsazení od počátku řídí ostatní desetimilimetrové
+úseky vazbou stejná délka. Stejně jsou sjednoceny další opakované hodnoty.
+H/V vazby udržují zarovnání, počátek je navázaný na počátek skici.
+U vodorovných či svislých odsazení mezi diagonálně položenými body jsou
+použité pomocné projekční úsečky; porovnání délek tak neměří chybnou diagonálu.
+Původní souřadnice, texty a tisknutelná geometrie zůstávají zachované.
+Regresní test řešiče kontroluje reziduum i maximální pohyb všech bodů do 1e-6 mm.
+
+Pravoúhlé řetězce H/V a stejných délek v šabloně mají přesný lineární
+výpočet počátečního řešení; standardní řešič následně ověří všechny vazby.
+Zkouška změny hlavního odsazení z 10 na 12 mm ověřuje i změnu navázaných řádků.
+
+Zámek ve skicáři chrání hodnotu rozměru při tažení geometrie. Ve View jej
+lze přepnout přes **Zamknout rozměr / Odemknout rozměr**, také je dostupný
+ve vlastnostech rozměru. Zamčený řídicí rozměr se kreslí černě, nezamčený
+žlutě a měřený hnědě. Výběr a hover dál používají azurovou a oranžovou.
+Zámek nefixuje polohu popisku; číselnou hodnotu lze záměrně změnit ve vlastnostech.

@@ -1,3 +1,5 @@
+#include <zima/drawing/drawing_template.hpp>
+#include "sketch_text_properties_dialog.hpp"
 #include <nlohmann/json.hpp>
 #include <zima/document/viewer_packet_json.hpp>
 #include "derived_copy_dialog.hpp"
@@ -22,6 +24,9 @@
 #include <QAction>
 #include <QAbstractItemView>
 #include <QApplication>
+#include <QFileDialog>
+#include <QImage>
+#include <QPainter>
 #include <QCheckBox>
 #include <QColor>
 #include <QComboBox>
@@ -32,9 +37,8 @@
 #include <QEvent>
 #include <QEventLoop>
 #include <QFileInfo>
-#include <QFileDialog>
+#include <QFile>
 #include <QTemporaryDir>
-#include <QImage>
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
@@ -422,6 +426,133 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
         if(!verify(later_is_suppressed(),"Copy Cancel changed the active history boundary"))return 1;
     }
     std::cout<<"Mirror and Pattern UI contracts passed\n";return 0;
+}
+
+int verify_template_commands(QApplication& application,zima::app::AssemblyWorkspaceWindow& window,
+        const std::filesystem::path& directory) {
+    using namespace zima;
+    const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+    const auto prepare=[](auto& text){app::rebuild_sketch_text_contours(text,true);};
+    window.resize(1280,960);window.show();
+    for(const auto name:{"ZE-A4.frmz","ZE-RAZITKO.tblz"}) {
+        const auto source=std::filesystem::current_path()/"config/formats"/name;
+        const auto target=directory/name;std::filesystem::copy_file(source,target,std::filesystem::copy_options::overwrite_existing);
+        if(!verify(window.open_document_path(QString::fromStdString(target.string())),"Template cannot open in the main application"))return 1;
+        flush();QEventLoop animation;QTimer::singleShot(900,&animation,&QEventLoop::quit);animation.exec();flush();
+        window.grab().save(QString::fromStdString((directory/(std::string(name)+".png")).string()));
+    }
+    auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
+    auto* tree=window.findChild<QTreeWidget*>("documentTree");
+    auto* action=window.findChild<QAction*>("templateRepeatRegionAction");auto* save=window.findChild<QAction*>("saveDocumentAction");
+    if(!verify(view&&tree&&action&&!action->icon().isNull(),"Template region command or icon missing"))return 1;
+    const auto initial_sketch=drawing::load_template_sketch(directory/"ZE-RAZITKO.tblz",prepare);
+    const auto screen_for=[&](double x,double y) {
+        const auto local=[&](QPointF pixel){const auto ray=view->ray_at(pixel);return *initial_sketch.intersect_ray(ray->first,ray->second);};
+        const auto a=local({0,0}),b=local({static_cast<double>(view->width()),0}),c=local({0,static_cast<double>(view->height())});
+        const double ux=b[0]-a[0],uy=b[1]-a[1],vx=c[0]-a[0],vy=c[1]-a[1],det=ux*vy-uy*vx;
+        return QPointF(((x-a[0])*vy-(y-a[1])*vx)/det*view->width(),(ux*(y-a[1])-uy*(x-a[0]))/det*view->height());
+    };
+    const auto& region=initial_sketch.drawing_template->repeat_regions.front();
+    std::optional<QPointF> hit=screen_for(region.x+region.width/2,region.y);
+    const auto offered=view->selection_candidates_at(*hit);
+    if(!verify(!offered.empty()&&offered.front().kind==viewer::CandidateKind::TemplateRegion&&std::ranges::any_of(offered,[](const auto& c){return c.kind==viewer::CandidateKind::SketchSegment;}),"BOM rectangle did not precede overlapping line geometry"))return 1;
+    if(!verify(hit.has_value(),"BOM region is missing or has no selection priority"))return 1;
+    const auto click=[&](QPointF p){const auto global=QPointF(view->mapToGlobal(p.toPoint()));
+        QMouseEvent press(QEvent::MouseButtonPress,p,global,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+        QMouseEvent release(QEvent::MouseButtonRelease,p,global,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(view,&press);QApplication::sendEvent(view,&release);flush();};
+    click(*hit);
+    if(!verify(view->confirmed_candidate()&&view->confirmed_candidate()->kind==viewer::CandidateKind::TemplateRegion&&tree->selectedItems().size()==1,"Region selection did not synchronize View and Tree"))return 1;
+    window.show_tree_item_properties(tree->selectedItems().front());flush();
+    auto* dialog=window.findChild<QDialog*>("templateRepeatRegionDialog");
+    if(!verify(dialog&&(dialog->windowFlags()&Qt::WindowType_Mask)==Qt::SubWindow&&dialog->parentWidget()==&window,"Region does not use shared internal properties"))return 1;
+    dialog->findChild<QDoubleSpinBox*>("templateRegionValue4")->setValue(12);
+    const QPointF middle(20,20),global=view->mapToGlobal(QPoint(20,20));
+    QMouseEvent confirm(QEvent::MouseButtonDblClick,middle,global,Qt::MiddleButton,Qt::MiddleButton,Qt::NoModifier);
+    QApplication::sendEvent(view,&confirm);flush();save->trigger();flush();
+    const auto target=directory/"ZE-RAZITKO.tblz";
+    auto stored=drawing::load_template_sketch(target,prepare);
+    if(!verify(stored.drawing_template->repeat_regions.size()==1&&stored.drawing_template->repeat_regions.front().step==12,"BOM region change did not persist"))return 1;
+    action=window.findChild<QAction*>("templateRepeatRegionAction");action->trigger();flush();
+    click(QPointF(view->width()*0.35,view->height()*0.35));click(QPointF(view->width()*0.55,view->height()*0.45));
+    dialog=window.findChild<QDialog*>("templateRepeatRegionDialog");
+    if(!verify(dialog,"Two corners did not create a pending region"))return 1;
+    dialog->reject();flush();save->trigger();flush();
+    if(!verify(drawing::load_template_sketch(target,prepare).drawing_template->repeat_regions.size()==1,"Cancel committed a region"))return 1;
+    action=window.findChild<QAction*>("templateRepeatRegionAction");action->trigger();flush();
+    click(QPointF(view->width()*0.35,view->height()*0.35));click(QPointF(view->width()*0.55,view->height()*0.45));
+    dialog=window.findChild<QDialog*>("templateRepeatRegionDialog");if(!verify(dialog,"Repeated region command failed"))return 1;
+    dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();save->trigger();flush();
+    if(!verify(drawing::load_template_sketch(target,prepare).drawing_template->repeat_regions.size()==2,"New region was not saved"))return 1;
+    const auto image_path=directory/"company-logo.png";
+    QImage logo(120,60,QImage::Format_ARGB32);logo.fill(Qt::transparent);
+    {QPainter painter(&logo);painter.fillRect(0,0,60,60,QColor("#D82828"));painter.fillRect(60,0,60,60,QColor("#168AD8"));painter.setPen(Qt::white);QFont font;font.setPixelSize(20);painter.setFont(font);painter.drawText(logo.rect(),Qt::AlignCenter,"LOGO");}
+    logo.save(QString::fromStdString(image_path.string()));
+    auto* image_action=window.findChild<QAction*>("templateImageAction");
+    if(!verify(image_action&&!image_action->icon().isNull(),"Image command or icon missing"))return 1;
+    QString chosen_image_path=QString::fromStdString(image_path.string());
+    QTimer choose_image;
+    QObject::connect(&choose_image,&QTimer::timeout,&window,[&]{
+        if(auto* chooser=window.findChild<QFileDialog*>()) {
+            chooser->findChild<QLineEdit*>("fileNameEdit")->setText(chosen_image_path);QMetaObject::invokeMethod(chooser,"accept",Qt::QueuedConnection);choose_image.stop();
+        }
+    });
+    choose_image.start(100);image_action->trigger();choose_image.stop();flush();
+    dialog=window.findChild<QDialog*>("templateImageDialog");
+    if(!verify(dialog&&(dialog->windowFlags()&Qt::WindowType_Mask)==Qt::SubWindow&&dialog->parentWidget()==&window,"Image properties are not internal"))return 1;
+    click(QPointF(view->width()*0.5,view->height()*0.22));
+    auto* width=dialog->findChild<QDoubleSpinBox*>("templateImageValue2");auto* height=dialog->findChild<QDoubleSpinBox*>("templateImageValue3");
+    width->setValue(40);flush();if(!verify(height->value()==20,"Aspect lock did not follow width"))return 1;
+    height->setValue(30);flush();if(!verify(width->value()==60,"Aspect lock did not follow height"))return 1;
+    dialog->findChild<QCheckBox*>("templateImageAspectLock")->setChecked(false);height->setValue(15);
+    if(!verify(width->value()==60,"Unlocked size still constrained width"))return 1;
+    dialog->findChild<QCheckBox*>("templateImageAspectLock")->setChecked(true);width->setValue(40);
+    dialog->findChild<QDoubleSpinBox*>("templateImageValue0")->setValue(100);dialog->findChild<QDoubleSpinBox*>("templateImageValue1")->setValue(85);
+    dialog->findChild<QComboBox*>("templateImageHorizontal")->setCurrentIndex(1);dialog->findChild<QComboBox*>("templateImageVertical")->setCurrentIndex(1);flush();
+    window.grab().save(QString::fromStdString((directory/"template-image-properties.png").string()));
+    QMouseEvent image_confirm(QEvent::MouseButtonDblClick,middle,global,Qt::MiddleButton,Qt::MiddleButton,Qt::NoModifier);
+    QApplication::sendEvent(view,&image_confirm);flush();save->trigger();flush();
+    std::filesystem::remove(image_path);
+    stored=drawing::load_template_sketch(target,prepare);
+    if(!verify(stored.drawing_template->images.size()==1,"Image OK did not persist"))return 1;
+    const auto committed_image=stored.drawing_template->images.front();
+    const auto embedded=QImage::fromData(QByteArray::fromBase64(QByteArray::fromStdString(committed_image.data_base64)),"PNG");
+    if(!verify(embedded==logo&&committed_image.width==40&&committed_image.height==20&&committed_image.horizontal=="center"&&committed_image.vertical=="middle","Image was changed or lost with its source file"))return 1;
+    hit=screen_for(committed_image.x,committed_image.y);
+    const auto image_candidates=view->selection_candidates_at(*hit);
+    if(image_candidates.empty()||image_candidates.front().kind!=viewer::CandidateKind::TemplateImage)hit.reset();
+    if(!verify(hit.has_value(),"Image interior cannot be selected"))return 1;
+    click(*hit);if(!verify(view->confirmed_candidate()&&view->confirmed_candidate()->kind==viewer::CandidateKind::TemplateImage&&tree->selectedItems().size()==1,"Image View/Tree selection differs"))return 1;
+    window.show_tree_item_properties(tree->selectedItems().front());flush();dialog=window.findChild<QDialog*>("templateImageDialog");
+    if(!verify(dialog,"Saved image cannot be edited"))return 1;
+    dialog->findChild<QDoubleSpinBox*>("templateImageValue2")->setValue(75);dialog->reject();flush();save->trigger();flush();
+    if(!verify(drawing::load_template_sketch(target,prepare).drawing_template->images.front()==committed_image,"Cancel changed the image"))return 1;
+    window.grab().save(QString::fromStdString((directory/"template-bom-editor.png").string()));
+    const auto svg_path=directory/"company-vector.svg";
+    const QByteArray svg=R"(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 0.4"><path d="M0 0H0.5V0.4H0Z" fill="#00e040"/><path d="M0.5 0H1V0.4H0.5Z" fill="#e000e0"/></svg>)";
+    {QFile file(QString::fromStdString(svg_path.string()));if(!verify(file.open(QIODevice::WriteOnly)&&file.write(svg)==svg.size(),"Cannot create SVG test input"))return 1;}
+    chosen_image_path=QString::fromStdString(svg_path.string());choose_image.start(100);image_action->trigger();choose_image.stop();flush();
+    dialog=window.findChild<QDialog*>("templateImageDialog");if(!verify(dialog,"SVG did not open image properties"))return 1;
+    dialog->findChild<QDoubleSpinBox*>("templateImageValue0")->setValue(50);dialog->findChild<QDoubleSpinBox*>("templateImageValue1")->setValue(80);
+    dialog->findChild<QDoubleSpinBox*>("templateImageValue2")->setValue(30);
+    if(!verify(dialog->findChild<QDoubleSpinBox*>("templateImageValue3")->value()==12,"SVG viewBox aspect ratio was rounded"))return 1;
+    dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();save->trigger();flush();std::filesystem::remove(svg_path);
+    stored=drawing::load_template_sketch(target,prepare);
+    if(!verify(stored.drawing_template->images.size()==2&&stored.drawing_template->images.back().format=="svg"&&QByteArray::fromBase64(QByteArray::fromStdString(stored.drawing_template->images.back().data_base64))==svg,"SVG was rasterized or lost on save"))return 1;
+    window.grab().save(QString::fromStdString((directory/"template-images-editor.png").string()));
+    app::DrawingWindow drawing_preview;drawing_preview.resize(1100,900);drawing_preview.show();
+    drawing_preview.load_frame_for_test(std::filesystem::current_path()/"config/formats/ZE-A4.frmz");
+    drawing_preview.load_title_block_for_test(target);flush();
+    const auto drawn=drawing_preview.grab().toImage();drawn.save(QString::fromStdString((directory/"template-logo-drawing.png").string()));
+    int red_pixels=0,blue_pixels=0,magenta_pixels=0;
+    for(int y=0;y<drawn.height();++y)for(int x=0;x<drawn.width();++x) {
+        const auto c=drawn.pixelColor(x,y);if(c.red()>180&&c.green()<75&&c.blue()<75)++red_pixels;
+        if(c.blue()>180&&c.red()<70&&c.green()>100&&c.green()<170)++blue_pixels;
+        if(c.red()>180&&c.blue()>180&&c.green()<50)++magenta_pixels;
+    }
+    if(!verify(red_pixels>100&&blue_pixels>100&&magenta_pixels>100,"Drawing did not render both the PNG and vector SVG logo"))return 1;
+    drawing_preview.close();
+    std::cout<<"Template opening, editing, region priority, shared confirmation and persistence passed\n";return 0;
 }
 
 int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspaceWindow& window,
@@ -2998,6 +3129,7 @@ int verify_startup_contract(
     QApplication& application, zima::app::AssemblyWorkspaceWindow& window,
     const std::filesystem::path& test_directory,
     const QString& part_capture_path = {}, const QString& drawing_capture_path = {}) {
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_TEMPLATES_ONLY")) return verify_template_commands(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_DRAWING_ONLY")) return verify_drawing_workspace(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_COMPONENT_DOCUMENT")) return verify_component_reference_document(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_COMPONENT_REFERENCE_ONLY")) return verify_component_references(application,test_directory);

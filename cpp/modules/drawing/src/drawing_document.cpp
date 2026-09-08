@@ -1,3 +1,4 @@
+#include <zima/sketcher/template_image_json.hpp>
 #include <zima/document/document_copy_json.hpp>
 #include <zima/drawing/drawing_document.hpp>
 #include <zima/document/versioned_file.hpp>
@@ -172,6 +173,7 @@ IniData read_ini(const std::filesystem::path& path) {
     if (!stream) throw std::runtime_error("Cannot read Drawing INI document");
     IniData result; std::string section; std::string line;
     while (std::getline(stream, line)) {
+        if(line.starts_with("\xEF\xBB\xBF"))line.erase(0,3);
         line = trim(line);
         if (line.empty() || line.front() == ';' || line.front() == '#') continue;
         if (line.front() == '[' && line.back() == ']') { section=line.substr(1,line.size()-2); continue; }
@@ -508,7 +510,8 @@ void DrawingDocument::save(const std::filesystem::path& path,
             nlohmann::json result=nlohmann::json::array();
             for (const auto& text:texts) result.push_back({{"text",text.text},
                 {"position",{text.position.x,text.position.y}},{"height",text.height},
-                {"pen",static_cast<int>(text.pen)},{"alignment",text.alignment}});
+                {"pen",static_cast<int>(text.pen)},{"alignment",text.alignment},
+                {"vertical_alignment",text.vertical_alignment},{"angle",text.angle},{"flipped",text.flipped},{"font",text.font}});
             return result;
         };
         serialized["frame_lines"]=line_json(sheet.frame_lines);
@@ -522,11 +525,17 @@ void DrawingDocument::save(const std::filesystem::path& path,
             {"editable",field.editable},{"pen",static_cast<int>(field.pen)},
             {"alignment",field.alignment},{"vertical_alignment",field.vertical_alignment},
             {"box_width",field.box_width},{"box_height",field.box_height},
-            {"format",field.format},{"write_back",field.write_back}});
+            {"format",field.format},{"write_back",field.write_back},{"anchor_position",field.anchor_position},
+            {"angle",field.angle},{"flipped",field.flipped},{"font",field.font}});
         serialized["bom_rows"]=nlohmann::json::array();
         for(const auto& row:sheet.bom_rows) serialized["bom_rows"].push_back({
             {"item_number",row.item_number},{"quantity",row.quantity},{"name",row.name},
-            {"designation",row.designation},{"material",row.material}});
+            {"designation",row.designation},{"material",row.material},{"file_stem",row.file_stem},
+            {"parameters",row.parameters},{"parameter_values",row.parameter_values},{"parameter_aliases",row.parameter_aliases}});
+        const auto circles_json=[](const auto& circles){nlohmann::json values=nlohmann::json::array();for(const auto& c:circles)values.push_back({{"center",{c.center.x,c.center.y}},{"radius",c.radius},{"pen",static_cast<int>(c.pen)}});return values;};
+        serialized["frame_circles"]=circles_json(sheet.frame_circles);serialized["title_block_circles"]=circles_json(sheet.title_block_circles);
+        serialized["title_block_images"]=sheet.title_block_images;
+        serialized["repeat_regions"]=nlohmann::json::array();for(const auto& r:sheet.repeat_regions)serialized["repeat_regions"].push_back({{"id",r.id},{"x",r.x},{"y",r.y},{"width",r.width},{"height",r.height},{"direction",r.direction},{"step",r.step}});
         serialized["views"] = nlohmann::json::array();
         for (const auto& view : sheet.views) {
             if (view.id.empty() || !ids.insert(view.id).second || view.source_document_id.empty())
@@ -650,7 +659,7 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
             std::vector<TemplateText> result; for(const auto& item:source) result.push_back({
                 item.at("text"),{item.at("position").at(0),item.at("position").at(1)},
                 item.at("height"),static_cast<DrawingPen>(item.at("pen").get<int>()),
-                item.at("alignment")}); return result;
+                item.at("alignment"),item.value("vertical_alignment","bottom"),item.value("angle",0.0),item.value("flipped",true),item.value("font","osifont")}); return result;
         };
         sheet.frame_lines=parse_lines(serialized.at("frame_lines"));
         sheet.frame_texts=parse_texts(serialized.at("frame_texts"));
@@ -662,9 +671,16 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
             static_cast<DrawingPen>(item.value("pen", static_cast<int>(DrawingPen::Green))),
             item.value("alignment", "left"), item.value("vertical_alignment", "middle"),
             item.value("box_width", 0.0), item.value("box_height", 0.0),
-            item.value("format", ""), item.value("write_back", false)});
+            item.value("format", ""), item.value("write_back", false),item.value("anchor_position",false),
+            item.value("angle",0.0),item.value("flipped",true),item.value("font","osifont")});
         for(const auto& item:serialized.at("bom_rows")) sheet.bom_rows.push_back({
-            item.at("item_number"),item.at("quantity"),item.at("name"),item.at("designation"),item.at("material")});
+            item.at("item_number"),item.at("quantity"),item.at("name"),item.at("designation"),item.at("material"),
+            item.value("file_stem",std::string{}),item.value("parameters",std::map<std::string,std::string>{}),
+            item.value("parameter_values",std::map<std::string,std::map<std::string,std::string>>{}),item.value("parameter_aliases",std::map<std::string,std::string>{})});
+        const auto parse_circles=[](const auto& values){std::vector<TemplateCircle> result;for(const auto& c:values)result.push_back({{c.at("center").at(0),c.at("center").at(1)},c.at("radius"),static_cast<DrawingPen>(c.at("pen").template get<int>())});return result;};
+        sheet.frame_circles=parse_circles(serialized.value("frame_circles",nlohmann::json::array()));sheet.title_block_circles=parse_circles(serialized.value("title_block_circles",nlohmann::json::array()));
+        sheet.title_block_images=serialized.value("title_block_images",std::vector<zima::sketcher::TemplateImage>{});
+        for(const auto& r:serialized.value("repeat_regions",nlohmann::json::array()))sheet.repeat_regions.push_back({r.at("id"),r.at("x"),r.at("y"),r.at("width"),r.at("height"),r.at("direction"),r.at("step")});
         for (const auto& item : serialized.at("views")) {
             DrawingView view;
             view.id = item.at("id").get<std::string>();
@@ -740,6 +756,7 @@ void load_frame_template(DrawingSheet& sheet, const std::filesystem::path& path)
     sheet.frame_lines.clear(); sheet.frame_texts.clear();
     parse_geometry(geometry->second,sheet.frame_lines,sheet.frame_texts,
         [](double x,double y){ return Point2{x,y}; });
+    load_template_details(sheet,path,false);
 }
 
 void load_title_block_template(DrawingSheet& sheet, const std::filesystem::path& path) {
@@ -775,6 +792,7 @@ void load_title_block_template(DrawingSheet& sheet, const std::filesystem::path&
         field.write_back=get("WriteBack","no")=="yes";
         sheet.title_block_fields.push_back(std::move(field));
     }
+    load_template_details(sheet,path,true);
 }
 
 namespace {

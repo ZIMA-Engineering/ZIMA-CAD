@@ -4,6 +4,7 @@
 #include <zima/kernel/geometry_kernel.hpp>
 #include <zima/document/dimension_identifiers.hpp>
 
+#include <zima/sketcher/sketch.hpp>
 #include <filesystem>
 #include <array>
 #include <map>
@@ -79,9 +80,12 @@ struct LinearDimension {
 
 enum class DrawingPen { White, Green, Yellow };
 struct TemplateLine { Point2 first; Point2 second; DrawingPen pen{DrawingPen::Green}; };
+struct TemplateCircle { Point2 center; double radius{}; DrawingPen pen{DrawingPen::Green}; };
 struct TemplateText {
     std::string text; Point2 position; double height{2.5};
     DrawingPen pen{DrawingPen::Green}; std::string alignment{"left"};
+    std::string vertical_alignment{"bottom"}; double angle{}; bool flipped{true};
+    std::string font{"osifont"};
 };
 struct TitleBlockField {
     std::string id; std::string expression; std::string value;
@@ -93,10 +97,15 @@ struct TitleBlockField {
     double box_height{};
     std::string format;
     bool write_back{};
+    bool anchor_position{}; double angle{}; bool flipped{true}; std::string font{"osifont"};
 };
 struct BomRow {
     int item_number{}; int quantity{1}; std::string name;
     std::string designation; std::string material;
+    std::string file_stem;
+    std::map<std::string,std::string> parameters;
+    std::map<std::string,std::map<std::string,std::string>> parameter_values;
+    std::map<std::string,std::string> parameter_aliases;
 };
 
 struct DrawingSheet {
@@ -113,6 +122,9 @@ struct DrawingSheet {
     std::vector<TemplateText> title_block_texts;
     std::vector<TitleBlockField> title_block_fields;
     std::vector<BomRow> bom_rows;
+    std::vector<TemplateCircle> frame_circles, title_block_circles;
+    std::vector<zima::sketcher::SketchRepeatRegion> repeat_regions;
+    std::vector<zima::sketcher::TemplateImage> title_block_images;
 
     [[nodiscard]] double width_mm() const;
     [[nodiscard]] double height_mm() const;
@@ -167,6 +179,15 @@ struct TitleBlockContext {
     int sheet_index{};
     int sheet_count{1};
 };
+
+struct TemplateLayout {
+    std::vector<zima::sketcher::TemplateImage> images;
+    std::vector<TemplateLine> lines;
+    std::vector<TemplateText> texts;
+    std::vector<TemplateCircle> circles;
+};
+[[nodiscard]] TemplateLayout title_block_layout(const DrawingSheet&, const TitleBlockContext&);
+void load_template_details(DrawingSheet&, const std::filesystem::path&, bool title_block);
 
 [[nodiscard]] std::vector<std::string> title_block_tokens(const std::string& text);
 [[nodiscard]] std::string title_block_token_scope(const std::string& token);

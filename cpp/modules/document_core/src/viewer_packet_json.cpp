@@ -449,7 +449,7 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result) {
         edges.push_back({
             {"owner", edge.reference.owner_id}, {"key", edge.reference.semantic_key},
             {"instance_path", edge.reference.instance_path},
-            {"display_owner", edge.display_owner_id},
+            {"display_owner", edge.display_owner_id}, {"color",edge.color},
             {"parameter_seam", edge.parameter_seam},
             {"edge_treatment_owners", edge.edge_treatment_owner_ids},
             {"edge_treatment_side_directions", std::move(side_directions)},
@@ -514,6 +514,14 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result) {
         {"original_references", serialize_reference_geometry(
             result.mesh.original_references)},
     };
+    if(!result.mesh.images.empty()) {
+        packet["images"]=nlohmann::json::array();
+        for(const auto& image:result.mesh.images) {
+            auto corners=nlohmann::json::array();for(const auto& p:image.corners)corners.push_back(serialize_vec3(p));
+            packet["images"].push_back({{"corners",corners},{"owner",image.reference.owner_id},
+                {"key",image.reference.semantic_key},{"instance_path",image.reference.instance_path},{"data_base64",image.data_base64},{"format",image.format}});
+        }
+    }
     // Only a document aggregate owns branch caches. Ordinary local boundary
     // packets contain geometry alone, avoiding recursive empty cache fields.
     if (!result.body_boundaries.empty()) {
@@ -552,6 +560,13 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source) {
             result.body_inputs.emplace(id, load_body_result(body));
         for (const auto& [id, body] : caches->at("outputs").items())
             result.body_outputs.emplace(id, load_body_result(body));
+    }
+    for(const auto& row:source.value("images",nlohmann::json::array())) {
+        zima::kernel::ViewerImage image;
+        if(row.at("corners").size()!=4)throw std::runtime_error("Invalid image corners");
+        for(std::size_t i=0;i<4;++i)image.corners[i]=load_vec3(row.at("corners").at(i));
+        image.reference={row.at("owner"),row.at("key"),row.at("instance_path")};image.data_base64=row.at("data_base64");image.format=row.at("format");
+        result.mesh.images.push_back(std::move(image));
     }
     result.volume = source.at("volume").get<double>();
     result.surface_area = source.at("surface_area").get<double>();
@@ -600,6 +615,7 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source) {
             edge.at("instance_path").get<std::string>()};
         loaded.display_owner_id =
             edge.at("display_owner").get<std::string>();
+        loaded.color=edge.value("color",std::string{});
         loaded.parameter_seam = edge.value("parameter_seam", false);
         loaded.edge_treatment_owner_ids =
             edge.at("edge_treatment_owners").get<std::vector<std::string>>();

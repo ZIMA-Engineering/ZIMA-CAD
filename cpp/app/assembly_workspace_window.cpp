@@ -1,3 +1,4 @@
+#include <zima/drawing/drawing_template.hpp>
 #include "derived_copy_dialog.hpp"
 #include "shaft_thread_dialog.hpp"
 #include "body_properties_dialog.hpp"
@@ -647,6 +648,7 @@ void append_reference_geometry(
 }
 
 void append_mesh(zima::kernel::ViewerMesh& target, zima::kernel::ViewerMesh source) {
+    target.images.insert(target.images.end(),std::make_move_iterator(source.images.begin()),std::make_move_iterator(source.images.end()));
     const auto vertex_offset = static_cast<std::uint32_t>(target.vertices.size());
     target.vertices.insert(target.vertices.end(), source.vertices.begin(), source.vertices.end());
     for (const auto index : source.triangles) target.triangles.push_back(index + vertex_offset);
@@ -4030,6 +4032,12 @@ void AssemblyWorkspaceWindow::create_layout() {
         // That stale latch also kept commands such as Horizontal and Length
         // enabled and could apply them to geometry that was no longer the
         // confirmed viewer candidate.
+        if(candidate.kind==zima::viewer::CandidateKind::TemplateImage && candidate.owner_id==active_sketch_id_) {
+            select_template_image(candidate.semantic_key.substr(15));return;
+        }
+        if(candidate.kind==zima::viewer::CandidateKind::TemplateRegion && candidate.owner_id==active_sketch_id_) {
+            select_template_region(candidate.semantic_key.substr(14));return;
+        }
         const bool additive_sketch_selection =
             QApplication::keyboardModifiers().testFlag(Qt::ControlModifier) &&
             candidate.owner_id == active_sketch_id_ &&
@@ -4390,6 +4398,16 @@ void AssemblyWorkspaceWindow::create_layout() {
     });
     viewer_->set_context_menu_callback(
         [this](const auto& candidate, const QPoint& global_position) {
+            if(candidate.kind==zima::viewer::CandidateKind::TemplateImage && !properties_dialog_) {
+                const auto id=candidate.semantic_key.substr(15);QMenu menu(this);
+                auto* properties=menu.addAction(tr("Vlastnosti…"));auto* remove=menu.addAction(tr("Odstranit"));
+                const auto* chosen=menu.exec(global_position);if(chosen==properties)show_template_image_properties(id);else if(chosen==remove)remove_template_image(id);return;
+            }
+            if(candidate.kind==zima::viewer::CandidateKind::TemplateRegion && !properties_dialog_) {
+                const auto id=candidate.semantic_key.substr(14);QMenu menu(this);
+                auto* properties=menu.addAction(tr("Vlastnosti…"));auto* remove=menu.addAction(tr("Odstranit"));
+                const auto* chosen=menu.exec(global_position);if(chosen==properties)show_template_region_properties(id);else if(chosen==remove)remove_template_region(id);return;
+            }
             if (edge_treatment_selection_ || shell_face_selection_active_ ||
                 drill_point_face_selection_active_ ||
                 extrusion_target_dialog_ != nullptr ||
@@ -4412,7 +4430,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 const bool locked = existing->locked;
                 QMenu menu(this);
                 auto* lock = menu.addAction(
-                    locked ? tr("Odemknout kótu") : tr("Uzamknout kótu"));
+                    locked ? tr("Odemknout rozměr") : tr("Zamknout rozměr"));
                 lock->setEnabled(existing->driving);
                 menu.addSeparator();
                 auto* properties = menu.addAction(tr("Vlastnosti…"));
@@ -4663,6 +4681,8 @@ void AssemblyWorkspaceWindow::create_layout() {
             show_component_context_menu(candidate.instance_path, global_position);
     });
     viewer_->set_world_click_callback([this](const auto& origin, const auto& direction) {
+        if(template_image_ray(origin,direction))return true;
+        if(template_region_ray(origin,direction,true))return true;
         auto [local_origin, local_direction] =
             active_part_local_ray(origin, direction);
         if (const auto alignment=sketch_point_alignment(local_origin,local_direction)) {
@@ -4692,6 +4712,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         return accept_sketch_bspline_ray(local_origin, local_direction);
     });
     viewer_->set_world_pointer_callback([this](const auto& origin, const auto& direction) {
+        if(template_region_ray(origin,direction,false))return;
         // Fillet/Chamfer click already expands one persisted edge into its
         // complete unambiguous tangent route. Preview that exact same route
         // from the viewer's current offered candidate so hover, RMB cycling
@@ -4974,6 +4995,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         },
         [this] { end_sketch_trim_gesture(); });
     viewer_->set_short_middle_click_callback([this] {
+        if(template_region_picking_){cancel_sketch_segment();preserve_view_on_refresh_=true;refresh_scene();return true;}
         if (finish_active_reference_selection()) return true;
         if (finish_parameter_dimensions()) return true;
         // Sketch geometry is confirmed exclusively by LMB.  Consume every
@@ -5027,6 +5049,12 @@ void AssemblyWorkspaceWindow::create_layout() {
             return true;
         });
     viewer_->set_double_confirmation_callback([this](const auto& candidate) {
+        if(candidate.kind==zima::viewer::CandidateKind::TemplateImage && candidate.owner_id==active_sketch_id_) {
+            show_template_image_properties(candidate.semantic_key.substr(15));return;
+        }
+        if(candidate.kind==zima::viewer::CandidateKind::TemplateRegion && candidate.owner_id==active_sketch_id_) {
+            show_template_region_properties(candidate.semantic_key.substr(14));return;
+        }
         if (sketch_tangent_active_) {
             accept_sketch_tangent_selection(candidate);
             return;
@@ -5244,6 +5272,14 @@ void AssemblyWorkspaceWindow::create_layout() {
             auto* item = tree_->currentItem();
             if (item == nullptr || !selected_items.contains(item)) {
                 item = selected_items.front();
+            }
+            if(item->data(0,Qt::UserRole+3).toString()=="template-image") {
+                const auto id=item->data(0,Qt::UserRole).toString().toStdString();selected_template_image_=id;
+                viewer_->confirm_reference(active_sketch_id_,"template_image:"+id,{},zima::viewer::CandidateKind::TemplateImage);return;
+            }
+            if(item->data(0,Qt::UserRole+3).toString()=="template-repeat-region") {
+                const auto id=item->data(0,Qt::UserRole).toString().toStdString();selected_template_region_=id;
+                viewer_->confirm_reference(active_sketch_id_,"repeat_region:"+id,{},zima::viewer::CandidateKind::TemplateRegion);return;
             }
             if (item->parent() == nullptr && item->data(0, Qt::UserRole + 3).toString() != "part-result-body") {
                 viewer_->clear_selection(); return;
@@ -5641,6 +5677,18 @@ void AssemblyWorkspaceWindow::create_layout() {
             auto* item = tree_->itemAt(position);
             if (item == nullptr) return;
             const auto step_kind = item->data(0, Qt::UserRole + 3).toString();
+            if(step_kind=="template-image"&&!properties_dialog_) {
+                const auto id=item->data(0,Qt::UserRole).toString().toStdString();QMenu menu(this);
+                auto* properties=menu.addAction(tr("Vlastnosti…"));auto* remove=menu.addAction(tr("Odstranit"));
+                const auto* chosen=menu.exec(tree_->viewport()->mapToGlobal(position));
+                if(chosen==properties)show_template_image_properties(id);else if(chosen==remove)remove_template_image(id);return;
+            }
+            if(step_kind=="template-repeat-region"&&!properties_dialog_) {
+                const auto id=item->data(0,Qt::UserRole).toString().toStdString();QMenu menu(this);
+                auto* properties=menu.addAction(tr("Vlastnosti…"));auto* remove=menu.addAction(tr("Odstranit"));
+                const auto* chosen=menu.exec(tree_->viewport()->mapToGlobal(position));
+                if(chosen==properties)show_template_region_properties(id);else if(chosen==remove)remove_template_region(id);return;
+            }
             if (step_kind == "part-result-body" && item->parent() == nullptr) {
                 if (properties_dialog_ || !active_sketch_id_.empty() ||
                     workspace_.open_part(workspace_.displayed_document_id()) == nullptr) return;
@@ -6248,7 +6296,8 @@ QString AssemblyWorkspaceWindow::create_document(
         : document_type == QStringLiteral("assembly")
             ? QStringLiteral(".asmz")
             : document_type == QStringLiteral("drawing")
-                ? QStringLiteral(".drwz") : QString{};
+                ? QStringLiteral(".drwz") : document_type == "title_block" ? QStringLiteral(".tblz")
+                    : document_type == "drawing_format" ? QStringLiteral(".frmz") : QString{};
     if (suffix.isEmpty()) return tr("Tento typ dokumentu zatím není podporován.");
     const std::filesystem::path path = working_directory_ /
         (name + suffix.toStdString());
@@ -6258,7 +6307,15 @@ QString AssemblyWorkspaceWindow::create_document(
     }
     std::string id;
     try {
-        if (document_type == QStringLiteral("part")) {
+        if (document_type == "title_block" || document_type == "drawing_format") {
+            auto document = zima::document::PartDocument::create_default(); document.name=name;
+            auto sketch = zima::drawing::create_template_sketch(document_type=="title_block",name);
+            auto container=zima::document::PartDocument::create_sketch_container();
+            container.name=name;sketch.owner_container_id=container.id;
+            document.insert_history_entry(zima::document::PartHistoryKind::Feature,container.id);
+            document.history.push_back(std::move(container));document.sketches.push_back(std::move(sketch));
+            id=document.document_id;workspace_.add_part(std::move(document),{},path);
+        } else if (document_type == QStringLiteral("part")) {
             auto document = new_part_from_template(application_settings_);
             document.name = name;
             for (auto it = application_settings_.units.cbegin();
@@ -6538,6 +6595,19 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
     }
 
     if (!active_sketch_id_.empty()) {
+        if(const auto* sketch=template_sketch();sketch&&sketch->drawing_template->kind=="title_block") {
+            if(!template_region_action_) {
+                template_region_action_=new QAction(resource_icon("bom-region"),tr("Oblast kusovníku"),this);
+                template_region_action_->setObjectName("templateRepeatRegionAction");
+                connect(template_region_action_,&QAction::triggered,this,[this]{start_template_region();});
+            }
+            if(!template_image_action_) {
+                template_image_action_=new QAction(resource_icon("template-image"),tr("Obrázek"),this);
+                template_image_action_->setObjectName("templateImageAction");
+                connect(template_image_action_,&QAction::triggered,this,[this]{start_template_image();});
+            }
+            add_command(template_region_action_);add_command(template_image_action_);add_green_separator();
+        }
         add_command(sketch_normal_view_action_);
         add_command(sketch_flip_view_action_);
         add_command(sketch_rotate_view_action_);
@@ -6564,7 +6634,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         add_command(sketch_universal_dimension_action_);
         add_command(sketch_text_action_);
         add_green_separator();
-        add_command(finish_sketch_action_);
+        if(!template_sketch())add_command(finish_sketch_action_);
         return;
     }
 
@@ -7141,6 +7211,14 @@ bool AssemblyWorkspaceWindow::open_document_path(const QString& path) {
         if (const auto already_open = workspace_.document_id_for_path(opened_path)) {
             update_status_operation(tr("Aktivuji již otevřený dokument…"));
             id = *already_open;
+        } else if (path.endsWith(".frmz",Qt::CaseInsensitive) || path.endsWith(".tblz",Qt::CaseInsensitive)) {
+            auto sketch=zima::drawing::load_template_sketch(opened_path,[](auto& text){rebuild_sketch_text_contours(text,true);});
+            auto document=zima::document::PartDocument::create_default();document.name=opened_path.stem().string();
+            auto container=zima::document::PartDocument::create_sketch_container();container.name=sketch.name;
+            sketch.owner_container_id=container.id;
+            document.insert_history_entry(zima::document::PartHistoryKind::Feature,container.id);
+            document.history.push_back(std::move(container));document.sketches.push_back(std::move(sketch));
+            id=document.document_id;workspace_.add_part(std::move(document),{},opened_path);
         } else if (path.endsWith(".prtz", Qt::CaseInsensitive)) {
             update_status_operation(
                 tr("Čtu Part, parametry a uloženou geometrii…"), -1, 0);
@@ -8852,6 +8930,7 @@ void AssemblyWorkspaceWindow::save_active_assembly() {
 }
 
 void AssemblyWorkspaceWindow::save_active_document() {
+    if(template_sketch()){save_template_document(false);return;}
     if(auto* drawing=workspace_.open_drawing(workspace_.active_document_id())) {
         QString path=QString::fromStdString(drawing->path.string());
         if(path.isEmpty()) path=save_file(
@@ -8947,6 +9026,7 @@ void AssemblyWorkspaceWindow::save_active_document() {
 }
 
 void AssemblyWorkspaceWindow::save_active_document_as() {
+    if(template_sketch()){save_template_document(true);return;}
     const std::string document_id = workspace_.active_document_id();
     if (document_id.empty()) return;
     QString caption;
@@ -14765,6 +14845,7 @@ void AssemblyWorkspaceWindow::show_sketch_text_properties(
         anchor = std::array{text->anchor_x, text->anchor_y};
     } else {
         initial = zima::sketcher::Sketch::create_text();
+        if(sketch->drawing_template){initial.flipped=true;initial.height=2.5;}
     }
 
     cancel_sketch_segment();
@@ -14808,7 +14889,7 @@ void AssemblyWorkspaceWindow::show_sketch_text_properties(
             state_->setText(edit_mode
                 ? tr("Text skici byl upraven jako jedna revize.")
                 : tr("Text skici byl vytvořen jako jedna revize."));
-        }, this);
+        }, this, sketch->drawing_template.has_value());
     properties_dialog_ = dialog;
     sketch_text_dialog_ = dialog;
     connect(dialog, &QObject::destroyed, this, [this, dialog] {
@@ -15105,7 +15186,7 @@ void AssemblyWorkspaceWindow::align_active_sketch_view(bool fit_view) {
     const double frame_roll = camera_roll_for_direction(
         direction, screen_x, 0.0);
     viewer_->set_view_direction(direction, static_cast<float>(
-        frame_roll + sketch_view_quarter_turns_ * 90.0));
+        frame_roll + sketch_view_quarter_turns_ * 90.0 + (sketch->drawing_template ? 180.0 : 0.0)));
     if (fit_view) viewer_->fit_all();
     state_->setText(tr("Pohled je kolmý k rovině aktivní skici."));
 }
@@ -15545,6 +15626,7 @@ void AssemblyWorkspaceWindow::start_sketch_polyline() {
 }
 
 void AssemblyWorkspaceWindow::cancel_sketch_segment() {
+    template_region_picking_=false;template_region_first_.reset();
     // Switching directly from Trim to another Sketch command commits the
     // accumulated preview as one revision. Escape cancels Trim explicitly in
     // cancel_current_sketch_step() before it reaches this general reset path.
@@ -19887,6 +19969,7 @@ void AssemblyWorkspaceWindow::end_component_drag() {
 }
 
 void AssemblyWorkspaceWindow::clear_selected_sketch_geometry() {
+    selected_template_region_.clear();selected_template_image_.clear();
     selected_sketch_geometry_ids_.clear();
     selected_sketch_segment_id_.clear();
     selected_sketch_circle_id_.clear();
@@ -19919,6 +20002,8 @@ void AssemblyWorkspaceWindow::clear_selected_sketch_geometry() {
 }
 
 bool AssemblyWorkspaceWindow::delete_selected_sketch_geometry() {
+    if(!selected_template_image_.empty()){const auto id=selected_template_image_;remove_template_image(id);return true;}
+    if(!selected_template_region_.empty()){const auto id=selected_template_region_;remove_template_region(id);return true;}
     if (properties_dialog_ != nullptr || active_sketch_id_.empty() ||
         sketch_point_active_ || sketch_segment_active_ ||
         sketch_rectangle_active_ || sketch_polygon_active_ || sketch_mirror_active_ ||
@@ -23892,8 +23977,13 @@ void AssemblyWorkspaceWindow::refresh_tabs() {
                     ? QString::fromStdString(model.name)
                     : QString::fromStdString(document.path.filename().string());
                 const int index = tabs_->addTab(
-                    resource_icon(std::is_same_v<State, zima::workspace::PartState>
-                        ? "part" : "assembly"),
+                    resource_icon([&]() -> QString {
+                        if constexpr(std::is_same_v<State,zima::workspace::PartState>) {
+                            if(!model.sketches.empty()&&model.sketches.front().drawing_template)
+                                return model.sketches.front().drawing_template->kind=="title_block"?"title-block":"drawing-format";
+                            return "part";
+                        } else return "assembly";
+                    }()),
                     label + (document.session.is_dirty() ? QStringLiteral(" *") : QString{}));
                 tabs_->setTabData(index, QString::fromStdString(model.document_id));
                 if (model.document_id == workspace_.displayed_document_id()) {
@@ -23918,6 +24008,7 @@ void AssemblyWorkspaceWindow::update_document_kind_button() {
     }
     QString label;
     QString tooltip;
+    if(template_sketch()){document_kind_button_->hide();return;}
     if (const auto* drawing = workspace_.open_drawing(displayed)) {
         bool assembly_source = false;
         if (!drawing->document.source_document_id.empty()) {
@@ -25279,6 +25370,13 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             return;
         }
         const auto& document = part->session.document();
+        if(!document.sketches.empty() && document.sketches.front().drawing_template) {
+            const auto& sketch=document.sketches.front();
+            if(active_sketch_id_!=sketch.id) {
+                active_sketch_id_=sketch.id;
+                QTimer::singleShot(0,this,[this]{if(template_sketch())align_active_sketch_view(true);});
+            }
+        }
         const auto construction_dimension_geometry =
             part_construction_dimension_geometry(
                 document, part->session.calculated_boundaries());
@@ -25509,7 +25607,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                                 zima::viewer::CandidateKind::Container};
                     }
                 }()
-                : std::vector{zima::viewer::CandidateKind::SketchSegment,
+                : std::vector{zima::viewer::CandidateKind::TemplateImage, zima::viewer::CandidateKind::TemplateRegion,
+                              zima::viewer::CandidateKind::SketchSegment,
                               zima::viewer::CandidateKind::SketchPoint,
                               zima::viewer::CandidateKind::SketchAxis,
                               zima::viewer::CandidateKind::Dimension,
@@ -25854,6 +25953,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                     viewer_->reference_visible(
                         zima::viewer::ReferenceVisibility::Planes)));
             }
+            if (template_sketch()) display = sketch_viewer_mesh(document.sketches.front());
             viewer_->set_mesh(std::move(display),
                 !preserve_view_on_refresh_ && active_sketch_id_.empty());
             preserve_view_on_refresh_ = false;
@@ -26003,6 +26103,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                     }
                 }
             }
+            if (template_sketch()) display = sketch_viewer_mesh(document.sketches.front());
             viewer_->set_mesh(std::move(display),
                 !preserve_view_on_refresh_ && active_sketch_id_.empty());
             preserve_view_on_refresh_ = false;
@@ -26700,6 +26801,20 @@ void AssemblyWorkspaceWindow::populate_sketch_tree(
     const zima::sketcher::Sketch& sketch) {
     tree_->setHeaderLabels({tr("SKETCHER — %1").arg(
         QString::fromStdString(sketch.name))});
+    if(sketch.drawing_template) {
+        const auto* part=workspace_.open_part(workspace_.active_document_id());
+        tree_->setHeaderLabels({QString::fromStdString(part->path.empty()?part->session.document().name:part->path.filename().string())});
+        for(const auto& region:sketch.drawing_template->repeat_regions) {
+            auto* item=new QTreeWidgetItem(tree_,{tr("Oblast kusovníku")});item->setIcon(0,resource_icon("bom-region"));
+            item->setData(0,Qt::UserRole,QString::fromStdString(region.id));item->setData(0,Qt::UserRole+3,"template-repeat-region");
+            item->setSelected(selected_template_region_==region.id);
+        }
+        for(const auto& image:sketch.drawing_template->images) {
+            auto* item=new QTreeWidgetItem(tree_,{tr("Obrázek — %1").arg(QString::fromStdString(image.name))});item->setIcon(0,resource_icon("template-image"));
+            item->setData(0,Qt::UserRole,QString::fromStdString(image.id));item->setData(0,Qt::UserRole+3,"template-image");
+            item->setSelected(selected_template_image_==image.id);
+        }
+    }
     auto* origin = new QTreeWidgetItem(tree_, {
         tr("Počátek kontejneru — %1").arg(QString::fromStdString(sketch.name))});
     origin->setIcon(0, resource_icon("origin"));
@@ -28324,6 +28439,12 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
 }
 
 void AssemblyWorkspaceWindow::show_tree_item_properties(QTreeWidgetItem* item) {
+    if(item && item->data(0,Qt::UserRole+3).toString()=="template-image") {
+        show_template_image_properties(item->data(0,Qt::UserRole).toString().toStdString());return;
+    }
+    if(item && item->data(0,Qt::UserRole+3).toString()=="template-repeat-region") {
+        show_template_region_properties(item->data(0,Qt::UserRole).toString().toStdString());return;
+    }
     if(item&&item->data(0,Qt::UserRole+3).toString()=="part-sweep2d-sketch"){
         const auto stage=item->data(0,Qt::UserRole+6).toUInt();
         show_sweep2d_properties(item->data(0,Qt::UserRole).toString().toStdString());

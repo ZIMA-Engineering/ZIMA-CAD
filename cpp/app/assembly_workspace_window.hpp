@@ -75,6 +75,27 @@ public:
     }
 
 private:
+    const zima::sketcher::Sketch* template_sketch() const;
+    void save_template_document(bool copy);
+    void start_template_region();
+    bool template_region_ray(const zima::kernel::Vec3&, const zima::kernel::Vec3&, bool commit);
+    void show_template_region_properties(const std::string& id,
+        std::optional<zima::sketcher::SketchRepeatRegion> initial = {});
+    void remove_template_region(const std::string& id);
+    void select_template_region(const std::string& id);
+    void start_template_image();
+    void show_template_image_properties(const std::string& id,
+        std::optional<zima::sketcher::TemplateImage> initial = {});
+    bool template_image_ray(const zima::kernel::Vec3&, const zima::kernel::Vec3&);
+    void remove_template_image(const std::string& id);
+    void select_template_image(const std::string& id);
+    QAction* template_image_action_{};
+    std::function<void(double,double)> template_image_anchor_;
+    std::string selected_template_image_;
+    QAction* template_region_action_{};
+    bool template_region_picking_{};
+    std::optional<std::array<double,2>> template_region_first_;
+    std::string selected_template_region_;
     enum class ApplicationMode {
         Modeling,
         Assembly,

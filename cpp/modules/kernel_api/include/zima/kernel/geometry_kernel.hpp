@@ -129,6 +129,7 @@ struct ViewerEdge {
     // Variable-radius preview uses them to show the same R1/R2 direction as
     // the explicit OCCT calculation even when curve parameterization flips.
     std::vector<VertexReference> edge_treatment_endpoint_references;
+    std::string color; // Optional presentation colour for template Sketch wires.
 };
 
 struct ViewerPoint {
@@ -209,6 +210,13 @@ struct ViewerReferenceGeometry {
     std::vector<ViewerAxis> axes;
 };
 
+struct ViewerImage {
+    std::array<Vec3,4> corners; // Pixel top-left, top-right, bottom-right, bottom-left.
+    EdgeReference reference;
+    std::string data_base64;
+    std::string format{"png"};
+};
+
 struct ViewerMesh {
     std::vector<Vec3> vertices;
     std::vector<std::uint32_t> triangles;
@@ -221,6 +229,7 @@ struct ViewerMesh {
     std::vector<ViewerDimension> dimensions;
     std::vector<ViewerConstraintMarker> constraint_markers;
     ViewerReferenceGeometry original_references;
+    std::vector<ViewerImage> images;
 };
 
 struct BoxRequest {

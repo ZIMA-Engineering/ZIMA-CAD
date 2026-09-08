@@ -33,6 +33,8 @@ target_include_directories(zima_kernel_api INTERFACE
 
 add_library(zima_sketcher
     modules/sketcher/src/sketch.cpp
+    modules/sketcher/src/template_image.cpp
+    modules/sketcher/src/rectilinear_template_solver.cpp
     modules/sketcher/src/sketch_trim.cpp)
 target_include_directories(zima_sketcher PUBLIC modules/sketcher/include)
 target_link_libraries(zima_sketcher
@@ -60,7 +62,8 @@ target_link_libraries(zima_assembly
     PUBLIC zima_kernel_api zima_document_core
     PRIVATE nlohmann_json::nlohmann_json)
 
-add_library(zima_drawing modules/drawing/src/drawing_document.cpp)
+add_library(zima_drawing modules/drawing/src/drawing_document.cpp
+    modules/drawing/src/drawing_template.cpp)
 target_include_directories(zima_drawing PUBLIC modules/drawing/include)
 target_link_libraries(zima_drawing
     PUBLIC zima_kernel_api zima_document_core
@@ -91,7 +94,7 @@ add_library(zima_viewer
     modules/viewer/src/picking.cpp)
 target_include_directories(zima_viewer PUBLIC modules/viewer/include)
 target_link_libraries(zima_viewer PUBLIC zima_kernel_api
-    Qt6::Widgets Qt6::OpenGL Qt6::OpenGLWidgets)
+    Qt6::Widgets Qt6::OpenGL Qt6::OpenGLWidgets Qt6::Svg)
 
 add_library(zima_ui modules/ui/src/properties_subwindow.cpp
     modules/ui/src/reference_cell.cpp
@@ -118,7 +121,7 @@ target_link_libraries(zima-cad-part-harness PRIVATE
 set_target_properties(zima-cad-part-harness PROPERTIES AUTORCC ON)
 
 add_executable(zima-cad-cpp
-    app/main_workspace.cpp app/assembly_workspace_window.cpp app/shaft_thread_command.cpp app/derived_copy_command.cpp
+    app/main_workspace.cpp app/assembly_workspace_window.cpp app/template_command.cpp app/shaft_thread_command.cpp app/derived_copy_command.cpp
     app/application_settings.cpp app/global_settings_dialog.cpp
     app/document_tools_dialogs.cpp
     app/drawing_window.cpp app/file_dialog.cpp app/resource_icon.cpp
@@ -178,6 +181,7 @@ add_executable(zima-cad-drawing-harness
     tests/drawing_ui_contract.cpp
     app/resource_icon.cpp app/zima_resources.qrc)
 target_include_directories(zima-cad-drawing-harness PRIVATE app)
+target_link_libraries(zima-cad-drawing-harness PRIVATE zima_viewer)
 target_link_libraries(zima-cad-drawing-harness PRIVATE
     zima_workspace zima_drawing zima_document_core zima_assembly zima_ui
     Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg)

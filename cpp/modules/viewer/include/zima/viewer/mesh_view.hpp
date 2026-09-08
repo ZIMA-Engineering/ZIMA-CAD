@@ -84,6 +84,9 @@ public:
     [[nodiscard]] const zima::kernel::ViewerMesh& mesh() const;
     void set_dimension_decimal_places(int decimal_places);
     [[nodiscard]] int dimension_decimal_places() const;
+    // Read-only viewport ray, using the same camera as the common picker.
+    [[nodiscard]] std::optional<std::pair<zima::kernel::Vec3, zima::kernel::Vec3>>
+        ray_at(const QPointF& position) const;
     [[nodiscard]] std::array<float, 8> camera_state() const;
     void set_camera_state(const std::array<float, 8>& state);
     // Animates a full camera-state restore (orientation, pan, zoom),
@@ -289,8 +292,7 @@ private:
     // matching Python's animate_camera_state used to restore custom saved
     // "Pohled kolmo" views (as opposed to animate_orientation_to, which only
     // handles the 7 built-in standard/normal views and eases pan to zero).
-    [[nodiscard]] std::optional<std::pair<zima::kernel::Vec3, zima::kernel::Vec3>>
-        ray_at(const QPointF& position) const;
+
 };
 
 }  // namespace zima::viewer

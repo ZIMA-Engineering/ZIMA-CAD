@@ -1,3 +1,5 @@
+#include "rectilinear_template_solver.hpp"
+#include <zima/sketcher/template_image_json.hpp>
 #include <zima/sketcher/sketch.hpp>
 #include <zima/kernel/stable_id.hpp>
 
@@ -6424,6 +6426,10 @@ void Sketch::add_text(SketchText text) {
         throw std::invalid_argument("Sketch text already exists");
     }
     auto next = *this;
+    if(next.drawing_template && text.anchor_point_id.empty()) {
+        text.anchor_point_id=make_id();
+        next.points.push_back({text.anchor_point_id,text.anchor_x,text.anchor_y});
+    }
     next.texts.push_back(std::move(text));
     next.validate();
     *this = std::move(next);
@@ -6436,7 +6442,19 @@ void Sketch::update_text(SketchText text) {
     if (found == next.texts.end()) {
         throw std::invalid_argument("Sketch text does not exist");
     }
-    *found = std::move(text);
+    const auto text_index=static_cast<std::size_t>(found-next.texts.begin());
+    if(next.drawing_template && !text.anchor_point_id.empty()) {
+        const auto* point=next.find_point(text.anchor_point_id);
+        if(point && (point->x!=text.anchor_x || point->y!=text.anchor_y))
+            if(!next.move_point(text.anchor_point_id,text.anchor_x,text.anchor_y))
+                throw std::runtime_error("Poloha textu je určena vazbami jeho bodu.");
+        if(const auto* resolved=next.find_point(text.anchor_point_id)) {
+            const double dx=resolved->x-text.anchor_x,dy=resolved->y-text.anchor_y;
+            for(auto& contour:text.contours)for(auto& vertex:contour){vertex[0]+=dx;vertex[1]+=dy;}
+            text.anchor_x=resolved->x;text.anchor_y=resolved->y;
+        }
+    }
+    next.texts.at(text_index) = std::move(text);
     next.validate();
     *this = std::move(next);
 }
@@ -7966,6 +7984,18 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
 SolveResult Sketch::solve_impl(
     std::size_t maximum_iterations, bool calculate_degrees_of_freedom,
     const std::vector<std::string>& preferred_point_ids) {
+    struct TextAnchorGuard {
+        Sketch* sketch;
+        ~TextAnchorGuard() {
+            if(!sketch->drawing_template)return;
+            for(auto& text:sketch->texts)if(!text.anchor_point_id.empty())
+                if(const auto* p=sketch->find_point(text.anchor_point_id)) {
+                    const double dx=p->x-text.anchor_x,dy=p->y-text.anchor_y;
+                    for(auto& contour:text.contours)for(auto& point:contour){point[0]+=dx;point[1]+=dy;}
+                    text.anchor_x=p->x;text.anchor_y=p->y;
+                }
+        }
+    } text_anchor_guard{this};
     point_lookup_indices_.clear();
     point_lookup_indices_.reserve(points.size());
     for (std::size_t index = 0; index < points.size(); ++index) {
@@ -7989,6 +8019,7 @@ SolveResult Sketch::solve_impl(
     const auto original_ellipses = ellipses;
     const auto original_elliptical_arcs = elliptical_arcs;
     const auto original_dimensions = dimensions;
+    if(drawing_template)seed_rectilinear_template(*this,preferred_point_ids);
     constexpr double tolerance = 1.0e-8;
     double maximum_residual{};
     const auto linked_points = externally_linked_point_ids(*this);
@@ -12256,6 +12287,35 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         rendered.participant_semantic_keys={"point:"+radius->vertex_id,
             "segment:"+radius->first_segment_id,"segment:"+radius->second_segment_id};
     }
+    if (drawing_template) {
+        for (auto& edge : result.edges) {
+            const auto separator = edge.reference.semantic_key.find(':');
+            const auto found = drawing_template->pens.find(
+                edge.reference.semantic_key.substr(separator + 1));
+            if (!edge.reference.semantic_key.starts_with("text:"))
+                edge.color = found != drawing_template->pens.end() && found->second == "WHITE" ? "#FFFFFF"
+                    : found != drawing_template->pens.end() && found->second == "YELLOW" ? "#E6C85C" : "#4DD811";
+        }
+        for (const auto& image : drawing_template->images) {
+            image.validate();zima::kernel::ViewerImage rendered;
+            rendered.reference={id,"template_image:"+image.id,{}};rendered.data_base64=image.data_base64;rendered.format=image.format;
+            const auto corners=image.corners();
+            for(std::size_t i=0;i<4;++i)rendered.corners[i]=world_point(corners[i][0],corners[i][1]);
+            zima::kernel::ViewerEdge boundary;boundary.reference=rendered.reference;boundary.overlay=true;
+            boundary.points.assign(rendered.corners.begin(),rendered.corners.end());boundary.points.push_back(rendered.corners.front());
+            result.edges.push_back(std::move(boundary));result.images.push_back(std::move(rendered));
+        }
+        for (const auto& r : drawing_template->repeat_regions) {
+            zima::kernel::ViewerEdge edge;
+            edge.points = {world_point(r.x,r.y),world_point(r.x+r.width,r.y),
+                world_point(r.x+r.width,r.y+r.height),world_point(r.x,r.y+r.height),
+                world_point(r.x,r.y)};
+            edge.reference = {id,"repeat_region:"+r.id,{}};
+            edge.overlay = true;
+            edge.color = "#D580FF";
+            result.edges.push_back(std::move(edge));
+        }
+    }
     return result;
 }
 
@@ -12424,7 +12484,7 @@ std::string Sketch::serialized() const {
             {"vertical", text_vertical_name(text.vertical)},
             {"angle_degrees", text.angle_degrees}, {"flipped", text.flipped},
             {"color", text_color_name(text.color)}, {"font", text.font},
-            {"contours", std::move(contours)}});
+            {"contours", std::move(contours)},{"anchor_point_id",text.anchor_point_id}});
     }
     nlohmann::json external_reference_values = nlohmann::json::array();
     for (const auto& reference : external_references) {
@@ -12488,7 +12548,7 @@ std::string Sketch::serialized() const {
         value["locked"] = dimension.locked;
         dimension_values.push_back(std::move(value));
     }
-    const nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 31},
+    nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 31},
         {"id", id}, {"owner_container_id", owner_container_id},
         {"name", name}, {"suppressed", suppressed},
         {"plane", plane_name(plane)},
@@ -12511,6 +12571,15 @@ std::string Sketch::serialized() const {
         {"external_references", std::move(external_reference_values)},
         {"constraints", std::move(constraint_values)},
         {"dimensions", std::move(dimension_values)}};
+    if (drawing_template) {
+        const auto& data = *drawing_template;
+        nlohmann::json regions = nlohmann::json::array();
+        for (const auto& r : data.repeat_regions) regions.push_back({
+            {"id",r.id},{"x",r.x},{"y",r.y},{"width",r.width},{"height",r.height},
+            {"direction",r.direction},{"step",r.step}});
+        root["drawing_template"] = {{"kind",data.kind},{"sections",data.sections},
+            {"pens",data.pens},{"field_ids",data.field_ids},{"repeat_regions",regions},{"images",data.images}};
+    }
     return root.dump(2);
 }
 
@@ -12520,6 +12589,19 @@ Sketch Sketch::from_serialized(const std::string& value) {
         throw std::runtime_error("Unsupported sketch format");
     }
     Sketch sketch;
+    if (root.contains("drawing_template")) {
+        const auto& data = root.at("drawing_template");
+        sketch.drawing_template.emplace();
+        auto& t = *sketch.drawing_template;
+        t.kind = data.at("kind");
+        t.images = data.value("images",std::vector<TemplateImage>{});
+        t.sections = data.at("sections").get<decltype(t.sections)>();
+        t.pens = data.at("pens").get<decltype(t.pens)>();
+        t.field_ids = data.at("field_ids").get<decltype(t.field_ids)>();
+        for (const auto& r : data.at("repeat_regions")) t.repeat_regions.push_back({
+            r.at("id"),r.at("x"),r.at("y"),r.at("width"),r.at("height"),
+            r.at("direction"),r.at("step")});
+    }
     sketch.id = root.at("id").get<std::string>();
     sketch.owner_container_id = root.at("owner_container_id").get<std::string>();
     sketch.name = root.at("name").get<std::string>();
@@ -12603,6 +12685,7 @@ Sketch Sketch::from_serialized(const std::string& value) {
     for (const auto& value : root.at("texts")) {
         SketchText text;
         text.id = value.at("id").get<std::string>();
+        text.anchor_point_id=value.value("anchor_point_id",std::string{});
         text.value = value.at("value").get<std::string>();
         text.anchor_x = value.at("anchor_x").get<double>();
         text.anchor_y = value.at("anchor_y").get<double>();
