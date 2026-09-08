@@ -91,6 +91,7 @@ struct ComponentPlacementReference {
     bool flip{};
     std::optional<double> lower_limit;
     std::optional<double> upper_limit;
+    bool offset_locked{};
     bool operator==(const ComponentPlacementReference&) const = default;
 };
 
@@ -129,6 +130,7 @@ struct PartOccurrence {
     // immediate occurrence; the reflected snapshot has no editable history.
     std::optional<zima::document::DerivedCopyParameters> derived_copy;
     zima::document::Placement copy_placement;
+    std::set<std::string> value_locks;
 };
 
 // Assembly-owned subtractive feature. `definition` is deliberately the same
@@ -268,6 +270,8 @@ public:
         const zima::kernel::Vec3& reference_direction,
         const zima::kernel::Vec3& ray_origin,
         const zima::kernel::Vec3& ray_direction);
+    [[nodiscard]] std::optional<double> measure_placement_reference(
+        const ComponentPlacementReference& reference) const;
     [[nodiscard]] PlaneResolution resolve_plane(
         const MateReference& reference) const;
     [[nodiscard]] AxisResolution resolve_axis(

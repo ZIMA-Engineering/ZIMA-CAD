@@ -4,7 +4,7 @@
 namespace zima::document {
 inline void to_json(nlohmann::json& j,const DerivedCopyParameters& m) {
     const auto& p=m.resolved_plane;const auto& r=m.reference;
-    j={{"source_id",m.source_id},{"reference",{{"owner_id",r.owner_id},{"semantic_key",r.semantic_key},{"instance_path",r.instance_path},{"offset",r.offset}}},
+    j={{"source_id",m.source_id},{"value_locks",m.value_locks},{"reference",{{"owner_id",r.owner_id},{"semantic_key",r.semantic_key},{"instance_path",r.instance_path},{"offset",r.offset}}},
         {"point",{p.point.x,p.point.y,p.point.z}},{"normal",{p.normal.x,p.normal.y,p.normal.z}},
         {"reference_valid",m.reference_valid},{"pattern",nullptr}};
     if(m.pattern){const auto& p=*m.pattern;j["pattern"]={{"circular",p.circular},{"count",p.count},{"angle_degrees",p.angle_degrees},
@@ -15,6 +15,7 @@ inline void to_json(nlohmann::json& j,const DerivedCopyParameters& m) {
     }
 }
 inline void from_json(const nlohmann::json& j,DerivedCopyParameters& m) {
+    m.value_locks=j.value("value_locks",std::set<std::string>{});
     m.source_id=j.at("source_id");const auto& r=j.at("reference");
     m.reference={r.at("instance_path"),r.at("owner_id"),r.at("semantic_key"),r.at("offset")};
     const auto& p=j.at("point");const auto& n=j.at("normal");

@@ -2986,6 +2986,13 @@ void placement_assign_orientation_direction(
 
 }  // namespace
 
+std::optional<double> measure_placement_reference_offset(const ConstructionReference& reference,
+        const zima::kernel::ViewerReferenceGeometry& geometry,const zima::kernel::Vec3& point) {
+    if(!reference.supports_offset)return std::nullopt;
+    const auto plane=placement_reference_plane(reference,geometry);if(!plane)return std::nullopt;
+    return (point.x-plane->point.x)*plane->normal.x+(point.y-plane->point.y)*plane->normal.y+(point.z-plane->point.z)*plane->normal.z;
+}
+
 namespace {
 
 using TrajectoryVec3 = zima::kernel::Vec3;
@@ -4375,6 +4382,8 @@ std::vector<zima::kernel::ViewerDimension> container_placement_dimensions(
         dimension.kind = zima::kernel::ViewerDimensionKind::Angular;
         dimension.plane_normal = axis;
         dimension.sweep_degrees = degrees;
+        dimension.value_lock_key=std::string("placement:")+(correction_dimension?"rotation_offset_":"rotation_")+
+            (index==0?"x":index==1?"y":"z");
     }
     return result;
 }
@@ -8627,6 +8636,7 @@ ConstructionObject deserialize_curve_point(
     std::unordered_set<std::string>& construction_ids) {
     ConstructionObject point;
     point.id = source.at("id").get<std::string>();
+    point.value_locks = source.value("value_locks", std::set<std::string>{});
     point.entity_id = source.at("entity_id").get<std::string>();
     point.entity_parent_id = source.at("entity_parent_id").get<std::string>();
     point.parent_construction_id =
@@ -8707,7 +8717,7 @@ ConstructionObject deserialize_curve_point(
             serialized.at("orientation_role").get<std::string>(),
             serialized.at("orientation_drives_rotation").get<bool>(),
             serialized.value("orientation_only", false),
-            serialized.value("flip", false)});
+            serialized.value("flip", false), serialized.value("offset_locked",false)});
     }
     if (point.id.empty() || point.name.empty() ||
         !construction_ids.insert(point.id).second ||
@@ -8747,7 +8757,7 @@ nlohmann::json serialize_curve_point(
             {"instance_path", reference.instance_path},
             {"owner_id", reference.owner_id},
             {"semantic_key", reference.semantic_key},
-            {"offset", reference.offset},
+            {"offset", reference.offset}, {"offset_locked", reference.offset_locked},
             {"supports_offset", reference.supports_offset},
             {"orientation_role", reference.orientation_role},
             {"orientation_drives_rotation",
@@ -8764,7 +8774,7 @@ nlohmann::json serialize_curve_point(
             ? "axis_reference"
         : point.definition == ConstructionDefinition::ThreePointPlane
             ? "three_point_plane" : "plane_reference";
-    return {{"id", point.id}, {"entity_id", point.entity_id},
+    return {{"id", point.id}, {"value_locks", point.value_locks}, {"entity_id", point.entity_id},
         {"entity_parent_id", point.entity_parent_id},
         {"parent_construction_id", point.parent_construction_id},
         {"name", point.name}, {"type", "point"},
@@ -8811,6 +8821,7 @@ std::vector<ConstructionObject> deserialize_construction_objects(
     for (const auto& source : sources) {
         ConstructionObject object;
         object.id = source.at("id").get<std::string>();
+    object.value_locks = source.value("value_locks", std::set<std::string>{});
         object.entity_id = source.at("entity_id").get<std::string>();
         object.entity_parent_id =
             source.at("entity_parent_id").get<std::string>();
@@ -8915,7 +8926,7 @@ std::vector<ConstructionObject> deserialize_construction_objects(
                 value.at("orientation_role").get<std::string>(),
                 value.at("orientation_drives_rotation").get<bool>(),
                 value.value("orientation_only", false),
-                value.value("flip", false)});
+                value.value("flip", false), value.value("offset_locked",false)});
         }
         if (object.kind == ConstructionKind::Curve3D) {
             object.curve_rounding_enabled = source.at("curve_rounding_enabled").get<bool>();
@@ -9031,7 +9042,7 @@ std::string serialize_construction_objects(
             references.push_back({{"instance_path", reference.instance_path},
                 {"owner_id", reference.owner_id},
                 {"semantic_key", reference.semantic_key},
-                {"offset", reference.offset},
+                {"offset", reference.offset}, {"offset_locked", reference.offset_locked},
                 {"supports_offset", reference.supports_offset},
                 {"orientation_role", reference.orientation_role},
                 {"orientation_drives_rotation",
@@ -9055,7 +9066,7 @@ std::string serialize_construction_objects(
             : object.definition == ConstructionDefinition::ThreePointPlane
                 ? "three_point_plane" : "plane_reference";
         serialized.push_back({
-            {"id", object.id}, {"entity_id", object.entity_id},
+            {"id", object.id}, {"value_locks", object.value_locks}, {"entity_id", object.entity_id},
             {"entity_parent_id", object.entity_parent_id},
             {"parent_construction_id", object.parent_construction_id},
             {"name", object.name},
@@ -9172,6 +9183,7 @@ PartDocument PartDocument::load(
             : type == "drill_point" ? FeatureKind::DrillPoint
             : FeatureKind::Box;
         container.id = source.at("id").get<std::string>();
+    container.value_locks = source.value("value_locks", std::set<std::string>{});
         container.feature_id = source.at("feature_id").get<std::string>();
         container.feature_parent_id =
             source.at("feature_parent_id").get<std::string>();
@@ -9876,6 +9888,7 @@ PartDocument PartDocument::load(
         }
         if (source.contains("placement")) {
             const auto& placement = source.at("placement");
+            container.placement.value_locks = placement.value("value_locks",std::set<std::string>{});
             container.placement.x = placement.value("x", 0.0);
             container.placement.y = placement.value("y", 0.0);
             container.placement.z = placement.value("z", 0.0);
@@ -9911,7 +9924,7 @@ PartDocument PartDocument::load(
                         serialized.at("orientation_role").get<std::string>(),
                         serialized.at("orientation_drives_rotation").get<bool>(),
                         serialized.value("orientation_only", false),
-                        serialized.value("flip", false)});
+                        serialized.value("flip", false), serialized.value("offset_locked",false)});
                 }
             }
         }
@@ -10381,7 +10394,7 @@ void PartDocument::save(
             require_default_sketch_feature_placement(container.placement);
         }
         nlohmann::json serialized = {
-            {"id", container.id},
+            {"id", container.id}, {"value_locks", container.value_locks},
             {"feature_id", container.feature_id},
             {"feature_parent_id", container.feature_parent_id},
             {"type", container.feature_kind == FeatureKind::Sketch ? "sketch"
@@ -10450,7 +10463,7 @@ void PartDocument::save(
                     {{"instance_path", reference.instance_path},
                         {"owner_id", reference.owner_id},
                         {"semantic_key", reference.semantic_key},
-                        {"offset", reference.offset},
+                        {"offset", reference.offset}, {"offset_locked", reference.offset_locked},
                         {"supports_offset", reference.supports_offset},
                         {"orientation_role", reference.orientation_role},
                         {"orientation_drives_rotation",
@@ -10459,6 +10472,7 @@ void PartDocument::save(
                         {"flip", reference.flip}});
             }
             serialized["placement"] = {
+                {"value_locks",container.placement.value_locks},
                 {"x", container.placement.x},
                 {"y", container.placement.y},
                 {"z", container.placement.z},

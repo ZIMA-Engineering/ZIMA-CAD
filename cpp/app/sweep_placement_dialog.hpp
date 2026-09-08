@@ -1,3 +1,4 @@
+#include <zima/ui/numeric_value_lock.hpp>
 #pragma once
 #include "placement_reference_dialog.hpp"
 #include "feature_operation_buttons.hpp"
@@ -20,7 +21,7 @@ public:
     virtual void set_sketch(unsigned,const sketcher::Sketch&)=0;
     std::function<void(std::size_t)> request_placement;
     SweepPlacementDialog(const QString& title, document::HistoryContainer value, QWidget* parent)
-        : PropertiesSubWindow(title,parent),pending(std::move(value)) {}
+        : PropertiesSubWindow(title,parent),pending(std::move(value)) {setProperty("zimaValueLockOwner",QString::fromStdString(pending.id));}
     void install_operation_buttons() {
         add_feature_operation_buttons(this,content_layout(),pending.combine_mode==document::CombineMode::Subtract,
             [this](bool subtract){pending.combine_mode=subtract?document::CombineMode::Subtract:document::CombineMode::Add;if(changed)changed();});
@@ -72,9 +73,9 @@ public:
         constexpr std::string_view prefix{"placement:"};
         if(!key.starts_with(prefix))return false;
         key.remove_prefix(prefix.size());
-        const auto set=[value](QDoubleSpinBox* field){if(!field||!field->isEnabled()||!field->isVisible())return false;field->setValue(value);return true;};
+        const auto set=[value](QDoubleSpinBox* field){if(!field||!field->isEnabled()||field->isReadOnly()||!field->isVisible())return false;field->setValue(value);return true;};
         constexpr std::array<std::string_view,3> positions{"x","y","z"},rotations{"rotation_x","rotation_y","rotation_z"};
-        for(unsigned i=0;i<3;++i){if(key==positions[i])return set(placement_->translation_fields()[i]);if(key==rotations[i])return set(placement_->rotation_fields()[i])||set(placement_->rotation_offset_fields()[i]);}
+        for(unsigned i=0;i<3;++i){if(key==positions[i])return set(placement_->translation_fields()[i]);if(key==rotations[i]){if(placement_->rotation_fields()[i]->isEnabled()&&placement_->rotation_fields()[i]->isReadOnly())return false;return set(placement_->rotation_fields()[i])||set(placement_->rotation_offset_fields()[i]);}}
         constexpr std::string_view offset{"reference_offset:"};
         if(key.starts_with(offset)){
             key.remove_prefix(offset.size());if(key.empty())return false;

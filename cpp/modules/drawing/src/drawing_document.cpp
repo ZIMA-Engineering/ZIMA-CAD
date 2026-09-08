@@ -535,7 +535,7 @@ void DrawingDocument::save(const std::filesystem::path& path,
         const auto circles_json=[](const auto& circles){nlohmann::json values=nlohmann::json::array();for(const auto& c:circles)values.push_back({{"center",{c.center.x,c.center.y}},{"radius",c.radius},{"pen",static_cast<int>(c.pen)}});return values;};
         serialized["frame_circles"]=circles_json(sheet.frame_circles);serialized["title_block_circles"]=circles_json(sheet.title_block_circles);
         serialized["title_block_images"]=sheet.title_block_images;
-        serialized["repeat_regions"]=nlohmann::json::array();for(const auto& r:sheet.repeat_regions)serialized["repeat_regions"].push_back({{"id",r.id},{"x",r.x},{"y",r.y},{"width",r.width},{"height",r.height},{"direction",r.direction},{"step",r.step}});
+        serialized["repeat_regions"]=nlohmann::json::array();for(const auto& r:sheet.repeat_regions)serialized["repeat_regions"].push_back({{"id",r.id},{"x",r.x},{"y",r.y},{"width",r.width},{"height",r.height},{"direction",r.direction},{"step",r.step},{"value_locks",r.value_locks}});
         serialized["views"] = nlohmann::json::array();
         for (const auto& view : sheet.views) {
             if (view.id.empty() || !ids.insert(view.id).second || view.source_document_id.empty())
@@ -560,7 +560,7 @@ void DrawingDocument::save(const std::filesystem::path& path,
                             {"depth", {view.camera.depth.x, view.camera.depth.y, view.camera.depth.z}}}},
                 {"display_style", display_name(view.display_style)},
                 {"use_sheet_scale", view.use_sheet_scale}, {"show_caption", view.show_caption},
-                {"x", view.x}, {"y", view.y}, {"scale", view.scale}};
+                {"x", view.x}, {"y", view.y}, {"scale", view.scale}, {"value_locks",view.value_locks}};
             item["projected_edges"] = nlohmann::json::array();
             for (const auto& edge : view.projected_edges) {
                 nlohmann::json edge_json{{"source", edge_reference_json(edge.source)},
@@ -680,7 +680,7 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
         const auto parse_circles=[](const auto& values){std::vector<TemplateCircle> result;for(const auto& c:values)result.push_back({{c.at("center").at(0),c.at("center").at(1)},c.at("radius"),static_cast<DrawingPen>(c.at("pen").template get<int>())});return result;};
         sheet.frame_circles=parse_circles(serialized.value("frame_circles",nlohmann::json::array()));sheet.title_block_circles=parse_circles(serialized.value("title_block_circles",nlohmann::json::array()));
         sheet.title_block_images=serialized.value("title_block_images",std::vector<zima::sketcher::TemplateImage>{});
-        for(const auto& r:serialized.value("repeat_regions",nlohmann::json::array()))sheet.repeat_regions.push_back({r.at("id"),r.at("x"),r.at("y"),r.at("width"),r.at("height"),r.at("direction"),r.at("step")});
+        for(const auto& r:serialized.value("repeat_regions",nlohmann::json::array()))sheet.repeat_regions.push_back({r.at("id"),r.at("x"),r.at("y"),r.at("width"),r.at("height"),r.at("direction"),r.at("step"),r.value("value_locks",std::set<std::string>{})});
         for (const auto& item : serialized.at("views")) {
             DrawingView view;
             view.id = item.at("id").get<std::string>();
@@ -703,6 +703,7 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
             view.show_caption = item.value("show_caption", false);
             view.x = item.at("x").get<double>(); view.y = item.at("y").get<double>();
             view.scale = item.at("scale").get<double>();
+            view.value_locks=item.value("value_locks",std::set<std::string>{});
             for (const auto& edge_json : item.at("projected_edges")) {
                 ProjectedEdge edge;
                 edge.source = parse_edge_reference(edge_json.at("source"));

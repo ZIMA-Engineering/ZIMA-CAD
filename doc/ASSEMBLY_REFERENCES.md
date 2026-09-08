@@ -195,3 +195,7 @@ závislý řetězec, přičemž překreslení view je sloučeno do krátkých in
 Po uvolnění tlačítka solver pouze ověří a uloží výsledný stav. Referenční rámce
 zdrojové komponenty se během tažení posouvají společně s ní, aby následné
 ověření neinterpretovalo povolený pohyb jako změnu lokální reference.
+
+
+Číselná pole a rozměry ve View používají [společné zámky hodnot](NUMERIC_VALUE_LOCKS.md),
+včetně jednorázového převzetí současné hodnoty při zadávání reference.

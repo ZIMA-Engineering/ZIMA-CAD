@@ -303,6 +303,7 @@ struct SketchRepeatRegion {
     double x{}, y{}, width{180.0}, height{10.0};
     std::string direction{"up"};
     double step{10.0};
+    std::set<std::string> value_locks;
     bool operator==(const SketchRepeatRegion&) const = default;
 };
 

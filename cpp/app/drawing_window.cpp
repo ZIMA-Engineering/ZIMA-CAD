@@ -1,3 +1,4 @@
+#include <zima/ui/numeric_value_lock.hpp>
 #include "drawing_window.hpp"
 #include <zima/viewer/embedded_image.hpp>
 #include "file_dialog.hpp"
@@ -157,6 +158,9 @@ public:
         content_layout()->addWidget(content);
         setMinimumWidth(460);
         const auto preview_change = [this] { preview_(values()); };
+        zima::ui::bind_numeric_value_lock(x_,"x",value_.value_locks,preview_change);
+        zima::ui::bind_numeric_value_lock(y_,"y",value_.value_locks,preview_change);
+        zima::ui::bind_numeric_value_lock(scale_,"scale",value_.value_locks,preview_change);
         for (auto* combo : {source_, orientation_, display_, scale_mode_})
             connect(combo, &QComboBox::currentIndexChanged, this, [this,preview_change] {
                 scale_->setEnabled(scale_mode_->currentIndex()==1);
@@ -843,12 +847,16 @@ protected:
         if (found == sheet_->views.end() || zoom <= 0.0) return;
         double next_x = drag_origin_.x - (event->position().x() - drag_start_.x()) / zoom;
         double next_y = drag_origin_.y - (event->position().y() - drag_start_.y()) / zoom;
+        if(found->value_locks.contains("x"))next_x=drag_origin_.x;
+        if(found->value_locks.contains("y"))next_y=drag_origin_.y;
         if (!found->parent_view_id.empty() &&
             found->projection_direction != zima::drawing::ProjectionDirection::None) {
             const auto parent = std::find_if(sheet_->views.begin(), sheet_->views.end(),
                 [&](const auto& view) { return view.id == found->parent_view_id; });
             if (parent != sheet_->views.end()) {
                 const auto ray = projection_placement(found->projection_direction, 1.0);
+                if((found->value_locks.contains("x") && std::abs(ray.x)>1e-9) ||
+                    (found->value_locks.contains("y") && std::abs(ray.y)>1e-9))return;
                 const double distance = (next_x-parent->x)*ray.x + (next_y-parent->y)*ray.y;
                 next_x = parent->x + distance*ray.x; next_y = parent->y + distance*ray.y;
             }

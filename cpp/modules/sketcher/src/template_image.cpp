@@ -22,12 +22,12 @@ void to_json(nlohmann::json& j,const TemplateImage& i) {
     i.validate();j={{"id",i.id},{"name",i.name},{"data_base64",i.data_base64},{"format",i.format},
         {"x",i.x},{"y",i.y},{"width",i.width},{"height",i.height},
         {"pixel_width",i.pixel_width},{"pixel_height",i.pixel_height},
-        {"horizontal",i.horizontal},{"vertical",i.vertical},{"lock_aspect",i.lock_aspect}};
+        {"horizontal",i.horizontal},{"vertical",i.vertical},{"lock_aspect",i.lock_aspect},{"value_locks",i.value_locks}};
 }
 void from_json(const nlohmann::json& j,TemplateImage& i) {
     i.id=j.at("id");i.name=j.at("name");i.data_base64=j.at("data_base64");i.format=j.at("format");
     i.x=j.at("x");i.y=j.at("y");i.width=j.at("width");i.height=j.at("height");
     i.pixel_width=j.at("pixel_width");i.pixel_height=j.at("pixel_height");
-    i.horizontal=j.at("horizontal");i.vertical=j.at("vertical");i.lock_aspect=j.at("lock_aspect");i.validate();
+    i.horizontal=j.at("horizontal");i.vertical=j.at("vertical");i.lock_aspect=j.at("lock_aspect");i.value_locks=j.value("value_locks",std::set<std::string>{});i.validate();
 }
 } // namespace zima::sketcher

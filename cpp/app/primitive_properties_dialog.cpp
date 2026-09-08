@@ -1,3 +1,4 @@
+#include <zima/ui/numeric_value_lock.hpp>
 #include "feature_operation_buttons.hpp"
 #include "primitive_properties_dialog.hpp"
 #include "thread_catalog.hpp"
@@ -1233,6 +1234,34 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
     // normalize equivalent values while loading (for example a placement or
     // extent combo). Pressing OK without a user-visible change must therefore
     // remain a no-op and must not create an Undo revision.
+    setProperty("zimaValueLockOwner",QString::fromStdString(initial_.id));
+    const auto lock=[this](QDoubleSpinBox* field,const std::string& key){zima::ui::bind_numeric_value_lock(field,key,initial_.value_locks,[this]{notify_preview();});};
+    lock(length_,"length");
+    lock(width_,"width");
+    lock(height_,"height");
+    lock(top_radius_,"top_radius");
+    lock(top_offset_,"top_offset");
+    lock(profile_plane_offset_,"profile_offset");
+    lock(thin_thickness_,"thin_thickness");
+    lock(reverse_length_,"length_reverse");
+    lock(hole_diameter_,"diameter");
+    lock(hole_bore_length_,"bore_length");
+    lock(hole_drill_angle_,"drill_point_angle");
+    lock(hole_exit_chamfer_,"exit_chamfer");
+    lock(hole_thread_pitch_,"pitch");
+    lock(hole_thread_length_,"thread_length");
+    lock(thread_chamfer_angle_,"chamfer_angle");
+    lock(thread_profile_diameter_,"bore_diameter");
+    lock(thread_runout_factor_,"runout_pitch_factor");
+    lock(drill_point_angle_,"angle");
+    lock(treatment_primary_,"primary");
+    lock(treatment_secondary_,"secondary");
+    lock(treatment_angle_,"treatment_angle");
+    lock(shell_thickness_,"thickness");
+    lock(radius_,initial_.feature_kind==zima::document::FeatureKind::Cone?"bottom_radius":"radius");
+    lock(forward_length_,initial_.feature_kind==zima::document::FeatureKind::Revolution?"angle":"length_forward");
+    lock(hole_entrance_chamfer_,initial_.feature_kind==zima::document::FeatureKind::Thread?"chamfer_depth":"entrance_chamfer");
+    lock(hole_thread_nominal_diameter_,initial_.feature_kind==zima::document::FeatureKind::Thread?"nominal_diameter":"thread_diameter");
     accepted_baseline_ = values();
 }
 
@@ -1816,7 +1845,7 @@ bool PrimitivePropertiesDialog::extrusion_direction_reversed() const {
 
 void PrimitivePropertiesDialog::set_profile_offset_and_forward_length(
     double offset, double length) {
-    if (profile_plane_offset_ == nullptr || forward_length_ == nullptr) return;
+    if (profile_plane_offset_ == nullptr || forward_length_ == nullptr || profile_plane_offset_->isReadOnly() || forward_length_->isReadOnly()) return;
     const QSignalBlocker offset_blocker(profile_plane_offset_);
     const QSignalBlocker length_blocker(forward_length_);
     profile_plane_offset_->setValue(offset);
@@ -1825,13 +1854,13 @@ void PrimitivePropertiesDialog::set_profile_offset_and_forward_length(
 }
 
 void PrimitivePropertiesDialog::set_forward_extent_length(double length) {
-    if (forward_length_ == nullptr) return;
+    if (forward_length_ == nullptr || forward_length_->isReadOnly()) return;
     forward_length_->setValue(std::max(0.001, length));
 }
 
 void PrimitivePropertiesDialog::set_forward_extent_and_direction(
         double length, bool reversed) {
-    if (forward_length_ == nullptr || extrusion_direction_ == nullptr) return;
+    if (forward_length_ == nullptr || extrusion_direction_ == nullptr || forward_length_->isReadOnly()) return;
     const QSignalBlocker length_blocker(forward_length_);
     const QSignalBlocker direction_blocker(extrusion_direction_);
     forward_length_->setValue(std::clamp(std::abs(length),
@@ -1842,14 +1871,14 @@ void PrimitivePropertiesDialog::set_forward_extent_and_direction(
 }
 
 void PrimitivePropertiesDialog::set_reverse_extent_length(double length) {
-    if (reverse_length_ == nullptr) return;
+    if (reverse_length_ == nullptr || reverse_length_->isReadOnly()) return;
     reverse_length_->setValue(std::clamp(std::abs(length),
         reverse_length_->minimum(), reverse_length_->maximum()));
 }
 
 void PrimitivePropertiesDialog::set_reverse_extent_and_direction(
         double length, bool reversed) {
-    if (reverse_length_ == nullptr || extrusion_direction_ == nullptr) return;
+    if (reverse_length_ == nullptr || extrusion_direction_ == nullptr || reverse_length_->isReadOnly()) return;
     const QSignalBlocker length_blocker(reverse_length_);
     const QSignalBlocker direction_blocker(extrusion_direction_);
     reverse_length_->setValue(std::clamp(std::abs(length),
@@ -2239,7 +2268,7 @@ void PrimitivePropertiesDialog::show_thread_catalog_after_release() {
 bool PrimitivePropertiesDialog::set_inline_parameter_value(
     std::string_view key, double value) {
     const auto set_field = [value](QDoubleSpinBox* field) {
-        if (field == nullptr || !field->isEnabled() || !field->isVisible())
+        if (field == nullptr || !field->isEnabled() || field->isReadOnly() || !field->isVisible())
             return false;
         field->setValue(value);
         return true;
@@ -2268,6 +2297,7 @@ bool PrimitivePropertiesDialog::set_inline_parameter_value(
             if (placement_ == nullptr) return false;
             const std::size_t index = key == "rotation_x" ? 0
                 : key == "rotation_y" ? 1 : 2;
+            if (placement_->rotation_fields()[index] && placement_->rotation_fields()[index]->isEnabled() && placement_->rotation_fields()[index]->isReadOnly()) return false;
             if (set_field(placement_->rotation_fields()[index])) return true;
             return set_field(placement_->rotation_offset_fields()[index]);
         }
@@ -2299,7 +2329,7 @@ bool PrimitivePropertiesDialog::set_inline_parameter_value(
     if (key == "thread_nominal_diameter")
         return set_field(hole_thread_nominal_diameter_);
     if (key == "thread_length") return set_field(hole_thread_length_);
-    if (key == "included_angle") return set_field(drill_point_angle_);
+    if (key == "included_angle" || (key=="angle" && initial_.feature_kind==zima::document::FeatureKind::DrillPoint)) return set_field(drill_point_angle_);
     if (key == "angle") return set_field(forward_length_);
     if (key == "size" || key == "primary") return set_field(treatment_primary_);
     if (key == "secondary") return set_field(treatment_secondary_);

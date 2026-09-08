@@ -1,3 +1,4 @@
+#include <zima/ui/numeric_value_lock.hpp>
 #include "table_entry.hpp"
 #include "sketch_button_style.hpp"
 #include "construction_properties_dialog.hpp"
@@ -103,6 +104,8 @@ zima::document::ConstructionObject sweep_dialog_path(
     path.orientation_quarter_turns =
         container.placement.orientation_quarter_turns;
     path.references = container.placement.references;
+    std::erase_if(path.value_locks,[](const auto& key){return key.starts_with("placement:");});
+    for(const auto& key:container.placement.value_locks)path.value_locks.insert("placement:"+key);
     return path;
 }
 
@@ -194,6 +197,7 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
     numeric.rotation_offset_x = initial.rotation_offset_x;
     numeric.rotation_offset_y = initial.rotation_offset_y;
     numeric.rotation_offset_z = initial.rotation_offset_z;
+    for(const auto& key:initial.value_locks)if(key.starts_with("placement:"))numeric.value_locks.insert(key.substr(10));
     placement_->initialize_numeric_values(numeric);
     const bool has_orientation_reference = std::any_of(
         initial.references.begin(), initial.references.end(),
@@ -468,6 +472,9 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
         &QComboBox::currentIndexChanged, this, [this] { notify_preview(); });
     connect(offset_, &QDoubleSpinBox::valueChanged,
         this, [this] { notify_preview(); });
+    setProperty("zimaValueLockOwner",QString::fromStdString(initial_.id));
+    zima::ui::bind_numeric_value_lock(display_size_,"length",initial_.value_locks,[this]{notify_preview();});
+    zima::ui::bind_numeric_value_lock(offset_,"offset",initial_.value_locks,[this]{notify_preview();});
     initialized_ = true;
 }
 
@@ -482,6 +489,7 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
             "ConstructionPropertiesDialog Sweep constructor requires Sweep3D");
     }
     initial_sweep_ = initial;
+    setProperty("zimaValueLockOwner",QString::fromStdString(initial.id));
     sweep_commit_ = std::move(commit);
     sweep_profiles_ = initial.sweep3d.profiles;
     sweep_combine_mode_ = initial.combine_mode;
@@ -511,6 +519,8 @@ void ConstructionPropertiesDialog::initialize_sweep_ui() {
     sweep_thickness_->setRange(0.001,1'000'000.0);
     sweep_thickness_->setSuffix(tr(" mm"));
     sweep_thickness_->setValue(initial_sweep_->sweep3d.thickness);
+    sweep_thickness_->setProperty("zimaValueLockOwner",QString::fromStdString(initial_sweep_->id));
+    zima::ui::bind_numeric_value_lock(sweep_thickness_,"thickness",initial_sweep_->value_locks,[this]{notify_preview();});
     thin_form->addRow(tr("Tloušťka"),sweep_thickness_);
     sweep_thin_mode_ = new QComboBox(this);
     sweep_thin_mode_->setObjectName("sweep3DThinSide");
@@ -857,6 +867,7 @@ ConstructionPropertiesDialog::pending_sweep_value() const {
     stored_path.orientation_back = false;
     stored_path.orientation_quarter_turns = 0;
     stored_path.references.clear();
+    std::erase_if(stored_path.value_locks,[](const auto& key){return key.starts_with("placement:");});
     for (auto& point : stored_path.curve_points)
         point.parent_construction_id = stored_path.id;
     container.sweep3d.path = std::move(stored_path);
@@ -956,7 +967,7 @@ bool ConstructionPropertiesDialog::orientation_back() const {
 
 void ConstructionPropertiesDialog::set_plane_offset_and_orientation(
         double offset, bool back) {
-    if (offset_ == nullptr || placement_ == nullptr) return;
+    if (offset_ == nullptr || placement_ == nullptr || offset_->isReadOnly()) return;
     const QSignalBlocker blocker(offset_);
     offset_->setValue(std::abs(offset));
     placement_->set_orientation_back(back);
@@ -1067,7 +1078,7 @@ bool ConstructionPropertiesDialog::set_curve_point_radius(
         if (pending.curve_points[index].id != point_id) continue;
         auto* field = qobject_cast<QDoubleSpinBox*>(
             curve_points_table_->cellWidget(static_cast<int>(index), 5));
-        if (field == nullptr || !field->isEnabled()) return false;
+        if (field == nullptr || !field->isEnabled() || field->isReadOnly()) return false;
         if (!std::isfinite(value) || value < field->minimum() || value > field->maximum())
             throw std::runtime_error("Radius je mimo povolený rozsah.");
         pending.curve_points[index].curve_radius = value;
@@ -1117,7 +1128,7 @@ bool ConstructionPropertiesDialog::set_inline_parameter_value(
     if (key.starts_with(placement_prefix)) key.remove_prefix(
         placement_prefix.size());
     const auto set_field = [value](QDoubleSpinBox* field) {
-        if (field == nullptr || !field->isEnabled() || !field->isVisible())
+        if (field == nullptr || !field->isEnabled() || field->isReadOnly() || !field->isVisible())
             return false;
         field->setValue(value);
         return true;
@@ -1129,6 +1140,7 @@ bool ConstructionPropertiesDialog::set_inline_parameter_value(
         key == "rotation_z") {
         const std::size_t index = key == "rotation_x" ? 0
             : key == "rotation_y" ? 1 : 2;
+        if (rotation_[index] && rotation_[index]->isEnabled() && rotation_[index]->isReadOnly()) return false;
         if (set_field(rotation_[index])) return true;
         return set_field(rotation_offset_[index]);
     }
@@ -1221,6 +1233,8 @@ void ConstructionPropertiesDialog::refresh_curve_points() {
         const bool enabled=polyline && curve_rounding_ && curve_rounding_->isChecked() && index>0 && index+1<curve_points_.size();
         radius->setEnabled(enabled);
         radius->setValue(enabled?curve_points_[index].curve_radius:0);
+        radius->setProperty("zimaValueLockOwner",QString::fromStdString(curve_points_[index].id));
+        zima::ui::bind_numeric_value_lock(radius,"radius",curve_points_[index].value_locks,[this]{notify_preview();});
         connect(radius,&QDoubleSpinBox::valueChanged,this,[this,index](double value){
             curve_points_[index].curve_radius=value; notify_preview();
         });
@@ -1369,6 +1383,8 @@ zima::document::ConstructionObject ConstructionPropertiesDialog::current_value()
     value.name = name_->text().trimmed().toStdString();
     value.origin = {origin_[0]->value(), origin_[1]->value(), origin_[2]->value()};
     const auto numeric = placement_->numeric_placement();
+    std::erase_if(value.value_locks,[](const auto& key){return key.starts_with("placement:");});
+    for(const auto& key:numeric.value_locks)value.value_locks.insert("placement:"+key);
     if (rotation_[0] != nullptr) {
         value.absolute_rotation = {numeric.absolute_rotation_x,
             numeric.absolute_rotation_y, numeric.absolute_rotation_z};

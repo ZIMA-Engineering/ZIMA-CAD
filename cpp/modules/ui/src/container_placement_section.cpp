@@ -1,3 +1,4 @@
+#include <zima/ui/numeric_value_lock.hpp>
 #include "zima/ui/container_placement_section.hpp"
 #include <zima/ui/properties_subwindow.hpp>
 
@@ -258,6 +259,7 @@ void ContainerPlacementSection::set_origin_selection_mode_active(bool active) {
 
 void ContainerPlacementSection::initialize_numeric_values(
         const zima::document::Placement& placement) {
+    value_locks_=placement.value_locks;
     const std::array position{placement.x, placement.y, placement.z};
     absolute_rotation_values_ = {placement.absolute_rotation_x,
         placement.absolute_rotation_y, placement.absolute_rotation_z};
@@ -267,6 +269,14 @@ void ContainerPlacementSection::initialize_numeric_values(
         placement.rotation_offset_y, placement.rotation_offset_z};
     for (std::size_t i = 0; i < 3; ++i) {
         translation_[i]->setValue(position[i]);
+        const std::string axis=i==0?"x":i==1?"y":"z";
+        const auto bind=[&](QDoubleSpinBox* field,const std::string& key) {
+            if(!field)return;
+            bind_numeric_value_lock(field,"placement:"+key,value_locks_.contains(key),[this,key](bool locked){
+                if(locked)value_locks_.insert(key);else value_locks_.erase(key);notify_changed();
+            });
+        };
+        bind(translation_[i],axis);bind(rotation_[i],"rotation_"+axis);bind(rotation_offset_[i],"rotation_offset_"+axis);
         if (rotation_[i]) rotation_[i]->setValue(absolute_rotation_values_[i]);
         if (rotation_offset_[i]) rotation_offset_[i]->setValue(correction[i]);
     }
@@ -300,6 +310,7 @@ void ContainerPlacementSection::set_orientation_back(bool back) {
 
 zima::document::Placement ContainerPlacementSection::numeric_placement() const {
     zima::document::Placement result;
+    result.value_locks=value_locks_;
     result.x = translation_[0]->value(); result.y = translation_[1]->value();
     result.z = translation_[2]->value();
     if (rotation_[0]) {
@@ -495,6 +506,7 @@ void ContainerPlacementSection::initialize_from_references(
     // in "Orientace kontejneru". FRONT and TOP are fixed semantic slots;
     // never compact them, because a document may intentionally contain TOP
     // without an explicit FRONT override.
+    references_.clear();reference_labels_.clear();empty_reference_locks_.fill(false);
     std::vector<zima::document::ConstructionReference> orientation_candidates(2);
     std::vector<QString> orientation_candidate_labels(2);
     for (const auto& reference : references) {
@@ -567,6 +579,16 @@ bool ContainerPlacementSection::set_reference(std::size_t index,
     if (error_text) error_text->clear();
     if (references_.size() <= index) references_.resize(index + 1);
     if (reference_labels_.size() <= index) reference_labels_.resize(index + 1);
+    const bool capture_once=references_[index].semantic_key.empty() && empty_reference_locks_[index];
+    const bool locked=index<references_.size() && !references_[index].semantic_key.empty()
+        ? references_[index].offset_locked : empty_reference_locks_[index];
+    if(reference.supports_offset) {
+        reference.offset_locked=locked && !capture_once;
+        if(locked && !reference.measured_offset){if(error_text)*error_text=tr("Současnou vzdálenost od reference nelze určit.");return false;}
+        if(locked)reference.offset=*reference.measured_offset;
+    } else { reference.offset=0;reference.offset_locked=true; }
+    empty_reference_locks_[index]=false;
+    reference.measured_offset.reset();
     references_[index] = std::move(reference);
     reference_labels_[index] = label.trimmed().isEmpty()
         ? readable_reference_kind(references_[index].semantic_key) : label;
@@ -769,6 +791,7 @@ void ContainerPlacementSection::remove_reference(std::size_t index) {
     // It also desynchronised whatever row a bulk "Počátek" re-fill assumed
     // was empty, since the emptied slot no longer matched its own index.
     references_[index] = zima::document::ConstructionReference{};
+    empty_reference_locks_[index]=false;
     if (index < reference_labels_.size()) reference_labels_[index].clear();
     const auto matching_orientation = std::find_if(orientation_references_.begin(),
         orientation_references_.end(), [&](const auto& reference) {
@@ -860,7 +883,7 @@ void ContainerPlacementSection::refresh_reference_table() {
             offset->style()->pixelMetric(QStyle::PM_ScrollBarExtent, nullptr, offset) +
             2 * offset->style()->pixelMetric(
                     QStyle::PM_SpinBoxFrameWidth, nullptr, offset) +
-            10;
+            36;
         offset->setFixedWidth(spin_width);
         if (populated) {
             reference->set_reference(
@@ -882,8 +905,18 @@ void ContainerPlacementSection::refresh_reference_table() {
                 });
         } else {
             reference->set_placeholder_style(palette.color(QPalette::Mid));
-            offset->setEnabled(false);
+            offset->setReadOnly(true);
         }
+        const bool locked=populated?references_[index].offset_locked:empty_reference_locks_[index];
+        const auto populated_index=std::count_if(references_.begin(),references_.begin()+std::min(index,references_.size()),
+            [](const auto& value){return !value.owner_id.empty() || !value.semantic_key.empty();});
+        const auto lock_key=populated?"placement:reference_offset:"+std::to_string(populated_index)
+            :"placement:reference_slot:"+std::to_string(index);
+        bind_numeric_value_lock(offset,lock_key,locked,
+            [this,index,populated](bool state){
+                if(populated)references_[index].offset_locked=state;else empty_reference_locks_[index]=state;
+                notify_changed();
+            },populated);
         reference_offset_fields_[index] = offset;
         reference_table_->setCellWidget(static_cast<int>(index), 2, offset);
         auto* inspection = zima::ui::build_reference_inspection_button(
@@ -912,7 +945,7 @@ bool ContainerPlacementSection::set_reference_offset(
             references_[row].semantic_key.empty()) continue;
         if (current++ != populated_index) continue;
         auto* field = reference_offset_fields_[row];
-        if (field == nullptr || !field->isEnabled()) return false;
+        if (field == nullptr || !field->isEnabled() || field->isReadOnly()) return false;
         field->setValue(value);
         return true;
     }

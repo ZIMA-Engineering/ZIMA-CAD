@@ -71,7 +71,7 @@ int numeric_width(QDoubleSpinBox* spin) {
     zero+=spin->locale().toString(0.0,'f',spin->decimals())+spin->suffix();
     const auto margins=editor->textMargins();
     const int chrome=std::max(0,spin->width()-editor->contentsRect().width())+
-        margins.left()+margins.right()+6;
+        margins.left()+margins.right()+6+(spin->property("zimaValueLockKey").isValid()?24:0);
     return static_cast<int>(std::ceil(std::max(metrics.horizontalAdvance(spin->text()),
         metrics.horizontalAdvance(zero))))+chrome;
 }
@@ -177,6 +177,18 @@ private:
         QTimer::singleShot(0,spin,[spin] {
             spin->setProperty("zimaNumericWidthPending",false);
             fit_numeric_field(spin);
+            // A trailing value-lock action increases the minimum width after
+            // show/layout. Propagate that change through nested row widgets.
+            for(auto* ancestor=spin->parentWidget();ancestor;ancestor=ancestor->parentWidget()) {
+                if(ancestor->layout()){ancestor->layout()->invalidate();ancestor->layout()->activate();}
+                ancestor->updateGeometry();
+                if(ancestor->property("zimaPropertiesSubWindow").toBool()) {
+                    const int needed=ancestor->minimumSizeHint().width();
+                    const int available=ancestor->parentWidget()?ancestor->parentWidget()->width():needed;
+                    if(ancestor->width()<needed)ancestor->resize(std::min(needed,available),ancestor->height());
+                    break;
+                }
+            }
             spin->setProperty("zimaNumericWidthText",spin->text());
         });
     }

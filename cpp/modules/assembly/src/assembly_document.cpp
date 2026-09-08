@@ -345,7 +345,7 @@ nlohmann::json serialize_placement_reference(
         {"mate_type", mate_kind_name(reference.mate_type)},
         {"component_reference", serialize_mate_reference(reference.component_reference)},
         {"target_reference", serialize_mate_reference(reference.target_reference)},
-        {"offset", reference.offset},
+        {"offset", reference.offset}, {"offset_locked",reference.offset_locked},
         {"flip", reference.flip}};
     if (reference.lower_limit) serialized["lower_limit"] = *reference.lower_limit;
     if (reference.upper_limit) serialized["upper_limit"] = *reference.upper_limit;
@@ -359,6 +359,7 @@ ComponentPlacementReference load_placement_reference(const nlohmann::json& value
         load_mate_reference(value.at("component_reference"));
     reference.target_reference = load_mate_reference(value.at("target_reference"));
     reference.offset = value.at("offset").get<double>();
+    reference.offset_locked=value.value("offset_locked",false);
     reference.flip = value.at("flip").get<bool>();
     if (value.contains("lower_limit")) {
         reference.lower_limit = value.at("lower_limit").get<double>();
@@ -1151,6 +1152,30 @@ void AssemblyDocument::calculate_placement_references() {
         components[i].placement = pending.components[i].placement;
 }
 
+std::optional<double> AssemblyDocument::measure_placement_reference(
+    const ComponentPlacementReference& reference) const {
+    if(reference.mate_type!=MateKind::PlaneCoincident && reference.mate_type!=MateKind::PlaneAngle)return {};
+    const auto source=resolve_plane(reference.component_reference);
+    const auto target=resolve_plane(reference.target_reference);
+    if(source.status!=MateStatus::Valid || target.status!=MateStatus::Valid)return {};
+    if(reference.mate_type==MateKind::PlaneAngle) {
+        const auto a=source.plane.normal,b=target.plane.normal;
+        const double angle=std::acos(std::clamp(a.x*b.x+a.y*b.y+a.z*b.z,-1.0,1.0))*180.0/std::numbers::pi;
+        return reference.flip?180.0-angle:angle;
+    }
+    const auto& path=reference.component_reference.instance_path.occurrence_ids;
+    const auto* component=path.empty()?nullptr:find_occurrence(path.front());
+    if(!component)return {};
+    const Vec3 origin{component->placement.x,component->placement.y,component->placement.z};
+    // A planar face's representative point may be any triangle vertex. For
+    // tilted planes its distance is arbitrary and would move the origin when
+    // the mate aligns the normals. Use the plane's signed distance from the
+    // component pivot, preserving that pivot when alignment is applied.
+    const double local_offset=dot(subtract(source.plane.point,origin),source.plane.normal);
+    return dot(subtract(origin,target.plane.point),target.plane.normal)+
+        (reference.flip?-local_offset:local_offset);
+}
+
 zima::kernel::Vec3 AssemblyDocument::component_drag_translation(
     const std::string& occurrence_id, const zima::kernel::Vec3& delta) const {
     const auto* component = find_occurrence(occurrence_id);
@@ -1161,6 +1186,7 @@ zima::kernel::Vec3 AssemblyDocument::component_drag_translation(
     // An origin handle requests translation. Rotational freedoms remain for
     // their angle controls; dragging must never rotate a seated component.
     for (int i=3;i<6;++i) { Motion row{}; row[i]=1; jacobian.push_back(row); }
+    for(int i=0;i<3;++i)if(component->value_locks.contains(i==0?"placement:x":i==1?"placement:y":"placement:z")){Motion row{};row[i]=1;jacobian.push_back(row);}
     const Motion requested{delta.x,delta.y,delta.z,0,0,0};
     Motion projected{};
     for (const auto& motion : nullspace(jacobian)) {
@@ -1643,6 +1669,7 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
     for (const auto& source : root.at("components")) {
         PartOccurrence component;
         component.occurrence_id = source.at("occurrence_id").get<std::string>();
+        component.value_locks=source.value("value_locks",std::set<std::string>{});
         component.name = source.at("name").get<std::string>();
         component.source_document_id = source.at("source_document_id").get<std::string>();
         component.source_path = source.at("source_path").get<std::string>();
@@ -1778,7 +1805,7 @@ void AssemblyDocument::save(const std::filesystem::path& path,
             nested_snapshot.push_back(serialize_snapshot(snapshot));
         }
         components_json.push_back({
-            {"occurrence_id", component.occurrence_id},
+            {"occurrence_id", component.occurrence_id}, {"value_locks",component.value_locks},
             {"name", component.name},
             {"source_document_id", component.source_document_id},
             {"source_path", component.source_path.generic_string()},

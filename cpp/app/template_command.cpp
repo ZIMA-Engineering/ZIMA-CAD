@@ -1,3 +1,4 @@
+#include <zima/ui/numeric_value_lock.hpp>
 #include "assembly_workspace_window.hpp"
 #include "file_dialog.hpp"
 #include "resource_icon.hpp"
@@ -67,6 +68,8 @@ public:
             fields_[i]=new QDoubleSpinBox(this);fields_[i]->setObjectName(QString("templateImageValue%1").arg(i));
             fields_[i]->setDecimals(zima::ui::numeric_decimal_places(parent));fields_[i]->setRange(i<2?-100000:0.001,100000);
             fields_[i]->setSuffix(" mm");fields_[i]->setValue(values[i]);form->addRow(labels[i],fields_[i]);
+            const std::array<const char*,4> keys{"x","y","width","height"};
+            zima::ui::bind_numeric_value_lock(fields_[i],keys[i],initial_.value_locks,[this]{update_preview();});
         }
         lock_=new QCheckBox(tr("Zachovat poměr stran"),this);lock_->setObjectName("templateImageAspectLock");lock_->setChecked(initial_.lock_aspect);form->addRow({},lock_);
         horizontal_=new QComboBox(this);horizontal_->setObjectName("templateImageHorizontal");
@@ -92,7 +95,7 @@ public:
         update_preview();
     }
     void set_anchor(double x,double y) {
-        const QSignalBlocker a(fields_[0]),b(fields_[1]);fields_[0]->setValue(x);fields_[1]->setValue(y);placed_=true;update_preview();
+        const QSignalBlocker a(fields_[0]),b(fields_[1]);if(!fields_[0]->isReadOnly())fields_[0]->setValue(x);if(!fields_[1]->isReadOnly())fields_[1]->setValue(y);placed_=true;update_preview();
     }
 protected:
     bool submit() override {
@@ -105,9 +108,13 @@ private:
         image.horizontal=horizontal_->currentData().toString().toStdString();image.vertical=vertical_->currentData().toString().toStdString();image.lock_aspect=lock_->isChecked();return image;
     }
     void resize_other(std::size_t changed) {
-        if(!lock_->isChecked())return;
+        if(!lock_->isChecked() || (fields_[2]->isReadOnly() && fields_[3]->isReadOnly()))return;
         const double ratio=static_cast<double>(initial_.pixel_width)/initial_.pixel_height;
         auto* target=fields_[changed==2?3:2];const QSignalBlocker blocked(target);
+        if(target->isReadOnly()) {
+            auto* source=fields_[changed];const QSignalBlocker restore(source);
+            source->setValue(changed==2?target->value()*ratio:target->value()/ratio);return;
+        }
         target->setValue(changed==2?fields_[2]->value()/ratio:fields_[3]->value()*ratio);
     }
     void update_preview() {if(placed_&&preview_)preview_(pending());}
@@ -127,6 +134,8 @@ public:
             fields_[i]=new QDoubleSpinBox(this);fields_[i]->setObjectName(QString("templateRegionValue%1").arg(i));
             fields_[i]->setDecimals(zima::ui::numeric_decimal_places(parent));fields_[i]->setRange(i<2?-100000:0.001,100000);
             fields_[i]->setValue(values[i]);fields_[i]->setSuffix(" mm");form->addRow(labels[i],fields_[i]);
+            const std::array<const char*,5> keys{"x","y","width","height","step"};
+            zima::ui::bind_numeric_value_lock(fields_[i],keys[i],initial_.value_locks);
         }
         direction_=new QComboBox(this);direction_->setObjectName("templateRegionDirection");
         direction_->addItem(tr("Nahoru"),"up");direction_->addItem(tr("Dolů"),"down");direction_->addItem(tr("Doleva"),"left");direction_->addItem(tr("Doprava"),"right");

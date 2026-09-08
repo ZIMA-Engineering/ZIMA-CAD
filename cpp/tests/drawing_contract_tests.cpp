@@ -37,7 +37,7 @@ Data={"points":{"a":{"x":-10,"y":-5},"b":{"x":-20,"y":-5}},"geometry":{"line":{"
         require(anchored.texts.front().anchor_x==15 && anchored.texts.front().anchor_y==28 && anchored.texts.front().contours.front().front()==std::array<double,2>{15,28},"Moving a text point detached its glyph contours");
         zima::sketcher::TemplateImage logo;
         logo.id="logo";logo.name="logo.png";logo.data_base64="iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAADklEQVR4nGP4z8AAQg0AD3oDfnfpf5cAAAAASUVORK5CYII=";
-        logo.pixel_width=2;logo.pixel_height=1;logo.width=40;logo.height=20;logo.x=100;logo.y=50;
+        logo.value_locks={"width"};logo.pixel_width=2;logo.pixel_height=1;logo.width=40;logo.height=20;logo.x=100;logo.y=50;
         for(const auto horizontal:{"left","center","right"})for(const auto vertical:{"bottom","middle","top"}) {
             logo.horizontal=horizontal;logo.vertical=vertical;const auto corners=logo.corners();
             const double anchor_x=std::string(horizontal)=="left"?corners[0][0]:std::string(horizontal)=="right"?corners[1][0]:(corners[0][0]+corners[1][0])/2;
@@ -176,6 +176,7 @@ Data={"points":{"a":{"x":-10,"y":-5},"b":{"x":-20,"y":-5}},"geometry":{"line":{"
         require(std::abs(first_angle.depth.x - 1.0) < 1e-9 &&
                     std::abs(third_angle.depth.x + 1.0) < 1e-9,
                 "First-/third-angle projected cameras did not reverse the view direction");
+        view.value_locks={"x","scale"};
         const std::string view_id = view.id;
         drawing.sheets.front().views.push_back(std::move(view));
         zima::drawing::LinearDimension dimension;
@@ -277,6 +278,7 @@ Data={"points":{"a":{"x":-10,"y":-5},"b":{"x":-20,"y":-5}},"geometry":{"line":{"
                     loaded.sheets.front().name == drawing.sheets.front().name &&
                     loaded.sheets.front().projection_method ==
                         drawing.sheets.front().projection_method &&
+                    loaded.find_view(view_id)->value_locks == std::set<std::string>{"x","scale"} &&
                     loaded.find_view(view_id)->name == drawing.find_view(view_id)->name &&
                     loaded.find_view(view_id)->source_path ==
                         drawing.find_view(view_id)->source_path,

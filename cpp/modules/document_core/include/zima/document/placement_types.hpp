@@ -1,5 +1,7 @@
 #pragma once
 #include <string>
+#include <set>
+#include <optional>
 #include <vector>
 
 namespace zima::document {
@@ -38,6 +40,9 @@ struct ConstructionReference {
     // right-handed frame (right-hand rule), so a positive angle already
     // has one unambiguous rotation direction.
     bool flip{};
+    bool offset_locked{};
+    // Transient distance measured before confirming a newly selected reference.
+    std::optional<double> measured_offset;
     bool operator==(const ConstructionReference&) const = default;
 };
 
@@ -77,6 +82,7 @@ struct Placement {
     // "front"/"top" orient the container's local frame.
     std::vector<ConstructionReference> references;
     bool reference_valid{true};
+    std::set<std::string> value_locks;
     bool operator==(const Placement&) const = default;
 };
 

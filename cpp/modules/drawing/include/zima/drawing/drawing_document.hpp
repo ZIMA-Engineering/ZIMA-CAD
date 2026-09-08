@@ -64,6 +64,7 @@ struct DrawingView {
     bool show_caption{};
     std::vector<ProjectedEdge> projected_edges;
     std::vector<ProjectedTriangle> projected_triangles;
+    std::set<std::string> value_locks;
 };
 
 struct LinearDimension {

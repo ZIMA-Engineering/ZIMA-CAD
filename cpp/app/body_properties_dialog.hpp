@@ -26,6 +26,7 @@ public:
         int decimal_places = 3)
         : PropertiesSubWindow(tr("Vlastnosti tělesa"), parent), initial_(std::move(initial)), commit_(std::move(commit)) {
         setAttribute(Qt::WA_DeleteOnClose);
+        setProperty("zimaValueLockOwner",QString::fromStdString(initial_.scope.id));
         auto* form = new QFormLayout;
         name_ = new QLineEdit(QString::fromStdString(initial_.name), this);
         name_->setObjectName("bodyName");
@@ -87,8 +88,10 @@ public:
             "placement:rotation_x","placement:rotation_y","placement:rotation_z"};
         for (std::size_t index=0;index<keys.size();++index) {
             if (key==keys[index]) return set_field(placement_->translation_fields()[index]);
-            if (key==angles[index]) return set_field(placement_->rotation_fields()[index]) ||
-                set_field(placement_->rotation_offset_fields()[index]);
+            if (key==angles[index]) {
+                if(placement_->rotation_fields()[index]->isEnabled()&&placement_->rotation_fields()[index]->isReadOnly())return false;
+                return set_field(placement_->rotation_fields()[index]) || set_field(placement_->rotation_offset_fields()[index]);
+            }
         }
         constexpr std::string_view prefix="placement:reference_offset:";
         if (key.starts_with(prefix)) {

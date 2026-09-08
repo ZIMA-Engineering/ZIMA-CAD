@@ -121,7 +121,7 @@ target_link_libraries(zima-cad-part-harness PRIVATE
 set_target_properties(zima-cad-part-harness PROPERTIES AUTORCC ON)
 
 add_executable(zima-cad-cpp
-    app/main_workspace.cpp app/assembly_workspace_window.cpp app/template_command.cpp app/shaft_thread_command.cpp app/derived_copy_command.cpp
+    app/main_workspace.cpp app/assembly_workspace_window.cpp app/template_command.cpp app/numeric_value_lock_command.cpp app/shaft_thread_command.cpp app/derived_copy_command.cpp
     app/application_settings.cpp app/global_settings_dialog.cpp
     app/document_tools_dialogs.cpp
     app/drawing_window.cpp app/file_dialog.cpp app/resource_icon.cpp
@@ -234,7 +234,7 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_hole_contract_tests
         COMMAND zima_cpp_hole_contract_tests)
     add_executable(zima_cpp_ui_contract_tests
-        tests/ui_contract_tests.cpp app/primitive_properties_dialog.cpp
+        tests/ui_contract_tests.cpp tests/numeric_value_lock_contract.cpp app/primitive_properties_dialog.cpp
         app/construction_properties_dialog.cpp
         app/orientation_dialog.cpp
         app/component_properties_dialog.cpp
@@ -255,6 +255,9 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_entry_tables_contract COMMAND zima_cpp_ui_contract_tests)
     set_tests_properties(zima_cpp_entry_tables_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_ENTRY_TABLES_ONLY=1")
+    add_test(NAME zima_cpp_numeric_value_locks_contract COMMAND zima_cpp_ui_contract_tests)
+    set_tests_properties(zima_cpp_numeric_value_locks_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_VALUE_LOCKS_ONLY=1")
     add_test(NAME zima_cpp_numeric_fields_contract COMMAND zima_cpp_ui_contract_tests)
     set_tests_properties(zima_cpp_numeric_fields_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_NUMERIC_ONLY=1")

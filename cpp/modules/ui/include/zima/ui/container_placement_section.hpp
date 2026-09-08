@@ -190,6 +190,8 @@ public:
     bool set_reference_offset(std::size_t populated_index, double value);
 
 private:
+    std::set<std::string> value_locks_;
+    std::array<bool,3> empty_reference_locks_{};
     QWidget* parent_widget_;
     bool with_orientation_;
     bool position_rows_can_define_rotation_;

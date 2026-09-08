@@ -525,7 +525,14 @@ int verify_template_commands(QApplication& application,zima::app::AssemblyWorksp
     click(*hit);if(!verify(view->confirmed_candidate()&&view->confirmed_candidate()->kind==viewer::CandidateKind::TemplateImage&&tree->selectedItems().size()==1,"Image View/Tree selection differs"))return 1;
     window.show_tree_item_properties(tree->selectedItems().front());flush();dialog=window.findChild<QDialog*>("templateImageDialog");
     if(!verify(dialog,"Saved image cannot be edited"))return 1;
-    dialog->findChild<QDoubleSpinBox*>("templateImageValue2")->setValue(75);dialog->reject();flush();save->trigger();flush();
+    auto* image_width=dialog->findChild<QDoubleSpinBox*>("templateImageValue2");
+    auto* image_height=dialog->findChild<QDoubleSpinBox*>("templateImageValue3");
+    image_height->findChild<QAction*>("valueLock:height")->trigger();
+    image_width->setValue(75);flush();
+    if(!verify(image_width->value()==40 && image_height->value()==20,"Aspect-ratio update changed a locked image height"))return 1;
+    image_width->findChild<QAction*>("valueLock:width")->trigger();
+    if(!verify(image_width->isReadOnly() && image_height->isReadOnly(),"Image width/height locks did not protect both fields"))return 1;
+    dialog->reject();flush();save->trigger();flush();
     if(!verify(drawing::load_template_sketch(target,prepare).drawing_template->images.front()==committed_image,"Cancel changed the image"))return 1;
     window.grab().save(QString::fromStdString((directory/"template-bom-editor.png").string()));
     const auto svg_path=directory/"company-vector.svg";
@@ -2022,6 +2029,14 @@ int verify_body_history_ui(QApplication& application, const std::filesystem::pat
     const auto flush = [&] { application.processEvents(); QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete); application.processEvents(); };
     if (!verify(window.open_document_path(QString::fromStdString(path.string())), "Cannot open body UI fixture")) return 1;
     flush();
+    window.toggle_parameter_value_lock(second.id,"parameter:length");flush();
+    auto* value_undo=window.findChild<QAction*>("undoAction");auto* value_redo=window.findChild<QAction*>("redoAction");
+    if(!verify(value_undo->isEnabled(),"First value-lock edit did not enable Undo"))return 1;
+    value_undo->trigger();flush();
+    if(!verify(!window.parameter_value_locked(second.id,"parameter:length").value_or(true) && value_redo->isEnabled(),"Undo did not restore the unlocked value"))return 1;
+    value_redo->trigger();flush();
+    if(!verify(window.parameter_value_locked(second.id,"parameter:length").value_or(false),"Redo did not restore the value lock"))return 1;
+    value_undo->trigger();flush();
     auto* tree = window.findChild<QTreeWidget*>("documentTree");
     const auto row = [&](const char* kind, const std::string& id = {}) -> QTreeWidgetItem* {
         for (QTreeWidgetItemIterator it(tree); *it; ++it)
@@ -2219,6 +2234,14 @@ int verify_body_history_ui(QApplication& application, const std::filesystem::pat
     flush();
     auto angle_dimension=offset_dimension;
     angle_dimension.semantic_key="parameter:placement:rotation_z";
+    window.toggle_parameter_value_lock(b,angle_dimension.semantic_key);flush();
+    if(!verify(window.parameter_value_locked(b,angle_dimension.semantic_key).value_or(false) &&
+        !body_dialog()->set_inline_parameter_value("placement:rotation_z",25),"View angular lock did not protect the reference-driven correction"))return 1;
+    window.edit_dimension_inline(angle_dimension);flush();
+    if(auto* editor=viewer->findChild<QLineEdit*>("inlineDimensionValueEdit");editor && editor->isVisible())
+        if(!verify(false,"View opened an editor for a locked angle"))return 1;
+    window.grab().save(QString::fromStdString((directory/"numeric-value-locks.png").string()));
+    window.toggle_parameter_value_lock(b,angle_dimension.semantic_key);flush();
     if (!verify(find_dimension(angle_dimension) &&
             std::abs(viewer->candidate_dimension_value(angle_dimension).value_or(-999)-15)<1e-8 &&
             body_dialog()->set_inline_parameter_value("placement:rotation_z",0),
@@ -2235,6 +2258,20 @@ int verify_body_history_ui(QApplication& application, const std::filesystem::pat
     if (!verify(!body_dialog() && row("part-body",b)->text(0) == "Upravený nástroj", "Body edit failed to commit")) return 1;
     if (!verify(!viewer->candidate_dimension_value(offset_dimension),
             "Closing body properties left transient placement dimensions in View")) return 1;
+    window.toggle_parameter_value_lock(second.id,"parameter:length");flush();
+    if(!verify(window.parameter_value_locked(second.id,"parameter:length").value_or(false),"View lock without properties was not committed"))return 1;
+    auto* lock_save=window.findChild<QAction*>("saveDocumentAction");
+    if(!verify(lock_save && lock_save->isEnabled(),"Value-lock edit left Save disabled"))return 1;
+    QString lock_save_error;QTimer lock_save_messages;
+    QObject::connect(&lock_save_messages,&QTimer::timeout,&window,[&]{
+        if(auto* box=qobject_cast<QMessageBox*>(QApplication::activeModalWidget())){lock_save_error=box->text();box->accept();}
+    });
+    lock_save_messages.start(50);lock_save->trigger();flush();lock_save_messages.stop();
+    if(!verify(lock_save_error.isEmpty(),lock_save_error.toStdString().c_str()))return 1;
+    const auto locked_part=PartDocument::load(path);
+    const auto locked_feature=std::find_if(locked_part.history.begin(),locked_part.history.end(),[&](const auto& feature){return feature.id==second.id;});
+    if(!verify(locked_feature!=locked_part.history.end() && locked_feature->value_locks.contains("length"),"View-only value lock did not survive saving"))return 1;
+    window.toggle_parameter_value_lock(second.id,"parameter:length");flush();
     auto* reorder_tree = dynamic_cast<zima::app::HistoryTreeWidget*>(tree);
     if (!verify(reorder_tree && !reorder_tree->reorder_requested(row("part-container",extra.id),QString::fromStdString(first.id),false),
             "Feature drag offered another body as its destination")) return 1;

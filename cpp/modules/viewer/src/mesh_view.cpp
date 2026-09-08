@@ -3913,9 +3913,10 @@ if (impl_->show_origins) {
                 const bool selected = highlighted &&
                     highlighted->kind == CandidateKind::Dimension &&
                     highlighted->geometry_index == index;
+                const bool locked=dimension_lock_query_?dimension_lock_query_(dimension.reference).value_or(dimension.locked):dimension.locked;
                 const QColor idle_color = !dimension.driving
                     ? QColor(173, 110, 46)  // measured; same as Sketch axes
-                    : dimension.locked
+                    : locked
                         ? QColor(0, 0, 0)  // locked dimension value
                         : QColor(245, 205, 80);  // editable driver
                 const QColor color = selected

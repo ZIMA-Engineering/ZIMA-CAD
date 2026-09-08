@@ -173,7 +173,7 @@ vztahují obdélník k tomuto bodu. Souřadnice mohou být záporné, rozměry j
 
 Šířka a výška jsou v milimetrech. Volba **Zachovat poměr stran** je při
 vložení zapnutá; změna kteréhokoli rozměru dopočítá druhý podle původního
-obrázku. Po odemčení lze rozměry nastavit samostatně. **Vybrat soubor…**
+obrázku. Po vypnutí této volby lze rozměry nastavit samostatně. **Vybrat soubor…**
 umožní v témže dialogu vyměnit obsah. Náhled je dočasný: pouze OK změnu
 uloží, Zrušit obnoví původní stav. OK funguje také dvojklikem prostředního
 tlačítka nad View.
@@ -215,3 +215,7 @@ lze přepnout přes **Zamknout rozměr / Odemknout rozměr**, také je dostupný
 ve vlastnostech rozměru. Zamčený řídicí rozměr se kreslí černě, nezamčený
 žlutě a měřený hnědě. Výběr a hover dál používají azurovou a oranžovou.
 Zámek nefixuje polohu popisku; číselnou hodnotu lze záměrně změnit ve vlastnostech.
+
+
+Číselná pole a rozměry ve View používají [společné zámky hodnot](NUMERIC_VALUE_LOCKS.md),
+včetně jednorázového převzetí současné hodnoty při zadávání reference.

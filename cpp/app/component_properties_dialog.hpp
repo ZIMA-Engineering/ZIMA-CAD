@@ -63,6 +63,8 @@ public:
     void set_solved_placement(const zima::assembly::ComponentPlacement& placement,
         const zima::assembly::ComponentConstraintState& state);
 
+    using MeasureReference=std::function<std::optional<double>(const zima::assembly::PartOccurrence&,const zima::assembly::ComponentPlacementReference&)>;
+    void set_reference_measure_callback(MeasureReference callback){measure_reference_=std::move(callback);}
     void set_reference_request_callback(ReferenceRequestCallback callback);
     void set_preview_callback(PreviewCallback callback);
     // Assigns the picked reference to row `index`'s component-side or
@@ -111,6 +113,8 @@ private:
     ReferenceRequestCallback reference_request_;
     ReferenceHighlightsChangedCallback reference_highlights_changed_;
     PreviewCallback preview_;
+    MeasureReference measure_reference_;
+    std::array<bool,3> capture_reference_value_{};
     std::optional<std::size_t> active_reference_index_;
     bool active_reference_component_side_{true};
     std::set<std::pair<std::size_t, bool>> inspected_reference_cells_;

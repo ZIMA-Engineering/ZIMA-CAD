@@ -1,3 +1,4 @@
+#include <zima/ui/numeric_value_lock.hpp>
 #pragma once
 #include "table_entry.hpp"
 #include "thread_catalog.hpp"
@@ -67,6 +68,10 @@ public:
         root_=number(pending_.shaft_thread.root_diameter,"shaftThreadRootDiameter");
         length_=number(pending_.shaft_thread.length,"shaftThreadLength");
         factor_=number(pending_.shaft_thread.runout_pitch_factor,"shaftThreadRunoutFactor");
+        setProperty("zimaValueLockOwner",QString::fromStdString(pending_.id));
+        ui::bind_numeric_value_lock(root_,"root_diameter",pending_.value_locks,[this]{notify();});
+        ui::bind_numeric_value_lock(length_,"length",pending_.value_locks,[this]{notify();});
+        ui::bind_numeric_value_lock(factor_,"runout_pitch_factor",pending_.value_locks,[this]{notify();});
         factor_->setMinimum(0);factor_->setSuffix(tr(" × stoupání"));
         form->addRow(tr("Patní průměr"),root_);
         end_=new QComboBox(this);end_->setObjectName("shaftThreadEnd");
@@ -132,6 +137,7 @@ public:
     }
     void end_reference_entry() { active_=-1;inspected_.fill(false);refresh_fields();notify(); }
     bool set_numeric(std::string_view key,double value) {
+        if (pending_.value_locks.contains(std::string(key)))return false;
         if (value<=0) throw std::runtime_error("Rozměr musí být kladný.");
         if (key=="root_diameter") root_->setValue(value);
         else if (key=="length" && end_->currentData().toInt()==static_cast<int>(document::EndCondition::Length))

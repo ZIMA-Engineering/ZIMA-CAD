@@ -8,6 +8,7 @@ struct DerivedCopyParameters {
     kernel::MirrorPlane resolved_plane;
     bool reference_valid{true};
     std::optional<kernel::PatternRequest> pattern;
+    std::set<std::string> value_locks;
     bool operator==(const DerivedCopyParameters&) const = default;
 };
 } // namespace zima::document

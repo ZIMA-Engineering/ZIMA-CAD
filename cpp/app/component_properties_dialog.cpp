@@ -1,3 +1,4 @@
+#include <zima/ui/numeric_value_lock.hpp>
 #include "component_properties_dialog.hpp"
 
 #include <zima/ui/reference_cell.hpp>
@@ -48,7 +49,7 @@ void match_reference_type(zima::assembly::ComponentPlacementReference& row) {
     if (source.owner_id.empty() || mate_type_accepts(row.mate_type, source.kind)) return;
     row.mate_type = source.kind == MateReferenceKind::Point ? MateKind::PointCoincident :
         source.kind == MateReferenceKind::Axis ? MateKind::AxisCoincident : MateKind::PlaneCoincident;
-    row.offset = 0; row.lower_limit.reset(); row.upper_limit.reset(); row.flip = false;
+    row.offset = 0; row.offset_locked=false; row.lower_limit.reset(); row.upper_limit.reset(); row.flip = false;
 }
 
 bool mate_type_is_angular(zima::assembly::MateKind kind) {
@@ -190,6 +191,12 @@ ComponentPropertiesDialog::ComponentPropertiesDialog(
         placement(initial.placement.rotation_y, true),
         placement(initial.placement.rotation_z, true),
     };
+    setProperty("zimaValueLockOwner",QString::fromStdString(initial_.occurrence_id));
+    for(std::size_t i=0;i<3;++i) {
+        const std::string axis=i==0?"x":i==1?"y":"z";
+        zima::ui::bind_numeric_value_lock(translation_[i],"placement:"+axis,initial_.value_locks,[this]{notify_preview();});
+        zima::ui::bind_numeric_value_lock(rotation_[i],"placement:rotation_"+axis,initial_.value_locks,[this]{notify_preview();});
+    }
     content_layout()->addLayout(form);
 
     // Embedded placement reference table -- Python reference design
@@ -342,6 +349,7 @@ void ComponentPropertiesDialog::set_placement_reference(
     if (placement_references_.size() <= index) {
         placement_references_.resize(index + 1);
     }
+    const auto previous=placement_references_;
     auto& row = placement_references_[index];
     if (component_side) {
         row.component_reference = std::move(reference);
@@ -354,6 +362,16 @@ void ComponentPropertiesDialog::set_placement_reference(
     }
     match_reference_type(row);
     if (initial_flip && row.mate_type != zima::assembly::MateKind::PlaneAngle) row.flip = *initial_flip;
+    const bool complete=!row.component_reference.owner_id.empty() && !row.target_reference.owner_id.empty();
+    if(complete) {
+        if(row.mate_type==zima::assembly::MateKind::AxisCoincident || row.mate_type==zima::assembly::MateKind::PointCoincident) {
+            row.offset=0;row.offset_locked=true;capture_reference_value_[index]=false;
+        } else if(capture_reference_value_[index] || row.offset_locked) {
+            const auto measured=measure_reference_?measure_reference_(current_value(),row):std::nullopt;
+            if(!measured){placement_references_=previous;error_->setText(tr("Současnou hodnotu mezi referencemi nelze určit."));return;}
+            row.offset=*measured;capture_reference_value_[index]=false;
+        }
+    }
     refresh_placement_table();
     notify_preview();
     static_cast<void>(label);
@@ -364,6 +382,7 @@ void ComponentPropertiesDialog::set_placement_references(
     if (references.size() > 3) return;
     for (auto& row : references) match_reference_type(row);
     placement_references_ = std::move(references);
+    capture_reference_value_.fill(false);
     active_reference_index_.reset();
     inspected_reference_cells_.clear();
     refresh_placement_table();
@@ -453,6 +472,8 @@ void ComponentPropertiesDialog::remove_placement_reference(std::size_t index) {
     inspected_reference_cells_.clear();
     placement_references_.erase(placement_references_.begin() +
         static_cast<std::ptrdiff_t>(index));
+    for(std::size_t i=index;i+1<capture_reference_value_.size();++i)capture_reference_value_[i]=capture_reference_value_[i+1];
+    capture_reference_value_.back()=false;
     refresh_placement_table();
     if (had_highlights && reference_highlights_changed_)
         reference_highlights_changed_();
@@ -558,7 +579,11 @@ void ComponentPropertiesDialog::refresh_placement_table() {
         offset->setDecimals(zima::ui::numeric_decimal_places(this,3));
         offset->setSuffix(angular ? QStringLiteral(" °") : QStringLiteral(" mm"));
         offset->setValue(row.offset);
-        offset->setEnabled(populated);
+        const bool complete=populated && !row.component_reference.owner_id.empty() && !row.target_reference.owner_id.empty();
+        const bool coincidence=row.mate_type==zima::assembly::MateKind::AxisCoincident || row.mate_type==zima::assembly::MateKind::PointCoincident;
+        offset->setEnabled(!complete || !coincidence);
+        offset->setReadOnly(!complete);
+        zima::ui::bind_numeric_value_lock(offset,"placement:reference_offset:"+std::to_string(index),complete?row.offset_locked:capture_reference_value_[index],[this,index,complete](bool locked){if(complete)placement_references_[index].offset_locked=locked;else capture_reference_value_[index]=locked;notify_preview();},complete);
         offset_fields_[index] = offset;
         placement_table_->setCellWidget(static_cast<int>(index), 4, offset);
         connect(offset, &QDoubleSpinBox::valueChanged, this,

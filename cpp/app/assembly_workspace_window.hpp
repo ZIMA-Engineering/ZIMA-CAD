@@ -62,6 +62,8 @@ public:
     [[nodiscard]] bool open_document_path(const QString& path);
     void show_tree_item_properties(QTreeWidgetItem* item);
     [[nodiscard]] QString dimension_identifier(const std::string& owner, const std::string& key) const;
+    std::optional<bool> parameter_value_locked(const std::string& owner,const std::string& key);
+    void toggle_parameter_value_lock(const std::string& owner,const std::string& key);
     void edit_dimension_inline(const zima::viewer::ViewerCandidate& candidate);
     bool finish_parameter_dimensions();
     void show_parameter_dimensions(const std::string& owner_id,

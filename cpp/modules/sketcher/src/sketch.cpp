@@ -12576,7 +12576,7 @@ std::string Sketch::serialized() const {
         nlohmann::json regions = nlohmann::json::array();
         for (const auto& r : data.repeat_regions) regions.push_back({
             {"id",r.id},{"x",r.x},{"y",r.y},{"width",r.width},{"height",r.height},
-            {"direction",r.direction},{"step",r.step}});
+            {"direction",r.direction},{"step",r.step},{"value_locks",r.value_locks}});
         root["drawing_template"] = {{"kind",data.kind},{"sections",data.sections},
             {"pens",data.pens},{"field_ids",data.field_ids},{"repeat_regions",regions},{"images",data.images}};
     }
@@ -12600,7 +12600,7 @@ Sketch Sketch::from_serialized(const std::string& value) {
         t.field_ids = data.at("field_ids").get<decltype(t.field_ids)>();
         for (const auto& r : data.at("repeat_regions")) t.repeat_regions.push_back({
             r.at("id"),r.at("x"),r.at("y"),r.at("width"),r.at("height"),
-            r.at("direction"),r.at("step")});
+            r.at("direction"),r.at("step"),r.value("value_locks",std::set<std::string>{})});
     }
     sketch.id = root.at("id").get<std::string>();
     sketch.owner_container_id = root.at("owner_container_id").get<std::string>();

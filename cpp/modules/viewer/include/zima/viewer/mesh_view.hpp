@@ -143,6 +143,7 @@ public:
     void set_confirmation_callback(
         std::function<void(const ViewerCandidate&)> callback);
     void set_empty_confirmation_callback(std::function<void()> callback);
+    void set_dimension_lock_query(std::function<std::optional<bool>(const zima::kernel::EdgeReference&)> query) { dimension_lock_query_=std::move(query); update(); }
     void set_context_menu_callback(
         std::function<void(const ViewerCandidate&, const QPoint&)> callback);
     void set_world_click_callback(std::function<bool(
@@ -284,6 +285,7 @@ protected:
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
+    std::function<std::optional<bool>(const zima::kernel::EdgeReference&)> dimension_lock_query_;
     void upload_mesh();
     void update_candidates(const QPointF& position);
     void notify_confirmation();

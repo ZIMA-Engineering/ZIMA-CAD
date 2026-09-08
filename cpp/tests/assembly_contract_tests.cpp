@@ -1327,6 +1327,12 @@ int main() {
         };
         require(close_vector(drag_document.component_drag_translation(second_id,requested_drag),requested_drag),
             "Free origin drag lost a translation direction");
+        drag_moving.value_locks={"placement:x"};
+        require(close_vector(drag_document.component_drag_translation(second_id,requested_drag),zima::kernel::Vec3{0,-8,13}),
+            "Origin drag bypassed a locked coordinate");
+        require(drag_document.component_constraint_state(second_id).remaining_dof==6,
+            "An editing lock changed the physical degree-of-freedom count");
+        drag_moving.value_locks.clear();
         const auto drag_ref=[&](bool moving,zima::assembly::MateReferenceKind kind,const char* key) {
             const auto& component=moving?drag_moving:drag_fixed;
             return zima::assembly::MateReference{kind,zima::assembly::InstancePath{}.child(component.occurrence_id),
@@ -1339,6 +1345,10 @@ int main() {
         const double along=requested_drag.x*direction.x+requested_drag.y*direction.y+requested_drag.z*direction.z;
         require(close_vector(drag_document.component_drag_translation(second_id,requested_drag),
             zima::kernel::Vec3{direction.x*along,direction.y*along,direction.z*along}),"Oblique axis drag escaped its single sliding freedom");
+        drag_moving.value_locks={"placement:x"};
+        require(close_vector(drag_document.component_drag_translation(second_id,requested_drag),zima::kernel::Vec3{}),
+            "Sliding along an oblique axis bypassed a locked world coordinate");
+        drag_moving.value_locks.clear();
         drag_moving.placement_references={{zima::assembly::MateKind::PlaneCoincident,
             drag_ref(true,zima::assembly::MateReferenceKind::Face,"origin:plane:xy"),
             drag_ref(false,zima::assembly::MateReferenceKind::Face,"origin:plane:xy")}};
@@ -1353,6 +1363,33 @@ int main() {
         drag_moving.placement_references.clear();drag_moving.grounded=true;
         require(close_vector(drag_document.component_drag_translation(second_id,requested_drag),zima::kernel::Vec3{}),
             "Grounded component moved through origin drag");
+
+        drag_moving.grounded=false;drag_moving.placement={3,4,15,37,0,0};drag_fixed.placement={};
+        zima::assembly::ComponentPlacementReference measured_row{zima::assembly::MateKind::PlaneCoincident,
+            drag_ref(true,zima::assembly::MateReferenceKind::Face,"origin:plane:xy"),
+            drag_ref(false,zima::assembly::MateReferenceKind::Face,"origin:plane:xy")};
+        require(std::abs(drag_document.measure_placement_reference(measured_row).value_or(-999)-15)<1e-8,
+            "Captured assembly offset has the wrong distance/sign");
+        auto captured_document=drag_document;
+        measured_row.offset=*drag_document.measure_placement_reference(measured_row);
+        captured_document.find_occurrence(second_id)->placement_references={measured_row};
+        captured_document.calculate_placement_references();
+        const auto captured_pose=captured_document.find_occurrence(second_id)->placement;
+        require(close_vector(zima::kernel::Vec3{captured_pose.x,captured_pose.y,captured_pose.z},zima::kernel::Vec3{3,4,15}),
+            "Capturing a tilted plane moved the component origin during normal alignment");
+        measured_row.mate_type=zima::assembly::MateKind::PlaneAngle;
+        require(std::abs(drag_document.measure_placement_reference(measured_row).value_or(-999)-37)<1e-8,
+            "Captured assembly angle does not describe the current orientation");
+        measured_row.flip=true;
+        require(std::abs(drag_document.measure_placement_reference(measured_row).value_or(-999)-143)<1e-8,
+            "Flipped assembly angle has the wrong convention");
+        measured_row.offset_locked=true;drag_moving.placement_references={measured_row};
+        drag_moving.value_locks={"placement:x","placement:rotation_y"};
+        const auto lock_path=std::filesystem::current_path()/"Projects/test/assembly-value-locks.asmz";
+        drag_document.save(lock_path);const auto locked_assembly=zima::assembly::AssemblyDocument::load(lock_path);
+        require(locked_assembly.components.back().value_locks==drag_moving.value_locks &&
+            locked_assembly.components.back().placement_references.front().offset_locked,
+            "Assembly save/load lost numeric or reference locks");
 
         auto state_document = loaded;
         state_document.components.front().suppressed = true;

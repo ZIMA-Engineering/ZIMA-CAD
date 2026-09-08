@@ -142,6 +142,7 @@ struct ConstructionObject {
     double offset{};
     bool reference_valid{true};
     bool suppressed{};
+    std::set<std::string> value_locks;
     bool operator==(const ConstructionObject&) const = default;
 };
 
@@ -539,6 +540,9 @@ struct HelicalSweepParameters {
 // Returns whether every reference in `placement.references` could be found
 // in `geometry`; on failure the previous x/y/z/rotation_* fields are kept as
 // the under-constrained fallback.
+[[nodiscard]] std::optional<double> measure_placement_reference_offset(const ConstructionReference&,
+    const zima::kernel::ViewerReferenceGeometry&, const zima::kernel::Vec3& point);
+
 [[nodiscard]] bool resolve_placement(
     Placement& placement, const zima::kernel::ViewerReferenceGeometry& geometry,
     zima::kernel::Vec3* base_rotation = nullptr,
@@ -572,6 +576,7 @@ struct HistoryContainer {
     ShaftThreadParameters shaft_thread;
     DrillPointParameters drill_point;
     bool suppressed{};
+    std::set<std::string> value_locks;
     bool operator==(const HistoryContainer&) const = default;
 };
 

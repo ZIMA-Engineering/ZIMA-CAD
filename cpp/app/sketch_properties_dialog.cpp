@@ -1,3 +1,4 @@
+#include <zima/ui/numeric_value_lock.hpp>
 #include "sketch_button_style.hpp"
 #include "sketch_properties_dialog.hpp"
 
@@ -83,6 +84,8 @@ SketchPropertiesDialog::SketchPropertiesDialog(
     offset_->setDecimals(zima::ui::numeric_decimal_places(this,3));
     offset_->setSuffix(" mm");
     offset_->setValue(initial_.plane_offset);
+    setProperty("zimaValueLockOwner",QString::fromStdString(initial_.owner_container_id.empty()?initial_.id:initial_.owner_container_id));
+    zima::ui::bind_numeric_value_lock(offset_,"profile_offset",initial_placement_.value_locks,[this]{notify_preview();});
     plane_reference_ = new QComboBox(this);
     plane_reference_->setObjectName("sketchPlaneReference");
     plane_reference_->addItem(tr("(žádná — použít rovinu výše)"),
@@ -200,6 +203,7 @@ SketchPropertiesDialog::current_values() const {
     sketch.plane_offset = offset_->value();
     sketch.plane_reference_owner_id.clear();
     auto placement = placement_->numeric_placement();
+    if(initial_placement_.value_locks.contains("profile_offset"))placement.value_locks.insert("profile_offset");else placement.value_locks.erase("profile_offset");
     placement.references = placement_->populated_references();
     normalize_sketch_front_references(placement.references);
     return {std::move(sketch), std::move(placement)};
@@ -330,7 +334,7 @@ void SketchPropertiesDialog::set_resolved_rotation(
 bool SketchPropertiesDialog::set_inline_parameter_value(
     std::string_view key, double value) {
     const auto set_field = [value](QDoubleSpinBox* field) {
-        if (field == nullptr || !field->isEnabled() || !field->isVisible())
+        if (field == nullptr || !field->isEnabled() || field->isReadOnly() || !field->isVisible())
             return false;
         field->setValue(value);
         return true;
@@ -347,6 +351,7 @@ bool SketchPropertiesDialog::set_inline_parameter_value(
         key == "rotation_z") {
         const std::size_t index = key == "rotation_x" ? 0
             : key == "rotation_y" ? 1 : 2;
+        if (placement_->rotation_fields()[index] && placement_->rotation_fields()[index]->isEnabled() && placement_->rotation_fields()[index]->isReadOnly()) return false;
         if (set_field(placement_->rotation_fields()[index])) return true;
         return set_field(placement_->rotation_offset_fields()[index]);
     }

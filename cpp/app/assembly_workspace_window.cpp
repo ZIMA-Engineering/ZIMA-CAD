@@ -4396,6 +4396,7 @@ void AssemblyWorkspaceWindow::create_layout() {
             refresh_scene();
         }
     });
+    viewer_->set_dimension_lock_query([this](const auto& reference){return parameter_value_locked(reference.owner_id,reference.semantic_key);});
     viewer_->set_context_menu_callback(
         [this](const auto& candidate, const QPoint& global_position) {
             if(candidate.kind==zima::viewer::CandidateKind::TemplateImage && !properties_dialog_) {
@@ -4418,6 +4419,10 @@ void AssemblyWorkspaceWindow::create_layout() {
                 sketch_common_tangent_active_ ||
                 sketch_segment_pair_active_ || sketch_point_dimension_active_ ||
                 sketch_universal_dimension_active_) return;
+            if(candidate.kind==zima::viewer::CandidateKind::Dimension && candidate.semantic_key.starts_with("placement-reference:")) {
+                QMenu menu(this);auto* lock=menu.addAction(parameter_value_locked(candidate.owner_id,candidate.semantic_key).value_or(false)?tr("Odemknout hodnotu"):tr("Zamknout hodnotu"));
+                if(menu.exec(global_position)==lock)toggle_parameter_value_lock(candidate.owner_id,candidate.semantic_key);return;
+            }
             if (candidate.kind == zima::viewer::CandidateKind::Dimension &&
                 candidate.semantic_key.starts_with("dimension:")) {
                 const auto dimension_id = candidate.semantic_key.substr(10);
@@ -4598,9 +4603,12 @@ void AssemblyWorkspaceWindow::create_layout() {
             if (candidate.kind == zima::viewer::CandidateKind::Dimension &&
                 candidate.semantic_key.starts_with("parameter:")) {
                 QMenu menu(this);
-                auto* edit = menu.addAction(tr("Upravit hodnotu"));
+                const auto locked=parameter_value_locked(candidate.owner_id,candidate.semantic_key);
+                QAction* lock=locked?menu.addAction(*locked?tr("Odemknout hodnotu"):tr("Zamknout hodnotu")):nullptr;
+                auto* edit = menu.addAction(tr("Upravit hodnotu"));edit->setEnabled(!locked.value_or(false));
                 auto* properties = menu.addAction(tr("Vlastnosti"));
                 const auto* selected = menu.exec(global_position);
+                if(lock && selected==lock){toggle_parameter_value_lock(candidate.owner_id,candidate.semantic_key);return;}
                 if (selected != edit && selected != properties) return;
                 if (selected == edit) {
                     edit_dimension_inline(candidate);
@@ -6942,6 +6950,10 @@ void AssemblyWorkspaceWindow::show_body_properties(const std::string& id) {
             else if (updated.active_body_id() == edited) updated.activate({});
             next.set_body_history(std::move(updated));
             auto calculated = calculate_part_with_resolved_references(next, &current->session.calculated_boundaries());
+            // Reference resolution may normalize signed zero after the last
+            // geometry pass. OK must retain the exact final inputs so a later
+            // metadata-only edit and Save can reuse this calculation safely.
+            calculated = calculate_part(next, &calculated);
             current->session.commit(std::move(next), std::move(calculated));
         }, this, document_decimal_places(part->session.document()));
     primitive_reference_geometry_ = part->session.calculated_boundaries().empty()
@@ -13465,6 +13477,7 @@ void AssemblyWorkspaceWindow::accept_construction_reference(
     // table. Planar position references are mirrored into its first two
     // slots by ContainerPlacementSection; position rows themselves never
     // acquire a second rotational meaning.
+    committed_reference.measured_offset=zima::document::measure_placement_reference_offset(committed_reference,construction_reference_geometry_,orientation_origin);
     const bool auto_advance = construction_reference_auto_advance_;
     if (!construction_reference_dialog_->set_reference(
         selected_index, committed_reference, reference_label, definition)) {
@@ -13866,6 +13879,7 @@ void AssemblyWorkspaceWindow::accept_primitive_reference(
             if (!cap_label.empty()) reference_label=QString::fromStdString(owner->name+" — "+cap_label);
         }
     }
+    committed_reference.measured_offset=zima::document::measure_placement_reference_offset(committed_reference,primitive_reference_geometry_,orientation_origin);
     const bool auto_advance = primitive_reference_auto_advance_;
     if (!primitive_reference_dialog_->set_reference(
         selected_index, std::move(committed_reference), reference_label)) {
@@ -19665,6 +19679,7 @@ bool AssemblyWorkspaceWindow::begin_placement_reference_drag(
     if (occurrence == nullptr ||
         row_index >= occurrence->placement_references.size()) return false;
     const auto& row = occurrence->placement_references[row_index];
+    if(row.offset_locked)return false;
     if (row.mate_type != zima::assembly::MateKind::PlaneCoincident &&
         row.mate_type != zima::assembly::MateKind::PlaneAngle) return false;
     zima::kernel::Vec3 reference_point;
@@ -27756,6 +27771,12 @@ void AssemblyWorkspaceWindow::show_component_properties(
             }
             viewer_->set_constraint_reference_highlights({}, std::move(keys));
         });
+    dialog->set_reference_measure_callback([this,assembly_id=address->owner_assembly_document_id](const auto& component,const auto& row)->std::optional<double> {
+        const auto* assembly=workspace_.open_assembly(assembly_id);if(!assembly)return {};
+        auto geometry=assembly->session.document();auto* occurrence=geometry.find_occurrence(component.occurrence_id);if(!occurrence)return {};
+        *occurrence=component;
+        return geometry.measure_placement_reference(row);
+    });
     component_placement_dialog_ = dialog;
     component_placement_assembly_document_id_ = address->owner_assembly_document_id;
     component_placement_occurrence_id_ = address->occurrence_id;
@@ -27827,6 +27848,7 @@ QString AssemblyWorkspaceWindow::dimension_identifier(
 void AssemblyWorkspaceWindow::edit_dimension_inline(
     const zima::viewer::ViewerCandidate& candidate) {
     if (candidate.semantic_key.starts_with("measurement:")) return;
+    if(parameter_value_locked(candidate.owner_id,candidate.semantic_key).value_or(false)){state_->setText(tr("Hodnota je zamčená. Nejprve ji odemkněte."));return;}
     const auto value = viewer_->candidate_dimension_value(candidate);
     if (!value || candidate.kind != zima::viewer::CandidateKind::Dimension) return;
     if (candidate.semantic_key == "parameter:thread_designation") {
@@ -27940,6 +27962,7 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
         const double next_value = rounded_to_decimal_places(
             parsed_value, viewer_->dimension_decimal_places());
         try {
+            if(parameter_value_locked(candidate.owner_id,candidate.semantic_key).value_or(false))throw std::runtime_error("Hodnota je zamčená.");
             if (candidate.semantic_key.starts_with("parameter:") &&
                 edge_treatment_dialog_ != nullptr &&
                 candidate.owner_id == edge_treatment_preview_owner_id_) {

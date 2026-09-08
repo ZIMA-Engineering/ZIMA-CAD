@@ -186,6 +186,9 @@ struct ViewerDimension {
     // engineering value used by editing and solving; only its View label is
     // replaced (for example "M10" on a cosmetic thread diameter).
     std::string display_text_override;
+    // Actual editable value represented by a generated parameter dimension.
+    // A reference-driven RX/RY/RZ dimension edits its local correction.
+    std::string value_lock_key;
 };
 
 struct ViewerConstraintMarker {
