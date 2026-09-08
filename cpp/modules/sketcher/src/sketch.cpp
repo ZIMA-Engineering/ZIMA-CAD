@@ -608,6 +608,7 @@ const char* text_color_name(SketchTextColor color) {
     case SketchTextColor::Green: return "green";
     case SketchTextColor::White: return "white";
     case SketchTextColor::Yellow: return "yellow";
+    case SketchTextColor::Red: return "red";
     }
     throw std::invalid_argument("Unknown sketch text color");
 }
@@ -616,6 +617,7 @@ SketchTextColor text_color_from_name(const std::string& name) {
     if (name == "green") return SketchTextColor::Green;
     if (name == "white") return SketchTextColor::White;
     if (name == "yellow") return SketchTextColor::Yellow;
+    if (name == "red") return SketchTextColor::Red;
     throw std::runtime_error("Unknown sketch text color");
 }
 
@@ -12295,6 +12297,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
                 edge.reference.semantic_key.substr(separator + 1));
             if (!edge.reference.semantic_key.starts_with("text:"))
                 edge.color = found != drawing_template->pens.end() && found->second == "WHITE" ? "#FFFFFF"
+                    : found != drawing_template->pens.end() && found->second == "RED" ? "#FF0000"
                     : found != drawing_template->pens.end() && found->second == "YELLOW" ? "#E6C85C" : "#4DD811";
         }
         for (const auto& image : drawing_template->images) {

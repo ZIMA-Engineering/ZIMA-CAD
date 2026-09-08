@@ -51,8 +51,8 @@ TextHorizontalAlignment horizontal(std::string s) {
 TextVerticalAlignment vertical(std::string s) {
     return s=="middle"||s=="center"?TextVerticalAlignment::Middle:s=="top"?TextVerticalAlignment::Top:TextVerticalAlignment::Bottom;
 }
-SketchTextColor color(const std::string& s) {return s=="WHITE"||s=="white"?SketchTextColor::White:s=="YELLOW"||s=="yellow"?SketchTextColor::Yellow:SketchTextColor::Green;}
-std::string pen(SketchTextColor c) {return c==SketchTextColor::White?"WHITE":c==SketchTextColor::Yellow?"YELLOW":"GREEN";}
+SketchTextColor color(const std::string& s) {return s=="RED"||s=="red"?SketchTextColor::Red:s=="WHITE"||s=="white"?SketchTextColor::White:s=="YELLOW"||s=="yellow"?SketchTextColor::Yellow:SketchTextColor::Green;}
+std::string pen(SketchTextColor c) {return c==SketchTextColor::Red?"RED":c==SketchTextColor::White?"WHITE":c==SketchTextColor::Yellow?"YELLOW":"GREEN";}
 const char* align(TextHorizontalAlignment h) {return h==TextHorizontalAlignment::Center?"center":h==TextHorizontalAlignment::Right?"right":"left";}
 const char* valign(TextVerticalAlignment v) {return v==TextVerticalAlignment::Top?"top":v==TextVerticalAlignment::Middle?"middle":"bottom";}
 std::string segment_for(const Sketch& s,const std::string& a,const std::string& b) {
@@ -233,7 +233,7 @@ void load_template_details(DrawingSheet& sheet,const std::filesystem::path& path
     const auto ini=read(path);
     auto& circles=title?sheet.title_block_circles:sheet.frame_circles;circles.clear();
     const auto geometry=ini.find(title?"Geometry":"FrameGeometry");
-    const auto drawing_pen=[](const std::string& name){return name=="WHITE"?DrawingPen::White:name=="YELLOW"?DrawingPen::Yellow:DrawingPen::Green;};
+    const auto drawing_pen=[](const std::string& name){return name=="RED"?DrawingPen::Red:name=="WHITE"?DrawingPen::White:name=="YELLOW"?DrawingPen::Yellow:DrawingPen::Green;};
     if(geometry!=ini.end())for(const auto& [key,raw]:geometry->second)if(key.starts_with("Circle")) {
         const auto v=split(raw);if(v.size()<4)throw std::runtime_error("Neplatná kružnice šablony.");
         circles.push_back({{std::stod(v[0]),std::stod(v[1])},std::stod(v[2]),drawing_pen(v[3])});

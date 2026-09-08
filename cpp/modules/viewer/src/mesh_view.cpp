@@ -51,7 +51,7 @@ template<class Project> void paint_normal_text(QPainter& painter,
             path.closeSubpath();
             const auto& key=edge.reference.semantic_key;
             color=transient?QColor(0,209,255):!edge.color.empty()?QColor(QString::fromStdString(edge.color)):
-                key.ends_with(":yellow")?QColor(245,205,80):key.ends_with(":white")?QColor(255,255,255):QColor(77,216,17);
+                key.ends_with(":red")?QColor(255,0,0):key.ends_with(":yellow")?QColor(245,205,80):key.ends_with(":white")?QColor(255,255,255):QColor(77,216,17);
         }
     };
     if(visible)append(edges,false);append(preview,true);
@@ -3635,7 +3635,8 @@ if (impl_->show_origins) {
                     edge.reference.semantic_key.starts_with("external_axis:");
                 const bool external_face = edge.reference.semantic_key.starts_with(
                     "external_face:");
-                const QColor text_color = edge.reference.semantic_key.ends_with(":yellow")
+                const QColor text_color = edge.reference.semantic_key.ends_with(":red") ? QColor(255,0,0)
+                    : edge.reference.semantic_key.ends_with(":yellow")
                     ? QColor(245, 205, 80)
                     : edge.reference.semantic_key.ends_with(":white")
                         ? QColor(255, 255, 255) : QColor(77, 216, 17);

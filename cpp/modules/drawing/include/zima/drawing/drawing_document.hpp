@@ -19,6 +19,7 @@ enum class ProjectionMethod { FirstAngle, ThirdAngle };
 enum class ViewOrientation { Front, Back, Left, Right, Top, Bottom, Isometric };
 enum class DisplayStyle { VisibleEdges, HiddenEdges, ShadedWithEdges, Shaded };
 enum class HiddenEdgeStyle { Dashed, Gray };
+enum class TangentEdgeStyle { Visible, Thin, Hidden };
 enum class ProjectionDirection {
     None, Right, TopRight, Top, TopLeft, Left, BottomLeft, Bottom, BottomRight
 };
@@ -40,6 +41,7 @@ struct ProjectedEdge {
     zima::kernel::EdgeReference source;
     bool hidden{};
     bool silhouette{};
+    bool tangent{};
 };
 
 struct ProjectedTriangle {
@@ -61,6 +63,7 @@ struct DrawingView {
     ProjectionDirection projection_direction{ProjectionDirection::None};
     DisplayStyle display_style{DisplayStyle::VisibleEdges};
     HiddenEdgeStyle hidden_edge_style{HiddenEdgeStyle::Dashed};
+    TangentEdgeStyle tangent_edge_style{TangentEdgeStyle::Visible};
     double x{100.0};
     double y{100.0};
     double scale{1.0};
@@ -70,6 +73,13 @@ struct DrawingView {
     std::vector<ProjectedTriangle> projected_triangles;
     std::set<std::string> value_locks;
 };
+
+// The renderer and dimension picker share the same visibility contract.
+inline bool drawing_edge_visible(const DrawingView& view,const ProjectedEdge& edge) {
+    if(view.display_style==DisplayStyle::Shaded)return false;
+    if(edge.tangent&&(edge.hidden||view.tangent_edge_style==TangentEdgeStyle::Hidden))return false;
+    return !edge.hidden||view.display_style==DisplayStyle::HiddenEdges;
+}
 
 struct LinearDimension {
     std::string id;
@@ -83,7 +93,7 @@ struct LinearDimension {
     bool unresolved{};
 };
 
-enum class DrawingPen { White, Green, Yellow };
+enum class DrawingPen { White, Green, Yellow, Red };
 struct TemplateLine { Point2 first; Point2 second; DrawingPen pen{DrawingPen::Green}; };
 struct TemplateCircle { Point2 center; double radius{}; DrawingPen pen{DrawingPen::Green}; };
 struct TemplateText {
@@ -123,6 +133,7 @@ struct DrawingSheet {
     double default_scale{1.0};
     double thick_line_mm{0.5};
     double thin_line_mm{0.25};
+    double red_line_mm{0.7};
     std::vector<DrawingView> views;
     std::vector<LinearDimension> dimensions;
     std::vector<TemplateLine> frame_lines;
@@ -140,6 +151,12 @@ struct DrawingSheet {
     [[nodiscard]] double width_mm() const;
     [[nodiscard]] double height_mm() const;
 };
+
+inline double drawing_pen_width_mm(const DrawingSheet& sheet,DrawingPen pen) {
+    if(pen==DrawingPen::White)return sheet.thick_line_mm;
+    if(pen==DrawingPen::Red)return sheet.red_line_mm;
+    return sheet.thin_line_mm;
+}
 
 class DrawingDocument {
 public:

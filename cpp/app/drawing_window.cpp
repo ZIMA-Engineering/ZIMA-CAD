@@ -137,6 +137,9 @@ public:
         hidden_style_=new QComboBox(content);hidden_style_->setObjectName("drawingHiddenEdgeStyle");
         hidden_style_->addItems({QObject::tr("Čárkované"),QObject::tr("Šedé")});
         hidden_style_->setCurrentIndex(static_cast<int>(value_.hidden_edge_style));
+        tangent_style_=new QComboBox(content);tangent_style_->setObjectName("drawingTangentEdgeStyle");
+        tangent_style_->addItems({QObject::tr("Silné čáry"),QObject::tr("Tenké čáry"),QObject::tr("Skrýt")});
+        tangent_style_->setCurrentIndex(static_cast<int>(value_.tangent_edge_style));
         display_->setCurrentIndex(static_cast<int>(value_.display_style));
         scale_mode_ = new QComboBox(content);
         scale_mode_->setObjectName("drawingViewScaleMode");
@@ -158,6 +161,7 @@ public:
         form->addRow(QObject::tr("Orientace"), orientation_);
         form->addRow(QObject::tr("Zobrazení"), display_);
         form->addRow(QObject::tr("Skryté hrany"),hidden_style_);
+        form->addRow(QObject::tr("Tečné hrany"),tangent_style_);
         form->addRow(QObject::tr("Měřítko"), scale_mode_);
         form->addRow(QObject::tr("Hodnota měřítka"), scale_);
         form->addRow(QObject::tr("Poloha X [mm]"), x_);
@@ -171,7 +175,7 @@ public:
         zima::ui::bind_numeric_value_lock(x_,"x",value_.value_locks,preview_change);
         zima::ui::bind_numeric_value_lock(y_,"y",value_.value_locks,preview_change);
         zima::ui::bind_numeric_value_lock(scale_,"scale",value_.value_locks,preview_change);
-        for (auto* combo : {source_, orientation_, display_, scale_mode_,hidden_style_})
+        for (auto* combo : {source_, orientation_, display_, scale_mode_,hidden_style_,tangent_style_})
             connect(combo, &QComboBox::currentIndexChanged, this, [this,preview_change] {
                 scale_->setEnabled(scale_mode_->currentIndex()==1);
                 preview_change();
@@ -187,6 +191,7 @@ public:
         auto result = value_;
         result.name = name_->text().trimmed().toStdString();
         result.show_caption = caption_->isChecked();
+        result.tangent_edge_style=static_cast<zima::drawing::TangentEdgeStyle>(tangent_style_->currentIndex());
         result.hidden_edge_style=static_cast<zima::drawing::HiddenEdgeStyle>(hidden_style_->currentIndex());
         if (const int i = source_->currentIndex(); i>=0 && i<static_cast<int>(sources_.size())) {
             result.source_document_id = sources_[i].id; result.source_path = sources_[i].path;
@@ -206,7 +211,7 @@ private:
     std::function<void(zima::drawing::DrawingView)> preview_;
     QLineEdit* name_{};
     QCheckBox* caption_{};
-    QComboBox *source_{}, *orientation_{}, *display_{}, *scale_mode_{}, *hidden_style_{};
+    QComboBox *source_{}, *orientation_{}, *display_{}, *scale_mode_{}, *hidden_style_{}, *tangent_style_{};
     QDoubleSpinBox *scale_{}, *x_{}, *y_{};
     QLabel* error_{};
     bool submit() override { return accepted_(values()); }
@@ -235,24 +240,25 @@ public:
         language_->addItems({"cs","en","de","fr","ru"});language_->setEditable(true);
         language_->setCurrentText(QString::fromStdString(value_.title_block_locale));
         form->addRow(QObject::tr("Jazyk razítka"),language_);
-        thick_=new QDoubleSpinBox(content);thin_=new QDoubleSpinBox(content);
-        for(auto* spin:{thick_,thin_}){spin->setRange(0.05,2.0);spin->setDecimals(2);spin->setSingleStep(0.05);spin->setSuffix(" mm");}
-        thick_->setObjectName("drawingThickLine");thin_->setObjectName("drawingThinLine");
-        thick_->setValue(value_.thick_line_mm);thin_->setValue(value_.thin_line_mm);
-        form->addRow(QObject::tr("Silná čára"),thick_);form->addRow(QObject::tr("Slabá čára"),thin_);
+        thick_=new QDoubleSpinBox(content);thin_=new QDoubleSpinBox(content);red_=new QDoubleSpinBox(content);
+        for(auto* spin:{thick_,thin_,red_}){spin->setRange(0.05,2.0);spin->setDecimals(2);spin->setSingleStep(0.05);spin->setSuffix(" mm");}
+        thick_->setObjectName("drawingThickLine");thin_->setObjectName("drawingThinLine");red_->setObjectName("drawingRedLine");
+        thick_->setValue(value_.thick_line_mm);thin_->setValue(value_.thin_line_mm);red_->setValue(value_.red_line_mm);
+        form->addRow(QObject::tr("Bílá – silná čára"),thick_);form->addRow(QObject::tr("Červená čára"),red_);
+        form->addRow(QObject::tr("Žlutá, zelená a skrytá čára"),thin_);
         content_layout()->addWidget(content); setAttribute(Qt::WA_DeleteOnClose);
     }
 private:
     zima::drawing::DrawingSheet value_;
     std::function<void(zima::drawing::DrawingSheet)> accepted_;
-    QComboBox* format_{}; QComboBox* projection_{}; QComboBox* language_{}; QDoubleSpinBox* scale_{}; QDoubleSpinBox *thick_{},*thin_{};
+    QComboBox* format_{}; QComboBox* projection_{}; QComboBox* language_{}; QDoubleSpinBox* scale_{}; QDoubleSpinBox *thick_{},*thin_{},*red_{};
     bool submit() override {
         value_.format = static_cast<zima::drawing::SheetFormat>(format_->currentIndex());
         value_.projection_method = projection_->currentIndex() == 0
             ? zima::drawing::ProjectionMethod::FirstAngle
             : zima::drawing::ProjectionMethod::ThirdAngle;
         value_.title_block_locale=language_->currentText().trimmed().toStdString();
-        value_.thick_line_mm=thick_->value();value_.thin_line_mm=thin_->value();
+        value_.thick_line_mm=thick_->value();value_.thin_line_mm=thin_->value();value_.red_line_mm=red_->value();
         value_.default_scale = scale_->value(); accepted_(std::move(value_)); return true;
     }
 };
@@ -623,7 +629,7 @@ public:
         };
         const auto pen_color=[&](zima::drawing::DrawingPen pen) {
             if(printing)return QColor(Qt::black);
-            return pen == zima::drawing::DrawingPen::Yellow ? QColor("#E6C85C")
+            return pen==zima::drawing::DrawingPen::Red?QColor("#FF0000"):pen == zima::drawing::DrawingPen::Yellow ? QColor("#E6C85C")
                 : pen == zima::drawing::DrawingPen::Green ? QColor("#4DD811") : QColor("#FFFFFF");
         };
         if (sheet_->frame_lines.empty()) {
@@ -656,9 +662,10 @@ public:
                 }
             }
         };
+        const auto pen_width=[&](zima::drawing::DrawingPen pen){return printing||lineweights_?zoom*zima::drawing::drawing_pen_width_mm(*sheet_,pen):1.0;};
         const auto draw_template=[&](const auto& lines,const auto& texts,const auto& circles) {
-            for(const auto& line:lines){painter.setPen(QPen(pen_color(line.pen),width(line.pen==zima::drawing::DrawingPen::White)));painter.drawLine(screen(line.first),screen(line.second));}
-            for(const auto& circle:circles){painter.setPen(QPen(pen_color(circle.pen),width(circle.pen==zima::drawing::DrawingPen::White)));painter.setBrush(Qt::NoBrush);painter.drawEllipse(screen(circle.center),circle.radius*zoom,circle.radius*zoom);}
+            for(const auto& line:lines){painter.setPen(QPen(pen_color(line.pen),pen_width(line.pen)));painter.drawLine(screen(line.first),screen(line.second));}
+            for(const auto& circle:circles){painter.setPen(QPen(pen_color(circle.pen),pen_width(circle.pen)));painter.setBrush(Qt::NoBrush);painter.drawEllipse(screen(circle.center),circle.radius*zoom,circle.radius*zoom);}
             for(const auto& text:texts)draw_text(text);
         };
         draw_template(sheet_->frame_lines,sheet_->frame_texts,sheet_->frame_circles);
@@ -697,10 +704,9 @@ public:
             if(view.display_style==zima::drawing::DisplayStyle::Shaded)continue;
             for(bool hidden_pass:{true,false})for (const auto& edge : view.projected_edges) {
                 if(edge.hidden!=hidden_pass)continue;
-                if (edge.hidden && view.display_style != zima::drawing::DisplayStyle::HiddenEdges)
-                    continue;
+                if(!zima::drawing::drawing_edge_visible(view,edge))continue;
                 const bool gray=edge.hidden&&view.hidden_edge_style==zima::drawing::HiddenEdgeStyle::Gray;
-                QPen pen(!printing&&view.id==selected_?QColor("#00D1FF"):gray?QColor("#808080"):ink,width(!edge.hidden));
+                QPen pen(!printing&&view.id==selected_?QColor("#00D1FF"):gray?QColor("#808080"):ink,width(!edge.hidden&&!(edge.tangent&&view.tangent_edge_style==zima::drawing::TangentEdgeStyle::Thin)));
                 pen.setCapStyle(Qt::FlatCap);pen.setJoinStyle(Qt::RoundJoin);
                 if(edge.hidden&&!gray){pen.setDashPattern({3.0*zoom/pen.widthF(),1.5*zoom/pen.widthF()});}
                 painter.setPen(pen);
@@ -856,9 +862,7 @@ protected:
         const zima::drawing::DrawingView* hit_view{};
         const zima::drawing::ProjectedEdge* hit_edge{};
         if (dimension_mode_) for (const auto& view : sheet_->views) for (const auto& edge : view.projected_edges) {
-            if (edge.points.size() < 2 ||
-                (edge.hidden && view.display_style != zima::drawing::DisplayStyle::HiddenEdges) ||
-                view.display_style==zima::drawing::DisplayStyle::Shaded || edge.silhouette) continue;
+            if(edge.points.size()<2||edge.silhouette||!zima::drawing::drawing_edge_visible(view,edge))continue;
             for (std::size_t point = 1; point < edge.points.size(); ++point) {
                 const auto screen = [&](const auto& value) {
                     return QPointF(origin.x() + sheet_->width_mm()*zoom -

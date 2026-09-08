@@ -259,7 +259,8 @@ int main() {
         text.id="field1:text";
         text.modeling_geometry=false;
         require(zima::sketcher::text_id_from_viewer_key("text:field1:text:yellow")==text.id &&
-                zima::sketcher::text_id_from_viewer_key("text:field1:text")==text.id,
+                zima::sketcher::text_id_from_viewer_key("text:field1:text")==text.id &&
+                zima::sketcher::text_id_from_viewer_key("text:field1:text:red")==text.id,
                 "Old title-block text identity was truncated at a colon");
         text.value = "ZIMA";
         text.anchor_x = 2.0;

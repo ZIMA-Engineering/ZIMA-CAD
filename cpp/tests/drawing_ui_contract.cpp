@@ -76,6 +76,9 @@ int verify_drawing_ui() {
         auto* display_mode=properties->findChild<QComboBox*>("drawingViewDisplay");
         auto* hidden_style=properties->findChild<QComboBox*>("drawingHiddenEdgeStyle");
         require(display_mode&&display_mode->count()==4&&hidden_style&&hidden_style->count()==2,"View display choices are incomplete");
+        auto* tangent_style=properties->findChild<QComboBox*>("drawingTangentEdgeStyle");
+        require(tangent_style&&tangent_style->count()==3,"Tangent edge choices are incomplete");
+        tangent_style->setCurrentIndex(1);
         display_mode->setCurrentIndex(3);hidden_style->setCurrentIndex(1);flush();
         require(count()==0,"Changing view display committed the pending preview");
         display_mode->setCurrentIndex(0);
@@ -84,6 +87,7 @@ int verify_drawing_ui() {
         properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click(); flush();
         require(count()==1 && !dialog(),"OK did not commit one view");
         const auto original=state.sheets.front().views.front();
+        require(original.tangent_edge_style==zima::drawing::TangentEdgeStyle::Thin,"Tangent edge property did not persist on OK");
         require(original.show_caption && original.name=="Front test","Caption properties were not persisted");
         require(std::abs(original.x-state.sheets.front().width_mm()/2)<1.0 &&
                 std::abs(original.y-state.sheets.front().height_mm()/2)<1.0,"Click location was not converted to sheet coordinates");
@@ -242,6 +246,10 @@ int verify_drawing_ui() {
         auto print_document=zima::drawing::DrawingDocument::create_default();
         auto& print_sheet=print_document.sheets.front();
         print_sheet.thick_line_mm=0.5;print_sheet.thin_line_mm=0.25;
+        for(int i=0;i<4;++i) {
+            const auto pen=std::array{zima::drawing::DrawingPen::White,zima::drawing::DrawingPen::Red,zima::drawing::DrawingPen::Yellow,zima::drawing::DrawingPen::Green}[i];
+            print_sheet.title_block_lines.push_back({{130,78.0-i*6},{80,78.0-i*6},pen});
+        }
         zima::kernel::OcctKernel print_kernel;
         const auto bodies=print_kernel.evaluate_history({{"print-cylinder",zima::kernel::CylinderRequest{10,20},zima::kernel::BooleanOperation::Add}});
         const auto& cylinder=bodies.back().mesh;
@@ -269,6 +277,22 @@ int verify_drawing_ui() {
             view.x=i%2?60:150;view.y=i<2?220:120;view.scale=2;
             view.show_caption=true;view.name=std::array{"Visible", "Hidden dashed", "Shaded + edges", "Shaded"}[i];
             print_sheet.views.push_back(view);
+        }
+        const auto box=print_kernel.evaluate_history({{"tangent-box",zima::kernel::BoxRequest{30,25,20},zima::kernel::BooleanOperation::Add}});
+        const auto selected_edge=std::ranges::find_if(box.back().mesh.edges,[](const auto& edge){return edge.reference.valid()&&!edge.parameter_seam;});
+        require(selected_edge!=box.back().mesh.edges.end(),"Box has no fillet selection");
+        const auto rounded=print_kernel.evaluate_history({
+            {"tangent-box",zima::kernel::BoxRequest{30,25,20},zima::kernel::BooleanOperation::Add},
+            {"tangent-fillet",zima::kernel::FilletRequest{{selected_edge->reference},3},zima::kernel::BooleanOperation::Add}});
+        auto rounded_source=zima::document::PartDocument::create_default();workspace.add_part(rounded_source,rounded);
+        auto tangent_view=zima::drawing::DrawingDocument::create_view(rounded_source.document_id, {},rounded.back().mesh,zima::drawing::ViewOrientation::Isometric);
+        require(std::ranges::any_of(tangent_view.projected_edges,[](const auto& edge){return edge.tangent;}),"Actual OCCT fillet lost tangent boundary classification");
+        const auto box_edges=zima::drawing::project_edges(box.back().mesh,zima::drawing::ViewOrientation::Isometric);
+        require(std::ranges::none_of(box_edges,[](const auto& edge){return edge.tangent;}),"Sharp box edges were classified as tangent");
+        for(int i=0;i<3;++i) {
+            auto view=tangent_view;view.id="tangent-example-"+std::to_string(i);view.x=165-65*i;view.y=33;view.scale=0.8;
+            view.tangent_edge_style=static_cast<zima::drawing::TangentEdgeStyle>(i);view.display_style=zima::drawing::DisplayStyle::HiddenEdges;
+            view.show_caption=true;view.name=std::array{"Tangent thick","Tangent thin","Tangent off"}[i];print_sheet.views.push_back(view);
         }
         auto second_sheet=print_sheet;second_sheet.id="print-second";second_sheet.format=zima::drawing::SheetFormat::A3;
         for(auto& view:second_sheet.views)view.id+="-second-sheet";

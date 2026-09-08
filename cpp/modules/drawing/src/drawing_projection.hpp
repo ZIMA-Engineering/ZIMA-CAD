@@ -8,6 +8,19 @@
 namespace zima::drawing::detail {
 // All projection consumes persisted display triangles/curves. No kernel calls
 // and no triangle index is promoted to a persistent topology identity.
+// Adjacent inward directions are opposite at a smooth surface transition.
+// Incomplete or degenerate metadata is deliberately treated as a normal edge.
+inline bool tangent_boundary(const zima::kernel::ViewerEdge& edge) {
+    const auto& sides=edge.edge_treatment_side_directions;
+    if(sides.size()!=2 || edge.points.size()<2 || sides[0].size()!=edge.points.size() || sides[1].size()!=edge.points.size())return false;
+    for(std::size_t i=0;i<edge.points.size();++i) {
+        const auto& a=sides[0][i];const auto& b=sides[1][i];
+        const double aa=a.x*a.x+a.y*a.y+a.z*a.z,bb=b.x*b.x+b.y*b.y+b.z*b.z;
+        const double dot=a.x*b.x+a.y*b.y+a.z*b.z;
+        if(!(aa>1e-20 && bb>1e-20) || !std::isfinite(dot) || dot/std::sqrt(aa*bb)>-1.0+1e-8)return false;
+    }
+    return true;
+}
 struct ProjectionVertex { Point2 p; double z; };
 inline std::vector<ProjectedEdge> project_drawing_edges(
     const zima::kernel::ViewerMesh& mesh,const ProjectionCamera& camera) {
@@ -54,7 +67,7 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
         }
     }
     std::vector<ProjectedEdge> result;
-    const auto append=[&](const auto& points,const zima::kernel::EdgeReference& source,bool silhouette) {
+    const auto append=[&](const auto& points,const zima::kernel::EdgeReference& source,bool silhouette,bool tangent) {
         for(std::size_t segment=1;segment<points.size();++segment) {
             const auto a=project(points[segment-1]),b=project(points[segment]);
             if(std::hypot(b.p.x-a.p.x,b.p.y-a.p.y)<=epsilon)continue;
@@ -94,10 +107,10 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
                 if(end-start<=1e-10)return;
                 const auto at=[&](double t){return Point2{a.p.x+(b.p.x-a.p.x)*t,a.p.y+(b.p.y-a.p.y)*t};};
                 const auto first=at(start),last=at(end);
-                if(!result.empty()&&result.back().source==source&&result.back().silhouette==silhouette&&result.back().hidden==hidden&&
+                if(!result.empty()&&result.back().source==source&&result.back().silhouette==silhouette&&result.back().hidden==hidden&&result.back().tangent==tangent&&
                     std::hypot(result.back().points.back().x-first.x,result.back().points.back().y-first.y)<=epsilon)
                     result.back().points.push_back(last);
-                else result.push_back({{first,last},source,hidden,silhouette});
+                else result.push_back({{first,last},source,hidden,silhouette,tangent});
             };
             double cursor=0;
             for(const auto& interval:merged){emit(cursor,interval.first,false);emit(interval.first,interval.second,true);cursor=interval.second;}
@@ -106,9 +119,9 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
     };
     const auto& source=mesh.edges.empty()?mesh.original_references.edges:mesh.edges;
     for(const auto& edge:source)if(!edge.parameter_seam&&!edge.construction&&!edge.overlay)
-        append(edge.points,edge.reference,false);
+        append(edge.points,edge.reference,false,tangent_boundary(edge));
     for(const auto& [key,edge]:boundaries)if((edge.front&&edge.back)||edge.count==1)
-        append(std::array{edge.a,edge.b},zima::kernel::EdgeReference{},true);
+        append(std::array{edge.a,edge.b},zima::kernel::EdgeReference{},true,false);
     return result;
 }
 } // namespace zima::drawing::detail

@@ -264,10 +264,13 @@ ploch se nezobrazují. Obrys odvozený z trojúhelníků není novou modelovou
 hranou a nelze na něj připojit kótu jako na stabilní topologickou referenci.
 Přesnost hladkých obrysů odpovídá uložené tessellaci zdroje.
 
-**Vlastnosti listu** nastavují silnou a slabou čáru v milimetrech (výchozí
-0,50 a 0,25 mm). Silná čára patří viditelným hranám a bílému peru šablony,
-slabá skrytým hranám, kótám a zelenému/žlutému peru šablony. Přepínač
-**Náhled tlouštěk** zapíná tyto tloušťky na obrazovce; export je používá vždy.
+**Vlastnosti listu** nastavují tloušťky per v milimetrech. Dohodnuté výchozí
+mapování je **bílá 0,50 mm, červená 0,70 mm, žlutá a zelená 0,25 mm**.
+Viditelné hrany používají bílou tloušťku; skryté hrany (čárkované i šedé)
+a kóty používají slabou tloušťku 0,25 mm. Přepínač
+**Náhled tlouštěk** zapíná tyto tloušťky na obrazovce; výchozí režim **Tenké
+čáry** umožňuje kreslit bez zobrazení fyzických tlouštěk. Export používá
+skutečné tloušťky vždy, nezávisle na pracovním náhledu.
 Čárkovaná skrytá hrana má na papíře čárku 3 mm a mezeru 1,5 mm nezávisle
 na měřítku modelu.
 
@@ -284,3 +287,16 @@ Při tisku PDF zvolte **skutečnou velikost / 100 %**. Volba „přizpůsobit
 stránce“ v tiskovém programu mění měřítko i fyzické tloušťky. Export nevolá
 OCCT ani neregeneruje zdrojové modely; tiskne uložený stav pohledů. Změny
 zdrojové geometrie nejprve převezměte explicitním Regenerate pohledu.
+
+### Tečné hrany zaoblení
+
+Vlastnosti pohledu obsahují volbu **Tečné hrany: Silné čáry / Tenké čáry / Skrýt**.
+Ta zvýrazňuje hladké přechody mezi plochami, zejména v prostorových pohledech.
+Silné používají bílé pero (výchozí 0,5 mm), tenké používají tloušťku 0,25 mm.
+Volba se ukládá pro každý pohled a platí i pro PDF. Zakryté tečné hrany se nikdy
+nekreslí, ani při zapnutém zobrazení běžných skrytých hran. Vnější obrys zakřivené
+plochy zůstává zachován. Pracovní režim tenkých čar nemění tiskové tloušťky.
+
+Rozlišení tečných hran vychází z uložených směrů sousedních ploch; otevření
+vlastností nevolá OCCT. Chybějící údaje se nepovažují za důkaz tečnosti.
+U již uložených pohledů použijte Regenerovat k obnovení projekce a klasifikace hran.

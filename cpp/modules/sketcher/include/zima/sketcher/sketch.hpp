@@ -58,7 +58,7 @@ enum class DimensionKind {
     const std::array<double, 2>& cursor);
 enum class TextHorizontalAlignment { Left, Center, Right };
 enum class TextVerticalAlignment { Bottom, Middle, Top };
-enum class SketchTextColor { Green, White, Yellow };
+enum class SketchTextColor { Green, White, Yellow, Red };
 enum class ExternalReferenceKind { Edge, Point, Axis, Face };
 enum class SolveStatus { Solved, UnderConstrained, Conflicting, Invalid };
 
@@ -159,7 +159,7 @@ struct SketchImportBlock {
 [[nodiscard]] inline std::optional<std::string> text_id_from_viewer_key(const std::string& key) {
     if(!key.starts_with("text:"))return {};
     auto id=key.substr(5);
-    for(const auto* suffix:{":green",":white",":yellow"})if(id.ends_with(suffix)) {
+    for(const auto* suffix:{":green",":white",":yellow",":red"})if(id.ends_with(suffix)) {
         id.resize(id.size()-std::char_traits<char>::length(suffix));break;
     }
     return id.empty()?std::nullopt:std::optional<std::string>{id};

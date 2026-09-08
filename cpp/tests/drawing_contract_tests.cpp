@@ -22,6 +22,46 @@ int main() {
         const auto prepare=[](zima::sketcher::SketchText& t){t.contours={{{t.anchor_x,t.anchor_y},{t.anchor_x+1,t.anchor_y},{t.anchor_x+1,t.anchor_y+1},{t.anchor_x,t.anchor_y+1}}};};
         const auto folder=std::filesystem::current_path()/"Projects/test/template-contract";
         std::filesystem::create_directories(folder);
+        {
+            using namespace zima::drawing;
+            DrawingSheet pens;
+            require(drawing_pen_width_mm(pens,DrawingPen::White)==0.5&&drawing_pen_width_mm(pens,DrawingPen::Red)==0.7&&
+                drawing_pen_width_mm(pens,DrawingPen::Yellow)==0.25&&drawing_pen_width_mm(pens,DrawingPen::Green)==0.25,
+                "Drawing pen widths must follow the agreed colour map");
+            const auto path=folder/"red-pen.frmz";
+            {std::ofstream out(path);out<<"[Format]\nName=Red pen\nSheetFormat=A4\n[FrameGeometry]\nLine1=0,0,20,0,RED\n";}
+            load_frame_template(pens,path);
+            require(!pens.frame_lines.empty()&&pens.frame_lines.front().pen==DrawingPen::Red,"Red template pen was lost on import");
+            auto sketch=load_template_sketch(path,prepare);
+            require(std::ranges::any_of(sketch.viewer_mesh().edges,[](const auto& edge){return edge.color=="#FF0000";}),"Sketcher did not display red template geometry");
+        }
+        {
+            using namespace zima::drawing;
+            zima::kernel::ViewerMesh mesh;
+            zima::kernel::ViewerEdge edge;edge.points={{0,0,0},{10,0,0}};
+            edge.edge_treatment_side_directions={{{0,1,0},{0,1,0}},{{0,-1,0},{0,-1,0}}};
+            mesh.edges.push_back(edge);
+            auto projected=project_edges(mesh,ProjectionCamera{{1,0,0},{0,1,0},{0,0,1}});
+            require(projected.size()==1&&projected.front().tangent,"Smooth boundary was not classified from persisted side directions");
+            mesh.edges.front().edge_treatment_side_directions[1][1]={0,0,1};
+            require(!project_edges(mesh,ProjectionCamera{{1,0,0},{0,1,0},{0,0,1}}).front().tangent,"Sharp transition was classified as tangent");
+            auto drawing=DrawingDocument::create_default();DrawingView view;view.id="tangent-test";view.source_document_id="tangent-source";
+            view.projected_edges=projected;view.tangent_edge_style=TangentEdgeStyle::Thin;
+            view.display_style=DisplayStyle::HiddenEdges;
+            require(drawing_edge_visible(view,projected.front()),"Visible tangent boundary was hidden");
+            auto hidden_tangent=projected.front();hidden_tangent.hidden=true;
+            require(!drawing_edge_visible(view,hidden_tangent),"Occluded tangent boundary must stay hidden even in hidden-edge mode");
+            hidden_tangent.tangent=false;
+            require(drawing_edge_visible(view,hidden_tangent),"Ordinary hidden edge disappeared with tangent filtering");
+            view.tangent_edge_style=TangentEdgeStyle::Hidden;
+            require(!drawing_edge_visible(view,projected.front()),"Tangent hide setting was ignored");
+            view.tangent_edge_style=TangentEdgeStyle::Thin;
+            drawing.sheets.front().views.push_back(view);drawing.sheets.front().red_line_mm=0.8;
+            const auto path=folder/"tangent-pens.drwz";drawing.save(path);
+            const auto reopened=DrawingDocument::load(path);
+            require(reopened.sheets.front().red_line_mm==0.8&&reopened.sheets.front().views.front().tangent_edge_style==TangentEdgeStyle::Thin&&
+                reopened.sheets.front().views.front().projected_edges.front().tangent,"Saved drawing lost tangent boundaries or red width");
+        }
         // Signed placement survives import; point-pair lengths normalize without moving either point.
         const auto signed_path=folder/"signed-dimensions.tblz";
         {std::ofstream out(signed_path);out<<R"([TitleBlock]
@@ -72,10 +112,12 @@ Data={"points":{"a":{"x":-10,"y":-5},"b":{"x":-20,"y":-5}},"geometry":{"line":{"
                 require(dimension.second_point_id.empty()||dimension.value>=0,"Template retained a negative point-pair length");
             const auto target=folder/entry.path().filename();
             sketch.texts.front().value="Edited &Název";
+            sketch.texts.front().color=zima::sketcher::SketchTextColor::Red;
             if(entry.path().extension()==".tblz")sketch.drawing_template->images.push_back(logo);
             zima::drawing::save_template_sketch(sketch,target);
             auto reopened=zima::drawing::load_template_sketch(target,prepare);
             require(reopened.texts.front().value=="Edited &Název"&&reopened.constraints==sketch.constraints&&reopened.dimensions==sketch.dimensions&&reopened.drawing_template->repeat_regions==sketch.drawing_template->repeat_regions,"Template roundtrip lost geometry, constraints or BOM settings");
+            require(reopened.texts.front().color==zima::sketcher::SketchTextColor::Red,"Editable template text lost its red pen");
             require(reopened.drawing_template->images==sketch.drawing_template->images,"Template lost embedded image content or placement");
             if(entry.path().extension()==".tblz") {
                 auto sheet=zima::drawing::DrawingDocument::create_default().sheets.front();

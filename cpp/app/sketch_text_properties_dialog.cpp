@@ -106,6 +106,7 @@ SketchTextPropertiesDialog::SketchTextPropertiesDialog(
         static_cast<int>(zima::sketcher::SketchTextColor::White));
     color_->addItem(tr("Žlutá"),
         static_cast<int>(zima::sketcher::SketchTextColor::Yellow));
+    color_->addItem(tr("Červená"), static_cast<int>(zima::sketcher::SketchTextColor::Red));
     color_->setCurrentIndex(color_->findData(static_cast<int>(initial_.color)));
     form->addRow(tr("Barva"), color_);
 

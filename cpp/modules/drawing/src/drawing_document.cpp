@@ -188,6 +188,7 @@ IniData read_ini(const std::filesystem::path& path) {
 
 DrawingPen parse_pen(const std::string& value) {
     if (value == "WHITE") return DrawingPen::White;
+    if (value == "RED") return DrawingPen::Red;
     if (value == "YELLOW") return DrawingPen::Yellow;
     return DrawingPen::Green;
 }
@@ -463,14 +464,14 @@ void DrawingDocument::save(const std::filesystem::path& path,
         if (sheet.id.empty() || !ids.insert(sheet.id).second || sheet.name.empty())
             throw std::runtime_error("Drawing sheet IDs and names must be unique and non-empty");
         require_finite(sheet.default_scale, "sheet scale");
-        if(!std::isfinite(sheet.thick_line_mm)||!std::isfinite(sheet.thin_line_mm)||sheet.thin_line_mm<=0||sheet.thick_line_mm<=0)
+        if(!std::isfinite(sheet.thick_line_mm)||!std::isfinite(sheet.thin_line_mm)||sheet.thin_line_mm<=0||sheet.thick_line_mm<=0||!std::isfinite(sheet.red_line_mm)||sheet.red_line_mm<=0)
             throw std::runtime_error("Drawing line widths must be positive and finite");
         if (sheet.default_scale <= 0.0) throw std::runtime_error("Drawing sheet scale must be positive");
         nlohmann::json serialized{{"id", sheet.id}, {"name", sheet.name},
             {"format", format_name(sheet.format)},
             {"projection_method", sheet.projection_method == ProjectionMethod::FirstAngle ? "first_angle" : "third_angle"},
             {"default_scale", sheet.default_scale},
-            {"thick_line_mm",sheet.thick_line_mm},{"thin_line_mm",sheet.thin_line_mm},
+            {"thick_line_mm",sheet.thick_line_mm},{"thin_line_mm",sheet.thin_line_mm},{"red_line_mm",sheet.red_line_mm},
             {"title_block_locale", sheet.title_block_locale}, {"local_parameters", sheet.local_parameters}};
         const auto line_json=[](const auto& lines) {
             nlohmann::json result=nlohmann::json::array();
@@ -532,12 +533,13 @@ void DrawingDocument::save(const std::filesystem::path& path,
                             {"depth", {view.camera.depth.x, view.camera.depth.y, view.camera.depth.z}}}},
                 {"display_style", display_name(view.display_style)},
                 {"hidden_edge_style",view.hidden_edge_style==HiddenEdgeStyle::Gray?"gray":"dashed"},
+                {"tangent_edge_style",static_cast<int>(view.tangent_edge_style)},
                 {"use_sheet_scale", view.use_sheet_scale}, {"show_caption", view.show_caption},
                 {"x", view.x}, {"y", view.y}, {"scale", view.scale}, {"value_locks",view.value_locks}};
             item["projected_edges"] = nlohmann::json::array();
             for (const auto& edge : view.projected_edges) {
                 nlohmann::json edge_json{{"source", edge_reference_json(edge.source)},
-                                         {"hidden", edge.hidden}, {"silhouette",edge.silhouette}};
+                                         {"hidden", edge.hidden}, {"silhouette",edge.silhouette},{"tangent",edge.tangent}};
                 edge_json["points"] = nlohmann::json::array();
                 for (const auto& point : edge.points) edge_json["points"].push_back({point.x, point.y});
                 item["projected_edges"].push_back(std::move(edge_json));
@@ -622,8 +624,8 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
         sheet.projection_method = serialized.value("projection_method", "first_angle") == "third_angle"
             ? ProjectionMethod::ThirdAngle : ProjectionMethod::FirstAngle;
         sheet.default_scale = serialized.value("default_scale", 1.0);
-        sheet.thick_line_mm=serialized.value("thick_line_mm",0.5);sheet.thin_line_mm=serialized.value("thin_line_mm",0.25);
-        if(!std::isfinite(sheet.thick_line_mm)||!std::isfinite(sheet.thin_line_mm)||sheet.thin_line_mm<=0||sheet.thick_line_mm<=0)
+        sheet.thick_line_mm=serialized.value("thick_line_mm",0.5);sheet.thin_line_mm=serialized.value("thin_line_mm",0.25);sheet.red_line_mm=serialized.value("red_line_mm",0.7);
+        if(!std::isfinite(sheet.thick_line_mm)||!std::isfinite(sheet.thin_line_mm)||sheet.thin_line_mm<=0||sheet.thick_line_mm<=0||!std::isfinite(sheet.red_line_mm)||sheet.red_line_mm<=0)
             throw std::runtime_error("Drawing line widths must be positive and finite");
         sheet.title_block_locale = serialized.value("title_block_locale", "cs");
         sheet.local_parameters = serialized.value("local_parameters", decltype(sheet.local_parameters){});
@@ -677,6 +679,9 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
             view.camera.vertical = vector(camera.at("vertical"));
             view.camera.depth = vector(camera.at("depth"));
             view.display_style = parse_display(item.value("display_style", "visible_edges"));
+            const int tangent_style=item.value("tangent_edge_style",0);
+            if(tangent_style<0||tangent_style>2)throw std::runtime_error("Invalid tangent edge style");
+            view.tangent_edge_style=static_cast<TangentEdgeStyle>(tangent_style);
             view.hidden_edge_style=item.value("hidden_edge_style","dashed")=="gray"?HiddenEdgeStyle::Gray:HiddenEdgeStyle::Dashed;
             view.use_sheet_scale = item.value("use_sheet_scale", true);
             view.show_caption = item.value("show_caption", false);
@@ -688,6 +693,7 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
                 edge.source = parse_edge_reference(edge_json.at("source"));
                 edge.hidden = edge_json.value("hidden", false);
                 edge.silhouette=edge_json.value("silhouette",false);
+                edge.tangent=edge_json.value("tangent",false);
                 for (const auto& point : edge_json.at("points"))
                     edge.points.push_back({point.at(0).get<double>(), point.at(1).get<double>()});
                 view.projected_edges.push_back(std::move(edge));
