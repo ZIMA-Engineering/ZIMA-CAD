@@ -707,7 +707,9 @@ public:
                 if(edge.hidden!=hidden_pass)continue;
                 if(!zima::drawing::drawing_edge_visible(view,edge))continue;
                 const bool gray=edge.hidden&&view.hidden_edge_style==zima::drawing::HiddenEdgeStyle::Gray;
-                QPen pen(!printing&&view.id==selected_?QColor("#00D1FF"):gray?QColor("#808080"):ink,width(!edge.hidden&&!(edge.tangent&&view.tangent_edge_style==zima::drawing::TangentEdgeStyle::Thin)));
+                const QColor edge_color=!printing&&view.id==selected_?QColor("#00D1FF"):
+                    edge.hidden&&!printing?QColor("#666666"):gray?QColor("#808080"):ink;
+                QPen pen(edge_color,width(!edge.hidden&&!(edge.tangent&&view.tangent_edge_style==zima::drawing::TangentEdgeStyle::Thin)));
                 pen.setCapStyle(Qt::FlatCap);pen.setJoinStyle(Qt::RoundJoin);
                 if(edge.hidden&&!gray){pen.setDashPattern({3.0*zoom/pen.widthF(),1.5*zoom/pen.widthF()});}
                 painter.setPen(pen);
