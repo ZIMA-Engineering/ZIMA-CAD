@@ -47,6 +47,27 @@ Part calculations and Assembly STEP import use the same parser.
 - A residual larger than the model tolerance is a conflicting definition, not
   a value to hide by rounding.
 
+## Numeric property fields
+
+Part container properties, Sweep properties and Assembly component properties
+inherit `decimal_places` from their owning document before initializing their
+numeric controls. This includes placement values, offsets, angles and feature
+dimensions; disabled values use the same presentation.
+
+The common properties UI measures the complete formatted value with the actual
+editor font, including trailing zeros, sign, unit suffix and spin buttons. It
+updates the minimum field width after showing the editor and after value,
+precision, font, locale or style changes. Numeric table columns reserve this
+width; reference columns use the remaining space. Formatting must not hide
+`0.0000` behind a field that only has room for `0.00`.
+
+The GUI regression `zima_cpp_numeric_fields_contract` (also available through
+`ZIMA_VERIFY_NUMERIC_ONLY=1`) exercises container, Point, 2D Sweep, Helical Sweep
+and Assembly dialogs at 3, 4, 6, 9 and 12 decimal places, Czech decimal
+commas, larger signed values and enlarged fonts. It checks both text width and
+cell/dialog bounds and writes inspection images to
+`Projects/test/numeric-fields`.
+
 ## Accumulated error
 
 Tolerance is not applied by rounding every intermediate coordinate. Such

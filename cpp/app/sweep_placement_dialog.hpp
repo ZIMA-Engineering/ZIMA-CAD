@@ -26,7 +26,7 @@ public:
             [this](bool subtract){pending.combine_mode=subtract?document::CombineMode::Subtract:document::CombineMode::Add;if(changed)changed();});
     }
     void install_placement() {
-        placement_=new ui::ContainerPlacementSection(this,content_layout(),true,true);
+        placement_=new ui::ContainerPlacementSection(this,content_layout(),true,true,ui::numeric_decimal_places(this));
         placement_->initialize_from_references(pending.placement.references,[](const std::string& key){return QString::fromStdString(key);});
         placement_->initialize_numeric_values(pending.placement);
         placement_->reference_table()->setObjectName("sweepPlacementReferences");

@@ -38,7 +38,7 @@ SketchBSplinePropertiesDialog::SketchBSplinePropertiesDialog(
         auto* y = new QDoubleSpinBox(this);
         for (auto* value : {x, y}) {
             value->setRange(-1'000'000.0, 1'000'000.0);
-            value->setDecimals(3);
+            value->setDecimals(zima::ui::numeric_decimal_places(this,3));
             value->setSuffix(" mm");
         }
         x->setValue(control_points[index][0]);

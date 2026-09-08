@@ -161,7 +161,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
     if (supports_placement_reference_table(initial.feature_kind)) {
         placement_ = std::make_unique<zima::ui::ContainerPlacementSection>(
             this, content_layout(), /*with_orientation=*/true,
-            /*position_rows_can_define_rotation=*/true);
+            /*position_rows_can_define_rotation=*/true, zima::ui::numeric_decimal_places(this));
         placement_->initialize_from_references(initial.placement.references,
             [](const std::string& semantic) {
                 return readable_placement_reference_kind(semantic);
@@ -203,7 +203,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
     const auto dimension = [this](double value, const char* object_name) {
         auto* field = new QDoubleSpinBox(this);
         field->setRange(0.001, 1'000'000.0);
-        field->setDecimals(3);
+        field->setDecimals(zima::ui::numeric_decimal_places(this,3));
         field->setSingleStep(1.0);
         field->setSuffix(" mm");
         field->setObjectName(object_name);
@@ -1093,7 +1093,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         treatment_angle_ = new QDoubleSpinBox(this);
         treatment_angle_->setObjectName("edgeTreatmentAngle");
         treatment_angle_->setRange(0.1, 89.9);
-        treatment_angle_->setDecimals(2);
+        treatment_angle_->setDecimals(zima::ui::numeric_decimal_places(this,2));
         treatment_angle_->setSingleStep(1.0);
         treatment_angle_->setSuffix(QStringLiteral("°"));
         treatment_angle_->setValue(initial.edge_treatment.angle_degrees);

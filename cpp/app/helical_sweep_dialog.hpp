@@ -32,7 +32,7 @@ public:
         form->addRow(tr("Základní kružnice"),circle_);form->addRow(tr("Počáteční bod"),point_);
         connect(circle_,&QComboBox::activated,this,[this]{pending.helical.circle_id=circle_->currentData().toString().toStdString();notify();});
         connect(point_,&QComboBox::activated,this,[this]{pending.helical.start_point_id=point_->currentData().toString().toStdString();notify();});
-        auto* pitch=new QDoubleSpinBox(this);pitch->setObjectName("helicalPitch");pitch->setDecimals(4);pitch->setRange(.0001,1000000);pitch->setSuffix(" mm");pitch->setValue(pending.helical.pitch);form->addRow(tr("Stoupání"),pitch);
+        auto* pitch=new QDoubleSpinBox(this);pitch->setObjectName("helicalPitch");pitch->setDecimals(zima::ui::numeric_decimal_places(this,4));pitch->setRange(.0001,1000000);pitch->setSuffix(" mm");pitch->setValue(pending.helical.pitch);form->addRow(tr("Stoupání"),pitch);
         connect(pitch,&QDoubleSpinBox::valueChanged,this,[this](double p){pending.helical.pitch=p;notify();});
         auto* hand=new QComboBox(this);hand->setObjectName("helicalHandedness");hand->addItems({tr("Pravý"),tr("Levý")});hand->setCurrentIndex(pending.helical.left_handed?1:0);form->addRow(tr("Směr vinutí"),hand);
         connect(hand,&QComboBox::currentIndexChanged,this,[this](int i){pending.helical.left_handed=i!=0;notify();});

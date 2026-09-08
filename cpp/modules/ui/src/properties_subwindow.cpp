@@ -4,6 +4,10 @@
 #include <QAbstractSpinBox>
 #include <QLineEdit>
 #include <QDoubleSpinBox>
+#include <QTableWidget>
+#include <QHeaderView>
+#include <QFontMetricsF>
+#include <cmath>
 #include <QKeyEvent>
 #include <QPointer>
 #include <QDialogButtonBox>
@@ -22,6 +26,14 @@
 #include <exception>
 
 namespace zima::ui {
+
+int numeric_decimal_places(const QWidget* owner, int fallback) {
+    for (auto* current=owner; current; current=current->parentWidget()) {
+        const auto value=current->property("zimaDocumentDecimalPlaces");
+        if (value.isValid()) return std::clamp(value.toInt(),0,12);
+    }
+    return std::clamp(fallback,0,12);
+}
 
 QPushButton* create_origin_selection_button(QWidget* parent) {
     auto* button = new QPushButton(QObject::tr("POČÁTEK"), parent);
@@ -48,6 +60,51 @@ QPushButton* PropertiesSubWindow::ensure_origin_selection_button() {
 
 
 namespace {
+// Measure the actual formatted value and the polished editor chrome. Never
+// use the numerical range (often +/-1e9) as a proxy for the displayed width.
+int numeric_width(QDoubleSpinBox* spin) {
+    auto* editor=spin->findChild<QLineEdit*>();
+    if (!editor) return spin->minimumSizeHint().width();
+    const QFontMetricsF metrics(editor->font());
+    QString zero=spin->prefix();
+    if (spin->minimum()<0) zero+=spin->locale().negativeSign();
+    zero+=spin->locale().toString(0.0,'f',spin->decimals())+spin->suffix();
+    const auto margins=editor->textMargins();
+    const int chrome=std::max(0,spin->width()-editor->contentsRect().width())+
+        margins.left()+margins.right()+6;
+    return static_cast<int>(std::ceil(std::max(metrics.horizontalAdvance(spin->text()),
+        metrics.horizontalAdvance(zero))))+chrome;
+}
+
+void fit_numeric_field(QDoubleSpinBox* spin) {
+    if (!spin->isVisible()) return;
+    const int width=numeric_width(spin);
+    if (spin->maximumWidth()<width) spin->setMaximumWidth(width);
+    if (spin->minimumWidth()!=width) spin->setMinimumWidth(width);
+    for (auto* ancestor=spin->parentWidget(); ancestor; ancestor=ancestor->parentWidget()) {
+        auto* table=qobject_cast<QTableWidget*>(ancestor);
+        if (!table) continue;
+        int column=-1;
+        for(int row=0;row<table->rowCount() && column<0;++row)
+            for(int c=0;c<table->columnCount();++c)
+                if(table->cellWidget(row,c)==spin) {column=c;break;}
+        if (column<0) return;
+        auto* header=table->horizontalHeader();
+        int required=0;
+        if (auto* item=table->horizontalHeaderItem(column))
+            required=header->fontMetrics().horizontalAdvance(item->text())+18;
+        for(int row=0;row<table->rowCount();++row)
+            if(auto* field=qobject_cast<QDoubleSpinBox*>(table->cellWidget(row,column)))
+                required=std::max(required,numeric_width(field)+2);
+        // Reference columns retain their Stretch mode and give the numeric
+        // column the space it needs, including disabled and read-only values.
+        if(header->sectionResizeMode(column)!=QHeaderView::Fixed)
+            header->setSectionResizeMode(column,QHeaderView::Fixed);
+        if(header->sectionSize(column)!=required) header->resizeSection(column,required);
+        return;
+    }
+}
+
 // One application filter also covers numeric editors created later in tables.
 class NumericInputInteraction final : public QObject {
 public:
@@ -56,7 +113,20 @@ public:
         auto* edit = qobject_cast<QLineEdit*>(watched);
         auto* spin = edit ? qobject_cast<QAbstractSpinBox*>(edit->parentWidget())
                          : qobject_cast<QAbstractSpinBox*>(watched);
-        if (!spin || !spin->isEnabled() || spin->isReadOnly()) return false;
+        if (!spin) return false;
+        if (auto* numeric=qobject_cast<QDoubleSpinBox*>(spin)) {
+            if (event->type()==QEvent::Show || event->type()==QEvent::Resize ||
+                event->type()==QEvent::FontChange || event->type()==QEvent::StyleChange ||
+                event->type()==QEvent::LocaleChange || event->type()==QEvent::LayoutRequest ||
+                (event->type()==QEvent::Paint && numeric->property("zimaNumericWidthText").toString()!=numeric->text())) {
+                if (!numeric->property("zimaNumericWidthBound").toBool()) {
+                    numeric->setProperty("zimaNumericWidthBound",true);
+                    connect(numeric,&QDoubleSpinBox::textChanged,this,[this,numeric] { schedule_width(numeric); });
+                }
+                schedule_width(numeric);
+            }
+        }
+        if (!spin->isEnabled() || spin->isReadOnly()) return false;
         // Publishing every keystroke can rebuild a reference table and destroy
         // its editor halfway through a decimal number. Commit on Enter/focus-out.
         spin->setKeyboardTracking(false);
@@ -101,6 +171,15 @@ public:
         return false;
     }
 private:
+    void schedule_width(QDoubleSpinBox* spin) {
+        if(spin->property("zimaNumericWidthPending").toBool()) return;
+        spin->setProperty("zimaNumericWidthPending",true);
+        QTimer::singleShot(0,spin,[spin] {
+            spin->setProperty("zimaNumericWidthPending",false);
+            fit_numeric_field(spin);
+            spin->setProperty("zimaNumericWidthText",spin->text());
+        });
+    }
     QPointer<QLineEdit> pressed_;
     QPoint origin_;
 };

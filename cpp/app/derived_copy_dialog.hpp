@@ -29,7 +29,7 @@ public:
             circular_settings_=new QWidget(this);auto* circular_form=new QFormLayout(circular_settings_);
             auto* count=new QSpinBox(this);count->setObjectName("patternCircularCount");count->setRange(2,1000);count->setValue(derived_copy.pattern->count);
             full_circle_=new QCheckBox(tr("Celý kruh"),this);full_circle_->setObjectName("patternFullCircle");full_circle_->setChecked(derived_copy.pattern->full_circle);
-            angle_=new QDoubleSpinBox(this);angle_->setObjectName("patternAngle");angle_->setRange(-359.999,359.999);angle_->setDecimals(3);angle_->setSuffix(tr(" °"));angle_->setValue(derived_copy.pattern->angle_degrees);
+            angle_=new QDoubleSpinBox(this);angle_->setObjectName("patternAngle");angle_->setRange(-359.999,359.999);angle_->setDecimals(zima::ui::numeric_decimal_places(this,3));angle_->setSuffix(tr(" °"));angle_->setValue(derived_copy.pattern->angle_degrees);
             circular_form->addRow(tr("Počet včetně zdroje"),count);circular_form->addRow(full_circle_);circular_form->addRow(tr("Úhel mezi výskyty"),angle_);content_layout()->addWidget(circular_settings_);
             connect(mode,&QComboBox::currentIndexChanged,this,[this](int i){derived_copy.pattern->circular=i==1;end_input();refresh_pattern();notify();});
             connect(count,&QSpinBox::valueChanged,this,[this](int n){derived_copy.pattern->count=n;refresh_pattern();notify();});
@@ -76,7 +76,7 @@ public:
                 linear_table_->setCellWidget(row,2,ui::centered_cell_widget(eyes_[field]));
                 auto* distribution=new QComboBox(this);distribution->setObjectName(QString("patternDistribution%1").arg(row));
                 distribution->addItems({tr("Vpřed"),tr("Vzad"),tr("Oboustranně"),tr("Symetricky")});distribution->setCurrentIndex(static_cast<int>(d.distribution));linear_table_->setCellWidget(row,3,distribution);
-                auto* spacing=new QDoubleSpinBox(this);spacing->setObjectName(QString("patternSpacing%1").arg(row));spacing->setRange(0.001,1e6);spacing->setDecimals(3);spacing->setSuffix(tr(" mm"));spacing->setValue(d.spacing);linear_table_->setCellWidget(row,4,spacing);
+                auto* spacing=new QDoubleSpinBox(this);spacing->setObjectName(QString("patternSpacing%1").arg(row));spacing->setRange(0.001,1e6);spacing->setDecimals(zima::ui::numeric_decimal_places(this,3));spacing->setSuffix(tr(" mm"));spacing->setValue(d.spacing);linear_table_->setCellWidget(row,4,spacing);
                 auto* count=new QSpinBox(this);count->setObjectName(QString("patternCount%1").arg(row));count->setRange(2,1000);count->setValue(d.count);linear_table_->setCellWidget(row,5,count);
                 auto* reverse=new QSpinBox(this);reverse->setObjectName(QString("patternReverseCount%1").arg(row));reverse->setRange(1,999);reverse->setValue(d.reverse_count);linear_table_->setCellWidget(row,6,reverse);
                 connect(distribution,&QComboBox::currentIndexChanged,this,[this,row,count](int value){auto& d=derived_copy.pattern->linear[row];d.distribution=static_cast<kernel::PatternDistribution>(value);

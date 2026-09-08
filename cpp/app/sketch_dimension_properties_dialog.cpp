@@ -18,7 +18,7 @@ QDoubleSpinBox* dimension_field(double value, const char* name, QWidget* parent)
     auto* field = new QDoubleSpinBox(parent);
     field->setObjectName(name);
     field->setRange(-1'000'000.0, 1'000'000.0);
-    field->setDecimals(3);
+    field->setDecimals(zima::ui::numeric_decimal_places(parent));
     field->setSingleStep(1.0);
     field->setSuffix(" mm");
     field->setValue(value);

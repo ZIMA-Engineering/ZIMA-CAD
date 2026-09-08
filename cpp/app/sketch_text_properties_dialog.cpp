@@ -55,7 +55,7 @@ SketchTextPropertiesDialog::SketchTextPropertiesDialog(
     height_ = new QDoubleSpinBox(this);
     height_->setObjectName("sketchTextHeight");
     height_->setRange(0.01, 1'000'000.0);
-    height_->setDecimals(3);
+    height_->setDecimals(zima::ui::numeric_decimal_places(this,3));
     height_->setSuffix(tr(" mm"));
     height_->setValue(initial_.height);
     form->addRow(tr("Výška"), height_);
@@ -103,7 +103,7 @@ SketchTextPropertiesDialog::SketchTextPropertiesDialog(
     angle_ = new QDoubleSpinBox(this);
     angle_->setObjectName("sketchTextAngle");
     angle_->setRange(-360'000.0, 360'000.0);
-    angle_->setDecimals(3);
+    angle_->setDecimals(zima::ui::numeric_decimal_places(this,3));
     angle_->setSuffix(tr("°"));
     angle_->setValue(initial_.angle_degrees);
     form->addRow(tr("Natočení"), angle_);

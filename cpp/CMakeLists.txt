@@ -248,6 +248,9 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_ui_contract_tests COMMAND zima_cpp_ui_contract_tests)
     set_tests_properties(zima_cpp_ui_contract_tests PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}")
+    add_test(NAME zima_cpp_numeric_fields_contract COMMAND zima_cpp_ui_contract_tests)
+    set_tests_properties(zima_cpp_numeric_fields_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_NUMERIC_ONLY=1")
     add_executable(zima_cpp_viewer_contract_tests tests/viewer_contract_tests.cpp)
     target_link_libraries(zima_cpp_viewer_contract_tests PRIVATE zima_viewer)
     add_test(NAME zima_cpp_viewer_contract_tests COMMAND zima_cpp_viewer_contract_tests)

@@ -52,7 +52,7 @@ public:
         thin_form_=new QFormLayout;
         auto* result=new QComboBox(this);result->setObjectName("sweep2dResultType");result->addItems({tr("Těleso"),tr("Thin")});
         result->setCurrentIndex(pending.sweep2d.result_type==document::ProfileResultType::Thin?1:0);thin_form_->addRow(tr("Typ výsledku"),result);
-        thickness_=new QDoubleSpinBox(this);thickness_->setObjectName("sweep2dThickness");thickness_->setDecimals(3);
+        thickness_=new QDoubleSpinBox(this);thickness_->setObjectName("sweep2dThickness");thickness_->setDecimals(zima::ui::numeric_decimal_places(this,3));
         thickness_->setRange(.001,1'000'000);thickness_->setSuffix(" mm");thickness_->setValue(pending.sweep2d.thickness);thin_form_->addRow(tr("Tloušťka"),thickness_);
         side_=new QComboBox(this);side_->setObjectName("sweep2dThinSide");side_->addItems({tr("Dovnitř"),tr("Ven"),tr("Symetricky")});
         side_->setCurrentIndex(pending.sweep2d.thin_mode==document::ThinMode::OneSide?0:pending.sweep2d.thin_mode==document::ThinMode::OtherSide?1:2);

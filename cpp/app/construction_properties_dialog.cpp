@@ -118,7 +118,7 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
     // properties. The reference table stretches inside this width; the old
     // 460 px minimum only left a needlessly wide empty middle column.
     setMinimumWidth(340);
-    setMaximumWidth(360);
+    // The numeric column may grow with document precision and application font.
     auto compact_font = font();
     compact_font.setPixelSize(10);
     setFont(compact_font);
@@ -1220,7 +1220,7 @@ void ConstructionPropertiesDialog::refresh_curve_points() {
     for (std::size_t index = 0; index < curve_points_.size(); ++index) {
         auto* radius = new QDoubleSpinBox(curve_points_table_);
         radius->setObjectName(QString("curve3DRadius%1").arg(index+1));
-        radius->setDecimals(4); radius->setRange(0,1e9);
+        radius->setDecimals(offset_->decimals()); radius->setRange(0,1e9);
         const bool enabled=polyline && curve_rounding_ && curve_rounding_->isChecked() && index>0 && index+1<curve_points_.size();
         radius->setEnabled(enabled);
         radius->setValue(enabled?curve_points_[index].curve_radius:0);

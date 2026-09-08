@@ -143,7 +143,7 @@ protected:
 private:
     QDoubleSpinBox* number(double value,const char* name) {
         auto* result=new QDoubleSpinBox(this);result->setObjectName(name);
-        result->setDecimals(3);result->setRange(0.001,1e6);result->setSuffix(tr(" mm"));result->setValue(value);
+        result->setDecimals(zima::ui::numeric_decimal_places(this,3));result->setRange(0.001,1e6);result->setSuffix(tr(" mm"));result->setValue(value);
         result->setKeyboardTracking(false);return result;
     }
     void refill(bool select) {

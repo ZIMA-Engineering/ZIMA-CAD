@@ -1,4 +1,8 @@
 #include "shaft_thread_dialog.hpp"
+#include "sweep2d_dialog.hpp"
+#include "helical_sweep_dialog.hpp"
+#include "application_settings.hpp"
+#include <QFontMetricsF>
 #include "shaft_thread_preview.hpp"
 #include <QPointer>
 #include "sketch_constraints_dialog.hpp"
@@ -95,6 +99,73 @@ bool framebuffer_contains_color_near(const QImage& image,
 
 }  // namespace
 
+int verify_numeric_fields(QApplication& application, QWidget& parent) {
+    const auto flush=[&] { for(int i=0;i<8;++i) application.processEvents(); };
+    const auto root=std::filesystem::path(__FILE__).parent_path().parent_path().parent_path();
+    const auto directory=root/"Projects/test/numeric-fields";
+    std::filesystem::create_directories(directory);
+    zima::app::apply_application_font(application,zima::app::ApplicationSettings::load(QString::fromStdString(root.string())));
+    parent.resize(1600,1100);
+    for(int places:{3,4,6,9,12}) {
+        parent.setProperty("zimaDocumentDecimalPlaces",places);
+        const auto check=[&](QDialog* dialog, const char* name) {
+            dialog->setLocale(QLocale(QLocale::Czech,QLocale::CzechRepublic));
+            dialog->show(); flush();
+            const auto fields=dialog->findChildren<QDoubleSpinBox*>();
+            require(!fields.empty(),"Numeric precision fixture has no fields");
+            const auto fits=[&] {
+                for(auto* field:fields) if(field->isVisible()) {
+                    auto* text=field->findChild<QLineEdit*>(); require(text,"Numeric editor is missing");
+                    const auto margins=text->textMargins();
+                    const double available=text->contentsRect().width()-margins.left()-margins.right()-4;
+                    const double needed=QFontMetricsF(text->font()).horizontalAdvance(text->text());
+                    if(needed>available+0.01) {
+                        std::cerr<<name<<" "<<places<<" "<<field->objectName().toStdString()<<" text="<<text->text().toStdString()
+                            <<" needs="<<needed<<" available="<<available<<'\n';
+                        throw std::runtime_error("Displayed numeric value is clipped");
+                    }
+                    require(field->decimals()==places,"A model field ignores document decimal precision");
+                    QWidget* current=field;
+                    while(current && current!=dialog) {
+                        if(current->parentWidget() && !current->parentWidget()->rect().contains(current->geometry())) {
+                            std::cerr<<name<<" "<<places<<" "<<field->objectName().toStdString()<<" exceeds "
+                                <<current->parentWidget()->metaObject()->className()<<'\n';
+                            throw std::runtime_error("Numeric field extends outside its cell or properties window");
+                        }
+                        current=current->parentWidget();
+                    }
+                }
+            };
+            fits();
+            if (places==4 || places==9)
+                dialog->grab().save(QString::fromStdString((directory/(std::string(name)+"-zero-"+std::to_string(places)+".png")).string()));
+            // The sizing must follow current digits, not just an all-zero initial value.
+            for(auto* field:fields) if(field->isVisible()) {
+                const QSignalBlocker blocker(field);
+                field->setValue(std::clamp(-123456.123456,field->minimum(),field->maximum()));
+            }
+            flush(); fits();
+            if(places==4 || places==9) {
+                dialog->grab().save(QString::fromStdString((directory/(std::string(name)+"-"+std::to_string(places)+".png")).string()));
+                QFont larger=dialog->font();larger.setPointSizeF(larger.pointSizeF()+3);dialog->setFont(larger);flush();fits();
+            }
+            delete dialog; flush();
+        };
+        auto box=zima::document::PartDocument::create_box_container();
+        check(new zima::app::PrimitivePropertiesDialog(box,false,false,[](auto){},&parent),"container");
+        check(new zima::app::Sweep2DDialog(zima::document::PartDocument::create_sweep2d_container(),[](auto){},&parent),"sweep");
+        check(new zima::app::HelicalSweepDialog(zima::document::PartDocument::create_helical_sweep_container(),[](auto){},&parent),"helix");
+        check(new zima::app::ConstructionPropertiesDialog(zima::document::PartDocument::create_construction(
+            zima::document::ConstructionKind::Point),false,[](auto){},&parent,places),"point");
+        zima::assembly::PartOccurrence occurrence;
+        occurrence.occurrence_id="numeric-field-component";occurrence.name="Numeric field component";
+        check(new zima::app::ComponentPropertiesDialog(occurrence,[](auto){},&parent),"assembly");
+    }
+    parent.setProperty("zimaDocumentDecimalPlaces",QVariant{});
+    std::cout<<"Numeric fields fit 3/4/6/9/12 decimal places, current values, suffixes and changed fonts\n";
+    return 0;
+}
+
 int main(int argc, char* argv[]) {
     QApplication application(argc, argv);
     QWidget parent;
@@ -103,6 +174,7 @@ int main(int argc, char* argv[]) {
     const auto initial = zima::document::PartDocument::create_box_container();
 
     try {
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_NUMERIC_ONLY")) return verify_numeric_fields(application,parent);
         {
             using namespace zima::app;
             int committed=0;

@@ -15,6 +15,9 @@ class QPushButton;
 
 namespace zima::ui {
 
+// Display precision is inherited from the owning document window, before values enter editors.
+[[nodiscard]] int numeric_decimal_places(const QWidget* owner, int fallback = 3);
+
 [[nodiscard]] QPushButton* create_origin_selection_button(QWidget* parent);
 
 class PropertiesSubWindow : public QDialog {

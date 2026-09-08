@@ -7098,6 +7098,8 @@ void AssemblyWorkspaceWindow::edit_file_settings() {
     auto* dialog = new FileSettingsDialog(std::move(data), [this, id](DocumentToolData values) {
         if (auto* part = workspace_.open_part(id)) { auto next = part->session.document(); next.document_units = std::move(values.units); next.document_precision = std::move(values.precision); part->session.commit(std::move(next), part->session.calculated_boundaries()); }
         else if (auto* assembly = workspace_.open_assembly(id)) { auto next = assembly->session.document(); next.document_units = std::move(values.units); next.document_precision = std::move(values.precision); assembly->session.commit(std::move(next)); }
+        if (const auto* part=workspace_.open_part(id)) setProperty("zimaDocumentDecimalPlaces",document_decimal_places(part->session.document()));
+        else if (const auto* assembly=workspace_.open_assembly(id)) setProperty("zimaDocumentDecimalPlaces",document_decimal_places(assembly->session.document()));
         refresh_tabs();
     }, application_settings_, this);
     dialog->setAttribute(Qt::WA_DeleteOnClose);
@@ -24290,6 +24292,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         decimal_places = document_decimal_places(
             active_assembly->session.document());
     }
+    setProperty("zimaDocumentDecimalPlaces",decimal_places);
     viewer_->set_dimension_decimal_places(decimal_places);
     const auto construction_mesh = [this](const auto& document, double scene_size,
             const zima::kernel::ViewerReferenceGeometry& reference_geometry) {

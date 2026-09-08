@@ -74,7 +74,7 @@ public:
         for (auto* field : {current_, lower_, upper_}) {
             field->setObjectName(field == current_ ? "mateCurrentValue" :
                 field == lower_ ? "mateLowerLimit" : "mateUpperLimit");
-            field->setDecimals(3);
+            field->setDecimals(zima::ui::numeric_decimal_places(this,3));
             field->setRange(angular ? -360.0 : -1'000'000'000.0,
                 angular ? 360.0 : 1'000'000'000.0);
             field->setSuffix(angular ? QStringLiteral(" °") : QStringLiteral(" mm"));
@@ -172,7 +172,7 @@ ComponentPropertiesDialog::ComponentPropertiesDialog(
         auto* field = new QDoubleSpinBox(this);
         field->setRange(angular ? -360.0 : -1'000'000.0,
                         angular ? 360.0 : 1'000'000.0);
-        field->setDecimals(3);
+        field->setDecimals(zima::ui::numeric_decimal_places(this,3));
         field->setSingleStep(1.0);
         field->setSuffix(angular ? "°" : " mm");
         field->setValue(value);
@@ -555,7 +555,7 @@ void ComponentPropertiesDialog::refresh_placement_table() {
         const bool angular = mate_type_is_angular(row.mate_type);
         offset->setRange(angular ? -360.0 : -1'000'000'000.0,
             angular ? 360.0 : 1'000'000'000.0);
-        offset->setDecimals(3);
+        offset->setDecimals(zima::ui::numeric_decimal_places(this,3));
         offset->setSuffix(angular ? QStringLiteral(" °") : QStringLiteral(" mm"));
         offset->setValue(row.offset);
         offset->setEnabled(populated);

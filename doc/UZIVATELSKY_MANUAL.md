@@ -44,6 +44,17 @@ ID vnitřních objektů do více dokumentů. Projektový `config.ini` může sek
 `[Templates]` přepsat a používat vlastní startovací dokumenty. Relativní
 názvy se hledají v adresáři určeném hodnotou `Paths/Templates`.
 
+## Číselná pole ve vlastnostech
+
+Počet desetinných míst se přebírá z **Nastavení souboru** daného dílu nebo
+sestavy; nový dokument ho získá ze své šablony. Vlastnosti kontejnerů, tažení
+i vložených dílů/sestav zobrazují také koncové nuly podle této přesnosti.
+
+Šířka číselného pole se přizpůsobí celé hodnotě, znaménku, jednotce a použitému
+písmu. Při čtyřech desetinných místech proto zůstane vidět například celé
+`0,0000 mm`. V tabulce vazeb dostane hodnota potřebný prostor na úkor sloupce
+reference. Stejné pravidlo platí i pro neaktivní hodnoty a po přepsání čísla.
+
 ## Parametry, relace a hmotnost
 
 **Nástroje → Parametry** obsahují pouze uložené výsledné hodnoty. Vzorce se

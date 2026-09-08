@@ -80,7 +80,7 @@ SketchPropertiesDialog::SketchPropertiesDialog(
     offset_ = new QDoubleSpinBox(this);
     offset_->setObjectName("sketchPlaneOffset");
     offset_->setRange(-1'000'000.0, 1'000'000.0);
-    offset_->setDecimals(3);
+    offset_->setDecimals(zima::ui::numeric_decimal_places(this,3));
     offset_->setSuffix(" mm");
     offset_->setValue(initial_.plane_offset);
     plane_reference_ = new QComboBox(this);
@@ -99,7 +99,7 @@ SketchPropertiesDialog::SketchPropertiesDialog(
     content_layout()->addLayout(form);
     placement_ = std::make_unique<zima::ui::ContainerPlacementSection>(
         this, content_layout(), /*with_orientation=*/true,
-        /*position_rows_can_define_rotation=*/true);
+        /*position_rows_can_define_rotation=*/true, zima::ui::numeric_decimal_places(this));
     placement_->initialize_from_references(initial_placement_.references,
         [](const std::string& semantic) {
             return QString::fromStdString(semantic);
