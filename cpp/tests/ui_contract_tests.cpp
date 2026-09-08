@@ -220,6 +220,7 @@ int verify_entry_tables(QApplication& application,QWidget& parent) {
 }
 
 int verify_numeric_value_locks(QApplication&,QWidget&);
+int verify_translations(QApplication&,QWidget&);
 
 int main(int argc, char* argv[]) {
     QApplication application(argc, argv);
@@ -229,6 +230,7 @@ int main(int argc, char* argv[]) {
     const auto initial = zima::document::PartDocument::create_box_container();
 
     try {
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_TRANSLATIONS_ONLY")) return verify_translations(application,parent);
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_VALUE_LOCKS_ONLY")) return verify_numeric_value_locks(application,parent);
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_ENTRY_TABLES_ONLY")) return verify_entry_tables(application,parent);
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_NUMERIC_ONLY")) return verify_numeric_fields(application,parent);

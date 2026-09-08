@@ -234,7 +234,8 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_hole_contract_tests
         COMMAND zima_cpp_hole_contract_tests)
     add_executable(zima_cpp_ui_contract_tests
-        tests/ui_contract_tests.cpp tests/numeric_value_lock_contract.cpp app/primitive_properties_dialog.cpp
+        tests/ui_contract_tests.cpp tests/numeric_value_lock_contract.cpp tests/translation_contract.cpp
+        app/primitive_properties_dialog.cpp
         app/construction_properties_dialog.cpp
         app/orientation_dialog.cpp
         app/component_properties_dialog.cpp
@@ -255,6 +256,9 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_entry_tables_contract COMMAND zima_cpp_ui_contract_tests)
     set_tests_properties(zima_cpp_entry_tables_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_ENTRY_TABLES_ONLY=1")
+    add_test(NAME zima_cpp_translations_contract COMMAND zima_cpp_ui_contract_tests)
+    set_tests_properties(zima_cpp_translations_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_TRANSLATIONS_ONLY=1")
     add_test(NAME zima_cpp_numeric_value_locks_contract COMMAND zima_cpp_ui_contract_tests)
     set_tests_properties(zima_cpp_numeric_value_locks_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_VALUE_LOCKS_ONLY=1")

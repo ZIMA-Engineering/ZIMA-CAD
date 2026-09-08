@@ -2750,6 +2750,7 @@ AssemblyWorkspaceWindow::AssemblyWorkspaceWindow(const QString& working_director
             working_directory_ = QFileInfo(configured).absoluteFilePath().toStdString();
         }
     }
+    apply_application_translations(*qApp, application_settings_);
     setWindowTitle(tr("ZIMA-CAD"));
     setWindowIcon(application_icon());
     resize(1200, 800);
@@ -9677,8 +9678,10 @@ void AssemblyWorkspaceWindow::show_global_settings() {
     auto* dialog = new GlobalSettingsDialog(application_settings_, this);
     global_settings_dialog_ = dialog;
     connect(dialog, &QDialog::accepted, this, [this] {
-        application_settings_ = ApplicationSettings::load();
+        application_settings_ = ApplicationSettings::load(
+            QFileInfo(application_settings_.config_path).absolutePath());
         drawing_workspace_->set_formats_directory(application_settings_.resolved_paths.value("Formats"));
+        apply_application_translations(*qApp, application_settings_);
         apply_application_font(*qApp, application_settings_);
         const QString configured =
             application_settings_.resolved_paths.value("WorkingDirectory");
@@ -27962,7 +27965,7 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
         const double next_value = rounded_to_decimal_places(
             parsed_value, viewer_->dimension_decimal_places());
         try {
-            if(parameter_value_locked(candidate.owner_id,candidate.semantic_key).value_or(false))throw std::runtime_error("Hodnota je zamčená.");
+            if(parameter_value_locked(candidate.owner_id,candidate.semantic_key).value_or(false))throw std::runtime_error(tr("Hodnota je zamčená.").toStdString());
             if (candidate.semantic_key.starts_with("parameter:") &&
                 edge_treatment_dialog_ != nullptr &&
                 candidate.owner_id == edge_treatment_preview_owner_id_) {

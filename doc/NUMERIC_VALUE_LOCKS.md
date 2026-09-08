@@ -60,3 +60,11 @@ Test číselných polí používá 3, 4, 6, 9 a 12 desetinných míst a větší
 Převzetí odsazení sestavové roviny vychází z její podepsané vzdálenosti od
 počátku komponenty. Nezávisí na zvoleném vrcholu triangulace a zachová
 polohu počátku i při potřebném zarovnání původně nakloněných rovin.
+
+## Jazyk ovládání
+
+Nápověda prázdného řádku popisuje jednorázové převzetí současné hodnoty
+při výběru reference a následné odemčení. Po jeho zapnutí nabízí zrušení
+převzetí. Vyplněný řádek používá **Zamknout hodnotu / Odemknout hodnotu**.
+Tyto texty, chybová hlášení i akce ve View jsou dostupné ve čtyřech jazycích
+aplikace; podrobnosti jsou v [dokumentaci překladů](LOCALIZATION.md).

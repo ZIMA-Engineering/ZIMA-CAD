@@ -30,10 +30,10 @@ namespace zima::app {
 namespace {
 zima::sketcher::TemplateImage read_template_image(const QString& path) {
     if(QFileInfo(path).suffix().compare("svg",Qt::CaseInsensitive)==0) {
-        QFile source(path);if(!source.open(QIODevice::ReadOnly))throw std::runtime_error("SVG nelze otevřít.");
-        if(source.size()>24*1024*1024)throw std::runtime_error("SVG je příliš velké (nejvýše 24 MB).");
+        QFile source(path);if(!source.open(QIODevice::ReadOnly))throw std::runtime_error(QObject::tr("SVG nelze otevřít.").toStdString());
+        if(source.size()>24*1024*1024)throw std::runtime_error(QObject::tr("SVG je příliš velké (nejvýše 24 MB).").toStdString());
         const auto bytes=source.readAll();QSvgRenderer renderer(bytes);
-        if(!renderer.isValid()||renderer.viewBoxF().isEmpty())throw std::runtime_error("Soubor neobsahuje platný obrázek SVG.");
+        if(!renderer.isValid()||renderer.viewBoxF().isEmpty())throw std::runtime_error(QObject::tr("Soubor neobsahuje platný obrázek SVG.").toStdString());
         zima::sketcher::TemplateImage result;result.id=zima::kernel::make_stable_id();result.name=QFileInfo(path).fileName().toStdString();
         result.format="svg";result.data_base64=bytes.toBase64().toStdString();
         const auto size=renderer.viewBoxF().size();result.pixel_width=size.width();result.pixel_height=size.height();
@@ -42,11 +42,11 @@ zima::sketcher::TemplateImage read_template_image(const QString& path) {
     QImageReader reader(path);reader.setAutoTransform(true);
     const auto size=reader.size();
     if(size.isValid() && static_cast<double>(size.width())*size.height()>32'000'000)
-        throw std::runtime_error("Obrázek je příliš velký (nejvýše 32 megapixelů).");
+        throw std::runtime_error(QObject::tr("Obrázek je příliš velký (nejvýše 32 megapixelů).").toStdString());
     const auto image=reader.read();
-    if(image.isNull())throw std::runtime_error((QObject::tr("Obrázek nelze načíst: ")+reader.errorString()).toStdString());
+    if(image.isNull())throw std::runtime_error(QObject::tr("Obrázek nelze načíst: %1").arg(reader.errorString()).toStdString());
     QByteArray bytes;QBuffer buffer(&bytes);buffer.open(QIODevice::WriteOnly);
-    if(!image.save(&buffer,"PNG"))throw std::runtime_error("Obrázek nelze uložit do razítka.");
+    if(!image.save(&buffer,"PNG"))throw std::runtime_error(QObject::tr("Obrázek nelze uložit do razítka.").toStdString());
     zima::sketcher::TemplateImage result;
     result.id=zima::kernel::make_stable_id();result.name=QFileInfo(path).fileName().toStdString();
     result.data_base64=bytes.toBase64().toStdString();result.pixel_width=image.width();result.pixel_height=image.height();
@@ -99,7 +99,7 @@ public:
     }
 protected:
     bool submit() override {
-        if(!placed_)throw std::runtime_error("Nejprve určete bod umístění obrázku.");
+        if(!placed_)throw std::runtime_error(QObject::tr("Nejprve určete bod umístění obrázku.").toStdString());
         auto image=pending();image.validate();commit_(std::move(image));return true;
     }
 private:
@@ -203,7 +203,7 @@ void AssemblyWorkspaceWindow::show_template_region_properties(const std::string&
     if(!initial){const auto found=std::ranges::find(sketch->drawing_template->repeat_regions,id,&zima::sketcher::SketchRepeatRegion::id);if(found==sketch->drawing_template->repeat_regions.end())return;initial=*found;}
     const auto owner=workspace_.active_document_id();
     auto* dialog=new RepeatRegionDialog(*initial,[this,owner,id](auto region){
-        auto* part=workspace_.open_part(owner);if(!part)throw std::runtime_error("Šablona již není otevřená.");
+        auto* part=workspace_.open_part(owner);if(!part)throw std::runtime_error(QObject::tr("Šablona již není otevřená.").toStdString());
         auto next=part->session.document();auto& regions=next.sketches.front().drawing_template->repeat_regions;
         const auto found=std::ranges::find(regions,id,&zima::sketcher::SketchRepeatRegion::id);
         if(found==regions.end())regions.push_back(std::move(region));else *found=std::move(region);
@@ -239,7 +239,7 @@ void AssemblyWorkspaceWindow::show_template_image_properties(const std::string& 
         const auto found=std::ranges::find(images,id,&zima::sketcher::TemplateImage::id);
         if(found==images.end())images.push_back(image);else *found=image;show_sketch_drag_preview(preview);
     },[this,owner,id](auto image){
-        auto* part=workspace_.open_part(owner);if(!part)throw std::runtime_error("Šablona již není otevřená.");
+        auto* part=workspace_.open_part(owner);if(!part)throw std::runtime_error(QObject::tr("Šablona již není otevřená.").toStdString());
         auto next=part->session.document();auto& images=next.sketches.front().drawing_template->images;
         const auto found=std::ranges::find(images,id,&zima::sketcher::TemplateImage::id);
         if(found==images.end())images.push_back(std::move(image));else *found=std::move(image);

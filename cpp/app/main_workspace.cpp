@@ -11,6 +11,9 @@
 #include "helical_sweep_dialog.hpp"
 #include "sweep2d_dialog.hpp"
 #include "assembly_workspace_window.hpp"
+#include "application_settings.hpp"
+#include <QSettings>
+#include <QTemporaryDir>
 #include "construction_reference_candidate_policy.hpp"
 #include "construction_properties_dialog.hpp"
 #include "primitive_properties_dialog.hpp"
@@ -559,7 +562,49 @@ int verify_template_commands(QApplication& application,zima::app::AssemblyWorksp
     }
     if(!verify(red_pixels>100&&blue_pixels>100&&magenta_pixels>100,"Drawing did not render both the PNG and vector SVG logo"))return 1;
     drawing_preview.close();
-    std::cout<<"Template opening, editing, region priority, shared confirmation and persistence passed\n";return 0;
+    const auto original_language = app::ApplicationSettings::load();
+    QTemporaryDir language_directory;
+    if (!verify(language_directory.isValid(), "Cannot create language test configuration")) return 1;
+    const QStringList languages{"cs", "en", "de", "fr"};
+    const QStringList titles{"Vlastnosti obrázku", "Image Properties", "Bildeigenschaften", "Propriétés de l’image"};
+    for (qsizetype language = 0; language < languages.size(); ++language) {
+        QSettings config(language_directory.filePath("config.ini"), QSettings::IniFormat);
+        config.setValue("Application/Language", languages[language]);
+        config.setValue("Paths/Localization", QString::fromStdString(
+            (std::filesystem::current_path()/"config/localization").generic_string()));
+        config.sync();
+        const auto settings = app::ApplicationSettings::load(language_directory.path());
+        app::apply_application_translations(application, settings);
+        for (const QString kind : {QString("template-image"), QString("template-repeat-region")}) {
+            QTreeWidgetItem* item = nullptr;
+            QTreeWidgetItemIterator entries(tree);
+            while (*entries) {
+                if ((*entries)->data(0, Qt::UserRole+3).toString() == kind) {item = *entries; break;}
+                ++entries;
+            }
+            if (!verify(item != nullptr, "Localized template item is missing")) return 1;
+            window.show_tree_item_properties(item); flush();
+            const bool image = kind == "template-image";
+            dialog = window.findChild<QDialog*>(image ? "templateImageDialog" : "templateRepeatRegionDialog");
+            if (!verify(dialog && dialog->windowTitle() == (image ? titles[language] :
+                    settings.qt_translations.value("Vlastnosti oblasti kusovníku")),
+                    "Template property title ignored the configured language")) return 1;
+            if (!verify(dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->text() ==
+                    settings.qt_translations.value("Zrušit"), "Qt reset the translated Cancel label after showing the dialog")) return 1;
+            if (image) {
+                auto* aspect = dialog->findChild<QCheckBox*>("templateImageAspectLock");
+                auto* horizontal = dialog->findChild<QComboBox*>("templateImageHorizontal");
+                if (!verify(aspect && aspect->text() == settings.qt_translations.value("Zachovat poměr stran") &&
+                        horizontal && horizontal->itemText(1) == settings.qt_translations.value("Na střed") &&
+                        horizontal->itemData(1) == "center", "Translated image controls changed persisted alignment")) return 1;
+            }
+            window.grab().save(QString::fromStdString((directory / (
+                std::string(image ? "image-properties-" : "bom-properties-") + languages[language].toStdString() + ".png")).string()));
+            dialog->reject(); flush();
+        }
+    }
+    app::apply_application_translations(application, original_language);
+    std::cout<<"Template opening, editing, region priority, shared confirmation, persistence and four UI languages passed\n";return 0;
 }
 
 int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspaceWindow& window,

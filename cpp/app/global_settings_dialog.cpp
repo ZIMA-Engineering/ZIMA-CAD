@@ -86,6 +86,9 @@ GlobalSettingsDialog::GlobalSettingsDialog(
         form->addRow(it.value(), row);
     }
     content_layout()->addLayout(form);
+    auto* language_note = new QLabel(tr("Po změně jazyka restartujte aplikaci, aby se přeložily i všechny otevřené nabídky a panely."), this);
+    language_note->setWordWrap(true);
+    content_layout()->addWidget(language_note);
 }
 
 const ApplicationSettings& GlobalSettingsDialog::settings() const {

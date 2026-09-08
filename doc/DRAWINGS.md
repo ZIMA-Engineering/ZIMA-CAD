@@ -219,3 +219,8 @@ Zámek nefixuje polohu popisku; číselnou hodnotu lze záměrně změnit ve vla
 
 Číselná pole a rozměry ve View používají [společné zámky hodnot](NUMERIC_VALUE_LOCKS.md),
 včetně jednorázového převzetí současné hodnoty při zadávání reference.
+
+Vlastnosti obrázku, oblasti kusovníku, jejich příkazy, zarovnání a směry
+opakování mají české, anglické, německé a francouzské texty podle
+[jazyka aplikace](LOCALIZATION.md). Přepnutí jazyka nemění rozměry,
+zarovnání, tokeny kusovníku ani vlastní texty uložené v razítku.

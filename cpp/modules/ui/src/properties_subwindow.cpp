@@ -259,6 +259,8 @@ PropertiesSubWindow::PropertiesSubWindow(const QString& title, QWidget* parent)
     outer->addWidget(submit_error_);
     buttons_ = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel,
                                     Qt::Horizontal, this);
+    buttons_->button(QDialogButtonBox::Ok)->setText(tr("OK"));
+    buttons_->button(QDialogButtonBox::Cancel)->setText(tr("Zrušit"));
     for (auto* abstract_button : buttons_->buttons()) {
         if (auto* button = qobject_cast<QPushButton*>(abstract_button)) {
             button->setAutoDefault(false);

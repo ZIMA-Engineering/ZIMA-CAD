@@ -10,9 +10,29 @@
 #include <QTemporaryFile>
 #include <QTextStream>
 #include <QSettings>
+#include <QTranslator>
 
 namespace zima::app {
 namespace {
+
+// Source-text translations share the configured INI catalogue with keyed UI text.
+class IniTranslator final : public QTranslator {
+public:
+    IniTranslator(QMap<QString, QString> messages, QObject* parent)
+        : QTranslator(parent), messages_(std::move(messages)) {}
+    QString translate(const char* context, const char* source,
+                      const char* = nullptr, int n = -1) const override {
+        if (!source || n >= 0) return {}; // Numerus messages require a plural-aware catalogue.
+        const auto text = QString::fromUtf8(source);
+        const auto specific = messages_.constFind(
+            QString::fromUtf8(context ? context : "") + "|" + text);
+        if (specific != messages_.cend()) return *specific;
+        return messages_.value(text);
+    }
+    bool isEmpty() const override { return messages_.isEmpty(); }
+private:
+    QMap<QString, QString> messages_;
+};
 
 const QStringList path_keys{
     QStringLiteral("Materials"), QStringLiteral("Templates"),
@@ -124,14 +144,21 @@ ApplicationSettings ApplicationSettings::load(const QString& working_directory) 
                            .absoluteFilePath(result.language + ".ini"));
     if (translations.open(QIODevice::ReadOnly | QIODevice::Text)) {
         QTextStream stream(&translations);
+        QString section;
         while (!stream.atEnd()) {
-            const QString line = stream.readLine();
+            const QString line = stream.readLine().trimmed();
+            if (line.startsWith('[') && line.endsWith(']')) {
+                section = line.mid(1, line.size() - 2);
+                continue;
+            }
             const int equals = line.indexOf('=');
             if (equals <= 0 || line.trimmed().startsWith('[') ||
                 line.trimmed().startsWith('#') || line.trimmed().startsWith(';')) {
                 continue;
             }
-            result.translations.insert(
+            auto* messages = section == "Translations" ? &result.translations
+                : section == "QtTranslations" ? &result.qt_translations : nullptr;
+            if (messages) messages->insert(
                 line.left(equals).trimmed(), line.mid(equals + 1).trimmed());
         }
     }
@@ -242,6 +269,19 @@ bool ApplicationSettings::save(QString* error) const {
         return false;
     }
     return true;
+}
+
+void apply_application_translations(QApplication& application,
+    const ApplicationSettings& settings) {
+    constexpr auto name = "zimaIniTranslator";
+    if (auto* previous = application.findChild<QTranslator*>(
+            name, Qt::FindDirectChildrenOnly)) {
+        application.removeTranslator(previous);
+        delete previous;
+    }
+    auto* translator = new IniTranslator(settings.qt_translations, &application);
+    translator->setObjectName(name);
+    application.installTranslator(translator);
 }
 
 void apply_application_font(QApplication& application,

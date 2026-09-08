@@ -22,6 +22,7 @@ struct ApplicationSettings {
     QMap<QString, QString> resolved_paths;
     QMap<QString, QString> units;
     QMap<QString, QString> translations;
+    QMap<QString, QString> qt_translations;
     QString part_template{QStringLiteral("start_part.prtz")};
     QString assembly_template{QStringLiteral("start_assembly.asmz")};
     bool use_iso_application_font{true};
@@ -31,6 +32,9 @@ struct ApplicationSettings {
     [[nodiscard]] bool save(QString* error = nullptr) const;
     [[nodiscard]] QString text(const QString& key, const QString& fallback) const;
 };
+
+void apply_application_translations(QApplication& application,
+    const ApplicationSettings& settings);
 
 void apply_application_font(QApplication& application,
     const ApplicationSettings& settings);
