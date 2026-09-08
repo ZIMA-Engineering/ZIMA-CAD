@@ -39,11 +39,13 @@ int main() {
             const auto a=history.create_body("A");auto feature=document::PartDocument::create_box_container();
             part.history.push_back(feature);history.insert({document::PartHistoryKind::Feature,feature.id});
             const auto b=history.create_body("B");const auto cut=history.create_boolean("Cut",kernel::BodyCombination::Subtract,a,b);
+            auto hidden=*history.find(a);hidden.visible=false;history.update_body(hidden);
             history.activate({});part.set_body_history(history);
             const auto unchanged=part.body_history.serialized();
             rejects([&]{part.erase_history_object(a);});
             require(part.body_history.serialized()==unchanged&&part.history.size()==1,"Rejected deletion changed source body");
             part.erase_history_object(cut);
+            require(part.body_history.find(a)->visible,"Deleting Boolean left its released target hidden");
             require(part.body_history.available_before(part.body_history.order().size())==std::vector<std::string>({a,b}),"Deleting Boolean failed to restore input bodies");
             for(bool pattern:{false,true}) {
                 auto graph=part.body_history;document::BodyHistory copy;copy.name=pattern?"Pattern":"Mirror";

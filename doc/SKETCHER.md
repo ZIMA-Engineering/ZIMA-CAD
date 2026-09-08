@@ -547,3 +547,12 @@ kotevní bod. Bod zůstává samostatným bodem skici; zvýraznění nepřidáv�
 objekt do výběru. Svislé zarovnání Dole / Uprostřed / Nahoře se vztahuje ke
 skutečnému rozsahu znaků, včetně diakritiky a více řádků. Při otevření šablony
 se obrysy textů znovu odvodí z jejich hodnot, kotev a nastavení zarovnání.
+
+### Tažení při zamčených kótách
+
+Při tažení se kurzor promítne do povoleného směru, pokud polohu vůči počátku,
+pevné referenci nebo ose určuje zamčená vodorovná/svislá vzdálenost. Zamčená
+šířka obdélníku tedy nebrání změně výšky a zamčená výška nebrání změně šířky.
+Totéž platí pro souřadnicové kóty X/Y, záporné souřadnice a přenos přes vazby
+H/V a koincidenci. Odemčené řídicí kóty se přizpůsobují výsledku tažení;
+zamčené hodnoty zůstávají pevné. Úplně zamčený bod se neposune.

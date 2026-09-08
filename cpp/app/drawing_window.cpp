@@ -347,6 +347,7 @@ std::pair<std::string, zima::kernel::ViewerMesh> load_drawing_source(
     if (path.extension() == ".prtz") {
         std::vector<zima::kernel::BodyResult> boundaries;
         const auto part = zima::document::PartDocument::load(path, &boundaries);
+        if(boundaries.empty()&&part.kernel_operations().empty())return {part.document_id,{}};
         if (boundaries.empty()) throw std::runtime_error(
             "Part nemá uložený vypočtený model. Nejprve jej regenerujte a uložte.");
         return {part.document_id, std::move(boundaries.back().mesh)};
@@ -1687,27 +1688,34 @@ void DrawingWindow::create_projected_view() {
     } catch (const std::exception& exception) { QMessageBox::warning(this,tr("Projekční pohled"),exception.what()); }
 }
 void DrawingWindow::regenerate_selected_view() {
-    auto* view = document_.find_view(canvas_->selected_view_id()); if (view == nullptr) return;
+    if(view_dialog_)return;
     try {
-        auto [source_id, mesh] = load_drawing_source(
-            view->source_path,workspace_,view->source_document_id);
-        if (source_id != view->source_document_id)
-            throw std::runtime_error("Zdrojový soubor patří jinému dokumentu.");
-        document_.refresh_view(view->id, mesh);
-        // Keep the sheet's BOM in sync with the source Assembly's current
-        // component list: regenerating a view is the explicit user action
-        // that pulls in the latest source state, so it also re-derives the
-        // BOM instead of leaving it frozen at first-insertion time.
-        auto refreshed_bom = build_bom_rows_for_source(
-            source_id, view->source_path, workspace_);
-        if (!refreshed_bom.empty()) {
-            if (auto* sheet = active_sheet()) sheet->bom_rows = std::move(refreshed_bom);
+        auto next=document_;
+        struct Source {std::string id;zima::kernel::ViewerMesh mesh;std::vector<zima::drawing::BomRow> bom;};
+        std::map<std::pair<std::string,std::filesystem::path>,Source> sources;
+        for(auto& sheet:next.sheets) {
+            std::optional<std::vector<zima::drawing::BomRow>> sheet_bom;
+            for(const auto& view:sheet.views) {
+                const auto key=std::make_pair(view.source_document_id,view.source_path);
+                auto found=sources.find(key);
+                if(found==sources.end()) {
+                    auto [id,mesh]=load_drawing_source(view.source_path,workspace_,view.source_document_id);
+                    if(id!=view.source_document_id)throw std::runtime_error("Zdrojový soubor patří jinému dokumentu.");
+                    auto bom=build_bom_rows_for_source(id,view.source_path,workspace_);
+                    found=sources.emplace(key,Source{id,std::move(mesh),std::move(bom)}).first;
+                }
+                next.refresh_view(view.id,found->second.mesh);
+                if(!sheet_bom || view.source_document_id==next.source_document_id)sheet_bom=found->second.bom;
+            }
+            if(sheet_bom)sheet.bom_rows=std::move(*sheet_bom);
         }
-        refresh(); set_status_message(tr("Pohled regenerován."));
-    } catch (const std::exception& error) {
-        QMessageBox::warning(this, tr("Nelze regenerovat pohled"), error.what());
+        document_=std::move(next);
+        refresh();set_status_message(tr("Výkres regenerován."));
+    } catch(const std::exception& error) {
+        QMessageBox::warning(this,tr("Nelze regenerovat pohled"),error.what());
     }
 }
+
 void DrawingWindow::delete_selected_view() {
     auto* sheet = active_sheet(); const std::string selected = canvas_->selected_view_id();
     if (sheet == nullptr || selected.empty()) return;
@@ -1755,7 +1763,7 @@ void DrawingWindow::update_action_states() {
     insert_view_action_->setEnabled(has_sheet);
     projected_view_action_->setEnabled(selected_view);
     edit_view_action_->setEnabled(selected_view);
-    regenerate_view_action_->setEnabled(selected_view);
+    regenerate_view_action_->setEnabled(!view_dialog_&&std::ranges::any_of(document_.sheets,[](const auto& sheet){return !sheet.views.empty();}));
     delete_view_action_->setEnabled(selected_view);
     linear_dimension_action_->setEnabled(has_view);
     linear_dimension_action_->setChecked(canvas_->dimension_mode());

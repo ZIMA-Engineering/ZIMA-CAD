@@ -6777,15 +6777,12 @@ void AssemblyWorkspaceWindow::sync_sketch_tool_action_checks() {
 }
 
 void AssemblyWorkspaceWindow::regenerate_active_document() {
-    if (workspace_.open_part(workspace_.active_document_id()) != nullptr) {
+    if(workspace_.open_drawing(workspace_.displayed_document_id())!=nullptr) {
+        if(auto* action=drawing_workspace_->findChild<QAction*>("regenerateDrawingViewAction");action&&action->isEnabled())action->trigger();
+    } else if(workspace_.open_part(workspace_.active_document_id())!=nullptr) {
         regenerate_active_part();
-    } else if (workspace_.open_assembly(workspace_.displayed_document_id()) != nullptr) {
+    } else if(workspace_.open_assembly(workspace_.displayed_document_id())!=nullptr) {
         regenerate_assembly();
-    } else if (workspace_.open_drawing(workspace_.displayed_document_id()) != nullptr) {
-        if (auto* action = drawing_workspace_->findChild<QAction*>(
-                "regenerateDrawingViewAction"); action != nullptr && action->isEnabled()) {
-            action->trigger();
-        }
     }
 }
 

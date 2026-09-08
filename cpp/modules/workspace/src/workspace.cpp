@@ -303,8 +303,10 @@ std::optional<std::string> Workspace::document_id_for_path(
 zima::kernel::ViewerMesh Workspace::authoritative_viewer_mesh(
     const std::string& document_id) const {
     if (const auto* part = open_part(document_id)) {
-        if (part->session.calculated_boundaries().empty())
+        if (part->session.calculated_boundaries().empty()) {
+            if(part->session.document().kernel_operations().empty())return {};
             throw std::runtime_error("Open Part has no calculated body");
+        }
         return part_result(*part).mesh;
     }
     if (const auto* assembly = open_assembly(document_id))

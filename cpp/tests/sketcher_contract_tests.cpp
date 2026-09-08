@@ -5,6 +5,8 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
+#include <iterator>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -22,6 +24,17 @@ void require(bool condition, const char* message) {
 int main() {
     try {
         using zima::sketcher::DimensionKind;
+        if(const auto* fixture=std::getenv("ZIMA_VERIFY_LOCKED_DRAG_SKETCH")) {
+            std::ifstream input(fixture);const std::string data{std::istreambuf_iterator<char>(input),{}};
+            auto sketch=zima::sketcher::Sketch::from_serialized(data);
+            const auto corner=std::ranges::max_element(sketch.points,[](const auto& a,const auto& b){return a.x==b.x?a.y>b.y:a.x<b.x;});
+            require(corner!=sketch.points.end(),"Drag fixture has no points");
+            const auto id=corner->id;const auto x=corner->x,y=corner->y;
+            require(sketch.move_point(id,x+5,y-4)&&std::abs(sketch.find_point(id)->x-(x+5))<1e-7&&std::abs(sketch.find_point(id)->y-y)<1e-7,
+                "Saved 02 Sketch failed its locked-height drag");
+            require(sketch.solve().maximum_residual<1e-7,"Saved drag fixture violated its constraints");
+            std::cout<<"Saved 02 Sketch locked-height drag passed\n";
+        }
         std::set<std::string> generated_ids;
         for (int index = 0; index < 1024; ++index) {
             generated_ids.insert(
@@ -2256,6 +2269,26 @@ int main() {
                             return value.id == rectangle_height_id;
                         })->value - 10.0) < 1.0e-8,
                 "Unlocked driving rectangle dimensions blocked an axis drag instead of updating their values");
+        for(bool directional:{false,true})for(bool lock_width:{false,true})for(double sign:{-1.0,1.0}) {
+            auto rectangle=zima::sketcher::Sketch::create_default();static_cast<void>(rectangle.add_rectangle(0,0,30,sign*19.253));
+            static_cast<void>(rectangle.add_point_reference_constraint(rectangle.segments.front().first_point_id,"sketch_origin"));
+            auto height=rectangle.create_segment_dimension(rectangle.segments[1].id,directional?DimensionKind::DistanceY:DimensionKind::Distance);height.locked=!lock_width;rectangle.apply_dimension(height);
+            auto width=rectangle.create_segment_dimension(rectangle.segments[2].id,directional?DimensionKind::DistanceX:DimensionKind::Distance);width.locked=lock_width;rectangle.apply_dimension(width);
+            const auto corner=rectangle.segments[1].second_point_id;
+            for(int i=0;i<8;++i) {
+                const double x=35+i,y=sign*(23+i);
+                require(rectangle.move_point(corner,x,y),"Locked rectangle rejected drag along its free direction");
+                require(std::abs(rectangle.find_point(corner)->x-(lock_width?30:x))<1e-7&&
+                    std::abs(rectangle.find_point(corner)->y-(lock_width?y:sign*19.253))<1e-7&&rectangle.solve().maximum_residual<1e-7,
+                    "Locked rectangle drag changed locked size or failed to follow the free coordinate");
+            }
+        }
+        for(bool lock_x:{false,true})for(double sign:{-1.0,1.0}) {
+            auto sketch=zima::sketcher::Sketch::create_default();const auto point=sketch.add_point(sign*10,sign*20);
+            auto coordinate=sketch.create_axis_dimension(point,lock_x?"sketch_axis:y":"sketch_axis:x");coordinate.locked=true;sketch.apply_dimension(coordinate);
+            require(sketch.move_point(point,sign*15,sign*25)&&std::abs(sketch.find_point(point)->x-sign*(lock_x?10:15))<1e-8&&
+                std::abs(sketch.find_point(point)->y-sign*(lock_x?25:20))<1e-8,"Locked axis coordinate blocked its free drag direction");
+        }
         auto locked_origin_rectangle = dimensioned_origin_rectangle;
         for (auto& dimension : locked_origin_rectangle.dimensions) {
             dimension.locked = true;

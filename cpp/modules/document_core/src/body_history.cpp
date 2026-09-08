@@ -36,12 +36,20 @@ void BodyHistoryGraph::erase_step(const std::string& id) {
         throw std::invalid_argument("Objekt používá navazující těleso: "+body.name);
     for(const auto& op:next.booleans_)if(op.target_id==id||op.tool_id==id)
         throw std::invalid_argument("Objekt používá navazující Boolean: "+op.name);
+    std::vector<std::string> released;
+    if(const auto* op=next.find_boolean(id))released={op->target_id,op->tool_id};
+    else if(const auto* body=next.find(id);body&&body->derived_copy)released={body->derived_copy->source_id};
     const auto position=static_cast<std::size_t>(found-next.order_.begin());
     next.order_.erase(found);
     if(position<next.cursor_)--next.cursor_;
     if(next.active_==id)next.active_.clear();
     std::erase_if(next.bodies_,[&](const auto& body){return body.scope.id==id;});
     std::erase_if(next.booleans_,[&](const auto& op){return op.id==id;});
+    const auto available=next.available_before(next.order_.size());
+    for(const auto& source:released)if(std::ranges::find(available,source)!=available.end()) {
+        for(auto& body:next.bodies_)if(body.scope.id==source)body.visible=true;
+        for(auto& op:next.booleans_)if(op.id==source)op.visible=true;
+    }
     next.validate();
     *this=std::move(next);
 }

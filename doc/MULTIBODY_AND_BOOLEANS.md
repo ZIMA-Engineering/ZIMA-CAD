@@ -587,3 +587,7 @@ mazání se odmítne s názvem závislého objektu a dokument zůstane nezměně
 Nejprve odstraňte nebo upravte tuto navazující operaci. Ostatní nevyřešitelné
 geometrické reference zachovávají běžné chování mazání historie: definice
 zůstanou pro opravu, ale starý vypočtený tvar se nezobrazuje.
+
+Při odstranění Booleanu se jeho uvolněné vstupy znovu zobrazí. Odstranění
+zrcadla nebo pole obdobně zobrazí zdroj, pokud už není spotřebovaný jinou
+operací. Undo vrací i předchozí příznaky viditelnosti.

@@ -308,6 +308,43 @@ int verify_drawing_ui() {
             "Drawing view/print settings did not persist");
         window.grab().save(QString::fromStdString((directory/"view-styles.png").string()));
         }
+        {
+            auto source=zima::document::PartDocument::create_default();auto box=zima::document::PartDocument::create_box_container();source.history={box};
+            zima::document::BodyHistoryGraph graph;const auto body=graph.create_body("Source");graph.insert({zima::document::PartHistoryKind::Feature,box.id});graph.activate({});source.set_body_history(graph);
+            zima::kernel::OcctKernel kernel;const auto calculated=kernel.evaluate_history(source.kernel_operations());
+            const auto source_path=directory/"linked-source.prtz";source.save(source_path,calculated);workspace.add_part(source,calculated,source_path);
+            auto drawing=zima::drawing::DrawingDocument::create_default();drawing.source_document_id=source.document_id;drawing.source_path=source_path;
+            for(int i=0;i<2;++i) {
+                if(i) {auto sheet=zima::drawing::DrawingDocument::create_default().sheets.front();drawing.sheets.push_back(sheet);}
+                for(int j=0;j<2;++j)drawing.sheets[i].views.push_back(zima::drawing::DrawingDocument::create_view(source.document_id,source_path,calculated.back().mesh,static_cast<zima::drawing::ViewOrientation>(j)));
+            }
+            workspace.add_drawing(drawing);window.edit_workspace_document(drawing.document_id);window.select_view({});flush();
+            auto* regenerate=window.findChild<QAction*>("regenerateDrawingViewAction");require(regenerate&&regenerate->isEnabled(),"Drawing regeneration requires a selected view");
+            auto* part=workspace.open_part(source.document_id);auto deleted=part->session.document();deleted.erase_history_object(body);part->session.commit(deleted,{});
+            regenerate->trigger();flush();
+            for(const auto& sheet:window.document_for_test().sheets)for(const auto& view:sheet.views)
+                require(view.projected_edges.empty()&&view.projected_triangles.empty(),"Regenerate retained deleted geometry or used the stale saved Part");
+            part->session.undo();regenerate->trigger();flush();
+            for(const auto& sheet:window.document_for_test().sheets)for(const auto& view:sheet.views)
+                require(!view.projected_triangles.empty(),"Undo source followed by Regenerate did not restore all linked views");
+        }
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_LINKED_DRAWING")) {
+            const auto path=std::filesystem::path(qEnvironmentVariable("ZIMA_VERIFY_LINKED_DRAWING").toStdString());
+            auto drawing=zima::drawing::DrawingDocument::load(path);
+            std::vector<zima::kernel::BodyResult> calculated;auto part=zima::document::PartDocument::load(drawing.source_path,&calculated);
+            require(part.body_history.bodies().size()==1&&!calculated.empty(),"Linked fixture must contain one surviving calculated body");
+            auto graph=part.body_history;auto body=graph.bodies().front();body.visible=true;graph.update_body(body);graph.activate({});part.set_body_history(graph);
+            workspace.add_part(part,calculated,drawing.source_path);workspace.add_drawing(drawing,path);window.edit_workspace_document(drawing.document_id);window.select_view({});flush();
+            window.findChild<QAction*>("regenerateDrawingViewAction")->trigger();flush();
+            for(const auto& sheet:window.document_for_test().sheets)for(const auto& view:sheet.views)
+                require(view.projected_triangles.size()==calculated.back().mesh.triangles.size()/3,"Linked fixture did not refresh every view from its current Part");
+            require(!workspace.open_part(part.document_id)->session.body_context_mesh().triangles.empty(),"Surviving fixture body is still invisible");
+            part.save(directory/"linked-source-fixed.prtz",calculated);
+            window.document_for_test().save(directory/"linked-drawing-fixed.drwz");
+            window.export_pdf(directory/"linked-drawing-fixed.pdf");
+            window.grab().save(QString::fromStdString((directory/"linked-drawing-fixed.png").string()));
+            std::cout<<"Linked fixture refreshed from "<<drawing.source_path<<'\n';
+        }
         std::cout<<"Drawing placement, rectangular selection, projection, Cancel, MMB, persistence and global paths passed\n";
         return 0;
     } catch(const std::exception& error) { std::cerr<<error.what()<<'\n'; return 1; }

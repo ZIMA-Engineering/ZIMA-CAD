@@ -2883,52 +2883,73 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
     // the dragged point the solver root. Otherwise the root and the axis
     // relation demand two incompatible values and an otherwise valid slide
     // along the axis is rejected.
-    const auto anchored_coordinate = [&](bool x_coordinate)
-        -> std::optional<double> {
-        std::vector<std::string> pending{point_id};
+    const auto coordinate_linked=[&](const std::string& first,const std::string& second,bool x_coordinate) {
+        std::vector<std::string> pending{first};std::unordered_set<std::string> visited;
+        while(!pending.empty()) {
+            const auto id=pending.back();pending.pop_back();
+            if(id==second)return true;
+            if(!visited.insert(id).second)continue;
+            for(const auto& c:next.constraints) {
+                if(c.suppressed || !(c.kind==ConstraintKind::Coincident ||
+                    (x_coordinate?c.kind==ConstraintKind::Vertical:c.kind==ConstraintKind::Horizontal)))continue;
+                if(c.first_point_id==id&&!c.second_point_id.empty())pending.push_back(c.second_point_id);
+                else if(c.second_point_id==id&&!c.first_point_id.empty())pending.push_back(c.first_point_id);
+            }
+        }
+        return false;
+    };
+    const auto anchored_coordinate = [&](bool x_coordinate) -> std::optional<double> {
+        // Each offset is the visited coordinate minus the dragged coordinate.
+        // Locked axial dimensions transfer a nonzero offset along the same
+        // dependency walk as horizontal/vertical and coincident relations.
+        std::vector<std::pair<std::string,double>> pending{{point_id,0.0}};
         std::unordered_set<std::string> visited;
         while (!pending.empty()) {
-            const auto current_id = std::move(pending.back());
-            pending.pop_back();
+            const auto [current_id,offset]=pending.back();pending.pop_back();
             if (!visited.insert(current_id).second) continue;
             const auto* current = next.find_point(current_id);
             if (current == nullptr) continue;
-            if (current_id != point_id &&
-                (current->fixed || externally_linked.contains(current_id))) {
-                return x_coordinate ? current->x : current->y;
-            }
+            if (current_id != point_id && (current->fixed || externally_linked.contains(current_id)))
+                return (x_coordinate ? current->x : current->y)-offset;
             for (const auto& constraint : next.constraints) {
                 if (constraint.suppressed) continue;
-                if (constraint.kind == ConstraintKind::PointReference &&
-                    constraint.first_point_id == current_id) {
-                    if (const auto reference = external_point_position(
-                            next, constraint.second_point_id)) {
-                        return x_coordinate ? (*reference)[0] : (*reference)[1];
-                    }
+                if (constraint.kind == ConstraintKind::PointReference && constraint.first_point_id == current_id) {
+                    if (const auto reference = external_point_position(next, constraint.second_point_id))
+                        return (x_coordinate ? (*reference)[0] : (*reference)[1])-offset;
                 }
-                if (constraint.kind == ConstraintKind::PointOnLine &&
-                    constraint.first_point_id == current_id &&
+                if (constraint.kind == ConstraintKind::PointOnLine && constraint.first_point_id == current_id &&
                     ((x_coordinate && constraint.geometry_id == "sketch_axis:y") ||
-                     (!x_coordinate && constraint.geometry_id == "sketch_axis:x"))) {
-                    return 0.0;
-                }
-                const bool transfers_coordinate =
+                     (!x_coordinate && constraint.geometry_id == "sketch_axis:x")))return -offset;
+                const bool transfers_coordinate = constraint.kind==ConstraintKind::Coincident ||
                     (x_coordinate && constraint.kind == ConstraintKind::Vertical) ||
                     (!x_coordinate && constraint.kind == ConstraintKind::Horizontal);
                 if (!transfers_coordinate) continue;
-                if (constraint.first_point_id == current_id &&
-                    !constraint.second_point_id.empty()) {
-                    pending.push_back(constraint.second_point_id);
-                } else if (constraint.second_point_id == current_id &&
-                           !constraint.first_point_id.empty()) {
-                    pending.push_back(constraint.first_point_id);
-                }
+                if (constraint.first_point_id == current_id && !constraint.second_point_id.empty())
+                    pending.emplace_back(constraint.second_point_id,offset);
+                else if (constraint.second_point_id == current_id && !constraint.first_point_id.empty())
+                    pending.emplace_back(constraint.first_point_id,offset);
+            }
+            for(const auto& dimension:next.dimensions) {
+                if(dimension.suppressed||!dimension.driving||!dimension.locked)continue;
+                if(has_coordinate_axis_reference(dimension)&&dimension.first_point_id==current_id&&
+                    dimension.kind==(x_coordinate?DimensionKind::DistanceX:DimensionKind::DistanceY))return dimension.value-offset;
+                if(dimension.second_point_id.empty())continue;
+                const auto other_id=dimension.first_point_id==current_id?dimension.second_point_id:
+                    dimension.second_point_id==current_id?dimension.first_point_id:std::string{};
+                const auto* other=next.find_point(other_id);if(!other)continue;
+                const bool axial=dimension.kind==(x_coordinate?DimensionKind::DistanceX:DimensionKind::DistanceY) ||
+                    (dimension.kind==DimensionKind::Distance&&coordinate_linked(current_id,other_id,!x_coordinate));
+                if(!axial)continue;
+                const double delta=x_coordinate?other->x-current->x:other->y-current->y;
+                if(std::abs(delta)>1e-12)pending.emplace_back(other_id,offset+std::copysign(dimension.value,delta));
             }
         }
         return std::nullopt;
     };
+    const double cursor_x=x,cursor_y=y;
     if (const auto anchored_x = anchored_coordinate(true)) x = *anchored_x;
     if (const auto anchored_y = anchored_coordinate(false)) y = *anchored_y;
+    if(std::hypot(x-original_x,y-original_y)<1e-12&&std::hypot(cursor_x-original_x,cursor_y-original_y)>1e-12)return false;
     const double requested_translation_x = x - original_x;
     const double requested_translation_y = y - original_y;
     const bool dragging_curve_center = std::any_of(

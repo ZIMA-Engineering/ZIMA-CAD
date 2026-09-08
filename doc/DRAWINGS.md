@@ -300,3 +300,12 @@ plochy zůstává zachován. Pracovní režim tenkých čar nemění tiskové tl
 Rozlišení tečných hran vychází z uložených směrů sousedních ploch; otevření
 vlastností nevolá OCCT. Chybějící údaje se nepovažují za důkaz tečnosti.
 U již uložených pohledů použijte Regenerovat k obnovení projekce a klasifikace hran.
+
+### Regenerace propojeného výkresu
+
+Příkaz **Regenerovat** obnovuje všechny pohledy na všech listech, i bez výběru
+pohledu. Otevřený díl je zdrojem v aktuálním neuloženém stavu; uzavřený díl se
+načte z uvedeného souboru. Smazání posledního tělesa vyprázdní také projekce.
+Aktualizují se i vazby kót a kusovník. Změna se použije až po úspěšném načtení
+všech zdrojů. Projekce v souboru výkresu jsou uložený stav pohledů, nikoli
+samostatný model; explicitní regenerace je nahradí podle propojeného zdroje.

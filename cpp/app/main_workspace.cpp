@@ -2121,6 +2121,7 @@ int verify_body_activation(QApplication& application, const std::filesystem::pat
         const auto mirror_id=part.body_history.order().back();
         for(const auto& id:{mirror_id,cut,b,a}) {
             if(!verify(activate(row(id),"deleteBodyAction")&&failure.isEmpty()&&!row(id),"Part-level delete failed to remove Body/Mirror/Boolean"))return 1;
+            if(id==cut||id==b)if(!verify(std::ranges::any_of(view->mesh().triangle_references,[&](const auto& face){return face.owner_id==first.id;}),"Deleting Boolean did not restore solid display of its hidden input"))return 1;
         }
         if(!verify(view->mesh().triangles.empty(),"Deleting the last Body retained cached geometry"))return 1;
         window.findChild<QAction*>("undoAction")->trigger();flush();
