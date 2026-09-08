@@ -591,3 +591,19 @@ zůstanou pro opravu, ale starý vypočtený tvar se nezobrazuje.
 Při odstranění Booleanu se jeho uvolněné vstupy znovu zobrazí. Odstranění
 zrcadla nebo pole obdobně zobrazí zdroj, pokud už není spotřebovaný jinou
 operací. Undo vrací i předchozí příznaky viditelnosti.
+
+### Kontextová menu prvků tělesa
+
+Kontextová menu jednotlivých prvků jsou v Tree i ve View dostupná pouze
+uvnitř jejich aktivního tělesa. Aktivace jiného tělesa ani aktivace celého
+Partu úpravy těchto prvků nezpřístupní. Stejné pravidlo platí pro skici,
+její kóty a vazby i podprvky operací; hromadné mazání z menu nezahrnuje
+prvky pasivních těles. Nabídka samotného tělesa zůstává dostupná pro aktivaci
+a operace na úrovni Partu.
+
+Při otevření souboru Part a při přechodu z výkresu tlačítkem **Díl** se
+aktivuje první běžné těleso v pořadí historie. Booleany, zrcadla a pole
+se při hledání přeskakují. Part bez těles zůstane na úrovni dílu.
+Automatická aktivace pouze nastavuje pracovní kontext: nepočítá geometrii,
+nevytváří krok Undo a nemění stav neuložených změn. Běžné přepnutí záložky
+zachovává ručně zvolenou aktivitu.

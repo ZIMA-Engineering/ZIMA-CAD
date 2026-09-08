@@ -4397,6 +4397,7 @@ void AssemblyWorkspaceWindow::create_layout() {
     viewer_->set_dimension_lock_query([this](const auto& reference){return parameter_value_locked(reference.owner_id,reference.semantic_key);});
     viewer_->set_context_menu_callback(
         [this](const auto& candidate, const QPoint& global_position) {
+            if (!part_element_context_menu_enabled(candidate.owner_id)) return;
             if(candidate.kind==zima::viewer::CandidateKind::TemplateImage && !properties_dialog_) {
                 const auto id=candidate.semantic_key.substr(15);QMenu menu(this);
                 auto* properties=menu.addAction(tr("Vlastnosti…"));auto* remove=menu.addAction(tr("Odstranit"));
@@ -5681,7 +5682,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 primitive_reference_dialog_ != nullptr ||
                 pending_primitive_reference_index_) return;
             auto* item = tree_->itemAt(position);
-            if (item == nullptr) return;
+            if (!tree_item_context_menu_enabled(item)) return;
             const auto step_kind = item->data(0, Qt::UserRole + 3).toString();
             if(step_kind=="template-image"&&!properties_dialog_) {
                 const auto id=item->data(0,Qt::UserRole).toString().toStdString();QMenu menu(this);
@@ -5777,6 +5778,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 struct Target { std::string id; QString kind; };
                 std::vector<Target> targets;
                 const auto append = [&](QTreeWidgetItem* selected_item) {
+                    if (!tree_item_context_menu_enabled(selected_item)) return;
                     const auto tree_kind = selected_item->data(
                         0, Qt::UserRole + 3).toString();
                     QString delete_kind;
@@ -6906,6 +6908,19 @@ void AssemblyWorkspaceWindow::finish_body_dialog(QDialog* dialog) {
     dialog->show();
 }
 
+void AssemblyWorkspaceWindow::activate_first_part_body() {
+    auto* part = workspace_.open_part(workspace_.active_document_id());
+    if (!part) return;
+    const auto& graph = part->session.document().body_history;
+    for (const auto& id : graph.order()) {
+        const auto* body = graph.find(id);
+        if (body && !body->derived_copy) {
+            part->session.activate_body(id);
+            return;
+        }
+    }
+}
+
 void AssemblyWorkspaceWindow::activate_body(const std::string& id) {
     if (properties_dialog_) return;
     auto* part = workspace_.open_part(workspace_.active_document_id());
@@ -7269,6 +7284,7 @@ bool AssemblyWorkspaceWindow::open_document_path(const QString& path) {
     selected_sketch_text_id_.clear();
     cancel_sketch_segment();
     update_status_operation(tr("Připravuji strom a View…"));
+    activate_first_part_body();
     refresh_tabs();
     refresh_scene();
     finish_status_operation(tr("Otevřeno: %1").arg(
@@ -20176,6 +20192,26 @@ void AssemblyWorkspaceWindow::toggle_part_container_suppressed(
     }
 }
 
+bool AssemblyWorkspaceWindow::part_element_context_menu_enabled(const std::string& owner_id) const {
+    const auto* part = workspace_.open_part(workspace_.active_document_id());
+    if (!part) return true;
+    const auto& document = part->session.document();
+    if (document.body_history.find(owner_id)) return true;
+    const auto* body = document.body_owner_for_object(owner_id);
+    return !body || body->scope.id == document.body_history.active_body_id();
+}
+
+bool AssemblyWorkspaceWindow::tree_item_context_menu_enabled(QTreeWidgetItem* item) const {
+    if (!item) return false;
+    // Dimensions, constraints and feature subcomponents inherit the history
+    // owner's editing scope. Body-level activation remains available.
+    for (auto* entry = item; entry; entry = entry->parent()) {
+        if (!part_element_context_menu_enabled(entry->data(0, Qt::UserRole).toString().toStdString()))
+            return false;
+    }
+    return true;
+}
+
 bool AssemblyWorkspaceWindow::tree_item_reorder_enabled(QTreeWidgetItem* item) const {
     if (!item || !item->parent() || properties_dialog_ || !active_sketch_id_.empty() ||
         part_rollback_ || assembly_cut_rollback_ || tree_->property("commandSelectionActive").toBool()) return false;
@@ -24050,6 +24086,7 @@ void AssemblyWorkspaceWindow::navigate_document_kind() {
     if (const auto* drawing = workspace_.open_drawing(displayed)) {
         std::string source_document_id = drawing->document.source_document_id;
         std::filesystem::path source_path = drawing->document.source_path;
+        const auto drawing_directory = drawing->path.parent_path();
         if (source_document_id.empty() && !drawing->document.sheets.empty() &&
             !drawing->document.sheets.front().views.empty()) {
             const auto& first_view = drawing->document.sheets.front().views.front();
@@ -24060,6 +24097,7 @@ void AssemblyWorkspaceWindow::navigate_document_kind() {
             state_->setText(tr("Výkres nemá přiřazený zdrojový dokument."));
             return;
         }
+        if (!source_path.empty() && source_path.is_relative()) source_path = drawing_directory / source_path;
         if (workspace_.find(source_document_id) == nullptr) {
             if (source_path.empty() ||
                 !open_document_path(QString::fromStdString(source_path.string()))) {
@@ -24069,6 +24107,9 @@ void AssemblyWorkspaceWindow::navigate_document_kind() {
         } else {
             workspace_.activate(source_document_id);
             workspace_.display_top_level(source_document_id);
+            active_occurrence_path_.clear();
+            activate_first_part_body();
+            viewer_->clear_selection();
             refresh_tabs();
             refresh_scene();
         }

@@ -82,6 +82,33 @@ bool verify(bool condition, const char* message) {
     return condition;
 }
 
+bool activate_test_body(QApplication& application, zima::app::AssemblyWorkspaceWindow& window,
+        const std::string& id) {
+    auto* tree = window.findChild<QTreeWidget*>("documentTree");
+    if (!tree) return false;
+    QTreeWidgetItem* item = id.empty() ? tree->topLevelItem(0) : nullptr;
+    for (QTreeWidgetItemIterator it(tree); !item && *it; ++it)
+        if ((*it)->data(0, Qt::UserRole + 3).toString() == "part-body" &&
+                (*it)->data(0, Qt::UserRole).toString().toStdString() == id) item = *it;
+    if (!item) return false;
+    for (auto* parent = item->parent(); parent; parent = parent->parent()) tree->expandItem(parent);
+    tree->scrollToItem(item);
+    bool invoked = false;
+    QTimer::singleShot(0, &window, [&] {
+        auto* menu = window.findChild<QMenu*>("partActivationMenu");
+        if (!menu) return;
+        auto* action = menu->findChild<QAction*>(id.empty() ? "activatePartAction" : "activateBodyAction");
+        if (!action || !action->isEnabled()) { menu->close(); return; }
+        invoked = true; menu->setActiveAction(action);
+        QKeyEvent enter(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier);
+        QApplication::sendEvent(menu, &enter);
+    });
+    tree->customContextMenuRequested(tree->visualItemRect(item).center());
+    application.processEvents(); QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    application.processEvents();
+    return invoked;
+}
+
 std::size_t part_insertion_marker_count(QTreeWidget* tree) {
     std::size_t count = 0;
     for (QTreeWidgetItemIterator it(tree); *it; ++it) {
@@ -239,7 +266,8 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     window.resize(1200,960);window.show();
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
     if(!verify(window.open_document_path(QString::fromStdString(path.string())),"Mirror Part fixture did not open"))return 1;
-    flush();auto* tree=window.findChild<QTreeWidget*>("documentTree");
+    flush();
+    if (!verify(activate_test_body(application,window,{}), "Cannot activate Part for body copy operations")) return 1;auto* tree=window.findChild<QTreeWidget*>("documentTree");
     auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
     auto* action=window.findChild<QAction*>("mirrorAction");auto* save=window.findChild<QAction*>("saveDocumentAction");
     const auto row=[&](const std::string& id,const char* kind)->QTreeWidgetItem* {
@@ -2092,6 +2120,7 @@ int verify_body_activation(QApplication& application, const std::filesystem::pat
             invoked=true;menu->setActiveAction(action);QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(menu,&enter);});
         tree->customContextMenuRequested(tree->visualItemRect(item).center());flush();return invoked;
     };
+    if (!verify(activate_test_body(application,window,{}), "Cannot inspect Part-level result after automatic Body activation")) return 1;
     const auto original=view->mesh().triangles.size();
     const auto& body=part.body_history.bodies().front();
     if(!verify(activate(row(body.scope.id),"activateBodyAction"),"Cannot activate consumed body after Boolean and Mirror"))return 1;
@@ -2152,6 +2181,34 @@ int verify_body_history_ui(QApplication& application, const std::filesystem::pat
     const auto flush = [&] { application.processEvents(); QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete); application.processEvents(); };
     if (!verify(window.open_document_path(QString::fromStdString(path.string())), "Cannot open body UI fixture")) return 1;
     flush();
+    const auto first_body_active = [&](zima::app::AssemblyWorkspaceWindow& target) {
+        auto* target_tree=target.findChild<QTreeWidget*>("documentTree");
+        for (QTreeWidgetItemIterator it(target_tree); *it; ++it)
+            if ((*it)->data(0,Qt::UserRole+3).toString()=="part-body" &&
+                    (*it)->data(0,Qt::UserRole).toString().toStdString()==a)
+                return (*it)->foreground(0).color()==QColor("#4DD811");
+        return false;
+    };
+    if (!verify(first_body_active(window) && !window.findChild<QAction*>("undoAction")->isEnabled(),
+            "Opening a Part did not activate its first Body without adding Undo")) return 1;
+    auto entry_drawing=zima::drawing::DrawingDocument::create_default();
+    entry_drawing.source_document_id=part.document_id;entry_drawing.source_path=path.filename();
+    const auto entry_drawing_path=directory/"body-ui.drwz";entry_drawing.save(entry_drawing_path);
+    if (!verify(activate_test_body(application,window,b) &&
+            window.open_document_path(QString::fromStdString(entry_drawing_path.string())),
+            "Cannot prepare Drawing entry with an already-open Part")) return 1;
+    window.findChild<QToolButton*>("documentKindButton")->click();flush();
+    if (!verify(first_body_active(window), "Drawing to an open Part did not activate its first Body")) return 1;
+    {
+        zima::app::AssemblyWorkspaceWindow fresh(QString::fromStdString(directory.string()));
+        fresh.resize(1100,850);fresh.show();
+        if (!verify(fresh.open_document_path(QString::fromStdString(entry_drawing_path.string())),
+                "Cannot open Drawing without its Part")) return 1;
+        fresh.findChild<QToolButton*>("documentKindButton")->click();flush();
+        if (!verify(first_body_active(fresh) && !fresh.findChild<QAction*>("undoAction")->isEnabled(),
+                "Drawing did not open its relative Part source with first Body active and clean Undo")) return 1;
+    }
+    if (!verify(activate_test_body(application,window,b), "Cannot select second Body for history editing regression")) return 1;
     window.toggle_parameter_value_lock(second.id,"parameter:length");flush();
     auto* value_undo=window.findChild<QAction*>("undoAction");auto* value_redo=window.findChild<QAction*>("redoAction");
     if(!verify(value_undo->isEnabled(),"First value-lock edit did not enable Undo"))return 1;
@@ -2224,9 +2281,45 @@ int verify_body_history_ui(QApplication& application, const std::filesystem::pat
             }
         return false;
     };
+    const auto menu_offered = [&](const auto& request) {
+        bool offered = false;
+        QTimer::singleShot(0, &window, [&] {
+            if (auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget())) {
+                offered = !menu->actions().empty();
+                menu->close();
+            }
+        });
+        request(); flush();
+        return offered;
+    };
+    const auto tree_menu_offered = [&](const std::string& id) {
+        auto* item = row("part-container", id);
+        if (!item) return false;
+        for (auto* parent = item->parent(); parent; parent = parent->parent()) tree->expandItem(parent);
+        tree->scrollToItem(item);
+        return menu_offered([&] { tree->customContextMenuRequested(tree->visualItemRect(item).center()); });
+    };
+    const auto view_menu_offered = [&](const std::string& id) {
+        viewer->confirm_container(id);
+        if (!viewer->confirmed_candidate() || viewer->confirmed_candidate()->owner_id != id)
+            throw std::runtime_error("Cannot confirm the feature for the View context-menu regression");
+        const QPointF point(viewer->rect().center());
+        const QPointF global(viewer->mapToGlobal(point.toPoint()));
+        return menu_offered([&] {
+            QMouseEvent press(QEvent::MouseButtonPress, point, global, Qt::RightButton, Qt::RightButton, Qt::NoModifier);
+            QMouseEvent release(QEvent::MouseButtonRelease, point, global, Qt::RightButton, Qt::NoButton, Qt::NoModifier);
+            QApplication::sendEvent(viewer, &press); QApplication::sendEvent(viewer, &release);
+        });
+    };
+    if (!verify(!tree_menu_offered(first.id) && tree_menu_offered(second.id) &&
+            !view_menu_offered(first.id) && view_menu_offered(second.id),
+            "Tree/View feature menus do not follow the second active Body")) return 1;
     if (!verify(activate_from_tree(tree->topLevelItem(0),"activatePartAction") &&
             !row("part-insert-here") && row("part-body-insert-here"),
             "Part root context menu did not activate document-level modeling")) return 1;
+    if (!verify(!tree_menu_offered(first.id) && !tree_menu_offered(second.id) &&
+            !view_menu_offered(first.id) && !view_menu_offered(second.id),
+            "Tree/View offered feature menus without an active Body")) return 1;
     const auto origin_extent = [&](const std::string& owner) {
         double extent = 0;
         for (const auto& axis : viewer->mesh().axes)
@@ -2239,6 +2332,8 @@ int verify_body_history_ui(QApplication& application, const std::filesystem::pat
             "Document activation must display only Document Origin")) return 1;
     if (!verify(activate_from_tree(row("part-body",a),"activateBodyAction"),
             "First Body context menu did not activate its history")) return 1;
+    if (!verify(tree_menu_offered(first.id) && !tree_menu_offered(second.id) && view_menu_offered(first.id),
+            "Tree/View feature menus did not follow activation of the first Body")) return 1;
     if (!verify(origin_extent(a+":origin") > 0 && origin_extent(b+":origin")==0 &&
             origin_extent(part.document_id+":origin")==0 &&
             std::abs(document_origin_extent/origin_extent(a+":origin")-1.25)<1e-9,
@@ -2518,6 +2613,7 @@ int verify_body_sketch_ui(QApplication& application, const std::filesystem::path
     const auto flush=[&] { application.processEvents(); QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete); application.processEvents(); };
     if (!verify(window.open_document_path(QString::fromStdString(path.string())),"Cannot open body Sketch fixture")) return 1;
     flush();
+    if (!verify(activate_test_body(application,window,body_id), "Cannot activate the Sketch's Body after opening")) return 1;
     auto* tree=window.findChild<QTreeWidget*>("documentTree");
     window.findChild<QAction*>("sketchAction")->trigger();flush();
     zima::app::SketchPropertiesDialog* new_sketch_dialog{};

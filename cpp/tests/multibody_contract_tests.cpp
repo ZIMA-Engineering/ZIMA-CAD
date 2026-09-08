@@ -312,6 +312,25 @@ int main() {
         require(cyclic_body.body_history.serialized()==cyclic_snapshot,"Rejected body reference changed the document");
         auto part_boundaries = kernel.evaluate_history(part.kernel_operations());
         document::DocumentSession session(part, part_boundaries);
+        {
+            document::DocumentSession focus(part, part_boundaries);
+            focus.activate_body(first_body);
+            require(!focus.is_dirty() && !focus.can_undo() && focus.revision()==0 &&
+                focus.document().body_history.active_body_id()==first_body,
+                "Body focus changed the clean document or created Undo");
+            auto edited=focus.document();edited.name="Unsaved edit";
+            focus.commit(edited,part_boundaries);
+            const auto revision=focus.revision();
+            focus.activate_body(second_body);
+            require(focus.is_dirty() && focus.can_undo() && focus.revision()==revision &&
+                focus.calculated_boundaries().back().mesh.triangles==part_boundaries.back().mesh.triangles,
+                "Body focus lost unsaved state, history or cached geometry");
+            require(focus.undo() && focus.document().name==part.name && focus.can_redo(),
+                "Automatic Body activation inserted an extra Undo step");
+            focus.activate_body(second_body);
+            require(focus.can_redo() && focus.redo() && focus.document().name=="Unsaved edit",
+                "Body activation cleared Redo");
+        }
         require(session.rollback_boundary(second.id).has_value() &&
             !session.rollback_boundary(second.id)->input_body.has_value(),
             "Second body's first feature incorrectly inherited the first body as input");

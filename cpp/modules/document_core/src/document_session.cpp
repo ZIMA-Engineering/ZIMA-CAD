@@ -309,6 +309,10 @@ bool DocumentSession::redo() {
     return true;
 }
 
+void DocumentSession::activate_body(const std::string& id) {
+    current_.document.body_history.activate(id);
+}
+
 void DocumentSession::mark_saved() {
     saved_revision_ = current_.revision;
     saved_dimension_allocations_ = current_.document.dimension_identifiers.allocation_count();

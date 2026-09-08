@@ -53,6 +53,8 @@ public:
         std::vector<zima::kernel::BodyResult> calculated_boundaries);
     bool undo();
     bool redo();
+    // Editing focus only: keep geometry, dirty state and Undo/Redo intact.
+    void activate_body(const std::string& id);
     void mark_saved();
 
 private:

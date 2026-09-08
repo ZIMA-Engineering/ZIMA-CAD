@@ -274,6 +274,7 @@ private:
     void show_derived_source_properties(const std::string& id);
     void show_body_properties(const std::string& id = {});
     void show_body_boolean_properties(const std::string& id = {});
+    void activate_first_part_body();
     void activate_body(const std::string& id);
     void finish_body_dialog(QDialog* dialog);
     ShaftThreadDialog* shaft_thread_dialog_{};
@@ -971,6 +972,8 @@ private:
         const std::string& sketch_id, const std::string& relation_id,
         bool dimension);
     void toggle_part_container_suppressed(const std::string& container_id);
+    bool part_element_context_menu_enabled(const std::string& owner_id) const;
+    bool tree_item_context_menu_enabled(QTreeWidgetItem* item) const;
     bool tree_item_reorder_enabled(QTreeWidgetItem* item) const;
     bool reorder_tree_item(QTreeWidgetItem* item, const QString& before, bool commit);
     bool reorder_part_history(const std::string& id, const std::string& before, bool commit);
