@@ -17,7 +17,8 @@ namespace zima::drawing {
 enum class SheetFormat { A4, A3, A2, A1, A0 };
 enum class ProjectionMethod { FirstAngle, ThirdAngle };
 enum class ViewOrientation { Front, Back, Left, Right, Top, Bottom, Isometric };
-enum class DisplayStyle { VisibleEdges, HiddenEdges, ShadedWithEdges };
+enum class DisplayStyle { VisibleEdges, HiddenEdges, ShadedWithEdges, Shaded };
+enum class HiddenEdgeStyle { Dashed, Gray };
 enum class ProjectionDirection {
     None, Right, TopRight, Top, TopLeft, Left, BottomLeft, Bottom, BottomRight
 };
@@ -38,6 +39,7 @@ struct ProjectedEdge {
     std::vector<Point2> points;
     zima::kernel::EdgeReference source;
     bool hidden{};
+    bool silhouette{};
 };
 
 struct ProjectedTriangle {
@@ -45,6 +47,7 @@ struct ProjectedTriangle {
     zima::kernel::FaceReference source;
     double depth{};
     double light{};
+    std::array<double,3> vertex_depths{};
 };
 
 struct DrawingView {
@@ -57,6 +60,7 @@ struct DrawingView {
     ProjectionCamera camera;
     ProjectionDirection projection_direction{ProjectionDirection::None};
     DisplayStyle display_style{DisplayStyle::VisibleEdges};
+    HiddenEdgeStyle hidden_edge_style{HiddenEdgeStyle::Dashed};
     double x{100.0};
     double y{100.0};
     double scale{1.0};
@@ -117,6 +121,8 @@ struct DrawingSheet {
     SheetFormat format{SheetFormat::A4};
     ProjectionMethod projection_method{ProjectionMethod::FirstAngle};
     double default_scale{1.0};
+    double thick_line_mm{0.5};
+    double thin_line_mm{0.25};
     std::vector<DrawingView> views;
     std::vector<LinearDimension> dimensions;
     std::vector<TemplateLine> frame_lines;

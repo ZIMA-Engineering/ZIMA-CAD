@@ -1,3 +1,4 @@
+#include "drawing_projection.hpp"
 #include <zima/sketcher/template_image_json.hpp>
 #include <zima/document/document_copy_json.hpp>
 #include <zima/drawing/drawing_document.hpp>
@@ -74,6 +75,7 @@ const char* display_name(DisplayStyle value) {
         case DisplayStyle::VisibleEdges: return "visible_edges";
         case DisplayStyle::HiddenEdges: return "hidden_edges";
         case DisplayStyle::ShadedWithEdges: return "shaded_with_edges";
+        case DisplayStyle::Shaded: return "shaded";
     }
     throw std::runtime_error("Invalid Drawing display style");
 }
@@ -108,6 +110,7 @@ ProjectionDirection parse_direction(const std::string& value) {
 DisplayStyle parse_display(const std::string& value) {
     if (value == "visible_edges") return DisplayStyle::VisibleEdges;
     if (value == "hidden_edges") return DisplayStyle::HiddenEdges;
+    if (value == "shaded") return DisplayStyle::Shaded;
     if (value == "shaded_with_edges") return DisplayStyle::ShadedWithEdges;
     throw std::runtime_error("Unsupported Drawing display style: " + value);
 }
@@ -288,43 +291,7 @@ std::vector<ProjectedEdge> project_edges(
 
 std::vector<ProjectedEdge> project_edges(
     const zima::kernel::ViewerMesh& mesh, const ProjectionCamera& camera) {
-    const auto& source = mesh.edges.empty() ? mesh.original_references.edges : mesh.edges;
-    std::vector<ProjectedEdge> result;
-    result.reserve(source.size() * 2);
-    for (const auto& edge : source) {
-        if (edge.points.size() < 2) continue;
-        for (std::size_t segment = 1; segment < edge.points.size(); ++segment) {
-            ProjectedEdge projected_edge;
-            projected_edge.source = edge.reference;
-            projected_edge.points = {projected_with_depth(edge.points[segment - 1], camera).paper,
-                                     projected_with_depth(edge.points[segment], camera).paper};
-            const zima::kernel::Vec3 midpoint{
-                (edge.points[segment - 1].x + edge.points[segment].x) * 0.5,
-                (edge.points[segment - 1].y + edge.points[segment].y) * 0.5,
-                (edge.points[segment - 1].z + edge.points[segment].z) * 0.5};
-            const auto projected_midpoint = projected_with_depth(midpoint, camera);
-            for (std::size_t triangle = 0; triangle + 2 < mesh.triangles.size(); triangle += 3) {
-                const auto ia = mesh.triangles[triangle];
-                const auto ib = mesh.triangles[triangle + 1];
-                const auto ic = mesh.triangles[triangle + 2];
-                if (ia >= mesh.vertices.size() || ib >= mesh.vertices.size() ||
-                    ic >= mesh.vertices.size()) continue;
-                const auto a = projected_with_depth(mesh.vertices[ia], camera);
-                const auto b = projected_with_depth(mesh.vertices[ib], camera);
-                const auto c = projected_with_depth(mesh.vertices[ic], camera);
-                double wa{}, wb{}, wc{};
-                if (!point_in_triangle(projected_midpoint.paper, a.paper, b.paper, c.paper,
-                                       &wa, &wb, &wc)) continue;
-                const double triangle_depth = wa * a.depth + wb * b.depth + wc * c.depth;
-                if (triangle_depth > projected_midpoint.depth + 1e-6) {
-                    projected_edge.hidden = true;
-                    break;
-                }
-            }
-            result.push_back(std::move(projected_edge));
-        }
-    }
-    return result;
+    return detail::project_drawing_edges(mesh,camera);
 }
 
 std::vector<ProjectedTriangle> project_triangles(
@@ -356,6 +323,7 @@ std::vector<ProjectedTriangle> project_triangles(
         ProjectedTriangle value;
         value.points = {a.paper, b.paper, c.paper};
         value.depth = (a.depth + b.depth + c.depth) / 3.0;
+        value.vertex_depths={a.depth,b.depth,c.depth};
         value.light = 0.55 + 0.4 * facing;
         const std::size_t face_index = triangle / 3;
         if (face_index < mesh.triangle_references.size()) value.source = mesh.triangle_references[face_index];
@@ -495,11 +463,14 @@ void DrawingDocument::save(const std::filesystem::path& path,
         if (sheet.id.empty() || !ids.insert(sheet.id).second || sheet.name.empty())
             throw std::runtime_error("Drawing sheet IDs and names must be unique and non-empty");
         require_finite(sheet.default_scale, "sheet scale");
+        if(!std::isfinite(sheet.thick_line_mm)||!std::isfinite(sheet.thin_line_mm)||sheet.thin_line_mm<=0||sheet.thick_line_mm<=0)
+            throw std::runtime_error("Drawing line widths must be positive and finite");
         if (sheet.default_scale <= 0.0) throw std::runtime_error("Drawing sheet scale must be positive");
         nlohmann::json serialized{{"id", sheet.id}, {"name", sheet.name},
             {"format", format_name(sheet.format)},
             {"projection_method", sheet.projection_method == ProjectionMethod::FirstAngle ? "first_angle" : "third_angle"},
             {"default_scale", sheet.default_scale},
+            {"thick_line_mm",sheet.thick_line_mm},{"thin_line_mm",sheet.thin_line_mm},
             {"title_block_locale", sheet.title_block_locale}, {"local_parameters", sheet.local_parameters}};
         const auto line_json=[](const auto& lines) {
             nlohmann::json result=nlohmann::json::array();
@@ -560,12 +531,13 @@ void DrawingDocument::save(const std::filesystem::path& path,
                             {"vertical", {view.camera.vertical.x, view.camera.vertical.y, view.camera.vertical.z}},
                             {"depth", {view.camera.depth.x, view.camera.depth.y, view.camera.depth.z}}}},
                 {"display_style", display_name(view.display_style)},
+                {"hidden_edge_style",view.hidden_edge_style==HiddenEdgeStyle::Gray?"gray":"dashed"},
                 {"use_sheet_scale", view.use_sheet_scale}, {"show_caption", view.show_caption},
                 {"x", view.x}, {"y", view.y}, {"scale", view.scale}, {"value_locks",view.value_locks}};
             item["projected_edges"] = nlohmann::json::array();
             for (const auto& edge : view.projected_edges) {
                 nlohmann::json edge_json{{"source", edge_reference_json(edge.source)},
-                                         {"hidden", edge.hidden}};
+                                         {"hidden", edge.hidden}, {"silhouette",edge.silhouette}};
                 edge_json["points"] = nlohmann::json::array();
                 for (const auto& point : edge.points) edge_json["points"].push_back({point.x, point.y});
                 item["projected_edges"].push_back(std::move(edge_json));
@@ -574,7 +546,7 @@ void DrawingDocument::save(const std::filesystem::path& path,
             for (const auto& triangle : view.projected_triangles) {
                 nlohmann::json triangle_json{{"source", {{"owner", triangle.source.owner_id},
                     {"key", triangle.source.semantic_key}, {"instance_path", triangle.source.instance_path}}},
-                    {"depth", triangle.depth}, {"light", triangle.light}};
+                    {"depth", triangle.depth}, {"light", triangle.light},{"vertex_depths",triangle.vertex_depths}};
                 triangle_json["points"] = nlohmann::json::array();
                 for (const auto& point : triangle.points) triangle_json["points"].push_back({point.x, point.y});
                 item["projected_triangles"].push_back(std::move(triangle_json));
@@ -650,6 +622,9 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
         sheet.projection_method = serialized.value("projection_method", "first_angle") == "third_angle"
             ? ProjectionMethod::ThirdAngle : ProjectionMethod::FirstAngle;
         sheet.default_scale = serialized.value("default_scale", 1.0);
+        sheet.thick_line_mm=serialized.value("thick_line_mm",0.5);sheet.thin_line_mm=serialized.value("thin_line_mm",0.25);
+        if(!std::isfinite(sheet.thick_line_mm)||!std::isfinite(sheet.thin_line_mm)||sheet.thin_line_mm<=0||sheet.thick_line_mm<=0)
+            throw std::runtime_error("Drawing line widths must be positive and finite");
         sheet.title_block_locale = serialized.value("title_block_locale", "cs");
         sheet.local_parameters = serialized.value("local_parameters", decltype(sheet.local_parameters){});
         const auto parse_lines=[](const nlohmann::json& source) {
@@ -702,6 +677,7 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
             view.camera.vertical = vector(camera.at("vertical"));
             view.camera.depth = vector(camera.at("depth"));
             view.display_style = parse_display(item.value("display_style", "visible_edges"));
+            view.hidden_edge_style=item.value("hidden_edge_style","dashed")=="gray"?HiddenEdgeStyle::Gray:HiddenEdgeStyle::Dashed;
             view.use_sheet_scale = item.value("use_sheet_scale", true);
             view.show_caption = item.value("show_caption", false);
             view.x = item.at("x").get<double>(); view.y = item.at("y").get<double>();
@@ -711,6 +687,7 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
                 ProjectedEdge edge;
                 edge.source = parse_edge_reference(edge_json.at("source"));
                 edge.hidden = edge_json.value("hidden", false);
+                edge.silhouette=edge_json.value("silhouette",false);
                 for (const auto& point : edge_json.at("points"))
                     edge.points.push_back({point.at(0).get<double>(), point.at(1).get<double>()});
                 view.projected_edges.push_back(std::move(edge));
@@ -721,6 +698,7 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
                     triangle_json.at("source").value("key", ""),
                     triangle_json.at("source").value("instance_path", "")};
                 triangle.depth = triangle_json.value("depth", 0.0);
+                triangle.vertex_depths=triangle_json.value("vertex_depths",std::array{triangle.depth,triangle.depth,triangle.depth});
                 triangle.light = triangle_json.value("light", 0.8);
                 for (std::size_t index = 0; index < 3; ++index)
                     triangle.points[index] = {triangle_json.at("points").at(index).at(0).get<double>(),

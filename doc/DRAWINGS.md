@@ -153,7 +153,7 @@ se používá také u kót ve view, os počátku a směru BOM regionu.
 
 Podporována je první asociativní lineární kóta mezi dvěma rovnoběžnými
 přímými hranami. Další typy ISO kót, řezy, detaily, tolerance, pozice,
-technické symboly a export PDF/DXF jsou další vývojové kroky. BOM v razítku
+technické symboly a export DXF jsou další vývojové kroky. BOM v razítku
 už není v této skupině: Repeat Region, Item Number a Quantity jsou funkční.
 
 
@@ -248,3 +248,39 @@ Vlastnosti obrázku, oblasti kusovníku, jejich příkazy, zarovnání a směry
 opakování mají české, anglické, německé, francouzské a ruské texty podle
 [jazyka aplikace](LOCALIZATION.md). Přepnutí jazyka nemění rozměry,
 zarovnání, tokeny kusovníku ani vlastní texty uložené v razítku.
+
+## Základní pohledy, skryté hrany a PDF
+
+Vlastnosti pohledu nabízejí přední, zadní, levý, pravý, horní, dolní a
+izometrický pohled. Odvozené projekční pohledy respektují první či třetí
+kvadrant listu. Zobrazení má čtyři režimy: pouze viditelné hrany, viditelné
+a skryté hrany, stínované s viditelnými hranami a stínované bez hran.
+Skryté hrany lze zobrazit čárkovaně nebo šedou plnou čarou.
+
+Projekce používá uložené křivky a trojúhelníky vypočteného tělesa. Rozděluje
+hrany v místech zakrytí a doplňuje obrysové křivky zakřivených ploch,
+například obě boční tvořící přímky válce. Parametrické švy periodických
+ploch se nezobrazují. Obrys odvozený z trojúhelníků není novou modelovou
+hranou a nelze na něj připojit kótu jako na stabilní topologickou referenci.
+Přesnost hladkých obrysů odpovídá uložené tessellaci zdroje.
+
+**Vlastnosti listu** nastavují silnou a slabou čáru v milimetrech (výchozí
+0,50 a 0,25 mm). Silná čára patří viditelným hranám a bílému peru šablony,
+slabá skrytým hranám, kótám a zelenému/žlutému peru šablony. Přepínač
+**Náhled tlouštěk** zapíná tyto tloušťky na obrazovce; export je používá vždy.
+Čárkovaná skrytá hrana má na papíře čárku 3 mm a mezeru 1,5 mm nezávisle
+na měřítku modelu.
+
+**PDF…** na spodní liště nebo **Soubor → Export** v hlavním okně uloží
+všechny listy Drawing do jednoho PDF. Samostatné okno Drawing má také
+příkaz **Výkres → Uložit jako PDF…**. Každá stránka má skutečný formát svého
+listu včetně případné kombinace A4 a A3. Čáry a text se exportují vektorově. Stínovaná výplň používá hloubkově
+vyhodnocenou bitmapu při rozlišení exportu 720 dpi, nejvýše 16 milionů
+pixelů a 8192 pixelů na stranu pohledu; vložené obrázky zůstávají bitmapami. Výběrové
+rámečky, zvýraznění a rozpracované náhledy se netisknou. Běžná pera jsou na
+bílém papíře černá, volitelně šedé skryté hrany zůstávají šedé.
+
+Při tisku PDF zvolte **skutečnou velikost / 100 %**. Volba „přizpůsobit
+stránce“ v tiskovém programu mění měřítko i fyzické tloušťky. Export nevolá
+OCCT ani neregeneruje zdrojové modely; tiskne uložený stav pohledů. Změny
+zdrojové geometrie nejprve převezměte explicitním Regenerate pohledu.

@@ -1,3 +1,4 @@
+#include "drawing_projection_fixture.hpp"
 #include <zima/drawing/drawing_template.hpp>
 #include <zima/drawing/drawing_document.hpp>
 
@@ -163,8 +164,25 @@ Data={"points":{"a":{"x":-10,"y":-5},"b":{"x":-20,"y":-5}},"geometry":{"line":{"
         occluded.triangles = {0, 1, 2};
         const auto hidden = zima::drawing::project_edges(
             occluded, zima::drawing::ViewOrientation::Front);
-        require(hidden.size() == 1 && hidden.front().hidden,
-                "Drawing hidden-line projection ignored an occluding face");
+        double hidden_length=0,visible_length=0;
+        for(const auto& edge:hidden)if(!edge.silhouette)for(std::size_t i=1;i<edge.points.size();++i)
+            (edge.hidden?hidden_length:visible_length)+=std::hypot(edge.points[i].x-edge.points[i-1].x,edge.points[i].y-edge.points[i-1].y);
+        require(std::abs(hidden_length-6)<1e-6 && std::abs(visible_length-4)<1e-6,
+                "Partial occlusion must split an edge at the actual face boundary");
+        const auto cylinder=drawing_cylinder_fixture();
+        const auto front=zima::drawing::project_edges(cylinder,zima::drawing::ViewOrientation::Front);
+        int sides=0;
+        for(const auto& edge:front) {
+            require(edge.source.semantic_key!="seam","Periodic surface seam leaked into drawing");
+            if(edge.silhouette&&!edge.hidden && std::abs(edge.points.back().y-edge.points.front().y)>19.99) {
+                require(std::abs(std::abs(edge.points.front().x)-10)<1e-6,"Cylinder outline has wrong radius");++sides;
+            }
+        }
+        require(sides==2,"Cylinder front view needs two visible silhouette generators");
+        for(const auto orientation:{zima::drawing::ViewOrientation::Front,zima::drawing::ViewOrientation::Back,
+            zima::drawing::ViewOrientation::Left,zima::drawing::ViewOrientation::Right,zima::drawing::ViewOrientation::Top,
+            zima::drawing::ViewOrientation::Bottom,zima::drawing::ViewOrientation::Isometric})
+            require(!zima::drawing::project_edges(cylinder,orientation).empty(),"A basic cylinder view lost all curves");
         const auto parent_camera = zima::drawing::standard_camera(
             zima::drawing::ViewOrientation::Front);
         const auto first_angle = zima::drawing::projected_camera(parent_camera,

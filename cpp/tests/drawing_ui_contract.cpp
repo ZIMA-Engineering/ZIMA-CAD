@@ -1,3 +1,6 @@
+#include "drawing_shading.hpp"
+#include <zima/kernel/occt_kernel.hpp>
+#include "drawing_projection_fixture.hpp"
 #include "drawing_window.hpp"
 #include <zima/workspace/workspace.hpp>
 #include <QAction>
@@ -70,6 +73,12 @@ int verify_drawing_ui() {
         action("insertDrawingViewAction")->trigger(); click(canvas,center);
         auto* properties=dialog(); require(properties,"Second placement has no properties");
         properties->findChild<QComboBox*>("drawingViewOrientation")->setCurrentIndex(0);
+        auto* display_mode=properties->findChild<QComboBox*>("drawingViewDisplay");
+        auto* hidden_style=properties->findChild<QComboBox*>("drawingHiddenEdgeStyle");
+        require(display_mode&&display_mode->count()==4&&hidden_style&&hidden_style->count()==2,"View display choices are incomplete");
+        display_mode->setCurrentIndex(3);hidden_style->setCurrentIndex(1);flush();
+        require(count()==0,"Changing view display committed the pending preview");
+        display_mode->setCurrentIndex(0);
         properties->findChild<QLineEdit*>("drawingViewName")->setText("Front test");
         properties->findChild<QCheckBox*>()->setChecked(true);
         properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click(); flush();
@@ -213,6 +222,67 @@ int verify_drawing_ui() {
                 std::abs(std::abs(first->position.y-second_row->position.y)-bom_sheet.repeat_regions.front().step)<1e-6,
                 "Purple BOM region did not create separate rows with each Part's Parameters");
             window.grab().save(QString::fromStdString((directory/"assembly-bom-rows.png").string()));
+        }
+        {
+        // A tilted foreground face can have a smaller mean depth and must
+        // still cover the flat face at the near end, in either input order.
+        zima::drawing::DrawingView depth_view;
+        zima::drawing::ProjectedTriangle tilted,flat;
+        tilted.points=flat.points={zima::drawing::Point2{0,0},{10,0},{0,10}};
+        tilted.vertex_depths={10,-10,-10};tilted.light=1;
+        flat.vertex_depths={0,0,0};flat.light=0.5;
+        depth_view.projected_triangles={tilted,flat};
+        const auto depth_image=zima::app::drawing_shaded_fill(depth_view,QRectF(0,0,10,10),10);
+        require(qRed(depth_image.pixel(5,94))==185&&qRed(depth_image.pixel(60,89))==92,
+            "Shaded fill used triangle mean depth instead of local visibility");
+        std::reverse(depth_view.projected_triangles.begin(),depth_view.projected_triangles.end());
+        require(zima::app::drawing_shaded_fill(depth_view,QRectF(0,0,10,10),10)==depth_image,
+            "Shaded visibility depends on triangle ordering");
+        // Export the same persisted view styles to a physical-size multipage PDF.
+        auto print_document=zima::drawing::DrawingDocument::create_default();
+        auto& print_sheet=print_document.sheets.front();
+        print_sheet.thick_line_mm=0.5;print_sheet.thin_line_mm=0.25;
+        zima::kernel::OcctKernel print_kernel;
+        const auto bodies=print_kernel.evaluate_history({{"print-cylinder",zima::kernel::CylinderRequest{10,20},zima::kernel::BooleanOperation::Add}});
+        const auto& cylinder=bodies.back().mesh;
+        auto print_source=zima::document::PartDocument::create_default();
+        workspace.add_part(print_source,bodies);
+        const auto outline=zima::drawing::project_edges(cylinder,zima::drawing::ViewOrientation::Front);
+        int generators=0;
+        for(const auto& edge:outline)if(edge.silhouette&&!edge.hidden)for(std::size_t i=1;i<edge.points.size();++i)
+            if(std::abs(edge.points[i].y-edge.points[i-1].y)>19.9)++generators;
+        require(generators==2,"Calculated cylinder lost its two silhouette generators");
+        for(const double y:{0.0,20.0})for(int sample=-99;sample<=99;++sample) {
+            const double x=sample/10.0;
+            const bool covered=std::ranges::any_of(outline,[&](const auto& edge) {
+                if(edge.hidden)return false;
+                for(std::size_t i=1;i<edge.points.size();++i)if(std::abs(edge.points[i-1].y-y)<1e-6&&std::abs(edge.points[i].y-y)<1e-6&&
+                    x>=std::min(edge.points[i-1].x,edge.points[i].x)-1e-6&&x<=std::max(edge.points[i-1].x,edge.points[i].x)+1e-6)return true;
+                return false;
+            });
+            require(covered,"Calculated cylinder rim contains visible gaps");
+        }
+        for(int i=0;i<4;++i) {
+            auto view=zima::drawing::DrawingDocument::create_view(print_source.document_id, {},cylinder,
+                i==0?zima::drawing::ViewOrientation::Front:zima::drawing::ViewOrientation::Isometric);
+            view.display_style=static_cast<zima::drawing::DisplayStyle>(i);
+            view.x=i%2?60:150;view.y=i<2?220:120;view.scale=2;
+            view.show_caption=true;view.name=std::array{"Visible", "Hidden dashed", "Shaded + edges", "Shaded"}[i];
+            print_sheet.views.push_back(view);
+        }
+        auto second_sheet=print_sheet;second_sheet.id="print-second";second_sheet.format=zima::drawing::SheetFormat::A3;
+        for(auto& view:second_sheet.views)view.id+="-second-sheet";
+        second_sheet.views[1].hidden_edge_style=zima::drawing::HiddenEdgeStyle::Gray;second_sheet.views[1].name="Hidden gray";
+        print_document.sheets.push_back(second_sheet);
+        workspace.add_drawing(print_document);window.edit_workspace_document(print_document.document_id);flush();
+        window.export_pdf(directory/"view-styles.pdf");
+        require(std::filesystem::file_size(directory/"view-styles.pdf")>1000,"PDF output is empty");
+        print_document.save(directory/"view-styles.drwz");
+        const auto reopened=zima::drawing::DrawingDocument::load(directory/"view-styles.drwz");
+        require(reopened.sheets.size()==2&&reopened.sheets[1].views[1].hidden_edge_style==zima::drawing::HiddenEdgeStyle::Gray&&
+            reopened.sheets[0].views[3].display_style==zima::drawing::DisplayStyle::Shaded&&reopened.sheets[0].thick_line_mm==0.5,
+            "Drawing view/print settings did not persist");
+        window.grab().save(QString::fromStdString((directory/"view-styles.png").string()));
         }
         std::cout<<"Drawing placement, rectangular selection, projection, Cancel, MMB, persistence and global paths passed\n";
         return 0;

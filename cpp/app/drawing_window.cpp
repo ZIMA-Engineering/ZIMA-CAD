@@ -1,3 +1,7 @@
+#include "drawing_shading.hpp"
+#include <QPdfWriter>
+#include <QPageSize>
+#include <QSaveFile>
 #include <zima/ui/numeric_value_lock.hpp>
 #include "drawing_window.hpp"
 #include <zima/viewer/embedded_image.hpp>
@@ -129,6 +133,10 @@ public:
         display_->addItem(QObject::tr("Pouze viditelné hrany"));
         display_->addItem(QObject::tr("Viditelné a skryté hrany"));
         display_->addItem(QObject::tr("Stínované s hranami"));
+        display_->addItem(QObject::tr("Stínované bez hran"));
+        hidden_style_=new QComboBox(content);hidden_style_->setObjectName("drawingHiddenEdgeStyle");
+        hidden_style_->addItems({QObject::tr("Čárkované"),QObject::tr("Šedé")});
+        hidden_style_->setCurrentIndex(static_cast<int>(value_.hidden_edge_style));
         display_->setCurrentIndex(static_cast<int>(value_.display_style));
         scale_mode_ = new QComboBox(content);
         scale_mode_->setObjectName("drawingViewScaleMode");
@@ -149,6 +157,7 @@ public:
         form->addRow(QObject::tr("Zdroj"), source_row);
         form->addRow(QObject::tr("Orientace"), orientation_);
         form->addRow(QObject::tr("Zobrazení"), display_);
+        form->addRow(QObject::tr("Skryté hrany"),hidden_style_);
         form->addRow(QObject::tr("Měřítko"), scale_mode_);
         form->addRow(QObject::tr("Hodnota měřítka"), scale_);
         form->addRow(QObject::tr("Poloha X [mm]"), x_);
@@ -162,7 +171,7 @@ public:
         zima::ui::bind_numeric_value_lock(x_,"x",value_.value_locks,preview_change);
         zima::ui::bind_numeric_value_lock(y_,"y",value_.value_locks,preview_change);
         zima::ui::bind_numeric_value_lock(scale_,"scale",value_.value_locks,preview_change);
-        for (auto* combo : {source_, orientation_, display_, scale_mode_})
+        for (auto* combo : {source_, orientation_, display_, scale_mode_,hidden_style_})
             connect(combo, &QComboBox::currentIndexChanged, this, [this,preview_change] {
                 scale_->setEnabled(scale_mode_->currentIndex()==1);
                 preview_change();
@@ -178,6 +187,7 @@ public:
         auto result = value_;
         result.name = name_->text().trimmed().toStdString();
         result.show_caption = caption_->isChecked();
+        result.hidden_edge_style=static_cast<zima::drawing::HiddenEdgeStyle>(hidden_style_->currentIndex());
         if (const int i = source_->currentIndex(); i>=0 && i<static_cast<int>(sources_.size())) {
             result.source_document_id = sources_[i].id; result.source_path = sources_[i].path;
         }
@@ -196,7 +206,7 @@ private:
     std::function<void(zima::drawing::DrawingView)> preview_;
     QLineEdit* name_{};
     QCheckBox* caption_{};
-    QComboBox *source_{}, *orientation_{}, *display_{}, *scale_mode_{};
+    QComboBox *source_{}, *orientation_{}, *display_{}, *scale_mode_{}, *hidden_style_{};
     QDoubleSpinBox *scale_{}, *x_{}, *y_{};
     QLabel* error_{};
     bool submit() override { return accepted_(values()); }
@@ -225,18 +235,24 @@ public:
         language_->addItems({"cs","en","de","fr","ru"});language_->setEditable(true);
         language_->setCurrentText(QString::fromStdString(value_.title_block_locale));
         form->addRow(QObject::tr("Jazyk razítka"),language_);
+        thick_=new QDoubleSpinBox(content);thin_=new QDoubleSpinBox(content);
+        for(auto* spin:{thick_,thin_}){spin->setRange(0.05,2.0);spin->setDecimals(2);spin->setSingleStep(0.05);spin->setSuffix(" mm");}
+        thick_->setObjectName("drawingThickLine");thin_->setObjectName("drawingThinLine");
+        thick_->setValue(value_.thick_line_mm);thin_->setValue(value_.thin_line_mm);
+        form->addRow(QObject::tr("Silná čára"),thick_);form->addRow(QObject::tr("Slabá čára"),thin_);
         content_layout()->addWidget(content); setAttribute(Qt::WA_DeleteOnClose);
     }
 private:
     zima::drawing::DrawingSheet value_;
     std::function<void(zima::drawing::DrawingSheet)> accepted_;
-    QComboBox* format_{}; QComboBox* projection_{}; QComboBox* language_{}; QDoubleSpinBox* scale_{};
+    QComboBox* format_{}; QComboBox* projection_{}; QComboBox* language_{}; QDoubleSpinBox* scale_{}; QDoubleSpinBox *thick_{},*thin_{};
     bool submit() override {
         value_.format = static_cast<zima::drawing::SheetFormat>(format_->currentIndex());
         value_.projection_method = projection_->currentIndex() == 0
             ? zima::drawing::ProjectionMethod::FirstAngle
             : zima::drawing::ProjectionMethod::ThirdAngle;
         value_.title_block_locale=language_->currentText().trimmed().toStdString();
+        value_.thick_line_mm=thick_->value();value_.thin_line_mm=thin_->value();
         value_.default_scale = scale_->value(); accepted_(std::move(value_)); return true;
     }
 };
@@ -426,7 +442,7 @@ public:
         setAttribute(Qt::WA_OpaquePaintEvent);
     }
     void set_sheet(zima::drawing::DrawingSheet* sheet) {
-        sheet_ = sheet;
+        sheet_ = sheet;shaded_cache_.clear();
         selected_.clear();selected_field_.clear();hovered_field_.clear();field_regions_.clear();
         selected_dimension_id_.clear();
         dragged_dimension_id_.clear();
@@ -451,6 +467,8 @@ public:
         selection_changed_ = std::move(callback);
     }
     void set_preview(std::optional<zima::drawing::DrawingView> view) {
+        if(preview_)shaded_cache_.erase(preview_->id);
+        if(view)shaded_cache_.erase(view->id);
         preview_ = std::move(view); update();
     }
     void begin_placement(zima::drawing::DrawingView view,
@@ -495,9 +513,12 @@ protected:
                 origin.y() + (sheet_->height_mm() - view.y - point.y * view.scale)*zoom};
     }
     QRectF view_bounds(const zima::drawing::DrawingView& view) const {
+        return view_bounds_at(view,canvas_zoom(),canvas_origin(canvas_zoom())).adjusted(-8,-8,8,8);
+    }
+    QRectF view_bounds_at(const zima::drawing::DrawingView& view,double zoom,QPointF origin) const {
         bool first = true; double xmin{}, xmax{}, ymin{}, ymax{};
         const auto include = [&](const zima::drawing::Point2& point) {
-            const auto screen = view_screen_point(view,point);
+            const auto screen = QPointF(origin.x()+(sheet_->width_mm()-view.x+point.x*view.scale)*zoom,origin.y()+(sheet_->height_mm()-view.y-point.y*view.scale)*zoom);
             if (first) { xmin=xmax=screen.x(); ymin=ymax=screen.y(); first=false; }
             else { xmin=std::min(xmin,screen.x()); xmax=std::max(xmax,screen.x());
                    ymin=std::min(ymin,screen.y()); ymax=std::max(ymax,screen.y()); }
@@ -505,7 +526,7 @@ protected:
         for (const auto& edge : view.projected_edges) for (const auto& point : edge.points) include(point);
         for (const auto& triangle : view.projected_triangles) for (const auto& point : triangle.points) include(point);
         if (first) include({});
-        return QRectF(QPointF(xmin,ymin),QPointF(xmax,ymax)).adjusted(-8,-8,8,8);
+        return QRectF(QPointF(xmin,ymin),QPointF(xmax,ymax));
     }
     std::string view_at(QPointF point) const {
         if (!sheet_) return {};
@@ -577,26 +598,31 @@ protected:
                        (height() - sheet_->height_mm() * zoom) * 0.5) + view_pan_;
     }
     void paintEvent(QPaintEvent*) override {
-        QPainter painter(this);
-        painter.fillRect(rect(), QColor("#000000"));
-        if (sheet_ == nullptr) return;
+        QPainter painter(this);painter.fillRect(rect(),QColor("#000000"));
+        paint_sheet(painter,canvas_zoom(),canvas_origin(canvas_zoom()),false);
+    }
+public:
+    void set_lineweights(bool value){lineweights_=value;update();}
+    void paint_sheet(QPainter& painter,double zoom,QPointF origin,bool printing) {
+        if(!sheet_)return;
+        const auto width=[&](bool thick){return printing||lineweights_?zoom*(thick?sheet_->thick_line_mm:sheet_->thin_line_mm):1.0;};
+        const auto ink=printing?QColor(Qt::black):QColor(Qt::white);
         std::vector<const zima::drawing::DrawingView*> views;
-        for (const auto& view : sheet_->views)
-            if (!preview_ || preview_->id!=view.id) views.push_back(&view);
-        if (preview_) views.push_back(&*preview_);
-        const double zoom = canvas_zoom();
-        const QPointF origin = canvas_origin(zoom);
+        for(const auto& view:sheet_->views)if(printing||!preview_||preview_->id!=view.id)views.push_back(&view);
+        if(!printing&&preview_)views.push_back(&*preview_);
         const QRectF paper(origin.x(), origin.y(), sheet_->width_mm() * zoom,
                            sheet_->height_mm() * zoom);
         painter.setRenderHint(QPainter::Antialiasing, true);
+        QFont annotation_font(drawing_font_family());annotation_font.setPixelSize(std::max(1,static_cast<int>(3.5*zoom)));painter.setFont(annotation_font);
         painter.setPen(QPen(QColor("#808080"), 1.0));
-        painter.drawRect(paper);
-        painter.setPen(QPen(QColor("#FFFFFF"), 1.0));
+        if(!printing)painter.drawRect(paper);
+        painter.setPen(QPen(ink,width(false)));
         const auto screen=[&](const zima::drawing::Point2& point) {
             return QPointF(origin.x()+sheet_->width_mm()*zoom-point.x*zoom,
                            origin.y()+sheet_->height_mm()*zoom-point.y*zoom);
         };
-        const auto pen_color=[](zima::drawing::DrawingPen pen) {
+        const auto pen_color=[&](zima::drawing::DrawingPen pen) {
+            if(printing)return QColor(Qt::black);
             return pen == zima::drawing::DrawingPen::Yellow ? QColor("#E6C85C")
                 : pen == zima::drawing::DrawingPen::Green ? QColor("#4DD811") : QColor("#FFFFFF");
         };
@@ -604,7 +630,7 @@ protected:
             const double frame = 10.0 * zoom;
             painter.drawRect(paper.adjusted(frame, frame, -frame, -frame));
         }
-        field_regions_.clear();
+        if(!printing)field_regions_.clear();
         const auto draw_text=[&](const zima::drawing::TemplateText& text) {
             painter.save();painter.setPen(pen_color(text.pen));
             QFont font(QString::fromStdString(text.font));font.setPixelSize(1000);painter.setFont(font);
@@ -620,7 +646,7 @@ protected:
             const double dx=alignment=="center"?-ink.center().x():alignment=="right"?-ink.right():-ink.left();
             const double dy=text.vertical_alignment=="top"?-ink.top():text.vertical_alignment=="middle"||text.vertical_alignment=="center"?-ink.center().y():text.vertical_alignment=="baseline"?0:-ink.bottom();
             painter.drawText(QPointF(dx,dy),value);painter.restore();
-            if(!text.field_id.empty()) {
+            if(!printing&&!text.field_id.empty()) {
                 const auto polygon=transform.map(QPolygonF(ink.translated(dx,dy).adjusted(-60,-60,60,60)));
                 field_regions_.push_back({text.field_id,polygon});
                 if(selected_field_==text.field_id || hovered_field_==text.field_id) {
@@ -631,8 +657,8 @@ protected:
             }
         };
         const auto draw_template=[&](const auto& lines,const auto& texts,const auto& circles) {
-            for(const auto& line:lines){painter.setPen(QPen(pen_color(line.pen),1.0));painter.drawLine(screen(line.first),screen(line.second));}
-            for(const auto& circle:circles){painter.setPen(QPen(pen_color(circle.pen),1.0));painter.setBrush(Qt::NoBrush);painter.drawEllipse(screen(circle.center),circle.radius*zoom,circle.radius*zoom);}
+            for(const auto& line:lines){painter.setPen(QPen(pen_color(line.pen),width(line.pen==zima::drawing::DrawingPen::White)));painter.drawLine(screen(line.first),screen(line.second));}
+            for(const auto& circle:circles){painter.setPen(QPen(pen_color(circle.pen),width(circle.pen==zima::drawing::DrawingPen::White)));painter.setBrush(Qt::NoBrush);painter.drawEllipse(screen(circle.center),circle.radius*zoom,circle.radius*zoom);}
             for(const auto& text:texts)draw_text(text);
         };
         draw_template(sheet_->frame_lines,sheet_->frame_texts,sheet_->frame_circles);
@@ -644,33 +670,39 @@ protected:
         draw_template(layout.lines,layout.texts,layout.circles);
         for (const auto* rendered_view : views) {
             const auto& view = *rendered_view;
-            if (view.display_style != zima::drawing::DisplayStyle::ShadedWithEdges) continue;
-            painter.setPen(Qt::NoPen);
-            for (const auto& triangle : view.projected_triangles) {
-                const double light = std::clamp(triangle.light, 0.0, 1.0);
-                painter.setBrush(QColor(
-                    static_cast<int>(185.0 * light),
-                    static_cast<int>(194.0 * light),
-                    static_cast<int>(204.0 * light)));
-                QPolygonF polygon;
-                for (const auto& point : triangle.points)
-                    polygon << QPointF(origin.x() + sheet_->width_mm()*zoom -
-                                           (view.x - point.x * view.scale) * zoom,
-                                       origin.y() + sheet_->height_mm()*zoom -
-                                           (view.y + point.y * view.scale) * zoom);
-                painter.drawPolygon(polygon);
+            if (view.display_style != zima::drawing::DisplayStyle::ShadedWithEdges && view.display_style != zima::drawing::DisplayStyle::Shaded) continue;
+            bool first=true;QRectF model_bounds;
+            for(const auto& triangle:view.projected_triangles)for(const auto& point:triangle.points) {
+                const QPointF p(point.x,point.y);
+                if(first){model_bounds=QRectF(p,p);first=false;}
+                else model_bounds=QRectF(QPointF(std::min(model_bounds.left(),p.x()),std::min(model_bounds.top(),p.y())),
+                    QPointF(std::max(model_bounds.right(),p.x()),std::max(model_bounds.bottom(),p.y())));
             }
+            const QRectF target(origin.x()+(sheet_->width_mm()-view.x+model_bounds.left()*view.scale)*zoom,
+                origin.y()+(sheet_->height_mm()-view.y-model_bounds.bottom()*view.scale)*zoom,
+                model_bounds.width()*view.scale*zoom,model_bounds.height()*view.scale*zoom);
+            const double resolution=zoom*view.scale*(printing?1.0:2.0);
+            auto& cached=shaded_cache_[view.id];
+            if(cached.image.isNull()||cached.resolution!=resolution||cached.bounds!=model_bounds||cached.triangles!=view.projected_triangles.data()) {
+                cached.image=drawing_shaded_fill(view,model_bounds,resolution);
+                cached.resolution=resolution;cached.bounds=model_bounds;cached.triangles=view.projected_triangles.data();
+            }
+            painter.setRenderHint(QPainter::SmoothPixmapTransform,true);
+            painter.drawImage(target,cached.image);
+
         }
         painter.setBrush(Qt::NoBrush);
         for (const auto* rendered_view : views) {
             const auto& view = *rendered_view;
-            for (const auto& edge : view.projected_edges) {
-                if (edge.hidden && view.display_style == zima::drawing::DisplayStyle::VisibleEdges)
+            if(view.display_style==zima::drawing::DisplayStyle::Shaded)continue;
+            for(bool hidden_pass:{true,false})for (const auto& edge : view.projected_edges) {
+                if(edge.hidden!=hidden_pass)continue;
+                if (edge.hidden && view.display_style != zima::drawing::DisplayStyle::HiddenEdges)
                     continue;
-                QPen pen(view.id == selected_ ? QColor("#00D1FF")
-                                              : edge.hidden ? QColor("#808080") : QColor("#FFFFFF"),
-                         view.id == selected_ ? 2.0 : 1.0);
-                if (edge.hidden) pen.setStyle(Qt::DashLine);
+                const bool gray=edge.hidden&&view.hidden_edge_style==zima::drawing::HiddenEdgeStyle::Gray;
+                QPen pen(!printing&&view.id==selected_?QColor("#00D1FF"):gray?QColor("#808080"):ink,width(!edge.hidden));
+                pen.setCapStyle(Qt::FlatCap);pen.setJoinStyle(Qt::RoundJoin);
+                if(edge.hidden&&!gray){pen.setDashPattern({3.0*zoom/pen.widthF(),1.5*zoom/pen.widthF()});}
                 painter.setPen(pen);
                 if (edge.points.size() < 2) continue;
                 QPolygonF line;
@@ -685,22 +717,22 @@ protected:
         }
         painter.setBrush(Qt::NoBrush);
         for (const auto* view : views) {
-            const auto bounds = view_bounds(*view);
-            if (view->id==selected_ || view->id==hovered_ || (preview_ && preview_->id==view->id)) {
+            const auto bounds = printing?view_bounds_at(*view,zoom,origin):view_bounds(*view);
+            if (!printing&&(view->id==selected_ || view->id==hovered_ || (preview_ && preview_->id==view->id))) {
                 painter.setPen(QPen(view->id==hovered_ && view->id!=selected_ ? QColor("#FF9300")
                     : QColor("#00D1FF"), 1, Qt::DashLine));
                 painter.drawRect(bounds);
             }
             if (view->show_caption) {
-                painter.setPen(QColor("#FFFFFF"));
-                painter.drawText(QRectF(bounds.left(),bounds.bottom()+3,bounds.width(),24),
+                painter.setPen(ink);
+                painter.drawText(QRectF(bounds.left(),bounds.bottom()+zoom,bounds.width(),5*zoom),
                     Qt::AlignHCenter | Qt::AlignTop, QString::fromStdString(view->name));
             }
         }
         for (const auto& dimension : sheet_->dimensions) {
-            const QColor dimension_color=dimension.id==selected_dimension_id_ ? QColor("#00D1FF")
+            const QColor dimension_color=printing?ink:dimension.id==selected_dimension_id_ ? QColor("#00D1FF")
                 : dimension.unresolved ? QColor("#C62828") : QColor("#FFD400");
-            painter.setPen(QPen(dimension_color,dimension.id==selected_dimension_id_?2.0:1.0));
+            painter.setPen(QPen(dimension_color,!printing&&dimension.id==selected_dimension_id_?2.0:width(false)));
             const auto* view = [&]() -> const zima::drawing::DrawingView* {
                 const auto found = std::find_if(sheet_->views.begin(), sheet_->views.end(),
                     [&](const auto& item) { return item.id == dimension.view_id; });
@@ -737,16 +769,17 @@ protected:
                 const QPointF direction=arrow_delta/arrow_length;
                 const QPointF normal(-direction.y(),direction.x());
                 painter.setBrush(dimension_color); painter.setPen(Qt::NoPen);
-                painter.drawPolygon(QPolygonF{line_first,line_first+direction*8.0+normal*3.0,
-                    line_first+direction*8.0-normal*3.0});
-                painter.drawPolygon(QPolygonF{line_second,line_second-direction*8.0+normal*3.0,
-                    line_second-direction*8.0-normal*3.0});
-                painter.setPen(QPen(dimension_color,dimension.id==selected_dimension_id_?2.0:1.0));
+                painter.drawPolygon(QPolygonF{line_first,line_first+direction*(2.5*zoom)+normal*(0.8*zoom),
+                    line_first+direction*(2.5*zoom)-normal*(0.8*zoom)});
+                painter.drawPolygon(QPolygonF{line_second,line_second-direction*(2.5*zoom)+normal*(0.8*zoom),
+                    line_second-direction*(2.5*zoom)-normal*(0.8*zoom)});
+                painter.setPen(QPen(dimension_color,!printing&&dimension.id==selected_dimension_id_?2.0:width(false)));
             }
-            painter.drawText(label + QPointF(4, -4),
+            painter.drawText(label + QPointF(zoom, -zoom),
                 QString::number(dimension.measured_value, 'f', 3) + tr(" mm"));
         }
     }
+protected:
     void mousePressEvent(QMouseEvent* event) override {
         if (sheet_ == nullptr) return;
         if ((event->buttons() & Qt::MiddleButton) &&
@@ -824,7 +857,8 @@ protected:
         const zima::drawing::ProjectedEdge* hit_edge{};
         if (dimension_mode_) for (const auto& view : sheet_->views) for (const auto& edge : view.projected_edges) {
             if (edge.points.size() < 2 ||
-                (edge.hidden && view.display_style == zima::drawing::DisplayStyle::VisibleEdges)) continue;
+                (edge.hidden && view.display_style != zima::drawing::DisplayStyle::HiddenEdges) ||
+                view.display_style==zima::drawing::DisplayStyle::Shaded || edge.silhouette) continue;
             for (std::size_t point = 1; point < edge.points.size(); ++point) {
                 const auto screen = [&](const auto& value) {
                     return QPointF(origin.x() + sheet_->width_mm()*zoom -
@@ -998,6 +1032,9 @@ protected:
     }
 private:
     zima::drawing::DrawingSheet* sheet_{};
+    struct ShadedCache {double resolution{};QRectF bounds;const zima::drawing::ProjectedTriangle* triangles{};QImage image;};
+    std::map<std::string,ShadedCache> shaded_cache_;
+    bool lineweights_{};
     std::string selected_;
     std::string hovered_;
     std::string selected_field_,hovered_field_;
@@ -1049,6 +1086,8 @@ void DrawingWindow::create_actions() {
         [this] { save_document(); });
     save_action_->setObjectName("drawingSaveAction");
     auto* drawing = menuBar()->addMenu(tr("Výkres"));
+    auto* pdf=drawing->addAction(tr("Uložit jako PDF…"),this,[this]{save_pdf();});
+    pdf->setObjectName("exportDrawingPdfAction");
     add_sheet_action_ = drawing->addAction(tr("Přidat list"), this,
         [this] { add_sheet(); });
     add_sheet_action_->setObjectName("addDrawingSheetAction");
@@ -1145,6 +1184,7 @@ void DrawingWindow::create_layout() {
     lineweight_mode_->setObjectName("drawingLineweightMode");
     lineweight_mode_->addItem(tr("Tenké čáry"));
     lineweight_mode_->addItem(tr("Náhled tlouštěk"));
+    connect(lineweight_mode_,&QComboBox::currentIndexChanged,this,[this](int index){canvas_->set_lineweights(index==1);});
     scale_numerator_ = new QDoubleSpinBox(central);
     scale_denominator_ = new QDoubleSpinBox(central);
     for (auto* spin : {scale_numerator_, scale_denominator_}) {
@@ -1175,6 +1215,8 @@ void DrawingWindow::create_layout() {
     bottom->addWidget(add_sheet); bottom->addSpacing(16);
     bottom->addWidget(new QLabel(tr("Tloušťky:"), central));
     bottom->addWidget(lineweight_mode_);
+    auto* pdf_button=new QPushButton(tr("PDF…"),central);pdf_button->setObjectName("drawingExportPdf");
+    connect(pdf_button,&QPushButton::clicked,this,[this]{save_pdf();});bottom->addWidget(pdf_button);
     bottom->addWidget(new QLabel(tr("Měřítko:"), central));
     bottom->addWidget(scale_numerator_); bottom->addWidget(new QLabel(":"));
     bottom->addWidget(scale_denominator_);
@@ -1285,6 +1327,39 @@ void DrawingWindow::open_document() {
         refresh();
     }
     catch (const std::exception& error) { QMessageBox::warning(this, tr("Nelze otevřít výkres"), error.what()); }
+}
+void DrawingWindow::save_pdf() {
+    auto suggested=path_.empty()?std::filesystem::path(document_.name+".pdf"):path_;
+    suggested.replace_extension(".pdf");
+    const auto path=save_file(this,tr("Uložit jako PDF"),QString::fromStdString(suggested.string()),tr("PDF (*.pdf)"),"pdf");
+    if(path.isEmpty())return;
+    try {export_pdf(path.toStdString());set_status_message(tr("PDF uloženo. Tiskněte ve skutečné velikosti (100 %)."));}
+    catch(const std::exception& error){set_status_message(QString::fromUtf8(error.what()));}
+}
+void DrawingWindow::export_pdf(const std::filesystem::path& path) {
+    if(document_.sheets.empty())throw std::runtime_error("Drawing has no sheets");
+    QSaveFile file(QString::fromStdString(path.string()));
+    if(!file.open(QIODevice::WriteOnly))throw std::runtime_error(file.errorString().toStdString());
+    {
+        QPdfWriter writer(&file);writer.setResolution(720);writer.setTitle(QString::fromStdString(document_.name));writer.setCreator("ZIMA-CAD");
+        QPainter painter;
+        for(std::size_t index=0;index<document_.sheets.size();++index) {
+            auto& sheet=document_.sheets[index];
+            writer.setPageSize(QPageSize(QSizeF(sheet.width_mm(),sheet.height_mm()),QPageSize::Millimeter));
+            writer.setPageMargins(QMarginsF(0,0,0,0),QPageLayout::Millimeter);
+            if(index==0){if(!painter.begin(&writer))throw std::runtime_error("Cannot start PDF output");}
+            else if(!writer.newPage())throw std::runtime_error("Cannot add PDF page");
+            auto id=sheet.views.empty()?document_.source_document_id:sheet.views.front().source_document_id;
+            auto source=sheet.views.empty()?document_.source_path:sheet.views.front().source_path;
+            if(!source.empty()&&source.is_relative()&&!path_.empty())source=path_.parent_path()/source;
+            auto context=build_title_block_context_for_source(id,source,workspace_);
+            context.sheet_index=static_cast<int>(index);context.sheet_count=static_cast<int>(document_.sheets.size());
+            DrawingCanvas output;output.set_sheet(&sheet);output.set_title_block_context(context);
+            output.paint_sheet(painter,writer.resolution()/25.4,QPointF{},true);
+        }
+        if(!painter.end())throw std::runtime_error("Cannot finish PDF output");
+    }
+    if(!file.commit())throw std::runtime_error(file.errorString().toStdString());
 }
 void DrawingWindow::save_document() {
     auto path = path_.empty() ? save_file(this, tr("Uložit výkres"), "drawing.drwz", tr("Výkres ZIMA-CAD (*.drwz)"), "drwz") : QString::fromStdString(path_.string());
@@ -1480,6 +1555,7 @@ void DrawingWindow::show_view_properties(zima::drawing::DrawingView view, bool c
         std::string key;
         std::string id;
         zima::kernel::ViewerMesh mesh;
+        std::map<std::array<double,9>,std::pair<std::vector<zima::drawing::ProjectedEdge>,std::vector<zima::drawing::ProjectedTriangle>>> projections;
     };
     auto cache=std::make_shared<SourceCache>();
     const auto project=[this,cache](zima::drawing::DrawingView& value) {
@@ -1493,12 +1569,16 @@ void DrawingWindow::show_view_properties(zima::drawing::DrawingView view, bool c
                 throw std::runtime_error("Zdroj pohledu patří jinému dokumentu.");
             if (mesh.edges.empty() && mesh.triangles.empty())
                 throw std::runtime_error("Zdroj nemá vypočtenou geometrii. Nejprve jej regenerujte.");
-            cache->key=key; cache->id=std::move(id); cache->mesh=std::move(mesh);
+            cache->key=key; cache->id=std::move(id); cache->mesh=std::move(mesh);cache->projections.clear();
         }
         value.source_document_id=cache->id; value.source_path=source_path;
         if (value.parent_view_id.empty()) value.camera=zima::drawing::standard_camera(value.orientation);
-        value.projected_edges=zima::drawing::project_edges(cache->mesh,value.camera);
-        value.projected_triangles=zima::drawing::project_triangles(cache->mesh,value.camera);
+        const auto& c=value.camera;
+        const std::array camera_key{c.horizontal.x,c.horizontal.y,c.horizontal.z,c.vertical.x,c.vertical.y,c.vertical.z,c.depth.x,c.depth.y,c.depth.z};
+        auto found=cache->projections.find(camera_key);
+        if(found==cache->projections.end())found=cache->projections.emplace(camera_key,std::make_pair(
+            zima::drawing::project_edges(cache->mesh,c),zima::drawing::project_triangles(cache->mesh,c))).first;
+        value.projected_edges=found->second.first;value.projected_triangles=found->second.second;
     };
     const auto error=[this](const QString& message) {
         if (auto* dialog=dynamic_cast<ViewPropertiesDialog*>(view_dialog_.data())) dialog->set_error(message);

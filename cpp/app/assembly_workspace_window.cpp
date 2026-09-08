@@ -10029,6 +10029,7 @@ void AssemblyWorkspaceWindow::import_step_into_assembly(
 }
 
 void AssemblyWorkspaceWindow::export_file() {
+    if(workspace_.open_drawing(workspace_.displayed_document_id())){drawing_workspace_->save_pdf();return;}
     const QString path = save_file(this, tr("Exportovat"),
         QString::fromStdString(working_directory_.string()),
         tr("DXF (*.dxf);;STEP (*.step);;STL (*.stl);;PNG (*.png);;JPEG (*.jpg *.jpeg)"));

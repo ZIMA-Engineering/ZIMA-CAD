@@ -13,6 +13,14 @@ will remain a separately built, dynamically linked solid-modeling kernel behind
 a narrow adapter. The approved direction, module boundaries and migration gates
 are documented in [Future C++ migration](doc/CXX_MIGRATION.md).
 
+## Výkresové pohledy a PDF (2026-09-08)
+
+Výkresové pohledy doplňují obrysové křivky z uložené tessellace a rozdělují
+částečně zakryté hrany. Skryté hrany mají čárkovaný nebo šedý režim,
+stínování funguje s hranami i bez nich a používá lokální hloubkové zakrytí.
+List uchovává fyzické tloušťky čar; export všech listů do PDF zachovává
+měřítko, čárkování i tloušťky. Viz [Výkresy](doc/DRAWINGS.md).
+
 ## Text, razítka a hmotnost (2026-09-08)
 
 Doplněny režimy běžného a modelovacího textu, editace původních textových
