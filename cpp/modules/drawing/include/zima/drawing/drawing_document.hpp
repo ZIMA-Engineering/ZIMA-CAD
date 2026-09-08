@@ -87,6 +87,7 @@ struct TemplateText {
     DrawingPen pen{DrawingPen::Green}; std::string alignment{"left"};
     std::string vertical_alignment{"bottom"}; double angle{}; bool flipped{true};
     std::string font{"osifont"};
+    std::string field_id; // Transient drawing hit identity, assigned by title_block_layout.
 };
 struct TitleBlockField {
     std::string id; std::string expression; std::string value;
@@ -107,6 +108,7 @@ struct BomRow {
     std::map<std::string,std::string> parameters;
     std::map<std::string,std::map<std::string,std::string>> parameter_values;
     std::map<std::string,std::string> parameter_aliases;
+    std::string mass_unit{"kg"};
 };
 
 struct DrawingSheet {
@@ -126,6 +128,8 @@ struct DrawingSheet {
     std::vector<TemplateCircle> frame_circles, title_block_circles;
     std::vector<zima::sketcher::SketchRepeatRegion> repeat_regions;
     std::vector<zima::sketcher::TemplateImage> title_block_images;
+    std::string title_block_locale{"cs"};
+    std::map<std::string, std::string> local_parameters;
 
     [[nodiscard]] double width_mm() const;
     [[nodiscard]] double height_mm() const;
@@ -170,6 +174,7 @@ public:
 // model (user) parameter.
 struct TitleBlockContext {
     std::string file_stem;
+    std::string mass_unit{"kg"};
     std::map<std::string, std::string> parameters;
     std::map<std::string, std::map<std::string, std::string>> parameter_values;
     std::map<std::string, std::string> parameter_aliases;
@@ -179,6 +184,7 @@ struct TitleBlockContext {
     bool has_bom_row{};
     int sheet_index{};
     int sheet_count{1};
+    std::map<std::string,std::map<std::string,std::string>> parameter_labels;
 };
 
 struct TemplateLayout {
@@ -192,6 +198,8 @@ void load_template_details(DrawingSheet&, const std::filesystem::path&, bool tit
 
 [[nodiscard]] std::vector<std::string> title_block_tokens(const std::string& text);
 [[nodiscard]] std::string title_block_token_scope(const std::string& token);
+[[nodiscard]] std::string title_block_parameter_key(
+    const std::string& token, const TitleBlockContext& context);
 [[nodiscard]] std::string resolve_title_block_text(
     const TitleBlockField& field, const TitleBlockContext& context,
     const DrawingSheet& sheet);

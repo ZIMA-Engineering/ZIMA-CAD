@@ -284,6 +284,14 @@ Data={"points":{"a":{"x":-10,"y":-5},"b":{"x":-20,"y":-5}},"geometry":{"line":{"
                         drawing.find_view(view_id)->source_path,
                 "Drawing metadata, views, or sheets did not round-trip");
 
+        {
+            zima::drawing::TitleBlockContext context;context.parameters["name"]="flat";
+            context.parameter_values["name"]={{"cs","Česky"},{"ru","Русский"}};
+            context.parameter_aliases["Наименование"]="name";context.mass_unit="g";
+            auto sheet=drawing.sheets.front();sheet.title_block_locale="ru";sheet.local_parameters["note"]="Local";
+            zima::drawing::TitleBlockField field;field.expression="&Наименование [&document.mass_unit] &drawing.note";
+            require(zima::drawing::resolve_title_block_text(field,context,sheet)=="Русский [g] Local","Localized title block or mass unit ignored document settings");
+        }
         // Title-block token resolution: mirrors Python's title_block.py
         // resolve_title_block_text() unit tests (model/system/local token
         // scopes, Czech-labelled parameter aliases, and BOM row tokens).

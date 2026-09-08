@@ -156,6 +156,15 @@ struct SketchImportBlock {
     bool operator==(const SketchImportBlock&) const = default;
 };
 
+[[nodiscard]] inline std::optional<std::string> text_id_from_viewer_key(const std::string& key) {
+    if(!key.starts_with("text:"))return {};
+    auto id=key.substr(5);
+    for(const auto* suffix:{":green",":white",":yellow"})if(id.ends_with(suffix)) {
+        id.resize(id.size()-std::char_traits<char>::length(suffix));break;
+    }
+    return id.empty()?std::nullopt:std::optional<std::string>{id};
+}
+
 struct SketchText {
     std::string id;
     std::string value{"TEXT"};
@@ -170,6 +179,7 @@ struct SketchText {
     std::string font{"osifont"};
     std::vector<std::vector<std::array<double, 2>>> contours;
     std::string anchor_point_id; // Optional constrained anchor in a template Sketch.
+    bool modeling_geometry{true}; // Annotation text never enters solid profiles.
     bool operator==(const SketchText&) const = default;
 };
 

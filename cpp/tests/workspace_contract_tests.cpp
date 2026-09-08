@@ -1,4 +1,5 @@
 #include <zima/workspace/workspace.hpp>
+#include <zima/assembly/physical_properties.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 
 #include <iostream>
@@ -18,6 +19,39 @@ void require(bool condition, const char* message) {
 
 int main() {
     try {
+        {
+            using namespace zima;
+            auto part=document::PartDocument::create_default();
+            part.physical_parameters["MASS_DENSITY"]="7850";part.physical_parameter_units["MASS_DENSITY"]="kg/m^3";
+            part.relations={{"mass","model.mass"}};
+            kernel::BodyResult body;body.volume=1'000'000;body.surface_area=60'000;
+            auto unresolved=part;unresolved.history.push_back(document::PartDocument::create_box_container());
+            require(!document::physical_values(unresolved,{}).contains("model.mass"),"Uncalculated geometry was assigned zero mass");
+            auto relations=part;relations.relations={{"third","model.mass / 3"},{"restored","third * 3"}};
+            document::refresh_physical_relations(relations,{{"model.mass",1.0}});
+            require(relations.user_parameters.at("restored")=="1.000","Dependent physical relations used a rounded intermediate value");
+            document::DocumentSession session(part,{body});
+            require(session.document().user_parameters.at("mass")=="7.850","100 mm steel cube must weigh 7.85 kg");
+            for(const auto& [unit,density]:std::map<std::string,std::string>{{"kg/mm^3","0.00000785"},{"g/cm^3","7.85"}}) {
+                part.physical_parameters["MASS_DENSITY"]=density;part.physical_parameter_units["MASS_DENSITY"]=unit;
+                require(std::abs(document::physical_values(part,{body}).at("model.mass")-7.85)<1e-10,"Density unit conversion failed");
+            }
+            part.document_units["Mass"]="g";part.document_units["Length"]="cm";
+            session.commit(part,{body});
+            require(session.document().user_parameters.at("mass")=="7850.000","Document mass unit ignored");
+            require(document::physical_values(part,{body}).at("model.volume")==1000,"Document volume unit ignored");
+            require(session.undo() && session.document().user_parameters.at("mass")=="7.850","Physical relation Undo failed");
+            auto assembly=assembly::AssemblyDocument::create_default();assembly.relations={{"mass","model.mass"}};
+            auto item=assembly::AssemblyDocument::create_part_occurrence("steel",part.document_id,{},body);
+            item.density_kg_mm3=document::material_density_kg_mm3(part);assembly.components.push_back(item);
+            item.occurrence_id="second";item.visible=false;assembly.components.push_back(item);
+            require(std::abs(assembly::physical_values(assembly).at("model.mass")-15.7)<1e-10,"Assembly must count hidden repeated occurrences");
+            assembly.components.back().suppressed=true;
+            require(std::abs(assembly::physical_values(assembly).at("model.mass")-7.85)<1e-10,"Suppressed component counted in mass");
+            assembly.components.front().density_kg_mm3.reset();
+            require(!assembly::physical_values(assembly).contains("model.mass"),"Missing density silently reported zero mass");
+        }
+
         // Save As creates an independent model/drawing pair from unsaved
         // state, retaining the original tab, path, dirty state and identities.
         {

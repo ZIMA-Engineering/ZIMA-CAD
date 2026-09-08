@@ -5014,6 +5014,14 @@ int main() {
                 text_profile_sketch_id);
         text_extrusion.extrusion.height = 5.0;
         text_profile_document.history.push_back(std::move(text_extrusion));
+        // An annotation overlapping both glyphs must not become a profile,
+        // a hole or a self-intersection in any solid operation.
+        auto annotation=text_profile_sketch.texts.front();
+        annotation.id="annotation:text";annotation.modeling_geometry=false;
+        text_profile_document.sketches.front().add_text(annotation);
+        auto only_annotation=text_profile_sketch;only_annotation.texts={annotation};
+        require(!zima::document::sweep3d_profile_has_geometry(only_annotation),
+            "Sweep treated annotation text as geometry");
         const auto text_profile_operations = text_profile_document.kernel_operations();
         const auto& text_request = std::get<zima::kernel::ExtrusionRequest>(
             text_profile_operations.front().primitive);
@@ -5055,7 +5063,7 @@ int main() {
         text_profile_document.save(text_profile_path);
         const auto restored_text_document =
             zima::document::PartDocument::load(text_profile_path);
-        require(restored_text_document.sketches.front().texts.size() == 1 &&
+        require(restored_text_document.sketches.front().texts == text_profile_document.sketches.front().texts &&
                     restored_text_document.sketches.front().texts.front().id ==
                         profile_text_id &&
                     restored_text_document.sketches.front().texts.front().value == "OI",
@@ -5103,6 +5111,8 @@ int main() {
             {{1.0, 5.0}, {6.0, 5.0}, {6.0, 10.0}, {1.0, 10.0}},
             {{9.0, 5.0}, {14.0, 5.0}, {14.0, 10.0}, {9.0, 10.0}}};
         text_revolution_sketch.add_text(std::move(revolution_text));
+        auto revolve_note=text_revolution_sketch.texts.front();revolve_note.id="revolve:annotation";revolve_note.modeling_geometry=false;
+        text_revolution_sketch.add_text(revolve_note);
         static_cast<void>(add_revolution_axis(text_revolution_sketch));
         auto text_revolution_document = zima::document::PartDocument::create_default();
         const auto text_revolution_sketch_id = text_revolution_sketch.id;

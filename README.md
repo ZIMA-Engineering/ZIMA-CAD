@@ -59,4 +59,5 @@ Current modeling tools and interaction contracts:
 - [Sketch constraint activity](doc/SKETCH_CONSTRAINT_ACTIVITY.md)
 - [Drawing templates, embedded PNG/SVG logos and BOM regions](doc/DRAWINGS.md)
 - [Numeric value locks and one-shot reference capture](doc/NUMERIC_VALUE_LOCKS.md)
-- [Czech, English, German and French UI translations](doc/LOCALIZATION.md)
+- [Czech, English, German, French and Russian UI translations](doc/LOCALIZATION.md)
+- [Mass, material density, document units and Parameters](doc/PHYSICAL_PROPERTIES.md)

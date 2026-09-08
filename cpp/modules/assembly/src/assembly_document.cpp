@@ -3,6 +3,7 @@
 #include <zima/document/placement_json.hpp>
 #include <zima/document/document_copy_json.hpp>
 #include <zima/assembly/assembly_document.hpp>
+#include <zima/assembly/physical_properties.hpp>
 #include <zima/document/versioned_file.hpp>
 #include <zima/document/viewer_packet_json.hpp>
 #include <zima/kernel/stable_id.hpp>
@@ -1100,6 +1101,11 @@ void AssemblyDocument::calculate_derived_copies(const zima::kernel::GeometryKern
         result->calculated_source=result->derived_copy->pattern
             ? kernel.pattern_body(source->calculated_source,*result->derived_copy->pattern,id,translation,rotation,true)
             : kernel.mirror_body(source->calculated_source,result->derived_copy->resolved_plane,{},translation,rotation);
+        result->density_kg_mm3=source->density_kg_mm3;
+        result->nested_mass_kg=source->nested_mass_kg;
+        result->mass_volume_mm3=std::abs(result->calculated_source.volume);
+        if(result->nested_mass_kg && result->derived_copy->pattern)
+            *result->nested_mass_kg*=kernel::pattern_instance_count(*result->derived_copy->pattern)-1;
         result->source_document_id=source->source_document_id;result->source_path=source->source_path;result->source_kind=source->source_kind;
         result->nested_snapshot=source->nested_snapshot;result->body_color=source->body_color;result->face_colors=source->face_colors;
         if(result->derived_copy->pattern) {
@@ -1705,6 +1711,9 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
         }
         component.calculated_source =
             zima::document::load_body_result(source.at("calculated_source"));
+        if(source.contains("density_kg_mm3")&&!source.at("density_kg_mm3").is_null())component.density_kg_mm3=source.at("density_kg_mm3").get<double>();
+        if(source.contains("nested_mass_kg")&&!source.at("nested_mass_kg").is_null())component.nested_mass_kg=source.at("nested_mass_kg").get<double>();
+        component.mass_volume_mm3=source.value("mass_volume_mm3",0.0);
         for (const auto& snapshot : source.at("nested_snapshot")) {
             component.nested_snapshot.push_back(load_snapshot(snapshot));
         }
@@ -1810,6 +1819,9 @@ void AssemblyDocument::save(const std::filesystem::path& path,
             {"source_document_id", component.source_document_id},
             {"source_path", component.source_path.generic_string()},
             {"source_kind", source_kind_name(component.source_kind)},
+            {"density_kg_mm3",component.density_kg_mm3?nlohmann::json(*component.density_kg_mm3):nlohmann::json(nullptr)},
+            {"nested_mass_kg",component.nested_mass_kg?nlohmann::json(*component.nested_mass_kg):nlohmann::json(nullptr)},
+            {"mass_volume_mm3",component.mass_volume_mm3},
             {"suppressed", component.suppressed},
             {"visible", component.visible},
             {"grounded", component.grounded},

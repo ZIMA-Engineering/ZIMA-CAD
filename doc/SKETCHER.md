@@ -58,6 +58,20 @@ ovládání se používají při vytvoření i pozdější editaci textu.
 Výchozí natočení je `0°` a obrys je čitelný zleva doprava bez implicitního
 zrcadlení. Zrcadlení provádí pouze výslovná volba **Převrátit vodorovně**.
 
+Ve vlastnostech textu je **Režim textu**:
+
+- **Běžný text** zobrazuje vyplněné znaky a zůstává editovatelnou textovou
+  entitou. Protrusion, Revolve i tažení jej ignorují při sestavování profilu.
+- **Geometrie pro modelování** nabízí obrysy znaků jako profil. Uzavřené obrysy
+  vytvářejí tělesa, vnitřní obrysy písmen zůstávají otvory.
+
+Přepnutí režimu nepřevádí text na jednotlivé čáry ani neztrácí jeho obsah,
+polohu a zarovnání. Oba režimy používají jeden dialog pro tvorbu i editaci,
+jedno OK/Cancel a společné potvrzení dvojklikem prostředního tlačítka myši.
+Nové texty razítek a rámečků používají běžný režim; běžná modelová skica
+nabízí ve výchozím stavu geometrii. Texty starého razítka s ID jako
+`field1:text` lze vybírat a editovat stejně jako nově vytvořené texty.
+
 ## Základní princip
 
 Zadávání geometrie je postupné odebírání možností, tedy stupňů volnosti.

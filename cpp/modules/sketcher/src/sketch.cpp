@@ -11312,6 +11312,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
     for (const auto& text : texts) {
         for (const auto& contour : text.contours) {
             zima::kernel::ViewerEdge edge;
+            edge.filled_text = !text.modeling_geometry;
             edge.reference = {id, "text:" + text.id + ":" +
                 text_color_name(text.color), {}};
             edge.overlay = true;
@@ -12478,6 +12479,7 @@ std::string Sketch::serialized() const {
         }
         text_values.push_back({
             {"id", text.id}, {"value", text.value},
+            {"modeling_geometry", text.modeling_geometry},
             {"anchor_x", text.anchor_x}, {"anchor_y", text.anchor_y},
             {"height", text.height},
             {"horizontal", text_horizontal_name(text.horizontal)},
@@ -12687,6 +12689,7 @@ Sketch Sketch::from_serialized(const std::string& value) {
         text.id = value.at("id").get<std::string>();
         text.anchor_point_id=value.value("anchor_point_id",std::string{});
         text.value = value.at("value").get<std::string>();
+        text.modeling_geometry = value.value("modeling_geometry", true);
         text.anchor_x = value.at("anchor_x").get<double>();
         text.anchor_y = value.at("anchor_y").get<double>();
         text.height = value.at("height").get<double>();

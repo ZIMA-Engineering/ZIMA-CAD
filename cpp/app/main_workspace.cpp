@@ -464,6 +464,52 @@ int verify_template_commands(QApplication& application,zima::app::AssemblyWorksp
         QMouseEvent press(QEvent::MouseButtonPress,p,global,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
         QMouseEvent release(QEvent::MouseButtonRelease,p,global,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
         QApplication::sendEvent(view,&press);QApplication::sendEvent(view,&release);flush();};
+    // Imported text IDs contain colons; verify real View selection and the
+    // shared edit dialog, not only the serialized text list.
+    bool edited_old_text=false;
+    for(const auto& text:initial_sketch.texts) {
+        if(text.id.find(':')==std::string::npos || text.value.starts_with("&"))continue;
+        for(const auto& contour:text.contours) {
+            for(const auto& point:contour) {
+                const auto pixel=screen_for(point[0],point[1]);
+                const auto candidates=view->selection_candidates_at(pixel);
+                const auto offered_text=std::ranges::find_if(candidates,[&](const auto& candidate) {
+                    return candidate.kind==viewer::CandidateKind::SketchText &&
+                        sketcher::text_id_from_viewer_key(candidate.semantic_key)==text.id;
+                });
+                if(offered_text==candidates.end())continue;
+                // Dense stamps overlap points and constraints. Use the same
+                // RMB candidate cycle as the user before confirming the text.
+                view->clear_selection();
+                const QPointF global=view->mapToGlobal(pixel.toPoint());
+                QMouseEvent move(QEvent::MouseMove,pixel,global,Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+                QApplication::sendEvent(view,&move);
+                for(auto candidate=candidates.begin();candidate!=offered_text;++candidate) {
+                    QMouseEvent press(QEvent::MouseButtonPress,pixel,global,Qt::RightButton,Qt::RightButton,Qt::NoModifier);
+                    QMouseEvent release(QEvent::MouseButtonRelease,pixel,global,Qt::RightButton,Qt::NoButton,Qt::NoModifier);
+                    QApplication::sendEvent(view,&press);QApplication::sendEvent(view,&release);
+                }
+                click(pixel);
+                QMouseEvent dbl(QEvent::MouseButtonDblClick,pixel,QPointF(view->mapToGlobal(pixel.toPoint())),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+                QApplication::sendEvent(view,&dbl);flush();
+                auto* properties=window.findChild<QDialog*>("sketchTextProperties");
+                if(!verify(properties,"Old title-block text double-click did not open Properties"))return 1;
+                auto* value=properties->findChild<QPlainTextEdit*>("sketchTextValue");
+                auto* mode=properties->findChild<QComboBox*>("sketchTextMode");
+                if(!verify(value && value->toPlainText().toStdString()==text.value && mode && !mode->currentData().toBool(),"Old title-block text lost its content or annotation mode"))return 1;
+                value->setPlainText(QString::fromStdString(text.value+" TEST"));
+                window.grab().save(QString::fromStdString((directory/"old-text-properties.png").string()));
+                properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();save->trigger();flush();
+                const auto stored=drawing::load_template_sketch(directory/"ZE-RAZITKO.tblz",prepare);
+                const auto changed=std::ranges::find(stored.texts,text.id,&sketcher::SketchText::id);
+                if(!verify(changed!=stored.texts.end() && changed->value==text.value+" TEST","Old text edit was not saved as semantic text"))return 1;
+                edited_old_text=true;break;
+            }
+            if(edited_old_text)break;
+        }
+        if(edited_old_text)break;
+    }
+    if(!verify(edited_old_text,"No old title-block text was offered by the common picker"))return 1;
     click(*hit);
     if(!verify(view->confirmed_candidate()&&view->confirmed_candidate()->kind==viewer::CandidateKind::TemplateRegion&&tree->selectedItems().size()==1,"Region selection did not synchronize View and Tree"))return 1;
     window.show_tree_item_properties(tree->selectedItems().front());flush();
@@ -565,8 +611,8 @@ int verify_template_commands(QApplication& application,zima::app::AssemblyWorksp
     const auto original_language = app::ApplicationSettings::load();
     QTemporaryDir language_directory;
     if (!verify(language_directory.isValid(), "Cannot create language test configuration")) return 1;
-    const QStringList languages{"cs", "en", "de", "fr"};
-    const QStringList titles{"Vlastnosti obrázku", "Image Properties", "Bildeigenschaften", "Propriétés de l’image"};
+    const QStringList languages{"cs", "en", "de", "fr", "ru"};
+    const QStringList titles{"Vlastnosti obrázku", "Image Properties", "Bildeigenschaften", "Propriétés de l’image", "Свойства изображения"};
     for (qsizetype language = 0; language < languages.size(); ++language) {
         QSettings config(language_directory.filePath("config.ini"), QSettings::IniFormat);
         config.setValue("Application/Language", languages[language]);
@@ -604,7 +650,7 @@ int verify_template_commands(QApplication& application,zima::app::AssemblyWorksp
         }
     }
     app::apply_application_translations(application, original_language);
-    std::cout<<"Template opening, editing, region priority, shared confirmation, persistence and four UI languages passed\n";return 0;
+    std::cout<<"Template opening, editing, region priority, shared confirmation, persistence and five UI languages passed\n";return 0;
 }
 
 int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspaceWindow& window,
@@ -1258,6 +1304,9 @@ int verify_spline_tangent_selection(QApplication& application,
     auto* open=window.findChild<QPushButton*>("sketchOpenButton");
     if(!verify(open!=nullptr,"Cannot enter spline Sketch"))return 1;
     open->click();application.processEvents();
+    // Finish the entry camera animation before retaining pixel coordinates.
+    // Otherwise each click can be projected through a different camera frame.
+    QEventLoop camera_settled;QTimer::singleShot(900,&camera_settled,&QEventLoop::quit);camera_settled.exec();
     QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     auto* view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
     auto* tangent=window.findChild<QAction*>("sketchTangentAction");
@@ -3547,11 +3596,12 @@ int verify_startup_contract(
         ? nullptr : global_dialog->findChild<QDialogButtonBox*>();
     if (!verify(global_dialog != nullptr &&
                     global_dialog->windowFlags().testFlag(Qt::SubWindow) &&
-                    global_language != nullptr && global_language->count() == 4 &&
+                    global_language != nullptr && global_language->count() == 5 &&
                     global_language->findText("cs") >= 0 &&
                     global_language->findText("de") >= 0 &&
                     global_language->findText("en") >= 0 &&
                     global_language->findText("fr") >= 0 &&
+                    global_language->findText("ru") >= 0 &&
                     global_dialog->findChildren<QLineEdit*>().size() == 5 &&
                     global_dialog->findChild<QLineEdit*>(
                         "globalPathWorkingDirectory") != nullptr &&

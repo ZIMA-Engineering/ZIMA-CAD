@@ -1265,7 +1265,9 @@ zima::kernel::ExtrusionRequest extrusion_request(
         !profile_circles.empty() || !profile_arcs.empty() ||
         !profile_ellipses.empty() || !profile_elliptical_arcs.empty() ||
         !profile_splines.empty();
-    if (!sketch.texts.empty() && has_ordinary_profile) {
+    const bool has_modeling_text = std::ranges::any_of(sketch.texts,
+        [](const auto& text) { return text.modeling_geometry; });
+    if (has_modeling_text && has_ordinary_profile) {
         auto ordinary_sketch = sketch;
         ordinary_sketch.texts.clear();
         auto text_sketch = sketch;
@@ -1427,12 +1429,13 @@ zima::kernel::ExtrusionRequest extrusion_request(
         assign_regions(combined, std::move(regions));
         return combined;
     }
-    if (!sketch.texts.empty()) {
+    if (has_modeling_text) {
         using Contour = std::vector<std::array<double, 2>>;
         std::vector<Contour> contours;
         std::vector<std::string> contour_ids;
         std::vector<std::string> contour_source_ids;
         for (const auto& text : sketch.texts) {
+            if (!text.modeling_geometry) continue;
             for (std::size_t index = 0; index < text.contours.size(); ++index) {
                 contours.push_back(text.contours[index]);
                 contour_ids.push_back(
@@ -7569,7 +7572,8 @@ bool sweep3d_profile_has_geometry(const zima::sketcher::Sketch& sketch) {
     return has_curve(sketch.segments) || has_curve(sketch.circles) ||
         has_curve(sketch.arcs) || has_curve(sketch.ellipses) ||
         has_curve(sketch.elliptical_arcs) || has_curve(sketch.bsplines) ||
-        !sketch.texts.empty() || !sketch.import_blocks.empty();
+        std::ranges::any_of(sketch.texts, [](const auto& text) { return text.modeling_geometry; }) ||
+        !sketch.import_blocks.empty();
 }
 
 Sweep3DCorrespondence sweep3d_profile_correspondence(

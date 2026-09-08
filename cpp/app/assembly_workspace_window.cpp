@@ -10,6 +10,7 @@
 #include "edge_treatment_tree_policy.hpp"
 #include "opening_tree_policy.hpp"
 #include "assembly_workspace_window.hpp"
+#include <zima/assembly/physical_properties.hpp>
 #include "helical_sweep_dialog.hpp"
 #include "sweep2d_dialog.hpp"
 #include <zima/document/helical_geometry.hpp>
@@ -1154,13 +1155,7 @@ void add_construction_tree_children(QTreeWidgetItem* parent,
 using SketchPosition = std::array<double, 2>;
 
 std::optional<std::string> sketch_text_id_from_key(const std::string& key) {
-    constexpr std::string_view prefix{"text:"};
-    if (!key.starts_with(prefix)) return std::nullopt;
-    const auto color_separator = key.find(':', prefix.size());
-    if (color_separator == std::string::npos || color_separator == prefix.size()) {
-        return std::nullopt;
-    }
-    return key.substr(prefix.size(), color_separator - prefix.size());
+    return zima::sketcher::text_id_from_viewer_key(key);
 }
 
 std::string revolution_axis_segment_id(
@@ -1523,6 +1518,8 @@ std::vector<zima::kernel::ViewerEdge> sketch_text_preview_edges(
     for (const auto& contour : text.contours) {
         if (contour.size() < 3) continue;
         zima::kernel::ViewerEdge edge;
+        edge.filled_text=!text.modeling_geometry;
+        edge.reference={sketch.id,"text:"+text.id+":green",{}};
         edge.points.reserve(contour.size() + 1);
         for (const auto& point : contour) {
             edge.points.push_back(sketch.world_point(point[0], point[1]));
@@ -7096,30 +7093,12 @@ void AssemblyWorkspaceWindow::edit_relations() {
         const auto& document = part->session.document();
         parameters = document.user_parameters; relations = document.relations;
         try { decimal_places = std::stoi(document.document_precision.at("decimal_places")); } catch (...) {}
-        double density{};
-        try {
-            density = std::stod(document.physical_parameters.at("MASS_DENSITY"));
-            const auto unit = document.physical_parameter_units.at("MASS_DENSITY");
-            if (unit == "kg/m^3") density *= 1.0e-9;
-            else if (unit == "g/cm^3") density *= 1.0e-6;
-            else if (unit == "lb/in^3") density *= 0.45359237 / std::pow(25.4, 3);
-        } catch (...) { density = 0.0; }
-        const auto& boundaries = part->session.calculated_boundaries();
-        const double volume = boundaries.empty() ? 0.0 : std::abs(boundaries.back().volume);
-        const double area = boundaries.empty() ? 0.0 : std::abs(boundaries.back().surface_area);
-        model_values = {{"model.volume", volume}, {"model.area", area},
-            {"model.mass", volume * density}, {"material.density", density}};
+        model_values = zima::document::physical_values(document,part->session.calculated_boundaries());
     } else if (const auto* assembly = workspace_.open_assembly(id)) {
         const auto& document = assembly->session.document();
         parameters = document.user_parameters; relations = document.relations;
         try { decimal_places = std::stoi(document.document_precision.at("decimal_places")); } catch (...) {}
-        double volume{}; double area{};
-        for (const auto& component : document.components) {
-            volume += std::abs(component.calculated_source.volume);
-            area += std::abs(component.calculated_source.surface_area);
-        }
-        model_values = {{"model.volume", volume}, {"model.area", area},
-            {"model.mass", 0.0}, {"material.density", 0.0}};
+        model_values = zima::assembly::physical_values(document);
     }
     else return;
     auto* dialog = new RelationsDialog(std::move(parameters), std::move(relations),
@@ -14862,7 +14841,7 @@ void AssemblyWorkspaceWindow::show_sketch_text_properties(
         anchor = std::array{text->anchor_x, text->anchor_y};
     } else {
         initial = zima::sketcher::Sketch::create_text();
-        if(sketch->drawing_template){initial.flipped=true;initial.height=2.5;}
+        if(sketch->drawing_template){initial.flipped=true;initial.height=2.5;initial.modeling_geometry=false;}
     }
 
     cancel_sketch_segment();

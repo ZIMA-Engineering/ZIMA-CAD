@@ -1,7 +1,7 @@
 # Překlady uživatelského rozhraní
 
 Jazyk aplikace se vybírá v **Globálním nastavení → Jazyk aplikace**.
-Dostupné jsou čeština (`cs`), angličtina (`en`), němčina (`de`) a francouzština (`fr`).
+Dostupné jsou čeština (`cs`), angličtina (`en`), němčina (`de`), francouzština (`fr`) a ruština (`ru`).
 Použije se `Application/Language` a adresář `Paths/Localization` z platné
 konfigurace. Místní `config.ini` pracovního adresáře má přednost před
 základním `config/config.ini`; jeho výběr se zachová i po potvrzení nastavení.
@@ -13,7 +13,7 @@ objektů, souborů, texty razítek ani uložené hodnoty modelu.
 
 ## Nově přeložené funkce
 
-Všechny čtyři jazyky obsahují texty zámků hodnot, jednorázového převzetí
+Všech pět jazyků obsahují texty zámků hodnot, jednorázového převzetí
 vzdálenosti nebo úhlu, obrázků v razítku a oblasti kusovníku. Přeložené
 jsou jejich příkazy, vlastnosti, zarovnání, směry opakování, nápovědy,
 chyby zadání a uložení, filtry souborů a společná tlačítka OK/Zrušit.
@@ -33,7 +33,7 @@ Vkládání obrázků PNG/SVG a opakování kusovníku popisují [Výkresy](DRAW
 
 ## Úprava jazykových souborů
 
-Katalogy jsou soubory UTF-8 `config/localization/{cs,en,de,fr}.ini`.
+Katalogy jsou soubory UTF-8 `config/localization/{cs,en,de,fr,ru}.ini`.
 C++ načítá dvě oddělené sekce:
 
 - `[Translations]`: dosavadní pojmenované klíče pro `ApplicationSettings::text`,
@@ -49,7 +49,7 @@ s názvem odvozeného dialogu. Neznámý text se zobrazí ve zdrojovém jazyce.
 Tato sekce je určena pro texty bez množných tvarů; zprávy s `n` vyžadují
 překladový katalog s podporou plurálů.
 
-Při přidání zprávy doplňte stejné klíče ve všech čtyřech jazycích.
+Při přidání zprávy doplňte stejné klíče ve všech pěti jazycích.
 Zachovejte přesně zástupné značky `%1`, `%2` atd., tokeny `&bom.item_number`
 a `&bom.quantity` i přípony ve filtrech souborů. Řádek se dělí na prvním
 `=`; klíč je tedy nesmí obsahovat. Texty jsou jednořádkové, mezery na
@@ -58,13 +58,23 @@ okrajích se ořezávají. Nepřekládejte interní identifikátory, například
 
 ## Ověření
 
-`zima_cpp_translations_contract` načte všechny čtyři skutečné katalogy přes
+`zima_cpp_translations_contract` načte všech pět skutečných katalogů přes
 místní konfiguraci, zkontroluje shodné klíče, zástupné značky, výměnu překladače,
 kontext a návrat ke zdrojovému textu. Ve vlastnostech kvádru ověří nápovědy
 trvalého zámku i obou stavů jednorázového převzetí a tlačítko Zrušit.
 
 Integrační režim `ZIMA_VERIFY_TEMPLATES_ONLY=1` testu
 `zima_cpp_workspace_startup_contract` otevře skutečné vlastnosti obrázku
-i oblasti kusovníku ve všech čtyřech jazycích. Ověří texty a zachování
+i oblasti kusovníku ve všech pěti jazycích. Ověří texty a zachování
 uloženého zarovnání, pořídí snímky do `Projects/test/image-properties-*.png`
 a `Projects/test/bom-properties-*.png`.
+
+## Ruština a Parameters
+
+Ruský katalog obsahuje všechny klíče anglického katalogu, včetně parametrů,
+materiálů, jednotek, modelovacích příkazů a nových režimů textu. Výchozí
+šablony Part a Assembly obsahují ruské popisky standardních Parameters.
+Výběr jazyka v Parameters nabízí `ru`; společné hodnoty se nepřekládají.
+U již existujících dokumentů lze ruské popisky a hodnoty doplnit v Parameters.
+Jazyk rozhraní nemění klíče parametrů ani uživatelský obsah dokumentu.
+Jazyk hodnot razítka se volí samostatně ve vlastnostech listu.

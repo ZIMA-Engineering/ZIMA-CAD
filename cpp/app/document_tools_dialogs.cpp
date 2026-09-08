@@ -81,7 +81,7 @@ UserParametersDialog::UserParametersDialog(
     language_combo_ = new NoWheelComboBox(this);
     language_combo_->setObjectName("parameterLanguage");
     language_combo_->setEditable(true);
-    std::set<QString> languages{"cs", "de", "en", "fr", language_};
+    std::set<QString> languages{"cs", "de", "en", "fr", "ru", language_};
     for (const auto& [key, localized] : data_.labels)
         for (const auto& [item_language, value] : localized)
             if (!item_language.empty()) languages.insert(QString::fromStdString(item_language));

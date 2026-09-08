@@ -42,10 +42,10 @@ int verify_translations(QApplication& application, QWidget& parent) {
     };
     const auto sources = load("cs").qt_translations;
     check(sources.size() >= 76, "New source messages were not loaded");
-    const QStringList languages{"cs", "en", "de", "fr"};
-    const QStringList locked{"Odemknout hodnotu", "Unlock value", "Wert entsperren", "Déverrouiller la valeur"};
-    const QStringList unlocked{"Zamknout hodnotu", "Lock value", "Wert sperren", "Verrouiller la valeur"};
-    const QStringList cancel{"Zrušit", "Cancel", "Abbrechen", "Annuler"};
+    const QStringList languages{"cs", "en", "de", "fr", "ru"};
+    const QStringList locked{"Odemknout hodnotu", "Unlock value", "Wert entsperren", "Déverrouiller la valeur", "Разблокировать значение"};
+    const QStringList unlocked{"Zamknout hodnotu", "Lock value", "Wert sperren", "Verrouiller la valeur", "Заблокировать значение"};
+    const QStringList cancel{"Zrušit", "Cancel", "Abbrechen", "Annuler", "Отмена"};
     for (qsizetype language = 0; language < languages.size(); ++language) {
         const auto settings = load(languages[language]);
         check(settings.language == languages[language], "Configured language was ignored");

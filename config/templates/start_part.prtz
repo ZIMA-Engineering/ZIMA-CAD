@@ -103,6 +103,24 @@ THERM_EXPANSION_REF_TEMPERATURE\en = Thermal expansion reference temperature
 YOUNG_MODULUS\cs = Youngův modul
 YOUNG_MODULUS\en = Young's modulus
 
+CONDITION\ru = Состояние материала
+EMISSIVITY\ru = Степень черноты
+HARDNESS\ru = Твёрдость
+MASS_DENSITY\ru = Плотность
+MATERIAL_NAME\ru = Материал
+POISSON_RATIO\ru = Коэффициент Пуассона
+SHEAR_MODULUS\ru = Модуль сдвига
+SHEETMETAL_K_FACTOR\ru = Коэффициент K листового металла
+SPECIFIC_HEAT\ru = Удельная теплоёмкость
+STRESS_LIMIT_FOR_COMPRESSION\ru = Предел прочности при сжатии
+STRESS_LIMIT_FOR_SHEAR\ru = Предел прочности при сдвиге
+STRESS_LIMIT_FOR_TENSION\ru = Предел прочности при растяжении
+STRUCTURAL_DAMPING_COEFFICIENT\ru = Коэффициент конструкционного демпфирования
+THERMAL_CONDUCTIVITY\ru = Теплопроводность
+THERMAL_EXPANSION_COEFFICIENT\ru = Коэффициент теплового расширения
+THERM_EXPANSION_REF_TEMPERATURE\ru = Опорная температура расширения
+YOUNG_MODULUS\ru = Модуль Юнга
+
 [UserParameters]
 Order = name, standard, stock, material, quantity, drawn_by, approved_by, revision, date, general_tolerance, tolerancing, mass
 
@@ -155,6 +173,19 @@ tolerancing\cs = Tolerování
 tolerancing\de = Tolerierung
 tolerancing\en = Tolerancing
 tolerancing\fr = Tolérancement
+
+name\ru = Наименование
+standard\ru = Стандарт
+stock\ru = Заготовка
+material\ru = Материал
+quantity\ru = Количество
+drawn_by\ru = Разработал
+approved_by\ru = Утвердил
+revision\ru = Версия
+date\ru = Дата
+general_tolerance\ru = Общие допуски
+tolerancing\ru = Назначение допусков
+mass\ru = Масса
 
 [UserParameterValues]
 name =

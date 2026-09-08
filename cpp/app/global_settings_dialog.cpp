@@ -29,7 +29,7 @@ GlobalSettingsDialog::GlobalSettingsDialog(
     auto* form = new QFormLayout;
     language_ = new QComboBox(this);
     language_->setObjectName("globalSettingsLanguage");
-    language_->addItems({"cs", "de", "en", "fr"});
+    language_->addItems({"cs", "de", "en", "fr", "ru"});
     language_->setCurrentText(settings_.language);
     form->addRow(settings_.text("global.language", tr("Jazyk aplikace")), language_);
 

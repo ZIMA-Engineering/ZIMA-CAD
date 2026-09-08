@@ -499,7 +499,8 @@ void DrawingDocument::save(const std::filesystem::path& path,
         nlohmann::json serialized{{"id", sheet.id}, {"name", sheet.name},
             {"format", format_name(sheet.format)},
             {"projection_method", sheet.projection_method == ProjectionMethod::FirstAngle ? "first_angle" : "third_angle"},
-            {"default_scale", sheet.default_scale}};
+            {"default_scale", sheet.default_scale},
+            {"title_block_locale", sheet.title_block_locale}, {"local_parameters", sheet.local_parameters}};
         const auto line_json=[](const auto& lines) {
             nlohmann::json result=nlohmann::json::array();
             for (const auto& line:lines) result.push_back({{"first",{line.first.x,line.first.y}},
@@ -531,7 +532,7 @@ void DrawingDocument::save(const std::filesystem::path& path,
         for(const auto& row:sheet.bom_rows) serialized["bom_rows"].push_back({
             {"item_number",row.item_number},{"quantity",row.quantity},{"name",row.name},
             {"designation",row.designation},{"material",row.material},{"file_stem",row.file_stem},
-            {"parameters",row.parameters},{"parameter_values",row.parameter_values},{"parameter_aliases",row.parameter_aliases}});
+            {"parameters",row.parameters},{"parameter_values",row.parameter_values},{"parameter_aliases",row.parameter_aliases},{"mass_unit",row.mass_unit}});
         const auto circles_json=[](const auto& circles){nlohmann::json values=nlohmann::json::array();for(const auto& c:circles)values.push_back({{"center",{c.center.x,c.center.y}},{"radius",c.radius},{"pen",static_cast<int>(c.pen)}});return values;};
         serialized["frame_circles"]=circles_json(sheet.frame_circles);serialized["title_block_circles"]=circles_json(sheet.title_block_circles);
         serialized["title_block_images"]=sheet.title_block_images;
@@ -649,6 +650,8 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
         sheet.projection_method = serialized.value("projection_method", "first_angle") == "third_angle"
             ? ProjectionMethod::ThirdAngle : ProjectionMethod::FirstAngle;
         sheet.default_scale = serialized.value("default_scale", 1.0);
+        sheet.title_block_locale = serialized.value("title_block_locale", "cs");
+        sheet.local_parameters = serialized.value("local_parameters", decltype(sheet.local_parameters){});
         const auto parse_lines=[](const nlohmann::json& source) {
             std::vector<TemplateLine> result; for(const auto& item:source) result.push_back({
                 {item.at("first").at(0),item.at("first").at(1)},
@@ -676,7 +679,7 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
         for(const auto& item:serialized.at("bom_rows")) sheet.bom_rows.push_back({
             item.at("item_number"),item.at("quantity"),item.at("name"),item.at("designation"),item.at("material"),
             item.value("file_stem",std::string{}),item.value("parameters",std::map<std::string,std::string>{}),
-            item.value("parameter_values",std::map<std::string,std::map<std::string,std::string>>{}),item.value("parameter_aliases",std::map<std::string,std::string>{})});
+            item.value("parameter_values",std::map<std::string,std::map<std::string,std::string>>{}),item.value("parameter_aliases",std::map<std::string,std::string>{}),item.value("mass_unit","kg")});
         const auto parse_circles=[](const auto& values){std::vector<TemplateCircle> result;for(const auto& c:values)result.push_back({{c.at("center").at(0),c.at("center").at(1)},c.at("radius"),static_cast<DrawingPen>(c.at("pen").template get<int>())});return result;};
         sheet.frame_circles=parse_circles(serialized.value("frame_circles",nlohmann::json::array()));sheet.title_block_circles=parse_circles(serialized.value("title_block_circles",nlohmann::json::array()));
         sheet.title_block_images=serialized.value("title_block_images",std::vector<zima::sketcher::TemplateImage>{});
@@ -763,6 +766,8 @@ void load_frame_template(DrawingSheet& sheet, const std::filesystem::path& path)
 void load_title_block_template(DrawingSheet& sheet, const std::filesystem::path& path) {
     const auto ini=read_ini(path);
     if (!ini.contains("TitleBlock")) throw std::runtime_error("Invalid title-block template");
+    const auto locale = ini.at("TitleBlock").find("Locale");
+    sheet.title_block_locale = locale == ini.at("TitleBlock").end() ? "cs" : locale->second;
     const auto geometry=ini.find("Geometry");
     sheet.title_block_lines.clear(); sheet.title_block_texts.clear();
     sheet.title_block_fields.clear();
@@ -848,7 +853,6 @@ std::string title_block_token_scope(const std::string& token) {
     return "model";
 }
 
-namespace {
 std::string title_block_parameter_key(
     const std::string& token, const TitleBlockContext& context) {
     std::string key = token;
@@ -857,7 +861,6 @@ std::string title_block_parameter_key(
     const auto found = context.parameter_aliases.find(key);
     return found == context.parameter_aliases.end() ? key : found->second;
 }
-}  // namespace
 
 std::string resolve_title_block_text(
     const TitleBlockField& field, const TitleBlockContext& context,
@@ -892,6 +895,7 @@ std::string resolve_title_block_text(
             continue;
         }
         if (token == "document.file_stem") { resolved << context.file_stem; continue; }
+        if (token == "document.mass_unit") { resolved << context.mass_unit; continue; }
         if (token == "sheet.format") {
             resolved << (sheet.format == SheetFormat::A4 ? "A4"
                 : sheet.format == SheetFormat::A3 ? "A3"
@@ -910,8 +914,10 @@ std::string resolve_title_block_text(
         }
         if (token.starts_with("drawing.") || token.starts_with("local.")) {
             const std::string key = token.substr(token.find('.') + 1);
+            const auto local = sheet.local_parameters.find(key);
             const auto found = context.local_parameters.find(key);
-            if (found != context.local_parameters.end()) resolved << found->second;
+            if (local != sheet.local_parameters.end()) resolved << local->second;
+            else if (found != context.local_parameters.end()) resolved << found->second;
             continue;
         }
         const std::string key = title_block_parameter_key(token, context);
@@ -921,7 +927,7 @@ std::string resolve_title_block_text(
             const auto plain = localized->second.find("");
             if (plain != localized->second.end()) { resolved << plain->second; wrote = true; }
             else {
-                const auto locale_value = localized->second.find("cs");
+                const auto locale_value = localized->second.find(sheet.title_block_locale);
                 if (locale_value != localized->second.end()) {
                     resolved << locale_value->second; wrote = true;
                 }

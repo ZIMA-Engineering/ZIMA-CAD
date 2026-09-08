@@ -130,6 +130,7 @@ struct ViewerEdge {
     // the explicit OCCT calculation even when curve parameterization flips.
     std::vector<VertexReference> edge_treatment_endpoint_references;
     std::string color; // Optional presentation colour for template Sketch wires.
+    bool filled_text{};
 };
 
 struct ViewerPoint {

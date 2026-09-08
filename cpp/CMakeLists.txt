@@ -290,6 +290,10 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_workspace_startup_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    add_test(NAME zima_cpp_template_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_template_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_TEMPLATES_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_test(NAME zima_cpp_drawing_ui_contract COMMAND zima-cad-drawing-harness --verify-ui)
     set_tests_properties(zima_cpp_drawing_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}"

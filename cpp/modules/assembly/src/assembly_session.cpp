@@ -1,4 +1,5 @@
 #include <zima/assembly/assembly_session.hpp>
+#include <zima/assembly/physical_properties.hpp>
 
 #include <utility>
 
@@ -6,6 +7,7 @@ namespace zima::assembly {
 
 AssemblySession::AssemblySession(AssemblyDocument document)
     : current_{std::move(document), 0, false} {
+    zima::document::refresh_physical_relations(current_.document,physical_values(current_.document));
     current_.document.synchronize_dimension_identifiers();
     saved_dimension_allocations_ = current_.document.dimension_identifiers.allocation_count();
 }
@@ -25,11 +27,13 @@ void AssemblySession::replace(AssemblyDocument document) {
     redo_.clear();
     next_revision_ = 1;
     saved_revision_ = 0;
+    zima::document::refresh_physical_relations(current_.document,physical_values(current_.document));
     current_.document.synchronize_dimension_identifiers();
     saved_dimension_allocations_ = current_.document.dimension_identifiers.allocation_count();
 }
 
 void AssemblySession::commit(AssemblyDocument document) {
+    zima::document::refresh_physical_relations(document,physical_values(document));
     document.dimension_identifiers.retain(current_.document.dimension_identifiers);
     document.synchronize_dimension_identifiers();
     undo_.push_back(std::move(current_));
@@ -38,6 +42,7 @@ void AssemblySession::commit(AssemblyDocument document) {
 }
 
 void AssemblySession::update_dependency_snapshots(AssemblyDocument document) {
+    zima::document::refresh_physical_relations(document,physical_values(document));
     document.dimension_identifiers.retain(current_.document.dimension_identifiers);
     document.synchronize_dimension_identifiers();
     current_.document = std::move(document);

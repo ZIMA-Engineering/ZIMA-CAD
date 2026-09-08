@@ -41,6 +41,7 @@
 #include <cmath>
 #include <sstream>
 #include <memory>
+#include <set>
 
 namespace zima::app {
 namespace {
@@ -220,17 +221,22 @@ public:
         form->addRow(QObject::tr("Formát"), format_);
         form->addRow(QObject::tr("Promítání"), projection_);
         form->addRow(QObject::tr("Výchozí měřítko"), scale_);
+        language_=new QComboBox(content);language_->setObjectName("drawingSheetLanguage");
+        language_->addItems({"cs","en","de","fr","ru"});language_->setEditable(true);
+        language_->setCurrentText(QString::fromStdString(value_.title_block_locale));
+        form->addRow(QObject::tr("Jazyk razítka"),language_);
         content_layout()->addWidget(content); setAttribute(Qt::WA_DeleteOnClose);
     }
 private:
     zima::drawing::DrawingSheet value_;
     std::function<void(zima::drawing::DrawingSheet)> accepted_;
-    QComboBox* format_{}; QComboBox* projection_{}; QDoubleSpinBox* scale_{};
+    QComboBox* format_{}; QComboBox* projection_{}; QComboBox* language_{}; QDoubleSpinBox* scale_{};
     bool submit() override {
         value_.format = static_cast<zima::drawing::SheetFormat>(format_->currentIndex());
         value_.projection_method = projection_->currentIndex() == 0
             ? zima::drawing::ProjectionMethod::FirstAngle
             : zima::drawing::ProjectionMethod::ThirdAngle;
+        value_.title_block_locale=language_->currentText().trimmed().toStdString();
         value_.default_scale = scale_->value(); accepted_(std::move(value_)); return true;
     }
 };
@@ -238,26 +244,52 @@ private:
 class TitleBlockPropertiesDialog final : public zima::ui::PropertiesSubWindow {
 public:
     TitleBlockPropertiesDialog(QMainWindow* parent,
-        std::vector<zima::drawing::TitleBlockField> fields,
-        std::function<void(std::vector<zima::drawing::TitleBlockField>)> accepted)
-        : PropertiesSubWindow(QObject::tr("Hodnoty razítka"),parent),
-          fields_(std::move(fields)),accepted_(std::move(accepted)) {
+        const std::vector<zima::drawing::TitleBlockField>& fields,
+        const zima::drawing::TitleBlockContext& context,
+        const zima::drawing::DrawingSheet& sheet, const std::set<std::string>& calculated,
+        std::function<void(const std::map<std::string,std::string>&)> accepted)
+        : PropertiesSubWindow(QObject::tr("Hodnoty razítka"),parent), accepted_(std::move(accepted)) {
+        setObjectName("drawingTitleBlockProperties");
         auto* content=new QWidget(this); auto* form=new QFormLayout(content);
-        for(auto& field:fields_) if(field.editable) {
-            auto* editor=new QLineEdit(QString::fromStdString(field.value),content);
-            editors_.push_back({field.id,editor});
-            form->addRow(QString::fromStdString(field.id),editor);
+        for(const auto& field:fields) {
+            const auto value=zima::drawing::resolve_title_block_text(field,context,sheet);
+            auto* editor=new QLineEdit(QString::fromStdString(value),content);
+            editor->setObjectName(QString::fromStdString("titleBlockField:"+field.id));
+            const auto tokens=zima::drawing::title_block_tokens(field.expression);
+            bool writable=field.editable;
+            if(!tokens.empty()) {
+                writable=writable && tokens.size()==1 && field.expression=="&"+tokens.front();
+                const auto scope=zima::drawing::title_block_token_scope(tokens.front());
+                if(scope=="system" || (scope=="model" && (!field.write_back ||
+                    calculated.contains(zima::drawing::title_block_parameter_key(tokens.front(),context))))) writable=false;
+            }
+            editor->setReadOnly(!writable);
+            if(writable) {editors_[field.id]=editor;initial_[field.id]=value;}
+            auto label=field.id;
+            if(tokens.size()==1 && zima::drawing::title_block_token_scope(tokens.front())=="model") {
+                const auto key=zima::drawing::title_block_parameter_key(tokens.front(),context);
+                const auto labels=context.parameter_labels.find(key);
+                label=key;
+                if(labels!=context.parameter_labels.end())if(const auto value=labels->second.find(sheet.title_block_locale);value!=labels->second.end()&&!value->second.empty())label=value->second;
+            }
+            form->addRow(QString::fromStdString(label),editor);
         }
-        content_layout()->addWidget(content); setAttribute(Qt::WA_DeleteOnClose);
+        error_=new QLabel(this);error_->setWordWrap(true);error_->setObjectName("titleBlockError");
+        content_layout()->addWidget(content);content_layout()->addWidget(error_);
+        setAttribute(Qt::WA_DeleteOnClose);
     }
 private:
-    std::vector<zima::drawing::TitleBlockField> fields_;
-    std::vector<std::pair<std::string,QLineEdit*>> editors_;
-    std::function<void(std::vector<zima::drawing::TitleBlockField>)> accepted_;
+    std::map<std::string,QLineEdit*> editors_;
+    std::map<std::string,std::string> initial_;
+    std::function<void(const std::map<std::string,std::string>&)> accepted_;
+    QLabel* error_{};
     bool submit() override {
-        for(auto& field:fields_) for(const auto& [id,editor]:editors_)
-            if(field.id==id) field.value=editor->text().toStdString();
-        accepted_(std::move(fields_)); return true;
+        try {
+            std::map<std::string,std::string> changes;
+            for(const auto& [id,editor]:editors_) if(editor->text().toStdString()!=initial_.at(id))
+                changes[id]=editor->text().toStdString();
+            accepted_(changes);return true;
+        } catch(const std::exception& error) {error_->setText(QString::fromUtf8(error.what()));return false;}
     }
 };
 
@@ -329,30 +361,29 @@ std::vector<zima::drawing::BomRow> build_bom_rows_for_source(
         if(existing!=bom.end()){++existing->quantity;return;}
         auto context=build_title_block_context_for_source(id,path,workspace);
         zima::drawing::BomRow row{static_cast<int>(bom.size()+1),1,name,key,{}};
+        row.mass_unit=context.mass_unit;
         row.file_stem=context.file_stem;row.parameters=std::move(context.parameters);
         row.parameter_values=std::move(context.parameter_values);row.parameter_aliases=std::move(context.parameter_aliases);
         bom.push_back(std::move(row));
     };
-    if(assembly)for(const auto& component:assembly->components)append(component.source_document_id,component.source_path,component.name);
+    if(assembly) {
+        const auto suppressed=assembly->effectively_suppressed_occurrences();
+        for(const auto& component:assembly->components)if(!suppressed.contains(component.occurrence_id))
+            append(component.source_document_id,component.source_path,component.name);
+    }
     else if((workspace&&workspace->open_part(source_id))||source_path.extension()==".prtz")
         append(source_id,source_path.is_relative()?std::filesystem::absolute(source_path):source_path,source_path.stem().string());
     return bom;
 }
 
-// Builds the token-resolution context for a view's source document,
-// matching Python's App._refresh_drawing_title_block_context: user
-// parameters (and their per-locale labels/values/aliases) belong to the
-// document the pohled (view) was inserted from, plus the document's file
-// stem for "&document.file_stem". Assemblies do not carry their own
-// user-editable parameters distinct from their components in this model, so
-// (matching the current C++ user_parameters ownership) only a Part source
-// contributes model-level tokens; an Assembly source still resolves the
-// system-level tokens (document/sheet/bom).
+// Read the authoritative source Parameters without a geometry calculation.
 zima::drawing::TitleBlockContext build_title_block_context_for_source(
     const std::string& source_id, const std::filesystem::path& source_path,
     zima::workspace::Workspace* workspace) {
     zima::drawing::TitleBlockContext context;
     context.file_stem = source_path.stem().string();
+    if(workspace && !workspace->find(source_id))if(const auto id=workspace->document_id_for_path(source_path))
+        return build_title_block_context_for_source(*id,source_path,workspace);
     const zima::document::PartDocument* part{};
     std::optional<zima::document::PartDocument> loaded_part;
     if (workspace != nullptr) if (const auto* open = workspace->open_part(source_id))
@@ -363,8 +394,10 @@ zima::drawing::TitleBlockContext build_title_block_context_for_source(
     }
     const auto use_parameters=[&](const auto& document) {
         if(context.file_stem.empty())context.file_stem=document.name;
+        context.mass_unit = document.document_units.at("Mass");
         context.parameters = document.user_parameters;
         context.parameter_values = document.user_parameter_values;
+        context.parameter_labels = document.user_parameter_labels;
         for (const auto& [key, labels] : document.user_parameter_labels)
             for (const auto& [locale, label] : labels)
                 if (!label.empty()) context.parameter_aliases[label] = key;
@@ -394,7 +427,7 @@ public:
     }
     void set_sheet(zima::drawing::DrawingSheet* sheet) {
         sheet_ = sheet;
-        selected_.clear();
+        selected_.clear();selected_field_.clear();hovered_field_.clear();field_regions_.clear();
         selected_dimension_id_.clear();
         dragged_dimension_id_.clear();
         drag_view_id_.clear();
@@ -435,6 +468,17 @@ public:
         auto callback = std::move(canceled_); canceled_ = {};
         if (callback) callback();
         update();
+    }
+    void set_title_block_action(QAction* action) { title_action_=action; }
+    const std::string& selected_title_field() const { return selected_field_; }
+    std::optional<QPointF> title_field_center(const std::string& id) const {
+        for(const auto& [key,polygon]:field_regions_)if(key==id)return polygon.boundingRect().center();
+        return {};
+    }
+    std::string field_at(QPointF point) const {
+        for(auto it=field_regions_.rbegin();it!=field_regions_.rend();++it)
+            if(it->second.containsPoint(point,Qt::OddEvenFill))return it->first;
+        return {};
     }
     void set_context_actions(QAction* insert, QAction* edit, QAction* projected, QAction* remove) {
         insert_action_=insert; edit_action_=edit; projected_action_=projected; remove_action_=remove;
@@ -482,6 +526,13 @@ protected:
     }
     void contextMenuEvent(QContextMenuEvent* event) override {
         if (placed_ || preview_ || dimension_mode_ || view_panning_) return;
+        if(const auto field=field_at(event->pos());!field.empty()) {
+            selected_field_=field;selected_.clear();selected_dimension_id_.clear();
+            if(selection_changed_)selection_changed_();update();
+            auto* menu=new QMenu(this);menu->setAttribute(Qt::WA_DeleteOnClose);
+            menu->addAction(title_action_);menu->popup(event->globalPos());event->accept();return;
+        }
+        selected_field_.clear();
         const auto hit = view_at(event->pos());
         if (hit != selected_) {
             selected_=hit; selected_dimension_id_.clear();
@@ -496,6 +547,14 @@ protected:
         menu->popup(event->globalPos()); event->accept();
     }
     void mouseDoubleClickEvent(QMouseEvent* event) override {
+        if(event->button()==Qt::LeftButton && !placed_ && !preview_ && !dimension_mode_) {
+            const auto field=field_at(event->position());
+            if(!field.empty()) {
+                selected_field_=field;selected_.clear();selected_dimension_id_.clear();drag_view_id_.clear();
+                if(selection_changed_)selection_changed_();
+                if(title_action_)title_action_->trigger();event->accept();return;
+            }
+        }
         if (event->button()==Qt::LeftButton && !preview_ && !dimension_mode_ && !view_at(event->position()).empty()) {
             selected_=view_at(event->position()); drag_view_id_.clear();
             if(selection_changed_) selection_changed_();
@@ -504,7 +563,7 @@ protected:
         }
         QWidget::mouseDoubleClickEvent(event);
     }
-    void leaveEvent(QEvent* event) override { hovered_.clear(); update(); QWidget::leaveEvent(event); }
+    void leaveEvent(QEvent* event) override { hovered_field_.clear(); hovered_.clear(); update(); QWidget::leaveEvent(event); }
     [[nodiscard]] double canvas_zoom() const {
         if (sheet_ == nullptr) return 1.0;
         const double margin = 24.0;
@@ -545,6 +604,7 @@ protected:
             const double frame = 10.0 * zoom;
             painter.drawRect(paper.adjusted(frame, frame, -frame, -frame));
         }
+        field_regions_.clear();
         const auto draw_text=[&](const zima::drawing::TemplateText& text) {
             painter.save();painter.setPen(pen_color(text.pen));
             QFont font(QString::fromStdString(text.font));font.setPixelSize(1000);painter.setFont(font);
@@ -554,11 +614,21 @@ protected:
             const double angle=text.angle*3.141592653589793/180.0,flip=text.flipped?-1:1;
             const QPointF x=screen({text.position.x+flip*std::cos(angle)*scale,text.position.y+flip*std::sin(angle)*scale})-anchor;
             const QPointF y=screen({text.position.x+std::sin(angle)*scale,text.position.y-std::cos(angle)*scale})-anchor;
-            painter.setTransform(QTransform(x.x(),x.y(),y.x(),y.y(),anchor.x(),anchor.y()),true);
+            const QTransform transform(x.x(),x.y(),y.x(),y.y(),anchor.x(),anchor.y());
+            painter.setTransform(transform,true);
             auto alignment=QString::fromStdString(text.alignment).toLower();
             const double dx=alignment=="center"?-ink.center().x():alignment=="right"?-ink.right():-ink.left();
             const double dy=text.vertical_alignment=="top"?-ink.top():text.vertical_alignment=="middle"||text.vertical_alignment=="center"?-ink.center().y():text.vertical_alignment=="baseline"?0:-ink.bottom();
             painter.drawText(QPointF(dx,dy),value);painter.restore();
+            if(!text.field_id.empty()) {
+                const auto polygon=transform.map(QPolygonF(ink.translated(dx,dy).adjusted(-60,-60,60,60)));
+                field_regions_.push_back({text.field_id,polygon});
+                if(selected_field_==text.field_id || hovered_field_==text.field_id) {
+                    painter.save();painter.setBrush(Qt::NoBrush);
+                    painter.setPen(QPen(selected_field_==text.field_id?QColor("#00D1FF"):QColor("#FF8C0C"),1.5));
+                    painter.drawPolygon(polygon);painter.restore();
+                }
+            }
         };
         const auto draw_template=[&](const auto& lines,const auto& texts,const auto& circles) {
             for(const auto& line:lines){painter.setPen(QPen(pen_color(line.pen),1.0));painter.drawLine(screen(line.first),screen(line.second));}
@@ -696,6 +766,11 @@ protected:
             unsetCursor(); callback(value); event->accept(); return;
         }
         if (preview_) return;
+        selected_field_=dimension_mode_?std::string{}:field_at(event->position());
+        if(!selected_field_.empty()) {
+            selected_.clear();selected_dimension_id_.clear();drag_view_id_.clear();
+            if(selection_changed_)selection_changed_();update();event->accept();return;
+        }
         const double zoom = canvas_zoom();
         const QPointF origin = canvas_origin(zoom);
         const auto segment_distance = [](QPointF point, QPointF a, QPointF b) {
@@ -812,8 +887,9 @@ protected:
     void mouseMoveEvent(QMouseEvent* event) override {
         if (placed_ && !view_panning_) { position_preview(event->position()); return; }
         if (!preview_ && !dimension_mode_) {
-            const auto hit=view_at(event->position());
-            if(hit!=hovered_) { hovered_=hit; update(); }
+            const auto field=field_at(event->position());
+            const auto hit=field.empty()?view_at(event->position()):std::string{};
+            if(hit!=hovered_ || field!=hovered_field_) { hovered_=hit;hovered_field_=field;update(); }
         }
         if(sheet_==nullptr) return;
         if (view_panning_) {
@@ -924,6 +1000,9 @@ private:
     zima::drawing::DrawingSheet* sheet_{};
     std::string selected_;
     std::string hovered_;
+    std::string selected_field_,hovered_field_;
+    std::vector<std::pair<std::string,QPolygonF>> field_regions_;
+    QAction* title_action_{};
     std::optional<zima::drawing::DrawingView> preview_;
     std::function<void(zima::drawing::DrawingView)> placed_;
     std::function<void()> canceled_;
@@ -1051,6 +1130,7 @@ void DrawingWindow::create_layout() {
         if (!identifier.empty()) set_status_message(tr("Kóta %1").arg(QString::fromStdString(identifier)));
     });
     canvas_->set_context_actions(insert_view_action_,edit_view_action_,projected_view_action_,delete_view_action_);
+    canvas_->set_title_block_action(edit_title_block_action_);
     sheet_controls_ = new QWidget(central);
     auto* bottom = new QHBoxLayout(sheet_controls_);
     bottom->setContentsMargins(6, 3, 6, 3);
@@ -1182,6 +1262,9 @@ void DrawingWindow::load_frame_for_test(const std::filesystem::path& path) {
     auto* sheet = active_sheet(); if (sheet == nullptr) return;
     zima::drawing::load_frame_template(*sheet, path); refresh();
 }
+std::optional<QPointF> DrawingWindow::title_field_center_for_test(const std::string& id) const {
+    return canvas_->title_field_center(id);
+}
 void DrawingWindow::load_title_block_for_test(const std::filesystem::path& path) {
     auto* sheet = active_sheet(); if (sheet == nullptr) return;
     zima::drawing::load_title_block_template(*sheet, path); refresh();
@@ -1258,12 +1341,81 @@ void DrawingWindow::load_title_block() {
 }
 void DrawingWindow::edit_title_block() {
     auto* sheet=active_sheet(); if(sheet==nullptr || sheet->title_block_fields.empty()) return;
-    auto* dialog=new TitleBlockPropertiesDialog(this,sheet->title_block_fields,
-        [this,id=sheet->id](auto fields) {
-            auto* target=document_.find_sheet(id); if(target==nullptr) return;
-            target->title_block_fields=std::move(fields); refresh();
-        });
-    dialog->show();
+    if(raise_open_properties(window())) return;
+    auto source_id=sheet->views.empty()?document_.source_document_id:sheet->views.front().source_document_id;
+    auto source_path=sheet->views.empty()?document_.source_path:sheet->views.front().source_path;
+    if(!source_path.empty() && source_path.is_relative() && !path_.empty())
+        source_path=path_.parent_path()/source_path;
+    if(workspace_ && !workspace_->find(source_id))
+        if(const auto open=workspace_->document_id_for_path(source_path))source_id=*open;
+    try {
+        auto context=build_title_block_context_for_source(source_id,source_path,workspace_);
+        context.sheet_index=sheets_->currentIndex();context.sheet_count=static_cast<int>(document_.sheets.size());
+        std::set<std::string> calculated;
+        const auto collect=[&](const auto& model){for(const auto& r:model.relations)calculated.insert(r.target);};
+        if(workspace_ && workspace_->open_part(source_id)) collect(workspace_->open_part(source_id)->session.document());
+        else if(workspace_ && workspace_->open_assembly(source_id)) collect(workspace_->open_assembly(source_id)->session.document());
+        else if(source_path.extension()==".prtz")collect(zima::document::PartDocument::load(source_path));
+        else if(source_path.extension()==".asmz")collect(zima::assembly::AssemblyDocument::load(source_path));
+        auto* dialog=new TitleBlockPropertiesDialog(this,sheet->title_block_fields,context,*sheet,calculated,
+            [this,id=sheet->id,source_id,source_path,context](const auto& changes) {
+                auto* target=document_.find_sheet(id);if(!target)throw std::runtime_error("Drawing sheet no longer exists");
+                auto next=*target;
+                std::map<std::string,std::string> updates;
+                for(auto& field:next.title_block_fields) if(changes.contains(field.id)) {
+                    const auto& value=changes.at(field.id);
+                    const auto tokens=zima::drawing::title_block_tokens(field.expression);
+                    if(tokens.empty()){field.expression=value;field.value=value;continue;}
+                    if(tokens.size()!=1 || field.expression!="&"+tokens.front())throw std::runtime_error("Cannot edit a compound expression");
+                    const auto& token=tokens.front();
+                    const auto scope=zima::drawing::title_block_token_scope(token);
+                    if(scope=="drawing")next.local_parameters[token.substr(token.find('.')+1)]=value;
+                    else if(scope=="model" && field.write_back) {
+                        const auto key=zima::drawing::title_block_parameter_key(token,context);
+                        if(updates.contains(key)&&updates.at(key)!=value)throw std::runtime_error("Conflicting values for one parameter");
+                        updates[key]=value;
+                    }
+                }
+                if(!updates.empty()) {
+                    if(!workspace_)throw std::runtime_error("Open the source model in the workspace to edit its parameters");
+                    auto resolved_id=source_id;
+                    if(!workspace_->find(resolved_id)) {
+                        if(const auto open=workspace_->document_id_for_path(source_path))resolved_id=*open;
+                        else if(source_path.extension()==".prtz") {
+                            std::vector<zima::kernel::BodyResult> boundaries;
+                            auto model=zima::document::PartDocument::load(source_path,&boundaries);resolved_id=model.document_id;
+                            workspace_->add_part(std::move(model),std::move(boundaries),source_path);
+                        } else if(source_path.extension()==".asmz") {
+                            auto model=zima::assembly::AssemblyDocument::load(source_path);resolved_id=model.document_id;
+                            workspace_->add_assembly(std::move(model),source_path);
+                        }
+                    }
+                    const auto update=[&](auto& model) {
+                        for(const auto& [key,value]:updates) {
+                            if(std::ranges::any_of(model.relations,[&](const auto& r){return r.target==key;}))
+                                throw std::runtime_error("Calculated parameters are read-only");
+                            auto& values=model.user_parameter_values[key];
+                            if(values.empty() || values.contains(""))values[""]=value;
+                            else values[next.title_block_locale]=value;
+                            model.user_parameters[key]=value;
+                            if(std::ranges::find(model.user_parameter_order,key)==model.user_parameter_order.end())model.user_parameter_order.push_back(key);
+                        }
+                    };
+                    if(auto* part=workspace_->open_part(resolved_id)) {
+                        auto model=part->session.document();update(model);part->session.commit(std::move(model),part->session.calculated_boundaries());
+                    } else if(auto* assembly=workspace_->open_assembly(resolved_id)) {
+                        auto model=assembly->session.document();update(model);assembly->session.commit(std::move(model));
+                    } else throw std::runtime_error("Source model is unavailable");
+                }
+                *target=std::move(next);refresh();
+            });
+        if(properties_handler_)properties_handler_(dialog);
+        connect(dialog,&QObject::destroyed,this,[this]{if(properties_handler_)properties_handler_(nullptr);});
+        dialog->show();
+        if(auto* editor=dialog->findChild<QLineEdit*>(QString::fromStdString("titleBlockField:"+canvas_->selected_title_field()))) {
+            editor->setFocus();editor->selectAll();
+        }
+    } catch(const std::exception& error) {set_status_message(QString::fromUtf8(error.what()));}
 }
 zima::drawing::DrawingSheet* DrawingWindow::active_sheet() { const auto index = sheets_->currentIndex(); return index < 0 || index >= static_cast<int>(document_.sheets.size()) ? nullptr : &document_.sheets[index]; }
 
@@ -1570,13 +1722,16 @@ void DrawingWindow::refresh_title_block_context() {
     // title-block tokens resolve against the currently displayed sheet's
     // primary (first-inserted) view's source document.
     const auto* sheet = active_sheet();
-    if (sheet == nullptr || sheet->views.empty()) {
-        canvas_->set_title_block_context(std::nullopt);
-        return;
-    }
-    const auto& view = sheet->views.front();
-    canvas_->set_title_block_context(build_title_block_context_for_source(
-        view.source_document_id, view.source_path, workspace_));
+    if (!sheet) {canvas_->set_title_block_context(std::nullopt);return;}
+    auto source_id=sheet->views.empty()?document_.source_document_id:sheet->views.front().source_document_id;
+    auto source_path=sheet->views.empty()?document_.source_path:sheet->views.front().source_path;
+    if(!source_path.empty() && source_path.is_relative() && !path_.empty())
+        source_path=path_.parent_path()/source_path;
+    if(workspace_ && !workspace_->find(source_id))
+        if(const auto open=workspace_->document_id_for_path(source_path))source_id=*open;
+    auto context=build_title_block_context_for_source(source_id,source_path,workspace_);
+    context.sheet_index=sheets_->currentIndex();context.sheet_count=static_cast<int>(document_.sheets.size());
+    canvas_->set_title_block_context(std::move(context));
 }
 
 void DrawingWindow::sync_workspace_document() {

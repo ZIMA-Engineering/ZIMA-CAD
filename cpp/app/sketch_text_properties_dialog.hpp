@@ -47,6 +47,7 @@ private:
     QComboBox* vertical_{};
     QComboBox* font_{};
     QComboBox* color_{};
+    QComboBox* mode_{};
     QDoubleSpinBox* angle_{};
     QCheckBox* flipped_{};
     QLabel* error_{};

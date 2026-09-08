@@ -1,4 +1,5 @@
 #include <zima/document/document_session.hpp>
+#include <zima/document/physical_properties.hpp>
 
 #include <algorithm>
 #include <iterator>
@@ -66,6 +67,7 @@ DocumentSession::DocumentSession(
     PartDocument document,
     std::vector<zima::kernel::BodyResult> calculated_boundaries)
     : current_{std::move(document), std::move(calculated_boundaries), 0, false} {
+    refresh_physical_relations(current_.document,physical_values(current_.document,current_.calculated_boundaries));
     retain_shaft_reference_geometry(current_.document,current_.calculated_boundaries);
     current_.document.synchronize_dimension_identifiers();
     saved_dimension_allocations_ = current_.document.dimension_identifiers.allocation_count();
@@ -257,6 +259,7 @@ std::optional<HistoryRollbackBoundary> DocumentSession::rollback_boundary(
 void DocumentSession::replace(
     PartDocument document,
     std::vector<zima::kernel::BodyResult> calculated_boundaries) {
+    refresh_physical_relations(document, physical_values(document,calculated_boundaries));
     retain_shaft_reference_geometry(document,calculated_boundaries);
     current_ = {std::move(document), std::move(calculated_boundaries), 0, false};
     undo_.clear();
@@ -270,6 +273,7 @@ void DocumentSession::replace(
 void DocumentSession::commit(
     PartDocument document,
     std::vector<zima::kernel::BodyResult> calculated_boundaries) {
+    refresh_physical_relations(document, physical_values(document,calculated_boundaries));
     retain_shaft_reference_geometry(document,calculated_boundaries);
     document.dimension_identifiers.retain(current_.document.dimension_identifiers);
     document.synchronize_dimension_identifiers();
@@ -281,6 +285,7 @@ void DocumentSession::commit(
 
 void DocumentSession::update_calculated_boundaries(
     std::vector<zima::kernel::BodyResult> calculated_boundaries) {
+    refresh_physical_relations(current_.document,physical_values(current_.document,calculated_boundaries));
     retain_shaft_reference_geometry(current_.document,calculated_boundaries);
     current_.calculated_boundaries = std::move(calculated_boundaries);
     current_.calculated_state_dirty = true;

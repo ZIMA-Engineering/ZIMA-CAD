@@ -39,6 +39,26 @@ namespace zima::viewer {
 
 namespace {
 
+template<class Project> void paint_normal_text(QPainter& painter,
+    const std::vector<zima::kernel::ViewerEdge>& edges,
+    const std::vector<zima::kernel::ViewerEdge>& preview,Project project,bool visible) {
+    std::map<zima::viewer::EdgeKey,std::pair<QPainterPath,QColor>> paths;
+    const auto append=[&](const auto& source,bool transient) {
+        for(const auto& edge:source) if(edge.filled_text && !edge.points.empty()) {
+            auto& [path,color]=paths[zima::viewer::edge_key(edge.reference)];
+            path.setFillRule(Qt::OddEvenFill);path.moveTo(project(edge.points.front()));
+            for(std::size_t i=1;i<edge.points.size();++i)path.lineTo(project(edge.points[i]));
+            path.closeSubpath();
+            const auto& key=edge.reference.semantic_key;
+            color=transient?QColor(0,209,255):!edge.color.empty()?QColor(QString::fromStdString(edge.color)):
+                key.ends_with(":yellow")?QColor(245,205,80):key.ends_with(":white")?QColor(255,255,255):QColor(77,216,17);
+        }
+    };
+    if(visible)append(edges,false);append(preview,true);
+    for(const auto& [key,item]:paths)painter.fillPath(item.first,item.second);
+}
+
+
 // A new, otherwise empty metric CAD document starts with roughly 100 mm of
 // vertical working area. This gives a useful physical sense of scale before
 // the first body exists: a 1 mm plane offset is visible, but no longer fills
@@ -2771,6 +2791,7 @@ void MeshView::paintGL() {
         overlay_device.setDevicePixelRatio(pixel_ratio);
         QPainter painter(&overlay_device);
         painter.setRenderHint(QPainter::Antialiasing);
+        paint_normal_text(painter,impl_->mesh.edges,impl_->transient_edges,project,impl_->show_sketches);
         for(const auto& image:impl_->mesh.images) {
             QPolygonF target;for(const auto& p:image.corners)target<<project(p);
             paint_embedded_image(painter,image.data_base64,image.format,target);
@@ -3431,6 +3452,7 @@ if (impl_->show_origins) {
         overlay_device.setDevicePixelRatio(pixel_ratio);
         QPainter painter(&overlay_device);
         painter.setRenderHint(QPainter::Antialiasing);
+        paint_normal_text(painter,impl_->mesh.edges,impl_->transient_edges,project,impl_->show_sketches);
         for(const auto& image:impl_->mesh.images) {
             QPolygonF target;for(const auto& p:image.corners)target<<project(p);
             paint_embedded_image(painter,image.data_base64,image.format,target);
@@ -3606,6 +3628,7 @@ if (impl_->show_origins) {
                     !edge.reference.semantic_key.starts_with("external_axis:") &&
                     !edge.reference.semantic_key.starts_with("external_face:") &&
                     !edge.reference.semantic_key.starts_with("repeat_region:")) continue;
+                if(edge.filled_text)continue; // Filled annotation; selection still draws its exact wire.
                 const bool text = edge.reference.semantic_key.starts_with("text:");
                 const bool external = edge.reference.semantic_key.starts_with(
                         "external_edge:") ||

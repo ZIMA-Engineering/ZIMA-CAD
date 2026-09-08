@@ -1,4 +1,5 @@
 #include <zima/workspace/workspace.hpp>
+#include <zima/assembly/physical_properties.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 
 #include <algorithm>
@@ -890,6 +891,7 @@ std::string Workspace::insert_open_part(
     auto occurrence = zima::assembly::AssemblyDocument::create_part_occurrence(
         std::move(occurrence_name), part_document_id, part->path,
         part_result(*part));
+    occurrence.density_kg_mm3=zima::document::material_density_kg_mm3(part->session.document());
     occurrence.body_color = part->session.document().body_color;
     occurrence.face_colors = part->session.document().face_colors;
     const std::string occurrence_id = occurrence.occurrence_id;
@@ -957,6 +959,7 @@ std::string Workspace::insert_open_assembly(
     zima::kernel::OcctKernel kernel;
     occurrence.calculated_source = kernel.compound_bodies(nested_bodies);
     occurrence.calculated_source.mesh = calculated_source.build_scene();
+    zima::assembly::capture_nested_mass(occurrence,calculated_source);
     const std::string occurrence_id = occurrence.occurrence_id;
     next.components.push_back(std::move(occurrence));
     static_cast<void>(next.build_scene());
@@ -1004,6 +1007,7 @@ zima::assembly::AssemblyDocument Workspace::refreshed_assembly(
                 occurrence.calculated_source = {};
                 occurrence.calculated_source = kernel.compound_bodies(nested_bodies);
                 occurrence.calculated_source.mesh = nested.build_scene();
+                zima::assembly::capture_nested_mass(occurrence,nested);
                 occurrence.nested_snapshot = nested.occurrence_snapshot();
                 occurrence.source_path = open_assembly(
                     occurrence.source_document_id)->path;
@@ -1018,6 +1022,7 @@ zima::assembly::AssemblyDocument Workspace::refreshed_assembly(
                 "An open Assembly dependency has no calculated Part result");
         }
         occurrence.calculated_source = part_result(*part);
+        occurrence.density_kg_mm3=zima::document::material_density_kg_mm3(part->session.document());
         occurrence.body_color = part->session.document().body_color;
         occurrence.face_colors = part->session.document().face_colors;
         occurrence.source_path = part->path;

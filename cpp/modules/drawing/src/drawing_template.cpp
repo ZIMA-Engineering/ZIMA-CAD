@@ -65,7 +65,7 @@ void import_python(Sketch& s,const Json& data,const PrepareTemplateText& prepare
         if(p.value("text_role","")=="outline_point")continue;
         s.points.push_back({id,p.at("x"),p.at("y"),p.value("fixed",false),p.value("construction",false)});
         if(p.value("text_role","")!="anchor")continue;
-        SketchText t;t.id=id+":text";t.anchor_point_id=id;t.value=p.value("text_value","-");t.anchor_x=p.at("x");t.anchor_y=p.at("y");
+        SketchText t;t.modeling_geometry=false;t.id=id+":text";t.anchor_point_id=id;t.value=p.value("text_value","-");t.anchor_x=p.at("x");t.anchor_y=p.at("y");
         t.height=p.value("text_height",2.5);t.horizontal=horizontal(p.value("text_horizontal","left"));
         t.vertical=vertical(p.value("text_vertical","bottom"));t.angle_degrees=p.value("text_angle",0.0);
         t.flipped=p.value("text_flip",true);t.color=color(p.value("pen",p.value("text_color","GREEN")));
@@ -162,14 +162,14 @@ zima::sketcher::Sketch load_template_sketch(const std::filesystem::path& path,co
             } else if(id.starts_with("Circle")&&v.size()>=4) {
                 const auto c=fresh();s.points.push_back({c,std::stod(v[0]),std::stod(v[1])});s.circles.push_back({id,c,std::stod(v[2])});s.drawing_template->pens[id]=v[3];
             } else if(id.starts_with("Text")&&v.size()>=5) {
-                SketchText t;t.id=id;t.value=v[0];t.anchor_x=std::stod(v[1]);t.anchor_y=std::stod(v[2]);t.height=std::stod(v[3]);t.color=color(v[4]);t.horizontal=horizontal(v.size()>5?v[5]:"left");t.flipped=true;prepare(t);s.texts.push_back(std::move(t));
+                SketchText t;t.modeling_geometry=false;t.id=id;t.value=v[0];t.anchor_x=std::stod(v[1]);t.anchor_y=std::stod(v[2]);t.height=std::stod(v[3]);t.color=color(v[4]);t.horizontal=horizontal(v.size()>5?v[5]:"left");t.flipped=true;prepare(t);s.texts.push_back(std::move(t));
             }
         }
     }
     for(const auto& [section,values]:ini)if(section.starts_with("Field.")) {
         const auto field_id=section.substr(6);
         if(std::ranges::any_of(s.drawing_template->field_ids,[&](const auto& pair){return pair.second==field_id;}))continue;
-        SketchText t;t.id=zima::kernel::make_stable_id();t.value=value(ini,section,"Text");
+        SketchText t;t.modeling_geometry=false;t.id=zima::kernel::make_stable_id();t.value=value(ini,section,"Text");
         if(t.value.empty()){const auto parameter=value(ini,section,"Parameter",value(ini,section,"Source"));t.value=parameter.empty()?value(ini,section,"Default","-"):"&"+parameter;}
         t.horizontal=horizontal(value(ini,section,"Align","left"));t.vertical=vertical(value(ini,section,"VerticalAlign","middle"));
         const double w=number(ini,section,"BoxWidth"),h=number(ini,section,"BoxHeight");
@@ -248,7 +248,14 @@ void load_template_details(DrawingSheet& sheet,const std::filesystem::path& path
     if(!ini.contains("Sketch"))return;
     const auto data=Json::parse(value(ini,"Sketch","Data"));
     auto& texts=title?sheet.title_block_texts:sheet.frame_texts;texts.clear();
-    const auto append=[&](TemplateText t,const std::string& field_id) {
+    const auto append=[&](TemplateText t,std::string field_id,const std::string& text_id) {
+        const auto tokens=title_block_tokens(t.text);
+        const bool repeat=std::ranges::any_of(sheet.repeat_regions,[&](const auto& r){return t.position.x>=r.x && t.position.x<=r.x+r.width && t.position.y>=r.y && t.position.y<=r.y+r.height;});
+        if(title && field_id.empty() && !repeat && tokens.size()==1 && t.text=="&"+tokens.front() && title_block_token_scope(tokens.front())!="system") {
+            field_id="text:"+text_id;
+            TitleBlockField field;field.id=field_id;field.editable=true;field.write_back=title_block_token_scope(tokens.front())=="model";
+            sheet.title_block_fields.push_back(std::move(field));
+        }
         if(title&&!field_id.empty()) {
             const auto found=std::ranges::find(sheet.title_block_fields,field_id,&TitleBlockField::id);
             if(found!=sheet.title_block_fields.end()) {
@@ -263,11 +270,11 @@ void load_template_details(DrawingSheet& sheet,const std::filesystem::path& path
         const auto& metadata=data.at("drawing_template");const auto& fields=metadata.at("field_ids");
         for(const auto& t:data.at("texts")) {
             const auto id=t.at("id").get<std::string>();auto c=t.at("color").get<std::string>();std::transform(c.begin(),c.end(),c.begin(),[](unsigned char b){return std::toupper(b);});
-            append({t.at("value"),{t.at("anchor_x"),t.at("anchor_y")},t.at("height"),drawing_pen(c),t.at("horizontal"),t.at("vertical"),t.at("angle_degrees"),t.at("flipped"),t.at("font")},fields.value(id,""));
+            append({t.at("value"),{t.at("anchor_x"),t.at("anchor_y")},t.at("height"),drawing_pen(c),t.at("horizontal"),t.at("vertical"),t.at("angle_degrees"),t.at("flipped"),t.at("font")},fields.value(id,""),id);
         }
     } else for(const auto& [id,t]:data.at("points").items())if(t.value("text_role","")=="anchor") {
         auto c=t.value("pen",t.value("text_color","GREEN"));std::transform(c.begin(),c.end(),c.begin(),[](unsigned char b){return std::toupper(b);});
-        append({t.value("text_value","-"),{t.at("x"),t.at("y")},t.value("text_height",2.5),drawing_pen(c),t.value("text_horizontal","left"),t.value("text_vertical","bottom"),t.value("text_angle",0.0),t.value("text_flip",true),t.value("text_font","osifont")},t.value("template_field_id",""));
+        append({t.value("text_value","-"),{t.at("x"),t.at("y")},t.value("text_height",2.5),drawing_pen(c),t.value("text_horizontal","left"),t.value("text_vertical","bottom"),t.value("text_angle",0.0),t.value("text_flip",true),t.value("text_font","osifont")},t.value("template_field_id",""),id);
     }
 }
 TemplateLayout title_block_layout(const DrawingSheet& sheet,const TitleBlockContext& context) {
@@ -284,7 +291,7 @@ TemplateLayout title_block_layout(const DrawingSheet& sheet,const TitleBlockCont
                 if(r->direction=="up")offset.y=distance;else if(r->direction=="down")offset.y=-distance;
                 else if(r->direction=="left")offset.x=distance;else offset.x=-distance;
                 if(i<sheet.bom_rows.size()) {const auto& row=sheet.bom_rows[i];c.has_bom_row=true;c.bom_item_number=row.item_number;c.bom_quantity=row.quantity;
-                    c.file_stem=row.file_stem;c.parameters=row.parameters;c.parameter_values=row.parameter_values;c.parameter_aliases=row.parameter_aliases;}
+                    c.mass_unit=row.mass_unit;c.file_stem=row.file_stem;c.parameters=row.parameters;c.parameter_values=row.parameter_values;c.parameter_aliases=row.parameter_aliases;}
             }
             draw(offset,c);
         }
@@ -300,7 +307,7 @@ TemplateLayout title_block_layout(const DrawingSheet& sheet,const TitleBlockCont
         auto position=field.position;
         if(!field.anchor_position){position.x+=field.alignment=="left"?field.box_width:field.alignment=="center"?field.box_width/2:0;
             position.y+=field.vertical_alignment=="top"?field.box_height:(field.vertical_alignment=="center"||field.vertical_alignment=="middle")?field.box_height/2:0;}
-        copies(region_for(position,position),[&](Point2 o,const auto& c){result.texts.push_back({resolve_title_block_text(field,c,sheet),{position.x+o.x,position.y+o.y},field.height,field.pen,field.alignment,field.vertical_alignment,field.angle,field.flipped,field.font});});
+        copies(region_for(position,position),[&](Point2 o,const auto& c){result.texts.push_back({resolve_title_block_text(field,c,sheet),{position.x+o.x,position.y+o.y},field.height,field.pen,field.alignment,field.vertical_alignment,field.angle,field.flipped,field.font,field.editable&&!region_for(position,position)?field.id:std::string{}});});
     }
     return result;
 }

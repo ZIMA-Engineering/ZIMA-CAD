@@ -256,6 +256,11 @@ int main() {
 
         auto text_sketch = zima::sketcher::Sketch::create_default();
         auto text = zima::sketcher::Sketch::create_text();
+        text.id="field1:text";
+        text.modeling_geometry=false;
+        require(zima::sketcher::text_id_from_viewer_key("text:field1:text:yellow")==text.id &&
+                zima::sketcher::text_id_from_viewer_key("text:field1:text")==text.id,
+                "Old title-block text identity was truncated at a colon");
         text.value = "ZIMA";
         text.anchor_x = 2.0;
         text.anchor_y = 3.0;
@@ -273,7 +278,7 @@ int main() {
         require(loaded_text.texts == text_sketch.texts,
                 "Semantic Sketch text and its persisted outline did not round-trip");
         const auto text_mesh = text_sketch.viewer_mesh();
-        require(text_mesh.edges.size() == 1 &&
+        require(text_mesh.edges.size() == 1 && text_mesh.edges.front().filled_text &&
                     text_mesh.edges.front().points.size() == 5 &&
                     text_mesh.edges.front().points.front().x ==
                         text_mesh.edges.front().points.back().x &&

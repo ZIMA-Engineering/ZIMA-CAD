@@ -36,19 +36,43 @@ Dodávaná razítka jsou:
 - `ZE-RAZITKO.tblz` pro české popisky a české lokalizované názvy parametrů;
 - `ZE-TITLE-BLOCK.tblz` pro anglické popisky a anglické lokalizované názvy.
 
-Text začínající `&` je programovatelné pole. Interní klíče parametrů jsou
-anglické, například `name`, ale lokalizovaný název současně vybírá jazyk
-hodnoty. `&Název` tedy čte českou hodnotu klíče `name`, zatímco `&Name` čte
-jeho anglickou hodnotu. Při zapnuté sdílené hodnotě oba tokeny vrátí stejný
-text. Prázdná hodnota se ve výkresu zobrazuje jako `-`, nikoliv jako historická
-ukázková hodnota ze šablony.
+Text začínající `&` odkazuje na parametr. Interní klíče, například `name`,
+i lokalizované popisky (`&Název`, `&Name`, `&Наименование`) označují stejný
+parametr. **Vlastnosti listu → Jazyk razítka** určují jazyk čtené a zapisované
+hodnoty. Při vložení se převezme `Locale` šablony; sdílená hodnota má vždy
+přednost před jazykovou. Nevyplněná položka používá výchozí zástupný text pole.
 
-Upravitelné pole se při přejetí zvýrazní oranžově a po výběru azurově.
-Dvojklik otevře jeho vlastnosti. Změna pole navázaného na parametr modelu
-změní tento parametr ve zdrojovém dílu nebo sestavě. Hodnota patřící pouze
-listu zdrojový model nemění.
+Příkaz **Hodnoty razítka…** zobrazí aktuální hodnoty. Upravitelné pole se ve
+výkresu zvýrazní oranžově při hoveru a azurově po výběru; dvojklik otevře
+stejný dialog a zaměří jeho editor. Načítání funguje i před vložením prvního
+pohledu, pokud má výkres přiřazený zdrojový model. Po vložení pohledů určuje
+zdroj razítka první pohled aktivního listu.
+
+**OK** zapisuje změněné hodnoty jednoduchých parametrických polí s `WriteBack`
+do Parameters zdrojového dílu nebo sestavy v jediné revizi zdroje. **Cancel**
+neprovede zápis. Otevřený model má přednost před souborem na disku. Dosud
+neotevřený zdroj se při potvrzení načte do workspace; změna zůstane neuložená
+stejně jako při běžné editaci Parameters a lze ji vrátit pomocí Undo zdroje.
+Výraz `&parametr` zůstává v razítku zachovaný, nevzniká lokální přepis jeho hodnoty.
+
+Samostatné texty `&parametr` mimo oblast kusovníku, které neměly vlastní
+sekci `Field`, se při vložení také zpřístupní jako parametrická pole.
+Položky `&drawing.*` a `&local.*` se ukládají pouze do listu.
+Systémové hodnoty, složené výrazy a parametry řízené vztahy jsou jen ke čtení.
+Řádky opakovaného kusovníku nejsou přes tento dialog editory parametrů komponent.
+
+Hmotnost řízená `model.mass` a její jednotka se řídí nastavením zdroje;
+[pravidla výpočtu a jeho hranice](PHYSICAL_PROPERTIES.md) popisují hustotu,
+jednotky, snímky komponent a explicitní Regenerate sestavy.
 
 ## BOM Repeat Region v razítku
+
+Sestavový pohled při vložení nebo explicitní regeneraci načte komponenty
+zdrojové sestavy. Stejný zdroj se seskupí do jedné položky s odpovídajícím
+množstvím, odlišné zdroje vytvoří další řádky. Každý řádek načítá vlastní
+Parameters příslušného dílu či podsestavy. Potlačené komponenty se vynechávají;
+pouze skryté komponenty se stále započítávají. Počet řádků určuje počet
+položek BOM, fialový rámeček definuje opakovanou geometrii a rozteč.
 
 Oblast kusovníku se v editoru razítka označuje objektem **BOM Repeat Region**.
 Je zobrazena jako fialový drátový obdélník, nikoliv jako vyplněná plocha.
@@ -221,6 +245,6 @@ Zámek nefixuje polohu popisku; číselnou hodnotu lze záměrně změnit ve vla
 včetně jednorázového převzetí současné hodnoty při zadávání reference.
 
 Vlastnosti obrázku, oblasti kusovníku, jejich příkazy, zarovnání a směry
-opakování mají české, anglické, německé a francouzské texty podle
+opakování mají české, anglické, německé, francouzské a ruské texty podle
 [jazyka aplikace](LOCALIZATION.md). Přepnutí jazyka nemění rozměry,
 zarovnání, tokeny kusovníku ani vlastní texty uložené v razítku.

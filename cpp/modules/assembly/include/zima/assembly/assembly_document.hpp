@@ -131,6 +131,10 @@ struct PartOccurrence {
     std::optional<zima::document::DerivedCopyParameters> derived_copy;
     zima::document::Placement copy_placement;
     std::set<std::string> value_locks;
+    // Material/mass snapshots updated only by explicit insertion/regeneration.
+    std::optional<double> density_kg_mm3;
+    std::optional<double> nested_mass_kg;
+    double mass_volume_mm3{};
 };
 
 // Assembly-owned subtractive feature. `definition` is deliberately the same

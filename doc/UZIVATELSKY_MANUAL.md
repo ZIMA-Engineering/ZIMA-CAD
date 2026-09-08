@@ -84,11 +84,16 @@ startovací díl obsahuje:
 mass = model.mass
 ```
 
-`model.mass` je hmotnost v kilogramech vypočítaná ze skutečného objemu
-výsledného OCCT tělesa a z `MASS_DENSITY` přiřazeného materiálu. Podporované
+`model.mass` je hmotnost v jednotce nastavené v daném souboru (`kg`, `g`,
+`t` nebo `lb`), vypočítaná z uloženého objemu výsledného tělesa a
+z `MASS_DENSITY` přiřazeného materiálu. Globální nastavení poskytuje jednotky
+novým dokumentům; existující soubor používá vlastní nastavení. Podporované
 jednotky hustoty jsou `kg/mm^3`, `kg/m^3`, `g/cm^3` a `lb/in^3`. Výsledek se
 zapíše jako obyčejný text do parametru `mass`; razítko ani další uživatel
-parametru nemusí znát jeho vzorec.
+parametru nemusí znát jeho vzorec. Razítko zobrazuje jednotku pomocí
+`&document.mass_unit`. Bez platné hustoty není hmotnost dostupná. Podrobnosti
+včetně součtu sestav a explicitní regenerace popisují
+[hmotnost a fyzikální vlastnosti](PHYSICAL_PROPERTIES.md).
 
 Výchozí startovací díl má přiřazený materiál **S235JR** včetně jeho
 materiálových vlastností, jednotek a popisů z knihovny materiálů.

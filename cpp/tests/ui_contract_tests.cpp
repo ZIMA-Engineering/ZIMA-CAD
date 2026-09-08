@@ -3886,6 +3886,9 @@ int main(int argc, char* argv[]) {
         require(text_value && text_value->toPlainText() == QStringLiteral("O") &&
                     text_dialog->windowFlags().testFlag(Qt::SubWindow),
                 "Editable Sketch Text did not reopen as a semantic internal dialog");
+        auto* text_mode=text_dialog->findChild<QComboBox*>("sketchTextMode");
+        require(text_mode && text_mode->currentData().toBool(),"Text modeling mode missing");
+        text_mode->setCurrentIndex(0);
         text_value->setPlainText(QStringLiteral("OI"));
         text_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
         application.processEvents();
@@ -3897,7 +3900,7 @@ int main(int argc, char* argv[]) {
                 text_max_y = std::max(text_max_y, point[1]);
             }
         }
-        require(text_commits == 1 && committed_text.value == "OI" &&
+        require(text_commits == 1 && !committed_text.modeling_geometry && committed_text.value == "OI" &&
                     !committed_text.contours.empty() &&
                     text_min_y < committed_text.anchor_y &&
                     text_max_y <= committed_text.anchor_y + 1.0e-6,

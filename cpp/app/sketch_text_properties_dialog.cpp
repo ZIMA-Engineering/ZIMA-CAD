@@ -42,6 +42,7 @@ SketchTextPropertiesDialog::SketchTextPropertiesDialog(
       preview_(std::move(preview)), commit_(std::move(commit)), y_up_(y_up) {
     setAttribute(Qt::WA_DeleteOnClose, true);
     setProperty("dialogKind", QStringLiteral("sketchText"));
+    setObjectName("sketchTextProperties");
     setMinimumWidth(420);
 
     auto* form = new QFormLayout;
@@ -51,6 +52,14 @@ SketchTextPropertiesDialog::SketchTextPropertiesDialog(
     value_->setFixedHeight(value_->fontMetrics().lineSpacing() * 5 + 16);
     form->addRow(new QLabel(tr("Text"), this));
     form->addRow(value_);
+    mode_ = new QComboBox(this);
+    mode_->setObjectName("sketchTextMode");
+    mode_->addItem(tr("Běžný text"), false);
+    mode_->addItem(tr("Geometrie pro modelování"), true);
+    mode_->setCurrentIndex(initial_.modeling_geometry ? 1 : 0);
+    form->addRow(tr("Režim textu"), mode_);
+    connect(mode_, &QComboBox::currentIndexChanged,
+            this, &SketchTextPropertiesDialog::update_preview);
 
     height_ = new QDoubleSpinBox(this);
     height_->setObjectName("sketchTextHeight");
@@ -233,6 +242,7 @@ zima::sketcher::SketchText SketchTextPropertiesDialog::build_text() const {
 
     auto text = initial_;
     text.value = value.toStdString();
+    text.modeling_geometry = mode_->currentData().toBool();
     text.anchor_x = (*anchor_)[0]; text.anchor_y = (*anchor_)[1];
     text.height = height_->value();
     text.horizontal = static_cast<zima::sketcher::TextHorizontalAlignment>(horizontal_->currentData().toInt());

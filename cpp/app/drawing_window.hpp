@@ -4,6 +4,7 @@
 
 #include <QMainWindow>
 #include <QPointer>
+#include <QPointF>
 
 #include <filesystem>
 #include <functional>
@@ -41,6 +42,7 @@ public:
     void select_view_for_test(const std::string& view_id);
     void load_frame_for_test(const std::filesystem::path& path);
     void load_title_block_for_test(const std::filesystem::path& path);
+    std::optional<QPointF> title_field_center_for_test(const std::string& id) const;
 
 private:
     zima::drawing::DrawingDocument document_;

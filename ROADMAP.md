@@ -13,6 +13,16 @@ will remain a separately built, dynamically linked solid-modeling kernel behind
 a narrow adapter. The approved direction, module boundaries and migration gates
 are documented in [Future C++ migration](doc/CXX_MIGRATION.md).
 
+## Text, razítka a hmotnost (2026-09-08)
+
+Doplněny režimy běžného a modelovacího textu, editace původních textových
+identit razítka a zápis položek výkresu do Parameters dílu či sestavy.
+Ruština je pátý jazyk rozhraní i výchozích parametrických popisků.
+Hmotnost používá hustotu materiálu, jednotky dokumentu a explicitně
+aktualizované snímky komponent; chybějící údaje se nevydávají za nulu.
+Viz [výkresy](doc/DRAWINGS.md), [Sketcher](doc/SKETCHER.md),
+[překlady](doc/LOCALIZATION.md) a [fyzikální veličiny](doc/PHYSICAL_PROPERTIES.md).
+
 ## Dohodnutý další postup pro Part (2026-09-06)
 
 Při příštím návratu k vývoji uživateli stručně připomenout tento plán.
@@ -51,7 +61,11 @@ osy a koncové reference Sweep/Loftu a tečné kontakty ve skicáři.
 [Uložit jako](doc/DOCUMENT_COPY.md) vytváří kopii modelu a navázaných výkresů,
 původní dokument zůstává otevřený.
 Pattern celých těles, Boolean v Assembly a přesun těles mezi Party jsou
-budoucí rozšíření. Diskuse o nich nemění pořadí výše uvedených úloh;
+budoucí rozšíření. Pro Boolean v Assembly je dohodnuto (2026-09-08):
+komponenta spotřebovaná jako nástroj operace, například druhý díl v A − B,
+nezůstává samostatnou položkou BOM ani příspěvkem hmotnosti. Tato role musí
+být explicitní a uložená u operace; samotné skrytí komponenty ji nenahrazuje.
+Potlačení nebo odstranění operace musí původní účast nástroje obnovit. Diskuse o nich nemění pořadí výše uvedených úloh;
 nejbližší plánovanou prací zůstává odsazení ve skicáři, zejména od STEP hran.
 Spolehlivost STEP importu/exportu zůstává také oblastí kontroly pokrytí.
 
