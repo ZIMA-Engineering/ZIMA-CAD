@@ -15,6 +15,11 @@ výběrem roviny nebo rovinné plochy původního objektu ve View či Tree, ani�
 se změní umístění kontejneru. Nezadávají se dvě povinné kolmé roviny pro
 průřez a dráhu; profilové roviny se odvozují od tečny dráhy.
 
+Pole roviny dráhy přijímá také XY, YZ a XZ vlastního počátku kontejneru.
+Jde o referenci vnitřní skici, která sleduje již určené umístění svého rodiče.
+Změna této roviny nemění polohu, natočení ani vazby kontejneru. Hlavní roviny
+dílu a roviny předchozích objektů zůstávají dostupné.
+
 Dráha je jedna otevřená souvislá rovinná křivka začínající v počátku skici.
 Počáteční směr může být libovolný. Používá úsečky, oblouky, eliptické oblouky
 a otevřené spline včetně vyhodnocených skicových zaoblení. Může měnit směr

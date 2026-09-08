@@ -1,4 +1,5 @@
 #pragma once
+#include "table_entry.hpp"
 #include "thread_catalog.hpp"
 #include <zima/document/part_document.hpp>
 #include <zima/ui/properties_subwindow.hpp>
@@ -174,8 +175,15 @@ private:
         }
         length_->setEnabled(end_->currentIndex()==0);runout_->setEnabled(end_->currentIndex()==0);
         factor_->setEnabled(end_->currentIndex()==0 && runout_->isChecked());
+        auto* row_actions=entry_row_header(refs_);row_actions->clear_actions();
         for (int row=0;row<4;++row) {
             const auto ref=reference(row);
+            row_actions->set_action(row,ref.has_value(),[this,row] {
+                auto& p=pending_.shaft_thread;
+                if(row==0)p.cylinder={};else if(row==1)p.start={};
+                else if(row==2)p.chamfer.reset();else p.end.reset();
+                inspected_[row]=false;labels_[row].clear();active_=row;refresh_fields();notify();
+            },[this,row]{active_=row;refresh_fields();notify();});
             fields_[row]->setText(ref ? (labels_[row].isEmpty() ? QString::fromStdString(ref->semantic_key) : labels_[row]) : tr("Vyberte plochu…"));
             if (ref) fields_[row]->set_reference(QString::fromStdString(ref->semantic_key));
             else fields_[row]->clear_reference();

@@ -6991,10 +6991,24 @@ void PartDocument::resolve_sweep2d_planes(HistoryContainer& c,const zima::kernel
     using namespace helical_geometry;
     if(c.sweep2d.path_plane) {
         const auto& reference=*c.sweep2d.path_plane;
-        if(reference.owner_id==c.id||reference.owner_id==c.feature_id||reference.owner_id==c.container_origin.id)
-            throw std::runtime_error("Rovina dráhy nemůže odkazovat na vlastní kontejner");
-        const auto plane=placement_reference_plane(reference,geometry);
-        if(!plane||!construction_reference_is_planar_face(reference,geometry))
+        // Only the child path Sketch may choose its owning Origin's planes.
+        // The container placement has already been resolved and is not edited here.
+        zima::kernel::ViewerReferenceGeometry own_geometry;
+        const auto* plane_geometry=&geometry;
+        if(reference.owner_id==c.container_origin.id && reference.instance_path.empty() &&
+            (reference.semantic_key=="origin:plane:xy"||reference.semantic_key=="origin:plane:yz"||reference.semantic_key=="origin:plane:xz")) {
+            PartDocument carrier;ConstructionObject origin;
+            origin.id=c.id;origin.entity_id=c.feature_id;origin.container_origin=c.container_origin;
+            origin.kind=ConstructionKind::Point;origin.reference_valid=false;
+            origin.origin={c.placement.x,c.placement.y,c.placement.z};
+            origin.rotation={c.placement.rotation_x,c.placement.rotation_y,c.placement.rotation_z};
+            carrier.constructions.push_back(origin);
+            own_geometry=carrier.construction_viewer_mesh(c.id).original_references;
+            plane_geometry=&own_geometry;
+        } else if(reference.owner_id==c.id||reference.owner_id==c.feature_id||reference.owner_id==c.container_origin.id)
+            throw std::runtime_error("Rovina dráhy musí být jednou ze tří rovin vlastního počátku nebo vnější referencí");
+        const auto plane=placement_reference_plane(reference,*plane_geometry);
+        if(!plane||!construction_reference_is_planar_face(reference,*plane_geometry))
             throw std::runtime_error("Reference roviny dráhy musí být rovina nebo rovinná plocha");
         auto sketch=zima::sketcher::Sketch::from_serialized(c.sweep2d.path_sketch);
         const V origin{c.placement.x,c.placement.y,c.placement.z};

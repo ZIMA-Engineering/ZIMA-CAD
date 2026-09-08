@@ -27,6 +27,13 @@ skrýt a použít jako nástroj nebo cíl operace Boolean. Pole představuje jed
 společný výsledek zahrnující jeho kopie. Geometrie kopií nemá vlastní
 editovatelnou historii; rozměry se mění ve zdroji.
 
+Při spuštění z aktivního tělesa se Zrcadlo nebo Pole vkládá bezprostředně
+za toto těleso. Zdroj lze vybrat jen z výsledků před touto hranicí; pozdější
+tělesa zůstávají ve View potlačená a v Tree šedá již od otevření Vlastností,
+i před vyplněním zdroje. Cancel obnoví původní stav historie.
+V nabídce aktivního tělesa jsou Zrcadlo a Pole pod Vrtací špičkou, před
+zeleným oddělovačem a příkazem Kvádr.
+
 V sestavě odkazuje kontejner na bezprostředně vlastněnou komponentu. Pole
 ukládá pro každou kopii vlastní cestu výskytu, včetně kopií podsestav.
 U lineárního pole je identita odvozena od celočíselné pozice na místních

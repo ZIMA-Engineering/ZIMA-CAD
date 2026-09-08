@@ -47,7 +47,6 @@ private:
     void populate();
     bool read_table();
     void add_row();
-    void delete_rows();
     UserParameterData data_;
     QString language_;
     std::function<void(UserParameterData)> accepted_;

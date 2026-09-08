@@ -1,3 +1,4 @@
+#include "table_entry.hpp"
 #include "shaft_thread_dialog.hpp"
 #include "sweep2d_dialog.hpp"
 #include "helical_sweep_dialog.hpp"
@@ -166,6 +167,58 @@ int verify_numeric_fields(QApplication& application, QWidget& parent) {
     return 0;
 }
 
+int verify_entry_tables(QApplication& application,QWidget& parent) {
+    using namespace zima::app;
+    const auto flush=[&]{for(int i=0;i<8;++i)application.processEvents();};
+    ApplicationSettings settings;
+    UserParameterData data;data.order={"a","b"};
+    data.values["a"][""]="one";data.values["b"][""]="two";
+    bool committed=false;UserParameterData result;
+    auto* dialog=new UserParametersDialog(data,"cs",[&](auto value){committed=true;result=std::move(value);},settings,&parent);
+    dialog->show();flush();
+    auto* table=dialog->findChild<QTableWidget*>("documentParametersTable");
+    require(table&&table->rowCount()==3,"Parameters did not offer one empty row");
+    require(dialog->width()<760&&table->columnWidth(2)<=170,"Parameters name column or dialog stayed too wide");
+    require(dynamic_cast<EntryRowHeader*>(table->verticalHeader()),"Parameters lack shared row indicators");
+    const auto enter=[&](const QString& value,int expected_row) {
+        auto* editor=qobject_cast<QLineEdit*>(application.focusWidget());
+        require(editor,"Enter navigation did not leave a text editor ready");editor->setText(value);
+        QKeyEvent key(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);
+        QApplication::sendEvent(editor,&key);flush();
+        require(table->currentRow()==expected_row&&qobject_cast<QLineEdit*>(application.focusWidget()),"Enter did not move down and start editing");
+        require(!committed&&dialog->isVisible(),"Enter submitted the Parameters dialog");
+    };
+    edit_table_cell(table,0,3);flush();enter("first",1);enter("second",2);
+    require(table->item(0,3)->text()=="first"&&table->item(1,3)->text()=="second","Enter lost the edited cell values");
+    table->setFocus();flush();edit_table_cell(table,2,0);flush();enter("c",3);
+    require(table->rowCount()==4,"Entering the offered row did not offer a fresh row");
+    table->setFocus();flush();table->item(2,3)->setText("third");flush();
+    auto* remove=table->verticalHeader()->findChild<QWidget*>("tableRowAction0")->findChild<QPushButton*>();
+    require(remove&&remove->isVisible(),"Populated row has no visible red delete action");remove->click();flush();
+    require(table->item(0,0)->text()=="b"&&table->rowCount()==3,"Row delete removed the wrong entry");
+    const auto directory=std::filesystem::path(__FILE__).parent_path().parent_path().parent_path()/"Projects/test/entry-tables";
+    std::filesystem::create_directories(directory);
+    dialog->grab().save(QString::fromStdString((directory/"parameters.png").string()));
+    dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+    require(committed&&result.order==std::vector<std::string>{"b","c"}&&result.flat["b"]=="second"&&result.flat["c"]=="third","Parameters OK stored an empty offered row or lost data");
+    delete dialog;
+    auto* material=new MaterialDialog({},[](auto){},settings,&parent);material->show();flush();
+    auto* materials=material->findChild<QTableWidget*>("materialTable");
+    require(materials->rowCount()==1,"Material lacks its offered row");
+    materials->item(0,0)->setText("DENSITY");materials->item(0,1)->setText("7.85");flush();
+    require(materials->rowCount()==2,"Material did not extend after text entry");
+    material->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+    require(!material->isVisible(),"Material tried to save the empty offered row");delete material;
+    bool family_committed=false;
+    auto* family=new FamilyTableDialog("generic",{},[&](auto){family_committed=true;},settings,&parent);family->show();flush();
+    auto* family_table=family->findChild<QTableWidget*>("familyTableTable");
+    require(family_table->rowCount()==2&&!family_table->verticalHeader()->findChild<QWidget*>("tableRowAction0"),"Family generic row can be deleted");
+    family->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+    require(family_committed,"Family Table attempted to persist the empty offered instance");delete family;
+    std::cout<<"Entry rows, Enter-down editing, delete, blank-row persistence and compact Parameters passed\n";
+    return 0;
+}
+
 int main(int argc, char* argv[]) {
     QApplication application(argc, argv);
     QWidget parent;
@@ -174,6 +227,7 @@ int main(int argc, char* argv[]) {
     const auto initial = zima::document::PartDocument::create_box_container();
 
     try {
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_ENTRY_TABLES_ONLY")) return verify_entry_tables(application,parent);
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_NUMERIC_ONLY")) return verify_numeric_fields(application,parent);
         {
             using namespace zima::app;
@@ -2956,7 +3010,7 @@ int main(int argc, char* argv[]) {
         auto* curve_table =
             curve_dialog->findChild<QTableWidget*>("curve3DPoints");
         require(curve_table != nullptr && curve_table->columnCount() == 6 &&
-                    curve_table->rowCount() == 2 &&
+                    curve_table->rowCount() == 3 &&
                     curve_table->horizontalHeaderItem(0)->text() == "Bod" &&
                     curve_table->horizontalHeaderItem(1)->text() == "Osa směru" &&
                     curve_table->item(0, 0) != nullptr &&
@@ -3016,8 +3070,7 @@ int main(int argc, char* argv[]) {
         require(requested_curve_axis == 0 &&
                     curve_dialog->findChild<QPushButton*>(
                         "curve3DEditPoint")->isEnabled() &&
-                    curve_dialog->findChild<QPushButton*>(
-                        "curve3DDeletePoint")->isEnabled(),
+                    curve_table->verticalHeader()->findChild<QWidget*>("tableRowAction0") != nullptr,
                 "3D Curve direction-axis field did not arm Viewer picking "
                 "or select its Point row");
         bool curve_axis_finished_before_point_edit = false;
@@ -3033,7 +3086,7 @@ int main(int argc, char* argv[]) {
                 requested_new_curve_point = !index.has_value();
             });
         curve_dialog->set_curve_axis_active(0);
-        curve_dialog->findChild<QPushButton*>("curve3DAddPoint")->click();
+        emit curve_table->cellClicked(curve_table->rowCount()-1,0);
         require(curve_axis_finished_before_point_edit &&
                     requested_new_curve_point,
                 "Opening a new Curve Point did not transfer Viewer ownership "

@@ -389,6 +389,38 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     bool linked_properties=false;for(auto* open:window.findChildren<QDialog*>())if(open->isVisible())linked_properties=true;
     if(!verify(linked_properties,"Pattern copy properties did not resolve its source"))return 1;
     for(auto* open:window.findChildren<QDialog*>())if(open->isVisible())open->reject();flush();
+    // A body command must keep later bodies outside its source/display boundary.
+    auto history_part=document::PartDocument::create_default();document::BodyHistoryGraph history_graph;
+    const auto first=history_graph.create_body("First");auto first_box=document::PartDocument::create_box_container();first_box.box={8,6,4};
+    history_graph.insert({document::PartHistoryKind::Feature,first_box.id});
+    const auto later=history_graph.create_body("Later");auto later_box=document::PartDocument::create_box_container();later_box.box={8,6,4};later_box.placement.x=80;
+    history_graph.insert({document::PartHistoryKind::Feature,later_box.id});history_graph.activate(first);
+    history_part.history={first_box,later_box};history_part.set_body_history(history_graph);
+    const auto history_path=directory/"copy-history-ui.prtz";
+    history_part.save(history_path,kernel.evaluate_history(history_part.kernel_operations()));
+    if(!verify(window.open_document_path(QString::fromStdString(history_path.string())),"Copy history fixture did not open"))return 1;
+    flush();
+    const auto later_is_suppressed=[&] {
+        const auto* future=row(later,"part-body");
+        return future&&future->foreground(0).color()==QColor(125,125,125)&&
+            std::ranges::none_of(view->mesh().vertices,[](const auto& point){return point.x>60;});
+    };
+    if(!verify(later_is_suppressed(),"Future body was not suppressed before copy command"))return 1;
+    for(bool make_pattern:{false,true}) {
+        auto* command=window.findChild<QAction*>(make_pattern?"patternAction":"mirrorAction");
+        tree->clearSelection();view->clear_selection();command->trigger();flush();
+        auto* copy=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>(make_pattern?"patternDialog":"mirrorDialog"));
+        if(!verify(copy&&later_is_suppressed(),"Copy command exposed a future body before source selection"))return 1;
+        copy->request_input(1);flush();
+        const auto source_filter=view->candidate_filter();
+        if(!verify(source_filter&&!source_filter(viewer::ViewerCandidate{viewer::CandidateKind::Container,0,0,later,{}, {},viewer::CandidateGeometry::Display}),"Copy command offered a future source body or lost its selection contract"))return 1;
+        copy->set_source(first,"First");
+        if(!make_pattern)copy->findChild<QPushButton*>("mirrorPlane_yz")->click();
+        flush();copy->changed();flush();
+        if(!verify(later_is_suppressed(),"Copy preview exposed a future body"))return 1;
+        copy->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+        if(!verify(later_is_suppressed(),"Copy Cancel changed the active history boundary"))return 1;
+    }
     std::cout<<"Mirror and Pattern UI contracts passed\n";return 0;
 }
 
@@ -419,6 +451,27 @@ int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspac
     dialog->findChild<QDoubleSpinBox*>("sweepTranslation2")->setValue(8);
     dialog->findChild<QDoubleSpinBox*>("sweepRotation1")->setValue(25);application.processEvents();
     if(!verify(dialog->pending.placement.x==12&&dialog->pending.placement.y==-3&&dialog->pending.placement.z==8&&std::abs(dialog->pending.placement.rotation_y-25)<1e-6&&placement_view->camera_state()==camera,"Sweep placement fields did not update or moved camera"))return 1;
+    dialog->request_path_plane();application.processEvents();placement_view->fit_all();
+    std::optional<QPointF> own_plane_hit;std::size_t own_plane_index{};
+    for(int y=4;y<placement_view->height()&&!own_plane_hit;y+=3)for(int x=4;x<placement_view->width();x+=3) {
+        const auto candidates=placement_view->selection_candidates_at(QPointF(x,y));
+        for(std::size_t i=0;i<candidates.size();++i)if(candidates[i].owner_id==dialog->pending.container_origin.id &&
+            candidates[i].semantic_key.starts_with("origin:plane:")) {own_plane_hit=QPointF(x,y);own_plane_index=i;break;}
+        if(own_plane_hit)break;
+    }
+    if(!verify(own_plane_hit.has_value(),"2D Sweep did not offer the planes of its own Origin"))return 1;
+    const auto point=*own_plane_hit;
+    QMouseEvent own_move(QEvent::MouseMove,point,point,point,Qt::NoButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(placement_view,&own_move);
+    for(std::size_t i=0;i<own_plane_index;++i) {
+        QMouseEvent press(QEvent::MouseButtonPress,point,point,point,Qt::RightButton,Qt::RightButton,Qt::NoModifier);
+        QMouseEvent release(QEvent::MouseButtonRelease,point,point,point,Qt::RightButton,Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(placement_view,&press);QApplication::sendEvent(placement_view,&release);
+    }
+    QMouseEvent own_press(QEvent::MouseButtonPress,point,point,point,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+    QMouseEvent own_release(QEvent::MouseButtonRelease,point,point,point,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+    QApplication::sendEvent(placement_view,&own_press);QApplication::sendEvent(placement_view,&own_release);application.processEvents();
+    if(!verify(dialog->pending.sweep2d.path_plane&&dialog->pending.sweep2d.path_plane->owner_id==dialog->pending.container_origin.id,
+        "Own Origin plane click did not persist the path reference"))return 1;
     auto guide=zima::sketcher::Sketch::from_serialized(dialog->pending.sweep2d.path_sketch);
     static_cast<void>(guide.add_segment(0,0,0,10));dialog->set_sketch(0,guide);
     auto section=zima::sketcher::Sketch::from_serialized(dialog->pending.sweep2d.sketch_data(1));
@@ -1233,7 +1286,7 @@ int verify_body_curve_references(QApplication& application, const std::filesyste
         };
         auto* parent=dialog();
         if (!verify(parent!=nullptr,"Cannot open Curve/Sweep properties in Body")) return 1;
-        parent->findChild<QPushButton*>("curve3DAddPoint")->click();flush();
+        {auto* rows=parent->findChild<QTableWidget*>("curve3DPoints");emit rows->cellClicked(rows->rowCount()-1,0);}flush();
         auto* point=dialog();
         if (!verify(point && point!=parent,"Cannot add Curve/Sweep point in Body")) return 1;
         auto* view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
@@ -1356,7 +1409,7 @@ int verify_body_pending_tree(QApplication& application, const std::filesystem::p
                     "Returning from owned Sketch restored Insert here before container confirmation")) return 1;
         }
         if (std::string_view(name) == "sweep3DAction" || std::string_view(name) == "curve3DAction") {
-            dialog->findChild<QPushButton*>("curve3DAddPoint")->click(); flush();
+            {auto* rows=dialog->findChild<QTableWidget*>("curve3DPoints");emit rows->cellClicked(rows->rowCount()-1,0);} flush();
             auto* point_dialog = visible_dialog();
             if (!verify(point_dialog && point_dialog != dialog && part_insertion_marker_count(tree) == 0,
                     "Nested Point editor restored Insert here")) return 1;
@@ -1450,7 +1503,7 @@ int verify_pending_container_tree(QApplication& application,
         if (!verify(parent_dialog->set_inline_parameter_value("reference_offset:0", 12.5),
                 "Cannot offset the pending parent fixture")) return 1;
         flush();
-        parent_dialog->findChild<QPushButton*>("curve3DAddPoint")->click(); flush();
+        {auto* rows=parent_dialog->findChild<QTableWidget*>("curve3DPoints");emit rows->cellClicked(rows->rowCount()-1,0);} flush();
         auto* point = dialog();
         if (!verify(point && point != parent_dialog && find("construction-origin", origin_id) &&
                 !find(marker), "Nested Point lost its pending parent origin in Tree")) return 1;
@@ -1531,7 +1584,7 @@ int verify_pending_container_tree(QApplication& application,
         }
         // Closing the application with a nested editor must retire its hidden parent too.
         window.findChild<QAction*>(assembly ? "curve3DAction" : "sweep3DAction")->trigger(); flush();
-        dialog()->findChild<QPushButton*>("curve3DAddPoint")->click(); flush();
+        {auto* rows=dialog()->findChild<QTableWidget*>("curve3DPoints");emit rows->cellClicked(rows->rowCount()-1,0);} flush();
         dialog()->findChild<QPushButton*>("containerOriginSelectionButton")->click(); flush();
     }
     std::cout << "Pending container Tree contracts passed\n";

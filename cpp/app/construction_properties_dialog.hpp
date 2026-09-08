@@ -180,9 +180,7 @@ private:
     QTableWidget* curve_points_table_{};
     QCheckBox* curve_rounding_{};
     bool initialized_{};
-    QPushButton* add_curve_point_{};
     QPushButton* edit_curve_point_{};
-    QPushButton* delete_curve_point_{};
     QPushButton* move_curve_point_up_{};
     QPushButton* move_curve_point_down_{};
     std::vector<zima::document::ConstructionObject> curve_points_;

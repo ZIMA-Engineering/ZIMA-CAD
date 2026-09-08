@@ -45,6 +45,10 @@ void AssemblyWorkspaceWindow::show_derived_copy_properties(const std::string& id
         if(graph.bodies().empty()&&!document.history_order.empty()) {
             static_cast<void>(graph.create_body("Těleso 1"));for(const auto& entry:document.history_order)graph.insert(entry);graph.activate({});
         }
+        if(id.empty()&&!graph.active_body_id().empty()) {
+            const auto active=std::ranges::find(graph.order(),graph.active_body_id());
+            graph.set_insertion_cursor(static_cast<std::size_t>(std::distance(graph.order().begin(),active))+1);
+        }
         const auto boundary=id.empty()?graph.insertion_cursor():static_cast<std::size_t>(std::distance(graph.order().begin(),std::ranges::find(graph.order(),id)));
         available=graph.available_before(boundary);
         if(!id.empty()) {const auto* body=graph.find(id);if(!body||!body->derived_copy)return;parameters=*body->derived_copy;initial.name=body->name;initial.placement=body->scope.placement;}
@@ -155,10 +159,12 @@ void AssemblyWorkspaceWindow::show_derived_copy_properties(const std::string& id
             }
             try{document::PartDocument::resolve_copy_reference(mirror,dialog->pending.id,dialog->pending.placement,geometry);return true;}catch(const std::exception&){return false;}
         };
-        tree_->setProperty("commandSelectionActive",true);viewer_->set_candidate_filter(accepts);
+        tree_->setProperty("commandSelectionActive",true);
         viewer_->set_selection_contract(row==1?std::vector<viewer::CandidateKind>{viewer::CandidateKind::Occurrence,viewer::CandidateKind::Container}:
             dialog->derived_copy.pattern ? std::vector<viewer::CandidateKind>{viewer::CandidateKind::Axis,viewer::CandidateKind::Edge} :
             std::vector<viewer::CandidateKind>{viewer::CandidateKind::Plane,viewer::CandidateKind::Face});
+        // set_selection_contract clears any previous filter.
+        viewer_->set_candidate_filter(accepts);
         feature_reference_pick_=[this,dialog,source_id,prefix,row,accepts,sources](const auto& candidate){if(!accepts(candidate))return;
             feature_reference_pick_={};feature_reference_end_={};
             if(row==1){const auto id=source_id(candidate);dialog->set_source(id,sources.at(id).name);}

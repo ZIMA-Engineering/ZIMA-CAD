@@ -55,6 +55,24 @@ písmu. Při čtyřech desetinných místech proto zůstane vidět například c
 `0,0000 mm`. V tabulce vazeb dostane hodnota potřebný prostor na úkor sloupce
 reference. Stejné pravidlo platí i pro neaktivní hodnoty a po přepsání čísla.
 
+## Zadávání tabulek
+
+V **Parametrech** Enter potvrdí rozepsanou buňku, posune se ve stejném sloupci
+o řádek dolů a rovnou otevře další buňku k zadávání. Okno tím nepotvrdí.
+Sloupec popisku je užší a celé okno má menší výchozí šířku; lze ho zvětšit.
+
+Parametry, Relace, Materiál a seznam instancí Family Table nabízejí na konci
+jeden prázdný řádek se zelenou šipkou. Po vyplnění se nabídne další řádek a
+u vyplněné položky je červený křížek pro její odstranění. Prázdná nabídka se
+neukládá. Základní řádek Family Table zůstává chráněný; ovládání jejích sloupců
+je samostatné. Tato úprava nepřidává výpočet variant Family Table.
+
+Stejný vzhled mají řádky bodů 3D křivky, profilů 2D/3D tažení, referencí
+závitu a individuálních barev ploch. U profilů křížek odstraní vlastní skicu v dané stanici; stanice
+zůstane v dráze a může převzít předchozí profil. U prvního profilu je potřeba
+zadat náhradu. Přehledové tabulky a pořadí bodů nenabízejí mazání geometrie.
+Společné zadávání umístění kontejneru se touto úpravou nemění.
+
 ## Parametry, relace a hmotnost
 
 **Nástroje → Parametry** obsahují pouze uložené výsledné hodnoty. Vzorce se

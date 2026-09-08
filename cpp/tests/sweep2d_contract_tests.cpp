@@ -120,6 +120,21 @@ int main(){try{
     auto invalid=attached;invalid.sweep2d.path_plane->owner_id=invalid.id;
     bool rejected=false;try{document::PartDocument::resolve_sweep2d_planes(invalid,geometry);}catch(...){rejected=true;}
     require(rejected,"Self-referencing path plane was accepted");
+    // Child path planes use the owning Origin without modifying placement.
+    for(const auto* key:{"origin:plane:xy","origin:plane:yz","origin:plane:xz"}) {
+        auto local=fixture();local.placement.x=12;local.placement.y=-3;local.placement.z=8;local.placement.rotation_y=25;
+        const auto placement=local.placement;
+        local.sweep2d.path_plane=document::ConstructionReference{{},local.container_origin.id,key};
+        document::PartDocument::resolve_sweep2d_planes(local,{});
+        const auto sketch=sketcher::Sketch::from_serialized(local.sweep2d.path_sketch);
+        require(local.placement==placement,"Own path plane changed shared container placement");
+        close(sketch.resolved_origin.x,12,"Own plane lost X translation");
+        close(sketch.resolved_origin.y,-3,"Own plane lost Y translation");
+        close(sketch.resolved_origin.z,8,"Own plane lost Z translation");
+        close(calculate(local).volume,80*std::numbers::pi,"Own path plane changed sweep volume");
+        local.placement.x=29;document::PartDocument::resolve_sweep2d_planes(local,{});
+        close(sketcher::Sketch::from_serialized(local.sweep2d.path_sketch).resolved_origin.x,29,"Own path plane did not follow its parent");
+    }
     // Arbitrary initial direction is valid; the profile plane follows its tangent.
     auto oblique=document::PartDocument::create_sweep2d_container();guide=sketcher::Sketch::from_serialized(oblique.sweep2d.path_sketch);
     static_cast<void>(guide.add_segment(0,0,12,16));oblique.sweep2d.path_sketch=guide.serialized();

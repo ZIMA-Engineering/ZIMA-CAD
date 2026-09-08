@@ -1,5 +1,6 @@
 #include "document_tools_dialogs.hpp"
 #include "file_dialog.hpp"
+#include "table_entry.hpp"
 
 #include <zima/document/relations.hpp>
 
@@ -63,24 +64,6 @@ QString value_or(const std::map<std::string, std::string>& values,
     return QString::fromStdString(found == values.end() ? fallback : found->second);
 }
 
-void add_delete_row_buttons(QVBoxLayout* layout, QTableWidget* table,
-                            const ApplicationSettings& settings,
-                            const std::function<void()>& add) {
-    auto* row = new QHBoxLayout;
-    auto* add_button = new QPushButton(settings.text("button.add", "Přidat"));
-    auto* delete_button = new QPushButton(settings.text("button.delete", "Odstranit"));
-    QObject::connect(add_button, &QPushButton::clicked, add_button, add);
-    QObject::connect(delete_button, &QPushButton::clicked, table, [table] {
-        std::set<int, std::greater<>> rows;
-        for (const auto& index : table->selectionModel()->selectedIndexes())
-            rows.insert(index.row());
-        for (const int selected : rows) table->removeRow(selected);
-    });
-    row->addWidget(add_button);
-    row->addWidget(delete_button);
-    row->addStretch();
-    layout->addLayout(row);
-}
 
 }  // namespace
 
@@ -92,8 +75,8 @@ UserParametersDialog::UserParametersDialog(
       data_(std::move(data)), language_(std::move(language)),
       accepted_(std::move(accepted)) {
     setObjectName("documentParametersDialog");
-    setMinimumSize(760, 420);
-    set_initial_size(QSize(920, 560));
+    setMinimumSize(600, 420);
+    set_initial_size(QSize(690, 560));
     auto* language_form = new QFormLayout;
     language_combo_ = new NoWheelComboBox(this);
     language_combo_->setObjectName("parameterLanguage");
@@ -118,16 +101,11 @@ UserParametersDialog::UserParametersDialog(
     table_->verticalHeader()->hide();
     table_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     table_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
-    table_->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
+    table_->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Interactive);
+    table_->setColumnWidth(2, 160);
+    table_->setItemDelegate(new EnterDownDelegate(table_));
     table_->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Stretch);
     content_layout()->addWidget(table_);
-    auto* actions = new QHBoxLayout;
-    auto* add = new QPushButton(settings.text("button.add", "Přidat"));
-    auto* remove = new QPushButton(settings.text("button.delete", "Odstranit"));
-    connect(add, &QPushButton::clicked, this, &UserParametersDialog::add_row);
-    connect(remove, &QPushButton::clicked, this, &UserParametersDialog::delete_rows);
-    actions->addWidget(add); actions->addWidget(remove); actions->addStretch();
-    content_layout()->addLayout(actions);
     const auto change_language = [this] {
             const QString next_language = language_combo_->currentText();
             if (next_language.trimmed().isEmpty() || next_language == language_) return;
@@ -141,6 +119,7 @@ UserParametersDialog::UserParametersDialog(
         connect(language_combo_->lineEdit(), &QLineEdit::editingFinished,
             this, change_language);
     populate();
+    new TableEntryRows(table_,[this]{add_row();});
 }
 
 void UserParametersDialog::populate() {
@@ -170,6 +149,7 @@ bool UserParametersDialog::read_table() {
     std::vector<std::string> order;
     std::set<std::string> seen;
     for (int row = 0; row < table_->rowCount(); ++row) {
+        if (!table_row_has_text(table_,row)) continue;
         const QString key_text = table_->item(row, 0) == nullptr ? QString{} :
             table_->item(row, 0)->text().trimmed();
         const std::string key = key_text.toStdString();
@@ -207,19 +187,10 @@ bool UserParametersDialog::read_table() {
 }
 
 void UserParametersDialog::add_row() {
-    if (!read_table()) return;
-    int index = 1; std::string key;
-    do { key = QStringLiteral("param%1").arg(index++, 3, 10, QLatin1Char('0')).toStdString(); }
-    while (std::find(data_.order.begin(), data_.order.end(), key) != data_.order.end());
-    data_.order.push_back(key); data_.labels[key][language_.toStdString()] = key;
-    data_.values[key][""] = ""; populate();
-}
-
-void UserParametersDialog::delete_rows() {
-    std::set<int, std::greater<>> rows;
-    for (const auto& index : table_->selectionModel()->selectedIndexes()) rows.insert(index.row());
-    for (const int row : rows) table_->removeRow(row);
-    static_cast<void>(read_table());
+    const int row=table_->rowCount();table_->insertRow(row);
+    for(int column:{0,2,3}) table_->setItem(row,column,new QTableWidgetItem);
+    auto* check=new QCheckBox(table_);check->setChecked(true);
+    table_->setCellWidget(row,1,zima::ui::centered_cell_widget(check));
 }
 
 bool UserParametersDialog::submit() {
@@ -307,7 +278,7 @@ RelationsDialog::RelationsDialog(
     content_layout()->addWidget(table_);
     if (relations.empty()) add_row("mass", "model.mass");
     else for (const auto& relation : relations) add_row(relation.target, relation.expression);
-    add_delete_row_buttons(content_layout(), table_, settings, [this] { add_row(); });
+    new TableEntryRows(table_,[this]{add_row();});
 }
 
 void RelationsDialog::set_dimension_catalog(
@@ -441,17 +412,8 @@ FamilyTableDialog::FamilyTableDialog(
     }
     content_layout()->addWidget(table_);
     auto* actions = new QHBoxLayout;
-    auto* add_instance_button = new QPushButton(settings.text("dialog.family_table.add_instance", "Přidat instanci"));
-    auto* delete_instance = new QPushButton(settings.text("button.delete", "Odstranit"));
     auto* add_column_button = new QPushButton(settings.text("dialog.family_table.add_column", "Přidat sloupec"));
     auto* delete_column = new QPushButton(settings.text("dialog.family_table.delete_column", "Smazat sloupec"));
-    connect(add_instance_button, &QPushButton::clicked, this, &FamilyTableDialog::add_instance);
-    connect(delete_instance, &QPushButton::clicked, this, [this] {
-        std::set<int, std::greater<>> rows;
-        for (const auto& index : table_->selectionModel()->selectedIndexes())
-            if (index.row() > 0) rows.insert(index.row());
-        for (const int row : rows) table_->removeRow(row);
-    });
     connect(add_column_button, &QPushButton::clicked, this, &FamilyTableDialog::add_column);
     connect(delete_column, &QPushButton::clicked, this, [this] {
         std::set<int, std::greater<>> columns;
@@ -459,17 +421,14 @@ FamilyTableDialog::FamilyTableDialog(
             if (index.column() > 0) columns.insert(index.column());
         for (const int column : columns) table_->removeColumn(column);
     });
-    for (auto* button : {add_instance_button, delete_instance, add_column_button, delete_column}) actions->addWidget(button);
+    for (auto* button : {add_column_button, delete_column}) actions->addWidget(button);
     actions->addStretch(); content_layout()->addLayout(actions);
+    new TableEntryRows(table_,[this]{add_instance();},1);
 }
 
 void FamilyTableDialog::add_instance() {
-    int index = 1; std::set<QString> names;
-    for (int row = 0; row < table_->rowCount(); ++row) if (table_->item(row, 0)) names.insert(table_->item(row, 0)->text());
-    while (names.contains(QStringLiteral("INSTANCE_%1").arg(index))) ++index;
-    const int row = table_->rowCount(); table_->insertRow(row);
-    table_->setItem(row, 0, new QTableWidgetItem(QStringLiteral("INSTANCE_%1").arg(index)));
-    for (int column = 1; column < table_->columnCount(); ++column) table_->setItem(row, column, new QTableWidgetItem);
+    const int row=table_->rowCount();table_->insertRow(row);
+    for(int column=0;column<table_->columnCount();++column) table_->setItem(row,column,new QTableWidgetItem);
 }
 
 void FamilyTableDialog::add_column() {
@@ -501,6 +460,7 @@ bool FamilyTableDialog::submit() {
     }
     nlohmann::json instances = nlohmann::json::array(); std::set<std::string> names;
     for (int row = 1; row < table_->rowCount(); ++row) {
+        if (!table_row_has_text(table_,row)) continue;
         const auto name = table_->item(row, 0) == nullptr ? std::string{} : table_->item(row, 0)->text().trimmed().toStdString();
         if (name.empty() || name == generic_name_.toStdString() || !names.insert(name).second) {
             QMessageBox::warning(this, windowTitle(), tr("Názvy instancí musí být neprázdné a jedinečné."));
@@ -538,7 +498,7 @@ MaterialDialog::MaterialDialog(DocumentToolData data, ToolDataAccepted accepted,
         }
         add_row(QString::fromStdString(key), QString::fromStdString(value), unit == data_.physical_parameter_units.end() ? QString{} : QString::fromStdString(unit->second), description_text);
     }
-    add_delete_row_buttons(content_layout(), table_, settings, [this] { add_row("NEW_PROPERTY"); });
+    new TableEntryRows(table_,[this]{add_row();});
 }
 
 void MaterialDialog::add_row(const QString& name, const QString& value, const QString& unit, const QString& description) {
@@ -613,6 +573,7 @@ bool MaterialDialog::submit() {
     data_.physical_parameters.clear(); data_.physical_parameter_units.clear();
     for (int row = 0; row < table_->rowCount(); ++row) {
         const QString key = table_->item(row, 0) == nullptr ? QString{} : table_->item(row, 0)->text().trimmed();
+        if (!table_row_has_text(table_,row)) continue;
         if (key.isEmpty()) return false;
         data_.physical_parameters[key.toStdString()] = table_->item(row, 1) == nullptr ? "" : table_->item(row, 1)->text().toStdString();
         if (auto* combo = qobject_cast<QComboBox*>(table_->cellWidget(row, 2)); combo != nullptr && !combo->currentText().isEmpty()) data_.physical_parameter_units[key.toStdString()] = combo->currentText().toStdString();

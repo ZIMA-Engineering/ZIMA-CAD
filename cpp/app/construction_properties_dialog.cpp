@@ -1,3 +1,4 @@
+#include "table_entry.hpp"
 #include "sketch_button_style.hpp"
 #include "construction_properties_dialog.hpp"
 #include "sweep_point_order_dialog.hpp"
@@ -352,18 +353,13 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
         content_layout()->addWidget(curve_points_table_);
 
         auto* point_buttons = new QHBoxLayout;
-        add_curve_point_ = new QPushButton(tr("Přidat"), this);
         edit_curve_point_ = new QPushButton(tr("Upravit"), this);
-        delete_curve_point_ = new QPushButton(tr("Smazat"), this);
         move_curve_point_up_ = new QPushButton(tr("Nahoru"), this);
         move_curve_point_down_ = new QPushButton(tr("Dolů"), this);
-        add_curve_point_->setObjectName("curve3DAddPoint");
         edit_curve_point_->setObjectName("curve3DEditPoint");
-        delete_curve_point_->setObjectName("curve3DDeletePoint");
         move_curve_point_up_->setObjectName("curve3DMovePointUp");
         move_curve_point_down_->setObjectName("curve3DMovePointDown");
-        for (auto* button : {add_curve_point_, edit_curve_point_,
-                 delete_curve_point_, move_curve_point_up_,
+        for (auto* button : {edit_curve_point_, move_curve_point_up_,
                  move_curve_point_down_}) {
             point_buttons->addWidget(button);
         }
@@ -377,11 +373,6 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
             if (curve_axis_cycle_) curve_axis_cycle_();
             refresh_curve_points();
         };
-        connect(add_curve_point_, &QPushButton::clicked, this,
-            [this, finish_curve_axis_selection] {
-            finish_curve_axis_selection();
-            if (curve_point_edit_request_) curve_point_edit_request_(std::nullopt);
-        });
         connect(edit_curve_point_, &QPushButton::clicked, this,
             [this, selected_curve_point, finish_curve_axis_selection] {
                 if (const auto index = selected_curve_point();
@@ -403,6 +394,12 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
             [this](int row, int column) {
                 if (row < 0) return;
                 curve_points_table_->setCurrentCell(row, column);
+                if (static_cast<std::size_t>(row)==curve_points_.size()) {
+                    active_curve_axis_index_.reset();
+                    if(curve_axis_cycle_)curve_axis_cycle_();
+                    if(curve_point_edit_request_)curve_point_edit_request_(std::nullopt);
+                    return;
+                }
                 if (initial_.kind ==
                         zima::document::ConstructionKind::Curve3D &&
                     column == 1 &&
@@ -411,21 +408,6 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
                         .curve_tangent_enabled && curve_axis_request_) {
                     curve_axis_request_(static_cast<std::size_t>(row));
                 }
-            });
-        connect(delete_curve_point_, &QPushButton::clicked, this,
-            [this, selected_curve_point] {
-                const auto index = selected_curve_point();
-                if (!index || *index >= curve_points_.size()) return;
-                const auto removed_id = curve_points_[*index].id;
-                curve_points_.erase(curve_points_.begin() +
-                    static_cast<std::ptrdiff_t>(*index));
-                std::erase_if(sweep_profiles_, [&](const auto& profile) {
-                    return profile.point_id == removed_id;
-                });
-
-                refresh_curve_points();
-                refresh_sweep_profiles();
-                notify_preview();
             });
         const auto move_point = [this, selected_curve_point](int direction) {
             const auto index = selected_curve_point();
@@ -738,6 +720,7 @@ void ConstructionPropertiesDialog::refresh_sweep_profiles() {
     if (sweep_profiles_table_ == nullptr) return;
     const QSignalBlocker blocked(sweep_profiles_table_);
     sweep_profiles_table_->setRowCount(0);
+    auto* row_actions=entry_row_header(sweep_profiles_table_);row_actions->clear_actions();
     zima::document::Curve3DRoute route;
     try { route = zima::document::curve3d_route(current_value()); }
     catch(const std::exception& error) { error_->setText(QString::fromUtf8(error.what())); return; }
@@ -766,6 +749,10 @@ void ConstructionPropertiesDialog::refresh_sweep_profiles() {
         const bool has_profile = own != sweep_profiles_.end() &&
             zima::document::sweep3d_profile_has_geometry(
                 zima::sketcher::Sketch::from_serialized(own->sketch_serialized));
+        row_actions->set_action(row,has_profile,[this,station] {
+            std::erase_if(sweep_profiles_,[&](const auto& p){return p.point_id==station.point_id&&p.incoming==station.incoming;});
+            refresh_sweep_profiles();notify_preview();
+        });
         QString status;
         if (!station.active) status = tr("Neaktivní");
         else if (has_profile) {
@@ -1200,7 +1187,17 @@ void ConstructionPropertiesDialog::refresh_curve_points() {
 
     const int selected = curve_points_table_->currentRow();
     const QSignalBlocker blocked(curve_points_table_);
-    curve_points_table_->setRowCount(static_cast<int>(curve_points_.size()));
+    curve_points_table_->setRowCount(static_cast<int>(curve_points_.size())+1);
+    auto* row_actions=entry_row_header(curve_points_table_);row_actions->clear_actions();
+    for(std::size_t index=0;index<curve_points_.size();++index)
+        row_actions->set_action(static_cast<int>(index),true,[this,index]{erase_curve_point(index);});
+    const int offered_row=static_cast<int>(curve_points_.size());
+    auto* offered=new zima::ui::ReferenceCellItem(tr("Nový bod…"));
+    curve_points_table_->setItem(offered_row,0,offered);
+    row_actions->set_action(offered_row,false,{},[this] {
+        active_curve_axis_index_.reset();if(curve_axis_cycle_)curve_axis_cycle_();
+        if(curve_point_edit_request_)curve_point_edit_request_(std::nullopt);
+    });
     const auto tangent = [this](zima::document::Curve3DTangentMode mode) {
         using zima::document::Curve3DTangentMode;
         switch (mode) {
@@ -1358,14 +1355,13 @@ void ConstructionPropertiesDialog::refresh_curve_points() {
     if (selected >= 0 && selected < curve_points_table_->rowCount())
         curve_points_table_->selectRow(selected);
     const int row = curve_points_table_->currentRow();
-    const bool has_selection = row >= 0 && row < curve_points_table_->rowCount();
+    const bool has_selection = row >= 0 && static_cast<std::size_t>(row) < curve_points_.size();
     if (edit_curve_point_ != nullptr) edit_curve_point_->setEnabled(has_selection);
-    if (delete_curve_point_ != nullptr) delete_curve_point_->setEnabled(has_selection);
     if (move_curve_point_up_ != nullptr)
         move_curve_point_up_->setEnabled(has_selection && row > 0);
     if (move_curve_point_down_ != nullptr)
         move_curve_point_down_->setEnabled(
-            has_selection && row + 1 < curve_points_table_->rowCount());
+            has_selection && static_cast<std::size_t>(row + 1) < curve_points_.size());
 }
 
 zima::document::ConstructionObject ConstructionPropertiesDialog::current_value() const {

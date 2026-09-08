@@ -1,4 +1,5 @@
 #pragma once
+#include "table_entry.hpp"
 #include "sketch_button_style.hpp"
 #include "sweep_placement_dialog.hpp"
 #include "sweep_point_order_dialog.hpp"
@@ -109,6 +110,7 @@ public:
     }
     void refresh_profiles() {
         const QSignalBlocker blocked(profiles_);profiles_->setRowCount(0);
+        auto* row_actions=entry_row_header(profiles_);row_actions->clear_actions();
         document::Curve3DRoute route;
         try{route=document::PartDocument::sweep2d_route(pending);}catch(const std::exception&){return;}
         QString inherited;
@@ -117,6 +119,10 @@ public:
             const auto found=std::ranges::find_if(pending.sweep2d.profiles,[&](const auto& p){return p.point_id==station.point_id&&p.incoming==station.incoming;});
             const auto index=static_cast<std::size_t>(std::distance(pending.sweep2d.profiles.begin(),found));
             const bool populated=found!=pending.sweep2d.profiles.end()&&document::sweep3d_profile_has_geometry(sketcher::Sketch::from_serialized(found->sketch_serialized));
+            row_actions->set_action(row,populated,[this,station] {
+                std::erase_if(pending.sweep2d.profiles,[&](const auto& p){return p.point_id==station.point_id&&p.incoming==station.incoming;});
+                refresh_profiles();notify();
+            });
             profiles_->setItem(row,0,new QTableWidgetItem(QString::fromStdString(station.label)));
             const auto status=populated?tr("Vlastní"):inherited.isEmpty()?tr("Vyplňte první profil"):tr("Z %1").arg(inherited);
             if(populated)inherited=QString::fromStdString(station.label);

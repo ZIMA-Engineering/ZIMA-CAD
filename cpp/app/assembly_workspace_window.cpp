@@ -2505,21 +2505,12 @@ public:
         faces_ = new QTableWidget(this);
         faces_->setObjectName("bodyFaceColorTable");
         faces_->setColumnCount(2);
+        faces_->setEditTriggers(QAbstractItemView::NoEditTriggers);
         faces_->setHorizontalHeaderLabels({QObject::tr("Plocha"), QObject::tr("Barva")});
         faces_->horizontalHeader()->setStretchLastSection(true);
         faces_->setSelectionBehavior(QAbstractItemView::SelectRows);
         faces_->setMinimumHeight(125);
         content_layout()->addWidget(faces_);
-        auto* remove = new QPushButton(QObject::tr("Odebrat barvu vybrané plochy"), this);
-        connect(remove, &QPushButton::clicked, this, [this] {
-            const int row = faces_->currentRow();
-            if (row < 0) return;
-            face_colors_.erase(faces_->item(row, 0)->data(Qt::UserRole)
-                                   .toString().toStdString());
-            refresh_faces();
-            emit_preview();
-        });
-        content_layout()->addWidget(remove);
         refresh_faces();
         update_preview();
         connect(this, &QDialog::rejected, this, [this] {
@@ -2564,7 +2555,8 @@ private:
         if (preview_callback_) preview_callback_(color(), face_colors_);
     }
     void refresh_faces() {
-        faces_->setRowCount(static_cast<int>(face_colors_.size()));
+        faces_->setRowCount(static_cast<int>(face_colors_.size())+1);
+        auto* actions=entry_row_header(faces_);actions->clear_actions();
         int row{};
         for (const auto& [key, value] : face_colors_) {
             const auto separator = key.find("::");
@@ -2576,8 +2568,11 @@ private:
             auto* swatch = new QTableWidgetItem(value.name(QColor::HexArgb));
             swatch->setBackground(value);
             faces_->setItem(row, 1, swatch);
+            actions->set_action(row,true,[this,key]{face_colors_.erase(key);refresh_faces();emit_preview();});
             ++row;
         }
+        faces_->setItem(row,0,new QTableWidgetItem(tr("Vyberte plochu ve View…")));
+        actions->set_action(row,false,{});
     }
     bool submit() override {
         accepted_(color(), face_colors_);
@@ -6574,8 +6569,11 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
     }
 
     if (active_application_ == ApplicationMode::Modeling) {
-        mirror_action_->setEnabled(!properties_dialog_);add_command(mirror_action_);
-        pattern_action_->setEnabled(!properties_dialog_);add_command(pattern_action_);
+        const auto* modeling_part=workspace_.open_part(workspace_.active_document_id());
+        const bool active_body=modeling_part&&!modeling_part->session.document().body_history.active_body_id().empty();
+        mirror_action_->setEnabled(!properties_dialog_);
+        pattern_action_->setEnabled(!properties_dialog_);
+        if(!active_body){add_command(mirror_action_);add_command(pattern_action_);}
         if (const auto* part = workspace_.open_part(workspace_.active_document_id());
             part && workspace_.active_document_id() == workspace_.displayed_document_id()) {
             if (!create_body_action_) {
@@ -6618,6 +6616,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         add_command(thread_action_);
         add_command(shaft_thread_action_);
         add_command(drill_point_action_);
+        if(active_body){add_command(mirror_action_);add_command(pattern_action_);}
         add_green_separator();
         for (auto* action : {box_action_, sphere_action_, cylinder_action_, cone_action_,
                              pyramid_action_, wedge_action_}) {
@@ -12015,12 +12014,16 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
             pending_primitive_reference_index_.reset();primitive_reference_auto_advance_=false;
             set_local_origin_selection_mode(false);planar_dialog->set_active_reference_index(std::nullopt);
             planar_dialog->set_path_active(true);
-            const auto accepts=[this,planar_dialog,geometry](const zima::viewer::ViewerCandidate& candidate) {
+            auto path_geometry=geometry;
+            if(primitive_origin_preview_mesh_)append_reference_geometry(path_geometry,primitive_origin_preview_mesh_->original_references);
+            const auto accepts=[this,planar_dialog,path_geometry](const zima::viewer::ViewerCandidate& candidate) {
+                const bool own_plane=candidate.owner_id==planar_dialog->pending.container_origin.id &&
+                    (candidate.semantic_key=="origin:plane:xy"||candidate.semantic_key=="origin:plane:yz"||candidate.semantic_key=="origin:plane:xz");
                 if(!placement_reference_candidate_has_stable_geometry(candidate)||
                     (candidate.kind!=zima::viewer::CandidateKind::Plane&&candidate.kind!=zima::viewer::CandidateKind::Face)||
-                    candidate.instance_path!=properties_dialog_instance_path_||planar_dialog->owns_reference_owner(candidate.owner_id))return false;
+                    candidate.instance_path!=properties_dialog_instance_path_||(!own_plane&&planar_dialog->owns_reference_owner(candidate.owner_id)))return false;
                 return zima::document::PartDocument::sweep2d_accepts_path_plane(
-                    {{},candidate.owner_id,candidate.semantic_key},geometry);
+                    {{},candidate.owner_id,candidate.semantic_key},path_geometry);
             };
             tree_->setProperty("commandSelectionActive",true);
             viewer_->set_selection_contract({zima::viewer::CandidateKind::Plane,zima::viewer::CandidateKind::Face});
@@ -12028,7 +12031,10 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
             feature_reference_pick_=[this,planar_dialog,accepts](const zima::viewer::ViewerCandidate& candidate) {
                 if(!accepts(candidate))return;
                 feature_reference_pick_={};feature_reference_end_={};viewer_->clear_selection();tree_->clearSelection();
-                planar_dialog->set_path_plane({{},candidate.owner_id,candidate.semantic_key},QString::fromStdString(candidate.semantic_key));
+                const auto label=candidate.owner_id==planar_dialog->pending.container_origin.id
+                    ? tr("Počátek kontejneru / %1").arg(QString::fromStdString(candidate.semantic_key).section(':',-1).toUpper())
+                    : QString::fromStdString(candidate.semantic_key);
+                planar_dialog->set_path_plane({{},candidate.owner_id,candidate.semantic_key},label);
             };
             feature_reference_end_=[this,planar_dialog] {
                 feature_reference_pick_={};feature_reference_end_={};planar_dialog->end_path_entry();
@@ -27294,8 +27300,9 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
             row->setData(0, Qt::UserRole + 3, kind);
             row->setForeground(0, QBrush(QColor("#4DD811"))); return row;
         };
-        const auto active_position = std::ranges::find(graph.order(),
-            body_dialog_step_id_.empty() ? graph.active_body_id() : body_dialog_step_id_);
+        auto active_position = std::ranges::find(graph.order(),body_dialog_step_id_);
+        if(active_position==graph.order().end())
+            active_position=std::ranges::find(graph.order(),graph.active_body_id());
         const auto shade_downstream = [&](QTreeWidgetItem* item, std::size_t index) {
             if (active_position == graph.order().end() || index <= static_cast<std::size_t>(active_position - graph.order().begin())) return;
             const auto shade = [&](auto&& self, QTreeWidgetItem* child) -> void {
