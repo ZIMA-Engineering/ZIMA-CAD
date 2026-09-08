@@ -1603,6 +1603,7 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
     document.material_parameter_descriptions = root.at("material_parameter_descriptions").get<decltype(document.material_parameter_descriptions)>();
     document.family_table = root.at("family_table").get<std::string>();
     document.named_views = root.value("named_views", std::string("[]"));
+    document.sections=zima::document::parse_sections(root.value("sections",nlohmann::json::array()).dump());
     document.dimension_identifiers = zima::document::DimensionIdentifiers::from_serialized(root.at("dimension_identifiers").dump());
     for (const auto& value : root.at("sketches")) {
         document.sketches.push_back(zima::sketcher::Sketch::from_serialized(
@@ -1927,6 +1928,7 @@ void AssemblyDocument::save(const std::filesystem::path& path,
         {"physical_parameter_units", physical_parameter_units},
         {"material_parameter_descriptions", material_parameter_descriptions},
         {"family_table", family_table},
+        {"sections",nlohmann::json::parse(zima::document::serialize_sections(sections))},
         {"sketches", std::move(sketches_json)},
         {"cuts", std::move(cuts_json)},
         {"constructions", std::move(constructions_json)},

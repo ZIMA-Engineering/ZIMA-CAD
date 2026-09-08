@@ -1,3 +1,6 @@
+#include "section_source.hpp"
+#include "section_properties_dialog.hpp"
+#include <QScrollArea>
 #include "drawing_shading.hpp"
 #include <QPdfWriter>
 #include <QPageSize>
@@ -85,10 +88,11 @@ public:
     ViewPropertiesDialog(QMainWindow* parent, zima::drawing::DrawingView initial,
         std::vector<DrawingSourceChoice> sources, double sheet_scale,
         std::function<bool(zima::drawing::DrawingView)> accepted,
-        std::function<void(zima::drawing::DrawingView)> preview)
+        std::function<void(zima::drawing::DrawingView)> preview,
+        std::function<std::vector<zima::document::SectionDefinition>(const std::string&,const std::filesystem::path&)> sections)
         : PropertiesSubWindow(QObject::tr("Vlastnosti pohledu"), parent),
           value_(std::move(initial)), sources_(std::move(sources)),
-          sheet_scale_(sheet_scale), accepted_(std::move(accepted)), preview_(std::move(preview)) {
+          sections_(std::move(sections)), sheet_scale_(sheet_scale), accepted_(std::move(accepted)), preview_(std::move(preview)) {
         setObjectName("drawingViewProperties");
         auto* content = new QWidget(this);
         auto* form = new QFormLayout(content);
@@ -166,11 +170,28 @@ public:
         form->addRow(QObject::tr("Hodnota měřítka"), scale_);
         form->addRow(QObject::tr("Poloha X [mm]"), x_);
         form->addRow(QObject::tr("Poloha Y [mm]"), y_);
+        section_=new QComboBox(content);section_->setObjectName("drawingSection");
+        hatch_=new QCheckBox(tr("Šrafování"),content);hatch_->setObjectName("drawingHatching");hatch_->setChecked(value_.hatching);
+        align_=new QCheckBox(tr("Pohled kolmo k řezu"),content);align_->setObjectName("drawingSectionAlign");align_->setChecked(value_.align_section);align_->setEnabled(value_.parent_view_id.empty());
+        hatch_angle_=new QDoubleSpinBox(content);hatch_angle_->setObjectName("drawingHatchAngle");hatch_angle_->setRange(-360,360);hatch_angle_->setValue(value_.hatch_style.angle);
+        hatch_spacing_=new QDoubleSpinBox(content);hatch_spacing_->setObjectName("drawingHatchSpacing");hatch_spacing_->setRange(.1,100);hatch_spacing_->setDecimals(2);hatch_spacing_->setValue(value_.hatch_style.spacing_mm);
+        hatch_offset_=new QDoubleSpinBox(content);hatch_offset_->setObjectName("drawingHatchOffset");hatch_offset_->setRange(-100,100);hatch_offset_->setValue(value_.hatch_style.offset_mm);
+        hatch_type_=new QComboBox(content);hatch_type_->setObjectName("drawingHatchType");hatch_type_->addItems({tr("Rovnoběžné"),tr("Křížové"),tr("Čárkované")});hatch_type_->setCurrentIndex(value_.hatch_style.pattern);
+        components_=new SectionComponentsWidget(content);
+        form->addRow(tr("Řez"),section_);form->addRow(align_);form->addRow(hatch_);
+        form->addRow(tr("Úhel šraf [°]"),hatch_angle_);form->addRow(tr("Rozteč šraf na papíře [mm]"),hatch_spacing_);form->addRow(tr("Posunutí šraf [mm]"),hatch_offset_);form->addRow(tr("Typ šrafování"),hatch_type_);form->addRow(components_);
         error_ = new QLabel(content); error_->setWordWrap(true);
         error_->setObjectName("drawingViewError");
         form->addRow(error_);
-        content_layout()->addWidget(content);
-        setMinimumWidth(460);
+        auto* scroll=new QScrollArea(this);scroll->setWidgetResizable(true);scroll->setWidget(content);scroll->setMinimumHeight(420);content_layout()->addWidget(scroll);
+        setMinimumWidth(680);
+        load_sections(value_.section_id);
+        connect(source_,&QComboBox::currentIndexChanged,this,[this]{load_sections({});});
+        connect(section_,&QComboBox::currentIndexChanged,this,[this]{set_section_components();preview_(values());});
+        components_->changed=[this]{preview_(values());};
+        for(auto* box:{hatch_,align_})connect(box,&QCheckBox::toggled,this,[this]{preview_(values());});
+        for(auto* spin:{hatch_angle_,hatch_spacing_,hatch_offset_})connect(spin,&QDoubleSpinBox::valueChanged,this,[this]{preview_(values());});
+        connect(hatch_type_,&QComboBox::currentIndexChanged,this,[this]{preview_(values());});
         const auto preview_change = [this] { preview_(values()); };
         zima::ui::bind_numeric_value_lock(x_,"x",value_.value_locks,preview_change);
         zima::ui::bind_numeric_value_lock(y_,"y",value_.value_locks,preview_change);
@@ -201,11 +222,36 @@ public:
         result.use_sheet_scale = scale_mode_->currentIndex()==0;
         result.scale = result.use_sheet_scale ? sheet_scale_ : scale_->value();
         result.x=x_->value(); result.y=y_->value();
+        result.section_id=section_->currentData().toString().toStdString();result.align_section=align_->isChecked();result.hatching=hatch_->isChecked();
+        result.hatch_style={hatch_angle_->value(),hatch_spacing_->value(),hatch_offset_->value(),hatch_type_->currentIndex()};
+        result.section_components=components_->values();
+        if(result.section_id.empty()){result.section_snapshot.reset();result.section_parent_id.clear();}
+        else for(const auto& section:available_sections_)if(section.id==result.section_id)result.section_snapshot=section;
         return result;
     }
 private:
     zima::drawing::DrawingView value_;
     std::vector<DrawingSourceChoice> sources_;
+    std::function<std::vector<zima::document::SectionDefinition>(const std::string&,const std::filesystem::path&)> sections_;
+    std::vector<zima::document::SectionDefinition> available_sections_;
+    QComboBox *section_{},*hatch_type_{};QCheckBox *hatch_{},*align_{};
+    QDoubleSpinBox *hatch_angle_{},*hatch_spacing_{},*hatch_offset_{};
+    SectionComponentsWidget* components_{};
+    void load_sections(const std::string& selected){
+        QSignalBlocker block(section_);section_->clear();section_->addItem(tr("Bez řezu"),QString{});available_sections_.clear();
+        try{const auto i=source_->currentIndex();if(i>=0)available_sections_=sections_(sources_[i].id,sources_[i].path);
+            for(const auto& s:available_sections_)section_->addItem(QString::fromStdString(s.name),QString::fromStdString(s.id));
+            auto index=section_->findData(QString::fromStdString(selected));
+            if(index<0&&!selected.empty()){section_->addItem(tr("Chybějící řez"),QString::fromStdString(selected));index=section_->count()-1;}
+            section_->setCurrentIndex(std::max(0,index));set_section_components();
+        }catch(const std::exception& e){error_->setText(QString::fromUtf8(e.what()));}
+    }
+    void set_section_components(){
+        components_->set_components({},{});const auto id=section_->currentData().toString().toStdString();
+        for(const auto& s:available_sections_)if(s.id==id){auto settings=s.components;if(id==value_.section_id)for(const auto& [key,c]:value_.section_components)settings[key]=c;components_->set_components(s.component_names,settings);}
+        for(auto* w:std::initializer_list<QWidget*>{hatch_,align_,hatch_angle_,hatch_spacing_,hatch_offset_,hatch_type_})w->setEnabled(!id.empty());
+        align_->setEnabled(!id.empty()&&value_.parent_view_id.empty());
+    }
     double sheet_scale_;
     std::function<bool(zima::drawing::DrawingView)> accepted_;
     std::function<void(zima::drawing::DrawingView)> preview_;
@@ -702,16 +748,15 @@ public:
         painter.setBrush(Qt::NoBrush);
         for (const auto* rendered_view : views) {
             const auto& view = *rendered_view;
-            if(view.display_style==zima::drawing::DisplayStyle::Shaded)continue;
             for(bool hidden_pass:{true,false})for (const auto& edge : view.projected_edges) {
                 if(edge.hidden!=hidden_pass)continue;
                 if(!zima::drawing::drawing_edge_visible(view,edge))continue;
                 const bool gray=edge.hidden&&view.hidden_edge_style==zima::drawing::HiddenEdgeStyle::Gray;
                 const QColor edge_color=!printing&&view.id==selected_?QColor("#00D1FF"):
-                    (edge.hidden||edge.tangent)&&!printing?QColor("#666666"):gray?QColor("#808080"):ink;
-                QPen pen(edge_color,width(!edge.hidden&&!(edge.tangent&&view.tangent_edge_style==zima::drawing::TangentEdgeStyle::Thin)));
+                    edge.hatch&&!printing?QColor("#55BB77"):(edge.hidden||edge.tangent)&&!printing?QColor("#666666"):gray?QColor("#808080"):ink;
+                QPen pen(edge_color,width(!edge.hatch&&!edge.hidden&&!(edge.tangent&&view.tangent_edge_style==zima::drawing::TangentEdgeStyle::Thin)));
                 pen.setCapStyle(Qt::FlatCap);pen.setJoinStyle(Qt::RoundJoin);
-                if(edge.hidden&&!gray){pen.setDashPattern({3.0*zoom/pen.widthF(),1.5*zoom/pen.widthF()});}
+                if((edge.hidden&&!gray)||(edge.hatch&&edge.hatch_pattern==2)){pen.setDashPattern({3.0*zoom/pen.widthF(),1.5*zoom/pen.widthF()});}
                 painter.setPen(pen);
                 if (edge.points.size() < 2) continue;
                 QPolygonF line;
@@ -737,6 +782,20 @@ public:
                 painter.drawText(QRectF(bounds.left(),bounds.bottom()+zoom,bounds.width(),5*zoom),
                     Qt::AlignHCenter | Qt::AlignTop, QString::fromStdString(view->name));
             }
+        }
+        // Source line and viewing arrows are presentation annotations. They
+        // carry no topology reference and are never dimension candidates.
+        for(const auto* section_view:views){
+            if(section_view->section_id.empty()||section_view->section_parent_id.empty()||!section_view->section_snapshot)continue;
+            const auto parent=std::ranges::find_if(views,[&](const auto* v){return v->id==section_view->section_parent_id;});if(parent==views.end())continue;
+            const auto& v=**parent;const auto& s=*section_view->section_snapshot;const auto f=zima::document::section_frame(s);
+            const auto project=[&](zima::kernel::Vec3 p){const auto dot=[](auto a,auto b){return a.x*b.x+a.y*b.y+a.z*b.z;};return QPointF(origin.x()+(sheet_->width_mm()-v.x+dot(p,v.camera.horizontal)*v.scale)*zoom,origin.y()+(sheet_->height_mm()-v.y-dot(p,v.camera.vertical)*v.scale)*zoom);};
+            const auto& line=s.sketch.segments.front();const auto* a=s.sketch.find_point(line.first_point_id);const auto* b=s.sketch.find_point(line.second_point_id);
+            const double length=std::hypot(b->x-a->x,b->y-a->y);const auto p=project(f.origin),q=project({f.origin.x+f.horizontal.x*length,f.origin.y+f.horizontal.y*length,f.origin.z+f.horizontal.z*length});
+            auto direction=project({f.origin.x-f.normal.x,f.origin.y-f.normal.y,f.origin.z-f.normal.z})-p;const double n=std::hypot(direction.x(),direction.y());if(n<1e-7)continue;direction/=n;
+            QPen pen(printing?ink:QColor("#DF5656"),printing||lineweights_?sheet_->red_line_mm*zoom:1.0);pen.setCapStyle(Qt::FlatCap);pen.setDashPattern({7*zoom/pen.widthF(),1.5*zoom/pen.widthF(),.7*zoom/pen.widthF(),1.5*zoom/pen.widthF()});painter.setPen(pen);painter.drawLine(p,q);
+            pen.setStyle(Qt::SolidLine);painter.setPen(pen);const QPointF side(-direction.y(),direction.x());
+            for(const auto tip:{p,q}){const auto start=tip-direction*7*zoom;painter.drawLine(start,tip);painter.drawLine(tip,tip-direction*2*zoom+side*.7*zoom);painter.drawLine(tip,tip-direction*2*zoom-side*.7*zoom);painter.drawText(QRectF(start.x()-8*zoom,start.y()-5*zoom,16*zoom,5*zoom),Qt::AlignCenter,QString::fromStdString(s.name));}
         }
         for (const auto& dimension : sheet_->dimensions) {
             const QColor dimension_color=printing?ink:dimension.id==selected_dimension_id_ ? QColor("#00D1FF")
@@ -865,7 +924,7 @@ protected:
         const zima::drawing::DrawingView* hit_view{};
         const zima::drawing::ProjectedEdge* hit_edge{};
         if (dimension_mode_) for (const auto& view : sheet_->views) for (const auto& edge : view.projected_edges) {
-            if(edge.points.size()<2||edge.silhouette||!zima::drawing::drawing_edge_visible(view,edge))continue;
+            if(edge.points.size()<2||edge.hatch||!edge.source.valid()||edge.silhouette||!zima::drawing::drawing_edge_visible(view,edge))continue;
             for (std::size_t point = 1; point < edge.points.size(); ++point) {
                 const auto screen = [&](const auto& value) {
                     return QPointF(origin.x() + sheet_->width_mm()*zoom -
@@ -1247,9 +1306,12 @@ void DrawingWindow::create_layout() {
     });
     const auto change_scale = [this] {
         auto* sheet = active_sheet(); if (sheet == nullptr) return;
-        sheet->default_scale = scale_numerator_->value() / scale_denominator_->value();
-        for (auto& view : sheet->views) if (view.use_sheet_scale) view.scale = sheet->default_scale;
-        canvas_->update(); sync_workspace_document();
+        auto next=*sheet;next.default_scale=scale_numerator_->value()/scale_denominator_->value();
+        try{for(auto& view:next.views)if(view.use_sheet_scale&&view.scale!=next.default_scale){view.scale=next.default_scale;if(!view.section_id.empty()){
+            auto path=view.source_path;if(path.is_relative()&&!path_.empty())path=path_.parent_path()/path;
+            auto source=load_drawing_source(path,workspace_,view.source_document_id);zima::drawing::refresh_view_geometry(view,source.second);
+        }}*sheet=std::move(next);canvas_->update();sync_workspace_document();}
+        catch(const std::exception& e){set_status_message(QString::fromUtf8(e.what()));refresh();}
     };
     connect(scale_numerator_, &QDoubleSpinBox::valueChanged, this,
         [change_scale](double) { change_scale(); });
@@ -1391,7 +1453,10 @@ void DrawingWindow::edit_sheet() {
             accepted.title_block_lines.clear(); accepted.title_block_texts.clear();
             accepted.title_block_fields.clear();
         }
-        for (auto& view : accepted.views) if (view.use_sheet_scale) view.scale=accepted.default_scale;
+        try{for(auto& view:accepted.views)if(view.use_sheet_scale&&view.scale!=accepted.default_scale){view.scale=accepted.default_scale;if(!view.section_id.empty()){
+            auto path=view.source_path;if(path.is_relative()&&!path_.empty())path=path_.parent_path()/path;
+            auto source=load_drawing_source(path,workspace_,view.source_document_id);zima::drawing::refresh_view_geometry(view,source.second);
+        }}}catch(const std::exception& e){set_status_message(QString::fromUtf8(e.what()));return;}
         accepted.id = id; *target = std::move(accepted); refresh();
     });
     dialog->show();
@@ -1580,6 +1645,12 @@ void DrawingWindow::show_view_properties(zima::drawing::DrawingView view, bool c
         }
         value.source_document_id=cache->id; value.source_path=source_path;
         if (value.parent_view_id.empty()) value.camera=zima::drawing::standard_camera(value.orientation);
+        if(!value.section_id.empty()){
+            const auto sections=source_sections(workspace_,value.source_document_id,source_path);
+            const auto section=std::ranges::find(sections,value.section_id,&zima::document::SectionDefinition::id);
+            if(section==sections.end())throw std::runtime_error("Zdrojový řez již neexistuje. Vyberte jiný řez ve vlastnostech pohledu.");
+            value.section_snapshot=*section;zima::drawing::refresh_view_geometry(value,cache->mesh);return;
+        }
         const auto& c=value.camera;
         const std::array camera_key{c.horizontal.x,c.horizontal.y,c.horizontal.z,c.vertical.x,c.vertical.y,c.vertical.z,c.depth.x,c.depth.y,c.depth.z};
         auto found=cache->projections.find(camera_key);
@@ -1600,6 +1671,8 @@ void DrawingWindow::show_view_properties(zima::drawing::DrawingView view, bool c
                 auto* target_sheet=document_.find_sheet(sheet_id); if (!target_sheet) return false;
                 auto next=*target_sheet;
                 const auto id=accepted.id;
+                if(!accepted.section_id.empty()&&accepted.section_parent_id.empty())for(const auto& parent:next.views)
+                    if(parent.id!=id&&parent.source_document_id==accepted.source_document_id&&parent.section_id.empty()){accepted.section_parent_id=parent.id;break;}
                 std::vector<std::string> refreshed_views{id};
                 if (creating) next.views.push_back(accepted);
                 else {
@@ -1640,7 +1713,8 @@ void DrawingWindow::show_view_properties(zima::drawing::DrawingView view, bool c
         }, [this,project,error](auto pending) {
             try { project(pending); canvas_->set_preview(std::move(pending)); error({}); }
             catch (const std::exception& exception) { error(QString::fromUtf8(exception.what())); }
-        });
+        },[this](const auto& id,auto path){if(!path.empty()&&path.is_relative()&&!path_.empty())path=path_.parent_path()/path;return source_sections(workspace_,id,path);});
+    dialog->set_initial_size(QSize(760,700));
     view_dialog_=dialog;
     if (properties_handler_) properties_handler_(dialog);
     canvas_->set_preview(view);
@@ -1697,7 +1771,7 @@ void DrawingWindow::regenerate_selected_view() {
         std::map<std::pair<std::string,std::filesystem::path>,Source> sources;
         for(auto& sheet:next.sheets) {
             std::optional<std::vector<zima::drawing::BomRow>> sheet_bom;
-            for(const auto& view:sheet.views) {
+            for(auto& view:sheet.views) {
                 const auto key=std::make_pair(view.source_document_id,view.source_path);
                 auto found=sources.find(key);
                 if(found==sources.end()) {
@@ -1705,6 +1779,13 @@ void DrawingWindow::regenerate_selected_view() {
                     if(id!=view.source_document_id)throw std::runtime_error("Zdrojový soubor patří jinému dokumentu.");
                     auto bom=build_bom_rows_for_source(id,view.source_path,workspace_);
                     found=sources.emplace(key,Source{id,std::move(mesh),std::move(bom)}).first;
+                }
+                if(!view.section_id.empty()){
+                    auto path=view.source_path;if(path.is_relative()&&!path_.empty())path=path_.parent_path()/path;
+                    const auto sections=source_sections(workspace_,view.source_document_id,path);
+                    const auto section=std::ranges::find(sections,view.section_id,&zima::document::SectionDefinition::id);
+                    if(section==sections.end())throw std::runtime_error("Zdrojový řez již neexistuje. Vyberte jiný řez ve vlastnostech pohledu.");
+                    view.section_snapshot=*section;
                 }
                 next.refresh_view(view.id,found->second.mesh);
                 if(!sheet_bom || view.source_document_id==next.source_document_id)sheet_bom=found->second.bom;

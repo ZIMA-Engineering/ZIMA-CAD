@@ -13,6 +13,14 @@ will remain a separately built, dynamically linked solid-modeling kernel behind
 a narrow adapter. The approved direction, module boundaries and migration gates
 are documented in [Future C++ migration](doc/CXX_MIGRATION.md).
 
+## Rovinné řezy Part / Assembly / Drawing (2026-09-08)
+
+Společný příkaz Řezy ukládá editovatelnou čáru do skupiny na konci stromu.
+Podporuje dočasný náhled, volitelné zobrazení řezu modelu, samostatné režimy
+opakovaných komponent a propojený výkres se šrafami a PDF. První etapa
+obsahuje přímou čáru; lomené řezy a vazby ve Sketcheru následují později.
+Viz [Řezy](doc/SECTIONS.md).
+
 ## Výkresové pohledy a PDF (2026-09-08)
 
 Výkresové pohledy doplňují obrysové křivky z uložené tessellace a rozdělují
@@ -434,7 +442,7 @@ Further sweep scope:
     drawing views and reuse it consistently in every drawing command
   - continue stabilizing curved silhouettes, coincident geometry and hidden
     line classification for multi-body parts and assemblies
-  - sections and detail views
+  - bent/offset sections, Sketcher constraints for section lines and detail views
   - complete ISO dimensions, tolerances, datums, surface/feature symbols,
     position annotations, leaders, labels and editable annotation placement
   - extend the implemented ISO technical lettering and paper-space title-block
@@ -444,4 +452,4 @@ Further sweep scope:
   - complete assembly drawing BOM/table workflows beyond the implemented
     title-block Repeat Region, Item Number and Quantity fields
   - sheet-metal flat-pattern drawings
-  - PDF and DXF export
+  - DXF export and production verification of the implemented PDF export

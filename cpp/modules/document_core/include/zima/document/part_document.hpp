@@ -1,4 +1,5 @@
 #pragma once
+#include <zima/document/section.hpp>
 #include <ranges>
 #include <zima/document/document_copy.hpp>
 
@@ -610,6 +611,7 @@ public:
     // "Pohled kolmo" orientation dialog, mirroring Python's
     // document.document_settings["named_views"].
     std::string named_views{"[]"};
+    std::vector<zima::document::SectionDefinition> sections;
     // Display colour of the calculated body.  It is presentation metadata;
     // changing it never invalidates or recalculates OCCT geometry.
     std::string body_color{"#B9C2CC"};

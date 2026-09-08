@@ -75,6 +75,8 @@
 #include <set>
 #include <tuple>
 
+namespace zima::app { int verify_sections(QApplication&,AssemblyWorkspaceWindow&,const std::filesystem::path&); }
+
 namespace {
 
 bool verify(bool condition, const char* message) {
@@ -3385,6 +3387,7 @@ int verify_startup_contract(
     QApplication& application, zima::app::AssemblyWorkspaceWindow& window,
     const std::filesystem::path& test_directory,
     const QString& part_capture_path = {}, const QString& drawing_capture_path = {}) {
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SECTIONS_ONLY")) return zima::app::verify_sections(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_TEMPLATES_ONLY")) return verify_template_commands(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_DRAWING_ONLY")) return verify_drawing_workspace(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_COMPONENT_DOCUMENT")) return verify_component_reference_document(application,test_directory);

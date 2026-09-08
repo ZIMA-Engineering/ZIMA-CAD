@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <numbers>
 #include <fstream>
 #include <functional>
 #include <iomanip>
@@ -380,12 +381,51 @@ const DrawingView* DrawingDocument::find_view(const std::string& id) const {
     return const_cast<DrawingDocument*>(this)->find_view(id);
 }
 
+void refresh_view_geometry(DrawingView& view,const zima::kernel::ViewerMesh& source) {
+    if(view.section_id.empty()){
+        view.projected_edges=project_edges(source,view.camera);view.projected_triangles=project_triangles(source,view.camera);return;
+    }
+    if(!view.section_snapshot || view.section_snapshot->id!=view.section_id)throw std::runtime_error("Zdrojový řez není dostupný. Vyberte platný řez.");
+    auto section=*view.section_snapshot;
+    for(const auto& [key,setting]:view.section_components)section.components[key]=setting;
+    const auto frame=zima::document::section_frame(section);
+    if(view.align_section && view.parent_view_id.empty())view.camera={frame.horizontal,frame.vertical,frame.normal};
+    auto cut=zima::document::calculate_section(source,section);
+    view.projected_edges=detail::project_drawing_edges(cut.mesh,view.camera,true,true);view.projected_triangles=project_triangles(cut.mesh,view.camera);
+    if(!view.hatching)return;
+    std::size_t index=0;
+    for(const auto& patch:cut.patches){
+        auto style=view.hatch_style;const auto setting=section.components.find(patch.component);
+        if(setting!=section.components.end() && setting->second.mode!=0)continue;
+        if(setting!=section.components.end() && setting->second.custom_hatch)style=setting->second.hatch;
+        else style.angle+=(index++%2)*90;
+        // Angles and spacing are measured on paper, including an oblique view.
+        // Plane-axis hatching is used only when the section is edge-on.
+        const auto dot=[](const auto& a,const auto& b){return a.x*b.x+a.y*b.y+a.z*b.z;};
+        const auto h=view.camera.horizontal,v=view.camera.vertical;
+        const double a=dot(frame.horizontal,h),b=dot(frame.vertical,h),c=dot(frame.horizontal,v),d=dot(frame.vertical,v),det=a*d-b*c;
+        if(std::abs(det)<1e-9)continue;
+        // Generate each cross-hatch family separately under affine projection.
+        for(int pass=0;pass<(style.pattern==1?2:1);++pass){
+            auto family=style;family.pattern=0;family.angle=style.angle+pass*90;
+            const double t=family.angle*std::numbers::pi/180;
+            const double x=(d*std::cos(t)-b*std::sin(t))/det,y=(-c*std::cos(t)+a*std::sin(t))/det;
+            family.angle=std::atan2(y,x)*180/std::numbers::pi;
+            const double factor=1/(std::hypot(x,y)*std::abs(det));
+            // section_hatch_lines validates paper settings; apply the affine
+            // spacing by changing the effective projection scale instead.
+            auto lines=zima::document::section_hatch_lines(patch,frame,family,view.scale/factor);
+            auto hatch_mesh=cut.mesh;hatch_mesh.edges=std::move(lines);
+            for(auto& edge:detail::project_drawing_edges(hatch_mesh,view.camera,false))if(!edge.hidden){edge.hatch=true;edge.hatch_pattern=style.pattern;view.projected_edges.push_back(std::move(edge));}
+        }
+    }
+}
+
 void DrawingDocument::refresh_view(
     const std::string& view_id, const zima::kernel::ViewerMesh& source_mesh) {
     auto* view = find_view(view_id);
     if (view == nullptr) throw std::invalid_argument("Drawing view does not exist");
-    view->projected_edges = project_edges(source_mesh, view->camera);
-    view->projected_triangles = project_triangles(source_mesh, view->camera);
+    refresh_view_geometry(*view,source_mesh);
     const auto representative = [&](const zima::kernel::EdgeReference& reference)
         -> std::optional<std::pair<Point2, Point2>> {
         const ProjectedEdge* longest{};
@@ -536,10 +576,18 @@ void DrawingDocument::save(const std::filesystem::path& path,
                 {"tangent_edge_style",static_cast<int>(view.tangent_edge_style)},
                 {"use_sheet_scale", view.use_sheet_scale}, {"show_caption", view.show_caption},
                 {"x", view.x}, {"y", view.y}, {"scale", view.scale}, {"value_locks",view.value_locks}};
+            item["section_id"]=view.section_id;item["section_parent_id"]=view.section_parent_id;
+            item["align_section"]=view.align_section;item["hatching"]=view.hatching;
+            zima::document::validate_hatch(view.hatch_style);
+            item["hatch_style"]={view.hatch_style.angle,view.hatch_style.spacing_mm,view.hatch_style.offset_mm,view.hatch_style.pattern};
+            auto stored_section=view.section_snapshot;
+            if(stored_section){item["section_body_owners"]=stored_section->body_owners;item["section_component_names"]=stored_section->component_names;item["section_snapshot"]=nlohmann::json::parse(zima::document::serialize_sections({*stored_section}));}
+            else item["section_snapshot"]=nlohmann::json::array();
+            auto overrides=nlohmann::json::object();for(const auto& [key,c]:view.section_components)overrides[key]={{"mode",c.mode},{"custom",c.custom_hatch},{"hatch",{c.hatch.angle,c.hatch.spacing_mm,c.hatch.offset_mm,c.hatch.pattern}}};item["section_overrides"]=overrides;
             item["projected_edges"] = nlohmann::json::array();
             for (const auto& edge : view.projected_edges) {
                 nlohmann::json edge_json{{"source", edge_reference_json(edge.source)},
-                                         {"hidden", edge.hidden}, {"silhouette",edge.silhouette},{"tangent",edge.tangent}};
+                                         {"hidden", edge.hidden}, {"silhouette",edge.silhouette},{"tangent",edge.tangent},{"hatch",edge.hatch},{"hatch_pattern",edge.hatch_pattern}};
                 edge_json["points"] = nlohmann::json::array();
                 for (const auto& point : edge.points) edge_json["points"].push_back({point.x, point.y});
                 item["projected_edges"].push_back(std::move(edge_json));
@@ -688,12 +736,21 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
             view.x = item.at("x").get<double>(); view.y = item.at("y").get<double>();
             view.scale = item.at("scale").get<double>();
             view.value_locks=item.value("value_locks",std::set<std::string>{});
+            view.section_id=item.value("section_id","");view.section_parent_id=item.value("section_parent_id","");
+            view.align_section=item.value("align_section",true);view.hatching=item.value("hatching",true);
+            if(item.contains("hatch_style")){const auto& h=item.at("hatch_style");view.hatch_style={h.at(0),h.at(1),h.at(2),h.at(3)};zima::document::validate_hatch(view.hatch_style);}
+            const auto saved_sections=zima::document::parse_sections(item.value("section_snapshot",nlohmann::json::array()).dump());
+            if(!saved_sections.empty()){view.section_snapshot=saved_sections.front();view.section_snapshot->body_owners=item.value("section_body_owners",std::map<std::string,std::string>{});view.section_snapshot->component_names=item.value("section_component_names",std::map<std::string,std::string>{});}
+            const auto section_overrides=item.value("section_overrides",nlohmann::json::object());
+            for(const auto& [key,c]:section_overrides.items()){zima::document::SectionComponent value;value.mode=c.at("mode");value.custom_hatch=c.at("custom");const auto& h=c.at("hatch");value.hatch={h.at(0),h.at(1),h.at(2),h.at(3)};zima::document::validate_hatch(value.hatch);if(value.mode<0||value.mode>2)throw std::runtime_error("Invalid section component mode");view.section_components[key]=value;}
+
             for (const auto& edge_json : item.at("projected_edges")) {
                 ProjectedEdge edge;
                 edge.source = parse_edge_reference(edge_json.at("source"));
                 edge.hidden = edge_json.value("hidden", false);
                 edge.silhouette=edge_json.value("silhouette",false);
                 edge.tangent=edge_json.value("tangent",false);
+                edge.hatch=edge_json.value("hatch",false);edge.hatch_pattern=edge_json.value("hatch_pattern",0);
                 for (const auto& point : edge_json.at("points"))
                     edge.points.push_back({point.at(0).get<double>(), point.at(1).get<double>()});
                 view.projected_edges.push_back(std::move(edge));

@@ -1,3 +1,4 @@
+#include "section_properties_dialog.hpp"
 #include <zima/drawing/drawing_template.hpp>
 #include "derived_copy_dialog.hpp"
 #include "shaft_thread_dialog.hpp"
@@ -3716,6 +3717,9 @@ void AssemblyWorkspaceWindow::create_actions() {
         " color:#fff; border:1px solid #9BCC32; border-radius:4px; }");
     view_toolbar_->addAction(parameters_action_);
     view_toolbar_->addAction(regenerate_document_action_);
+    section_action_=view_toolbar_->addAction(tr("Řezy…"));
+    section_action_->setObjectName("createSectionAction");
+    connect(section_action_,&QAction::triggered,this,[this]{show_section_properties({},true);});
     view_toolbar_->addSeparator();
     view_toolbar_->addAction(fit_view_action_);
     view_toolbar_->addAction(normal_view_action);
@@ -3879,6 +3883,7 @@ void AssemblyWorkspaceWindow::create_layout() {
     viewer_->set_selection_contract({zima::viewer::CandidateKind::Dimension,
                                      zima::viewer::CandidateKind::Occurrence});
     viewer_->set_confirmation_callback([this](const auto& candidate) {
+        if(section_confirmation(candidate))return;
         if (!properties_dialog_ && candidate.kind==zima::viewer::CandidateKind::Vertex &&
             candidate.semantic_key=="origin:point" && candidate.instance_path==selected_component_origin_path_) return;
         // The purple origin is a drag control, not a replacement reference.
@@ -4397,6 +4402,7 @@ void AssemblyWorkspaceWindow::create_layout() {
     viewer_->set_dimension_lock_query([this](const auto& reference){return parameter_value_locked(reference.owner_id,reference.semantic_key);});
     viewer_->set_context_menu_callback(
         [this](const auto& candidate, const QPoint& global_position) {
+            if(section_dialog_)return;
             if (!part_element_context_menu_enabled(candidate.owner_id)) return;
             if(candidate.kind==zima::viewer::CandidateKind::TemplateImage && !properties_dialog_) {
                 const auto id=candidate.semantic_key.substr(15);QMenu menu(this);
@@ -4688,6 +4694,7 @@ void AssemblyWorkspaceWindow::create_layout() {
             show_component_context_menu(candidate.instance_path, global_position);
     });
     viewer_->set_world_click_callback([this](const auto& origin, const auto& direction) {
+        if(section_ray(origin,direction,true))return true;
         if(template_image_ray(origin,direction))return true;
         if(template_region_ray(origin,direction,true))return true;
         auto [local_origin, local_direction] =
@@ -4719,6 +4726,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         return accept_sketch_bspline_ray(local_origin, local_direction);
     });
     viewer_->set_world_pointer_callback([this](const auto& origin, const auto& direction) {
+        if(section_ray(origin,direction,false))return;
         if(template_region_ray(origin,direction,false))return;
         // Fillet/Chamfer click already expands one persisted edge into its
         // complete unambiguous tangent route. Preview that exact same route
@@ -5257,6 +5265,9 @@ void AssemblyWorkspaceWindow::create_layout() {
         }
     });
     const auto synchronize_tree_selection = [this] {
+            if(auto* item=tree_->currentItem();item&&item->data(0,Qt::UserRole+3).toString().startsWith("document-section")){
+                viewer_->clear_selection();return;
+            }
             if (workspace_.open_drawing(workspace_.displayed_document_id())) {
                 const auto items=tree_->selectedItems();
                 auto* item=items.empty()?nullptr:items.front();
@@ -5682,6 +5693,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 primitive_reference_dialog_ != nullptr ||
                 pending_primitive_reference_index_) return;
             auto* item = tree_->itemAt(position);
+            if(section_context_menu(item,position))return;
             if (!tree_item_context_menu_enabled(item)) return;
             const auto step_kind = item->data(0, Qt::UserRole + 3).toString();
             if(step_kind=="template-image"&&!properties_dialog_) {
@@ -6466,6 +6478,7 @@ void AssemblyWorkspaceWindow::update_document_area_visibility() {
 }
 
 void AssemblyWorkspaceWindow::update_application_actions() {
+    if(section_action_)section_action_->setEnabled(workspace_.active_document_id()==workspace_.displayed_document_id()&&!workspace_.open_drawing(workspace_.displayed_document_id())&&!properties_dialog_&&active_sketch_id_.empty()&&!template_sketch());
     for (auto* action : application_actions_) action->setEnabled(false);
     if (workspace_.size() == 0) return;
     if (workspace_.open_drawing(workspace_.displayed_document_id()) != nullptr) {
@@ -26292,6 +26305,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         }
         viewer_->set_container_inspection(properties_dialog_ == nullptr
             ? construction_dimension_object_id_ : std::string{});
+        update_section_ui();
         return;
     }
     // Explicitly re-assert Assembly mode every time this branch runs (not
@@ -26767,6 +26781,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         active_part != nullptr ? resolve_active_occurrence(
             active_part->session.document().document_id).value_or(std::string{}) : std::string{});
     configure_sketch_box_selection(has_active_part_sketch);
+    update_section_ui();
 }
 
 void AssemblyWorkspaceWindow::configure_sketch_box_selection(
@@ -28486,6 +28501,7 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
 }
 
 void AssemblyWorkspaceWindow::show_tree_item_properties(QTreeWidgetItem* item) {
+    if(item&&item->data(0,Qt::UserRole+3)=="document-section"){show_section_properties(item->data(0,Qt::UserRole).toString().toStdString());return;}
     if(item && item->data(0,Qt::UserRole+3).toString()=="template-image") {
         show_template_image_properties(item->data(0,Qt::UserRole).toString().toStdString());return;
     }

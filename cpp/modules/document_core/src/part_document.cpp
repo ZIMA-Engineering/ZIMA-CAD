@@ -526,6 +526,7 @@ nlohmann::json read_part_ini(const std::filesystem::path& path) {
         {"family_table", ini_value(ini, "Document", "family_table",
             "{\"columns\":[],\"instances\":[]}")},
         {"named_views", ini_value(ini, "Document", "named_views", "[]")},
+        {"sections", nlohmann::json::parse(ini_value(ini,"Document","sections","[]"))},
         {"dimension_identifiers", nlohmann::json::parse(ini_required(ini, "Document", "dimension_identifiers"))},
         {"body_history", nlohmann::json::parse(ini_required(ini, "Document", "body_history"))},
         {"body_color", ini_value(ini, "Document", "body_color", "#B9C2CC")},
@@ -673,6 +674,7 @@ void write_part_ini(
         {"name", root.at("name").get<std::string>()},
         {"family_table", root.at("family_table").get<std::string>()},
         {"named_views", root.value("named_views", std::string("[]"))},
+        {"sections", root.value("sections",nlohmann::json::array()).dump()},
         {"dimension_identifiers", root.at("dimension_identifiers").dump()},
         {"body_history", root.at("body_history").dump()},
         {"body_color", root.value("body_color", std::string("#B9C2CC"))},
@@ -9155,6 +9157,7 @@ PartDocument PartDocument::load(
     document.material_parameter_descriptions = root.at("material_parameter_descriptions").get<decltype(document.material_parameter_descriptions)>();
     document.family_table = root.at("family_table").get<std::string>();
     document.named_views = root.value("named_views", std::string("[]"));
+    document.sections = parse_sections(root.value("sections",nlohmann::json::array()).dump());
     document.dimension_identifiers = DimensionIdentifiers::from_serialized(root.at("dimension_identifiers").dump());
     document.body_color = root.at("body_color").get<std::string>();
     document.face_colors = root.value("face_colors",
@@ -11021,6 +11024,7 @@ void PartDocument::save(
         {"material_parameter_descriptions", material_parameter_descriptions},
         {"family_table", family_table},
         {"named_views", named_views},
+        {"sections", nlohmann::json::parse(serialize_sections(sections))},
         {"body_color", body_color},
         {"face_colors", face_colors},
         {"history", std::move(serialized_history)},

@@ -44,6 +44,7 @@ target_link_libraries(zima_sketcher
 add_library(zima_document_core
     modules/document_core/src/part_document.cpp
     modules/document_core/src/body_history.cpp
+    modules/document_core/src/section.cpp
     modules/document_core/src/relations.cpp
     modules/document_core/src/document_session.cpp
     modules/document_core/src/dimension_identifiers.cpp
@@ -121,7 +122,7 @@ target_link_libraries(zima-cad-part-harness PRIVATE
 set_target_properties(zima-cad-part-harness PROPERTIES AUTORCC ON)
 
 add_executable(zima-cad-cpp
-    app/main_workspace.cpp app/assembly_workspace_window.cpp app/template_command.cpp app/numeric_value_lock_command.cpp app/shaft_thread_command.cpp app/derived_copy_command.cpp
+    app/main_workspace.cpp app/section_command.cpp app/section_ui_verification.cpp app/assembly_workspace_window.cpp app/template_command.cpp app/numeric_value_lock_command.cpp app/shaft_thread_command.cpp app/derived_copy_command.cpp
     app/application_settings.cpp app/global_settings_dialog.cpp
     app/document_tools_dialogs.cpp
     app/drawing_window.cpp app/file_dialog.cpp app/resource_icon.cpp
@@ -194,6 +195,9 @@ target_link_libraries(zima_cpp_performance_benchmark PRIVATE
     zima_sketcher)
 
 if(ZIMA_BUILD_TESTS)
+    add_executable(zima_cpp_section_contract_tests tests/section_contract_tests.cpp)
+    target_link_libraries(zima_cpp_section_contract_tests PRIVATE zima_document_core zima_assembly zima_drawing zima_kernel_occt)
+    add_test(NAME zima_cpp_section_contract_tests COMMAND zima_cpp_section_contract_tests)
     enable_testing()
     if(WIN32)
         set(ZIMA_GUI_TEST_ENVIRONMENT
@@ -289,6 +293,10 @@ if(ZIMA_BUILD_TESTS)
         COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_workspace_startup_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    add_test(NAME zima_cpp_section_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_section_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SECTIONS_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_test(NAME zima_cpp_template_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_template_ui_contract PROPERTIES

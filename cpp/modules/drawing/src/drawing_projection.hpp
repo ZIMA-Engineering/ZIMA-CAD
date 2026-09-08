@@ -23,7 +23,7 @@ inline bool tangent_boundary(const zima::kernel::ViewerEdge& edge) {
 }
 struct ProjectionVertex { Point2 p; double z; };
 inline std::vector<ProjectedEdge> project_drawing_edges(
-    const zima::kernel::ViewerMesh& mesh,const ProjectionCamera& camera) {
+    const zima::kernel::ViewerMesh& mesh,const ProjectionCamera& camera,bool silhouettes=true,bool section_caps=false) {
     const auto project=[&](const zima::kernel::Vec3& p) {
         const auto dot=[&](const auto& d){return p.x*d.x+p.y*d.y+p.z*d.z;};
         return ProjectionVertex{{dot(camera.horizontal),dot(camera.vertical)},dot(camera.depth)};
@@ -57,6 +57,10 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
         t.xmin=std::min({a.x,b.x,c.x});t.xmax=std::max({a.x,b.x,c.x});
         t.ymin=std::min({a.y,b.y,c.y});t.ymax=std::max({a.y,b.y,c.y});
         if(std::abs(t.determinant)>epsilon*epsilon)triangles.push_back(t);
+        // Section caps use scan-strip triangulation with T-junctions. Their
+        // complete rim is already explicit; unmatched internal strip edges
+        // must not be promoted to visible silhouettes.
+        if(section_caps && (i/3>=mesh.triangle_references.size() || !mesh.triangle_references[i/3].valid()))continue;
         const std::array ids{ia,ib,ic};
         for(int side=0;side<3;++side) {
             auto pa=mesh.vertices[ids[side]],pb=mesh.vertices[ids[(side+1)%3]];
@@ -120,7 +124,7 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
     const auto& source=mesh.edges.empty()?mesh.original_references.edges:mesh.edges;
     for(const auto& edge:source)if(!edge.parameter_seam&&!edge.construction&&!edge.overlay)
         append(edge.points,edge.reference,false,tangent_boundary(edge));
-    for(const auto& [key,edge]:boundaries)if((edge.front&&edge.back)||edge.count==1)
+    if(silhouettes)for(const auto& [key,edge]:boundaries)if((edge.front&&edge.back)||edge.count==1)
         append(std::array{edge.a,edge.b},zima::kernel::EdgeReference{},true,false);
     return result;
 }

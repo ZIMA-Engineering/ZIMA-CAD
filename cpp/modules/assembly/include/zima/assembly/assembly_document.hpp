@@ -1,4 +1,5 @@
 #pragma once
+#include <zima/document/section.hpp>
 
 #include <array>
 #include <zima/document/document_copy.hpp>
@@ -214,6 +215,7 @@ public:
         material_parameter_descriptions;
     std::string family_table{"{\"columns\":[],\"instances\":[]}"};
     std::string named_views{"[]"};
+    std::vector<zima::document::SectionDefinition> sections;
     std::vector<PartOccurrence> components;
     std::vector<zima::sketcher::Sketch> sketches;
     std::vector<AssemblyCut> cuts;

@@ -53,6 +53,7 @@ class ComponentPropertiesDialog;
 class OrientationDialog;
 class DrawingWindow;
 class SketchTextPropertiesDialog;
+class SectionPropertiesDialog;
 
 class AssemblyWorkspaceWindow final : public QMainWindow {
 public:
@@ -77,6 +78,19 @@ public:
     }
 
 private:
+    void show_section_properties(const std::string& id = {}, bool draw = false);
+    void update_section_ui();
+    void preview_section();
+    bool section_ray(const zima::kernel::Vec3&,const zima::kernel::Vec3&,bool commit);
+    bool section_confirmation(const zima::viewer::ViewerCandidate&);
+    bool section_context_menu(QTreeWidgetItem*,const QPoint&);
+    void commit_sections(std::vector<zima::document::SectionDefinition> sections);
+    QAction* section_action_{};
+    QPointer<SectionPropertiesDialog> section_dialog_;
+    bool section_line_picking_{},section_component_picking_{};
+    std::optional<std::array<double,2>> section_first_point_;
+    zima::kernel::ViewerMesh section_preview_source_;
+    std::string section_document_id_;
     const zima::sketcher::Sketch* template_sketch() const;
     void save_template_document(bool copy);
     void start_template_region();

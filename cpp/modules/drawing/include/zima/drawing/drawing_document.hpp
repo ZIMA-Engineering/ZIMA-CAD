@@ -1,4 +1,5 @@
 #pragma once
+#include <zima/document/section.hpp>
 #include <zima/document/document_copy.hpp>
 
 #include <zima/kernel/geometry_kernel.hpp>
@@ -42,6 +43,8 @@ struct ProjectedEdge {
     bool hidden{};
     bool silhouette{};
     bool tangent{};
+    bool hatch{};
+    int hatch_pattern{};
 };
 
 struct ProjectedTriangle {
@@ -64,6 +67,11 @@ struct DrawingView {
     DisplayStyle display_style{DisplayStyle::VisibleEdges};
     HiddenEdgeStyle hidden_edge_style{HiddenEdgeStyle::Dashed};
     TangentEdgeStyle tangent_edge_style{TangentEdgeStyle::Visible};
+    std::string section_id, section_parent_id;
+    std::optional<zima::document::SectionDefinition> section_snapshot;
+    bool align_section{true}, hatching{true};
+    zima::document::HatchStyle hatch_style;
+    std::map<std::string,zima::document::SectionComponent> section_components;
     double x{100.0};
     double y{100.0};
     double scale{1.0};
@@ -74,8 +82,11 @@ struct DrawingView {
     std::set<std::string> value_locks;
 };
 
+void refresh_view_geometry(DrawingView&, const zima::kernel::ViewerMesh&);
+
 // The renderer and dimension picker share the same visibility contract.
 inline bool drawing_edge_visible(const DrawingView& view,const ProjectedEdge& edge) {
+    if(edge.hatch)return view.hatching && !edge.hidden;
     if(view.display_style==DisplayStyle::Shaded)return false;
     if(edge.tangent&&(edge.hidden||view.tangent_edge_style==TangentEdgeStyle::Hidden))return false;
     return !edge.hidden||view.display_style==DisplayStyle::HiddenEdges;
