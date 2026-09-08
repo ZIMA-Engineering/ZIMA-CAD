@@ -1,3 +1,5 @@
+#include <nlohmann/json.hpp>
+#include <zima/document/viewer_packet_json.hpp>
 #include "derived_copy_dialog.hpp"
 #include "component_properties_dialog.hpp"
 #include "shaft_thread_dialog.hpp"
@@ -285,7 +287,7 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     if(!verify(mode&&refs->isRowHidden(0),"Linear Pattern displays circular axis input"))return 1;
     const auto retained_axis=dialog->derived_copy.reference;
     dialog->findChild<QDoubleSpinBox*>("sweepRotation2")->setValue(90);
-    dialog->findChild<QDoubleSpinBox*>("patternSpacing")->setValue(20);
+    dialog->findChild<QDoubleSpinBox*>("patternSpacing0")->setValue(20);
     mode->setCurrentIndex(1);flush();
     if(!verify(!refs->isRowHidden(0)&&dialog->findChild<QPushButton*>("mirrorPlane_z")->isVisible(),"Circular Pattern cannot select its axis"))return 1;
     mode->setCurrentIndex(0);flush();
@@ -301,14 +303,53 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     if(auto* failed=window.findChild<QDialog*>("patternDialog")){for(auto* label:failed->findChildren<QLabel*>())std::cerr<<label->text().toStdString()<<"\n";return 1;}
     save->trigger();flush();stored=document::PartDocument::load(path);
     const auto* pattern_body=stored.body_history.find(pattern_id);
-    if(!verify(pattern_body&&pattern_body->derived_copy->pattern->count==4&&std::abs(pattern_body->derived_copy->pattern->direction.y-1)<1e-7,"Pattern did not persist local direction/count"))return 1;
+    if(!verify(pattern_body&&pattern_body->derived_copy->pattern->linear[0].count==4&&std::abs(pattern_body->derived_copy->pattern->linear[0].direction.y-1)<1e-7,"Pattern did not persist local direction/count"))return 1;
     bodies=kernel.evaluate_history(stored.kernel_operations());
     if(!verify(std::abs(bodies.back().body_outputs.at(pattern_id).volume-576)<1e-7,"Pattern does not produce a full body"))return 1;
     window.show_tree_item_properties(row(pattern_id,"part-body"));flush();
     dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("patternDialog"));
     if(!verify(dialog!=nullptr,"Pattern editing uses a different dialog"))return 1;
-    dialog->findChild<QSpinBox*>("patternCount")->setValue(7);dialog->reject();flush();save->trigger();flush();
-    if(!verify(document::PartDocument::load(path).body_history.find(pattern_id)->derived_copy->pattern->count==4,"Cancel changed Pattern count"))return 1;
+    dialog->findChild<QSpinBox*>("patternCount0")->setValue(7);dialog->reject();flush();save->trigger();flush();
+    if(!verify(document::PartDocument::load(path).body_history.find(pattern_id)->derived_copy->pattern->linear[0].count==4,"Cancel changed Pattern count"))return 1;
+    // Three independent fields use the real ordered hover/click picker.
+    tree->setCurrentItem(row(source,"part-body"));flush();pattern_action->trigger();flush();
+    dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("patternDialog"));
+    if(!verify(dialog!=nullptr,"Cannot create multidirectional Pattern"))return 1;
+    const auto grid_id=dialog->pending.id;auto* directions=dialog->findChild<QTableWidget*>("patternLinearDirections");
+    const auto pick_axis=[&](int slot,char axis) {
+        directions->cellClicked(slot,1);flush();
+        auto* field=dynamic_cast<ui::ReferenceCellItem*>(directions->item(slot,1));
+        if(!field||!field->is_active_input()||dialog->active_input()!=slot+2)return false;
+        std::optional<QPointF> hit;
+        for(int y=4;y<view->height()&&!hit;y+=4)for(int x=4;x<view->width();x+=4){
+            const auto candidates=view->selection_candidates_at(QPointF(x,y));
+            if(!candidates.empty()&&candidates.front().owner_id==dialog->pending.container_origin.id&&
+                candidates.front().semantic_key=="origin:axis:"+std::string(1,axis)){hit=QPointF(x,y);break;}}
+        if(!hit)return false;
+        QMouseEvent move(QEvent::MouseMove,*hit,*hit,*hit,Qt::NoButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&move);
+        if(!view->hovered_candidate()||view->hovered_candidate()->semantic_key!="origin:axis:"+std::string(1,axis))return false;
+        QMouseEvent press(QEvent::MouseButtonPress,*hit,*hit,*hit,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+        QMouseEvent release(QEvent::MouseButtonRelease,*hit,*hit,*hit,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(view,&press);QApplication::sendEvent(view,&release);flush();
+        return dialog->derived_copy.pattern->linear[slot].local_axis==static_cast<int>(std::string("xyz").find(axis))&&!field->is_active_input();
+    };
+    if(!verify(pick_axis(0,'x')&&pick_axis(1,'y')&&pick_axis(2,'z'),"Pattern cannot pick its own X/Y/Z through hover and LMB"))return 1;
+    dialog->findChild<QComboBox*>("patternDistribution0")->setCurrentIndex(3);
+    dialog->findChild<QSpinBox*>("patternCount0")->setValue(3);
+    dialog->findChild<QSpinBox*>("patternCount1")->setValue(2);
+    dialog->findChild<QSpinBox*>("patternCount2")->setValue(2);
+    dialog->findChild<QComboBox*>("patternDistribution2")->setCurrentIndex(1);flush();
+    if(!verify(kernel::pattern_instance_count(*dialog->derived_copy.pattern)==12,"UI grid count is incorrect"))return 1;
+    auto* eye=directions->cellWidget(1,2)->findChild<QToolButton*>();eye->click();flush();
+    if(!verify(dynamic_cast<ui::ReferenceCellItem*>(directions->item(1,1))->is_inspected()&&dialog->active_input()==-1,
+        "Inspecting a direction armed input instead"))return 1;
+    window.grab().save(QString::fromStdString((directory/"pattern-grid-ui.png").string()));
+    const auto expected_grid=dialog->derived_copy.pattern->linear;
+    dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();save->trigger();flush();
+    if(!verify(!window.findChild<QDialog*>("patternDialog"),"Grid OK did not close the dialog"))return 1;
+    std::vector<kernel::BodyResult> grid_boundaries;const auto grid_part=document::PartDocument::load(path,&grid_boundaries);
+    if(!verify(grid_part.body_history.find(grid_id)->derived_copy->pattern->linear==expected_grid&&
+        std::abs(grid_boundaries.back().body_outputs.at(grid_id).volume-11*192)<1e-7,"UI grid geometry or persistence is incorrect"))return 1;
     // Command-first workflow arms the shared Tree/View source field.
     tree->clearSelection();view->clear_selection();pattern_action->trigger();flush();
     dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("patternDialog"));
@@ -336,12 +377,12 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     tree->setCurrentItem(row(occurrence.occurrence_id,"part-occurrence"));flush();pattern_action->trigger();flush();
     dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("patternDialog"));
     if(!verify(dialog&&dialog->derived_copy.source_id==occurrence.occurrence_id,"Assembly Pattern source prefill failed"))return 1;
-    const auto group_id=dialog->pending.id;dialog->findChild<QSpinBox*>("patternCount")->setValue(3);
-    dialog->findChild<QDoubleSpinBox*>("patternSpacing")->setValue(40);dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();save->trigger();flush();
+    const auto group_id=dialog->pending.id;dialog->findChild<QSpinBox*>("patternCount0")->setValue(3);
+    dialog->findChild<QDoubleSpinBox*>("patternSpacing0")->setValue(40);dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();save->trigger();flush();
     const auto patterned_assembly=assembly::AssemblyDocument::load(assembly_path);
     const auto* group=patterned_assembly.find_occurrence(group_id);
     if(!verify(group&&group->derived_copy->pattern&&group->nested_snapshot.size()==2,"Assembly Pattern occurrence group missing"))return 1;
-    const auto copy_path=assembly::InstancePath{}.child(group_id).child("copy-1").encoded();QTreeWidgetItem* copy_row{};
+    const auto copy_path=assembly::InstancePath{}.child(group_id).child("copy-x1-y0-z0").encoded();QTreeWidgetItem* copy_row{};
     for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole+1).toString().toStdString()==copy_path){copy_row=*it;break;}
     if(!verify(copy_row!=nullptr,"Pattern copy is absent from the Assembly tree"))return 1;
     window.show_tree_item_properties(copy_row);flush();
@@ -1721,6 +1762,60 @@ int verify_save_copy_ui(QApplication& application, const std::filesystem::path& 
     return 0;
 }
 
+int verify_body_activation(QApplication& application, const std::filesystem::path& directory) {
+    using namespace zima;
+    auto part=document::PartDocument::create_default();
+    auto first=document::PartDocument::create_box_container();first.box={10,10,10};
+    auto second=document::PartDocument::create_box_container();second.box={10,10,10};second.placement.x=5;
+    part.history={first,second};document::BodyHistoryGraph graph;
+    const auto a=graph.create_body("Těleso 1");graph.insert({document::PartHistoryKind::Feature,first.id});
+    const auto b=graph.create_body("Těleso 2");graph.insert({document::PartHistoryKind::Feature,second.id});
+    const auto cut=graph.create_boolean("Boolean",kernel::BodyCombination::Subtract,a,b);
+    document::BodyHistory mirror;mirror.name="Zrcadlo";mirror.derived_copy=document::DerivedCopyParameters{};
+    mirror.derived_copy->source_id=cut;mirror.derived_copy->resolved_plane={{0,20,0},{0,1,0}};
+    static_cast<void>(graph.create_derived_copy(mirror));
+    auto hidden=*graph.find(a);hidden.visible=false;graph.update_body(hidden);part.set_body_history(graph);
+    kernel::OcctKernel kernel;auto boundaries=kernel.evaluate_history(part.kernel_operations());
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_BODY_DOCUMENT"))
+        part=document::PartDocument::load(qEnvironmentVariable("ZIMA_VERIFY_BODY_DOCUMENT").toStdString(),&boundaries);
+    const auto path=directory/"body-activation.prtz";part.save(path,boundaries);
+    app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1100,850);window.show();
+    const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+    if(!verify(window.open_document_path(QString::fromStdString(path.string())),"Cannot open body activation fixture"))return 1;
+    flush();auto* tree=window.findChild<QTreeWidget*>("documentTree");
+    auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
+    const auto row=[&](const std::string& id)->QTreeWidgetItem* {
+        for(QTreeWidgetItemIterator it(tree);*it;++it)
+            if((*it)->data(0,Qt::UserRole).toString().toStdString()==id&&(*it)->data(0,Qt::UserRole+3).toString()=="part-body")return *it;
+        return nullptr;
+    };
+    const auto activate=[&](QTreeWidgetItem* item,const char* action_name) {
+        if(!item)return false;tree->scrollToItem(item);bool invoked=false;
+        QTimer::singleShot(0,&window,[&]{auto* menu=window.findChild<QMenu*>("partActivationMenu");if(!menu)return;
+            auto* action=menu->findChild<QAction*>(action_name);if(!action){menu->close();return;}
+            invoked=true;menu->setActiveAction(action);QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(menu,&enter);});
+        tree->customContextMenuRequested(tree->visualItemRect(item).center());flush();return invoked;
+    };
+    const auto original=view->mesh().triangles.size();
+    const auto& body=part.body_history.bodies().front();
+    if(!verify(activate(row(body.scope.id),"activateBodyAction"),"Cannot activate consumed body after Boolean and Mirror"))return 1;
+    if(!verify(!view->mesh().triangles.empty(),"Activating hidden body displayed no original geometry"))return 1;
+    std::set<std::string> owners;for(const auto& entry:body.entries)owners.insert(entry.id);
+    for(const auto& face:view->mesh().triangle_references)
+        if(!verify(owners.contains(face.owner_id),"Body activation retained downstream result faces"))return 1;
+    for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole+3).toString()=="part-body-boolean")
+        if(!verify((*it)->foreground(0).color()==QColor(125,125,125),"Downstream Boolean is not marked as outside active history"))return 1;
+    window.grab().save(QString::fromStdString((directory/"body-activation.png").string()));
+    if(!verify(activate(tree->topLevelItem(0),"activatePartAction")&&view->mesh().triangles.size()==original,
+        "Returning to Part did not restore full Boolean and Mirror geometry"))return 1;
+    window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+    std::vector<kernel::BodyResult> saved;auto restored=document::PartDocument::load(path,&saved);
+    if(!verify(restored.body_history.serialized()==part.body_history.serialized()&&
+        document::serialize_body_result(saved.back())==document::serialize_body_result(boundaries.back()),
+        "Body activation modified persisted history or geometry"))return 1;
+    std::cout<<"Body activation after Boolean and Mirror passed\n";return 0;
+}
+
 int verify_body_history_ui(QApplication& application, const std::filesystem::path& directory) {
     using namespace zima::document;
     auto part = PartDocument::create_default();
@@ -2878,6 +2973,8 @@ int verify_startup_contract(
         return verify_body_placement_offsets(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SAVE_COPY_ONLY"))
         return verify_save_copy_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_BODY_ACTIVATION_ONLY"))
+        return verify_body_activation(application, test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_BODY_UI_ONLY"))
         return verify_body_history_ui(application, test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PENDING_TREE_ONLY"))
@@ -2896,6 +2993,7 @@ int verify_startup_contract(
     if (verify_save_copy_ui(application, test_directory) != 0) return 1;
     if (verify_body_placement_offsets(application, test_directory) != 0) return 1;
     if (verify_body_history_ui(application, test_directory) != 0) return 1;
+    if (verify_body_activation(application, test_directory) != 0) return 1;
     if (verify_body_curve_references(application,test_directory) != 0) return 1;
     if (verify_body_sketch_ui(application, test_directory) != 0) return 1;
     if (verify_nested_body_sketch_ui(application, test_directory) != 0) return 1;

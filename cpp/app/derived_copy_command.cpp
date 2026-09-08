@@ -135,6 +135,14 @@ void AssemblyWorkspaceWindow::show_derived_copy_properties(const std::string& id
         pending_primitive_reference_index_.reset();primitive_reference_auto_advance_=false;set_local_origin_selection_mode(false);dialog->arm(row);
         const auto accepts=[dialog,geometry,source_id,prefix,row](const viewer::ViewerCandidate& candidate) {
             if(row==1)return (candidate.kind==viewer::CandidateKind::Occurrence||candidate.kind==viewer::CandidateKind::Container)&&!source_id(candidate).empty();
+            if(row>=2) {
+                if(candidate.kind!=viewer::CandidateKind::Axis||candidate.instance_path!=prefix||candidate.owner_id!=dialog->pending.container_origin.id)return false;
+                const auto key=candidate.semantic_key;
+                if(key!="origin:axis:x"&&key!="origin:axis:y"&&key!="origin:axis:z")return false;
+                const int axis=static_cast<int>(std::string("xyz").find(key.back()));
+                for(int i=0;i<3;++i)if(i!=row-2&&dialog->derived_copy.pattern->linear[i].local_axis==axis)return false;
+                return true;
+            }
             if(dialog->derived_copy.pattern) {
                 if(candidate.kind!=viewer::CandidateKind::Axis&&candidate.kind!=viewer::CandidateKind::Edge)return false;
             } else if(candidate.kind!=viewer::CandidateKind::Plane&&candidate.kind!=viewer::CandidateKind::Face)return false;
@@ -148,18 +156,19 @@ void AssemblyWorkspaceWindow::show_derived_copy_properties(const std::string& id
             try{document::PartDocument::resolve_copy_reference(mirror,dialog->pending.id,dialog->pending.placement,geometry);return true;}catch(const std::exception&){return false;}
         };
         tree_->setProperty("commandSelectionActive",true);viewer_->set_candidate_filter(accepts);
-        viewer_->set_selection_contract(row?std::vector<viewer::CandidateKind>{viewer::CandidateKind::Occurrence,viewer::CandidateKind::Container}:
+        viewer_->set_selection_contract(row==1?std::vector<viewer::CandidateKind>{viewer::CandidateKind::Occurrence,viewer::CandidateKind::Container}:
             dialog->derived_copy.pattern ? std::vector<viewer::CandidateKind>{viewer::CandidateKind::Axis,viewer::CandidateKind::Edge} :
             std::vector<viewer::CandidateKind>{viewer::CandidateKind::Plane,viewer::CandidateKind::Face});
         feature_reference_pick_=[this,dialog,source_id,prefix,row,accepts,sources](const auto& candidate){if(!accepts(candidate))return;
             feature_reference_pick_={};feature_reference_end_={};
-            if(row){const auto id=source_id(candidate);dialog->set_source(id,sources.at(id).name);}
+            if(row==1){const auto id=source_id(candidate);dialog->set_source(id,sources.at(id).name);}
+            else if(row>=2)dialog->set_linear_axis(row-2,static_cast<int>(std::string("xyz").find(candidate.semantic_key.back())));
             else {auto path=assembly::InstancePath::decode(candidate.instance_path);const auto parent=assembly::InstancePath::decode(prefix);
                 path.occurrence_ids.erase(path.occurrence_ids.begin(),path.occurrence_ids.begin()+parent.occurrence_ids.size());
                 dialog->set_plane({path.encoded(),candidate.owner_id,candidate.semantic_key},QString::fromStdString(candidate.semantic_key));}
             viewer_->clear_selection();tree_->clearSelection();};
         feature_reference_end_=[this,dialog]{feature_reference_pick_={};feature_reference_end_={};dialog->end_input();dialog->clear_reference_highlights();dialog->changed();};
-        state_->setText(row?tr("Vyberte zdrojové těleso nebo komponentu."):tr("Vyberte rovinu nebo rovinnou plochu zrcadlení."));
+        state_->setText(row==1?tr("Vyberte zdrojové těleso nebo komponentu."):row>=2?tr("Vyberte osu X, Y nebo Z vlastního počátku Pole."):dialog->derived_copy.pattern?tr("Vyberte osu kruhového Pole."):tr("Vyberte rovinu nebo rovinnou plochu zrcadlení."));
     };
     dialog->changed=[this,dialog,geometry,sources,prefix,document_id,graph,id,available]{
         if(!dialog->isVisible())return;
@@ -211,8 +220,9 @@ void AssemblyWorkspaceWindow::show_derived_copy_properties(const std::string& id
                 row->setIcon(0,resource_icon(dialog->derived_copy.pattern?"pattern":"mirror"));row->setForeground(0,QBrush(QColor("#4DD811")));}
         }
         std::set<viewer::EdgeKey> highlights;
-        if(dialog->inspected(0)&&!dialog->derived_copy.reference.owner_id.empty()) {
-            const auto& ref=dialog->derived_copy.reference;auto path=assembly::InstancePath::decode(prefix);
+        bool inspecting=false;
+        for(int field=0;field<dialog->input_count();++field)if(field!=1&&dialog->inspected(field)&&!dialog->input_reference(field).owner_id.empty()) {
+            inspecting=true;const auto ref=dialog->input_reference(field);auto path=assembly::InstancePath::decode(prefix);
             const auto local=assembly::InstancePath::decode(ref.instance_path);for(const auto& p:local.occurrence_ids)path=path.child(p);
             highlights.insert({ref.owner_id,ref.semantic_key,path.encoded()});if(ref.semantic_key=="plane")highlights.insert({ref.owner_id,"border",path.encoded()});
         }
@@ -223,7 +233,7 @@ void AssemblyWorkspaceWindow::show_derived_copy_properties(const std::string& id
         viewer_->set_constraint_reference_highlights({},std::move(highlights));
         if(dialog->active_input()>=0)dialog->request_input(dialog->active_input());
         else if(!pending_primitive_reference_index_) {feature_reference_pick_={};set_primitive_properties_dimension_selection();}
-        if(dialog->inspected(0)||dialog->inspected(1))feature_reference_end_=[this,dialog]{feature_reference_pick_={};feature_reference_end_={};dialog->end_input();dialog->changed();};
+        if(inspecting||dialog->inspected(1))feature_reference_end_=[this,dialog]{feature_reference_pick_={};feature_reference_end_={};dialog->end_input();dialog->changed();};
     };
     connect(dialog,&QDialog::finished,this,[this]{
         feature_reference_pick_={};feature_reference_end_={};pending_primitive_reference_index_.reset();primitive_reference_auto_advance_=false;

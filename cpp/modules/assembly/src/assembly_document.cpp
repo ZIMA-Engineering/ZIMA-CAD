@@ -1103,8 +1103,8 @@ void AssemblyDocument::calculate_derived_copies(const zima::kernel::GeometryKern
         result->nested_snapshot=source->nested_snapshot;result->body_color=source->body_color;result->face_colors=source->face_colors;
         if(result->derived_copy->pattern) {
             result->source_kind=ComponentSourceKind::Pattern;result->nested_snapshot.clear();
-            for(unsigned index=1;index<result->derived_copy->pattern->count;++index)
-                result->nested_snapshot.push_back({zima::kernel::pattern_copy_id(index),source->name+" ("+std::to_string(index+1)+")",
+            for(unsigned index=1;index<kernel::pattern_instance_count(*result->derived_copy->pattern);++index)
+                result->nested_snapshot.push_back({zima::kernel::pattern_copy_id(*result->derived_copy->pattern,index),source->name+" ("+std::to_string(index+1)+")",
                     source->source_document_id,source->source_kind,false,false,true,true,{},source->nested_snapshot});
         }
         result->placement={};result->placement_references.clear();result->grounded=true;

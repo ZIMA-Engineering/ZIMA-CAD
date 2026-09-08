@@ -1,3 +1,5 @@
+#include <set>
+#include <tuple>
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/kernel/mirror_geometry.hpp>
 #include <zima/document/part_document.hpp>
@@ -73,12 +75,33 @@ int main(){try{
     driven_source.components.front().grounded=false;rejects([&]{driven_source.calculate_derived_copies(kernel);});
     // Independent linear/circular checks: position, volume, identity, mode
     // changes, persistence and explicit source ownership inside a nested group.
-    kernel::PatternRequest pattern;pattern.count=4;pattern.spacing=20;
+    kernel::PatternRequest pattern;pattern.count=4;pattern.linear[0].spacing=20;
     auto copies=kernel.pattern_body(source,pattern,"pattern");close(copies.volume,3*source.volume);
     close(kernel.compound_bodies({{copies,{},{}}}).volume,3*source.volume);
     const auto v=source.mesh.vertices.front();close(copies.mesh.vertices.front().x,v.x+20);
     for(const auto& r:copies.mesh.original_references.triangle_references)if(r.valid())
         require(r.owner_id=="pattern"&&r.semantic_key.starts_with("pattern:copy-"),"Pattern lost copy topology identity");
+    auto grid=pattern;
+    grid.linear[0].count=3;grid.linear[0].distribution=kernel::PatternDistribution::Symmetric;
+    grid.linear[1].local_axis=1;grid.linear[1].direction={0,1,0};grid.linear[1].count=2;grid.linear[1].spacing=30;
+    grid.linear[2].local_axis=2;grid.linear[2].direction={0,0,1};grid.linear[2].count=2;grid.linear[2].spacing=40;grid.linear[2].distribution=kernel::PatternDistribution::Reverse;
+    require(kernel::pattern_instance_count(grid)==12,"3D grid total is incorrect");
+    auto grid_result=kernel.pattern_body(source,grid,"grid");close(grid_result.volume,11*source.volume);
+    std::set<std::tuple<int,int,int>> positions;
+    for(unsigned index=0;index<12;++index){const auto p=kernel::pattern_point({},grid,index);positions.emplace(std::lround(p.x),std::lround(p.y),std::lround(p.z));}
+    require(positions.size()==12&&positions.contains({0,0,0})&&positions.contains({-20,30,-40})&&positions.contains({20,0,0}),"Grid lost origin or a symmetric/reverse corner");
+    const auto stable_id=kernel::pattern_copy_id(grid,3); // First Y copy, no X/Z displacement.
+    auto resized_grid=grid;resized_grid.linear[0].count=5;
+    require(kernel::pattern_copy_id(resized_grid,5)==stable_id,"Resizing X changed the identity of an existing Y copy");
+    auto both=grid;both.linear[0].distribution=kernel::PatternDistribution::Both;both.linear[0].count=2;both.linear[0].reverse_count=2;
+    require(kernel::pattern_instance_count(both)==16,"Independent reverse count is ignored");
+    auto invalid=grid;invalid.linear[1].local_axis=0;rejects([&]{static_cast<void>(kernel::validated_pattern(invalid));});
+    invalid=grid;invalid.linear[0].count=4;rejects([&]{static_cast<void>(kernel::validated_pattern(invalid));});
+    invalid=grid;invalid.linear[1].count=1000;rejects([&]{static_cast<void>(kernel::validated_pattern(invalid));});
+    auto grid_graph=graph;document::BodyHistory grid_body;grid_body.name="Mřížka";
+    grid_body.derived_copy=document::DerivedCopyParameters{};grid_body.derived_copy->source_id=source_id;grid_body.derived_copy->pattern=grid;
+    const auto grid_id=grid_graph.create_derived_copy(grid_body);
+    require(document::BodyHistoryGraph::from_serialized(grid_graph.serialized()).find(grid_id)->derived_copy==grid_body.derived_copy,"Grid directions did not round-trip");
     pattern.circular=true;pattern.origin={2,3,4};pattern.axis={0,0,1};
     copies=kernel.pattern_body(source,pattern,"pattern");
     close(copies.mesh.vertices.front().x,2-(v.y-3));close(copies.mesh.vertices.front().y,3+(v.x-2));close(copies.mesh.vertices.front().z,v.z);
@@ -86,12 +109,12 @@ int main(){try{
     pattern.full_circle=true;pattern.count=1;rejects([&]{static_cast<void>(kernel.pattern_body(source,pattern));});
     pattern.count=4;
     document::DerivedCopyParameters parameters{source_id,{{},"pattern-body:origin","origin:axis:z"}};parameters.pattern=pattern;
-    document::Placement frame;frame.rotation_y=90;parameters.linear_axis=1;
+    document::Placement frame;frame.rotation_y=90;parameters.pattern->linear[0].local_axis=1;
     document::PartDocument::resolve_copy_reference(parameters,"pattern-body",frame,{});
     close(parameters.pattern->axis.x,1);close(parameters.pattern->axis.z,0);
     parameters.pattern->circular=false;const auto retained=parameters.reference;
     document::PartDocument::resolve_copy_reference(parameters,"pattern-body",frame,{});
-    close(parameters.pattern->direction.y,1);require(parameters.reference==retained,"Linear mode discarded the stored circular axis");
+    close(parameters.pattern->linear[0].direction.y,1);require(parameters.reference==retained,"Linear mode discarded the stored circular axis");
     auto pattern_graph=graph;document::BodyHistory patterned;patterned.name="Pole";patterned.scope.id="pattern-body";patterned.derived_copy=parameters;
     const auto pattern_id=pattern_graph.create_derived_copy(patterned);
     auto operations=pattern_graph.compile([&](const auto& e)->std::optional<kernel::HistoryOperation>{return kernel::HistoryOperation{e.id,box(3)};});
@@ -107,7 +130,7 @@ int main(){try{
     for(const auto& r:scene.triangle_references)if(r.instance_path.starts_with(assembly::InstancePath{}.child(group.occurrence_id).encoded()))copy_paths.insert(r.instance_path);
     require(copy_paths.size()==3,"Pattern copies share one selectable occurrence path");
     workspace::Workspace workspace;workspace.add_assembly(patterned_assembly);
-    require(workspace.derived_source_path(patterned_assembly.document_id,assembly::InstancePath{}.child(group.occurrence_id).child("copy-1"))==assembly::InstancePath{}.child(component.occurrence_id),"Pattern edit did not return to its exact source");
+    require(workspace.derived_source_path(patterned_assembly.document_id,assembly::InstancePath{}.child(group.occurrence_id).child("copy-x1-y0-z0"))==assembly::InstancePath{}.child(component.occurrence_id),"Pattern edit did not return to its exact source");
     const auto pattern_file=std::filesystem::temp_directory_path()/"zima-pattern-contract.asmz";patterned_assembly.save(pattern_file);
     const auto reloaded=assembly::AssemblyDocument::load(pattern_file);std::filesystem::remove(pattern_file);
     require(reloaded.find_occurrence(group.occurrence_id)->nested_snapshot==calculated_group->nested_snapshot,"Pattern occurrence snapshot did not round-trip");

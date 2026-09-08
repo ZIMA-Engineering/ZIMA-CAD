@@ -6,10 +6,19 @@ zeleným polem Zdroj ve View či Tree.
 
 - **Zrcadlo** používá rovinu nebo rovinnou plochu. Tlačítka XY/YZ/XZ vyberou
   rovinu vlastního počátku kontejneru.
-- **Pole – lineární** používá místní směr X/Y/Z a podepsanou rozteč.
+- **Pole – lineární** používá jednu až tři různé osy vlastního počátku.
+  Kliknutí na referenční pole směru nabídne pod kurzorem osy X/Y/Z kontejneru
+  Pole. Každý směr má kladnou rozteč a vlastní počet. Dva směry vytvoří mřížku,
+  tři směry prostorové pole. Křížek u reference odstraní příslušný směr.
+- Rozložení každého směru může být **Vpřed**, **Vzad**, **Oboustranně** nebo
+  **Symetricky**. Počet zahrnuje zdroj; u oboustranného rozložení pole **Vzad**
+  přidává nezávislý počet kopií za zdroj. Symetrický počet je lichý (3, 5, 7…)
+  a zdroj zůstává uprostřed. Například 3 × 2 × 2 znamená 12 výskytů celkem,
+  tedy zdroj a 11 kopií. Celkový limit je 1000 výskytů.
 - **Pole – kruhové** používá zvolenou osu, přímou hranu nebo kruhovou hranu.
   Lze rozdělit celý kruh nebo zadat úhel mezi výskyty. Osa a její reference se
-  zachovají při přepnutí na lineární režim, ve kterém je ovládání osy skryté.
+  zachovají při přepnutí na lineární režim, ve kterém je ovládání kruhové osy skryté.
+  Nastavení lineárních směrů se rovněž zachová při přepnutí do kruhového režimu.
 - Počet Pole zahrnuje původní zdroj. Kontejner přidává zbývající kopie;
   původní objekt zůstává samostatný.
 
@@ -20,6 +29,8 @@ editovatelnou historii; rozměry se mění ve zdroji.
 
 V sestavě odkazuje kontejner na bezprostředně vlastněnou komponentu. Pole
 ukládá pro každou kopii vlastní cestu výskytu, včetně kopií podsestav.
+U lineárního pole je identita odvozena od celočíselné pozice na místních
+osách; zvýšení počtu v jiném směru nemění identitu existující kopie.
 Vlastnosti geometrie a aktivace kopie vedou na původní zdroj. Vlastnosti
 kontejneru v Tree umožňují změnit jeho umístění, zdroj a rovinu/parametry Pole.
 Při editaci zůstává okolní sestava pasivním kontextem a zobrazuje se vstupní

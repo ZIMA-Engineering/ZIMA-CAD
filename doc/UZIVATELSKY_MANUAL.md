@@ -1126,8 +1126,12 @@ vyberte objekt zeleným polem **Zdroj**.
 
 - **Zrcadlo:** vyberte rovinu zrcadlení nebo rovinnou plochu. Tlačítka
   XY/YZ/XZ použijí rovinu vlastního počátku kontejneru.
-- **Pole – lineární:** zvolte místní X/Y/Z, počet a rozteč. Záporná rozteč
-  obrátí směr. Uložená osa pro kruhový režim zůstává zachovaná a skrytá.
+- **Pole – lineární:** v zelených referenčních polích vyberte jednu až tři
+  různé osy X/Y/Z vlastního počátku Pole. Každý směr má rozteč, počet a
+  rozložení **Vpřed**, **Vzad**, **Oboustranně** nebo **Symetricky**. U
+  oboustranného rozložení zadáte navíc počet kopií vzad; symetrické používá
+  lichý celkový počet se zdrojem uprostřed. Dva směry vytvoří mřížku, tři
+  prostorové pole. Uložená osa pro kruhový režim zůstává zachovaná a skrytá.
 - **Pole – kruhové:** zvolte osu, počet a úhel mezi výskyty, nebo rozdělení
   celého kruhu. Osu lze zadat osovou referencí, přímou či kruhovou hranou.
 
@@ -1136,6 +1140,11 @@ kopie a zdroj ponechá samostatný. Kopie nemají vlastní editovatelné rozměr
 vlastnosti geometrie vedou na zdroj. Vlastnosti hlavního kontejneru v Tree
 upravují jeho umístění, zdroj a parametry kopírování. Změny uloží **OK**,
 **Cancel** je zahodí.
+
+Aktivace původního tělesa přes **Aktivní** zobrazí jeho uloženou geometrii
+před navazujícími operacemi. Následující tělesa, Boolean, Zrcadlo i Pole ve
+stromu zešednou. **Zpět do dílu** obnoví celý výsledek. Toto prohlížení historie
+nemění trvalé potlačení ani viditelnost a nespouští geometrický přepočet.
 
 V dílu je Zrcadlo samostatným tělesem a celé Pole jedním společným výsledkem
 vytvořených kopií. Lze je skrýt nebo použít jako nástroj či cíl Booleanu.

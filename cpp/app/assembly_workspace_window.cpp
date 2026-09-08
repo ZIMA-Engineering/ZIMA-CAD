@@ -27196,6 +27196,17 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
             row->setData(0, Qt::UserRole + 3, kind);
             row->setForeground(0, QBrush(QColor("#4DD811"))); return row;
         };
+        const auto active_position = std::ranges::find(graph.order(),
+            body_dialog_step_id_.empty() ? graph.active_body_id() : body_dialog_step_id_);
+        const auto shade_downstream = [&](QTreeWidgetItem* item, std::size_t index) {
+            if (active_position == graph.order().end() || index <= static_cast<std::size_t>(active_position - graph.order().begin())) return;
+            const auto shade = [&](auto&& self, QTreeWidgetItem* child) -> void {
+                child->setForeground(0, QBrush(QColor(125, 125, 125)));
+                child->setToolTip(0, tr("Následuje za aktivním tělesem. Zpět do dílu obnoví celý výsledek."));
+                for (int i = 0; i < child->childCount(); ++i) self(self, child->child(i));
+            };
+            shade(shade, item);
+        };
         for (std::size_t index = 0; index <= graph.order().size(); ++index) {
             if (index == graph.insertion_cursor() && graph.active_body_id().empty() && part_history_insertion_allowed())
                 make_cursor(parent, "part-body-insert-here", {});
@@ -27211,7 +27222,7 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
                 row->setForeground(0, QBrush(QColor("#4DD811")));
                 auto font = row->font(0); font.setBold(true); row->setFont(0, font);
             }
-            if (!definition) continue;
+            if (!definition) { shade_downstream(row, index); continue; }
             auto* origin = add_origin_tree_item(row, id, false, construction_path);
             origin->setText(0, definition->derived_copy ? (definition->derived_copy->pattern?tr("Počátek Pole"):tr("Počátek Zrcadla")) : tr("Počátek tělesa"));
             if(definition->derived_copy) {
@@ -27234,6 +27245,7 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
                 row->removeChild(cursor);
                 row->insertChild(static_cast<int>(definition->cursor)+1, cursor);
             }
+            shade_downstream(row, index);
             row->setExpanded(true);
         }
         for (const auto& [id, row] : entries) parent->addChild(row);

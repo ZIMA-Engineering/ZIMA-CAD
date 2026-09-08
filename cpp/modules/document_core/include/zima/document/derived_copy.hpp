@@ -8,7 +8,6 @@ struct DerivedCopyParameters {
     kernel::MirrorPlane resolved_plane;
     bool reference_valid{true};
     std::optional<kernel::PatternRequest> pattern;
-    unsigned linear_axis{}; // Local Origin X, Y, Z; circular axis remains stored.
     bool operator==(const DerivedCopyParameters&) const = default;
 };
 } // namespace zima::document

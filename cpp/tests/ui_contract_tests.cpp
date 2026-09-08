@@ -2224,6 +2224,9 @@ int main(int argc, char* argv[]) {
                     QPointF(60.0, 18.0), QColor(QStringLiteral("#e6edf3")), 42),
                 "Inspection eye changed the stored reference label away from "
                 "the normal light-on-dark text colour");
+        require(framebuffer_contains_color_near(focused_reference_cell, focused_reference_cell.size(),
+                    QPointF(235,18), QColor(QStringLiteral("#00d1ff")), 3),
+                "Inspected reference did not paint its azure background");
         box_reference_dialog->set_active_reference_index(std::nullopt);
         box_reference_dialog->clear_reference_highlights();
         require(!active_box_reference->is_active_input() &&

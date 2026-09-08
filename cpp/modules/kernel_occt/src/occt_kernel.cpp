@@ -4950,7 +4950,7 @@ BodyResult OcctKernel::pattern_body(const BodyResult& source,const PatternReques
     for(unsigned index=1;index<p.count;++index) {
         gp_Trsf copy;
         if(p.circular)copy.SetRotation(gp_Ax1(gp_Pnt(p.origin.x,p.origin.y,p.origin.z),gp_Dir(p.axis.x,p.axis.y,p.axis.z)),p.angle_degrees*index*std::numbers::pi/180.0);
-        else copy.SetTranslation(gp_Vec(p.direction.x*p.spacing*index,p.direction.y*p.spacing*index,p.direction.z*p.spacing*index));
+        else {const auto t=pattern_translation(p,index);copy.SetTranslation(gp_Vec(t.x,t.y,t.z));}
         BRepBuilderAPI_Transform transform(shape,copy*placement,true);transform.Build();
         if(!transform.IsDone()||!BRepCheck_Analyzer(transform.Shape()).IsValid())throw std::runtime_error("Pole nevytvořilo platné těleso.");
         builder.Add(compound,transform.Shape());

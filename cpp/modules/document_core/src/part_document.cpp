@@ -6858,9 +6858,12 @@ void PartDocument::resolve_copy_reference(DerivedCopyParameters& mirror,const st
     } else if(mirror.reference.owner_id==id)throw std::invalid_argument("Zrcadlo nemůže používat vlastní geometrii jako rovinu.");
     if(mirror.pattern) {
         auto& pattern=*mirror.pattern;
-        if(mirror.linear_axis>2)throw std::invalid_argument("Vyberte místní směr X, Y nebo Z.");
         const std::array<kernel::Vec3,3> basis{{{1,0,0},{0,1,0},{0,0,1}}};
-        pattern.direction=rotated_vector(basis[mirror.linear_axis],{placement.rotation_x,placement.rotation_y,placement.rotation_z});
+        for(auto& direction:pattern.linear) {
+            if(direction.local_axis==-1)continue;
+            if(direction.local_axis<0||direction.local_axis>2)throw std::invalid_argument("Vyberte osu X, Y nebo Z počátku Pole.");
+            direction.direction=rotated_vector(basis[direction.local_axis],{placement.rotation_x,placement.rotation_y,placement.rotation_z});
+        }
         if(pattern.circular) {
             const auto axis=placement_reference_axis(mirror.reference,references);
             mirror.reference_valid=axis.has_value();

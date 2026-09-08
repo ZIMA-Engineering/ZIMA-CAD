@@ -33,10 +33,8 @@ public:
         const bool inspected = index.data(inspected_role).toBool();
         const bool active = index.data(active_input_role).toBool();
         const bool populated = index.data(populated_reference_role).toBool();
-        // Inspection belongs to the eye button and the View overlay. It must
-        // never recolour a stored reference label: on the dark Properties
-        // table every populated reference remains normally light and
-        // readable, independent of eye state and window focus.
+        // Inspection changes only this reference's background. Keep stored
+        // reference text readable and independent of window focus.
         QColor text_color;
         if (inspected) {
             clean.backgroundBrush = QColor(QStringLiteral("#00d1ff"));
@@ -227,6 +225,9 @@ bool ReferenceCellItem::is_inspected() const {
 
 void ReferenceCellItem::set_inspected(bool value) {
     setData(inspected_role, value);
+    // QStyledItemDelegate initializes its paint options again from the model;
+    // an option-only background is discarded by that second initialization.
+    setBackground(value ? QBrush(QColor(QStringLiteral("#00d1ff"))) : QBrush{});
 }
 
 }  // namespace zima::ui

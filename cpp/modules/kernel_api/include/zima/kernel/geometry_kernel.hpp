@@ -559,15 +559,24 @@ struct MirrorPlane {
     Vec3 normal{0,0,1};
     bool operator==(const MirrorPlane&) const = default;
 };
+enum class PatternDistribution { Forward, Reverse, Both, Symmetric };
+struct LinearPatternDirection {
+    int local_axis{-1}; // -1 is unused; X/Y/Z refer to the Pattern container's Origin.
+    unsigned count{4}; // Includes the source; in Both this is the forward count.
+    unsigned reverse_count{1}; // Additional copies behind the source in Both.
+    PatternDistribution distribution{PatternDistribution::Forward};
+    double spacing{20};
+    Vec3 direction{1,0,0}; // Resolved at calculation/preview from the local Origin.
+    bool operator==(const LinearPatternDirection&) const = default;
+};
 struct PatternRequest {
     bool circular{};
-    unsigned count{4}; // Total occurrences, including the unchanged source.
-    double spacing{20};
+    unsigned count{4}; // Circular occurrences including source; computed total for validated linear requests.
     double angle_degrees{90};
     bool full_circle{true};
     Vec3 origin;
     Vec3 axis{0,0,1};
-    Vec3 direction{1,0,0};
+    std::array<LinearPatternDirection,3> linear{{{0}, {}, {}}};
     bool operator==(const PatternRequest&) const = default;
 };
 enum class BodyCombination { Separate, Add, Subtract, Intersect, Mirror, Pattern };
@@ -716,8 +725,12 @@ struct PlacedBody {
                 u64(std::bit_cast<std::uint64_t>(v));
         if(operation.body.combination==BodyCombination::Pattern) {
             const auto& p=operation.body.pattern;u64(p.count);byte(p.circular);byte(p.full_circle);
-            for(double v:{p.spacing,p.angle_degrees,p.origin.x,p.origin.y,p.origin.z,p.axis.x,p.axis.y,p.axis.z,p.direction.x,p.direction.y,p.direction.z})
+            for(double v:{p.angle_degrees,p.origin.x,p.origin.y,p.origin.z,p.axis.x,p.axis.y,p.axis.z})
                 u64(std::bit_cast<std::uint64_t>(v));
+            for (const auto& d : p.linear) {
+                u64(d.local_axis + 1);u64(d.count);u64(d.reverse_count);byte(static_cast<std::uint8_t>(d.distribution));
+                for (double v : {d.spacing,d.direction.x,d.direction.y,d.direction.z}) u64(std::bit_cast<std::uint64_t>(v));
+            }
         }
         byte(static_cast<std::uint8_t>(operation.primitive.index()));
         std::visit([&](const auto& primitive) {
