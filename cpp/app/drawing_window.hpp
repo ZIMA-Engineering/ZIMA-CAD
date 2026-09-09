@@ -45,6 +45,8 @@ public:
     std::optional<QPointF> view_rectangle_center_for_test(const std::string& id) const;
     std::optional<QPointF> view_label_center_for_test(const std::string& id,bool section=false)const;
     std::optional<QPointF> annotation_handle_for_test(const std::string& id,int end=0,bool dimension=false)const;
+    std::optional<QPointF> model_annotation_handle_for_test(const zima::drawing::ModelAnnotationReference&,int end=0,const std::string& view={})const;
+    QImage render_sheet_for_test(bool printing)const;
     void load_frame_for_test(const std::filesystem::path& path);
     void load_title_block_for_test(const std::filesystem::path& path);
     std::optional<QPointF> title_field_center_for_test(const std::string& id) const;
@@ -84,6 +86,7 @@ private:
     QAction* delete_view_action_{};
     QAction* selection_action_{};
     QAction* linear_dimension_action_{};
+    QAction* show_erase_action_{};
 
     void create_actions();
     void create_layout();
@@ -107,6 +110,7 @@ private:
     void delete_selected_view();
     void start_selection();
     void start_linear_dimension();
+    void show_erase();
     void update_action_states();
     void refresh();
     void sync_workspace_document();

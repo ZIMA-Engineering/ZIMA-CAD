@@ -333,7 +333,9 @@ kamery. Projekční pohledy přebírají otočenou kameru rodiče automaticky.
 Název pohledu a označení řezu mají samostatné přepínače a polohy; výchozí
 umístění je nad obrysem. Popisky a kóty se ovládají přes manipulační body.
 Podrobnosti značení, výběru tras, šrafování a tisku popisují [Řezy](SECTIONS.md).
-Nástroj [Show/Erase](DRAWING_SHOW_ERASE.md) je zatím návrh dalšího kroku.
+Nástroj [Show/Erase](DRAWING_SHOW_ERASE.md) zobrazuje a odebírá původní kóty, osy
+a pomocnou geometrii samostatně v každém pohledu. Podporuje přesouvání textů
+a úchytů a pracovní vodítka s výchozím odstupem i roztečí 8 mm.
 
 ### Orientace pohledu nezávislá na řezu (2026-09-09)
 

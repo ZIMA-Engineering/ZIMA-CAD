@@ -1236,3 +1236,23 @@ dokumentu aktualizujte sestavu příkazem **Regenerovat**.
 Zelené tlačítko **Sketch** označuje vstup do skici také u 2D a šroubovicového
 tažení. V nabídce modelování je 3D křivka za skicou a 2D tažení před 3D tažením.
 Vlastnosti kontejnerů již neobsahují redundantní řádek s typem kontejneru.
+
+
+### Show/Erase ve výkresu
+
+Vyberte pohled a otevřete **Show / Erase…** v liště Výkres. Nástroj nabízí
+původní kóty skic a uložených viewer paketů, osy a pomocnou geometrii. Show vybírá
+ze skrytých položek, Erase ze zobrazených. Kliknutím ve View nebo zaškrtnutím
+v seznamu vybíráte položky k ponechání či odebrání. OK potvrdí změnu jen pro
+vybraný pohled; Zrušit obnoví původní zobrazení. Nové zdrojové položky načte
+**Regenerovat**. Kótu pak můžete přesouvat za text nebo úchyt u šipky.
+
+Ve vlastnostech pohledu zapněte **Pracovní vodítka kót**: první odstup i rozteč
+jsou standardně **8 mm**. Vodítka využívají obdélníkovou oblast View, pomáhají
+přichytávat kóty a nevstupují do PDF. Podrobnosti: [Show/Erase](DRAWING_SHOW_ERASE.md).
+
+### Orientace původních kót v Show/Erase
+
+Show/Erase nabízí jen kóty kolmé ke směru pohledu, tedy čelně viditelné.
+Kóty z boku nebo šikmo se nezobrazují ani netisknou. Výběr platí pouze pro
+právě upravovaný pohled; kliknutí na kótu v jiném pohledu ho nezmění.

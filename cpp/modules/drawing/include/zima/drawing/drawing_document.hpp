@@ -38,6 +38,29 @@ struct Point2 {
     bool operator==(const Point2&) const = default;
 };
 
+enum class ModelAnnotationKind { Dimension, Axis, Construction };
+struct ModelAnnotationReference {
+    std::string document_id, owner_id, semantic_id, instance_path;
+    bool operator==(const ModelAnnotationReference&) const = default;
+    auto operator<=>(const ModelAnnotationReference&) const = default;
+};
+struct ModelAnnotation {
+    ModelAnnotationReference source;
+    std::array<double,3> plane_normal{0,0,1};
+    ModelAnnotationKind kind{ModelAnnotationKind::Dimension};
+    kernel::ViewerDimensionKind dimension_kind{kernel::ViewerDimensionKind::Linear};
+    // Last explicit projection, in view model units (not paper mm).
+    std::vector<std::vector<Point2>> curves;
+    Point2 text_anchor;
+    std::string text;
+    double value{};
+    bool visible{}, unresolved{};
+    // User placements in paper mm relative to the view origin. Semantic keys
+    // include text, arrow_first and arrow_second; never indexed topology.
+    std::map<std::string, Point2> paper_handles;
+    bool operator==(const ModelAnnotation&) const = default;
+};
+
 struct ProjectedEdge {
     std::vector<Point2> points;
     zima::kernel::EdgeReference source;
@@ -86,6 +109,9 @@ struct DrawingView {
     // Explicitly selected cutting traces, snapshotted from this view's source.
     std::vector<zima::document::SectionDefinition> section_markers;
     std::map<std::string,std::array<double,2>> section_marker_offsets;
+    bool show_dimension_guides{};
+    double dimension_guide_offset{8.0}, dimension_guide_spacing{8.0};
+    std::vector<ModelAnnotation> model_annotations;
     std::vector<ProjectedEdge> projected_edges;
     std::vector<ProjectedTriangle> projected_triangles;
     std::set<std::string> value_locks;

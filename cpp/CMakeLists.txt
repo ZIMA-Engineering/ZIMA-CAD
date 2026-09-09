@@ -64,7 +64,7 @@ target_link_libraries(zima_assembly
     PUBLIC zima_kernel_api zima_document_core
     PRIVATE nlohmann_json::nlohmann_json)
 
-add_library(zima_drawing modules/drawing/src/drawing_document.cpp
+add_library(zima_drawing modules/drawing/src/drawing_document.cpp modules/drawing/src/model_annotations.cpp
     modules/drawing/src/drawing_template.cpp modules/drawing/src/drawing_section_trace.cpp)
 target_include_directories(zima_drawing PUBLIC modules/drawing/include)
 target_link_libraries(zima_drawing
@@ -127,7 +127,7 @@ add_executable(zima-cad-cpp
     app/main_workspace.cpp app/appearance_dialog.cpp app/appearance_command.cpp app/section_command.cpp app/section_ui_verification.cpp app/assembly_workspace_window.cpp app/template_command.cpp app/numeric_value_lock_command.cpp app/shaft_thread_command.cpp app/derived_copy_command.cpp
     app/application_settings.cpp app/global_settings_dialog.cpp
     app/document_tools_dialogs.cpp
-    app/drawing_window.cpp app/file_dialog.cpp app/resource_icon.cpp
+    app/drawing_window.cpp app/drawing_annotation_source.cpp app/show_erase_dialog.cpp app/file_dialog.cpp app/resource_icon.cpp
     app/zima_resources.qrc
     app/component_properties_dialog.cpp app/primitive_properties_dialog.cpp
     app/construction_properties_dialog.cpp
@@ -181,8 +181,8 @@ if(UNIX AND NOT APPLE)
 endif()
 
 add_executable(zima-cad-drawing-harness
-    app/main_drawing.cpp app/drawing_window.cpp app/file_dialog.cpp app/application_settings.cpp
-    tests/drawing_ui_contract.cpp
+    app/main_drawing.cpp app/drawing_window.cpp app/drawing_annotation_source.cpp app/show_erase_dialog.cpp app/file_dialog.cpp app/application_settings.cpp
+    tests/drawing_ui_contract.cpp tests/show_erase_ui_contract.cpp
     app/resource_icon.cpp app/zima_resources.qrc)
 target_include_directories(zima-cad-drawing-harness PRIVATE app)
 target_link_libraries(zima-cad-drawing-harness PRIVATE zima_viewer)
@@ -317,10 +317,15 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_template_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_TEMPLATES_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    add_test(NAME zima_cpp_show_erase_ui_contract COMMAND zima-cad-drawing-harness --verify-show-erase)
+    set_tests_properties(zima_cpp_show_erase_ui_contract PROPERTIES ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_test(NAME zima_cpp_drawing_ui_contract COMMAND zima-cad-drawing-harness --verify-ui)
     set_tests_properties(zima_cpp_drawing_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    add_executable(zima_cpp_show_erase_contract_tests tests/show_erase_contract_tests.cpp)
+    target_link_libraries(zima_cpp_show_erase_contract_tests PRIVATE zima_drawing)
+    add_test(NAME zima_cpp_show_erase_contract_tests COMMAND zima_cpp_show_erase_contract_tests)
     add_executable(zima_cpp_drawing_contract_tests tests/drawing_contract_tests.cpp)
     target_link_libraries(zima_cpp_drawing_contract_tests PRIVATE zima_drawing)
     add_test(NAME zima_cpp_drawing_contract_tests COMMAND zima_cpp_drawing_contract_tests)

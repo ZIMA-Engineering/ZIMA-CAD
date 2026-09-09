@@ -1,4 +1,5 @@
 #include "drawing_projection.hpp"
+#include <zima/drawing/model_annotations.hpp>
 #include <zima/sketcher/template_image_json.hpp>
 #include <zima/document/document_copy_json.hpp>
 #include <zima/drawing/drawing_document.hpp>
@@ -615,6 +616,8 @@ void DrawingDocument::save(const std::filesystem::path& path,
             if(stored_section){item["section_body_owners"]=stored_section->body_owners;item["section_component_names"]=stored_section->component_names;item["section_snapshot"]=nlohmann::json::parse(zima::document::serialize_sections({*stored_section}));}
             else item["section_snapshot"]=nlohmann::json::array();
 
+            item["dimension_guides"]={{"visible",view.show_dimension_guides},{"offset",view.dimension_guide_offset},{"spacing",view.dimension_guide_spacing}};
+            item["model_annotations"] = nlohmann::json::parse(serialize_model_annotations(view.model_annotations));
             item["projected_edges"] = nlohmann::json::array();
             for (const auto& edge : view.projected_edges) {
                 nlohmann::json edge_json{{"source", edge_reference_json(edge.source)},
@@ -744,6 +747,10 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
             DrawingView view;
             view.id = item.at("id").get<std::string>();
             view.name = item.value("name", "Pohled");
+            const auto guides=item.value("dimension_guides",nlohmann::json::object());
+            view.show_dimension_guides=guides.value("visible",false);view.dimension_guide_offset=guides.value("offset",8.0);view.dimension_guide_spacing=guides.value("spacing",8.0);
+            if(!std::isfinite(view.dimension_guide_offset)||!std::isfinite(view.dimension_guide_spacing)||view.dimension_guide_offset<0||view.dimension_guide_spacing<=0)throw std::runtime_error("Invalid dimension guides");
+            view.model_annotations = deserialize_model_annotations(item.value("model_annotations",nlohmann::json::array()).dump());
             view.source_document_id = item.at("source_document_id").get<std::string>();
             view.source_path = item.value("source_path", "");
             view.parent_view_id = item.value("parent_view_id", "");
