@@ -87,11 +87,12 @@ std::vector<StepPart> inspect_step_parts(
     if (maximum_parts == 0) throw std::invalid_argument("Limit STEP dílů musí být kladný");
     Handle(TDocStd_Document) document;
     XCAFApp_Application::GetApplication()->NewDocument("BinXCAF", document);
+    struct CloseDocument { Handle(TDocStd_Document)& value; ~CloseDocument(){XCAFApp_Application::GetApplication()->Close(value);} } close{document};
     STEPCAFControl_Reader reader;
-    if (reader.ReadFile(path.string().c_str()) != IFSelect_RetDone ||
-        !reader.Transfer(document)) {
+    if(reader.ReadFile(path.string().c_str())!=IFSelect_RetDone)
         throw std::runtime_error("STEP produktovou strukturu nelze načíst");
-    }
+    reader.ChangeReader().SetSystemLengthUnit(1.0);
+    if(!reader.Transfer(document))throw std::runtime_error("STEP produktovou strukturu nelze načíst");
     std::vector<StepPart> result;
     XCAFPrs_DocumentExplorer explorer(
         document, XCAFPrs_DocumentExplorerFlags_NoStyle);
@@ -110,6 +111,12 @@ std::vector<StepPart> inspect_step_parts(
             extended.ToUTF8CString(buffer);
             if (utf8.front() != '\0') name = utf8.data();
         }
+        const std::string definition_name=name;
+        if(node.Label.FindAttribute(TDataStd_Name::GetID(),attribute)) {
+            std::vector<char> utf8(static_cast<std::size_t>(attribute->Get().LengthOfCString())+1);
+            Standard_PCharacter buffer=utf8.data();attribute->Get().ToUTF8CString(buffer);
+            if(utf8.front()!='\0')name=utf8.data();
+        }
         TCollection_AsciiString definition;
         TDF_Tool::Entry(node.RefLabel.IsNull() ? node.Label : node.RefLabel, definition);
         std::string parent_path;
@@ -120,7 +127,7 @@ std::vector<StepPart> inspect_step_parts(
         double rotation_y{};
         double rotation_z{};
         transform.GetRotation().GetEulerAngles(
-            gp_Intrinsic_XYZ, rotation_x, rotation_y, rotation_z);
+            gp_Extrinsic_XYZ, rotation_x, rotation_y, rotation_z);
         constexpr double degrees = 180.0 / 3.14159265358979323846;
         const auto translation = transform.TranslationPart();
         const gp_Trsf global_transform = node.Location.Transformation();
@@ -128,14 +135,14 @@ std::vector<StepPart> inspect_step_parts(
         double global_ry{};
         double global_rz{};
         global_transform.GetRotation().GetEulerAngles(
-            gp_Intrinsic_XYZ, global_rx, global_ry, global_rz);
+            gp_Extrinsic_XYZ, global_rx, global_ry, global_rz);
         const auto global_translation = global_transform.TranslationPart();
         result.push_back({node.Id.ToCString(), std::move(parent_path),
             definition.ToCString(), std::move(name), node.IsAssembly,
             translation.X(), translation.Y(), translation.Z(),
             rotation_x * degrees, rotation_y * degrees, rotation_z * degrees,
             global_translation.X(), global_translation.Y(), global_translation.Z(),
-            global_rx * degrees, global_ry * degrees, global_rz * degrees});
+            global_rx * degrees, global_ry * degrees, global_rz * degrees, definition_name});
     }
     return result;
 }

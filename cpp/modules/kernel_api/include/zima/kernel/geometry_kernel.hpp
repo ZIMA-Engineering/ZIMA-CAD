@@ -654,6 +654,17 @@ struct BodyResult {
     std::map<std::string, BodyResult> body_outputs;
 };
 
+// A product definition and its positioned occurrences for explicit STEP export.
+// Repeated definition IDs share one STEP product; geometry stays in local mm.
+struct StepProduct {
+    std::string definition_id;
+    std::string name;
+    BodyResult body;
+    std::vector<StepProduct> children;
+    Vec3 translation;
+    Vec3 rotation_degrees;
+};
+
 struct PlacedBody {
     BodyResult body;
     Vec3 translation;

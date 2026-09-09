@@ -32,6 +32,7 @@ struct StepPart {
     double global_rotation_x{};
     double global_rotation_y{};
     double global_rotation_z{};
+    std::string definition_name;
 };
 
 [[nodiscard]] std::vector<StepPart> inspect_step_parts(

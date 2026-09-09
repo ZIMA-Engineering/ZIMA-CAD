@@ -105,9 +105,9 @@ target_link_libraries(zima_ui PUBLIC Qt6::Widgets zima_document_core)
 
 add_library(zima_interchange modules/interchange/src/interchange.cpp
     modules/interchange/src/dxf.cpp modules/interchange/src/planar_face.cpp
-    modules/interchange/src/step.cpp)
+    modules/interchange/src/step.cpp modules/interchange/src/step_model.cpp)
 target_include_directories(zima_interchange PUBLIC modules/interchange/include)
-target_link_libraries(zima_interchange PUBLIC zima_sketcher
+target_link_libraries(zima_interchange PUBLIC zima_sketcher zima_document_core zima_assembly zima_kernel_occt
     PRIVATE TKDESTEP TKXSBase TKXCAF TKCAF TKLCAF TKCDF TKBRep TKGeomBase)
 
 add_executable(zima-cad-part-harness
@@ -196,6 +196,9 @@ target_link_libraries(zima_cpp_performance_benchmark PRIVATE
     zima_sketcher)
 
 if(ZIMA_BUILD_TESTS)
+    add_executable(zima_cpp_step_model_contract_tests tests/step_model_contract_tests.cpp)
+    target_link_libraries(zima_cpp_step_model_contract_tests PRIVATE zima_interchange zima_kernel_occt TKPrim TKDESTEP TKXCAF TKCAF TKLCAF TKCDF)
+    add_test(NAME zima_cpp_step_model_contract_tests COMMAND zima_cpp_step_model_contract_tests)
     add_executable(zima_cpp_section_contract_tests tests/section_contract_tests.cpp)
     target_link_libraries(zima_cpp_section_contract_tests PRIVATE zima_document_core zima_assembly zima_drawing zima_kernel_occt)
     add_test(NAME zima_cpp_section_contract_tests COMMAND zima_cpp_section_contract_tests)

@@ -961,6 +961,8 @@ std::string Workspace::insert_open_assembly(
     zima::kernel::OcctKernel kernel;
     occurrence.calculated_source = kernel.compound_bodies(nested_bodies);
     occurrence.calculated_source.mesh = calculated_source.build_scene();
+    for(const auto& child:calculated_source.components)
+        occurrence.calculated_source.body_outputs.emplace(child.occurrence_id,child.calculated_source);
     zima::assembly::capture_nested_mass(occurrence,calculated_source);
     const std::string occurrence_id = occurrence.occurrence_id;
     next.components.push_back(std::move(occurrence));
@@ -1009,6 +1011,8 @@ zima::assembly::AssemblyDocument Workspace::refreshed_assembly(
                 occurrence.calculated_source = {};
                 occurrence.calculated_source = kernel.compound_bodies(nested_bodies);
                 occurrence.calculated_source.mesh = nested.build_scene();
+                for(const auto& child:nested.components)
+                    occurrence.calculated_source.body_outputs.emplace(child.occurrence_id,child.calculated_source);
                 zima::assembly::capture_nested_mass(occurrence,nested);
                 occurrence.nested_snapshot = nested.occurrence_snapshot();
                 occurrence.source_path = open_assembly(

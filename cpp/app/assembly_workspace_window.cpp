@@ -41,6 +41,7 @@
 #include <zima/interchange/interchange.hpp>
 #include <zima/interchange/dxf.hpp>
 #include <zima/interchange/step.hpp>
+#include <zima/interchange/step_model.hpp>
 #include <zima/ui/properties_subwindow.hpp>
 
 #include <QAction>
@@ -9823,79 +9824,16 @@ void AssemblyWorkspaceWindow::import_file() {
         begin_status_operation(tr("Importuji STEP %1…").arg(
             QFileInfo(path).fileName()));
         try {
-            auto next = part->session.document();
-            const auto absolute = std::filesystem::absolute(path.toStdString());
-            // A STEP imported into a Part is one immutable compound feature.
-            // Do not inspect the XCAF product tree first and then translate
-            // every component again: that multiplied both STEP traversal and
-            // cumulative history meshing. Assembly import is the explicit
-            // workflow that preserves and expands product structure.
-            auto container =
-                zima::document::PartDocument::create_imported_step_container(absolute);
-            const auto container_id = container.id;
-            next.insert_history_entry(
-                zima::document::PartHistoryKind::Feature, container_id);
-            next.history.push_back(container);
-            const auto operations = next.kernel_operations();
-            const auto imported_fingerprint = zima::kernel::history_fingerprint(
-                operations, operations.size());
-            const bool direct_frozen_boundary =
-                part->session.calculated_boundaries().empty() &&
-                operations.size() == 1;
-            update_status_operation(
-                tr("OCCT čte STEP, převádí topologii a vytváří síť…"), -1, 0);
-            auto frozen = run_background_task([
-                    request = zima::kernel::StepRequest{
-                        absolute.string(), {}, {},
-                        direct_frozen_boundary
-                            ? imported_fingerprint : std::string{},
-                        container_id}, mesh_deflection = operations.back().mesh_deflection] {
-                zima::kernel::OcctKernel worker_kernel;
-                return worker_kernel.import_step_components({request}, mesh_deflection);
+            const auto source=std::filesystem::absolute(path.toStdString());
+            update_status_operation(tr("OCCT čte STEP, převádí topologii a vytváří síť…"),-1,0);
+            auto imported=run_background_task([document=part->session.document(),
+                    previous=part->session.calculated_boundaries(),source] {
+                return zima::interchange::import_step_part(document,previous,source);
             });
-            if (frozen.size() != 1 || frozen.front().kernel_shape.empty()) {
-                throw std::runtime_error("STEP nebyl zmrazen kompletně");
-            }
-            update_status_operation(
-                tr("Ukládám původní plochy, hrany a zmrazený B-Rep…"));
-            container.imported_step.frozen_brep =
-                std::make_shared<const std::string>(frozen.front().kernel_shape);
-            container.imported_step.topology = frozen.front().imported_step_topology;
-            next.history.back() = std::move(container);
-
-            // import_step_components() already produced the final B-Rep,
-            // triangulation and persisted viewer packet. Turn it directly
-            // into the new history boundary instead of deserializing,
-            // remeshing and serializing the same body through calculate_part.
-            auto calculated = part->session.calculated_boundaries();
-            if (direct_frozen_boundary) {
-                auto imported_boundary = std::move(frozen.front());
-                imported_boundary.source_fingerprint =
-                    imported_fingerprint;
-                calculated.push_back(std::move(imported_boundary));
-            } else {
-                // Importing into a non-empty Part must still form the real
-                // cumulative history boundary. The existing prefix is reused,
-                // while the new operand comes from its frozen B-Rep.
-                update_status_operation(
-                    tr("Spojuji STEP s dosavadním tělesem Partu…"), -1, 0);
-                auto previous = std::move(calculated);
-                auto cumulative_operations = next.kernel_operations();
-                calculated = run_background_task([
-                        operations = std::move(cumulative_operations),
-                        previous = std::move(previous)] {
-                    zima::kernel::OcctKernel worker_kernel;
-                    return worker_kernel.evaluate_history_incremental(
-                        operations, previous);
-                });
-            }
-            update_status_operation(tr("Vkládám STEP kontejner do dokumentu…"));
-            part->session.commit(std::move(next), std::move(calculated));
-            update_status_operation(tr("Připravuji strom a View…"));
-            refresh_tabs();
-            refresh_scene();
-            finish_status_operation(
-                tr("STEP importován jako zmrazené těleso"));
+            const auto count=imported.document.body_history.bodies().size()-part->session.document().body_history.bodies().size();
+            part->session.commit(std::move(imported.document),std::move(imported.calculated));
+            refresh_tabs();refresh_scene();
+            finish_status_operation(tr("STEP importován: %1 těles").arg(count));
         } catch (const std::exception& error) {
             finish_status_operation(tr("Import STEP selhal"), false);
             QMessageBox::warning(this, tr("Import STEP selhal"), error.what());
@@ -9905,185 +9843,36 @@ void AssemblyWorkspaceWindow::import_file() {
     state_->setText(tr("Importní soubor připraven: %1").arg(path));
 }
 
-void AssemblyWorkspaceWindow::import_step_into_assembly(
-    const std::filesystem::path& source_path) {
-    const std::string target_id = workspace_.active_document_id();
-    const auto* target = workspace_.open_assembly(target_id);
-    if (target == nullptr) {
-        throw std::runtime_error("Aktivní dokument není sestava");
+void AssemblyWorkspaceWindow::import_step_into_assembly(const std::filesystem::path& source) {
+    const auto target_id=workspace_.active_document_id();
+    const auto displayed_id=workspace_.displayed_document_id();
+    const auto* target=workspace_.open_assembly(target_id);
+    if(!target)throw std::runtime_error("Aktivní dokument není sestava");
+    const auto base=target->path.empty()?working_directory_:target->path.parent_path();
+    const auto stem=source.stem().string()+"_zima";
+    std::filesystem::path directory;
+    for(std::size_t suffix=0;;++suffix) {
+        directory=std::filesystem::absolute(base/(stem+(suffix?"_"+std::to_string(suffix):"")));
+        if(std::filesystem::create_directory(directory))break;
     }
-    const auto import_precision = target->session.document().document_precision;
-    const double mesh_deflection = zima::document::precision_value(
-        import_precision, "mesh_deflection", 0.1);
-    if (!std::isfinite(mesh_deflection) || mesh_deflection <= 0)
-        throw std::invalid_argument("Odchylka triangulace musí být kladná");
-    const auto source = std::filesystem::absolute(source_path);
-    update_status_operation(
-        tr("Čtu produktovou strukturu STEP sestavy…"), -1, 0);
-    const auto nodes = run_background_task([source] {
-        return zima::interchange::inspect_step_parts(source);
+    update_status_operation(tr("Čtu produktovou strukturu STEP sestavy…"),-1,0);
+    auto imported=run_background_task([source,directory,precision=target->session.document().document_precision] {
+        return zima::interchange::import_step_assembly(source,directory,precision);
     });
-    if (nodes.empty()) throw std::runtime_error("STEP neobsahuje produktovou strukturu");
-    update_status_operation(tr("Rozděluji unikátní Party a podsestavy…"));
-    const auto safe_name = [](std::string name) {
-        for (auto& value : name) {
-            const unsigned char byte = static_cast<unsigned char>(value);
-            if (!std::isalnum(byte) && value != '-' && value != '_') value = '_';
-        }
-        return name.empty() ? std::string{"step"} : name;
-    };
-    auto* target_state = workspace_.open_assembly(target_id);
-    const auto base = target_state->path.empty() ? source.parent_path()
-        : target_state->path.parent_path();
-    const auto output_directory = base / (safe_name(source.stem().string()) + "_zima");
-    std::filesystem::create_directories(output_directory);
-
-    std::vector<std::string> part_definitions;
-    std::unordered_map<std::string, const zima::interchange::StepPart*> part_nodes;
-    for (const auto& node : nodes) if (!node.assembly && !part_nodes.contains(node.definition_id)) {
-        part_nodes.emplace(node.definition_id, &node);
-        part_definitions.push_back(node.definition_id);
-    }
-    std::vector<zima::kernel::StepRequest> requests;
-    for (std::size_t index = 0; index < part_definitions.size(); ++index) {
-        requests.push_back({source.string(), part_definitions[index], {}, {},
-            "step-import:" + std::to_string(index)});
-    }
-    update_status_operation(
-        tr("OCCT převádí %1 unikátních Partů a vytváří jejich sítě…")
-            .arg(part_definitions.size()), -1, 0);
-    const auto calculated = run_background_task(
-        [requests = std::move(requests), mesh_deflection] {
-            zima::kernel::OcctKernel worker_kernel;
-            return worker_kernel.import_step_components(requests, mesh_deflection);
-        });
-    if (calculated.size() != part_definitions.size()) {
-        throw std::runtime_error("STEP díly nebyly vypočteny kompletně");
-    }
-    std::unordered_map<std::string, std::string> source_documents;
-    std::unordered_map<std::string, std::filesystem::path> source_paths;
-    for (std::size_t index = 0; index < part_definitions.size(); ++index) {
-        update_status_operation(
-            tr("Ukládám STEP Part %1 z %2…")
-                .arg(index + 1).arg(part_definitions.size()),
-            static_cast<int>(index),
-            static_cast<int>(std::max<std::size_t>(1, part_definitions.size())));
-        const auto* node = part_nodes.at(part_definitions[index]);
-        auto document = zima::document::PartDocument::create_default();
-        document.document_precision = import_precision;
-        document.name = node->name;
-        auto container = zima::document::PartDocument::create_imported_step_container(
-            source, node->definition_id, node->name);
-        if (calculated[index].kernel_shape.empty()) {
-            throw std::runtime_error("STEP díl nemá zmrazený B-Rep");
-        }
-        container.imported_step.frozen_brep =
-            std::make_shared<const std::string>(calculated[index].kernel_shape);
-        container.imported_step.topology = calculated[index].imported_step_topology;
-        container.id = "step-import:" + std::to_string(index);
-        container.feature_parent_id = container.id;
-        container.container_origin =
-            zima::document::create_container_origin(container.id);
-        document.insert_history_entry(
-            zima::document::PartHistoryKind::Feature, container.id);
-        document.history.push_back(std::move(container));
-        const auto path = output_directory /
-            (safe_name(node->name) + "_" + std::to_string(index + 1) + ".prtz");
-        auto document_snapshot = document;
-        auto body_snapshot = calculated[index];
-        run_background_task([
-                document = std::move(document_snapshot),
-                body = std::move(body_snapshot), path] {
-            document.save(path, {body});
-        });
-        source_documents[node->definition_id] = document.document_id;
-        source_paths[node->definition_id] = path;
-        workspace_.add_part(std::move(document), {calculated[index]}, path);
-    }
-
-    std::vector<const zima::interchange::StepPart*> assemblies;
-    std::unordered_map<std::string, const zima::interchange::StepPart*> assembly_nodes;
-    for (const auto& node : nodes) if (node.assembly && !assembly_nodes.contains(node.definition_id)) {
-        assembly_nodes.emplace(node.definition_id, &node);
-        assemblies.push_back(&node);
-    }
-    std::ranges::sort(assemblies, [](const auto* left, const auto* right) {
-        return std::ranges::count(left->component_path, '/') >
-               std::ranges::count(right->component_path, '/');
+    update_status_operation(tr("Ukládám STEP díly a podsestavy…"),-1,0);
+    run_background_task([&imported] {
+        for(const auto& part:imported.parts)part.document.save(part.path,part.calculated);
+        for(const auto& assembly:imported.assemblies)assembly.document.save(assembly.path);
     });
-    for (std::size_t assembly_index = 0;
-         assembly_index < assemblies.size(); ++assembly_index) {
-        const auto* assembly_node = assemblies[assembly_index];
-        update_status_operation(
-            tr("Sestavuji a ukládám podsestavu %1 z %2…")
-                .arg(assembly_index + 1).arg(assemblies.size()),
-            static_cast<int>(assembly_index),
-            static_cast<int>(std::max<std::size_t>(1, assemblies.size())));
-        auto document = zima::assembly::AssemblyDocument::create_default();
-        document.document_precision = import_precision;
-        document.name = assembly_node->name;
-        for (const auto& child : nodes) {
-            if (child.parent_path != assembly_node->component_path) continue;
-            const auto id = source_documents.find(child.definition_id);
-            if (id == source_documents.end()) continue;
-            zima::assembly::PartOccurrence occurrence;
-            if (child.assembly) {
-                const auto* child_document = workspace_.open_assembly(id->second);
-                occurrence = zima::assembly::AssemblyDocument::create_assembly_occurrence(
-                    child.name, id->second, source_paths.at(child.definition_id),
-                    child_document->session.document());
-            } else {
-                const auto* child_document = workspace_.open_part(id->second);
-                occurrence = zima::assembly::AssemblyDocument::create_part_occurrence(
-                    child.name, id->second, source_paths.at(child.definition_id),
-                    child_document->session.calculated_boundaries().back());
-            }
-            occurrence.placement = {child.x, child.y, child.z,
-                child.rotation_x, child.rotation_y, child.rotation_z};
-            document.components.push_back(std::move(occurrence));
-        }
-        const auto path = output_directory /
-            (safe_name(assembly_node->name) + "_assembly_" +
-             std::to_string(source_documents.size() + 1) + ".asmz");
-        auto snapshot = document;
-        run_background_task([snapshot = std::move(snapshot), path] {
-            snapshot.save(path);
-        });
-        source_documents[assembly_node->definition_id] = document.document_id;
-        source_paths[assembly_node->definition_id] = path;
-        workspace_.add_assembly(std::move(document), path);
-    }
-
-    update_status_operation(
-        tr("Vkládám kořenové výskyty do cílové sestavy…"), -1, 0);
-    auto next = workspace_.open_assembly(target_id)->session.document();
-    for (const auto& root : nodes) {
-        if (!root.parent_path.empty()) continue;
-        const auto id = source_documents.find(root.definition_id);
-        if (id == source_documents.end()) continue;
-        zima::assembly::PartOccurrence occurrence;
-        if (root.assembly) {
-            const auto* generated = workspace_.open_assembly(id->second);
-            occurrence = zima::assembly::AssemblyDocument::create_assembly_occurrence(
-                root.name, id->second, source_paths.at(root.definition_id),
-                generated->session.document());
-        } else {
-            const auto* generated = workspace_.open_part(id->second);
-            occurrence = zima::assembly::AssemblyDocument::create_part_occurrence(
-                root.name, id->second, source_paths.at(root.definition_id),
-                generated->session.calculated_boundaries().back());
-        }
-        occurrence.placement = {root.x, root.y, root.z,
-            root.rotation_x, root.rotation_y, root.rotation_z};
-        next.components.push_back(std::move(occurrence));
-    }
+    auto next=workspace_.open_assembly(target_id)->session.document();
+    next.components.push_back(std::move(imported.root_occurrence));
+    for(auto& part:imported.parts)workspace_.add_part(std::move(part.document),std::move(part.calculated),part.path);
+    for(auto& assembly:imported.assemblies)workspace_.add_assembly(std::move(assembly.document),assembly.path);
     workspace_.open_assembly(target_id)->session.commit(std::move(next));
-    update_status_operation(tr("Připravuji strom a View…"), -1, 0);
-    refresh_tabs();
-    refresh_scene();
-    finish_status_operation(
-        tr("STEP sestava importována: %1 unikátních Partů, %2 podsestav")
-            .arg(part_definitions.size()).arg(assemblies.size()));
+    workspace_.activate(target_id);workspace_.display_top_level(displayed_id);
+    refresh_tabs();refresh_scene();
+    finish_status_operation(tr("STEP sestava importována: %1 unikátních Partů, %2 podsestav")
+        .arg(imported.parts.size()).arg(imported.assemblies.size()));
 }
 
 void AssemblyWorkspaceWindow::export_file() {
@@ -10148,8 +9937,28 @@ void AssemblyWorkspaceWindow::export_file() {
             tr("Aktuální 3D pohled exportován: %1").arg(path));
         return;
     }
-    if (format == zima::interchange::Format::Step ||
-        format == zima::interchange::Format::Stl) {
+    if (format == zima::interchange::Format::Step) {
+        begin_status_operation(tr("Připravuji model pro export…"));
+        try {
+            zima::kernel::StepProduct product;
+            const auto id=workspace_.active_document_id();
+            if(const auto* part=workspace_.open_part(id))
+                product=zima::interchange::step_product(part->session.document(),part->session.calculated_boundaries());
+            else if(const auto* assembly=workspace_.open_assembly(id))
+                product=zima::interchange::step_product(assembly->session.document());
+            else throw std::runtime_error("STEP export vyžaduje Part nebo sestavu");
+            update_status_operation(tr("OCCT převádí a zapisuje STEP…"),-1,0);
+            run_background_task([product=std::move(product),target=path.toStdString()] {
+                zima::kernel::OcctKernel kernel;kernel.export_step(product,target);
+            });
+            finish_status_operation(tr("Model exportován: %1").arg(path));
+        } catch(const std::exception& error) {
+            finish_status_operation(tr("Export modelu selhal"),false);
+            QMessageBox::warning(this,tr("Export modelu selhal"),error.what());
+        }
+        return;
+    }
+    if (format == zima::interchange::Format::Stl) {
         begin_status_operation(tr("Připravuji model pro export…"));
         try {
             std::vector<zima::kernel::PlacedBody> bodies;
@@ -10182,20 +9991,12 @@ void AssemblyWorkspaceWindow::export_file() {
                          component.placement.rotation_z}});
                 }
             }
-            update_status_operation(
-                format == zima::interchange::Format::Step
-                    ? tr("OCCT převádí a zapisuje STEP…")
-                    : tr("OCCT vytváří síť a zapisuje STL…"),
-                -1, 0);
+            update_status_operation(tr("OCCT vytváří síť a zapisuje STL…"),-1,0);
             run_background_task([
                     bodies = std::move(bodies), target = path.toStdString(),
                     format] {
                 zima::kernel::OcctKernel worker_kernel;
-                if (format == zima::interchange::Format::Step) {
-                    worker_kernel.export_step(bodies, target);
-                } else {
-                    worker_kernel.export_stl(bodies, target);
-                }
+                worker_kernel.export_stl(bodies, target);
             });
             finish_status_operation(tr("Model exportován: %1").arg(path));
         } catch (const std::exception& error) {

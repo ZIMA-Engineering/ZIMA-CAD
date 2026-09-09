@@ -13,6 +13,14 @@ will remain a separately built, dynamically linked solid-modeling kernel behind
 a narrow adapter. The approved direction, module boundaries and migration gates
 are documented in [Future C++ migration](doc/CXX_MIGRATION.md).
 
+## STEP: tělesa a struktura sestav (2026-09-09)
+
+Novější dohoda upřednostňuje STEP před odsazením ve skicáři. Import do Partu
+vytváří samostatná tělesa; import do sestavy zdrojové Party/podsestavy se
+sdílenými opakovanými definicemi. Export zachovává produktovou strukturu,
+polohy a fyzické rozměry. Podrobnosti a ověření:
+[Import a export STEP](doc/STEP_IMPORT_EXPORT.md).
+
 ## Dokončené opravy skic a výkresů (2026-09-09)
 
 Doplněny orientované záporné úhly sestavy a jejich kóty, Otevřít zdroj

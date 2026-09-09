@@ -55,6 +55,9 @@
 #include <StepShape_VertexPoint.hxx>
 #include <StlAPI_Writer.hxx>
 #include <STEPCAFControl_Reader.hxx>
+#include <STEPCAFControl_Writer.hxx>
+#include <TDataStd_Name.hxx>
+#include <TCollection_ExtendedString.hxx>
 #include <TDocStd_Document.hxx>
 #include <XCAFApp_Application.hxx>
 #include <XCAFPrs_DocumentExplorer.hxx>
@@ -2647,6 +2650,9 @@ void restore_step_topology(const StepRequest& request,
 struct StepDocumentCache {
     Handle(TDocStd_Document) document;
     std::unique_ptr<STEPCAFControl_Reader> reader;
+    ~StepDocumentCache() {
+        if(!document.IsNull())XCAFApp_Application::GetApplication()->Close(document);
+    }
 };
 
 PrimitiveData make_step_data(
@@ -2678,11 +2684,11 @@ PrimitiveData make_step_data(
             XCAFApp_Application::GetApplication()->NewDocument(
                 "BinXCAF", cached.document);
             cached.reader = std::make_unique<STEPCAFControl_Reader>();
-            if (cached.reader->ReadFile(request.source_path.c_str()) !=
-                    IFSelect_RetDone ||
-                !cached.reader->Transfer(cached.document)) {
+            if(cached.reader->ReadFile(request.source_path.c_str())!=IFSelect_RetDone)
                 throw std::runtime_error("OCCT STEP product structure import failed");
-            }
+            cached.reader->ChangeReader().SetSystemLengthUnit(1.0);
+            if(!cached.reader->Transfer(cached.document))
+                throw std::runtime_error("OCCT STEP product structure import failed");
         }
         TDF_Label definition;
         TDF_Tool::Label(
@@ -4835,6 +4841,49 @@ void OcctKernel::export_step(
         writer.Write(path.c_str()) != IFSelect_RetDone) {
         throw std::runtime_error("STEP export failed");
     }
+}
+
+void OcctKernel::export_step(const StepProduct& root, const std::string& path) const {
+    Handle(TDocStd_Document) document;
+    const auto application = XCAFApp_Application::GetApplication();
+    application->NewDocument("BinXCAF", document);
+    try {
+        XCAFDoc_DocumentTool::SetLengthUnit(document, 0.001); // ZIMA geometry is in mm.
+        const auto shapes = XCAFDoc_DocumentTool::ShapeTool(document->Main());
+        std::map<std::string, TDF_Label> definitions;
+        std::set<std::string> visiting;
+        const auto name = [](const TDF_Label& label, const std::string& text) {
+            TDataStd_Name::Set(label, TCollection_ExtendedString(text.c_str(), true));
+        };
+        const auto add = [&](auto&& self, const StepProduct& product) -> TDF_Label {
+            if (product.definition_id.empty()) throw std::invalid_argument("STEP product identity is empty");
+            if (visiting.contains(product.definition_id)) throw std::invalid_argument("Cyclic STEP product structure");
+            if (const auto found=definitions.find(product.definition_id);found!=definitions.end())return found->second;
+            visiting.insert(product.definition_id);
+            TDF_Label label;
+            if (product.children.empty()) {
+                if(product.body.kernel_shape.empty())throw std::runtime_error("STEP product has no calculated geometry");
+                label=shapes->AddShape(read_kernel_shape(product.body),false);
+            } else {
+                label=shapes->NewShape();
+                for(const auto& child:product.children) {
+                    const auto definition=self(self,child);
+                    const auto occurrence=shapes->AddComponent(label,definition,
+                        TopLoc_Location(primitive_transform(child.translation,child.rotation_degrees)));
+                    name(occurrence,child.name);
+                }
+            }
+            name(label,product.name);definitions.emplace(product.definition_id,label);
+            visiting.erase(product.definition_id);return label;
+        };
+        static_cast<void>(add(add,root));shapes->UpdateAssemblies();
+        STEPCAFControl_Writer writer;writer.SetNameMode(true);
+        if(!writer.Transfer(document,STEPControl_AsIs)||writer.Write(path.c_str())!=IFSelect_RetDone)
+            throw std::runtime_error("STEP product export failed");
+        application->Close(document);
+    } catch(const Standard_Failure& failure) {
+        application->Close(document);throw std::runtime_error(failure.GetMessageString());
+    } catch(...) { application->Close(document);throw; }
 }
 
 void OcctKernel::export_stl(

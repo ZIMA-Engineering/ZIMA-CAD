@@ -522,9 +522,9 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result) {
                 {"key",image.reference.semantic_key},{"instance_path",image.reference.instance_path},{"data_base64",image.data_base64},{"format",image.format}});
         }
     }
-    // Only a document aggregate owns branch caches. Ordinary local boundary
-    // packets contain geometry alone, avoiding recursive empty cache fields.
-    if (!result.body_boundaries.empty()) {
+    // Part aggregates own branch caches; an Assembly occurrence stores its
+    // calculated child packets by occurrence ID, without Part history rows.
+    if (!result.body_boundaries.empty() || !result.body_inputs.empty() || !result.body_outputs.empty()) {
         auto histories = nlohmann::json::object();
         auto inputs = nlohmann::json::object();
         auto outputs = nlohmann::json::object();

@@ -782,6 +782,8 @@ PartOccurrence AssemblyDocument::create_assembly_occurrence(
         std::move(name), std::move(source_document_id), std::move(source_path), {});
     occurrence.source_kind = ComponentSourceKind::Assembly;
     occurrence.calculated_source.mesh = calculated_document.build_scene();
+    for(const auto& child:calculated_document.components)
+        occurrence.calculated_source.body_outputs.emplace(child.occurrence_id,child.calculated_source);
     occurrence.nested_snapshot = calculated_document.occurrence_snapshot();
     return occurrence;
 }

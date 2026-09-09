@@ -969,11 +969,14 @@ vlákno. Hlavní okno proto během této práce zůstává překreslované a sta
 
 ### Export STEP
 
-Příkaz **Soubor → Exportovat model do STEP…** je dostupný pro díl i sestavu.
-U dílu zapíše právě aktivní výsledné těleso. U sestavy zapíše všechny načtené
-komponenty v jejich výsledných sestavových polohách jako samostatná tělesa.
-Podporované přípony jsou `.step` a `.stp`; pokud přípona chybí, doplní se
-`.step`.
+Příkaz **Soubor → Exportovat → STEP** je dostupný pro díl i sestavu.
+Part zapíše viditelná výsledná tělesa; sestava zachová strom podsestav a dílů,
+jejich názvy, polohy a sdílené zdroje opakovaných výskytů. Používá poslední
+vypočtený stav. Před převzetím změn závislostí zvolte **Regenerovat**.
+
+Při importu do Partu dostane každý STEP díl vlastní těleso. Při importu do
+sestavy vzniknou zdrojové Party a podsestavy v novém adresáři; každý STEP
+Part obsahuje těleso. Podrobnosti: [Import a export STEP](STEP_IMPORT_EXPORT.md).
 
 STEP obsahuje pouze výslednou geometrii. Strom historie, skici, vazby,
 materiály ani sestavové vazby se do něj nepřenášejí. Prázdný model nebo model

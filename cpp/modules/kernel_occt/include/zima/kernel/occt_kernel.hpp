@@ -39,6 +39,7 @@ public:
         const std::string& owner_id={},Vec3 source_translation={},Vec3 source_rotation={},bool occurrences=false) const override;
     void export_step(
         const std::vector<PlacedBody>& bodies, const std::string& path) const;
+    void export_step(const StepProduct& root, const std::string& path) const;
     void export_stl(
         const std::vector<PlacedBody>& bodies, const std::string& path) const;
 

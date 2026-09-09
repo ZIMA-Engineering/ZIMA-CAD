@@ -156,11 +156,12 @@
 - Importing DXF inside Sketcher populates the active Sketch. Importing DXF from
   Part or Assembly creates an ordinary explicitly placed Sketch and then uses
   the same importer; DXF is never treated as a solid body.
-- Redesign Assembly STEP import. A STEP source should become a normal component
-  backed by a generated `.prtz` with a relative Assembly link by default;
-  internal embedding may remain an explicit option. Preserve source units,
-  colors and selectable handling of multiple STEP solids.
-- Add Sketch DXF export and model STEP/STL export through the same framework.
+- STEP Part import now creates one Body per source Part occurrence; Assembly
+  import creates ordinary `.prtz`/`.asmz` sources and preserves nested and
+  repeated components. STEP export preserves that product hierarchy and uses
+  the persisted calculated state. See [STEP import/export](STEP_IMPORT_EXPORT.md).
+- Follow up with STEP face colors and configurable export options. Nested
+  Assembly STL export remains separate work.
 - Add image export from the current view. PNG is the default for sharp CAD
   edges and optional transparent background; JPEG is a secondary lossy option.
   Render offscreen at requested resolution rather than capturing window pixels.
