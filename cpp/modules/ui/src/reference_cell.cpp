@@ -15,6 +15,7 @@ namespace zima::ui {
 
 namespace {
 
+constexpr int missing_reference_role = Qt::UserRole + 134;
 constexpr int active_input_role = Qt::UserRole + 131;
 constexpr int inspected_role = Qt::UserRole + 132;
 constexpr int populated_reference_role = Qt::UserRole + 133;
@@ -36,7 +37,9 @@ public:
         // Inspection changes only this reference's background. Keep stored
         // reference text readable and independent of window focus.
         QColor text_color;
-        if (inspected) {
+        if (index.data(missing_reference_role).toBool()) {
+            clean.backgroundBrush = QColor(164, 45, 45);
+        } else if (inspected) {
             clean.backgroundBrush = QColor(QStringLiteral("#00d1ff"));
         }
         if (populated) {
@@ -199,6 +202,15 @@ void ReferenceCellItem::set_reference(const QString& value) {
     reference_ = value;
     has_reference_ = true;
     setData(populated_reference_role, true);
+}
+
+bool ReferenceCellItem::is_missing() const {
+    return data(missing_reference_role).toBool();
+}
+
+void ReferenceCellItem::set_missing(bool missing) {
+    setData(missing_reference_role, missing);
+    setToolTip(missing ? QObject::tr("Reference již neexistuje. Vyberte náhradní referenci.") : QString{});
 }
 
 void ReferenceCellItem::clear_reference() {

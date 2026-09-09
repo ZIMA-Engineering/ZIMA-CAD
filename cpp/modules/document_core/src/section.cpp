@@ -341,6 +341,21 @@ HatchStyle section_component_hatch(const SectionDefinition& section,const std::s
     if(named!=section.component_names.end())style.angle+=(std::distance(section.component_names.begin(),named)%2)*90;
     return style;
 }
+zima::kernel::ViewerMesh section_surface_mesh(const SectionResult& cut,const SectionDefinition& section){
+    zima::kernel::ViewerMesh result;
+    for(const auto& patch:cut.patches){
+        for(const auto& boundary:patch.boundary){
+            zima::kernel::ViewerEdge edge;edge.overlay=true;edge.color="#FFFFFF";
+            edge.points={boundary[0],boundary[1]};result.edges.push_back(std::move(edge));
+        }
+        const auto setting=section.components.find(patch.component);
+        if(setting!=section.components.end()&&setting->second.mode!=0)continue;
+        for(auto edge:section_hatch_lines(patch,patch.frame,section_component_hatch(section,patch.component),1)){
+            edge.overlay=true;edge.color="#00C000";result.edges.push_back(std::move(edge));
+        }
+    }
+    return result;
+}
 zima::kernel::ViewerMesh section_display_mesh(SectionResult cut,const SectionDefinition& section){
     for(const auto& patch:cut.patches){
         const auto setting=section.components.find(patch.component);

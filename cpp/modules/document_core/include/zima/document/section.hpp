@@ -54,6 +54,8 @@ void validate_hatch(const HatchStyle&);
 HatchStyle section_component_hatch(const SectionDefinition&, const std::string& component);
 // Display helpers only; no persistent topology or solid geometry is changed.
 zima::kernel::ViewerMesh section_display_mesh(SectionResult, const SectionDefinition&);
+// Intersection outline and hatching only; leaves the displayed solid whole.
+zima::kernel::ViewerMesh section_surface_mesh(const SectionResult&, const SectionDefinition&);
 std::string serialize_sections(const std::vector<SectionDefinition>&);
 std::vector<SectionDefinition> parse_sections(const std::string&);
 SectionResult calculate_section(const zima::kernel::ViewerMesh&, const SectionDefinition&);

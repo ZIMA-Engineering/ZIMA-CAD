@@ -3,8 +3,6 @@
 #include <QPainter>
 #include <QStyledItemDelegate>
 #include <QTreeWidgetItem>
-#include <map>
-#include <set>
 #include <string>
 
 namespace zima::app {
@@ -31,27 +29,12 @@ public:
     }
 };
 
-// Presentation acknowledgement is separate from reference validity. OK may
-// accept a retained fallback; it must never falsify the placement solver flag.
+// An unresolved reference remains an error until it is actually repaired.
 class TreeReferenceState {
-    using Key=std::pair<std::string,std::string>;
-    std::map<Key,std::string> acknowledged_;
-    std::set<Key> accepted_;
 public:
-    void watch(QDialog* dialog,QObject* context,const std::string& document,
-            const std::string& object) {
-        QObject::connect(dialog,&QDialog::accepted,context,[this,key=Key{document,object}] {
-            accepted_.insert(key);
-        });
-    }
     void apply(QTreeWidgetItem* item,const std::string& document,
             const std::string& object,const std::string& issue) {
-        const Key key{document,object};
-        if (accepted_.erase(key)) acknowledged_[key]=issue;
-        if (issue.empty()) acknowledged_.erase(key);
-        const auto previous=acknowledged_.find(key);
-        const bool missing=!issue.empty() &&
-            (previous==acknowledged_.end() || previous->second!=issue);
+        const bool missing=!issue.empty();
         item->setData(0,missing_reference_role,missing);
         item->setBackground(0,missing ? QBrush(missing_reference_color()) : QBrush{});
         item->setToolTip(0,missing ? QObject::tr("Prvek ztratil referenci. Zkontrolujte jeho Vlastnosti.") : QString{});

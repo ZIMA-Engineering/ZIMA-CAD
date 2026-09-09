@@ -15,6 +15,13 @@ are documented in [Future C++ migration](doc/CXX_MIGRATION.md).
 
 ## Dokončené opravy skic a výkresů (2026-09-09)
 
+Doplněny orientované záporné úhly sestavy a jejich kóty, Otevřít zdroj
+komponenty na vlastní kartě a zachování skic sestavového Vytažení/Rotace.
+Řez používá společný výběr počátků; neaktivní řez zobrazuje volitelně obrys
+průřezu se šrafováním nad celým tělesem. Ztracené reference zůstávají
+viditelně označené do opravy. Prázdné View a první skica používají přibližné
+měřítko monitoru 1:1. Solver zachovává posun po ose při editaci rozteče.
+
 Kóty vlastních skic lze měnit přímo v otevřených vlastnostech Skici,
 Vytažení, Rotace a tažení. Rozpracované změny zachovává návrat ze skicáře;
 OK je potvrdí a Zrušit zahodí. Ořez používá okamžitý společný náhled ve všech

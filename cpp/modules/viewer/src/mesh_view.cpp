@@ -60,11 +60,6 @@ template<class Project> void paint_normal_text(QPainter& painter,
 }
 
 
-// A new, otherwise empty metric CAD document starts with roughly 100 mm of
-// vertical working area. This gives a useful physical sense of scale before
-// the first body exists: a 1 mm plane offset is visible, but no longer fills
-// a large part of the View.
-constexpr float kEmptyDocumentViewHalfExtent = 50.0F;
 constexpr float kPerspectiveFieldOfViewDegrees = 45.0F;
 
 QQuaternion default_camera_orientation() {
@@ -2114,6 +2109,13 @@ void MeshView::notify_confirmation() {
 }
 
 void MeshView::fit_all() {
+    // World coordinates are millimetres. Qt reports widget DPI in the same
+    // logical-pixel units as height(), so startup is approximately 1:1 on
+    // this monitor, independently of window size and desktop scaling.
+    const double dpi = physicalDpiY() >= 50 && physicalDpiY() <= 400
+        ? physicalDpiY() : 96.0;
+    const float empty_half_extent = static_cast<float>(
+        std::max(height(), 1) * 25.4 / (2.0 * dpi));
     std::vector<zima::kernel::Vec3> bounds = impl_->mesh.vertices;
     std::vector<zima::kernel::Vec3> reference_centers;
     double reference_extent = 0.5;
@@ -2144,7 +2146,8 @@ void MeshView::fit_all() {
         const bool preview_helper =
             point.reference.semantic_key == "preview:plane-offset-point" ||
             impl_->feature_preview_owner_ids.contains(point.reference.owner_id);
-        if (point.reference.semantic_key == "origin:point" || preview_helper) {
+        if (point.reference.semantic_key == "origin:point" ||
+            point.reference.semantic_key == "external_point:sketch_origin" || preview_helper) {
             reference_centers.push_back(point.position);
         } else {
             bounds.push_back(point.position);
@@ -2185,8 +2188,8 @@ void MeshView::fit_all() {
     }
     if (bounds.empty() && reference_centers.empty()) {
         impl_->center = {};
-        impl_->radius = kEmptyDocumentViewHalfExtent;
-        impl_->view_scale = kEmptyDocumentViewHalfExtent;
+        impl_->radius = empty_half_extent;
+        impl_->view_scale = empty_half_extent;
         // This is the degenerate "nothing to frame yet" case (no origin
         // geometry has even been generated into the mesh yet) -- it must
         // NOT lock in reference_view_scale_initialized, otherwise a
@@ -2229,7 +2232,7 @@ void MeshView::fit_all() {
         const float reference_frame_scale = static_cast<float>(
             std::max(reference_extent, 0.5) * 2.0);
         impl_->radius = std::max(
-            reference_frame_scale, kEmptyDocumentViewHalfExtent);
+            reference_frame_scale, empty_half_extent);
         impl_->view_scale = impl_->radius;
         // Only establish the screen-constant reference baseline the FIRST
         // time it is ever needed. Once set, it must survive every later
@@ -2242,7 +2245,7 @@ void MeshView::fit_all() {
         // "Zobrazit vše" had to zoom out further than before.
         if (!impl_->reference_view_scale_initialized) {
             // Decouple real-world startup scale from screen-constant datum
-            // size: zoom the empty world out to ~100 mm, but keep document
+            // size: use the monitor metric scale for the world, but keep document
             // and container Origins at their established LCD size.
             impl_->reference_view_scale = reference_frame_scale;
             impl_->reference_view_scale_initialized = true;
@@ -2289,7 +2292,7 @@ void MeshView::fit_all() {
     const float narrow_view_compensation = 1.0F / std::min(aspect, 1.0F);
     impl_->view_scale = bounds.size() == 1
         ? std::max(impl_->reference_view_scale,
-              kEmptyDocumentViewHalfExtent)
+              empty_half_extent)
         : impl_->radius * fit_margin * narrow_view_compensation;
     // Only establish the screen-constant reference baseline once (see the
     // identical guard/comment in the origin-only branch above). A document

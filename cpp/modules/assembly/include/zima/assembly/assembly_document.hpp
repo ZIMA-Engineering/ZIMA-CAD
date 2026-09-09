@@ -83,7 +83,9 @@ struct MateReference {
 // component. `mate_type`/`offset` select the solving semantics
 // (PlaneCoincident/AxisCoincident/PointCoincident distance-or-coincidence,
 // PlaneAngle angle). Flip requests opposite directions for coincidence or
-// the supplementary plane angle. It has no effect on a point coincidence.
+// the opposite target plane normal. Signed angles follow the target reference
+// orientation; Flip retains the opposite-normal (supplementary) choice.
+// It has no effect on a point coincidence.
 struct ComponentPlacementReference {
     MateKind mate_type{MateKind::PlaneCoincident};
     MateReference component_reference;
@@ -274,8 +276,11 @@ public:
     [[nodiscard]] static double project_angular_drag_value(
         const zima::kernel::Vec3& center,
         const zima::kernel::Vec3& reference_direction,
+        const zima::kernel::Vec3& plane_normal,
         const zima::kernel::Vec3& ray_origin,
         const zima::kernel::Vec3& ray_direction);
+    [[nodiscard]] zima::kernel::Vec3 placement_reference_angle_axis(
+        const ComponentPlacementReference& reference) const;
     [[nodiscard]] std::optional<double> measure_placement_reference(
         const ComponentPlacementReference& reference) const;
     [[nodiscard]] PlaneResolution resolve_plane(

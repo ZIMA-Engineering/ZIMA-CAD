@@ -607,3 +607,13 @@ i když se v jednom tahu rozdělí oba její vlastníci. Zachované koncové bod
 a středy si ponechávají svá ID a bodové vazby. Pokud se kontakt ořízne pryč,
 příslušná tečnost zanikne. Spojení, které nově představuje jeden společný
 koncový bod, zůstává v topologii bez duplicitní rovnice incidence.
+
+### Směrové kóty bodů na osách (2026-09-09)
+
+Bod vázaný na přímku zůstává pohyblivý podél jejího směru. Při změně X/Y kóty
+se tato vazba nepovažuje za fixaci obou souřadnic. To dovoluje změnit rozteč
+středů profilu s oblouky, tečnými rameny a soustřednými otvory i tehdy,
+když jeden střed leží v počátku a druhý na ose X. Poloměry, rovnosti a
+tečné vazby se zachovají; test pokrývá původní rozteč 19,448732 mm a její
+opakované změny na 12, 20 a 35 mm. Tečné kontakty si ponechávají vlastní
+pravidla ukotvení při editaci délky úsečky.

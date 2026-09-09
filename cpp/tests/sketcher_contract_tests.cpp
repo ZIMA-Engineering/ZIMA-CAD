@@ -99,6 +99,34 @@ int main() {
             std::cout<<"Saved R15.050 Sketch radius edits passed\n";
         }
         }
+        {
+            // Four tangent contacts: changing centre spacing must preserve
+            // the same feasible slot geometry as dragging its circle centre.
+            auto slot=zima::sketcher::Sketch::create_default();
+            constexpr double spacing=19.448732460774778;
+            const auto left=slot.add_circle(0,0,5),right=slot.add_circle(spacing,0,5);
+            const auto a=slot.add_arc(0,0,0,10,0,-10);
+            const auto b=slot.add_arc(spacing,0,spacing,-10,spacing,10);
+            const auto bottom=slot.add_segment(0,-10,spacing,-10);
+            const auto top=slot.add_segment(0,10,spacing,10);
+            const auto first=slot.circles[0].center_point_id,second=slot.circles[1].center_point_id;
+            static_cast<void>(slot.add_point_reference_constraint(first,"sketch_origin"));
+            static_cast<void>(slot.add_point_on_line_constraint(second,"sketch_axis:x"));
+            static_cast<void>(slot.add_equal_radius_constraint(left,right));
+            static_cast<void>(slot.add_equal_radius_constraint(a,b));
+            for(const auto& arm:{bottom,top})for(const auto& arc:{a,b})
+                static_cast<void>(slot.add_tangent_constraint(arc,arm));
+            slot.apply_dimension(slot.create_circle_diameter_dimension(left));
+            slot.apply_dimension(slot.create_arc_radius_dimension(a));
+            const auto length=slot.create_point_dimension(first,second,DimensionKind::DistanceX);
+            slot.apply_dimension(length);
+            for(double target:{12.,20.,35.}) {
+                auto edited=slot;
+                require(edited.set_dimension_value(length.id,target),"Four-tangent slot rejected centre spacing edit (19.449 mm)");
+                require(std::abs(edited.find_point(second)->x-edited.find_point(first)->x-target)<1e-7&&edited.solve().maximum_residual<1e-7,"Slot spacing edit violated its dimension or tangent constraints");
+                require(edited.constraints==slot.constraints,"Slot spacing edit removed a constraint");
+            }
+        }
         std::set<std::string> generated_ids;
         for (int index = 0; index < 1024; ++index) {
             generated_ids.insert(

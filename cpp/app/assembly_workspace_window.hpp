@@ -71,6 +71,7 @@ public:
         const std::string& component = {});
     // Exposed for regression coverage of nested Assembly occurrence
     // activation through the real window (no context-menu interaction).
+    [[nodiscard]] bool open_component_source(const std::string& instance_path);
     [[nodiscard]] bool activate_occurrence_for_test(const std::string& instance_path);
     void deactivate_active_occurrence_for_test();
     [[nodiscard]] const std::string& active_occurrence_path_for_test() const {
@@ -557,6 +558,7 @@ private:
     std::size_t placement_reference_drag_index_{};
     zima::kernel::Vec3 placement_reference_drag_axis_point_;
     zima::kernel::Vec3 placement_reference_drag_axis_direction_;
+    zima::kernel::Vec3 placement_reference_drag_plane_normal_;
     bool placement_reference_drag_angular_{};
     bool placement_reference_drag_changed_{};
     // The exact selected occurrence's origin handle projects camera-plane
@@ -654,6 +656,8 @@ private:
     void set_construction_properties_dimension_selection();
     bool placement_origin_allowed(const std::string& owner_id) const;
     zima::kernel::ViewerMesh active_part_origins(const zima::document::PartDocument& document) const;
+    zima::kernel::ViewerMesh selected_container_origins(
+        const zima::document::PartDocument& document) const;
     void bind_local_origin_selection(QDialog* dialog);
     void set_local_origin_selection_mode(bool active);
     void toggle_local_origin_visibility(

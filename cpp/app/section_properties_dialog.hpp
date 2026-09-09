@@ -117,18 +117,19 @@ public:
         error_=new QLabel(this);error_->setWordWrap(true);content_layout()->addWidget(error_);
         // The shared placement controls keep their own contract inside one
         // scrollable body; OK/Cancel stay visible outside it.
-        auto* body=new QWidget(this);auto* layout=new QVBoxLayout(body);while(auto* item=content_layout()->takeAt(0)){
+        auto* body=new QWidget(this);auto* layout=new QVBoxLayout(body);layout->setContentsMargins(0,0,0,0);layout->setSpacing(6);layout->setAlignment(Qt::AlignTop);while(auto* item=content_layout()->takeAt(0)){
             if(auto* widget=item->widget()){layout->addWidget(widget);delete item;}
             else if(auto* child=item->layout()){child->setParent(nullptr);layout->addLayout(child);}
             else layout->addItem(item);
         }
+        layout->addStretch();
         auto* scroll=new QScrollArea(this);scroll->setWidgetResizable(true);scroll->setWidget(body);content_layout()->addWidget(scroll);
         setMinimumWidth(660);setAttribute(Qt::WA_DeleteOnClose);
     }
     zima::document::SectionDefinition values()const{
         auto s=value_;s.placement=pending.placement;s.name=name_->text().trimmed().toStdString();s.reversed=reverse_->isChecked();s.show_plane=show_->isChecked();s.show_cut=cut_->isChecked();s.components=components_->values();zima::document::reframe_section(s);return s;
     }
-    void set_sketch(unsigned,const zima::sketcher::Sketch& sketch)override{value_.sketch=sketch;update_sketch_info();}
+    void set_sketch(unsigned,const zima::sketcher::Sketch& sketch)override{value_.sketch=sketch;update_sketch_info();if(changed)changed();}
     void select_component(const std::string& id){components_->select_component(id);}
     void set_status(const QString& message)override{set_error(message);}
     void set_error(const QString& message){error_->setText(message);}

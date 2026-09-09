@@ -7,7 +7,9 @@ na vlastní kartě. Používá stejný panel **Umístění kontejneru** jako ost
 kontejnery: souřadnice, orientaci, reference a jejich odsazení. Společný
 výpočet umístění se nemění. Referencemi jsou uložené původní objekty modelu.
 
-1. Nastavte umístění kontejneru řezu.
+1. Nastavte umístění kontejneru řezu. Počátek dokumentu je při zadávání
+   viditelný. Kliknutí na celý Počátek ve stromu vyplní tři polohové roviny;
+   tlačítkem **Počátek** lze zpřístupnit také počátky těles a kontejnerů.
 2. Vyberte jeho vlastní skicovou rovinu **XY, XZ nebo YZ**.
 3. Tlačítkem **Skica…** otevřete běžný Sketcher. Nakreslete jednu otevřenou
    úsečku nebo souvislou lomenou čáru. Lze používat vazby, kóty i tažení bodů.
@@ -39,13 +41,17 @@ krátký klik ani navigační tažení nepotvrzují.
 ## Zobrazení a sestavy
 
 Výchozí aktivní stav dokumentu je **Bez řezu**. Strom nemá zaškrtávací políčka;
-**Zobrazit rovinu řezu** ve vlastnostech zviditelní pomocný obrys. **Aktivní** v menu
+Otevření neaktivního řezu ponechá celé těleso a zobrazí skicu s kótami.
+**Zobrazit rovinu řezu** vykreslí skutečný průřez s obrysem a nastaveným
+šrafováním v řezné ploše, aniž by ořízl těleso. **Aktivní** v menu
 A–A nebo **Aktivní řez** ve vlastnostech zapne skutečně oříznuté zobrazení;
 v jednom dokumentu je současně aktivní nejvýše jeden takový řez. Při
 modelovacích vlastnostech a editaci běžné skici se používá úplná geometrie.
 
 Reference umístění se obnovují při explicitní regeneraci zdrojového dokumentu.
 Chybějící referenci lze opravit ve vlastnostech; neplatný řez se nevypočítá.
+Kontrola stromu používá uložené reference a podporuje i rozpracovaný díl bez
+vypočteného tělesa; samotné zobrazení stromu výpočet nespouští.
 Samotné přepnutí karty nevyvolává nový výpočet nadřazené sestavy.
 
 Řez je nastavení prezentace. Nemění výsledná tělesa, jejich objem, hmotnost,

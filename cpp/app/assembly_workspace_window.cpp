@@ -12,6 +12,8 @@
 #include "edge_treatment_tree_policy.hpp"
 #include "opening_tree_policy.hpp"
 #include "assembly_workspace_window.hpp"
+#include "reference_display.hpp"
+#include <zima/ui/container_placement_section.hpp>
 #include <zima/assembly/physical_properties.hpp>
 #include "helical_sweep_dialog.hpp"
 #include "sweep2d_dialog.hpp"
@@ -6742,7 +6744,6 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         add_command(extrusion_action_);
         add_command(revolution_action_);
         add_green_separator();
-        add_command(regenerate_action_);
         return;
     }
     auto* placeholder = new QAction(
@@ -8648,7 +8649,7 @@ void AssemblyWorkspaceWindow::set_primitive_properties_dimension_selection() {
 
 bool AssemblyWorkspaceWindow::placement_origin_allowed(const std::string& owner_id) const {
     const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (!part || dynamic_cast<BodyPropertiesDialog*>(primitive_reference_dialog_)) return true;
+    if (!part || section_dialog_ || dynamic_cast<BodyPropertiesDialog*>(primitive_reference_dialog_)) return true;
     const auto& document = part->session.document();
     const bool body_feature = !document.body_history.active_body_id().empty() ||
         document.body_owner_for_object(primitive_parameter_owner_id_) ||
@@ -8678,7 +8679,7 @@ zima::kernel::ViewerMesh AssemblyWorkspaceWindow::active_part_origins(
             append_mesh(result, local_origin_display_mesh(origins, {owner_id + ":origin"}));
         }
     }
-    if (!owned_sketch && (active.empty() || dynamic_cast<BodyPropertiesDialog*>(primitive_reference_dialog_))) {
+    if (!owned_sketch && (active.empty() || section_dialog_ || dynamic_cast<BodyPropertiesDialog*>(primitive_reference_dialog_))) {
         auto origin = document.origin_viewer_mesh();
         // Presentation extents only. Frame coordinates and persisted identities
         // remain unchanged; Body and container origins keep their existing size.
@@ -8700,7 +8701,22 @@ zima::kernel::ViewerMesh AssemblyWorkspaceWindow::active_part_origins(
     return result;
 }
 
+zima::kernel::ViewerMesh AssemblyWorkspaceWindow::selected_container_origins(
+    const zima::document::PartDocument& document) const {
+    return local_origin_display_mesh(
+        document.history_origin_reference_geometry_before({}), visible_local_origin_ids_);
+}
+
 void AssemblyWorkspaceWindow::bind_local_origin_selection(QDialog* dialog) {
+    for (auto* object : dialog->findChildren<QObject*>()) {
+        if (auto* section = dynamic_cast<zima::ui::ContainerPlacementSection*>(object)) {
+            section->set_reference_label_resolver([this, dialog](const auto& reference) {
+                return reference_display_label(reference,
+                    dialog == dynamic_cast<QDialog*>(construction_reference_dialog_)
+                        ? construction_reference_geometry_ : primitive_reference_geometry_);
+            });
+        }
+    }
     auto* properties = dynamic_cast<zima::ui::PropertiesSubWindow*>(dialog);
     if (!properties || dialog->property("originSelectionBound").toBool()) return;
     dialog->setProperty("originSelectionBound", true);
@@ -10351,8 +10367,13 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     if (assembly_cut && feature_kind != zima::document::FeatureKind::Extrusion &&
         feature_kind != zima::document::FeatureKind::Revolution) return;
     std::string source_sketch_id;
+    // A new Assembly cut reopens without a committed container ID. Its
+    // pending feature still owns the Sketch just edited in the Sketcher.
+    const auto profile_owner = assembly_cut && container_id.empty() &&
+            pending_profile_feature_ && pending_profile_feature_->feature_kind == feature_kind
+        ? pending_profile_feature_->id : container_id;
     if (!property_owned_sketch_draft_ ||
-        property_owned_sketch_draft_->owner_container_id != container_id)
+        property_owned_sketch_draft_->owner_container_id != profile_owner)
         property_owned_sketch_draft_.reset();
     const bool resuming_assembly_profile = assembly_cut && container_id.empty() &&
         pending_profile_feature_ &&
@@ -10370,8 +10391,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 assembly->session.document().sketches.end(), [&](const auto& sketch) {
                     return sketch.owner_container_id == pending_profile_feature_->id;
                 });
-            property_owned_sketch_draft_ = *found;
-            source_sketch_id = found->id;
+            if (!property_owned_sketch_draft_) property_owned_sketch_draft_ = *found;
+            source_sketch_id = property_owned_sketch_draft_->id;
         } else {
             if (assembly_cut && !selected_sketch_id_.empty()) {
                 const auto selected = std::find_if(
@@ -11816,7 +11837,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     }
     properties_dialog_ = dialog;
     track_tree_edit(dialog);
-    tree_reference_state_.watch(dialog,this,owner_id,initial.id);
+
     const std::string dialog_container_id = initial.id;
     if (!assembly_cut &&
         feature_kind == zima::document::FeatureKind::DrillPoint) {
@@ -12134,7 +12155,7 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
         static_cast<SweepPlacementDialog*>(new HelicalSweepDialog(initial,commit,this));
     properties_dialog_=dialog;track_tree_edit(dialog);properties_dialog_instance_path_=*occurrence;
     primitive_parameter_owner_id_=initial.id;primitive_reference_dialog_=dialog;
-    tree_reference_state_.watch(dialog,this,document_id,initial.id);
+
     auto geometry=part->session.calculated_boundaries().empty()?zima::kernel::ViewerReferenceGeometry{}:part->session.calculated_boundaries().back().mesh.original_references;
     const auto& source=part->session.document();
     append_reference_geometry(geometry,source.origin_viewer_mesh().original_references);
@@ -12370,7 +12391,7 @@ void AssemblyWorkspaceWindow::show_sweep3d_properties(
     construction_reference_dialog_ = dialog;
     properties_dialog_ = dialog;
     track_tree_edit(dialog);
-    tree_reference_state_.watch(dialog,this,document_id,initial.id);
+
 
     dialog->set_preview_callback(
         [this, document_id, dialog](zima::document::ConstructionObject preview) {
@@ -12762,9 +12783,7 @@ void AssemblyWorkspaceWindow::show_construction_properties(
     viewer_->set_editing_origin_visible(true);
     properties_dialog_ = dialog;
     track_tree_edit(dialog);
-    tree_reference_state_.watch(dialog,this,document_id,initial.id);
-    for (const auto& point : initial.curve_points)
-        tree_reference_state_.watch(dialog,this,document_id,point.id);
+
     connect(dialog, &QObject::destroyed, this, [this] {
         properties_dialog_ = nullptr;
         construction_reference_dialog_ = nullptr;
@@ -14802,9 +14821,6 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
         }
     }
 
-    tree_reference_state_.watch(dialog,this,owner_id,initial.id);
-    if (!initial.owner_container_id.empty())
-        tree_reference_state_.watch(dialog,this,owner_id,initial.owner_container_id);
     connect(dialog, &QObject::destroyed, this, [this] {
         properties_dialog_ = nullptr;
         primitive_reference_dialog_ = nullptr;
@@ -19793,6 +19809,12 @@ bool AssemblyWorkspaceWindow::begin_placement_reference_drag(
     placement_reference_drag_axis_direction_ = reference_direction;
     placement_reference_drag_angular_ =
         row.mate_type == zima::assembly::MateKind::PlaneAngle;
+    if(placement_reference_drag_angular_) {
+        if(row.flip)placement_reference_drag_axis_direction_={-reference_direction.x,-reference_direction.y,-reference_direction.z};
+        placement_reference_drag_plane_normal_=assembly->session.document().placement_reference_angle_axis(row);
+        if(candidate.geometry_index<viewer_->mesh().dimensions.size())
+            placement_reference_drag_plane_normal_=viewer_->mesh().dimensions[candidate.geometry_index].plane_normal;
+    }
     placement_reference_drag_changed_ = false;
     state_->setText(placement_reference_drag_angular_
         ? tr("Tažením měníte úhel reference umístění.")
@@ -19810,6 +19832,7 @@ void AssemblyWorkspaceWindow::update_placement_reference_drag(
             ? zima::assembly::AssemblyDocument::project_angular_drag_value(
                 placement_reference_drag_axis_point_,
                 placement_reference_drag_axis_direction_,
+                placement_reference_drag_plane_normal_,
                 ray_origin, ray_direction)
             : zima::assembly::AssemblyDocument::project_linear_drag_value(
                 placement_reference_drag_axis_point_,
@@ -26571,7 +26594,11 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                 component.calculated_source = found->second;
             }
         }
-        viewer_->set_mesh(active_assembly_display(rollback_document));
+        auto display=active_assembly_display(rollback_document);
+        if(active_top_assembly_sketch) {
+            if(const auto* sketch=active_sketch()) append_mesh(display,sketch_viewer_mesh(*sketch));
+        }
+        viewer_->set_mesh(std::move(display));
     } else if (part_rollback_ && !part_rollback_->instance_path.empty()) {
         const auto* active_part =
             workspace_.open_part(part_rollback_->part_document_id);
@@ -27861,13 +27888,17 @@ void AssemblyWorkspaceWindow::show_component_properties(
         *occurrence=component;
         return geometry.measure_placement_reference(row);
     });
+    dialog->set_reference_label_resolver(
+        [geometry=assembly->session.document().build_scene().original_references](const auto& reference) {
+            return reference_display_label(reference,geometry);
+        });
     component_placement_dialog_ = dialog;
     component_placement_assembly_document_id_ = address->owner_assembly_document_id;
     component_placement_occurrence_id_ = address->occurrence_id;
     viewer_->set_component_origin_handle(zima::viewer::EdgeKey{
         occurrence->source_document_id + ":origin", "origin:point", instance_path});
     properties_dialog_ = dialog;
-    tree_reference_state_.watch(dialog,this,address->owner_assembly_document_id,address->occurrence_id);
+
     properties_dialog_instance_path_ = instance_path;
     viewer_->set_editing_origin_visible(true);
     preserve_view_on_refresh_ = true;
@@ -28081,7 +28112,11 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                         edited=true;
                     }
                 }
-                if(auto* dialog=dynamic_cast<SweepPlacementDialog*>(properties_dialog_)){
+                if(auto* dialog=dynamic_cast<SectionPropertiesDialog*>(properties_dialog_)) {
+                    auto sketch=dialog->values().sketch;
+                    if(sketch.id==candidate.owner_id){edit_sketch(sketch);dialog->set_sketch(0,sketch);edited=true;}
+                }
+                if(!edited)if(auto* dialog=dynamic_cast<SweepPlacementDialog*>(properties_dialog_)){
                     auto pending=dialog->pending;
                     zima::document::visit_feature_sketches(pending,[&](auto& data,std::size_t stage){
                         auto sketch=zima::sketcher::Sketch::from_serialized(data);if(sketch.id!=candidate.owner_id)return;
@@ -28783,6 +28818,36 @@ void AssemblyWorkspaceWindow::deactivate_active_occurrence_for_test() {
     refresh_scene();
 }
 
+bool AssemblyWorkspaceWindow::open_component_source(const std::string& instance_path) {
+    if (properties_dialog_ || !active_sketch_id_.empty()) return false;
+    const auto top = workspace_.displayed_document_id();
+    try {
+        const auto source = workspace_.derived_source_path(top,
+            zima::assembly::InstancePath::decode(instance_path));
+        const auto address = workspace_.resolve_occurrence(top,source);
+        if (!address) return false;
+        if (workspace_.find(address->source_document_id)) {
+            workspace_.activate(address->source_document_id);
+            workspace_.display_top_level(address->source_document_id);
+            active_occurrence_path_.clear();
+            activate_first_part_body();
+            viewer_->clear_selection();
+            refresh_tabs();
+            refresh_scene();
+            return true;
+        }
+        const auto* owner=workspace_.open_assembly(address->owner_assembly_document_id);
+        const auto* occurrence=owner ? owner->session.document().find_occurrence(address->occurrence_id) : nullptr;
+        if (!occurrence || occurrence->source_path.empty()) return false;
+        auto path=occurrence->source_path;
+        if(path.is_relative())path=owner->path.parent_path()/path;
+        return open_document_path(QString::fromStdString(path.string()));
+    } catch(const std::exception& error) {
+        state_->setText(QString::fromUtf8(error.what()));
+        return false;
+    }
+}
+
 void AssemblyWorkspaceWindow::show_component_context_menu(
     const std::string& instance_path, const QPoint& global_position) {
     std::optional<zima::workspace::OccurrenceAddress> address;
@@ -28803,9 +28868,10 @@ void AssemblyWorkspaceWindow::show_component_context_menu(
         const auto path=selected_path;
         const auto source=workspace_.derived_source_path(workspace_.displayed_document_id(),path);
         if(source==path)return;
-        QMenu menu(this);auto* properties=menu.addAction(tr("Vlastnosti zdroje"));auto* parent=menu.addAction(tr("Vybrat rodiče"));
+        QMenu menu(this);auto* open=menu.addAction(resource_icon("open"),tr("Otevřít"));open->setObjectName("openComponentSourceAction");auto* properties=menu.addAction(tr("Vlastnosti zdroje"));auto* parent=menu.addAction(tr("Vybrat rodiče"));
         const auto* selected=menu.exec(global_position);
-        if(selected==properties)show_component_properties(source.encoded());
+        if(selected==open)static_cast<void>(open_component_source(instance_path));
+        else if(selected==properties)show_component_properties(source.encoded());
         else if(selected==parent&&path.parent()){viewer_->confirm_occurrence(path.parent()->encoded());select_occurrence(path.parent()->encoded());}
         return;
     }
@@ -28818,6 +28884,8 @@ void AssemblyWorkspaceWindow::show_component_context_menu(
     const bool source_is_assembly =
         address->source_kind == zima::assembly::ComponentSourceKind::Assembly;
     QMenu menu(this);
+    auto* open = menu.addAction(resource_icon("open"),tr("Otevřít"));
+    open->setObjectName("openComponentSourceAction");
     const auto parent_path =
         zima::assembly::InstancePath::decode(instance_path).parent();
     auto* select_parent = parent_path
@@ -28839,6 +28907,10 @@ void AssemblyWorkspaceWindow::show_component_context_menu(
     grounding->setEnabled(!occurrence->derived_copy);
     auto* remove = menu.addAction(tr("Odstranit"));
     const QAction* selected = menu.exec(global_position);
+    if(selected==open) {
+        if(!open_component_source(instance_path)) state_->setText(tr("Zdrojový dokument komponenty nelze otevřít."));
+        return;
+    }
     if (selected == select_parent && parent_path) {
         const std::string encoded = parent_path->encoded();
         viewer_->confirm_occurrence(encoded);

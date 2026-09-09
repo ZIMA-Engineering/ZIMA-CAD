@@ -35,6 +35,8 @@ namespace zima::app {
 // semantics as zima::document::ConstructionReference::flip.
 class ComponentPropertiesDialog final : public zima::ui::PropertiesSubWindow {
 public:
+    using ReferenceLabelResolver = std::function<std::optional<QString>(const zima::assembly::MateReference&)>;
+    void set_reference_label_resolver(ReferenceLabelResolver resolver);
     using CommitCallback = std::function<void(zima::assembly::PartOccurrence)>;
     using PreviewCallback = std::function<void(
         const zima::assembly::PartOccurrence&)>;
@@ -92,6 +94,7 @@ protected:
     bool submit() override;
 
 private:
+    ReferenceLabelResolver reference_label_resolver_;
     zima::assembly::PartOccurrence initial_;
     CommitCallback commit_;
     QLineEdit* name_{};

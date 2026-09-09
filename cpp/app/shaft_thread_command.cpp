@@ -79,7 +79,7 @@ void AssemblyWorkspaceWindow::show_shaft_thread_properties(const std::string& id
     properties_dialog_instance_path_=*occurrence;
     primitive_parameter_owner_id_=initial.id;
     construction_dimension_object_id_=initial.id;
-    tree_reference_state_.watch(dialog,this,document_id,initial.id);
+
     tree_->setProperty("commandSelectionActive",true);
     dialog->changed=[this] { refresh_shaft_thread_preview(); };
     connect(dialog,&QDialog::finished,this,[this] {

@@ -70,6 +70,8 @@ public:
     [[nodiscard]] QString reference() const { return reference_; }
     void set_reference(const QString& value);
     void clear_reference();
+    void set_missing(bool missing);
+    [[nodiscard]] bool is_missing() const;
 
     [[nodiscard]] bool is_checked() const { return checked_; }
     void set_checked(bool value) { checked_ = value; }

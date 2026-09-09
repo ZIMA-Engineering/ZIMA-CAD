@@ -19,6 +19,8 @@
 #include "extrusion_dimension_policy.hpp"
 #include "opening_dimension_policy.hpp"
 #include "reference_tree_policy.hpp"
+#include "reference_display.hpp"
+#include <zima/ui/container_placement_section.hpp>
 #include "tree_reference_state.hpp"
 #include "history_tree_widget.hpp"
 #include "history_reorder_policy.hpp"
@@ -545,6 +547,25 @@ int main(int argc, char* argv[]) {
             require(!feature_reference_issue(sweep,document,references).empty(),
                 "Owned Sweep profile plane hid a broken external reference");
 
+            QWidget host;auto* layout=new QVBoxLayout(&host);
+            zima::ui::ContainerPlacementSection placement_fields(&host,layout,true);
+            zima::kernel::ViewerReferenceGeometry geometry;
+            geometry.triangle_references.push_back({"source-feature","profile-side-face",{}});
+            zima::document::ConstructionReference source{{},"source-feature","profile-side-face",0,true};
+            placement_fields.set_reference_label_resolver([&](const auto& ref){return reference_display_label(ref,geometry);});
+            QString entry_error;
+            require(placement_fields.set_reference(0,source,"obsolete opaque ID",&entry_error),"Cannot enter original face reference");
+            auto* reference_table=placement_fields.reference_table();
+            require(reference_table->item(0,1)->text().contains("Plocha 1")&&!reference_table->item(0,1)->text().contains("profile-side-face"),
+                "Reference label exposes its opaque topology ID");
+            geometry.triangle_references.clear();placement_fields.refresh_reference_table();
+            auto* missing_field=dynamic_cast<zima::ui::ReferenceCellItem*>(reference_table->item(0,1));
+            require(missing_field&&missing_field->text().isEmpty()&&missing_field->is_missing()&&
+                placement_fields.references().front().semantic_key==source.semantic_key,
+                "Missing reference did not remain repairable in a blank marked field");
+            require(!reference_table->cellWidget(0,3)->findChild<QToolButton*>()->isEnabled(),"Missing reference still enables inspection");
+            geometry.triangle_references.push_back({source.owner_id,source.semantic_key,{}});placement_fields.refresh_reference_table();
+            require(!dynamic_cast<zima::ui::ReferenceCellItem*>(reference_table->item(0,1))->is_missing(),"Repaired reference remains marked missing");
             QTreeWidget tree;
             tree.setColumnCount(1);
             tree.setItemDelegate(new ReferenceTreeDelegate(&tree));
@@ -565,18 +586,18 @@ int main(int argc, char* argv[]) {
             require(painted.pixelColor(220,12)==missing_reference_color(),
                 "Selected missing-reference row lost its red background");
             QDialog canceled;
-            state.watch(&canceled,&tree,"part","feature");
+
             canceled.reject();
             state.apply(row,"part","feature",issue);
             require(missing(),"Cancel acknowledged a missing reference");
             QDialog accepted;
-            state.watch(&accepted,&tree,"part","feature");
+
             accepted.accept();
             state.apply(row,"part","feature",issue);
-            require(!missing() && !placement.reference_valid,
-                "OK must clear presentation without changing reference validity");
+            require(missing() && !placement.reference_valid,
+                "OK must not hide an unresolved reference");
             state.apply(row,"part","feature",issue);
-            require(!missing(),"Tree refresh forgot successful OK");
+            require(missing(),"Tree refresh hid an unresolved reference");
             state.apply(row,"assembly","feature",issue);
             require(missing(),"OK acknowledged another document's object");
             state.apply(row,"part","feature",issue+"new-reference");
@@ -838,9 +859,18 @@ int main(int argc, char* argv[]) {
             {"part-origin", "origin:axis:x", {}}});
         view.set_mesh(std::move(empty_document_mesh));
         const auto startup_camera = view.camera_state();
-        require(startup_camera[4] >= 50.0F && startup_camera[7] < startup_camera[4],
+        require(std::abs(startup_camera[4] - view.height()*25.4/(2.0*view.physicalDpiY())) < 0.01 && startup_camera[7] < startup_camera[4],
                 "Empty document camera does not expose a useful metric working area "
                 "independently of the screen-constant Origin size");
+        // A first sketch can publish its origin more than once through the
+        // owned profile and its editing overlay. Those are datums, not bounds.
+        zima::kernel::ViewerMesh first_sketch;
+        first_sketch.points.push_back({{0,0,0},{"sketch","external_point:sketch_origin",{}},{},true});
+        first_sketch.points.push_back(first_sketch.points.front());
+        first_sketch.axes.push_back({{0,0,0},{1,0,0},100,{"sketch","sketch_axis:x",{}}});
+        view.set_mesh(first_sketch);
+        require(std::abs(view.camera_state()[4]-startup_camera[4])<0.01,
+            "Duplicated Sketch origins zoomed the first sketch to submillimetre size");
         require(view.projection_mode() ==
                     zima::viewer::ProjectionMode::Orthographic &&
                     !view.fly_navigation_enabled(),

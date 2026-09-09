@@ -712,6 +712,14 @@ int main() {
                     std::abs(placement_dimension_it->value - 45.0) < 1.0e-7,
                 "build_scene() did not emit a dimension overlay for the "
                 "embedded PlaneAngle placement reference");
+        {
+            auto own_origin=placement_reference_angle_assembly;
+            auto& row=own_origin.components.back().placement_references.front();
+            row.target_reference={zima::assembly::MateReferenceKind::Face,{},own_origin.document_id+":origin","origin:plane:xy"};
+            own_origin.calculate_placement_references();
+            const auto displayed=own_origin.build_scene();
+            require(std::ranges::any_of(displayed.dimensions,[&](const auto& dimension){return dimension.reference.semantic_key==expected_placement_dimension_key&&dimension.kind==zima::kernel::ViewerDimensionKind::Angular;}),"Angle to Assembly origin has no visible dimension");
+        }
         placement_angle_component_it->placement_references.front().offset = 0.0;
         placement_reference_angle_assembly.calculate_placement_references();
         const auto zero_angle_scene =
@@ -812,13 +820,16 @@ int main() {
                 "Assembly linear drag ray was not projected onto the mate axis");
         require(std::abs(
                     zima::assembly::AssemblyDocument::project_angular_drag_value(
-                        {0.0, 0.0, 0.0}, {1.0, 0.0, 0.0},
+                        {0.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, {0.0,0.0,1.0},
                         {0.0, 10.0, 10.0}, {0.0, 0.0, -1.0}) - 90.0) < 1.0e-9 &&
                     std::abs(
                         zima::assembly::AssemblyDocument::project_angular_drag_value(
-                            {0.0, 0.0, 0.0}, {1.0, 0.0, 0.0},
+                            {0.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, {0.0,0.0,1.0},
                             {10.0, 0.0, 10.0}, {0.0, 0.0, -1.0})) < 1.0e-9,
-                "Assembly angular drag ray did not produce a stable 0-180 degree value");
+                "Assembly angular drag ray did not produce a stable signed value");
+        require(std::abs(zima::assembly::AssemblyDocument::project_angular_drag_value(
+            {0,0,0},{1,0,0},{0,0,1},{0,-10,10},{0,0,-1})+90)<1e-9,
+            "Angular dragging discarded the negative side of its oriented plane");
         auto plane_angled_assembly = loaded;
         auto plane_angle_component_it = std::find_if(
             plane_angled_assembly.components.begin(),
@@ -1280,11 +1291,15 @@ int main() {
             require(freedom.remaining_dof==0 && std::ranges::none_of(freedom.coordinate_free,[](bool value){return value;}),
                 "Fully constrained hinge exposes a physical/Euler freedom");
         };
-        for(double angle:{0.0,15.0,45.0,90.0,135.0,180.0,0.0}) {
+        for(double angle:{0.0,15.0,-15.0,45.0,-45.0,90.0,-90.0,135.0,-135.0,180.0,-180.0,0.0}) {
             moving_hinge.placement_references[2].offset=angle;
             hinge.calculate_placement_references();check_hinge(hinge,angle);
             const auto stable=moving_hinge.placement;hinge.calculate_placement_references();
             require(moving_hinge.placement==stable,"Repeated hinge calculation drifted its solved pose");
+        }
+        for(double angle:{30.,-30.}) {
+            moving_hinge.placement_references[2].offset=angle;hinge.calculate_placement_references();
+            require(std::abs(hinge.measure_placement_reference(moving_hinge.placement_references[2]).value()-angle)<1e-7,"Hinge angle lost its signed reference orientation");
         }
         moving_hinge.placement_references[2].offset=45;moving_hinge.placement_references[2].flip=true;
         hinge.calculate_placement_references();check_hinge(hinge,135);
@@ -1381,7 +1396,7 @@ int main() {
         require(std::abs(drag_document.measure_placement_reference(measured_row).value_or(-999)-37)<1e-8,
             "Captured assembly angle does not describe the current orientation");
         measured_row.flip=true;
-        require(std::abs(drag_document.measure_placement_reference(measured_row).value_or(-999)-143)<1e-8,
+        require(std::abs(drag_document.measure_placement_reference(measured_row).value_or(-999)+143)<1e-8,
             "Flipped assembly angle has the wrong convention");
         measured_row.offset_locked=true;drag_moving.placement_references={measured_row};
         drag_moving.value_locks={"placement:x","placement:rotation_y"};

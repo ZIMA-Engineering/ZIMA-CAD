@@ -64,8 +64,37 @@ int verify_sections(QApplication& application,AssemblyWorkspaceWindow& window,co
         check(dialog()->height()>=std::min(900,window.height()-24),"Section properties did not use the available vertical space");
         auto* scroll=dialog()->findChild<QScrollArea*>();auto* name=dialog()->findChild<QLineEdit*>("sectionName");auto* translation=dialog()->findChild<QDoubleSpinBox*>("sweepTranslation0");
         check(scroll&&scroll->widget()->isAncestorOf(name)&&scroll->widget()->isAncestorOf(translation)&&translation->mapTo(dialog(),QPoint{}).y()>name->mapTo(dialog(),QPoint{}).y()+name->height(),"Section controls are outside their scroll layout");
+        QLabel* heading{};for(auto* label:dialog()->findChildren<QLabel*>())
+            if(label->text()==QObject::tr("Umístění kontejneru"))heading=label;
+        check(heading && heading->mapTo(dialog(),QPoint{}).y()-name->mapTo(dialog(),QPoint{}).y()-name->height()<40,
+            "Section placement has excessive spacing below its name");
         const auto origin_reference=part.origin_viewer_mesh().original_references.points.front().reference;
-        check(dialog()->set_reference(0,{{},origin_reference.owner_id,origin_reference.semantic_key},"Origin"),"Section rejected the shared placement reference");dialog()->changed();check(dialog()->values().placement.reference_valid&&dialog()->values().placement.references.size()==1,"Section did not resolve its ordinary placement reference");
+        check(std::ranges::any_of(view->mesh().points,[&](const auto& point){return point.reference.owner_id==origin_reference.owner_id;}),
+            "Section did not display the document Origin on opening");
+        const auto click_tree=[&](const std::string& id){
+            QTreeWidgetItem* item{};
+            {for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==id){item=*it;break;}}
+            check(item!=nullptr,"Section reference Tree item is missing");
+            for(auto* parent=item->parent();parent;parent=parent->parent())parent->setExpanded(true);
+            tree->scrollToItem(item);flush();
+            const QPointF pos(tree->visualItemRect(item).center()),global(tree->viewport()->mapToGlobal(pos.toPoint()));
+            for(auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}){
+                QMouseEvent event(type,pos,global,Qt::LeftButton,type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);
+                QApplication::sendEvent(tree->viewport(),&event);
+            }flush();
+        };
+        auto* origins=dialog()->findChild<QPushButton*>("containerOriginSelectionButton");
+        check(origins!=nullptr,"Section has no shared Origin button");origins->click();flush();
+        check(origins->isChecked(),"Section Origin button did not arm the command");
+        click_tree(box.id);
+        check(std::ranges::any_of(view->mesh().points,[&](const auto& point){return point.reference.owner_id==box.container_origin.id;}),
+            "Section Origin button did not expose the selected container origin");
+        origins->click();flush();click_tree(origin_reference.owner_id);
+        check(dialog()->values().placement.reference_valid&&std::ranges::count_if(dialog()->values().placement.references,[](const auto& ref){return !ref.orientation_only;})==3,
+            "Clicking the whole document Origin did not fill Section placement planes");
+        for(const auto& reference:dialog()->values().placement.references)
+            check(reference.owner_id==origin_reference.owner_id && reference.semantic_key.starts_with("origin:plane:"),
+                "Section stored an incorrect document Origin reference");
         dialog()->buttons()->button(QDialogButtonBox::Cancel)->click();flush();create->trigger();flush();
         dialog()->findChild<QDoubleSpinBox*>("sweepTranslation0")->setValue(7);dialog()->findChild<QComboBox*>("sectionSketchPlane")->setCurrentIndex(1);
         check(std::abs(dialog()->values().plane_origin.x-7)<1e-7&&std::abs(dialog()->values().plane_y.z+1)<1e-7,"Section placement or own XZ plane was ignored");
@@ -91,6 +120,15 @@ int verify_sections(QApplication& application,AssemblyWorkspaceWindow& window,co
             }});tree->customContextMenuRequested(tree->visualItemRect(row).center());flush();check(protected_ok,"Section row exposes an invalid create, delete, or edit action");return chosen;
         };
         check(menu_action(group->child(0),QObject::tr("Aktivní"),true),"Normal cannot be activated");check(view->mesh().triangles.size()==cache.back().mesh.triangles.size(),"Normal did not restore the complete body");
+        group=tree->topLevelItem(0)->child(1);
+        window.show_tree_item_properties(group->child(1));flush();
+        check(dialog()&&!dialog()->values().show_cut&&view->mesh().triangles.size()==cache.back().mesh.triangles.size(),
+            "Editing an inactive Section clipped the solid");
+        dialog()->findChild<QCheckBox*>("sectionShowPlane")->setChecked(true);flush();
+        check(view->mesh().triangles.size()==cache.back().mesh.triangles.size()&&
+            std::ranges::any_of(view->mesh().edges,[](const auto& edge){return edge.color=="#00C000"&&!edge.reference.valid();}),
+            "Section-plane preview did not show its hatch over the complete solid");
+        dialog()->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
         group=tree->topLevelItem(0)->child(1);menu_action(group,{},true);check(menu_action(group->child(1),QObject::tr("Aktivní")),"A-A cannot be activated");
         group=tree->topLevelItem(0)->child(1);
         window.show_tree_item_properties(group->child(1));flush();check(dialog()!=nullptr,"Cannot edit saved Section");dialog()->findChild<QDoubleSpinBox*>("sweepRotation2")->setValue(25);dialog()->findChild<QCheckBox*>("sectionShowCut")->setChecked(false);dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();save->trigger();flush();stored=document::PartDocument::load(path);

@@ -38,6 +38,9 @@ class ReferenceCellItem;
 // preview) and, for Plane-kind containers, enables the orientation table.
 class ContainerPlacementSection : public QObject {
 public:
+    using ReferenceLabelResolver = std::function<std::optional<QString>(
+        const zima::document::ConstructionReference&)>;
+    void set_reference_label_resolver(ReferenceLabelResolver resolver);
     using ReferenceRequestCallback = std::function<void(std::size_t)>;
     using ChangedCallback = std::function<void()>;
     using HighlightsChangedCallback = std::function<void()>;
@@ -190,6 +193,7 @@ public:
     bool set_reference_offset(std::size_t populated_index, double value);
 
 private:
+    ReferenceLabelResolver reference_label_resolver_;
     std::set<std::string> value_locks_;
     std::array<bool,3> empty_reference_locks_{};
     QWidget* parent_widget_;

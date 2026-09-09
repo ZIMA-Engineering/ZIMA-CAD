@@ -199,3 +199,24 @@ ověření neinterpretovalo povolený pohyb jako změnu lokální reference.
 
 Číselná pole a rozměry ve View používají [společné zámky hodnot](NUMERIC_VALUE_LOCKS.md),
 včetně jednorázového převzetí současné hodnoty při zadávání reference.
+
+## Orientované úhly a otevření zdroje (2026-09-09)
+
+Úhel plochy přijímá −180° až +180°. Znaménko se určuje v orientovaném rámci
+cílových referencí: přednost má osa nebo rovina dalších vazeb komponenty,
+jinak rámec cílového počátku. Flip obrací cílovou normálu; číselné zadání,
+měření a tažení kóty používají stejnou orientaci. Nenulová úhlová kóta se
+zobrazuje při ustavování i při opětovném otevření vlastností, také pro vazbu
+k vlastnímu počátku sestavy. V 0° a ±180° jsou normály rovnoběžné a počet
+rotačních stupňů volnosti tomu odpovídá.
+
+Kontextové menu komponenty ve stromu i ve View nabízí **Otevřít**.
+Zdrojový Part nebo podsestava se zobrazí na vlastní kartě; již otevřený
+dokument se použije v jeho aktuálním stavu bez vytvoření druhé kopie.
+**Aktivní** nadále slouží k editaci komponenty v kontextu horní sestavy.
+Regenerace je dostupná nad View, nikoli duplicitně pod Rotací v pravém panelu.
+
+Vlastní skica sestavového Vytažení a Rotace přežije návrat do vlastností,
+opětovný vstup do Skicáře a uložení. Při editaci uložené operace je nad jejím
+vstupním modelem viditelná aktivní skica. OK potvrdí celý kontejner; Zrušit
+obnoví původní stav.

@@ -460,7 +460,7 @@ using Vec3 = zima::kernel::Vec3;
 struct PlacementPose { Vec3 position; RotationMatrix rotation; };
 struct PlacementEquation {
     MateKind kind;
-    Vec3 point, direction, target_point, target_direction;
+    Vec3 point, direction, target_point, target_direction, angle_axis;
     double value{};
 };
 struct PlacementSystem { std::vector<PlacementEquation> constraints; double scale{1.0}; };
@@ -471,6 +471,59 @@ Vec3 unrotate(const RotationMatrix& r,Vec3 v) {
     return {r.value[0][0]*v.x+r.value[1][0]*v.y+r.value[2][0]*v.z,
         r.value[0][1]*v.x+r.value[1][1]*v.y+r.value[2][1]*v.z,
         r.value[0][2]*v.x+r.value[1][2]*v.y+r.value[2][2]*v.z};
+}
+using ReferenceSources = std::initializer_list<const zima::kernel::ViewerReferenceGeometry*>;
+std::optional<Vec3> reference_direction(const MateReference& reference, ReferenceSources sources) {
+    const auto matches = [&](const auto& key) { return key.owner_id == reference.owner_id &&
+        key.semantic_key == reference.semantic_key && key.instance_path == reference.instance_path.encoded(); };
+    for (const auto* geometry : sources) {
+        if (reference.kind == MateReferenceKind::Axis) {
+            for (const auto& axis : geometry->axes) if (matches(axis.reference)) return axis.direction;
+        } else if (reference.kind == MateReferenceKind::Face) {
+            for (std::size_t i=0;i<geometry->triangle_references.size();++i) if(matches(geometry->triangle_references[i])) {
+                const auto a=geometry->vertices[geometry->triangles[i*3]],b=geometry->vertices[geometry->triangles[i*3+1]],c=geometry->vertices[geometry->triangles[i*3+2]];
+                const auto normal=cross(subtract(b,a),subtract(c,a));
+                if(length(normal)>1e-12)return scaled(normal,1/length(normal));
+            }
+        }
+    }
+    return {};
+}
+Vec3 angular_orientation_axis(const AssemblyDocument& document,const PartOccurrence* component,
+        const ComponentPlacementReference& row,Vec3 normal,ReferenceSources sources) {
+    const auto transverse=[&](Vec3 direction)->std::optional<Vec3> {
+        const auto projected=subtract(direction,scaled(normal,dot(normal,direction)));
+        if(length(projected)>1e-8)return scaled(projected,1/length(projected));
+        return {};
+    };
+    // The existing hinge axis, then its seating plane, define front/top.
+    // These are directed persisted references, independent of the camera and
+    // the sign/last solved pose of the moving component.
+    if(component)for(const auto kind:{MateKind::AxisCoincident,MateKind::PlaneCoincident})
+        for(const auto& other:component->placement_references)if(other.mate_type==kind)
+            if(const auto direction=reference_direction(other.target_reference,sources))
+                if(const auto axis=transverse(*direction))return *axis;
+    std::string source_id=document.document_id;
+    if(!row.target_reference.instance_path.occurrence_ids.empty()) {
+        const auto* target=document.find_occurrence(row.target_reference.instance_path.occurrence_ids.front());
+        if(target)source_id=target->source_document_id;
+    }
+    // With no second orienting reference, use the target's own origin frame.
+    // Prefer an explicitly referenced Body/container origin when available.
+    for(const auto& owner:{row.target_reference.owner_id,source_id+":origin"})
+        for(const auto* key:{"origin:axis:x","origin:axis:y","origin:axis:z"}) {
+            const MateReference reference{MateReferenceKind::Axis,row.target_reference.instance_path,owner,key};
+            if(const auto direction=reference_direction(reference,sources))
+                if(const auto axis=transverse(*direction))return *axis;
+        }
+    for(const auto direction:{Vec3{1,0,0},Vec3{0,1,0},Vec3{0,0,1}})
+        if(const auto axis=transverse(direction))return *axis;
+    throw std::runtime_error("Orientace úhlové reference není platná.");
+}
+double signed_plane_angle(Vec3 first,Vec3 second,Vec3 axis) {
+    const auto perpendicular=cross(first,second);
+    const double angle=std::atan2(length(perpendicular),dot(first,second));
+    return dot(axis,perpendicular)<0 ? -angle : angle;
 }
 PlacementPose placement_pose(const ComponentPlacement& p) { return {{p.x,p.y,p.z},placement_rotation(p)}; }
 PlacementPose step_pose(PlacementPose pose,const Motion& step,double factor,double scale) {
@@ -488,6 +541,7 @@ PlacementPose step_pose(PlacementPose pose,const Motion& step,double factor,doub
 }
 PlacementSystem make_placement_system(const AssemblyDocument& document,const PartOccurrence& component) {
     PlacementSystem system;
+    const auto reference_scene=document.build_scene();
     const auto pose=placement_pose(component.placement);
     for(const auto& row:component.placement_references) {
         PlacementEquation equation;equation.kind=row.mate_type;equation.value=row.offset;
@@ -511,8 +565,10 @@ PlacementSystem make_placement_system(const AssemblyDocument& document,const Par
         equation.point=unrotate(pose.rotation,subtract(moving_point,pose.position));
         equation.direction=unrotate(pose.rotation,moving_direction);
         if(row.mate_type==MateKind::PlaneAngle) {
-            if(row.offset<0 || row.offset>180) throw std::runtime_error("Úhel ploch musí být v rozsahu 0 až 180 stupňů.");
-            equation.value=(row.flip?180-row.offset:row.offset)*std::numbers::pi/180.0;
+            if(row.offset < -180 || row.offset > 180) throw std::runtime_error("Úhel ploch musí být v rozsahu −180 až 180 stupňů.");
+            equation.angle_axis=angular_orientation_axis(document,&component,row,equation.target_direction,{&reference_scene.original_references});
+            if(row.flip)equation.target_direction=scaled(equation.target_direction,-1);
+            equation.value=row.offset*std::numbers::pi/180.0;
         } else if(row.mate_type!=MateKind::PointCoincident) {
             // Flip is an absolute orientation choice, independent of the last
             // preview pose: off aligns directions, on makes them opposite.
@@ -533,10 +589,9 @@ std::vector<double> placement_residuals(const PlacementSystem& system,const Plac
         const auto delta=subtract(add(pose.position,multiply(pose.rotation,equation.point)),equation.target_point);
         if(equation.kind==MateKind::PointCoincident) vector(scaled(delta,1/system.scale));
         else if(equation.kind==MateKind::PlaneAngle) {
-            if(equation.value<1e-10 || std::numbers::pi-equation.value<1e-10)
-                vector(subtract(direction,scaled(equation.target_direction,equation.value<1e-10?1.0:-1.0)));
-            else values.push_back(std::atan2(length(cross(direction,equation.target_direction)),
-                dot(direction,equation.target_direction))-equation.value);
+            if(std::abs(equation.value)<1e-10 || std::numbers::pi-std::abs(equation.value)<1e-10)
+                vector(subtract(direction,scaled(equation.target_direction,std::abs(equation.value)<1e-10?1.0:-1.0)));
+            else values.push_back(std::remainder(signed_plane_angle(equation.target_direction,direction,equation.angle_axis)-equation.value,2*std::numbers::pi));
         } else {
             vector(subtract(direction,equation.target_direction));
             if(equation.kind==MateKind::AxisCoincident)
@@ -909,30 +964,19 @@ double AssemblyDocument::project_linear_drag_value(
 double AssemblyDocument::project_angular_drag_value(
     const zima::kernel::Vec3& center,
     const zima::kernel::Vec3& reference_direction,
+    const zima::kernel::Vec3& plane_normal,
     const zima::kernel::Vec3& ray_origin,
     const zima::kernel::Vec3& ray_direction) {
-    const double reference_length = length(reference_direction);
-    const double ray_length = length(ray_direction);
-    if (reference_length <= 1.0e-12 || ray_length <= 1.0e-12) {
+    if(length(reference_direction)<=1e-12 || length(plane_normal)<=1e-12 || length(ray_direction)<=1e-12)
         throw std::invalid_argument("Assembly angular drag direction is invalid");
-    }
-    const zima::kernel::Vec3 ray{ray_direction.x / ray_length,
-        ray_direction.y / ray_length, ray_direction.z / ray_length};
-    const zima::kernel::Vec3 center_offset{center.x - ray_origin.x,
-        center.y - ray_origin.y, center.z - ray_origin.z};
-    const double parameter = dot(center_offset, ray);
-    const zima::kernel::Vec3 cursor{
-        ray_origin.x + parameter * ray.x - center.x,
-        ray_origin.y + parameter * ray.y - center.y,
-        ray_origin.z + parameter * ray.z - center.z};
-    const double cursor_length = length(cursor);
-    if (cursor_length <= 1.0e-12) {
-        throw std::invalid_argument("Assembly angular drag cursor is undefined");
-    }
-    const double cosine = std::clamp(
-        dot(reference_direction, cursor) /
-            (reference_length * cursor_length), -1.0, 1.0);
-    return std::acos(cosine) * 180.0 / 3.14159265358979323846;
+    const auto normal=scaled(plane_normal,1/length(plane_normal));
+    const double denominator=dot(normal,ray_direction);
+    if(std::abs(denominator)<=1e-12*length(ray_direction))
+        throw std::invalid_argument("Assembly angular drag ray is parallel to its plane");
+    const double parameter=dot(normal,subtract(center,ray_origin))/denominator;
+    const auto cursor=subtract(add(ray_origin,scaled(ray_direction,parameter)),center);
+    if(length(cursor)<=1e-12)throw std::invalid_argument("Assembly angular drag cursor is undefined");
+    return std::atan2(dot(normal,cross(reference_direction,cursor)),dot(reference_direction,cursor))*180/std::numbers::pi;
 }
 
 PlaneResolution AssemblyDocument::resolve_plane(
@@ -1158,6 +1202,14 @@ void AssemblyDocument::calculate_placement_references() {
         components[i].placement = pending.components[i].placement;
 }
 
+zima::kernel::Vec3 AssemblyDocument::placement_reference_angle_axis(const ComponentPlacementReference& reference) const {
+    const auto scene=build_scene();
+    const auto direction=reference_direction(reference.target_reference,{&scene.original_references});
+    if(!direction)throw std::runtime_error("Chybí orientační reference úhlu.");
+    const auto& path=reference.component_reference.instance_path.occurrence_ids;
+    const auto* component=path.empty()?nullptr:find_occurrence(path.front());
+    return angular_orientation_axis(*this,component,reference,*direction,{&scene.original_references});
+}
 std::optional<double> AssemblyDocument::measure_placement_reference(
     const ComponentPlacementReference& reference) const {
     if(reference.mate_type!=MateKind::PlaneCoincident && reference.mate_type!=MateKind::PlaneAngle)return {};
@@ -1165,9 +1217,8 @@ std::optional<double> AssemblyDocument::measure_placement_reference(
     const auto target=resolve_plane(reference.target_reference);
     if(source.status!=MateStatus::Valid || target.status!=MateStatus::Valid)return {};
     if(reference.mate_type==MateKind::PlaneAngle) {
-        const auto a=source.plane.normal,b=target.plane.normal;
-        const double angle=std::acos(std::clamp(a.x*b.x+a.y*b.y+a.z*b.z,-1.0,1.0))*180.0/std::numbers::pi;
-        return reference.flip?180.0-angle:angle;
+        const auto a=source.plane.normal,b=scaled(target.plane.normal,reference.flip?-1.0:1.0);
+        return signed_plane_angle(b,a,placement_reference_angle_axis(reference))*180.0/std::numbers::pi;
     }
     const auto& path=reference.component_reference.instance_path.occurrence_ids;
     const auto* component=path.empty()?nullptr:find_occurrence(path.front());
@@ -1355,6 +1406,7 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
                 dimension.witness_second = transform_point(dimension.witness_second, component.placement);
                 dimension.line_first = transform_point(dimension.line_first, component.placement);
                 dimension.line_second = transform_point(dimension.line_second, component.placement);
+                dimension.plane_normal = transform_direction(dimension.plane_normal, component.placement);
                 scene.dimensions.push_back(std::move(dimension));
             }
             auto& target_references = scene.original_references;
@@ -1410,10 +1462,14 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
             append_component_mesh(origin.origin_viewer_mesh());
         }
     }
+    // A mate can reference the owning Assembly's datums, not just components.
+    auto datums = origin_viewer_mesh(zima::document::viewer_mesh_bounds_diagonal(scene));
+    append_viewer_mesh(datums, construction_viewer_mesh());
     const auto find_plane = [&](const MateReference& reference)
         -> std::optional<ResolvedPlane> {
         const auto path = reference.instance_path.encoded();
-        const auto& geometry = scene.original_references;
+        for (const auto* source : {&scene.original_references, &datums.original_references}) {
+        const auto& geometry = *source;
         for (std::size_t triangle = 0;
              triangle < geometry.triangle_references.size(); ++triangle) {
             const auto& candidate = geometry.triangle_references[triangle];
@@ -1430,6 +1486,7 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
             normal = {normal.x / magnitude, normal.y / magnitude,
                       normal.z / magnitude};
             return ResolvedPlane{a, normal};
+        }
         }
         return std::nullopt;
     };
@@ -1483,10 +1540,8 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
                 if (!moving || !target) continue;
                 dimension.witness_first = target->point;
                 dimension.witness_second = target->point;
-                dimension.line_first = {
-                    target->point.x + target->normal.x * 30.0,
-                    target->point.y + target->normal.y * 30.0,
-                    target->point.z + target->normal.z * 30.0};
+                const auto ray=scaled(target->normal,row.flip?-1.0:1.0);
+                dimension.line_first = add(target->point,scaled(ray,30));
                 dimension.line_second = {
                     target->point.x + moving->normal.x * 30.0,
                     target->point.y + moving->normal.y * 30.0,
@@ -1496,7 +1551,11 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
                 dimension.unit_suffix = " °";
                 dimension.kind = zima::kernel::ViewerDimensionKind::Angular;
                 dimension.sweep_degrees = row.offset;
-                dimension.plane_normal = cross(target->normal, moving->normal);
+                const auto orientation=angular_orientation_axis(*this,&component,row,target->normal,{&scene.original_references,&datums.original_references});
+                auto normal=cross(ray,moving->normal);
+                if(length(normal)<1e-10)normal=orientation;
+                else if(dot(normal,orientation)<0)normal=scaled(normal,-1);
+                dimension.plane_normal=normal;
             } else {
                 continue;
             }
@@ -1536,9 +1595,7 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
         scene.original_references.triangles.size() / 3) {
         throw std::runtime_error("Assembly reference triangle data are not aligned");
     }
-    zima::kernel::ViewerMesh result = origin_viewer_mesh(
-        zima::document::viewer_mesh_bounds_diagonal(scene));
-    append_viewer_mesh(result, construction_viewer_mesh());
+    zima::kernel::ViewerMesh result = std::move(datums);
     append_viewer_mesh(result, scene);
     return result;
 }

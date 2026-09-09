@@ -8304,11 +8304,30 @@ SolveResult Sketch::solve_impl(
         return result;
     };
     const auto directional_group_anchored = [&](
-            const std::set<std::string>& group) {
+            const std::set<std::string>& group, DimensionKind kind) {
         if (std::any_of(group.begin(), group.end(), [&](const auto& point_id) {
                 const auto* point = find_point(point_id);
-                return point == nullptr || point_support_priority(*point) > 0;
+                return point == nullptr || immutable(*point) ||
+                    std::ranges::any_of(constraints, [&](const auto& support) {
+                        return !support.suppressed && support.first_point_id == point_id &&
+                            (support.kind == ConstraintKind::PointReference ||
+                             support.kind == ConstraintKind::PointOnCircle ||
+                             support.kind == ConstraintKind::Tangent);
+                    });
             })) return true;
+        // A support is not a fixed point: an X-axis slider is free in X.
+        // Only a line with no component in the requested direction anchors
+        // that coordinate; retain the existing priority of circular contacts.
+        for (const auto& constraint : constraints) {
+            if (constraint.suppressed || constraint.kind != ConstraintKind::PointOnLine ||
+                !group.contains(constraint.first_point_id)) continue;
+            const auto axis = sketch_axis_line(*this, constraint.geometry_id);
+            const auto line = axis ? axis : segment_or_external_line(*this, constraint.geometry_id);
+            if (!line) continue;
+            const auto direction = line->second;
+            const double component = kind == DimensionKind::DistanceX ? direction[0] : direction[1];
+            if (std::abs(component) <= 1e-12 * std::hypot(direction[0], direction[1])) return true;
+        }
         return std::any_of(constraints.begin(), constraints.end(),
             [&](const auto& constraint) {
                 if (constraint.suppressed ||
@@ -8343,9 +8362,9 @@ SolveResult Sketch::solve_impl(
                     return second_group.contains(point_id);
                 })) return false;
         const bool first_anchored = first_external ||
-            directional_group_anchored(first_group);
+            directional_group_anchored(first_group, kind);
         const bool second_anchored = second_external ||
-            directional_group_anchored(second_group);
+            directional_group_anchored(second_group, kind);
         if (first_anchored && second_anchored) return false;
         const double first_shift = second_anchored ? -correction
             : first_anchored ? 0.0 : -correction * 0.5;

@@ -2867,6 +2867,80 @@ int verify_standalone_trim_preview(QApplication& application, const std::filesys
     std::cout << "Standalone trim preview contracts passed\n";return 0;
 }
 
+int verify_assembly_owned_profiles(QApplication& application,const std::filesystem::path& directory) {
+    using namespace zima;
+    const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+    kernel::OcctKernel kernel;auto part=document::PartDocument::create_default();
+    auto box=document::PartDocument::create_box_container();box.box={100,100,100};part.history={box};
+    const auto calculated=kernel.evaluate_history(part.kernel_operations());const auto part_path=directory/"owned-cut-source.prtz";part.save(part_path,calculated);
+    for(const bool revolve:{false,true}) {
+        auto assembly=assembly::AssemblyDocument::create_default();
+        assembly.components.push_back(assembly::AssemblyDocument::create_part_occurrence("Cut target",part.document_id,part_path,calculated.back()));
+        const auto path=directory/(revolve?"owned-revolution.asmz":"owned-extrusion.asmz");assembly.save(path);
+        app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1200,900);window.show();
+        if(!verify(window.open_document_path(QString::fromStdString(path.string())),"Cannot open owned cut assembly"))return 1;flush();
+        auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
+        const auto dialog=[&]()->app::PrimitivePropertiesDialog* {
+            for(auto* child:window.findChildren<QDialog*>())if(auto* d=dynamic_cast<app::PrimitivePropertiesDialog*>(child);d&&d->isVisible())return d;
+            return nullptr;
+        };
+        const auto click=[&](QPointF at) {
+            const QPointF global(view->mapToGlobal(at.toPoint()));
+            QMouseEvent hover(QEvent::MouseMove,at,global,Qt::NoButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&hover);
+            for(auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+                QMouseEvent event(type,at,global,Qt::LeftButton,type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&event);
+            }flush();
+        };
+        window.findChild<QAction*>(revolve?"revolutionAction":"extrusionAction")->trigger();flush();
+        if(!verify(dialog()!=nullptr,"New Assembly profile has no Properties"))return 1;
+        dialog()->findChild<QPushButton*>("primitiveOwnSketchButton")->click();flush();
+        {QEventLoop animation;QTimer::singleShot(400,&animation,&QEventLoop::quit);animation.exec();}flush();
+        const auto sketch_owner=[&] {
+            for(const auto& axis:view->mesh().axes)if(axis.reference.semantic_key=="sketch_axis:x")return axis.reference.owner_id;
+            return std::string{};
+        }();
+        if(!verify(!sketch_owner.empty(),"Assembly own sketch did not open"))return 1;
+        if(revolve) {
+            window.findChild<QAction*>("sketchConstructionAction")->trigger();flush();
+            click({view->width()*.5,view->height()*.35});click({view->width()*.5,view->height()*.65});
+        }
+        window.findChild<QAction*>("sketchCircleAction")->trigger();flush();
+        click({view->width()*.6,view->height()*.5});click({view->width()*.63,view->height()*.5});
+        const auto has_profile=[&]{return std::ranges::any_of(view->mesh().edges,[&](const auto& edge){return edge.reference.owner_id==sketch_owner&&edge.reference.semantic_key.starts_with("circle:");});};
+        if(!verify(has_profile(),"Drawing a circle did not create Assembly profile geometry"))return 1;
+        for(int pass=0;pass<2;++pass) {
+            window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+            if(!verify(dialog()!=nullptr,"Returning from Assembly Sketcher did not reopen Properties"))return 1;
+            if(pass==0) {
+                dialog()->findChild<QPushButton*>("primitiveOwnSketchButton")->click();flush();
+                if(!verify(has_profile(),"Reentering Assembly Sketcher lost the pending profile"))return 1;
+            }
+        }
+        dialog()->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+        if(!verify(dialog()==nullptr,"Assembly profile failed to commit"))return 1;
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        const auto saved=assembly::AssemblyDocument::load(path);
+        if(!verify(saved.cuts.size()==1&&saved.sketches.size()==1&&saved.sketches.front().circles.size()==1&&saved.sketches.front().id==sketch_owner,
+            "Saved Assembly profile is missing or has changed identity"))return 1;
+        auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* item{};
+        {for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole+3)=="assembly-cut"){item=*i;break;}}
+        if(!verify(item!=nullptr,"Saved Assembly cut is missing from Tree"))return 1;
+        window.show_tree_item_properties(item);flush();
+        if(!verify(dialog()!=nullptr,"Editing committed Assembly cut did not open Properties"))return 1;
+        dialog()->findChild<QPushButton*>("primitiveOwnSketchButton")->click();flush();
+        if(!verify(has_profile(),"Editing committed Assembly cut lost its sketch"))return 1;
+        window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+        if(!verify(dialog()!=nullptr,"Editing committed Assembly sketch did not return to Properties"))return 1;
+        dialog()->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+        const auto occurrence=assembly::InstancePath{}.child(saved.components.front().occurrence_id).encoded();
+        if(!verify(window.open_component_source(occurrence),"Open component source did not open its Part tab"))return 1;
+        flush();
+        if(!verify(window.findChild<QTreeWidget*>("documentTree")->topLevelItem(0)->data(0,Qt::UserRole).toString().toStdString()==part.document_id,
+            "Open component source did not display the source Part"))return 1;
+    }
+    std::cout<<"Assembly owned Extrusion/Revolution profiles passed\n";return 0;
+}
+
 int verify_property_sketch_dimensions(QApplication& application, const std::filesystem::path& directory) {
     using namespace zima::document;
     for (const auto kind : {FeatureKind::Sketch, FeatureKind::Extrusion, FeatureKind::Revolution}) {
@@ -2938,7 +3012,16 @@ int verify_property_sketch_dimensions(QApplication& application, const std::file
             auto candidates=view->selection_candidates_at(QPointF(*label));
             if(!verify(std::ranges::any_of(candidates,[&](const auto& candidate){return candidate.kind==dimension.kind && candidate.owner_id==dimension.owner_id && candidate.semantic_key==dimension.semantic_key;}),
                 "Properties does not offer its Sketch dimension through the common picker"))return false;
-            window.edit_dimension_inline(dimension);flush();
+            const QPointF at(*label),global(view->mapToGlobal(*label));
+            QMouseEvent hover(QEvent::MouseMove,at,global,Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+            QApplication::sendEvent(view,&hover);
+            for(const auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease,
+                    QEvent::MouseButtonDblClick,QEvent::MouseButtonRelease}) {
+                QMouseEvent event(type,at,global,Qt::LeftButton,
+                    type==QEvent::MouseButtonRelease?Qt::NoButton:Qt::LeftButton,Qt::NoModifier);
+                QApplication::sendEvent(view,&event);
+            }
+            flush();
             auto* field=view->findChild<QLineEdit*>("inlineDimensionValueEdit");
             if(!verify(field,"Properties Sketch dimension did not open editor"))return false;
             field->setText(QString::number(value));QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);
@@ -2978,6 +3061,7 @@ int verify_property_sketch_dimensions(QApplication& application, const std::file
                 "Property Sketch dimension violated OK/Cancel persistence"))return 1;
         }
     }
+    if(verify_assembly_owned_profiles(application,directory)!=0)return 1;
     std::cout << "Property Sketch dimension transactions passed\n";
     return 0;
 }
@@ -3164,7 +3248,7 @@ bool verify_plane_angle_dialog(QApplication& application,zima::app::ComponentPro
     const auto flush=[&] {application.processEvents();};
     const auto rows=dialog->placement_references();
     auto* table=dialog->findChild<QTableWidget*>("componentPlacementTable");
-    for(double angle:{15.0,45.0,90.0,135.0,180.0,0.0}) {
+    for(double angle:{-180.0,-135.0,-90.0,-45.0,-15.0,15.0,45.0,90.0,135.0,180.0,0.0}) {
         qobject_cast<QDoubleSpinBox*>(table->cellWidget(2,4))->setValue(angle);flush();
         if(!verify(dialog->findChild<QLabel*>("componentDegreesOfFreedom")->text().endsWith("0") &&
             verify_mates_in_view(view->mesh(),dialog->placement_references()),"Plane angle preview broke coaxiality, seating or the requested angle"))return false;
@@ -3503,7 +3587,17 @@ int verify_component_references(QApplication& application, const std::filesystem
     if(!verify(check_origin_rows(assembly_id,outer,top_id) && check_freedom(0,{false,false,false,false,false,false}),
         "Assembly origin shortcut failed for an inserted subassembly"))return 1;
     dialog()->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
-    std::cout<<"Component origin, axis and freedom UI contracts passed\n";return 0;
+    const auto tab_count=window.findChild<QTabBar*>("documentTabs")->count();
+    if(!verify(window.open_component_source(outer_path),"Cannot open subassembly source tab"))return 1;flush();
+    auto* source_tabs=window.findChild<QTabBar*>("documentTabs");
+    if(!verify(source_tabs->tabData(source_tabs->currentIndex()).toString().toStdString()==assembly_id &&
+            source_tabs->count()==tab_count,
+            "Opening an existing subassembly duplicated its document or displayed a different source"))return 1;
+    if(!verify(window.open_document_path(QString::fromStdString(top_path.string())) &&
+            window.open_component_source(nested_path),"Cannot open the exact nested Part source"))return 1;flush();
+    if(!verify(tree->topLevelItem(0)->data(0,Qt::UserRole).toString().toStdString()==part.document_id,
+            "Opening a nested Part displayed a different source"))return 1;
+    std::cout<<"Component origin, axis, freedom and source opening UI contracts passed\n";return 0;
 }
 
 int verify_drawing_workspace(QApplication& application, zima::app::AssemblyWorkspaceWindow& window,
@@ -7303,7 +7397,7 @@ int verify_startup_contract(
 
     if (verify_history_tree_drag(application,test_directory)!=0) return 1;
 
-    // Lost-reference acknowledgement belongs to successful Properties OK.
+    // Missing references remain marked after OK until a real replacement is supplied.
     {
         auto document=zima::document::PartDocument::create_default();
         auto box=zima::document::PartDocument::create_box_container();
@@ -7340,8 +7434,24 @@ int verify_startup_contract(
             QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
             application.processEvents();
         }
-        if (!verify(find_row() && !find_row()->data(0,zima::app::missing_reference_role).toBool(),
-                "Successful Properties OK did not restore normal Tree background")) return 1;
+        if (!verify(find_row() && find_row()->data(0,zima::app::missing_reference_role).toBool(),
+                "Properties OK concealed an unrepaired reference")) return 1;
+        reference_window.show_tree_item_properties(find_row());application.processEvents();
+        auto* tree=reference_window.findChild<QTreeWidget*>("documentTree");
+        QTreeWidgetItem* origin{};
+        {for(QTreeWidgetItemIterator i(tree);*i;++i)
+            if((*i)->data(0,Qt::UserRole).toString().toStdString()==document.document_id+":origin") {origin=*i;break;}}
+        if(!verify(origin!=nullptr,"Repair fixture has no document Origin"))return 1;
+        tree->clearSelection();tree->setCurrentItem(origin);application.processEvents();
+        zima::app::PrimitivePropertiesDialog* repaired{};
+        for(auto* dialog:reference_window.findChildren<QDialog*>())
+            if(auto* primitive=dynamic_cast<zima::app::PrimitivePropertiesDialog*>(dialog);primitive&&primitive->isVisible())repaired=primitive;
+        if(!verify(repaired&&repaired->pending_value().placement.reference_valid,
+                "Replacing a missing reference with document Origin did not resolve it"))return 1;
+        repaired->buttons()->button(QDialogButtonBox::Ok)->click();
+        QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();
+        if(!verify(find_row()&&!find_row()->data(0,zima::app::missing_reference_role).toBool(),
+                "A genuinely repaired reference retained the red Tree row"))return 1;
         reference_window.close();application.processEvents();
     }
 

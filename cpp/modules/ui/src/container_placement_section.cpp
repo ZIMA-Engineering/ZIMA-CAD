@@ -66,6 +66,7 @@ ContainerPlacementSection::ContainerPlacementSection(
     reference_status_ = new QLabel(parent_widget_);
     reference_status_->setStyleSheet("color:#80AA1A;font-weight:700;");
     reference_status_->setWordWrap(true);
+    reference_status_->setSizePolicy(QSizePolicy::Preferred,QSizePolicy::Maximum);
     layout->addWidget(reference_status_);
 
     auto* placement_heading = new QLabel(tr("Umístění kontejneru"), parent_widget_);
@@ -829,6 +830,12 @@ void ContainerPlacementSection::remove_reference(std::size_t index) {
     if (reference_request_) reference_request_(index);
 }
 
+void ContainerPlacementSection::set_reference_label_resolver(ReferenceLabelResolver resolver) {
+    reference_label_resolver_ = std::move(resolver);
+    refresh_reference_table();
+    refresh_orientation_table();
+}
+
 void ContainerPlacementSection::refresh_reference_table() {
     if (reference_table_ == nullptr) return;
     reference_items_.fill(nullptr);
@@ -856,6 +863,10 @@ void ContainerPlacementSection::refresh_reference_table() {
         const bool populated = index < references_.size() &&
             !(references_[index].owner_id.empty() &&
               references_[index].semantic_key.empty());
+        const auto resolved = populated && reference_label_resolver_
+            ? reference_label_resolver_(references_[index]) : std::optional<QString>{};
+        const bool missing = populated && reference_label_resolver_ && !resolved;
+        if (missing) highlighted_reference_rows_.erase(index);
         reference_table_->insertRow(static_cast<int>(index));
         auto* indicator = zima::ui::build_reference_row_indicator(
             [this, index] { remove_reference(index); });
@@ -894,8 +905,11 @@ void ContainerPlacementSection::refresh_reference_table() {
                     : readable_reference_kind(references_[index].semantic_key)));
             reference->set_checked(true);
             reference->setForeground(QBrush());
+            if (reference_label_resolver_)
+                reference->setText(resolved ? QStringLiteral("%1. %2").arg(index + 1).arg(*resolved) : QString{});
+            reference->set_missing(missing);
             offset->setValue(references_[index].offset);
-            offset->setEnabled(references_[index].supports_offset);
+            offset->setEnabled(!missing && references_[index].supports_offset);
             connect(offset, &QDoubleSpinBox::valueChanged, this,
                 [this, index](double value) {
                     if (index < references_.size()) {
@@ -920,7 +934,7 @@ void ContainerPlacementSection::refresh_reference_table() {
         reference_offset_fields_[index] = offset;
         reference_table_->setCellWidget(static_cast<int>(index), 2, offset);
         auto* inspection = zima::ui::build_reference_inspection_button(
-            populated, highlighted_reference_rows_.contains(index),
+            populated && !missing, highlighted_reference_rows_.contains(index),
             [this, index](bool) { toggle_reference_highlight(index); });
         reference_inspection_buttons_[index] = inspection;
         reference_table_->setCellWidget(static_cast<int>(index), 3,
@@ -976,6 +990,10 @@ void ContainerPlacementSection::refresh_orientation_table() {
     for (std::size_t index = 0; index < 2; ++index) {
         const bool populated = index < orientation_references_.size() &&
             !orientation_references_[index].owner_id.empty();
+        const auto resolved = populated && reference_label_resolver_
+            ? reference_label_resolver_(orientation_references_[index]) : std::optional<QString>{};
+        const bool missing = populated && reference_label_resolver_ && !resolved;
+        if (missing) highlighted_orientation_rows_.erase(index);
         auto* indicator = zima::ui::build_reference_row_indicator(
             populated
                 ? std::function<void()>([this, index] {
@@ -1007,6 +1025,9 @@ void ContainerPlacementSection::refresh_orientation_table() {
         } else {
             reference->set_placeholder_style(palette.color(QPalette::Mid));
         }
+        if (populated && reference_label_resolver_)
+            reference->setText(resolved ? *resolved : QString{});
+        reference->set_missing(missing);
         orientation_items_[index] = reference;
         orientation_table_->setItem(static_cast<int>(index), 1, reference);
         zima::ui::set_reference_row_populated(indicator, populated);
@@ -1048,7 +1069,7 @@ void ContainerPlacementSection::refresh_orientation_table() {
         orientation_table_->setCellWidget(static_cast<int>(index), 3,
             zima::ui::centered_cell_widget(flip_button));
         auto* inspection = zima::ui::build_reference_inspection_button(
-            populated, highlighted_orientation_rows_.contains(index),
+            populated && !missing, highlighted_orientation_rows_.contains(index),
             [this, index](bool) { toggle_orientation_highlight(index); });
         orientation_inspection_buttons_[index] = inspection;
         orientation_table_->setCellWidget(static_cast<int>(index), 4,

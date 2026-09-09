@@ -335,9 +335,10 @@ se zvolené body shodovaly, odebere tři translační stupně volnosti a nepouž
 nesmyslné odsazení ani Flip.
 
 Úhlová vazba dvou původních rovinných ploch používá samostatnou hodnotu
-ve stupních v rozsahu 0–180°. Samostatný typ Úhel os byl odstraněn; osy
+ve stupních v rozsahu −180° až +180°. Samostatný typ Úhel os byl odstraněn; osy
 nabízejí souosost. U ploch obecný úhel odebírá jednu rotační volnost,
-rovnoběžnost v 0°/180° omezuje dvě. Flip požaduje doplňkový úhel.
+rovnoběžnost v 0°/±180° omezuje dvě. Flip obrací cílovou normálu;
+znaménko se měří v orientovaném rámci cílových referencí.
 Řešič splňuje všechny řádky jedné komponenty současně a zachovává ostatní
 geometrická omezení i při změně úhlu od počáteční rovnoběžné polohy.
 
@@ -396,7 +397,7 @@ editovatelnost polí X/Y/Z a RX/RY/RZ.
 Při změně úhlu z rovnoběžných ploch se ověřují směry dovolené ostatními
 vazbami. Přijme se pouze poloha splňující všechny vazby; nesplnitelný krok
 zachová vstupní polohu a dialog zobrazí konflikt. Testy pokrývají souosost
-mimo počátek, dosednutí, úhly 0–180°, Flip, změnu pořadí řádků, opakovaný
+mimo počátek, dosednutí, úhly −180° až +180°, Flip, změnu pořadí řádků, opakovaný
 výpočet, okolí RY = 90° i odmítnutí konfliktu v náhledu a při OK.
 
 Obecný drag a praktické hluboké mechanismové fixture zůstávají cutover bránou,

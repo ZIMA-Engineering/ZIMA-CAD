@@ -2,6 +2,7 @@
 #include "section_properties_dialog.hpp"
 #include "section_source.hpp"
 #include "resource_icon.hpp"
+#include "reference_tree_policy.hpp"
 #include <zima/viewer/mesh_view.hpp>
 #include <QAction>
 #include <QLabel>
@@ -13,26 +14,15 @@
 #include <cmath>
 namespace zima::app {
 namespace {
-using V=zima::kernel::Vec3;
-V add(V a,V b){return {a.x+b.x,a.y+b.y,a.z+b.z};}
-V sub(V a,V b){return {a.x-b.x,a.y-b.y,a.z-b.z};}
-V mul(V a,double s){return {a.x*s,a.y*s,a.z*s};}
 void append(zima::kernel::ViewerReferenceGeometry& a,const zima::kernel::ViewerReferenceGeometry& b){
     const auto base=static_cast<std::uint32_t>(a.vertices.size());a.vertices.insert(a.vertices.end(),b.vertices.begin(),b.vertices.end());for(auto i:b.triangles)a.triangles.push_back(i+base);
     a.triangle_references.insert(a.triangle_references.end(),b.triangle_references.begin(),b.triangle_references.end());a.edges.insert(a.edges.end(),b.edges.begin(),b.edges.end());a.points.insert(a.points.end(),b.points.begin(),b.points.end());a.axes.insert(a.axes.end(),b.axes.begin(),b.axes.end());
 }
 void append(zima::kernel::ViewerMesh& a,const zima::kernel::ViewerMesh& b){
     const auto base=static_cast<std::uint32_t>(a.vertices.size());a.vertices.insert(a.vertices.end(),b.vertices.begin(),b.vertices.end());for(auto i:b.triangles)a.triangles.push_back(i+base);
-    a.triangle_references.insert(a.triangle_references.end(),b.triangle_references.begin(),b.triangle_references.end());a.edges.insert(a.edges.end(),b.edges.begin(),b.edges.end());a.points.insert(a.points.end(),b.points.begin(),b.points.end());a.axes.insert(a.axes.end(),b.axes.begin(),b.axes.end());a.constraint_markers.insert(a.constraint_markers.end(),b.constraint_markers.begin(),b.constraint_markers.end());append(a.original_references,b.original_references);
+    a.triangle_references.insert(a.triangle_references.end(),b.triangle_references.begin(),b.triangle_references.end());a.edges.insert(a.edges.end(),b.edges.begin(),b.edges.end());a.points.insert(a.points.end(),b.points.begin(),b.points.end());a.axes.insert(a.axes.end(),b.axes.begin(),b.axes.end());a.constraint_markers.insert(a.constraint_markers.end(),b.constraint_markers.begin(),b.constraint_markers.end());a.dimensions.insert(a.dimensions.end(),b.dimensions.begin(),b.dimensions.end());append(a.original_references,b.original_references);
 }
-void plane_wire(zima::kernel::ViewerMesh& mesh,const zima::document::SectionDefinition& s){
-    const auto path=zima::document::section_path(s);const auto frames=zima::document::section_frames(s);
-    for(std::size_t i=0;i<frames.size();++i){const auto& f=frames[i];const double length=std::hypot(path[i+1][0]-path[i][0],path[i+1][1]-path[i][1]),depth=std::max(length*.35,1.);
-        const auto end=add(f.origin,mul(f.horizontal,length));zima::kernel::ViewerEdge edge;edge.overlay=true;edge.dash_dot=true;
-        edge.points={sub(f.origin,mul(f.vertical,depth)),sub(end,mul(f.vertical,depth)),add(end,mul(f.vertical,depth)),add(f.origin,mul(f.vertical,depth)),sub(f.origin,mul(f.vertical,depth))};mesh.edges.push_back(edge);
-        edge.dash_dot=false;edge.points={f.origin,end};mesh.edges.push_back(edge);
-    }
-}
+
 }
 void AssemblyWorkspaceWindow::commit_sections(std::vector<zima::document::SectionDefinition> sections){
     const auto id=section_document_id_.empty()?workspace_.displayed_document_id():section_document_id_;
@@ -54,7 +44,7 @@ void AssemblyWorkspaceWindow::show_section_properties(const std::string& id,bool
         }
         section_preview_source_=workspace_.authoritative_viewer_mesh(section_document_id_);section_camera_=viewer_->camera_state();
         primitive_reference_geometry_=section_preview_source_.original_references;
-        if(auto* p=workspace_.open_part(section_document_id_)){const auto& doc=p->session.document();append(primitive_reference_geometry_,doc.origin_viewer_mesh().original_references);append(primitive_reference_geometry_,doc.construction_viewer_mesh().original_references);append(primitive_reference_geometry_,doc.history_origin_reference_geometry_before(value.id));}
+        if(auto* p=workspace_.open_part(section_document_id_)){const auto& doc=p->session.document();append(primitive_reference_geometry_,doc.origin_viewer_mesh().original_references);append(primitive_reference_geometry_,doc.construction_viewer_mesh().original_references);append(primitive_reference_geometry_,doc.history_origin_reference_geometry_before(value.id));append(primitive_reference_geometry_,doc.body_origin_reference_geometry());}
         else{const auto& doc=workspace_.open_assembly(section_document_id_)->session.document();append(primitive_reference_geometry_,doc.origin_viewer_mesh().original_references);append(primitive_reference_geometry_,doc.construction_viewer_mesh().original_references);}
         auto* dialog=new SectionPropertiesDialog(this,value,[this](auto next){
             // Validate the complete chain, including end extensions, before any
@@ -70,7 +60,7 @@ void AssemblyWorkspaceWindow::show_section_properties(const std::string& id,bool
             viewer_->set_selection_contract({workspace_.open_assembly(section_document_id_)?zima::viewer::CandidateKind::Occurrence:zima::viewer::CandidateKind::Container});viewer_->set_candidate_filter({});state_->setText(tr("Vyberte díl nebo těleso ve View; jeho řádek se označí v seznamu."));
         });
         dialog->set_initial_size(QSize(760,1040));section_dialog_=dialog;properties_dialog_=dialog;primitive_reference_dialog_=dialog;primitive_parameter_owner_id_=value.id;properties_dialog_instance_path_.clear();
-        tree_reference_state_.watch(dialog,this,section_document_id_,value.id);bind_local_origin_selection(dialog);
+        bind_local_origin_selection(dialog);
         dialog->request_placement=[this](std::size_t index){section_component_picking_=false;start_primitive_reference_selection(index);};
         dialog->edit_sketch=[this](unsigned){begin_section_sketch();};dialog->changed=[this]{preview_section();};
         connect(dialog,&QDialog::finished,this,[this,dialog]{
@@ -83,6 +73,8 @@ void AssemblyWorkspaceWindow::show_section_properties(const std::string& id,bool
             viewer_->set_camera_state(section_camera_);preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
         });
         viewer_->clear_selection();viewer_->set_selection_contract({});dialog->show();preview_section();
+        if(dialog->first_empty_position_index()<3)
+            start_primitive_reference_selection(dialog->first_empty_position_index(),true);
         // Creation always starts with placement. The separate edit-sketch tree
         // action may enter the sketch directly for an existing section.
         if(draw&&!id.empty())begin_section_sketch();
@@ -114,18 +106,33 @@ bool AssemblyWorkspaceWindow::section_sketch_history(bool redo){
 }
 void AssemblyWorkspaceWindow::preview_section(){
     if(!section_dialog_||!section_dialog_->isVisible()||!active_sketch_id_.empty()||section_component_picking_)return;
-    auto* dialog=section_dialog_.data();dialog->resolve_pending_placement(primitive_reference_geometry_);const auto s=dialog->values();
+    auto* dialog=section_dialog_.data();const bool placement_valid=dialog->resolve_pending_placement(primitive_reference_geometry_);const auto s=dialog->values();
     primitive_translation_dof_=zima::document::point_constraint_remaining_dof(s.placement.references,primitive_reference_geometry_);
     zima::document::PartDocument origin_doc;zima::document::ConstructionObject origin;origin.id=s.id;origin.entity_id=s.sketch.id;origin.container_origin=s.container_origin;origin.kind=zima::document::ConstructionKind::Point;
     origin.origin={s.placement.x,s.placement.y,s.placement.z};origin.rotation={s.placement.rotation_x,s.placement.rotation_y,s.placement.rotation_z};origin.reference_valid=false;origin_doc.constructions.push_back(origin);primitive_origin_preview_mesh_=origin_doc.construction_viewer_mesh(s.id);
     auto mesh=section_preview_source_;QString error;
-    try{mesh=zima::document::section_display_mesh(zima::document::calculate_section(mesh,s),s);plane_wire(mesh,s);const auto f=zima::document::section_frame(s);viewer_->set_operation_direction_indicator(zima::viewer::OperationDirectionIndicator{f.origin,f.normal,{},{},false});}
+    try{
+        if(s.show_cut)mesh=zima::document::section_display_mesh(zima::document::calculate_section(section_preview_source_,s),s);
+        else {
+            for(const auto& active:source_sections(&workspace_,section_document_id_,{}))if(active.id!=s.id&&active.show_cut){mesh=zima::document::section_display_mesh(zima::document::calculate_section(section_preview_source_,active),active);break;}
+        }
+        const auto f=zima::document::section_frame(s);viewer_->set_operation_direction_indicator(zima::viewer::OperationDirectionIndicator{f.origin,f.normal,{},{},false});
+    }
     catch(const std::exception& e){error=QString::fromUtf8(e.what());viewer_->set_operation_direction_indicator({});}
     // Placement candidates always refer to the complete persisted input even
     // when the transient cut hides that surface.
     if(pending_primitive_reference_index_||local_origin_selection_active_)mesh=section_preview_source_;
+    if(s.show_plane&&(!s.show_cut||pending_primitive_reference_index_||local_origin_selection_active_)) {
+        try {append(mesh,zima::document::section_surface_mesh(zima::document::calculate_section(section_preview_source_,s),s));}
+        catch(const std::exception& e){error=QString::fromUtf8(e.what());}
+    }
+    append(mesh,sketch_viewer_mesh(s.sketch));
+    if(const auto* part=workspace_.open_part(section_document_id_)) {
+        append(mesh,active_part_origins(part->session.document()));
+        append(mesh,selected_container_origins(part->session.document()));
+    }else if(const auto* assembly=workspace_.open_assembly(section_document_id_))append(mesh,assembly->session.document().origin_viewer_mesh());
     append(mesh,*primitive_origin_preview_mesh_);viewer_->set_mesh(std::move(mesh),false);viewer_->set_feature_preview_owners({s.sketch.id,s.container_origin.id});std::set<zima::viewer::EdgeKey> highlights;for(const auto& ref:dialog->highlighted_reference_entries()){highlights.insert({ref.owner_id,ref.semantic_key,ref.instance_path});if(ref.semantic_key=="plane")highlights.insert({ref.owner_id,"border",ref.instance_path});}viewer_->set_constraint_reference_highlights({},std::move(highlights));
-    if(!pending_primitive_reference_index_&&!local_origin_selection_active_)set_primitive_properties_dimension_selection();dialog->set_error(error);
+    if(!pending_primitive_reference_index_&&!local_origin_selection_active_)set_primitive_properties_dimension_selection();dialog->set_error(placement_valid?error:tr("Doplňte platné reference umístění řezu."));
 }
 bool AssemblyWorkspaceWindow::section_confirmation(const zima::viewer::ViewerCandidate& candidate){
     if(!section_dialog_||!section_component_picking_||!active_sketch_id_.empty())return false;
@@ -153,11 +160,25 @@ void AssemblyWorkspaceWindow::update_section_ui(){
         return item;
     };
     row(tr("Bez řezu"),{},"document-section-normal",std::ranges::none_of(sections,[](const auto& s){return s.show_cut;}));
-    for(const auto& s:sections){auto* item=row(QString::fromStdString(s.name),s.id,"document-section",s.show_cut);item->setToolTip(0,tr("Aktivní zobrazí model v řezu. Řeznou plochu lze zobrazit ve vlastnostech."));}
+    TreeReferenceIndex references;
+    if (const auto* part=workspace_.open_part(id)) {
+        // An unfinished Part can have history but no calculated body yet.
+        // Tree validation consumes only persisted geometry and must not
+        // require a solid or trigger its calculation.
+        if (!part->session.calculated_boundaries().empty())
+            references.add_geometry(workspace_.authoritative_viewer_mesh(id).original_references);
+        references.add_geometry(part->session.document().body_origin_reference_geometry());
+        references.add_geometry(part->session.document().history_origin_reference_geometry_before({}));
+        references.add_geometry(part->session.document().origin_viewer_mesh().original_references);
+        references.add_geometry(part->session.document().construction_viewer_mesh().original_references);
+    } else {
+        references.add_geometry(workspace_.authoritative_viewer_mesh(id).original_references);
+    }
+    for(const auto& s:sections){auto* item=row(QString::fromStdString(s.name),s.id,"document-section",s.show_cut);tree_reference_state_.apply(item,id,s.id,placement_reference_issue(s.placement,references));}
     // Tree presentation changes must never commit a section or destroy the
     // emitting item inside QTreeWidget::itemChanged.
     if(section_dialog_){preview_section();return;}if(properties_dialog_)return;
-    try{auto mesh=viewer_->mesh();bool changed=false;for(const auto& s:sections)if(s.show_cut){mesh=zima::document::section_display_mesh(zima::document::calculate_section(mesh,s),s);changed=true;break;}for(const auto& s:sections)if(s.show_plane){plane_wire(mesh,s);changed=true;}if(changed)viewer_->set_mesh(std::move(mesh),false);}
+    try{const auto source=viewer_->mesh();auto mesh=source;bool changed=false;for(const auto& s:sections)if(s.show_cut){mesh=zima::document::section_display_mesh(zima::document::calculate_section(source,s),s);changed=true;break;}for(const auto& s:sections)if(s.show_plane&&!s.show_cut){append(mesh,zima::document::section_surface_mesh(zima::document::calculate_section(source,s),s));changed=true;}if(changed)viewer_->set_mesh(std::move(mesh),false);}
     catch(const std::exception& e){state_->setText(QString::fromUtf8(e.what()));}
 }
 bool AssemblyWorkspaceWindow::section_context_menu(QTreeWidgetItem* item,const QPoint& position){

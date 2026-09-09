@@ -76,8 +76,8 @@ public:
             field->setObjectName(field == current_ ? "mateCurrentValue" :
                 field == lower_ ? "mateLowerLimit" : "mateUpperLimit");
             field->setDecimals(zima::ui::numeric_decimal_places(this,3));
-            field->setRange(angular ? -360.0 : -1'000'000'000.0,
-                angular ? 360.0 : 1'000'000'000.0);
+            field->setRange(angular ? -180.0 : -1'000'000'000.0,
+                angular ? 180.0 : 1'000'000'000.0);
             field->setSuffix(angular ? QStringLiteral(" °") : QStringLiteral(" mm"));
         }
         current_->setValue(row.offset);
@@ -171,8 +171,8 @@ ComponentPropertiesDialog::ComponentPropertiesDialog(
     form->addRow(tr("Zdroj"), source);
     const auto placement = [this](double value, bool angular) {
         auto* field = new QDoubleSpinBox(this);
-        field->setRange(angular ? -360.0 : -1'000'000.0,
-                        angular ? 360.0 : 1'000'000.0);
+        field->setRange(angular ? -180.0 : -1'000'000.0,
+                        angular ? 180.0 : 1'000'000.0);
         field->setDecimals(zima::ui::numeric_decimal_places(this,3));
         field->setSingleStep(1.0);
         field->setSuffix(angular ? "°" : " mm");
@@ -480,6 +480,11 @@ void ComponentPropertiesDialog::remove_placement_reference(std::size_t index) {
     notify_preview();
 }
 
+void ComponentPropertiesDialog::set_reference_label_resolver(ReferenceLabelResolver resolver) {
+    reference_label_resolver_ = std::move(resolver);
+    refresh_placement_table();
+}
+
 void ComponentPropertiesDialog::refresh_placement_table() {
     component_items_.fill(nullptr);
     target_items_.fill(nullptr);
@@ -511,8 +516,11 @@ void ComponentPropertiesDialog::refresh_placement_table() {
         if (populated && !row.component_reference.semantic_key.empty()) {
             component_item->set_reference(
                 QString::fromStdString(row.component_reference.semantic_key));
-            component_item->setText(
-                QString::fromStdString(row.component_reference.semantic_key));
+            const auto label = reference_label_resolver_
+                ? reference_label_resolver_(row.component_reference)
+                : std::optional<QString>{tr("Geometrická reference")};
+            component_item->setText(label ? *label : QString{});
+            component_item->set_missing(!label);
             component_item->set_checked(true);
         } else {
             component_item->set_placeholder_style(palette().color(QPalette::Mid));
@@ -524,8 +532,11 @@ void ComponentPropertiesDialog::refresh_placement_table() {
         if (populated && !row.target_reference.semantic_key.empty()) {
             target_item->set_reference(
                 QString::fromStdString(row.target_reference.semantic_key));
-            target_item->setText(
-                QString::fromStdString(row.target_reference.semantic_key));
+            const auto label = reference_label_resolver_
+                ? reference_label_resolver_(row.target_reference)
+                : std::optional<QString>{tr("Geometrická reference")};
+            target_item->setText(label ? *label : QString{});
+            target_item->set_missing(!label);
             target_item->set_checked(true);
         } else {
             target_item->set_placeholder_style(palette().color(QPalette::Mid));
@@ -563,8 +574,8 @@ void ComponentPropertiesDialog::refresh_placement_table() {
                 if (auto* field = offset_fields_[index]) {
                     const QSignalBlocker blocked(field);
                     const bool angular = mate_type_is_angular(next);
-                    field->setRange(angular ? -360.0 : -1'000'000'000.0,
-                        angular ? 360.0 : 1'000'000'000.0);
+                    field->setRange(angular ? -180.0 : -1'000'000'000.0,
+                        angular ? 180.0 : 1'000'000'000.0);
                     field->setSuffix(angular ? QStringLiteral(" °") :
                         QStringLiteral(" mm"));
                     field->setValue(row.offset);
@@ -574,14 +585,17 @@ void ComponentPropertiesDialog::refresh_placement_table() {
 
         auto* offset = new QDoubleSpinBox(placement_table_);
         const bool angular = mate_type_is_angular(row.mate_type);
-        offset->setRange(angular ? -360.0 : -1'000'000'000.0,
-            angular ? 360.0 : 1'000'000'000.0);
+        offset->setRange(angular ? -180.0 : -1'000'000'000.0,
+            angular ? 180.0 : 1'000'000'000.0);
         offset->setDecimals(zima::ui::numeric_decimal_places(this,3));
         offset->setSuffix(angular ? QStringLiteral(" °") : QStringLiteral(" mm"));
         offset->setValue(row.offset);
-        const bool complete=populated && !row.component_reference.owner_id.empty() && !row.target_reference.owner_id.empty();
+        const bool missing=component_item->is_missing()||target_item->is_missing();
+        if(component_item->is_missing())inspected_reference_cells_.erase({index,true});
+        if(target_item->is_missing())inspected_reference_cells_.erase({index,false});
+        const bool complete=populated && !missing && !row.component_reference.owner_id.empty() && !row.target_reference.owner_id.empty();
         const bool coincidence=row.mate_type==zima::assembly::MateKind::AxisCoincident || row.mate_type==zima::assembly::MateKind::PointCoincident;
-        offset->setEnabled(!complete || !coincidence);
+        offset->setEnabled(!missing && (!complete || !coincidence));
         offset->setReadOnly(!complete);
         zima::ui::bind_numeric_value_lock(offset,"placement:reference_offset:"+std::to_string(index),complete?row.offset_locked:capture_reference_value_[index],[this,index,complete](bool locked){if(complete)placement_references_[index].offset_locked=locked;else capture_reference_value_[index]=locked;notify_preview();},complete);
         offset_fields_[index] = offset;
@@ -659,7 +673,7 @@ void ComponentPropertiesDialog::refresh_placement_table() {
             !row.component_reference.owner_id.empty() &&
             !row.component_reference.semantic_key.empty();
         auto* component_inspection = zima::ui::build_reference_inspection_button(
-            component_populated,
+            component_populated && !component_item->is_missing(),
             inspected_reference_cells_.contains({index, true}),
             [this, index](bool) { toggle_reference_highlight(index, true); });
         component_inspection->setToolTip(component_populated
@@ -673,7 +687,7 @@ void ComponentPropertiesDialog::refresh_placement_table() {
             !row.target_reference.owner_id.empty() &&
             !row.target_reference.semantic_key.empty();
         auto* target_inspection = zima::ui::build_reference_inspection_button(
-            target_populated,
+            target_populated && !target_item->is_missing(),
             inspected_reference_cells_.contains({index, false}),
             [this, index](bool) { toggle_reference_highlight(index, false); });
         target_inspection->setToolTip(target_populated
