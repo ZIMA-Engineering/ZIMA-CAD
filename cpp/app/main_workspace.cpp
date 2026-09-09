@@ -538,12 +538,13 @@ int verify_template_commands(QApplication& application,zima::app::AssemblyWorksp
                 auto* value=properties->findChild<QPlainTextEdit*>("sketchTextValue");
                 auto* mode=properties->findChild<QComboBox*>("sketchTextMode");
                 if(!verify(value && value->toPlainText().toStdString()==text.value && mode && !mode->currentData().toBool(),"Old title-block text lost its content or annotation mode"))return 1;
+                if(!verify(properties->findChild<QCheckBox*>("sketchTextFlipped")->isChecked()==!text.flipped,"Template text exposes the coordinate-system flip"))return 1;
                 value->setPlainText(QString::fromStdString(text.value+" TEST"));
                 window.grab().save(QString::fromStdString((directory/"old-text-properties.png").string()));
                 properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();save->trigger();flush();
                 const auto stored=drawing::load_template_sketch(directory/"ZE-RAZITKO.tblz",prepare);
                 const auto changed=std::ranges::find(stored.texts,text.id,&sketcher::SketchText::id);
-                if(!verify(changed!=stored.texts.end() && changed->value==text.value+" TEST","Old text edit was not saved as semantic text"))return 1;
+                if(!verify(changed!=stored.texts.end() && changed->value==text.value+" TEST" && changed->flipped==text.flipped,"Old text edit was not saved as semantic text"))return 1;
                 edited_old_text=true;break;
             }
             if(edited_old_text)break;
@@ -743,9 +744,15 @@ int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspac
     if(!verify(dialog->pending.sweep2d.path_plane&&dialog->pending.sweep2d.path_plane->owner_id==dialog->pending.container_origin.id,
         "Own Origin plane click did not persist the path reference"))return 1;
     auto guide=zima::sketcher::Sketch::from_serialized(dialog->pending.sweep2d.path_sketch);
-    static_cast<void>(guide.add_segment(0,0,0,10));dialog->set_sketch(0,guide);
+
+    const auto guide_segment=guide.add_segment(0,0,0,10);
+    static_cast<void>(guide.add_point_reference_constraint(guide.segments.front().first_point_id,"sketch_origin"));
+    auto guide_dimension=guide.create_segment_dimension(guide_segment,zima::sketcher::DimensionKind::Distance);guide_dimension.locked=true;guide.apply_dimension(guide_dimension);dialog->set_sketch(0,guide);
     auto section=zima::sketcher::Sketch::from_serialized(dialog->pending.sweep2d.sketch_data(1));
-    static_cast<void>(section.add_circle(0,0,2));dialog->set_sketch(1,section);
+    const auto profile_circle=section.add_circle(0,0,2);section.apply_dimension(section.create_circle_radius_dimension(profile_circle));dialog->set_sketch(1,section);
+    const auto has_dimension=[&](const auto& sketch){return std::ranges::any_of(placement_view->mesh().dimensions,[&](const auto& d){return d.reference.owner_id==sketch.id&&d.reference.semantic_key.starts_with("dimension:");});};
+
+    if(!verify(has_dimension(guide)&&has_dimension(section),"Properties must show both path and profile dimensions"))return 1;
     auto* finish=window.findChild<QAction*>("finishSketchAction");
     auto* profiles=dialog->findChild<QTableWidget*>("sweep2dProfiles");
     if(!verify(profiles&&profiles->rowCount()==2,"Path endpoints did not offer profile sketches"))return 1;
@@ -756,9 +763,22 @@ int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspac
     static_cast<void>(last_section.add_circle(0,0,3));dialog->set_sketch(2,last_section);
 
     for(unsigned stage=0;stage<3;++stage){
-        dialog->findChild<QPushButton*>(stage==0?"sweep2dSketch0":stage==1?"sweep2dStationSketch0":"sweep2dStationSketch1")->click();application.processEvents();
+        auto* sketch_button=dialog->findChild<QPushButton*>(stage==0?"sweep2dSketch0":stage==1?"sweep2dStationSketch0":"sweep2dStationSketch1");
+        if(!verify(sketch_button,"Dimension edit removed a path station"))return 1;
+        sketch_button->click();application.processEvents();
         if(!verify(!dialog->isVisible()&&finish&&finish->isEnabled(),"2D Sweep owned Sketch did not enter Sketcher"))return 1;
         const auto frame=zima::sketcher::Sketch::from_serialized(dialog->pending.sweep2d.sketch_data(stage));
+        if(!frame.dimensions.empty()){
+            zima::viewer::ViewerCandidate dimension;dimension.kind=zima::viewer::CandidateKind::Dimension;dimension.owner_id=frame.id;dimension.semantic_key="dimension:"+frame.dimensions.front().id;
+
+            window.edit_dimension_inline(dimension);application.processEvents();
+            auto* field=placement_view->findChild<QLineEdit*>("inlineDimensionValueEdit");
+            if(!verify(field,"Embedded Sketch dimension did not open its inline editor"))return 1;
+            field->setText(QString::number(frame.dimensions.front().value+.25));QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(field,&enter);application.processEvents();
+            if(!verify(placement_view->candidate_dimension_value(dimension)&&std::abs(*placement_view->candidate_dimension_value(dimension)-frame.dimensions.front().value-.25)<1e-6,"Inline edit did not change active profile/path dimension"))return 1;
+            if(!verify(zima::document::PartDocument::load(path).history.empty(),"Active draft dimension prematurely committed its feature"))return 1;
+        }
+
         QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();
         const auto camera_frame=placement_view->camera_state();
         const auto direction=QQuaternion(camera_frame[0],camera_frame[1],camera_frame[2],camera_frame[3]).inverted().rotatedVector(QVector3D(0,0,1));
@@ -767,6 +787,7 @@ int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspac
         if(!verify(cosine>1-1e-6,"Sweep Sketch entry did not align camera to its resolved plane"))return 1;
         finish->trigger();application.processEvents();if(!verify(dialog->isVisible(),"Sketch did not return to pending 2D Sweep"))return 1;
     }
+
     dialog->buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
     if(!verify(!dialog->isVisible(),"2D Sweep OK did not commit"))return 1;
     auto* save=window.findChild<QAction*>("saveDocumentAction");save->trigger();application.processEvents();
@@ -916,7 +937,8 @@ int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspac
                    "Polyline arc and line do not share their contact point"))return 1;
     }
     if(!verify(std::ranges::count_if(chain.constraints,[](const auto& c){return c.kind==zima::sketcher::ConstraintKind::Tangent;})==2,"Polyline arc-to-line transition lost tangency"))return 1;
-    for(bool points:{false,true}){
+
+    for(int reference_kind:{0,1,2}){
         auto dimension_sketch=chain;
         const auto segment=dimension_sketch.segments.front().id;
         dialog->set_sketch(0,dimension_sketch);
@@ -935,7 +957,9 @@ int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspac
             }
             return false;
         };
-        if(points){
+        if(reference_kind==2){
+            if(!verify(select("external_point:sketch_origin")&&select("point:"+dimension_sketch.segments.front().second_point_id),"Cannot dimension a path endpoint from the actual Sketch origin"))return 1;
+        }else if(reference_kind==1){
             if(!verify(select("point:"+dimension_sketch.segments.front().first_point_id)&&select("point:"+dimension_sketch.segments.front().second_point_id),"Cannot select axis-aligned segment endpoints"))return 1;
         }else if(!verify(select("segment:"+segment),"Cannot select axis-aligned segment"))return 1;
         mouse(QPointF(45,45),Qt::LeftButton);
@@ -2793,6 +2817,171 @@ int verify_body_sketch_ui(QApplication& application, const std::filesystem::path
     return 0;
 }
 
+int verify_standalone_trim_preview(QApplication& application, const std::filesystem::path& directory) {
+    using namespace zima::document;
+    auto document=PartDocument::create_default();
+    auto feature=PartDocument::create_sketch_container();
+    auto sketch=zima::sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;
+    static_cast<void>(sketch.add_segment(2,2,20,2));
+    static_cast<void>(sketch.add_segment(2,5,20,5));
+    document.history={feature};document.sketches={sketch};
+    BodyHistoryGraph graph;const auto body_id=graph.create_body("Test body");graph.insert({PartHistoryKind::Feature,feature.id});
+    document.set_body_history(graph);document.resolve_constructions();
+    const auto path=directory/"standalone-trim-preview.prtz";document.save(path);
+    zima::app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));
+    window.resize(1200,900);window.show();
+    const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+    if(!verify(window.open_document_path(QString::fromStdString(path.string())),"Cannot open standalone trim fixture"))return 1;
+    flush();if(!verify(activate_test_body(application,window,body_id),"Cannot activate trim fixture body"))return 1;auto* tree=window.findChild<QTreeWidget*>("documentTree");
+    QTreeWidgetItem* row{};
+    for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==sketch.id && (*i)->data(0,Qt::UserRole+3).toString()=="part-sketch"){row=*i;break;}
+    if(!verify(row,"Standalone trim Sketch row missing"))return 1;
+    window.show_tree_item_properties(row);flush();auto* button=window.findChild<QPushButton*>("sketchOpenButton");
+    if(!verify(button,"Standalone trim fixture has no Sketch button"))return 1;
+    button->click();flush();QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();
+    auto* view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
+    auto* trim=window.findChild<QAction*>("sketchTrimAction");
+    const auto count=[&]{return std::ranges::count_if(view->mesh().edges,[&](const auto& edge){return edge.reference.owner_id==sketch.id && edge.reference.semantic_key.starts_with("trim_piece:");});};
+    const auto cut=[&] {
+        std::optional<QPointF> point;
+        for(int y=15;y<view->height()-15 && !point;y+=3)for(int x=15;x<view->width()-15 && !point;x+=3){
+            auto candidates=view->selection_candidates_at(QPointF(x,y));
+            if(!candidates.empty() && candidates.front().kind==zima::viewer::CandidateKind::SketchTrimPiece && candidates.front().owner_id==sketch.id)point=QPointF(x,y);
+        }
+        if(!verify(point.has_value(),"Standalone rollback does not offer trim pieces"))return false;
+        for(const auto type:{QEvent::MouseMove,QEvent::MouseButtonPress,QEvent::MouseButtonRelease}){
+            QMouseEvent event(type,*point,QPointF(view->mapToGlobal(point->toPoint())),type==QEvent::MouseMove?Qt::NoButton:Qt::LeftButton,type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);
+            QApplication::sendEvent(view,&event);flush();
+        }
+        return true;
+    };
+    trim->trigger();flush();if(!verify(count()==2,"Standalone trim preview has duplicate or missing pieces") || !cut() || !verify(count()==1,"First trim gesture was not immediately visible"))return 1;
+    QKeyEvent escape(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);QApplication::sendEvent(&window,&escape);flush();
+    window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+    if(!verify(PartDocument::load(path).sketches.front().segments.size()==2,"Cancel saved a pending trim"))return 1;
+    trim->trigger();flush();if(!cut())return 1;
+    trim->trigger();flush();if(!verify(count()==1,"Restarting Trim lost or doubled the previous gesture") || !cut() || !verify(count()==0,"Second trim gesture was not immediately visible"))return 1;
+    window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+    window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+    if(!verify(PartDocument::load(path).sketches.front().segments.empty(),"Finishing Sketch missed its pending trim"))return 1;
+    std::cout << "Standalone trim preview contracts passed\n";return 0;
+}
+
+int verify_property_sketch_dimensions(QApplication& application, const std::filesystem::path& directory) {
+    using namespace zima::document;
+    for (const auto kind : {FeatureKind::Sketch, FeatureKind::Extrusion, FeatureKind::Revolution}) {
+        std::cout << "Checking property dimensions for feature " << static_cast<int>(kind) << std::endl;
+        auto document=PartDocument::create_default();
+        auto sketch=zima::sketcher::Sketch::create_default();
+        const auto circle=sketch.add_circle(kind==FeatureKind::Revolution ? 15 : 0,0,2);
+        sketch.apply_dimension(sketch.create_circle_radius_dimension(circle));
+        auto feature=kind==FeatureKind::Sketch ? PartDocument::create_sketch_container() :
+            kind==FeatureKind::Extrusion ? PartDocument::create_extrusion_container(sketch.id) :
+            PartDocument::create_revolution_container(sketch.id);
+        sketch.owner_container_id=feature.id;
+        if(kind==FeatureKind::Revolution) {
+            feature.revolution.axis_segment_id=sketch.add_segment(0,-20,0,20,1e-6,true);
+            sketch.segments.back().centerline=true;
+        }
+        document.history={feature};document.sketches={sketch};
+    BodyHistoryGraph graph;const auto body_id=graph.create_body("Test body");graph.insert({PartHistoryKind::Feature,feature.id});
+    document.set_body_history(graph);document.resolve_constructions();
+        zima::kernel::OcctKernel kernel;
+        const auto calculated=kernel.evaluate_history(document.kernel_operations());
+        const auto path=directory/("properties-sketch-"+std::to_string(static_cast<int>(kind))+".prtz");
+        document.save(path,calculated);
+        zima::app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));
+        window.resize(1200,900);window.show();
+        const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+        if(!verify(window.open_document_path(QString::fromStdString(path.string())),"Cannot open property dimension fixture"))return 1;
+        flush();if(!verify(activate_test_body(application,window,body_id),"Cannot activate dimension fixture body"))return 1;
+        auto* view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
+        auto* tree=window.findChild<QTreeWidget*>("documentTree");
+        const auto open=[&]() -> QDialog* {
+            QTreeWidgetItem* row{};
+            for(QTreeWidgetItemIterator i(tree);*i;++i) {
+                const auto id=(*i)->data(0,Qt::UserRole).toString().toStdString();
+                if(id==(kind==FeatureKind::Sketch?sketch.id:feature.id) &&
+                    (*i)->data(0,Qt::UserRole+3).toString()==(kind==FeatureKind::Sketch?"part-sketch":"part-container")) {
+                    row=*i;break;
+                }
+            }
+            if(!row)return nullptr;
+            window.show_tree_item_properties(row);flush();
+            for(auto* dialog:window.findChildren<QDialog*>())
+                if(dialog->isVisible())return dialog;
+            return nullptr;
+        };
+        zima::viewer::ViewerCandidate dimension;dimension.kind=zima::viewer::CandidateKind::Dimension;
+        dimension.owner_id=sketch.id;dimension.semantic_key="dimension:"+sketch.dimensions.front().id;
+        const auto edit=[&](double value) {
+            const auto locate=[&] {
+                for(std::size_t i=0;i<view->mesh().dimensions.size();++i) {
+                    const auto& ref=view->mesh().dimensions[i].reference;
+                    if(ref.owner_id==dimension.owner_id && ref.semantic_key==dimension.semantic_key) {
+                        dimension.geometry_index=i;return true;
+                    }
+                }
+                return false;
+            };
+            // A short MMB ends an armed placement-reference entry without
+            // confirming the properties. Then exercise the real common picker.
+            const QPointF middle(10,10);
+            for(const auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+                QMouseEvent event(type,middle,QPointF(view->mapToGlobal(middle.toPoint())),Qt::MiddleButton,
+                    type==QEvent::MouseButtonPress?Qt::MiddleButton:Qt::NoButton,Qt::NoModifier);
+                QApplication::sendEvent(view,&event);flush();
+            }
+            if(!verify(locate(),"Owned Sketch dimension absent from Properties mesh"))return false;
+            const auto label=view->candidate_dimension_label_position(dimension);
+            if(!verify(label.has_value(),"Owned Sketch dimension has no pickable label"))return false;
+            auto candidates=view->selection_candidates_at(QPointF(*label));
+            if(!verify(std::ranges::any_of(candidates,[&](const auto& candidate){return candidate.kind==dimension.kind && candidate.owner_id==dimension.owner_id && candidate.semantic_key==dimension.semantic_key;}),
+                "Properties does not offer its Sketch dimension through the common picker"))return false;
+            window.edit_dimension_inline(dimension);flush();
+            auto* field=view->findChild<QLineEdit*>("inlineDimensionValueEdit");
+            if(!verify(field,"Properties Sketch dimension did not open editor"))return false;
+            field->setText(QString::number(value));QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);
+            QApplication::sendEvent(field,&enter);flush();
+            static_cast<void>(locate());
+            const auto shown=view->candidate_dimension_value(dimension);
+            if(!shown || std::abs(*shown-value)>=1e-6) {
+                std::cerr << "Expected dimension " << value << ", shown " << shown.value_or(-999) << std::endl;
+                for(auto* label:window.findChildren<QLabel*>())if(label->isVisible())std::cerr << label->text().toStdString() << std::endl;
+            }
+            return verify(shown && std::abs(*shown-value)<1e-6,
+                "Property dimension edit did not refresh the pending Sketch value");
+        };
+        for(bool accept:{false,true}) {
+            auto* dialog=open();
+            if(!verify(dialog,"Cannot open profile Properties"))return 1;
+            if(!edit(3) || !edit(4))return 1;
+            window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+            if(!verify(std::abs(PartDocument::load(path).sketches.front().circles.front().radius-2)<1e-6,
+                "Inline property dimension committed before OK"))return 1;
+            if(accept && kind!=FeatureKind::Sketch) {
+                auto* button=dialog->findChild<QPushButton*>("primitiveOwnSketchButton");
+                if(!verify(button,"Profile has no Sketch button"))return 1;
+                button->click();flush();
+                if(!edit(5))return 1;
+                window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+                dialog=nullptr;
+                for(auto* current:window.findChildren<QDialog*>())
+                    if(current->isVisible())dialog=current;
+                if(!verify(dialog,"Owned Sketch did not return to its Properties"))return 1;
+                if(!edit(4))return 1;
+            }
+            dialog->findChild<QDialogButtonBox*>()->button(accept?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
+            window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+            const auto result=PartDocument::load(path);
+            if(!verify(std::abs(result.sketches.front().circles.front().radius-(accept?4:2))<1e-6,
+                "Property Sketch dimension violated OK/Cancel persistence"))return 1;
+        }
+    }
+    std::cout << "Property Sketch dimension transactions passed\n";
+    return 0;
+}
+
 int verify_nested_body_sketch_ui(QApplication& application, const std::filesystem::path& directory) {
     using namespace zima::document;
     auto part=PartDocument::create_default();
@@ -3476,6 +3665,10 @@ int verify_startup_contract(
     }
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_BODY_CURVE_REFERENCE_ONLY"))
         return verify_body_curve_references(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_TRIM_ONLY"))
+        return verify_standalone_trim_preview(application, test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PROPERTY_SKETCH_ONLY"))
+        return verify_property_sketch_dimensions(application, test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_NESTED_BODY_ONLY"))
         return verify_nested_body_sketch_ui(application, test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_BODY_SKETCH_ONLY"))
@@ -3508,6 +3701,8 @@ int verify_startup_contract(
     if (verify_body_curve_references(application,test_directory) != 0) return 1;
     if (verify_body_sketch_ui(application, test_directory) != 0) return 1;
     if (verify_nested_body_sketch_ui(application, test_directory) != 0) return 1;
+    if (verify_property_sketch_dimensions(application, test_directory) != 0) return 1;
+    if (verify_standalone_trim_preview(application, test_directory) != 0) return 1;
     if (verify_pending_container_tree(application, test_directory) != 0) return 1;
     if (verify_unresolved_sweep_sketches(application,test_directory) != 0) return 1;
     if (verify_external_circle_selection(application,test_directory) != 0) return 1;

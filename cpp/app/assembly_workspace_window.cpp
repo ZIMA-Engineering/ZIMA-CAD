@@ -1,3 +1,4 @@
+#include <zima/document/feature_sketches.hpp>
 #include "section_properties_dialog.hpp"
 #include <zima/drawing/drawing_template.hpp>
 #include "derived_copy_dialog.hpp"
@@ -8612,8 +8613,10 @@ void AssemblyWorkspaceWindow::set_construction_properties_dimension_selection() 
     viewer_->set_candidate_filter([this](const auto& candidate) {
         return construction_reference_dialog_ != nullptr &&
             candidate.kind == zima::viewer::CandidateKind::Dimension &&
-            candidate.semantic_key.starts_with("parameter:") &&
-            construction_reference_dialog_->owns_reference_owner(candidate.owner_id);
+            ((candidate.semantic_key.starts_with("parameter:") &&
+              construction_reference_dialog_->owns_reference_owner(candidate.owner_id)) ||
+             ((candidate.semantic_key.starts_with("dimension:")||candidate.semantic_key.starts_with("corner_dimension:")) &&
+              std::ranges::any_of(viewer_->mesh().dimensions,[&](const auto& dimension){return dimension.reference.owner_id==candidate.owner_id&&dimension.reference.semantic_key==candidate.semantic_key;})));
     });
 }
 
@@ -8627,15 +8630,19 @@ void AssemblyWorkspaceWindow::set_primitive_properties_dimension_selection() {
         return;
     }
     const auto owner_id = primitive_parameter_owner_id_;
+    std::set<std::pair<std::string,std::string>> sketches;
+    for(const auto& dimension:viewer_->mesh().dimensions)if(dimension.reference.semantic_key.starts_with("dimension:")||dimension.reference.semantic_key.starts_with("corner_dimension:"))
+        sketches.emplace(dimension.reference.owner_id,dimension.reference.semantic_key);
     viewer_->set_selection_contract(
         {zima::viewer::CandidateKind::Dimension});
     viewer_->set_candidate_filter(
-        [owner_id](const zima::viewer::ViewerCandidate& candidate) {
+        [owner_id,sketches](const zima::viewer::ViewerCandidate& candidate) {
             return candidate.kind ==
                     zima::viewer::CandidateKind::Dimension &&
-                candidate.owner_id == owner_id &&
-                (candidate.semantic_key.starts_with("parameter:") ||
-                 candidate.semantic_key.starts_with("measurement:"));
+                ((candidate.owner_id == owner_id &&
+                 (candidate.semantic_key.starts_with("parameter:") ||
+                  candidate.semantic_key.starts_with("measurement:"))) ||
+                 sketches.contains({candidate.owner_id,candidate.semantic_key}));
         });
 }
 
@@ -10344,7 +10351,9 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     if (assembly_cut && feature_kind != zima::document::FeatureKind::Extrusion &&
         feature_kind != zima::document::FeatureKind::Revolution) return;
     std::string source_sketch_id;
-    std::optional<zima::sketcher::Sketch> pending_owned_sketch;
+    if (!property_owned_sketch_draft_ ||
+        property_owned_sketch_draft_->owner_container_id != container_id)
+        property_owned_sketch_draft_.reset();
     const bool resuming_assembly_profile = assembly_cut && container_id.empty() &&
         pending_profile_feature_ &&
         pending_profile_feature_->feature_kind == feature_kind &&
@@ -10361,7 +10370,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 assembly->session.document().sketches.end(), [&](const auto& sketch) {
                     return sketch.owner_container_id == pending_profile_feature_->id;
                 });
-            pending_owned_sketch = *found;
+            property_owned_sketch_draft_ = *found;
             source_sketch_id = found->id;
         } else {
             if (assembly_cut && !selected_sketch_id_.empty()) {
@@ -10373,14 +10382,14 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                             sketch.owner_container_id.empty();
                     });
                 if (selected != assembly->session.document().sketches.end()) {
-                    pending_owned_sketch = *selected;
+                    property_owned_sketch_draft_ = *selected;
                 }
             }
-            if (!pending_owned_sketch) {
-                pending_owned_sketch = zima::sketcher::Sketch::create_default();
-                pending_owned_sketch->name = tr("Skica").toStdString();
+            if (!property_owned_sketch_draft_) {
+                property_owned_sketch_draft_ = zima::sketcher::Sketch::create_default();
+                property_owned_sketch_draft_->name = tr("Skica").toStdString();
             }
-            source_sketch_id = pending_owned_sketch->id;
+            source_sketch_id = property_owned_sketch_draft_->id;
         }
     }
     const auto* edited_cut = assembly_cut && !container_id.empty()
@@ -10489,17 +10498,17 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 });
         }
     }
-    if (pending_owned_sketch) {
-        pending_owned_sketch->owner_container_id = initial.id;
+    if (property_owned_sketch_draft_) {
+        property_owned_sketch_draft_->owner_container_id = initial.id;
         // The transient owned Sketch and its profile feature must share one
         // identity before Sketcher is ever opened.  Relying on the later
         // Sketcher commit to repair this association made the first
         // Properties preview unable to find its plane; offset plane and
         // dimensions then appeared only after returning from Sketcher.
         if (feature_kind == zima::document::FeatureKind::Extrusion) {
-            pending_owned_sketch->id = initial.extrusion.sketch_id;
+            property_owned_sketch_draft_->id = initial.extrusion.sketch_id;
         } else if (feature_kind == zima::document::FeatureKind::Revolution) {
-            pending_owned_sketch->id = initial.revolution.sketch_id;
+            property_owned_sketch_draft_->id = initial.revolution.sketch_id;
         }
     }
     if (!edit_mode && (feature_kind == zima::document::FeatureKind::Extrusion ||
@@ -10544,13 +10553,24 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         }
     }
     if (feature_kind == zima::document::FeatureKind::Revolution &&
-        pending_owned_sketch &&
-        std::count_if(pending_owned_sketch->segments.begin(),
-            pending_owned_sketch->segments.end(), [](const auto& segment) {
+        property_owned_sketch_draft_ &&
+        std::count_if(property_owned_sketch_draft_->segments.begin(),
+            property_owned_sketch_draft_->segments.end(), [](const auto& segment) {
                 return segment.construction && segment.centerline;
             }) == 1) {
         initial.revolution.axis_segment_id = revolution_axis_segment_id(
-            *pending_owned_sketch, initial.revolution.axis_segment_id);
+            *property_owned_sketch_draft_, initial.revolution.axis_segment_id);
+    }
+    if (profile_feature && !property_owned_sketch_draft_) {
+        const auto internal = feature_kind == zima::document::FeatureKind::Extrusion
+            ? initial.extrusion.profile_source : initial.revolution.profile_source;
+        const auto& id = feature_kind == zima::document::FeatureKind::Extrusion
+            ? initial.extrusion.sketch_id : initial.revolution.sketch_id;
+        const auto& sketches = assembly_cut ? assembly->session.document().sketches
+                                            : part->session.document().sketches;
+        const auto source = std::ranges::find(sketches, id, &zima::sketcher::Sketch::id);
+        if (internal == zima::document::ProfileSource::Internal && source != sketches.end())
+            property_owned_sketch_draft_ = *source;
     }
     const bool allow_subtract = assembly_cut || (!part->session.document().history.empty() &&
         !(edit_mode && part->session.document().history.front().id == initial.id));
@@ -10570,7 +10590,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     }
     auto* dialog = new PrimitivePropertiesDialog(
         initial, edit_mode, allow_subtract,
-        [this, owner_id, edit_mode, assembly_cut, pending_owned_sketch, container_id,
+        [this, owner_id, edit_mode, assembly_cut, container_id,
          pending_profile_edit](
             zima::document::HistoryContainer committed,
             std::vector<std::string> target_occurrences) mutable {
@@ -10591,8 +10611,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 if (target == nullptr) throw std::runtime_error(
                     "Assembly is no longer open");
                 auto next = target->session.document();
-                if (pending_owned_sketch && !edit_mode) {
-                    auto owned = *pending_owned_sketch;
+                if (property_owned_sketch_draft_) {
+                    auto owned = *property_owned_sketch_draft_;
                     owned.owner_container_id = committed.id;
                     owned.plane_offset = committed.feature_kind ==
                             zima::document::FeatureKind::Extrusion
@@ -10630,7 +10650,6 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                     auto* existing = next.find_cut(cut.definition.id);
                     if (existing == nullptr) throw std::runtime_error(
                         "Assembly cut no longer exists");
-                    if (*existing == cut) return;
                     *existing = std::move(cut);
                 } else {
                     next.cuts.push_back(std::move(cut));
@@ -10646,8 +10665,11 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             auto* target_part = workspace_.open_part(owner_id);
             if (target_part == nullptr) throw std::runtime_error("Part is no longer open");
             auto next = target_part->session.document();
-            if (pending_owned_sketch && !edit_mode) {
-                next.sketches.push_back(*pending_owned_sketch);
+            if (property_owned_sketch_draft_) {
+                const auto found = std::ranges::find(next.sketches, property_owned_sketch_draft_->id,
+                    &zima::sketcher::Sketch::id);
+                if (found == next.sketches.end()) next.sketches.push_back(*property_owned_sketch_draft_);
+                else *found = *property_owned_sketch_draft_;
             }
             if (committed.feature_kind ==
                     zima::document::FeatureKind::Revolution) {
@@ -11417,7 +11439,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     }
     if (feature_kind == zima::document::FeatureKind::Extrusion) {
         dialog->set_preview_callback([this, owner_id, assembly_cut,
-                                      pending_owned_sketch, placement_preview,
+                                      placement_preview,
                                       prepare_owned_profile_preview,
                                       update_owned_profile_context_preview,
                                       publish_extrusion_extent,
@@ -11432,12 +11454,11 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                     if (owner == nullptr) return;
                     zima::document::PartDocument preview_document;
                     preview_document.sketches = owner->session.document().sketches;
-                    if (pending_owned_sketch && std::none_of(
-                            preview_document.sketches.begin(),
-                            preview_document.sketches.end(), [&](const auto& sketch) {
-                                return sketch.id == pending_owned_sketch->id;
-                            })) {
-                        preview_document.sketches.push_back(*pending_owned_sketch);
+                    if (property_owned_sketch_draft_) {
+                        const auto found = std::ranges::find(preview_document.sketches,
+                            property_owned_sketch_draft_->id, &zima::sketcher::Sketch::id);
+                        if (found == preview_document.sketches.end()) preview_document.sketches.push_back(*property_owned_sketch_draft_);
+                        else *found = *property_owned_sketch_draft_;
                     }
                     prepare_owned_profile_preview(
                         preview_document, resolved_preview);
@@ -11476,12 +11497,11 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                     const auto* owner = workspace_.open_part(owner_id);
                     if (owner == nullptr) return;
                     auto preview_document = owner->session.document();
-                    if (pending_owned_sketch && std::none_of(
-                            preview_document.sketches.begin(),
-                            preview_document.sketches.end(), [&](const auto& sketch) {
-                                return sketch.id == pending_owned_sketch->id;
-                            })) {
-                        preview_document.sketches.push_back(*pending_owned_sketch);
+                    if (property_owned_sketch_draft_) {
+                        const auto found = std::ranges::find(preview_document.sketches,
+                            property_owned_sketch_draft_->id, &zima::sketcher::Sketch::id);
+                        if (found == preview_document.sketches.end()) preview_document.sketches.push_back(*property_owned_sketch_draft_);
+                        else *found = *property_owned_sketch_draft_;
                     }
                     prepare_owned_profile_preview(
                         preview_document, resolved_preview);
@@ -11530,7 +11550,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         });
     } else if (feature_kind == zima::document::FeatureKind::Revolution) {
         dialog->set_preview_callback([this, owner_id, assembly_cut,
-                                      pending_owned_sketch, placement_preview,
+                                      placement_preview,
                                       prepare_owned_profile_preview,
                                       update_owned_profile_context_preview,
                                       publish_revolution_direction,
@@ -11544,12 +11564,11 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                     if (owner == nullptr) return;
                     zima::document::PartDocument preview_document;
                     preview_document.sketches = owner->session.document().sketches;
-                    if (pending_owned_sketch && std::none_of(
-                            preview_document.sketches.begin(),
-                            preview_document.sketches.end(), [&](const auto& sketch) {
-                                return sketch.id == pending_owned_sketch->id;
-                            })) {
-                        preview_document.sketches.push_back(*pending_owned_sketch);
+                    if (property_owned_sketch_draft_) {
+                        const auto found = std::ranges::find(preview_document.sketches,
+                            property_owned_sketch_draft_->id, &zima::sketcher::Sketch::id);
+                        if (found == preview_document.sketches.end()) preview_document.sketches.push_back(*property_owned_sketch_draft_);
+                        else *found = *property_owned_sketch_draft_;
                     }
                     prepare_owned_profile_preview(
                         preview_document, resolved_preview);
@@ -11566,12 +11585,11 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                     const auto* owner = workspace_.open_part(owner_id);
                     if (owner == nullptr) return;
                     auto preview_document = owner->session.document();
-                    if (pending_owned_sketch && std::none_of(
-                            preview_document.sketches.begin(),
-                            preview_document.sketches.end(), [&](const auto& sketch) {
-                                return sketch.id == pending_owned_sketch->id;
-                            })) {
-                        preview_document.sketches.push_back(*pending_owned_sketch);
+                    if (property_owned_sketch_draft_) {
+                        const auto found = std::ranges::find(preview_document.sketches,
+                            property_owned_sketch_draft_->id, &zima::sketcher::Sketch::id);
+                        if (found == preview_document.sketches.end()) preview_document.sketches.push_back(*property_owned_sketch_draft_);
+                        else *found = *property_owned_sketch_draft_;
                     }
                     prepare_owned_profile_preview(
                         preview_document, resolved_preview);
@@ -11599,8 +11617,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     if (feature_kind == zima::document::FeatureKind::Extrusion ||
         feature_kind == zima::document::FeatureKind::Revolution) {
         dialog->set_edit_sketch_callback(
-            [this, owner_id, edit_mode, pending_profile_edit, assembly_cut,
-             pending_owned_sketch](
+            [this, owner_id, edit_mode, pending_profile_edit, assembly_cut](
                 zima::document::HistoryContainer pending_feature) {
             const bool extrusion = pending_feature.feature_kind ==
                 zima::document::FeatureKind::Extrusion;
@@ -11608,7 +11625,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 ? pending_feature.extrusion.sketch_id
                 : pending_feature.revolution.sketch_id;
             if (!edit_mode) {
-                if (!pending_owned_sketch) return;
+                if (!property_owned_sketch_draft_) return;
                 auto draft_container =
                     zima::document::PartDocument::create_sketch_container();
                 draft_container.id = pending_feature.id;
@@ -11616,7 +11633,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 draft_container.container_origin = pending_feature.container_origin;
                 draft_container.name = pending_feature.name;
                 draft_container.placement = pending_feature.placement;
-                auto draft_sketch = *pending_owned_sketch;
+                auto draft_sketch = *property_owned_sketch_draft_;
                 draft_sketch.owner_container_id = draft_container.id;
                 const auto first_reference = std::find_if(
                     pending_feature.placement.references.begin(),
@@ -11678,6 +11695,16 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             // a brand-new owned profile.
             if (!edit_mode || pending_profile_edit) {
                 pending_profile_feature_ = std::move(pending_feature);
+            }
+            if (property_owned_sketch_draft_) {
+                sweep_profile_sketch_draft_ = *property_owned_sketch_draft_;
+                embedded_sketch_finished_ = [this, sketch_id](zima::sketcher::Sketch sketch) {
+                    property_owned_sketch_draft_ = std::move(sketch);
+                    // Reuse the normal return-to-feature transition, keeping
+                    // geometry in the pending draft until the feature's OK.
+                    active_sketch_id_ = sketch_id;
+                    finish_active_sketch();
+                };
             }
             active_sketch_id_ = sketch_id;
             selected_sketch_id_ = active_sketch_id_;
@@ -11943,6 +11970,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                     });
             }
         }
+        if (!entering_owned_profile_sketch) property_owned_sketch_draft_.reset();
         properties_dialog_ = nullptr;
         edge_treatment_dialog_ = nullptr;
         edge_treatment_selection_.reset();
@@ -12370,6 +12398,10 @@ void AssemblyWorkspaceWindow::show_sweep3d_properties(
                 carrier.construction_viewer_mesh(display_path.id, 0.0, true);
             append_mesh(*construction_preview_mesh_,
                 zima::document::sweep3d_profiles_viewer_mesh(*resolved));
+            zima::document::visit_feature_sketches(*resolved,[&](const auto& data,std::size_t){
+                const auto display=zima::sketcher::Sketch::from_serialized(data).viewer_mesh();
+                construction_preview_mesh_->dimensions.insert(construction_preview_mesh_->dimensions.end(),display.dimensions.begin(),display.dimensions.end());
+            });
             construction_parameter_preview_ = display_path;
             append_reference_geometry(reference_geometry,
                 next.origin_viewer_mesh().original_references);
@@ -14502,6 +14534,7 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
         }
         primitive_reference_geometry_ = reference_geometry;
         primitive_reference_dialog_ = dialog;
+        primitive_parameter_owner_id_ = initial.owner_container_id.empty() ? initial.id : initial.owner_container_id;
         dialog->set_reference_geometry(reference_geometry);
         dialog->set_reference_request_callback(
             [this](std::size_t index) {
@@ -14755,10 +14788,7 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             refresh_scene();
             viewer_->set_extent_manipulator(offset_manipulator);
             if (!pending_primitive_reference_index_) {
-                tree_->setProperty("commandSelectionActive", false);
-                viewer_->set_selection_contract({});
-                viewer_->set_candidate_filter(
-                    [](const auto&) { return false; });
+                set_primitive_properties_dimension_selection();
             }
         });
     }
@@ -14778,6 +14808,7 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
     connect(dialog, &QObject::destroyed, this, [this] {
         properties_dialog_ = nullptr;
         primitive_reference_dialog_ = nullptr;
+        primitive_parameter_owner_id_.clear();
         pending_primitive_reference_index_.reset();
         primitive_reference_auto_advance_ = false;
         primitive_reference_geometry_ = {};
@@ -14809,10 +14840,7 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
     if (first < 3) {
         start_primitive_reference_selection(first, true);
     } else {
-        tree_->setProperty("commandSelectionActive", false);
-        viewer_->clear_selection();
-        viewer_->set_selection_contract({});
-        viewer_->set_candidate_filter([](const auto&) { return false; });
+        set_primitive_properties_dimension_selection();
     }
 }
 
@@ -15339,7 +15367,31 @@ void AssemblyWorkspaceWindow::show_sketch_drag_preview(const zima::sketcher::Ske
 }
 
 zima::kernel::ViewerMesh AssemblyWorkspaceWindow::sketch_viewer_mesh(
-    const zima::sketcher::Sketch& sketch) const {
+    const zima::sketcher::Sketch& source) const {
+    const auto& sketch = source.id == active_sketch_id_ && active_sketch()
+        ? *active_sketch() : source;
+    // Every Sketcher host (rollback, embedded profiles, templates and
+    // Assemblies) displays and picks the same pending trim topology.
+    if (sketch_trim_active_ && sketch_trim_preview_ && sketch.id == active_sketch_id_) {
+        const auto& preview = *sketch_trim_preview_;
+        auto mesh = preview.viewer_mesh();
+        std::set<std::string> geometry_ids;
+        for (const auto& piece : sketch_trim_topology_) geometry_ids.insert(piece.geometry_id);
+        std::erase_if(mesh.edges, [&](const auto& edge) {
+            const auto separator = edge.reference.semantic_key.find(':');
+            return separator != std::string::npos &&
+                geometry_ids.contains(edge.reference.semantic_key.substr(separator + 1));
+        });
+        for (std::size_t i = 0; i < sketch_trim_topology_.size(); ++i) {
+            zima::kernel::ViewerEdge edge;
+            edge.reference = {preview.id, "trim_piece:" + std::to_string(i), {}};
+            edge.overlay = true;
+            for (const auto& point : sketch_trim_topology_[i].points)
+                edge.points.push_back(preview.world_point(point[0], point[1]));
+            mesh.edges.push_back(std::move(edge));
+        }
+        return place_sketch_mesh(preview, std::move(mesh));
+    }
     if (sketch.id == active_sketch_id_ &&
         !universal_corner_radius_dimension_id_.empty() &&
         universal_dimension_cursor_) {
@@ -15476,6 +15528,8 @@ bool AssemblyWorkspaceWindow::accept_sketch_text_ray(
 
 void AssemblyWorkspaceWindow::finish_active_sketch() {
     if (active_sketch_id_.empty() || properties_dialog_ != nullptr) return;
+    // Flush a pending trim before validating or copying an embedded Sketch.
+    if (sketch_trim_active_ && !finish_sketch_trim()) return;
     if (sweep_profile_sketch_draft_ && embedded_sketch_finished_) {
         if(section_dialog_)try{auto test=section_dialog_->values();test.sketch=*sweep_profile_sketch_draft_;zima::document::reframe_section(test);static_cast<void>(zima::document::calculate_section(section_preview_source_,test));}
         catch(const std::exception& e){state_->setText(QString::fromUtf8(e.what()));return;}
@@ -16138,9 +16192,10 @@ void AssemblyWorkspaceWindow::cancel_sketch_polygon() {
 
 void AssemblyWorkspaceWindow::start_sketch_trim() {
     if (properties_dialog_ != nullptr || active_sketch_id_.empty()) return;
+    // Finishing the previous command may replace the document/draft.
+    cancel_sketch_segment();
     const auto* sketch = active_sketch();
     if (sketch == nullptr) return;
-    cancel_sketch_segment();
     clear_selected_sketch_geometry();
     sketch_trim_preview_ = *sketch;
     sketch_trim_topology_ = zima::sketcher::sketch_trim_topology(
@@ -19330,7 +19385,7 @@ bool AssemblyWorkspaceWindow::begin_sketch_point_drag(
             sketch->corner_radii.begin(), sketch->corner_radii.end(),
             [&](const auto& value) { return value.id == radius_id; });
         if (radius == sketch->corner_radii.end()) return false;
-        if(section_dialog_&&sweep_profile_sketch_draft_) { section_drag_sketches_={*sweep_profile_sketch_draft_}; }
+        if(sweep_profile_sketch_draft_) { section_drag_sketches_={*sweep_profile_sketch_draft_}; }
         else if (const auto* part = workspace_.open_part(workspace_.active_document_id())) {
             sketch_drag_document_ = part->session.document();
         } else if (const auto* assembly = workspace_.open_assembly(
@@ -19436,7 +19491,7 @@ bool AssemblyWorkspaceWindow::begin_sketch_point_drag(
                         << QString::fromStdString(second->id) << "|point="
                         << QString::fromStdString(shared_point_id);
                 }
-                if(section_dialog_&&sweep_profile_sketch_draft_) { section_drag_sketches_={*sweep_profile_sketch_draft_}; }
+                if(sweep_profile_sketch_draft_) { section_drag_sketches_={*sweep_profile_sketch_draft_}; }
                 else if (const auto* part = workspace_.open_part(workspace_.active_document_id())) {
                     sketch_drag_document_ = part->session.document();
                 } else if (const auto* assembly = workspace_.open_assembly(
@@ -19495,7 +19550,7 @@ bool AssemblyWorkspaceWindow::begin_sketch_point_drag(
         state_->setText(tr("Fixovaný bod nelze táhnout."));
         return false;
     }
-    if(section_dialog_&&sweep_profile_sketch_draft_) { section_drag_sketches_={*sweep_profile_sketch_draft_}; }
+    if(sweep_profile_sketch_draft_) { section_drag_sketches_={*sweep_profile_sketch_draft_}; }
     else if (const auto* part = workspace_.open_part(workspace_.active_document_id())) {
         sketch_drag_document_ = part->session.document();
     } else if (const auto* assembly =
@@ -19831,7 +19886,7 @@ bool AssemblyWorkspaceWindow::begin_sketch_dimension_drag(
     if (sketch == nullptr || std::none_of(
             sketch->dimensions.begin(), sketch->dimensions.end(),
             [&](const auto& value) { return value.id == dimension_id; })) return false;
-    if(section_dialog_&&sweep_profile_sketch_draft_) { section_drag_sketches_={*sweep_profile_sketch_draft_}; }
+    if(sweep_profile_sketch_draft_) { section_drag_sketches_={*sweep_profile_sketch_draft_}; }
     else if (const auto* part = workspace_.open_part(workspace_.active_document_id())) {
         sketch_drag_document_ = part->session.document();
     } else if (const auto* assembly =
@@ -24667,6 +24722,14 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                 : stored_container != document.history.end()
                     ? &*stored_container : nullptr;
             if (container != nullptr) {
+                if(active_sketch_id_.empty())zima::document::visit_feature_sketches(*container,[&](const auto& data,std::size_t){
+                    const auto sketch=zima::sketcher::Sketch::from_serialized(data);
+                    auto display=sketch.viewer_mesh();
+                    const auto* body=document.body_owner_for_object(container->id);
+                    const auto body_id=body?body->scope.id:document.body_history.active_body_id();
+                    if(!body_id.empty())display=document.place_body_mesh(std::move(display),body_id);
+                    mesh.dimensions.insert(mesh.dimensions.end(),display.dimensions.begin(),display.dimensions.end());
+                });
                 const auto& placement_reference_geometry =
                     parameter_dimension_preview_ &&
                             parameter_dimension_preview_->id == container->id
@@ -25325,22 +25388,18 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                 }
             }
         }
-        if constexpr (requires { document.sketches; }) {
+        if constexpr (requires { document.sketches; }) if(active_sketch_id_.empty()) {
             const auto sketch = std::find_if(document.sketches.begin(),
                 document.sketches.end(), [&](const auto& value) {
-                    // An owned profile is a child of Extrusion/Revolution,
-                    // but its Sketch constraints are not parameters of that
-                    // feature Properties window. While a live feature
-                    // preview exists, show only the feature's own editable
-                    // dimensions; the Sketch dimensions return when the
-                    // actual Sketch is inspected/edited.
                     return value.id == construction_dimension_object_id_ ||
-                        (!parameter_dimension_preview_ &&
-                         value.owner_container_id ==
-                            construction_dimension_object_id_);
+                        value.owner_container_id == construction_dimension_object_id_;
                 });
-            if (sketch != document.sketches.end()) {
-                const auto sketch_mesh = sketch->viewer_mesh();
+            // Sketch Properties already supplies its pending annotations
+            // in the placed preview mesh. Do not overlay old stored values.
+            if (sketch != document.sketches.end() && sketch->id != sketch_properties_preview_id_) {
+                const auto& shown = property_owned_sketch_draft_ && property_owned_sketch_draft_->id == sketch->id
+                    ? *property_owned_sketch_draft_ : *sketch;
+                const auto sketch_mesh = shown.viewer_mesh();
                 mesh.dimensions.insert(mesh.dimensions.end(),
                     sketch_mesh.dimensions.begin(), sketch_mesh.dimensions.end());
                 const auto base = zima::kernel::Vec3{
@@ -26012,7 +26071,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                 }
 
                 if (sweep_profile_sketch_draft_ &&
-                    sweep_profile_sketch_draft_->id == active_sketch_id_) {
+                    sweep_profile_sketch_draft_->id == active_sketch_id_ &&
+                    std::ranges::find(document.sketches, active_sketch_id_, &zima::sketcher::Sketch::id) == document.sketches.end()) {
                     append_mesh(display,
                         sketch_viewer_mesh(*sweep_profile_sketch_draft_));
                 }
@@ -26113,34 +26173,6 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                         return text_id && *text_id == editing_sketch_text_id_;
                     });
                 }
-                if (sketch_trim_active_ && sketch_trim_preview_ &&
-                    sketch.id == active_sketch_id_) {
-                    std::set<std::string> piece_geometry_ids;
-                    for (const auto& piece : sketch_trim_topology_) {
-                        piece_geometry_ids.insert(piece.geometry_id);
-                    }
-                    std::erase_if(sketch_mesh.edges, [&](const auto& edge) {
-                        const auto separator = edge.reference.semantic_key.find(':');
-                        return separator != std::string::npos &&
-                            piece_geometry_ids.contains(
-                                edge.reference.semantic_key.substr(separator + 1));
-                    });
-                    zima::kernel::ViewerMesh trim_mesh;
-                    for (std::size_t index = 0;
-                         index < sketch_trim_topology_.size(); ++index) {
-                        zima::kernel::ViewerEdge edge;
-                        edge.reference = {
-                            displayed_sketch->id,
-                            "trim_piece:" + std::to_string(index), {}};
-                        edge.overlay = true;
-                        for (const auto& point : sketch_trim_topology_[index].points) {
-                            edge.points.push_back(
-                                displayed_sketch->world_point(point[0], point[1]));
-                        }
-                        trim_mesh.edges.push_back(std::move(edge));
-                    }
-                    append_mesh(sketch_mesh, place_sketch_mesh(*displayed_sketch, std::move(trim_mesh)));
-                }
                 if (sketch.id != active_sketch_id_) {
                     keep_only_inactive_sketch_profile(sketch_mesh,
                         sketch.owner_container_id.empty()
@@ -26150,7 +26182,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             }
 
             if (sweep_profile_sketch_draft_ &&
-                sweep_profile_sketch_draft_->id == active_sketch_id_) {
+                sweep_profile_sketch_draft_->id == active_sketch_id_ &&
+                    std::ranges::find(document.sketches, active_sketch_id_, &zima::sketcher::Sketch::id) == document.sketches.end()) {
                 append_mesh(display,
                     sketch_viewer_mesh(*sweep_profile_sketch_draft_));
             }
@@ -26422,7 +26455,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             if (found != sketches.end()) editing_sketch = &*found;
         }
     }
-    if(section_dialog_&&sweep_profile_sketch_draft_)editing_sketch=active_sketch();
+    if(sweep_profile_sketch_draft_)editing_sketch=active_sketch();
     if (editing_sketch != nullptr) {
         populate_sketch_tree(*editing_sketch);
     } else {
@@ -26606,33 +26639,6 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                     keep_only_inactive_sketch_profile(sketch_mesh,
                         sketch.owner_container_id.empty()
                             ? sketch.id : sketch.owner_container_id);
-                }
-                if (sketch_trim_active_ && sketch_trim_preview_ &&
-                    sketch.id == active_sketch_id_) {
-                    std::set<std::string> piece_geometry_ids;
-                    for (const auto& piece : sketch_trim_topology_) {
-                        piece_geometry_ids.insert(piece.geometry_id);
-                    }
-                    std::erase_if(sketch_mesh.edges, [&](const auto& edge) {
-                        const auto separator = edge.reference.semantic_key.find(':');
-                        return separator != std::string::npos &&
-                            piece_geometry_ids.contains(
-                                edge.reference.semantic_key.substr(separator + 1));
-                    });
-                    zima::kernel::ViewerMesh trim_mesh;
-                    for (std::size_t index = 0;
-                         index < sketch_trim_topology_.size(); ++index) {
-                        zima::kernel::ViewerEdge edge;
-                        edge.reference = {displayed_sketch->id,
-                            "trim_piece:" + std::to_string(index), {}};
-                        edge.overlay = true;
-                        for (const auto& point : sketch_trim_topology_[index].points) {
-                            edge.points.push_back(
-                                displayed_sketch->world_point(point[0], point[1]));
-                        }
-                        trim_mesh.edges.push_back(std::move(edge));
-                    }
-                    append_mesh(sketch_mesh, place_sketch_mesh(*displayed_sketch, std::move(trim_mesh)));
                 }
                 append_mesh(live_source.mesh, std::move(sketch_mesh));
             }
@@ -26888,7 +26894,10 @@ void AssemblyWorkspaceWindow::configure_sketch_box_selection(
 }
 
 void AssemblyWorkspaceWindow::populate_sketch_tree(
-    const zima::sketcher::Sketch& sketch) {
+    const zima::sketcher::Sketch& source) {
+    const auto& sketch = sketch_trim_active_ && sketch_trim_preview_ && source.id == active_sketch_id_
+        ? *sketch_trim_preview_ : source.id == active_sketch_id_ && active_sketch()
+            ? *active_sketch() : source;
     tree_->setHeaderLabels({tr("SKETCHER — %1").arg(
         QString::fromStdString(sketch.name))});
     if(sketch.drawing_template) {
@@ -28038,6 +28047,57 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
             parsed_value, viewer_->dimension_decimal_places());
         try {
             if(parameter_value_locked(candidate.owner_id,candidate.semantic_key).value_or(false))throw std::runtime_error(tr("Hodnota je zamčená.").toStdString());
+            const auto edit_sketch=[&](zima::sketcher::Sketch& sketch){
+                if(candidate.semantic_key.starts_with("dimension:")){
+                    if(!sketch.set_dimension_value(candidate.semantic_key.substr(10),next_value))
+                        throw std::runtime_error("Dimension no longer exists");
+                }else{
+                    const auto radius=std::ranges::find(sketch.corner_radii,candidate.semantic_key.substr(17),&zima::sketcher::SketchCornerRadius::id);
+                    if(radius==sketch.corner_radii.end())throw std::runtime_error("Corner radius no longer exists");
+                    const auto first=radius->first_segment_id,second=radius->second_segment_id;
+                    static_cast<void>(sketch.add_corner_fillet(first,second,next_value));
+                }
+                sketch.validate();
+            };
+            const bool sketch_dimension=candidate.semantic_key.starts_with("dimension:")||candidate.semantic_key.starts_with("corner_dimension:");
+            if(sketch_dimension&&candidate.owner_id==active_sketch_id_){
+                if(!mutate_active_sketch(edit_sketch))throw std::runtime_error("Sketch is no longer active");
+                guarded->hide();preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();guarded->deleteLater();return;
+            }
+            if(sketch_dimension&&properties_dialog_){
+                bool edited=false;
+                if (auto* dialog=dynamic_cast<SketchPropertiesDialog*>(properties_dialog_))
+                    edited=dialog->mutate_sketch(candidate.owner_id, edit_sketch);
+                if (auto* dialog=dynamic_cast<PrimitivePropertiesDialog*>(properties_dialog_)) {
+                    if (property_owned_sketch_draft_ && property_owned_sketch_draft_->id==candidate.owner_id) {
+                        auto next=*property_owned_sketch_draft_;
+                        edit_sketch(next);
+                        property_owned_sketch_draft_=std::move(next);
+                        dialog->refresh_sketch_preview();
+                        // Profile-frame caching intentionally ignores geometry;
+                        // an edited Sketch must also refresh its static annotations.
+                        preserve_view_on_refresh_=true;refresh_scene();
+                        if(!pending_primitive_reference_index_)set_primitive_properties_dimension_selection();
+                        edited=true;
+                    }
+                }
+                if(auto* dialog=dynamic_cast<SweepPlacementDialog*>(properties_dialog_)){
+                    auto pending=dialog->pending;
+                    zima::document::visit_feature_sketches(pending,[&](auto& data,std::size_t stage){
+                        auto sketch=zima::sketcher::Sketch::from_serialized(data);if(sketch.id!=candidate.owner_id)return;
+                        edit_sketch(sketch);dialog->set_sketch(static_cast<unsigned>(stage),sketch);edited=true;
+                    });
+                }
+                if(!edited&&construction_reference_dialog_&&construction_reference_dialog_->is_sweep()){
+                    auto pending=construction_reference_dialog_->pending_sweep_value();
+                    zima::document::visit_feature_sketches(pending,[&](const auto& data,std::size_t stage){
+                        auto sketch=zima::sketcher::Sketch::from_serialized(data);if(sketch.id!=candidate.owner_id)return;
+                        edit_sketch(sketch);construction_reference_dialog_->set_sweep_profile_sketch(stage,sketch);edited=true;
+                    });
+                }
+                if(!edited)throw std::runtime_error(tr("Tuto kótu upravte tlačítkem Skica v otevřených vlastnostech.").toStdString());
+                guarded->hide();guarded->deleteLater();return;
+            }
             if (candidate.semantic_key.starts_with("parameter:") &&
                 edge_treatment_dialog_ != nullptr &&
                 candidate.owner_id == edge_treatment_preview_owner_id_) {
@@ -28485,6 +28545,13 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                     positive(container->shell.thickness);
                 }
             }
+            if(!changed&&sketch_dimension)for(auto& feature:next.history){
+                zima::document::visit_feature_sketches(feature,[&](auto& data,std::size_t){
+                    auto sketch=zima::sketcher::Sketch::from_serialized(data);if(sketch.id!=candidate.owner_id)return;
+                    edit_sketch(sketch);data=sketch.serialized();changed=true;
+                    construction_dimension_object_id_=feature.id;
+                });
+            }
             if (!changed) throw std::runtime_error(
                 "This dimension is not directly editable");
             const auto& previous = part->session.calculated_boundaries();
@@ -28507,7 +28574,7 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
             // the dimension mesh makes a successful edit look as if the
             // dimension disappeared and its input window remained open.
             guarded->hide();
-            construction_dimension_object_id_ = candidate.owner_id;
+            if(!sketch_dimension||construction_dimension_object_id_.empty())construction_dimension_object_id_ = candidate.owner_id;
             preserve_view_on_refresh_ = true;
             refresh_tabs();
             refresh_scene();

@@ -1,6 +1,7 @@
 #include "assembly_workspace_window.hpp"
 #include "section_properties_dialog.hpp"
 #include "section_source.hpp"
+#include "resource_icon.hpp"
 #include <zima/viewer/mesh_view.hpp>
 #include <QAction>
 #include <QLabel>
@@ -68,7 +69,7 @@ void AssemblyWorkspaceWindow::show_section_properties(const std::string& id,bool
             pending_primitive_reference_index_.reset();section_dialog_->set_active_reference_index(std::nullopt);section_component_picking_=true;viewer_->clear_selection();viewer_->set_mesh(section_preview_source_,false);
             viewer_->set_selection_contract({workspace_.open_assembly(section_document_id_)?zima::viewer::CandidateKind::Occurrence:zima::viewer::CandidateKind::Container});viewer_->set_candidate_filter({});state_->setText(tr("Vyberte díl nebo těleso ve View; jeho řádek se označí v seznamu."));
         });
-        dialog->set_initial_size(QSize(760,760));section_dialog_=dialog;properties_dialog_=dialog;primitive_reference_dialog_=dialog;primitive_parameter_owner_id_=value.id;properties_dialog_instance_path_.clear();
+        dialog->set_initial_size(QSize(760,1040));section_dialog_=dialog;properties_dialog_=dialog;primitive_reference_dialog_=dialog;primitive_parameter_owner_id_=value.id;properties_dialog_instance_path_.clear();
         tree_reference_state_.watch(dialog,this,section_document_id_,value.id);bind_local_origin_selection(dialog);
         dialog->request_placement=[this](std::size_t index){section_component_picking_=false;start_primitive_reference_selection(index);};
         dialog->edit_sketch=[this](unsigned){begin_section_sketch();};dialog->changed=[this]{preview_section();};
@@ -118,7 +119,7 @@ void AssemblyWorkspaceWindow::preview_section(){
     zima::document::PartDocument origin_doc;zima::document::ConstructionObject origin;origin.id=s.id;origin.entity_id=s.sketch.id;origin.container_origin=s.container_origin;origin.kind=zima::document::ConstructionKind::Point;
     origin.origin={s.placement.x,s.placement.y,s.placement.z};origin.rotation={s.placement.rotation_x,s.placement.rotation_y,s.placement.rotation_z};origin.reference_valid=false;origin_doc.constructions.push_back(origin);primitive_origin_preview_mesh_=origin_doc.construction_viewer_mesh(s.id);
     auto mesh=section_preview_source_;QString error;
-    try{mesh=zima::document::calculate_section(mesh,s).mesh;plane_wire(mesh,s);const auto f=zima::document::section_frame(s);viewer_->set_operation_direction_indicator(zima::viewer::OperationDirectionIndicator{f.origin,f.normal,{},{},false});}
+    try{mesh=zima::document::section_display_mesh(zima::document::calculate_section(mesh,s),s);plane_wire(mesh,s);const auto f=zima::document::section_frame(s);viewer_->set_operation_direction_indicator(zima::viewer::OperationDirectionIndicator{f.origin,f.normal,{},{},false});}
     catch(const std::exception& e){error=QString::fromUtf8(e.what());viewer_->set_operation_direction_indicator({});}
     // Placement candidates always refer to the complete persisted input even
     // when the transient cut hides that surface.
@@ -138,22 +139,32 @@ void AssemblyWorkspaceWindow::update_section_ui(){
     if(sketch){undo_action_->setEnabled(!section_sketch_undo_.empty());redo_action_->setEnabled(!section_sketch_redo_.empty());return;}
     if(!model||template_sketch()||!active_sketch_id_.empty())return;
     const auto sections=source_sections(&workspace_,id,{});QSignalBlocker block(tree_);auto* root=tree_->topLevelItem(0);if(!root)return;
-    auto* group=new QTreeWidgetItem(QStringList{tr("Řezy")});group->setData(0,Qt::UserRole+3,"document-sections");group->setIcon(0,style()->standardIcon(QStyle::SP_DirIcon));root->insertChild(std::min(1,root->childCount()),group);group->setExpanded(true);
-    const auto row=[&](const QString& name,const std::string& key,const char* type,bool active){auto* item=new QTreeWidgetItem(group,QStringList{name});item->setData(0,Qt::UserRole,QString::fromStdString(key));item->setData(0,Qt::UserRole+3,type);item->setIcon(0,style()->standardIcon(QStyle::SP_DirIcon));if(active){item->setForeground(0,QColor("#55BB77"));auto font=item->font(0);font.setBold(true);item->setFont(0,font);}return item;};
+    auto* group=new QTreeWidgetItem(QStringList{tr("Řezy")});
+    group->setData(0,Qt::UserRole+3,"document-sections");
+    group->setFlags(group->flags()&~Qt::ItemIsUserCheckable);
+    group->setIcon(0,resource_icon("sections"));
+    root->insertChild(std::min(1,root->childCount()),group);group->setExpanded(true);
+    const auto row=[&](const QString& name,const std::string& key,const char* type,bool active){
+        auto* item=new QTreeWidgetItem(group,QStringList{name});
+        item->setData(0,Qt::UserRole,QString::fromStdString(key));item->setData(0,Qt::UserRole+3,type);
+        item->setFlags(item->flags()&~Qt::ItemIsUserCheckable);
+        item->setIcon(0,resource_icon(key.empty()?"section-normal":"section-cut"));
+        if(active){item->setForeground(0,QColor("#55BB77"));auto font=item->font(0);font.setBold(true);item->setFont(0,font);}
+        return item;
+    };
     row(tr("Bez řezu"),{},"document-section-normal",std::ranges::none_of(sections,[](const auto& s){return s.show_cut;}));
-    for(const auto& s:sections){auto* item=row(QString::fromStdString(s.name),s.id,"document-section",s.show_cut);item->setCheckState(0,s.show_plane?Qt::Checked:Qt::Unchecked);item->setToolTip(0,tr("Aktivní zobrazí model v řezu. Zaškrtnutí zobrazí řeznou plochu."));}
-    if(!tree_->property("sectionCheckConnected").toBool()){
-        tree_->setProperty("sectionCheckConnected",true);connect(tree_,&QTreeWidget::itemChanged,this,[this](QTreeWidgetItem* item,int){if(refreshing_scene_||properties_dialog_||workspace_.active_document_id()!=workspace_.displayed_document_id()||item->data(0,Qt::UserRole+3)!="document-section")return;auto all=source_sections(&workspace_,workspace_.displayed_document_id(),{});for(auto& s:all)if(s.id==item->data(0,Qt::UserRole).toString().toStdString())s.show_plane=item->checkState(0)==Qt::Checked;commit_sections(std::move(all));preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();});
-    }
+    for(const auto& s:sections){auto* item=row(QString::fromStdString(s.name),s.id,"document-section",s.show_cut);item->setToolTip(0,tr("Aktivní zobrazí model v řezu. Řeznou plochu lze zobrazit ve vlastnostech."));}
+    // Tree presentation changes must never commit a section or destroy the
+    // emitting item inside QTreeWidget::itemChanged.
     if(section_dialog_){preview_section();return;}if(properties_dialog_)return;
-    try{auto mesh=viewer_->mesh();bool changed=false;for(const auto& s:sections)if(s.show_cut){mesh=zima::document::calculate_section(mesh,s).mesh;changed=true;break;}for(const auto& s:sections)if(s.show_plane){plane_wire(mesh,s);changed=true;}if(changed)viewer_->set_mesh(std::move(mesh),false);}
+    try{auto mesh=viewer_->mesh();bool changed=false;for(const auto& s:sections)if(s.show_cut){mesh=zima::document::section_display_mesh(zima::document::calculate_section(mesh,s),s);changed=true;break;}for(const auto& s:sections)if(s.show_plane){plane_wire(mesh,s);changed=true;}if(changed)viewer_->set_mesh(std::move(mesh),false);}
     catch(const std::exception& e){state_->setText(QString::fromUtf8(e.what()));}
 }
 bool AssemblyWorkspaceWindow::section_context_menu(QTreeWidgetItem* item,const QPoint& position){
     if(!item||!item->data(0,Qt::UserRole+3).toString().startsWith("document-section"))return false;
     if(properties_dialog_||!active_sketch_id_.empty()||workspace_.active_document_id()!=workspace_.displayed_document_id())return true;
     QMenu menu(this);const auto id=item->data(0,Qt::UserRole).toString().toStdString();const auto kind=item->data(0,Qt::UserRole+3).toString();
-    auto* create=menu.addAction(tr("Nový řez…"));QAction *activate=nullptr,*edit=nullptr,*draw=nullptr,*remove=nullptr;
+    QAction* create=kind=="document-sections"?menu.addAction(tr("Nový řez…")):nullptr;QAction *activate=nullptr,*edit=nullptr,*draw=nullptr,*remove=nullptr;
     if(kind!="document-sections")activate=menu.addAction(tr("Aktivní"));
     if(!id.empty()){edit=menu.addAction(tr("Vlastnosti / přejmenovat…"));draw=menu.addAction(tr("Upravit skicu řezu…"));remove=menu.addAction(tr("Odstranit"));}
     const auto chosen=menu.exec(tree_->viewport()->mapToGlobal(position));if(!chosen)return true;

@@ -3882,6 +3882,20 @@ int main(int argc, char* argv[]) {
                 text.vertical==zima::sketcher::TextVerticalAlignment::Top?(y_up?high:low):(y_up?low:high);
             require(std::abs(anchor-text.anchor_y)<1e-7,"Text ink alignment drifted from its anchor");
         }
+        for(bool template_coordinates:{false,true})for(bool mirrored:{false,true}) {
+            auto initial=initial_text;initial.value="ZIMA-Engineering";initial.flipped=mirrored!=template_coordinates;initial.angle_degrees=17;
+            zima::app::rebuild_sketch_text_contours(initial,template_coordinates);
+            std::optional<zima::sketcher::SketchText> saved;
+            auto* props=new zima::app::SketchTextPropertiesDialog(initial,std::array{initial.anchor_x,initial.anchor_y},
+                [](const auto&){},[&](auto text){saved=std::move(text);},&parent,template_coordinates);
+            require(props->findChild<QCheckBox*>("sketchTextFlipped")->isChecked()==mirrored,"Text flip exposes the template coordinate reflection");
+            props->buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
+            require(saved&&saved->flipped==initial.flipped&&saved->contours==initial.contours,"Opening and accepting Text mirrored existing geometry");
+            saved.reset();props=new zima::app::SketchTextPropertiesDialog(initial,std::array{initial.anchor_x,initial.anchor_y},
+                [](const auto&){},[&](auto text){saved=std::move(text);},&parent,template_coordinates);
+            props->findChild<QCheckBox*>("sketchTextFlipped")->setChecked(!mirrored);props->buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
+            require(saved&&saved->flipped!=initial.flipped&&saved->contours!=initial.contours,"Explicit Text flip no longer mirrors text");
+        }
         auto* text_dialog = new zima::app::SketchTextPropertiesDialog(
             initial_text, std::array{5.0, 7.0},
             [](const std::optional<zima::sketcher::SketchText>&) {},

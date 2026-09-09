@@ -13,6 +13,10 @@ cmake --build build/cpp-debug --target zima-cad-cpp
 
 The root launchers `zima-cad` and `zima-cad.bat` start the C++ application.
 They prefer a Release build and fall back to the Debug build.
+On Windows, run `tools/create-windows-shortcut.ps1` after building to create
+(or refresh) the desktop shortcut. It targets the GUI executable directly and
+opens no console. The batch launcher starts the application without waiting;
+for command-line verification invoke the executable directly.
 
 The planned release form is one self-contained portable Linux and Windows
 archive with its complete runtime, resources, directory layout and portable

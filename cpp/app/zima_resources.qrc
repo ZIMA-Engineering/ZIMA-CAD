@@ -12,6 +12,9 @@
     <file alias="icons/redo.svg">../../resources/icons/redo.svg</file>
     <file alias="icons/part.svg">../../resources/icons/part.svg</file>
     <file alias="icons/assembly.svg">../../resources/icons/assembly.svg</file>
+    <file alias="icons/sections.svg">../../resources/icons/sections.svg</file>
+    <file alias="icons/section-normal.svg">../../resources/icons/section-normal.svg</file>
+    <file alias="icons/section-cut.svg">../../resources/icons/section-cut.svg</file>
     <file alias="icons/drawing.svg">../../resources/icons/drawing.svg</file>
     <file alias="icons/drawing-format.svg">../../resources/icons/drawing-format.svg</file>
     <file alias="icons/template-image.svg">../../resources/icons/template-image.svg</file>

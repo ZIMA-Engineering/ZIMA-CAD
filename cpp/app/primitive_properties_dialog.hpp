@@ -81,6 +81,7 @@ public:
     void set_preview_callback(
         std::function<void(const zima::document::HistoryContainer&)> callback);
     [[nodiscard]] double profile_plane_offset() const;
+    void refresh_sketch_preview() { set_commit_required(true); notify_preview(); }
     [[nodiscard]] zima::document::HistoryContainer pending_value() const { return values(); }
     [[nodiscard]] double forward_extent_length() const;
     [[nodiscard]] double reverse_extent_length() const;

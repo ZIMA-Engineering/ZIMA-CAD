@@ -20,3 +20,15 @@ build and validation pipeline that verifies at least:
 
 The frozen Python/OpenBLAS packaging procedure and its scripts are retained
 only for historical reference under `archive/python/`.
+
+## Console-free desktop start
+
+The `zima-cad-cpp` target uses the Windows GUI subsystem. Qt supplies its
+Windows entry point through `Qt6::Core`. CLI verification still accepts
+`--verify-startup` with redirected output.
+
+After a local build, `tools/create-windows-shortcut.ps1` creates or refreshes
+`zima-cad.lnk` on the Desktop. It points directly to the selected executable,
+sets the repository working directory and passes `--working-directory`.
+There is no console or script-host process in the ordinary desktop launch.
+The root `.bat` remains an asynchronous convenience for command-line users.

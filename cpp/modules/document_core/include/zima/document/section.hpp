@@ -17,6 +17,7 @@ struct SectionComponent {
     int mode{}; // 0 cut + hatch, 1 cut only, 2 uncut
     HatchStyle hatch;
     bool custom_hatch{};
+    bool operator==(const SectionComponent&) const = default;
 };
 struct SectionDefinition {
     std::string id, name{"A–A"};
@@ -50,6 +51,9 @@ std::vector<std::array<double,2>> section_path(const SectionDefinition&);
 std::vector<SectionFrame> section_frames(const SectionDefinition&);
 SectionFrame section_frame(const SectionDefinition&);
 void validate_hatch(const HatchStyle&);
+HatchStyle section_component_hatch(const SectionDefinition&, const std::string& component);
+// Display helpers only; no persistent topology or solid geometry is changed.
+zima::kernel::ViewerMesh section_display_mesh(SectionResult, const SectionDefinition&);
 std::string serialize_sections(const std::vector<SectionDefinition>&);
 std::vector<SectionDefinition> parse_sections(const std::string&);
 SectionResult calculate_section(const zima::kernel::ViewerMesh&, const SectionDefinition&);

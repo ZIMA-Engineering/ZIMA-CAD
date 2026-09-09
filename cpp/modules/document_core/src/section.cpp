@@ -334,4 +334,24 @@ std::vector<zima::kernel::ViewerEdge> section_hatch_lines(const SectionPatch& pa
         }
     }return output;
 }
+HatchStyle section_component_hatch(const SectionDefinition& section,const std::string& component){
+    const auto setting=section.components.find(component);
+    if(setting!=section.components.end()&&setting->second.custom_hatch)return setting->second.hatch;
+    HatchStyle style;const auto named=section.component_names.find(component);
+    if(named!=section.component_names.end())style.angle+=(std::distance(section.component_names.begin(),named)%2)*90;
+    return style;
+}
+zima::kernel::ViewerMesh section_display_mesh(SectionResult cut,const SectionDefinition& section){
+    for(const auto& patch:cut.patches){
+        const auto setting=section.components.find(patch.component);
+        if(setting!=section.components.end()&&setting->second.mode!=0)continue;
+        for(auto edge:section_hatch_lines(patch,patch.frame,section_component_hatch(section,patch.component),1)){
+            edge.color="#00C000";
+            // Move helpers just outside the cap to avoid depth-buffer fighting.
+            for(auto& p:edge.points){p.x+=patch.frame.normal.x*1e-5;p.y+=patch.frame.normal.y*1e-5;p.z+=patch.frame.normal.z*1e-5;}
+            cut.mesh.edges.push_back(std::move(edge));
+        }
+    }
+    return std::move(cut.mesh);
+}
 } // namespace zima::document

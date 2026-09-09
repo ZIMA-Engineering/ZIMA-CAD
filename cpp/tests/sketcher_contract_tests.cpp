@@ -35,6 +35,70 @@ int main() {
             require(sketch.solve().maximum_residual<1e-7,"Saved drag fixture violated its constraints");
             std::cout<<"Saved 02 Sketch locked-height drag passed\n";
         }
+        {
+        // Two arc-ended sides share a straight arm. Editing the radius on
+        // one side must keep the other side's tangent without pulling the
+        // arm endpoint off its own supporting arc (02.prtz, R15.050).
+        const auto verify_supported_tangent_radius=[&](const zima::sketcher::Sketch& fixture) {
+            const auto radius=std::ranges::find_if(fixture.dimensions,[](const auto& dimension){return dimension.kind==DimensionKind::Radius;});
+            require(radius!=fixture.dimensions.end(),"Radius fixture has no radial dimension");
+            for(double value:{12.,15.,20.,30.}) {
+                auto edited=fixture;
+                require(edited.set_dimension_value(radius->id,value),"Connected tangent arm rejected a feasible radius edit");
+                const auto solved=edited.solve();
+                require(solved.status!=zima::sketcher::SolveStatus::Conflicting&&solved.status!=zima::sketcher::SolveStatus::Invalid&&solved.maximum_residual<1e-7,"Radius edit left inconsistent tangent geometry");
+                const auto arc=std::ranges::find_if(edited.arcs,[&](const auto& a){return a.id==radius->geometry_id;});
+                require(arc!=edited.arcs.end()&&std::abs(arc->radius-value)<1e-7,"Radius edit lost its driving value");
+                require(edited.constraints==fixture.constraints&&edited.points.size()==fixture.points.size(),"Radius edit changed constraint or point ownership");
+                for(const auto& curve:edited.arcs)for(const auto& id:{curve.start_point_id,curve.end_point_id}){
+                    const auto* p=edited.find_point(id);const auto* c=edited.find_point(curve.center_point_id);
+                    require(std::abs(std::hypot(p->x-c->x,p->y-c->y)-curve.radius)<1e-7,"Tangent correction pulled an endpoint off its arc");
+                }
+                for(const auto& circle:edited.circles)require(std::abs(circle.radius-10.)<1e-7,"Outer arc edit changed the equal diameter holes");
+                require(zima::sketcher::Sketch::from_serialized(edited.serialized()).solve().maximum_residual<1e-7,"Radius edit did not survive persistence");
+            }
+        };
+        auto radius_fixture=zima::sketcher::Sketch::create_default();
+        constexpr double outer_radius=15.04983596030217,center_spacing=57.20124435424805;
+        const auto left_circle=radius_fixture.add_circle(0,0,10),right_circle=radius_fixture.add_circle(center_spacing,0,10);
+        const auto right_arc=radius_fixture.add_arc(center_spacing,0,center_spacing,-outer_radius,center_spacing,outer_radius);
+        const auto left_arc=radius_fixture.add_arc(0,0,0,outer_radius,0,-outer_radius);
+        static_cast<void>(radius_fixture.add_segment(0,-outer_radius,center_spacing,-outer_radius));
+        const auto top_arm=radius_fixture.add_segment(0,outer_radius,center_spacing,outer_radius);
+        static_cast<void>(radius_fixture.add_point_reference_constraint(radius_fixture.circles[0].center_point_id,"sketch_origin"));
+        static_cast<void>(radius_fixture.add_point_on_line_constraint(radius_fixture.circles[1].center_point_id,"sketch_axis:x"));
+        static_cast<void>(radius_fixture.add_equal_radius_constraint(left_circle,right_circle));
+        static_cast<void>(radius_fixture.add_tangent_constraint(left_arc,top_arm));
+        radius_fixture.apply_dimension(radius_fixture.create_circle_diameter_dimension(left_circle));
+        radius_fixture.apply_dimension(radius_fixture.create_arc_radius_dimension(right_arc));
+        verify_supported_tangent_radius(radius_fixture);
+        auto implicit_contact=radius_fixture;
+        for(auto& constraint:implicit_contact.constraints)if(constraint.kind==zima::sketcher::ConstraintKind::Tangent){constraint.first_point_id.clear();std::swap(constraint.geometry_id,constraint.second_geometry_id);}
+        verify_supported_tangent_radius(implicit_contact);
+        auto locked_radius_fixture=radius_fixture;locked_radius_fixture.dimensions.back().locked=true;
+        verify_supported_tangent_radius(locked_radius_fixture);
+        auto rotated_radius_fixture=radius_fixture;
+        for(auto& point:rotated_radius_fixture.points){const double x=point.x;point.x=-point.y;point.y=x;}
+        for(auto& arc:rotated_radius_fixture.arcs){arc.start_angle+=std::numbers::pi/2;arc.end_angle+=std::numbers::pi/2;}
+        for(auto& constraint:rotated_radius_fixture.constraints)if(constraint.geometry_id=="sketch_axis:x")constraint.geometry_id="sketch_axis:y";
+        verify_supported_tangent_radius(rotated_radius_fixture);
+        auto fixed_contact_fixture=radius_fixture;
+        const auto left=std::ranges::find_if(fixed_contact_fixture.arcs,[&](const auto& arc){return arc.id==left_arc;});
+        const auto contact_id=left->start_point_id;fixed_contact_fixture.find_point(contact_id)->fixed=true;
+        require(fixed_contact_fixture.set_dimension_value(fixed_contact_fixture.dimensions.back().id,20.),"Fixed tangent contact prevented a feasible line-circle intersection");
+        const auto* contact=fixed_contact_fixture.find_point(contact_id);
+        require(std::abs(contact->x)<1e-7&&std::abs(contact->y-outer_radius)<1e-7&&fixed_contact_fixture.solve().maximum_residual<1e-7,"Radius edit moved the fixed tangent contact");
+        const auto fixed_before=fixed_contact_fixture.serialized();
+        require(!fixed_contact_fixture.set_dimension_value(fixed_contact_fixture.dimensions.back().id,12.)&&fixed_contact_fixture.serialized()==fixed_before,"Infeasible tangent radius edit was not rejected atomically");
+        auto equal_outer_radii=radius_fixture;
+        static_cast<void>(equal_outer_radii.add_equal_radius_constraint(right_arc,left_arc));
+        verify_supported_tangent_radius(equal_outer_radii);
+        if(const auto* fixture=std::getenv("ZIMA_VERIFY_RADIUS_SKETCH")) {
+            std::ifstream input(fixture);const std::string data{std::istreambuf_iterator<char>(input),{}};
+            verify_supported_tangent_radius(zima::sketcher::Sketch::from_serialized(data));
+            std::cout<<"Saved R15.050 Sketch radius edits passed\n";
+        }
+        }
         std::set<std::string> generated_ids;
         for (int index = 0; index < 1024; ++index) {
             generated_ids.insert(
@@ -1135,6 +1199,70 @@ int main() {
                     stress_result.maximum_residual < 1.0e-7 &&
                     stress_elapsed < std::chrono::seconds(2),
                 "Solver stress matrix was slow, inaccurate, or reported wrong DOF");
+        // All native Sketch curve types share the construction presentation contract.
+        auto auxiliary_curves = zima::sketcher::Sketch::create_default();
+        const std::vector<std::string> auxiliary_curve_ids{
+            auxiliary_curves.add_segment(0, 0, 10, 0),
+            auxiliary_curves.add_circle(20, 0, 4),
+            auxiliary_curves.add_arc(40, 0, 44, 0, 40, 4),
+            auxiliary_curves.add_ellipse(60, 0, 65, 0, 60, 3),
+            auxiliary_curves.add_elliptical_arc(80, 0, 85, 0, 80, 3, 85, 0, 80, 3),
+            auxiliary_curves.add_bspline({{100, 0}, {105, 7}, {110, -3}, {115, 0}})};
+        const auto auxiliary_curves_before = auxiliary_curves.serialized();
+        const auto auxiliary_edges_before = auxiliary_curves.viewer_mesh().edges;
+        for (const auto& curve_id : auxiliary_curve_ids)
+            auxiliary_curves.set_geometry_construction(curve_id, true);
+        const auto auxiliary_edges = zima::sketcher::Sketch::from_serialized(
+            auxiliary_curves.serialized()).viewer_mesh().edges;
+        require(auxiliary_edges.size() == auxiliary_curve_ids.size(),
+                "Construction conversion changed the number of sketch curves");
+        for (std::size_t i = 0; i < auxiliary_edges.size(); ++i) {
+            require(auxiliary_edges[i].construction && auxiliary_edges[i].dash_dot &&
+                        !auxiliary_edges[i].infinite &&
+                        auxiliary_edges[i].reference == auxiliary_edges_before[i].reference &&
+                        auxiliary_edges[i].points == auxiliary_edges_before[i].points,
+                    "Construction curve lost its finite shape, identity, or dash-dot style");
+        }
+        for (const auto& curve_id : auxiliary_curve_ids)
+            auxiliary_curves.set_geometry_construction(curve_id, false);
+        require(auxiliary_curves.serialized() == auxiliary_curves_before,
+                "Construction round-trip modified the original curve definitions");
+        auxiliary_curves.set_segment_centerline(auxiliary_curve_ids.front(), true);
+        require(auxiliary_curves.viewer_mesh().edges.front().infinite &&
+                    auxiliary_curves.viewer_mesh().edges.front().dash_dot,
+                "The separate infinite centerline contract was lost");
+        // Construction styling must preserve the circle's stable constraint graph.
+        auto auxiliary_circle = zima::sketcher::Sketch::create_default();
+        const auto auxiliary_circle_id = auxiliary_circle.add_circle(0.0, 0.0, 10.0);
+        auxiliary_circle.set_point_fixed(auxiliary_circle.circles.front().center_point_id, true);
+        const auto auxiliary_contact = auxiliary_circle.add_point(10.0, 0.0);
+        static_cast<void>(auxiliary_circle.add_point_on_circle_constraint(
+            auxiliary_contact, auxiliary_circle_id));
+        auto auxiliary_radius = auxiliary_circle.create_circle_radius_dimension(auxiliary_circle_id);
+        auxiliary_radius.locked = true;
+        auxiliary_circle.apply_dimension(auxiliary_radius);
+        const auto auxiliary_dof = auxiliary_circle.solve().remaining_degrees_of_freedom;
+        const auto auxiliary_before = auxiliary_circle;
+        auxiliary_circle.set_geometry_construction(auxiliary_circle_id, true);
+        const auto auxiliary_mesh = auxiliary_circle.viewer_mesh();
+        require(auxiliary_circle.circles.front().construction &&
+                    auxiliary_circle.circles.front().id == auxiliary_circle_id &&
+                    auxiliary_circle.circles.front().radius == auxiliary_before.circles.front().radius &&
+                    auxiliary_circle.points == auxiliary_before.points &&
+                    auxiliary_circle.dimensions == auxiliary_before.dimensions &&
+                    auxiliary_circle.constraints == auxiliary_before.constraints &&
+                    auxiliary_mesh.edges.front().construction && auxiliary_mesh.edges.front().dash_dot,
+                "Construction circle styling changed its geometry, dimensions, or constraints");
+        auto auxiliary_loaded = zima::sketcher::Sketch::from_serialized(auxiliary_circle.serialized());
+        require(auxiliary_loaded.circles.front().construction &&
+                    auxiliary_loaded.solve().remaining_degrees_of_freedom == auxiliary_dof &&
+                    auxiliary_loaded.move_point(auxiliary_contact, 0.0, 10.0) &&
+                    std::abs(auxiliary_loaded.circles.front().radius - 10.0) < 1.0e-9 &&
+                    auxiliary_loaded.solve().maximum_residual < 1.0e-7,
+                "Construction circle lost its locked radius or point constraint after loading");
+        auxiliary_circle.set_geometry_construction(auxiliary_circle_id, false);
+        require(auxiliary_circle.serialized() == auxiliary_before.serialized(),
+                "Toggling circle construction did not restore the unchanged sketch");
         auto point_tools = zima::sketcher::Sketch::create_default();
         const auto standalone_point = point_tools.add_point(100.0, 100.0);
         const auto snapped_point = point_tools.add_point(100.0 + 1.0e-8, 100.0);
@@ -6019,6 +6147,53 @@ int main() {
                                 zima::sketcher::ConstraintKind::Tangent;
                         }) == 1,
                 "Trimming a tangent line did not retain one shared endpoint on the circle");
+
+        // Splitting both owners must retain a native endpoint T and the
+        // center's K/origin anchor, with their persisted constraint IDs.
+        for (const bool explicit_contact : {true, false}) {
+            auto split = zima::sketcher::Sketch::create_default();
+            const auto arc = split.add_arc(0,0,10,0,-10,0);
+            const auto center = split.arcs.front().center_point_id;
+            const auto contact = split.arcs.front().end_point_id;
+            const auto line = split.add_segment(-10,-10,-10,0);
+            const auto anchor = split.add_point_reference_constraint(center,"sketch_origin");
+            const auto tangent = split.add_tangent_constraint(arc,line,contact);
+            if (!explicit_contact) {
+                auto t=std::ranges::find(split.constraints,tangent,&zima::sketcher::SketchConstraint::id);
+                t->first_point_id.clear();
+            }
+            static_cast<void>(split.add_segment(-5,0,-5,15));
+            static_cast<void>(split.add_segment(5,0,5,15));
+            static_cast<void>(split.add_segment(-12,-6,-8,-6));
+            static_cast<void>(split.add_segment(-12,-4,-8,-4));
+            const auto topology=zima::sketcher::sketch_trim_topology(split,false);
+            const auto arc_piece=zima::sketcher::nearest_sketch_trim_piece(topology,{0,10},.1);
+            const auto line_piece=zima::sketcher::nearest_sketch_trim_piece(topology,{-10,-5},.1);
+            require(arc_piece && line_piece && arc_piece->geometry_id==arc && line_piece->geometry_id==line,
+                "Native tangent split fixture has no middle trim pieces");
+            const auto original=split;
+            const auto mapping=zima::sketcher::apply_sketch_trim(split,{*arc_piece,*line_piece});
+            const auto t=std::ranges::find(split.constraints,tangent,&zima::sketcher::SketchConstraint::id);
+            require(mapping.geometry_mapping.at(arc).size()==2 && mapping.geometry_mapping.at(line).size()==2 &&
+                t!=split.constraints.end() &&
+                t->geometry_id==mapping.geometry_mapping.at(arc).back() &&
+                t->second_geometry_id==mapping.geometry_mapping.at(line).back() &&
+                std::ranges::find(split.constraints,anchor,&zima::sketcher::SketchConstraint::id)!=split.constraints.end() &&
+                split.find_point(contact) && split.find_point(center),
+                "Trim lost native tangent, stable point anchor or remapping of both split owners");
+            split.validate();
+            const auto solved=split.solve();
+            require(solved.status!=zima::sketcher::SolveStatus::Invalid && solved.status!=zima::sketcher::SolveStatus::Conflicting,
+                "Preserved native tangent constraints cannot be solved after trim");
+            require(zima::sketcher::Sketch::from_serialized(split.serialized()).constraints==split.constraints,
+                "Trim relations did not survive save/reload");
+            auto remove_contact=original;
+            const auto end_piece=zima::sketcher::nearest_sketch_trim_piece(topology,{-8,6},.1);
+            require(end_piece && end_piece->geometry_id==arc,"Missing contact-removal trim fixture");
+            static_cast<void>(zima::sketcher::apply_sketch_trim(remove_contact,{*end_piece}));
+            require(std::ranges::find(remove_contact.constraints,tangent,&zima::sketcher::SketchConstraint::id)==remove_contact.constraints.end(),
+                "Trim retained tangent after its actual arc contact disappeared");
+        }
 
         auto tangent_bridge_trim = zima::sketcher::Sketch::create_default();
         const auto left_bridge_circle =

@@ -556,3 +556,54 @@ pevné referenci nebo ose určuje zamčená vodorovná/svislá vzdálenost. Zam�
 Totéž platí pro souřadnicové kóty X/Y, záporné souřadnice a přenos přes vazby
 H/V a koincidenci. Odemčené řídicí kóty se přizpůsobují výsledku tažení;
 zamčené hodnoty zůstávají pevné. Úplně zamčený bod se neposune.
+
+## Konstrukční geometrie
+
+Úsečky, kružnice, kruhové i eliptické oblouky, elipsy a B-spline lze přes
+kontextové menu ve View i stromu přepnout příkazem **Převést na pomocnou
+geometrii** a vrátit příkazem **Převést na obrys profilu**. Všechny pomocné
+křivky se zobrazují čerchovaně, také při hoveru a potvrzeném výběru.
+
+Přepnutí zachovává identitu, řídicí body, rozměry, rozsah i uložené vazby
+nebo kóty; mění roli geometrie. Pomocná geometrie se nepoužívá jako profil
+pro vytvoření tělesa. Úsečka zůstane konečná a oblouk si ponechá své konce.
+Nekonečná osa je samostatná možnost: čerchování z úsečky osu neudělá.
+
+### Textové šablony a kóty ve vlastnostech (2026-09-09)
+
+Přepínač **Převrátit vodorovně** popisuje viditelné zrcadlení v aktuálních
+souřadnicích skici. Normální text v razítku či rámečku jej má vypnutý stejně
+jako text běžné skici. Uložená orientace a kontury existujících šablon se
+nemění; odlišný směr os šablony se převádí pouze při čtení a potvrzení dialogu.
+
+Přímá změna kóty dvojklikem ve Sketcheru upravuje aktuální pracovní skicu,
+včetně profilu a dráhy 2D tažení, šroubovice, Sweep/Loftu a skici řezu.
+Zámek kóty nadále chrání tažení geometrie; úmyslná změna číselné hodnoty
+zůstává možná. Výpočet solidu patří až potvrzení celého kontejneru.
+Vlastnosti kontejneru zobrazují i kóty jeho vlastních skic. Dvojklik na kótu
+umožňuje změnit její hodnotu přímo při otevřených vlastnostech Skici,
+Vytažení, Rotace, 2D tažení, šroubovice a Sweep/Loftu. Náhled používá
+rozpracovanou skicu, včetně opakovaných změn a návratu přes tlačítko Skica.
+**OK** potvrdí celý kontejner a provede jeho výpočet; **Zrušit** rozpracované
+změny zahodí. Kóty uložených profilů a drah jsou dostupné také při zobrazení
+parametrů kontejneru ve View.
+
+Při změně poloměru oblouku solver respektuje i tečnou úsečku, jejíž druhý
+konec patří dalšímu oblouku. Tečný bod se může posunout po své kružnici;
+při jeho fixaci se hledá průsečík tečny s kružnicí protějšího oblouku.
+Konce zůstávají na svých obloucích, uložené vazby se nemění a neřešitelná
+změna se odmítne bez zásahu do původní skici. Zamčená kóta nadále dovoluje
+úmyslnou číselnou editaci.
+
+### Okamžitý náhled ořezu a vazby (2026-09-09)
+
+Každé kliknutí nebo dokončené tažení nástroje Ořez se projeví ihned ve View
+u samostatné skici, rozpracovaného profilu, šablony i vnořeného dílu.
+Vykreslení a výběr používají tutéž rozpracovanou geometrii. Escape vrátí stav
+před příkazem; dokončení skici zahrnuje i právě rozpracovaný ořez.
+
+Ořez přenáší tečnost na část křivky, která obsahuje původní bod kontaktu,
+i když se v jednom tahu rozdělí oba její vlastníci. Zachované koncové body
+a středy si ponechávají svá ID a bodové vazby. Pokud se kontakt ořízne pryč,
+příslušná tečnost zanikne. Spojení, které nově představuje jeden společný
+koncový bod, zůstává v topologii bez duplicitní rovnice incidence.

@@ -64,7 +64,7 @@ target_link_libraries(zima_assembly
     PRIVATE nlohmann_json::nlohmann_json)
 
 add_library(zima_drawing modules/drawing/src/drawing_document.cpp
-    modules/drawing/src/drawing_template.cpp)
+    modules/drawing/src/drawing_template.cpp modules/drawing/src/drawing_section_trace.cpp)
 target_include_directories(zima_drawing PUBLIC modules/drawing/include)
 target_link_libraries(zima_drawing
     PUBLIC zima_kernel_api zima_document_core
@@ -149,6 +149,7 @@ if(MSVC)
     target_compile_options(zima-cad-cpp PRIVATE /bigobj)
 endif()
 if(WIN32)
+    set_target_properties(zima-cad-cpp PROPERTIES WIN32_EXECUTABLE TRUE)
     target_sources(zima-cad-cpp PRIVATE app/windows/zima-cad.rc)
 endif()
 if(WIN32 AND TARGET Qt6::QWindowsIntegrationPlugin)

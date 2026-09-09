@@ -55,6 +55,8 @@ public:
     void set_reference_geometry(
         zima::kernel::ViewerReferenceGeometry geometry);
     void set_preview_callback(PreviewCallback callback);
+    bool mutate_sketch(const std::string& id,
+        const std::function<void(zima::sketcher::Sketch&)>& mutation);
     [[nodiscard]] auto pending_value() const { return current_values(); }
     [[nodiscard]] std::vector<zima::document::ConstructionReference>
         highlighted_reference_entries() const;

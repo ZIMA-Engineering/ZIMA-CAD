@@ -13,6 +13,32 @@ will remain a separately built, dynamically linked solid-modeling kernel behind
 a narrow adapter. The approved direction, module boundaries and migration gates
 are documented in [Future C++ migration](doc/CXX_MIGRATION.md).
 
+## Dokončené opravy skic a výkresů (2026-09-09)
+
+Kóty vlastních skic lze měnit přímo v otevřených vlastnostech Skici,
+Vytažení, Rotace a tažení. Rozpracované změny zachovává návrat ze skicáře;
+OK je potvrdí a Zrušit zahodí. Ořez používá okamžitý společný náhled ve všech
+hostitelích skicáře a přenáší tečnost i vazby zachovaných bodů. Solver řeší
+změnu poloměru oblouku s tečnou úsečkou připojenou k dalšímu oblouku.
+Podrobnosti: [Sketcher](doc/SKETCHER.md).
+
+Výkresové pohledy zachovávají vlastní orientaci při výběru řezu. Označení
+řezů, jejich stopy a manipulační body mají společná pravidla zobrazení;
+parametry šrafování jsou sdílené se zdrojovým modelem. Hodnoty razítka a
+kusovníku používají parametry příslušného dílu či sestavy a jejich pořadí.
+Podrobnosti: [výkresy](doc/DRAWINGS.md) a [řezy](doc/SECTIONS.md).
+Spuštění Windows aplikace přes přímého zástupce neotevírá konzoli.
+
+## Další návrh pro Drawing: Show/Erase (2026-09-09)
+
+Připravit filtr původních kót, os a pomocné geometrie zdrojového modelu.
+Viditelnost a přesunuté polohy ukládat odděleně pro každý pohled. První verze
+bez změn rozměrů modelu, ruční kótování jako samostatný krok. Manipulační body
+kót doplnit u textu a konců šipek. Pracovní vodítka budou šedá a čárkovaná,
+s nastavitelným prvním odsazením a roztečí, bez tisku do PDF.
+Podrobnosti a hranice: [návrh Show/Erase](doc/DRAWING_SHOW_ERASE.md).
+Tento odstavec je návrh další práce, nikoli tvrzení o hotové implementaci.
+
 ## Řezy přes umístěný kontejner a Sketcher (2026-09-09)
 
 Skupina Řezy je hned za počátkem dokumentu a obsahuje nesmazatelný stav

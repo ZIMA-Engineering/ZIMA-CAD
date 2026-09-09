@@ -730,6 +730,7 @@ SketchTrimResult apply_sketch_trim(
     }
 
     auto next = sketch;
+    std::map<std::string, std::vector<std::array<double, 2>>> survivor_domains;
     for (const auto& [geometry_id, removed_intervals] : removed_by_id) {
         const auto& curve = *curve_by_id.at(geometry_id);
         std::vector<std::array<double, 2>> domains{{0.0, 1.0}};
@@ -770,19 +771,6 @@ SketchTrimResult apply_sketch_trim(
         }
 
         std::vector<ConstraintKind> reusable_segment_constraints;
-        std::vector<SketchConstraint> reusable_contact_constraints;
-        for (const auto& constraint : sketch.constraints) {
-            if (constraint.suppressed) continue;
-            const bool references_curve =
-                constraint.geometry_id == geometry_id ||
-                constraint.second_geometry_id == geometry_id;
-            if (references_curve &&
-                (constraint.kind == ConstraintKind::PointOnCircle ||
-                 constraint.kind == ConstraintKind::PointOnLine ||
-                 constraint.kind == ConstraintKind::Tangent)) {
-                reusable_contact_constraints.push_back(constraint);
-            }
-        }
         if (curve.kind == SampledKind::Segment) {
             for (const auto& constraint : next.constraints) {
                 if (!constraint.suppressed && constraint.geometry_id == geometry_id &&
@@ -995,81 +983,75 @@ SketchTrimResult apply_sketch_trim(
                 static_cast<void>(next.add_segment_constraint(generated_id, kind));
             }
         }
-        const auto survivor_for_parameter = [&](double parameter)
-                -> std::optional<std::string> {
-            for (std::size_t index = 0;
-                 index < domains.size() && index < generated.size(); ++index) {
-                for (const double candidate :
-                     {parameter, parameter + 1.0, parameter - 1.0}) {
-                    if (candidate >= domains[index][0] - 1.0e-6 &&
-                        candidate <= domains[index][1] + 1.0e-6) {
-                        return generated[index];
-                    }
-                }
-            }
-            return std::nullopt;
+        survivor_domains.emplace(geometry_id, domains);
+        result.geometry_mapping.emplace(geometry_id, std::move(generated));
+    }
+    // Restore relations only after all curves have been rebuilt. A gesture
+    // can split both owners of one tangent; restoring per curve loses the
+    // first owner's remapping when the second owner is removed.
+    for (auto constraint : sketch.constraints) {
+        const bool trimmed = removed_by_id.contains(constraint.geometry_id) ||
+            removed_by_id.contains(constraint.second_geometry_id);
+        const bool contact = constraint.kind == ConstraintKind::PointOnCircle ||
+            constraint.kind == ConstraintKind::PointOnLine || constraint.kind == ConstraintKind::Tangent;
+        const bool shape_relation = constraint.kind == ConstraintKind::EqualRadius ||
+            constraint.kind == ConstraintKind::Concentric || constraint.kind == ConstraintKind::Parallel ||
+            constraint.kind == ConstraintKind::Perpendicular;
+        if (trimmed && !contact && !shape_relation) continue;
+        // Point constraints (including the origin anchor) may have been
+        // pruned with a temporarily removed endpoint/center. Restore them
+        // only when that exact persisted point survived reconstruction.
+        const auto point_survives = [&](const std::string& id) {
+            return id.empty() || !sketch.find_point(id) || next.find_point(id);
         };
-        const auto contact_parameter_for_constraint =
-            [&](const SketchConstraint& constraint) -> std::optional<double> {
-                std::string point_id;
-                if (constraint.kind == ConstraintKind::PointOnCircle ||
-                    constraint.kind == ConstraintKind::PointOnLine) {
-                    point_id = constraint.first_point_id;
-                } else if (constraint.kind == ConstraintKind::Tangent) {
-                    const std::string other_geometry =
-                        constraint.geometry_id == geometry_id
-                        ? constraint.second_geometry_id
-                        : constraint.geometry_id;
-                    const auto segment = std::find_if(sketch.segments.begin(),
-                        sketch.segments.end(), [&](const auto& value) {
-                            return value.id == other_geometry;
-                        });
-                    if (segment != sketch.segments.end()) {
-                        const auto owns_contact = [&](const auto& contact) {
-                            return contact.geometry_id == geometry_id &&
-                                (contact.point_id == segment->first_point_id ||
-                                 contact.point_id == segment->second_point_id);
-                        };
-                        if (const auto contact = std::find_if(
-                                persisted_contacts.begin(),
-                                persisted_contacts.end(), owns_contact);
-                            contact != persisted_contacts.end()) {
-                            return contact->parameter;
+        bool valid = point_survives(constraint.first_point_id) &&
+            point_survives(constraint.second_point_id);
+        const auto remap = [&](std::string& id, const std::string& other_id) {
+            if (!removed_by_id.contains(id)) return true;
+            const auto& generated = result.geometry_mapping.at(id);
+            const auto& domains = survivor_domains.at(id);
+            if (generated.empty()) return false;
+            const auto& curve = *curve_by_id.at(id);
+            const SketchPoint* point = sketch.find_point(constraint.first_point_id);
+            if (constraint.kind == ConstraintKind::Tangent && !point) {
+                // Native shared endpoints do not need a separate C/K row.
+                for (const auto& candidate : sketch.points) {
+                    if (geometry_owns_point(sketch, id, candidate.id) &&
+                        geometry_owns_point(sketch, other_id, candidate.id)) {
+                        const auto parameter = persisted_contact_parameter(sketch, curve, candidate);
+                        const auto on_curve = exact_geometry_point(sketch, curve, parameter);
+                        if (std::hypot(candidate.x-on_curve[0], candidate.y-on_curve[1]) < 1.0e-6) {
+                            point = &candidate; break;
                         }
                     }
                 }
-                if (!point_id.empty()) {
-                    if (const auto contact = std::find_if(
-                            persisted_contacts.begin(), persisted_contacts.end(),
-                            [&](const auto& value) {
-                                return value.geometry_id == geometry_id &&
-                                    value.point_id == point_id;
-                            }); contact != persisted_contacts.end()) {
-                        return contact->parameter;
+                if (!point) for (const auto& persisted : persisted_contacts) {
+                    if (persisted.geometry_id == id && geometry_owns_point(sketch, other_id, persisted.point_id)) {
+                        point = sketch.find_point(persisted.point_id); break;
                     }
                 }
-                return std::nullopt;
-            };
-        for (auto constraint : reusable_contact_constraints) {
-            const auto parameter = contact_parameter_for_constraint(constraint);
-            const auto survivor = parameter
-                ? survivor_for_parameter(*parameter)
-                : generated.size() == 1
-                    ? std::optional<std::string>{generated.front()}
-                    : std::nullopt;
-            if (!survivor) continue;
-            if (constraint.geometry_id == geometry_id) {
-                constraint.geometry_id = *survivor;
             }
-            if (constraint.second_geometry_id == geometry_id) {
-                constraint.second_geometry_id = *survivor;
+            if (contact && point) {
+                const auto parameter = persisted_contact_parameter(sketch, curve, *point);
+                for (std::size_t i=0; i<domains.size(); ++i) {
+                    for (double candidate : {parameter, parameter+1.0, parameter-1.0}) {
+                        if (!curve.closed && candidate != parameter) continue;
+                        if (candidate >= domains[i][0]-1.0e-6 && candidate <= domains[i][1]+1.0e-6) {
+                            id=generated[i]; return true;
+                        }
+                    }
+                }
+                return false;
             }
-            if (std::none_of(next.constraints.begin(), next.constraints.end(),
-                    [&](const auto& value) { return value.id == constraint.id; })) {
-                next.constraints.push_back(std::move(constraint));
-            }
-        }
-        result.geometry_mapping.emplace(geometry_id, std::move(generated));
+            if (generated.size()!=1 && !shape_relation) return false;
+            id=generated.front(); return true;
+        };
+        const auto first_owner = constraint.geometry_id;
+        const auto second_owner = constraint.second_geometry_id;
+        valid = valid && remap(constraint.geometry_id, second_owner) &&
+            remap(constraint.second_geometry_id, first_owner);
+        std::erase_if(next.constraints, [&](const auto& value) { return value.id==constraint.id; });
+        if (valid) next.constraints.push_back(std::move(constraint));
     }
     // A restored contact becomes pure topology when the reconstructed
     // survivor owns that exact point as an endpoint/control point. Keep the

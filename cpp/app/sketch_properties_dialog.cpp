@@ -189,6 +189,16 @@ void SketchPropertiesDialog::set_reference_geometry(
     refresh_resolved_placement();
 }
 
+bool SketchPropertiesDialog::mutate_sketch(const std::string& id,
+    const std::function<void(zima::sketcher::Sketch&)>& mutation) {
+    if (initial_.id != id) return false;
+    auto next = initial_;
+    mutation(next); next.validate();
+    initial_ = std::move(next);
+    notify_preview();
+    return true;
+}
+
 void SketchPropertiesDialog::set_preview_callback(PreviewCallback callback) {
     preview_ = std::move(callback);
     notify_preview();

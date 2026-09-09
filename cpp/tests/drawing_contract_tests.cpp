@@ -236,6 +236,17 @@ Data={"points":{"a":{"x":-10,"y":-5},"b":{"x":-20,"y":-5}},"geometry":{"line":{"
         require(std::abs(first_angle.depth.x - 1.0) < 1e-9 &&
                     std::abs(third_angle.depth.x + 1.0) < 1e-9,
                 "First-/third-angle projected cameras did not reverse the view direction");
+        const auto dot=[](auto a,auto b){return a.x*b.x+a.y*b.y+a.z*b.z;};
+        const auto close=[](auto a,auto b){return std::abs(a.x-b.x)+std::abs(a.y-b.y)+std::abs(a.z-b.z)<1e-9;};
+        for(const auto orientation:{zima::drawing::ViewOrientation::Front,zima::drawing::ViewOrientation::Top,zima::drawing::ViewOrientation::Isometric}){
+            const auto base=zima::drawing::standard_camera(orientation);
+            for(const auto direction:{zima::drawing::ProjectionDirection::Right,zima::drawing::ProjectionDirection::Left,zima::drawing::ProjectionDirection::Top,zima::drawing::ProjectionDirection::Bottom}){
+                auto camera=zima::drawing::projected_camera(base,direction,zima::drawing::ProjectionMethod::ThirdAngle);
+                require(std::abs(dot(base.depth,camera.depth))<1e-9&&std::abs(dot(base.horizontal,camera.horizontal)+dot(base.vertical,camera.vertical)+dot(base.depth,camera.depth)-1)<1e-9,"Relative camera rotation is not a rigid quarter turn");
+                for(int i=1;i<4;++i)camera=zima::drawing::projected_camera(camera,direction,zima::drawing::ProjectionMethod::ThirdAngle);
+                require(close(camera.horizontal,base.horizontal)&&close(camera.vertical,base.vertical)&&close(camera.depth,base.depth),"Four quarter turns failed to restore the complete camera");
+            }
+        }
         view.value_locks={"x","scale"};
         const std::string view_id = view.id;
         drawing.sheets.front().views.push_back(std::move(view));

@@ -387,22 +387,47 @@ void refresh_view_geometry(DrawingView& view,const zima::kernel::ViewerMesh& sou
     }
     if(!view.section_snapshot || view.section_snapshot->id!=view.section_id)throw std::runtime_error("Zdrojový řez není dostupný. Vyberte platný řez.");
     auto section=*view.section_snapshot;
-    for(const auto& [key,setting]:view.section_components)section.components[key]=setting;
-    const auto frame=zima::document::section_frame(section);
-    if(view.align_section && view.parent_view_id.empty())view.camera={frame.horizontal,frame.vertical,frame.normal};
+    // The view owns its camera and retained side. Start from a canonical side
+    // so repeated refreshes and edits to the Part's display cannot toggle it.
+    section.reversed=false;
     auto cut=zima::document::calculate_section(source,section);
+    const auto dot=[](auto a,auto b){return a.x*b.x+a.y*b.y+a.z*b.z;};
+    double facing=0,area=0,dominant=0;
+    for(const auto& patch:cut.patches){
+        double patch_area=0;
+        for(const auto& t:patch.triangles){
+            const zima::kernel::Vec3 a{t[1].x-t[0].x,t[1].y-t[0].y,t[1].z-t[0].z};
+            const zima::kernel::Vec3 b{t[2].x-t[0].x,t[2].y-t[0].y,t[2].z-t[0].z};
+            patch_area+=std::hypot(a.y*b.z-a.z*b.y,a.z*b.x-a.x*b.z,a.x*b.y-a.y*b.x)/2;
+        }
+        const double projected=patch_area*dot(patch.frame.normal,view.camera.depth);
+        facing+=projected;area+=patch_area;
+        if(std::abs(projected)>std::abs(dominant))dominant=projected;
+    }
+    // At a balanced bend use the dominant patch. If no material intersects
+    // the cut, use its plane direction; no artificial hatch face is created.
+    if(area==0){
+        for(const auto& frame:zima::document::section_frames(section)){
+            const double projected=dot(frame.normal,view.camera.depth);
+            if(std::abs(projected)>std::abs(dominant))dominant=projected;
+        }
+        area=1;
+    }
+    const double epsilon=area*1e-9;
+    if(std::abs(facing)<=epsilon)facing=dominant;
+    section.reversed=facing < -epsilon;
+    if(section.reversed)cut=zima::document::calculate_section(source,section);
+    view.section_display_reversed=section.reversed;
     view.projected_edges=detail::project_drawing_edges(cut.mesh,view.camera,true,true);view.projected_triangles=project_triangles(cut.mesh,view.camera);
-    if(!view.hatching)return;
-    std::map<std::string,std::size_t> component_indices;
     for(const auto& patch:cut.patches){
         const auto& frame=patch.frame;
-        auto style=view.hatch_style;const auto setting=section.components.find(patch.component);
-        if(setting!=section.components.end() && setting->second.mode!=0)continue;
-        if(setting!=section.components.end() && setting->second.custom_hatch)style=setting->second.hatch;
-        else {const auto [it,added]=component_indices.try_emplace(patch.component,component_indices.size());style.angle+=(it->second%2)*90;}
+        // A cut cap is an outward material face. Occlusion alone can leave
+        // numerical fragments on a back-facing cap in oblique projections.
+        if(dot(frame.normal,view.camera.depth)<=1e-9)continue;
+        if(view.hidden_hatch_components.contains(patch.component))continue;
+        auto style=zima::document::section_component_hatch(section,patch.component);
         // Angles and spacing are measured on paper, including an oblique view.
         // Plane-axis hatching is used only when the section is edge-on.
-        const auto dot=[](const auto& a,const auto& b){return a.x*b.x+a.y*b.y+a.z*b.z;};
         const auto h=view.camera.horizontal,v=view.camera.vertical;
         const double a=dot(frame.horizontal,h),b=dot(frame.vertical,h),c=dot(frame.horizontal,v),d=dot(frame.vertical,v),det=a*d-b*c;
         if(std::abs(det)<1e-9)continue;
@@ -545,7 +570,7 @@ void DrawingDocument::save(const std::filesystem::path& path,
         for(const auto& row:sheet.bom_rows) serialized["bom_rows"].push_back({
             {"item_number",row.item_number},{"quantity",row.quantity},{"name",row.name},
             {"designation",row.designation},{"material",row.material},{"file_stem",row.file_stem},
-            {"parameters",row.parameters},{"parameter_values",row.parameter_values},{"parameter_aliases",row.parameter_aliases},{"mass_unit",row.mass_unit}});
+            {"parameters",row.parameters},{"parameter_values",row.parameter_values},{"parameter_aliases",row.parameter_aliases},{"mass_unit",row.mass_unit},{"source_document_id",row.source_document_id},{"source_path",row.source_path.generic_string()}});
         const auto circles_json=[](const auto& circles){nlohmann::json values=nlohmann::json::array();for(const auto& c:circles)values.push_back({{"center",{c.center.x,c.center.y}},{"radius",c.radius},{"pen",static_cast<int>(c.pen)}});return values;};
         serialized["frame_circles"]=circles_json(sheet.frame_circles);serialized["title_block_circles"]=circles_json(sheet.title_block_circles);
         serialized["title_block_images"]=sheet.title_block_images;
@@ -577,14 +602,19 @@ void DrawingDocument::save(const std::filesystem::path& path,
                 {"tangent_edge_style",static_cast<int>(view.tangent_edge_style)},
                 {"use_sheet_scale", view.use_sheet_scale}, {"show_caption", view.show_caption},
                 {"x", view.x}, {"y", view.y}, {"scale", view.scale}, {"value_locks",view.value_locks}};
+            for(const auto& [id,offsets]:view.section_marker_offsets)for(double offset:offsets)if(!std::isfinite(offset))throw std::runtime_error("Invalid section marker offset");
+            item["section_marker_offsets"]=view.section_marker_offsets;
+            item["section_markers"]=nlohmann::json::parse(zima::document::serialize_sections(view.section_markers));
+            item["show_section_label"]=view.show_section_label;
+            item["caption_position"]=view.caption_position?nlohmann::json::array({view.caption_position->x,view.caption_position->y}):nlohmann::json(nullptr);
+            item["section_label_position"]=view.section_label_position?nlohmann::json::array({view.section_label_position->x,view.section_label_position->y}):nlohmann::json(nullptr);
             item["section_id"]=view.section_id;item["section_parent_id"]=view.section_parent_id;
-            item["align_section"]=view.align_section;item["hatching"]=view.hatching;
-            zima::document::validate_hatch(view.hatch_style);
-            item["hatch_style"]={view.hatch_style.angle,view.hatch_style.spacing_mm,view.hatch_style.offset_mm,view.hatch_style.pattern};
+            item["section_display_reversed"]=view.section_display_reversed;
+            item["hidden_hatch_components"]=view.hidden_hatch_components;
             auto stored_section=view.section_snapshot;
             if(stored_section){item["section_body_owners"]=stored_section->body_owners;item["section_component_names"]=stored_section->component_names;item["section_snapshot"]=nlohmann::json::parse(zima::document::serialize_sections({*stored_section}));}
             else item["section_snapshot"]=nlohmann::json::array();
-            auto overrides=nlohmann::json::object();for(const auto& [key,c]:view.section_components)overrides[key]={{"mode",c.mode},{"custom",c.custom_hatch},{"hatch",{c.hatch.angle,c.hatch.spacing_mm,c.hatch.offset_mm,c.hatch.pattern}}};item["section_overrides"]=overrides;
+
             item["projected_edges"] = nlohmann::json::array();
             for (const auto& edge : view.projected_edges) {
                 nlohmann::json edge_json{{"source", edge_reference_json(edge.source)},
@@ -705,7 +735,7 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
         for(const auto& item:serialized.at("bom_rows")) sheet.bom_rows.push_back({
             item.at("item_number"),item.at("quantity"),item.at("name"),item.at("designation"),item.at("material"),
             item.value("file_stem",std::string{}),item.value("parameters",std::map<std::string,std::string>{}),
-            item.value("parameter_values",std::map<std::string,std::map<std::string,std::string>>{}),item.value("parameter_aliases",std::map<std::string,std::string>{}),item.value("mass_unit","kg")});
+            item.value("parameter_values",std::map<std::string,std::map<std::string,std::string>>{}),item.value("parameter_aliases",std::map<std::string,std::string>{}),item.value("mass_unit","kg"),item.value("source_document_id",std::string{}),item.value("source_path",std::string{})});
         const auto parse_circles=[](const auto& values){std::vector<TemplateCircle> result;for(const auto& c:values)result.push_back({{c.at("center").at(0),c.at("center").at(1)},c.at("radius"),static_cast<DrawingPen>(c.at("pen").template get<int>())});return result;};
         sheet.frame_circles=parse_circles(serialized.value("frame_circles",nlohmann::json::array()));sheet.title_block_circles=parse_circles(serialized.value("title_block_circles",nlohmann::json::array()));
         sheet.title_block_images=serialized.value("title_block_images",std::vector<zima::sketcher::TemplateImage>{});
@@ -734,16 +764,25 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
             view.hidden_edge_style=item.value("hidden_edge_style","dashed")=="gray"?HiddenEdgeStyle::Gray:HiddenEdgeStyle::Dashed;
             view.use_sheet_scale = item.value("use_sheet_scale", true);
             view.show_caption = item.value("show_caption", false);
+            view.section_marker_offsets=item.value("section_marker_offsets",std::map<std::string,std::array<double,2>>{});
+            for(const auto& [id,offsets]:view.section_marker_offsets)for(double offset:offsets)if(!std::isfinite(offset))throw std::runtime_error("Invalid section marker offset");
+            view.section_markers=zima::document::parse_sections(item.value("section_markers",nlohmann::json::array()).dump());
+            view.show_section_label=item.value("show_section_label",true);
+            const auto label_position=[&](const char* key)->std::optional<Point2>{
+                const auto it=item.find(key);if(it==item.end()||it->is_null())return {};
+                const Point2 p{it->at(0).get<double>(),it->at(1).get<double>()};
+                if(!std::isfinite(p.x)||!std::isfinite(p.y))throw std::runtime_error("Invalid view label position");return p;
+            };
+            view.caption_position=label_position("caption_position");view.section_label_position=label_position("section_label_position");
             view.x = item.at("x").get<double>(); view.y = item.at("y").get<double>();
             view.scale = item.at("scale").get<double>();
             view.value_locks=item.value("value_locks",std::set<std::string>{});
             view.section_id=item.value("section_id","");view.section_parent_id=item.value("section_parent_id","");
-            view.align_section=item.value("align_section",true);view.hatching=item.value("hatching",true);
-            if(item.contains("hatch_style")){const auto& h=item.at("hatch_style");view.hatch_style={h.at(0),h.at(1),h.at(2),h.at(3)};zima::document::validate_hatch(view.hatch_style);}
+            view.hidden_hatch_components=item.value("hidden_hatch_components",std::set<std::string>{});
             const auto saved_sections=zima::document::parse_sections(item.value("section_snapshot",nlohmann::json::array()).dump());
             if(!saved_sections.empty()){view.section_snapshot=saved_sections.front();view.section_snapshot->body_owners=item.value("section_body_owners",std::map<std::string,std::string>{});view.section_snapshot->component_names=item.value("section_component_names",std::map<std::string,std::string>{});}
-            const auto section_overrides=item.value("section_overrides",nlohmann::json::object());
-            for(const auto& [key,c]:section_overrides.items()){zima::document::SectionComponent value;value.mode=c.at("mode");value.custom_hatch=c.at("custom");const auto& h=c.at("hatch");value.hatch={h.at(0),h.at(1),h.at(2),h.at(3)};zima::document::validate_hatch(value.hatch);if(value.mode<0||value.mode>2)throw std::runtime_error("Invalid section component mode");view.section_components[key]=value;}
+            view.section_display_reversed=item.value("section_display_reversed",view.section_snapshot?view.section_snapshot->reversed:false);
+
 
             for (const auto& edge_json : item.at("projected_edges")) {
                 ProjectedEdge edge;

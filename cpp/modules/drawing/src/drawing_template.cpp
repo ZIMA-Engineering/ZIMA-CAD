@@ -294,21 +294,35 @@ TemplateLayout title_block_layout(const DrawingSheet& sheet,const TitleBlockCont
                 if(i<sheet.bom_rows.size()) {const auto& row=sheet.bom_rows[i];c.has_bom_row=true;c.bom_item_number=row.item_number;c.bom_quantity=row.quantity;
                     c.mass_unit=row.mass_unit;c.file_stem=row.file_stem;c.parameters=row.parameters;c.parameter_values=row.parameter_values;c.parameter_aliases=row.parameter_aliases;}
             }
-            draw(offset,c);
+            draw(offset,c,r&&i<sheet.bom_rows.size()?std::optional{i}:std::nullopt);
         }
     };
     for(const auto& image:sheet.title_block_images) {
         const auto box=image.corners();
-        copies(region_for({box[0][0],box[0][1]},{box[2][0],box[2][1]}),[&](Point2 o,const auto&){auto i=image;i.x+=o.x;i.y+=o.y;result.images.push_back(std::move(i));});
+        copies(region_for({box[0][0],box[0][1]},{box[2][0],box[2][1]}),[&](Point2 o,const auto&,const auto&){auto i=image;i.x+=o.x;i.y+=o.y;result.images.push_back(std::move(i));});
     }
-    for(const auto& line:sheet.title_block_lines)copies(region_for(line.first,line.second),[&](Point2 o,const auto&){auto l=line;l.first.x+=o.x;l.first.y+=o.y;l.second.x+=o.x;l.second.y+=o.y;result.lines.push_back(l);});
-    for(const auto& circle:sheet.title_block_circles)copies(region_for({circle.center.x-circle.radius,circle.center.y-circle.radius},{circle.center.x+circle.radius,circle.center.y+circle.radius}),[&](Point2 o,const auto&){auto c=circle;c.center.x+=o.x;c.center.y+=o.y;result.circles.push_back(c);});
-    for(const auto& text:sheet.title_block_texts)copies(region_for(text.position,text.position),[&](Point2 o,const auto& c){auto t=text;TitleBlockField f;f.expression=t.text;t.text=resolve_title_block_text(f,c,sheet);t.position.x+=o.x;t.position.y+=o.y;result.texts.push_back(t);});
+    for(const auto& line:sheet.title_block_lines)copies(region_for(line.first,line.second),[&](Point2 o,const auto&,const auto&){auto l=line;l.first.x+=o.x;l.first.y+=o.y;l.second.x+=o.x;l.second.y+=o.y;result.lines.push_back(l);});
+    for(const auto& circle:sheet.title_block_circles)copies(region_for({circle.center.x-circle.radius,circle.center.y-circle.radius},{circle.center.x+circle.radius,circle.center.y+circle.radius}),[&](Point2 o,const auto&,const auto&){auto c=circle;c.center.x+=o.x;c.center.y+=o.y;result.circles.push_back(c);});
+    const auto bind=[&](TemplateText& text,const std::string& expression,std::optional<std::size_t> row,std::string id,bool editable=false){
+        const auto tokens=title_block_tokens(expression);
+        if(!editable&&std::ranges::none_of(tokens,[](const auto& token){return title_block_token_scope(token)!="system";})){text.field_id.clear();return;}
+        if(row)id="bom:"+std::to_string(*row)+":"+id;
+        text.field_id=id;result.edit_targets[id]={expression,row};
+    };
+    for(std::size_t index=0;index<sheet.title_block_texts.size();++index){const auto& text=sheet.title_block_texts[index];
+        copies(region_for(text.position,text.position),[&](Point2 o,const auto& c,std::optional<std::size_t> row){
+            auto t=text;TitleBlockField f;f.expression=t.text;t.text=resolve_title_block_text(f,c,sheet);t.position.x+=o.x;t.position.y+=o.y;
+            bind(t,text.text,row,"text:"+std::to_string(index));result.texts.push_back(std::move(t));
+        });
+    }
     for(const auto& field:sheet.title_block_fields) {
         auto position=field.position;
         if(!field.anchor_position){position.x+=field.alignment=="left"?field.box_width:field.alignment=="center"?field.box_width/2:0;
             position.y+=field.vertical_alignment=="top"?field.box_height:(field.vertical_alignment=="center"||field.vertical_alignment=="middle")?field.box_height/2:0;}
-        copies(region_for(position,position),[&](Point2 o,const auto& c){result.texts.push_back({resolve_title_block_text(field,c,sheet),{position.x+o.x,position.y+o.y},field.height,field.pen,field.alignment,field.vertical_alignment,field.angle,field.flipped,field.font,field.editable&&!region_for(position,position)?field.id:std::string{}});});
+        copies(region_for(position,position),[&](Point2 o,const auto& c,std::optional<std::size_t> row){
+            TemplateText text{resolve_title_block_text(field,c,sheet),{position.x+o.x,position.y+o.y},field.height,field.pen,field.alignment,field.vertical_alignment,field.angle,field.flipped,field.font};
+            bind(text,field.expression,row,field.id,field.editable);result.texts.push_back(std::move(text));
+        });
     }
     return result;
 }

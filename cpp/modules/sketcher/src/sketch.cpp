@@ -8578,6 +8578,10 @@ SolveResult Sketch::solve_impl(
             const auto arc = std::ranges::find_if(arcs,
                 [&](const auto& item) { return item.id == geometry_id; });
             if (arc == arcs.end()) return true;
+            // A persisted arc endpoint defines its own angular bound. Sliding
+            // that endpoint may extend as well as shorten the original arc.
+            if (arc->start_point_id == current_contact.id ||
+                arc->end_point_id == current_contact.id) return true;
             constexpr double full_turn =
                 2.0 * 3.14159265358979323846;
             double angle = std::atan2(
@@ -8598,6 +8602,56 @@ SolveResult Sketch::solve_impl(
             }
         }
         return best;
+    };
+    const auto supported_circular_arm = [&](const SketchPoint& point) {
+        return immutable(point) || point_support_priority(point) >= 2 ||
+            std::ranges::any_of(arcs, [&](const auto& arc) {
+                return arc.start_point_id == point.id || arc.end_point_id == point.id;
+            }) || std::ranges::any_of(elliptical_arcs, [&](const auto& arc) {
+                return arc.start_point_id == point.id || arc.end_point_id == point.id;
+            });
+    };
+    const auto restore_supported_circular_tangent = [&](const std::string& curve_id,
+            SketchPoint& contact, SketchPoint& other) {
+        // The opposite end may itself belong to another curve. Rotating it
+        // freely about this contact breaks that curve before synchronization.
+        // Preserve that supported end and slide the contact on its circle.
+        if (!immutable(contact)) {
+            if (const auto desired = circular_tangent_contact_from_point(
+                    curve_id, other, contact)) {
+                contact.x = (*desired)[0]; contact.y = (*desired)[1];
+                return true;
+            }
+        }
+        if (immutable(other)) return false;
+        // With a fixed contact, the other arc endpoint can still move along
+        // its own circle to the nearest intersection with the tangent line.
+        const auto tangent = curve_tangent_at_point(curve_id, contact.x, contact.y);
+        if (!tangent) return false;
+        for (const auto& arc : arcs) {
+            if (arc.id == curve_id ||
+                (arc.start_point_id != other.id && arc.end_point_id != other.id)) continue;
+            const auto* center = find_point(arc.center_point_id);
+            const double dx = center->x - contact.x, dy = center->y - contact.y;
+            const double along = dx * (*tangent)[0] + dy * (*tangent)[1];
+            const double across = dx * (*tangent)[1] - dy * (*tangent)[0];
+            const double discriminant = arc.radius * arc.radius - across * across;
+            if (discriminant < -tolerance * std::max(1.0, arc.radius)) return false;
+            const double offset = std::sqrt(std::max(0.0, discriminant));
+            std::optional<std::array<double,2>> best;
+            double distance = std::numeric_limits<double>::infinity();
+            for (const double parameter : {along - offset, along + offset}) {
+                if (std::abs(parameter) <= tolerance) continue;
+                const std::array candidate{contact.x + parameter * (*tangent)[0],
+                    contact.y + parameter * (*tangent)[1]};
+                const double delta = std::hypot(candidate[0] - other.x, candidate[1] - other.y);
+                if (delta < distance) { best = candidate; distance = delta; }
+            }
+            if (!best) return false;
+            other.x = (*best)[0]; other.y = (*best)[1];
+            return true;
+        }
+        return false;
     };
     for (std::size_t iteration = 0; iteration < maximum_iterations; ++iteration) {
         project_common_tangent_segments();
@@ -8755,20 +8809,9 @@ SolveResult Sketch::solve_impl(
                             segment_y * (*tangent)[0]);
                         maximum_residual = std::max(maximum_residual, residual);
                         if (residual <= tolerance) continue;
-                        if (immutable(*other)) {
-                            if (immutable(*contact)) {
+                        if (supported_circular_arm(*other)) {
+                            if (!restore_supported_circular_tangent(curve_id, *contact, *other))
                                 immovable_conflict = true;
-                                continue;
-                            }
-                            const auto desired_contact =
-                                circular_tangent_contact_from_point(
-                                    curve_id, *other, *contact);
-                            if (!desired_contact) {
-                                immovable_conflict = true;
-                                continue;
-                            }
-                            contact->x = (*desired_contact)[0];
-                            contact->y = (*desired_contact)[1];
                             continue;
                         }
                         const std::array forward{
@@ -8917,6 +8960,11 @@ SolveResult Sketch::solve_impl(
                             segment_y * (*tangent)[0]);
                         maximum_residual = std::max(maximum_residual, residual);
                         if (residual <= tolerance) continue;
+                        if (circular_curve_radius(*this, curve_id) && supported_circular_arm(*other)) {
+                            if (!restore_supported_circular_tangent(curve_id, *contact, *other))
+                                immovable_conflict = true;
+                            continue;
+                        }
                         if (immutable(*other)) {
                             immovable_conflict = true;
                             continue;
@@ -11244,7 +11292,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
             {project(*find_point(segment.first_point_id)),
              project(*find_point(segment.second_point_id))},
             {id, "segment:" + segment.id, {}}, segment.construction, true,
-            segment.centerline, segment.centerline});
+            segment.centerline, segment.construction});
     }
     constexpr std::size_t circle_samples = 96;
     for (const auto& circle : circles) {
@@ -11252,6 +11300,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         zima::kernel::ViewerEdge edge;
         edge.reference = {id, "circle:" + circle.id, {}};
         edge.construction = circle.construction;
+        edge.dash_dot = circle.construction;
         edge.overlay = true;
         edge.points.reserve(circle_samples + 1);
         for (std::size_t sample = 0; sample <= circle_samples; ++sample) {
@@ -11267,6 +11316,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         zima::kernel::ViewerEdge edge;
         edge.reference = {id, "bspline:" + spline.id, {}};
         edge.construction = spline.construction;
+        edge.dash_dot = spline.construction;
         edge.overlay = true;
         for (const auto& point : sampled_bspline_points(*this, spline, 128)) {
             edge.points.push_back(world_point(point[0], point[1]));
@@ -11279,6 +11329,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         zima::kernel::ViewerEdge edge;
         edge.reference = {id, "ellipse:" + ellipse.id, {}};
         edge.construction = ellipse.construction;
+        edge.dash_dot = ellipse.construction;
         edge.overlay = true;
         edge.points.reserve(circle_samples + 1);
         for (std::size_t sample = 0; sample <= circle_samples; ++sample) {
@@ -11299,6 +11350,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         zima::kernel::ViewerEdge edge;
         edge.reference = {id, "elliptical_arc:" + arc.id, {}};
         edge.construction = arc.construction;
+        edge.dash_dot = arc.construction;
         edge.overlay = true;
         const double sweep = arc.end_parameter - arc.start_parameter;
         const auto samples = std::max<std::size_t>(8,
@@ -11319,6 +11371,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         zima::kernel::ViewerEdge edge;
         edge.reference = {id, "arc:" + arc.id, {}};
         edge.construction = arc.construction;
+        edge.dash_dot = arc.construction;
         edge.overlay = true;
         const double sweep = arc.end_angle - arc.start_angle;
         const auto samples = std::max<std::size_t>(2,

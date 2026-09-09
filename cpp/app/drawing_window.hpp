@@ -42,6 +42,9 @@ public:
     void set_properties_handler(std::function<void(QDialog*)> handler) { properties_handler_=std::move(handler); }
     void select_view(const std::string& view_id);
     void select_view_for_test(const std::string& view_id);
+    std::optional<QPointF> view_rectangle_center_for_test(const std::string& id) const;
+    std::optional<QPointF> view_label_center_for_test(const std::string& id,bool section=false)const;
+    std::optional<QPointF> annotation_handle_for_test(const std::string& id,int end=0,bool dimension=false)const;
     void load_frame_for_test(const std::filesystem::path& path);
     void load_title_block_for_test(const std::filesystem::path& path);
     std::optional<QPointF> title_field_center_for_test(const std::string& id) const;

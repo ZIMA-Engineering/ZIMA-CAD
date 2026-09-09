@@ -1,3 +1,4 @@
+#include <zima/viewer/annotation_arrow.hpp>
 #include <QOpenGLPaintDevice>
 #include <zima/viewer/mesh_view.hpp>
 #include <zima/viewer/embedded_image.hpp>
@@ -3268,8 +3269,8 @@ if (impl_->show_origins) {
             break;
     }
 
-    // Cosmetic thread lines are useful in Shaded too, but they must obey the
-    // calculated body's depth buffer. LEQUAL keeps the portion lying on an
+    // Cosmetic thread lines and unreferenced coloured display helpers (Section
+    // hatching) remain visible in Shaded, obeying the body's depth buffer. LEQUAL keeps the portion lying on an
     // outside cylindrical face legible while ordinary LESS/occlusion hides
     // the part running inside material. Hidden Edges and Wire still reveal
     // the complete symbol through their normal display-mode passes.
@@ -3285,10 +3286,16 @@ if (impl_->show_origins) {
         for (std::size_t index = 0; index < impl_->line_ranges.size(); ++index) {
             const auto& edge = impl_->line_edges[index];
             const auto& semantic = edge.reference.semantic_key;
-            if (!semantic.starts_with("hole:cosmetic-thread:") &&
+            const bool display_helper = !edge.reference.valid() &&
+                !edge.color.empty();
+            if (!display_helper && !semantic.starts_with("hole:cosmetic-thread:") &&
                 !semantic.starts_with("thread:wire:")) continue;
             QVector4D color(0.62F, 0.62F, 0.62F, 1.0F);
-            if (thread_highlight &&
+            if (display_helper) {
+                const QColor source(QString::fromStdString(edge.color));
+                color = QVector4D(source.redF(), source.greenF(), source.blueF(), 1.0F);
+            }
+            if (!display_helper && thread_highlight &&
                 candidate_recolors_wire_edge(*thread_highlight, edge)) {
                 color = thread_confirmed
                     ? QVector4D(0.0F, 0.82F, 1.0F, 1.0F)
@@ -3959,18 +3966,10 @@ if (impl_->show_origins) {
                             impl_->dimension_decimal_places) +
                         QString::fromStdString(dimension.unit_suffix);
                 constexpr double arrow_length = 10.0;
-                constexpr double arrow_half_width = 1.763269807;
                 constexpr double tail_length = 7.0;
                 const auto arrow = [&](const QPointF& tip,
                         QPointF direction) {
-                    const double length = std::hypot(direction.x(), direction.y());
-                    if (!std::isfinite(length) || length <= 1.0e-9) return QPolygonF{};
-                    direction /= length;
-                    const QPointF normal{-direction.y(), direction.x()};
-                    const QPointF base = tip - direction * arrow_length;
-                    return QPolygonF{tip,
-                        base + normal * arrow_half_width,
-                        base - normal * arrow_half_width};
+                    return annotation_arrow(tip,direction,arrow_length);
                 };
                 if (dimension.kind ==
                         zima::kernel::ViewerDimensionKind::Angular) {

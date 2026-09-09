@@ -121,7 +121,9 @@ SketchTextPropertiesDialog::SketchTextPropertiesDialog(
 
     flipped_ = new QCheckBox(tr("Převrátit vodorovně"), this);
     flipped_->setObjectName("sketchTextFlipped");
-    flipped_->setChecked(initial_.flipped);
+    // Template X grows to the left. Its stored flip is the upright baseline,
+    // not a user-requested mirror; keep storage/contours exactly as before.
+    flipped_->setChecked(initial_.flipped != y_up_);
     content_layout()->addWidget(flipped_);
 
     error_ = new QLabel(this);
@@ -248,7 +250,7 @@ zima::sketcher::SketchText SketchTextPropertiesDialog::build_text() const {
     text.height = height_->value();
     text.horizontal = static_cast<zima::sketcher::TextHorizontalAlignment>(horizontal_->currentData().toInt());
     text.vertical = static_cast<zima::sketcher::TextVerticalAlignment>(vertical_->currentData().toInt());
-    text.angle_degrees = angle_->value(); text.flipped = flipped_->isChecked();
+    text.angle_degrees = angle_->value(); text.flipped = flipped_->isChecked() != y_up_;
     text.color = static_cast<zima::sketcher::SketchTextColor>(color_->currentData().toInt());
     text.font = font_->currentData().toString().toStdString();
     rebuild_sketch_text_contours(text, y_up_);

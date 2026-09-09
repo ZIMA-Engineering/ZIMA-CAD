@@ -10,6 +10,7 @@
 #include <array>
 #include <map>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -69,14 +70,22 @@ struct DrawingView {
     TangentEdgeStyle tangent_edge_style{TangentEdgeStyle::Visible};
     std::string section_id, section_parent_id;
     std::optional<zima::document::SectionDefinition> section_snapshot;
-    bool align_section{true}, hatching{true};
-    zima::document::HatchStyle hatch_style;
-    std::map<std::string,zima::document::SectionComponent> section_components;
+    // Last calculated side, persisted with the projection for trace arrows.
+    bool section_display_reversed{};
+    // Styles belong to the source Section; only visibility belongs to a view.
+    std::set<std::string> hidden_hatch_components;
     double x{100.0};
     double y{100.0};
     double scale{1.0};
     bool use_sheet_scale{true};
     bool show_caption{};
+    bool show_section_label{true};
+    // Optional paper-mm offsets from the view origin: right/up, independent
+    // of model scale. Unset labels follow the top of the calculated bounds.
+    std::optional<Point2> caption_position, section_label_position;
+    // Explicitly selected cutting traces, snapshotted from this view's source.
+    std::vector<zima::document::SectionDefinition> section_markers;
+    std::map<std::string,std::array<double,2>> section_marker_offsets;
     std::vector<ProjectedEdge> projected_edges;
     std::vector<ProjectedTriangle> projected_triangles;
     std::set<std::string> value_locks;
@@ -84,9 +93,22 @@ struct DrawingView {
 
 void refresh_view_geometry(DrawingView&, const zima::kernel::ViewerMesh&);
 
+struct SectionTraceLayout {
+    // View-relative paper millimetres, X right and Y up.
+    std::vector<std::array<Point2,2>> chain, accents;
+    std::array<Point2,2> arrow_tips, arrow_directions;
+    std::array<double,2> end_offsets{}, minimum_offsets{};
+};
+std::optional<SectionTraceLayout> section_trace_layout(const DrawingView&, const zima::document::SectionDefinition&,
+    std::span<const DrawingView* const> section_views = {});
+// Upright letter bounding box, attached to its outward end. Clearance is in
+// paper mm; line obstacles include the model, all traces and their arrows.
+Point2 section_letter_position(const SectionTraceLayout&,std::size_t end,Point2 text_size,
+    const std::vector<std::array<Point2,2>>& obstacles,double clearance);
+
 // The renderer and dimension picker share the same visibility contract.
 inline bool drawing_edge_visible(const DrawingView& view,const ProjectedEdge& edge) {
-    if(edge.hatch)return view.hatching && !edge.hidden;
+    if(edge.hatch)return !edge.hidden;
     if(view.display_style==DisplayStyle::Shaded)return false;
     if(edge.tangent&&(edge.hidden||view.tangent_edge_style==TangentEdgeStyle::Hidden))return false;
     return !edge.hidden||view.display_style==DisplayStyle::HiddenEdges;
@@ -134,6 +156,8 @@ struct BomRow {
     std::map<std::string,std::map<std::string,std::string>> parameter_values;
     std::map<std::string,std::string> parameter_aliases;
     std::string mass_unit{"kg"};
+    std::string source_document_id;
+    std::filesystem::path source_path;
 };
 
 struct DrawingSheet {
@@ -219,9 +243,17 @@ struct TitleBlockContext {
     int sheet_index{};
     int sheet_count{1};
     std::map<std::string,std::map<std::string,std::string>> parameter_labels;
+    std::vector<std::string> parameter_order;
+};
+
+struct TitleBlockTextTarget {
+    std::string expression;
+    std::optional<std::size_t> bom_row;
 };
 
 struct TemplateLayout {
+    // Transient picking targets; edits change source parameters, never the layout.
+    std::map<std::string,TitleBlockTextTarget> edit_targets;
     std::vector<zima::sketcher::TemplateImage> images;
     std::vector<TemplateLine> lines;
     std::vector<TemplateText> texts;

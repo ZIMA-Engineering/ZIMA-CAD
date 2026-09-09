@@ -321,6 +321,9 @@ private:
     // its internal Sketch is being edited. OCCT is not called until the
     // reopened feature Properties dialog is confirmed with OK.
     std::optional<zima::document::HistoryContainer> pending_profile_feature_;
+    // Geometry edited from a profile's Properties or its Sketcher remains
+    // pending until the owning container is confirmed.
+    std::optional<zima::sketcher::Sketch> property_owned_sketch_draft_;
     // Set only while a standalone Sketch container is being transactionally
     // transformed into Extrusion/Revolution.  The draft feature may be
     // installed temporarily while Sketcher is open; Cancel restores this

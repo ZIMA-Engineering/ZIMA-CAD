@@ -42,9 +42,12 @@ parametr. **Vlastnosti listu → Jazyk razítka** určují jazyk čtené a zapis
 hodnoty. Při vložení se převezme `Locale` šablony; sdílená hodnota má vždy
 přednost před jazykovou. Nevyplněná položka používá výchozí zástupný text pole.
 
-Příkaz **Hodnoty razítka…** zobrazí aktuální hodnoty. Upravitelné pole se ve
-výkresu zvýrazní oranžově při hoveru a azurově po výběru; dvojklik otevře
-stejný dialog a zaměří jeho editor. Načítání funguje i před vložením prvního
+Příkaz **Hodnoty razítka…** i dvojklik na libovolnou hodnotu otevřou celou
+tabulku razítka, včetně parametrů v samostatných textech a oblasti kusovníku.
+Dvojklik zaměří editor kliknuté hodnoty; tentýž parametr se nenabízí podruhé
+jen kvůli jinému názvu odkazu. Modelové položky dodržují uložené pořadí
+v **Parameters** příslušného zdroje; ostatní údaje následují za nimi. Upravitelné pole se ve výkresu zvýrazní oranžově
+při hoveru a azurově po výběru. Načítání funguje i před vložením prvního
 pohledu, pokud má výkres přiřazený zdrojový model. Po vložení pohledů určuje
 zdroj razítka první pohled aktivního listu.
 
@@ -59,7 +62,10 @@ Samostatné texty `&parametr` mimo oblast kusovníku, které neměly vlastní
 sekci `Field`, se při vložení také zpřístupní jako parametrická pole.
 Položky `&drawing.*` a `&local.*` se ukládají pouze do listu.
 Systémové hodnoty, složené výrazy a parametry řízené vztahy jsou jen ke čtení.
-Řádky opakovaného kusovníku nejsou přes tento dialog editory parametrů komponent.
+Jednotlivé zapisovatelné parametry složeného výrazu mají vlastní položky.
+Kliknutí do řádku kusovníku načte celou tabulku pro zdrojový díl či podsestavu
+vybraného řádku; OK zapisuje do tohoto zdroje. Umístění uvnitř fialového
+obdélníku nemění rozsah tabulky.
 
 Hmotnost řízená `model.mass` a její jednotka se řídí nastavením zdroje;
 [pravidla výpočtu a jeho hranice](PHYSICAL_PROPERTIES.md) popisují hustotu,
@@ -319,3 +325,57 @@ samostatný model; explicitní regenerace je nahradí podle propojeného zdroje.
 Vlastnosti pohledu nabízejí uložené řezy Partu nebo Assembly, šrafování
 s roztečí na papíře a nastavení jednotlivých komponent. Postup a hranice
 ovládání přes umístěný kontejner a Sketcher popisují [Řezy](SECTIONS.md).
+
+## Popisky, čtvrtotáčky a řezy
+
+Vlastnosti pohledu nabízejí kromě pevné orientace skutečné čtvrtotáčky aktuální
+kamery. Projekční pohledy přebírají otočenou kameru rodiče automaticky.
+Název pohledu a označení řezu mají samostatné přepínače a polohy; výchozí
+umístění je nad obrysem. Popisky a kóty se ovládají přes manipulační body.
+Podrobnosti značení, výběru tras, šrafování a tisku popisují [Řezy](SECTIONS.md).
+Nástroj [Show/Erase](DRAWING_SHOW_ERASE.md) je zatím návrh dalšího kroku.
+
+### Orientace pohledu nezávislá na řezu (2026-09-09)
+
+Kameru určuje Orientace nebo ruční čtvrtotáčky ve vlastnostech pohledu.
+Řez A–A pouze změní zobrazovanou geometrii; jeho šikmá skica nesmí natočit
+základní pohled ani jeho projekční potomky. Volba automatického pohledu
+kolmo k řezu byla odstraněna. Regenerace nejprve načte aktuální zdroje,
+potom obnoví projekce v pořadí rodič–potomci, včetně více úrovní a obou
+způsobů promítání. Pracuje s otevřenými zdroji bez nutnosti jejich uložení.
+Ponechaná strana řezu se automaticky přizpůsobí orientaci pohledu, takže
+při pohledu z opačné strany nezůstane řez zakrytý zadní částí tělesa.
+Strana se určuje automaticky bez dalšího přepínače; orientace zdrojového
+Partu/Assembly se nemění. Propojené směrové šipky sledují skutečně
+zobrazenou stranu. Přesně boční pohled nemá řeznou plochu pro šrafování.
+
+### Živé vlastnosti a manipulační body (2026-09-09)
+
+Při otevřených vlastnostech lze náhled pohledu posouvat levým tlačítkem za
+jeho obdélníkovou oblast. Pole X/Y se aktualizují průběžně. Pohyb respektuje
+zámky souřadnic a projekční vazbu odvozeného pohledu. Pouze OK uloží novou
+polohu a přesune navazující pohledy; Zrušit vrátí původní stav.
+
+Vybrané kóty a popisky jsou azurové, jejich manipulační body fialové.
+Body jsou jednoduché plné tečky stejné velikosti jako běžné body ve View.
+Při hoveru zůstává entita i bod oranžový. Manipulační body se netisknou.
+
+Prázdný text výkresové šablony nebo položky razítka ukazuje ve View pomlčku
+`-`, takže editovatelné pole lze vybrat a otevřít i bez hodnoty. Pomlčka je
+pouze editační značka; do hodnoty, Parameters ani PDF se nezapisuje.
+
+### Jednotné parametry šraf a editovatelné razítko
+
+Tabulka těles/komponent ovládá úhel, rozteč, posunutí a typ šraf. Hodnoty
+jsou uložené u řezu v modelu a OK je zapíše zpět; výkres si drží pouze vlastní
+viditelnost šraf po tělesech. Zrušit neprovede zápis. Podrobnosti včetně 3D
+zobrazení a uložení zdrojového dokumentu jsou v [Řezech](SECTIONS.md).
+
+Dvojklik na parametrický text funguje i v opakovaném řádku kusovníku a ve
+složeném textu. Například u čísla `soubor.&Verze` upravíte parametr Verze,
+aniž by se změnil název souboru. Polotovar, Název a Norma v řádku kusovníku
+patří konkrétnímu zdrojovému dílu nebo podsestavě. Změna nezasáhne jiné řádky
+ani parametry nadřazené sestavy; dva výskyty stejného zdroje sdílejí hodnoty
+a jejich počet se zachová. Vypočtené parametry (např. hmotnost řízená relací)
+a systémové údaje zůstávají pouze pro čtení. OK mění Parameters zdrojového
+dokumentu, Zrušit nikoli; úpravy se ukládají běžným uložením modelu.
