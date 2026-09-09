@@ -1,4 +1,5 @@
 #pragma once
+#include <zima/kernel/appearance.hpp>
 #include <zima/document/section.hpp>
 #include <ranges>
 #include <zima/document/document_copy.hpp>
@@ -615,6 +616,7 @@ public:
     // Display colour of the calculated body.  It is presentation metadata;
     // changing it never invalidates or recalculates OCCT geometry.
     std::string body_color{"#B9C2CC"};
+    zima::kernel::Appearance appearance;
     // Optional presentation overrides addressed by persisted ZIMA face
     // identity (owner_id + semantic_key), never by OCCT enumeration order.
     std::map<std::string, std::string> face_colors;

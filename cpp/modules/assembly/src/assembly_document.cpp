@@ -1,3 +1,4 @@
+#include <zima/document/appearance.hpp>
 #include <zima/document/derived_copy_json.hpp>
 #include <set>
 #include <zima/document/placement_json.hpp>
@@ -1153,7 +1154,7 @@ void AssemblyDocument::calculate_derived_copies(const zima::kernel::GeometryKern
         if(result->nested_mass_kg && result->derived_copy->pattern)
             *result->nested_mass_kg*=kernel::pattern_instance_count(*result->derived_copy->pattern)-1;
         result->source_document_id=source->source_document_id;result->source_path=source->source_path;result->source_kind=source->source_kind;
-        result->nested_snapshot=source->nested_snapshot;result->body_color=source->body_color;result->face_colors=source->face_colors;
+        result->nested_snapshot=source->nested_snapshot;result->body_color=source->body_color;result->appearance=source->appearance;result->face_colors=source->face_colors;
         if(result->derived_copy->pattern) {
             result->source_kind=ComponentSourceKind::Pattern;result->nested_snapshot.clear();
             for(unsigned index=1;index<kernel::pattern_instance_count(*result->derived_copy->pattern);++index)
@@ -1813,6 +1814,8 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
         }
         component.body_color =
             source.value("body_color", std::string("#B9C2CC"));
+        component.appearance = zima::document::deserialize_appearance(source.value("appearance",std::string("{}")));
+        if(source.contains("appearance_override") && !source.at("appearance_override").is_null()) component.appearance_override=zima::document::deserialize_appearance(source.at("appearance_override").get<std::string>());
         component.face_colors = source.value("face_colors",
             std::map<std::string, std::string>{});
         document.components.push_back(std::move(component));
@@ -1908,6 +1911,8 @@ void AssemblyDocument::save(const std::filesystem::path& path,
                 ? nlohmann::json(*component.body_color_override)
                 : nlohmann::json(nullptr)},
             {"body_color", component.body_color},
+            {"appearance", zima::document::serialize_appearance(component.appearance)},
+            {"appearance_override",component.appearance_override ? nlohmann::json(zima::document::serialize_appearance(*component.appearance_override)) : nlohmann::json(nullptr)},
             {"face_colors", component.face_colors},
         });
     }

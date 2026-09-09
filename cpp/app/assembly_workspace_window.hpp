@@ -185,9 +185,7 @@ private:
     QAction* show_planes_action_{};
     QAction* show_sketches_action_{};
     QMenu* colors_menu_{};
-    std::array<QAction*, 8> body_color_preset_actions_{};
     QAction* custom_body_color_action_{};
-    QAction* reset_body_color_action_{};
     QActionGroup* display_mode_group_{};
     QActionGroup* camera_projection_group_{};
     QActionGroup* application_group_{};
@@ -1036,16 +1034,12 @@ private:
     QPointer<QDialog> tree_edit_dialog_;
     std::string tree_edit_document_id_;
     std::optional<zima::document::HistoryContainer> tree_edit_sketch_container_;
-    void apply_body_color(const QColor& color);
-    void apply_body_appearance(const QColor& color,
-        const std::map<std::string, QColor>& face_colors);
-    void reset_body_color();
     void show_body_color_dialog();
     void update_body_color_actions();
-    void update_viewer_body_colors();
+    void update_viewer_body_colors(const zima::kernel::Appearance* preview = nullptr,
+        const std::string& preview_path = {});
     [[nodiscard]] std::optional<std::string> selected_occurrence_path() const;
-    [[nodiscard]] QColor selected_body_color() const;
-    [[nodiscard]] std::map<std::string, QColor> selected_face_colors() const;
+
     void update_document_kind_button();
     void navigate_document_kind();
     void add_part_tree_children(

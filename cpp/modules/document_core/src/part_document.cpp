@@ -1,3 +1,4 @@
+#include <zima/document/appearance.hpp>
 #include <zima/document/document_copy_json.hpp>
 #include <zima/document/part_document.hpp>
 #include <zima/document/precision.hpp>
@@ -531,6 +532,7 @@ nlohmann::json read_part_ini(const std::filesystem::path& path) {
         {"body_history", nlohmann::json::parse(ini_required(ini, "Document", "body_history"))},
         {"body_color", ini_value(ini, "Document", "body_color", "#B9C2CC")},
         {"face_colors", nlohmann::json::object()},
+        {"appearance", ini_value(ini, "Document", "appearance", "{}")},
         {"user_parameters", nlohmann::json::object()},
         {"user_parameter_order", nlohmann::json::array()},
         {"user_parameter_labels", nlohmann::json::object()},
@@ -678,6 +680,7 @@ void write_part_ini(
         {"dimension_identifiers", root.at("dimension_identifiers").dump()},
         {"body_history", root.at("body_history").dump()},
         {"body_color", root.value("body_color", std::string("#B9C2CC"))},
+        {"appearance", root.value("appearance", std::string("{}"))},
         {"history_cursor", std::to_string(root.at("history_cursor").get<std::size_t>())},
     };
     const auto copy_object = [&](const char* section_name, const char* root_name) {
@@ -9160,6 +9163,7 @@ PartDocument PartDocument::load(
     document.sections = parse_sections(root.value("sections",nlohmann::json::array()).dump());
     document.dimension_identifiers = DimensionIdentifiers::from_serialized(root.at("dimension_identifiers").dump());
     document.body_color = root.at("body_color").get<std::string>();
+    document.appearance = deserialize_appearance(root.value("appearance",std::string("{}")));
     document.face_colors = root.value("face_colors",
         std::map<std::string, std::string>{});
     const auto& source_history = root.at("history");
@@ -11026,6 +11030,7 @@ void PartDocument::save(
         {"named_views", named_views},
         {"sections", nlohmann::json::parse(serialize_sections(sections))},
         {"body_color", body_color},
+        {"appearance", serialize_appearance(appearance)},
         {"face_colors", face_colors},
         {"history", std::move(serialized_history)},
         {"sketches", std::move(serialized_sketches)},

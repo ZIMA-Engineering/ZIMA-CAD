@@ -1,3 +1,4 @@
+#include "appearance_dialog.hpp"
 #include <zima/interchange/model_import.hpp>
 #include <zima/document/feature_sketches.hpp>
 #include "section_properties_dialog.hpp"
@@ -2441,150 +2442,6 @@ EdgeTreatmentPreviewGeometry edge_treatment_preview_wire(
     return result;
 }
 
-class BodyColorDialog final : public zima::ui::PropertiesSubWindow {
-public:
-    using FaceColors = std::map<std::string, QColor>;
-    BodyColorDialog(QColor initial, FaceColors initial_faces,
-                    std::function<void(QColor, const FaceColors&)> preview,
-                    std::function<void(QColor, const FaceColors&)> accepted,
-                    QMainWindow* parent)
-        : PropertiesSubWindow(QObject::tr("Barva tělesa"), parent),
-          initial_(initial), initial_faces_(initial_faces),
-          face_colors_(std::move(initial_faces)), preview_callback_(std::move(preview)),
-          accepted_(std::move(accepted)) {
-        setObjectName("bodyColorPropertiesDialog");
-        set_centered_on_show();
-        setMinimumWidth(330);
-        auto* content = new QWidget(this);
-        auto* form = new QFormLayout(content);
-        const auto add_channel = [&](const QString& label, int value,
-                                     QSpinBox*& target) {
-            target = new QSpinBox(content);
-            target->setRange(0, 255);
-            target->setValue(value);
-            form->addRow(label, target);
-            connect(target, qOverload<int>(&QSpinBox::valueChanged), this,
-                    [this] { update_preview(); });
-        };
-        add_channel(QObject::tr("Červená"), initial.red(), red_);
-        add_channel(QObject::tr("Zelená"), initial.green(), green_);
-        add_channel(QObject::tr("Modrá"), initial.blue(), blue_);
-        add_channel(QObject::tr("Krytí (%)"),
-            qRound(initial.alphaF() * 100.0), opacity_);
-        opacity_->setRange(5, 100);
-        preview_ = new QLabel(content);
-        preview_->setFixedHeight(42);
-        preview_->setObjectName("bodyColorPreview");
-        form->addRow(QObject::tr("Náhled"), preview_);
-        content_layout()->addWidget(content);
-
-        auto* palette = new QWidget(this);
-        auto* palette_layout = new QHBoxLayout(palette);
-        palette_layout->setContentsMargins(0, 0, 0, 0);
-        static constexpr std::array<const char*, 8> colors{
-            "#B9C2CC", "#E53935", "#FB8C00", "#FDD835",
-            "#43A047", "#1E88E5", "#8E24AA", "#ECEFF1"};
-        for (const auto* value : colors) {
-            auto* swatch = new QPushButton(palette);
-            swatch->setFixedSize(30, 24);
-            swatch->setToolTip(QString::fromLatin1(value));
-            swatch->setStyleSheet(QStringLiteral(
-                "background:%1;border:1px solid #70757a;border-radius:3px;")
-                .arg(QString::fromLatin1(value)));
-            connect(swatch, &QPushButton::clicked, this, [this, value] {
-                const QColor chosen(QString::fromLatin1(value));
-                red_->setValue(chosen.red());
-                green_->setValue(chosen.green());
-                blue_->setValue(chosen.blue());
-            });
-            palette_layout->addWidget(swatch);
-        }
-        palette_layout->addStretch(1);
-        content_layout()->addWidget(new QLabel(QObject::tr("Paleta barev"), this));
-        content_layout()->addWidget(palette);
-
-        auto* hint = new QLabel(QObject::tr(
-            "Jednotlivé plochy: nastavte barvu a klikněte na plochu ve 3D pohledu."), this);
-        hint->setWordWrap(true);
-        content_layout()->addWidget(hint);
-        faces_ = new QTableWidget(this);
-        faces_->setObjectName("bodyFaceColorTable");
-        faces_->setColumnCount(2);
-        faces_->setEditTriggers(QAbstractItemView::NoEditTriggers);
-        faces_->setHorizontalHeaderLabels({QObject::tr("Plocha"), QObject::tr("Barva")});
-        faces_->horizontalHeader()->setStretchLastSection(true);
-        faces_->setSelectionBehavior(QAbstractItemView::SelectRows);
-        faces_->setMinimumHeight(125);
-        content_layout()->addWidget(faces_);
-        refresh_faces();
-        update_preview();
-        connect(this, &QDialog::rejected, this, [this] {
-            if (preview_callback_) preview_callback_(initial_, initial_faces_);
-        });
-        setAttribute(Qt::WA_DeleteOnClose);
-    }
-
-    void select_face(const zima::viewer::ViewerCandidate& candidate) {
-        if (candidate.kind != zima::viewer::CandidateKind::Face ||
-            candidate.owner_id.empty() || candidate.semantic_key.empty()) return;
-        const std::string key = candidate.owner_id + "::" + candidate.semantic_key;
-        face_colors_[key] = color();
-        refresh_faces();
-        emit_preview();
-    }
-
-private:
-    QSpinBox* red_{};
-    QSpinBox* green_{};
-    QSpinBox* blue_{};
-    QSpinBox* opacity_{};
-    QLabel* preview_{};
-    QTableWidget* faces_{};
-    QColor initial_;
-    FaceColors initial_faces_;
-    FaceColors face_colors_;
-    std::function<void(QColor, const FaceColors&)> preview_callback_;
-    std::function<void(QColor, const FaceColors&)> accepted_;
-
-    [[nodiscard]] QColor color() const {
-        return {red_->value(), green_->value(), blue_->value(),
-            qRound(opacity_->value() * 2.55)};
-    }
-    void update_preview() {
-        preview_->setStyleSheet(QStringLiteral(
-            "background:%1;border:1px solid #70757a;border-radius:3px;")
-            .arg(color().name()));
-        emit_preview();
-    }
-    void emit_preview() {
-        if (preview_callback_) preview_callback_(color(), face_colors_);
-    }
-    void refresh_faces() {
-        faces_->setRowCount(static_cast<int>(face_colors_.size())+1);
-        auto* actions=entry_row_header(faces_);actions->clear_actions();
-        int row{};
-        for (const auto& [key, value] : face_colors_) {
-            const auto separator = key.find("::");
-            const QString label = QString::fromStdString(separator == std::string::npos
-                ? key : key.substr(separator + 2));
-            auto* name = new QTableWidgetItem(label);
-            name->setData(Qt::UserRole, QString::fromStdString(key));
-            faces_->setItem(row, 0, name);
-            auto* swatch = new QTableWidgetItem(value.name(QColor::HexArgb));
-            swatch->setBackground(value);
-            faces_->setItem(row, 1, swatch);
-            actions->set_action(row,true,[this,key]{face_colors_.erase(key);refresh_faces();emit_preview();});
-            ++row;
-        }
-        faces_->setItem(row,0,new QTableWidgetItem(tr("Vyberte plochu ve View…")));
-        actions->set_action(row,false,{});
-    }
-    bool submit() override {
-        accepted_(color(), face_colors_);
-        return true;
-    }
-};
-
 class NewDocumentDialog final : public zima::ui::PropertiesSubWindow {
 public:
     using Accepted = std::function<QString(QString, QString)>;
@@ -3092,38 +2949,11 @@ void AssemblyWorkspaceWindow::create_actions() {
     view->addSeparator();
     colors_menu_ = view->addMenu(t("menu.view.colors", "Barvy"));
     colors_menu_->setObjectName("colorsMenu");
-    const std::array<std::tuple<const char*, const char*, const char*>, 8>
-        color_items{{
-        {"menu.view.colors.white", "Bílá", "#ECEFF1"},
-        {"menu.view.colors.graphite", "Grafitová", "#30343B"},
-        {"menu.view.colors.silver", "Stříbrná", "#B9C2CC"},
-        {"menu.view.colors.blue", "Modrá", "#3F6F9F"},
-        {"menu.view.colors.green", "Zelená", "#3F7652"},
-        {"menu.view.colors.violet", "Fialová", "#6B5A8E"},
-        {"menu.view.colors.burgundy", "Vínová", "#7A4654"},
-        {"menu.view.colors.sand", "Písková", "#B59A68"},
-    }};
-    for (std::size_t index = 0; index < color_items.size(); ++index) {
-        const auto& [key, fallback, value] = color_items[index];
-        auto* action = colors_menu_->addAction(t(key, fallback));
-        body_color_preset_actions_[index] = action;
-        QPixmap swatch(18, 18);
-        swatch.fill(QColor(value));
-        action->setIcon(QIcon(swatch));
-        connect(action, &QAction::triggered, this,
-                [this, color = QColor(value)] { apply_body_color(color); });
-    }
-    colors_menu_->addSeparator();
-    custom_body_color_action_ = colors_menu_->addAction(
-        t("menu.view.colors.body", "Vlastní barva tělesa…"));
+    custom_body_color_action_ = colors_menu_->addAction(tr("Barvy a vzhled…"));
     custom_body_color_action_->setObjectName("customBodyColorAction");
+    custom_body_color_action_->setIcon(resource_icon("appearance"));
     connect(custom_body_color_action_, &QAction::triggered, this,
-            &AssemblyWorkspaceWindow::show_body_color_dialog);
-    reset_body_color_action_ = colors_menu_->addAction(
-        t("menu.view.colors.body_reset", "Obnovit barvu tělesa"));
-    reset_body_color_action_->setObjectName("resetBodyColorAction");
-    connect(reset_body_color_action_, &QAction::triggered, this,
-            &AssemblyWorkspaceWindow::reset_body_color);
+        &AssemblyWorkspaceWindow::show_body_color_dialog);
     update_body_color_actions();
 
     auto* applications = menuBar()->addMenu(t("menu.applications", "Aplikace"));
@@ -3720,6 +3550,7 @@ void AssemblyWorkspaceWindow::create_actions() {
         " color:#fff; border:1px solid #80AA1A; border-radius:4px; }"
         "QToolButton:pressed { background-color:rgba(77,216,17,165);"
         " color:#fff; border:1px solid #9BCC32; border-radius:4px; }");
+    view_toolbar_->addAction(custom_body_color_action_);
     view_toolbar_->addAction(parameters_action_);
     view_toolbar_->addAction(regenerate_document_action_);
     section_action_=view_toolbar_->addAction(tr("Řezy…"));
@@ -3902,9 +3733,8 @@ void AssemblyWorkspaceWindow::create_layout() {
             toggle_local_origin_visibility(candidate);
             return;
         }
-        if (auto* color_dialog = dynamic_cast<BodyColorDialog*>(properties_dialog_);
-            color_dialog != nullptr && workspace_.open_part(
-                workspace_.displayed_document_id()) != nullptr) {
+        if (auto* color_dialog = dynamic_cast<AppearanceDialog*>(properties_dialog_);
+            color_dialog != nullptr) {
             color_dialog->select_face(candidate);
             return;
         }
@@ -5016,6 +4846,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         },
         [this] { end_sketch_trim_gesture(); });
     viewer_->set_short_middle_click_callback([this] {
+        if(auto* dialog=dynamic_cast<AppearanceDialog*>(properties_dialog_)){dialog->end_entry();viewer_->clear_selection();return true;}
         if(template_region_picking_){cancel_sketch_segment();preserve_view_on_refresh_=true;refresh_scene();return true;}
         if (finish_active_reference_selection()) return true;
         if (finish_parameter_dimensions()) return true;
@@ -24109,229 +23940,6 @@ std::optional<std::string> AssemblyWorkspaceWindow::selected_occurrence_path() c
         }
     }
     return std::nullopt;
-}
-
-QColor AssemblyWorkspaceWindow::selected_body_color() const {
-    constexpr auto fallback = "#B9C2CC";
-    const auto displayed = workspace_.displayed_document_id();
-    if (const auto* part = workspace_.open_part(displayed)) {
-        const QColor color(QString::fromStdString(part->session.document().body_color));
-        return color.isValid() ? color : QColor(fallback);
-    }
-    const auto path = selected_occurrence_path();
-    if (!path) return QColor(fallback);
-    try {
-        const auto address = workspace_.resolve_occurrence(displayed,
-            zima::assembly::InstancePath::decode(*path));
-        if (!address) return QColor(fallback);
-        const auto* owner = workspace_.open_assembly(
-            address->owner_assembly_document_id);
-        const auto* occurrence = owner == nullptr ? nullptr
-            : owner->session.document().find_occurrence(address->occurrence_id);
-        if (occurrence && occurrence->body_color_override) {
-            const QColor color(QString::fromStdString(
-                *occurrence->body_color_override));
-            if (color.isValid()) return color;
-        }
-        if (occurrence) {
-            const QColor color(QString::fromStdString(occurrence->body_color));
-            if (color.isValid()) return color;
-        }
-    } catch (const std::invalid_argument&) {
-    }
-    return QColor(fallback);
-}
-
-std::map<std::string, QColor> AssemblyWorkspaceWindow::selected_face_colors() const {
-    std::map<std::string, QColor> result;
-    const auto* part = workspace_.open_part(workspace_.displayed_document_id());
-    if (part == nullptr) return result;
-    for (const auto& [key, encoded] : part->session.document().face_colors) {
-        const QColor color(QString::fromStdString(encoded));
-        if (color.isValid()) result.emplace(key, color);
-    }
-    return result;
-}
-
-void AssemblyWorkspaceWindow::apply_body_appearance(
-    const QColor& color, const std::map<std::string, QColor>& face_colors) {
-    if (!color.isValid()) return;
-    auto* part = workspace_.open_part(workspace_.displayed_document_id());
-    if (part == nullptr) {
-        apply_body_color(color);
-        return;
-    }
-    auto next = part->session.document();
-    next.body_color = color.name(QColor::HexArgb).toStdString();
-    next.face_colors.clear();
-    for (const auto& [key, value] : face_colors) {
-        if (value.isValid()) next.face_colors.emplace(
-            key, value.name(QColor::HexArgb).toStdString());
-    }
-    part->session.commit(std::move(next), part->session.calculated_boundaries());
-    update_viewer_body_colors();
-    update_body_color_actions();
-}
-
-void AssemblyWorkspaceWindow::apply_body_color(const QColor& color) {
-    if (!color.isValid()) return;
-    const auto encoded = color.name(QColor::HexArgb).toStdString();
-    const auto displayed = workspace_.displayed_document_id();
-    if (auto* part = workspace_.open_part(displayed)) {
-        auto next = part->session.document();
-        next.body_color = encoded;
-        part->session.commit(std::move(next), part->session.calculated_boundaries());
-    } else if (const auto path = selected_occurrence_path()) {
-        try {
-            const auto address = workspace_.resolve_occurrence(displayed,
-                zima::assembly::InstancePath::decode(*path));
-            if (!address) return;
-            auto* owner = workspace_.open_assembly(
-                address->owner_assembly_document_id);
-            if (owner == nullptr) return;
-            auto next = owner->session.document();
-            auto* occurrence = next.find_occurrence(address->occurrence_id);
-            if (occurrence == nullptr) return;
-            occurrence->body_color_override = encoded;
-            owner->session.commit(std::move(next));
-        } catch (const std::invalid_argument&) {
-            return;
-        }
-    } else {
-        return;
-    }
-    update_viewer_body_colors();
-    update_body_color_actions();
-}
-
-void AssemblyWorkspaceWindow::reset_body_color() {
-    const auto displayed = workspace_.displayed_document_id();
-    if (auto* part = workspace_.open_part(displayed)) {
-        auto next = part->session.document();
-        next.body_color = "#B9C2CC";
-        part->session.commit(std::move(next), part->session.calculated_boundaries());
-    } else if (const auto path = selected_occurrence_path()) {
-        try {
-            const auto address = workspace_.resolve_occurrence(displayed,
-                zima::assembly::InstancePath::decode(*path));
-            if (!address) return;
-            auto* owner = workspace_.open_assembly(
-                address->owner_assembly_document_id);
-            if (owner == nullptr) return;
-            auto next = owner->session.document();
-            auto* occurrence = next.find_occurrence(address->occurrence_id);
-            if (occurrence == nullptr) return;
-            occurrence->body_color_override.reset();
-            owner->session.commit(std::move(next));
-        } catch (const std::invalid_argument&) {
-            return;
-        }
-    } else {
-        return;
-    }
-    update_viewer_body_colors();
-    update_body_color_actions();
-}
-
-void AssemblyWorkspaceWindow::show_body_color_dialog() {
-    if (properties_dialog_ != nullptr) return;
-    const bool editing_part = workspace_.open_part(
-        workspace_.displayed_document_id()) != nullptr;
-    const QColor original_color = selected_body_color();
-    const auto original_faces = selected_face_colors();
-    auto* dialog = new BodyColorDialog(original_color, original_faces,
-        [this, editing_part](QColor color, const auto& faces) {
-            if (!editing_part) return;
-            std::map<std::string, QColor> viewer_faces;
-            for (const auto& [key, value] : faces) {
-                viewer_faces.emplace(std::string("\x1f") + key, value);
-            }
-            viewer_->set_body_surface_colors(color, {}, std::move(viewer_faces));
-        },
-        [this](QColor color, const auto& faces) {
-            apply_body_appearance(color, faces);
-        }, this);
-    properties_dialog_ = dialog;
-    if (editing_part) {
-        viewer_->clear_selection();
-        viewer_->set_selection_contract({zima::viewer::CandidateKind::Face});
-        viewer_->set_candidate_filter([](const auto& candidate) {
-            return candidate.kind == zima::viewer::CandidateKind::Face &&
-                candidate.instance_path.empty() &&
-                candidate.geometry == zima::viewer::CandidateGeometry::Display;
-        });
-    }
-    connect(dialog, &QObject::destroyed, this, [this] {
-        properties_dialog_ = nullptr;
-        viewer_->set_candidate_filter({});
-        refresh_scene();
-    });
-    dialog->show();
-}
-
-void AssemblyWorkspaceWindow::update_body_color_actions() {
-    const bool part = workspace_.open_part(workspace_.displayed_document_id()) != nullptr;
-    const bool occurrence = workspace_.open_assembly(
-        workspace_.displayed_document_id()) != nullptr &&
-        selected_occurrence_path().has_value();
-    const bool enabled = part || occurrence;
-    for (auto* action : body_color_preset_actions_) {
-        if (action != nullptr) action->setEnabled(enabled);
-    }
-    if (custom_body_color_action_ != nullptr)
-        custom_body_color_action_->setEnabled(enabled);
-    if (reset_body_color_action_ != nullptr)
-        reset_body_color_action_->setEnabled(enabled);
-}
-
-void AssemblyWorkspaceWindow::update_viewer_body_colors() {
-    QColor default_color("#B9C2CC");
-    std::map<std::string, QColor> occurrence_colors;
-    std::map<std::string, QColor> face_colors;
-    const auto displayed = workspace_.displayed_document_id();
-    if (const auto* part = workspace_.open_part(displayed)) {
-        const QColor color(QString::fromStdString(part->session.document().body_color));
-        if (color.isValid()) default_color = color;
-        for (const auto& [key, encoded] : part->session.document().face_colors) {
-            const QColor face_color(QString::fromStdString(encoded));
-            if (face_color.isValid()) face_colors.emplace(
-                std::string("\x1f") + key, face_color);
-        }
-    } else if (workspace_.open_assembly(displayed) != nullptr) {
-        // Scene references already carry stable full instance paths. Resolve
-        // their immediate owner and apply that occurrence's saved override.
-        const auto scene = workspace_.authoritative_viewer_mesh(displayed);
-        std::set<std::string> paths;
-        for (const auto& face : scene.triangle_references) {
-            if (!face.instance_path.empty()) paths.insert(face.instance_path);
-        }
-        for (const auto& path : paths) {
-            try {
-                const auto address = workspace_.resolve_occurrence(displayed,
-                    zima::assembly::InstancePath::decode(path));
-                if (!address) continue;
-                const auto* owner = workspace_.open_assembly(
-                    address->owner_assembly_document_id);
-                const auto* occurrence = owner == nullptr ? nullptr
-                    : owner->session.document().find_occurrence(address->occurrence_id);
-                if (occurrence != nullptr) {
-                    QColor color(QString::fromStdString(
-                        occurrence->body_color_override
-                            ? *occurrence->body_color_override
-                            : occurrence->body_color));
-                    if (color.isValid()) occurrence_colors[path] = color;
-                    for (const auto& [key, encoded] : occurrence->face_colors) {
-                        const QColor face_color(QString::fromStdString(encoded));
-                        if (face_color.isValid()) face_colors.emplace(
-                            path + "\x1f" + key, face_color);
-                    }
-                }
-            } catch (const std::invalid_argument&) {
-            }
-        }
-    }
-    viewer_->set_body_surface_colors(default_color, std::move(occurrence_colors),
-        std::move(face_colors));
 }
 
 void AssemblyWorkspaceWindow::refresh_scene() {

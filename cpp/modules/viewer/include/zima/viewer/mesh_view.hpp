@@ -1,4 +1,5 @@
 #pragma once
+#include <zima/kernel/appearance.hpp>
 
 #include <zima/kernel/geometry_kernel.hpp>
 #include <zima/viewer/picking.hpp>
@@ -234,6 +235,13 @@ public:
     void set_selected_container_contents(std::set<std::string> owner_ids);
     void set_object_overlay_main_edges(std::set<EdgeKey> edges);
     void set_edge_color_override(std::optional<QColor> color);
+    void set_body_surface_styles(zima::kernel::SurfaceStyle base,
+        std::map<std::string,zima::kernel::SurfaceStyle> instances = {},
+        std::map<std::string,zima::kernel::SurfaceStyle> owners = {},
+        std::map<std::string,zima::kernel::SurfaceStyle> faces = {});
+    // Appearance command only: offer final faces without changing reference ownership.
+    void set_result_face_selection(bool enabled);
+    void set_inspected_faces(std::vector<ViewerCandidate> faces);
     void set_body_surface_colors(QColor default_color,
         std::map<std::string, QColor> instance_colors = {},
         std::map<std::string, QColor> face_colors = {});

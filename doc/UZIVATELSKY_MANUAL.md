@@ -998,6 +998,11 @@ zdrojového dílu nebo sestavy, nikoliv přímo.
 
 ### Barvy a přejmenování
 
+Jednotný nástroj **Barvy a vzhled…** (ikona koule nad View) nabízí třídy palety,
+vlastní pojmenované vzhledy, lesk a kovové povrchy. Rozlišuje základ tělesa
+a pojmenované skupiny **výsledných ploch**. Podrobný postup a ukládání:
+[Barvy a vzhled](APPEARANCE.md).
+
 Barva nastavená pro vložený díl patří konkrétní instanci a nemění barvy
 ostatních dílů. Příkaz **Soubor → Přejmenovat soubor…** zachová správnou
 příponu a aktualizuje interní odkazy v dílech, sestavách a výkresech. Pokud má

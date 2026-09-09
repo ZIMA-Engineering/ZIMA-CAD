@@ -248,6 +248,7 @@ struct MeshView::Impl {
     std::vector<SilhouetteCandidate> silhouette_candidates;
     std::vector<CandidateKind> allowed_kinds{CandidateKind::Container};
     std::function<bool(const ViewerCandidate&)> candidate_filter;
+    bool offer_result_faces{};
     bool advance_selection_on_hover{true};
     std::function<int(const ViewerCandidate&)> candidate_priority;
     std::vector<ViewerCandidate> candidates;
@@ -341,6 +342,9 @@ struct MeshView::Impl {
     std::optional<QColor> edge_color_override;
     QColor body_surface_color{"#B9C2CC"};
     std::map<std::string, QColor> body_surface_instance_colors;
+    zima::kernel::SurfaceStyle surface_style;
+    std::map<std::string,zima::kernel::SurfaceStyle> instance_styles, owner_styles, face_styles;
+    std::vector<ViewerCandidate> inspected_faces;
     std::map<std::string, QColor> body_surface_face_colors;
     QPoint last_pointer;
     QVector3D center;
@@ -830,7 +834,7 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
             ray_origin, ray_direction, world_tolerance)
         : ordered_viewer_candidates(
             impl_->mesh, impl_->persisted_reference_mesh,
-            ray_origin, ray_direction, world_tolerance);
+            ray_origin, ray_direction, world_tolerance, impl_->offer_result_faces);
     if (sketch_only) {
         for (auto& candidate : candidates) {
             const std::vector<std::size_t>* indices = nullptr;
@@ -2062,12 +2066,27 @@ void MeshView::set_edge_color_override(std::optional<QColor> color) {
     update();
 }
 
+void MeshView::set_body_surface_styles(zima::kernel::SurfaceStyle base,
+        std::map<std::string,zima::kernel::SurfaceStyle> instances,
+        std::map<std::string,zima::kernel::SurfaceStyle> owners,
+        std::map<std::string,zima::kernel::SurfaceStyle> faces) {
+    impl_->surface_style=std::move(base);impl_->instance_styles=std::move(instances);
+    impl_->owner_styles=std::move(owners);impl_->face_styles=std::move(faces);update();
+}
+void MeshView::set_result_face_selection(bool enabled) { impl_->offer_result_faces=enabled; clear_selection(); }
+
+void MeshView::set_inspected_faces(std::vector<ViewerCandidate> faces){impl_->inspected_faces=std::move(faces);update();}
+
 void MeshView::set_body_surface_colors(
     QColor default_color, std::map<std::string, QColor> instance_colors,
     std::map<std::string, QColor> face_colors) {
     impl_->body_surface_color = default_color.isValid()
-        ? std::move(default_color) : QColor("#B9C2CC");
-    impl_->body_surface_instance_colors = std::move(instance_colors);
+        ? default_color : QColor("#B9C2CC");
+    impl_->body_surface_instance_colors = instance_colors;
+    impl_->surface_style.color=default_color.name(QColor::HexArgb).toStdString();
+    impl_->instance_styles.clear();impl_->owner_styles.clear();impl_->face_styles.clear();
+    for(const auto& [key,color]:instance_colors){auto style=impl_->surface_style;style.color=color.name(QColor::HexArgb).toStdString();impl_->instance_styles[key]=style;}
+    for(const auto& [key,color]:face_colors){auto style=impl_->surface_style;style.color=color.name(QColor::HexArgb).toStdString();impl_->face_styles[key]=style;}
     impl_->body_surface_face_colors = std::move(face_colors);
     update();
 }
@@ -2565,20 +2584,42 @@ void MeshView::initializeGL() {
         "out vec3 viewNormal;\n"
         "void main(){ viewNormal = normalize(normalMatrix * normal);"
         " gl_Position = mvp * vec4(position, 1.0); }\n");
-    impl_->program.addShaderFromSourceCode(QOpenGLShader::Fragment,
-        "#version 330 core\n"
-        "uniform vec4 color;\n"
-        "uniform int unlit;\n"
-        "in vec3 viewNormal;\n"
-        "out vec4 fragmentColor;\n"
-        "void main(){ vec3 lightDirection = normalize(vec3(0.25, 0.35, 0.902));"
-        // OCCT face orientation is persisted separately from tessellation
-        // winding. Adjacent triangles of one planar ZIMA face may therefore
-        // arrive with opposite winding; two-sided rendering must light both
-        // identically instead of producing a fake clipping-plane pattern.
-        " float diffuse = abs(dot(normalize(viewNormal), lightDirection));"
-        " float brightness = unlit != 0 ? 1.0 : 0.42 + 0.58 * diffuse;"
-        " fragmentColor = vec4(color.rgb * brightness, color.a); }\n");
+    impl_->program.addShaderFromSourceCode(QOpenGLShader::Fragment, R"GLSL(
+#version 330 core
+uniform vec4 color;
+uniform int unlit;
+uniform float roughness;
+uniform float metallic;
+in vec3 viewNormal;
+out vec4 fragmentColor;
+// Procedural studio radiance: broad fill plus two softbox reflections.
+// This is view shading only; no OCCT or scene-geometry reconstruction.
+vec3 studio(vec3 r,float rough){
+    float width=mix(150.0,3.0,rough*rough);
+    float a=pow(max(dot(r,normalize(vec3(-.65,.6,.5))),0.0),width);
+    float b=pow(max(dot(r,normalize(vec3(.8,.25,.4))),0.0),width*.55);
+    float horizon=smoothstep(-.6,.8,r.y);
+    return mix(vec3(.055,.065,.085),vec3(.4,.44,.5),horizon)+vec3(1.8)*a+vec3(.8,.9,1.1)*b;
+}
+void main(){
+    if(unlit!=0){fragmentColor=color;return;}
+    vec3 n=normalize(viewNormal);if(n.z<0.0)n=-n;
+    vec3 v=vec3(0,0,1);vec3 l=normalize(vec3(.25,.35,.902));
+    vec3 h=normalize(l+v);float nv=max(dot(n,v),.001),nl=max(dot(n,l),0.0);
+    float rough=clamp(roughness,.04,1.0);float metal=clamp(metallic,0.0,1.0);
+    vec3 base=pow(color.rgb,vec3(2.2));vec3 f0=mix(vec3(.04),base,metal);
+    vec3 fresnel=f0+(1.0-f0)*pow(1.0-nv,5.0);
+    float a=rough*rough,a2=a*a;float nh=max(dot(n,h),0.0);
+    float d=a2/(3.14159*pow(nh*nh*(a2-1.0)+1.0,2.0));
+    float k=(rough+1.0)*(rough+1.0)/8.0;
+    float visibility=nv/(nv*(1.0-k)+k)*nl/(nl*(1.0-k)+k);
+    vec3 reflected=studio(reflect(-v,n),rough)*fresnel;
+    vec3 direct=d*visibility*fresnel/(4.0*nv*max(nl,.001))*nl*.65;
+    vec3 diffuse=base*(1.0-metal)*(.32+.68*nl);
+    vec3 linear=diffuse+reflected+direct;
+    fragmentColor=vec4(pow(clamp(linear,0.0,1.0),vec3(1.0/2.2)),color.a);
+}
+)GLSL");
     impl_->program.link();
     impl_->vertex_array.create();
     impl_->vertex_array.bind();
@@ -2960,39 +3001,33 @@ if (impl_->show_origins) {
                 static_cast<float>(color.alphaF()));
         };
         const std::size_t triangle_count = impl_->mesh.triangles.size() / 3;
-        const auto triangle_color = [&](std::size_t triangle) {
-            QColor color = impl_->body_surface_color;
-            if (triangle >= impl_->mesh.triangle_references.size()) return color;
-            const auto& reference = impl_->mesh.triangle_references[triangle];
-            if (reference.semantic_key.starts_with("thread:surface:")) {
-                color = QColor("#8F969D");
-            }
-            if (const auto found = impl_->body_surface_instance_colors.find(
-                    reference.instance_path);
-                found != impl_->body_surface_instance_colors.end()) {
-                color = found->second;
-            }
-            const std::string key = reference.instance_path + "\x1f" +
-                reference.owner_id + "\x1f" + reference.semantic_key;
-            if (const auto found = impl_->body_surface_face_colors.find(key);
-                found != impl_->body_surface_face_colors.end()) color = found->second;
-            return color;
+        const auto triangle_style = [&](std::size_t triangle) {
+            auto style=impl_->surface_style;
+            if(triangle>=impl_->mesh.triangle_references.size())return style;
+            const auto& r=impl_->mesh.triangle_references[triangle];
+            if(const auto it=impl_->instance_styles.find(r.instance_path);it!=impl_->instance_styles.end())style=it->second;
+            const auto owner=r.instance_path+"\x1f"+r.owner_id;
+            if(const auto it=impl_->owner_styles.find(owner);it!=impl_->owner_styles.end())style=it->second;
+            if(const auto it=impl_->face_styles.find(owner+"\x1f"+r.semantic_key);it!=impl_->face_styles.end())style=it->second;
+            if(r.semantic_key.starts_with("thread:surface:"))style={"#8F969D",.5,.65};
+            return style;
         };
         std::size_t first{};
         while (first < triangle_count) {
-            QColor color = triangle_color(first);
+            const auto style = triangle_style(first);
+            QColor color(QString::fromStdString(style.color));
             const bool technological_thread = first <
                     impl_->mesh.triangle_references.size() &&
                 impl_->mesh.triangle_references[first].semantic_key.starts_with(
                     "thread:surface:");
             std::size_t end = first + 1;
             while (end < triangle_count) {
-                QColor next = triangle_color(end);
+                const auto next = triangle_style(end);
                 const bool next_thread = end <
                         impl_->mesh.triangle_references.size() &&
                     impl_->mesh.triangle_references[end].semantic_key.starts_with(
                         "thread:surface:");
-                if (next != color || next_thread != technological_thread) break;
+                if (next != style || next_thread != technological_thread) break;
                 ++end;
             }
             // The solid is pushed slightly back for edge readability. A
@@ -3005,6 +3040,8 @@ if (impl_->show_origins) {
                 glEnable(GL_BLEND);
                 glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
             }
+            impl_->program.setUniformValue("roughness",static_cast<float>(style.roughness));
+            impl_->program.setUniformValue("metallic",static_cast<float>(style.metallic));
             impl_->program.setUniformValue("color", color_vector(color));
             glDrawArrays(GL_TRIANGLES, static_cast<GLint>(first * 3),
                 static_cast<GLsizei>((end - first) * 3));
@@ -3359,6 +3396,10 @@ if (impl_->show_origins) {
     if (!highlighted && !impl_->candidates.empty()) {
         highlighted = impl_->candidates[impl_->active_candidate];
         highlight_color = QVector4D(1.0F, 0.55F, 0.05F, 1.0F);
+    }
+    if (!highlighted && !impl_->inspected_faces.empty()) {
+        highlighted=impl_->inspected_faces.front();
+        highlight_color=QVector4D(.15F,.7F,1.0F,1.0F);
     }
     impl_->program.disableAttributeArray(0);
     impl_->program.disableAttributeArray(1);
@@ -4717,8 +4758,16 @@ if (impl_->show_origins) {
                     draw_circular_marker(painter, project(point.position), color);
                 }
             }
-            if (candidate_uses_face_boundary_overlay(*highlighted)) {
-                painter.setPen(QPen(color, 1.5));
+            auto face_overlays=impl_->inspected_faces;
+            if(candidate_uses_face_boundary_overlay(*highlighted) &&
+                std::none_of(face_overlays.begin(),face_overlays.end(),[&](const auto& face){
+                    return face.owner_id==highlighted->owner_id && face.semantic_key==highlighted->semantic_key && face.instance_path==highlighted->instance_path;}))
+                face_overlays.push_back(*highlighted);
+            for(const auto& face_overlay:face_overlays) {
+                const auto highlighted=std::optional<ViewerCandidate>(face_overlay);
+                const bool inspected=std::any_of(impl_->inspected_faces.begin(),impl_->inspected_faces.end(),[&](const auto& face){
+                    return face.owner_id==face_overlay.owner_id && face.semantic_key==face_overlay.semantic_key && face.instance_path==face_overlay.instance_path;});
+                painter.setPen(QPen(inspected?QColor("#29b6ff"):color, 1.5));
                 painter.setBrush(Qt::NoBrush);
                 const bool original = highlighted->geometry ==
                     CandidateGeometry::OriginalReference;

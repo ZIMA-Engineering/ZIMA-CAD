@@ -404,7 +404,7 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
     const zima::kernel::ViewerMesh& references,
     const Vec3& ray_origin,
     const Vec3& ray_direction,
-    double world_tolerance) {
+    double world_tolerance, bool offer_result_faces) {
     std::vector<ViewerCandidate> result;
     const bool has_local_display_faces = std::any_of(
         mesh.triangle_references.begin(), mesh.triangle_references.end(),
@@ -513,7 +513,7 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
                 result.push_back({CandidateKind::Occurrence, face.distance, face.triangle,
                                   {}, {}, face.reference.instance_path, geometry});
             }
-            if (!persisted_occurrence && face.reference.semantic_key != "container:display") {
+            if ((!persisted_occurrence || offer_result_faces) && face.reference.semantic_key != "container:display") {
                 result.push_back({CandidateKind::Face, face.distance, face.triangle,
                                   face.reference.owner_id, face.reference.semantic_key,
                                   face.reference.instance_path, geometry});
