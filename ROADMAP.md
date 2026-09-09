@@ -13,12 +13,13 @@ will remain a separately built, dynamically linked solid-modeling kernel behind
 a narrow adapter. The approved direction, module boundaries and migration gates
 are documented in [Future C++ migration](doc/CXX_MIGRATION.md).
 
-## Rovinné řezy Part / Assembly / Drawing (2026-09-08)
+## Řezy přes umístěný kontejner a Sketcher (2026-09-09)
 
-Společný příkaz Řezy ukládá editovatelnou čáru do skupiny na konci stromu.
-Podporuje dočasný náhled, volitelné zobrazení řezu modelu, samostatné režimy
-opakovaných komponent a propojený výkres se šrafami a PDF. První etapa
-obsahuje přímou čáru; lomené řezy a vazby ve Sketcheru následují později.
+Skupina Řezy je hned za počátkem dokumentu a obsahuje nesmazatelný stav
+Bez řezu. A–A, B–B… mají společné umístění kontejneru, vlastní rovinu
+XY/XZ/YZ a plnou editaci otevřené čáry nebo lomené čáry ve Sketcheru.
+Aktivace řezu ořízne View, výkres používá stejnou uloženou definici.
+Zachováno je šrafování, volba strany i samostatné režimy komponent.
 Viz [Řezy](doc/SECTIONS.md).
 
 ## Výkresové pohledy a PDF (2026-09-08)

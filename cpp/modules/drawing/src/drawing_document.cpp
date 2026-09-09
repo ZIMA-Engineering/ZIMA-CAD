@@ -393,12 +393,13 @@ void refresh_view_geometry(DrawingView& view,const zima::kernel::ViewerMesh& sou
     auto cut=zima::document::calculate_section(source,section);
     view.projected_edges=detail::project_drawing_edges(cut.mesh,view.camera,true,true);view.projected_triangles=project_triangles(cut.mesh,view.camera);
     if(!view.hatching)return;
-    std::size_t index=0;
+    std::map<std::string,std::size_t> component_indices;
     for(const auto& patch:cut.patches){
+        const auto& frame=patch.frame;
         auto style=view.hatch_style;const auto setting=section.components.find(patch.component);
         if(setting!=section.components.end() && setting->second.mode!=0)continue;
         if(setting!=section.components.end() && setting->second.custom_hatch)style=setting->second.hatch;
-        else style.angle+=(index++%2)*90;
+        else {const auto [it,added]=component_indices.try_emplace(patch.component,component_indices.size());style.angle+=(it->second%2)*90;}
         // Angles and spacing are measured on paper, including an oblique view.
         // Plane-axis hatching is used only when the section is edge-on.
         const auto dot=[](const auto& a,const auto& b){return a.x*b.x+a.y*b.y+a.z*b.z;};

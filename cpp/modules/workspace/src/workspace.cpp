@@ -1077,6 +1077,12 @@ void Workspace::calculate_assembly_cuts(
         }
     }
     document.calculate_derived_copies(kernel);
+    if(!document.sections.empty()){
+        auto mesh=document.build_scene();
+        append_mesh(mesh,document.origin_viewer_mesh());
+        append_mesh(mesh,document.construction_viewer_mesh());
+        zima::document::resolve_section_placements(document.sections,mesh.original_references);
+    }
 }
 
 void Workspace::regenerate_assembly_from_open_dependencies(

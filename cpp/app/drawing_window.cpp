@@ -788,14 +788,15 @@ public:
         for(const auto* section_view:views){
             if(section_view->section_id.empty()||section_view->section_parent_id.empty()||!section_view->section_snapshot)continue;
             const auto parent=std::ranges::find_if(views,[&](const auto* v){return v->id==section_view->section_parent_id;});if(parent==views.end())continue;
-            const auto& v=**parent;const auto& s=*section_view->section_snapshot;const auto f=zima::document::section_frame(s);
+            const auto& v=**parent;const auto& s=*section_view->section_snapshot;const auto frames=zima::document::section_frames(s);const auto path=zima::document::section_path(s);
             const auto project=[&](zima::kernel::Vec3 p){const auto dot=[](auto a,auto b){return a.x*b.x+a.y*b.y+a.z*b.z;};return QPointF(origin.x()+(sheet_->width_mm()-v.x+dot(p,v.camera.horizontal)*v.scale)*zoom,origin.y()+(sheet_->height_mm()-v.y-dot(p,v.camera.vertical)*v.scale)*zoom);};
-            const auto& line=s.sketch.segments.front();const auto* a=s.sketch.find_point(line.first_point_id);const auto* b=s.sketch.find_point(line.second_point_id);
-            const double length=std::hypot(b->x-a->x,b->y-a->y);const auto p=project(f.origin),q=project({f.origin.x+f.horizontal.x*length,f.origin.y+f.horizontal.y*length,f.origin.z+f.horizontal.z*length});
-            auto direction=project({f.origin.x-f.normal.x,f.origin.y-f.normal.y,f.origin.z-f.normal.z})-p;const double n=std::hypot(direction.x(),direction.y());if(n<1e-7)continue;direction/=n;
-            QPen pen(printing?ink:QColor("#DF5656"),printing||lineweights_?sheet_->red_line_mm*zoom:1.0);pen.setCapStyle(Qt::FlatCap);pen.setDashPattern({7*zoom/pen.widthF(),1.5*zoom/pen.widthF(),.7*zoom/pen.widthF(),1.5*zoom/pen.widthF()});painter.setPen(pen);painter.drawLine(p,q);
-            pen.setStyle(Qt::SolidLine);painter.setPen(pen);const QPointF side(-direction.y(),direction.x());
-            for(const auto tip:{p,q}){const auto start=tip-direction*7*zoom;painter.drawLine(start,tip);painter.drawLine(tip,tip-direction*2*zoom+side*.7*zoom);painter.drawLine(tip,tip-direction*2*zoom-side*.7*zoom);painter.drawText(QRectF(start.x()-8*zoom,start.y()-5*zoom,16*zoom,5*zoom),Qt::AlignCenter,QString::fromStdString(s.name));}
+            QPen pen(printing?ink:QColor("#DF5656"),printing||lineweights_?sheet_->red_line_mm*zoom:1.0);pen.setCapStyle(Qt::FlatCap);pen.setDashPattern({7*zoom/pen.widthF(),1.5*zoom/pen.widthF(),.7*zoom/pen.widthF(),1.5*zoom/pen.widthF()});painter.setPen(pen);
+            QPolygonF marker;for(auto xy:path)marker.push_back(project({s.plane_origin.x+s.plane_x.x*xy[0]+s.plane_y.x*xy[1],s.plane_origin.y+s.plane_x.y*xy[0]+s.plane_y.y*xy[1],s.plane_origin.z+s.plane_x.z*xy[0]+s.plane_y.z*xy[1]}));painter.drawPolyline(marker);
+            pen.setStyle(Qt::SolidLine);painter.setPen(pen);
+            for(int end=0;end<2;++end){const auto& f=end?frames.back():frames.front();const auto tip=end?marker.back():marker.front();const auto p=project(f.origin);
+                auto direction=project({f.origin.x-f.normal.x,f.origin.y-f.normal.y,f.origin.z-f.normal.z})-p;const double n=std::hypot(direction.x(),direction.y());if(n<1e-7)continue;direction/=n;const QPointF side(-direction.y(),direction.x());
+                const auto start=tip-direction*7*zoom;painter.drawLine(start,tip);painter.drawLine(tip,tip-direction*2*zoom+side*.7*zoom);painter.drawLine(tip,tip-direction*2*zoom-side*.7*zoom);painter.drawText(QRectF(start.x()-8*zoom,start.y()-5*zoom,16*zoom,5*zoom),Qt::AlignCenter,QString::fromStdString(s.name));
+            }
         }
         for (const auto& dimension : sheet_->dimensions) {
             const QColor dimension_color=printing?ink:dimension.id==selected_dimension_id_ ? QColor("#00D1FF")

@@ -152,7 +152,7 @@ se používá také u kót ve view, os počátku a směru BOM regionu.
 ## Současná omezení
 
 Podporována je první asociativní lineární kóta mezi dvěma rovnoběžnými
-přímými hranami. Další typy ISO kót, lomené řezy, detaily, tolerance, pozice,
+přímými hranami. Další typy ISO kót, rozvinuté řezy, detaily, tolerance, pozice,
 technické symboly a export DXF jsou další vývojové kroky. BOM v razítku
 už není v této skupině: Repeat Region, Item Number a Quantity jsou funkční.
 
@@ -318,4 +318,4 @@ samostatný model; explicitní regenerace je nahradí podle propojeného zdroje.
 
 Vlastnosti pohledu nabízejí uložené řezy Partu nebo Assembly, šrafování
 s roztečí na papíře a nastavení jednotlivých komponent. Postup a hranice
-první etapy popisují [Řezy](SECTIONS.md).
+ovládání přes umístěný kontejner a Sketcher popisují [Řezy](SECTIONS.md).

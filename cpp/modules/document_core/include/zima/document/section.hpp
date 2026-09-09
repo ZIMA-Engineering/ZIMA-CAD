@@ -1,5 +1,7 @@
 #pragma once
 #include <zima/sketcher/sketch.hpp>
+#include <zima/document/placement_types.hpp>
+#include <zima/document/history_identity.hpp>
 #include <map>
 #include <array>
 #include <string>
@@ -19,6 +21,8 @@ struct SectionComponent {
 struct SectionDefinition {
     std::string id, name{"A–A"};
     zima::sketcher::Sketch sketch;
+    Placement placement;
+    ContainerOrigin container_origin;
     zima::kernel::Vec3 plane_origin{}, plane_x{1,0,0}, plane_y{0,1,0};
     std::map<std::string,std::string> component_names;
     bool reversed{}, show_plane{}, show_cut{};
@@ -29,6 +33,7 @@ struct SectionDefinition {
 struct SectionFrame { zima::kernel::Vec3 origin, horizontal, vertical, normal; };
 struct SectionPatch {
     std::string component;
+    SectionFrame frame;
     std::vector<std::array<zima::kernel::Vec3,2>> boundary;
     std::vector<std::array<zima::kernel::Vec3,3>> triangles;
 };
@@ -36,6 +41,13 @@ struct SectionResult {
     zima::kernel::ViewerMesh mesh;
     std::vector<SectionPatch> patches;
 };
+SectionDefinition create_section();
+// Derive the section sketch frame from the ordinary resolved container placement.
+void reframe_section(SectionDefinition&);
+void resolve_section_placements(std::vector<SectionDefinition>&, const zima::kernel::ViewerReferenceGeometry&);
+// Ordered, connected open chain. Construction geometry is not part of the cut.
+std::vector<std::array<double,2>> section_path(const SectionDefinition&);
+std::vector<SectionFrame> section_frames(const SectionDefinition&);
 SectionFrame section_frame(const SectionDefinition&);
 void validate_hatch(const HatchStyle&);
 std::string serialize_sections(const std::vector<SectionDefinition>&);
