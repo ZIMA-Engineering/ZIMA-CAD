@@ -38,8 +38,22 @@ void append_mesh(zima::kernel::ViewerMesh& target,
 }
 
 zima::kernel::BodyResult part_result(const PartState& part) {
-    auto result = part.session.calculated_boundaries().back();
+    auto result = part.session.calculated_boundaries().empty() ? zima::kernel::BodyResult{}
+        : part.session.calculated_boundaries().back();
     const auto& document = part.session.document();
+    for (const auto& sketch : document.sketches) {
+        if (sketch.suppressed) continue;
+        const auto owner = std::ranges::find(document.history, sketch.owner_container_id,
+            &zima::document::HistoryContainer::id);
+        if (owner != document.history.end() && (owner->suppressed ||
+            owner->feature_kind != zima::document::FeatureKind::Sketch)) continue;
+        auto mesh = sketch.viewer_mesh();
+        if (const auto* body = document.body_owner_for_object(sketch.id)) {
+            if (!body->visible) continue;
+            mesh = document.place_body_mesh(std::move(mesh),body->scope.id);
+        }
+        append_mesh(result.mesh,mesh);
+    }
     append_mesh(result.mesh, document.construction_viewer_mesh());
     // Publish the persisted datum frames in the component snapshot when it
     // is explicitly inserted or regenerated. Display visibility stays local
@@ -304,7 +318,7 @@ zima::kernel::ViewerMesh Workspace::authoritative_viewer_mesh(
     const std::string& document_id) const {
     if (const auto* part = open_part(document_id)) {
         if (part->session.calculated_boundaries().empty()) {
-            if(part->session.document().kernel_operations().empty())return {};
+            if(part->session.document().kernel_operations().empty())return part_result(*part).mesh;
             throw std::runtime_error("Open Part has no calculated body");
         }
         return part_result(*part).mesh;
@@ -886,7 +900,8 @@ std::string Workspace::insert_open_part(
         throw std::invalid_argument("Insertion requires open Part and Assembly documents");
     }
     const auto& calculated = part->session.calculated_boundaries();
-    if (part->session.document().history.empty() || calculated.empty()) {
+    if (part->session.document().history.empty() ||
+            (calculated.empty() && !part->session.document().kernel_operations().empty())) {
         throw std::runtime_error("Open Part has no explicit calculated result");
     }
     auto next = assembly->session.document();
@@ -947,19 +962,16 @@ std::string Workspace::insert_open_assembly(
         calculated_source);
     std::vector<zima::kernel::PlacedBody> nested_bodies;
     for (const auto& component : calculated_source.components) {
-        if (component.suppressed || !component.visible) continue;
+        if (component.suppressed || !component.visible || component.calculated_source.kernel_shape.empty()) continue;
         nested_bodies.push_back({
             component.calculated_source,
             {component.placement.x, component.placement.y, component.placement.z},
             {component.placement.rotation_x, component.placement.rotation_y,
              component.placement.rotation_z}});
     }
-    if (nested_bodies.empty()) {
-        throw std::runtime_error(
-            "Nested Assembly has no visible calculated components");
-    }
     zima::kernel::OcctKernel kernel;
-    occurrence.calculated_source = kernel.compound_bodies(nested_bodies);
+    occurrence.calculated_source = nested_bodies.empty() ? zima::kernel::BodyResult{}
+        : kernel.compound_bodies(nested_bodies);
     occurrence.calculated_source.mesh = calculated_source.build_scene();
     for(const auto& child:calculated_source.components)
         occurrence.calculated_source.body_outputs.emplace(child.occurrence_id,child.calculated_source);
@@ -993,7 +1005,7 @@ zima::assembly::AssemblyDocument Workspace::refreshed_assembly(
                 calculate_assembly_cuts(nested);
                 std::vector<zima::kernel::PlacedBody> nested_bodies;
                 for (const auto& component : nested.components) {
-                    if (component.suppressed || !component.visible) continue;
+                    if (component.suppressed || !component.visible || component.calculated_source.kernel_shape.empty()) continue;
                     nested_bodies.push_back({
                         component.calculated_source,
                         {component.placement.x, component.placement.y,
@@ -1003,13 +1015,9 @@ zima::assembly::AssemblyDocument Workspace::refreshed_assembly(
                          component.placement.rotation_z}});
                 }
 
-                if (nested_bodies.empty()) {
-                    throw std::runtime_error(
-                        "Nested Assembly has no visible calculated components");
-                }
                 zima::kernel::OcctKernel kernel;
-                occurrence.calculated_source = {};
-                occurrence.calculated_source = kernel.compound_bodies(nested_bodies);
+                occurrence.calculated_source = nested_bodies.empty() ? zima::kernel::BodyResult{}
+                    : kernel.compound_bodies(nested_bodies);
                 occurrence.calculated_source.mesh = nested.build_scene();
                 for(const auto& child:nested.components)
                     occurrence.calculated_source.body_outputs.emplace(child.occurrence_id,child.calculated_source);
@@ -1023,7 +1031,8 @@ zima::assembly::AssemblyDocument Workspace::refreshed_assembly(
         const auto* part = open_part(occurrence.source_document_id);
         if (part == nullptr) continue;
         const auto& calculated = part->session.calculated_boundaries();
-        if (part->session.document().history.empty() || calculated.empty()) {
+        if (part->session.document().history.empty() ||
+            (calculated.empty() && !part->session.document().kernel_operations().empty())) {
             throw std::runtime_error(
                 "An open Assembly dependency has no calculated Part result");
         }

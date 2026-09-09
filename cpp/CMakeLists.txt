@@ -88,7 +88,7 @@ target_link_libraries(zima_kernel_occt
 target_link_libraries(zima_kernel_occt PRIVATE TKOffset)
 target_link_libraries(zima_kernel_occt PRIVATE TKFillet)
 target_link_libraries(zima_kernel_occt PRIVATE
-    TKDESTEP TKDESTL TKXSBase TKXCAF TKCAF TKLCAF TKCDF)
+    TKDESTEP TKDEIGES TKDESTL TKXSBase TKXCAF TKCAF TKLCAF TKCDF)
 
 add_library(zima_viewer
     modules/viewer/src/mesh_view.cpp
@@ -105,7 +105,8 @@ target_link_libraries(zima_ui PUBLIC Qt6::Widgets zima_document_core)
 
 add_library(zima_interchange modules/interchange/src/interchange.cpp
     modules/interchange/src/dxf.cpp modules/interchange/src/planar_face.cpp
-    modules/interchange/src/step.cpp modules/interchange/src/step_model.cpp)
+    modules/interchange/src/step.cpp modules/interchange/src/step_model.cpp
+    modules/interchange/src/model_import.cpp)
 target_include_directories(zima_interchange PUBLIC modules/interchange/include)
 target_link_libraries(zima_interchange PUBLIC zima_sketcher zima_document_core zima_assembly zima_kernel_occt
     PRIVATE TKDESTEP TKXSBase TKXCAF TKCAF TKLCAF TKCDF TKBRep TKGeomBase)
@@ -196,6 +197,10 @@ target_link_libraries(zima_cpp_performance_benchmark PRIVATE
     zima_sketcher)
 
 if(ZIMA_BUILD_TESTS)
+    add_executable(zima_cpp_import_model_contract_tests tests/import_model_contract_tests.cpp)
+    target_link_libraries(zima_cpp_import_model_contract_tests PRIVATE zima_interchange zima_workspace TKDEIGES TKPrim)
+    target_compile_definitions(zima_cpp_import_model_contract_tests PRIVATE ZIMA_IMPORT_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/import")
+    add_test(NAME zima_cpp_import_model_contract_tests COMMAND zima_cpp_import_model_contract_tests)
     add_executable(zima_cpp_step_model_contract_tests tests/step_model_contract_tests.cpp)
     target_link_libraries(zima_cpp_step_model_contract_tests PRIVATE zima_interchange zima_kernel_occt TKPrim TKDESTEP TKXCAF TKCAF TKLCAF TKCDF)
     add_test(NAME zima_cpp_step_model_contract_tests COMMAND zima_cpp_step_model_contract_tests)

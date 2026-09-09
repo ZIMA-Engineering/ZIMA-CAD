@@ -50,6 +50,8 @@ Architecture and migration notes are in [`doc/`](doc/).
 Current modeling tools and interaction contracts:
 
 - [Uživatelský manuál](doc/UZIVATELSKY_MANUAL.md)
+- [Import IGES a DXF do Partu a sestav](doc/IGES_DXF_IMPORT.md)
+- [Import a export STEP](doc/STEP_IMPORT_EXPORT.md)
 - [Multi-body Part and Boolean operations](doc/MULTIBODY_AND_BOOLEANS.md)
 - [Zrcadlo a Pole: linked body and component copies](doc/MIRROR_AND_PATTERN.md)
 - [Save As: model and drawing copies](doc/DOCUMENT_COPY.md)

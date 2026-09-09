@@ -25,6 +25,8 @@ public:
         const std::vector<BodyResult>& previous_boundaries) const override;
     [[nodiscard]] BodyResult compound_bodies(
         const std::vector<PlacedBody>& bodies) const override;
+    [[nodiscard]] BodyResult import_iges(const std::string& path,
+        const std::string& owner_id, double mesh_deflection = 0.1) const;
     [[nodiscard]] std::vector<BodyResult> import_step_components(
         const std::vector<StepRequest>& requests, double mesh_deflection = 0.1) const;
     [[nodiscard]] BodyResult subtract_bodies(

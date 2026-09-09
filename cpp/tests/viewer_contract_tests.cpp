@@ -206,6 +206,12 @@ int main() {
                     !zima::viewer::candidate_recolors_wire_edge(
                         different_solid_container, imported_step_wire),
                 "Imported STEP Container did not recolour only its existing wire");
+        auto imported_iges_wire = imported_step_wire;
+        imported_iges_wire.reference.owner_id = "step-container";
+        imported_iges_wire.reference.semantic_key = "iges:edge:de:17";
+        require(zima::viewer::candidate_recolors_wire_edge(imported_step_container, imported_iges_wire) &&
+            !zima::viewer::candidate_uses_original_container_wire_edge(imported_step_container, imported_iges_wire),
+            "IGES Container must use its existing display wire, not the original topology overlay");
         auto native_original_wire = imported_step_wire;
         native_original_wire.reference.owner_id = "native-container";
         native_original_wire.reference.semantic_key = "x_min:y_min";

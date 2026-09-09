@@ -1,5 +1,7 @@
 # Import a export STEP
 
+Další podporované importy: [IGES a DXF do Partu a sestav](IGES_DXF_IMPORT.md).
+
 ## Import do Partu
 
 **Soubor → Importovat → STEP** vloží každý koncový díl / výskyt ze STEP do

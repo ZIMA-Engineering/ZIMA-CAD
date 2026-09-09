@@ -5,7 +5,7 @@
 
 namespace zima::interchange {
 
-enum class Format { Unknown, Dxf, Step, Stl, Png, Jpeg };
+enum class Format { Unknown, Dxf, Step, Iges, Stl, Png, Jpeg };
 enum class Direction { Import, Export };
 enum class Context { Sketch, Part, Assembly };
 

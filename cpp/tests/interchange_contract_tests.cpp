@@ -67,7 +67,7 @@ int main() {
         auto rejected_target = zima::sketcher::Sketch::create_default();
         bool limit_rejected = false;
         try {
-            static_cast<void>(import_dxf(path, rejected_target));
+            static_cast<void>(import_dxf(path, rejected_target, 1.0, 100));
         } catch (const std::runtime_error&) {
             limit_rejected = true;
         }

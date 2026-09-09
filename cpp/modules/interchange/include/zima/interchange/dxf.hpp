@@ -18,7 +18,7 @@ struct DxfImportResult {
 [[nodiscard]] DxfImportResult import_dxf(
     const std::filesystem::path& path, zima::sketcher::Sketch& target,
     double ambiguous_unit_scale_to_mm = 1.0,
-    std::size_t maximum_entities = 100);
+    std::size_t maximum_entities = 100000);
 void export_dxf(
     const std::filesystem::path& path, const zima::sketcher::Sketch& sketch);
 

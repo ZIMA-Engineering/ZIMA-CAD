@@ -11,6 +11,7 @@ Format format_from_path(const std::filesystem::path& path) {
         [](unsigned char value) { return static_cast<char>(std::tolower(value)); });
     if (extension == ".dxf") return Format::Dxf;
     if (extension == ".step" || extension == ".stp") return Format::Step;
+    if (extension == ".igs" || extension == ".iges") return Format::Iges;
     if (extension == ".stl") return Format::Stl;
     if (extension == ".png") return Format::Png;
     if (extension == ".jpg" || extension == ".jpeg") return Format::Jpeg;
@@ -20,7 +21,7 @@ Format format_from_path(const std::filesystem::path& path) {
 bool supports(Format format, Direction direction, Context context) {
     if (direction == Direction::Import) {
         if (format == Format::Dxf) return true;
-        if (format == Format::Step) return context != Context::Sketch;
+        if (format == Format::Step || format == Format::Iges) return context != Context::Sketch;
         return false;
     }
     if (format == Format::Dxf) return context == Context::Sketch;

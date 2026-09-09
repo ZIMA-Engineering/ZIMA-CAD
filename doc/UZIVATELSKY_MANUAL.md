@@ -967,6 +967,19 @@ BREP a příprava zobrazovacího meshe velkého vloženého STEP mimo hlavní GU
 vlákno. Hlavní okno proto během této práce zůstává překreslované a stavový
 řádek zobrazuje načítaný soubor.
 
+### Import IGES a DXF
+
+**Soubor → Importovat** podporuje také IGES (`.igs`, `.iges`) a textové DXF.
+IGES vloží do Partu těleso s importovanou geometrií. DXF vytvoří Sketch s
+importním blokem („mrtvolou“) v aktivním tělese; bez aktivního tělesa vytvoří
+nové. V aktivní skice přidá blok přímo do ní.
+
+Při importu do sestavy vznikne samostatný Part a vloží se jako komponenta
+právě editované sestavy. Aktivovaný Part uvnitř sestavy se upravuje přímo.
+Nová DXF skica používá lokální XY tělesa; umístění se upravuje běžnými Properties.
+Rozsah podporovaných DXF entit a další podrobnosti:
+[Import IGES a DXF](IGES_DXF_IMPORT.md).
+
 ### Export STEP
 
 Příkaz **Soubor → Exportovat → STEP** je dostupný pro díl i sestavu.

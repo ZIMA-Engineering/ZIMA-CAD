@@ -1,3 +1,4 @@
+#include <zima/interchange/model_import.hpp>
 #include <zima/document/feature_sketches.hpp>
 #include "section_properties_dialog.hpp"
 #include <zima/drawing/drawing_template.hpp>
@@ -9753,8 +9754,8 @@ void AssemblyWorkspaceWindow::import_file() {
         application_settings_.text("menu.file.import", tr("Importovat")),
         QString::fromStdString(working_directory_.string()),
         application_settings_.text("file.filter.import",
-            tr("Podporované importní formáty (*.step *.stp *.dxf);;"
-               "STEP (*.step *.stp);;DXF (*.dxf)")),
+            tr("Podporované importní formáty (*.step *.stp *.igs *.iges *.dxf);;"
+               "STEP (*.step *.stp);;IGES (*.igs *.iges);;DXF (*.dxf)")),
         application_settings_.translations);
     if (path.isEmpty()) return;
     const auto context = !active_sketch_id_.empty()
@@ -9769,41 +9770,56 @@ void AssemblyWorkspaceWindow::import_file() {
                 format, zima::interchange::Direction::Import, context)));
         return;
     }
-    if (format == zima::interchange::Format::Dxf) {
-        auto* part = workspace_.open_part(workspace_.active_document_id());
-        if (part == nullptr || active_sketch_id_.empty()) {
-            QMessageBox::information(this, tr("Umístění DXF"),
-                tr("Nejprve vytvořte nebo aktivujte skicu, která určí rovinu DXF."));
-            return;
-        }
-        begin_status_operation(tr("Importuji DXF %1…").arg(
-            QFileInfo(path).fileName()));
+    if (format == zima::interchange::Format::Dxf || format == zima::interchange::Format::Iges) {
+        const auto target_id = workspace_.active_document_id();
+        const auto displayed_id = workspace_.displayed_document_id();
+        auto* part = workspace_.open_part(target_id);
+        const auto* assembly = workspace_.open_assembly(target_id);
+        if (!part && !assembly) return;
+        const bool dxf = format == zima::interchange::Format::Dxf;
+        begin_status_operation(tr("Importuji %1…").arg(QFileInfo(path).fileName()));
         try {
-            auto next = part->session.document();
-            update_status_operation(
-                tr("Čtu DXF a převádím entity do aktivní skici…"), -1, 0);
-            const auto imported = run_background_task([
-                    &next, source = path.toStdString(),
-                    sketch_id = active_sketch_id_] {
-                auto sketch = std::find_if(
-                    next.sketches.begin(), next.sketches.end(),
-                    [&](const auto& value) { return value.id == sketch_id; });
-                if (sketch == next.sketches.end()) {
-                    throw std::runtime_error("Aktivní skica pro DXF nebyla nalezena");
-                }
-                return zima::interchange::import_dxf(source, *sketch);
+            auto document = part ? part->session.document() : new_part_from_template(application_settings_);
+            if (!part) {
+                document.name = QFileInfo(path).completeBaseName().toStdString();
+                document.document_precision = assembly->session.document().document_precision;
+                document.document_units = assembly->session.document().document_units;
+            }
+            auto previous = part ? part->session.calculated_boundaries() : std::vector<zima::kernel::BodyResult>{};
+            zima::interchange::DxfImportResult report;
+            auto imported = run_background_task([document=std::move(document),previous=std::move(previous),
+                    source=std::filesystem::path(path.toStdString()),sketch_id=active_sketch_id_,dxf,&report]() mutable {
+                if (!dxf) return zima::interchange::import_iges_part(std::move(document),previous,source);
+                auto result = zima::interchange::import_dxf_part(std::move(document),previous,source,sketch_id);
+                report = std::move(result.report); return std::move(result.part);
             });
-            update_status_operation(tr("Vkládám DXF entity do dokumentu…"));
-            part->session.commit(std::move(next), part->session.calculated_boundaries());
-            update_status_operation(tr("Připravuji strom a View…"));
-            refresh_tabs();
-            refresh_scene();
-            finish_status_operation(tr("DXF importováno: %1 entit, blok %2")
-                .arg(imported.imported_entities)
-                .arg(QString::fromStdString(imported.import_block_id)));
+            if (part) part->session.commit(std::move(imported.document),std::move(imported.calculated));
+            else {
+                const auto base = assembly->path.empty() ? working_directory_ : assembly->path.parent_path();
+                const auto name = imported.document.name;
+                const auto id = imported.document.document_id;
+                std::filesystem::path destination;
+                for (std::size_t suffix=0;;++suffix) {
+                    destination=std::filesystem::absolute(base/(name+(suffix?"_"+std::to_string(suffix):"")+".prtz"));
+                    if (!std::filesystem::exists(destination) && !workspace_.document_id_for_path(destination)) break;
+                }
+                imported.document.save(destination,imported.calculated);
+                workspace_.add_part(std::move(imported.document),std::move(imported.calculated),destination);
+                static_cast<void>(workspace_.insert_open_part(target_id,id,name));
+                workspace_.activate(target_id); workspace_.display_top_level(displayed_id);
+            }
+            refresh_tabs(); refresh_scene();
+            finish_status_operation(dxf ? tr("DXF importováno: %1 entit").arg(report.imported_entities)
+                : tr("IGES importován"));
+            if (!report.warnings.empty()) {
+                QStringList warnings;
+                for (const auto& warning : report.warnings)
+                    if (!warnings.contains(QString::fromStdString(warning))) warnings << QString::fromStdString(warning);
+                QMessageBox::information(this,tr("Upozornění importu DXF"),warnings.join("\n"));
+            }
         } catch (const std::exception& error) {
-            finish_status_operation(tr("Import DXF selhal"), false);
-            QMessageBox::warning(this, tr("Import DXF selhal"), error.what());
+            finish_status_operation(tr("Import selhal"),false);
+            QMessageBox::warning(this,tr("Import selhal"),QString::fromUtf8(error.what()));
         }
         return;
     }

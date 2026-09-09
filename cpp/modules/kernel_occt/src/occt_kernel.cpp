@@ -45,6 +45,8 @@
 #include <BRep_Tool.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
 #include <STEPControl_Reader.hxx>
+#include <IGESControl_Reader.hxx>
+#include <IGESData_IGESModel.hxx>
 #include <STEPControl_Writer.hxx>
 #include <XSControl_TransferReader.hxx>
 #include <XSControl_WorkSession.hxx>
@@ -4734,6 +4736,66 @@ std::vector<BodyResult> OcctKernel::evaluate_box_boundaries(
         history.push_back({operation.owner_id, operation.box, operation.operation});
     }
     return evaluate_history(history);
+}
+
+BodyResult OcctKernel::import_iges(const std::string& path,
+        const std::string& owner_id, double mesh_deflection) const {
+    if (owner_id.empty() || !std::isfinite(mesh_deflection) || mesh_deflection <= 0)
+        throw std::invalid_argument("Invalid IGES import parameters");
+    IGESControl_Reader reader;
+    if (reader.ReadFile(path.c_str()) != IFSelect_RetDone || reader.TransferRoots() == 0)
+        throw std::runtime_error("OCCT IGES import failed");
+    PrimitiveData data; data.shape = reader.OneShape();
+    if (data.shape.IsNull() || !BRepCheck_Analyzer(data.shape).IsValid())
+        throw std::runtime_error("IGES did not produce valid geometry");
+    const auto model = reader.IGESModel();
+    const auto transfer = reader.WS()->TransferReader()->TransientProcess();
+    // Identity is anchored in the source IGES directory entry, never in OCCT
+    // traversal order. A split child is distinguished by its persisted locator.
+    const auto capture = [&](auto& owned, TopAbs_ShapeEnum kind,
+            StepRequest::TopologyIdentity::Kind identity_kind, const char* role) {
+        struct Candidate { TopoDS_Shape shape; int source{}; int specificity{}; std::string locator; };
+        std::map<std::string, Candidate> candidates;
+        TopTools_IndexedMapOfShape actual; TopExp::MapShapes(data.shape, kind, actual);
+        for (int i = 1; i <= model->NbEntities(); ++i) {
+            const auto entity = model->Value(i);
+            const auto source_shape = TransferBRep::ShapeResult(transfer, entity);
+            if (source_shape.IsNull()) continue;
+            TopTools_IndexedMapOfShape children; TopExp::MapShapes(source_shape, kind, children);
+            for (int j = 1; j <= children.Size(); ++j) {
+                const auto runtime_index = actual.FindIndex(children.FindKey(j));
+                if (runtime_index == 0) continue;
+                const auto& child = actual.FindKey(runtime_index);
+                const auto locator = step_shape_locator(child);
+                const int source = 2 * model->Number(entity) - 1; // IGES directory pointer
+                const int specificity = children.Size();
+                const auto found = candidates.find(locator);
+                if (found == candidates.end() || specificity < found->second.specificity ||
+                    (specificity == found->second.specificity && source < found->second.source)) {
+                    // Shared edges/vertices choose the lowest source directory
+                    // pointer among equally specific parents, a source-file rule.
+                    candidates[locator] = {child, source, specificity, locator};
+                }
+            }
+        }
+        std::map<std::string, int> counts;
+        for (int i = 1; i <= actual.Size(); ++i) ++counts[step_shape_locator(actual.FindKey(i))];
+        for (const auto& [locator, candidate] : candidates) {
+            if (counts[locator] != 1) continue;
+            auto key = std::string("iges:") + role + ":de:" + std::to_string(candidate.source);
+            if (candidate.specificity > 1) key += ":child:" + locator;
+            owned.push_back({candidate.shape, {owner_id, key, {}}});
+            data.imported_step_topology.push_back({identity_kind, key, locator});
+        }
+    };
+    using Kind = StepRequest::TopologyIdentity::Kind;
+    capture(data.faces, TopAbs_FACE, Kind::Face, "face");
+    capture(data.edges, TopAbs_EDGE, Kind::Edge, "edge");
+    capture(data.vertices, TopAbs_VERTEX, Kind::Vertex, "vertex");
+    auto result = make_result(data.shape, data.faces, data.edges, data.vertices,
+        false, true, !data.imported_step_topology.empty(), {}, mesh_deflection);
+    result.imported_step_topology = std::move(data.imported_step_topology);
+    return result;
 }
 
 std::vector<BodyResult> OcctKernel::import_step_components(

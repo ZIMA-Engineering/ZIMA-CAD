@@ -170,6 +170,7 @@ bool candidate_uses_original_container_wire_edge(
         (candidate.semantic_key.empty() || candidate.semantic_key == "solid") &&
         !edge.construction && !edge.overlay && edge.reference.valid() &&
         !edge.reference.semantic_key.starts_with("step:edge:") &&
+        !edge.reference.semantic_key.starts_with("iges:edge:") &&
         edge.reference.owner_id == candidate.owner_id &&
         edge.reference.instance_path == candidate.instance_path;
 }

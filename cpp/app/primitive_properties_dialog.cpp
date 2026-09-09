@@ -87,7 +87,7 @@ QString primitive_properties_title(zima::document::FeatureKind kind) {
         case FeatureKind::Revolution: return QObject::tr("Vlastnosti rotace");
         case FeatureKind::Sweep3D: return QObject::tr("Vlastnosti 3D tažení");
         case FeatureKind::ImportedStep:
-            return QObject::tr("Vlastnosti importu STEP");
+            return QObject::tr("Vlastnosti importované geometrie");
         case FeatureKind::Fillet: return QObject::tr("Vlastnosti zaoblení");
         case FeatureKind::Chamfer: return QObject::tr("Vlastnosti sražení");
         case FeatureKind::Shell: return QObject::tr("Vlastnosti Shellu");
