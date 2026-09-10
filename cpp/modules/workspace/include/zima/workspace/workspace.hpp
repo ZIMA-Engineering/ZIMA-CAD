@@ -146,7 +146,8 @@ private:
         const std::string& target_document_id) const;
     [[nodiscard]] zima::assembly::AssemblyDocument refreshed_assembly(
         const std::string& assembly_document_id,
-        std::vector<std::string>& recursion_stack) const;
+        std::vector<std::string>& recursion_stack,
+        const std::filesystem::path& source_path = {}) const;
 };
 
 }  // namespace zima::workspace

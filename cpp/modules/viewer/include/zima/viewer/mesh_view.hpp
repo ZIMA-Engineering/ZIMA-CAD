@@ -51,6 +51,7 @@ enum class ReferenceVisibility {
     Axes,
     Planes,
     Sketches,
+    Dimensions,
 };
 
 struct ExtentManipulator {

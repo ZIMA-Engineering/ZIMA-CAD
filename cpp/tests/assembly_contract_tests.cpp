@@ -720,6 +720,30 @@ int main() {
             const auto displayed=own_origin.build_scene();
             require(std::ranges::any_of(displayed.dimensions,[&](const auto& dimension){return dimension.reference.semantic_key==expected_placement_dimension_key&&dimension.kind==zima::kernel::ViewerDimensionKind::Angular;}),"Angle to Assembly origin has no visible dimension");
         }
+        {
+            auto hinged = placement_reference_angle_assembly;
+            auto& source = hinged.components.front();
+            auto& moving = hinged.components.back();
+            zima::kernel::ViewerAxis axis;
+            axis.reference = {"hinge", "axis", {}};
+            axis.point = {12,34,56};
+            axis.direction = placement_dimension_it->plane_normal;
+            // Put the hinge packet in the Assembly frame to isolate annotation
+            // placement from the already tested component solver.
+            source.placement = {};
+            source.calculated_source.mesh.original_references.axes.push_back(axis);
+            moving.placement_references.push_back({zima::assembly::MateKind::AxisCoincident,
+                {zima::assembly::MateReferenceKind::Axis, zima::assembly::InstancePath{}.child(second_id), "hinge", "axis"},
+                {zima::assembly::MateReferenceKind::Axis, zima::assembly::InstancePath{}.child(first_id), "hinge", "axis"},0,false});
+            const auto original_placement=moving.placement;
+            const auto shown=hinged.build_scene();
+            const auto dim=std::ranges::find(shown.dimensions,expected_placement_dimension_key,
+                [](const auto& value){return value.reference.semantic_key;});
+            require(dim!=shown.dimensions.end() && std::hypot(dim->witness_first.x-12,dim->witness_first.y-34,dim->witness_first.z-56)<1e-8,
+                "Plane-angle arc is not centered at the hinge axis");
+            require(moving.placement == original_placement && dim->value==45,
+                "Annotation changed angle or component placement");
+        }
         placement_angle_component_it->placement_references.front().offset = 0.0;
         placement_reference_angle_assembly.calculate_placement_references();
         const auto zero_angle_scene =

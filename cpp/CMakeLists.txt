@@ -309,6 +309,10 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_workspace_startup_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    add_test(NAME zima_cpp_assembly_refresh_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_assembly_refresh_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_ASSEMBLY_REFRESH_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_test(NAME zima_cpp_section_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_section_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SECTIONS_ONLY=1"

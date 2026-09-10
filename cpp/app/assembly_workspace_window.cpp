@@ -2904,6 +2904,9 @@ void AssemblyWorkspaceWindow::create_actions() {
         tr("Roviny"), "plane", zima::viewer::ReferenceVisibility::Planes);
     show_sketches_action_ = reference_action(
         tr("Skici"), "sketch", zima::viewer::ReferenceVisibility::Sketches);
+    show_dimensions_action_ = reference_action(tr("Kóty"), "sketch-dimensions", zima::viewer::ReferenceVisibility::Dimensions);
+    show_dimensions_action_->setObjectName("showDimensionsAction");
+    show_dimensions_action_->setToolTip(tr("Zobrazit nebo skrýt kóty v modelovém pohledu"));
     show_origins_action_->setObjectName("showOriginsAction");
     show_points_action_->setObjectName("showPointsAction");
     show_axes_action_->setObjectName("showAxesAction");
@@ -2943,7 +2946,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     }
     view->addSeparator();
     for (auto* action : {show_origins_action_, show_points_action_, show_axes_action_,
-                         show_planes_action_, show_sketches_action_}) {
+                         show_planes_action_, show_sketches_action_, show_dimensions_action_}) {
         view->addAction(action);
     }
     view->addSeparator();
@@ -3616,7 +3619,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     }
     view_toolbar_->addSeparator();
     for (auto* action : {show_origins_action_, show_points_action_, show_axes_action_,
-                         show_planes_action_, show_sketches_action_}) {
+                         show_planes_action_, show_sketches_action_, show_dimensions_action_}) {
         view_toolbar_->addAction(action);
     }
 
@@ -6309,7 +6312,7 @@ void AssemblyWorkspaceWindow::update_document_area_visibility() {
                          shaded_edges_action_, shaded_action_,
                          orthographic_camera_action_, perspective_camera_action_,
                          fly_camera_action_, show_origins_action_, show_points_action_,
-                         show_axes_action_, show_planes_action_, show_sketches_action_}) {
+                         show_axes_action_, show_planes_action_, show_sketches_action_, show_dimensions_action_}) {
         action->setEnabled(has_document);
     }
     update_application_actions();
@@ -26009,6 +26012,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                 }
             });
     }
+    const bool fit_assembly_view = !preserve_view_on_refresh_ && active_sketch_id_.empty();
+    preserve_view_on_refresh_ = false;
     if (assembly_cut_rollback_ &&
         assembly_cut_rollback_->assembly_document_id == document.document_id) {
         auto rollback_document = document;
@@ -26023,7 +26028,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         if(active_top_assembly_sketch) {
             if(const auto* sketch=active_sketch()) append_mesh(display,sketch_viewer_mesh(*sketch));
         }
-        viewer_->set_mesh(std::move(display));
+        viewer_->set_mesh(std::move(display), fit_assembly_view);
     } else if (part_rollback_ && !part_rollback_->instance_path.empty()) {
         const auto* active_part =
             workspace_.open_part(part_rollback_->part_document_id);
@@ -26033,7 +26038,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             viewer_->set_mesh(workspace_.build_scene_with_part_override(
                 document.document_id,
                 zima::assembly::InstancePath::decode(part_rollback_->instance_path),
-                std::move(boundary)));
+                std::move(boundary)), fit_assembly_view);
         } else {
             auto display = active_assembly_display(document);
             if(section_dialog_&&sweep_profile_sketch_draft_)append_mesh(display,sketch_viewer_mesh(*sweep_profile_sketch_draft_));
@@ -26053,7 +26058,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                     append_mesh(display, std::move(mesh));
                 }
             }
-            viewer_->set_mesh(std::move(display));
+            viewer_->set_mesh(std::move(display), fit_assembly_view);
         }
     } else {
         const auto* active_assembly =
@@ -26064,7 +26069,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             viewer_->set_mesh(workspace_.build_scene_with_assembly_override(
                 document.document_id,
                 zima::assembly::InstancePath::decode(active_occurrence_path_),
-                active_assembly->session.document()));
+                active_assembly->session.document()), fit_assembly_view);
         } else if (active_part_occurrence && !active_part_occurrence->empty()) {
             zima::kernel::BodyResult live_source;
             live_source.mesh = sketch_input_mesh(active_part->session);
@@ -26112,7 +26117,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             viewer_->set_mesh(workspace_.build_scene_with_part_override(
                 document.document_id,
                 zima::assembly::InstancePath::decode(*active_part_occurrence),
-                std::move(live_source)));
+                std::move(live_source)), fit_assembly_view);
         } else {
             auto display = active_assembly_display(document);
             if(section_dialog_&&sweep_profile_sketch_draft_)append_mesh(display,sketch_viewer_mesh(*sweep_profile_sketch_draft_));
@@ -26124,7 +26129,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                     append_mesh(display, sketch_viewer_mesh(*shown));
                 }
             }
-            viewer_->set_mesh(std::move(display));
+            viewer_->set_mesh(std::move(display), fit_assembly_view);
         }
     }
     state_->setText(document.components.empty()

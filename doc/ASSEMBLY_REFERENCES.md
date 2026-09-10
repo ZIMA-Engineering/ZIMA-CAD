@@ -220,3 +220,25 @@ Vlastní skica sestavového Vytažení a Rotace přežije návrat do vlastností
 opětovný vstup do Skicáře a uložení. Při editaci uložené operace je nad jejím
 vstupním modelem viditelná aktivní skica. OK potvrdí celý kontejner; Zrušit
 obnoví původní stav.
+
+
+## Regenerace a zobrazení kót (2026-09-10)
+
+**Regenerovat** obnoví zdroje v celé vnořené sestavě. Otevřený Part nebo
+Assembly má přednost svým aktuálním stavem v paměti; zavřený zdroj se načte
+z uloženého `.prtz`/`.asmz` relativně ke své vlastní sestavě. Obnova neotvírá
+nové záložky. Identita dokumentu musí souhlasit s vloženou referencí a cyklus
+nebo nedostupný zdroj výpočet odmítne před zápisem nového stavu rodiče.
+Pouhé přepnutí záložky ani uložení dílu rodičovskou sestavu nepřepočítá.
+Regenerace zachovává přiblížení, natočení a posunutí pohledu; přizpůsobení
+celého modelu zůstává samostatným příkazem.
+
+Přepínač **Kóty** v nabídce Zobrazení a nad View skrývá/zobrazuje modelové
+kóty. Skryté kóty se nenabízejí k výběru. Tento přepínač nemění parametry
+vazeb ani Show/Erase ve výkresech.
+
+Úhlová kóta rovina–rovina používá střed na cílové ose existující souosé vazby,
+pokud je tato osa rovnoběžná s osou úhlové kóty. Bez odpovídající souosé vazby
+leží střed na průsečnici rovin poblíž vybraných referencí. Ramena oblouku
+sledují směry rovin namísto jejich normál. Jde pouze o prezentaci; reference,
+hodnota úhlu a řešení umístění komponent se nemění.

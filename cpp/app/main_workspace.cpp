@@ -2867,6 +2867,60 @@ int verify_standalone_trim_preview(QApplication& application, const std::filesys
     std::cout << "Standalone trim preview contracts passed\n";return 0;
 }
 
+int verify_assembly_refresh_view(QApplication& application,const std::filesystem::path& directory) {
+    using namespace zima;
+    auto part=document::PartDocument::create_default();
+    part.history.push_back(document::PartDocument::create_box_container());
+    part.history.front().box.length=10;
+    kernel::OcctKernel kernel;
+    auto bodies=kernel.evaluate_history(part.kernel_operations());
+    const auto part_path=directory/"assembly-refresh-part.prtz";
+    const auto assembly_path=directory/"assembly-refresh.asmz";
+    part.save(part_path,bodies);
+    workspace::Workspace source;
+    source.add_part(part,bodies,part_path);
+    auto assembly=assembly::AssemblyDocument::create_default();
+    source.add_assembly(assembly,assembly_path);
+    const auto occurrence=source.insert_open_part(assembly.document_id,part.document_id,"Part");
+    source.open_assembly(assembly.document_id)->session.document().save(assembly_path);
+    app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));
+    window.resize(1100,850);window.show();application.processEvents();
+    if(!verify(window.open_document_path(QString::fromStdString(assembly_path.string())),"Cannot open refresh test Assembly"))return 1;
+    auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
+    auto* regenerate=window.findChild<QAction*>("regenerateDocumentAction");
+    auto* dimensions=window.findChild<QAction*>("showDimensionsAction");
+    if(!verify(view&&regenerate&&dimensions,"Assembly View controls missing"))return 1;
+    auto camera=view->camera_state();camera[4]*=1.7F;camera[5]=53;camera[6]=-37;
+    view->set_camera_state(camera);camera=view->camera_state();
+    part.history.front().box.length=24;
+    part.save(part_path,kernel.evaluate_history(part.kernel_operations()));
+    regenerate->trigger();application.processEvents();
+    if(!verify(view->camera_state()==camera,"Assembly Regenerate changed zoom, pan or orientation"))return 1;
+    window.findChild<QAction*>("saveDocumentAction")->trigger();application.processEvents();
+    const auto changed=assembly::AssemblyDocument::load(assembly_path);
+    if(!verify(changed.find_occurrence(occurrence)->calculated_source.volume > bodies.back().volume*2,
+        "Assembly Regenerate ignored changed saved Part"))return 1;
+    kernel::ViewerMesh annotations;
+    kernel::ViewerDimension dimension;
+    dimension.reference={"test","angle",{}};
+    dimension.witness_first={-10,0,0};dimension.witness_second={10,0,0};
+    dimension.line_first={-10,5,0};dimension.line_second={10,5,0};dimension.value=20;
+    annotations.dimensions.push_back(dimension);
+    view->set_mesh(annotations);view->set_selection_contract({viewer::CandidateKind::Dimension});
+    view->set_candidate_filter({});application.processEvents();
+    std::optional<QPointF> hit;
+    for(int y=5;y<view->height()&&!hit;y+=4)for(int x=5;x<view->width()&&!hit;x+=4)
+        if(!view->selection_candidates_at({double(x),double(y)}).empty())hit=QPointF(x,y);
+    if(!verify(hit.has_value(),"Visible dimension has no candidate"))return 1;
+    dimensions->setChecked(false);application.processEvents();
+    if(!verify(!view->reference_visible(viewer::ReferenceVisibility::Dimensions)&&view->selection_candidates_at(*hit).empty(),
+        "Hidden dimensions remain selectable"))return 1;
+    dimensions->setChecked(true);application.processEvents();
+    if(!verify(!view->selection_candidates_at(*hit).empty(),"Showing dimensions did not restore selection"))return 1;
+    std::cout<<"Assembly refresh camera and dimension visibility contracts passed\n";
+    return 0;
+}
+
 int verify_assembly_owned_profiles(QApplication& application,const std::filesystem::path& directory) {
     using namespace zima;
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
@@ -3670,6 +3724,7 @@ int verify_startup_contract(
     QApplication& application, zima::app::AssemblyWorkspaceWindow& window,
     const std::filesystem::path& test_directory,
     const QString& part_capture_path = {}, const QString& drawing_capture_path = {}) {
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_ASSEMBLY_REFRESH_ONLY")) return verify_assembly_refresh_view(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SECTIONS_ONLY")) return zima::app::verify_sections(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_TEMPLATES_ONLY")) return verify_template_commands(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_DRAWING_ONLY")) return verify_drawing_workspace(application,window,test_directory);

@@ -184,6 +184,7 @@ private:
     QAction* show_axes_action_{};
     QAction* show_planes_action_{};
     QAction* show_sketches_action_{};
+    QAction* show_dimensions_action_{};
     QMenu* colors_menu_{};
     QAction* custom_body_color_action_{};
     QActionGroup* display_mode_group_{};

@@ -1256,3 +1256,15 @@ přichytávat kóty a nevstupují do PDF. Podrobnosti: [Show/Erase](DRAWING_SHOW
 Show/Erase nabízí jen kóty kolmé ke směru pohledu, tedy čelně viditelné.
 Kóty z boku nebo šikmo se nezobrazují ani netisknou. Výběr platí pouze pro
 právě upravovaný pohled; kliknutí na kótu v jiném pohledu ho nezmění.
+
+
+### Změna dílu v sestavě, kamera a kóty
+
+Po změně dílu zvolte v rodičovské sestavě **Regenerovat**. Otevřené zdroje
+se přebírají z paměti bez nutnosti uložit je; zavřené díly a podsestavy z jejich
+souborů. Samotné přepnutí záložky změny do sestavy nepřenáší. Regenerace
+zachová natočení, přiblížení i posunutí pohledu.
+
+Tlačítko **Kóty** nad View (také Zobrazení → Kóty) přepíná jejich zobrazení
+a možnost výběru. Úhlová kóta vazby ploch se umisťuje ke společné ose/čepu,
+pokud ji určuje existující souosá vazba; jinak k průsečnici rovin.

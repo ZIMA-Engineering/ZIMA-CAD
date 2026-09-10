@@ -376,6 +376,7 @@ struct MeshView::Impl {
     bool show_axes{true};
     bool show_planes{true};
     bool show_sketches{true};
+    bool show_dimensions{true};
     bool editing_origin_visible{};
     std::optional<EdgeKey> component_origin_handle;
     bool gpu_dirty{true};
@@ -1035,6 +1036,7 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
                 candidate.semantic_key.starts_with("origin:");
         });
     }
+    if (!impl_->show_dimensions) std::erase_if(candidates, [](const auto& candidate) { return candidate.kind == CandidateKind::Dimension; });
     auto filtered = filter_candidates(candidates,
         impl_->allowed_kinds, impl_->candidate_filter);
     if (impl_->drag_begin_callback) {
@@ -2538,6 +2540,11 @@ void MeshView::set_reference_visibility(
         case ReferenceVisibility::Axes: impl_->show_axes = visible; break;
         case ReferenceVisibility::Planes: impl_->show_planes = visible; break;
         case ReferenceVisibility::Sketches: impl_->show_sketches = visible; break;
+        case ReferenceVisibility::Dimensions:
+            impl_->show_dimensions = visible;
+            impl_->candidates.clear();
+            if (!visible && impl_->confirmed_candidate && impl_->confirmed_candidate->kind == CandidateKind::Dimension) clear_selection();
+            break;
     }
     update();
 }
@@ -2549,6 +2556,7 @@ bool MeshView::reference_visible(ReferenceVisibility reference) const {
         case ReferenceVisibility::Axes: return impl_->show_axes;
         case ReferenceVisibility::Planes: return impl_->show_planes;
         case ReferenceVisibility::Sketches: return impl_->show_sketches;
+        case ReferenceVisibility::Dimensions: return impl_->show_dimensions;
     }
     return false;
 }
@@ -3974,7 +3982,7 @@ if (impl_->show_origins) {
                     QString::fromStdString(label));
             }
         }
-        if (dimensions_visible) {
+        if (dimensions_visible && impl_->show_dimensions) {
             const std::size_t persisted_dimension_count =
                 impl_->mesh.dimensions.size();
             const std::size_t displayed_dimension_count =

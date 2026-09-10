@@ -990,23 +990,27 @@ std::string Workspace::insert_open_assembly(
 
 zima::assembly::AssemblyDocument Workspace::refreshed_assembly(
     const std::string& assembly_document_id,
-    std::vector<std::string>& recursion_stack) const {
+    std::vector<std::string>& recursion_stack,
+    const std::filesystem::path& source_path) const {
     if (std::find(recursion_stack.begin(), recursion_stack.end(), assembly_document_id) !=
         recursion_stack.end()) {
         throw std::runtime_error("Open Assembly dependency chain contains a cycle");
     }
     const auto* assembly = open_assembly(assembly_document_id);
-    if (assembly == nullptr) {
-        throw std::invalid_argument("Regenerate target must be an open Assembly");
-    }
+    auto refreshed = assembly ? assembly->session.document()
+        : zima::assembly::AssemblyDocument::load(source_path);
+    if (refreshed.document_id != assembly_document_id)
+        throw std::runtime_error("Assembly dependency document identity mismatch");
+    const auto owner_path = assembly ? assembly->path : source_path;
     recursion_stack.push_back(assembly_document_id);
-    auto refreshed = assembly->session.document();
     for (auto& occurrence : refreshed.components) {
         if(occurrence.derived_copy)continue;
+        auto dependency_path = occurrence.source_path;
+        if (dependency_path.is_relative()) dependency_path = owner_path.parent_path() / dependency_path;
         if (occurrence.source_kind == zima::assembly::ComponentSourceKind::Assembly) {
-            if (open_assembly(occurrence.source_document_id) != nullptr) {
+            {
                 auto nested = refreshed_assembly(
-                    occurrence.source_document_id, recursion_stack);
+                    occurrence.source_document_id, recursion_stack, dependency_path);
                 calculate_assembly_cuts(nested);
                 std::vector<zima::kernel::PlacedBody> nested_bodies;
                 for (const auto& component : nested.components) {
@@ -1028,13 +1032,21 @@ zima::assembly::AssemblyDocument Workspace::refreshed_assembly(
                     occurrence.calculated_source.body_outputs.emplace(child.occurrence_id,child.calculated_source);
                 zima::assembly::capture_nested_mass(occurrence,nested);
                 occurrence.nested_snapshot = nested.occurrence_snapshot();
-                occurrence.source_path = open_assembly(
-                    occurrence.source_document_id)->path;
+                if (const auto* open = open_assembly(occurrence.source_document_id))
+                    occurrence.source_path = open->path;
             }
             continue;
         }
         const auto* part = open_part(occurrence.source_document_id);
-        if (part == nullptr) continue;
+        std::optional<PartState> loaded;
+        if (!part) {
+            std::vector<zima::kernel::BodyResult> boundaries;
+            auto source = zima::document::PartDocument::load(dependency_path, &boundaries);
+            if (source.document_id != occurrence.source_document_id)
+                throw std::runtime_error("Part dependency document identity mismatch");
+            loaded.emplace(PartState{zima::document::DocumentSession(std::move(source), std::move(boundaries)), dependency_path});
+            part = &*loaded;
+        }
         const auto& calculated = part->session.calculated_boundaries();
         if (part->session.document().history.empty() ||
             (calculated.empty() && !part->session.document().kernel_operations().empty())) {

@@ -982,6 +982,40 @@ int main() {
                     lifecycle_topassembly_id &&
                     lifecycle_workspace.open_drawing(lifecycle_drawing_id) != nullptr,
                 "Reopened documents were not restored to the Workspace");
+        // A saved Part must refresh through a closed subassembly, too. The
+        // in-memory Part remains authoritative even when its owner is closed.
+        const auto closed_before = lifecycle_mesh_extent(*lifecycle_workspace.open_assembly(lifecycle_topassembly_id)->session.document().find_occurrence(lifecycle_subassembly_occurrence));
+        auto disk_part = lifecycle_workspace.open_part(lifecycle_part_id)->session.document();
+        auto disk_boundaries = lifecycle_workspace.open_part(lifecycle_part_id)->session.calculated_boundaries();
+        disk_part.history.front().box.length = 21.0;
+        disk_boundaries = kernel.evaluate_history(disk_part.kernel_operations());
+        disk_part.save(lifecycle_part_path, disk_boundaries);
+        lifecycle_workspace.open_part(lifecycle_part_id)->session.mark_saved();
+        require(lifecycle_workspace.remove(lifecycle_subassembly_id) && lifecycle_workspace.remove(lifecycle_part_id), "Could not close regeneration sources");
+        lifecycle_workspace.regenerate_assembly_from_open_dependencies(lifecycle_topassembly_id);
+        require(lifecycle_mesh_extent(*lifecycle_workspace.open_assembly(lifecycle_topassembly_id)->session.document().find_occurrence(lifecycle_subassembly_occurrence)) > closed_before,
+                "Regenerate ignored saved Part through closed subassembly");
+        require(!lifecycle_workspace.open_part(lifecycle_part_id) && !lifecycle_workspace.open_assembly(lifecycle_subassembly_id),
+                "Regenerate unexpectedly opened source tabs");
+        auto unsaved_part = disk_part;
+        unsaved_part.history.front().box.length = 35.0;
+        lifecycle_workspace.add_part(unsaved_part, kernel.evaluate_history(unsaved_part.kernel_operations()), lifecycle_part_path);
+        const auto saved_extent = lifecycle_mesh_extent(*lifecycle_workspace.open_assembly(lifecycle_topassembly_id)->session.document().find_occurrence(lifecycle_subassembly_occurrence));
+        lifecycle_workspace.regenerate_assembly_from_open_dependencies(lifecycle_topassembly_id);
+        require(lifecycle_mesh_extent(*lifecycle_workspace.open_assembly(lifecycle_topassembly_id)->session.document().find_occurrence(lifecycle_subassembly_occurrence)) > saved_extent,
+                "Closed subassembly ignored an authoritative unsaved open Part");
+        auto wrong_source = disk_part;
+        wrong_source.document_id = zima::document::PartDocument::create_default().document_id;
+        wrong_source.save(lifecycle_part_path, disk_boundaries);
+        lifecycle_workspace.open_part(lifecycle_part_id)->session.mark_saved();
+        require(lifecycle_workspace.remove(lifecycle_part_id), "Cannot close identity test Part");
+        const auto before_bad_refresh = lifecycle_workspace.open_assembly(lifecycle_topassembly_id)->session.revision();
+        bool wrong_identity = false;
+        try { lifecycle_workspace.regenerate_assembly_from_open_dependencies(lifecycle_topassembly_id); }
+        catch (const std::runtime_error&) { wrong_identity = true; }
+        require(wrong_identity && lifecycle_workspace.open_assembly(lifecycle_topassembly_id)->session.revision() == before_bad_refresh,
+                "Mismatched disk dependency was accepted or partially committed");
+
         std::filesystem::remove(lifecycle_part_path);
         std::filesystem::remove(lifecycle_subassembly_path);
         std::filesystem::remove(lifecycle_topassembly_path);

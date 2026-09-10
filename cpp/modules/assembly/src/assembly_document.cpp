@@ -1559,6 +1559,47 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
                 if(length(normal)<1e-10)normal=orientation;
                 else if(dot(normal,orientation)<0)normal=scaled(normal,-1);
                 dimension.plane_normal=normal;
+                // Presentation only: anchor the plane-angle arc at the existing
+                // hinge, without altering any placement equation or parameter.
+                Vec3 center = target->point;
+                bool hinge = false;
+                for (const auto& reference : component.placement_references) {
+                    if (reference.mate_type != MateKind::AxisCoincident) continue;
+                    for (const auto* geometry : {&scene.original_references, &datums.original_references}) {
+                        for (const auto& axis : geometry->axes) {
+                            const auto& wanted = reference.target_reference;
+                            if (axis.reference.owner_id != wanted.owner_id ||
+                                axis.reference.semantic_key != wanted.semantic_key ||
+                                axis.reference.instance_path != wanted.instance_path.encoded()) continue;
+                            if (length(axis.direction) <= 1e-12 || length(normal) <= 1e-12 ||
+                                length(cross(axis.direction, normal)) > 1e-6 * length(axis.direction) * length(normal)) continue;
+                            center = axis.point;
+                            hinge = true;
+                            break;
+                        }
+                        if (hinge) break;
+                    }
+                    if (hinge) break;
+                }
+                if (!hinge) {
+                    const auto first = scaled(target->normal, 1/length(target->normal));
+                    const auto second = scaled(moving->normal, 1/length(moving->normal));
+                    const auto middle = scaled(add(target->point, moving->point), .5);
+                    const double cosine = dot(first, second), determinant = 1-cosine*cosine;
+                    if (determinant > 1e-12) {
+                        const double a = dot(first, subtract(target->point, middle));
+                        const double b = dot(second, subtract(moving->point, middle));
+                        center = add(middle, add(scaled(first,(a-cosine*b)/determinant),
+                                                 scaled(second,(b-cosine*a)/determinant)));
+                    }
+                }
+                const auto first_ray = cross(normal, ray);
+                const auto second_ray = cross(normal, moving->normal);
+                if (length(first_ray)>1e-12 && length(second_ray)>1e-12) {
+                    dimension.witness_first = dimension.witness_second = center;
+                    dimension.line_first = add(center, scaled(first_ray,30/length(first_ray)));
+                    dimension.line_second = add(center, scaled(second_ray,30/length(second_ray)));
+                }
             } else {
                 continue;
             }
