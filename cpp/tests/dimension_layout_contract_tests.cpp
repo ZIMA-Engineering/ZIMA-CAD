@@ -68,6 +68,41 @@ int main(int argc, char **argv) {
             auto left = viewer::dimension_presentation(d, iso, 50);
             require(left.handles[0].x() < std::min(left.handles[1].x(), left.handles[2].x()),
                     "Left outside label switched sides");
+            // Regress the red/green parallel marks in the user's screenshot:
+            // both the automatic and dragged leader continue the measured line.
+            for (auto kind : {kernel::ViewerDimensionKind::Linear,
+                              kernel::ViewerDimensionKind::Radius,
+                              kernel::ViewerDimensionKind::Diameter}) {
+                auto sample = d;
+                sample.kind = kind;
+                for (double side : {-1., 1.}) {
+                    sample.label_position = kernel::Vec3{side * 40, 23, 0};
+                    for (bool oblique : {false, true}) {
+                        const auto shown = viewer::dimension_presentation(
+                            sample, [&](kernel::Vec3 p) { return oblique ? iso(p) : front(p); }, 50);
+                        const auto index = kind == kernel::ViewerDimensionKind::Linear ? 3 : 1;
+                        const auto leader = shown.curves.at(index);
+                        const auto measured = shown.curves.at(index - 1);
+                        const auto u = measured.back() - measured.front();
+                        const auto v = leader.back() - leader.front();
+                        near(u.x() * v.y() - u.y() * v.x(), 0);
+                        require(QLineF(leader.front(), leader.back()).length() >= 16.9,
+                                "Leader collapsed at outside arrow");
+                        if (oblique)
+                            near(shown.text_angle, 0);
+                    }
+                }
+            }
+            for (double x : {2., 8., 10., 12., 18.}) {
+                auto inside = d;
+                inside.label_position = kernel::Vec3{x, 8, 0};
+                const auto shown = viewer::dimension_presentation(inside, iso, 50);
+                const double lo = std::min(shown.handles[1].x(), shown.handles[2].x());
+                const double hi = std::max(shown.handles[1].x(), shown.handles[2].x());
+                require(shown.outside && (shown.handles[0].x() + 25 < lo ||
+                                         shown.handles[0].x() - 25 > hi),
+                        "Dragging between witnesses placed isometric text inside");
+            }
             d.arrows_reversed = true;
             auto reversed = viewer::dimension_presentation(d, iso, 50);
             require(reversed.arrows[0].second == -left.arrows[0].second &&

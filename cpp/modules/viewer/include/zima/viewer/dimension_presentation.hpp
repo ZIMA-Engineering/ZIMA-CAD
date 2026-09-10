@@ -90,19 +90,19 @@ DimensionPresentation dimension_presentation(const kernel::ViewerDimension &d, P
         if (out.oblique) {
             const double side = requested.x() < middle.x() - gap ? -1 : 1;
             attachment = (a.x() * side > b.x() * side) ? a : b;
-            center = {side > 0
-                          ? std::max(requested.x(), attachment.x() + arrow * 1.7 + text_width / 2)
-                          : std::min(requested.x(), attachment.x() - arrow * 1.7 - text_width / 2),
-                      requested.y()};
-            if (!d.label_position)
-                center.setY(attachment.y());
+            // The leader is an extension of the dimension, never a free diagonal
+            // to the requested text position. An arc continues along its end tangent.
+            const auto outward = dimension_screen_unit(
+                attachment == a ? a - line[1] : b - line[line.size() - 2]);
+            const auto half_label = QPointF(side * text_width / 2, 0);
+            const double extension = std::max(
+                arrow * 1.7, dimension_screen_dot(requested - half_label - attachment, outward));
+            center = attachment + outward * extension + half_label;
         } else {
             const double side = shift < 0 ? -1 : 1;
             attachment = side < 0 ? a : b;
             center = middle + along * (side * std::max(std::abs(shift),
                                                        length / 2 + arrow * 1.7 + text_width / 2));
-            if (radial)
-                center += requested - middle - along * shift;
         }
     }
     const auto start = center - text_direction * text_width / 2,

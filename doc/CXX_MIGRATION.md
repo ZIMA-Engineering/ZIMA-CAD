@@ -1273,3 +1273,7 @@ Pravé tlačítko během držení úchopu levým obrátí šipky. Změny jsou po
 prezentační (`DimensionLayout`), zachovávají hodnoty a měřené reference.
 Modelové souřadnice umístění přežijí změnu kamery; výkres ukládá vlastní
 lokální přepis a nevrací jej do modelu. Escape ruší rozpracované tažení.
+
+### Návaznost vnějšího textu kóty (2026-09-10)
+
+Společná prezentace pro Part, Assembly, Sketcher a Drawing vede spojnici textu jako přímé prodloužení kótovací čáry; u oblouku používá směr koncového segmentu. V izometrii zůstává čára pod textem vodorovná a text vždy vně, i při tažení mezi vynášecí čáry. Poloha textu se promítá do tohoto přípustného směru; nevytváří libovolný šikmý lom u šipky. Regresní test kontroluje rovnoběžnost délkových, poloměrových a průměrových kót i vnější polohu při tažení.
