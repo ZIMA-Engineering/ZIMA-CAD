@@ -2185,6 +2185,67 @@ int verify_body_activation(QApplication& application, const std::filesystem::pat
     std::cout<<"Body activation after Boolean and Mirror passed\n";return 0;
 }
 
+int verify_history_recovery_ui(QApplication& application, const std::filesystem::path& directory) {
+    using namespace zima::document;
+    for (const bool extrusion : {false, true}) {
+    auto part = PartDocument::create_default();
+    auto sketch = zima::sketcher::Sketch::create_default();
+    static_cast<void>(sketch.add_circle(0,0,2));
+    auto first = extrusion ? PartDocument::create_extrusion_container(sketch.id)
+                           : PartDocument::create_box_container();
+    first.box = {10,10,10};
+    if (extrusion) {
+        first.extrusion.extent_mode = ProfileExtentMode::OneSide;
+        first.extrusion.length_forward = 10;
+        sketch.owner_container_id = first.id;
+        part.sketches = {sketch};
+    }
+    auto broken = PartDocument::create_fillet_container({{"deleted-owner", "missing-edge", {}}});
+    part.history = {first, broken};
+    BodyHistoryGraph graph;
+    static_cast<void>(graph.create_body("History recovery"));
+    graph.insert({PartHistoryKind::Feature, first.id});
+    graph.insert({PartHistoryKind::Feature, broken.id});
+    part.set_body_history(graph);
+    const auto path = directory / (extrusion ? "history-recovery-extrusion.prtz" : "history-recovery-box.prtz");
+    // Reproduce the user's file: definitions survived, the failed calculation did not.
+    part.save(path);
+    zima::app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));
+    window.resize(1100,850); window.show();
+    if (!verify(window.open_document_path(QString::fromStdString(path.string())), "Cannot open broken history")) return 1;
+    const auto flush = [&] { application.processEvents(); QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete); application.processEvents(); };
+    flush();
+    window.findChild<QAction*>("regenerateDocumentAction")->trigger(); flush();
+    auto* tree = window.findChild<QTreeWidget*>("documentTree");
+    const auto row = [&](const std::string& id) -> QTreeWidgetItem* {
+        for (QTreeWidgetItemIterator it(tree); *it; ++it)
+            if ((*it)->data(0,Qt::UserRole).toString().toStdString() == id) return *it;
+        return nullptr;
+    };
+    auto* viewer = dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
+    if (!verify(viewer && !viewer->mesh().triangles.empty(), "Regenerate hid the valid history prefix")) return 1;
+    if (!verify(row(first.id) && !row(first.id)->text(0).contains("nevypočítáno") &&
+                row(broken.id) && row(broken.id)->text(0).contains("nevypočítáno"), "Failure marked the wrong feature")) return 1;
+    window.show_tree_item_properties(row(first.id)); flush();
+    zima::app::PrimitivePropertiesDialog* dialog = nullptr;
+    for (auto* candidate : window.findChildren<QDialog*>())
+        if (auto* primitive = dynamic_cast<zima::app::PrimitivePropertiesDialog*>(candidate); primitive && primitive->isVisible()) dialog = primitive;
+    if (!verify(dialog != nullptr, "Earlier feature Properties did not open")) return 1;
+    QPointer<QDialog> guard(dialog);
+    dialog->findChild<QDoubleSpinBox*>(extrusion ? "extrusionHeight" : "boxLength")->setValue(12);
+    dialog->buttons()->button(QDialogButtonBox::Ok)->click(); flush();
+    if (!verify(!guard || !guard->isVisible(), "Later failure blocked earlier feature OK")) return 1;
+    window.findChild<QAction*>("saveDocumentAction")->trigger(); flush();
+    std::vector<zima::kernel::BodyResult> loaded;
+    const auto saved = PartDocument::load(path, &loaded);
+    if (!verify((extrusion ? saved.find_container(first.id)->extrusion.length_forward : saved.find_container(first.id)->box.length) == 12 && !loaded.empty() &&
+                std::abs(loaded.back().volume - (extrusion ? 48 * std::acos(-1.0) : 1200)) < 1e-7 &&
+                loaded.back().calculation_errors.contains(broken.id), "Earlier edit or later diagnostic did not persist")) return 1;
+    window.close(); flush();
+    }
+    return 0;
+}
+
 int verify_body_history_ui(QApplication& application, const std::filesystem::path& directory) {
     using namespace zima::document;
     auto part = PartDocument::create_default();
@@ -3867,6 +3928,8 @@ int verify_startup_contract(
         return verify_save_copy_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_BODY_ACTIVATION_ONLY"))
         return verify_body_activation(application, test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_HISTORY_RECOVERY_ONLY"))
+        return verify_history_recovery_ui(application, test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_BODY_UI_ONLY"))
         return verify_body_history_ui(application, test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PENDING_TREE_ONLY"))
@@ -3884,6 +3947,7 @@ int verify_startup_contract(
     if (verify_component_references(application, test_directory) != 0) return 1;
     if (verify_save_copy_ui(application, test_directory) != 0) return 1;
     if (verify_body_placement_offsets(application, test_directory) != 0) return 1;
+    if (verify_history_recovery_ui(application, test_directory) != 0) return 1;
     if (verify_body_history_ui(application, test_directory) != 0) return 1;
     if (verify_body_activation(application, test_directory) != 0) return 1;
     if (verify_body_curve_references(application,test_directory) != 0) return 1;

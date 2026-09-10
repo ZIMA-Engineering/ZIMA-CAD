@@ -23,6 +23,10 @@ public:
     [[nodiscard]] std::vector<BodyResult> evaluate_history_incremental(
         const std::vector<HistoryOperation>& operations,
         const std::vector<BodyResult>& previous_boundaries) const override;
+    // Explicit document calculation preserves valid prefixes and independent bodies.
+    [[nodiscard]] std::vector<BodyResult> evaluate_history_recovering(
+        const std::vector<HistoryOperation>& operations,
+        const std::vector<BodyResult>& previous_boundaries = {}) const;
     [[nodiscard]] BodyResult compound_bodies(
         const std::vector<PlacedBody>& bodies) const override;
     [[nodiscard]] BodyResult import_iges(const std::string& path,
@@ -48,7 +52,7 @@ public:
 private:
     [[nodiscard]] std::vector<BodyResult> evaluate_body_histories(
         const std::vector<HistoryOperation>& operations,
-        const std::vector<BodyResult>& previous_boundaries) const;
+        const std::vector<BodyResult>& previous_boundaries, bool recover_errors = false) const;
     struct LiveCache;
     std::unique_ptr<LiveCache> live_cache_;
 };

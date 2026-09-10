@@ -5073,9 +5073,53 @@ BodyResult OcctKernel::pattern_body(const BodyResult& source,const PatternReques
     result.source_fingerprint=source.source_fingerprint+":pattern:"+history_fingerprint({key},1);return result;
 }
 
-std::vector<BodyResult> OcctKernel::evaluate_body_histories(
+std::vector<BodyResult> OcctKernel::evaluate_history_recovering(
     const std::vector<HistoryOperation>& operations,
     const std::vector<BodyResult>& previous_boundaries) const {
+    if (operations.empty()) return {};
+    if (std::ranges::any_of(operations, [](const auto& operation) {
+            return !(operation.body == BodyHistoryScope{});
+        })) {
+        try {
+            return evaluate_body_histories(operations, previous_boundaries, true);
+        } catch (const Standard_Failure& failure) {
+            throw std::runtime_error(failure.GetMessageString());
+        }
+    }
+    try {
+        return evaluate_history_incremental(operations, previous_boundaries);
+    } catch (const std::exception&) {
+        // Locate the failing boundary only on the error path. Strict prefix
+        // evaluation finalizes persisted reference packets just as normal OK does.
+    }
+    std::vector<BodyResult> valid;
+    for (std::size_t index = 0; index < operations.size(); ++index) {
+        const std::vector<HistoryOperation> prefix(operations.begin(),
+            operations.begin() + static_cast<std::ptrdiff_t>(index + 1));
+        try {
+            valid = evaluate_history_incremental(prefix,
+                valid.empty() ? previous_boundaries : valid);
+            // Ordinary intermediate caches may contain viewer data only. The
+            // retained end of a failed history must also persist a real solid.
+            if (!valid.back().mesh.triangles.empty() && valid.back().kernel_shape.empty())
+                valid = evaluate_history_incremental(prefix, {});
+        } catch (const std::exception& error) {
+            auto input = valid.empty() ? BodyResult{} : valid.back();
+            for (std::size_t blocked = index; blocked < operations.size(); ++blocked) {
+                input.source_fingerprint = history_fingerprint(operations, blocked + 1);
+                input.calculation_errors[operations[blocked].owner_id] = blocked == index
+                    ? error.what() : "Nelze vypočítat: chyba předcházejícího prvku " + operations[index].owner_id;
+                valid.push_back(input);
+            }
+            return valid;
+        }
+    }
+    return valid;
+}
+
+std::vector<BodyResult> OcctKernel::evaluate_body_histories(
+    const std::vector<HistoryOperation>& operations,
+    const std::vector<BodyResult>& previous_boundaries, bool recover_errors) const {
     struct Branch {
         BodyHistoryScope scope;
         std::vector<HistoryOperation> operations;
@@ -5130,6 +5174,7 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
         branches.back().operations.push_back(std::move(local));
     }
     if (previous_boundaries.size() == operations.size() &&
+        previous_boundaries.back().calculation_errors.empty() &&
         previous_boundaries.back().source_fingerprint == history_fingerprint(operations, operations.size()) &&
         previous_boundaries.back().body_boundaries.size() == static_cast<std::size_t>(
             std::ranges::count_if(branches, [](const auto& branch) { return branch.scope.source_id.empty(); })))
@@ -5142,8 +5187,10 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
     for (const auto& branch : branches) {
         const auto cached = previous.body_boundaries.find(branch.scope.id);
         auto local = branch.scope.source_id.empty()
-            ? evaluate_history_incremental(branch.operations,
-                cached == previous.body_boundaries.end() ? std::vector<BodyResult>{} : cached->second)
+            ? (recover_errors ? evaluate_history_recovering(branch.operations,
+                    cached == previous.body_boundaries.end() ? std::vector<BodyResult>{} : cached->second)
+                : evaluate_history_incremental(branch.operations,
+                    cached == previous.body_boundaries.end() ? std::vector<BodyResult>{} : cached->second))
             : std::vector<BodyResult>{document.body_outputs.at(branch.scope.source_id)};
         if (branch.scope.source_id.empty()) document.body_boundaries.emplace(branch.scope.id, local);
         HistoryOperation placement_key;
@@ -5156,7 +5203,8 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
             : local.back().source_fingerprint;
         BodyResult input;
         const auto old_input = previous.body_inputs.find(branch.scope.id);
-        if (old_input != previous.body_inputs.end() && old_input->second.source_fingerprint == input_key) {
+        if (old_input != previous.body_inputs.end() && old_input->second.calculation_errors.empty() &&
+            local.back().calculation_errors.empty() && old_input->second.source_fingerprint == input_key) {
             input = old_input->second;
         } else {
             input = local.back();
@@ -5174,6 +5222,23 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
         }
         if (branch.scope.source_id.empty()) document.body_inputs.emplace(branch.scope.id, input);
         auto output = input;
+        const auto preserve_failed_inputs = [&](const std::string& message) {
+            auto retained = input;
+            if (!branch.scope.target_id.empty()) {
+                const auto& target = document.body_outputs.at(branch.scope.target_id);
+                retained = compound_bodies({PlacedBody{target}, PlacedBody{input}});
+                retained.calculation_errors = input.calculation_errors;
+                retained.calculation_errors.insert(target.calculation_errors.begin(), target.calculation_errors.end());
+            }
+            retained.calculation_errors[branch.operations.front().owner_id] = message;
+            return retained;
+        };
+        try {
+        if (!branch.scope.source_id.empty() && !input.calculation_errors.empty())
+            throw std::runtime_error("Zdrojové těleso obsahuje nevypočítaný prvek.");
+        if (!branch.scope.target_id.empty() &&
+            !document.body_outputs.at(branch.scope.target_id).calculation_errors.empty())
+            throw std::runtime_error("Cílové těleso obsahuje nevypočítaný prvek.");
         if(branch.scope.combination==BodyCombination::Mirror||branch.scope.combination==BodyCombination::Pattern) {
             // The source is already in document coordinates; only the plane
             // belongs to the Mirror container's resolved placement.
@@ -5187,7 +5252,7 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
                 std::to_string(static_cast<int>(branch.scope.combination)) + ":" + target.source_fingerprint + ":" +
                 history_fingerprint(branch.operations, branch.operations.size());
             const auto old_output = previous.body_outputs.find(branch.scope.id);
-            if (old_output != previous.body_outputs.end() && old_output->second.source_fingerprint == output_key) {
+            if (old_output != previous.body_outputs.end() && old_output->second.calculation_errors.empty() && old_output->second.source_fingerprint == output_key) {
                 output = old_output->second;
             } else {
                 if (input.kernel_shape.empty() || target.kernel_shape.empty())
@@ -5216,6 +5281,14 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
                 }
             }
         }
+        } catch (const Standard_Failure& failure) {
+            if (!recover_errors) throw;
+            output = preserve_failed_inputs(failure.GetMessageString());
+        } catch (const std::exception& error) {
+            if (!recover_errors) throw;
+            output = preserve_failed_inputs(error.what());
+        }
+        document.calculation_errors.insert(output.calculation_errors.begin(), output.calculation_errors.end());
         if (!branch.scope.source_id.empty()) local = {output};
         document.body_outputs.emplace(branch.scope.id, std::move(output));
         for (auto& boundary : local) {
@@ -5299,6 +5372,7 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
         const auto available = std::min(
             operations.size(), previous_boundaries.size());
         while (matching_prefix < available &&
+               previous_boundaries[matching_prefix].calculation_errors.empty() &&
                previous_boundaries[matching_prefix].source_fingerprint ==
                    history_fingerprint(operations, matching_prefix + 1)) {
             ++matching_prefix;
@@ -5368,6 +5442,8 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
         for (std::size_t operation_index = reusable_prefix;
              operation_index < operations.size(); ++operation_index) {
             const auto& operation = operations[operation_index];
+            if (!operation.suppressed && !operation.input_error.empty())
+                throw std::runtime_error(operation.input_error);
             if (!std::isfinite(operation.mesh_deflection) || operation.mesh_deflection <= 0)
                 throw std::invalid_argument("Invalid mesh deflection");
             const auto make_operation_result = [&](const TopoDS_Shape& shape,

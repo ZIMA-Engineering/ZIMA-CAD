@@ -1227,3 +1227,31 @@ persistované referenční triangulace bez OCCT, uchovává stabilní identitu
 zdrojové plochy a serializuje `cached_paths`. Válcový plášť protnutý osovou
 rovinou je regresně ověřen na dvě samostatné hraniční větve včetně zachování
 poslední platné cache při ztrátě a obnovení zdroje.
+
+
+### Izolace chyb historie Partu (2026-09-10)
+
+Explicitní výpočet dokumentu zachovává poslední platný vstup každé větve historie.
+Chyba přípravy profilu nebo výpočtu libovolného prvku patří jeho vlastnímu ID;
+navazující prvky stejného tělesa jsou nevypočítané, nezávislá tělesa pokračují.
+Boolean, Mirror ani Pattern nesmějí vydávat částečný vstup za platný zdroj.
+Při neúspěšné operaci zůstává viditelná vstupní geometrie a původní definice
+včetně chybějících referencí zůstávají dostupné k opravě.
+
+`BodyResult::calculation_errors` se ukládá spolu s viewer/B-Rep snímky a hranicemi
+těles. Chybový snímek má fingerprint aktuální definice, ale nikdy se nepoužije
+jako úspěšný výsledek při další regeneraci. Po opravě se výpočet znovu pokusí
+vyhodnotit chybnou hranici. Striktní kernel API nadále chyby odmítá;
+`evaluate_history_recovering` je určeno pro explicitní výpočet dokumentu.
+Příprava operací může předat chybu vstupů příslušné hranici pomocí `input_error`.
+
+Vlastnosti existujícího kontejneru ověřují upravovaný prvek a jeho vstup.
+Chyba pozdějšího kontejneru nezablokuje OK dřívějšího prvku. Strom označí
+nevypočítané vlastníky a jejich tooltip vysvětlí chybu. Otevření Vlastností,
+výběr ani přepnutí dokumentu nový výpočet nespouští; soubor bez uloženého
+výsledku lze obnovit explicitním příkazem Regenerovat.
+
+Regresní testy pokrývají chybějící hranu, chybějící profil, opravu chybové cache,
+nezávislé těleso, zablokovaný Boolean, rollback a uložení/načtení částečného
+výsledku. UI test ověřuje regeneraci souboru bez cache a OK/uložení dřívějšího
+prvku při chybě v pozdějším zaoblení.

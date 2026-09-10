@@ -503,6 +503,7 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result) {
         });
     }
     nlohmann::json packet = {
+        {"calculation_errors", result.calculation_errors},
         {"volume", result.volume}, {"surface_area", result.surface_area},
         {"source_fingerprint", result.source_fingerprint},
         {"kernel_shape", result.kernel_shape},
@@ -555,6 +556,7 @@ zima::kernel::ViewerReferenceGeometry load_viewer_reference_geometry(
 
 zima::kernel::BodyResult load_body_result(const nlohmann::json& source) {
     zima::kernel::BodyResult result;
+    result.calculation_errors = source.value("calculation_errors", std::map<std::string, std::string>{});
     if (const auto caches = source.find("body_histories"); caches != source.end()) {
         for (const auto& [id, rows] : caches->at("boundaries").items())
             for (const auto& row : rows) result.body_boundaries[id].push_back(load_body_result(row));

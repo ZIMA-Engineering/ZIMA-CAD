@@ -660,9 +660,14 @@ struct HistoryOperation {
     // Absolute display deviation in model millimetres, shared by faces and edges.
     double mesh_deflection{0.1};
     BodyHistoryScope body;
+    // Document preparation failure, evaluated at this operation boundary.
+    std::string input_error;
 };
 
 struct BodyResult {
+    // Failed/blocked feature owners. Geometry is the last valid input, never a
+    // successful result of these operations. Persist with calculation snapshots.
+    std::map<std::string, std::string> calculation_errors;
     // Last resolved shaft references, isolated from selectable topology.
     std::string shaft_thread_owner;
     std::array<FaceReference,4> shaft_thread_references{};
@@ -761,6 +766,10 @@ struct PlacedBody {
         for (const unsigned char value : operation.owner_id) byte(value);
         byte(static_cast<std::uint8_t>(operation.operation));
         byte(operation.suppressed ? 1U : 0U);
+        if (!operation.input_error.empty()) {
+            u64(operation.input_error.size());
+            for (const unsigned char value : operation.input_error) byte(value);
+        }
         u64(std::bit_cast<std::uint64_t>(operation.boolean_tolerance));
         u64(std::bit_cast<std::uint64_t>(operation.mesh_deflection));
         if (!operation.body.id.empty()) {

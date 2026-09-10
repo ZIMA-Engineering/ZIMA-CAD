@@ -757,7 +757,7 @@ public:
     [[nodiscard]] std::optional<std::size_t> history_index(
         const std::string& id) const;
     [[nodiscard]] std::vector<zima::kernel::HistoryOperation> kernel_operations(
-        bool allow_persisted_external_target = false) const;
+        bool allow_persisted_external_target = false, bool recover_errors = false) const;
     [[nodiscard]] static PartDocument load(
         const std::filesystem::path& path,
         std::vector<zima::kernel::BodyResult>* calculated_boundaries = nullptr);

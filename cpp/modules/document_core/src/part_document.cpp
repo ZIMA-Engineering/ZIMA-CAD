@@ -7990,7 +7990,7 @@ std::optional<std::size_t> PartDocument::history_index(
 }
 
 std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
-    bool allow_persisted_external_target) const {
+    bool allow_persisted_external_target, bool recover_errors) const {
     std::vector<zima::kernel::HistoryOperation> operations;
     operations.reserve(history.size());
     const double boolean_tolerance = std::max(1.0e-7,
@@ -8015,12 +8015,15 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
     for (const auto* ordered_container : ordered_history) {
         const auto& container = *ordered_container;
         if (container.feature_kind == FeatureKind::Sketch) continue;
+        try {
         const auto profile_id = container.feature_kind == FeatureKind::Extrusion
             ? container.extrusion.sketch_id
             : container.feature_kind == FeatureKind::Revolution
                 ? container.revolution.sketch_id : std::string{};
         if (!profile_id.empty() && std::ranges::none_of(sketches,
                 [&](const auto& sketch) { return sketch.id == profile_id; })) {
+            if (recover_errors && !container.suppressed)
+                throw std::runtime_error("Chybí zdrojová skica profilu: " + profile_id);
             // Retain a boundary for the broken feature without manufacturing
             // replacement geometry. Its persisted profile ID remains repairable.
             operations.push_back({container.id, zima::kernel::FeatureGroupRequest{},
@@ -8610,6 +8613,14 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             boolean_tolerance,
             mesh_deflection,
         });
+        } catch (const std::exception& error) {
+            if (!recover_errors) throw;
+            zima::kernel::HistoryOperation failed{container.id,
+                zima::kernel::FeatureGroupRequest{}, zima::kernel::BooleanOperation::Add,
+                container.suppressed, boolean_tolerance, mesh_deflection};
+            failed.input_error = error.what();
+            operations.push_back(std::move(failed));
+        }
     }
     if (!body_history.bodies().empty()) {
         validate_body_ownership();
@@ -10029,7 +10040,7 @@ PartDocument PartDocument::load(
         first_active->combine_mode == CombineMode::Subtract) {
         throw std::runtime_error("The first history container cannot subtract");
     }
-    const auto expected_operations = document.kernel_operations();
+    const auto expected_operations = document.kernel_operations(false, true);
     std::vector<zima::kernel::BodyResult> loaded_boundaries;
     std::size_t loaded_boundary_index{};
     for (const auto& boundary : root.at("calculated_boundaries")) {
@@ -10918,7 +10929,7 @@ void PartDocument::save(
         first_active->combine_mode == CombineMode::Subtract) {
         throw std::runtime_error("The first history container cannot subtract");
     }
-    const auto expected_operations = kernel_operations();
+    const auto expected_operations = kernel_operations(false, true);
     if (!calculated_boundaries.empty() &&
         calculated_boundaries.size() != expected_operations.size()) {
         throw std::runtime_error(
@@ -10939,6 +10950,7 @@ void PartDocument::save(
          boundary_index < calculated_boundaries.size(); ++boundary_index) {
         const auto& boundary = calculated_boundaries[boundary_index];
         const bool reuses_previous_body = boundary_index > 0 &&
+            boundary.calculation_errors == calculated_boundaries[boundary_index - 1].calculation_errors &&
             expected_operations[boundary_index].suppressed &&
             expected_operations[boundary_index].body.id == expected_operations[boundary_index - 1].body.id &&
             boundary.body_boundaries.empty() &&

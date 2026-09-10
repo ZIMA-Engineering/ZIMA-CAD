@@ -9975,10 +9975,23 @@ void AssemblyWorkspaceWindow::export_file() {
 std::vector<zima::kernel::BodyResult> AssemblyWorkspaceWindow::calculate_part(
     const zima::document::PartDocument& document,
     const std::vector<zima::kernel::BodyResult>* previous) const {
-    const auto operations = document.kernel_operations();
-    return previous == nullptr
-        ? kernel_.evaluate_history(operations)
-        : kernel_.evaluate_history_incremental(operations, *previous);
+    const auto operations = document.kernel_operations(false, true);
+    auto calculated = kernel_.evaluate_history_recovering(operations,
+        previous == nullptr ? std::vector<zima::kernel::BodyResult>{} : *previous);
+    if (properties_dialog_ && !calculated.empty()) {
+        const auto& errors = calculated.back().calculation_errors;
+        if (part_rollback_ && part_rollback_->part_document_id == document.document_id &&
+            part_rollback_->history_limit < document.history.size()) {
+            // Editing validates this operation and its real input. Later errors
+            // remain attached to later containers, outside this transaction.
+            const auto& owner = document.history[part_rollback_->history_limit].id;
+            if (const auto issue = errors.find(owner); issue != errors.end())
+                throw std::runtime_error(issue->second);
+        } else if (!errors.empty()) {
+            throw std::runtime_error(errors.begin()->second);
+        }
+    }
+    return calculated;
 }
 
 std::vector<zima::kernel::BodyResult>
@@ -20404,17 +20417,9 @@ void AssemblyWorkspaceWindow::delete_part_object(
                     next, object_id, *rollback->input_body,
                     part->session.calculated_boundaries()));
             }
-            std::vector<zima::kernel::BodyResult> calculated;
-            try {
-                calculated = calculate_part_with_resolved_references(next);
-            } catch (const std::exception& error) {
-                // Deleting a source is permitted even when a dependent can
-                // no longer calculate. Keep its definition/reference IDs for
-                // repair, and never display the pre-deletion cached solid.
-                calculation_issue = QString::fromUtf8(error.what());
-                next.resolve_constructions({});
-                static_cast<void>(refresh_sketch_external_references(next, {}));
-            }
+            auto calculated = calculate_part_with_resolved_references(next);
+            if (!calculated.empty() && !calculated.back().calculation_errors.empty())
+                calculation_issue = tr("Platná předcházející geometrie zůstala zachována. Chyby jsou označeny ve stromu.");
             part->session.commit(std::move(next), std::move(calculated));
             if (active_sketch_id_ == object_id) active_sketch_id_.clear();
             if (selected_sketch_id_ == object_id) selected_sketch_id_.clear();
@@ -23838,9 +23843,12 @@ void AssemblyWorkspaceWindow::regenerate_active_part() {
         refresh_tabs();
         preserve_view_on_refresh_ = true;
         refresh_scene();
-        state_->setText(references_changed
-            ? tr("Part byl regenerován a externí reference skic byly obnoveny.")
-            : tr("Part byl regenerován."));
+        const auto& results = part->session.calculated_boundaries();
+        state_->setText(!results.empty() && !results.back().calculation_errors.empty()
+            ? tr("Regenerace zachovala platnou geometrii. Nevypočítané prvky jsou označeny ve stromu.")
+            : references_changed
+                ? tr("Part byl regenerován a externí reference skic byly obnoveny.")
+                : tr("Part byl regenerován."));
     } catch (const std::exception& error) {
         QMessageBox::critical(this, tr("Regenerace Partu selhala"), error.what());
     }
@@ -26914,6 +26922,14 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
             auto* row=item->child(child);
             if (row->data(0,Qt::UserRole+3).toString()=="part-container-entity")
                 tree_reference_state_.apply(row,document.document_id,container.id,issue);
+        }
+        if (part && !part->session.calculated_boundaries().empty()) {
+            const auto& errors = part->session.calculated_boundaries().back().calculation_errors;
+            if (const auto failure = errors.find(container.id); failure != errors.end()) {
+                item->setText(0, item->text(0) + tr(" [nevypočítáno]"));
+                item->setToolTip(0, QString::fromStdString(failure->second));
+                item->setForeground(0, QBrush(QColor(210, 75, 65)));
+            }
         }
         if (container.suppressed) {
             item->setForeground(0, QBrush(QColor(125, 125, 125)));
