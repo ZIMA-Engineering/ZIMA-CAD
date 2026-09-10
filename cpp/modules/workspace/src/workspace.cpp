@@ -1,4 +1,5 @@
 #include <zima/workspace/workspace.hpp>
+#include <zima/document/object_annotation_frames.hpp>
 #include <zima/assembly/physical_properties.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 
@@ -63,6 +64,7 @@ zima::kernel::BodyResult part_result(const PartState& part) {
     append_mesh(result.mesh, origins);
     origins.original_references = document.history_origin_reference_geometry_before({});
     append_mesh(result.mesh, origins);
+    result.mesh.annotation_frames=zima::document::part_annotation_envelopes(document,result.mesh);
     return result;
 }
 

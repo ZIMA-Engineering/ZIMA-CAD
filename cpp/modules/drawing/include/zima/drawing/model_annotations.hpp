@@ -8,8 +8,11 @@ struct ModelAnnotationSource {
   std::vector<kernel::ViewerDimension> dimensions;
   std::vector<kernel::ViewerEdge> construction;
   std::vector<kernel::ViewerAxis> axes;
+  kernel::ModelEnvelope envelope;
+  std::vector<kernel::DimensionLayoutEntry> layouts;
+  std::map<kernel::ObjectEnvelopeKey,kernel::ModelEnvelope> object_frames;
 };
-bool model_annotation_faces_view(const DrawingView &, const ModelAnnotation &);
+ModelAnnotation project_model_annotation(const DrawingView&,ModelAnnotation);
 void refresh_model_annotations(DrawingView &,
                                std::span<const ModelAnnotationSource>);
 std::string serialize_model_annotations(const std::vector<ModelAnnotation> &);
@@ -28,6 +31,5 @@ public:
 
 private:
   std::vector<ModelAnnotation> initial_;
-  std::set<ModelAnnotationReference> aligned_;
 };
 } // namespace zima::drawing

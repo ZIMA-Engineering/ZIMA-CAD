@@ -1,3 +1,4 @@
+#include <QApplication>
 #include <zima/viewer/annotation_arrow.hpp>
 #include <QOpenGLPaintDevice>
 #include <zima/viewer/mesh_view.hpp>
@@ -174,7 +175,20 @@ LinearDimensionLayout linear_dimension_layout(
         ? result.first_tail : result.second_tail;
     result.leader_end = result.leader_start + QPointF(30.0, 0.0);
     result.text_baseline = result.leader_end + QPointF(4.0, 0.0);
+    if(dimension.label_position){result.text_baseline=project(*dimension.label_position);result.leader_start=(result.line_first+result.line_second)*.5;result.leader_end=result.text_baseline;}
     return result;
+}
+
+template<typename Project>
+std::array<QPointF,3> dimension_handles(const kernel::ViewerDimension& d,const kernel::ViewerMesh& mesh,Project project) {
+    if(d.kind==kernel::ViewerDimensionKind::Linear){const auto l=linear_dimension_layout(d,mesh,project);return {l.text_baseline,l.line_first,l.line_second};}
+    auto label=d.label_position.value_or(d.line_second);
+    if(!d.label_position&&d.kind==kernel::ViewerDimensionKind::Angular) {
+        const auto u=kernel::dimension_sub(d.line_first,d.witness_first),v=kernel::dimension_cross(kernel::dimension_unit(d.plane_normal),u);
+        const double t=d.sweep_degrees*std::numbers::pi/360.;label=kernel::dimension_add(d.witness_first,kernel::dimension_add(kernel::dimension_scale(u,std::cos(t)),kernel::dimension_scale(v,std::sin(t))));
+    }
+    if(d.kind==kernel::ViewerDimensionKind::Radius||d.kind==kernel::ViewerDimensionKind::Diameter)return {project(label),project(d.line_second),project(d.line_second)};
+    return {project(label),project(d.line_first),project(d.line_second)};
 }
 
 bool is_screen_constant_plane(const std::string& semantic_key) {
@@ -377,6 +391,18 @@ struct MeshView::Impl {
     bool show_planes{true};
     bool show_sketches{true};
     bool show_dimensions{true};
+    std::function<std::map<kernel::ObjectEnvelopeKey,kernel::ModelEnvelope>(const kernel::ViewerMesh&)> object_frame_provider;
+    kernel::ModelEnvelope dimension_bounds;
+    std::map<kernel::ObjectEnvelopeKey,kernel::ModelEnvelope> object_bounds;
+    bool show_dimension_frame{};
+    bool dimension_layout_editable{true};
+    struct LayoutDrag {ViewerCandidate candidate;kernel::ViewerDimension source,shown;kernel::ModelEnvelope bounds;kernel::DimensionLayout initial,current;QPointF start;int handle{};bool moved{};};
+    std::optional<LayoutDrag> layout_drag;
+
+    std::vector<kernel::ViewerDimension> source_dimensions,source_transient_dimensions;
+    std::function<std::optional<kernel::DimensionLayout>(const kernel::EdgeReference&)> dimension_layout_resolver;
+    std::function<void(const kernel::EdgeReference&,kernel::DimensionLayout)> dimension_layout_commit;
+
     std::function<bool(const zima::kernel::ViewerDimension&)> dimension_visibility_filter;
     bool editing_origin_visible{};
     std::optional<EdgeKey> component_origin_handle;
@@ -644,6 +670,12 @@ MeshView::~MeshView() {
 void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
     impl_->container_inspection_wire.clear();
     const auto previous_confirmation = impl_->confirmed_candidate;
+    impl_->dimension_bounds=kernel::model_envelope(mesh);
+    impl_->object_bounds=kernel::object_envelopes(mesh,impl_->object_frame_provider?impl_->object_frame_provider(mesh):std::map<kernel::ObjectEnvelopeKey,kernel::ModelEnvelope>{});
+    impl_->layout_drag.reset();
+    impl_->source_dimensions=mesh.dimensions;
+    if(impl_->dimension_layout_resolver)for(auto& d:mesh.dimensions)
+        if(auto layout=impl_->dimension_layout_resolver(d.reference))d=kernel::layout_dimension(d,impl_->object_bounds.contains({d.reference.owner_id,d.reference.instance_path})&&impl_->object_bounds.at({d.reference.owner_id,d.reference.instance_path}).valid?impl_->object_bounds.at({d.reference.owner_id,d.reference.instance_path}):impl_->dimension_bounds,*layout);
     impl_->mesh = std::move(mesh);
     std::erase_if(impl_->mesh.edges, [](const auto& edge) {
         return edge.parameter_seam;
@@ -676,6 +708,30 @@ void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
     }
     update();
 }
+
+void MeshView::set_dimension_layout_editable(bool editable){impl_->dimension_layout_editable=editable;}
+std::optional<QPointF> MeshView::dimension_handle_position(const ViewerCandidate& candidate,int index)const {
+    if(candidate.kind!=CandidateKind::Dimension||index<0||index>2)return {};
+    const auto i=candidate.geometry_index;
+    const auto* d=i<impl_->mesh.dimensions.size()?&impl_->mesh.dimensions[i]:i-impl_->mesh.dimensions.size()<impl_->transient_dimensions.size()?&impl_->transient_dimensions[i-impl_->mesh.dimensions.size()]:nullptr;
+    if(!d||!impl_->show_dimensions||(impl_->dimension_visibility_filter&&!impl_->dimension_visibility_filter(*d)))return {};
+    if(index==2&&(d->kind==kernel::ViewerDimensionKind::Radius||d->kind==kernel::ViewerDimensionKind::Diameter))return {};
+    const auto mvp=impl_->projection(width(),height())*impl_->view();
+    const auto project=[&](kernel::Vec3 p){auto q=mvp*QVector4D(p.x,p.y,p.z,1);if(std::abs(q.w())>1e-9)q/=q.w();return QPointF((q.x()+1)*width()/2.,(1-q.y())*height()/2.);};
+    return dimension_handles(*d,impl_->mesh,project)[index];
+}
+void MeshView::set_object_frame_provider(std::function<std::map<kernel::ObjectEnvelopeKey,kernel::ModelEnvelope>(const kernel::ViewerMesh&)> provider){impl_->object_frame_provider=std::move(provider);}
+void MeshView::set_dimension_layout_resolver(std::function<std::optional<kernel::DimensionLayout>(const kernel::EdgeReference&)> resolver){impl_->dimension_layout_resolver=std::move(resolver);}
+void MeshView::set_dimension_layout_commit(std::function<void(const kernel::EdgeReference&,kernel::DimensionLayout)> commit){impl_->dimension_layout_commit=std::move(commit);}
+std::optional<kernel::ViewerDimension> MeshView::dimension_source(const ViewerCandidate& c)const {
+    if(c.kind!=CandidateKind::Dimension)return {};
+    const auto i=c.geometry_index;
+    if(i<impl_->source_dimensions.size())return impl_->source_dimensions[i];
+    if(i-impl_->source_dimensions.size()<impl_->source_transient_dimensions.size())return impl_->source_transient_dimensions[i-impl_->source_dimensions.size()];
+    return {};
+}
+kernel::ModelEnvelope MeshView::dimension_envelope()const{return impl_->dimension_bounds;}
+void MeshView::set_dimension_frame_visible(bool visible){impl_->show_dimension_frame=visible;update();}
 
 void MeshView::set_dimension_decimal_places(int decimal_places) {
     impl_->dimension_decimal_places = std::clamp(decimal_places, 0, 12);
@@ -955,6 +1011,7 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
                 text_anchor = project(*dimension.label_position);
             }
         }
+        if(dimension.label_position)text_anchor=project(*dimension.label_position);
         QRectF text_bounds = metrics.boundingRect(text);
         text_bounds.moveTopLeft(text_anchor + QPointF(0.0, -metrics.ascent()));
         text_bounds.adjust(-hit_radius, -hit_radius, hit_radius, hit_radius);
@@ -1767,6 +1824,7 @@ std::optional<QPoint> MeshView::candidate_dimension_label_position(
         if (!layout.valid) return std::nullopt;
         baseline = layout.text_baseline;
     }
+    if(dimension.label_position)baseline=project(*dimension.label_position);
     return QPointF(baseline.x() + metrics.horizontalAdvance(text) * 0.5,
                    baseline.y() - (metrics.ascent() - metrics.descent()) * 0.5)
         .toPoint();
@@ -1872,6 +1930,9 @@ void MeshView::set_transient_dimensions(
         return candidate.kind == CandidateKind::Dimension &&
             candidate.geometry_index >= persisted_count;
     });
+    impl_->source_transient_dimensions=dimensions;
+    if(impl_->dimension_layout_resolver)for(auto& d:dimensions)
+        if(auto layout=impl_->dimension_layout_resolver(d.reference))d=kernel::layout_dimension(d,impl_->object_bounds.contains({d.reference.owner_id,d.reference.instance_path})&&impl_->object_bounds.at({d.reference.owner_id,d.reference.instance_path}).valid?impl_->object_bounds.at({d.reference.owner_id,d.reference.instance_path}):impl_->dimension_bounds,*layout);
     impl_->transient_dimensions = std::move(dimensions);
     update();
 }
@@ -2856,6 +2917,12 @@ void MeshView::paintGL() {
         overlay_device.setDevicePixelRatio(pixel_ratio);
         QPainter painter(&overlay_device);
         painter.setRenderHint(QPainter::Antialiasing);
+        if(impl_->show_dimension_frame) {
+            painter.setPen(QPen(QColor("#808080"),1,Qt::DashLine));
+            const auto key=impl_->confirmed_candidate?kernel::ObjectEnvelopeKey{impl_->confirmed_candidate->owner_id,impl_->confirmed_candidate->instance_path}:kernel::ObjectEnvelopeKey{};
+            const auto corners=(impl_->object_bounds.contains(key)&&impl_->object_bounds.at(key).valid?impl_->object_bounds.at(key):impl_->dimension_bounds).corners();
+            for(unsigned i=0;i<8;++i)for(unsigned bit:{1U,2U,4U})if(!(i&bit))painter.drawLine(project(corners[i]),project(corners[i|bit]));
+        }
         paint_normal_text(painter,impl_->mesh.edges,impl_->transient_edges,project,impl_->show_sketches);
         for(const auto& image:impl_->mesh.images) {
             QPolygonF target;for(const auto& p:image.corners)target<<project(p);
@@ -3508,7 +3575,7 @@ if (impl_->show_origins) {
         // Occurrence hover completely invisible whenever datum overlays were
         // hidden.  The picker had found the Box face, but the user received
         // no orange feedback and it looked unselectable.
-        highlighted.has_value() || impl_->sketch_box_start.has_value()) {
+        highlighted.has_value() || impl_->show_dimension_frame || impl_->sketch_box_start.has_value()) {
         const QMatrix4x4 mvp = impl_->projection(width(), height()) * view;
         const auto project = [&](const zima::kernel::Vec3& point) {
             QVector4D clip = mvp * QVector4D(
@@ -3523,6 +3590,12 @@ if (impl_->show_origins) {
         overlay_device.setDevicePixelRatio(pixel_ratio);
         QPainter painter(&overlay_device);
         painter.setRenderHint(QPainter::Antialiasing);
+        if(impl_->show_dimension_frame) {
+            painter.setPen(QPen(QColor("#808080"),1,Qt::DashLine));
+            const auto key=impl_->confirmed_candidate?kernel::ObjectEnvelopeKey{impl_->confirmed_candidate->owner_id,impl_->confirmed_candidate->instance_path}:kernel::ObjectEnvelopeKey{};
+            const auto corners=(impl_->object_bounds.contains(key)&&impl_->object_bounds.at(key).valid?impl_->object_bounds.at(key):impl_->dimension_bounds).corners();
+            for(unsigned i=0;i<8;++i)for(unsigned bit:{1U,2U,4U})if(!(i&bit))painter.drawLine(project(corners[i]),project(corners[i|bit]));
+        }
         paint_normal_text(painter,impl_->mesh.edges,impl_->transient_edges,project,impl_->show_sketches);
         for(const auto& image:impl_->mesh.images) {
             QPolygonF target;for(const auto& p:image.corners)target<<project(p);
@@ -4110,8 +4183,7 @@ if (impl_->show_origins) {
                     const QPointF rim = project(dimension.witness_second);
                     QPointF outward = rim - center;
                     const double length = std::hypot(outward.x(), outward.y());
-                    if (length <= 1.0e-9) continue;
-                    outward /= length;
+                    if (length <= 1.0e-9) outward={1,0};else outward /= length;
                     const QPointF opposite = center - (rim - center);
                     painter.drawLine(
                         dimension.kind == zima::kernel::ViewerDimensionKind::Diameter
@@ -4125,12 +4197,12 @@ if (impl_->show_origins) {
                         (arrow_length + tail_length);
                     const double side = outward.x() >= 0.0 ? 1.0 : -1.0;
                     const QPointF shoulder = tail + QPointF(side * 36.0, 0.0);
-                    painter.drawLine(rim + outward * arrow_length, tail);
-                    painter.drawLine(tail, shoulder);
+                    if(!dimension.label_position){painter.drawLine(rim + outward * arrow_length, tail);painter.drawLine(tail, shoulder);}
                     const double text_width =
                         painter.fontMetrics().horizontalAdvance(text);
-                    painter.drawText(shoulder + QPointF(
-                        side > 0.0 ? 2.0 : -text_width - 2.0, 5.0), text);
+                    const auto label=dimension.label_position?project(*dimension.label_position):shoulder + QPointF(side > 0.0 ? 2.0 : -text_width - 2.0, 5.0);
+                    if(dimension.label_position){painter.drawLine(rim,project(dimension.line_second));painter.drawLine(project(dimension.line_second),label);}
+                    painter.drawText(label,text);
                     painter.setBrush(Qt::NoBrush);
                     continue;
                 }
@@ -4152,6 +4224,9 @@ if (impl_->show_origins) {
                 painter.drawText(layout.text_baseline, text);
                 painter.setBrush(Qt::NoBrush);
             }
+        }
+        if(impl_->dimension_layout_editable&&impl_->dimension_layout_commit&&impl_->confirmed_candidate&&impl_->confirmed_candidate->kind==CandidateKind::Dimension&&impl_->show_dimensions) {
+            for(int i=0;i<3;++i)if(auto point=dimension_handle_position(*impl_->confirmed_candidate,i))draw_circular_marker(painter,*point,QColor("#D05CFF"));
         }
         if (axes_visible) {
             // Coincident document and Body axes must not cover the offered axis.
@@ -5114,6 +5189,17 @@ MeshView::ray_at(const QPointF& position) const {
 }
 
 void MeshView::mousePressEvent(QMouseEvent* event) {
+    if(event->button()==Qt::LeftButton&&impl_->dimension_layout_editable&&impl_->dimension_layout_commit&&impl_->confirmed_candidate&&impl_->confirmed_candidate->kind==CandidateKind::Dimension) {
+        const auto candidate=*impl_->confirmed_candidate;
+        if(auto source=dimension_source(candidate))for(int handle=0;handle<3;++handle)if(auto point=dimension_handle_position(candidate,handle);point&&QLineF(*point,event->position()).length()<=5.5) {
+            const auto i=candidate.geometry_index;const auto shown=i<impl_->mesh.dimensions.size()?impl_->mesh.dimensions[i]:impl_->transient_dimensions[i-impl_->mesh.dimensions.size()];
+            const auto key=kernel::ObjectEnvelopeKey{source->reference.owner_id,source->reference.instance_path};
+            const auto bounds=impl_->object_bounds.contains(key)&&impl_->object_bounds.at(key).valid?impl_->object_bounds.at(key):impl_->dimension_bounds;
+            const auto initial=impl_->dimension_layout_resolver?impl_->dimension_layout_resolver(source->reference).value_or(kernel::DimensionLayout{}):kernel::DimensionLayout{};
+            impl_->layout_drag=Impl::LayoutDrag{candidate,*source,shown,bounds,initial,initial,event->position(),handle,false};
+            event->accept();return;
+        }
+    }
     impl_->last_pointer = event->position().toPoint();
     if (event->button() == Qt::LeftButton) {
       for (const auto& handle : impl_->extent_manipulators) {
@@ -5392,6 +5478,7 @@ void MeshView::mousePressEvent(QMouseEvent* event) {
 }
 
 void MeshView::mouseDoubleClickEvent(QMouseEvent* event) {
+    impl_->layout_drag.reset();
     impl_->last_pointer = event->position().toPoint();
     if (event->button() == Qt::MiddleButton) {
         impl_->middle_double_clicked = true;
@@ -5421,6 +5508,24 @@ void MeshView::mouseDoubleClickEvent(QMouseEvent* event) {
 }
 
 void MeshView::mouseMoveEvent(QMouseEvent* event) {
+    if(impl_->layout_drag&&(event->buttons()&Qt::LeftButton)) {
+        auto& drag=*impl_->layout_drag;const auto delta=event->position()-drag.start;
+        if(!drag.moved&&delta.manhattanLength()<QApplication::startDragDistance()){event->accept();return;}
+        const auto& d=drag.shown;
+        const bool angular=d.kind==kernel::ViewerDimensionKind::Angular;
+        const auto u=kernel::dimension_unit(kernel::dimension_sub(angular?d.line_first:d.witness_second,d.witness_first));
+        const auto v=kernel::dimension_unit(kernel::dimension_cross(d.plane_normal,u));
+        const auto mvp=impl_->projection(width(),height())*impl_->view();
+        const auto project=[&](kernel::Vec3 p){auto q=mvp*QVector4D(p.x,p.y,p.z,1);if(std::abs(q.w())>1e-9)q/=q.w();return QPointF((q.x()+1)*width()/2.,(1-q.y())*height()/2.);};
+        const auto o=project(d.witness_first),a=project(kernel::dimension_add(d.witness_first,u))-o,b=project(kernel::dimension_add(d.witness_first,v))-o;
+        const auto det=a.x()*b.y()-a.y()*b.x();
+        if(std::abs(det)<1e-8){event->accept();return;}
+        const double along=(delta.x()*b.y()-delta.y()*b.x())/det,outward=(a.x()*delta.y()-a.y()*delta.x())/det;
+        drag.current=kernel::dragged_dimension_layout(drag.shown,drag.bounds,drag.initial,drag.handle,along,outward);
+        auto display=kernel::layout_dimension(drag.source,drag.bounds,drag.current);const auto i=drag.candidate.geometry_index;
+        if(i<impl_->mesh.dimensions.size())impl_->mesh.dimensions[i]=std::move(display);else impl_->transient_dimensions[i-impl_->mesh.dimensions.size()]=std::move(display);
+        drag.moved=true;update();event->accept();return;
+    }
     const QPoint current = event->position().toPoint();
     const QPoint movement = current - impl_->last_pointer;
     impl_->last_pointer = current;
@@ -5578,6 +5683,7 @@ void MeshView::mouseMoveEvent(QMouseEvent* event) {
 }
 
 void MeshView::mouseReleaseEvent(QMouseEvent* event) {
+    if(event->button()==Qt::LeftButton&&impl_->layout_drag){auto drag=*impl_->layout_drag;impl_->layout_drag.reset();if(drag.moved&&impl_->dimension_layout_commit)impl_->dimension_layout_commit(drag.source.reference,drag.current);event->accept();return;}
     if (event->button() == Qt::LeftButton && impl_->sketch_box_start) {
         const QPointF start = *impl_->sketch_box_start;
         const QPointF end = event->position();
@@ -5772,6 +5878,7 @@ void MeshView::wheelEvent(QWheelEvent* event) {
 }
 
 void MeshView::keyPressEvent(QKeyEvent* event) {
+    if(event->key()==Qt::Key_Escape&&impl_->layout_drag){auto drag=*impl_->layout_drag;impl_->layout_drag.reset();const auto i=drag.candidate.geometry_index;if(i<impl_->mesh.dimensions.size())impl_->mesh.dimensions[i]=drag.shown;else if(i-impl_->mesh.dimensions.size()<impl_->transient_dimensions.size())impl_->transient_dimensions[i-impl_->mesh.dimensions.size()]=drag.shown;update();event->accept();return;}
     if (!impl_->fly_navigation_enabled) {
         QOpenGLWidget::keyPressEvent(event);
         return;

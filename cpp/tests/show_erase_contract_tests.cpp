@@ -144,17 +144,17 @@ int main() {
     oriented.camera.depth = {0, 0, -2};
     require(offered(), "Reverse view lost face-on dimension");
     oriented.camera.depth = {1, 0, 0};
-    require(!offered(), "Edge-on dimension offered");
+    require(offered(), "Edge-on dimension disappeared");
     oriented.camera.depth = {1, 0, 1};
-    require(!offered(), "Oblique dimension offered");
+    require(offered(), "Oblique dimension disappeared");
     oriented.camera.depth = {0, 0, 1};
     oriented_dimension.plane_normal = {0, 2, 0};
-    require(!offered(), "Rotated occurrence dimension offered in wrong view");
+    require(offered(), "Rotated occurrence dimension disappeared");
     oriented.camera.depth = {0, -1, 0};
     require(offered(), "Rotated occurrence dimension missing in matching view");
     oriented_dimension.visible = true;
     oriented.camera.depth = {0, 0, 1};
-    require(drawing::ShowEraseSession(oriented)
+    require(!drawing::ShowEraseSession(oriented)
                 .candidates(drawing::ShowEraseMode::Erase, dimension_kind)
                 .empty(),
             "Oblique stored dimension offered for Erase");

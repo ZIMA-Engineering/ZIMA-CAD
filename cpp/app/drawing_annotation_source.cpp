@@ -1,3 +1,4 @@
+#include <zima/document/object_annotation_frames.hpp>
 #include "drawing_annotation_source.hpp"
 #include <algorithm>
 #include <functional>
@@ -71,11 +72,15 @@ drawing_annotation_sources(workspace::Workspace *workspace,
     if (!stack.insert(id).second)
       throw std::runtime_error("Cyclic drawing annotation source");
     kernel::ViewerMesh mesh;
+    kernel::ModelEnvelope envelope;
+    std::map<kernel::ObjectEnvelopeKey,kernel::ModelEnvelope> frames;
+    std::vector<kernel::DimensionLayoutEntry> layouts;
     const auto part_mesh = [&](const document::PartDocument &part,
                                const kernel::ViewerMesh &calculated) {
       if (part.document_id != id)
         throw std::runtime_error(
             "Annotation source document identity mismatch");
+      envelope=kernel::model_envelope(calculated);frames=document::part_annotation_envelopes(part,calculated);layouts=part.dimension_layouts;
       append(mesh, part.construction_viewer_mesh());
       mesh.axes.insert(mesh.axes.end(),
                        calculated.original_references.axes.begin(),
@@ -102,6 +107,8 @@ drawing_annotation_sources(workspace::Workspace *workspace,
       if (assembly.document_id != id)
         throw std::runtime_error(
             "Annotation source document identity mismatch");
+      const auto scene=assembly.build_scene();envelope=kernel::model_envelope(scene);frames=scene.annotation_frames;layouts=assembly.dimension_layouts;
+      std::erase_if(frames,[](const auto& entry){return !entry.first.second.empty();});
       append(mesh, assembly.construction_viewer_mesh());
       // Only dimensions owned by this Assembly; child Parts contribute axes
       // and construction references, never their modeling dimensions.
@@ -193,6 +200,12 @@ drawing_annotation_sources(workspace::Workspace *workspace,
     // solving.
     for (const auto &d : mesh.dimensions)
       mesh.vertices.push_back(d.label_position.value_or(d.line_second));
+    frames[{}]=envelope;
+    frames=kernel::object_envelopes(mesh,std::move(frames));
+    for(const auto& [key,frame]:frames) {
+      mesh.vertices.push_back(frame.origin);
+      for(auto axis:frame.axes)mesh.vertices.push_back(kernel::dimension_add(frame.origin,axis));
+    }
     for (auto i = placements.rbegin(); i != placements.rend(); ++i) {
       if (i->mirror || i->pattern) {
         transform_annotations(mesh, *i);
@@ -231,6 +244,15 @@ drawing_annotation_sources(workspace::Workspace *workspace,
       mesh.edges = std::move(transformed.edges);
       mesh.axes = std::move(transformed.axes);
     }
+    std::size_t frame_index=mesh.dimensions.size();
+    std::map<kernel::ObjectEnvelopeKey,kernel::ModelEnvelope> placed_frames;
+    for(auto [key,frame]:frames) {
+      frame.origin=mesh.vertices.at(frame_index++);
+      for(auto& axis:frame.axes)axis=kernel::dimension_sub(mesh.vertices.at(frame_index++),frame.origin);
+      placed_frames[{key.first,occurrence.encoded()}]=frame;
+    }
+    frames=std::move(placed_frames);
+    envelope=frames.at({{},occurrence.encoded()});
     for (std::size_t i = 0; i < mesh.dimensions.size(); ++i) {
       mesh.dimensions[i].label_position = mesh.vertices.at(i);
       mesh.dimensions[i].reference.instance_path = occurrence.encoded();
@@ -240,7 +262,7 @@ drawing_annotation_sources(workspace::Workspace *workspace,
     for (auto &a : mesh.axes)
       a.reference.instance_path = occurrence.encoded();
     result.push_back({id, occurrence.encoded(), std::move(mesh.dimensions),
-                      std::move(mesh.edges), std::move(mesh.axes)});
+                      std::move(mesh.edges), std::move(mesh.axes),envelope,std::move(layouts),std::move(frames)});
     stack.erase(id);
   };
   visit(root, root_path, {}, {});

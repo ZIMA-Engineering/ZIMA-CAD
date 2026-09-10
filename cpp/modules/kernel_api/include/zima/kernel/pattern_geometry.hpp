@@ -92,6 +92,12 @@ inline ViewerMesh pattern_copy_mesh(ViewerMesh mesh,PatternRequest p,unsigned in
             for(auto& r:e.edge_treatment_side_references)face(r);for(auto& r:e.edge_treatment_endpoint_references)ref(r);}
         for(auto& v:g.points){v.position=pattern_point(v.position,p,index);ref(v.reference);}
         for(auto& a:g.axes){a.point=pattern_point(a.point,p,index);a.direction=pattern_vector(a.direction,p,index);ref(a.reference);}};
+    std::map<ObjectEnvelopeKey,ModelEnvelope> frames;
+    for(auto [key,frame]:mesh.annotation_frames){frame.origin=pattern_point(frame.origin,p,index);for(auto& axis:frame.axes)axis=pattern_vector(axis,p,index);
+        if(occurrence){auto copy=pattern_copy_id(p,index);frames[{key.first,std::to_string(copy.size())+":"+copy+key.second}]=frame;}
+        else if(owner.empty())frames[key]=frame;
+        else if(key.first.empty()&&key.second.empty())frames[{owner,{}}]=frame;
+    }mesh.annotation_frames=std::move(frames);
     geometry(mesh);geometry(mesh.original_references);mesh.dimensions.clear();mesh.constraint_markers.clear();return mesh;
 }
 } // namespace zima::kernel

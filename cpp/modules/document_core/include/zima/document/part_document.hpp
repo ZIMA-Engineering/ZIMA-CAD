@@ -1,4 +1,5 @@
 #pragma once
+#include <zima/kernel/dimension_layout.hpp>
 #include <zima/kernel/appearance.hpp>
 #include <zima/document/section.hpp>
 #include <ranges>
@@ -613,6 +614,7 @@ public:
     // document.document_settings["named_views"].
     std::string named_views{"[]"};
     std::vector<zima::document::SectionDefinition> sections;
+    std::vector<zima::kernel::DimensionLayoutEntry> dimension_layouts;
     // Display colour of the calculated body.  It is presentation metadata;
     // changing it never invalidates or recalculates OCCT geometry.
     std::string body_color{"#B9C2CC"};

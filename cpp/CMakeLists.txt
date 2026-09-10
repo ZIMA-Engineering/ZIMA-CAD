@@ -338,6 +338,10 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_drawing_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    add_executable(zima_cpp_dimension_layout_contract_tests tests/dimension_layout_contract_tests.cpp)
+    target_link_libraries(zima_cpp_dimension_layout_contract_tests PRIVATE zima_drawing zima_assembly zima_viewer zima_ui nlohmann_json::nlohmann_json)
+    add_test(NAME zima_cpp_dimension_layout_contract_tests COMMAND zima_cpp_dimension_layout_contract_tests)
+    set_tests_properties(zima_cpp_dimension_layout_contract_tests PROPERTIES ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_executable(zima_cpp_show_erase_contract_tests tests/show_erase_contract_tests.cpp)
     target_link_libraries(zima_cpp_show_erase_contract_tests PRIVATE zima_drawing)
     add_test(NAME zima_cpp_show_erase_contract_tests COMMAND zima_cpp_show_erase_contract_tests)

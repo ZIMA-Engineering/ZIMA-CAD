@@ -62,6 +62,12 @@ inline ViewerMesh mirrored_viewer_mesh(ViewerMesh mesh,MirrorPlane plane,const s
         for(auto& axis:value.axes){point(axis.point);vector(axis.direction);reference(axis.reference);}
     };
     geometry(mesh);geometry(mesh.original_references);mark_copy_display(mesh,owner);
+    std::map<ObjectEnvelopeKey,ModelEnvelope> frames;
+    for(auto [key,frame]:mesh.annotation_frames){point(frame.origin);for(auto& axis:frame.axes)vector(axis);
+        if(owner.empty())frames[key]=frame;
+        else if(key.first.empty()&&key.second.empty())frames[{owner,{}}]=frame;
+    }mesh.annotation_frames=std::move(frames);
+
     // Source dimensions are inspected at their owner, never duplicated here.
     mesh.dimensions.clear();mesh.constraint_markers.clear();return mesh;
 }

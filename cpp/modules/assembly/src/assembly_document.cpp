@@ -1,3 +1,5 @@
+#include <zima/document/object_annotation_frames.hpp>
+#include <zima/document/dimension_layout_json.hpp>
 #include <zima/document/appearance.hpp>
 #include <zima/document/derived_copy_json.hpp>
 #include <set>
@@ -101,6 +103,7 @@ void append_viewer_mesh(zima::kernel::ViewerMesh& target,
     target.triangle_references.insert(target.triangle_references.end(),
         source.triangle_references.begin(), source.triangle_references.end());
     target.edges.insert(target.edges.end(), source.edges.begin(), source.edges.end());
+    target.annotation_frames.insert(source.annotation_frames.begin(),source.annotation_frames.end());
     target.points.insert(target.points.end(), source.points.begin(), source.points.end());
     target.axes.insert(target.axes.end(), source.axes.begin(), source.axes.end());
     target.dimensions.insert(target.dimensions.end(),
@@ -1365,6 +1368,15 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
             !component.visible) continue;
         const std::string path = InstancePath{}.child(component.occurrence_id).encoded();
         const auto append_component_mesh = [&](const zima::kernel::ViewerMesh& source_mesh) {
+            auto source_frames=zima::kernel::object_envelopes(source_mesh);
+            for(auto [key,frame]:source_frames){
+                frame.origin=transform_point(frame.origin,component.placement);
+                for(auto& axis:frame.axes)axis=transform_direction(axis,component.placement);
+                zima::kernel::EdgeReference reference{key.first,"frame",key.second};assign_instance(reference,path);
+                scene.annotation_frames[{key.first,reference.instance_path}]=frame;
+                if(key.first.empty()&&key.second.empty()){scene.annotation_frames[{component.occurrence_id,path}]=frame;scene.annotation_frames[{component.source_document_id,path}]=frame;}
+            }
+
             const std::uint32_t vertex_offset =
                 static_cast<std::uint32_t>(scene.vertices.size());
             for (const auto& vertex : source_mesh.vertices) {
@@ -1410,6 +1422,7 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
                 dimension.line_first = transform_point(dimension.line_first, component.placement);
                 dimension.line_second = transform_point(dimension.line_second, component.placement);
                 dimension.plane_normal = transform_direction(dimension.plane_normal, component.placement);
+                if(dimension.label_position)dimension.label_position=transform_point(*dimension.label_position,component.placement);
                 scene.dimensions.push_back(std::move(dimension));
             }
             auto& target_references = scene.original_references;
@@ -1641,6 +1654,9 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
     }
     zima::kernel::ViewerMesh result = std::move(datums);
     append_viewer_mesh(result, scene);
+    zima::document::PartDocument frame_source;frame_source.constructions=constructions;frame_source.sketches=sketches;
+    for(const auto& cut:cuts)frame_source.history.push_back(cut.definition);
+    result.annotation_frames=zima::document::part_annotation_envelopes(frame_source,result);
     return result;
 }
 
@@ -1705,6 +1721,7 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
     document.family_table = root.at("family_table").get<std::string>();
     document.named_views = root.value("named_views", std::string("[]"));
     document.sections=zima::document::parse_sections(root.value("sections",nlohmann::json::array()).dump());
+    document.dimension_layouts=zima::document::dimension_layouts_from_json(root.value("dimension_layouts",nlohmann::json::array()));
     document.dimension_identifiers = zima::document::DimensionIdentifiers::from_serialized(root.at("dimension_identifiers").dump());
     for (const auto& value : root.at("sketches")) {
         document.sketches.push_back(zima::sketcher::Sketch::from_serialized(
@@ -2027,6 +2044,7 @@ void AssemblyDocument::save(const std::filesystem::path& path,
         {"user_parameter_values", user_parameter_values},
         {"relations", std::move(relations_json)},
         {"dimension_identifiers", nlohmann::json::parse(identifiers.serialized())},
+        {"dimension_layouts",zima::document::dimension_layouts_json(dimension_layouts)},
         {"document_units", document_units},
         {"document_precision", document_precision},
         {"physical_parameters", physical_parameters},

@@ -1,3 +1,5 @@
+#include <zima/document/object_annotation_frames.hpp>
+#include "dimension_layout_dialog.hpp"
 #include <QSaveFile>
 #include "appearance_dialog.hpp"
 #include <zima/interchange/model_import.hpp>
@@ -2917,6 +2919,9 @@ void AssemblyWorkspaceWindow::create_actions() {
 
     auto* view = menuBar()->addMenu(t("menu.view", "Zobrazení"));
     view->addAction(fit_view_action_);
+    auto* dimension_frame=view->addAction(tr("Prostorový rám kót"));
+    dimension_frame->setObjectName("showDimensionFrameAction");dimension_frame->setCheckable(true);
+    connect(dimension_frame,&QAction::toggled,this,[this](bool shown){if(viewer_)viewer_->set_dimension_frame_visible(shown);});
     standard_views_menu_ = view->addMenu(
         t("toolbar.standard_views", "Základní pohledy"));
     standard_views_menu_->setObjectName("standardViewsMenu");
@@ -4244,6 +4249,36 @@ void AssemblyWorkspaceWindow::create_layout() {
         }
     });
     viewer_->set_dimension_lock_query([this](const auto& reference){return parameter_value_locked(reference.owner_id,reference.semantic_key);});
+    viewer_->set_object_frame_provider([this](const zima::kernel::ViewerMesh& mesh){
+        std::map<zima::kernel::ObjectEnvelopeKey,zima::kernel::ModelEnvelope> frames;
+        const auto id=workspace_.active_document_id();
+        if(const auto* part=workspace_.open_part(id)) {
+            frames=active_occurrence_path_.empty()?zima::document::part_annotation_envelopes(part->session.document(),mesh):zima::document::part_annotation_frames(part->session.document());
+        }
+        if(!active_occurrence_path_.empty()) {
+            const auto path=zima::assembly::InstancePath::decode(active_occurrence_path_);
+            std::map<zima::kernel::ObjectEnvelopeKey,zima::kernel::ModelEnvelope> placed;
+            for(const auto& [key,value]:frames){auto frame=value;const auto point=[&](auto p){return workspace_.occurrence_point_to_scene(workspace_.displayed_document_id(),path,p);};const auto origin=point(frame.origin);for(auto& axis:frame.axes)axis=zima::kernel::dimension_sub(point(zima::kernel::dimension_add(frame.origin,axis)),origin);frame.origin=origin;placed[{key.first,active_occurrence_path_}]=frame;}frames=std::move(placed);
+        }
+        if(!active_occurrence_path_.empty())if(const auto* part=workspace_.open_part(id)){
+            frames=zima::kernel::object_envelopes(mesh,std::move(frames));
+            const auto alias=[&](const std::string& source,const std::string& owner){const auto found=frames.find({source,active_occurrence_path_});if(found!=frames.end()&&found->second.valid)frames[{owner,active_occurrence_path_}]=found->second;};
+            for(const auto& c:part->session.document().history)alias(c.feature_id,c.id);
+            for(const auto& c:part->session.document().constructions)alias(c.entity_id,c.id);
+        }
+        return frames;
+    });
+    viewer_->set_dimension_layout_resolver([this](const auto& reference)->std::optional<zima::kernel::DimensionLayout>{
+        for(const auto& state:workspace_.documents()) {
+            const std::vector<zima::kernel::DimensionLayoutEntry>* entries=nullptr;
+            if(const auto* part=std::get_if<zima::workspace::PartState>(&state))entries=&part->session.document().dimension_layouts;
+            if(const auto* assembly=std::get_if<zima::workspace::AssemblyState>(&state))entries=&assembly->session.document().dimension_layouts;
+            if(entries)if(const auto* layout=zima::kernel::find_dimension_layout(*entries,reference))return *layout;
+        }
+        if(active_sketch_id_.empty())return zima::kernel::DimensionLayout{0,8.0,0,0};
+        return {};
+    });
+    viewer_->set_dimension_layout_commit([this](const auto& reference,auto layout){commit_dimension_layout(reference,layout);});
     viewer_->set_context_menu_callback(
         [this](const auto& candidate, const QPoint& global_position) {
             if(section_dialog_&&section_dialog_->isVisible())return;
@@ -4268,6 +4303,17 @@ void AssemblyWorkspaceWindow::create_layout() {
                 sketch_common_tangent_active_ ||
                 sketch_segment_pair_active_ || sketch_point_dimension_active_ ||
                 sketch_universal_dimension_active_) return;
+            if(candidate.kind==zima::viewer::CandidateKind::Dimension && !properties_dialog_ && active_sketch_id_.empty()) {
+                QMenu menu(this);auto* presentation=menu.addAction(tr("Zobrazení kóty…"));
+                presentation->setObjectName("dimensionLayoutPropertiesAction");
+                auto* value=menu.addAction(tr("Upravit hodnotu…"));
+                auto* lock=menu.addAction(parameter_value_locked(candidate.owner_id,candidate.semantic_key).value_or(false)?tr("Odemknout hodnotu"):tr("Zamknout hodnotu"));
+                const auto* chosen=menu.exec(global_position);
+                if(chosen==presentation)show_dimension_layout_properties(candidate);
+                else if(chosen==value)edit_dimension_inline(candidate);
+                else if(chosen==lock)toggle_parameter_value_lock(candidate.owner_id,candidate.semantic_key);
+                return;
+            }
             if(candidate.kind==zima::viewer::CandidateKind::Dimension && candidate.semantic_key.starts_with("placement-reference:")) {
                 QMenu menu(this);auto* lock=menu.addAction(parameter_value_locked(candidate.owner_id,candidate.semantic_key).value_or(false)?tr("Odemknout hodnotu"):tr("Zamknout hodnotu"));
                 if(menu.exec(global_position)==lock)toggle_parameter_value_lock(candidate.owner_id,candidate.semantic_key);return;
@@ -8672,9 +8718,36 @@ void AssemblyWorkspaceWindow::toggle_local_origin_visibility(
     refresh_scene();
 }
 
+void AssemblyWorkspaceWindow::commit_dimension_layout(const zima::kernel::EdgeReference& reference,zima::kernel::DimensionLayout layout) {
+    if(reference.instance_path!=active_occurrence_path_||!part_element_context_menu_enabled(reference.owner_id))throw std::invalid_argument("Dimension is outside the active editing occurrence");
+    const auto id=workspace_.active_document_id();
+    if(auto* part=workspace_.open_part(id)) {
+        auto next=part->session.document();zima::kernel::store_dimension_layout(next.dimension_layouts,reference,layout);
+        part->session.commit(std::move(next),part->session.calculated_boundaries());
+    } else if(auto* assembly=workspace_.open_assembly(id)) {
+        auto next=assembly->session.document();zima::kernel::store_dimension_layout(next.dimension_layouts,reference,layout);
+        assembly->session.commit(std::move(next));
+    }
+    preserve_view_on_refresh_=true;refresh_scene();refresh_tabs();
+}
+void AssemblyWorkspaceWindow::show_dimension_layout_properties(const zima::viewer::ViewerCandidate& candidate) {
+    if(properties_dialog_)return;
+    const auto source=viewer_->dimension_source(candidate);if(!source)return;
+    zima::kernel::DimensionLayout initial{0,8.0,0,0};
+    const auto id=workspace_.active_document_id();
+    const std::vector<zima::kernel::DimensionLayoutEntry>* entries=nullptr;
+    if(const auto* part=workspace_.open_part(id))entries=&part->session.document().dimension_layouts;
+    else if(const auto* assembly=workspace_.open_assembly(id))entries=&assembly->session.document().dimension_layouts;
+    if(entries)if(const auto* value=zima::kernel::find_dimension_layout(*entries,source->reference))initial=*value;
+    auto* dialog=new DimensionLayoutDialog(*source,initial,[this,id,reference=source->reference](auto layout){if(workspace_.active_document_id()!=id)throw std::runtime_error("Active dimension document changed");commit_dimension_layout(reference,layout);},this);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);properties_dialog_=dialog;viewer_->set_dimension_layout_editable(false);
+    connect(dialog,&QObject::destroyed,this,[this,dialog]{if(properties_dialog_==dialog)properties_dialog_=nullptr;viewer_->set_dimension_layout_editable(active_sketch_id_.empty());});
+    dialog->show();
+}
+
 void AssemblyWorkspaceWindow::update_assembly_dimension_visibility() {
     if(!viewer_)return;
-    const auto wanted=properties_dialog_?properties_dialog_instance_path_:assembly_dimension_path_;
+    const auto wanted=properties_dialog_&&!properties_dialog_instance_path_.empty()?properties_dialog_instance_path_:assembly_dimension_path_;
     const auto owner=workspace_.active_document_id();
     viewer_->set_dimension_visibility_filter([wanted,owner](const auto& dimension){
         const auto& key=dimension.reference.semantic_key;
@@ -23988,6 +24061,7 @@ std::optional<std::string> AssemblyWorkspaceWindow::selected_occurrence_path() c
 }
 
 void AssemblyWorkspaceWindow::refresh_scene() {
+    viewer_->set_dimension_layout_editable(!properties_dialog_&&active_sketch_id_.empty());
     update_assembly_dimension_visibility();
     update_viewer_body_colors();
     update_body_color_actions();

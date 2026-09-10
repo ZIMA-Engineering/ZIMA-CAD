@@ -116,6 +116,7 @@ private:
     void start_selection();
     void start_linear_dimension();
     void show_erase();
+    void edit_model_dimension(const std::string&,const std::string&);
     void update_action_states();
     void refresh();
     void sync_workspace_document();

@@ -293,7 +293,7 @@ int verify_show_erase_ui() {
     const auto &moved = state.sheets[0].views[0].model_annotations;
     const auto found = std::ranges::find(moved, dim->source,
                                          &drawing::ModelAnnotation::source);
-    require(found != moved.end() && found->paper_handles.contains("text"),
+    require(found != moved.end() && (found->paper_handles.contains("text")||found->view_layout.has_value()),
             "Dimension text handle did not move");
     const auto handles = found->paper_handles;
     QTemporaryDir dir;
@@ -346,9 +346,7 @@ int verify_show_erase_ui() {
                 replacement.sheets[0].views[0].dimension_guide_spacing == 8,
             "Guide default must be 8 mm");
     auto tilted_drawing = replacement;
-    for (auto &annotation : tilted_drawing.sheets[0].views[0].model_annotations)
-      if (annotation.kind == drawing::ModelAnnotationKind::Dimension)
-        annotation.plane_normal = {1, 0, 0};
+    tilted_drawing.sheets[0].views[0].camera={{.7071067811865476,0,.7071067811865476},{0,1,0},{-.7071067811865476,0,.7071067811865476}};
     workspace.open_drawing(drawing.document_id)->document = tilted_drawing;
     window.edit_workspace_document(drawing.document_id);
     const auto filtered_print = window.render_sheet_for_test(true);
@@ -358,9 +356,9 @@ int verify_show_erase_ui() {
         annotation.visible = false;
     workspace.open_drawing(drawing.document_id)->document = tilted_drawing;
     window.edit_workspace_document(drawing.document_id);
-    require(filtered_print == window.render_sheet_for_test(true) &&
-                filtered_view == window.render_sheet_for_test(false),
-            "Edge-on stored dimensions leaked into View or PDF");
+    require(filtered_print != window.render_sheet_for_test(true) &&
+                filtered_view != window.render_sheet_for_test(false),
+            "Oblique stored dimensions disappeared from View or PDF");
     for (auto &annotation : replacement.sheets[0].views[1].model_annotations)
       annotation.visible = true;
     workspace.open_drawing(drawing.document_id)->document = replacement;

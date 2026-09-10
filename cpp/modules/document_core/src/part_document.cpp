@@ -1,3 +1,4 @@
+#include <zima/document/dimension_layout_json.hpp>
 #include <zima/document/appearance.hpp>
 #include <zima/document/document_copy_json.hpp>
 #include <zima/document/part_document.hpp>
@@ -528,6 +529,7 @@ nlohmann::json read_part_ini(const std::filesystem::path& path) {
             "{\"columns\":[],\"instances\":[]}")},
         {"named_views", ini_value(ini, "Document", "named_views", "[]")},
         {"sections", nlohmann::json::parse(ini_value(ini,"Document","sections","[]"))},
+        {"dimension_layouts", nlohmann::json::parse(ini_value(ini,"Document","dimension_layouts","[]"))},
         {"dimension_identifiers", nlohmann::json::parse(ini_required(ini, "Document", "dimension_identifiers"))},
         {"body_history", nlohmann::json::parse(ini_required(ini, "Document", "body_history"))},
         {"body_color", ini_value(ini, "Document", "body_color", "#B9C2CC")},
@@ -677,6 +679,7 @@ void write_part_ini(
         {"family_table", root.at("family_table").get<std::string>()},
         {"named_views", root.value("named_views", std::string("[]"))},
         {"sections", root.value("sections",nlohmann::json::array()).dump()},
+        {"dimension_layouts", root.value("dimension_layouts",nlohmann::json::array()).dump()},
         {"dimension_identifiers", root.at("dimension_identifiers").dump()},
         {"body_history", root.at("body_history").dump()},
         {"body_color", root.value("body_color", std::string("#B9C2CC"))},
@@ -2579,6 +2582,7 @@ zima::kernel::ViewerMesh body_placed_mesh(zima::kernel::ViewerMesh mesh,
         scope.translation(), scope.rotation_degrees(), false);
     const auto rotation = placement_rotation_matrix_from_euler_degrees(scope.rotation_degrees());
     const auto point = [&](auto& value) { value = placement_transform_point(rotation, scope.translation(), value); };
+    for(auto& [key,frame]:mesh.annotation_frames){point(frame.origin);for(auto& axis:frame.axes)axis=placement_transform_direction(rotation,axis);}
     for (auto& dimension : mesh.dimensions) {
         point(dimension.witness_first); point(dimension.witness_second);
         point(dimension.line_first); point(dimension.line_second);
@@ -9161,6 +9165,7 @@ PartDocument PartDocument::load(
     document.family_table = root.at("family_table").get<std::string>();
     document.named_views = root.value("named_views", std::string("[]"));
     document.sections = parse_sections(root.value("sections",nlohmann::json::array()).dump());
+    document.dimension_layouts=zima::document::dimension_layouts_from_json(root.value("dimension_layouts",nlohmann::json::array()));
     document.dimension_identifiers = DimensionIdentifiers::from_serialized(root.at("dimension_identifiers").dump());
     document.body_color = root.at("body_color").get<std::string>();
     document.appearance = deserialize_appearance(root.value("appearance",std::string("{}")));
@@ -11020,6 +11025,7 @@ void PartDocument::save(
         {"user_parameter_values", user_parameter_values},
         {"relations", std::move(serialized_relations)},
         {"dimension_identifiers", nlohmann::json::parse(identifiers.serialized())},
+        {"dimension_layouts",zima::document::dimension_layouts_json(dimension_layouts)},
         {"body_history", nlohmann::json::parse(body_history.serialized())},
         {"document_units", document_units},
         {"document_precision", document_precision},

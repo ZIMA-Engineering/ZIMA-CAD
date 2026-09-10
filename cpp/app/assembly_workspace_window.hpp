@@ -67,6 +67,8 @@ public:
     void toggle_parameter_value_lock(const std::string& owner,const std::string& key);
     void edit_dimension_inline(const zima::viewer::ViewerCandidate& candidate);
     bool finish_parameter_dimensions();
+    void show_dimension_layout_properties(const zima::viewer::ViewerCandidate&);
+    void commit_dimension_layout(const zima::kernel::EdgeReference&,zima::kernel::DimensionLayout);
     void update_assembly_dimension_visibility();
     void show_parameter_dimensions(const std::string& owner_id,
         const std::string& component = {});

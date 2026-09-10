@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <cmath>
 #include <bit>
 #include <algorithm>
 #include <array>
@@ -192,6 +193,7 @@ struct ViewerDimension {
     // Actual editable value represented by a generated parameter dimension.
     // A reference-driven RX/RY/RZ dimension edits its local correction.
     std::string value_lock_key;
+    bool operator==(const ViewerDimension&)const=default;
 };
 
 struct ViewerConstraintMarker {
@@ -223,6 +225,31 @@ struct ViewerImage {
     std::string format{"png"};
 };
 
+// Tight geometric envelope. Annotations, origins and construction datums never
+// contribute; presentation offsets cannot enlarge the model's spatial bounds.
+struct ModelEnvelope {
+    Vec3 minimum{}, maximum{};
+    bool valid{};
+    Vec3 origin{};
+    std::array<Vec3,3> axes{{{1,0,0},{0,1,0},{0,0,1}}};
+    Vec3 local(Vec3 p)const {p={p.x-origin.x,p.y-origin.y,p.z-origin.z};const auto dot=[&](Vec3 a){return p.x*a.x+p.y*a.y+p.z*a.z;};return {dot(axes[0]),dot(axes[1]),dot(axes[2])};}
+    Vec3 world(Vec3 p)const {return {origin.x+axes[0].x*p.x+axes[1].x*p.y+axes[2].x*p.z,origin.y+axes[0].y*p.x+axes[1].y*p.y+axes[2].y*p.z,origin.z+axes[0].z*p.x+axes[1].z*p.y+axes[2].z*p.z};}
+    bool operator==(const ModelEnvelope&) const = default;
+    void include(Vec3 p) {
+        if(!std::isfinite(p.x)||!std::isfinite(p.y)||!std::isfinite(p.z))return;
+        p=local(p);
+        if(!valid){minimum=maximum=p;valid=true;return;}
+        minimum={std::min(minimum.x,p.x),std::min(minimum.y,p.y),std::min(minimum.z,p.z)};
+        maximum={std::max(maximum.x,p.x),std::max(maximum.y,p.y),std::max(maximum.z,p.z)};
+    }
+    std::array<Vec3,8> corners()const {
+        std::array<Vec3,8> out;
+        for(unsigned i=0;i<8;++i)out[i]=world({i&1?maximum.x:minimum.x,i&2?maximum.y:minimum.y,i&4?maximum.z:minimum.z});
+        return out;
+    }
+};
+using ObjectEnvelopeKey=std::pair<std::string,std::string>; // owner, exact occurrence
+
 struct ViewerMesh {
     std::vector<Vec3> vertices;
     std::vector<std::uint32_t> triangles;
@@ -236,6 +263,8 @@ struct ViewerMesh {
     std::vector<ViewerConstraintMarker> constraint_markers;
     ViewerReferenceGeometry original_references;
     std::vector<ViewerImage> images;
+    // Presentation-independent, oriented geometric envelopes from resolved source data.
+    std::map<ObjectEnvelopeKey,ModelEnvelope> annotation_frames;
 };
 
 struct BoxRequest {

@@ -1,3 +1,4 @@
+#include "dimension_layout_dialog.hpp"
 #include "resource_icon.hpp"
 #include "drawing_dxf_device.hpp"
 #include "drawing_annotation_source.hpp"
@@ -559,6 +560,7 @@ class DrawingCanvas final : public QWidget {
     std::function<void(const std::string&)> model_pick_;
     std::optional<AnnotationHandle> dragged_model_;
     QPointF model_drag_start_;bool model_moved_{};
+    std::optional<drawing::ModelAnnotation> model_drag_original_;
     std::map<std::string,zima::drawing::TitleBlockTextTarget> title_targets_;
     std::vector<AnnotationHandle> annotation_handles_;
     std::vector<AnnotationHandle> offered_annotations_;
@@ -659,6 +661,7 @@ public:
     void set_context_actions(QAction* insert, QAction* edit, QAction* projected, QAction* remove) {
         insert_action_=insert; edit_action_=edit; projected_action_=projected; remove_action_=remove;
     }
+    void set_dimension_properties_callback(std::function<void(const std::string&,const std::string&)> callback){dimension_properties_=std::move(callback);}
     void start_linear_dimension() { dimension_mode_ = true; first_edge_.reset(); update(); }
     void fit_sheet() { view_zoom_=1;view_pan_={};update(); }
     QRectF sheet_rectangle()const {
@@ -753,6 +756,15 @@ protected:
         offer_annotations(event->pos());
         if(!offered_annotations_.empty()&&(!selected_annotation_||*selected_annotation_!=offered_annotations_[offered_annotation_index_].key)){
             offered_annotation_index_=(offered_annotation_index_+1)%offered_annotations_.size();hovered_annotation_=offered_annotations_[offered_annotation_index_].key;update();event->accept();return;
+        }
+        if(selected_annotation_&&selected_annotation_->kind==AnnotationKind::Model&&!offered_annotations_.empty()&&dimension_properties_) {
+            const auto key=*selected_annotation_;
+            const auto view=std::ranges::find(sheet_->views,key.view,&drawing::DrawingView::id);
+            if(view!=sheet_->views.end()&&std::ranges::any_of(view->model_annotations,[&](const auto& a){return a.kind==drawing::ModelAnnotationKind::Dimension&&model_annotation_key(a.source)==key.id;})) {
+                auto* menu=new QMenu(this);menu->setAttribute(Qt::WA_DeleteOnClose);
+                auto* properties=menu->addAction(tr("Zobrazení kóty…"));properties->setObjectName("dimensionLayoutPropertiesAction");
+                connect(properties,&QAction::triggered,this,[this,key]{dimension_properties_(key.view,key.id);});menu->popup(event->globalPos());event->accept();return;
+            }
         }
         if(selected_annotation_&&selected_annotation_->kind==AnnotationKind::Dimension&&!offered_annotations_.empty()){
             auto* menu=new QMenu(this);menu->setAttribute(Qt::WA_DeleteOnClose);const auto id=selected_dimension_id_;
@@ -952,10 +964,20 @@ public:
             const auto screen=[&](QPointF p){return QPointF(origin.x()+(sheet_->width_mm()-view->x+p.x())*zoom,origin.y()+(sheet_->height_mm()-view->y-p.y())*zoom);};
             const auto b=view_bounds_at(*view,zoom,origin);const auto o=screen({});
             const QRectF paper_bounds((b.left()-o.x())/zoom,(o.y()-b.bottom())/zoom,b.width()/zoom,b.height()/zoom);
-            if(!printing&&view->show_dimension_guides){painter.save();painter.setPen(QPen(QColor("#666666"),1,Qt::DashLine));for(int i=0;i<4;++i){double d=view->dimension_guide_offset+i*view->dimension_guide_spacing;auto box=paper_bounds.adjusted(-d,-d,d,d);painter.drawRect(QRectF(screen({box.left(),box.bottom()}),screen({box.right(),box.top()})));}painter.restore();}
+            if(!printing&&view->show_dimension_guides){
+                painter.save();painter.setPen(QPen(QColor("#666666"),1,Qt::DashLine));
+                std::set<std::pair<std::string,std::string>> drawn;
+                for(const auto& item:view->model_annotations)if(item.visible&&item.model_envelope.valid&&drawn.emplace(item.source.owner_id,item.source.instance_path).second){
+                    for(int level=-1;level<4;++level){auto frame=item.model_envelope;const double offset=level<0?0:(view->dimension_guide_offset+level*view->dimension_guide_spacing)/view->scale;
+                        frame.minimum=kernel::dimension_sub(frame.minimum,{offset,offset,offset});frame.maximum=kernel::dimension_add(frame.maximum,{offset,offset,offset});
+                        const auto corners=frame.corners();const auto projected=[&](auto p){return screen({kernel::dimension_dot(p,view->camera.horizontal)*view->scale,kernel::dimension_dot(p,view->camera.vertical)*view->scale});};
+                        for(unsigned i=0;i<8;++i)for(unsigned bit:{1u,2u,4u})if(!(i&bit))painter.drawLine(projected(corners[i]),projected(corners[i|bit]));
+                    }
+                }painter.restore();
+            }
             for(const auto& item:view->model_annotations){
                 const auto id=model_annotation_key(item.source);const bool offered=!printing&&model_pick_&&preview_&&view->id==preview_->id&&model_offered_.contains(id);
-                if((!item.visible&&!offered)||!drawing::model_annotation_faces_view(*view,item))continue;
+                if(!item.visible&&!offered)continue;
                 const auto layout=model_annotation_layout(*view,item,paper_bounds.adjusted(-5,-5,5,5));
                 const AnnotationKey key{AnnotationKind::Model,view->id,id,0};
                 QColor color=annotation_color(key,printing?ink:item.unresolved?QColor("#E05050"):!item.visible?QColor("#777777"):item.kind==drawing::ModelAnnotationKind::Dimension?QColor("#FFD400"):QColor("#E6C85C"),printing);
@@ -1064,7 +1086,7 @@ public:
         }
         if(!printing&&!preview_&&!dimension_mode_)for(const auto& handle:annotation_handles_){
             const bool selected=selected_annotation_&&*selected_annotation_==handle.key,hovered=hovered_annotation_&&*hovered_annotation_==handle.key;
-            const bool movable=handle.key.kind==AnnotationKind::Caption||handle.key.kind==AnnotationKind::SectionLabel||handle.key.kind==AnnotationKind::Dimension||
+            const bool movable=handle.key.kind==AnnotationKind::Caption||handle.key.kind==AnnotationKind::SectionLabel||handle.key.kind==AnnotationKind::SectionEnd||handle.key.kind==AnnotationKind::Dimension||
                 (handle.key.kind==AnnotationKind::Model&&std::ranges::any_of(sheet_->views,[&](const auto& view){return view.id==handle.key.view&&std::ranges::any_of(view.model_annotations,[&](const auto& item){return item.kind==drawing::ModelAnnotationKind::Dimension&&model_annotation_key(item.source)==handle.key.id;});}));
             if(movable&&(selected||hovered))draw_handle(handle.point,selected);
         }
@@ -1121,7 +1143,7 @@ protected:
                     }else if(candidate.key.kind==AnnotationKind::Dimension){
                         for(const auto& dimension:sheet_->dimensions)if(dimension.id==candidate.key.id){dragged_dimension_id_=dimension.id;dimension_drag_start_=event->position();dimension_label_start_=dimension.label_position;}
                     }else if(candidate.key.kind==AnnotationKind::Model){
-                        for(const auto& view:sheet_->views)if(view.id==candidate.key.view)for(const auto& item:view.model_annotations)if(model_annotation_key(item.source)==candidate.key.id&&item.kind==drawing::ModelAnnotationKind::Dimension){dragged_model_=candidate;model_drag_start_=event->position();model_moved_=false;}
+                        for(const auto& view:sheet_->views)if(view.id==candidate.key.view)for(const auto& item:view.model_annotations)if(model_annotation_key(item.source)==candidate.key.id&&item.kind==drawing::ModelAnnotationKind::Dimension){model_drag_original_=item;dragged_model_=candidate;model_drag_start_=event->position();model_moved_=false;model_drag_layout_initial_=item.view_layout.value_or(item.model_layout);model_drag_shown_=item.model_dimension?std::optional(kernel::layout_dimension(*item.model_dimension,item.model_envelope,model_drag_layout_initial_)):std::nullopt;}
                     }else{dragged_section_end_=candidate;section_end_drag_start_=event->position();section_end_moved_=false;}
                 }
                 if(selection_changed_)selection_changed_();update();event->accept();return;
@@ -1245,8 +1267,30 @@ protected:
             const auto delta=event->position()-model_drag_start_;if(!model_moved_&&delta.manhattanLength()<QApplication::startDragDistance())return;
             for(auto& view:sheet_->views)if(view.id==dragged_model_->key.view)for(auto& item:view.model_annotations)if(model_annotation_key(item.source)==dragged_model_->key.id){
                 const auto origin=view_screen_point(view,{});const auto point=dragged_model_->point+delta;drawing::Point2 p{(point.x()-origin.x())/zoom,(origin.y()-point.y())/zoom};
+                item.handle_camera_horizontal={view.camera.horizontal.x,view.camera.horizontal.y,view.camera.horizontal.z};
+                item.handle_camera_vertical={view.camera.vertical.x,view.camera.vertical.y,view.camera.vertical.z};
                 const auto key=dragged_model_->key.end==0?"text":dragged_model_->key.end==1?"arrow_first":"arrow_second";
-                if(view.show_dimension_guides){const auto bounds=view_bounds_at(view,zoom,canvas_origin(zoom));double best_x=5/zoom,best_y=5/zoom;const auto near=[&](double value,double& coordinate,double& best){const auto distance=std::abs(value-coordinate);if(distance<best){best=distance;coordinate=value;}};
+                const auto projected=drawing::project_model_annotation(view,item);
+                const bool guide_parallel=[&]{
+                    if(!model_drag_shown_||!item.model_envelope.valid||projected.dimension_kind!=kernel::ViewerDimensionKind::Linear)return false;
+                    const auto& shown=*model_drag_shown_;const auto along=kernel::dimension_unit(kernel::dimension_sub(shown.witness_second,shown.witness_first));const auto side=kernel::dimension_unit(kernel::dimension_cross(shown.plane_normal,along));
+                    const auto aligned=[&](auto v){return std::ranges::any_of(item.model_envelope.axes,[&](auto axis){return std::abs(kernel::dimension_dot(v,axis))>1-1e-6;});};return aligned(along)&&aligned(side);
+                }();
+                if(item.model_dimension&&model_drag_shown_) {
+                    const auto& shown=*model_drag_shown_;const bool angular=shown.kind==kernel::ViewerDimensionKind::Angular;
+                    const auto u=kernel::dimension_unit(kernel::dimension_sub(angular?shown.line_first:shown.witness_second,shown.witness_first));
+                    const auto v=kernel::dimension_unit(kernel::dimension_cross(shown.plane_normal,u));
+                    const QPointF a(kernel::dimension_dot(u,view.camera.horizontal),kernel::dimension_dot(u,view.camera.vertical)),b(kernel::dimension_dot(v,view.camera.horizontal),kernel::dimension_dot(v,view.camera.vertical));
+                    const QPointF move(delta.x()/(zoom*view.scale),-delta.y()/(zoom*view.scale));const double det=a.x()*b.y()-a.y()*b.x();
+                    if(std::abs(det)>1e-9){const double along=(move.x()*b.y()-move.y()*b.x())/det,outward=(a.x()*move.y()-a.y()*move.x())/det;
+                        item.view_layout=kernel::dragged_dimension_layout(shown,item.model_envelope,model_drag_layout_initial_,dragged_model_->key.end,along,outward);if(view.show_dimension_guides&&guide_parallel&&dragged_model_->key.end!=0&&item.view_layout->envelope_offset){
+                            const double paper=*item.view_layout->envelope_offset*view.scale;
+                            const double snapped=view.dimension_guide_offset+std::max(0.,std::round((paper-view.dimension_guide_offset)/view.dimension_guide_spacing))*view.dimension_guide_spacing;
+                            if(std::abs(snapped-paper)*zoom<5)item.view_layout->envelope_offset=snapped/view.scale;
+                        }item.paper_handles.clear();model_moved_=true;}
+                    continue;
+                }
+                if(view.show_dimension_guides&&guide_parallel){const auto bounds=view_bounds_at(view,zoom,canvas_origin(zoom));double best_x=5/zoom,best_y=5/zoom;const auto near=[&](double value,double& coordinate,double& best){const auto distance=std::abs(value-coordinate);if(distance<best){best=distance;coordinate=value;}};
                     for(int i=0;i<4;++i){const auto offset=view.dimension_guide_offset+i*view.dimension_guide_spacing;near((bounds.left()-origin.x())/zoom-offset,p.x,best_x);near((bounds.right()-origin.x())/zoom+offset,p.x,best_x);near((origin.y()-bounds.top())/zoom+offset,p.y,best_y);near((origin.y()-bounds.bottom())/zoom-offset,p.y,best_y);}}
                 if(dragged_model_->key.end!=0&&item.dimension_kind==kernel::ViewerDimensionKind::Linear&&item.curves.size()>=3&&item.curves[1].size()>=2){auto a=item.curves[1].front(),b=item.curves[1].back();a={a.x*view.scale,a.y*view.scale};b={b.x*view.scale,b.y*view.scale};const auto length=std::hypot(b.x-a.x,b.y-a.y);if(length>1e-9){const double nx=-(b.y-a.y)/length,ny=(b.x-a.x)/length,offset=(p.x-a.x)*nx+(p.y-a.y)*ny;item.paper_handles["arrow_first"]={a.x+nx*offset,a.y+ny*offset};item.paper_handles["arrow_second"]={b.x+nx*offset,b.y+ny*offset};}}
                 else {if(item.dimension_kind==kernel::ViewerDimensionKind::Angular&&dragged_model_->key.end!=0)item.paper_handles.erase(dragged_model_->key.end==1?"arrow_second":"arrow_first");item.paper_handles[key]=p;}model_moved_=true;
@@ -1329,6 +1373,7 @@ protected:
     }
     void keyPressEvent(QKeyEvent* event) override {
         if(event->key()==Qt::Key_Escape) {
+            if(dragged_model_&&model_drag_original_&&sheet_){for(auto& view:sheet_->views)if(view.id==dragged_model_->key.view)for(auto& item:view.model_annotations)if(model_annotation_key(item.source)==dragged_model_->key.id)item=*model_drag_original_;dragged_model_.reset();model_drag_original_.reset();model_moved_=false;update();event->accept();return;}
             if (choose_view_) {choose_view_={};update();event->accept();return;}
             if (placed_) { cancel_placement(); event->accept(); return; }
             if(dimension_mode_ && first_edge_) first_edge_.reset();
@@ -1387,6 +1432,9 @@ private:
     std::string drag_view_id_;
     QPointF drag_start_;
     zima::drawing::Point2 drag_origin_;
+    kernel::DimensionLayout model_drag_layout_initial_;
+    std::optional<kernel::ViewerDimension> model_drag_shown_;
+    std::function<void(const std::string&,const std::string&)> dimension_properties_;
     std::function<void()> changed_;
     std::function<void()> selection_changed_;
     std::string selected_dimension_id_;
@@ -1501,6 +1549,7 @@ void DrawingWindow::create_layout() {
     sheets_->setExpanding(false);
     canvas_ = new DrawingCanvas(central); canvas_->setObjectName("drawingCanvas");
     state_ = new QLabel(central); state_->setObjectName("drawingState");
+    canvas_->set_dimension_properties_callback([this](const auto& view,const auto& key){edit_model_dimension(view,key);});
     canvas_->set_changed_callback([this] {
         sync_workspace_document();
         update_action_states();
@@ -2155,6 +2204,24 @@ void DrawingWindow::create_projected_view() {
 }
 QImage DrawingWindow::render_sheet_for_test(bool printing)const{QImage image(840,1188,QImage::Format_ARGB32_Premultiplied);image.fill(printing?Qt::white:Qt::black);QPainter painter(&image);canvas_->paint_sheet(painter,2,{},printing);return image;}
 std::optional<QPointF> DrawingWindow::model_annotation_handle_for_test(const drawing::ModelAnnotationReference& id,int end,const std::string& view)const{return canvas_->model_handle(model_annotation_key(id),end,view);}
+void DrawingWindow::edit_model_dimension(const std::string& view_id,const std::string& key) {
+    if(view_dialog_)return;
+    const auto* view=document_.find_view(view_id);if(!view)return;
+    const auto item=std::ranges::find_if(view->model_annotations,[&](const auto& a){return model_annotation_key(a.source)==key;});
+    if(item==view->model_annotations.end()||!item->model_dimension)return;
+    auto* owner=qobject_cast<QMainWindow*>(window());
+    auto* dialog=new DimensionLayoutDialog(*item->model_dimension,item->view_layout.value_or(item->model_layout),[this,view_id,key](auto layout){
+        auto* view=document_.find_view(view_id);if(!view)throw std::runtime_error("Drawing view no longer exists");
+        auto item=std::ranges::find_if(view->model_annotations,[&](const auto& a){return model_annotation_key(a.source)==key;});
+        if(item==view->model_annotations.end())throw std::runtime_error("Dimension no longer exists");
+        item->view_layout=layout;item->paper_handles.clear();*item=drawing::project_model_annotation(*view,std::move(*item));
+        sync_workspace_document();canvas_->update();
+    },owner?owner:this);
+    view_dialog_=dialog;dialog->setAttribute(Qt::WA_DeleteOnClose);
+    connect(dialog,&QDialog::finished,this,[this]{view_dialog_=nullptr;update_action_states();});
+    if(properties_handler_)properties_handler_(dialog);dialog->show();update_action_states();
+}
+
 void DrawingWindow::show_erase(){
     if(view_dialog_){view_dialog_->raise();return;}if(raise_open_properties(window()))return;
     const auto* view=document_.find_view(canvas_->selected_view_id());

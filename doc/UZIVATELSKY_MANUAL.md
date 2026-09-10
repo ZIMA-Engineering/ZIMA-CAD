@@ -1250,14 +1250,20 @@ vybraný pohled; Zrušit obnoví původní zobrazení. Nové zdrojové položky 
 **Regenerovat**. Kótu pak můžete přesouvat za text nebo úchyt u šipky.
 
 Ve vlastnostech pohledu zapněte **Pracovní vodítka kót**: první odstup i rozteč
-jsou standardně **8 mm**. Vodítka využívají obdélníkovou oblast View, pomáhají
-přichytávat kóty a nevstupují do PDF. Podrobnosti: [Show/Erase](DRAWING_SHOW_ERASE.md).
+jsou standardně **8 mm**. Vodítka vycházejí z orientovaného kvádru objektu, pomáhají
+přichytávat rovnoběžné kóty a nevstupují do PDF. Podrobnosti: [Show/Erase](DRAWING_SHOW_ERASE.md).
 
 ### Orientace původních kót v Show/Erase
 
-Show/Erase nabízí jen kóty kolmé ke směru pohledu, tedy čelně viditelné.
-Kóty z boku nebo šikmo se nezobrazují ani netisknou. Výběr platí pouze pro
-právě upravovaný pohled; kliknutí na kótu v jiném pohledu ho nezmění.
+Parametrické kóty lze zobrazit i v šikmém nebo bočním pohledu. Jejich poloha
+se promítá z 3D, číselná hodnota zůstává navázaná na model.
+Pravým tlačítkem nad vybranou kótou otevřete **Zobrazení kóty…** a upravte
+rovinu, odsazení od kvádru nebo polohu textu. U úhlové kóty je rovina daná
+měřenými rameny. Výkres ukládá úpravu pouze do tohoto pohledu; model ani
+jiný pohled nezmění. Stejné vlastnosti jsou dostupné v Partu a Assembly.
+Zde lze pracovní kvádr zapnout přes **Zobrazení → Prostorový rám kót**
+a polohu kóty měnit fialovými úchopy. Esc zruší rozpracované tažení ve 3D.
+Výběr Show/Erase platí pouze pro právě upravovaný pohled.
 
 
 ### Změna dílu v sestavě, kamera a kóty

@@ -1,4 +1,5 @@
 #pragma once
+#include <zima/kernel/dimension_layout.hpp>
 #include <zima/kernel/appearance.hpp>
 
 #include <zima/kernel/geometry_kernel.hpp>
@@ -83,6 +84,15 @@ public:
     explicit MeshView(QWidget* parent = nullptr);
     ~MeshView() override;
     void set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view = true);
+    void set_dimension_layout_resolver(std::function<std::optional<kernel::DimensionLayout>(const kernel::EdgeReference&)>);
+    void set_dimension_layout_commit(std::function<void(const kernel::EdgeReference&,kernel::DimensionLayout)>);
+    std::optional<kernel::ViewerDimension> dimension_source(const ViewerCandidate&)const;
+    kernel::ModelEnvelope dimension_envelope()const;
+    void set_dimension_frame_visible(bool);
+    void set_dimension_layout_editable(bool);
+    std::optional<QPointF> dimension_handle_position(const ViewerCandidate&,int)const;
+    void set_object_frame_provider(std::function<std::map<kernel::ObjectEnvelopeKey,kernel::ModelEnvelope>(const kernel::ViewerMesh&)>);
+
     [[nodiscard]] const zima::kernel::ViewerMesh& mesh() const;
     void set_dimension_decimal_places(int decimal_places);
     [[nodiscard]] int dimension_decimal_places() const;

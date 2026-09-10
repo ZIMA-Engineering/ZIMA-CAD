@@ -2934,17 +2934,23 @@ int verify_assembly_refresh_view(QApplication& application,const std::filesystem
     const auto save_jpg=[&](const char* stem) {
         const auto path=directory/(std::string(stem)+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())+".jpg");
         bool jpeg_offered=false;
-        QTimer::singleShot(50,[&] {
-            if(auto* dialog=qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) {
+        QTimer accept_dialog;
+        accept_dialog.setInterval(20);
+        QObject::connect(&accept_dialog,&QTimer::timeout,[&] {
+            if(auto* dialog=qobject_cast<QFileDialog*>(QApplication::activeModalWidget());dialog&&dialog->isVisible()) {
+                accept_dialog.stop();
                 for(const auto& filter:dialog->nameFilters())if(filter.contains("*.jpg")){jpeg_offered=true;dialog->selectNameFilter(filter);break;}
                 dialog->selectFile(QString::fromStdString(path.string()));
                 QMetaObject::invokeMethod(dialog,"accept",Qt::DirectConnection);
             }
         });
+        accept_dialog.start();
         const auto previous_camera=view->camera_state();
         window.findChild<QAction*>("saveDocumentAsAction")->trigger();application.processEvents();
         const QImage image(QString::fromStdString(path.string()));
-        return jpeg_offered&&!image.isNull()&&image.size()==view->grabFramebuffer().size()&&view->camera_state()==previous_camera;
+        const auto actual_size=view->grabFramebuffer().size();const bool camera_unchanged=view->camera_state()==previous_camera;
+        if(!jpeg_offered||image.isNull()||image.size()!=actual_size||!camera_unchanged)std::cerr<<"JPG diagnostic "<<stem<<": offered="<<jpeg_offered<<" image="<<image.width()<<"x"<<image.height()<<" viewport="<<actual_size.width()<<"x"<<actual_size.height()<<" camera="<<camera_unchanged<<std::endl;
+        return jpeg_offered&&!image.isNull()&&image.size()==actual_size&&camera_unchanged;
     };
     if(!verify(save_jpg("assembly-view-"),"Assembly Save As JPG failed or changed the camera"))return 1;
     if(!verify(window.open_document_path(QString::fromStdString(part_path.string())),"Cannot open Part for JPG export"))return 1;

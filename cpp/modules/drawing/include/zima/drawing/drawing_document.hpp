@@ -1,4 +1,5 @@
 #pragma once
+#include <zima/kernel/dimension_layout.hpp>
 #include <zima/document/section.hpp>
 #include <zima/document/document_copy.hpp>
 
@@ -58,6 +59,11 @@ struct ModelAnnotation {
     // User placements in paper mm relative to the view origin. Semantic keys
     // include text, arrow_first and arrow_second; never indexed topology.
     std::map<std::string, Point2> paper_handles;
+    std::optional<kernel::ViewerDimension> model_dimension;
+    kernel::ModelEnvelope model_envelope;
+    kernel::DimensionLayout model_layout;
+    std::optional<kernel::DimensionLayout> view_layout;
+    std::array<double,3> handle_camera_horizontal{1,0,0},handle_camera_vertical{0,1,0};
     bool operator==(const ModelAnnotation&) const = default;
 };
 

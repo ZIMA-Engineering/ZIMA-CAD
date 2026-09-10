@@ -2,7 +2,7 @@
 #include <QPointF>
 #include <QRectF>
 #include <cmath>
-#include <zima/drawing/drawing_document.hpp>
+#include <zima/drawing/model_annotations.hpp>
 namespace zima::app {
 inline std::string
 model_annotation_key(const drawing::ModelAnnotationReference &r) {
@@ -21,7 +21,15 @@ struct ModelAnnotationLayout {
 };
 inline ModelAnnotationLayout
 model_annotation_layout(const drawing::DrawingView &view,
-                        const drawing::ModelAnnotation &item, QRectF bounds) {
+                        const drawing::ModelAnnotation &source, QRectF bounds) {
+  auto item=drawing::project_model_annotation(view,source);
+  const auto h=view.camera.horizontal,v=view.camera.vertical;
+  const bool same_camera=std::hypot(h.x-item.handle_camera_horizontal[0],h.y-item.handle_camera_horizontal[1],h.z-item.handle_camera_horizontal[2])<1e-6 && std::hypot(v.x-item.handle_camera_vertical[0],v.y-item.handle_camera_vertical[1],v.z-item.handle_camera_vertical[2])<1e-6;
+  if(!same_camera)item.paper_handles.clear();
+  if(view.show_dimension_guides&&item.dimension_kind==kernel::ViewerDimensionKind::Linear&&item.curves.size()>1&&item.curves[1].size()>1) {
+    const auto a=item.curves[1].front(),b=item.curves[1].back();
+    if(std::abs(a.x-b.x)>1e-6&&std::abs(a.y-b.y)>1e-6)item.paper_handles.clear();
+  }
   ModelAnnotationLayout out;
   for (const auto &curve : item.curves) {
     std::vector<QPointF> points;
@@ -55,6 +63,12 @@ model_annotation_layout(const drawing::DrawingView &view,
   if (item.kind != drawing::ModelAnnotationKind::Dimension)
     return out;
   out.handles["text"] = out.text;
+  if((item.dimension_kind==kernel::ViewerDimensionKind::Radius||item.dimension_kind==kernel::ViewerDimensionKind::Diameter)&&out.curves.size()>=3&&out.curves[0].size()>1&&out.curves[1].size()>1){
+    const auto first=out.curves[0].front(),last=out.curves[0].back(),delta=last-first;const double length=std::hypot(delta.x(),delta.y());
+    if(length>1e-9){out.arrows.push_back({last,delta/length});if(item.dimension_kind==kernel::ViewerDimensionKind::Diameter)out.arrows.push_back({first,-delta/length});}
+    out.handles["arrow_first"]=out.curves[1].back();out.curves[2].back()=out.text;return out;
+  }
+
   const bool angular =
       item.dimension_kind == kernel::ViewerDimensionKind::Angular;
   const std::size_t line = angular ? 0 : 1;

@@ -30,7 +30,8 @@ přesunutí zvlášť pro každý pohled. Kopie souřadnic bez zdrojové identit
 náhradou vazby na model. Regenerate aktualizuje odkazy z aktuálních otevřených
 zdrojů; samotné přepnutí karty nespouští přepočet rodiče.
 
-Polohy textů a přestavení kót se ukládají v milimetrech na papíře vůči pohledu.
+Prezentace parametrických kót se ukládá v jejich prostorové bázi v modelových
+milimetrech; výkresové přestavení je nezávislé nastavení konkrétního pohledu.
 Změna umístění nemění hodnotu kóty ani vazby zdrojové skici. Zmizelý zdrojový
 objekt se označí jako nevyřešený; jiná geometrie ho nesmí tiše zastoupit.
 
@@ -42,7 +43,7 @@ tvar. Přepnutí na konstrukční geometrii zachovává identitu, body, kóty a 
 čerchované zobrazení a vyloučení z profilu tělesa nemění definici křivky.
 Nekonečná osa/přímka zůstává samostatným druhem reference, ne vlastností
 všech konstrukčních úseček. Show/Erase má nabídnout konečnou konstrukční
-geometrii i osy; nekonečnou referenci při zobrazení ořízne na oblast pohledu.
+geometrii i osy; válcové osy zobrazí podle uloženého rozsahu válce.
 
 ## Manipulační body a vodítka
 
@@ -51,8 +52,8 @@ Po potvrzení lze přesouvat text a ovládat kótu za body ve styku šipek
 s vynášecími čarami. Polohy jednotlivých bodů mají být zachovány po otevření,
 změně měřítka a regeneraci. Samotný pohled si ponechá obdélníkovou oblast.
 
-Ve vlastnostech pohledu budou pracovní vodítka pro kóty: zapnutí/vypnutí,
-odstup první čáry od obrysu a rozteč dalších čar v mm. Vodítka budou šedá a
+Ve vlastnostech pohledu jsou pracovní vodítka pro kóty: zapnutí/vypnutí,
+odstup první čáry od obálky a rozteč dalších čar v mm. Vodítka jsou šedá a
 čárkovaná jako nenápadné skryté hrany. Nejsou výkresovou geometrií a nepatří
 do tisku/PDF. Dohodnutý výchozí odstup první čáry i rozteč dalších čar jsou 8 mm.
 
@@ -69,7 +70,8 @@ změny zdroje při explicitní regeneraci a absenci pracovních vodítek v PDF.
 
 `ModelAnnotation` ukládá zdrojový dokument, vlastníka, sémantické ID a přesný
 výskyt. Každý `DrawingView` má samostatný seznam v `.drwz`. Projektovaná geometrie
-je v jednotkách modelu; ruční polohy textu a šipek jsou oddělené v papírových mm.
+je v jednotkách modelu. Parametrická kóta navíc ukládá původní prostorovou
+geometrii, rám, prezentaci modelu a volitelné místní přestavení pohledu.
 
 `refresh_model_annotations` přijímá výslovně dodané ZIMA pakety kót, os a pomocných
 křivek. Zachová viditelnost a polohy podle identity, chybějící položky označí jako
@@ -105,10 +107,12 @@ společný s hoverem a RMB cyklováním. Prázdné kliknutí ruší potvrzený v
    Lineární kóta při změně odstupu zachová směr; úhlová mění poloměr oblouku.
    Hodnota a vazby zdrojové skici se nemění.
 
-Ve vlastnostech pohledu zapněte **Pracovní vodítka kót**. Pomocné čáry využívají
-obdélníkovou oblast View a zobrazí čtyři odstupy. Výchozí první odstup i rozteč
-jsou **8 mm**, tedy čáry 8, 16, 24 a 32 mm od obrysu. Text a úchyty se při tažení
-přichytávají k blízkým vodítkům. Pomocné čáry se nekreslí do tisku ani PDF.
+Ve vlastnostech pohledu zapněte **Pracovní vodítka kót**. Promítají se z
+orientovaného kvádru vlastníka kóty. Geometrická obálka a pracovní odsazení
+jsou oddělené; posunutí kóty tedy nezvětšuje model. První odstup i rozteč jsou
+**8 mm na papíře**. Kóta rovnoběžná s papírovými vodítky se při tažení odstupu
+přichytává k blízké úrovni. U šikmé projekce se používá prostorová poloha kóty.
+Pracovní rámy nevstupují do tisku, PDF ani DXF.
 
 Osa při pohledu ve svém směru vytvoří křížek o rozpětí 6 mm s bodem ve středu.
 Každá díra má vlastní značku. Z boku se zachová uložená délka válce s přesahem
@@ -126,13 +130,20 @@ vykreslení při přepnutí vodítek. Sdílenou kreslicí cestu používá také
 
 ## Orientace kót a izolace pohledu
 
-Show/Erase nabízí a vykresluje pouze kóty, jejichž rovina je kolmá ke směru
-pohledu (rovnoběžná s papírem). Platí to z obou stran roviny; šikmé kóty ani
-kóty viděné z boku se nenabízejí a netisknou. Rozhoduje uložená normála kóty
-po transformaci přes přesný výskyt sestavy, včetně Mirror/Pattern. Tolerance
-1e-6 pro sinus odchylky zachycuje pouze numerické chyby transformací.
-Normála se ukládá do `.drwz`; filtr pracuje bez OCCT. Změna orientace nemaže
-uloženou viditelnost ani polohy textu a úchytů.
+Parametrické kóty zůstávají dostupné také v šikmém nebo bočním pohledu.
+Promítají se jejich prostorové měřicí body, ramena a uložená poloha textu;
+číselná hodnota se nepřepočítává z délky na papíře. Při změně kamery se
+projekce obnoví. Původní papírové úchyty z jiné orientace se nepoužijí.
+
+Po výběru kóty otevřete pravým tlačítkem **Zobrazení kóty…**. Lze změnit
+rovinu kolem směru měření, stranu obálky, odsazení a posunutí textu.
+U úhlové kóty určují rovinu obě měřená ramena; volba roviny je proto vypnutá.
+Úhlová kóta zůstává u své měřicí osy/čepu a mění se poloměr oblouku.
+
+Výchozí prezentace pochází z Partu nebo Assembly. Výkres si změnu ukládá
+jako vlastní nastavení tohoto pohledu. Nemění zdrojový dokument ani jiný
+pohled. Regenerace převezme novou hodnotu a geometrii a ponechá místní
+nastavení prezentace. Vlastnosti používají společné vnitřní okno OK/Zrušit.
 
 Během příkazu se kandidáti omezují na upravovaný výkresový pohled. Kliknutí
 na tutéž zdrojovou kótu v jiném pohledu ji do výběru nepřidá. Regresní testy
@@ -175,3 +186,32 @@ v Partu, Assembly i výkresu. Zachová výřez, natočení, zoom a aktuální zo
 včetně viditelného výběru. Rozlišení odpovídá framebufferu/plátnu; okolní panely
 aplikace se neukládají. Výkresový JPG zachovává pracovní vzhled obrazovky,
 zatímco DXF/PDF používá tiskové vykreslení. JPEG kvalita je 95.
+
+## Sdílený prostorový rám (2026-09-10)
+
+`ModelEnvelope` nese lokální počátek, tři osy a geometrické meze v této bázi.
+Orientace pochází z vyřešeného uložení objektu; nezávisí na kameře.
+Rámy se získávají z uloženého viewer/reference paketu, bez průchodu OCCT.
+Platí pro historii prvků, konstrukční objekty, skici a tělesa. Skica může mít
+nulovou tloušťku, bod nulový rozměr a osa pouze délku; rám nevyžaduje objem.
+Bez vypočtené geometrie existuje lokální báze, nikoli vymyšlené rozměry.
+
+Vypočtené snapshoty komponent uchovávají rámy a sestava transformuje jejich
+počátky a směry po přesných cestách výskytů. Rámy kopií se transformují spolu
+s Mirror/Pattern. Toto je datový základ pro hierarchii velkých sestav;
+nový prostorový index ani optimalizace vykreslování zde zavedeny nejsou.
+
+V Partu a Assembly zapíná **Zobrazení → Prostorový rám kót** pracovní kvádr
+vybraného objektu. Parametrické kóty se standardně odsazují o 8 modelových mm.
+Jejich kontextová nabídka obsahuje **Zobrazení kóty…**. Fialový úchop textu
+mění jeho polohu, úchopy lineární kóty její odstup a úhlové kóty poloměr.
+Tažení zapisuje prezentaci při puštění tlačítka; Esc jej zruší. Měřicí reference,
+hodnota, vazby a geometrie modelu se nemění.
+
+Fialové úchopy ve výkresech patří přesouvatelným anotacím, včetně konců
+šipek řezu. Geometrie pevně svázaná s pohledem vlastní manipulační bod nedostává.
+
+Cílený test `zima_cpp_dimension_layout_contract_tests` kontroluje lokální
+rozměry otočeného kvádru, opakované výskyty, zrcadlení, oddělení měření od
+prezentace, uložení Part/Assembly a nezávislé nastavení výkresových pohledů.
+Dále ověřuje skutečné události tažení ve 3D, zrušení a společné vlastnosti.

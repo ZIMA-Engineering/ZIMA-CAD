@@ -1,3 +1,4 @@
+#include <zima/document/dimension_layout_json.hpp>
 #include <algorithm>
 #include <cmath>
 #include <iomanip>
@@ -53,59 +54,10 @@ void validate(const std::vector<ModelAnnotation> &items) {
   }
 }
 } // namespace
-bool model_annotation_faces_view(const DrawingView &view,
-                                 const ModelAnnotation &item) {
-  if (item.kind != ModelAnnotationKind::Dimension)
-    return true;
-  const auto &n = item.plane_normal;
-  const auto &d = view.camera.depth;
-  const double nl = std::hypot(n[0], n[1], n[2]);
-  const double dl = std::hypot(d.x, d.y, d.z);
-  if (!std::isfinite(nl) || !std::isfinite(dl) || nl <= 1e-12 || dl <= 1e-12)
-    return false;
-  // Both viewing sides are valid; tolerance only absorbs rotation roundoff.
-  return std::hypot(n[1] / nl * d.z / dl - n[2] / nl * d.y / dl,
-                    n[2] / nl * d.x / dl - n[0] / nl * d.z / dl,
-                    n[0] / nl * d.y / dl - n[1] / nl * d.x / dl) <= 1e-6;
-}
-void refresh_model_annotations(DrawingView &view,
-                               std::span<const ModelAnnotationSource> sources) {
-  auto next = view.model_annotations;
-  for (auto &item : next)
-    item.unresolved = true;
-  std::set<ModelAnnotationReference> incoming;
-  const auto project = [&](kernel::Vec3 p) {
-    return Point2{dot(p, view.camera.horizontal), dot(p, view.camera.vertical)};
-  };
-  const auto add = [&](ModelAnnotation item) {
-    if (!incoming.insert(item.source).second)
-      throw std::invalid_argument(
-          "Ambiguous model annotation source: " + item.source.document_id +
-          "/" + item.source.instance_path + "/" + item.source.owner_id + "/" +
-          item.source.semantic_id);
-    const auto old = std::find_if(next.begin(), next.end(), [&](const auto &x) {
-      return x.source == item.source;
-    });
-    if (old != next.end()) {
-      if (old->kind != item.kind)
-        throw std::invalid_argument("Annotation source changed kind");
-      item.visible = old->visible;
-      item.paper_handles = old->paper_handles;
-      *old = std::move(item);
-    } else
-      next.push_back(std::move(item));
-  };
-  for (const auto &source : sources) {
-    const auto identity = [&](const auto &r) {
-      if (!r.instance_path.empty() && r.instance_path != source.instance_path)
-        throw std::invalid_argument("Annotation occurrence ownership mismatch");
-      return ModelAnnotationReference{source.document_id, r.owner_id,
-                                      r.semantic_key, source.instance_path};
-    };
-    for (const auto &d : source.dimensions) {
-      ModelAnnotation item;
-      item.source = identity(d.reference);
-      item.kind = ModelAnnotationKind::Dimension;
+ModelAnnotation project_model_annotation(const DrawingView& view,ModelAnnotation item) {
+    if(!item.model_dimension)return item;
+    const auto d=kernel::layout_dimension(*item.model_dimension,item.model_envelope,item.view_layout.value_or(item.model_layout));
+    const auto project=[&](kernel::Vec3 p){return Point2{dot(p,view.camera.horizontal),dot(p,view.camera.vertical)};};
       item.value = d.value;
       item.plane_normal = {d.plane_normal.x, d.plane_normal.y,
                            d.plane_normal.z};
@@ -150,6 +102,54 @@ void refresh_model_annotations(DrawingView &view,
         item.curves = {{project(d.witness_first), project(d.line_first)},
                        {project(d.line_first), project(d.line_second)},
                        {project(d.line_second), project(d.witness_second)}};
+    return item;
+}
+void refresh_model_annotations(DrawingView &view,
+                               std::span<const ModelAnnotationSource> sources) {
+  auto next = view.model_annotations;
+  for (auto &item : next)
+    item.unresolved = true;
+  std::set<ModelAnnotationReference> incoming;
+  const auto project = [&](kernel::Vec3 p) {
+    return Point2{dot(p, view.camera.horizontal), dot(p, view.camera.vertical)};
+  };
+  const auto add = [&](ModelAnnotation item) {
+    if (!incoming.insert(item.source).second)
+      throw std::invalid_argument(
+          "Ambiguous model annotation source: " + item.source.document_id +
+          "/" + item.source.instance_path + "/" + item.source.owner_id + "/" +
+          item.source.semantic_id);
+    const auto old = std::find_if(next.begin(), next.end(), [&](const auto &x) {
+      return x.source == item.source;
+    });
+    if (old != next.end()) {
+      if (old->kind != item.kind)
+        throw std::invalid_argument("Annotation source changed kind");
+      item.visible = old->visible;
+      item.paper_handles = old->paper_handles;
+      item.view_layout=old->view_layout;
+      item.handle_camera_horizontal=old->handle_camera_horizontal;item.handle_camera_vertical=old->handle_camera_vertical;
+      item=project_model_annotation(view,std::move(item));
+      *old = std::move(item);
+    } else
+      next.push_back(std::move(item));
+  };
+  for (const auto &source : sources) {
+    const auto identity = [&](const auto &r) {
+      if (!r.instance_path.empty() && r.instance_path != source.instance_path)
+        throw std::invalid_argument("Annotation occurrence ownership mismatch");
+      return ModelAnnotationReference{source.document_id, r.owner_id,
+                                      r.semantic_key, source.instance_path};
+    };
+    for (const auto &d : source.dimensions) {
+      ModelAnnotation item;
+      item.source = identity(d.reference);
+      item.kind = ModelAnnotationKind::Dimension;
+      item.model_dimension=d;item.model_envelope=source.envelope;
+      if(auto frame=source.object_frames.find({d.reference.owner_id,d.reference.instance_path});frame!=source.object_frames.end()&&frame->second.valid)item.model_envelope=frame->second;
+      if(item.model_envelope.valid)item.model_layout.envelope_offset=8.0;
+      if(const auto* layout=kernel::find_dimension_layout(source.layouts,d.reference))item.model_layout=*layout;
+      item=project_model_annotation(view,std::move(item));
       add(std::move(item));
     }
     for (const auto &edge : source.construction) {
@@ -214,7 +214,12 @@ serialize_model_annotations(const std::vector<ModelAnnotation> &items) {
                       {"value", item.value},
                       {"visible", item.visible},
                       {"unresolved", item.unresolved},
-                      {"paper_handles", handles}});
+                      {"paper_handles", handles},
+                      {"model_dimension",item.model_dimension?document::dimension_geometry_json(*item.model_dimension):json(nullptr)},
+                      {"model_envelope",{{"minimum",document::dimension_vec_json(item.model_envelope.minimum)},{"maximum",document::dimension_vec_json(item.model_envelope.maximum)},{"valid",item.model_envelope.valid},{"origin",document::dimension_vec_json(item.model_envelope.origin)},{"axes",{document::dimension_vec_json(item.model_envelope.axes[0]),document::dimension_vec_json(item.model_envelope.axes[1]),document::dimension_vec_json(item.model_envelope.axes[2])}}}},
+                      {"model_layout",document::dimension_layout_json(item.model_layout)},
+                      {"view_layout",item.view_layout?document::dimension_layout_json(*item.view_layout):json(nullptr)},
+                      {"handle_camera_horizontal",item.handle_camera_horizontal},{"handle_camera_vertical",item.handle_camera_vertical}});
   }
   return result.dump();
 }
@@ -246,6 +251,12 @@ deserialize_model_annotations(const std::string &value) {
     item.unresolved = j.at("unresolved");
     for (const auto &[key, p] : j.at("paper_handles").items())
       item.paper_handles[key] = {p.at(0), p.at(1)};
+    if(j.contains("model_dimension")&&!j.at("model_dimension").is_null())item.model_dimension=document::dimension_geometry_from_json(j.at("model_dimension"));
+    if(j.contains("model_envelope")){const auto& b=j.at("model_envelope");item.model_envelope={document::dimension_vec_from_json(b.at("minimum")),document::dimension_vec_from_json(b.at("maximum")),b.at("valid")};if(b.contains("origin"))item.model_envelope.origin=document::dimension_vec_from_json(b.at("origin"));if(b.contains("axes"))for(int i=0;i<3;++i)item.model_envelope.axes[i]=document::dimension_vec_from_json(b.at("axes").at(i));}
+    if(j.contains("model_layout"))item.model_layout=document::dimension_layout_from_json(j.at("model_layout"));
+    if(j.contains("view_layout")&&!j.at("view_layout").is_null())item.view_layout=document::dimension_layout_from_json(j.at("view_layout"));
+    if(j.contains("handle_camera_horizontal"))item.handle_camera_horizontal=j.at("handle_camera_horizontal").get<std::array<double,3>>();
+    if(j.contains("handle_camera_vertical"))item.handle_camera_vertical=j.at("handle_camera_vertical").get<std::array<double,3>>();
     result.push_back(std::move(item));
   }
   validate(result);
@@ -254,16 +265,13 @@ deserialize_model_annotations(const std::string &value) {
 ShowEraseSession::ShowEraseSession(const DrawingView &view)
     : initial_(view.model_annotations) {
   validate(initial_);
-  for (const auto &item : initial_)
-    if (model_annotation_faces_view(view, item))
-      aligned_.insert(item.source);
 }
 std::vector<ModelAnnotationReference>
 ShowEraseSession::candidates(ShowEraseMode mode,
                              const std::set<ModelAnnotationKind> &kinds) const {
   std::vector<ModelAnnotationReference> result;
   for (const auto &item : initial_)
-    if (!item.unresolved && aligned_.contains(item.source) &&
+    if (!item.unresolved &&
         kinds.contains(item.kind) &&
         item.visible == (mode == ShowEraseMode::Erase))
       result.push_back(item.source);

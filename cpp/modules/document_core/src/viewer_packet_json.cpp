@@ -1,3 +1,4 @@
+#include <zima/document/dimension_layout_json.hpp>
 #include <zima/document/viewer_packet_json.hpp>
 
 #include <nlohmann/json.hpp>
@@ -522,6 +523,7 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result) {
                 {"key",image.reference.semantic_key},{"instance_path",image.reference.instance_path},{"data_base64",image.data_base64},{"format",image.format}});
         }
     }
+    packet["annotation_frames"]=annotation_frames_json(result.mesh.annotation_frames);
     // Part aggregates own branch caches; an Assembly occurrence stores its
     // calculated child packets by occurrence ID, without Part history rows.
     if (!result.body_boundaries.empty() || !result.body_inputs.empty() || !result.body_outputs.empty()) {
@@ -568,6 +570,7 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source) {
         image.reference={row.at("owner"),row.at("key"),row.at("instance_path")};image.data_base64=row.at("data_base64");image.format=row.at("format");
         result.mesh.images.push_back(std::move(image));
     }
+    result.mesh.annotation_frames=annotation_frames_from_json(source.value("annotation_frames",nlohmann::json::array()));
     result.volume = source.at("volume").get<double>();
     result.surface_area = source.at("surface_area").get<double>();
     result.source_fingerprint = source.at("source_fingerprint").get<std::string>();
