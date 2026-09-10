@@ -492,6 +492,7 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result) {
             {"value", dimension.value},
             {"label_prefix", dimension.label_prefix},
             {"unit_suffix", dimension.unit_suffix},
+            {"source_text_style",dimension.source_text_style?dimension_text_style_json(*dimension.source_text_style):nlohmann::json(nullptr)},
             {"kind", dimension.kind == zima::kernel::ViewerDimensionKind::Angular
                 ? "angular"
                 : dimension.kind == zima::kernel::ViewerDimensionKind::Radius
@@ -738,6 +739,7 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source) {
         loaded.value = dimension.at("value").get<double>();
         loaded.label_prefix = dimension.at("label_prefix").get<std::string>();
         loaded.unit_suffix = dimension.at("unit_suffix").get<std::string>();
+        if(dimension.contains("source_text_style")&&!dimension.at("source_text_style").is_null())loaded.source_text_style=dimension_text_style_from_json(dimension.at("source_text_style"));
         const auto kind = dimension.at("kind").get<std::string>();
         loaded.kind = kind == "angular"
             ? zima::kernel::ViewerDimensionKind::Angular

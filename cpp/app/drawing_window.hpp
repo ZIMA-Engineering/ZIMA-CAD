@@ -115,6 +115,7 @@ private:
     void delete_selected_view();
     void start_selection();
     void start_linear_dimension();
+    void show_dimension_properties(const std::string&,int);
     void show_erase();
     void edit_model_dimension(const std::string&,const std::string&);
     void update_action_states();

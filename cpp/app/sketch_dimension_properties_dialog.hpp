@@ -1,6 +1,8 @@
 #pragma once
 
 #include <zima/sketcher/sketch.hpp>
+#include <zima/kernel/dimension_layout.hpp>
+class QTabWidget;
 #include <zima/ui/properties_subwindow.hpp>
 
 #include <functional>
@@ -14,6 +16,8 @@ class QLabel;
 class QLineEdit;
 
 namespace zima::app {
+class DimensionTextFields;
+class DimensionPlacementFields;
 
 class SketchDimensionPropertiesDialog final : public zima::ui::PropertiesSubWindow {
 public:
@@ -24,6 +28,7 @@ public:
         CommitCallback commit, QWidget* parent,
         QString custom_title = {});
 
+    void set_presentation(kernel::ViewerDimension,kernel::DimensionLayout,std::function<void(kernel::DimensionLayout)>);
     void set_dimension_identifier(const QString& identifier);
 
 protected:
@@ -36,16 +41,11 @@ private:
     QFormLayout* form_{};
     QCheckBox* driving_{};
     QCheckBox* locked_{};
-    QLineEdit* prefix_{};
-    QLineEdit* suffix_{};
-    QLineEdit* display_text_override_{};
-    QComboBox* tolerance_mode_{};
-    QLineEdit* symmetric_tolerance_{};
-    QLineEdit* single_tolerance_{};
-    QLineEdit* upper_tolerance_{};
-    QLineEdit* lower_tolerance_{};
+    QTabWidget* tabs_{};
+    DimensionTextFields* text_fields_{};
+    DimensionPlacementFields* placement_fields_{};
+    std::function<void(kernel::DimensionLayout)> pending_layout_;
     QLabel* error_{};
-    void refresh_tolerance_fields();
 };
 
 }  // namespace zima::app

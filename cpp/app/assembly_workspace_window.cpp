@@ -1,5 +1,5 @@
 #include <zima/document/object_annotation_frames.hpp>
-#include "dimension_layout_dialog.hpp"
+#include "dimension_properties_fields.hpp"
 #include <QSaveFile>
 #include "appearance_dialog.hpp"
 #include <zima/interchange/model_import.hpp>
@@ -4317,7 +4317,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 sketch_segment_pair_active_ || sketch_point_dimension_active_ ||
                 sketch_universal_dimension_active_) return;
             if(candidate.kind==zima::viewer::CandidateKind::Dimension && !properties_dialog_ && active_sketch_id_.empty()) {
-                QMenu menu(this);auto* presentation=menu.addAction(tr("Zobrazení kóty…"));
+                QMenu menu(this);auto* presentation=menu.addAction(tr("Vlastnosti kóty…"));
                 presentation->setObjectName("dimensionLayoutPropertiesAction");
                 auto* value=menu.addAction(tr("Upravit hodnotu…"));
                 auto* lock=menu.addAction(parameter_value_locked(candidate.owner_id,candidate.semantic_key).value_or(false)?tr("Odemknout hodnotu"):tr("Zamknout hodnotu"));
@@ -8766,13 +8766,23 @@ void AssemblyWorkspaceWindow::commit_dimension_layout(const zima::kernel::EdgeRe
 void AssemblyWorkspaceWindow::show_dimension_layout_properties(const zima::viewer::ViewerCandidate& candidate) {
     if(properties_dialog_)return;
     const auto source=viewer_->dimension_source(candidate);if(!source)return;
+    if(source->reference.instance_path!=active_occurrence_path_)return;
+    if(candidate.semantic_key.starts_with("dimension:")) {
+        const auto dimension_id=candidate.semantic_key.substr(10);
+        const std::vector<zima::sketcher::Sketch>* sketches=nullptr;
+        if(const auto* part=workspace_.open_part(workspace_.active_document_id()))sketches=&part->session.document().sketches;
+        else if(const auto* assembly=workspace_.open_assembly(workspace_.active_document_id()))sketches=&assembly->session.document().sketches;
+        if(sketches)for(const auto& sketch:*sketches)if(std::ranges::any_of(sketch.dimensions,[&](const auto& d){return d.id==dimension_id;})){
+            show_sketch_dimension_properties(sketch.id,dimension_id);return;
+        }
+    }
     zima::kernel::DimensionLayout initial{0,8.0,0,0};
     const auto id=workspace_.active_document_id();
     const std::vector<zima::kernel::DimensionLayoutEntry>* entries=nullptr;
     if(const auto* part=workspace_.open_part(id))entries=&part->session.document().dimension_layouts;
     else if(const auto* assembly=workspace_.open_assembly(id))entries=&assembly->session.document().dimension_layouts;
     if(entries)if(const auto* value=zima::kernel::find_dimension_layout(*entries,source->reference))initial=*value;
-    auto* dialog=new DimensionLayoutDialog(*source,initial,[this,id,reference=source->reference](auto layout){if(workspace_.active_document_id()!=id)throw std::runtime_error("Active dimension document changed");commit_dimension_layout(reference,layout);},this);
+    auto* dialog=new DimensionPropertiesDialog(*source,initial,[this,id,reference=source->reference](auto layout){if(workspace_.active_document_id()!=id)throw std::runtime_error("Active dimension document changed");commit_dimension_layout(reference,layout);},this);
     dialog->setAttribute(Qt::WA_DeleteOnClose);properties_dialog_=dialog;viewer_->set_dimension_layout_editable(false);
     connect(dialog,&QObject::destroyed,this,[this,dialog]{if(properties_dialog_==dialog)properties_dialog_=nullptr;viewer_->set_dimension_layout_editable(!sketch_universal_dimension_active_&&!sweep_profile_sketch_draft_);});
     dialog->show();
@@ -21857,8 +21867,10 @@ void AssemblyWorkspaceWindow::show_sketch_dimension_properties(
     const bool segment_dimension_creation = !edit_mode &&
         !selected_sketch_segment_id_.empty() && first_point_id.empty() &&
         first_geometry_id.empty();
+    auto pending_layout=std::make_shared<std::optional<zima::kernel::DimensionLayout>>();
+    const zima::kernel::EdgeReference layout_reference{sketch_id,"dimension:"+initial.id,active_occurrence_path_};
     const auto commit_dimension =
-        [this, sketch_id, edit_mode, creation_kind, active_target,
+        [this, sketch_id, edit_mode, creation_kind, active_target, pending_layout, layout_reference,
          segment_dimension_creation, first_geometry_id](
             zima::sketcher::SketchDimension committed) {
             const auto apply = [&](auto& target) {
@@ -21868,6 +21880,7 @@ void AssemblyWorkspaceWindow::show_sketch_dimension_properties(
                     });
                 if (found == target.sketches.end()) return false;
                 found->apply_dimension(committed);
+                if(*pending_layout)zima::kernel::store_dimension_layout(target.dimension_layouts,layout_reference,**pending_layout);
                 found->validate();
                 return true;
             };
@@ -21876,6 +21889,7 @@ void AssemblyWorkspaceWindow::show_sketch_dimension_properties(
                 applied = active_sketch_id_ == sketch_id &&
                     mutate_active_sketch([&](auto& target) {
                         target.apply_dimension(committed);
+                        if(*pending_layout)zima::kernel::store_dimension_layout(target.dimension_layouts,layout_reference,**pending_layout);
                     });
             } else if (auto* part = workspace_.open_part(
                            workspace_.active_document_id())) {
@@ -21980,6 +21994,22 @@ void AssemblyWorkspaceWindow::show_sketch_dimension_properties(
     }
     auto* dialog = new SketchDimensionPropertiesDialog(
         std::move(initial), true, commit_dimension, this);
+    {
+        const auto mesh=sketch->viewer_mesh();
+        const auto source=std::find_if(mesh.dimensions.begin(),mesh.dimensions.end(),[&](const auto& d){return d.reference.semantic_key=="dimension:"+dimension_id;});
+        if(source!=mesh.dimensions.end()){
+            zima::kernel::DimensionLayout layout;
+            if(const auto* stored=zima::kernel::find_dimension_layout(sketch->dimension_layouts,{sketch_id,"dimension:"+dimension_id,{}}))layout=*stored;
+            if(!active_target){
+                const std::vector<zima::kernel::DimensionLayoutEntry>* entries=nullptr;
+                if(const auto* part=workspace_.open_part(workspace_.active_document_id()))entries=&part->session.document().dimension_layouts;
+                else if(const auto* assembly=workspace_.open_assembly(workspace_.active_document_id()))entries=&assembly->session.document().dimension_layouts;
+                if(entries)if(const auto* stored=zima::kernel::find_dimension_layout(*entries,layout_reference))layout=*stored;
+            }
+            layout.text_style.reset();
+            dialog->set_presentation(*source,layout,[pending_layout](auto value){*pending_layout=std::move(value);});
+        }
+    }
     dialog->set_dimension_identifier(dimension_identifier(sketch_id, "dimension:" + dimension_id));
     properties_dialog_ = dialog;
     connect(dialog, &QObject::destroyed, this, [this] {

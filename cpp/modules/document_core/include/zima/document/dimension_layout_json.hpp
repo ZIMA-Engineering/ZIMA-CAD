@@ -2,8 +2,20 @@
 #include <nlohmann/json.hpp>
 #include <zima/kernel/dimension_layout.hpp>
 namespace zima::document {
+inline nlohmann::json dimension_text_style_json(const kernel::DimensionTextStyle& s) {
+    return {{"prefix",s.prefix},{"suffix",s.suffix},{"text_override",s.text_override},{"decimals",s.decimals},
+        {"tolerance_mode",s.tolerance_mode},{"symmetric_tolerance",s.symmetric_tolerance},{"single_tolerance",s.single_tolerance},
+        {"upper_tolerance",s.upper_tolerance},{"lower_tolerance",s.lower_tolerance}};
+}
+inline kernel::DimensionTextStyle dimension_text_style_from_json(const nlohmann::json& j) {
+    kernel::DimensionTextStyle s;s.prefix=j.at("prefix");s.suffix=j.at("suffix");s.text_override=j.at("text_override");s.decimals=j.at("decimals");
+    s.tolerance_mode=j.at("tolerance_mode");s.symmetric_tolerance=j.at("symmetric_tolerance");s.single_tolerance=j.at("single_tolerance");s.upper_tolerance=j.at("upper_tolerance");s.lower_tolerance=j.at("lower_tolerance");
+    if(s.decimals<0 || s.decimals>12)throw std::invalid_argument("Invalid dimension text precision");return s;
+}
 inline nlohmann::json dimension_layout_json(const kernel::DimensionLayout &v) {
-    return {{"plane_quarter_turns", v.plane_quarter_turns},
+    return {{"text_style",v.text_style?dimension_text_style_json(*v.text_style):nlohmann::json(nullptr)},
+            {"plane_quarter_turns", v.plane_quarter_turns},
+            {"radius_rotation_degrees",v.radius_rotation_degrees},
             {"envelope_offset",
              v.envelope_offset ? nlohmann::json(*v.envelope_offset) : nlohmann::json(nullptr)},
             {"text_along", v.text_along},
@@ -11,7 +23,9 @@ inline nlohmann::json dimension_layout_json(const kernel::DimensionLayout &v) {
 }
 inline kernel::DimensionLayout dimension_layout_from_json(const nlohmann::json &j) {
     kernel::DimensionLayout v;
+    if(j.contains("text_style")&&!j.at("text_style").is_null())v.text_style=dimension_text_style_from_json(j.at("text_style"));
     v.plane_quarter_turns = j.at("plane_quarter_turns");
+    v.radius_rotation_degrees=j.value("radius_rotation_degrees",0.);
     if (!j.at("envelope_offset").is_null())
         v.envelope_offset = j.at("envelope_offset");
     v.text_along = j.at("text_along");
@@ -93,7 +107,8 @@ annotation_frames_from_json(const nlohmann::json &rows) {
     return result;
 }
 inline nlohmann::json dimension_geometry_json(const kernel::ViewerDimension &d) {
-    return {{"witness_first", dimension_vec_json(d.witness_first)},
+    return {{"source_text_style",d.source_text_style?dimension_text_style_json(*d.source_text_style):nlohmann::json(nullptr)},
+            {"witness_first", dimension_vec_json(d.witness_first)},
             {"witness_second", dimension_vec_json(d.witness_second)},
             {"line_first", dimension_vec_json(d.line_first)},
             {"line_second", dimension_vec_json(d.line_second)},
@@ -116,6 +131,7 @@ inline nlohmann::json dimension_geometry_json(const kernel::ViewerDimension &d) 
 }
 inline kernel::ViewerDimension dimension_geometry_from_json(const nlohmann::json &j) {
     kernel::ViewerDimension d;
+    if(j.contains("source_text_style")&&!j.at("source_text_style").is_null())d.source_text_style=dimension_text_style_from_json(j.at("source_text_style"));
     d.witness_first = dimension_vec_from_json(j.at("witness_first"));
     d.witness_second = dimension_vec_from_json(j.at("witness_second"));
     d.line_first = dimension_vec_from_json(j.at("line_first"));

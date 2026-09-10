@@ -12321,6 +12321,10 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         const auto dimension = std::find_if(dimensions.begin(), dimensions.end(),
             [&](const auto& value) { return value.id == dimension_id; });
         if (dimension == dimensions.end()) continue;
+        rendered.source_text_style=kernel::DimensionTextStyle{dimension->prefix,
+            dimension->suffix.empty()?rendered.unit_suffix:dimension->suffix,dimension->display_text_override,3,
+            dimension->tolerance_mode,dimension->symmetric_tolerance,dimension->single_tolerance,
+            dimension->upper_tolerance,dimension->lower_tolerance};
         rendered.driving = dimension->driving;
         rendered.locked = dimension->locked;
         rendered.label_prefix = dimension->prefix + rendered.label_prefix;
@@ -12679,7 +12683,7 @@ std::string Sketch::serialized() const {
         root["dimension_layouts"].push_back({{"owner",entry.owner_id},{"key",entry.semantic_key},
             {"plane",v.plane_quarter_turns},{"envelope",v.envelope_offset?nlohmann::json(*v.envelope_offset):nlohmann::json(nullptr)},
             {"along",v.text_along},{"outward",v.text_outward},{"line",v.line_offset},
-            {"reverse",v.arrows_reversed},{"hide_center",v.radius_center_line_hidden}});
+            {"reverse",v.arrows_reversed},{"hide_center",v.radius_center_line_hidden},{"radius_rotation",v.radius_rotation_degrees}});
     }
     if (drawing_template) {
         const auto& data = *drawing_template;
@@ -12898,7 +12902,7 @@ Sketch Sketch::from_serialized(const std::string& value) {
         kernel::DimensionLayout v;
         v.plane_quarter_turns=entry.at("plane");if(!entry.at("envelope").is_null())v.envelope_offset=entry.at("envelope");
         v.text_along=entry.at("along");v.text_outward=entry.at("outward");v.line_offset=entry.at("line");
-        v.arrows_reversed=entry.at("reverse");v.radius_center_line_hidden=entry.at("hide_center");
+        v.arrows_reversed=entry.at("reverse");v.radius_center_line_hidden=entry.at("hide_center");v.radius_rotation_degrees=entry.value("radius_rotation",0.);
         sketch.dimension_layouts.push_back({entry.at("owner"),entry.at("key"),v});
     }
     sketch.validate();

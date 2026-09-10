@@ -1,3 +1,4 @@
+#include <zima/drawing/measurement_dimension.hpp>
 #include "drawing_projection.hpp"
 #include <zima/drawing/model_annotations.hpp>
 #include <zima/sketcher/template_image_json.hpp>
@@ -357,6 +358,7 @@ DrawingView DrawingDocument::create_view(
     view.source_path = std::move(source_path);
     view.orientation = orientation;
     view.camera = standard_camera(orientation);
+    capture_measurement_geometry(view,source_mesh);
     view.projected_edges = project_edges(source_mesh, view.camera);
     view.projected_triangles = project_triangles(source_mesh, view.camera);
     return view;
@@ -384,6 +386,7 @@ const DrawingView* DrawingDocument::find_view(const std::string& id) const {
 
 void refresh_view_geometry(DrawingView& view,const zima::kernel::ViewerMesh& source) {
     if(view.section_id.empty()){
+        capture_measurement_geometry(view,source);
         view.projected_edges=project_edges(source,view.camera);view.projected_triangles=project_triangles(source,view.camera);return;
     }
     if(!view.section_snapshot || view.section_snapshot->id!=view.section_id)throw std::runtime_error("Zdrojový řez není dostupný. Vyberte platný řez.");
@@ -419,6 +422,7 @@ void refresh_view_geometry(DrawingView& view,const zima::kernel::ViewerMesh& sou
     section.reversed=facing < -epsilon;
     if(section.reversed)cut=zima::document::calculate_section(source,section);
     view.section_display_reversed=section.reversed;
+    capture_measurement_geometry(view,cut.mesh);
     view.projected_edges=detail::project_drawing_edges(cut.mesh,view.camera,true,true);view.projected_triangles=project_triangles(cut.mesh,view.camera);
     for(const auto& patch:cut.patches){
         const auto& frame=patch.frame;
@@ -453,52 +457,8 @@ void DrawingDocument::refresh_view(
     auto* view = find_view(view_id);
     if (view == nullptr) throw std::invalid_argument("Drawing view does not exist");
     refresh_view_geometry(*view,source_mesh);
-    const auto representative = [&](const zima::kernel::EdgeReference& reference)
-        -> std::optional<std::pair<Point2, Point2>> {
-        const ProjectedEdge* longest{};
-        double longest_length{};
-        for (const auto& edge : view->projected_edges) {
-            if (edge.source != reference || edge.points.size() < 2) continue;
-            const double length = std::hypot(edge.points.back().x-edge.points.front().x,
-                                             edge.points.back().y-edge.points.front().y);
-            if (length > longest_length) { longest = &edge; longest_length = length; }
-        }
-        if (longest == nullptr || longest_length <= 1e-9) return std::nullopt;
-        return std::pair{longest->points.front(), longest->points.back()};
-    };
-    for (auto& sheet : sheets) for (auto& dimension : sheet.dimensions) {
-        if (dimension.view_id != view_id) continue;
-        const Point2 old_midpoint{(dimension.first_point.x + dimension.second_point.x) * 0.5,
-                                  (dimension.first_point.y + dimension.second_point.y) * 0.5};
-        const Point2 label_offset{dimension.label_position.x-old_midpoint.x,
-                                  dimension.label_position.y-old_midpoint.y};
-        const auto first = representative(dimension.first);
-        const auto second = representative(dimension.second);
-        if (!first || !second) { dimension.unresolved = true; continue; }
-        const double first_dx = first->second.x-first->first.x;
-        const double first_dy = first->second.y-first->first.y;
-        const double second_dx = second->second.x-second->first.x;
-        const double second_dy = second->second.y-second->first.y;
-        const double first_length = std::hypot(first_dx, first_dy);
-        const double second_length = std::hypot(second_dx, second_dy);
-        if (first_length <= 1e-9 || second_length <= 1e-9 ||
-            std::abs(first_dx*second_dy-first_dy*second_dx) >
-                1e-5*first_length*second_length) {
-            dimension.unresolved = true; continue;
-        }
-        dimension.first_point = {(first->first.x+first->second.x)*0.5,
-                                 (first->first.y+first->second.y)*0.5};
-        dimension.second_point = {(second->first.x+second->second.x)*0.5,
-                                  (second->first.y+second->second.y)*0.5};
-        const Point2 new_midpoint{(dimension.first_point.x+dimension.second_point.x)*0.5,
-                                  (dimension.first_point.y+dimension.second_point.y)*0.5};
-        dimension.label_position = {new_midpoint.x+label_offset.x,
-                                    new_midpoint.y+label_offset.y};
-        dimension.measured_value = std::abs(
-            (dimension.second_point.x-dimension.first_point.x)*-first_dy/first_length +
-            (dimension.second_point.y-dimension.first_point.y)*first_dx/first_length);
-        dimension.unresolved = false;
-    }
+    for(auto& sheet:sheets)for(auto& dimension:sheet.dimensions)
+        if(dimension.view_id==view_id)refresh_drawing_dimension(*view,dimension);
 }
 
 std::vector<zima::document::DimensionParameter> DrawingDocument::dimension_parameters() const {
@@ -517,7 +477,7 @@ void DrawingDocument::save(const std::filesystem::path& path,
     if (document_id.empty() || name.empty() || sheets.empty()) {
         throw std::runtime_error("Drawing identity, name and sheets are required");
     }
-    nlohmann::json root{{"format", "zima-cad-drawing"}, {"version", 3},
+    nlohmann::json root{{"format", "zima-cad-drawing"}, {"version", 4},
                         {"document_id", document_id}, {"name", name},
                         {"source_document_id", source_document_id},
                         {"source_path", source_path.generic_string()},
@@ -618,6 +578,7 @@ void DrawingDocument::save(const std::filesystem::path& path,
 
             item["dimension_guides"]={{"visible",view.show_dimension_guides},{"offset",view.dimension_guide_offset},{"spacing",view.dimension_guide_spacing}};
             item["model_annotations"] = nlohmann::json::parse(serialize_model_annotations(view.model_annotations));
+            item["measurement_geometry"]=nlohmann::json::parse(serialize_measurement_geometry(view));
             item["projected_edges"] = nlohmann::json::array();
             for (const auto& edge : view.projected_edges) {
                 nlohmann::json edge_json{{"source", edge_reference_json(edge.source)},
@@ -637,20 +598,9 @@ void DrawingDocument::save(const std::filesystem::path& path,
             }
             serialized["views"].push_back(std::move(item));
         }
-        serialized["dimensions"] = nlohmann::json::array();
-        for (const auto& dimension : sheet.dimensions) {
-            if (dimension.id.empty() || !ids.insert(dimension.id).second ||
-                find_view(dimension.view_id) == nullptr)
-                throw std::runtime_error("Invalid Drawing dimension identity or view");
-            serialized["dimensions"].push_back({{"id", dimension.id},
-                {"view_id", dimension.view_id}, {"first", edge_reference_json(dimension.first)},
-                {"second", edge_reference_json(dimension.second)},
-                {"first_point", {dimension.first_point.x, dimension.first_point.y}},
-                {"second_point", {dimension.second_point.x, dimension.second_point.y}},
-                {"label_position", {dimension.label_position.x, dimension.label_position.y}},
-                {"measured_value", dimension.measured_value},
-                {"unresolved", dimension.unresolved}});
-        }
+        for(const auto& dimension:sheet.dimensions)if(!ids.insert(dimension.id).second || find_view(dimension.view_id)==nullptr)
+            throw std::runtime_error("Invalid Drawing dimension identity or view");
+        serialized["dimensions"]=nlohmann::json::parse(serialize_drawing_dimensions(sheet.dimensions));
         root["sheets"].push_back(std::move(serialized));
     }
     zima::document::apply_document_copy_identity(root, copy);
@@ -689,7 +639,7 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
         throw std::runtime_error(
             std::string("Invalid C++ Drawing payload: ") + error.what());
     }
-    if (root.value("format", "") != "zima-cad-drawing" || root.value("version", 0) != 3)
+    if (root.value("format", "") != "zima-cad-drawing" || (root.value("version", 0) != 3 && root.value("version", 0) != 4))
         throw std::runtime_error("Unsupported C++ Drawing payload");
     DrawingDocument document;
     document.document_id = root.at("document_id").get<std::string>();
@@ -791,6 +741,7 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
             view.section_display_reversed=item.value("section_display_reversed",view.section_snapshot?view.section_snapshot->reversed:false);
 
 
+            if(item.contains("measurement_geometry"))deserialize_measurement_geometry(view,item.at("measurement_geometry").dump());
             for (const auto& edge_json : item.at("projected_edges")) {
                 ProjectedEdge edge;
                 edge.source = parse_edge_reference(edge_json.at("source"));
@@ -817,19 +768,7 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
             }
             sheet.views.push_back(std::move(view));
         }
-        for (const auto& item : serialized.value("dimensions", nlohmann::json::array())) {
-            LinearDimension dimension;
-            dimension.id = item.at("id").get<std::string>();
-            dimension.view_id = item.at("view_id").get<std::string>();
-            dimension.first = parse_edge_reference(item.at("first"));
-            dimension.second = parse_edge_reference(item.at("second"));
-            dimension.first_point = {item.at("first_point").at(0).get<double>(), item.at("first_point").at(1).get<double>()};
-            dimension.second_point = {item.at("second_point").at(0).get<double>(), item.at("second_point").at(1).get<double>()};
-            dimension.label_position = {item.at("label_position").at(0).get<double>(), item.at("label_position").at(1).get<double>()};
-            dimension.measured_value = item.at("measured_value").get<double>();
-            dimension.unresolved = item.value("unresolved", false);
-            sheet.dimensions.push_back(std::move(dimension));
-        }
+        sheet.dimensions=deserialize_drawing_dimensions(serialized.value("dimensions",nlohmann::json::array()).dump());
         document.sheets.push_back(std::move(sheet));
     }
     if (document.sheets.empty()) throw std::runtime_error("Drawing has no sheets");

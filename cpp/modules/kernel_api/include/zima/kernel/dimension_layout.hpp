@@ -3,6 +3,8 @@
 #include <limits>
 #include <numbers>
 #include <set>
+#include <iomanip>
+#include <sstream>
 #include <zima/kernel/geometry_kernel.hpp>
 
 namespace zima::kernel {
@@ -10,6 +12,22 @@ inline std::string dimension_unit_text(const std::string& suffix) {
     const auto first=suffix.find_first_not_of(" \t");
     return first!=std::string::npos && suffix.compare(first,2,"mm")==0
         ? suffix.substr(first) : suffix;
+}
+inline DimensionTextStyle dimension_text_style(const ViewerDimension& d) {
+    if(d.source_text_style)return *d.source_text_style;
+    DimensionTextStyle style;style.prefix=d.label_prefix;style.suffix=d.unit_suffix;style.text_override=d.display_text_override;
+    if(d.kind==ViewerDimensionKind::Radius && style.prefix.starts_with("R"))style.prefix.erase(0,1);
+    if(d.kind==ViewerDimensionKind::Diameter && style.prefix.starts_with("Ø"))style.prefix.erase(0,std::string("Ø").size());
+    return style;
+}
+inline std::string dimension_text(const ViewerDimension& d,const DimensionTextStyle& style) {
+    if(!style.text_override.empty())return style.text_override;
+    std::ostringstream text;text<<style.prefix<<(d.kind==ViewerDimensionKind::Radius?"R":d.kind==ViewerDimensionKind::Diameter?"Ø":"")
+        <<std::fixed<<std::setprecision(std::clamp(style.decimals,0,12))<<d.value<<dimension_unit_text(style.suffix);
+    if(style.tolerance_mode=="symmetric")text<<" ±"<<style.symmetric_tolerance;
+    if(style.tolerance_mode=="single_deviation")text<<" "<<style.single_tolerance;
+    if(style.tolerance_mode=="deviations")text<<" +"<<style.upper_tolerance<<" /-"<<style.lower_tolerance;
+    return text.str();
 }
 inline ModelEnvelope model_envelope(const ViewerMesh &mesh) {
     ModelEnvelope bounds;
@@ -101,6 +119,8 @@ struct DimensionLayout {
     bool arrows_reversed{};
     double line_offset{};
     bool radius_center_line_hidden{};
+    std::optional<DimensionTextStyle> text_style;
+    double radius_rotation_degrees{};
     bool operator==(const DimensionLayout &) const = default;
 };
 inline void cycle_dimension_presentation(DimensionLayout &layout, ViewerDimensionKind kind) {
@@ -135,12 +155,13 @@ inline void validate_dimension_layout(const DimensionLayout &layout) {
     if (layout.plane_quarter_turns < 0 || layout.plane_quarter_turns > 3 ||
         (layout.envelope_offset &&
          (!std::isfinite(*layout.envelope_offset) || *layout.envelope_offset < 0)) ||
-        !std::isfinite(layout.text_along) || !std::isfinite(layout.text_outward) || !std::isfinite(layout.line_offset))
+        !std::isfinite(layout.text_along) || !std::isfinite(layout.text_outward) || !std::isfinite(layout.line_offset) || !std::isfinite(layout.radius_rotation_degrees))
         throw std::invalid_argument("Invalid dimension presentation");
 }
 inline ViewerDimension layout_dimension(ViewerDimension d, const ModelEnvelope &bounds,
                                         const DimensionLayout &layout) {
     validate_dimension_layout(layout);
+    if(layout.text_style)d.display_text_override=dimension_text(d,*layout.text_style);
     d.arrows_reversed = layout.arrows_reversed;
     d.radius_center_line_hidden = layout.radius_center_line_hidden;
     auto normal = dimension_unit(d.plane_normal);
@@ -153,7 +174,23 @@ inline ViewerDimension layout_dimension(ViewerDimension d, const ModelEnvelope &
     if (angular && layout.plane_quarter_turns)
         throw std::invalid_argument("Angular dimension plane is defined by its measured rays");
     const bool radial=d.kind==ViewerDimensionKind::Radius || d.kind==ViewerDimensionKind::Diameter;
-    const double angle = radial?0:layout.plane_quarter_turns * std::numbers::pi / 2;
+    if(radial) {
+        const auto radius=std::sqrt(dimension_dot(dimension_sub(d.witness_second,d.witness_first),dimension_sub(d.witness_second,d.witness_first)));
+        const double rotation=layout.radius_rotation_degrees*std::numbers::pi/180.;
+        const auto ray=dimension_add(dimension_scale(direction,std::cos(rotation)),dimension_scale(outward,std::sin(rotation)));
+        const auto side=dimension_cross(normal,ray);
+        double default_distance=d.label_position?dimension_dot(dimension_sub(*d.label_position,d.witness_first),direction):radius+8;
+        if(layout.envelope_offset&&bounds.valid){
+            double support=radius;
+            for(auto corner:bounds.corners())support=std::max(support,dimension_dot(dimension_sub(corner,d.witness_first),ray));
+            default_distance=support+*layout.envelope_offset;
+        }
+        d.witness_second=dimension_add(d.witness_first,dimension_scale(ray,radius));
+        d.line_first=d.witness_first;d.line_second=d.witness_second;d.plane_normal=normal;
+        d.label_position=dimension_add(d.witness_first,dimension_add(dimension_scale(ray,default_distance+layout.text_along),dimension_scale(side,layout.text_outward)));
+        return d;
+    }
+    const double angle = layout.plane_quarter_turns * std::numbers::pi / 2;
     const auto rotate = [&](Vec3 p) {
         const auto v = dimension_sub(p, d.witness_first);
         return dimension_add(
@@ -242,8 +279,12 @@ inline DimensionLayout dragged_dimension_layout(const ViewerDimension &shown,
                                                 DimensionLayout initial, int handle, double along,
                                                 double outward) {
     if (shown.kind == ViewerDimensionKind::Radius || shown.kind == ViewerDimensionKind::Diameter) {
-        initial.text_along += along;
-        initial.text_outward += outward;
+        if(handle==0){initial.text_along+=along;initial.text_outward+=outward;return initial;}
+        const auto radius_vector=dimension_sub(shown.witness_second,shown.witness_first);
+        const double radius=std::sqrt(dimension_dot(radius_vector,radius_vector));
+        const double side=shown.kind==ViewerDimensionKind::Diameter&&handle==1?-1.:1.;
+        if(std::hypot(radius+side*along,outward)>1e-9)
+            initial.radius_rotation_degrees+=std::atan2(side*outward,radius+side*along)*180/std::numbers::pi;
         return initial;
     }
     if (handle == 0) {

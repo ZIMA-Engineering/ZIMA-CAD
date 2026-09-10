@@ -3977,12 +3977,17 @@ int main(int argc, char* argv[]) {
             "dimension", zima::sketcher::DimensionKind::Distance,
             "first", "second", 20.0};
         int dimension_commits = 0;
+        std::optional<zima::kernel::DimensionLayout> committed_placement;
         zima::sketcher::SketchDimension committed_dimension;
         auto* dimension_dialog = new zima::app::SketchDimensionPropertiesDialog(
             dimension, false, [&](zima::sketcher::SketchDimension committed) {
+                require(committed_placement&&std::abs(committed_placement->line_offset-12)<1e-9,"Value committed separately from its presentation");
                 ++dimension_commits;
                 committed_dimension = std::move(committed);
             }, &parent);
+        zima::kernel::ViewerDimension property_source;property_source.witness_second={20,0,0};property_source.line_second={20,8,0};property_source.line_first={0,8,0};
+        dimension_dialog->set_presentation(property_source,{},[&](auto layout){committed_placement=layout;});
+        dimension_dialog->findChild<QDoubleSpinBox*>("dimensionTextOutward")->setValue(12);
         dimension_dialog->set_dimension_identifier("d42");
         require(dimension_dialog->findChild<QLabel*>("sketchDimensionIdentifier")->text() == "d42",
             "Dimension Properties did not expose its immutable identifier");

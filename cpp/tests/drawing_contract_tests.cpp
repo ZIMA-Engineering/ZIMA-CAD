@@ -1,3 +1,4 @@
+#include <zima/drawing/measurement_dimension.hpp>
 #include "drawing_projection_fixture.hpp"
 #include <zima/drawing/drawing_template.hpp>
 #include <zima/drawing/drawing_document.hpp>
@@ -250,12 +251,10 @@ Data={"points":{"a":{"x":-10,"y":-5},"b":{"x":-20,"y":-5}},"geometry":{"line":{"
         view.value_locks={"x","scale"};
         const std::string view_id = view.id;
         drawing.sheets.front().views.push_back(std::move(view));
-        zima::drawing::LinearDimension dimension;
-        dimension.id = "dimension-1"; dimension.view_id = view_id;
-        dimension.first = {"box", "edge:x", ""};
-        dimension.second = {"box", "edge:x-top", ""};
-        dimension.first_point = {-5, 0}; dimension.second_point = {-5, 10};
-        dimension.label_position = {-5, 5}; dimension.measured_value = 10;
+        auto dimension=zima::drawing::make_drawing_dimension(view_id);dimension.id="dimension-1";
+        dimension.attachments={{zima::drawing::DimensionAttachmentKind::Line,{"box","edge:x",""}, {},.5},
+                              {zima::drawing::DimensionAttachmentKind::Line,{"box","edge:x-top",""}, {},.5}};
+        zima::drawing::refresh_drawing_dimension(*drawing.find_view(view_id),dimension);
         drawing.sheets.front().dimensions.push_back(dimension);
         drawing.sheets.front().bom_rows = {
             {1, 2, "Bracket", "BR-001", "S235JR"},
@@ -284,8 +283,8 @@ Data={"points":{"a":{"x":-10,"y":-5},"b":{"x":-20,"y":-5}},"geometry":{"line":{"
         auto changed_mesh = mesh;
         changed_mesh.edges[1].points = {{0, 0, 20}, {10, 0, 20}};
         drawing.refresh_view(view_id, changed_mesh);
-        require(!drawing.sheets.front().dimensions.front().unresolved &&
-                    std::abs(drawing.sheets.front().dimensions.front().measured_value - 20.0) < 1e-9,
+        require(zima::drawing::evaluate_drawing_dimension(*drawing.find_view(view_id),drawing.sheets.front().dimensions.front()).state==zima::drawing::MeasurementState::Resolved &&
+                    std::abs(drawing.sheets.front().dimensions.front().segments.front().last_presentation->value - 20.0) < 1e-9,
                 "Drawing regeneration did not update an associative linear dimension");
         auto child = zima::drawing::DrawingDocument::create_view(
             "part-1", "part.prtz", mesh, zima::drawing::ViewOrientation::Right);
@@ -339,7 +338,7 @@ Data={"points":{"a":{"x":-10,"y":-5},"b":{"x":-20,"y":-5}},"geometry":{"line":{"
                     loaded.sheets.front().bom_rows[1].material == "A2" &&
                     loaded.sheets.front().title_block_fields.front().value == "Ada" &&
                     loaded.sheets.front().title_block_fields.front().write_back &&
-                    std::abs(loaded.sheets.front().dimensions.front().measured_value - 20.0) < 1e-9 &&
+                    std::abs(loaded.sheets.front().dimensions.front().segments.front().last_presentation->value - 20.0) < 1e-9 &&
                     loaded.find_view(view_id)->projected_edges.front().source.semantic_key == "edge:x",
                 "Drawing save/load lost source identity or projected geometry");
         require(loaded.sheets.front().width_mm() == 210.0 &&

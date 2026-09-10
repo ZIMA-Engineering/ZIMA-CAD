@@ -161,6 +161,12 @@ struct ViewerAxis {
 
 enum class ViewerDimensionKind { Linear, Angular, Radius, Diameter };
 
+struct DimensionTextStyle {
+    std::string prefix, suffix{"mm"}, text_override;
+    int decimals{3};
+    std::string tolerance_mode, symmetric_tolerance, single_tolerance, upper_tolerance, lower_tolerance;
+    bool operator==(const DimensionTextStyle&) const = default;
+};
 struct ViewerDimension {
     Vec3 witness_first;
     Vec3 witness_second;
@@ -195,6 +201,7 @@ struct ViewerDimension {
     std::string value_lock_key;
     bool arrows_reversed{};
     bool radius_center_line_hidden{};
+    std::optional<DimensionTextStyle> source_text_style;
     bool operator==(const ViewerDimension&)const=default;
 };
 

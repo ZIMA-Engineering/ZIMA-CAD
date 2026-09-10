@@ -86,6 +86,25 @@ struct ProjectedTriangle {
     std::array<double,3> vertex_depths{};
 };
 
+// Read-only measuring geometry captured with the explicit view projection.
+// Curves and vertices retain their source identity and exact occurrence path.
+struct MeasurementCircle {
+    kernel::Vec3 center, normal, radial;
+    double radius{};
+    bool operator==(const MeasurementCircle&) const = default;
+};
+struct MeasurementCurve {
+    kernel::EdgeReference source;
+    std::vector<kernel::Vec3> points;
+    std::optional<MeasurementCircle> circle;
+    bool line{};
+    bool operator==(const MeasurementCurve&) const = default;
+};
+struct MeasurementPoint {
+    kernel::EdgeReference source;
+    kernel::Vec3 position;
+    bool operator==(const MeasurementPoint&) const = default;
+};
 struct DrawingView {
     std::string id;
     std::string name{"Pohled"};
@@ -121,6 +140,8 @@ struct DrawingView {
     std::vector<ModelAnnotation> model_annotations;
     std::vector<ProjectedEdge> projected_edges;
     std::vector<ProjectedTriangle> projected_triangles;
+    std::vector<MeasurementCurve> measurement_curves;
+    std::vector<MeasurementPoint> measurement_points;
     std::set<std::string> value_locks;
 };
 
@@ -147,16 +168,37 @@ inline bool drawing_edge_visible(const DrawingView& view,const ProjectedEdge& ed
     return !edge.hidden||view.display_style==DisplayStyle::HiddenEdges;
 }
 
-struct LinearDimension {
+enum class DrawingDimensionKind { Linear, Radius, Diameter, Chain };
+enum class DimensionAttachmentKind { Point, CurvePoint, Line, Center, Tangent, Intersection };
+enum class DimensionDirection { Automatic, Horizontal, Vertical, Parallel };
+struct DimensionAttachment {
+    DimensionAttachmentKind kind{DimensionAttachmentKind::CurvePoint};
+    kernel::EdgeReference reference, other_reference;
+    // Normalized position on the persisted source curve, also the branch
+    // selector for an intersection. Tangency uses an explicit support side.
+    double parameter{};
+    int side{1};
+    bool operator==(const DimensionAttachment&) const = default;
+};
+using DrawingDimensionStyle=kernel::DimensionTextStyle;
+struct DrawingDimensionSegment {
     std::string id;
-    std::string view_id;
-    zima::kernel::EdgeReference first;
-    zima::kernel::EdgeReference second;
-    Point2 first_point;
-    Point2 second_point;
-    Point2 label_position;
-    double measured_value{};
-    bool unresolved{};
+    kernel::DimensionLayout layout;
+    // Last valid presentation keeps a broken reference selectable for repair.
+    // Its displayed value is replaced by '?' while unresolved.
+    std::optional<kernel::ViewerDimension> last_presentation;
+    bool operator==(const DrawingDimensionSegment&) const = default;
+};
+struct DrawingDimension {
+    std::string id, view_id;
+    DrawingDimensionKind kind{DrawingDimensionKind::Linear};
+    std::vector<DimensionAttachment> attachments;
+    DimensionDirection direction{DimensionDirection::Automatic};
+    kernel::EdgeReference parallel_reference;
+    DrawingDimensionStyle style;
+    std::size_t anchor_attachment{};
+    std::vector<DrawingDimensionSegment> segments;
+    bool operator==(const DrawingDimension&) const = default;
 };
 
 enum class DrawingPen { White, Green, Yellow, Red };
@@ -203,7 +245,7 @@ struct DrawingSheet {
     double thin_line_mm{0.25};
     double red_line_mm{0.7};
     std::vector<DrawingView> views;
-    std::vector<LinearDimension> dimensions;
+    std::vector<DrawingDimension> dimensions;
     std::vector<TemplateLine> frame_lines;
     std::vector<TemplateText> frame_texts;
     std::vector<TemplateLine> title_block_lines;

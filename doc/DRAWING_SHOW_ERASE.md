@@ -1,7 +1,8 @@
 # Show/Erase pro výkresy (2026-09-09)
 
 Stav: implementováno v C++ výkresovém prostředí.
-Ruční kótování je samostatný následný nástroj.
+Ruční měřicí kótování zajišťuje samostatný příkaz Kóta; jeho vazby a společné
+vlastnosti popisuje [Kóty ve výkresu](DRAWING_DIMENSIONS_DESIGN.md).
 
 ## Vstupy, prostředky a výstupy
 
@@ -135,7 +136,7 @@ Promítají se jejich prostorové měřicí body, ramena a uložená poloha text
 číselná hodnota se nepřepočítává z délky na papíře. Při změně kamery se
 projekce obnoví. Původní papírové úchyty z jiné orientace se nepoužijí.
 
-Po výběru kóty otevřete pravým tlačítkem **Zobrazení kóty…**. Lze změnit
+Po výběru kóty otevřete pravým tlačítkem **Vlastnosti kóty…**. Lze změnit
 rovinu kolem směru měření, stranu obálky, odsazení a posunutí textu.
 U úhlové kóty určují rovinu obě měřená ramena; volba roviny je proto vypnutá.
 Úhlová kóta zůstává u své měřicí osy/čepu a mění se poloměr oblouku.
@@ -208,7 +209,7 @@ nový prostorový index ani optimalizace vykreslování zde zavedeny nejsou.
 
 V Partu a Assembly zapíná **Zobrazení → Prostorový rám kót** pracovní kvádr
 vybraného objektu. Parametrické kóty se standardně odsazují o 8 modelových mm.
-Jejich kontextová nabídka obsahuje **Zobrazení kóty…**. Fialový úchop textu
+Jejich kontextová nabídka obsahuje **Vlastnosti kóty…**. Fialový úchop textu
 mění jeho polohu, úchopy lineární kóty její odstup a úhlové kóty poloměr.
 Tažení zapisuje prezentaci při puštění tlačítka; Esc jej zruší. Měřicí reference,
 hodnota, vazby a geometrie modelu se nemění.
@@ -314,3 +315,12 @@ přes dva pohledy a prostřední potvrzení vlastností listu i pohledu.
 Volitelný `ZIMA_TEST_ANNOTATION_PART` umožňuje při testu Show / Erase ověřit
 referenční díl se dvěma otvory Ø10mm v rovině XZ a jeho sousední `.drwz`;
 soubory se pouze čtou a interakce probíhá nad pracovní kopií dokumentu.
+
+
+## Společné vlastnosti a rádius (2026-09-10)
+
+Vlastnosti kóty nyní sdružují texty, tolerance a umístění.
+Výkresové přestavení zůstává lokální pro daný pohled.
+Stávající bod textu posouvá textovou polici; bod u rádiusové šipky otáčí
+prezentaci po kružnici v její rovině. Tři RMB režimy odpovídají náčrtu
+koty.bmp a používají stejnou implementaci jako skicář a 3D View.

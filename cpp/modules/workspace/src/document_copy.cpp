@@ -155,10 +155,12 @@ std::vector<std::filesystem::path> Workspace::save_copy(
             };
             for (auto& sheet:drawing.sheets) {
                 for (auto& dimension:sheet.dimensions) {
-                    rebind_origin(dimension.first);rebind_origin(dimension.second);
+                    for(auto& attachment:dimension.attachments){rebind_origin(attachment.reference);rebind_origin(attachment.other_reference);}rebind_origin(dimension.parallel_reference);
                 }
             }
             for (auto& sheet:drawing.sheets) for (auto& view:sheet.views) {
+                for(auto& curve:view.measurement_curves)rebind_origin(curve.source);
+                for(auto& point:view.measurement_points)rebind_origin(point.source);
                 if (view.source_document_id==document_id ||
                     (!source_path.empty() && normalized(view.source_path)==source_path)) {
                     view.source_document_id=new_id;

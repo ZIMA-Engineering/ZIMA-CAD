@@ -74,16 +74,6 @@ DimensionPresentation dimension_presentation(const kernel::ViewerDimension &d, P
         out.curves.push_back({w1, b});
     } else if (radial) {
         b = w2;
-        if (label_position && !(d.kind == kernel::ViewerDimensionKind::Radius && d.radius_center_line_hidden)) {
-            const auto radius_vector = kernel::dimension_sub(d.witness_second, d.witness_first);
-            const auto label_vector = kernel::dimension_sub(*label_position, d.witness_first);
-            const auto in_plane = kernel::dimension_sub(label_vector,
-                kernel::dimension_scale(normal, kernel::dimension_dot(label_vector, normal)));
-            if (kernel::dimension_dot(in_plane, in_plane) > 1e-12)
-                b = project(kernel::dimension_add(d.witness_first,
-                    kernel::dimension_scale(kernel::dimension_unit(in_plane),
-                        std::sqrt(kernel::dimension_dot(radius_vector, radius_vector)))));
-        }
         a = d.kind == kernel::ViewerDimensionKind::Diameter ? w1 - (b - w1) : w1;
         line = {a, b};
     } else {
@@ -110,40 +100,42 @@ DimensionPresentation dimension_presentation(const kernel::ViewerDimension &d, P
     auto requested = label_position ? project(*label_position) : middle;
     if (!std::isfinite(requested.x()) || !std::isfinite(requested.y()))
         return out;
-    if (d.kind == kernel::ViewerDimensionKind::Radius && d.radius_center_line_hidden) {
-        // A shortened radius owns a leader from the measured rim, not from
-        // the centre. The text grip can cross the centre and the rim without
-        // moving the measured arrow or clamping to an outside half-plane.
-        auto text_direction = out.oblique ? QPointF(1, 0) : along;
-        if (text_direction.x() < -1e-6 ||
-            (std::abs(text_direction.x()) <= 1e-6 && text_direction.y() > 0))
-            text_direction = -text_direction;
-        // Preserve the projected radial direction even while the label passes
-        // the centre or rim. The horizontal text shelf is the only screen-space
-        // element in an oblique view; its join remains on the model radius.
-        QPointF center, join;
-        if (out.oblique) {
-            const double side = along.x() < 0 ? -1 : 1;
-            const QPointF half_label(side * text_width / 2, 0);
-            join = a + along * dimension_screen_dot(requested - half_label - a, along);
-            center = join + half_label;
+    if (d.kind == kernel::ViewerDimensionKind::Radius) {
+        // The measured rim and the text shelf have independent grips. All
+        // three RMB modes use this same radius and its drawing plane.
+        auto text_direction=out.oblique?QPointF(1,0):along;
+        if(text_direction.x()<-1e-6||(std::abs(text_direction.x())<=1e-6&&text_direction.y()>0))text_direction=-text_direction;
+        const double radius=QLineF(a,b).length();
+        double position=dimension_screen_dot(requested-a,along);
+        const bool beyond=position>=radius*.5;
+        if(!d.radius_center_line_hidden)position=beyond?std::max(position,radius+arrow*1.7+text_width/2):std::min(position,-arrow*1.7-text_width/2);
+        QPointF center,join;
+        if(out.oblique){
+            const double extension_side=position>=radius?1.:-1.;
+            const double side=(along.x()<0?-1.:1.)*extension_side;
+            const QPointF half_label(side*text_width/2,0);
+            join=a+along*dimension_screen_dot(a+along*position-half_label-a,along);
+            if(!d.radius_center_line_hidden){
+                const double t=dimension_screen_dot(join-a,along);
+                join=a+along*(beyond?std::max(t,radius+arrow*1.7):std::min(t,-arrow*1.7));
+            }
+            center=join+half_label;
         } else {
-            center = a + along * dimension_screen_dot(requested - a, along);
-            const auto first = center - text_direction * text_width / 2,
-                       last = center + text_direction * text_width / 2;
-            join = QLineF(b, first).length() < QLineF(b, last).length() ? first : last;
+            center=a+along*position;
+            const auto first=center-text_direction*text_width/2,last=center+text_direction*text_width/2;
+            join=QLineF(b,first).length()<QLineF(b,last).length()?first:last;
         }
-        const auto start = center - text_direction * text_width / 2,
-                   end = center + text_direction * text_width / 2;
-        out.curves = {{b, join}, {start, end}};
-        out.arrows = {{b, d.arrows_reversed ? along : -along}};
-        out.handles = {center, b, b};
-        out.outside = dimension_screen_dot(join - a, along) < 0 ||
-                      dimension_screen_dot(join - b, along) > 0;
-        out.text_baseline = start + QPointF(text_direction.y(), -text_direction.x()) * gap;
-        out.text_angle = std::atan2(text_direction.y(), text_direction.x()) * 180 / std::numbers::pi;
-        out.valid = true;
-        return out;
+        const auto start=center-text_direction*text_width/2,end=center+text_direction*text_width/2;
+        if(!d.radius_center_line_hidden)out.curves.push_back({a,b});
+        out.curves.push_back({b,join});out.curves.push_back({start,end});
+        const bool inside=dimension_screen_dot(join-b,along)<0;
+        const auto arrow_direction=d.radius_center_line_hidden?(inside?along:-along):(d.arrows_reversed?along:-along);
+        out.arrows={{b,arrow_direction}};
+        if(!d.radius_center_line_hidden&&!d.arrows_reversed)out.curves.push_back({b,b+along*arrow*1.7});
+        out.handles={center,b,b};out.outside=position<0||position>radius;
+        out.text_baseline=start+QPointF(text_direction.y(),-text_direction.x())*gap;
+        out.text_angle=std::atan2(text_direction.y(),text_direction.x())*180/std::numbers::pi;
+        out.valid=true;return out;
     }
     double shift = dimension_screen_dot(requested - middle, along);
     if (std::abs(shift) < gap * 1.5)

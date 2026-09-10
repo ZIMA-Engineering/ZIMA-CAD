@@ -1,3 +1,4 @@
+#include <zima/drawing/measurement_dimension.hpp>
 #include <zima/document/document_session.hpp>
 #include <zima/drawing/drawing_document.hpp>
 #include <zima/assembly/assembly_session.hpp>
@@ -117,12 +118,9 @@ int main() {
         const auto view = zima::drawing::DrawingDocument::create_view(
             part.document_id, "part.prtz", occurrence.calculated_source.mesh);
         drawing.sheets.front().views.push_back(view);
-        zima::drawing::LinearDimension drawing_dimension;
-        drawing_dimension.id = "drawing-dimension-1";
-        drawing_dimension.view_id = view.id;
-        drawing_dimension.measured_value = 0;
-        drawing_dimension.first = occurrence.calculated_source.mesh.edges.front().reference;
-        drawing_dimension.second = drawing_dimension.first;
+        auto drawing_dimension=zima::drawing::make_drawing_dimension(view.id);drawing_dimension.id="drawing-dimension-1";
+        const auto edge=occurrence.calculated_source.mesh.edges.front().reference;
+        drawing_dimension.attachments={{zima::drawing::DimensionAttachmentKind::Line,edge},{zima::drawing::DimensionAttachmentKind::Line,edge}};
         drawing.sheets.front().dimensions.push_back(drawing_dimension);
         drawing.synchronize_dimension_identifiers();
         require(drawing.dimension_identifiers.identifier(drawing.document_id,

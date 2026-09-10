@@ -1,5 +1,7 @@
+#include "drawing_dimension_dialog.hpp"
+#include <QCursor>
 #include <zima/viewer/dimension_text_layer.hpp>
-#include "dimension_layout_dialog.hpp"
+#include "dimension_properties_fields.hpp"
 #include "resource_icon.hpp"
 #include "drawing_dxf_device.hpp"
 #include "drawing_annotation_source.hpp"
@@ -602,7 +604,6 @@ public:
         selected_dimension_id_.clear();
         dragged_dimension_id_.clear();
         drag_view_id_.clear();
-        first_edge_.reset();
         dimension_mode_ = false;
         update();
     }
@@ -669,7 +670,55 @@ public:
         insert_action_=insert; edit_action_=edit; projected_action_=projected; remove_action_=remove;
     }
     void set_dimension_properties_callback(std::function<void(const std::string&,const std::string&)> callback){dimension_properties_=std::move(callback);}
-    void start_linear_dimension() { dimension_mode_ = true; first_edge_.reset(); update(); }
+
+    void set_manual_properties_callback(std::function<void(const std::string&,int)> callback){manual_properties_=std::move(callback);}
+    void set_dimension_command(DrawingDimensionDialog* dialog){
+        dimension_command_=dialog;dimension_mode_=dialog!=nullptr;measurement_offered_.clear();measurement_index_=0;
+        selected_annotation_.reset();selected_dimension_id_.clear();drag_view_id_.clear();hovered_annotation_.reset();offered_annotations_.clear();
+        if(dialog){
+            dialog->set_changed([this]{offer_measurements(measurement_pointer_);update();});
+            selected_dimension_id_=dialog->value().id;
+        }
+        if(selection_changed_)selection_changed_();update();
+    }
+    drawing::Point2 measurement_point(const drawing::DrawingView& view,QPointF point)const{
+        const auto origin=view_screen_point(view,{});const double scale=canvas_zoom()*view.scale;
+        return {(point.x()-origin.x())/scale,-(point.y()-origin.y())/scale};
+    }
+    void offer_measurements(QPointF point){
+        measurement_pointer_=point;std::vector<OfferedMeasurement> candidates;
+        if(dimension_command_&&dimension_command_->entering()&&sheet_)for(const auto& view:sheet_->views){
+            if(!dimension_command_->value().view_id.empty()&&dimension_command_->value().view_id!=view.id)continue;
+            const double scale=canvas_zoom()*view.scale;
+            for(auto candidate:drawing::measurement_candidates(view,measurement_point(view,point),8/scale,dimension_command_->pick_request())){
+                candidate.distance*=scale;candidates.push_back({view.id,std::move(candidate)});
+            }
+        }
+        std::stable_sort(candidates.begin(),candidates.end(),[](const auto& a,const auto& b){return a.candidate.distance<b.candidate.distance;});
+        bool same=candidates.size()==measurement_offered_.size();
+        for(std::size_t i=0;same&&i<candidates.size();++i)same=candidates[i].view==measurement_offered_[i].view&&candidates[i].candidate.attachment==measurement_offered_[i].candidate.attachment;
+        if(!same)measurement_index_=0;measurement_offered_=std::move(candidates);
+    }
+    drawing::DrawingDimension* editable_dimension(const std::string& id){
+        if(dimension_command_)return nullptr;
+        for(auto& d:sheet_->dimensions)if(d.id==id)return &d;return nullptr;
+    }
+    const drawing::DrawingDimension* visible_dimension(const std::string& id)const{
+        if(dimension_command_&&dimension_command_->value().id==id)return &dimension_command_->value();
+        for(const auto& d:sheet_->dimensions)if(d.id==id)return &d;return nullptr;
+    }
+    void store_presentation(drawing::DrawingDimension value){
+        if(dimension_command_)dimension_command_->change_presentation(std::move(value));
+        else if(auto* target=editable_dimension(value.id))*target=std::move(value);
+        update();
+    }
+    void begin_manual_drag(const AnnotationHandle& candidate,QPointF pointer){
+        if(const auto* d=visible_dimension(candidate.key.id)){
+            dragged_dimension_id_=d->id;dimension_drag_start_=pointer;dimension_drag_initial_=*d;dimension_drag_original_=*d;
+            dimension_drag_handle_=candidate.key.end;dimension_grip_start_=candidate.point;
+        }
+    }
+
     void fit_sheet() { view_zoom_=1;view_pan_={};update(); }
     QRectF sheet_rectangle()const {
         if(!sheet_)return {};
@@ -677,7 +726,7 @@ public:
         return {canvas_origin(zoom),QSizeF(sheet_->width_mm()*zoom,sheet_->height_mm()*zoom)};
     }
     void choose_view(std::function<void(const std::string&)> pick) { start_selection();choose_view_=std::move(pick);selected_.clear();if(selection_changed_)selection_changed_();update(); }
-    void start_selection() { choose_view_={};dimension_mode_ = false; first_edge_.reset(); update(); }
+    void start_selection() { choose_view_={};if(dimension_command_)dimension_command_->reject();dimension_mode_=false;update(); }
     [[nodiscard]] bool dimension_mode() const { return dimension_mode_; }
     bool interacting() const { return bool(preview_); }
 protected:
@@ -751,7 +800,11 @@ protected:
         update();
     }
     void contextMenuEvent(QContextMenuEvent* event) override {
-        if(dragged_model_){event->accept();return;}
+        if(dragged_model_||!dragged_dimension_id_.empty()){event->accept();return;}
+        if(dimension_command_){
+            if(dimension_command_->entering()&&!measurement_offered_.empty())measurement_index_=(measurement_index_+1)%measurement_offered_.size();
+            update();event->accept();return;
+        }
         if(selected_annotation_)for(const auto& handle:annotation_handles_)
             if(handle.key.kind==selected_annotation_->kind && handle.key.view==selected_annotation_->view && handle.key.id==selected_annotation_->id && QLineF(handle.point,event->pos()).length()<=8){event->accept();return;}
         if(model_pick_){offer_annotations(event->pos());if(!offered_annotations_.empty()){offered_annotation_index_=(offered_annotation_index_+1)%offered_annotations_.size();hovered_annotation_=offered_annotations_[offered_annotation_index_].key;update();}event->accept();return;}
@@ -772,12 +825,18 @@ protected:
             const auto view=std::ranges::find(sheet_->views,key.view,&drawing::DrawingView::id);
             if(view!=sheet_->views.end()&&std::ranges::any_of(view->model_annotations,[&](const auto& a){return a.kind==drawing::ModelAnnotationKind::Dimension&&model_annotation_key(a.source)==key.id;})) {
                 auto* menu=new QMenu(this);menu->setAttribute(Qt::WA_DeleteOnClose);
-                auto* properties=menu->addAction(tr("Zobrazení kóty…"));properties->setObjectName("dimensionLayoutPropertiesAction");
+                auto* properties=menu->addAction(tr("Vlastnosti kóty…"));properties->setObjectName("dimensionLayoutPropertiesAction");
                 connect(properties,&QAction::triggered,this,[this,key]{dimension_properties_(key.view,key.id);});menu->popup(event->globalPos());event->accept();return;
             }
         }
         if(selected_annotation_&&selected_annotation_->kind==AnnotationKind::Dimension&&!offered_annotations_.empty()){
             auto* menu=new QMenu(this);menu->setAttribute(Qt::WA_DeleteOnClose);const auto id=selected_dimension_id_;
+            menu->addAction(tr("Vlastnosti kóty…"),this,[this,id]{if(manual_properties_)manual_properties_(id,0);});
+            const auto* dimension=visible_dimension(id);
+            if(dimension&&(dimension->kind==drawing::DrawingDimensionKind::Linear||dimension->kind==drawing::DrawingDimensionKind::Chain)){
+                menu->addAction(tr("Řetězec z prvního konce…"),this,[this,id]{if(manual_properties_)manual_properties_(id,-1);});
+                menu->addAction(tr("Řetězec z druhého konce…"),this,[this,id]{if(manual_properties_)manual_properties_(id,1);});
+            }
             menu->addAction(tr("Odstranit"),this,[this,id]{std::erase_if(sheet_->dimensions,[&](const auto& d){return d.id==id;});selected_dimension_id_.clear();selected_annotation_.reset();if(changed_)changed_();if(selection_changed_)selection_changed_();update();});menu->popup(event->globalPos());event->accept();return;
         }
         const auto hit=!offered_annotations_.empty()?offered_annotations_[offered_annotation_index_].key.view:view_at(event->pos());
@@ -794,6 +853,9 @@ protected:
         menu->popup(event->globalPos()); event->accept();
     }
     void mouseDoubleClickEvent(QMouseEvent* event) override {
+        if(event->button()==Qt::LeftButton&&selected_annotation_&&selected_annotation_->kind==AnnotationKind::Dimension&&!dimension_command_){
+            dragged_dimension_id_.clear();if(manual_properties_)manual_properties_(selected_annotation_->id,0);event->accept();return;
+        }
         if(event->button()==Qt::LeftButton && !placed_ && !preview_ && !dimension_mode_) {
             const auto field=field_at(event->position());
             if(!field.empty()) {
@@ -1057,58 +1119,56 @@ public:
                 }
             }
         }
-        for (const auto& dimension : sheet_->dimensions) {
-            const AnnotationKey dimension_key{AnnotationKind::Dimension,dimension.view_id,dimension.id,0};
-            const QColor dimension_color=annotation_color(dimension_key,printing?ink:dimension.unresolved?QColor("#C62828"):QColor("#FFD400"),printing);
-            painter.setPen(QPen(dimension_color,!printing&&dimension.id==selected_dimension_id_?2.0:width(false)));
-            const auto* view = [&]() -> const zima::drawing::DrawingView* {
-                const auto found = std::find_if(sheet_->views.begin(), sheet_->views.end(),
-                    [&](const auto& item) { return item.id == dimension.view_id; });
-                return found == sheet_->views.end() ? nullptr : &*found;
-            }();
-            if (view == nullptr) continue;
-            const auto screen = [&](const zima::drawing::Point2& point) {
-                return QPointF(origin.x() + sheet_->width_mm()*zoom -
-                                   (view->x - point.x * view->scale) * zoom,
-                               origin.y() + sheet_->height_mm()*zoom -
-                                   (view->y + point.y * view->scale) * zoom);
+
+        std::vector<const drawing::DrawingDimension*> dimensions;
+        for(const auto& d:sheet_->dimensions)if(printing||!dimension_command_||dimension_command_->value().id!=d.id)dimensions.push_back(&d);
+        if(!printing&&dimension_command_)dimensions.push_back(&dimension_command_->value());
+        for(const auto* entry:dimensions){
+            const auto& dimension=*entry;
+            const auto view_it=std::ranges::find_if(views,[&](const auto* view){return view->id==dimension.view_id;});
+            if(view_it==views.end())continue;const auto* view=*view_it;
+            const auto evaluation=drawing::evaluate_drawing_dimension(*view,dimension);
+            if(evaluation.state==drawing::MeasurementState::Hidden)continue;
+            const auto screen=[&](kernel::Vec3 p){return QPointF(origin.x()+(sheet_->width_mm()-view->x+p.x*view->scale)*zoom,origin.y()+(sheet_->height_mm()-view->y-p.y*view->scale)*zoom);};
+            for(std::size_t index=0;index<evaluation.presentations.size();++index){
+                const auto& source=evaluation.presentations[index];const AnnotationKey key{AnnotationKind::Dimension,dimension.view_id,dimension.id,int(evaluation.cached_segment_indices.empty()?index:evaluation.cached_segment_indices[index])*3};
+                const auto color=annotation_color(key,printing?ink:evaluation.state==drawing::MeasurementState::Unresolved?QColor("#C62828"):QColor("#FFD400"),printing);
+                const auto text=QString::fromStdString(drawing::drawing_dimension_text(dimension,source,evaluation.state==drawing::MeasurementState::Unresolved));
+                const auto layout=viewer::dimension_presentation(source,screen,QFontMetricsF(painter.font()).horizontalAdvance(text),2.5*zoom,.75*zoom);
+                if(!layout.valid)continue;
+                painter.save();painter.setPen(QPen(color,width(false)));painter.setBrush(color);QPainterPath stroke;
+                for(const auto& curve:layout.curves){if(curve.empty())continue;painter.drawPolyline(curve);stroke.moveTo(curve.front());for(qsizetype i=1;i<curve.size();++i)stroke.lineTo(curve[i]);}
+                for(const auto& [tip,direction]:layout.arrows)painter.drawPolygon(viewer::annotation_arrow(tip,direction,2.5*zoom));
+                QTransform transform;transform.translate(layout.text_baseline.x(),layout.text_baseline.y());transform.rotate(layout.text_angle);
+                dimension_texts.push_back({text,layout.text_baseline,layout.text_angle,painter.font(),color});
+                if(!printing){
+                    QPainterPathStroker picker;picker.setWidth(10);auto hit=picker.createStroke(stroke);hit.addRect(transform.mapRect(QFontMetricsF(painter.font()).boundingRect(text)));
+                    for(int end=0;end<3;++end){auto grip=key;grip.end+=end;annotation_handles_.push_back({grip,layout.handles[end],hit});}
+                }painter.restore();
+            }
+        }
+        if(!printing&&dimension_command_){
+            const auto highlight=[&](const drawing::DrawingView& view,const kernel::EdgeReference& ref,QColor color){
+                painter.save();painter.setPen(QPen(color,2));painter.setBrush(Qt::NoBrush);
+                for(const auto& curve:drawing::projected_measurement_curves(view))if(curve.source==ref){QPolygonF line;for(const auto& p:curve.points)line<<view_screen_point(view,p);painter.drawPolyline(line);}
+                for(const auto& p:view.measurement_points)if(p.source==ref)painter.drawEllipse(view_screen_point(view,{kernel::dimension_dot(p.position,view.camera.horizontal),kernel::dimension_dot(p.position,view.camera.vertical)}),4,4);
+                painter.restore();
             };
-            const QPointF first = screen(dimension.first_point);
-            const QPointF second = screen(dimension.second_point);
-            const QPointF label = screen(dimension.label_position);
-            const double mx=dimension.second_point.x-dimension.first_point.x;
-            const double my=dimension.second_point.y-dimension.first_point.y;
-            const double measured_length=std::hypot(mx,my);
-            if(measured_length<=1e-9) continue;
-            const double nx=mx/measured_length,ny=my/measured_length;
-            const auto on_dimension_line=[&](const zima::drawing::Point2& witness) {
-                const double projection=(witness.x-dimension.label_position.x)*nx+
-                                        (witness.y-dimension.label_position.y)*ny;
-                return zima::drawing::Point2{dimension.label_position.x+projection*nx,
-                                            dimension.label_position.y+projection*ny};
-            };
-            const QPointF line_first=screen(on_dimension_line(dimension.first_point));
-            const QPointF line_second=screen(on_dimension_line(dimension.second_point));
-            kernel::ViewerDimension source;
-            source.witness_first={dimension.first_point.x,dimension.first_point.y,0};source.witness_second={dimension.second_point.x,dimension.second_point.y,0};
-            const auto line_a=on_dimension_line(dimension.first_point),line_b=on_dimension_line(dimension.second_point);
-            source.line_first={line_a.x,line_a.y,0};source.line_second={line_b.x,line_b.y,0};source.label_position=kernel::Vec3{dimension.label_position.x,dimension.label_position.y,0};
-            const auto text=QString::number(dimension.measured_value,'f',3)+tr("mm");
-            const auto layout=viewer::dimension_presentation(source,[&](kernel::Vec3 p){return screen({p.x,p.y});},QFontMetricsF(painter.font()).horizontalAdvance(text),2.5*zoom,.75*zoom);
-            if(!layout.valid)continue;
-            QPainterPath stroke;
-            for(const auto& curve:layout.curves){painter.drawPolyline(curve);stroke.moveTo(curve.front());for(qsizetype i=1;i<curve.size();++i)stroke.lineTo(curve[i]);}
-            painter.setBrush(dimension_color);for(const auto& [tip,direction]:layout.arrows)painter.drawPolygon(viewer::annotation_arrow(tip,direction,2.5*zoom));
-            QTransform text_transform;text_transform.translate(layout.text_baseline.x(),layout.text_baseline.y());text_transform.rotate(layout.text_angle);
-            dimension_texts.push_back({text,layout.text_baseline,layout.text_angle,painter.font(),dimension_color});
-            if(!printing){QPainterPathStroker picker;picker.setWidth(10);auto hit=picker.createStroke(stroke);hit.addRect(text_transform.mapRect(QFontMetricsF(painter.font()).boundingRect(text)));annotation_handles_.push_back({dimension_key,layout.handles[0],hit});}
+            if(!measurement_offered_.empty()){
+                const auto& candidate=measurement_offered_[measurement_index_];
+                for(const auto& view:sheet_->views)if(view.id==candidate.view){
+                    highlight(view,candidate.candidate.attachment.reference,QColor("#FF9300"));highlight(view,candidate.candidate.attachment.other_reference,QColor("#FF9300"));
+                    painter.save();painter.setPen(QPen(QColor("#FF9300"),2));painter.setBrush(Qt::NoBrush);painter.drawEllipse(view_screen_point(view,candidate.candidate.position),4,4);painter.restore();
+                }
+            }
+            for(const auto& view:sheet_->views)if(view.id==dimension_command_->value().view_id)for(const auto& ref:dimension_command_->inspected_references())highlight(view,ref,QColor("#00D1FF"));
         }
         viewer::paint_dimension_text_layer(painter,dimension_texts,.5*zoom,
             [printing](QPainter& text_painter,const QPainterPath& mask){
                 text_painter.fillPath(mask,printing?QColor(Qt::white):QColor(Qt::black));
             });
-        if(!printing&&!preview_&&!dimension_mode_)for(const auto& handle:annotation_handles_){
-            const bool selected=selected_annotation_&&*selected_annotation_==handle.key,hovered=hovered_annotation_&&*hovered_annotation_==handle.key;
+        if(!printing&&!preview_)for(const auto& handle:annotation_handles_){
+            const bool selected=(selected_annotation_&&selected_annotation_->kind==handle.key.kind&&selected_annotation_->view==handle.key.view&&selected_annotation_->id==handle.key.id)||(dimension_command_&&handle.key.kind==AnnotationKind::Dimension&&dimension_command_->value().id==handle.key.id),hovered=hovered_annotation_&&*hovered_annotation_==handle.key;
             const bool movable=handle.key.kind==AnnotationKind::Caption||handle.key.kind==AnnotationKind::SectionLabel||handle.key.kind==AnnotationKind::SectionEnd||handle.key.kind==AnnotationKind::Dimension||
                 (handle.key.kind==AnnotationKind::Model&&std::ranges::any_of(sheet_->views,[&](const auto& view){return view.id==handle.key.view&&std::ranges::any_of(view.model_annotations,[&](const auto& item){return item.kind==drawing::ModelAnnotationKind::Dimension&&model_annotation_key(item.source)==handle.key.id;});}));
             if(movable&&(selected||hovered))draw_handle(handle.point,selected);
@@ -1117,6 +1177,14 @@ public:
 protected:
     void mousePressEvent(QMouseEvent* event) override {
         if (sheet_ == nullptr) return;
+        if(event->button()==Qt::RightButton&&!dragged_dimension_id_.empty()&&(event->buttons()&Qt::LeftButton)){
+            auto value=*visible_dimension(dragged_dimension_id_);const auto segment=dimension_drag_handle_/3;
+            auto kind=value.kind==drawing::DrawingDimensionKind::Radius?kernel::ViewerDimensionKind::Radius:value.kind==drawing::DrawingDimensionKind::Diameter?kernel::ViewerDimensionKind::Diameter:kernel::ViewerDimensionKind::Linear;
+            kernel::cycle_dimension_presentation(value.segments[segment].layout,kind);
+            dimension_drag_initial_->segments[segment].layout.arrows_reversed=value.segments[segment].layout.arrows_reversed;
+            dimension_drag_initial_->segments[segment].layout.radius_center_line_hidden=value.segments[segment].layout.radius_center_line_hidden;
+            store_presentation(std::move(value));event->accept();return;
+        }
         if(event->button()==Qt::RightButton&&dragged_model_&&(event->buttons()&Qt::LeftButton)) {
             for(auto& view:sheet_->views)if(view.id==dragged_model_->key.view)for(auto& item:view.model_annotations)if(model_annotation_key(item.source)==dragged_model_->key.id&&item.model_dimension){
                 kernel::cycle_dimension_presentation(model_drag_layout_initial_,item.model_dimension->kind);
@@ -1133,6 +1201,19 @@ protected:
             return;
         }
         if (event->button() != Qt::LeftButton) return;
+        if(dimension_command_){
+            setFocus();
+            if(dimension_command_->entering()){
+                if(!measurement_offered_.empty()){const auto candidate=measurement_offered_[measurement_index_];dimension_command_->accept_candidate(candidate.view,candidate.candidate);}
+                else {selected_annotation_.reset();selected_.clear();if(selection_changed_)selection_changed_();}
+            }else if(dimension_command_->placing()){
+                for(const auto& view:sheet_->views)if(view.id==dimension_command_->value().view_id)dimension_command_->position(measurement_point(view,event->position()),true);
+            }else{
+                offer_annotations(event->position());
+                if(!offered_annotations_.empty()){const auto candidate=offered_annotations_[offered_annotation_index_];if(candidate.key.kind==AnnotationKind::Dimension&&candidate.key.id==dimension_command_->value().id&&QLineF(candidate.point,event->position()).length()<=8)begin_manual_drag(candidate,event->position());}
+            }
+            update();event->accept();return;
+        }
         if (choose_view_) {
             const auto id=view_at(event->position());
             selected_=id;selected_annotation_.reset();selected_field_.clear();selected_dimension_id_.clear();
@@ -1170,7 +1251,7 @@ protected:
                         dragged_label_=std::pair{candidate.key.view,candidate.key.kind==AnnotationKind::SectionLabel};label_drag_start_=event->position();label_moved_=false;
                         for(const auto& view:sheet_->views)if(view.id==candidate.key.view){const auto origin=view_screen_point(view,{});label_position_start_={(candidate.point.x()-origin.x())/canvas_zoom(),(origin.y()-candidate.point.y())/canvas_zoom()};}
                     }else if(candidate.key.kind==AnnotationKind::Dimension){
-                        for(const auto& dimension:sheet_->dimensions)if(dimension.id==candidate.key.id){dragged_dimension_id_=dimension.id;dimension_drag_start_=event->position();dimension_label_start_=dimension.label_position;}
+                        begin_manual_drag(candidate,event->position());
                     }else if(candidate.key.kind==AnnotationKind::Model){
                         for(const auto& view:sheet_->views)if(view.id==candidate.key.view)for(const auto& item:view.model_annotations)if(model_annotation_key(item.source)==candidate.key.id&&item.kind==drawing::ModelAnnotationKind::Dimension){model_drag_original_=item;dragged_model_=candidate;model_drag_start_=event->position();model_moved_=false;model_drag_layout_initial_=item.view_layout.value_or(item.model_layout);model_drag_shown_=item.model_dimension?std::optional(kernel::layout_dimension(*item.model_dimension,item.model_envelope,model_drag_layout_initial_)):std::nullopt;}
                     }else{dragged_section_end_=candidate;section_end_drag_start_=event->position();section_end_moved_=false;}
@@ -1179,75 +1260,8 @@ protected:
             }
         }
         selected_annotation_.reset();
-        const double zoom = canvas_zoom();
-        const QPointF origin = canvas_origin(zoom);
-        const auto segment_distance = [](QPointF point, QPointF a, QPointF b) {
-            const QPointF delta = b - a;
-            const double length_squared = delta.x() * delta.x() + delta.y() * delta.y();
-            if (length_squared <= 1e-12) return std::hypot(point.x() - a.x(), point.y() - a.y());
-            const double parameter = std::clamp(
-                ((point.x() - a.x()) * delta.x() + (point.y() - a.y()) * delta.y()) /
-                    length_squared, 0.0, 1.0);
-            const QPointF nearest = a + parameter * delta;
-            return std::hypot(point.x() - nearest.x(), point.y() - nearest.y());
-        };
-        setFocus();
-        selected_dimension_id_.clear();
-        double best = 8.0;
-        std::string hit;
-        const zima::drawing::DrawingView* hit_view{};
-        const zima::drawing::ProjectedEdge* hit_edge{};
-        if (dimension_mode_) for (const auto& view : sheet_->views) for (const auto& edge : view.projected_edges) {
-            if(edge.points.size()<2||edge.hatch||!edge.source.valid()||edge.silhouette||!zima::drawing::drawing_edge_visible(view,edge))continue;
-            for (std::size_t point = 1; point < edge.points.size(); ++point) {
-                const auto screen = [&](const auto& value) {
-                    return QPointF(origin.x() + sheet_->width_mm()*zoom -
-                                       (view.x - value.x * view.scale) * zoom,
-                                   origin.y() + sheet_->height_mm()*zoom -
-                                       (view.y + value.y * view.scale) * zoom);
-                };
-                const double distance = segment_distance(event->position(),
-                    screen(edge.points[point - 1]), screen(edge.points[point]));
-                if (distance < best) { best = distance; hit = view.id; hit_view = &view; hit_edge = &edge; }
-            }
-        }
-        if (dimension_mode_ && hit_view != nullptr && hit_edge != nullptr && hit_edge->points.size() >= 2) {
-            if (!hit_edge->source.valid()) { update(); return; }
-            if (!first_edge_) {
-                first_edge_ = PickedEdge{hit_view->id, *hit_edge};
-            } else if (first_edge_->view_id == hit_view->id) {
-                const auto& a = first_edge_->edge.points;
-                const auto& b = hit_edge->points;
-                const zima::drawing::Point2 a_mid{(a.front().x + a.back().x) * 0.5,
-                                                   (a.front().y + a.back().y) * 0.5};
-                const zima::drawing::Point2 b_mid{(b.front().x + b.back().x) * 0.5,
-                                                   (b.front().y + b.back().y) * 0.5};
-                const double dx = a.back().x - a.front().x;
-                const double dy = a.back().y - a.front().y;
-                const double length = std::hypot(dx, dy);
-                const double bx = b.back().x - b.front().x;
-                const double by = b.back().y - b.front().y;
-                const double b_length = std::hypot(bx, by);
-                if (length > 1e-9 && b_length > 1e-9 &&
-                    std::abs(dx * by - dy * bx) <= 1e-5 * length * b_length) {
-                    zima::drawing::LinearDimension dimension;
-                    std::ostringstream id;
-                    id << "dimension-" << std::chrono::steady_clock::now().time_since_epoch().count();
-                    dimension.id = id.str(); dimension.view_id = hit_view->id;
-                    dimension.first = first_edge_->edge.source; dimension.second = hit_edge->source;
-                    dimension.first_point = a_mid; dimension.second_point = b_mid;
-                    dimension.label_position = {(a_mid.x + b_mid.x) * 0.5,
-                                                (a_mid.y + b_mid.y) * 0.5};
-                    dimension.measured_value = std::abs((b_mid.x - a_mid.x) * -dy / length +
-                                                        (b_mid.y - a_mid.y) * dx / length);
-                    sheet_->dimensions.push_back(std::move(dimension));
-                    dimension_mode_ = false; first_edge_.reset();
-                    if(changed_) changed_();
-                }
-            }
-            update(); return;
-        }
-        selected_ = dimension_mode_ ? std::move(hit) : view_at(event->position());
+        setFocus();selected_dimension_id_.clear();
+        selected_=view_at(event->position());
         drag_view_id_.clear();
         if (!selected_.empty()) {
             drag_view_id_ = selected_; drag_start_ = event->position();
@@ -1259,6 +1273,12 @@ protected:
         update();
     }
     void mouseMoveEvent(QMouseEvent* event) override {
+        if(dimension_command_&&!view_panning_&&!(event->buttons()&Qt::MiddleButton)&&dragged_dimension_id_.empty()){
+            offer_measurements(event->position());
+            if(dimension_command_->placing()){for(const auto& view:sheet_->views)if(view.id==dimension_command_->value().view_id)dimension_command_->position(measurement_point(view,event->position()),false);}
+            else if(!dimension_command_->entering())offer_annotations(event->position());
+            update();event->accept();return;
+        }
         if (placed_ && !view_panning_) { position_preview(event->position()); return; }
         if(choose_view_ && !view_panning_) {
             hovered_annotation_.reset();offered_annotations_.clear();hovered_field_.clear();
@@ -1346,18 +1366,19 @@ protected:
                 position=zima::drawing::Point2{label_position_start_.x+delta.x()/zoom,label_position_start_.y-delta.y()/zoom};label_moved_=true;
             }update();return;
         }
-        if(!dragged_dimension_id_.empty() && (event->buttons()&Qt::LeftButton)) {
-            const auto dimension=std::find_if(sheet_->dimensions.begin(),sheet_->dimensions.end(),
-                [&](const auto& item){return item.id==dragged_dimension_id_;});
-            if(dimension==sheet_->dimensions.end()) return;
-            const auto view=std::find_if(sheet_->views.begin(),sheet_->views.end(),
-                [&](const auto& item){return item.id==dimension->view_id;});
-            if(view==sheet_->views.end() || zoom<=0.0 || view->scale<=0.0) return;
-            dimension->label_position={dimension_label_start_.x+
-                (event->position().x()-dimension_drag_start_.x())/(zoom*view->scale),
-                dimension_label_start_.y-
-                (event->position().y()-dimension_drag_start_.y())/(zoom*view->scale)};
-            update(); return;
+        if(!dragged_dimension_id_.empty()&&dimension_drag_initial_&&(event->buttons()&Qt::LeftButton)){
+            auto value=*dimension_drag_initial_;
+            const auto view=std::ranges::find(sheet_->views,value.view_id,&drawing::DrawingView::id);
+            if(view==sheet_->views.end())return;
+            const auto cursor=measurement_point(*view,event->position()),start=measurement_point(*view,dimension_drag_start_);drawing::Point2 delta{cursor.x-start.x,cursor.y-start.y};
+            const auto evaluation=drawing::evaluate_drawing_dimension(*view,value);const auto segment=dimension_drag_handle_/3;
+            if(dimension_drag_handle_%3==0&&segment<int(evaluation.presentations.size())){
+                const auto label=evaluation.presentations[segment].label_position.value();
+                const auto actual=measurement_point(*view,dimension_grip_start_);
+                delta.x+=actual.x-label.x;delta.y+=actual.y-label.y;
+            }
+            drawing::drag_drawing_dimension(*view,value,segment,dimension_drag_handle_%3,delta);
+            store_presentation(std::move(value));event->accept();return;
         }
         if(drag_view_id_.empty() || !(event->buttons()&Qt::LeftButton)) return;
         const auto found = std::find_if(sheet_->views.begin(), sheet_->views.end(),
@@ -1378,6 +1399,7 @@ protected:
         update();
     }
     void mouseReleaseEvent(QMouseEvent* event) override {
+        if(!dragged_dimension_id_.empty()&&event->button()==Qt::RightButton){event->accept();return;}
         if(dragged_model_&&event->button()==Qt::RightButton){event->accept();return;}
         if(preview_dragging_&&event->button()==Qt::LeftButton){preview_dragging_=false;event->accept();return;}
         if (view_panning_ &&
@@ -1388,7 +1410,7 @@ protected:
             event->accept();
         }
         const bool label_changed=label_moved_||section_end_moved_||model_moved_;dragged_model_.reset();model_moved_=false;dragged_label_.reset();label_moved_=false;dragged_section_end_.reset();section_end_moved_=false;
-        if((!drag_view_id_.empty() || !dragged_dimension_id_.empty() || label_changed) && changed_) changed_();
+        if((!drag_view_id_.empty() || (!dragged_dimension_id_.empty()&&!dimension_command_&&dimension_drag_original_&&visible_dimension(dragged_dimension_id_)&&*visible_dimension(dragged_dimension_id_)!=*dimension_drag_original_) || label_changed) && changed_) changed_();
         drag_view_id_.clear();
         dragged_dimension_id_.clear();
     }
@@ -1411,12 +1433,15 @@ protected:
         event->accept();
     }
     void keyPressEvent(QKeyEvent* event) override {
+        if(dimension_command_&&(event->key()==Qt::Key_C||event->key()==Qt::Key_T||event->key()==Qt::Key_I)){
+            dimension_command_->set_mode(int(event->key()==Qt::Key_C?drawing::DimensionAttachmentKind::Center:event->key()==Qt::Key_T?drawing::DimensionAttachmentKind::Tangent:drawing::DimensionAttachmentKind::Intersection));event->accept();return;
+        }
         if(event->key()==Qt::Key_Escape) {
             if(dragged_model_&&model_drag_original_&&sheet_){for(auto& view:sheet_->views)if(view.id==dragged_model_->key.view)for(auto& item:view.model_annotations)if(model_annotation_key(item.source)==dragged_model_->key.id)item=*model_drag_original_;dragged_model_.reset();model_drag_original_.reset();model_moved_=false;update();event->accept();return;}
             if (choose_view_) {choose_view_={};update();event->accept();return;}
             if (placed_) { cancel_placement(); event->accept(); return; }
-            if(dimension_mode_ && first_edge_) first_edge_.reset();
-            else if(dimension_mode_) dimension_mode_=false;
+            if(!dragged_dimension_id_.empty()&&dimension_drag_original_){store_presentation(*dimension_drag_original_);dragged_dimension_id_.clear();event->accept();return;}
+            if(dimension_command_){if(dimension_command_->entering())dimension_command_->end_entry();else dimension_command_->reject();event->accept();return;}
             else { selected_dimension_id_.clear(); selected_.clear();selected_annotation_.reset();hovered_annotation_.reset();offered_annotations_.clear(); }
             if (selection_changed_) selection_changed_();
             update(); event->accept(); return;
@@ -1465,8 +1490,13 @@ private:
     std::function<void()> canceled_;
     std::function<void(zima::drawing::DrawingView&, zima::drawing::Point2)> position_;
     QAction *insert_action_{}, *edit_action_{}, *projected_action_{}, *remove_action_{};
-    struct PickedEdge { std::string view_id; zima::drawing::ProjectedEdge edge; };
-    std::optional<PickedEdge> first_edge_;
+    struct OfferedMeasurement {std::string view;drawing::MeasurementCandidate candidate;};
+    QPointer<DrawingDimensionDialog> dimension_command_;
+    std::vector<OfferedMeasurement> measurement_offered_;std::size_t measurement_index_{};
+    QPointF measurement_pointer_;
+    std::function<void(const std::string&,int)> manual_properties_;
+    std::optional<drawing::DrawingDimension> dimension_drag_initial_,dimension_drag_original_;
+    int dimension_drag_handle_{};QPointF dimension_grip_start_;
     bool dimension_mode_{};
     std::string drag_view_id_;
     QPointF drag_start_;
@@ -1483,7 +1513,6 @@ private:
     zima::drawing::Point2 label_position_start_;
     bool label_moved_{};
     QPointF dimension_drag_start_;
-    zima::drawing::Point2 dimension_label_start_;
     std::optional<zima::drawing::TitleBlockContext> title_block_context_;
     double view_zoom_{1.0};
     QPointF view_pan_;
@@ -1555,9 +1584,10 @@ void DrawingWindow::create_actions() {
     delete_view_action_ = drawing->addAction(tr("Odstranit pohled"), this,
         [this] { delete_selected_view(); });
     delete_view_action_->setObjectName("deleteDrawingViewAction");
-    linear_dimension_action_ = drawing->addAction(tr("Lineární kóta"), this,
+    linear_dimension_action_ = drawing->addAction(tr("Kóta"), this,
         [this] { start_linear_dimension(); });
     linear_dimension_action_->setObjectName("drawingDimensionAction");
+    linear_dimension_action_->setIcon(resource_icon("sketch-dimensions"));
     linear_dimension_action_->setCheckable(true);
     selection_action_ = new QAction(tr("Výběr"), this);
     selection_action_->setObjectName("drawingSelectionAction");
@@ -1588,6 +1618,7 @@ void DrawingWindow::create_layout() {
     sheets_->setExpanding(false);
     canvas_ = new DrawingCanvas(central); canvas_->setObjectName("drawingCanvas");
     state_ = new QLabel(central); state_->setObjectName("drawingState");
+    canvas_->set_manual_properties_callback([this](const auto& id,int end){show_dimension_properties(id,end);});
     canvas_->set_dimension_properties_callback([this](const auto& view,const auto& key){edit_model_dimension(view,key);});
     canvas_->set_changed_callback([this] {
         sync_workspace_document();
@@ -2118,6 +2149,7 @@ void DrawingWindow::show_view_properties(zima::drawing::DrawingView view, bool c
         auto found=cache->projections.find(camera_key);
         if(found==cache->projections.end())found=cache->projections.emplace(camera_key,std::make_pair(
             zima::drawing::project_edges(cache->mesh,c),zima::drawing::project_triangles(cache->mesh,c))).first;
+        drawing::capture_measurement_geometry(value,cache->mesh);
         value.projected_edges=found->second.first;value.projected_triangles=found->second.second;drawing::refresh_model_annotations(value,cache->annotations);
     };
     const auto error=[this](const QString& message) {
@@ -2249,7 +2281,7 @@ void DrawingWindow::edit_model_dimension(const std::string& view_id,const std::s
     const auto item=std::ranges::find_if(view->model_annotations,[&](const auto& a){return model_annotation_key(a.source)==key;});
     if(item==view->model_annotations.end()||!item->model_dimension)return;
     auto* owner=qobject_cast<QMainWindow*>(window());
-    auto* dialog=new DimensionLayoutDialog(*item->model_dimension,item->view_layout.value_or(item->model_layout),[this,view_id,key](auto layout){
+    auto* dialog=new DimensionPropertiesDialog(*item->model_dimension,item->view_layout.value_or(item->model_layout),[this,view_id,key](auto layout){
         auto* view=document_.find_view(view_id);if(!view)throw std::runtime_error("Drawing view no longer exists");
         auto item=std::ranges::find_if(view->model_annotations,[&](const auto& a){return model_annotation_key(a.source)==key;});
         if(item==view->model_annotations.end())throw std::runtime_error("Dimension no longer exists");
@@ -2373,10 +2405,28 @@ void DrawingWindow::delete_selected_view() {
 void DrawingWindow::edit_selected_view() {
     if (const auto* view=document_.find_view(canvas_->selected_view_id())) show_view_properties(*view,false);
 }
-void DrawingWindow::start_linear_dimension() {
-    canvas_->start_linear_dimension();
-    update_action_states();
-    set_status_message(tr("Lineární kóta: vyberte dvě rovnoběžné hrany stejného pohledu."));
+void DrawingWindow::start_linear_dimension() {show_dimension_properties({},0);}
+void DrawingWindow::show_dimension_properties(const std::string& id,int extend) {
+    if(view_dialog_){view_dialog_->raise();return;}if(raise_open_properties(window()))return;
+    auto* sheet=active_sheet();if(!sheet||sheet->views.empty())return;
+    auto value=drawing::make_drawing_dimension(canvas_->selected_view_id());
+    if(!id.empty()){
+        const auto found=std::ranges::find(sheet->dimensions,id,&drawing::DrawingDimension::id);
+        if(found==sheet->dimensions.end())return;value=*found;
+    }
+    auto* owner=qobject_cast<QMainWindow*>(window());
+    auto* dialog=new DrawingDimensionDialog(value,id.empty(),[this](const auto& view){return document_.find_view(view);},
+        [this,id](auto committed){
+            auto* sheet=active_sheet();if(!sheet)throw std::runtime_error("List již neexistuje.");
+            if(id.empty())sheet->dimensions.push_back(std::move(committed));
+            else{auto found=std::ranges::find(sheet->dimensions,id,&drawing::DrawingDimension::id);if(found==sheet->dimensions.end())throw std::runtime_error("Kóta již neexistuje.");*found=std::move(committed);}
+            sync_workspace_document();
+        },owner?owner:this);
+    view_dialog_=dialog;canvas_->set_dimension_command(dialog);
+    if(extend)dialog->extend(extend<0);
+    connect(dialog,&QDialog::finished,this,[this]{canvas_->set_dimension_command(nullptr);view_dialog_=nullptr;update_action_states();});
+    if(properties_handler_)properties_handler_(dialog);dialog->show();update_action_states();
+    set_status_message(tr("Kóta: vyberte vazby a umístění. OK potvrdí měřenou kótu."));
 }
 void DrawingWindow::fit_sheet() { canvas_->fit_sheet(); }
 void DrawingWindow::start_selection() {

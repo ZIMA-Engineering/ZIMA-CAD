@@ -1,4 +1,4 @@
-#include "../app/dimension_layout_dialog.hpp"
+#include "../app/dimension_properties_fields.hpp"
 #include "../app/drawing_annotation_layout.hpp"
 #include <QApplication>
 #include <QDialogButtonBox>
@@ -581,11 +581,52 @@ int main(int argc, char **argv) {
             near(box.top(),labels[0].baseline.y()+tight.top()-5);
             require(proof.save(QCoreApplication::applicationDirPath()+"/dimension-text-mask-proof.png"),"Cannot save text-mask proof");
         }
+
+        {
+            // Seven configurations from the user's koty.bmp: two full-radius
+            // text positions in either arrow mode, three shortened positions.
+            QImage proof(1380,870,QImage::Format_ARGB32);proof.fill(Qt::white);QPainter painter(&proof);painter.setRenderHint(QPainter::Antialiasing);
+            kernel::ViewerDimension radius;radius.kind=kernel::ViewerDimensionKind::Radius;radius.value=20;
+            radius.witness_first={};radius.witness_second={20,0,0};radius.line_second=radius.witness_second;radius.plane_normal={0,0,1};radius.label_position=kernel::Vec3{35,0,0};
+            kernel::ModelEnvelope envelope;envelope.include({-30,-25,0});envelope.include({30,25,0});
+            kernel::DimensionLayout attached;attached.envelope_offset=8;
+            near(kernel::layout_dimension(radius,envelope,attached).label_position->x,38);
+            for(int mode=0;mode<3;++mode)for(int row=0;row<(mode==2?3:2);++row){
+                kernel::DimensionLayout placement;placement.radius_rotation_degrees=45;
+                for(int i=0;i<mode;++i)kernel::cycle_dimension_presentation(placement,radius.kind);
+                placement.text_along=(row==0?40.:row==1?-20.:8.)-35;
+                auto shown=kernel::layout_dimension(radius,{},placement);
+                const QPointF center(180+mode*460,220+row*(mode==2?265:410));
+                const auto project=[&](kernel::Vec3 p){return center+QPointF(5*p.x,-5*p.y+2*p.z);};
+                painter.setFont(QFont("Arial",15));const auto presentation=viewer::dimension_presentation(shown,project,QFontMetricsF(painter.font()).horizontalAdvance("R20mm"),11,5);
+                require(presentation.valid,"A radius state from koty.bmp disappeared");
+                require(presentation.handles[1]==project(shown.witness_second),"Arrow grip detached from radius");
+                const auto ray=presentation.handles[1]-center;
+                const auto leader=presentation.curves[mode==2?0:1].back()-presentation.curves[mode==2?0:1].front();
+                near(ray.x()*leader.y()-ray.y()*leader.x(),0);
+                if(mode<2)require(presentation.curves.front().front()==center&&presentation.curves.front().back()==presentation.handles[1],"Full radius lost centre-to-arc line");
+                else require(presentation.curves.front().front()==presentation.handles[1],"Short radius leader lost arrow attachment");
+                near(presentation.text_angle,0);
+                for(int grip:{0,1}){
+                    const auto moved=kernel::layout_dimension(radius,{},kernel::dragged_dimension_layout(shown,{},placement,grip,-4,5));
+                    near(moved.value,20);near(kernel::dimension_dot(kernel::dimension_sub(*moved.label_position,moved.witness_first),moved.plane_normal),0);
+                    if(grip==0)require(moved.witness_second==shown.witness_second,"Text point moved radius arrow");
+                    else {require(moved.witness_second!=shown.witness_second,"Arrow point did not move around radius");near(std::sqrt(kernel::dimension_dot(moved.witness_second,moved.witness_second)),20);}
+                }
+                painter.setPen(QPen(Qt::black,2));painter.setBrush(Qt::NoBrush);painter.drawArc(QRectF(center.x()-100,center.y()-100,200,200),-10*16,115*16);painter.drawEllipse(center,4,4);
+                painter.setPen(QPen(QColor("#9B7A00"),2));for(const auto& curve:presentation.curves)painter.drawPolyline(curve);
+                painter.setBrush(QColor("#9B7A00"));for(const auto& [tip,direction]:presentation.arrows)painter.drawPolygon(viewer::annotation_arrow(tip,direction,11));
+                painter.setFont(QFont("Arial",15));painter.drawText(presentation.text_baseline,"R20mm");
+                painter.setPen(Qt::NoPen);painter.setBrush(QColor("#D05CFF"));painter.drawEllipse(presentation.handles[0],4,4);painter.drawEllipse(presentation.handles[1],4,4);
+                painter.setPen(Qt::black);painter.setFont(QFont("Arial",12));painter.drawText(QPointF(mode*460+20,row*(mode==2?265:410)+35),QString("Rezim %1 / poloha %2").arg(mode).arg(row+1));
+            }
+            painter.end();require(proof.save("build/radius-seven-states-proof.png"),"Cannot save seven radius states");
+        }
         viewer.set_context_menu_callback({});
         viewer.set_dimension_frame_visible(true);
         viewer.grab().save("build/dimension-layout-view.png");
         int dialog_commits = 0;
-        app::DimensionLayoutDialog dialog(
+        app::DimensionPropertiesDialog dialog(
             source, persisted, [&](auto) { ++dialog_commits; }, &owner);
         dialog.show();
         flush();
@@ -596,7 +637,7 @@ int main(int argc, char **argv) {
                 "Presentation dialog exposes Apply");
         dialog.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Cancel)->click();
         require(dialog_commits == 0, "Cancel committed presentation");
-        app::DimensionLayoutDialog confirm(
+        app::DimensionPropertiesDialog confirm(
             source, persisted, [&](auto value) {
                 require(value.arrows_reversed==persisted.arrows_reversed &&
                             value.text_outward==persisted.text_outward,
@@ -609,7 +650,7 @@ int main(int argc, char **argv) {
         require(dialog_commits == 0, "Short MMB confirmed presentation");
         mouse(&viewer, QEvent::MouseButtonDblClick, {850, 650}, Qt::MiddleButton, Qt::MiddleButton);
         require(dialog_commits == 1, "MMB over View did not confirm presentation");
-        app::DimensionLayoutDialog angular_dialog(angle, {0, 8., 0, 0}, [](auto) {}, &owner);
+        app::DimensionPropertiesDialog angular_dialog(angle, {0, 8., 0, 0}, [](auto) {}, &owner);
         require(!angular_dialog.findChild<QComboBox *>("dimensionProjectionPlane")->isEnabled(),
                 "Angular presentation offers an invalid plane");
         std::cout << "Oriented frames, occurrences, immutable measurements, persistence, per-view "
