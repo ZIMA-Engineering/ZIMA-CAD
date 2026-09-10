@@ -744,6 +744,9 @@ protected:
         update();
     }
     void contextMenuEvent(QContextMenuEvent* event) override {
+        if(dragged_model_){event->accept();return;}
+        if(selected_annotation_)for(const auto& handle:annotation_handles_)
+            if(handle.key.kind==selected_annotation_->kind && handle.key.view==selected_annotation_->view && handle.key.id==selected_annotation_->id && QLineF(handle.point,event->pos()).length()<=8){event->accept();return;}
         if(model_pick_){offer_annotations(event->pos());if(!offered_annotations_.empty()){offered_annotation_index_=(offered_annotation_index_+1)%offered_annotations_.size();hovered_annotation_=offered_annotations_[offered_annotation_index_].key;update();}event->accept();return;}
         if (placed_ || preview_ || dimension_mode_ || view_panning_) return;
         if(const auto field=field_at(event->pos());!field.empty()) {
@@ -979,6 +982,7 @@ public:
                 const auto id=model_annotation_key(item.source);const bool offered=!printing&&model_pick_&&preview_&&view->id==preview_->id&&model_offered_.contains(id);
                 if(!item.visible&&!offered)continue;
                 const auto layout=model_annotation_layout(*view,item,paper_bounds.adjusted(-5,-5,5,5),QFontMetricsF(painter.font()).horizontalAdvance(QString::fromStdString(item.text))/zoom);
+                if(item.model_dimension && layout.curves.empty())continue;
                 const AnnotationKey key{AnnotationKind::Model,view->id,id,0};
                 QColor color=annotation_color(key,printing?ink:item.unresolved?QColor("#E05050"):!item.visible?QColor("#777777"):item.kind==drawing::ModelAnnotationKind::Dimension?QColor("#FFD400"):QColor("#E6C85C"),printing);
                 painter.save();QPen pen(color,width(false));if(item.kind!=drawing::ModelAnnotationKind::Dimension)pen.setDashPattern({8*zoom/pen.widthF(),1.5*zoom/pen.widthF(),.5*zoom/pen.widthF(),1.5*zoom/pen.widthF()});painter.setPen(pen);painter.setBrush(Qt::NoBrush);QPainterPath stroke;
@@ -1097,8 +1101,8 @@ protected:
         if (sheet_ == nullptr) return;
         if(event->button()==Qt::RightButton&&dragged_model_&&(event->buttons()&Qt::LeftButton)) {
             for(auto& view:sheet_->views)if(view.id==dragged_model_->key.view)for(auto& item:view.model_annotations)if(model_annotation_key(item.source)==dragged_model_->key.id&&item.model_dimension){
-                model_drag_layout_initial_.arrows_reversed=!model_drag_layout_initial_.arrows_reversed;
-                auto layout=item.view_layout.value_or(item.model_layout);layout.arrows_reversed=model_drag_layout_initial_.arrows_reversed;item.view_layout=layout;model_moved_=true;
+                kernel::cycle_dimension_presentation(model_drag_layout_initial_,item.model_dimension->kind);
+                auto layout=item.view_layout.value_or(item.model_layout);layout.arrows_reversed=model_drag_layout_initial_.arrows_reversed;layout.radius_center_line_hidden=model_drag_layout_initial_.radius_center_line_hidden;item.view_layout=layout;model_moved_=true;
             }update();event->accept();return;
         }
         if ((event->buttons() & Qt::MiddleButton) &&

@@ -55,6 +55,11 @@ void validate(const std::vector<ModelAnnotation> &items) {
 }
 } // namespace
 ModelAnnotation project_model_annotation(const DrawingView& view,ModelAnnotation item) {
+    if(item.model_axis) {
+        const auto project=[&](kernel::Vec3 p){return Point2{dot(p,view.camera.horizontal),dot(p,view.camera.vertical)};};
+        item.curves={{project((*item.model_axis)[0]),project((*item.model_axis)[1])}};
+        return item;
+    }
     if(!item.model_dimension)return item;
     const auto d=kernel::layout_dimension(*item.model_dimension,item.model_envelope,item.view_layout.value_or(item.model_layout));
     const auto project=[&](kernel::Vec3 p){return Point2{dot(p,view.camera.horizontal),dot(p,view.camera.vertical)};};
@@ -168,6 +173,12 @@ void refresh_model_annotations(DrawingView &view,
       ModelAnnotation item;
       item.source = identity(axis.reference);
       item.kind = ModelAnnotationKind::Axis;
+      item.model_envelope=source.envelope;
+      if(auto frame=source.object_frames.find({axis.reference.owner_id,axis.reference.instance_path});
+         frame!=source.object_frames.end() && frame->second.valid &&
+         kernel::dimension_dot(kernel::dimension_sub(frame->second.maximum,frame->second.minimum),
+                               kernel::dimension_sub(frame->second.maximum,frame->second.minimum))>1e-12)
+          item.model_envelope=frame->second;
       item.text_anchor = project(axis.point);
       const double length = std::sqrt(dot(axis.direction, axis.direction));
       if (length <= 1e-12 || !std::isfinite(axis.display_length) ||
@@ -179,6 +190,7 @@ void refresh_model_annotations(DrawingView &view,
            a.z - axis.direction.z * half};
       b = {b.x + axis.direction.x * half, b.y + axis.direction.y * half,
            b.z + axis.direction.z * half};
+      item.model_axis=std::array<kernel::Vec3,2>{a,b};
       item.curves = {{project(a), project(b)}};
       add(std::move(item));
     }
@@ -213,6 +225,7 @@ serialize_model_annotations(const std::vector<ModelAnnotation> &items) {
                       {"text", item.text},
                       {"value", item.value},
                       {"visible", item.visible},
+                      {"model_axis",item.model_axis?json{document::dimension_vec_json((*item.model_axis)[0]),document::dimension_vec_json((*item.model_axis)[1])}:json(nullptr)},
                       {"unresolved", item.unresolved},
                       {"paper_handles", handles},
                       {"model_dimension",item.model_dimension?document::dimension_geometry_json(*item.model_dimension):json(nullptr)},
@@ -248,6 +261,8 @@ deserialize_model_annotations(const std::string &value) {
     item.text = j.at("text");
     item.value = j.at("value");
     item.visible = j.at("visible");
+    if(j.contains("model_axis")&&!j.at("model_axis").is_null())
+        item.model_axis=std::array<kernel::Vec3,2>{document::dimension_vec_from_json(j.at("model_axis").at(0)),document::dimension_vec_from_json(j.at("model_axis").at(1))};
     item.unresolved = j.at("unresolved");
     for (const auto &[key, p] : j.at("paper_handles").items())
       item.paper_handles[key] = {p.at(0), p.at(1)};

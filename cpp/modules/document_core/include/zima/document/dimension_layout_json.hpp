@@ -7,7 +7,7 @@ inline nlohmann::json dimension_layout_json(const kernel::DimensionLayout &v) {
             {"envelope_offset",
              v.envelope_offset ? nlohmann::json(*v.envelope_offset) : nlohmann::json(nullptr)},
             {"text_along", v.text_along},
-            {"text_outward", v.text_outward}, {"arrows_reversed", v.arrows_reversed}, {"line_offset", v.line_offset}};
+            {"text_outward", v.text_outward}, {"arrows_reversed", v.arrows_reversed}, {"line_offset", v.line_offset}, {"radius_center_line_hidden", v.radius_center_line_hidden}};
 }
 inline kernel::DimensionLayout dimension_layout_from_json(const nlohmann::json &j) {
     kernel::DimensionLayout v;
@@ -18,6 +18,7 @@ inline kernel::DimensionLayout dimension_layout_from_json(const nlohmann::json &
     v.text_outward = j.at("text_outward");
     v.arrows_reversed = j.value("arrows_reversed", false);
     v.line_offset = j.value("line_offset", 0.);
+    v.radius_center_line_hidden = j.value("radius_center_line_hidden", false);
     kernel::validate_dimension_layout(v);
     return v;
 }
@@ -110,7 +111,7 @@ inline nlohmann::json dimension_geometry_json(const kernel::ViewerDimension &d) 
             {"text", d.display_text_override},
             {"lock_key", d.value_lock_key},
             {"driving", d.driving},
-            {"locked", d.locked}, {"arrows_reversed", d.arrows_reversed},
+            {"locked", d.locked}, {"arrows_reversed", d.arrows_reversed}, {"radius_center_line_hidden", d.radius_center_line_hidden},
             {"participants", d.participant_semantic_keys}};
 }
 inline kernel::ViewerDimension dimension_geometry_from_json(const nlohmann::json &j) {
@@ -133,6 +134,7 @@ inline kernel::ViewerDimension dimension_geometry_from_json(const nlohmann::json
     d.driving = j.at("driving");
     d.locked = j.at("locked");
     d.arrows_reversed = j.value("arrows_reversed", false);
+    d.radius_center_line_hidden = j.value("radius_center_line_hidden", false);
     d.participant_semantic_keys = j.at("participants").get<std::vector<std::string>>();
     return d;
 }

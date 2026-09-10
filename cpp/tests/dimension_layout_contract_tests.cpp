@@ -8,6 +8,7 @@
 #include <QPainter>
 #include <QPushButton>
 #include <QTemporaryDir>
+#include <QVariantAnimation>
 #include <iostream>
 #include <zima/assembly/assembly_document.hpp>
 #include <zima/document/dimension_layout_json.hpp>
@@ -189,6 +190,28 @@ int main(int argc, char **argv) {
                                "/dimension-presentation-proof.png"),
                     "Cannot save visual proof");
         }
+        {
+            drawing::ModelAnnotationSource source;
+            source.document_id="part";
+            source.envelope.include({-20,-10,-5});source.envelope.include({20,10,5});
+            source.axes.push_back({{0,0,0},{0,0,1},10,{"part:origin","origin:axis:z",{}}});
+            drawing::DrawingView view;view.camera={{1,0,0},{0,1,0},{0,0,1}};view.scale=1;
+            drawing::refresh_model_annotations(view,std::span(&source,1));
+            auto cross=app::model_annotation_layout(view,view.model_annotations[0],{});
+            require(cross.curves.size()==2 && cross.centers.size()==1,"End-on origin axis has no cross");
+            near(cross.curves[0].front().x(),-22);near(cross.curves[0].back().x(),22);
+            near(cross.curves[1].front().y(),-12);near(cross.curves[1].back().y(),12);
+            const auto saved=drawing::deserialize_model_annotations(drawing::serialize_model_annotations(view.model_annotations));
+            view.camera={{0,0,1},{0,1,0},{-1,0,0}};
+            auto side=app::model_annotation_layout(view,saved[0],{});
+            require(side.curves.size()==1,"Rotating saved axis did not replace cross with line");
+            near(QLineF(side.curves[0].front(),side.curves[0].back()).length(),14);
+            kernel::ViewerDimension d;d.witness_second={10,0,0};d.line_first={0,4,0};d.line_second={10,4,0};
+            const auto end_on=[](kernel::Vec3 p){return QPointF(p.z,p.y);};
+            require(!viewer::dimension_presentation(d,end_on,10).valid,"End-on dimension stayed visible");
+            const auto edge_on_plane=[](kernel::Vec3 p){return QPointF(p.x,p.z);};
+            require(viewer::dimension_presentation(d,edge_on_plane,10).valid,"Visible length hidden by edge-on plane");
+        }
         kernel::ModelEnvelope bounds;
         bounds.include({0, 0, 0});
         bounds.include({20, 10, 5});
@@ -338,6 +361,10 @@ int main(int argc, char **argv) {
         });
         viewer.set_mesh(mesh);
         viewer.set_view_direction({0, 0, 1});
+        // Establish the normal view before sampling grip coordinates. Otherwise
+        // the 850 ms camera animation races the synthetic mouse events.
+        for(auto* animation:viewer.findChildren<QVariantAnimation*>())
+            animation->setCurrentTime(animation->duration());
         viewer.fit_all();
         flush();
         viewer.confirm_reference("feature", "parameter:length", {},
@@ -375,6 +402,52 @@ int main(int argc, char **argv) {
         mouse(&viewer, QEvent::MouseButtonRelease, *handle, Qt::LeftButton, Qt::NoButton);
         require(persisted.arrows_reversed && commits == 2,
                 "RMB during LMB grip did not persist reversed arrows");
+        for(auto kind:{kernel::ViewerDimensionKind::Radius,kernel::ViewerDimensionKind::Diameter}) {
+            persisted={};
+            auto radial_source=source;radial_source.kind=kind;
+            radial_source.label_position=kernel::Vec3{28,0,0};
+            mesh.dimensions={radial_source};viewer.set_mesh(mesh);
+            viewer.set_active_sketch_owner("feature");
+            viewer.confirm_reference("feature","parameter:length",{},viewer::CandidateKind::Dimension);
+            const auto selected=*viewer.confirmed_candidate();
+            const auto before=*viewer.dimension_handle_position(selected,0);
+            int menus=0;viewer.set_context_menu_callback([&](const auto&,const auto&){++menus;});
+            mouse(&viewer,QEvent::MouseButtonPress,before,Qt::RightButton,Qt::RightButton);
+            mouse(&viewer,QEvent::MouseButtonRelease,before,Qt::RightButton,Qt::NoButton);
+            require(menus==0,"Grip opened dimension context menu");
+            mouse(&viewer,QEvent::MouseButtonPress,before,Qt::LeftButton,Qt::LeftButton);
+            mouse(&viewer,QEvent::MouseMove,before+QPointF(25,-50),Qt::NoButton,Qt::LeftButton);
+            const auto after=*viewer.dimension_handle_position(selected,0);
+            if(QLineF(before,after).length()<=15)std::cerr<<"Radial kind="<<int(kind)<<" before="<<before.x()<<","<<before.y()<<" after="<<after.x()<<","<<after.y()<<" commits="<<commits<<"\n";
+            require(QLineF(before,after).length()>15,"Normal radial text grip did not move");
+            mouse(&viewer,QEvent::MouseButtonRelease,after,Qt::LeftButton,Qt::NoButton);
+            require(viewer.dimension_source(selected)==radial_source,"Radial drag changed measuring data");
+            if(kind==kernel::ViewerDimensionKind::Radius) {
+                viewer.confirm_reference("feature","parameter:length",{},viewer::CandidateKind::Dimension);
+                mouse(&viewer,QEvent::MouseButtonPress,after,Qt::LeftButton,Qt::LeftButton);
+                for(int step=0;step<2;++step) {
+                    mouse(&viewer,QEvent::MouseButtonPress,after,Qt::RightButton,Qt::LeftButton|Qt::RightButton);
+                    mouse(&viewer,QEvent::MouseButtonRelease,after,Qt::RightButton,Qt::LeftButton);
+                }
+                mouse(&viewer,QEvent::MouseButtonRelease,after,Qt::LeftButton,Qt::NoButton);
+                if(!persisted.radius_center_line_hidden)std::cerr<<"cycle flags="<<persisted.arrows_reversed<<","<<persisted.radius_center_line_hidden<<" commits="<<commits<<" selected="<<viewer.confirmed_candidate().has_value()<<"\n";
+                require(persisted.arrows_reversed&&persisted.radius_center_line_hidden,"Radius cycle did not hide center line");
+                require(document::dimension_layout_from_json(document::dimension_layout_json(persisted))==persisted,"Radius presentation lost on save");
+                auto displayed=kernel::layout_dimension(radial_source,{},persisted);
+                const auto front=[](kernel::Vec3 p){return QPointF(p.x*10,-p.y*10);};
+                kernel::BodyResult packet;packet.mesh.dimensions={displayed};
+                const auto reloaded=document::load_body_result(document::serialize_body_result(packet));
+                require(reloaded.mesh.dimensions.front().radius_center_line_hidden &&
+                        reloaded.mesh.dimensions.front().arrows_reversed &&
+                        reloaded.mesh.dimensions.front().label_position==displayed.label_position,
+                        "Viewer packet lost radius presentation");
+                const auto presentation=viewer::dimension_presentation(displayed,front,50);
+                near(QLineF(presentation.curves[0].front(),presentation.curves[0].back()).length(),17);
+                kernel::cycle_dimension_presentation(persisted,kind);
+                require(!persisted.arrows_reversed&&!persisted.radius_center_line_hidden,"Radius cycle did not return to full line");
+            }
+        }
+        viewer.set_context_menu_callback({});
         viewer.set_dimension_frame_visible(true);
         viewer.grab().save("build/dimension-layout-view.png");
         int dialog_commits = 0;

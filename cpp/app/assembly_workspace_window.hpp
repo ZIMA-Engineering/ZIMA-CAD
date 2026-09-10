@@ -544,6 +544,7 @@ private:
         universal_pending_dimension_;
     std::string universal_corner_radius_dimension_id_;
     std::optional<std::array<double, 2>> universal_dimension_cursor_;
+    zima::kernel::DimensionLayout universal_dimension_layout_;
     bool preserve_view_on_refresh_{};
     std::map<std::string, std::array<float, 8>> document_camera_states_;
     std::optional<zima::document::PartDocument> sketch_drag_document_;

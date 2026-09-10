@@ -60,6 +60,7 @@ struct ModelAnnotation {
     // include text, arrow_first and arrow_second; never indexed topology.
     std::map<std::string, Point2> paper_handles;
     std::optional<kernel::ViewerDimension> model_dimension;
+    std::optional<std::array<kernel::Vec3,2>> model_axis;
     kernel::ModelEnvelope model_envelope;
     kernel::DimensionLayout model_layout;
     std::optional<kernel::DimensionLayout> view_layout;

@@ -89,8 +89,21 @@ struct DimensionLayout {
     double text_along{}, text_outward{};
     bool arrows_reversed{};
     double line_offset{};
+    bool radius_center_line_hidden{};
     bool operator==(const DimensionLayout &) const = default;
 };
+inline void cycle_dimension_presentation(DimensionLayout &layout, ViewerDimensionKind kind) {
+    if (kind != ViewerDimensionKind::Radius) {
+        layout.arrows_reversed = !layout.arrows_reversed;
+    } else if (layout.radius_center_line_hidden) {
+        layout.radius_center_line_hidden = false;
+        layout.arrows_reversed = false;
+    } else if (layout.arrows_reversed) {
+        layout.radius_center_line_hidden = true;
+    } else {
+        layout.arrows_reversed = true;
+    }
+}
 struct DimensionLayoutEntry {
     std::string owner_id, semantic_key;
     DimensionLayout layout;
@@ -118,6 +131,7 @@ inline ViewerDimension layout_dimension(ViewerDimension d, const ModelEnvelope &
                                         const DimensionLayout &layout) {
     validate_dimension_layout(layout);
     d.arrows_reversed = layout.arrows_reversed;
+    d.radius_center_line_hidden = layout.radius_center_line_hidden;
     auto normal = dimension_unit(d.plane_normal);
     const bool angular = d.kind == ViewerDimensionKind::Angular;
     const auto direction =
@@ -210,6 +224,11 @@ inline DimensionLayout dragged_dimension_layout(const ViewerDimension &shown,
                                                 const ModelEnvelope &bounds,
                                                 DimensionLayout initial, int handle, double along,
                                                 double outward) {
+    if (shown.kind == ViewerDimensionKind::Radius || shown.kind == ViewerDimensionKind::Diameter) {
+        initial.text_along += along;
+        initial.text_outward += outward;
+        return initial;
+    }
     if (handle == 0) {
         auto moved = dragged_dimension_layout(shown, bounds, initial, 1, 0, outward);
         moved.text_along += along;

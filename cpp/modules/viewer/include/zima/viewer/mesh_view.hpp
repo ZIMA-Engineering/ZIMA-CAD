@@ -185,6 +185,7 @@ public:
         const ViewerCandidate& candidate) const;
     [[nodiscard]] std::optional<QPoint> candidate_dimension_label_position(
         const ViewerCandidate& candidate) const;
+    void set_dimension_placement_cycle_callback(std::function<bool()> callback);
     void set_empty_right_click_callback(std::function<bool()> callback);
     void set_single_candidate_right_click_callback(
         std::function<bool(const ViewerCandidate&)> callback);

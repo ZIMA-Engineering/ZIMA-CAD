@@ -199,6 +199,7 @@ struct MeshView::Impl {
     std::function<void(std::vector<ViewerCandidate>, bool)>
         sketch_box_selection_callback;
     std::vector<ViewerCandidate> sketch_box_selected_candidates;
+    std::function<bool()> dimension_placement_cycle_callback;
     std::function<bool()> empty_right_click_callback;
     std::function<bool(const ViewerCandidate&)>
         single_candidate_right_click_callback;
@@ -868,7 +869,10 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
                     impl_->dimension_decimal_places) +
                 QString::fromStdString(dimension.unit_suffix);
         const auto layout=dimension_presentation(dimension,project,metrics.horizontalAdvance(text));
-        if(!layout.valid)continue;
+        if(!layout.valid) {
+            std::erase_if(candidates,[index](const auto& c){return c.kind==CandidateKind::Dimension && c.geometry_index==index;});
+            continue;
+        }
         QTransform text_transform;text_transform.translate(layout.text_baseline.x(),layout.text_baseline.y());text_transform.rotate(layout.text_angle);
         auto text_bounds=text_transform.mapRect(metrics.boundingRect(text));
         text_bounds.adjust(-hit_radius,-hit_radius,hit_radius,hit_radius);
@@ -1648,6 +1652,8 @@ std::optional<QPoint> MeshView::candidate_dimension_label_position(
     QTransform transform;transform.translate(layout.text_baseline.x(),layout.text_baseline.y());transform.rotate(layout.text_angle);
     return transform.map(metrics.boundingRect(text).center()).toPoint();
 }
+void MeshView::set_dimension_placement_cycle_callback(std::function<bool()> callback) { impl_->dimension_placement_cycle_callback=std::move(callback); }
+
 void MeshView::set_empty_right_click_callback(std::function<bool()> callback) {
     impl_->empty_right_click_callback = std::move(callback);
 }
@@ -4894,9 +4900,12 @@ MeshView::ray_at(const QPointF& position) const {
 }
 
 void MeshView::mousePressEvent(QMouseEvent* event) {
+    if(event->button()==Qt::RightButton && impl_->dimension_placement_cycle_callback &&
+       impl_->dimension_placement_cycle_callback()) {event->accept();return;}
     if(event->button()==Qt::RightButton&&impl_->layout_drag&&(event->buttons()&Qt::LeftButton)) {
-        auto& drag=*impl_->layout_drag;drag.initial.arrows_reversed=!drag.initial.arrows_reversed;
-        drag.current.arrows_reversed=drag.initial.arrows_reversed;drag.moved=true;
+        auto& drag=*impl_->layout_drag;kernel::cycle_dimension_presentation(drag.initial,drag.source.kind);
+        drag.current.arrows_reversed=drag.initial.arrows_reversed;
+        drag.current.radius_center_line_hidden=drag.initial.radius_center_line_hidden;drag.moved=true;
         auto shown=kernel::layout_dimension(drag.source,drag.bounds,drag.current);const auto i=drag.candidate.geometry_index;
         if(i<impl_->mesh.dimensions.size())impl_->mesh.dimensions[i]=shown;else impl_->transient_dimensions[i-impl_->mesh.dimensions.size()]=shown;
         update();event->accept();return;
@@ -4908,9 +4917,18 @@ void MeshView::mousePressEvent(QMouseEvent* event) {
             const auto key=kernel::ObjectEnvelopeKey{source->reference.owner_id,source->reference.instance_path};
             const auto bounds=impl_->object_bounds.contains(key)&&impl_->object_bounds.at(key).valid?impl_->object_bounds.at(key):impl_->dimension_bounds;
             const auto initial=impl_->dimension_layout_resolver?impl_->dimension_layout_resolver(source->reference).value_or(kernel::DimensionLayout{}):kernel::DimensionLayout{};
+            if(impl_->camera_animation){impl_->camera_animation->stop();impl_->camera_animation=nullptr;}
             impl_->layout_drag=Impl::LayoutDrag{candidate,*source,shown,bounds,initial,initial,event->position(),handle,false};
             event->accept();return;
         }
+    }
+    if(event->button()==Qt::RightButton && impl_->confirmed_candidate &&
+       impl_->confirmed_candidate->kind==CandidateKind::Dimension) {
+        for(int handle=0;handle<3;++handle)
+            if(auto point=dimension_handle_position(*impl_->confirmed_candidate,handle);
+               point && QLineF(*point,event->position()).length()<=5.5) {
+                event->accept();return;
+            }
     }
     impl_->last_pointer = event->position().toPoint();
     if (event->button() == Qt::LeftButton) {
@@ -5161,6 +5179,14 @@ void MeshView::mousePressEvent(QMouseEvent* event) {
         event->accept();
     } else if (event->button() == Qt::RightButton) {
         if (impl_->confirmed_candidate) {
+            if(impl_->confirmed_candidate->kind==CandidateKind::Dimension) {
+                const auto candidates=selection_candidates_at(event->position());
+                const auto& selected=*impl_->confirmed_candidate;
+                if(std::none_of(candidates.begin(),candidates.end(),[&](const auto& c){
+                    return c.kind==selected.kind && c.owner_id==selected.owner_id &&
+                           c.semantic_key==selected.semantic_key && c.instance_path==selected.instance_path;
+                })){event->accept();return;}
+            }
             if (impl_->context_menu_callback) {
                 impl_->context_menu_callback(
                     *impl_->confirmed_candidate, event->globalPosition().toPoint());

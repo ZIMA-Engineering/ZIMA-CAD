@@ -194,6 +194,7 @@ struct ViewerDimension {
     // A reference-driven RX/RY/RZ dimension edits its local correction.
     std::string value_lock_key;
     bool arrows_reversed{};
+    bool radius_center_line_hidden{};
     bool operator==(const ViewerDimension&)const=default;
 };
 

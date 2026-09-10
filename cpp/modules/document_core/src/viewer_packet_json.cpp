@@ -500,6 +500,9 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result) {
                         ? "diameter" : "linear"},
             {"plane_normal", serialize_vec3(dimension.plane_normal)},
             {"sweep_degrees", dimension.sweep_degrees},
+            {"arrows_reversed", dimension.arrows_reversed},
+            {"radius_center_line_hidden", dimension.radius_center_line_hidden},
+            {"label_position", dimension.label_position ? serialize_vec3(*dimension.label_position) : nlohmann::json(nullptr)},
         });
     }
     nlohmann::json packet = {
@@ -743,6 +746,10 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source) {
                                  : zima::kernel::ViewerDimensionKind::Linear;
         loaded.plane_normal = load_vec3(dimension.at("plane_normal"));
         loaded.sweep_degrees = dimension.at("sweep_degrees").get<double>();
+        loaded.arrows_reversed = dimension.value("arrows_reversed", false);
+        loaded.radius_center_line_hidden = dimension.value("radius_center_line_hidden", false);
+        if(dimension.contains("label_position") && !dimension.at("label_position").is_null())
+            loaded.label_position = load_vec3(dimension.at("label_position"));
         require_finite(loaded.value, "viewer dimension value");
         require_finite(loaded.sweep_degrees, "viewer dimension sweep");
         if (!loaded.reference.valid()) {

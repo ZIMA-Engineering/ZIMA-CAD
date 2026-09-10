@@ -82,6 +82,16 @@ drawing_annotation_sources(workspace::Workspace *workspace,
             "Annotation source document identity mismatch");
       envelope=kernel::model_envelope(calculated);frames=document::part_annotation_envelopes(part,calculated);layouts=part.dimension_layouts;
       append(mesh, part.construction_viewer_mesh());
+      append(mesh, part.origin_viewer_mesh());
+      frames[{part.document_id+":origin",{}}]=envelope;
+      for(const auto& body:part.body_history.bodies()) {
+        document::PartDocument carrier;carrier.document_id=body.scope.id;
+        auto origin=carrier.origin_viewer_mesh();
+        for(auto& axis:origin.axes)axis.reference.owner_id=body.origin().id;
+        append(mesh,part.place_body_mesh(std::move(origin),body.scope.id));
+        if(auto found=frames.find({body.scope.id,{}});found!=frames.end())
+            frames[{body.origin().id,{}}]=found->second;
+      }
       mesh.axes.insert(mesh.axes.end(),
                        calculated.original_references.axes.begin(),
                        calculated.original_references.axes.end());
@@ -110,6 +120,8 @@ drawing_annotation_sources(workspace::Workspace *workspace,
       const auto scene=assembly.build_scene();envelope=kernel::model_envelope(scene);frames=scene.annotation_frames;layouts=assembly.dimension_layouts;
       std::erase_if(frames,[](const auto& entry){return !entry.first.second.empty();});
       append(mesh, assembly.construction_viewer_mesh());
+      append(mesh, assembly.origin_viewer_mesh());
+      frames[{assembly.document_id+":origin",{}}]=envelope;
       // Only dimensions owned by this Assembly; child Parts contribute axes
       // and construction references, never their modeling dimensions.
       for (auto dimension : assembly.build_scene().dimensions)
@@ -201,7 +213,9 @@ drawing_annotation_sources(workspace::Workspace *workspace,
     for (const auto &d : mesh.dimensions)
       mesh.vertices.push_back(d.label_position.value_or(d.line_second));
     frames[{}]=envelope;
+    const auto geometry_frames=frames;
     frames=kernel::object_envelopes(mesh,std::move(frames));
+    for(const auto& [key,frame]:geometry_frames)if(frame.valid)frames[key]=frame;
     for(const auto& [key,frame]:frames) {
       mesh.vertices.push_back(frame.origin);
       for(auto axis:frame.axes)mesh.vertices.push_back(kernel::dimension_add(frame.origin,axis));

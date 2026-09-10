@@ -55,8 +55,18 @@ DimensionPresentation dimension_presentation(const kernel::ViewerDimension &d, P
         out.curves.push_back({w1, a});
         out.curves.push_back({w1, b});
     } else if (radial) {
-        a = d.kind == kernel::ViewerDimensionKind::Diameter ? w1 - (w2 - w1) : w1;
         b = w2;
+        if (d.label_position) {
+            const auto radius_vector = kernel::dimension_sub(d.witness_second, d.witness_first);
+            const auto label_vector = kernel::dimension_sub(*d.label_position, d.witness_first);
+            const auto in_plane = kernel::dimension_sub(label_vector,
+                kernel::dimension_scale(normal, kernel::dimension_dot(label_vector, normal)));
+            if (kernel::dimension_dot(in_plane, in_plane) > 1e-12)
+                b = project(kernel::dimension_add(d.witness_first,
+                    kernel::dimension_scale(kernel::dimension_unit(in_plane),
+                        std::sqrt(kernel::dimension_dot(radius_vector, radius_vector)))));
+        }
+        a = d.kind == kernel::ViewerDimensionKind::Diameter ? w1 - (b - w1) : w1;
         line = {a, b};
     } else {
         line = {a, b};
@@ -69,6 +79,13 @@ DimensionPresentation dimension_presentation(const kernel::ViewerDimension &d, P
     for (auto p : {w1, w2})
         if (!std::isfinite(p.x()) || !std::isfinite(p.y()))
             return out;
+    // Hide only a dimension whose projected measuring line collapses to a point.
+    // An edge-on dimension plane alone is not a reason to hide a readable line.
+    double projected_span=0;
+    for(auto p:line)projected_span=std::max(projected_span,QLineF(line.front(),p).length());
+    const auto model_line=kernel::dimension_sub(angular?d.line_first:d.witness_second,d.witness_first);
+    if(kernel::dimension_dot(model_line,model_line)>1e-18 && projected_span<=std::max(1e-7,scale*std::sqrt(kernel::dimension_dot(model_line,model_line))*1e-6))
+        return out;
     const auto middle = angular ? line[line.size() / 2] : (a + b) * .5;
     auto along = dimension_screen_unit(
         angular ? line[line.size() / 2 + 1] - line[line.size() / 2 - 1] : b - a);
@@ -107,7 +124,10 @@ DimensionPresentation dimension_presentation(const kernel::ViewerDimension &d, P
     }
     const auto start = center - text_direction * text_width / 2,
                end = center + text_direction * text_width / 2;
-    out.curves.push_back(line);
+    auto painted_line = line;
+    if (d.kind == kernel::ViewerDimensionKind::Radius && d.radius_center_line_hidden)
+        painted_line = {b - dimension_screen_unit(b - a) * arrow * 1.7, b};
+    out.curves.push_back(painted_line);
     if (out.outside) {
         const auto join =
             QLineF(attachment, start).length() < QLineF(attachment, end).length() ? start : end;

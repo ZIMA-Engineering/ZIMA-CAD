@@ -1277,3 +1277,14 @@ lokální přepis a nevrací jej do modelu. Escape ruší rozpracované tažení
 ### Návaznost vnějšího textu kóty (2026-09-10)
 
 Společná prezentace pro Part, Assembly, Sketcher a Drawing vede spojnici textu jako přímé prodloužení kótovací čáry; u oblouku používá směr koncového segmentu. V izometrii zůstává čára pod textem vodorovná a text vždy vně, i při tažení mezi vynášecí čáry. Poloha textu se promítá do tohoto přípustného směru; nevytváří libovolný šikmý lom u šipky. Regresní test kontroluje rovnoběžnost délkových, poloměrových a průměrových kót i vnější polohu při tažení.
+
+### Radiální úchopy, přepínání a projekce os (2026-09-10)
+
+- Textový úchop poloměru a průměru mění směr umístění kolem kružnice i vzdálenost textu. Měřené reference a hodnota zůstávají neměnné. Stejný výpočet spotřebovávají modelové View a Drawing.
+- Běžné skicové kóty se táhnou společnými fialovými úchopy. Výběr existující kóty z univerzálního příkazu ihned obnoví jejich dostupnost.
+- RMB při držení úchopu obrací šipky. Poloměr cykluje plná čára / obrácená šipka / obrácená šipka bez čáry do středu; třetí klik vrátí první stav. RMB při posledním zadávacím bodu skicové kóty používá stejný cyklus. Nastavení nově vložené kóty se ukládá ve stejné transakci jako kóta.
+- Kontextové menu kóty je dostupné na označené kótě mimo její úchopy; uchopení ani přepínání vzhledu menu neotevírá. Drawing ukládá vlastní přepnutí bez změny modelu.
+- Výkresové osy uchovávají 3D konce a zdrojový orientovaný kvádr. Při pohledu podél osy se vykreslí kříž se středovým bodem, který přesahuje promítnutý kvádr o 2 mm na papíře. Natočením pohledu vznikne opět úsečka. Show/Erase zahrnuje počátky Part, Body a Assembly.
+- Kóta se dočasně nevykreslí pouze při zhroucení průmětu kótovací čáry do bodu; samotné natočení roviny kóty ji neschovává. Zůstává uložená a po natočení zpět se znovu objeví.
+
+Ověření pokrývá skutečné radiální tažení myší, cyklus a persistenci poloměru, potlačení menu na úchopu, reprojekci uložené osy a rozdíl mezi kolmou kótovací čárou a hranově viděnou rovinou kóty.
