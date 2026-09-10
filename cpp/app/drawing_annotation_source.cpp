@@ -75,6 +75,7 @@ drawing_annotation_sources(workspace::Workspace *workspace,
     kernel::ModelEnvelope envelope;
     std::map<kernel::ObjectEnvelopeKey,kernel::ModelEnvelope> frames;
     std::vector<kernel::DimensionLayoutEntry> layouts;
+    std::map<std::pair<std::string,std::string>,kernel::ModelEnvelope> axis_frames;
     const auto part_mesh = [&](const document::PartDocument &part,
                                const kernel::ViewerMesh &calculated) {
       if (part.document_id != id)
@@ -110,6 +111,48 @@ drawing_annotation_sources(workspace::Workspace *workspace,
         auto packet = sketch.viewer_mesh();
         if (const auto *body = part.body_owner_for_object(sketch.id))
           packet = part.place_body_mesh(std::move(packet), body->scope.id);
+        frames=kernel::object_envelopes(packet,std::move(frames));
+        // Circular profile axes use the bounds of that cylinder, not the box
+        // spanning every hole of the owning extrusion. Consume persisted Sketch
+        // geometry and calculated owner bounds; no body calculation is needed.
+        for(const auto& circle:sketch.circles) {
+          if(circle.construction || circle.radius<=0)continue;
+          const auto* center=sketch.find_point(circle.center_point_id);
+          if(!center)continue;
+          const auto c=sketch.world_point(center->x,center->y);
+          kernel::ViewerMesh basis;
+          basis.vertices={c,kernel::dimension_add(c,sketch.x_axis()),
+              kernel::dimension_add(c,sketch.y_axis()),kernel::dimension_add(c,sketch.normal())};
+          if(const auto* body=part.body_owner_for_object(sketch.id))
+            basis=part.place_body_mesh(std::move(basis),body->scope.id);
+          const auto point=basis.vertices[0];
+          const auto normal=kernel::dimension_unit(kernel::dimension_sub(basis.vertices[3],point));
+          const auto* owner=part.find_container(sketch.owner_container_id);
+          for(const auto& axis:mesh.axes) {
+            if(axis.reference.owner_id!=sketch.owner_container_id &&
+               (!owner || axis.reference.owner_id!=owner->feature_id))continue;
+            const auto direction=kernel::dimension_unit(axis.direction);
+            if(std::abs(kernel::dimension_dot(direction,normal))<1-1e-7)continue;
+            const auto delta=kernel::dimension_sub(point,axis.point);
+            const auto radial=kernel::dimension_sub(delta,kernel::dimension_scale(direction,kernel::dimension_dot(delta,direction)));
+            if(kernel::dimension_dot(radial,radial)>1e-12)continue;
+            const auto geometry=frames.find({axis.reference.owner_id,{}});
+            if(geometry==frames.end() || !geometry->second.valid)continue;
+            kernel::ModelEnvelope frame;frame.origin=axis.point;
+            frame.axes={kernel::dimension_unit(kernel::dimension_sub(basis.vertices[1],point)),
+                kernel::dimension_unit(kernel::dimension_sub(basis.vertices[2],point)),normal};
+            double low=std::numeric_limits<double>::infinity(),high=-low;
+            for(auto corner:geometry->second.corners()) {
+              const double t=kernel::dimension_dot(kernel::dimension_sub(corner,frame.origin),normal);
+              low=std::min(low,t);high=std::max(high,t);
+            }
+            frame.minimum={-circle.radius,-circle.radius,low};
+            frame.maximum={circle.radius,circle.radius,high};frame.valid=true;
+            const auto key=std::pair{axis.reference.owner_id,axis.reference.semantic_key};
+            auto found=axis_frames.find(key);
+            if(found==axis_frames.end() || circle.radius<found->second.maximum.x)axis_frames[key]=frame;
+          }
+        }
         append(mesh, std::move(packet));
       }
       if (!occurrence.occurrence_ids.empty()) mesh.dimensions.clear();
@@ -221,6 +264,10 @@ drawing_annotation_sources(workspace::Workspace *workspace,
       mesh.vertices.push_back(frame.origin);
       for(auto axis:frame.axes)mesh.vertices.push_back(kernel::dimension_add(frame.origin,axis));
     }
+    for(const auto& [key,frame]:axis_frames) {
+      mesh.vertices.push_back(frame.origin);
+      for(auto axis:frame.axes)mesh.vertices.push_back(kernel::dimension_add(frame.origin,axis));
+    }
     for (auto i = placements.rbegin(); i != placements.rend(); ++i) {
       if (i->mirror || i->pattern) {
         transform_annotations(mesh, *i);
@@ -266,6 +313,10 @@ drawing_annotation_sources(workspace::Workspace *workspace,
       for(auto& axis:frame.axes)axis=kernel::dimension_sub(mesh.vertices.at(frame_index++),frame.origin);
       placed_frames[{key.first,occurrence.encoded()}]=frame;
     }
+    for(auto& [key,frame]:axis_frames) {
+      frame.origin=mesh.vertices.at(frame_index++);
+      for(auto& axis:frame.axes)axis=kernel::dimension_sub(mesh.vertices.at(frame_index++),frame.origin);
+    }
     frames=std::move(placed_frames);
     envelope=frames.at({{},occurrence.encoded()});
     for (std::size_t i = 0; i < mesh.dimensions.size(); ++i) {
@@ -277,7 +328,7 @@ drawing_annotation_sources(workspace::Workspace *workspace,
     for (auto &a : mesh.axes)
       a.reference.instance_path = occurrence.encoded();
     result.push_back({id, occurrence.encoded(), std::move(mesh.dimensions),
-                      std::move(mesh.edges), std::move(mesh.axes),envelope,std::move(layouts),std::move(frames)});
+                      std::move(mesh.edges), std::move(mesh.axes),envelope,std::move(layouts),std::move(frames),std::move(axis_frames)});
     stack.erase(id);
   };
   visit(root, root_path, {}, {});

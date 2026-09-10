@@ -20,6 +20,18 @@ inline QPointF dimension_screen_unit(QPointF a) {
     auto n = std::hypot(a.x(), a.y());
     return n > 1e-9 ? a / n : QPointF(1, 0);
 }
+// Invert the projected annotation plane. At an edge-on view the readable
+// measuring direction still permits dragging; use its one-dimensional measure.
+inline std::optional<QPointF> dimension_plane_drag(QPointF move,QPointF along,QPointF outward) {
+    const double a2=dimension_screen_dot(along,along),b2=dimension_screen_dot(outward,outward);
+    const double determinant=along.x()*outward.y()-along.y()*outward.x();
+    if(std::abs(determinant)>1e-7*std::max(a2,b2))
+        return QPointF((move.x()*outward.y()-move.y()*outward.x())/determinant,
+                       (along.x()*move.y()-along.y()*move.x())/determinant);
+    if(a2>=b2 && a2>1e-16)return QPointF(dimension_screen_dot(move,along)/a2,0);
+    if(b2>1e-16)return QPointF(0,dimension_screen_dot(move,outward)/b2);
+    return {};
+}
 template <class Project>
 DimensionPresentation dimension_presentation(const kernel::ViewerDimension &d, Project project,
                                              double text_width, double arrow = 10, double gap = 3) {

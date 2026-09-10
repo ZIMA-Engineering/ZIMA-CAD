@@ -610,7 +610,7 @@ std::optional<QPointF> MeshView::dimension_handle_position(const ViewerCandidate
     if(index==2&&d->kind==kernel::ViewerDimensionKind::Radius)return {};
     const auto mvp=impl_->projection(width(),height())*impl_->view();
     const auto project=[&](kernel::Vec3 p){auto q=mvp*QVector4D(p.x,p.y,p.z,1);if(std::abs(q.w())>1e-9)q/=q.w();return QPointF((q.x()+1)*width()/2.,(1-q.y())*height()/2.);};
-    const auto text=!d->display_text_override.empty()?QString::fromStdString(d->display_text_override):QString::fromStdString(d->label_prefix)+QString::number(d->value,'f',impl_->dimension_decimal_places)+QString::fromStdString(d->unit_suffix);
+    const auto text=!d->display_text_override.empty()?QString::fromStdString(d->display_text_override):QString::fromStdString(d->label_prefix)+QString::number(d->value,'f',impl_->dimension_decimal_places)+QString::fromStdString(kernel::dimension_unit_text(d->unit_suffix));
     const auto layout=dimension_presentation(*d,project,QFontMetricsF(font()).horizontalAdvance(text));
     return layout.valid?std::optional(layout.handles[index]):std::nullopt;
 }
@@ -868,7 +868,7 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
             : QString::fromStdString(dimension.label_prefix) +
                 QString::number(dimension.value, 'f',
                     impl_->dimension_decimal_places) +
-                QString::fromStdString(dimension.unit_suffix);
+                QString::fromStdString(kernel::dimension_unit_text(dimension.unit_suffix));
         const auto layout=dimension_presentation(dimension,project,metrics.horizontalAdvance(text));
         if(!layout.valid) {
             std::erase_if(candidates,[index](const auto& c){return c.kind==CandidateKind::Dimension && c.geometry_index==index;});
@@ -1646,7 +1646,7 @@ std::optional<QPoint> MeshView::candidate_dimension_label_position(
         : QString::fromStdString(dimension.label_prefix) +
             QString::number(dimension.value, 'f',
                     impl_->dimension_decimal_places) +
-            QString::fromStdString(dimension.unit_suffix);
+            QString::fromStdString(kernel::dimension_unit_text(dimension.unit_suffix));
     const QFontMetricsF metrics(font());
     const auto layout=dimension_presentation(dimension,project,metrics.horizontalAdvance(text));
     if(!layout.valid)return std::nullopt;
@@ -3930,7 +3930,7 @@ if (impl_->show_origins) {
                     : QString::fromStdString(dimension.label_prefix) +
                         QString::number(dimension.value, 'f',
                             impl_->dimension_decimal_places) +
-                        QString::fromStdString(dimension.unit_suffix);
+                        QString::fromStdString(kernel::dimension_unit_text(dimension.unit_suffix));
                 const auto layout=dimension_presentation(dimension,project,painter.fontMetrics().horizontalAdvance(text));
                 if(!layout.valid)continue;
                 for(const auto& curve:layout.curves)painter.drawPolyline(curve);
@@ -5273,20 +5273,21 @@ void MeshView::mouseMoveEvent(QMouseEvent* event) {
         const auto mvp=impl_->projection(width(),height())*impl_->view();
         const auto project=[&](kernel::Vec3 p){auto q=mvp*QVector4D(p.x,p.y,p.z,1);if(std::abs(q.w())>1e-9)q/=q.w();return QPointF((q.x()+1)*width()/2.,(1-q.y())*height()/2.);};
         const auto o=project(d.witness_first),a=project(kernel::dimension_add(d.witness_first,u))-o,b=project(kernel::dimension_add(d.witness_first,v))-o;
-        const auto det=a.x()*b.y()-a.y()*b.x();
-        if(std::abs(det)<1e-8){event->accept();return;}
-        const double along=(delta.x()*b.y()-delta.y()*b.x())/det,outward=(a.x()*delta.y()-a.y()*delta.x())/det;
+        const auto movement=dimension_plane_drag(delta,a,b);
+        if(!movement){event->accept();return;}
+        const double along=movement->x(),outward=movement->y();
         drag.current=kernel::dragged_dimension_layout(drag.shown,drag.bounds,drag.initial,drag.handle,along,outward);
         if(drag.handle==0) {
             const auto label=d.label_position.value_or(kernel::dimension_scale(kernel::dimension_add(d.line_first,d.line_second),.5));
             const auto i=drag.candidate.geometry_index;
             // Use the original rendered grip, not the source label (automatic
             // outside placement can put these far apart in an oblique view).
-            const auto text=!d.display_text_override.empty()?QString::fromStdString(d.display_text_override):QString::fromStdString(d.label_prefix)+QString::number(d.value,'f',impl_->dimension_decimal_places)+QString::fromStdString(d.unit_suffix);
+            const auto text=!d.display_text_override.empty()?QString::fromStdString(d.display_text_override):QString::fromStdString(d.label_prefix)+QString::number(d.value,'f',impl_->dimension_decimal_places)+QString::fromStdString(kernel::dimension_unit_text(d.unit_suffix));
             const auto initial_grip=dimension_presentation(d,project,QFontMetricsF(font()).horizontalAdvance(text)).handles[0];
             const auto correction=initial_grip-project(label);
-            drag.current.text_along+=(correction.x()*b.y()-correction.y()*b.x())/det;
-            drag.current.text_outward+=(a.x()*correction.y()-a.y()*correction.x())/det;
+            if(const auto offset=dimension_plane_drag(correction,a,b)) {
+                drag.current.text_along+=offset->x();drag.current.text_outward+=offset->y();
+            }
         }
         auto display=kernel::layout_dimension(drag.source,drag.bounds,drag.current);const auto i=drag.candidate.geometry_index;
         if(i<impl_->mesh.dimensions.size())impl_->mesh.dimensions[i]=std::move(display);else impl_->transient_dimensions[i-impl_->mesh.dimensions.size()]=std::move(display);

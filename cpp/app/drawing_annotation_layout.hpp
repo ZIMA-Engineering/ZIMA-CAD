@@ -73,7 +73,7 @@ model_annotation_layout(const drawing::DrawingView &view,
         }
         left-=2;right+=2;bottom-=2;top+=2;
       }
-      out.curves={{{left,center.y()},{right,center.y()}},{{center.x(),bottom},{center.x(),top}}};
+      out.curves={{center,{left,center.y()}},{center,{right,center.y()}},{center,{center.x(),bottom}},{center,{center.x(),top}}};
     } else {
       // Preserve the persisted axial span instead of extending every hole's
       // axis across the complete drawing view.

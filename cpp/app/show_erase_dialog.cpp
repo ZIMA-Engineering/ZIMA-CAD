@@ -16,7 +16,7 @@
 namespace zima::app {
 ShowEraseDialog::ShowEraseDialog(
     drawing::DrawingView view, Preview preview,
-    std::function<void(const drawing::DrawingView &)> commit, QWidget *parent)
+    std::function<void(const std::vector<drawing::DrawingView> &)> commit, QWidget *parent)
     : PropertiesSubWindow(tr("Show / Erase"), parent),
       initial_(std::move(view)), pending_(initial_), session_(initial_),
       preview_(std::move(preview)), commit_(std::move(commit)) {
@@ -64,7 +64,8 @@ ShowEraseDialog::ShowEraseDialog(
   content_layout()->addLayout(filters);
   auto *hint = new QLabel(
       tr("Vyberte položky ve výkresu nebo v seznamu. Pravé tlačítko cykluje "
-         "překrývající se nabídku. Zrušit obnoví výchozí stav."),
+         "překrývající se nabídku. Krátký stisk prostředního ukončí výběr pro pohled. "
+         "OK nebo dvojklik prostředním potvrdí všechny pohledy; Zrušit zahodí změny."),
       this);
   hint->setWordWrap(true);
   content_layout()->addWidget(hint);
@@ -120,6 +121,8 @@ std::set<drawing::ModelAnnotationKind> ShowEraseDialog::kinds() const {
 }
 void ShowEraseDialog::arm_view(){view_item_->set_active_input(true);view_field_->viewport()->update();if(view_picker_)view_picker_();}
 void ShowEraseDialog::set_view(drawing::DrawingView view){
+  if(!initial_.id.empty())staged_[initial_.id]=pending_;
+  if(auto found=staged_.find(view.id);found!=staged_.end())view=found->second;
   initial_=std::move(view);pending_=initial_;session_=drawing::ShowEraseSession(initial_);selected_.clear();
   view_item_->set_reference(QString::fromStdString(initial_.id));
   view_item_->setText(initial_.id.empty()?tr("Vyberte pohled ve výkresu…"):QString::fromStdString(initial_.name.empty()?initial_.id:initial_.name));
@@ -145,6 +148,11 @@ void ShowEraseDialog::rebuild() {
                  : item->kind == drawing::ModelAnnotationKind::Axis
                      ? tr("Osa")
                      : tr("Pomocná geometrie");
+    if(item->kind==drawing::ModelAnnotationKind::Axis) {
+      if(id.semantic_id.starts_with("sketch_axis:"))label=tr("Osa skici %1").arg(QString::fromStdString(id.semantic_id.substr(12)).toUpper());
+      else if(id.semantic_id.starts_with("origin:axis:"))label=tr("Osa počátku %1").arg(QString::fromStdString(id.semantic_id.substr(12)).toUpper());
+      else if(id.semantic_id=="axis:primary" || id.semantic_id.starts_with("axis:profile:"))label=tr("Osa válce");
+    }
     row->setText(0, label);
     row->setText(1, QString::fromStdString(id.instance_path));
     row->setToolTip(
@@ -173,7 +181,7 @@ void ShowEraseDialog::publish() {
                 .arg(selected_.size())
                 .arg(missing));
   if (preview_ && !initial_.id.empty() && !view_item_->is_active_input())
-    preview_(pending_, {offered_.begin(), offered_.end()});
+    preview_(pending_, {offered_.begin(), offered_.end()},pending_views());
 }
 void ShowEraseDialog::toggle(const Reference &id) {
   if (std::ranges::find(offered_, id) == offered_.end())
@@ -186,7 +194,7 @@ void ShowEraseDialog::toggle(const Reference &id) {
 bool ShowEraseDialog::eventFilter(QObject* watched,QEvent* event) {
   const auto* widget=qobject_cast<QWidget*>(watched);
   const bool inside=widget && parentWidget() && (widget==parentWidget() || parentWidget()->isAncestorOf(widget));
-  if(isVisible() && inside && view_item_ && view_item_->is_active_input()) {
+  if(isVisible() && inside && view_item_) {
     if(event->type()==QEvent::MouseButtonPress) {
       const auto* mouse=static_cast<QMouseEvent*>(event);
       if(mouse->button()==Qt::MiddleButton){middle_origin_=mouse->globalPosition();middle_pending_=true;}
@@ -195,18 +203,27 @@ bool ShowEraseDialog::eventFilter(QObject* watched,QEvent* event) {
     } else if(event->type()==QEvent::MouseButtonRelease) {
       const auto* mouse=static_cast<QMouseEvent*>(event);
       if(mouse->button()==Qt::MiddleButton && middle_pending_) {
-        middle_pending_=false;view_item_->set_active_input(false);view_field_->viewport()->update();
-        if(view_picker_cancel_)view_picker_cancel_();
-        publish();
+        middle_pending_=false;
+        if(view_item_->is_active_input()) {
+          view_item_->set_active_input(false);view_field_->viewport()->update();
+          if(view_picker_cancel_)view_picker_cancel_();
+          publish();
+        } else if(!initial_.id.empty())arm_view();
       }
     }
   }
   return PropertiesSubWindow::eventFilter(watched,event);
 }
 
+std::vector<drawing::DrawingView> ShowEraseDialog::pending_views() const {
+  auto views=staged_;if(!initial_.id.empty())views[initial_.id]=pending_;
+  std::vector<drawing::DrawingView> result;
+  for(const auto& [id,view]:views)result.push_back(view);
+  return result;
+}
 bool ShowEraseDialog::submit() {
   if(initial_.id.empty())return false;
-  commit_(pending_);
+  commit_(pending_views());
   return true;
 }
 } // namespace zima::app

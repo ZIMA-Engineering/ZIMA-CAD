@@ -4196,7 +4196,7 @@ std::vector<zima::kernel::ViewerDimension> construction_point_dimensions(
              witness_second.y + line_offset.y,
              witness_second.z + line_offset.z},
             value, {object.id, std::move(semantic), {}}, {},
-            " mm", std::move(participants)});
+            "mm", std::move(participants)});
         // Linear dimensions keep their modeling direction explicitly.  In
         // particular, a zero coordinate has coincident witness points and
         // cannot recover X/Y/Z from its geometry (or from presentation text).

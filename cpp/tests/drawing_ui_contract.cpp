@@ -184,7 +184,10 @@ int verify_drawing_ui() {
         for(auto* candidate:window.findChildren<QDialog*>()) if(candidate->isVisible()) sheet_properties=candidate;
         require(sheet_properties,"Sheet properties did not open");
         sheet_properties->findChild<QDoubleSpinBox*>()->setValue(0.25);
-        sheet_properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click(); flush();
+        mouse(canvas,QEvent::MouseButtonPress,right,Qt::MiddleButton,Qt::MiddleButton);
+        mouse(canvas,QEvent::MouseButtonRelease,right,Qt::MiddleButton,Qt::NoButton);
+        require(sheet_properties->isVisible(),"Short MMB committed sheet properties");
+        mouse(canvas,QEvent::MouseButtonDblClick,right,Qt::MiddleButton,Qt::MiddleButton);flush();
         require(state.sheets.front().views.front().scale==0.5 && state.sheets.front().views.back().scale==0.25,
             "Sheet scale did not update inherited views independently of local scale");
         const auto directory=std::filesystem::current_path()/"Projects/test/drawing-ui";

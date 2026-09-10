@@ -11,6 +11,8 @@ struct ModelAnnotationSource {
   kernel::ModelEnvelope envelope;
   std::vector<kernel::DimensionLayoutEntry> layouts;
   std::map<kernel::ObjectEnvelopeKey,kernel::ModelEnvelope> object_frames;
+  // Exact axis reference (owner, semantic); the packet supplies the occurrence.
+  std::map<std::pair<std::string,std::string>,kernel::ModelEnvelope> axis_frames;
 };
 ModelAnnotation project_model_annotation(const DrawingView&,ModelAnnotation);
 void refresh_model_annotations(DrawingView &,

@@ -941,7 +941,7 @@ int main() {
                         mated_assembly.document_id &&
                     mated_scene.dimensions.front().reference.semantic_key ==
                         "placement-reference:" + second_id + ":0" &&
-                    mated_scene.dimensions.front().unit_suffix == " mm" &&
+                    mated_scene.dimensions.front().unit_suffix == "mm" &&
                     mated_scene.dimensions.front().value == 2.5,
                 "Plane placement reference did not create its editable viewer dimension");
         auto flipped_plane_assembly = loaded;

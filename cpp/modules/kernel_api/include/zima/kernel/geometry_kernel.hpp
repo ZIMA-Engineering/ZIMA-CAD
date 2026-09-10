@@ -169,7 +169,7 @@ struct ViewerDimension {
     double value{};
     EdgeReference reference;
     std::string label_prefix;
-    std::string unit_suffix{" mm"};
+    std::string unit_suffix{"mm"};
     std::vector<std::string> participant_semantic_keys;
     ViewerDimensionKind kind{ViewerDimensionKind::Linear};
     // Angular dimensions use witness_first as their vertex, line_first and

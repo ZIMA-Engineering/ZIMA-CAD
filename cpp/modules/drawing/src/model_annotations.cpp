@@ -73,7 +73,7 @@ ModelAnnotation project_model_annotation(const DrawingView& view,ModelAnnotation
       else {
         std::ostringstream text;
         text << d.label_prefix << std::setprecision(12) << d.value
-             << d.unit_suffix;
+             << kernel::dimension_unit_text(d.unit_suffix);
         item.text = text.str();
       }
       if (d.kind == kernel::ViewerDimensionKind::Angular) {
@@ -179,6 +179,8 @@ void refresh_model_annotations(DrawingView &view,
          kernel::dimension_dot(kernel::dimension_sub(frame->second.maximum,frame->second.minimum),
                                kernel::dimension_sub(frame->second.maximum,frame->second.minimum))>1e-12)
           item.model_envelope=frame->second;
+      if(auto frame=source.axis_frames.find({axis.reference.owner_id,axis.reference.semantic_key});
+         frame!=source.axis_frames.end() && frame->second.valid)item.model_envelope=frame->second;
       item.text_anchor = project(axis.point);
       const double length = std::sqrt(dot(axis.direction, axis.direction));
       if (length <= 1e-12 || !std::isfinite(axis.display_length) ||

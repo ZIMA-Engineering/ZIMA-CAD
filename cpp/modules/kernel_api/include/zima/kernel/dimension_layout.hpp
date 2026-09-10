@@ -6,6 +6,11 @@
 #include <zima/kernel/geometry_kernel.hpp>
 
 namespace zima::kernel {
+inline std::string dimension_unit_text(const std::string& suffix) {
+    const auto first=suffix.find_first_not_of(" \t");
+    return first!=std::string::npos && suffix.compare(first,2,"mm")==0
+        ? suffix.substr(first) : suffix;
+}
 inline ModelEnvelope model_envelope(const ViewerMesh &mesh) {
     ModelEnvelope bounds;
     for (auto index : mesh.triangles)

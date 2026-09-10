@@ -64,6 +64,7 @@ int verify_show_erase_ui() {
     kernel::BodyResult body;
     body.mesh = sketch.viewer_mesh();
     body.mesh.dimensions.clear();
+    body.mesh.axes.clear();body.mesh.points.clear();
     body.mesh.edges = {
         {{{-30, -20, 0}, {30, -20, 0}}, {"model", "edge:bottom", {}}},
         {{{30, -20, 0}, {30, 20, 0}}, {"model", "edge:right", {}}},
@@ -181,7 +182,7 @@ int verify_show_erase_ui() {
     drawing::ModelAnnotation axial;axial.kind=drawing::ModelAnnotationKind::Axis;
     axial.curves={{{10,20},{10,20}}};
     auto cross=app::model_annotation_layout(axis_view,axial,{});
-    require(cross.curves.size()==2 && cross.centers.size()==1 && cross.centers[0]==QPointF(10,20),"End-on hole lost its cross or center");
+    require(cross.curves.size()==4 && cross.centers.size()==1 && cross.centers[0]==QPointF(10,20),"End-on hole lost its cross or center");
     axial.curves={{{30,20},{30,20}}};
     auto second_cross=app::model_annotation_layout(axis_view,axial,{});
     require(second_cross.centers[0]!=cross.centers[0],"Separate holes collapsed into one center mark");
@@ -246,6 +247,32 @@ int verify_show_erase_ui() {
     picked_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
     require(std::ranges::none_of(window.document_for_test().sheets[0].views[0].model_annotations,[](const auto& a){return a.visible;}) &&
             std::ranges::all_of(window.document_for_test().sheets[0].views[1].model_annotations,[](const auto& a){return a.visible;}),"Retargeted command changed wrong view");
+    for(bool accept:{false,true}) {
+      command->trigger();flush();
+      auto* multi=window.findChild<QDialog*>("drawingShowEraseDialog");
+      auto* field=multi->findChild<QTableWidget*>("showEraseView");
+      auto* entry=dynamic_cast<ui::ReferenceCellItem*>(field->item(0,0));
+      multi->findChild<QPushButton*>("showEraseErase")->click();
+      multi->findChild<QPushButton*>("showEraseAll")->click();
+      const auto next=*window.view_rectangle_center_for_test(view.id);
+      mouse(canvas,QEvent::MouseButtonPress,next,Qt::MiddleButton,Qt::MiddleButton);
+      mouse(canvas,QEvent::MouseButtonRelease,next,Qt::MiddleButton,Qt::NoButton);
+      require(entry->is_active_input() && multi->isVisible(),"Short MMB did not request next view");
+      click(canvas,next);
+      multi->findChild<QPushButton*>("showEraseShow")->click();multi->findChild<QPushButton*>("showEraseAll")->click();
+      mouse(canvas,QEvent::MouseButtonPress,next,Qt::MiddleButton,Qt::MiddleButton);
+      mouse(canvas,QEvent::MouseButtonRelease,next,Qt::MiddleButton,Qt::NoButton);
+      const auto& unchanged=workspace.open_drawing(drawing.document_id)->document.sheets[0].views;
+      require(std::ranges::none_of(unchanged[0].model_annotations,[](const auto& a){return a.visible;}) &&
+              std::ranges::all_of(unchanged[1].model_annotations,[](const auto& a){return a.visible;}),"Changing Show/Erase target committed before OK");
+      if(accept)mouse(canvas,QEvent::MouseButtonDblClick,next,Qt::MiddleButton,Qt::MiddleButton);
+      else multi->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();
+      flush();
+      const auto& result=window.document_for_test().sheets[0].views;
+      require(std::ranges::all_of(result[0].model_annotations,[&](const auto& a){return a.visible==accept;}) &&
+              std::ranges::all_of(result[1].model_annotations,[&](const auto& a){return a.visible!=accept;}),"Multi-view Show/Erase did not commit/cancel all pending views together");
+      window.select_view_for_test(other.id);
+    }
     workspace.open_drawing(drawing.document_id)->document=drawing;
     window.edit_workspace_document(drawing.document_id);flush();
     window.select_view_for_test(view.id);
@@ -362,7 +389,7 @@ int verify_show_erase_ui() {
     window.findChild<QTabBar*>("drawingSheetTabs")->setCurrentIndex(1);flush();
     const auto second_dxf=dir.filePath("second-sheet.dxf");window.export_dxf(second_dxf.toStdString());
     QFile second_file(second_dxf);require(second_file.open(QIODevice::ReadOnly),"Second sheet DXF missing");
-    require(!second_file.readAll().contains("60 mm"),"DXF included dimensions from another sheet");
+    require(!second_file.readAll().contains("60mm"),"DXF included dimensions from another sheet");
     multi_sheet.sheets.pop_back();workspace.open_drawing(drawing.document_id)->document=multi_sheet;
     window.edit_workspace_document(drawing.document_id);flush();
     state.save((dir.path() + "/show-erase.drwz").toStdString());
@@ -454,6 +481,126 @@ int verify_show_erase_ui() {
       require(!interior.isEmpty() && clean.copy(interior)==hatched.copy(interior),
               "Actual drawing text mask did not cover hatching in print path");
       hatched.save("build/dimension-hatch-mask-print.png");
+    }
+    // An XZ sketch belongs to a real calculated feature packet. The cached
+    // solid intentionally contains no Sketch edges/points or dimension planes.
+    {
+      auto sample=document::PartDocument::create_default();
+      auto container=document::PartDocument::create_sketch_container();sample.history.push_back(container);
+      auto profile=sketcher::Sketch::create_default();profile.owner_container_id=container.id;
+      profile.plane=sketcher::SketchPlane::XZ;profile.refresh_default_frame();
+      auto rectangle=profile.add_rectangle(-10,-10,30,10);
+      auto left=profile.add_circle(0,0,5),right=profile.add_circle(20,0,5);
+      profile.dimensions={profile.create_circle_radius_dimension(left),profile.create_circle_diameter_dimension(right),profile.create_segment_dimension(rectangle[0])};
+      sample.sketches.push_back(profile);
+      kernel::BodyResult solid;
+      solid.mesh.edges={{{{-10,-5,-10},{30,5,10}},{container.feature_id,"rim",{}}}};
+      solid.mesh.axes={{{0,0,0},{0,1,0},100,{container.feature_id,"axis:primary",{}}},
+                       {{20,0,0},{0,1,0},100,{container.feature_id,"axis:profile:2",{}}}};
+      workspace.add_part(sample,{solid},"controls.prtz");
+      auto packets=app::drawing_annotation_sources(&workspace,sample.document_id,"controls.prtz");
+      require(packets.size()==1 && packets[0].dimensions.size()==3,"Rotated profile dimensions missing");
+      const auto frame=packets[0].object_frames.at({profile.id,{}});
+      require(frame.maximum.x-frame.minimum.x<=40.000001 && frame.maximum.y-frame.minimum.y<=20.000001,"Sketch working axes inflated drawing bounds");
+      require(packets[0].axis_frames.size()==2,"Hole axes have no individual cylinder bounds");
+      for(const auto& d:packets[0].dimensions)require(std::abs(d.plane_normal.y)>0.999,"XZ dimension lost its sketch plane");
+      auto occurrences=assembly::AssemblyDocument::create_default();
+      for(int i=0;i<2;++i) {
+        assembly::PartOccurrence c;c.occurrence_id="holes-"+std::to_string(i);c.source_document_id=sample.document_id;c.source_path="controls.prtz";
+        c.placement.x=i*100;c.placement.rotation_z=i*90;occurrences.components.push_back(c);
+      }
+      workspace.add_assembly(occurrences,"controls.asmz");
+      const auto occurrence_packets=app::drawing_annotation_sources(&workspace,occurrences.document_id,"controls.asmz");
+      const auto transformed=occurrence_packets[1].axis_frames.at({container.feature_id,"axis:profile:2"});
+      require(std::abs(transformed.origin.x-100)<1e-6 && std::abs(transformed.origin.y-20)<1e-6 &&
+              std::abs(transformed.axes[2].x+packets[0].axis_frames.at({container.feature_id,"axis:profile:2"}).axes[2].y)<1e-6 && transformed.maximum.x==5 &&
+              occurrence_packets[0].instance_path!=occurrence_packets[1].instance_path,
+              "Individual hole frame lost occurrence orientation or size");
+      auto doc=drawing::DrawingDocument::create_default();auto v=view;
+      v.id="controls-view";v.camera={{-1,0,0},{0,0,1},{0,1,0}};v.model_annotations.clear();
+      drawing::refresh_model_annotations(v,packets);
+      for(const auto& a:v.model_annotations)if(a.kind==drawing::ModelAnnotationKind::Axis && a.source.owner_id==container.feature_id) {
+        const auto mark=app::model_annotation_layout(v,a,{});
+        require(mark.curves.size()==4 && mark.centers.size()==1,"Hole is not a grouped four-arm cross");
+        for(const auto& arm:mark.curves)require(std::abs(QLineF(arm[0],arm[1]).length()-7)<1e-6,"Hole cross uses another hole's bounds");
+      }
+      doc.sheets[0].views={v};workspace.add_drawing(doc);
+      for(auto kind:{kernel::ViewerDimensionKind::Radius,kernel::ViewerDimensionKind::Diameter,kernel::ViewerDimensionKind::Linear}) {
+        auto current=doc;auto& cv=current.sheets[0].views[0];
+        for(auto& item:cv.model_annotations)item.visible=item.model_dimension && item.model_dimension->kind==kind;
+        const auto chosen=std::ranges::find_if(cv.model_annotations,[](const auto& a){return a.visible;});
+        const auto ref=chosen->source;
+        workspace.open_drawing(doc.document_id)->document=current;window.edit_workspace_document(doc.document_id);window.fit_sheet();flush();
+        for(int handle:{0,1}) {
+          const auto before=window.model_annotation_handle_for_test(ref,handle,v.id);require(before.has_value(),"Rotated dimension grip missing");
+          mouse(canvas,QEvent::MouseButtonPress,*before,Qt::LeftButton,Qt::LeftButton);
+          mouse(canvas,QEvent::MouseMove,*before+QPointF(45,-25),Qt::NoButton,Qt::LeftButton);
+          if(handle==0)for(int step=0;step<(kind==kernel::ViewerDimensionKind::Radius?2:1);++step) {
+            mouse(canvas,QEvent::MouseButtonPress,*before+QPointF(45,-25),Qt::RightButton,Qt::LeftButton|Qt::RightButton);
+            mouse(canvas,QEvent::MouseButtonRelease,*before+QPointF(45,-25),Qt::RightButton,Qt::LeftButton);
+          }
+          mouse(canvas,QEvent::MouseButtonRelease,*before+QPointF(45,-25),Qt::LeftButton,Qt::NoButton);
+          const auto& items=window.document_for_test().sheets[0].views[0].model_annotations;
+          const auto changed=std::ranges::find(items,ref,&drawing::ModelAnnotation::source);
+          require(changed->view_layout && changed->view_layout->arrows_reversed,"Drawing grip failed to drag/cycle");
+          require(changed->value==chosen->value,"Drawing grip changed measured value");
+          if(kind==kernel::ViewerDimensionKind::Radius)require(changed->view_layout->radius_center_line_hidden,"Drawing radius did not enter shortened mode");
+          const auto text_before=*window.model_annotation_handle_for_test(ref,0,v.id);
+          mouse(canvas,QEvent::MouseButtonPress,text_before,Qt::LeftButton,Qt::LeftButton);
+          mouse(canvas,QEvent::MouseMove,text_before+QPointF(-65,20),Qt::NoButton,Qt::LeftButton);
+          const auto text_after=*window.model_annotation_handle_for_test(ref,0,v.id);
+          require(QLineF(text_before,text_after).length()>5,"Re-grabbed drawing text grip cannot move");
+          mouse(canvas,QEvent::MouseButtonRelease,text_after,Qt::LeftButton,Qt::NoButton);
+        }
+      }
+      // Optional read-only acceptance check against an actual supplied project.
+      if(const auto file=qEnvironmentVariable("ZIMA_TEST_ANNOTATION_PART");!file.isEmpty()) {
+        const auto actual=document::PartDocument::load(file.toStdString());
+        const auto actual_packets=app::drawing_annotation_sources(nullptr,actual.document_id,file.toStdString());
+        auto check=v;check.model_annotations.clear();drawing::refresh_model_annotations(check,actual_packets);
+        int holes=0;
+        for(const auto& item:check.model_annotations) {
+          if(item.model_dimension)require(std::abs(item.model_dimension->plane_normal.y)>.999,"Actual part dimension normal is not XZ");
+          if(item.kind==drawing::ModelAnnotationKind::Axis && item.source.semantic_id.starts_with("axis:")) {
+            const auto layout=app::model_annotation_layout(check,item,{});
+            if(layout.curves.size()==4) {++holes;for(const auto& arm:layout.curves)require(QLineF(arm[0],arm[1]).length()<=7.00001,"Actual hole axis still oversized");}
+          }
+        }
+        require(holes==2,"Actual Part did not supply both hole crosses");
+        auto drawing_file=std::filesystem::path(file.toStdString());drawing_file.replace_extension(".drwz");
+        if(std::filesystem::exists(drawing_file)) {
+          auto saved_doc=drawing::DrawingDocument::load(drawing_file);
+          workspace.add_drawing(saved_doc);
+          for(const auto& candidate:saved_doc.sheets[0].views[0].model_annotations)if(candidate.model_dimension) {
+            auto pending=saved_doc;const auto view_id=pending.sheets[0].views[0].id;
+            for(auto& annotation:pending.sheets[0].views[0].model_annotations)annotation.visible=annotation.source==candidate.source;
+            workspace.open_drawing(saved_doc.document_id)->document=pending;
+            window.edit_workspace_document(saved_doc.document_id);window.fit_sheet();flush();
+            const auto before=window.model_annotation_handle_for_test(candidate.source,0,view_id);
+            require(before.has_value(),"Actual saved Drawing dimension has no grip");
+            mouse(canvas,QEvent::MouseButtonPress,*before,Qt::LeftButton,Qt::LeftButton);
+            mouse(canvas,QEvent::MouseMove,*before+QPointF(60,-30),Qt::NoButton,Qt::LeftButton);
+            const auto after=*window.model_annotation_handle_for_test(candidate.source,0,view_id);
+            require(QLineF(*before,after).length()>3,"Actual saved Drawing dimension cannot move");
+            mouse(canvas,QEvent::MouseButtonPress,after,Qt::RightButton,Qt::LeftButton|Qt::RightButton);
+            mouse(canvas,QEvent::MouseButtonRelease,after,Qt::RightButton,Qt::LeftButton);
+            mouse(canvas,QEvent::MouseButtonRelease,after,Qt::LeftButton,Qt::NoButton);
+            const auto& items=window.document_for_test().sheets[0].views[0].model_annotations;
+            const auto updated=std::ranges::find(items,candidate.source,&drawing::ModelAnnotation::source);
+            require(updated->view_layout && updated->view_layout!=candidate.view_layout,"Actual saved Drawing grip did not commit presentation");
+          }
+          auto regenerated=saved_doc;
+          for(auto& drawing_view:regenerated.sheets[0].views) {
+            drawing::refresh_model_annotations(drawing_view,actual_packets);
+            for(auto& item:drawing_view.model_annotations)item.visible=item.kind==drawing::ModelAnnotationKind::Dimension ||
+              (item.kind==drawing::ModelAnnotationKind::Axis && item.source.semantic_id.starts_with("axis:"));
+          }
+          workspace.open_drawing(saved_doc.document_id)->document=regenerated;
+          window.edit_workspace_document(saved_doc.document_id);window.fit_sheet();flush();
+          window.grab().save("build/actual-drawing-annotations.png");
+        }
+        std::cout<<"Actual project: two independent 10mm hole crosses and XZ dimension planes verified\n";
+      }
     }
     std::cout << "Show/Erase source, occurrence transforms, View selection, "
                  "Cancel, MMB, handles and PDF contracts passed\n";

@@ -13,9 +13,10 @@ class ShowEraseDialog final : public ui::PropertiesSubWindow {
 public:
   using Reference = drawing::ModelAnnotationReference;
   using Preview = std::function<void(const drawing::DrawingView &,
-                                     const std::set<Reference> &)>;
+                                     const std::set<Reference> &,
+                                     const std::vector<drawing::DrawingView>&)>;
   ShowEraseDialog(drawing::DrawingView, Preview,
-                  std::function<void(const drawing::DrawingView &)>, QWidget *);
+                  std::function<void(const std::vector<drawing::DrawingView> &)>, QWidget *);
   void toggle(const Reference &);
   void set_view(drawing::DrawingView);
   void set_view_picker(std::function<void()> picker){view_picker_=std::move(picker);}
@@ -29,9 +30,11 @@ protected:
 
 private:
   drawing::DrawingView initial_, pending_;
+  std::map<std::string,drawing::DrawingView> staged_;
+  std::vector<drawing::DrawingView> pending_views() const;
   drawing::ShowEraseSession session_;
   Preview preview_;
-  std::function<void(const drawing::DrawingView &)> commit_;
+  std::function<void(const std::vector<drawing::DrawingView> &)> commit_;
   QComboBox *selection_{};
   int mode_{};
   QPushButton *show_{},*erase_{};

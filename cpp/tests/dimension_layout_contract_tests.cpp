@@ -200,14 +200,14 @@ int main(int argc, char **argv) {
             drawing::DrawingView view;view.camera={{1,0,0},{0,1,0},{0,0,1}};view.scale=1;
             drawing::refresh_model_annotations(view,std::span(&source,1));
             auto cross=app::model_annotation_layout(view,view.model_annotations[0],{});
-            require(cross.curves.size()==2 && cross.centers.size()==1,"End-on origin axis has no cross");
-            near(cross.curves[0].front().x(),-22);near(cross.curves[0].back().x(),22);
-            near(cross.curves[1].front().y(),-12);near(cross.curves[1].back().y(),12);
+            require(cross.curves.size()==4 && cross.centers.size()==1,"End-on origin axis has no cross");
+            near(cross.curves[0].back().x(),-22);near(cross.curves[1].back().x(),22);
+            near(cross.curves[2].back().y(),-12);near(cross.curves[3].back().y(),12);
             auto corner_axis=view.model_annotations[0];
             corner_axis.model_envelope={};corner_axis.model_envelope.include({0,0,0});corner_axis.model_envelope.include({40,20,10});
             auto corner_cross=app::model_annotation_layout(view,corner_axis,{});
-            near(corner_cross.curves[0].front().x(),-2);near(corner_cross.curves[0].back().x(),42);
-            near(QLineF(corner_cross.curves[0].front(),corner_cross.curves[0].back()).length(),44);
+            near(corner_cross.curves[0].back().x(),-2);near(corner_cross.curves[1].back().x(),42);
+            near(QLineF(corner_cross.curves[0].back(),corner_cross.curves[1].back()).length(),44);
             const auto saved=drawing::deserialize_model_annotations(drawing::serialize_model_annotations(view.model_annotations));
             view.camera={{0,0,1},{0,1,0},{-1,0,0}};
             auto side=app::model_annotation_layout(view,saved[0],{});
@@ -439,6 +439,12 @@ int main(int argc, char **argv) {
                 mouse(&viewer,QEvent::MouseButtonRelease,after,Qt::LeftButton,Qt::NoButton);
                 if(!persisted.radius_center_line_hidden)std::cerr<<"cycle flags="<<persisted.arrows_reversed<<","<<persisted.radius_center_line_hidden<<" commits="<<commits<<" selected="<<viewer.confirmed_candidate().has_value()<<"\n";
                 require(persisted.arrows_reversed&&persisted.radius_center_line_hidden,"Radius cycle did not hide center line");
+                const auto short_grip=*viewer.dimension_handle_position(selected,0);
+                mouse(&viewer,QEvent::MouseButtonPress,short_grip,Qt::LeftButton,Qt::LeftButton);
+                mouse(&viewer,QEvent::MouseMove,short_grip+QPointF(-60,0),Qt::NoButton,Qt::LeftButton);
+                const auto dragged_short=*viewer.dimension_handle_position(selected,0);
+                require(QLineF(short_grip,dragged_short).length()>35,"Re-grabbed shortened radius did not move");
+                mouse(&viewer,QEvent::MouseButtonRelease,dragged_short,Qt::LeftButton,Qt::NoButton);
                 require(document::dimension_layout_from_json(document::dimension_layout_json(persisted))==persisted,"Radius presentation lost on save");
                 auto displayed=kernel::layout_dimension(radial_source,{},persisted);
                 const auto front=[](kernel::Vec3 p){return QPointF(p.x*10,-p.y*10);};
@@ -469,6 +475,24 @@ int main(int argc, char **argv) {
                 require(!persisted.arrows_reversed&&!persisted.radius_center_line_hidden,"Radius cycle did not return to full line");
             }
         }
+        for(const auto direction:{kernel::Vec3{0,-1,0},kernel::Vec3{0,0,1}}) {
+            auto radius=source;radius.kind=kernel::ViewerDimensionKind::Radius;
+            radius.witness_second={-8.55,0,5.18};radius.line_first={};radius.line_second=radius.witness_second;
+            radius.plane_normal={0,-1,0};radius.label_position=kernel::Vec3{-20,0,12};
+            persisted={};persisted.radius_center_line_hidden=true;persisted.arrows_reversed=true;
+            mesh.dimensions={radius};viewer.set_mesh(mesh);viewer.set_view_direction(direction);
+            for(auto* animation:viewer.findChildren<QVariantAnimation*>())animation->setCurrentTime(animation->duration());
+            viewer.fit_all();flush();viewer.confirm_reference("feature","parameter:length",{},viewer::CandidateKind::Dimension);
+            const auto selected=*viewer.confirmed_candidate();const auto grip=*viewer.dimension_handle_position(selected,0);
+            const auto rim=*viewer.dimension_handle_position(selected,1);
+            mouse(&viewer,QEvent::MouseButtonPress,grip,Qt::LeftButton,Qt::LeftButton);
+            mouse(&viewer,QEvent::MouseMove,grip+QPointF(-60,20),Qt::NoButton,Qt::LeftButton);
+            const auto after=*viewer.dimension_handle_position(selected,0);
+            require(QLineF(grip,after).length()>15,"XZ/edge-on radius grip cannot move");
+            require(QLineF(rim,*viewer.dimension_handle_position(selected,1)).length()<.01,"XZ radius moved measured arrow");
+            mouse(&viewer,QEvent::MouseButtonRelease,after,Qt::LeftButton,Qt::NoButton);
+        }
+
         {
             auto radius=source;radius.kind=kernel::ViewerDimensionKind::Radius;
             radius.radius_center_line_hidden=true;radius.arrows_reversed=true;

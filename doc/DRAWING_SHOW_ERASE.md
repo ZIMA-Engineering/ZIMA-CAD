@@ -270,3 +270,47 @@ Ve 3D View je přesah přepočtený podle DPI obrazovky.
 
 Texty používají stabilní pořadí uložených kót; pozdější text a jeho maska
 překryjí dřívější. Výběrové fialové úchopy zůstávají nad textovou vrstvou.
+
+
+### Více pohledů, kříže otvorů a ovládání kót (2026-09-10)
+
+Krátký stisk prostředního tlačítka v Show / Erase ukončí výběr položek pro
+aktuální pohled a aktivuje políčko pro výběr dalšího pohledu. Rozpracovaná
+viditelnost zůstává v náhledu i po přechodu jinam. Kliknutím do políčka lze
+pohled změnit také přímo. Pokud je políčko právě aktivní, krátký stisk
+prostředního ukončí zadávání reference a vrátí výběr položek dosavadního pohledu.
+
+OK nebo dvojklik prostředním potvrdí všechny rozpracované pohledy najednou
+a zavře dialog. Zrušit zahodí změny všech pohledů. Přechod mezi pohledy,
+krátký stisk ani prostřední tažení neprovádějí mezilehlé uložení. Tlačítko
+Apply zde není. Stejný dvojklik nad výkresovým prostorem potvrzuje také
+vlastnosti pohledu a listu prostřednictvím společného `PropertiesSubWindow`.
+
+Kříž osy při pohledu do válce tvoří čtyři ramena po 90° a bod ve středu.
+Všechna ramena patří jedné referenci: výběr, SHOW i ERASE ovládají celý kříž.
+Dva otvory mají dva samostatné kříže. Osy kruhových profilů vytažení používají
+poloměr konkrétního profilu, nikoli příčný rozměr celého vytažení. Například
+otvor Ø10mm při měřítku 1:1 má od středu ke konci každého ramene 7mm:
+5mm poloměr a 2mm přesah na papíře. Obálka i směry sledují přesný výskyt
+v sestavě včetně zrcadlení a pole.
+
+Skicová osa přebírá obálku skutečných skicových křivek a bodů ještě před
+výběrem výkresových anotací; pracovní délka os skici 100mm ji nezvětšuje.
+Seznam rozlišuje osu skici, osu počátku a osu válce. Změněná zdrojová data os
+a rovin se do již uloženého výkresu načtou příkazem **Regenerovat**.
+
+Texty rozměrů používají zápis `10mm`, `R10mm`, `Ø10mm`. Explicitně zadaný
+vlastní text kóty se zachovává. Stejný formát používá View, výkres i export.
+
+Tažení používá společný převod obrazovky do roviny kóty. Pokud se rovina
+promítá hranově, zachová se možnost posuvu v jejím viditelném směru.
+Kóta se skryje až při zhroucení samotné měřicí čáry do bodu. Režim zkráceného
+rádiusu lze znovu uchopit a táhnout, i když byl předtím přepnut pravým tlačítkem.
+Výkresové úchopy mění pouze prezentaci daného pohledu; modelový rozměr zůstává.
+
+Regresní testy ověřují jednotlivá ramena obou otvorů, normály skici XZ,
+opakované tažení textu a šipkových úchopů, RMB cyklus, hromadné OK/Cancel
+přes dva pohledy a prostřední potvrzení vlastností listu i pohledu.
+Volitelný `ZIMA_TEST_ANNOTATION_PART` umožňuje při testu Show / Erase ověřit
+referenční díl se dvěma otvory Ø10mm v rovině XZ a jeho sousední `.drwz`;
+soubory se pouze čtou a interakce probíhá nad pracovní kopií dokumentu.
