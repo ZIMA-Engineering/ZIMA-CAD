@@ -10,6 +10,8 @@
 #include <QTemporaryDir>
 #include <QVariantAnimation>
 #include <iostream>
+#include <source_location>
+#include <zima/viewer/dimension_text_layer.hpp>
 #include <zima/assembly/assembly_document.hpp>
 #include <zima/document/dimension_layout_json.hpp>
 #include <zima/document/object_annotation_frames.hpp>
@@ -24,7 +26,7 @@ void require(bool b, const char *m) {
     if (!b)
         throw std::runtime_error(m);
 }
-void near(double a, double b) { require(std::abs(a - b) < 1e-6, "Geometric measure changed"); }
+void near(double a, double b, std::source_location where=std::source_location::current()) { if(std::abs(a-b)>=1e-6)throw std::runtime_error("Geometric measure changed at line "+std::to_string(where.line())+": "+std::to_string(a)+" vs "+std::to_string(b)); }
 template <class F> void rejects(F f) {
     bool rejected = false;
     try {
@@ -456,8 +458,8 @@ int main(int argc, char **argv) {
                     const auto rim=*viewer.dimension_handle_position(candidate,1);
                     mouse(&viewer,QEvent::MouseButtonPress,text,Qt::LeftButton,Qt::LeftButton);
                     mouse(&viewer,QEvent::MouseMove,text+delta,Qt::NoButton,Qt::LeftButton);
-                    require(QLineF(*viewer.dimension_handle_position(candidate,0),text+delta).length()<.01,
-                            "Shortened radius grip does not follow mouse");
+                    const auto moved=*viewer.dimension_handle_position(candidate,0);
+                    require(QLineF(moved,text+QPointF(delta.x(),0)).length()<.01,"Radius grip left its projected radial line");
                     require(QLineF(*viewer.dimension_handle_position(candidate,1),rim).length()<.01,
                             "Dragging shortened radius text moved measured rim");
                     mouse(&viewer,QEvent::MouseButtonRelease,text+delta,Qt::LeftButton,Qt::NoButton);
@@ -477,8 +479,13 @@ int main(int argc, char **argv) {
                 radius.label_position=kernel::Vec3{x,3,0};
                 const auto project=[&](kernel::Vec3 p){return oblique?QPointF(p.x*5+p.y*2,-p.y*4):QPointF(p.x*5,-p.y*5);};
                 const auto shown=viewer::dimension_presentation(radius,project,40);
-                require(shown.valid && shown.handles[0]==project(*radius.label_position),
-                        "Shortened radius text was clamped while crossing centre or rim");
+                require(shown.valid,"Shortened radius disappeared while crossing centre or rim");
+                const auto radial=project(radius.witness_second)-project(radius.witness_first);
+                const auto radial_leader=shown.curves[0].back()-shown.curves[0].front();
+                near(radial.x()*radial_leader.y()-radial.y()*radial_leader.x(),0);
+                // With this projected horizontal radius, moving x crosses both
+                // the centre and rim without changing the selected plane.
+                near(shown.handles[0].x(),project(*radius.label_position).x());
                 require(shown.arrows.size()==1 && shown.arrows[0].first==project(radius.witness_second) &&
                         shown.curves[0].front()==shown.arrows[0].first,
                         "Moving radius text moved arrow or disconnected leader");
@@ -490,6 +497,65 @@ int main(int argc, char **argv) {
                 near(QLineF(shown.curves[1].front(),shown.curves[1].back()).length(),40);
                 if(oblique)near(shown.text_angle,0);
             }
+        }
+        {
+            // A source label may carry an old offset normal to its circle.
+            // Switching radius mode must never reveal that offset in the View.
+            const auto frame=kernel::annotation_frame({7,11,13},{23,41,17});
+            const auto center=frame.origin,normal=frame.axes[2];
+            auto radius=source;radius.kind=kernel::ViewerDimensionKind::Radius;
+            radius.witness_first=center;radius.witness_second=frame.world({20,0,0});
+            radius.line_first=center;radius.line_second=radius.witness_second;radius.plane_normal=normal;
+            kernel::DimensionLayout layout;
+            for(int mode=0;mode<3;++mode) {
+                for(double x:{-30.,0.,10.,20.,40.}) {
+                    radius.label_position=frame.world({x,4,9});
+                    auto shown=kernel::layout_dimension(radius,{},layout);
+                    near(kernel::dimension_dot(kernel::dimension_sub(*shown.label_position,center),normal),0);
+                    auto dragged=kernel::dragged_dimension_layout(shown,{},layout,0,-8,6);
+                    auto moved=kernel::layout_dimension(radius,{},dragged);
+                    near(kernel::dimension_dot(kernel::dimension_sub(*moved.label_position,center),normal),0);
+                    const auto project=[](kernel::Vec3 p){return QPointF(p.x*5+p.z*2,-p.y*5+p.z);};
+                    auto dirty=radius;dirty.radius_center_line_hidden=layout.radius_center_line_hidden;dirty.arrows_reversed=layout.arrows_reversed;
+                    auto planar=dirty;planar.label_position=frame.world({x,4,0});
+                    const auto actual=viewer::dimension_presentation(dirty,project,40),expected=viewer::dimension_presentation(planar,project,40);
+                    require(actual.valid && expected.valid,"Rotated radius disappeared");
+                    near(QLineF(actual.handles[0],expected.handles[0]).length(),0);
+                    if(layout.radius_center_line_hidden) {
+                        const auto radial=project(radius.witness_second)-project(center);
+                        const auto leader=actual.curves[0].back()-actual.curves[0].front();
+                        near(radial.x()*leader.y()-radial.y()*leader.x(),0);
+                    }
+                }
+                kernel::cycle_dimension_presentation(layout,kernel::ViewerDimensionKind::Radius);
+            }
+        }
+        {
+            QImage proof(400,180,QImage::Format_ARGB32);proof.fill(Qt::white);
+            QFont font("Arial");font.setPixelSize(24);
+            std::vector<viewer::DimensionTextLabel> labels={
+                {"R20.000 mm",{80,100},0,font,Qt::red},
+                {"R20.000 mm",{80,100},0,font,Qt::blue}};
+            QPainter painter(&proof);
+            painter.setPen(QPen(Qt::green,1));
+            for(int x=-180;x<400;x+=5)painter.drawLine(x,0,x+180,180);
+            viewer::paint_dimension_text_layer(painter,labels,5,
+                [](QPainter& p,const QPainterPath& mask){p.fillPath(mask,Qt::white);});
+            painter.end();
+            const auto box=viewer::dimension_text_box(font,labels[0].text,5).translated(labels[0].baseline);
+            require(proof.pixelColor(QPoint(qRound(box.center().x()),qRound(box.top()+2)))==QColor(Qt::white),
+                    "Hatching remained inside text clearance");
+            int blue=0,red=0,green=0;
+            for(int y=box.top()+1;y<box.bottom()-1;++y)for(int x=box.left()+1;x<box.right()-1;++x) {
+                const auto c=proof.pixelColor(x,y);
+                if(c.blue()>150 && c.red()<100)++blue;
+                if(c.red()>150 && c.blue()<100)++red;
+                if(c.green()>150 && c.red()<100 && c.blue()<100)++green;
+            }
+            require(blue>20 && red==0 && green==0,"Dimension text layer lost order or hatch masking");
+            const auto tight=QFontMetricsF(font).tightBoundingRect(labels[0].text);
+            near(box.top(),labels[0].baseline.y()+tight.top()-5);
+            require(proof.save(QCoreApplication::applicationDirPath()+"/dimension-text-mask-proof.png"),"Cannot save text-mask proof");
         }
         viewer.set_context_menu_callback({});
         viewer.set_dimension_frame_visible(true);

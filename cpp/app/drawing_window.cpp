@@ -1,3 +1,4 @@
+#include <zima/viewer/dimension_text_layer.hpp>
 #include "dimension_layout_dialog.hpp"
 #include "resource_icon.hpp"
 #include "drawing_dxf_device.hpp"
@@ -828,6 +829,7 @@ public:
         if(!printing)annotation_handles_.clear();
         const auto width=[&](bool thick){return printing||lineweights_?zoom*(thick?sheet_->thick_line_mm:sheet_->thin_line_mm):1.0;};
         const auto ink=printing?QColor(Qt::black):QColor(Qt::white);
+        std::vector<viewer::DimensionTextLabel> dimension_texts;
         std::vector<const zima::drawing::DrawingView*> views;
         for(const auto& view:sheet_->views)if(printing||!preview_||preview_->id!=view.id)views.push_back(&view);
         if(!printing&&preview_)views.push_back(&*preview_);
@@ -991,7 +993,9 @@ public:
                 for(const auto& [tip,direction]:layout.arrows){painter.save();painter.setPen(Qt::NoPen);painter.setBrush(color);painter.drawPolygon(viewer::annotation_arrow(screen(tip),{direction.x(),-direction.y()},2.5*zoom));painter.restore();}
                 const auto text=QString::fromStdString(item.text);const auto text_point=screen(layout.text);
                 QTransform text_transform;text_transform.translate(text_point.x(),text_point.y());text_transform.rotate(layout.text_angle);
-                painter.save();painter.translate(text_point);painter.rotate(layout.text_angle);painter.drawText(QPointF{},text);painter.restore();
+                if(item.kind==drawing::ModelAnnotationKind::Dimension)
+                    dimension_texts.push_back({text,text_point,layout.text_angle,painter.font(),color});
+                else {painter.save();painter.translate(text_point);painter.rotate(layout.text_angle);painter.drawText(QPointF{},text);painter.restore();}
                 if(!printing){QPainterPathStroker picker;picker.setWidth(10);auto hit=picker.createStroke(stroke);if(!text.isEmpty())hit.addRect(text_transform.mapRect(QFontMetricsF(painter.font()).boundingRect(text)));
                     if(layout.handles.empty()){if(!layout.curves.empty()&&!layout.curves[0].empty())annotation_handles_.push_back({key,screen(layout.curves[0].front()),hit});}
                     else for(const auto& [name,p]:layout.handles){auto handle=key;handle.end=name=="text"?0:name=="arrow_first"?1:2;annotation_handles_.push_back({handle,screen(p),hit});}
@@ -1086,9 +1090,13 @@ public:
             for(const auto& curve:layout.curves){painter.drawPolyline(curve);stroke.moveTo(curve.front());for(qsizetype i=1;i<curve.size();++i)stroke.lineTo(curve[i]);}
             painter.setBrush(dimension_color);for(const auto& [tip,direction]:layout.arrows)painter.drawPolygon(viewer::annotation_arrow(tip,direction,2.5*zoom));
             QTransform text_transform;text_transform.translate(layout.text_baseline.x(),layout.text_baseline.y());text_transform.rotate(layout.text_angle);
-            painter.save();painter.translate(layout.text_baseline);painter.rotate(layout.text_angle);painter.drawText(QPointF{},text);painter.restore();
+            dimension_texts.push_back({text,layout.text_baseline,layout.text_angle,painter.font(),dimension_color});
             if(!printing){QPainterPathStroker picker;picker.setWidth(10);auto hit=picker.createStroke(stroke);hit.addRect(text_transform.mapRect(QFontMetricsF(painter.font()).boundingRect(text)));annotation_handles_.push_back({dimension_key,layout.handles[0],hit});}
         }
+        viewer::paint_dimension_text_layer(painter,dimension_texts,.5*zoom,
+            [printing](QPainter& text_painter,const QPainterPath& mask){
+                text_painter.fillPath(mask,printing?QColor(Qt::white):QColor(Qt::black));
+            });
         if(!printing&&!preview_&&!dimension_mode_)for(const auto& handle:annotation_handles_){
             const bool selected=selected_annotation_&&*selected_annotation_==handle.key,hovered=hovered_annotation_&&*hovered_annotation_==handle.key;
             const bool movable=handle.key.kind==AnnotationKind::Caption||handle.key.kind==AnnotationKind::SectionLabel||handle.key.kind==AnnotationKind::SectionEnd||handle.key.kind==AnnotationKind::Dimension||

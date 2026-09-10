@@ -40,6 +40,12 @@ DimensionPresentation dimension_presentation(const kernel::ViewerDimension &d, P
     const bool angular = d.kind == kernel::ViewerDimensionKind::Angular;
     const bool radial = d.kind == kernel::ViewerDimensionKind::Radius ||
                         d.kind == kernel::ViewerDimensionKind::Diameter;
+    auto label_position = d.label_position;
+    if (radial && label_position) {
+        const auto offset = kernel::dimension_sub(*label_position, d.witness_first);
+        label_position = kernel::dimension_sub(*label_position,
+            kernel::dimension_scale(normal, kernel::dimension_dot(offset, normal)));
+    }
     QPolygonF line;
     if (angular) {
         const auto u = kernel::dimension_sub(d.line_first, d.witness_first),
@@ -56,9 +62,9 @@ DimensionPresentation dimension_presentation(const kernel::ViewerDimension &d, P
         out.curves.push_back({w1, b});
     } else if (radial) {
         b = w2;
-        if (d.label_position && !(d.kind == kernel::ViewerDimensionKind::Radius && d.radius_center_line_hidden)) {
+        if (label_position && !(d.kind == kernel::ViewerDimensionKind::Radius && d.radius_center_line_hidden)) {
             const auto radius_vector = kernel::dimension_sub(d.witness_second, d.witness_first);
-            const auto label_vector = kernel::dimension_sub(*d.label_position, d.witness_first);
+            const auto label_vector = kernel::dimension_sub(*label_position, d.witness_first);
             const auto in_plane = kernel::dimension_sub(label_vector,
                 kernel::dimension_scale(normal, kernel::dimension_dot(label_vector, normal)));
             if (kernel::dimension_dot(in_plane, in_plane) > 1e-12)
@@ -89,7 +95,7 @@ DimensionPresentation dimension_presentation(const kernel::ViewerDimension &d, P
     const auto middle = angular ? line[line.size() / 2] : (a + b) * .5;
     auto along = dimension_screen_unit(
         angular ? line[line.size() / 2 + 1] - line[line.size() / 2 - 1] : b - a);
-    auto requested = d.label_position ? project(*d.label_position) : middle;
+    auto requested = label_position ? project(*label_position) : middle;
     if (!std::isfinite(requested.x()) || !std::isfinite(requested.y()))
         return out;
     if (d.kind == kernel::ViewerDimensionKind::Radius && d.radius_center_line_hidden) {
@@ -100,16 +106,28 @@ DimensionPresentation dimension_presentation(const kernel::ViewerDimension &d, P
         if (text_direction.x() < -1e-6 ||
             (std::abs(text_direction.x()) <= 1e-6 && text_direction.y() > 0))
             text_direction = -text_direction;
-        const auto start = requested - text_direction * text_width / 2,
-                   end = requested + text_direction * text_width / 2;
-        const auto join = QLineF(b, start).length() < QLineF(b, end).length() ? start : end;
+        // Preserve the projected radial direction even while the label passes
+        // the centre or rim. The horizontal text shelf is the only screen-space
+        // element in an oblique view; its join remains on the model radius.
+        QPointF center, join;
+        if (out.oblique) {
+            const double side = along.x() < 0 ? -1 : 1;
+            const QPointF half_label(side * text_width / 2, 0);
+            join = a + along * dimension_screen_dot(requested - half_label - a, along);
+            center = join + half_label;
+        } else {
+            center = a + along * dimension_screen_dot(requested - a, along);
+            const auto first = center - text_direction * text_width / 2,
+                       last = center + text_direction * text_width / 2;
+            join = QLineF(b, first).length() < QLineF(b, last).length() ? first : last;
+        }
+        const auto start = center - text_direction * text_width / 2,
+                   end = center + text_direction * text_width / 2;
         out.curves = {{b, join}, {start, end}};
-        const auto arrow_direction = QLineF(b, join).length() > 1e-9
-            ? dimension_screen_unit(b - join) : along;
-        out.arrows = {{b, d.arrows_reversed ? arrow_direction : -arrow_direction}};
-        out.handles = {requested, b, b};
-        out.outside = dimension_screen_dot(requested - a, along) < 0 ||
-                      dimension_screen_dot(requested - b, along) > 0;
+        out.arrows = {{b, d.arrows_reversed ? along : -along}};
+        out.handles = {center, b, b};
+        out.outside = dimension_screen_dot(join - a, along) < 0 ||
+                      dimension_screen_dot(join - b, along) > 0;
         out.text_baseline = start + QPointF(text_direction.y(), -text_direction.x()) * gap;
         out.text_angle = std::atan2(text_direction.y(), text_direction.x()) * 180 / std::numbers::pi;
         out.valid = true;
@@ -147,10 +165,7 @@ DimensionPresentation dimension_presentation(const kernel::ViewerDimension &d, P
     }
     const auto start = center - text_direction * text_width / 2,
                end = center + text_direction * text_width / 2;
-    auto painted_line = line;
-    if (d.kind == kernel::ViewerDimensionKind::Radius && d.radius_center_line_hidden)
-        painted_line = {b - dimension_screen_unit(b - a) * arrow * 1.7, b};
-    out.curves.push_back(painted_line);
+    out.curves.push_back(line);
     if (out.outside) {
         const auto join =
             QLineF(attachment, start).length() < QLineF(attachment, end).length() ? start : end;

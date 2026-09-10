@@ -225,6 +225,11 @@ inline ViewerDimension layout_dimension(ViewerDimension d, const ModelEnvelope &
                               dimension_scale(dimension_add(d.line_first, d.line_second), .5)),
                           dimension_add(dimension_scale(direction, layout.text_along),
                                         dimension_scale(outward, layout.text_outward)));
+    if (radial && d.label_position) {
+        const auto delta = dimension_sub(*d.label_position, d.witness_first);
+        d.label_position = dimension_sub(*d.label_position,
+            dimension_scale(d.plane_normal, dimension_dot(delta, d.plane_normal)));
+    }
     return d;
 }
 inline DimensionLayout dragged_dimension_layout(const ViewerDimension &shown,

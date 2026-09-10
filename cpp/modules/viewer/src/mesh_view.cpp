@@ -1,4 +1,5 @@
 #include <zima/viewer/dimension_presentation.hpp>
+#include <zima/viewer/dimension_text_layer.hpp>
 #include <QApplication>
 #include <zima/viewer/annotation_arrow.hpp>
 #include <QOpenGLPaintDevice>
@@ -2741,6 +2742,7 @@ void MeshView::paintGL() {
         QOpenGLPaintDevice overlay_device(QSize(framebuffer_width,framebuffer_height));
         overlay_device.setDevicePixelRatio(pixel_ratio);
         QPainter painter(&overlay_device);
+        std::vector<DimensionTextLabel> dimension_texts;
         painter.setRenderHint(QPainter::Antialiasing);
         if(impl_->show_dimension_frame) {
             painter.setPen(QPen(QColor("#808080"),1,Qt::DashLine));
@@ -3414,6 +3416,7 @@ if (impl_->show_origins) {
         QOpenGLPaintDevice overlay_device(QSize(framebuffer_width,framebuffer_height));
         overlay_device.setDevicePixelRatio(pixel_ratio);
         QPainter painter(&overlay_device);
+        std::vector<DimensionTextLabel> dimension_texts;
         painter.setRenderHint(QPainter::Antialiasing);
         if(impl_->show_dimension_frame) {
             painter.setPen(QPen(QColor("#808080"),1,Qt::DashLine));
@@ -3932,7 +3935,7 @@ if (impl_->show_origins) {
                 if(!layout.valid)continue;
                 for(const auto& curve:layout.curves)painter.drawPolyline(curve);
                 for(const auto& [tip,direction]:layout.arrows)painter.drawPolygon(annotation_arrow(tip,direction,10));
-                painter.save();painter.translate(layout.text_baseline);painter.rotate(layout.text_angle);painter.drawText(QPointF{},text);painter.restore();
+                dimension_texts.push_back({text,layout.text_baseline,layout.text_angle,painter.font(),color});
                 painter.setBrush(Qt::NoBrush);
             }
         }
@@ -4855,6 +4858,19 @@ if (impl_->show_origins) {
             painter.setPen(QPen(color,2.0));painter.setBrush(Qt::NoBrush);
             for(std::size_t i=1;i<edge.points.size();++i)painter.drawLine(project(edge.points[i-1]),project(edge.points[i]));
         }
+        paint_dimension_text_layer(painter,dimension_texts,.5*logicalDpiX()/25.4,
+            [&](QPainter& text_painter,const QPainterPath& mask) {
+                text_painter.setClipPath(mask,Qt::IntersectClip);
+                // Match the exact OpenGL background bands, including high-DPI rounding.
+                for(int band=0;band<background_bands;++band) {
+                    const qreal factor=(band+.5)/background_bands;
+                    const auto channel=[&](int bottom,int top){return (bottom+(top-bottom)*factor)/255.;};
+                    const QColor color=QColor::fromRgbF(channel(23,59),channel(27,70),channel(33,84));
+                    const int first=framebuffer_height*band/background_bands,last=framebuffer_height*(band+1)/background_bands;
+                    text_painter.fillRect(QRectF(0,(framebuffer_height-last)/pixel_ratio,width(),(last-first)/pixel_ratio),color);
+                }
+                text_painter.setClipping(false);
+            });
         // Editing handles remain above coincident geometry and point markers.
         if(impl_->dimension_layout_editable&&impl_->dimension_layout_commit&&impl_->confirmed_candidate&&impl_->confirmed_candidate->kind==CandidateKind::Dimension&&impl_->show_dimensions) {
             for(int i=0;i<3;++i)if(auto point=dimension_handle_position(*impl_->confirmed_candidate,i))draw_circular_marker(painter,*point,QColor("#D05CFF"));

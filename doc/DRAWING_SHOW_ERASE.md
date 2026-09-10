@@ -252,3 +252,21 @@ oblouku a končí na pomocné čáře pod textem. Fialový úchop ve středu pom
 oblouk. Poloha textu nemění měřený bod šipky ani hodnotu rádiusu.
 V isometrii zůstávají text a jeho pomocná čára vodorovné.
 Toto vykreslení používají společně Sketcher, Part, Assembly a Drawing.
+
+
+Přepnutí zkráceného rádiusu zachovává rovinu kružnice a radiální směr šipky
+i spojnice. Případná složka uložené polohy textu kolmá na rovinu se odstraní.
+Tažení určuje podepsanou polohu podél promítnutého poloměru bez omezení
+na vnitřek nebo vnějšek; vodorovná pomocná čára v isometrii na něj navazuje.
+
+
+### Vrchní textová vrstva kót (2026-09-10)
+
+Hodnoty kót se vykreslují v samostatné vrstvě nad geometrií, osami,
+vynášecími čarami a šrafováním. Celou hodnotu včetně značky R/Ø a jednotky
+obklopuje krycí obdélník bez obrysu, s přesahem 0,5 mm na všech stranách
+ve výkresu. Na obrazovce přebírá barvu pozadí, při tisku/PDF barvu papíru.
+Ve 3D View je přesah přepočtený podle DPI obrazovky.
+
+Texty používají stabilní pořadí uložených kót; pozdější text a jeho maska
+překryjí dřívější. Výběrové fialové úchopy zůstávají nad textovou vrstvou.

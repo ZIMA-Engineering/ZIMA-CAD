@@ -1,4 +1,5 @@
 #include <QTabBar>
+#include <zima/viewer/dimension_text_layer.hpp>
 #include <QTableWidget>
 #include <zima/ui/reference_cell.hpp>
 #include <QFile>
@@ -425,6 +426,35 @@ int verify_show_erase_ui() {
             "Erase did not remove selected visible items");
     require(modal_error.isEmpty(), modal_error.toUtf8().constData());
     window.grab().save("build/show-erase-window.png");
+    {
+      auto proof_document=drawing;
+      auto& proof_view=proof_document.sheets[0].views[0];
+      for(auto& annotation:proof_view.model_annotations)annotation.visible=true;
+      const auto annotation=std::ranges::find(proof_view.model_annotations,dim->source,&drawing::ModelAnnotation::source);
+      QFont font=canvas->font();font.setPixelSize(7);
+      const QString text=QString::fromStdString(annotation->text);
+      const auto presentation=app::model_annotation_layout(proof_view,*annotation,{},QFontMetricsF(font).horizontalAdvance(text)/2);
+      const QPointF baseline(2*(proof_document.sheets[0].width_mm()-proof_view.x+presentation.text.x()),
+                             2*(proof_document.sheets[0].height_mm()-proof_view.y-presentation.text.y()));
+      require(std::abs(presentation.text_angle)<1e-9,"Hatch masking fixture must be horizontal");
+      workspace.open_drawing(drawing.document_id)->document=proof_document;
+      window.edit_workspace_document(drawing.document_id);flush();
+      const auto clean=window.render_sheet_for_test(true);
+      const auto box=viewer::dimension_text_box(font,text,1).translated(baseline);
+      const double hatch_y=presentation.text.y()-QFontMetricsF(font).tightBoundingRect(text).center().y()/2;
+      auto hatch=proof_view.projected_edges.front();hatch.hatch=true;hatch.hidden=false;
+      hatch.points={{(presentation.text.x()-5)/proof_view.scale,hatch_y/proof_view.scale},
+                    {(presentation.text.x()+QFontMetricsF(font).horizontalAdvance(text)/2+5)/proof_view.scale,hatch_y/proof_view.scale}};
+      proof_view.projected_edges.push_back(hatch);
+      workspace.open_drawing(drawing.document_id)->document=proof_document;
+      window.edit_workspace_document(drawing.document_id);flush();
+      const auto hatched=window.render_sheet_for_test(true);
+      require(clean!=hatched,"Hatch mask fixture did not draw a hatch");
+      const QRect interior=box.adjusted(1,1,-1,-1).toAlignedRect().intersected(clean.rect());
+      require(!interior.isEmpty() && clean.copy(interior)==hatched.copy(interior),
+              "Actual drawing text mask did not cover hatching in print path");
+      hatched.save("build/dimension-hatch-mask-print.png");
+    }
     std::cout << "Show/Erase source, occurrence transforms, View selection, "
                  "Cancel, MMB, handles and PDF contracts passed\n";
     return 0;
