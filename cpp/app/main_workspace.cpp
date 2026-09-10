@@ -3098,6 +3098,218 @@ int verify_assembly_refresh_view(QApplication& application,const std::filesystem
     return 0;
 }
 
+int verify_owned_profile_frames(QApplication& application, const std::filesystem::path& directory) {
+    using namespace zima;
+    const auto check=[](bool condition,const char* message) {
+        if(!condition)throw std::runtime_error(message);
+    };
+    const auto near=[](const kernel::Vec3& a,const kernel::Vec3& b) {
+        return std::abs(a.x-b.x)+std::abs(a.y-b.y)+std::abs(a.z-b.z)<1e-7;
+    };
+    const auto flush=[&] {
+        application.processEvents();
+        QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+        application.processEvents();
+    };
+    try {
+        for(const bool existing:{false,true}) for(const bool revolve:{false,true})
+        for(const std::string first:{"xz","xy","yz"}) {
+            std::cout<<"Profile frame: "<<(existing?"edit ":"create ")
+                     <<(revolve?"revolution ":"extrusion ")<<first<<std::endl;
+            auto part=document::PartDocument::create_default();
+            auto sketch=sketcher::Sketch::create_default();
+            const auto circle=sketch.add_circle(13,7,2);
+            sketch.apply_dimension(sketch.create_circle_radius_dimension(circle));
+            auto feature=revolve?document::PartDocument::create_revolution_container(sketch.id):
+                document::PartDocument::create_extrusion_container(sketch.id);
+            sketch.owner_container_id=feature.id;
+            if(revolve) {
+                feature.revolution.axis_segment_id=sketch.add_segment(0,-20,0,20,1e-6,true);
+                sketch.segments.back().centerline=true;
+            }
+            document::BodyHistoryGraph graph;const auto body_id=graph.create_body("Profile frame test");
+            if(existing) {
+                part.history={feature};part.sketches={sketch};
+                graph.insert({document::PartHistoryKind::Feature,feature.id});
+            }
+            part.set_body_history(graph);part.resolve_constructions();
+            kernel::OcctKernel kernel;
+            const auto path=directory/"owned-profile-frame.prtz";
+            part.save(path,existing?kernel.evaluate_history(part.kernel_operations()):std::vector<kernel::BodyResult>{});
+            app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));
+            window.resize(1200,850);window.show();
+            check(window.open_document_path(QString::fromStdString(path.string())),"Cannot open profile-frame fixture");
+            flush();check(activate_test_body(application,window,body_id),"Cannot activate profile-frame Body");
+            auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
+            const auto dialog=[&]()->app::PrimitivePropertiesDialog* {
+                for(auto* child:window.findChildren<QDialog*>())
+                    if(auto* d=dynamic_cast<app::PrimitivePropertiesDialog*>(child);d&&d->isVisible())return d;
+                return nullptr;
+            };
+            const auto open=[&] {
+                if(existing) {
+                    auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* row{};
+                    for(QTreeWidgetItemIterator i(tree);*i;++i)
+                        if((*i)->data(0,Qt::UserRole).toString().toStdString()==feature.id&&
+                           (*i)->data(0,Qt::UserRole+3)=="part-container"){row=*i;break;}
+                    check(row,"Cannot locate profile feature");window.show_tree_item_properties(row);
+                } else window.findChild<QAction*>(revolve?"revolutionAction":"extrusionAction")->trigger();
+                flush();check(dialog(),"Profile properties did not open");
+            };
+            open();
+            std::vector<std::string> planes{first};
+            for(const std::string plane:{"xy","xz","yz"})if(plane!=first)planes.push_back(plane);
+            for(std::size_t row=0;row<planes.size();++row) {
+                check(dialog()->set_reference(row,{{},part.document_id+":origin","origin:plane:"+planes[row],
+                    0,true,row==0?"front":row==1?"top":"none",row<2},
+                    QString::fromStdString(planes[row])),"Cannot set profile plane reference");
+                flush();
+            }
+            dialog()->set_profile_offset_and_forward_length(3,10);flush();
+            // All eight orientations are exercised on an asymmetric saved profile.
+            // The first entry into a newly created, empty profile is checked too.
+            for(int state=0;state<(existing?8:1);++state) {
+                if(state==4)dialog()->findChild<QPushButton*>("containerOrientationFlipButton")->click();
+                if(state%4)dialog()->findChild<QPushButton*>("containerOrientationRotateButton")->click();
+                flush();
+                const auto pending=dialog()->pending_value();
+                auto expected=part;expected.history={pending};
+                auto expected_sketch=existing?sketch:sketcher::Sketch::create_default();
+                expected_sketch.id=revolve?pending.revolution.sketch_id:pending.extrusion.sketch_id;
+                expected_sketch.owner_container_id=pending.id;expected_sketch.plane_offset=3;
+                expected.sketches={expected_sketch};expected.set_body_history({});
+                expected.resolve_constructions();
+                expected_sketch=expected.sketches.front();
+                const auto normal=expected_sketch.resolved_normal;
+                check(std::abs(first=="xz"?normal.y:first=="xy"?normal.z:normal.x)>1-1e-7,
+                    "Resolved profile does not use the FIRST position plane");
+                if(existing) {
+                    const auto& dimensions=view->mesh().dimensions;
+                    const auto dim=std::ranges::find_if(dimensions,[&](const auto& d) {
+                        return d.reference.owner_id==sketch.id&&d.reference.semantic_key=="dimension:"+sketch.dimensions.front().id;
+                    });
+                    check(dim!=dimensions.end()&&near(dim->witness_first,expected_sketch.world_point(13,7)),
+                        "Properties Sketch dimension still uses the old profile frame");
+                }
+                dialog()->findChild<QPushButton*>("primitiveOwnSketchButton")->click();flush();
+                check(!dialog(),"Sketch button did not enter Sketcher");
+                for(const bool x:{false,true}) {
+                    const auto& axes=view->mesh().axes;
+                    const auto axis=std::ranges::find_if(axes,[&](const auto& a) {
+                        return a.reference.owner_id==expected_sketch.id&&
+                            a.reference.semantic_key==(x?"sketch_axis:x":"sketch_axis:y");
+                    });
+                    check(axis!=axes.end(),"Sketcher profile axis is missing");
+                    if(!near(axis->point,expected_sketch.resolved_origin)||
+                       !near(axis->direction,x?expected_sketch.resolved_x_axis:expected_sketch.resolved_y_axis)) {
+                        std::cerr<<"Actual axis "<<axis->direction.x<<','<<axis->direction.y<<','<<axis->direction.z
+                                 <<" expected "<<(x?expected_sketch.resolved_x_axis.x:expected_sketch.resolved_y_axis.x)<<','
+                                 <<(x?expected_sketch.resolved_x_axis.y:expected_sketch.resolved_y_axis.y)<<','
+                                 <<(x?expected_sketch.resolved_x_axis.z:expected_sketch.resolved_y_axis.z)<<'\n';
+                        throw std::runtime_error("Sketcher did not inherit the live FIRST plane / Front-Back / rotation / offset");
+                    }
+                }
+                window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+                check(dialog(),"Sketcher did not return to profile Properties");
+                const auto returned=dialog()->pending_value();
+                check(returned.placement.orientation_back==pending.placement.orientation_back&&
+                    returned.placement.orientation_quarter_turns==pending.placement.orientation_quarter_turns&&
+                    returned.placement.references==pending.placement.references&&
+                    dialog()->profile_plane_offset()==3,
+                    "Returning from Sketcher lost pending references, orientation or offset");
+            }
+            dialog()->reject();flush();
+            if(existing) {
+                window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+                const auto saved=document::PartDocument::load(path);
+                check(saved.sketches.front().serialized()==part.sketches.front().serialized(),
+                    "Cancel changed the saved Sketch");
+                check(saved.history.front().placement==part.history.front().placement,
+                    "Cancel changed the saved placement");
+                // Reopen after Cancel and confirm a rotated profile. The saved
+                // Sketch and calculated body must agree with the preview frame.
+                open();
+                for(std::size_t row=0;row<planes.size();++row)
+                    check(dialog()->set_reference(row,{{},part.document_id+":origin","origin:plane:"+planes[row],
+                        0,true,row==0?"front":row==1?"top":"none",row<2},
+                        QString::fromStdString(planes[row])),"Cannot set commit reference");
+                dialog()->set_profile_offset_and_forward_length(3,10);
+                dialog()->findChild<QPushButton*>("containerOrientationFlipButton")->click();
+                dialog()->findChild<QPushButton*>("containerOrientationRotateButton")->click();flush();
+                auto expected=part;expected.history.front()=dialog()->pending_value();
+                expected.sketches.front().plane_offset=3;expected.resolve_constructions();
+                const auto expected_bodies=kernel.evaluate_history(expected.kernel_operations());
+                dialog()->findChild<QPushButton*>("primitiveOwnSketchButton")->click();flush();
+                window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+                check(dialog(),"Cannot return before profile OK");
+                dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+                check(!dialog(),"Profile OK did not calculate");
+                window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+                std::vector<kernel::BodyResult> bodies;
+                const auto committed=document::PartDocument::load(path,&bodies);
+                check(near(committed.sketches.front().world_point(13,7),expected.sketches.front().world_point(13,7))&&
+                    near(committed.sketches.front().resolved_normal,expected.sketches.front().resolved_normal),
+                    "Committed Sketch moved away from preview");
+                check(!bodies.empty()&&std::abs(bodies.back().volume-expected_bodies.back().volume)<1e-6,
+                    "Committed profile body differs from expected calculation");
+                const auto bounds=[](const kernel::ViewerMesh& mesh) {
+                    std::array<double,6> b{1e99,1e99,1e99,-1e99,-1e99,-1e99};
+                    for(const auto& p:mesh.vertices) {
+                        b[0]=std::min(b[0],double(p.x));b[1]=std::min(b[1],double(p.y));b[2]=std::min(b[2],double(p.z));
+                        b[3]=std::max(b[3],double(p.x));b[4]=std::max(b[4],double(p.y));b[5]=std::max(b[5],double(p.z));
+                    }
+                    return b;
+                };
+                const auto actual_bounds=bounds(bodies.back().mesh),expected_bounds=bounds(expected_bodies.back().mesh);
+                for(std::size_t i=0;i<6;++i)check(std::abs(actual_bounds[i]-expected_bounds[i])<1e-4,
+                    "Calculated body bounds disagree with the preview frame");
+
+            }
+        }
+        // Other Sketch hosts must keep the first plane too. Sweep section
+        // planes are derived from the path tangent; this checks their base/path.
+        for(const std::string command:{"sketchAction","sweep2dAction","helicalSweepAction"})
+        for(const std::string first:{"xz","xy","yz"}) {
+            std::cout<<"First plane: "<<command<<' '<<first<<std::endl;
+            auto part=document::PartDocument::create_default();
+            const auto path=directory/"other-profile-plane.prtz";part.save(path);
+            app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));
+            window.resize(1100,850);window.show();
+            check(window.open_document_path(QString::fromStdString(path.string())),"Cannot open plane audit fixture");flush();
+            auto* action=window.findChild<QAction*>(QString::fromStdString(command));
+            check(action&&action->isEnabled(),"Plane audit command unavailable");action->trigger();flush();
+            QDialog* properties{};
+            for(auto* d:window.findChildren<QDialog*>())if(d->isVisible()){properties=d;break;}
+            auto* references=dynamic_cast<app::PlacementReferenceDialog*>(properties);
+            check(references,"Plane audit has no reference dialog");
+            std::vector<std::string> planes{first};
+            for(const std::string plane:{"xy","xz","yz"})if(plane!=first)planes.push_back(plane);
+            for(std::size_t row=0;row<planes.size();++row) {
+                check(references->set_reference(row,{{},part.document_id+":origin","origin:plane:"+planes[row],
+                    0,true,row==0?"front":row==1?"top":"none",row<2},
+                    QString::fromStdString(planes[row])),"Plane audit reference rejected");flush();
+            }
+            const char* button=command=="sketchAction"?"sketchOpenButton":
+                command=="sweep2dAction"?"sweep2dSketch0":"helicalSketch0";
+            check(properties->findChild<QPushButton*>(button),"Plane audit Sketch button missing");
+            properties->findChild<QPushButton*>(button)->click();flush();
+            auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
+            kernel::Vec3 x,y;bool have_x=false,have_y=false;
+            for(const auto& axis:view->mesh().axes) {
+                if(axis.reference.semantic_key=="sketch_axis:x"){x=axis.direction;have_x=true;}
+                if(axis.reference.semantic_key=="sketch_axis:y"){y=axis.direction;have_y=true;}
+            }
+            check(have_x&&have_y,"Plane audit Sketch axes missing");
+            const kernel::Vec3 normal{x.y*y.z-x.z*y.y,x.z*y.x-x.x*y.z,x.x*y.y-x.y*y.x};
+            check(std::abs(first=="xz"?normal.y:first=="xy"?normal.z:normal.x)>1-1e-7,
+                "Another Sketch host does not use the FIRST plane");
+            window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+            for(auto* d:window.findChildren<QDialog*>())if(d->isVisible()){d->reject();break;}flush();
+        }
+        std::cout<<"Owned profile first-plane, eight orientations, offset, OK/Cancel and other Sketch hosts passed\n";return 0;
+    } catch(const std::exception& error) {std::cerr<<error.what()<<'\n';return 1;}
+}
+
 int verify_assembly_owned_profiles(QApplication& application,const std::filesystem::path& directory) {
     using namespace zima;
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
@@ -3913,6 +4125,7 @@ int verify_startup_contract(
     QApplication& application, zima::app::AssemblyWorkspaceWindow& window,
     const std::filesystem::path& test_directory,
     const QString& part_capture_path = {}, const QString& drawing_capture_path = {}) {
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_FRAMES_ONLY")) return verify_owned_profile_frames(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_MEASUREMENT_INSPECTOR_ONLY")) return zima::app::verify_measurement_inspector(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_ASSEMBLY_REFRESH_ONLY")) return verify_assembly_refresh_view(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SECTIONS_ONLY")) return zima::app::verify_sections(application,window,test_directory);

@@ -595,6 +595,33 @@ Konce zůstávají na svých obloucích, uložené vazby se nemění a neřešit
 změna se odmítne bez zásahu do původní skici. Zamčená kóta nadále dovoluje
 úmyslnou číselnou editaci.
 
+### První rovina a pracovní profil (2026-09-10)
+
+První rovinná polohová reference Vytažení a Rotace určuje skicovou rovinu.
+Další reference doplňují umístění a orientaci; nepřebírají roli první roviny.
+Front/Back, otočení a odsazení profilu se musí ihned shodovat v náhledu,
+kótách profilu, editoru skici a výsledném tělese.
+
+Nový prvek se registruje i v dočasné historii náhledu aktivního tělesa,
+aby jeho vlastní skica prošla běžným řešením referencí. Pracovní kopie
+skici přebírá vyřešenou rovinu, počátek a osy téhož náhledu; její lokální
+2D geometrie se při změně orientace nepřepisuje.
+
+Vstup tlačítkem SKETCH a návrat do vlastností zachovávají celý rozpracovaný
+prvek, včetně referencí, orientace, odsazení a délky či úhlu. To platí i při
+editaci již vypočteného prvku. **OK** potvrdí aktuální návrh a vypočítá
+těleso; **Zrušit** u editovaného prvku zachová původní skicu a parametry.
+
+Regresní test 'zima_cpp_profile_frame_ui_contract' kontroluje první roviny
+XY/XZ/YZ, osm kombinací stran a otočení, odsazení, návraty ze skicáře,
+storno i shodu uložené skici a mezí vypočteného tělesa po OK.
+Audit dále ověřuje první rovinu samostatné Skici, základní kružnice
+šroubovice a dráhy 2D tažení. U 2D tažení první reference předvyplní rovinu
+dráhy, kterou lze následně samostatně změnit. Průřezy tažení a Sweep/Loftu
+zůstávají odvozené z tečny dráhy ve zvoleném bodě.
+
+Oprava používá existující řešení umístění kontejneru beze změny jeho pravidel.
+
 ### Okamžitý náhled ořezu a vazby (2026-09-09)
 
 Každé kliknutí nebo dokončené tažení nástroje Ořez se projeví ihned ve View

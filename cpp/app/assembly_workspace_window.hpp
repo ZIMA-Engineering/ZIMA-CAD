@@ -341,6 +341,7 @@ private:
     // Geometry edited from a profile's Properties or its Sketcher remains
     // pending until the owning container is confirmed.
     std::optional<zima::sketcher::Sketch> property_owned_sketch_draft_;
+    std::optional<zima::document::HistoryContainer> property_owned_feature_draft_;
     // Set only while a standalone Sketch container is being transactionally
     // transformed into Extrusion/Revolution.  The draft feature may be
     // installed temporarily while Sketcher is open; Cancel restores this

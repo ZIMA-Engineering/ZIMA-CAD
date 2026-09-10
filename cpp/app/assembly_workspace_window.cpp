@@ -10216,8 +10216,10 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             pending_profile_feature_ && pending_profile_feature_->feature_kind == feature_kind
         ? pending_profile_feature_->id : container_id;
     if (!property_owned_sketch_draft_ ||
-        property_owned_sketch_draft_->owner_container_id != profile_owner)
+        property_owned_sketch_draft_->owner_container_id != profile_owner) {
         property_owned_sketch_draft_.reset();
+        property_owned_feature_draft_.reset();
+    }
     const bool resuming_assembly_profile = assembly_cut && container_id.empty() &&
         pending_profile_feature_ &&
         pending_profile_feature_->feature_kind == feature_kind &&
@@ -10415,6 +10417,13 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 }
             }
         }
+    }
+    // Returning from the embedded editor resumes the same property draft.
+    // Reading the saved feature here would discard pending references,
+    // FRONT/BACK, quarter turns and extent parameters.
+    if (property_owned_feature_draft_ &&
+        property_owned_feature_draft_->id == initial.id) {
+        initial = *property_owned_feature_draft_;
     }
     if (feature_kind == zima::document::FeatureKind::Revolution &&
         property_owned_sketch_draft_ &&
@@ -10706,6 +10715,10 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 return value.id == preview.id;
             });
         if (owner == preview_document.history.end()) {
+            // Body-local resolution visits registered history entries only.
+            // Register a new preview in the transient document as well.
+            preview_document.insert_history_entry(
+                zima::document::PartHistoryKind::Feature, preview.id);
             preview_document.history.push_back(preview);
         } else {
             *owner = preview;
@@ -10760,6 +10773,19 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         sketch = std::find_if(preview_document.sketches.begin(), preview_document.sketches.end(),
             [&](const auto& value) { return value.id == sketch_id; });
         if (sketch == preview_document.sketches.end()) return;
+        if (property_owned_sketch_draft_ &&
+            property_owned_sketch_draft_->id == sketch_id) {
+            // Properties annotations and embedded Sketcher consume the draft.
+            // Keep its frame in sync with the same resolved profile used by
+            // the wire preview, while preserving pending local 2D geometry.
+            auto& draft = *property_owned_sketch_draft_;
+            draft.plane = sketch->plane;
+            draft.plane_offset = sketch->plane_offset;
+            draft.resolved_origin = sketch->resolved_origin;
+            draft.resolved_x_axis = sketch->resolved_x_axis;
+            draft.resolved_y_axis = sketch->resolved_y_axis;
+            draft.resolved_normal = sketch->resolved_normal;
+        }
         // Extrusion/Revolution use the owned Sketch's resolved work plane,
         // which may differ from the generic container frame (notably for a
         // manually entered triad of built-in Origin planes).  The cyan
@@ -11557,6 +11583,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             // preserve every live field (length/end condition/direction and
             // placement orientation) before entering Sketcher, exactly like
             // a brand-new owned profile.
+            property_owned_feature_draft_ = pending_feature;
             if (!edit_mode || pending_profile_edit) {
                 pending_profile_feature_ = std::move(pending_feature);
             }
@@ -11834,7 +11861,10 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                     });
             }
         }
-        if (!entering_owned_profile_sketch) property_owned_sketch_draft_.reset();
+        if (!entering_owned_profile_sketch) {
+            property_owned_sketch_draft_.reset();
+            property_owned_feature_draft_.reset();
+        }
         properties_dialog_ = nullptr;
         edge_treatment_dialog_ = nullptr;
         edge_treatment_selection_.reset();
