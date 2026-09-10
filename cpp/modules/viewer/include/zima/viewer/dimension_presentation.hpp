@@ -56,7 +56,7 @@ DimensionPresentation dimension_presentation(const kernel::ViewerDimension &d, P
         out.curves.push_back({w1, b});
     } else if (radial) {
         b = w2;
-        if (d.label_position) {
+        if (d.label_position && !(d.kind == kernel::ViewerDimensionKind::Radius && d.radius_center_line_hidden)) {
             const auto radius_vector = kernel::dimension_sub(d.witness_second, d.witness_first);
             const auto label_vector = kernel::dimension_sub(*d.label_position, d.witness_first);
             const auto in_plane = kernel::dimension_sub(label_vector,
@@ -92,6 +92,29 @@ DimensionPresentation dimension_presentation(const kernel::ViewerDimension &d, P
     auto requested = d.label_position ? project(*d.label_position) : middle;
     if (!std::isfinite(requested.x()) || !std::isfinite(requested.y()))
         return out;
+    if (d.kind == kernel::ViewerDimensionKind::Radius && d.radius_center_line_hidden) {
+        // A shortened radius owns a leader from the measured rim, not from
+        // the centre. The text grip can cross the centre and the rim without
+        // moving the measured arrow or clamping to an outside half-plane.
+        auto text_direction = out.oblique ? QPointF(1, 0) : along;
+        if (text_direction.x() < -1e-6 ||
+            (std::abs(text_direction.x()) <= 1e-6 && text_direction.y() > 0))
+            text_direction = -text_direction;
+        const auto start = requested - text_direction * text_width / 2,
+                   end = requested + text_direction * text_width / 2;
+        const auto join = QLineF(b, start).length() < QLineF(b, end).length() ? start : end;
+        out.curves = {{b, join}, {start, end}};
+        const auto arrow_direction = QLineF(b, join).length() > 1e-9
+            ? dimension_screen_unit(b - join) : along;
+        out.arrows = {{b, d.arrows_reversed ? arrow_direction : -arrow_direction}};
+        out.handles = {requested, b, b};
+        out.outside = dimension_screen_dot(requested - a, along) < 0 ||
+                      dimension_screen_dot(requested - b, along) > 0;
+        out.text_baseline = start + QPointF(text_direction.y(), -text_direction.x()) * gap;
+        out.text_angle = std::atan2(text_direction.y(), text_direction.x()) * 180 / std::numbers::pi;
+        out.valid = true;
+        return out;
+    }
     double shift = dimension_screen_dot(requested - middle, along);
     if (std::abs(shift) < gap * 1.5)
         shift = 0;

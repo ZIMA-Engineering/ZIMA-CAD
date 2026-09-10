@@ -447,9 +447,48 @@ int main(int argc, char **argv) {
                         reloaded.mesh.dimensions.front().label_position==displayed.label_position,
                         "Viewer packet lost radius presentation");
                 const auto presentation=viewer::dimension_presentation(displayed,front,50);
-                near(QLineF(presentation.curves[0].front(),presentation.curves[0].back()).length(),17);
+                require(presentation.curves.size()==2 && presentation.curves[0].front()==front(displayed.witness_second),
+                        "Shortened radius leader did not start at measured arrow");
+                for(const auto delta:{QPointF(-120,20),QPointF(240,-40),QPointF(-450,40)}) {
+                    viewer.confirm_reference("feature","parameter:length",{},viewer::CandidateKind::Dimension);
+                    const auto candidate=*viewer.confirmed_candidate();
+                    const auto text=*viewer.dimension_handle_position(candidate,0);
+                    const auto rim=*viewer.dimension_handle_position(candidate,1);
+                    mouse(&viewer,QEvent::MouseButtonPress,text,Qt::LeftButton,Qt::LeftButton);
+                    mouse(&viewer,QEvent::MouseMove,text+delta,Qt::NoButton,Qt::LeftButton);
+                    require(QLineF(*viewer.dimension_handle_position(candidate,0),text+delta).length()<.01,
+                            "Shortened radius grip does not follow mouse");
+                    require(QLineF(*viewer.dimension_handle_position(candidate,1),rim).length()<.01,
+                            "Dragging shortened radius text moved measured rim");
+                    mouse(&viewer,QEvent::MouseButtonRelease,text+delta,Qt::LeftButton,Qt::NoButton);
+                }
+                viewer.grab().save("build/radius-free-label-view.png");
                 kernel::cycle_dimension_presentation(persisted,kind);
                 require(!persisted.arrows_reversed&&!persisted.radius_center_line_hidden,"Radius cycle did not return to full line");
+            }
+        }
+        {
+            auto radius=source;radius.kind=kernel::ViewerDimensionKind::Radius;
+            radius.radius_center_line_hidden=true;radius.arrows_reversed=true;
+            radius.witness_first={0,0,0};radius.witness_second={20,0,0};
+            radius.line_first=radius.witness_first;radius.line_second=radius.witness_second;
+            radius.plane_normal={0,0,1};
+            for(bool oblique:{false,true})for(double x:{-30.,-1.,0.,1.,10.,19.,20.,21.,40.}) {
+                radius.label_position=kernel::Vec3{x,3,0};
+                const auto project=[&](kernel::Vec3 p){return oblique?QPointF(p.x*5+p.y*2,-p.y*4):QPointF(p.x*5,-p.y*5);};
+                const auto shown=viewer::dimension_presentation(radius,project,40);
+                require(shown.valid && shown.handles[0]==project(*radius.label_position),
+                        "Shortened radius text was clamped while crossing centre or rim");
+                require(shown.arrows.size()==1 && shown.arrows[0].first==project(radius.witness_second) &&
+                        shown.curves[0].front()==shown.arrows[0].first,
+                        "Moving radius text moved arrow or disconnected leader");
+                require(shown.curves[0].back()==shown.curves[1].front() || shown.curves[0].back()==shown.curves[1].back(),
+                        "Radius leader does not meet text support");
+                const auto leader=shown.curves[0].back()-shown.curves[0].front();
+                const auto arrow_direction=shown.arrows[0].second;
+                near(leader.x()*arrow_direction.y()-leader.y()*arrow_direction.x(),0);
+                near(QLineF(shown.curves[1].front(),shown.curves[1].back()).length(),40);
+                if(oblique)near(shown.text_angle,0);
             }
         }
         viewer.set_context_menu_callback({});

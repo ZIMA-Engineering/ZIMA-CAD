@@ -242,3 +242,13 @@ pomocného kvádru, s přesahem 2 mm na každém konci na papíře. Rozsah se
 nezrcadlí kolem počátku: například kvádr od 0 do 40 mm při měřítku 1:1
 dává rozsah −2 až 42 mm, nikoli −42 až 42 mm. To platí i pro hlavní osy.
 Ve směru osy vzniká kříž přes tyto meze, mimo tento směr úsečka.
+
+
+### Volná poloha textu zkráceného rádiusu (2026-09-10)
+
+V režimu rádiusu bez čáry do středu začíná spojnice přímo na šipce měřeného
+oblouku a končí na pomocné čáře pod textem. Fialový úchop ve středu pomocné
+čáry lze plynule přetáhnout mezi oblouk a střed, přes střed za osu i ven za
+oblouk. Poloha textu nemění měřený bod šipky ani hodnotu rádiusu.
+V isometrii zůstávají text a jeho pomocná čára vodorovné.
+Toto vykreslení používají společně Sketcher, Part, Assembly a Drawing.
