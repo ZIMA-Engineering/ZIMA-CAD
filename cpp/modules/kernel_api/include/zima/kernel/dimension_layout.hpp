@@ -87,6 +87,8 @@ struct DimensionLayout {
     int plane_quarter_turns{};
     std::optional<double> envelope_offset;
     double text_along{}, text_outward{};
+    bool arrows_reversed{};
+    double line_offset{};
     bool operator==(const DimensionLayout &) const = default;
 };
 struct DimensionLayoutEntry {
@@ -109,12 +111,13 @@ inline void validate_dimension_layout(const DimensionLayout &layout) {
     if (layout.plane_quarter_turns < 0 || layout.plane_quarter_turns > 3 ||
         (layout.envelope_offset &&
          (!std::isfinite(*layout.envelope_offset) || *layout.envelope_offset < 0)) ||
-        !std::isfinite(layout.text_along) || !std::isfinite(layout.text_outward))
+        !std::isfinite(layout.text_along) || !std::isfinite(layout.text_outward) || !std::isfinite(layout.line_offset))
         throw std::invalid_argument("Invalid dimension presentation");
 }
 inline ViewerDimension layout_dimension(ViewerDimension d, const ModelEnvelope &bounds,
                                         const DimensionLayout &layout) {
     validate_dimension_layout(layout);
+    d.arrows_reversed = layout.arrows_reversed;
     auto normal = dimension_unit(d.plane_normal);
     const bool angular = d.kind == ViewerDimensionKind::Angular;
     const auto direction =
@@ -180,6 +183,21 @@ inline ViewerDimension layout_dimension(ViewerDimension d, const ModelEnvelope &
                               dimension_scale(outward, 2.0));
         }
     }
+    if (layout.line_offset) {
+        if (angular) {
+            const auto old=dimension_sub(d.line_first,d.witness_first);
+            const auto radius=std::sqrt(dimension_dot(old,old));
+            if(radius>1e-9){const double ratio=std::max(.1,radius+layout.line_offset)/radius;
+                d.line_first=dimension_add(d.witness_first,dimension_scale(old,ratio));
+                d.line_second=dimension_add(d.witness_first,dimension_scale(dimension_sub(d.line_second,d.witness_first),ratio));
+                if(d.label_position)d.label_position=dimension_add(d.witness_first,dimension_scale(dimension_sub(*d.label_position,d.witness_first),ratio));}
+        } else {
+            const auto move=dimension_scale(outward,layout.line_offset);
+            d.line_first=dimension_add(d.line_first,move);d.line_second=dimension_add(d.line_second,move);
+            if(d.label_position)d.label_position=dimension_add(*d.label_position,move);
+            else d.label_position=dimension_scale(dimension_add(d.line_first,d.line_second),.5);
+        }
+    }
     if (layout.text_along || layout.text_outward)
         d.label_position =
             dimension_add(d.label_position.value_or(
@@ -193,12 +211,14 @@ inline DimensionLayout dragged_dimension_layout(const ViewerDimension &shown,
                                                 DimensionLayout initial, int handle, double along,
                                                 double outward) {
     if (handle == 0) {
-        initial.text_along += along;
-        initial.text_outward += outward;
+        auto moved = dragged_dimension_layout(shown, bounds, initial, 1, 0, outward);
+        moved.text_along += along;
+        return moved;
+    }
+    if (!initial.envelope_offset || !bounds.valid) {
+        initial.line_offset += outward;
         return initial;
     }
-    if (!bounds.valid)
-        return initial;
     const bool angular = shown.kind == ViewerDimensionKind::Angular;
     const auto direction = dimension_unit(
         dimension_sub(angular ? shown.line_first : shown.witness_second, shown.witness_first));

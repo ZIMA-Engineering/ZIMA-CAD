@@ -8719,7 +8719,7 @@ void AssemblyWorkspaceWindow::toggle_local_origin_visibility(
 }
 
 void AssemblyWorkspaceWindow::commit_dimension_layout(const zima::kernel::EdgeReference& reference,zima::kernel::DimensionLayout layout) {
-    if(reference.instance_path!=active_occurrence_path_||!part_element_context_menu_enabled(reference.owner_id))throw std::invalid_argument("Dimension is outside the active editing occurrence");
+    if(reference.instance_path!=active_occurrence_path_||(!part_element_context_menu_enabled(reference.owner_id)&&reference.owner_id!=active_sketch_id_))throw std::invalid_argument("Dimension is outside the active editing occurrence");
     const auto id=workspace_.active_document_id();
     if(auto* part=workspace_.open_part(id)) {
         auto next=part->session.document();zima::kernel::store_dimension_layout(next.dimension_layouts,reference,layout);
@@ -8741,7 +8741,7 @@ void AssemblyWorkspaceWindow::show_dimension_layout_properties(const zima::viewe
     if(entries)if(const auto* value=zima::kernel::find_dimension_layout(*entries,source->reference))initial=*value;
     auto* dialog=new DimensionLayoutDialog(*source,initial,[this,id,reference=source->reference](auto layout){if(workspace_.active_document_id()!=id)throw std::runtime_error("Active dimension document changed");commit_dimension_layout(reference,layout);},this);
     dialog->setAttribute(Qt::WA_DeleteOnClose);properties_dialog_=dialog;viewer_->set_dimension_layout_editable(false);
-    connect(dialog,&QObject::destroyed,this,[this,dialog]{if(properties_dialog_==dialog)properties_dialog_=nullptr;viewer_->set_dimension_layout_editable(active_sketch_id_.empty());});
+    connect(dialog,&QObject::destroyed,this,[this,dialog]{if(properties_dialog_==dialog)properties_dialog_=nullptr;viewer_->set_dimension_layout_editable(!sketch_universal_dimension_active_&&!sweep_profile_sketch_draft_);});
     dialog->show();
 }
 
@@ -24069,7 +24069,7 @@ std::optional<std::string> AssemblyWorkspaceWindow::selected_occurrence_path() c
 }
 
 void AssemblyWorkspaceWindow::refresh_scene() {
-    viewer_->set_dimension_layout_editable(!properties_dialog_&&active_sketch_id_.empty());
+    viewer_->set_dimension_layout_editable(!properties_dialog_&&!sketch_universal_dimension_active_&&!sweep_profile_sketch_draft_);
     update_assembly_dimension_visibility();
     update_viewer_body_colors();
     update_body_color_actions();

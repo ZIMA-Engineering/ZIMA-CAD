@@ -14,6 +14,7 @@ class DimensionLayoutDialog final : public ui::PropertiesSubWindow {
     DimensionLayoutDialog(kernel::ViewerDimension dimension, kernel::DimensionLayout initial,
                           std::function<void(kernel::DimensionLayout)> commit, QWidget *parent)
         : PropertiesSubWindow(tr("Zobrazení kóty"), parent), commit_(std::move(commit)) {
+        preserved_ = initial;
         setObjectName("dimensionLayoutDialog");
         set_initial_size({350, 310});
         auto *form = new QFormLayout;
@@ -42,9 +43,9 @@ class DimensionLayoutDialog final : public ui::PropertiesSubWindow {
         offset_->setMinimum(0);
         form->addRow(tr("Odsazení od obálky"), offset_);
         along_ = field("dimensionTextAlong", initial.text_along);
-        outward_ = field("dimensionTextOutward", initial.text_outward);
+        outward_ = field("dimensionTextOutward", initial.line_offset);
         form->addRow(tr("Posunutí textu podél kóty"), along_);
-        form->addRow(tr("Posunutí textu od modelu"), outward_);
+        form->addRow(tr("Posunutí kótovací čáry"), outward_);
         offset_->setEnabled(attach_->isChecked());
         connect(attach_, &QCheckBox::toggled, offset_, &QDoubleSpinBox::setEnabled);
         auto *hint = new QLabel(
@@ -58,18 +59,20 @@ class DimensionLayoutDialog final : public ui::PropertiesSubWindow {
 
   protected:
     bool submit() override {
-        kernel::DimensionLayout value;
+        kernel::DimensionLayout value = preserved_;
+        value.envelope_offset.reset();
         value.plane_quarter_turns = plane_->currentIndex();
         if (attach_->isChecked())
             value.envelope_offset = offset_->value();
         value.text_along = along_->value();
-        value.text_outward = outward_->value();
+        value.line_offset = outward_->value();
         kernel::validate_dimension_layout(value);
         commit_(value);
         return true;
     }
 
   private:
+    kernel::DimensionLayout preserved_;
     std::function<void(kernel::DimensionLayout)> commit_;
     QComboBox *plane_{};
     QCheckBox *attach_{};

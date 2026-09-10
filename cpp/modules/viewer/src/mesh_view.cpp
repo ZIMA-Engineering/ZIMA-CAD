@@ -1,3 +1,4 @@
+#include <zima/viewer/dimension_presentation.hpp>
 #include <QApplication>
 #include <zima/viewer/annotation_arrow.hpp>
 #include <QOpenGLPaintDevice>
@@ -78,117 +79,6 @@ double screen_segment_distance(const QPointF& point, const QPointF& first,
         (relative.x() * delta.x() + relative.y() * delta.y()) / squared,
         0.0, 1.0);
     return QLineF(point, first + delta * parameter).length();
-}
-
-struct LinearDimensionLayout {
-    bool valid{true};
-    QPointF witness_first;
-    QPointF witness_second;
-    QPointF line_first;
-    QPointF line_second;
-    QPointF along;
-    QPointF first_tail;
-    QPointF second_tail;
-    QPointF leader_start;
-    QPointF leader_end;
-    QPointF text_baseline;
-};
-
-template <typename Project>
-LinearDimensionLayout linear_dimension_layout(
-    const zima::kernel::ViewerDimension& dimension,
-    const zima::kernel::ViewerMesh& mesh, Project&& project) {
-    LinearDimensionLayout result;
-    result.witness_first = project(dimension.witness_first);
-    result.witness_second = project(dimension.witness_second);
-    result.line_first = project(dimension.line_first);
-    result.line_second = project(dimension.line_second);
-    for (const auto& point : {result.witness_first, result.witness_second,
-            result.line_first, result.line_second}) {
-        if (!std::isfinite(point.x()) || !std::isfinite(point.y())) {
-            result.valid = false;
-            return result;
-        }
-    }
-    QPointF direction = result.line_second - result.line_first;
-    double length = std::hypot(direction.x(), direction.y());
-    if (length <= 1.0e-6 &&
-        dimension.kind == zima::kernel::ViewerDimensionKind::Linear) {
-        const zima::kernel::Vec3 direction_tip{
-            dimension.line_second.x + dimension.plane_normal.x,
-            dimension.line_second.y + dimension.plane_normal.y,
-            dimension.line_second.z + dimension.plane_normal.z};
-        direction = project(direction_tip) - result.line_second;
-        length = std::hypot(direction.x(), direction.y());
-    }
-    if (length <= 1.0e-6) {
-        char axis_name = '\0';
-        if (dimension.reference.semantic_key == "parameter:x") axis_name = 'x';
-        else if (dimension.reference.semantic_key == "parameter:y") axis_name = 'y';
-        else if (dimension.reference.semantic_key == "parameter:z") axis_name = 'z';
-        const zima::kernel::ViewerAxis* exact_axis{};
-        const zima::kernel::ViewerAxis* nearest_axis{};
-        double exact_distance = std::numeric_limits<double>::infinity();
-        double nearest_distance = std::numeric_limits<double>::infinity();
-        for (const auto& candidate : mesh.axes) {
-            if (axis_name == '\0' ||
-                candidate.reference.instance_path !=
-                    dimension.reference.instance_path) continue;
-            const std::string suffix = std::string("axis:") + axis_name;
-            if (!candidate.reference.semantic_key.ends_with(suffix)) continue;
-            const double dx = candidate.point.x - dimension.witness_second.x;
-            const double dy = candidate.point.y - dimension.witness_second.y;
-            const double dz = candidate.point.z - dimension.witness_second.z;
-            const double distance = dx * dx + dy * dy + dz * dz;
-            if (candidate.reference.owner_id == dimension.reference.owner_id &&
-                distance < exact_distance) {
-                exact_axis = &candidate;
-                exact_distance = distance;
-            }
-            if (distance < nearest_distance) {
-                nearest_axis = &candidate;
-                nearest_distance = distance;
-            }
-        }
-        const auto* axis = exact_axis != nullptr ? exact_axis : nearest_axis;
-        if (axis != nullptr) {
-            const zima::kernel::Vec3 direction_tip{
-                dimension.line_second.x + axis->direction.x,
-                dimension.line_second.y + axis->direction.y,
-                dimension.line_second.z + axis->direction.z};
-            direction = project(direction_tip) - result.line_second;
-            length = std::hypot(direction.x(), direction.y());
-        }
-    }
-    if (length <= 1.0e-6) {
-        const QPointF witness_direction =
-            result.witness_second - result.witness_first;
-        direction = {-witness_direction.y(), witness_direction.x()};
-        length = std::hypot(direction.x(), direction.y());
-    }
-    if (!std::isfinite(length)) { result.valid = false; return result; }
-    result.along = length > 1.0e-6
-        ? direction / length : QPointF{1.0, 0.0};
-    result.first_tail = result.line_first - result.along * 17.0;
-    result.second_tail = result.line_second + result.along * 17.0;
-    result.leader_start = result.first_tail.x() > result.second_tail.x()
-        ? result.first_tail : result.second_tail;
-    result.leader_end = result.leader_start + QPointF(30.0, 0.0);
-    result.text_baseline = result.leader_end + QPointF(4.0, 0.0);
-    if(dimension.label_position){result.text_baseline=project(*dimension.label_position);result.leader_start=(result.line_first+result.line_second)*.5;result.leader_end=result.text_baseline;}
-    return result;
-}
-
-template<typename Project>
-std::array<QPointF,3> dimension_handles(const kernel::ViewerDimension& d,const kernel::ViewerMesh& mesh,Project project) {
-    if(d.kind==kernel::ViewerDimensionKind::Linear){const auto l=linear_dimension_layout(d,mesh,project);return {l.text_baseline,l.line_first,l.line_second};}
-    auto label=d.label_position.value_or(d.line_second);
-    if(!d.label_position&&d.kind==kernel::ViewerDimensionKind::Angular) {
-        const auto u=kernel::dimension_sub(d.line_first,d.witness_first),v=kernel::dimension_cross(kernel::dimension_unit(d.plane_normal),u);
-        const double t=d.sweep_degrees*std::numbers::pi/360.;label=kernel::dimension_add(d.witness_first,kernel::dimension_add(kernel::dimension_scale(u,std::cos(t)),kernel::dimension_scale(v,std::sin(t))));
-    }
-    if(d.kind==kernel::ViewerDimensionKind::Radius||d.kind==kernel::ViewerDimensionKind::Diameter)return {project(label),project(d.line_second),project(d.line_second)};
-    return {project(label),project(d.line_first),project(d.line_second)};
 }
 
 bool is_screen_constant_plane(const std::string& semantic_key) {
@@ -715,10 +605,12 @@ std::optional<QPointF> MeshView::dimension_handle_position(const ViewerCandidate
     const auto i=candidate.geometry_index;
     const auto* d=i<impl_->mesh.dimensions.size()?&impl_->mesh.dimensions[i]:i-impl_->mesh.dimensions.size()<impl_->transient_dimensions.size()?&impl_->transient_dimensions[i-impl_->mesh.dimensions.size()]:nullptr;
     if(!d||!impl_->show_dimensions||(impl_->dimension_visibility_filter&&!impl_->dimension_visibility_filter(*d)))return {};
-    if(index==2&&(d->kind==kernel::ViewerDimensionKind::Radius||d->kind==kernel::ViewerDimensionKind::Diameter))return {};
+    if(index==2&&d->kind==kernel::ViewerDimensionKind::Radius)return {};
     const auto mvp=impl_->projection(width(),height())*impl_->view();
     const auto project=[&](kernel::Vec3 p){auto q=mvp*QVector4D(p.x,p.y,p.z,1);if(std::abs(q.w())>1e-9)q/=q.w();return QPointF((q.x()+1)*width()/2.,(1-q.y())*height()/2.);};
-    return dimension_handles(*d,impl_->mesh,project)[index];
+    const auto text=!d->display_text_override.empty()?QString::fromStdString(d->display_text_override):QString::fromStdString(d->label_prefix)+QString::number(d->value,'f',impl_->dimension_decimal_places)+QString::fromStdString(d->unit_suffix);
+    const auto layout=dimension_presentation(*d,project,QFontMetricsF(font()).horizontalAdvance(text));
+    return layout.valid?std::optional(layout.handles[index]):std::nullopt;
 }
 void MeshView::set_object_frame_provider(std::function<std::map<kernel::ObjectEnvelopeKey,kernel::ModelEnvelope>(const kernel::ViewerMesh&)> provider){impl_->object_frame_provider=std::move(provider);}
 void MeshView::set_dimension_layout_resolver(std::function<std::optional<kernel::DimensionLayout>(const kernel::EdgeReference&)> resolver){impl_->dimension_layout_resolver=std::move(resolver);}
@@ -975,46 +867,11 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
                 QString::number(dimension.value, 'f',
                     impl_->dimension_decimal_places) +
                 QString::fromStdString(dimension.unit_suffix);
-        QPointF text_anchor = line_second + QPointF(12.0, 0.0);
-        std::optional<LinearDimensionLayout> linear_layout;
-        if (dimension.kind == zima::kernel::ViewerDimensionKind::Linear) {
-            linear_layout = linear_dimension_layout(
-                dimension, impl_->mesh, project);
-            if (!linear_layout->valid) continue;
-            text_anchor = linear_layout->text_baseline;
-        } else if (dimension.kind == zima::kernel::ViewerDimensionKind::Radius ||
-                   dimension.kind == zima::kernel::ViewerDimensionKind::Diameter) {
-            QPointF outward = witness_second - witness_first;
-            const double length = std::hypot(outward.x(), outward.y());
-            if (length > 1.0e-6) {
-                outward /= length;
-                const QPointF tail = witness_second + outward * 17.0;
-                const double side = outward.x() >= 0.0 ? 1.0 : -1.0;
-                text_anchor = tail + QPointF(side * 38.0, 5.0);
-                if (side < 0.0) text_anchor.rx() -= metrics.horizontalAdvance(text);
-            }
-        } else if (dimension.kind == zima::kernel::ViewerDimensionKind::Angular) {
-            const QPointF first_vector = line_first - witness_first;
-            const QPointF second_vector = line_second - witness_first;
-            const double radius = std::max(22.0,
-                std::hypot(first_vector.x(), first_vector.y()));
-            const double start = std::atan2(first_vector.y(), first_vector.x());
-            double sweep = std::abs(dimension.sweep_degrees) *
-                std::numbers::pi / 180.0;
-            if (first_vector.x() * second_vector.y() -
-                    first_vector.y() * second_vector.x() < 0.0) sweep = -sweep;
-            const double middle = start + sweep * 0.5;
-            text_anchor = witness_first + QPointF(
-                (radius + 3.0) * std::cos(middle),
-                (radius + 3.0) * std::sin(middle));
-            if (dimension.label_position) {
-                text_anchor = project(*dimension.label_position);
-            }
-        }
-        if(dimension.label_position)text_anchor=project(*dimension.label_position);
-        QRectF text_bounds = metrics.boundingRect(text);
-        text_bounds.moveTopLeft(text_anchor + QPointF(0.0, -metrics.ascent()));
-        text_bounds.adjust(-hit_radius, -hit_radius, hit_radius, hit_radius);
+        const auto layout=dimension_presentation(dimension,project,metrics.horizontalAdvance(text));
+        if(!layout.valid)continue;
+        QTransform text_transform;text_transform.translate(layout.text_baseline.x(),layout.text_baseline.y());text_transform.rotate(layout.text_angle);
+        auto text_bounds=text_transform.mapRect(metrics.boundingRect(text));
+        text_bounds.adjust(-hit_radius,-hit_radius,hit_radius,hit_radius);
         // A dimension is an editable annotation, not selectable model
         // geometry. Offer it only over its visible text; witness/leader/arc
         // strokes remain available to the geometry underneath and therefore
@@ -1786,48 +1643,10 @@ std::optional<QPoint> MeshView::candidate_dimension_label_position(
                     impl_->dimension_decimal_places) +
             QString::fromStdString(dimension.unit_suffix);
     const QFontMetricsF metrics(font());
-    QPointF baseline;
-    if (dimension.kind == zima::kernel::ViewerDimensionKind::Angular) {
-        const QPointF vertex = project(dimension.witness_first);
-        const QPointF first = project(dimension.line_first);
-        const QPointF second = project(dimension.line_second);
-        const QPointF first_vector = first - vertex;
-        const QPointF second_vector = second - vertex;
-        const double radius = std::max(22.0,
-            std::hypot(first_vector.x(), first_vector.y()));
-        const double start = std::atan2(first_vector.y(), first_vector.x());
-        double sweep = std::abs(dimension.sweep_degrees) *
-            std::numbers::pi / 180.0;
-        if (first_vector.x() * second_vector.y() -
-                first_vector.y() * second_vector.x() < 0.0) sweep = -sweep;
-        const double middle = start + sweep * 0.5;
-        baseline = vertex + QPointF((radius + 3.0) * std::cos(middle),
-                                     (radius + 3.0) * std::sin(middle));
-        if (dimension.label_position) {
-            baseline = project(*dimension.label_position);
-        }
-    } else if (dimension.kind == zima::kernel::ViewerDimensionKind::Radius ||
-               dimension.kind == zima::kernel::ViewerDimensionKind::Diameter) {
-        const QPointF center = project(dimension.witness_first);
-        const QPointF rim = project(dimension.witness_second);
-        QPointF outward = rim - center;
-        const double length = std::hypot(outward.x(), outward.y());
-        if (length <= 1.0e-9) return std::nullopt;
-        outward /= length;
-        const QPointF tail = rim + outward * 17.0;
-        const double side = outward.x() >= 0.0 ? 1.0 : -1.0;
-        const QPointF shoulder = tail + QPointF(side * 36.0, 0.0);
-        baseline = shoulder + QPointF(
-            side > 0.0 ? 2.0 : -metrics.horizontalAdvance(text) - 2.0, 5.0);
-    } else {
-        const auto layout = linear_dimension_layout(dimension, impl_->mesh, project);
-        if (!layout.valid) return std::nullopt;
-        baseline = layout.text_baseline;
-    }
-    if(dimension.label_position)baseline=project(*dimension.label_position);
-    return QPointF(baseline.x() + metrics.horizontalAdvance(text) * 0.5,
-                   baseline.y() - (metrics.ascent() - metrics.descent()) * 0.5)
-        .toPoint();
+    const auto layout=dimension_presentation(dimension,project,metrics.horizontalAdvance(text));
+    if(!layout.valid)return std::nullopt;
+    QTransform transform;transform.translate(layout.text_baseline.x(),layout.text_baseline.y());transform.rotate(layout.text_angle);
+    return transform.map(metrics.boundingRect(text).center()).toPoint();
 }
 void MeshView::set_empty_right_click_callback(std::function<bool()> callback) {
     impl_->empty_right_click_callback = std::move(callback);
@@ -4103,125 +3922,11 @@ if (impl_->show_origins) {
                         QString::number(dimension.value, 'f',
                             impl_->dimension_decimal_places) +
                         QString::fromStdString(dimension.unit_suffix);
-                constexpr double arrow_length = 10.0;
-                constexpr double tail_length = 7.0;
-                const auto arrow = [&](const QPointF& tip,
-                        QPointF direction) {
-                    return annotation_arrow(tip,direction,arrow_length);
-                };
-                if (dimension.kind ==
-                        zima::kernel::ViewerDimensionKind::Angular) {
-                    const QPointF vertex = project(dimension.witness_first);
-                    const auto normalize = [](zima::kernel::Vec3 value) {
-                        const double length = std::hypot(
-                            std::hypot(value.x, value.y), value.z);
-                        return length > 1.0e-12
-                            ? zima::kernel::Vec3{value.x / length,
-                                value.y / length, value.z / length}
-                            : zima::kernel::Vec3{};
-                    };
-                    const auto axis = normalize(dimension.plane_normal);
-                    const zima::kernel::Vec3 radial{
-                        dimension.line_first.x - dimension.witness_first.x,
-                        dimension.line_first.y - dimension.witness_first.y,
-                        dimension.line_first.z - dimension.witness_first.z};
-                    const double radius = std::hypot(
-                        std::hypot(radial.x, radial.y), radial.z);
-                    const auto radial_unit = normalize(radial);
-                    const auto tangent = normalize({
-                        axis.y * radial_unit.z - axis.z * radial_unit.y,
-                        axis.z * radial_unit.x - axis.x * radial_unit.z,
-                        axis.x * radial_unit.y - axis.y * radial_unit.x});
-                    const double sweep = dimension.sweep_degrees *
-                        std::numbers::pi / 180.0;
-                    constexpr int samples = 48;
-                    QPolygonF arc;
-                    arc.reserve(samples + 1);
-                    for (int sample = 0; sample <= samples; ++sample) {
-                        const double angle = sweep * sample / samples;
-                        arc.push_back(project({
-                            dimension.witness_first.x + radius *
-                                (radial_unit.x * std::cos(angle) +
-                                 tangent.x * std::sin(angle)),
-                            dimension.witness_first.y + radius *
-                                (radial_unit.y * std::cos(angle) +
-                                 tangent.y * std::sin(angle)),
-                            dimension.witness_first.z + radius *
-                                (radial_unit.z * std::cos(angle) +
-                                 tangent.z * std::sin(angle))}));
-                    }
-                    painter.drawLine(vertex, arc.front());
-                    painter.drawLine(vertex, arc.back());
-                    painter.drawPolyline(arc);
-                    if (arc.size() > 2) {
-                        painter.drawPolygon(arrow(arc.front(), arc[1] - arc[0]));
-                        painter.drawPolygon(arrow(arc.back(),
-                            arc[arc.size() - 2] - arc.back()));
-                    }
-                    const double middle = sweep * 0.5;
-                    const auto middle_world = zima::kernel::Vec3{
-                        dimension.witness_first.x + (radius + 3.0) *
-                            (radial_unit.x * std::cos(middle) +
-                             tangent.x * std::sin(middle)),
-                        dimension.witness_first.y + (radius + 3.0) *
-                            (radial_unit.y * std::cos(middle) +
-                             tangent.y * std::sin(middle)),
-                        dimension.witness_first.z + (radius + 3.0) *
-                            (radial_unit.z * std::cos(middle) +
-                             tangent.z * std::sin(middle))};
-                    painter.drawText(dimension.label_position
-                        ? project(*dimension.label_position)
-                        : project(middle_world), text);
-                    painter.setBrush(Qt::NoBrush);
-                    continue;
-                }
-                if (dimension.kind ==
-                        zima::kernel::ViewerDimensionKind::Radius ||
-                    dimension.kind ==
-                        zima::kernel::ViewerDimensionKind::Diameter) {
-                    const QPointF center = project(dimension.witness_first);
-                    const QPointF rim = project(dimension.witness_second);
-                    QPointF outward = rim - center;
-                    const double length = std::hypot(outward.x(), outward.y());
-                    if (length <= 1.0e-9) outward={1,0};else outward /= length;
-                    const QPointF opposite = center - (rim - center);
-                    painter.drawLine(
-                        dimension.kind == zima::kernel::ViewerDimensionKind::Diameter
-                            ? opposite : center, rim);
-                    painter.drawPolygon(arrow(rim, -outward));
-                    if (dimension.kind ==
-                        zima::kernel::ViewerDimensionKind::Diameter) {
-                        painter.drawPolygon(arrow(opposite, outward));
-                    }
-                    const QPointF tail = rim + outward *
-                        (arrow_length + tail_length);
-                    const double side = outward.x() >= 0.0 ? 1.0 : -1.0;
-                    const QPointF shoulder = tail + QPointF(side * 36.0, 0.0);
-                    if(!dimension.label_position){painter.drawLine(rim + outward * arrow_length, tail);painter.drawLine(tail, shoulder);}
-                    const double text_width =
-                        painter.fontMetrics().horizontalAdvance(text);
-                    const auto label=dimension.label_position?project(*dimension.label_position):shoulder + QPointF(side > 0.0 ? 2.0 : -text_width - 2.0, 5.0);
-                    if(dimension.label_position){painter.drawLine(rim,project(dimension.line_second));painter.drawLine(project(dimension.line_second),label);}
-                    painter.drawText(label,text);
-                    painter.setBrush(Qt::NoBrush);
-                    continue;
-                }
-                const auto layout = linear_dimension_layout(
-                    dimension, impl_->mesh, project);
-                if (!layout.valid) continue;
-                painter.drawLine(layout.witness_first, layout.line_first);
-                painter.drawLine(layout.witness_second, layout.line_second);
-                painter.drawLine(layout.line_first, layout.line_second);
-                painter.drawPolygon(arrow(layout.line_first, layout.along));
-                painter.drawPolygon(arrow(layout.line_second, -layout.along));
-                painter.drawLine(
-                    layout.line_first - layout.along * arrow_length,
-                    layout.first_tail);
-                painter.drawLine(
-                    layout.line_second + layout.along * arrow_length,
-                    layout.second_tail);
-                painter.drawLine(layout.leader_start, layout.leader_end);
-                painter.drawText(layout.text_baseline, text);
+                const auto layout=dimension_presentation(dimension,project,painter.fontMetrics().horizontalAdvance(text));
+                if(!layout.valid)continue;
+                for(const auto& curve:layout.curves)painter.drawPolyline(curve);
+                for(const auto& [tip,direction]:layout.arrows)painter.drawPolygon(annotation_arrow(tip,direction,10));
+                painter.save();painter.translate(layout.text_baseline);painter.rotate(layout.text_angle);painter.drawText(QPointF{},text);painter.restore();
                 painter.setBrush(Qt::NoBrush);
             }
         }
@@ -5189,6 +4894,13 @@ MeshView::ray_at(const QPointF& position) const {
 }
 
 void MeshView::mousePressEvent(QMouseEvent* event) {
+    if(event->button()==Qt::RightButton&&impl_->layout_drag&&(event->buttons()&Qt::LeftButton)) {
+        auto& drag=*impl_->layout_drag;drag.initial.arrows_reversed=!drag.initial.arrows_reversed;
+        drag.current.arrows_reversed=drag.initial.arrows_reversed;drag.moved=true;
+        auto shown=kernel::layout_dimension(drag.source,drag.bounds,drag.current);const auto i=drag.candidate.geometry_index;
+        if(i<impl_->mesh.dimensions.size())impl_->mesh.dimensions[i]=shown;else impl_->transient_dimensions[i-impl_->mesh.dimensions.size()]=shown;
+        update();event->accept();return;
+    }
     if(event->button()==Qt::LeftButton&&impl_->dimension_layout_editable&&impl_->dimension_layout_commit&&impl_->confirmed_candidate&&impl_->confirmed_candidate->kind==CandidateKind::Dimension) {
         const auto candidate=*impl_->confirmed_candidate;
         if(auto source=dimension_source(candidate))for(int handle=0;handle<3;++handle)if(auto point=dimension_handle_position(candidate,handle);point&&QLineF(*point,event->position()).length()<=5.5) {
@@ -5522,6 +5234,17 @@ void MeshView::mouseMoveEvent(QMouseEvent* event) {
         if(std::abs(det)<1e-8){event->accept();return;}
         const double along=(delta.x()*b.y()-delta.y()*b.x())/det,outward=(a.x()*delta.y()-a.y()*delta.x())/det;
         drag.current=kernel::dragged_dimension_layout(drag.shown,drag.bounds,drag.initial,drag.handle,along,outward);
+        if(drag.handle==0) {
+            const auto label=d.label_position.value_or(kernel::dimension_scale(kernel::dimension_add(d.line_first,d.line_second),.5));
+            const auto i=drag.candidate.geometry_index;
+            // Use the original rendered grip, not the source label (automatic
+            // outside placement can put these far apart in an oblique view).
+            const auto text=!d.display_text_override.empty()?QString::fromStdString(d.display_text_override):QString::fromStdString(d.label_prefix)+QString::number(d.value,'f',impl_->dimension_decimal_places)+QString::fromStdString(d.unit_suffix);
+            const auto initial_grip=dimension_presentation(d,project,QFontMetricsF(font()).horizontalAdvance(text)).handles[0];
+            const auto correction=initial_grip-project(label);
+            drag.current.text_along+=(correction.x()*b.y()-correction.y()*b.x())/det;
+            drag.current.text_outward+=(a.x()*correction.y()-a.y()*correction.x())/det;
+        }
         auto display=kernel::layout_dimension(drag.source,drag.bounds,drag.current);const auto i=drag.candidate.geometry_index;
         if(i<impl_->mesh.dimensions.size())impl_->mesh.dimensions[i]=std::move(display);else impl_->transient_dimensions[i-impl_->mesh.dimensions.size()]=std::move(display);
         drag.moved=true;update();event->accept();return;
@@ -5683,6 +5406,7 @@ void MeshView::mouseMoveEvent(QMouseEvent* event) {
 }
 
 void MeshView::mouseReleaseEvent(QMouseEvent* event) {
+    if(impl_->layout_drag&&event->button()==Qt::RightButton){event->accept();return;}
     if(event->button()==Qt::LeftButton&&impl_->layout_drag){auto drag=*impl_->layout_drag;impl_->layout_drag.reset();if(drag.moved&&impl_->dimension_layout_commit)impl_->dimension_layout_commit(drag.source.reference,drag.current);event->accept();return;}
     if (event->button() == Qt::LeftButton && impl_->sketch_box_start) {
         const QPointF start = *impl_->sketch_box_start;

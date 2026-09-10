@@ -193,6 +193,7 @@ struct ViewerDimension {
     // Actual editable value represented by a generated parameter dimension.
     // A reference-driven RX/RY/RZ dimension edits its local correction.
     std::string value_lock_key;
+    bool arrows_reversed{};
     bool operator==(const ViewerDimension&)const=default;
 };
 

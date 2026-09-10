@@ -1255,3 +1255,21 @@ Regresní testy pokrývají chybějící hranu, chybějící profil, opravu chyb
 nezávislé těleso, zablokovaný Boolean, rollback a uložení/načtení částečného
 výsledku. UI test ověřuje regeneraci souboru bez cache a OK/uložení dřívějšího
 prvku při chybě v pozdějším zaoblení.
+
+
+### Společná reprezentace kót (2026-09-10)
+
+Part, Assembly, Sketcher a výkres používají společný projektovaný packet
+`viewer::dimension_presentation`: vynášecí čáry, kótovací čáru, šipky,
+pomocnou čáru šířky textu a text nad ní. Stejný packet určuje kreslení,
+výběr textu a úchopy; vykreslování nevolá geometrické jádro.
+V kolmém pohledu text sleduje kótovací čáru a má přichytávací polohu uprostřed.
+Při šikmém pohledu se text umísťuje vlevo nebo vpravo mimo rozměr a zůstává
+vodorovný nad vodorovnou pomocnou čárou. Spojnice vede k bližšímu konci
+pomocné čáry. Totéž platí pro poloměr, průměr a úhlovou kótu.
+
+Střed pomocné čáry je úchop textu, špičky šipek určují úchopy odsazení.
+Pravé tlačítko během držení úchopu levým obrátí šipky. Změny jsou pouze
+prezentační (`DimensionLayout`), zachovávají hodnoty a měřené reference.
+Modelové souřadnice umístění přežijí změnu kamery; výkres ukládá vlastní
+lokální přepis a nevrací jej do modelu. Escape ruší rozpracované tažení.

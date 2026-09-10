@@ -529,7 +529,8 @@ int verify_drawing_ui() {
             mouse(canvas,QEvent::MouseMove,*point,Qt::NoButton,Qt::NoButton);click(canvas,*point);
             const auto selected_image=canvas->grab().toImage();const auto handle_pixel=(*point*selected_image.devicePixelRatio()).toPoint();
             const auto purple=selected_image.pixelColor(handle_pixel);require(purple.red()>150&&purple.blue()>200&&purple.green()<150,"Dimension handle is not purple");
-            bool cyan_dimension=false;for(int y=-30;y<10;++y)for(int x=10;x<160;++x){const auto pixel=selected_image.pixelColor(handle_pixel+QPoint(x,y));cyan_dimension|=pixel.red()<60&&pixel.green()>150&&pixel.blue()>200;}
+            // A vertical normal-view dimension has upright text along the vertical support line, to its left.
+            bool cyan_dimension=false;for(int y=-80;y<80;++y)for(int x=-40;x<-7;++x){const auto pixel=selected_image.pixelColor(handle_pixel+QPoint(x,y));cyan_dimension|=pixel.red()<60&&pixel.green()>150&&pixel.blue()>200;}
             require(cyan_dimension,"Selected dimension text is not cyan");
             mouse(canvas,QEvent::MouseButtonPress,*point,Qt::LeftButton,Qt::LeftButton);mouse(canvas,QEvent::MouseMove,*point+QPointF(30,20),Qt::NoButton,Qt::LeftButton);mouse(canvas,QEvent::MouseButtonRelease,*point+QPointF(30,20),Qt::LeftButton,Qt::NoButton);
             const auto moved=window.annotation_handle_for_test(d.id,0,true);require(moved&&std::abs(moved->x()-point->x()-30)<1e-6&&std::abs(moved->y()-point->y()-20)<1e-6,"Dimension handle moved opposite to the mouse");

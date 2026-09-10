@@ -1,8 +1,11 @@
 #include "../app/dimension_layout_dialog.hpp"
+#include "../app/drawing_annotation_layout.hpp"
 #include <QApplication>
 #include <QDialogButtonBox>
+#include <QImage>
 #include <QKeyEvent>
 #include <QMouseEvent>
+#include <QPainter>
 #include <QPushButton>
 #include <QTemporaryDir>
 #include <iostream>
@@ -12,6 +15,8 @@
 #include <zima/document/viewer_packet_json.hpp>
 #include <zima/drawing/model_annotations.hpp>
 #include <zima/kernel/mirror_geometry.hpp>
+#include <zima/viewer/annotation_arrow.hpp>
+#include <zima/viewer/dimension_presentation.hpp>
 #include <zima/viewer/mesh_view.hpp>
 using namespace zima;
 void require(bool b, const char *m) {
@@ -38,6 +43,117 @@ void mouse(QWidget *w, QEvent::Type type, QPointF p, Qt::MouseButton button,
 int main(int argc, char **argv) {
     QApplication app(argc, argv);
     try {
+        {
+            kernel::ViewerDimension d;
+            d.witness_second = {20, 0, 0};
+            d.line_first = {0, 8, 0};
+            d.line_second = {20, 8, 0};
+            d.value = 20;
+            const auto front = [](kernel::Vec3 p) { return QPointF(p.x * 10, -p.y * 10); };
+            const auto iso = [](kernel::Vec3 p) {
+                return QPointF((p.x - p.y) * 7, (-p.x - p.y) * 3.5 - p.z * 7);
+            };
+            auto centered = viewer::dimension_presentation(d, front, 50);
+            require(centered.valid && !centered.oblique && !centered.outside,
+                    "Normal dimension did not center its label");
+            near(centered.handles[0].x(), 100);
+            near(centered.text_baseline.y(), centered.handles[0].y() - 3);
+            auto slanted = viewer::dimension_presentation(d, iso, 50);
+            require(slanted.oblique && slanted.outside && slanted.text_angle == 0,
+                    "Oblique dimension did not use horizontal outside text");
+            require(slanted.handles[0].x() >
+                        std::max(slanted.handles[1].x(), slanted.handles[2].x()),
+                    "Oblique value stayed between arrows");
+            d.label_position = kernel::Vec3{-20, 8, 0};
+            auto left = viewer::dimension_presentation(d, iso, 50);
+            require(left.handles[0].x() < std::min(left.handles[1].x(), left.handles[2].x()),
+                    "Left outside label switched sides");
+            d.arrows_reversed = true;
+            auto reversed = viewer::dimension_presentation(d, iso, 50);
+            require(reversed.arrows[0].second == -left.arrows[0].second &&
+                        reversed.handles == left.handles,
+                    "Arrow reversal moved grips or failed");
+            drawing::DrawingView drawing_view;
+            drawing_view.camera.horizontal = {1, 0, 0};
+            drawing_view.camera.vertical = {0, 1, 0};
+            drawing_view.scale = 1;
+            drawing::ModelAnnotation annotation;
+            annotation.kind = drawing::ModelAnnotationKind::Dimension;
+            annotation.model_dimension = d;
+            annotation.model_layout.arrows_reversed = true;
+            const auto paper = app::model_annotation_layout(drawing_view, annotation, {}, 12.5);
+            const auto expected = viewer::dimension_presentation(
+                d, [](kernel::Vec3 p) { return QPointF(p.x, -p.y); }, 12.5, 2.5, .75);
+            near(paper.handles.at("text").x(), expected.handles[0].x());
+            near(paper.handles.at("text").y(), -expected.handles[0].y());
+            require(paper.text_angle == expected.text_angle &&
+                        paper.arrows.size() == expected.arrows.size(),
+                    "Drawing and model presentation diverged");
+            kernel::DimensionLayout layout;
+            layout.arrows_reversed = true;
+            layout.line_offset = 4;
+            require(document::dimension_layout_from_json(document::dimension_layout_json(layout)) ==
+                        layout,
+                    "Presentation state did not round-trip");
+            auto moved = kernel::layout_dimension(d, {}, layout);
+            require(moved.value == d.value && moved.witness_first == d.witness_first &&
+                        moved.witness_second == d.witness_second,
+                    "Appearance changed measuring geometry");
+            QImage proof(1000, 600, QImage::Format_ARGB32);
+            proof.fill(Qt::white);
+            QPainter painter(&proof);
+            painter.setRenderHint(QPainter::Antialiasing);
+            painter.setFont(QFont("Arial", 12));
+            for (int panel = 0; panel < 6; ++panel) {
+                auto sample = d;
+                sample.arrows_reversed = false;
+                sample.label_position.reset();
+                if (panel == 2)
+                    sample.label_position = kernel::Vec3{-20, 8, 0};
+                if (panel >= 3) {
+                    sample.kind = panel == 3   ? kernel::ViewerDimensionKind::Radius
+                                  : panel == 4 ? kernel::ViewerDimensionKind::Diameter
+                                               : kernel::ViewerDimensionKind::Angular;
+                    if (panel == 5) {
+                        sample.line_first = {15, 0, 0};
+                        sample.line_second = {0, 15, 0};
+                        sample.sweep_degrees = 90;
+                    }
+                }
+                const QString label = panel == 3   ? "R20"
+                                      : panel == 4 ? QString::fromUtf8("⌀40")
+                                      : panel == 5 ? QString::fromUtf8("90°")
+                                                   : "20 mm";
+                const auto project = [&](kernel::Vec3 p) { return panel == 0 ? front(p) : iso(p); };
+                const auto result = viewer::dimension_presentation(
+                    sample, project, painter.fontMetrics().horizontalAdvance(label));
+                require(result.valid, "Presentation sample invalid");
+                if (panel >= 3)
+                    require(result.oblique && result.text_angle == 0,
+                            "Radius/diameter/angle text rotated in isometry");
+                painter.save();
+                painter.translate(140 + (panel % 3) * 330, 210 + (panel / 3) * 285);
+                painter.setPen(QPen(Qt::black, 1));
+                painter.setBrush(Qt::black);
+                for (const auto &curve : result.curves)
+                    painter.drawPolyline(curve);
+                for (const auto &[tip, direction] : result.arrows)
+                    painter.drawPolygon(viewer::annotation_arrow(tip, direction, 10));
+                painter.save();
+                painter.translate(result.text_baseline);
+                painter.rotate(result.text_angle);
+                painter.drawText(QPointF{}, label);
+                painter.restore();
+                painter.setBrush(QColor("#D05CFF"));
+                for (auto grip : result.handles)
+                    painter.drawEllipse(grip, 3, 3);
+                painter.restore();
+            }
+            painter.end();
+            require(proof.save(QCoreApplication::applicationDirPath() +
+                               "/dimension-presentation-proof.png"),
+                    "Cannot save visual proof");
+        }
         kernel::ModelEnvelope bounds;
         bounds.include({0, 0, 0});
         bounds.include({20, 10, 5});
@@ -207,9 +323,23 @@ int main(int argc, char **argv) {
         mouse(&viewer, QEvent::MouseMove, *handle + QPointF(35, -20), Qt::NoButton, Qt::LeftButton);
         mouse(&viewer, QEvent::MouseButtonRelease, *handle + QPointF(35, -20), Qt::LeftButton,
               Qt::NoButton);
+        if (commits != 1)
+            std::cerr << "Grip commits=" << commits
+                      << " confirmed=" << viewer.confirmed_candidate().has_value()
+                      << " grip=" << handle->x() << "," << handle->y() << "\n";
         require(commits == 1 && (persisted.text_along != 0 || persisted.text_outward != 0),
                 "3D grip did not persist model-space text movement");
         require(viewer.dimension_source(*candidate) == source, "Dragging mutated source geometry");
+        viewer.confirm_reference("feature", "parameter:length", {},
+                                 viewer::CandidateKind::Dimension);
+        handle = viewer.dimension_handle_position(*viewer.confirmed_candidate(), 0);
+        mouse(&viewer, QEvent::MouseButtonPress, *handle, Qt::LeftButton, Qt::LeftButton);
+        mouse(&viewer, QEvent::MouseButtonPress, *handle, Qt::RightButton,
+              Qt::LeftButton | Qt::RightButton);
+        mouse(&viewer, QEvent::MouseButtonRelease, *handle, Qt::RightButton, Qt::LeftButton);
+        mouse(&viewer, QEvent::MouseButtonRelease, *handle, Qt::LeftButton, Qt::NoButton);
+        require(persisted.arrows_reversed && commits == 2,
+                "RMB during LMB grip did not persist reversed arrows");
         viewer.set_dimension_frame_visible(true);
         viewer.grab().save("build/dimension-layout-view.png");
         int dialog_commits = 0;
@@ -225,7 +355,12 @@ int main(int argc, char **argv) {
         dialog.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Cancel)->click();
         require(dialog_commits == 0, "Cancel committed presentation");
         app::DimensionLayoutDialog confirm(
-            source, persisted, [&](auto) { ++dialog_commits; }, &owner);
+            source, persisted, [&](auto value) {
+                require(value.arrows_reversed==persisted.arrows_reversed &&
+                            value.text_outward==persisted.text_outward,
+                        "Properties discarded arrow direction or text attachment");
+                ++dialog_commits;
+            }, &owner);
         confirm.show();
         flush();
         mouse(&viewer, QEvent::MouseButtonRelease, {850, 650}, Qt::MiddleButton, Qt::NoButton);

@@ -288,6 +288,13 @@ int verify_show_erase_ui() {
           Qt::LeftButton);
     mouse(canvas, QEvent::MouseMove, *point + QPointF(35, 20), Qt::NoButton,
           Qt::LeftButton);
+    mouse(canvas, QEvent::MouseButtonPress, *point + QPointF(35, 20),
+          Qt::RightButton, Qt::LeftButton | Qt::RightButton);
+    mouse(canvas, QEvent::MouseButtonRelease, *point + QPointF(35, 20),
+          Qt::RightButton, Qt::LeftButton);
+    require(std::ranges::all_of(workspace.open_drawing(drawing.document_id)->document.sheets[0].views[0].model_annotations,
+                [](const auto& item){return !item.view_layout;}),
+            "Releasing RMB committed an unfinished LMB drawing grip");
     mouse(canvas, QEvent::MouseButtonRelease, *point + QPointF(35, 20),
           Qt::LeftButton, Qt::NoButton);
     const auto &moved = state.sheets[0].views[0].model_annotations;
@@ -295,6 +302,10 @@ int verify_show_erase_ui() {
                                          &drawing::ModelAnnotation::source);
     require(found != moved.end() && (found->paper_handles.contains("text")||found->view_layout.has_value()),
             "Dimension text handle did not move");
+    require(found->view_layout && found->view_layout->arrows_reversed,
+            "RMB during drawing dimension grip did not reverse arrows");
+    require(found->value == dim->value && state.sheets[0].views[1].model_annotations.front().view_layout==std::nullopt,
+            "Drawing appearance changed measurement or another view");
     const auto handles = found->paper_handles;
     QTemporaryDir dir;
     const auto jpg=dir.filePath("current-view.jpg");

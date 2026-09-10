@@ -1,3 +1,4 @@
+#include <zima/viewer/dimension_presentation.hpp>
 #pragma once
 #include <QPointF>
 #include <QRectF>
@@ -17,11 +18,12 @@ struct ModelAnnotationLayout {
   std::map<std::string, QPointF> handles;
   std::vector<std::pair<QPointF, QPointF>> arrows;
   QPointF text;
+  double text_angle{};
   std::vector<QPointF> centers;
 };
 inline ModelAnnotationLayout
 model_annotation_layout(const drawing::DrawingView &view,
-                        const drawing::ModelAnnotation &source, QRectF bounds) {
+                        const drawing::ModelAnnotation &source, QRectF bounds, double text_width = -1) {
   auto item=drawing::project_model_annotation(view,source);
   const auto h=view.camera.horizontal,v=view.camera.vertical;
   const bool same_camera=std::hypot(h.x-item.handle_camera_horizontal[0],h.y-item.handle_camera_horizontal[1],h.z-item.handle_camera_horizontal[2])<1e-6 && std::hypot(v.x-item.handle_camera_vertical[0],v.y-item.handle_camera_vertical[1],v.z-item.handle_camera_vertical[2])<1e-6;
@@ -31,6 +33,19 @@ model_annotation_layout(const drawing::DrawingView &view,
     if(std::abs(a.x-b.x)>1e-6&&std::abs(a.y-b.y)>1e-6)item.paper_handles.clear();
   }
   ModelAnnotationLayout out;
+  if(item.kind==drawing::ModelAnnotationKind::Dimension && item.model_dimension) {
+    const auto d=kernel::layout_dimension(*item.model_dimension,item.model_envelope,item.view_layout.value_or(item.model_layout));
+    const auto project=[&](kernel::Vec3 p){return QPointF(kernel::dimension_dot(p,view.camera.horizontal)*view.scale,-kernel::dimension_dot(p,view.camera.vertical)*view.scale);};
+    const auto layout=viewer::dimension_presentation(d,project,text_width<0?double(item.text.size())*2:text_width,2.5,.75);
+    if(!layout.valid)return out;
+    const auto paper=[](QPointF p){return QPointF(p.x(),-p.y());};
+    for(const auto& curve:layout.curves){std::vector<QPointF> points;for(auto p:curve)points.push_back(paper(p));out.curves.push_back(std::move(points));}
+    for(const auto& [tip,direction]:layout.arrows)out.arrows.push_back({paper(tip),paper(direction)});
+    out.text=paper(layout.text_baseline);out.text_angle=layout.text_angle;
+    out.handles["text"]=paper(layout.handles[0]);out.handles["arrow_first"]=paper(layout.handles[1]);
+    if(d.kind!=kernel::ViewerDimensionKind::Radius)out.handles["arrow_second"]=paper(layout.handles[2]);
+    return out;
+  }
   for (const auto &curve : item.curves) {
     std::vector<QPointF> points;
     for (auto p : curve)
