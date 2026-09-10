@@ -210,6 +210,15 @@ target_link_libraries(zima_cpp_performance_benchmark PRIVATE
     zima_sketcher)
 
 if(ZIMA_BUILD_TESTS)
+    add_executable(zima_cpp_instance_startup_contract_tests tests/instance_startup_contract_tests.cpp)
+    target_include_directories(zima_cpp_instance_startup_contract_tests PRIVATE app)
+    target_link_libraries(zima_cpp_instance_startup_contract_tests PRIVATE
+        Qt6::Core zima_document_core zima_assembly zima_drawing)
+    add_test(NAME zima_cpp_instance_startup_contract
+        COMMAND zima_cpp_instance_startup_contract_tests $<TARGET_FILE:zima-cad-cpp>)
+    set_tests_properties(zima_cpp_instance_startup_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90)
     add_executable(zima_cpp_import_model_contract_tests tests/import_model_contract_tests.cpp)
     target_link_libraries(zima_cpp_import_model_contract_tests PRIVATE zima_interchange zima_workspace TKDEIGES TKPrim)
     target_compile_definitions(zima_cpp_import_model_contract_tests PRIVATE ZIMA_IMPORT_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/import")

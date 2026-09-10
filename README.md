@@ -17,6 +17,10 @@ On Windows, run `tools/create-windows-shortcut.ps1` after building to create
 (or refresh) the desktop shortcut. It targets the GUI executable directly and
 opens no console. The batch launcher starts the application without waiting;
 for command-line verification invoke the executable directly.
+Run `tools/register-windows-file-types.ps1` to register double-click opening
+for the current Windows user. Every external file launch and Window > New
+Window starts an independent, numbered process. See
+[Multiple instances](doc/MULTIPLE_INSTANCES.md).
 
 The planned release form is one self-contained portable Linux and Windows
 archive with its complete runtime, resources, directory layout and portable

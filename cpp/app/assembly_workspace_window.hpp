@@ -8,6 +8,7 @@
 #include <zima/sketcher/sketch_trim.hpp>
 #include <zima/viewer/picking.hpp>
 #include "application_settings.hpp"
+#include "application_instance.hpp"
 #include "tree_reference_state.hpp"
 
 #include <QMainWindow>
@@ -131,6 +132,7 @@ private:
     };
 
     zima::workspace::Workspace workspace_;
+    ApplicationInstance instance_;
     zima::kernel::OcctKernel kernel_;
     ApplicationSettings application_settings_;
     std::filesystem::path working_directory_{std::filesystem::current_path()};

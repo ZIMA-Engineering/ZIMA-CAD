@@ -12,6 +12,8 @@
 #include "sweep2d_dialog.hpp"
 #include "assembly_workspace_window.hpp"
 #include "application_settings.hpp"
+#include "startup_arguments.hpp"
+#include "instance_verification.hpp"
 #include <QSettings>
 #include <QTemporaryDir>
 #include "construction_reference_candidate_policy.hpp"
@@ -4151,7 +4153,7 @@ int verify_startup_contract(
                     save != nullptr && close != nullptr && parameters != nullptr,
                 "primary actions are missing") ||
         !verify(tabs->count() == 0 && !splitter->isVisible() &&
-                    window.windowTitle() == QStringLiteral("ZIMA-CAD — Bez dokumentu"),
+                    window.windowTitle().startsWith(QStringLiteral("ZIMA-CAD — Instance ")) && window.windowTitle().endsWith(QStringLiteral(" — Bez dokumentu")),
                 "application must start without a document") ||
         !verify(main_toolbar->isVisible() && !save_as->isEnabled() &&
                     working_directory->isEnabled(),
@@ -8018,36 +8020,9 @@ int main(int argc, char* argv[]) {
     application.setApplicationName("ZIMA-CAD");
     application.setDesktopFileName("zima-cad");
     application.setWindowIcon(zima::app::application_icon());
-    QString startup_directory;
     const auto arguments = application.arguments();
-    for (int index = 1; index < arguments.size(); ++index) {
-        const QString argument = arguments.at(index);
-        if (argument == QStringLiteral("--working-directory") ||
-            argument == QStringLiteral("-w")) {
-            if (index + 1 < arguments.size()) {
-                startup_directory = QFileInfo(arguments.at(++index))
-                    .absoluteFilePath();
-            }
-            continue;
-        }
-        if (argument.startsWith(QStringLiteral("--working-directory="))) {
-            startup_directory = QFileInfo(
-                argument.section('=', 1)).absoluteFilePath();
-            continue;
-        }
-        if (argument.startsWith('-')) continue;
-        const QFileInfo candidate(argument);
-        if (candidate.isDir()) {
-            startup_directory = candidate.absoluteFilePath();
-            continue;
-        }
-        if (argument.endsWith(".prtz", Qt::CaseInsensitive) ||
-            argument.endsWith(".asmz", Qt::CaseInsensitive) ||
-            argument.endsWith(".drwz", Qt::CaseInsensitive)) {
-            startup_directory = candidate.absolutePath();
-            break;
-        }
-    }
+    const auto startup = zima::app::parse_startup_arguments(arguments);
+    QString startup_directory = startup.working_directory;
     // Keep automated UI artifacts out of the repository root and out of the
     // user's configured project directory.  The contract intentionally uses
     // one stable, user-approved test workspace so interrupted runs are easy
@@ -8091,13 +8066,9 @@ int main(int argc, char* argv[]) {
     // visible surface to paint into.
     window.showMaximized();
     application.processEvents();
-    for (const auto& argument : application.arguments().mid(1)) {
-        if (argument.startsWith('-')) continue;
-        if (argument.endsWith(".prtz", Qt::CaseInsensitive) ||
-            argument.endsWith(".asmz", Qt::CaseInsensitive) ||
-            argument.endsWith(".drwz", Qt::CaseInsensitive)) {
-            if (!window.open_document_path(argument)) return 1;
-        }
+    for (const auto& document : startup.documents) {
+        if (!window.open_document_path(document)) return 1;
     }
+    zima::app::install_instance_verification(window, startup_directory);
     return application.exec();
 }

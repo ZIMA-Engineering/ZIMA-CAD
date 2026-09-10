@@ -85,6 +85,7 @@
 #include <QPushButton>
 #include <QProxyStyle>
 #include <QProgressBar>
+#include <QProcess>
 #include <QRadioButton>
 #include <QScopedValueRollback>
 #include <QSignalBlocker>
@@ -2601,6 +2602,7 @@ private:
 }  // namespace
 
 AssemblyWorkspaceWindow::AssemblyWorkspaceWindow(const QString& working_directory) {
+    setProperty("applicationInstance", instance_.number());
     const bool has_explicit_working_directory =
         !working_directory.trimmed().isEmpty();
     if (has_explicit_working_directory) {
@@ -9695,9 +9697,14 @@ void AssemblyWorkspaceWindow::delete_working_directory_old_versions_keep_latest(
 }
 
 void AssemblyWorkspaceWindow::open_new_window() {
-    auto* window = new AssemblyWorkspaceWindow;
-    window->setAttribute(Qt::WA_DeleteOnClose);
-    window->showNormal();
+    // Isolate application-wide translations/settings as well as documents.
+    QProcess process;
+    process.setProgram(QCoreApplication::applicationFilePath());
+    process.setArguments({QStringLiteral("--working-directory"),
+        QString::fromStdString(working_directory_.string())});
+    process.setWorkingDirectory(QString::fromStdString(working_directory_.string()));
+    if (!process.startDetached())
+        state_->setText(tr("Novou instanci ZIMA-CAD se nepodařilo spustit."));
 }
 
 void AssemblyWorkspaceWindow::show_global_settings() {
@@ -23996,7 +24003,8 @@ void AssemblyWorkspaceWindow::refresh_tabs() {
     }
     tabs_->setCurrentIndex(displayed_index);
     tabs_->blockSignals(false);
-    setWindowTitle(tr("ZIMA-CAD — %1").arg(displayed_label));
+    setWindowTitle(QStringLiteral("ZIMA-CAD — %1 — %2")
+        .arg(instance_.label(), displayed_label));
     update_document_area_visibility();
 }
 
