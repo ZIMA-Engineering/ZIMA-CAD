@@ -428,7 +428,7 @@ units explicitly distinguish `°` from the default `mm` dimension suffix.
 
 A confirmed Circle can alternatively own a Diameter dimension. Diameter is a
 distinct persisted kind with the solver relation `D = 2R`, absolute limits in
-millimetres, a full line through the centre, and a `Ø` viewer/tree label. One
+millimetres, a full line through the centre, and a `⌀` viewer/tree label. One
 Circle cannot own simultaneous driving Radius and Diameter dimensions. Arcs do
 not offer Diameter because their engineering convention remains Radius.
 

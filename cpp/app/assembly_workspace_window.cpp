@@ -2,6 +2,7 @@
 #include "dimension_properties_fields.hpp"
 #include <QSaveFile>
 #include "appearance_dialog.hpp"
+#include "measurement_dialog.hpp"
 #include <zima/interchange/model_import.hpp>
 #include <zima/document/feature_sketches.hpp>
 #include "section_properties_dialog.hpp"
@@ -1497,11 +1498,11 @@ QString sketch_dimension_label(const zima::sketcher::SketchDimension& dimension)
     case Kind::DistancePointLine:
         return value(QObject::tr("Vzdálenost bod–přímka %1 mm"));
     case Kind::DistanceSymmetric:
-        return value(QObject::tr("Symetrická kóta Ø%1 mm"));
+        return value(QObject::tr("Symetrická kóta ⌀%1 mm"));
     case Kind::DistanceLine:
         return value(QObject::tr("Vzdálenost rovnoběžek %1 mm"));
     case Kind::Radius: return value(QObject::tr("Poloměr R%1 mm"));
-    case Kind::Diameter: return value(QObject::tr("Průměr Ø%1 mm"));
+    case Kind::Diameter: return value(QObject::tr("Průměr ⌀%1 mm"));
     case Kind::Angle: return value(QObject::tr("Úhlová kóta %1°"));
     case Kind::AngleThreePoint:
         return value(QObject::tr("Tříbodový úhel %1°"));
@@ -3567,6 +3568,9 @@ void AssemblyWorkspaceWindow::create_actions() {
         " color:#fff; border:1px solid #9BCC32; border-radius:4px; }");
     view_toolbar_->addAction(custom_body_color_action_);
     view_toolbar_->addAction(parameters_action_);
+    measure_action_=view_toolbar_->addAction(resource_icon("measure"),tr("Měření…"));
+    measure_action_->setObjectName("measureAction");
+    connect(measure_action_,&QAction::triggered,this,[this]{show_measurement();});
     view_toolbar_->addAction(regenerate_document_action_);
     section_action_=view_toolbar_->addAction(tr("Řezy…"));
     section_action_->setObjectName("createSectionAction");
@@ -3737,6 +3741,7 @@ void AssemblyWorkspaceWindow::create_layout() {
     viewer_->set_selection_contract({zima::viewer::CandidateKind::Dimension,
                                      zima::viewer::CandidateKind::Occurrence});
     viewer_->set_confirmation_callback([this](const auto& candidate) {
+        if(accept_measurement(candidate))return;
         if(section_confirmation(candidate))return;
         if (!properties_dialog_ && candidate.kind==zima::viewer::CandidateKind::Vertex &&
             candidate.semantic_key=="origin:point" && candidate.instance_path==selected_component_origin_path_) return;
@@ -4241,6 +4246,7 @@ void AssemblyWorkspaceWindow::create_layout() {
             !active_sketch_id_.empty() && !sketch_mirror_active_);
     });
     viewer_->set_empty_confirmation_callback([this] {
+        if(measurement_dialog_){tree_->clearSelection();return;}
         assembly_dimension_path_.clear();update_assembly_dimension_visibility();
         clear_selected_sketch_geometry();
         viewer_->set_feature_selected_edges({});
@@ -4599,6 +4605,7 @@ void AssemblyWorkspaceWindow::create_layout() {
             show_component_context_menu(candidate.instance_path, global_position);
     });
     viewer_->set_world_click_callback([this](const auto& origin, const auto& direction) {
+        if(measurement_dialog_)return false;
         if(template_image_ray(origin,direction))return true;
         if(template_region_ray(origin,direction,true))return true;
         auto [local_origin, local_direction] =
@@ -4630,6 +4637,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         return accept_sketch_bspline_ray(local_origin, local_direction);
     });
     viewer_->set_world_pointer_callback([this](const auto& origin, const auto& direction) {
+        if(measurement_dialog_)return;
         if(template_region_ray(origin,direction,false))return;
         // Fillet/Chamfer click already expands one persisted edge into its
         // complete unambiguous tangent route. Preview that exact same route
@@ -4913,6 +4921,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         },
         [this] { end_sketch_trim_gesture(); });
     viewer_->set_short_middle_click_callback([this] {
+        if(measurement_dialog_){measurement_dialog_->end_entry();return true;}
         if(auto* dialog=dynamic_cast<AppearanceDialog*>(properties_dialog_)){dialog->end_entry();viewer_->clear_selection();return true;}
         if(template_region_picking_){cancel_sketch_segment();preserve_view_on_refresh_=true;refresh_scene();return true;}
         if (finish_active_reference_selection()) return true;
@@ -4982,6 +4991,7 @@ void AssemblyWorkspaceWindow::create_layout() {
             return true;
         });
     viewer_->set_double_confirmation_callback([this](const auto& candidate) {
+        if(measurement_dialog_)return;
         if(candidate.kind==zima::viewer::CandidateKind::TemplateImage && candidate.owner_id==active_sketch_id_) {
             show_template_image_properties(candidate.semantic_key.substr(15));return;
         }
@@ -5002,12 +5012,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         } else if (candidate.kind == zima::viewer::CandidateKind::Dimension &&
                    candidate.semantic_key.starts_with("placement-reference:") &&
                    workspace_.open_assembly(candidate.owner_id) != nullptr) {
-            const auto occurrence_id = candidate.semantic_key.substr(
-                20, candidate.semantic_key.rfind(':') - 20);
-            auto prefix = active_occurrence_path_.empty()
-                ? zima::assembly::InstancePath{}
-                : zima::assembly::InstancePath::decode(active_occurrence_path_);
-            show_component_properties(prefix.child(occurrence_id).encoded());
+            edit_dimension_inline(candidate);
         } else if (candidate.kind == zima::viewer::CandidateKind::SketchCurve &&
                    candidate.owner_id == active_sketch_id_ &&
                    candidate.semantic_key.starts_with("bspline:")) {
@@ -5019,11 +5024,10 @@ void AssemblyWorkspaceWindow::create_layout() {
                 show_sketch_text_properties(active_sketch_id_, *text_id);
             }
         } else if (candidate.kind == zima::viewer::CandidateKind::Occurrence) {
-            try {
-                const auto path=zima::assembly::InstancePath::decode(candidate.instance_path);
-                if(workspace_.derived_source_path(workspace_.displayed_document_id(),path)!=path)
-                    show_component_properties(candidate.instance_path);
-            }catch(const std::exception&){}
+            if(!properties_dialog_){
+                assembly_dimension_path_=candidate.instance_path;
+                update_assembly_dimension_visibility();
+            }
         } else if (candidate.kind == zima::viewer::CandidateKind::Container) {
             const auto* part=workspace_.open_part(workspace_.active_document_id());
             const auto* body=part?part->session.document().body_history.find(candidate.owner_id):nullptr;
@@ -5156,6 +5160,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         [this](int index) { close_document(index); });
     connect(tabs_, &QTabBar::currentChanged, this, [this](int index) {
         if (index < 0) return;
+        if(measurement_dialog_)measurement_dialog_->reject();
         if(section_dialog_){QSignalBlocker block(tabs_);for(int i=0;i<tabs_->count();++i)if(tabs_->tabData(i).toString().toStdString()==section_document_id_)tabs_->setCurrentIndex(i);return;}
         const std::string previous_id = workspace_.active_document_id();
         if (!previous_id.empty() && viewer_ != nullptr) {
@@ -5183,6 +5188,10 @@ void AssemblyWorkspaceWindow::create_layout() {
         }
     });
     const auto synchronize_tree_selection = [this] {
+            if(measurement_dialog_)return;
+            if(auto* item=tree_->currentItem();item&&item->data(0,Qt::UserRole+3)=="document-measurement"){
+                viewer_->clear_selection();return;
+            }
             if(auto* item=tree_->currentItem();item&&item->data(0,Qt::UserRole+3).toString().startsWith("document-section")){
                 if(!refreshing_scene_){assembly_dimension_path_.clear();update_assembly_dimension_visibility();}
                 viewer_->clear_selection();return;
@@ -5563,7 +5572,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 return;
             } else {
                 const auto path=item->data(0, Qt::UserRole + 1).toString().toStdString();
-                if(!properties_dialog_&&!refreshing_scene_){assembly_dimension_path_=path;update_assembly_dimension_visibility();}
+                if(!properties_dialog_&&!refreshing_scene_){assembly_dimension_path_.clear();update_assembly_dimension_visibility();}
                 viewer_->confirm_occurrence(path);
                 set_selected_component_origin(path);
             }
@@ -5615,7 +5624,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 primitive_reference_dialog_ != nullptr ||
                 pending_primitive_reference_index_) return;
             auto* item = tree_->itemAt(position);
-            if(section_context_menu(item,position))return;
+            if(measurement_context_menu(item,position)||section_context_menu(item,position))return;
             if (!tree_item_context_menu_enabled(item)) return;
             const auto step_kind = item->data(0, Qt::UserRole + 3).toString();
             if(step_kind=="template-image"&&!properties_dialog_) {
@@ -24146,6 +24155,7 @@ std::optional<std::string> AssemblyWorkspaceWindow::selected_occurrence_path() c
 }
 
 void AssemblyWorkspaceWindow::refresh_scene() {
+    if(measure_action_)measure_action_->setEnabled(workspace_.open_part(workspace_.displayed_document_id())||workspace_.open_assembly(workspace_.displayed_document_id()));
     viewer_->set_dimension_layout_editable((!properties_dialog_||!properties_dialog_->isVisible())&&!sketch_universal_dimension_active_);
     update_assembly_dimension_visibility();
     update_viewer_body_colors();
@@ -26025,6 +26035,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         viewer_->set_container_inspection(properties_dialog_ == nullptr
             ? construction_dimension_object_id_ : std::string{});
         update_section_ui();
+        update_measurement_ui();
         return;
     }
     // Explicitly re-assert Assembly mode every time this branch runs (not
@@ -26483,6 +26494,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             active_part->session.document().document_id).value_or(std::string{}) : std::string{});
     configure_sketch_box_selection(has_active_part_sketch);
     update_section_ui();
+    update_measurement_ui();
 }
 
 void AssemblyWorkspaceWindow::configure_sketch_box_selection(
@@ -27718,6 +27730,27 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
             parsed_value, viewer_->dimension_decimal_places());
         try {
             if(parameter_value_locked(candidate.owner_id,candidate.semantic_key).value_or(false))throw std::runtime_error(tr("Hodnota je zamčená.").toStdString());
+            if(candidate.semantic_key.starts_with("placement-reference:")){
+                if(candidate.owner_id!=workspace_.active_document_id()||properties_dialog_)
+                    throw std::runtime_error("Kóta nepatří aktivní sestavě.");
+                auto* source=workspace_.open_assembly(candidate.owner_id);
+                if(!source)throw std::runtime_error("Sestava již není dostupná.");
+                const auto separator=candidate.semantic_key.rfind(':');
+                if(separator==std::string::npos||separator<=20)throw std::runtime_error("Neplatná reference kóty.");
+                auto next=source->session.document();
+                auto* occurrence=next.find_occurrence(candidate.semantic_key.substr(20,separator-20));
+                const auto index=std::stoul(candidate.semantic_key.substr(separator+1));
+                if(!occurrence||index>=occurrence->placement_references.size())
+                    throw std::runtime_error("Reference kóty již neexistuje.");
+                auto& row=occurrence->placement_references[index];
+                if(row.offset_locked)throw std::runtime_error("Hodnota je zamčená.");
+                if((row.lower_limit&&next_value<*row.lower_limit)||(row.upper_limit&&next_value>*row.upper_limit))
+                    throw std::runtime_error("Hodnota je mimo povolené meze.");
+                row.offset=next_value;
+                next.calculate_placement_references();
+                source->session.commit(std::move(next));
+                guarded->hide();preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();guarded->deleteLater();return;
+            }
             const auto edit_sketch=[&](zima::sketcher::Sketch& sketch){
                 if(candidate.semantic_key.starts_with("dimension:")){
                     if(!sketch.set_dimension_value(candidate.semantic_key.substr(10),next_value))
@@ -28279,6 +28312,7 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
 }
 
 void AssemblyWorkspaceWindow::show_tree_item_properties(QTreeWidgetItem* item) {
+    if(item&&item->data(0,Qt::UserRole+3)=="document-measurement"){show_measurement(item->data(0,Qt::UserRole).toString().toStdString());return;}
     if(item&&item->data(0,Qt::UserRole+3)=="document-section"){show_section_properties(item->data(0,Qt::UserRole).toString().toStdString());return;}
     if(item && item->data(0,Qt::UserRole+3).toString()=="template-image") {
         show_template_image_properties(item->data(0,Qt::UserRole).toString().toStdString());return;

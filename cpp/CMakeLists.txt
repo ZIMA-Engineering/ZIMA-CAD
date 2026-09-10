@@ -46,6 +46,7 @@ add_library(zima_document_core
     modules/document_core/src/appearance.cpp
     modules/document_core/src/body_history.cpp
     modules/document_core/src/section.cpp
+    modules/document_core/src/measurement_record.cpp
     modules/document_core/src/relations.cpp
     modules/document_core/src/document_session.cpp
     modules/document_core/src/dimension_identifiers.cpp
@@ -94,6 +95,7 @@ target_link_libraries(zima_kernel_occt PRIVATE
 
 add_library(zima_viewer
     modules/viewer/src/mesh_view.cpp
+    modules/viewer/src/measurement.cpp
     modules/viewer/src/picking.cpp)
 target_include_directories(zima_viewer PUBLIC modules/viewer/include)
 target_link_libraries(zima_viewer PUBLIC zima_kernel_api
@@ -126,7 +128,7 @@ set_target_properties(zima-cad-part-harness PROPERTIES AUTORCC ON)
 
 add_executable(zima-cad-cpp
     app/main_workspace.cpp app/appearance_dialog.cpp app/appearance_command.cpp app/section_command.cpp app/section_ui_verification.cpp app/assembly_workspace_window.cpp app/template_command.cpp app/numeric_value_lock_command.cpp app/shaft_thread_command.cpp app/derived_copy_command.cpp
-    app/application_settings.cpp app/global_settings_dialog.cpp
+    app/application_settings.cpp app/global_settings_dialog.cpp app/measurement_command.cpp app/measurement_ui_verification.cpp
     app/document_tools_dialogs.cpp
     app/drawing_window.cpp app/drawing_annotation_source.cpp app/show_erase_dialog.cpp app/file_dialog.cpp app/resource_icon.cpp
     app/zima_resources.qrc
@@ -236,6 +238,13 @@ if(ZIMA_BUILD_TESTS)
     else()
         set(ZIMA_GUI_TEST_ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     endif()
+    add_executable(zima_cpp_measurement_contract_tests tests/measurement_contract_tests.cpp)
+    target_link_libraries(zima_cpp_measurement_contract_tests PRIVATE zima_viewer zima_document_core zima_assembly zima_kernel_occt nlohmann_json::nlohmann_json)
+    add_test(NAME zima_cpp_measurement_contract_tests COMMAND zima_cpp_measurement_contract_tests)
+    add_test(NAME zima_cpp_measurement_inspector_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_measurement_inspector_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_MEASUREMENT_INSPECTOR_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90)
     add_executable(zima_cpp_appearance_contract_tests tests/appearance_contract_tests.cpp app/appearance_dialog.cpp)
     target_include_directories(zima_cpp_appearance_contract_tests PRIVATE app)
     target_link_libraries(zima_cpp_appearance_contract_tests PRIVATE zima_document_core zima_assembly zima_ui zima_viewer)
@@ -251,6 +260,11 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_multibody_contract_tests PRIVATE zima_document_core zima_kernel_occt nlohmann_json::nlohmann_json)
     add_test(NAME zima_cpp_multibody_contract_tests COMMAND zima_cpp_multibody_contract_tests)
     add_executable(zima_cpp_contract_tests tests/contract_tests.cpp)
+    if(MSVC)
+        # This combined test keeps ~0.9 MiB of fixtures in main's stack frame.
+        # Leave room for OCCT numerical routines, as on Linux's 8 MiB stack.
+        target_link_options(zima_cpp_contract_tests PRIVATE /STACK:8388608)
+    endif()
     target_link_libraries(zima_cpp_contract_tests PRIVATE
         zima_document_core zima_kernel_occt TKPrim TKDESTEP)
     add_test(NAME zima_cpp_contract_tests COMMAND zima_cpp_contract_tests)

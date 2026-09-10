@@ -1724,7 +1724,7 @@ int main() {
                     symmetric_second)->y - 10.0) < 1.0e-8 &&
                     symmetric_dimensioned.viewer_mesh().dimensions.size() == 1 &&
                     symmetric_dimensioned.viewer_mesh().dimensions.front().label_prefix ==
-                        "Ø" &&
+                        "⌀" &&
                     symmetric_dimensioned.viewer_mesh().dimensions.front()
                         .participant_semantic_keys.size() == 3,
                 "Symmetric dimension did not use its full diameter value");
@@ -5456,7 +5456,7 @@ int main() {
         require(diameter_packet.dimensions.size() == 1 &&
                     diameter_packet.dimensions.front().kind ==
                         zima::kernel::ViewerDimensionKind::Diameter &&
-                    diameter_packet.dimensions.front().label_prefix == "Ø" &&
+                    diameter_packet.dimensions.front().label_prefix == "⌀" &&
                     std::abs(diameter_packet.dimensions.front().witness_first.x) <
                         1.0e-9 &&
                     std::abs(diameter_packet.dimensions.front().witness_first.y) <
@@ -5570,7 +5570,7 @@ int main() {
         const auto arc_diameter_packet = arc_diameter_sketch.viewer_mesh();
         require(std::abs(arc_diameter_sketch.arcs.front().radius - 10.0) < 1.0e-9 &&
                     arc_diameter_packet.dimensions.size() == 1 &&
-                    arc_diameter_packet.dimensions.front().label_prefix == "Ø" &&
+                    arc_diameter_packet.dimensions.front().label_prefix == "⌀" &&
                     std::abs(arc_diameter_packet.dimensions.front().value - 20.0) < 1.0e-9,
                 "Diameter dimension did not drive or display its stable arc");
         auto moved_arc = zima::sketcher::Sketch::create_default();

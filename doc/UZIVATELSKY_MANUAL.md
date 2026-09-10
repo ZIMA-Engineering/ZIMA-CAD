@@ -246,6 +246,15 @@ Příkaz lze před výběrem zrušit opětovným kliknutím na tlačítko nebo k
   2D geometrii. Světovou polohu, orientaci i odsazení profilu určuje cílový
   kontejner.
 
+## Měření geometrie
+
+Ikona **Měření** nad View otevře dvě pole pro výběr bodu, hrany, plochy,
+tělesa, komponenty, osy či roviny. První entita ihned zobrazí své údaje;
+druhá navíc určí nejkratší vzdálenost. Krátké prostřední tlačítko ukončí
+zadávání referencí, dvojklik prostředním zavře okno. **Uložit** vytvoří
+pojmenovanou informační položku v historii. Podrobnosti včetně jednotek,
+přesnosti **≈** a opravy ztracených referencí: [Měření](MEASUREMENT.md).
+
 ## Běžný výběr ve 3D pohledu
 
 Bez aktivního příkazu nabízí pohled pouze objekty, se kterými lze běžně
@@ -260,6 +269,10 @@ Oranžový hover, potvrzení levým tlačítkem a cyklování pravým tlačítke
 jediný společný seřazený seznam kandidátů. Pravé tlačítko před potvrzením pouze
 přepne na dalšího kandidáta. Levé tlačítko potvrdí přesně nabízený objekt
 azurovým obrysem a současně označí tutéž položku ve stromu.
+
+V sestavě jeden klik pouze označí komponentu; její kóty uložení zobrazí
+teprve dvojklik. Kliknutí na hodnotu kóty vybírá přímo kótu a dvojklik otevře
+její hodnotu. Vlastnosti kóty jsou v jejím kontextovém menu.
 
 Po potvrzení již pravé tlačítko necykluje, ale otevře kontextové menu vybraného
 objektu. U vnořené komponenty obsahuje příkaz **Vybrat rodiče**. Každé jeho

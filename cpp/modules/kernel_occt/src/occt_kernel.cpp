@@ -4307,6 +4307,11 @@ BodyResult make_result(
             (original_reference_geometry || collect_original_references)
             ? face_references->reference_for(face)
             : FaceReference{};
+        if (reference.valid()) {
+            GProp_GProps measured;
+            BRepGProp::SurfaceProperties(face, measured);
+            reference.measured_area = std::abs(measured.Mass());
+        }
         if (reference.valid()) if (const auto surface=analytic_surface(face))
             reference.surface=std::make_shared<const SurfaceGeometry>(*surface);
         const std::uint32_t base =
@@ -4363,6 +4368,9 @@ BodyResult make_result(
         viewer_edge.reference = original_reference_geometry
             ? reference : EdgeReference{};
         viewer_edge.display_owner_id = reference.owner_id;
+        GProp_GProps measured_edge;
+        BRepGProp::LinearProperties(edge, measured_edge);
+        viewer_edge.measured_length = std::abs(measured_edge.Mass());
         const int edge_index = edge_faces.FindIndex(edge);
         if (edge_index != 0) {
             std::vector<TopoDS_Face> adjacent_faces;

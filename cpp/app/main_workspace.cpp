@@ -14,6 +14,7 @@
 #include "application_settings.hpp"
 #include "startup_arguments.hpp"
 #include "instance_verification.hpp"
+#include "measurement_ui_verification.hpp"
 #include <QSettings>
 #include <QTemporaryDir>
 #include "construction_reference_candidate_policy.hpp"
@@ -3016,7 +3017,7 @@ int verify_assembly_refresh_view(QApplication& application,const std::filesystem
     const auto changed=assembly::AssemblyDocument::load(assembly_path);
     if(!verify(changed.find_occurrence(occurrence)->calculated_source.volume > bodies.back().volume*2,
         "Assembly Regenerate ignored changed saved Part"))return 1;
-    kernel::ViewerMesh annotations;
+    auto annotations=changed.build_scene();annotations.dimensions.clear();
     kernel::ViewerDimension dimension;
     dimension.reference={"test","angle",{}};
     dimension.witness_first={-10,0,0};dimension.witness_second={10,0,0};
@@ -3044,7 +3045,28 @@ int verify_assembly_refresh_view(QApplication& application,const std::filesystem
     view->set_mesh(annotations);application.processEvents();
     if(!verify(view->selection_candidates_at(*hit).empty(),"Unselected Assembly placement dimensions remain offered"))return 1;
     tree->setCurrentItem(occurrence_item);occurrence_item->setSelected(true);application.processEvents();
-    if(!verify(!view->selection_candidates_at(*hit).empty(),"Selecting component did not show its placement dimension"))return 1;
+    if(!verify(view->selection_candidates_at(*hit).empty(),"Single component selection exposed placement dimensions"))return 1;
+    view->confirm_occurrence(occurrence_path);
+    {
+        QMouseEvent event(QEvent::MouseButtonDblClick,*hit,QPointF(view->mapToGlobal(hit->toPoint())),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+        QApplication::sendEvent(view,&event);application.processEvents();
+    }
+    if(!verify(!view->selection_candidates_at(*hit).empty(),"Double-click did not expose placement dimensions"))return 1;
+    {
+        const auto global=QPointF(view->mapToGlobal(hit->toPoint()));
+        QMouseEvent move(QEvent::MouseMove,*hit,global,Qt::NoButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&move);
+        for(auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}){
+            QMouseEvent event(type,*hit,global,Qt::LeftButton,type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&event);
+        }
+        if(!verify(view->confirmed_candidate()&&view->confirmed_candidate()->kind==viewer::CandidateKind::Dimension,
+            "Placement dimension click confirmed the component instead"))return 1;
+        QMouseEvent dbl(QEvent::MouseButtonDblClick,*hit,global,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);QApplication::sendEvent(view,&dbl);application.processEvents();
+        auto* edit=window.findChild<QLineEdit*>("inlineDimensionValueEdit");
+        if(!verify(edit&&edit->isVisible(),"Placement dimension did not open its own value editor"))return 1;
+        for(auto* dialog:window.findChildren<QDialog*>())
+            if(!verify(!dialog->isVisible(),"Placement dimension opened component properties"))return 1;
+        QKeyEvent escape(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);QApplication::sendEvent(edit,&escape);application.processEvents();
+    }
     tree->clearSelection();application.processEvents();
     if(!verify(view->selection_candidates_at(*hit).empty(),"Clearing component selection did not hide placement dimension"))return 1;
     const auto save_jpg=[&](const char* stem) {
@@ -3879,6 +3901,7 @@ int verify_startup_contract(
     QApplication& application, zima::app::AssemblyWorkspaceWindow& window,
     const std::filesystem::path& test_directory,
     const QString& part_capture_path = {}, const QString& drawing_capture_path = {}) {
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_MEASUREMENT_INSPECTOR_ONLY")) return zima::app::verify_measurement_inspector(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_ASSEMBLY_REFRESH_ONLY")) return verify_assembly_refresh_view(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SECTIONS_ONLY")) return zima::app::verify_sections(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_TEMPLATES_ONLY")) return verify_template_commands(application,window,test_directory);

@@ -529,6 +529,7 @@ nlohmann::json read_part_ini(const std::filesystem::path& path) {
             "{\"columns\":[],\"instances\":[]}")},
         {"named_views", ini_value(ini, "Document", "named_views", "[]")},
         {"sections", nlohmann::json::parse(ini_value(ini,"Document","sections","[]"))},
+        {"measurements", nlohmann::json::parse(ini_value(ini,"Document","measurements","[]"))},
         {"dimension_layouts", nlohmann::json::parse(ini_value(ini,"Document","dimension_layouts","[]"))},
         {"dimension_identifiers", nlohmann::json::parse(ini_required(ini, "Document", "dimension_identifiers"))},
         {"body_history", nlohmann::json::parse(ini_required(ini, "Document", "body_history"))},
@@ -679,6 +680,7 @@ void write_part_ini(
         {"family_table", root.at("family_table").get<std::string>()},
         {"named_views", root.value("named_views", std::string("[]"))},
         {"sections", root.value("sections",nlohmann::json::array()).dump()},
+        {"measurements", root.value("measurements",nlohmann::json::array()).dump()},
         {"dimension_layouts", root.value("dimension_layouts",nlohmann::json::array()).dump()},
         {"dimension_identifiers", root.at("dimension_identifiers").dump()},
         {"body_history", root.at("body_history").dump()},
@@ -9176,6 +9178,7 @@ PartDocument PartDocument::load(
     document.family_table = root.at("family_table").get<std::string>();
     document.named_views = root.value("named_views", std::string("[]"));
     document.sections = parse_sections(root.value("sections",nlohmann::json::array()).dump());
+    document.measurements = parse_measurements(root.value("measurements",nlohmann::json::array()).dump());
     document.dimension_layouts=zima::document::dimension_layouts_from_json(root.value("dimension_layouts",nlohmann::json::array()));
     document.dimension_identifiers = DimensionIdentifiers::from_serialized(root.at("dimension_identifiers").dump());
     document.body_color = root.at("body_color").get<std::string>();
@@ -11047,6 +11050,7 @@ void PartDocument::save(
         {"family_table", family_table},
         {"named_views", named_views},
         {"sections", nlohmann::json::parse(serialize_sections(sections))},
+        {"measurements", nlohmann::json::parse(serialize_measurements(measurements))},
         {"body_color", body_color},
         {"appearance", serialize_appearance(appearance)},
         {"face_colors", face_colors},

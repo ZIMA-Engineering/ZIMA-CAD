@@ -11768,7 +11768,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
                 center->y + radius * std::sin(angle));
             result.dimensions.push_back({
                 project(*center), rim, project(*center), rim, dimension.value,
-                {id, "dimension:" + dimension.id, {}}, "Ø"});
+                {id, "dimension:" + dimension.id, {}}, "⌀"});
             result.dimensions.back().kind =
                 zima::kernel::ViewerDimensionKind::Diameter;
             continue;
@@ -11857,7 +11857,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
                 world_point(first_anchor[0] + shift[0], first_anchor[1] + shift[1]),
                 world_point(point->x + shift[0], point->y + shift[1]),
                 dimension.value, {id, "dimension:" + dimension.id, {}},
-                dimension.kind == DimensionKind::DistanceSymmetric ? "Ø" : ""});
+                dimension.kind == DimensionKind::DistanceSymmetric ? "⌀" : ""});
             continue;
         }
         if (dimension.kind == DimensionKind::DistanceLine ||

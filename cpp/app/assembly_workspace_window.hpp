@@ -7,6 +7,7 @@
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/sketcher/sketch_trim.hpp>
 #include <zima/viewer/picking.hpp>
+#include <zima/viewer/measurement.hpp>
 #include "application_settings.hpp"
 #include "application_instance.hpp"
 #include "tree_reference_state.hpp"
@@ -55,6 +56,7 @@ class OrientationDialog;
 class DrawingWindow;
 class SketchTextPropertiesDialog;
 class SectionPropertiesDialog;
+class MeasurementDialog;
 
 class AssemblyWorkspaceWindow final : public QMainWindow {
 public:
@@ -83,6 +85,15 @@ public:
     }
 
 private:
+    QPointer<MeasurementDialog> measurement_dialog_;
+    QAction* measure_action_{};
+    void show_measurement(const std::string& id = {});
+    bool accept_measurement(const zima::viewer::ViewerCandidate&);
+    std::optional<zima::viewer::MeasurementGeometry> resolve_measurement(const zima::kernel::MeasurementReference&) const;
+    QString measurement_label(const zima::kernel::MeasurementReference&) const;
+    void update_measurement_selection();
+    void update_measurement_ui();
+    bool measurement_context_menu(QTreeWidgetItem*, const QPoint&);
     std::string assembly_dimension_path_;
     void show_section_properties(const std::string& id = {}, bool draw = false);
     void update_section_ui();

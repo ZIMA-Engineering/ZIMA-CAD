@@ -1,4 +1,5 @@
 #pragma once
+#include <zima/document/measurement_record.hpp>
 #include <zima/kernel/dimension_layout.hpp>
 #include <zima/kernel/appearance.hpp>
 #include <zima/document/section.hpp>
@@ -222,6 +223,7 @@ public:
     std::string family_table{"{\"columns\":[],\"instances\":[]}"};
     std::string named_views{"[]"};
     std::vector<zima::document::SectionDefinition> sections;
+    std::vector<zima::kernel::SavedMeasurement> measurements;
     std::vector<zima::kernel::DimensionLayoutEntry> dimension_layouts;
     std::vector<PartOccurrence> components;
     std::vector<zima::sketcher::Sketch> sketches;

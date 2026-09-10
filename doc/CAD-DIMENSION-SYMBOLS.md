@@ -34,6 +34,11 @@ Zobrazení:
 ⌀25H7
 ```
 
+Generované průměrové popisky používají znak **⌀ (U+2300)** shodný
+s výběrem ve Vlastnostech kóty. Společné formátování platí pro Sketcher,
+3D View, Drawing i exportované popisky. Jednotka mm navazuje přímo na číslo,
+například `⌀25,000mm`.
+
 ## Typy kót
 
 - lineární rozměr,

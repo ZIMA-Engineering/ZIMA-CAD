@@ -17,12 +17,12 @@ inline DimensionTextStyle dimension_text_style(const ViewerDimension& d) {
     if(d.source_text_style)return *d.source_text_style;
     DimensionTextStyle style;style.prefix=d.label_prefix;style.suffix=d.unit_suffix;style.text_override=d.display_text_override;
     if(d.kind==ViewerDimensionKind::Radius && style.prefix.starts_with("R"))style.prefix.erase(0,1);
-    if(d.kind==ViewerDimensionKind::Diameter && style.prefix.starts_with("Ø"))style.prefix.erase(0,std::string("Ø").size());
+    if(d.kind==ViewerDimensionKind::Diameter && style.prefix.starts_with("⌀"))style.prefix.erase(0,std::string("⌀").size());
     return style;
 }
 inline std::string dimension_text(const ViewerDimension& d,const DimensionTextStyle& style) {
     if(!style.text_override.empty())return style.text_override;
-    std::ostringstream text;text<<style.prefix<<(d.kind==ViewerDimensionKind::Radius?"R":d.kind==ViewerDimensionKind::Diameter?"Ø":"")
+    std::ostringstream text;text<<style.prefix<<(d.kind==ViewerDimensionKind::Radius?"R":d.kind==ViewerDimensionKind::Diameter?"⌀":"")
         <<std::fixed<<std::setprecision(std::clamp(style.decimals,0,12))<<d.value<<dimension_unit_text(style.suffix);
     if(style.tolerance_mode=="symmetric")text<<" ±"<<style.symmetric_tolerance;
     if(style.tolerance_mode=="single_deviation")text<<" "<<style.single_tolerance;

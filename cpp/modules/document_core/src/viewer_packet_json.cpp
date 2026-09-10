@@ -226,6 +226,7 @@ nlohmann::json serialize_reference_geometry(
             {"instance_path", reference.instance_path}});
         if constexpr (requires { reference.surface; }) {
             if (reference.surface) references.back()["surface"]=serialize_surface(*reference.surface);
+            if (reference.measured_area) references.back()["measured_area"]=*reference.measured_area;
         }
         return index;
     };
@@ -247,7 +248,9 @@ nlohmann::json serialize_reference_geometry(
     std::vector<zima::kernel::Vec3> edge_points;
     std::vector<std::uint32_t> edge_offsets{0};
     std::vector<std::uint32_t> edge_references;
+    nlohmann::json edge_lengths = nlohmann::json::array();
     for (const auto& edge : geometry.edges) {
+        edge_lengths.push_back(edge.measured_length ? nlohmann::json(*edge.measured_length) : nlohmann::json(nullptr));
         if (edge.points.size() < 2 ||
             edge_points.size() + edge.points.size() >
                 std::numeric_limits<std::uint32_t>::max()) {
@@ -280,6 +283,7 @@ nlohmann::json serialize_reference_geometry(
         {"triangle_reference_runs_binary", pack_indices(triangle_reference_runs)},
         {"edge_points_binary", pack_vertices(edge_points)},
         {"edge_offsets_binary", pack_indices(edge_offsets)},
+        {"edge_lengths", std::move(edge_lengths)},
         {"edge_references_binary", pack_indices(edge_references)},
         {"point_positions_binary", pack_vertices(point_positions)},
         {"point_references_binary", pack_indices(point_references)},
@@ -303,6 +307,11 @@ zima::kernel::ViewerReferenceGeometry load_reference_geometry(
             throw std::runtime_error("Persisted original reference is invalid");
         }
         if (value.contains("surface")) reference.surface=std::make_shared<const zima::kernel::SurfaceGeometry>(load_surface(value.at("surface")));
+        if (value.contains("measured_area")) {
+            reference.measured_area = value.at("measured_area").get<double>();
+            require_finite(*reference.measured_area, "measured area");
+            if (*reference.measured_area < 0) throw std::runtime_error("Negative measured area");
+        }
         references.push_back(std::move(reference));
     }
     const auto reference_at = [&](std::uint32_t index)
@@ -366,6 +375,16 @@ zima::kernel::ViewerReferenceGeometry load_reference_geometry(
         edge.points.insert(edge.points.end(),
             edge_points.begin() + edge_offsets[index],
             edge_points.begin() + edge_offsets[index + 1]);
+        if (source.contains("edge_lengths")) {
+            if (source.at("edge_lengths").size() != edge_references.size())
+                throw std::runtime_error("Invalid measured edge lengths");
+            const auto& length = source.at("edge_lengths").at(index);
+            if (!length.is_null()) {
+                edge.measured_length = length.get<double>();
+                require_finite(*edge.measured_length, "measured length");
+                if (*edge.measured_length < 0) throw std::runtime_error("Negative measured length");
+            }
+        }
         restore_reference_curve_style(edge);
         result.edges.push_back(std::move(edge));
     }
@@ -458,6 +477,7 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result) {
             {"edge_treatment_endpoint_references",
                 std::move(endpoint_references)},
             {"points", std::move(points)},
+            {"measured_length", edge.measured_length ? nlohmann::json(*edge.measured_length) : nlohmann::json(nullptr)},
         });
     }
     nlohmann::json points = nlohmann::json::array();
@@ -625,6 +645,11 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source) {
         loaded.display_owner_id =
             edge.at("display_owner").get<std::string>();
         loaded.color=edge.value("color",std::string{});
+        if (edge.contains("measured_length") && !edge.at("measured_length").is_null()) {
+            loaded.measured_length = edge.at("measured_length").get<double>();
+            require_finite(*loaded.measured_length, "measured length");
+            if (*loaded.measured_length < 0) throw std::runtime_error("Negative measured length");
+        }
         loaded.parameter_seam = edge.value("parameter_seam", false);
         loaded.filled_text = edge.value("filled_text", false);
         loaded.edge_treatment_owner_ids =

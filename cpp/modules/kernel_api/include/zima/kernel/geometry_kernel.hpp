@@ -45,6 +45,7 @@ struct FaceReference {
     std::string semantic_key;
     std::string instance_path;
     std::shared_ptr<const SurfaceGeometry> surface;
+    std::optional<double> measured_area; // Captured only during explicit calculation.
 
     [[nodiscard]] bool valid() const {
         return !owner_id.empty() && !semantic_key.empty();
@@ -132,6 +133,7 @@ struct ViewerEdge {
     std::vector<VertexReference> edge_treatment_endpoint_references;
     std::string color; // Optional presentation colour for template Sketch wires.
     bool filled_text{};
+    std::optional<double> measured_length; // Exact source curve length in mm.
 };
 
 struct ViewerPoint {

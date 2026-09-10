@@ -659,7 +659,7 @@ DimensionEvaluation evaluate_drawing_dimension(const DrawingView &view, const Dr
         result.resolved_attachments[0] = true;
         if (!curve->circular) {
             result.state = MeasurementState::Hidden;
-            result.message = "R/Ø je skrytá v nekruhovém průmětu.";
+            result.message = "R/⌀ je skrytá v nekruhovém průmětu.";
             return result;
         }
         const double radius = length(curve->cosine_axis);
@@ -678,7 +678,7 @@ DimensionEvaluation evaluate_drawing_dimension(const DrawingView &view, const Dr
         value.line_first = value.witness_first;
         value.line_second = value.witness_second;
         value.value = radial && d.kind == DrawingDimensionKind::Diameter ? radius * 2 : radius;
-        value.label_prefix = d.kind == DrawingDimensionKind::Radius ? "R" : "Ø";
+        value.label_prefix = d.kind == DrawingDimensionKind::Radius ? "R" : "⌀";
         value.driving = false;
         value.label_position =
             kernel::dimension_add(value.witness_first, {direction.x * (radius + 8 / view.scale),
