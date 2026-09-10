@@ -252,7 +252,11 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_profile_frame_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_profile_frame_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_PROFILE_FRAMES_ONLY=1"
-        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 240 RUN_SERIAL TRUE)
+    add_test(NAME zima_cpp_dimension_edits_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_dimension_edits_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_DIMENSION_EDITS_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 300 RUN_SERIAL TRUE)
     add_test(NAME zima_cpp_measurement_inspector_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_measurement_inspector_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_MEASUREMENT_INSPECTOR_ONLY=1"

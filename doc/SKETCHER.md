@@ -644,6 +644,14 @@ změnu uchopený oblouk bez ohledu na pořadí původního výběru pro rovnost.
 Tečnost v existujícím spoji C/K lze přidat i po změně směru úsečky;
 kontakt určuje uložený spoj, nikoli tečný bod k dosavadnímu směru úsečky.
 
+U dvou stejně velkých oblouků spojených společnými tečnami respektuje tah
+kontaktu vázanou spojnici středů. U pevného středu mění radiální složka tahu
+poloměr; u středu posuvného po spojnici mění podélná složka také jeho polohu.
+Drobná odchylka kurzoru do zakázaného směru nezablokuje povolený pohyb.
+Řídicí kóta poloměru či průměru může po vytvoření rovnosti řídit kteroukoli
+její stranu. Při přidání nové rovnosti nadále určuje výchozí poloměr první
+vybraná křivka; rozporná kóta druhé křivky se odmítne transakčně.
+
 ### Směrové kóty bodů na osách (2026-09-09)
 
 Bod vázaný na přímku zůstává pohyblivý podél jejího směru. Při změně X/Y kóty

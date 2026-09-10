@@ -2326,6 +2326,8 @@ bool PrimitivePropertiesDialog::set_inline_parameter_value(
     }
     if (key == "length_reverse") return set_field(reverse_length_);
     if (key == "profile_offset") return set_field(profile_plane_offset_);
+    if (key == "thickness") return set_field(shell_thickness_);
+    if (key == "thin_thickness") return set_field(thin_thickness_);
     if (key == "thread_nominal_diameter")
         return set_field(hole_thread_nominal_diameter_);
     if (key == "thread_length") return set_field(hole_thread_length_);

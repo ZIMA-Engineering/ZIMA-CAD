@@ -3098,6 +3098,101 @@ int verify_assembly_refresh_view(QApplication& application,const std::filesystem
     return 0;
 }
 
+int verify_inline_primitive_dimensions(QApplication& application, const std::filesystem::path& directory) {
+    using namespace zima;
+    const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
+    const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+    struct Case {
+        document::HistoryContainer feature;
+        std::string key;
+        std::function<double&(document::HistoryContainer&)> field;
+    };
+    using D=document::PartDocument;
+    const std::vector<Case> cases{
+        {D::create_box_container(),"length",[](auto& c)->double&{return c.box.length;}},
+        {D::create_box_container(),"width",[](auto& c)->double&{return c.box.width;}},
+        {D::create_box_container(),"height",[](auto& c)->double&{return c.box.height;}},
+        {D::create_cylinder_container(),"radius",[](auto& c)->double&{return c.cylinder.radius;}},
+        {D::create_cylinder_container(),"height",[](auto& c)->double&{return c.cylinder.height;}},
+        {D::create_sphere_container(),"radius",[](auto& c)->double&{return c.sphere.radius;}},
+        {D::create_cone_container(),"bottom_radius",[](auto& c)->double&{return c.cone.bottom_radius;}},
+        {D::create_cone_container(),"top_radius",[](auto& c)->double&{return c.cone.top_radius;}},
+        {D::create_cone_container(),"height",[](auto& c)->double&{return c.cone.height;}},
+        {D::create_pyramid_container(),"length",[](auto& c)->double&{return c.pyramid.length;}},
+        {D::create_pyramid_container(),"width",[](auto& c)->double&{return c.pyramid.width;}},
+        {D::create_pyramid_container(),"height",[](auto& c)->double&{return c.pyramid.height;}},
+        {D::create_wedge_container(),"length",[](auto& c)->double&{return c.wedge.length;}},
+        {D::create_wedge_container(),"width",[](auto& c)->double&{return c.wedge.width;}},
+        {D::create_wedge_container(),"height",[](auto& c)->double&{return c.wedge.height;}},
+        {D::create_wedge_container(),"top_offset",[](auto& c)->double&{return c.wedge.top_offset;}},
+        {D::create_shell_container(),"thickness",[](auto& c)->double&{return c.shell.thickness;}},
+        {D::create_thread_container(),"bore_length",[](auto& c)->double&{return c.thread.bore_length;}},
+        {D::create_thread_container(),"bore_diameter",[](auto& c)->double&{return c.thread.nominal_diameter;}},
+        {D::create_thread_container(),"thread_length",[](auto& c)->double&{return c.thread.length_forward;}},
+        {D::create_thread_container(),"chamfer_depth",[](auto& c)->double&{return c.thread.chamfer_depth;}},
+        {D::create_thread_container(),"chamfer_angle",[](auto& c)->double&{return c.thread.chamfer_angle_degrees;}},
+        {D::create_thread_container(),"drill_point_angle",[](auto& c)->double&{return c.hole.drill_point_angle_degrees;}},
+        {D::create_box_container(),"placement:x",[](auto& c)->double&{return c.placement.x;}},
+        {D::create_box_container(),"placement:y",[](auto& c)->double&{return c.placement.y;}},
+        {D::create_box_container(),"placement:z",[](auto& c)->double&{return c.placement.z;}}
+    };
+    try {
+        for(auto test:cases) {
+            std::cout<<"Inline primitive "<<static_cast<int>(test.feature.feature_kind)<<' '<<test.key<<std::endl;
+            if(test.feature.feature_kind==document::FeatureKind::Wedge) test.feature.wedge.top_offset=2;
+            if(test.feature.feature_kind==document::FeatureKind::Thread) test.feature.thread.enabled=test.key=="thread_length";
+            test.field(test.feature)=5;
+            auto document=D::create_default();
+            document::BodyHistoryGraph graph;const auto body=graph.create_body("Dimension audit");
+            if(test.feature.feature_kind==document::FeatureKind::Thread || test.feature.feature_kind==document::FeatureKind::Shell) {
+                auto base=D::create_box_container();base.box={60,60,60};base.placement.x=-30;base.placement.y=-30;
+                document.history.push_back(base);graph.insert({document::PartHistoryKind::Feature,base.id});
+            }
+            document.history.push_back(test.feature);
+            graph.insert({document::PartHistoryKind::Feature,test.feature.id});document.set_body_history(graph);document.resolve_constructions();
+            kernel::OcctKernel kernel;const auto path=directory/"inline-primitive.prtz";
+            document.save(path,kernel.evaluate_history(document.kernel_operations()));
+            app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1200,850);window.show();
+            check(window.open_document_path(QString::fromStdString(path.string())),"Cannot open dimension fixture");flush();
+            check(activate_test_body(application,window,body),"Cannot activate dimension fixture Body");
+            auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
+            const auto open=[&]()->app::PrimitivePropertiesDialog* {
+                auto* tree=window.findChild<QTreeWidget*>("documentTree");
+                QTreeWidgetItem* row{};
+                {for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==test.feature.id){row=*i;break;}}
+                if(row)window.show_tree_item_properties(row);
+                flush();for(auto* d:window.findChildren<QDialog*>())if(auto* p=dynamic_cast<app::PrimitivePropertiesDialog*>(d);p&&p->isVisible())return p;
+                return nullptr;
+            };
+            const auto edit=[&](double value) {
+                viewer::ViewerCandidate c;c.kind=viewer::CandidateKind::Dimension;c.owner_id=test.feature.id;c.semantic_key="parameter:"+test.key;
+                bool found=false;
+                for(std::size_t i=0;i<view->mesh().dimensions.size()+32;++i){c.geometry_index=i;if(view->candidate_dimension_value(c)){found=true;break;}}
+                check(found,"Editable primitive dimension is absent");
+                window.edit_dimension_inline(c);flush();auto* e=view->findChild<QLineEdit*>("inlineDimensionValueEdit");
+                check(e&&e->isVisible(),"Primitive dimension does not open its editor");e->setText(QString::number(value));
+                QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(e,&enter);flush();
+            };
+            const auto saved_value=[&](double value) {
+                window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+                std::vector<kernel::BodyResult> results;auto saved=D::load(path,&results);
+                check(std::abs(test.field(*saved.find_container(test.feature.id))-value)<1e-7,"Dimension value was not persisted transactionally");
+                const auto operations=saved.kernel_operations();
+                check(!results.empty()&&results.back().source_fingerprint==kernel::history_fingerprint(operations,operations.size()),
+                    "Dimension value and calculated body use different inputs");
+            };
+            window.show_parameter_dimensions(test.feature.id);flush();edit(6);saved_value(6);
+            auto* dialog=open();check(dialog,"Cannot open primitive Properties");edit(7);saved_value(6);
+            auto pending=dialog->pending_value();
+            check(std::abs(test.field(pending)-7)<1e-7,"View edit did not update pending Properties");
+            dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();saved_value(6);
+            dialog=open();check(dialog,"Cannot reopen primitive Properties");edit(8);
+            dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();saved_value(8);
+        }
+        std::cout<<"Primitive View / Properties / Cancel / OK / persistence dimension matrix passed\n";return 0;
+    }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
+}
+
 int verify_owned_profile_frames(QApplication& application, const std::filesystem::path& directory) {
     using namespace zima;
     const auto check=[](bool condition,const char* message) {
@@ -3124,6 +3219,9 @@ int verify_owned_profile_frames(QApplication& application, const std::filesystem
                 document::PartDocument::create_extrusion_container(sketch.id);
             sketch.owner_container_id=feature.id;
             if(revolve) {
+                feature.revolution.extent_mode=document::ProfileExtentMode::TwoSides;
+                feature.revolution.angle_degrees=120;
+                feature.revolution.angle_reverse=20;
                 feature.revolution.axis_segment_id=sketch.add_segment(0,-20,0,20,1e-6,true);
                 sketch.segments.back().centerline=true;
             }
@@ -3231,7 +3329,7 @@ int verify_owned_profile_frames(QApplication& application, const std::filesystem
                 open();
                 for(std::size_t row=0;row<planes.size();++row)
                     check(dialog()->set_reference(row,{{},part.document_id+":origin","origin:plane:"+planes[row],
-                        0,true,row==0?"front":row==1?"top":"none",row<2},
+                        row==0?18.0:0.0,true,row==0?"front":row==1?"top":"none",row<2},
                         QString::fromStdString(planes[row])),"Cannot set commit reference");
                 dialog()->set_profile_offset_and_forward_length(3,10);
                 dialog()->findChild<QPushButton*>("containerOrientationFlipButton")->click();
@@ -3263,6 +3361,85 @@ int verify_owned_profile_frames(QApplication& application, const std::filesystem
                 const auto actual_bounds=bounds(bodies.back().mesh),expected_bounds=bounds(expected_bodies.back().mesh);
                 for(std::size_t i=0;i<6;++i)check(std::abs(actual_bounds[i]-expected_bounds[i])<1e-4,
                     "Calculated body bounds disagree with the preview frame");
+
+                // Direct View edits must update both the owned Sketch input
+                // and the calculated solid before reporting success.
+                std::vector<std::string> parameter_keys{"profile_offset", "placement:reference_offset:0"};
+                if(revolve)parameter_keys.push_back("length_reverse");
+                for (const auto& key : parameter_keys) {
+                    window.show_parameter_dimensions(feature.id); flush();
+                    viewer::ViewerCandidate candidate;
+                    candidate.kind=viewer::CandidateKind::Dimension;
+                    candidate.owner_id=feature.id;
+                    candidate.semantic_key="parameter:"+key;
+                    for(std::size_t i=0;i<view->mesh().dimensions.size();++i) {
+                        const auto& ref=view->mesh().dimensions[i].reference;
+                        if(ref.owner_id==candidate.owner_id&&ref.semantic_key==candidate.semantic_key)
+                            candidate.geometry_index=i;
+                    }
+                    check(view->candidate_dimension_value(candidate).has_value(),
+                        "Owned profile parameter is missing from View");
+                    view->set_view_direction({1,2,3});
+                    QEventLoop orient_edit;QTimer::singleShot(950,&orient_edit,&QEventLoop::quit);orient_edit.exec();flush();
+                    const auto label=view->candidate_dimension_label_position(candidate);
+                    check(label.has_value(),"Profile offset has no editable text label");
+                    const QPointF at(*label),global(view->mapToGlobal(*label));
+                    QMouseEvent hover(QEvent::MouseMove,at,global,Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+                    QApplication::sendEvent(view,&hover);
+                    const auto matches=[&](const auto& c){return c.kind==candidate.kind&&c.owner_id==candidate.owner_id&&c.semantic_key==candidate.semantic_key;};
+                    const auto hit_candidates=view->selection_candidates_at(at);
+                    for(std::size_t i=0;i<hit_candidates.size();++i) {
+                        if(view->offered_candidate()&&matches(*view->offered_candidate()))break;
+                        for(auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+                            QMouseEvent cycle(type,at,global,Qt::RightButton,type==QEvent::MouseButtonPress?Qt::RightButton:Qt::NoButton,Qt::NoModifier);
+                            QApplication::sendEvent(view,&cycle);
+                        }
+                    }
+                    check(view->offered_candidate()&&matches(*view->offered_candidate()),"Profile offset text is not offered by the common picker");
+                    for(auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease,QEvent::MouseButtonDblClick,QEvent::MouseButtonRelease}) {
+                        QMouseEvent event(type,at,global,Qt::LeftButton,type==QEvent::MouseButtonRelease?Qt::NoButton:Qt::LeftButton,Qt::NoModifier);
+                        QApplication::sendEvent(view,&event);
+                    }
+                    flush();
+                    auto* editor=view->findChild<QLineEdit*>("inlineDimensionValueEdit");
+                    check(editor&&editor->isVisible(),"Cannot edit profile parameter in View");
+                    editor->setText("8");
+                    QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);
+                    QApplication::sendEvent(editor,&enter); flush();
+                    window.findChild<QAction*>("saveDocumentAction")->trigger(); flush();
+                    std::vector<kernel::BodyResult> edited_bodies;
+                    const auto edited=document::PartDocument::load(path,&edited_bodies);
+                    if(key=="profile_offset") {
+                        expected.sketches.front().plane_offset=8;
+                        if(revolve) expected.history.front().revolution.profile_plane_offset=8;
+                        else expected.history.front().extrusion.profile_plane_offset=8;
+                    } else if(key=="length_reverse") expected.history.front().revolution.angle_reverse=8;
+                    else expected.history.front().placement.references.front().offset=8;
+                    expected.resolve_constructions();
+                    check(near(edited.sketches.front().resolved_origin,expected.sketches.front().resolved_origin),
+                        "View parameter edit left the owned Sketch at its old origin");
+                    const auto expected_result=kernel.evaluate_history(expected.kernel_operations());
+                    check(!edited_bodies.empty(),"View edit lost the calculated solid");
+                    const auto actual=bounds(edited_bodies.back().mesh);
+                    const auto wanted=bounds(expected_result.back().mesh);
+                    for(std::size_t i=0;i<6;++i)check(std::abs(actual[i]-wanted[i])<1e-4,
+                        "View parameter edit left the solid at its old profile frame");
+                    open();
+                    view->set_view_direction({1,2,3});
+                    QEventLoop orient;QTimer::singleShot(950,&orient,&QEventLoop::quit);orient.exec();flush();
+                    bool offered=false;
+                    for(std::size_t i=0;i<view->mesh().dimensions.size()+32;++i) {
+                        candidate.geometry_index=i;
+                        if(view->candidate_dimension_value(candidate)==8) {
+                            offered=true;
+                            check(view->candidate_dimension_label_position(candidate).has_value(),
+                                "Profile Properties parameter has no visible label");
+                            break;
+                        }
+                    }
+                    check(offered,"Opening profile Properties hides its editable offset dimension");
+                    dialog()->buttons()->button(QDialogButtonBox::Cancel)->click(); flush();
+                }
 
             }
         }
@@ -4125,6 +4302,7 @@ int verify_startup_contract(
     QApplication& application, zima::app::AssemblyWorkspaceWindow& window,
     const std::filesystem::path& test_directory,
     const QString& part_capture_path = {}, const QString& drawing_capture_path = {}) {
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_DIMENSION_EDITS_ONLY")) return verify_inline_primitive_dimensions(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_FRAMES_ONLY")) return verify_owned_profile_frames(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_MEASUREMENT_INSPECTOR_ONLY")) return zima::app::verify_measurement_inspector(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_ASSEMBLY_REFRESH_ONLY")) return verify_assembly_refresh_view(application,test_directory);

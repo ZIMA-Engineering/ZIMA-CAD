@@ -27927,7 +27927,9 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                 construction_reference_dialog_ != nullptr
                 ? static_cast<PlacementReferenceDialog*>(
                       construction_reference_dialog_)
-                : primitive_reference_dialog_;
+                : primitive_reference_dialog_ != nullptr
+                    ? primitive_reference_dialog_
+                    : dynamic_cast<PlacementReferenceDialog*>(properties_dialog_);
             if (candidate.semantic_key.starts_with("parameter:") &&
                 inline_placement_dialog != nullptr &&
                 inline_placement_dialog->owns_parameter_owner(
@@ -28229,6 +28231,28 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                     if (key=="root_diameter") positive(container->shaft_thread.root_diameter);
                     else if (key=="length" && container->shaft_thread.end_condition==zima::document::EndCondition::Length)
                         positive(container->shaft_thread.length);
+                } else if (container->feature_kind == FeatureKind::Thread) {
+                    auto& thread = container->thread;
+                    if (key == "bore_length" && thread.end_condition_forward == zima::document::EndCondition::Length)
+                        positive(thread.bore_length);
+                    else if (key == "bore_diameter" && !thread.enabled)
+                        positive(thread.nominal_diameter);
+                    else if (key == "thread_length" && thread.enabled &&
+                             thread.length_end_condition == zima::document::EndCondition::Length) {
+                        positive(thread.length_forward);
+                        if (thread.end_condition_forward == zima::document::EndCondition::Length)
+                            thread.bore_length = std::max(thread.bore_length,
+                                std::ceil((thread.length_forward + thread.runout_pitch_factor * thread.pitch) * 1000.0) / 1000.0);
+                    } else if (key == "chamfer_depth" && thread.chamfer_enabled)
+                        positive(thread.chamfer_depth);
+                    else if ((key == "chamfer_angle" && thread.chamfer_enabled) ||
+                             (key == "drill_point_angle" && container->hole.drill_point_enabled)) {
+                        if (next_value <= 0 || next_value >= 180)
+                            throw std::runtime_error("Opening angle must be in (0, 180) degrees");
+                        if (key == "chamfer_angle") thread.chamfer_angle_degrees = next_value;
+                        else container->hole.drill_point_angle_degrees = next_value;
+                        changed = true;
+                    }
                 } else if (container->feature_kind == FeatureKind::Cylinder) {
                     if (key == "radius") positive(container->cylinder.radius);
                     else if (key == "height") positive(container->cylinder.height);
@@ -28259,11 +28283,13 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                         changed = true;
                     }
                 } else if (container->feature_kind == FeatureKind::Revolution) {
-                    if (key == "angle") {
+                    if (key == "angle" || key == "length_reverse") {
                         if (next_value <= 0.0 || next_value > 360.0)
                             throw std::runtime_error(
                                 "Revolution angle must be in (0, 360]");
-                        container->revolution.angle_degrees = next_value;
+                        if (key == "length_reverse")
+                            container->revolution.angle_reverse = next_value;
+                        else container->revolution.angle_degrees = next_value;
                         changed = true;
                     } else if (key == "profile_offset") {
                         container->revolution.profile_plane_offset = next_value;
@@ -28298,6 +28324,28 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
             if (!changed) throw std::runtime_error(
                 "This dimension is not directly editable");
             const auto& previous = part->session.calculated_boundaries();
+            // View parameter edits have the same calculation inputs as OK in
+            // feature Properties: propagate the owned profile offset, then
+            // resolve the pending frame before evaluating the solid.
+            if (candidate.semantic_key.starts_with("parameter:")) {
+                const auto* edited = next.find_container(candidate.owner_id);
+                if (edited && (edited->feature_kind == zima::document::FeatureKind::Extrusion ||
+                               edited->feature_kind == zima::document::FeatureKind::Revolution)) {
+                    const bool extrusion = edited->feature_kind == zima::document::FeatureKind::Extrusion;
+                    const auto source = extrusion ? edited->extrusion.profile_source : edited->revolution.profile_source;
+                    const auto& sketch_id = extrusion ? edited->extrusion.sketch_id : edited->revolution.sketch_id;
+                    if (source == zima::document::ProfileSource::Internal) {
+                        const auto owned = std::ranges::find_if(next.sketches,
+                            [&](const auto& sketch) { return sketch.id == sketch_id; });
+                        if (owned == next.sketches.end())
+                            throw std::runtime_error("Internal profile Sketch no longer exists");
+                        owned->owner_container_id = edited->id;
+                        owned->plane_offset = extrusion ? edited->extrusion.profile_plane_offset
+                                                        : edited->revolution.profile_plane_offset;
+                    }
+                }
+                next.resolve_constructions(construction_reference_source_geometry(previous));
+            }
             auto calculated =
                 calculate_part_with_resolved_references(next, &previous);
             if (const auto* edited=next.find_container(candidate.owner_id);

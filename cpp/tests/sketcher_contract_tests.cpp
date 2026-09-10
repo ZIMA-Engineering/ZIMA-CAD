@@ -6308,6 +6308,48 @@ int main() {
                 "Tangent at a circle K endpoint did not rotate the line about its contact");
         }
 
+        {
+            auto slot = zima::sketcher::Sketch::create_default();
+            const auto left = slot.add_arc(0, 0, 0, 5, 0, -5);
+            const auto right = slot.add_arc(30, 0, 30, -5, 30, 5);
+            const auto top = slot.add_segment(0, 5, 30, 5);
+            const auto bottom = slot.add_segment(0, -5, 30, -5);
+            static_cast<void>(slot.add_point_reference_constraint(slot.arcs[0].center_point_id, "sketch_origin"));
+            static_cast<void>(slot.add_point_on_line_constraint(slot.arcs[1].center_point_id, "sketch_axis:x"));
+            static_cast<void>(slot.add_equal_radius_constraint(left, right));
+            for (const auto& arc : {left, right}) for (const auto& line : {top, bottom})
+                static_cast<void>(slot.add_tangent_constraint(arc, line));
+            for (const auto& arc : {left, right}) {
+                auto dimensioned = slot;
+                auto radius = dimensioned.create_arc_radius_dimension(arc);
+                dimensioned.apply_dimension(radius);
+                require(dimensioned.set_dimension_value(radius.id, 7),
+                    arc == left ? "Equal-radius slot cannot edit its left radius dimension"
+                                : "Equal-radius slot cannot edit its right radius dimension");
+                require(std::abs(dimensioned.arcs[0].radius - 7) < 1e-7 &&
+                        std::abs(dimensioned.arcs[1].radius - 7) < 1e-7,
+                    "Slot radius dimension did not resize both equal arcs");
+            }
+            for (const double radial_delta : {-2.0, 0.0, 2.0})
+            for (const auto& segment : slot.segments) for (const auto& point_id : {segment.first_point_id, segment.second_point_id}) {
+                auto moved = slot;
+                const auto* point = moved.find_point(point_id);
+                const double x = point->x + 0.25, y = point->y + radial_delta * (point->y > 0 ? 1 : -1);
+                require(moved.move_point(point_id, x, y),
+                    "Four-tangent equal-radius slot cannot drag its rim with normal mouse offset");
+                require(std::abs(moved.arcs[0].radius - (5 + radial_delta)) < 1e-7 &&
+                        std::abs(moved.arcs[1].radius - (5 + radial_delta)) < 1e-7,
+                    "Four-tangent slot drag did not resize both arcs");
+                const auto* contact = moved.find_point(point_id);
+                require(std::abs(contact->y - y) < 1e-7 &&
+                        std::abs(contact->x - (x < 1 ? 0 : x)) < 1e-7,
+                    "Slot drag did not follow the permitted contact motion");
+                require(moved.solve().maximum_residual < 1e-7,
+                    "Slot drag violated a persisted constraint");
+                moved.validate();
+            }
+        }
+
         auto tangent_bridge_trim = zima::sketcher::Sketch::create_default();
         const auto left_bridge_circle =
             tangent_bridge_trim.add_circle(-15.0, 0.0, 5.0);

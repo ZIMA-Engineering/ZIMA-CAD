@@ -2878,6 +2878,97 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
         externally_linked.contains(point_id)) return false;
     const double original_x = point->x;
     const double original_y = point->y;
+    // Equal circles sharing an external tangent have radial contacts normal
+    // to their centre line. If that line is constrained, decompose the mouse
+    // target into the centre's permitted slide and the common radius before
+    // making the contact a solver anchor. A fixed centre permits only the
+    // radial component; tiny cursor motion along the tangent is not conflict.
+    const auto project_common_tangent_drag = [&] {
+        const auto fixed = [&](const std::string& id) {
+            const auto* value = next.find_point(id);
+            return value && (value->fixed || externally_linked.contains(id) ||
+                std::ranges::any_of(next.constraints, [&](const auto& c) {
+                    return !c.suppressed && c.kind == ConstraintKind::PointReference &&
+                        c.first_point_id == id &&
+                        external_point_position(next, c.second_point_id).has_value();
+                }));
+        };
+        for (const auto& segment : next.segments) {
+            if (segment.first_point_id != point_id && segment.second_point_id != point_id) continue;
+            const auto& opposite_id = segment.first_point_id == point_id
+                ? segment.second_point_id : segment.first_point_id;
+            std::vector<std::string> supports;
+            for (const auto& c : next.constraints) {
+                if (c.suppressed || c.kind != ConstraintKind::Tangent) continue;
+                if (c.geometry_id == segment.id) supports.push_back(c.second_geometry_id);
+                else if (c.second_geometry_id == segment.id) supports.push_back(c.geometry_id);
+            }
+            if (supports.size() != 2) continue;
+            if (!circular_curve_radial_points(next, supports[0]).contains(point_id))
+                std::swap(supports[0], supports[1]);
+            if (!circular_curve_radial_points(next, supports[0]).contains(point_id) ||
+                !circular_curve_radial_points(next, supports[1]).contains(opposite_id)) continue;
+            const bool equal = std::ranges::any_of(next.constraints, [&](const auto& c) {
+                return !c.suppressed && c.kind == ConstraintKind::EqualRadius &&
+                    ((c.geometry_id == supports[0] && c.second_geometry_id == supports[1]) ||
+                     (c.geometry_id == supports[1] && c.second_geometry_id == supports[0]));
+            });
+            if (!equal) continue;
+            const auto center_id = center_curve_point_id(next, supports[0]);
+            const auto other_center_id = center_curve_point_id(next, supports[1]);
+            if (!center_id || !other_center_id) continue;
+            const auto* center = next.find_point(*center_id);
+            const auto* other_center = next.find_point(*other_center_id);
+            const auto* opposite = next.find_point(opposite_id);
+            const double dx = other_center->x - center->x, dy = other_center->y - center->y;
+            const double length = std::hypot(dx, dy);
+            if (length < 1e-8) continue;
+            const double ux = dx / length, uy = dy / length;
+            const double radial = (point->x - center->x) * -uy + (point->y - center->y) * ux;
+            const double opposite_radial = (opposite->x - other_center->x) * -uy +
+                (opposite->y - other_center->y) * ux;
+            if (radial * opposite_radial <= 0) continue; // Internal tangents obey a different relation.
+            bool supported_line = fixed(*center_id) && fixed(*other_center_id);
+            for (const auto& c : next.constraints) {
+                if (c.suppressed || c.kind != ConstraintKind::PointOnLine ||
+                    (c.first_point_id != *center_id && c.first_point_id != *other_center_id)) continue;
+                const auto line = segment_or_external_line(next, c.geometry_id);
+                if (!line) continue;
+                const double line_length = std::hypot(line->second[0], line->second[1]);
+                if (line_length < 1e-8 ||
+                    std::abs(dx * line->second[1] - dy * line->second[0]) > 1e-7 * length * line_length)
+                    continue;
+                const auto on_support = [&](const std::string& id) {
+                    const auto* value = next.find_point(id);
+                    if (std::abs((value->x - line->first[0]) * line->second[1] -
+                                 (value->y - line->first[1]) * line->second[0]) > 1e-7 * line_length)
+                        return false;
+                    return fixed(id) || std::ranges::any_of(next.constraints, [&](const auto& support) {
+                        return !support.suppressed && support.kind == ConstraintKind::PointOnLine &&
+                            support.first_point_id == id && support.geometry_id == c.geometry_id;
+                    });
+                };
+                if (on_support(*center_id) && on_support(*other_center_id)) supported_line = true;
+            }
+            if (!supported_line) continue;
+            const double along = fixed(*center_id) ? 0 : (x - center->x) * ux + (y - center->y) * uy;
+            const double normal = (x - center->x) * -uy + (y - center->y) * ux;
+            const double target_x = center->x + along * ux - normal * uy;
+            const double target_y = center->y + along * uy + normal * ux;
+            if (std::abs(along) > 1e-12) {
+                const auto moved = point_translation_closure(next, *center_id);
+                if (std::ranges::any_of(moved, fixed)) return false;
+                for (const auto& id : moved) {
+                    auto* value = next.find_point(id);
+                    value->x += along * ux; value->y += along * uy;
+                }
+            }
+            x = target_x; y = target_y;
+            return true;
+        }
+        return true;
+    };
+    if (!project_common_tangent_drag()) return false;
     // A mouse ray almost never lands numerically exactly on an axis. If the
     // dragged point's X or Y coordinate is already tied through a directional
     // relation to an anchored point, project that coordinate before making
@@ -4223,6 +4314,13 @@ std::string Sketch::add_equal_radius_constraint(
         result.status == SolveStatus::Invalid) {
         throw std::runtime_error(
             "Equal-radius constraint conflicts with existing geometry");
+    }
+    // Creation copies the first selected radius. Later dimension edits may
+    // drive either side of the persisted symmetric relation.
+    if (std::abs(*circular_curve_radius(next, reference_geometry_id) -
+                 *reference_radius) > 1e-7) {
+        throw std::runtime_error(
+            "Equal-radius constraint cannot change its reference radius");
     }
     require_constraint_dof_reduction(
         *this, result, "Equal-radius constraint is redundant");
@@ -9168,6 +9266,15 @@ SolveResult Sketch::solve_impl(
                 // owns the requested radius, regardless of selection order
                 // when the equality was originally created.
                 if (owns_dragged_radius(driven_id) && !owns_dragged_radius(reference_id))
+                    std::swap(reference_id, driven_id);
+                const auto has_radius_driver = [&](const std::string& id) {
+                    return std::ranges::any_of(dimensions, [&](const auto& dimension) {
+                        return !dimension.suppressed && dimension.driving &&
+                            dimension.geometry_id == id &&
+                            (dimension.kind == DimensionKind::Radius || dimension.kind == DimensionKind::Diameter);
+                    });
+                };
+                if (has_radius_driver(driven_id) && !has_radius_driver(reference_id))
                     std::swap(reference_id, driven_id);
                 const auto reference_radius = circular_curve_radius(
                     *this, reference_id);
