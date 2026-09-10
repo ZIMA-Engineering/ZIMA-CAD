@@ -1,4 +1,6 @@
 #include <QTabBar>
+#include <QTableWidget>
+#include <zima/ui/reference_cell.hpp>
 #include <QFile>
 #include <QImage>
 #include "drawing_annotation_layout.hpp"
@@ -196,6 +198,12 @@ int verify_show_erase_ui() {
     view.x = 140;
     view.y = 160;
     drawing::refresh_model_annotations(view, sources);
+    for(const auto& annotation:view.model_annotations)
+      if(annotation.kind==drawing::ModelAnnotationKind::Axis && annotation.source.owner_id==part.document_id+":origin") {
+        const auto layout=app::model_annotation_layout(view,annotation,{});
+        for(const auto& curve:layout.curves)
+          require(QLineF(curve.front(),curve.back()).length()<=64.000001,"Origin axis inflated geometric Part bounds");
+      }
     auto other = view;
     other.id = "other-view";
     other.x = 55;
@@ -214,10 +222,31 @@ int verify_show_erase_ui() {
     auto* command=window.findChild<QAction *>("drawingShowEraseAction");
     require(command && command->isEnabled() && !command->icon().isNull(),"Show/Erase unavailable before view selection or missing icon");
     command->trigger();flush();
-    click(canvas,*window.view_rectangle_center_for_test(view.id));
     auto* picked_dialog=window.findChild<QDialog *>("drawingShowEraseDialog");
-    require(picked_dialog && picked_dialog->isVisible(),"Command-first Show/Erase did not accept picked view");
-    picked_dialog->reject();flush();
+    require(picked_dialog && picked_dialog->isVisible(),"Command must immediately open Show/Erase");
+    auto* view_field=picked_dialog->findChild<QTableWidget*>("showEraseView");
+    auto* view_item=dynamic_cast<ui::ReferenceCellItem*>(view_field->item(0,0));
+    require(view_item && view_item->is_active_input() && !picked_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->isEnabled(),"Empty view must arm input and disable OK");
+    click(canvas,*window.view_rectangle_center_for_test(view.id));
+    require(view_item->reference()==QString::fromStdString(view.id) && !view_item->is_active_input(),"Picked view did not populate reference");
+    click(view_field->viewport(),view_field->visualItemRect(view_item).center());
+    require(view_item->is_active_input(),"Reference field did not arm replacement");
+    picked_dialog->findChild<QPushButton*>("showEraseErase")->click();
+    require(picked_dialog->findChild<QPushButton*>("showEraseErase")->isChecked() && !picked_dialog->findChild<QPushButton*>("showEraseShow")->isChecked(),"Mode buttons are not exclusive");
+    click(canvas,*window.view_rectangle_center_for_test(other.id));
+    require(view_item->reference()==QString::fromStdString(other.id),"Reference field did not replace target view");
+    click(view_field->viewport(),view_field->visualItemRect(view_item).center());
+    const auto cancel_pick=*window.view_rectangle_center_for_test(other.id);
+    mouse(canvas,QEvent::MouseButtonPress,cancel_pick,Qt::MiddleButton,Qt::MiddleButton);
+    mouse(canvas,QEvent::MouseButtonRelease,cancel_pick,Qt::MiddleButton,Qt::NoButton);
+    require(!view_item->is_active_input() && view_item->reference()==QString::fromStdString(other.id) && picked_dialog->isVisible(),"Short MMB did not end reference entry without commit");
+    picked_dialog->findChild<QPushButton*>("showEraseShow")->click();
+    picked_dialog->findChild<QPushButton*>("showEraseAll")->click();
+    picked_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+    require(std::ranges::none_of(window.document_for_test().sheets[0].views[0].model_annotations,[](const auto& a){return a.visible;}) &&
+            std::ranges::all_of(window.document_for_test().sheets[0].views[1].model_annotations,[](const auto& a){return a.visible;}),"Retargeted command changed wrong view");
+    workspace.open_drawing(drawing.document_id)->document=drawing;
+    window.edit_workspace_document(drawing.document_id);flush();
     window.select_view_for_test(view.id);
     window.fit_sheet();flush();
     const auto paper=window.sheet_rectangle_for_test();
@@ -376,7 +405,7 @@ int verify_show_erase_ui() {
     window.edit_workspace_document(drawing.document_id);
     window.select_view_for_test(view.id);
     dialog = open();
-    dialog->findChild<QComboBox *>("showEraseMode")->setCurrentIndex(1);
+    dialog->findChild<QPushButton *>("showEraseErase")->click();
     flush();
     auto other_point =
         window.model_annotation_handle_for_test(dim->source, 0, other.id);

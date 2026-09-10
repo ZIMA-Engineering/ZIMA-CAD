@@ -1288,3 +1288,14 @@ Společná prezentace pro Part, Assembly, Sketcher a Drawing vede spojnici textu
 - Kóta se dočasně nevykreslí pouze při zhroucení průmětu kótovací čáry do bodu; samotné natočení roviny kóty ji neschovává. Zůstává uložená a po natočení zpět se znovu objeví.
 
 Ověření pokrývá skutečné radiální tažení myší, cyklus a persistenci poloměru, potlačení menu na úchopu, reprojekci uložené osy a rozdíl mezi kolmou kótovací čárou a hranově viděnou rovinou kóty.
+
+
+### Ověření anotací ve skutečném editoru (2026-09-10)
+
+- Skicové kóty přebírají normálu skici; radiální kóty zůstávají v rovině kružnice.
+- Prezentace rozpracované skici patří do jejího návrhu, včetně serializace a Cancel.
+- Fialové úchopy se vykreslují jako poslední nad body geometrie.
+- Show/Erase se otevře ihned, nabízí referenční pole pohledu a zelené přepínače SHOW/ERASE.
+- Rozsah os odpovídá skutečným mezím vlastního kvádru, bez symetrického zdvojení u počátku.
+- Nový integrační test skicáře vstupuje přes vlastnosti otočené skici, kontroluje pixely úchopů,
+  provádí tažení a ověřuje návrat do vlastností, serializaci i následné uložení.

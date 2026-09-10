@@ -3936,9 +3936,6 @@ if (impl_->show_origins) {
                 painter.setBrush(Qt::NoBrush);
             }
         }
-        if(impl_->dimension_layout_editable&&impl_->dimension_layout_commit&&impl_->confirmed_candidate&&impl_->confirmed_candidate->kind==CandidateKind::Dimension&&impl_->show_dimensions) {
-            for(int i=0;i<3;++i)if(auto point=dimension_handle_position(*impl_->confirmed_candidate,i))draw_circular_marker(painter,*point,QColor("#D05CFF"));
-        }
         if (axes_visible) {
             // Coincident document and Body axes must not cover the offered axis.
             for (const bool highlight_pass : {false, true}) {
@@ -4857,6 +4854,10 @@ if (impl_->show_origins) {
             else if(hovered_candidate()&&candidate_recolors_wire_edge(*hovered_candidate(),edge))color=QColor("#FF8C00");
             painter.setPen(QPen(color,2.0));painter.setBrush(Qt::NoBrush);
             for(std::size_t i=1;i<edge.points.size();++i)painter.drawLine(project(edge.points[i-1]),project(edge.points[i]));
+        }
+        // Editing handles remain above coincident geometry and point markers.
+        if(impl_->dimension_layout_editable&&impl_->dimension_layout_commit&&impl_->confirmed_candidate&&impl_->confirmed_candidate->kind==CandidateKind::Dimension&&impl_->show_dimensions) {
+            for(int i=0;i<3;++i)if(auto point=dimension_handle_position(*impl_->confirmed_candidate,i))draw_circular_marker(painter,*point,QColor("#D05CFF"));
         }
     }
 }

@@ -201,6 +201,11 @@ int main(int argc, char **argv) {
             require(cross.curves.size()==2 && cross.centers.size()==1,"End-on origin axis has no cross");
             near(cross.curves[0].front().x(),-22);near(cross.curves[0].back().x(),22);
             near(cross.curves[1].front().y(),-12);near(cross.curves[1].back().y(),12);
+            auto corner_axis=view.model_annotations[0];
+            corner_axis.model_envelope={};corner_axis.model_envelope.include({0,0,0});corner_axis.model_envelope.include({40,20,10});
+            auto corner_cross=app::model_annotation_layout(view,corner_axis,{});
+            near(corner_cross.curves[0].front().x(),-2);near(corner_cross.curves[0].back().x(),42);
+            near(QLineF(corner_cross.curves[0].front(),corner_cross.curves[0].back()).length(),44);
             const auto saved=drawing::deserialize_model_annotations(drawing::serialize_model_annotations(view.model_annotations));
             view.camera={{0,0,1},{0,1,0},{-1,0,0}};
             auto side=app::model_annotation_layout(view,saved[0],{});

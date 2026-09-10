@@ -106,6 +106,7 @@ drawing_annotation_sources(workspace::Workspace *workspace,
         if (const auto *owner = part.find_container(sketch.owner_container_id);
             owner && owner->suppressed)
           continue;
+        layouts.insert(layouts.begin(),sketch.dimension_layouts.begin(),sketch.dimension_layouts.end());
         auto packet = sketch.viewer_mesh();
         if (const auto *body = part.body_owner_for_object(sketch.id))
           packet = part.place_body_mesh(std::move(packet), body->scope.id);

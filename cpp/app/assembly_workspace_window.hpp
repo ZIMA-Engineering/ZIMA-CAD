@@ -973,8 +973,7 @@ private:
     void update_sketch_point_drag(
         const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
     void end_sketch_point_drag();
-    [[nodiscard]] bool begin_sketch_dimension_drag(
-        const zima::viewer::ViewerCandidate& candidate);
+
     void update_sketch_dimension_drag(
         const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
     void end_sketch_dimension_drag();

@@ -2077,6 +2077,7 @@ const SketchPoint* Sketch::find_point(const std::string& point_id) const {
 }
 
 void Sketch::validate() const {
+    for(const auto& entry:dimension_layouts)kernel::validate_dimension_layout(entry.layout);
     const bool owns_point_lookup = !point_lookup_active_;
     if (owns_point_lookup) {
         point_lookup_indices_.clear();
@@ -12415,6 +12416,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
             result.edges.push_back(std::move(edge));
         }
     }
+    for(auto& dimension:result.dimensions)dimension.plane_normal=normal();
     return result;
 }
 
@@ -12671,6 +12673,14 @@ std::string Sketch::serialized() const {
         {"external_references", std::move(external_reference_values)},
         {"constraints", std::move(constraint_values)},
         {"dimensions", std::move(dimension_values)}};
+    root["dimension_layouts"]=nlohmann::json::array();
+    for(const auto& entry:dimension_layouts) {
+        const auto& v=entry.layout;
+        root["dimension_layouts"].push_back({{"owner",entry.owner_id},{"key",entry.semantic_key},
+            {"plane",v.plane_quarter_turns},{"envelope",v.envelope_offset?nlohmann::json(*v.envelope_offset):nlohmann::json(nullptr)},
+            {"along",v.text_along},{"outward",v.text_outward},{"line",v.line_offset},
+            {"reverse",v.arrows_reversed},{"hide_center",v.radius_center_line_hidden}});
+    }
     if (drawing_template) {
         const auto& data = *drawing_template;
         nlohmann::json regions = nlohmann::json::array();
@@ -12883,6 +12893,13 @@ Sketch Sketch::from_serialized(const std::string& value) {
             value.value("lower_tolerance", std::string{});
         dimension.locked = value.at("locked").get<bool>();
         sketch.dimensions.push_back(std::move(dimension));
+    }
+    for(const auto& entry:root.value("dimension_layouts",nlohmann::json::array())) {
+        kernel::DimensionLayout v;
+        v.plane_quarter_turns=entry.at("plane");if(!entry.at("envelope").is_null())v.envelope_offset=entry.at("envelope");
+        v.text_along=entry.at("along");v.text_outward=entry.at("outward");v.line_offset=entry.at("line");
+        v.arrows_reversed=entry.at("reverse");v.radius_center_line_hidden=entry.at("hide_center");
+        sketch.dimension_layouts.push_back({entry.at("owner"),entry.at("key"),v});
     }
     sketch.validate();
     return sketch;

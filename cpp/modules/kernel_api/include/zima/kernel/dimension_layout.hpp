@@ -2,6 +2,7 @@
 #include <cmath>
 #include <limits>
 #include <numbers>
+#include <set>
 #include <zima/kernel/geometry_kernel.hpp>
 
 namespace zima::kernel {
@@ -42,8 +43,13 @@ object_envelopes(const ViewerMesh &mesh, std::map<ObjectEnvelopeKey, ModelEnvelo
         add(point.reference, point.position);
     for (const auto &point : mesh.original_references.points)
         add(point.reference, point.position);
+    // A display axis must not inflate its owner's geometric envelope.
+    // Only axis-only objects without geometry derive bounds from display span.
+    std::set<ObjectEnvelopeKey> geometric_frames;
+    for(const auto& [key,frame]:result)if(frame.valid)geometric_frames.insert(key);
     for (const auto *axes : {&mesh.axes, &mesh.original_references.axes})
         for (const auto &axis : *axes) {
+            if(geometric_frames.contains({axis.reference.owner_id,axis.reference.instance_path}))continue;
             const double length = std::hypot(axis.direction.x, axis.direction.y, axis.direction.z);
             if (length > 1e-12)
                 for (double sign : {-1., 1.})
@@ -141,7 +147,8 @@ inline ViewerDimension layout_dimension(ViewerDimension d, const ModelEnvelope &
         return d;
     if (angular && layout.plane_quarter_turns)
         throw std::invalid_argument("Angular dimension plane is defined by its measured rays");
-    const double angle = layout.plane_quarter_turns * std::numbers::pi / 2;
+    const bool radial=d.kind==ViewerDimensionKind::Radius || d.kind==ViewerDimensionKind::Diameter;
+    const double angle = radial?0:layout.plane_quarter_turns * std::numbers::pi / 2;
     const auto rotate = [&](Vec3 p) {
         const auto v = dimension_sub(p, d.witness_first);
         return dimension_add(

@@ -2114,6 +2114,7 @@ struct EdgeTreatmentSection {
     zima::kernel::Vec3 second_tangent;
     std::optional<zima::kernel::Vec3> radius_center;
     std::optional<zima::kernel::Vec3> radius_rim;
+    zima::kernel::Vec3 plane_normal;
     double first_distance{};
     double second_distance{};
 };
@@ -2197,6 +2198,7 @@ std::optional<EdgeTreatmentSection> edge_treatment_section(
         result.wire.points.push_back(edge_preview_offset(
             center, direction, radius));
     }
+    result.plane_normal=zima::kernel::dimension_unit(zima::kernel::dimension_cross(first_radius,second_radius));
     result.radius_center = center;
     result.radius_rim = result.wire.points[samples / 2];
     return result;
@@ -2353,6 +2355,7 @@ EdgeTreatmentPreviewGeometry edge_treatment_preview_wire(
                     dimension.reference = {owner_id,
                         std::string{"parameter:"} + key, {}};
                     dimension.kind = zima::kernel::ViewerDimensionKind::Radius;
+                    dimension.plane_normal=section.plane_normal;
                     dimension.witness_first = *section.radius_center;
                     dimension.witness_second = *section.radius_rim;
                     dimension.line_first = dimension.witness_first;
@@ -4273,10 +4276,16 @@ void AssemblyWorkspaceWindow::create_layout() {
            ((!universal_corner_radius_dimension_id_.empty() && reference.semantic_key=="corner_dimension:"+universal_corner_radius_dimension_id_) ||
             (!pending_corner_radius_dimension_id_.empty() && reference.semantic_key=="corner_dimension:"+pending_corner_radius_dimension_id_)))
             return universal_dimension_layout_;
+        if(const auto* sketch=active_sketch();sketch && reference.owner_id==sketch->id)
+            if(const auto* layout=zima::kernel::find_dimension_layout(sketch->dimension_layouts,reference))return *layout;
         for(const auto& state:workspace_.documents()) {
             const std::vector<zima::kernel::DimensionLayoutEntry>* entries=nullptr;
             if(const auto* part=std::get_if<zima::workspace::PartState>(&state))entries=&part->session.document().dimension_layouts;
             if(const auto* assembly=std::get_if<zima::workspace::AssemblyState>(&state))entries=&assembly->session.document().dimension_layouts;
+            const std::vector<zima::sketcher::Sketch>* sketches=nullptr;
+            if(const auto* part=std::get_if<zima::workspace::PartState>(&state))sketches=&part->session.document().sketches;
+            if(const auto* assembly=std::get_if<zima::workspace::AssemblyState>(&state))sketches=&assembly->session.document().sketches;
+            if(sketches)for(const auto& sketch:*sketches)if(const auto* layout=zima::kernel::find_dimension_layout(sketch.dimension_layouts,reference))return *layout;
             if(entries)if(const auto* layout=zima::kernel::find_dimension_layout(*entries,reference))return *layout;
         }
         if(active_sketch_id_.empty())return zima::kernel::DimensionLayout{0,8.0,0,0};
@@ -5044,7 +5053,6 @@ void AssemblyWorkspaceWindow::create_layout() {
         [this](const auto& candidate, const auto& origin, const auto& direction) {
             return begin_placement_reference_drag(candidate) ||
                    begin_component_drag(candidate, origin, direction) ||
-                   begin_sketch_dimension_drag(candidate) ||
                    begin_sketch_point_drag(candidate);
         },
         [this](const auto& origin, const auto& direction) {
@@ -8738,6 +8746,13 @@ void AssemblyWorkspaceWindow::toggle_local_origin_visibility(
 
 void AssemblyWorkspaceWindow::commit_dimension_layout(const zima::kernel::EdgeReference& reference,zima::kernel::DimensionLayout layout) {
     if(reference.instance_path!=active_occurrence_path_||(!part_element_context_menu_enabled(reference.owner_id)&&reference.owner_id!=active_sketch_id_))throw std::invalid_argument("Dimension is outside the active editing occurrence");
+    if(const auto* sketch=active_sketch();sketch && reference.owner_id==sketch->id) {
+        if(mutate_active_sketch([&](auto& pending){zima::kernel::store_dimension_layout(pending.dimension_layouts,reference,layout);})) {
+            preserve_view_on_refresh_=true;refresh_scene();refresh_tabs();
+            viewer_->confirm_reference(reference.owner_id,reference.semantic_key,reference.instance_path,zima::viewer::CandidateKind::Dimension);
+        }
+        return;
+    }
     const auto id=workspace_.active_document_id();
     if(auto* part=workspace_.open_part(id)) {
         auto next=part->session.document();zima::kernel::store_dimension_layout(next.dimension_layouts,reference,layout);
@@ -15309,11 +15324,25 @@ zima::kernel::ViewerMesh AssemblyWorkspaceWindow::sketch_viewer_mesh(
 bool AssemblyWorkspaceWindow::mutate_active_sketch(
     const std::function<void(zima::sketcher::Sketch&)>& mutation) {
     if (active_sketch_id_.empty()) return false;
+    const auto apply = [&](auto& pending) {
+        std::set<std::string> old;
+        for(const auto& d:pending.dimensions)old.insert(d.id);
+        mutation(pending);
+        if(sketch_universal_dimension_active_ || pending_sketch_dimension_ ||
+           !pending_corner_radius_dimension_id_.empty() || sketch_point_dimension_active_) {
+            for(const auto& d:pending.dimensions)if(!old.contains(d.id))
+                zima::kernel::store_dimension_layout(pending.dimension_layouts,
+                    {pending.id,"dimension:"+d.id,{}},universal_dimension_layout_);
+            const auto corner=!universal_corner_radius_dimension_id_.empty()?universal_corner_radius_dimension_id_:pending_corner_radius_dimension_id_;
+            if(!corner.empty())zima::kernel::store_dimension_layout(pending.dimension_layouts,
+                {pending.id,"corner_dimension:"+corner,{}},universal_dimension_layout_);
+        }
+        pending.validate();
+    };
     if (sweep_profile_sketch_draft_ &&
         sweep_profile_sketch_draft_->id == active_sketch_id_) {
         auto next = *sweep_profile_sketch_draft_;
-        mutation(next);
-        next.validate();
+        apply(next);
         if(section_dialog_){section_sketch_undo_.push_back(*sweep_profile_sketch_draft_);section_sketch_redo_.clear();}
         sweep_profile_sketch_draft_ = std::move(next);
         return true;
@@ -15324,20 +15353,7 @@ bool AssemblyWorkspaceWindow::mutate_active_sketch(
             document.sketches.end(),
             [&](const auto& sketch) { return sketch.id == active_sketch_id_; });
         if (found == document.sketches.end()) return false;
-        std::set<std::string> old_dimensions;
-        for(const auto& d:found->dimensions)old_dimensions.insert(d.id);
-        mutation(*found);
-        found->validate();
-        if(sketch_universal_dimension_active_ || pending_sketch_dimension_ ||
-           !pending_corner_radius_dimension_id_.empty() || sketch_point_dimension_active_) {
-            for(const auto& d:found->dimensions)if(!old_dimensions.contains(d.id))
-                zima::kernel::store_dimension_layout(document.dimension_layouts,
-                    {found->id,"dimension:"+d.id,{}},universal_dimension_layout_);
-            const auto corner=!universal_corner_radius_dimension_id_.empty()?universal_corner_radius_dimension_id_:pending_corner_radius_dimension_id_;
-            if(!corner.empty())
-                zima::kernel::store_dimension_layout(document.dimension_layouts,
-                    {found->id,"corner_dimension:"+corner,{}},universal_dimension_layout_);
-        }
+        apply(*found);
         return true;
     };
     if (auto* part = workspace_.open_part(workspace_.active_document_id())) {
@@ -19722,36 +19738,6 @@ void AssemblyWorkspaceWindow::end_placement_reference_drag() {
     refresh_scene();
 }
 
-bool AssemblyWorkspaceWindow::begin_sketch_dimension_drag(
-    const zima::viewer::ViewerCandidate& candidate) {
-    // The same press is owned by the active universal-dimension state
-    // machine. It may select an existing dimension or a geometric reference,
-    // but must never start a second, ordinary drag transaction underneath
-    // that command.
-    if (!sweep_profile_sketch_draft_ || sketch_universal_dimension_active_ ||
-        properties_dialog_ != nullptr || active_sketch_id_.empty() ||
-        candidate.kind != zima::viewer::CandidateKind::Dimension ||
-        candidate.owner_id != active_sketch_id_ ||
-        !candidate.semantic_key.starts_with("dimension:")) return false;
-    const auto dimension_id = candidate.semantic_key.substr(10);
-    const auto* sketch = active_sketch();
-    if (sketch == nullptr || std::none_of(
-            sketch->dimensions.begin(), sketch->dimensions.end(),
-            [&](const auto& value) { return value.id == dimension_id; })) return false;
-    if(sweep_profile_sketch_draft_) { section_drag_sketches_={*sweep_profile_sketch_draft_}; }
-    else if (const auto* part = workspace_.open_part(workspace_.active_document_id())) {
-        sketch_drag_document_ = part->session.document();
-    } else if (const auto* assembly =
-                   workspace_.open_assembly(workspace_.active_document_id())) {
-        assembly_sketch_drag_document_ = assembly->session.document();
-    } else {
-        return false;
-    }
-    sketch_drag_dimension_id_ = dimension_id;
-    sketch_drag_changed_ = false;
-    return true;
-}
-
 void AssemblyWorkspaceWindow::update_sketch_dimension_drag(
     const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction) {
     if (sketch_drag_dimension_id_.empty() ||
@@ -20503,7 +20489,7 @@ void AssemblyWorkspaceWindow::reset_sketch_universal_dimension(bool keep_active)
     clear_sketch_confirmed_selection();
     if (!keep_active) {
         sketch_universal_dimension_active_ = false;
-        viewer_->set_dimension_layout_editable(!properties_dialog_&&!sweep_profile_sketch_draft_);
+        viewer_->set_dimension_layout_editable((!properties_dialog_||!properties_dialog_->isVisible()));
         if (sketch_universal_dimension_action_ != nullptr) {
             const QSignalBlocker blocker(sketch_universal_dimension_action_);
             sketch_universal_dimension_action_->setChecked(false);
@@ -24122,7 +24108,7 @@ std::optional<std::string> AssemblyWorkspaceWindow::selected_occurrence_path() c
 }
 
 void AssemblyWorkspaceWindow::refresh_scene() {
-    viewer_->set_dimension_layout_editable(!properties_dialog_&&!sketch_universal_dimension_active_&&!sweep_profile_sketch_draft_);
+    viewer_->set_dimension_layout_editable((!properties_dialog_||!properties_dialog_->isVisible())&&!sketch_universal_dimension_active_);
     update_assembly_dimension_visibility();
     update_viewer_body_colors();
     update_body_color_actions();

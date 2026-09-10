@@ -1,6 +1,6 @@
 #pragma once
 
-#include <zima/kernel/geometry_kernel.hpp>
+#include <zima/kernel/dimension_layout.hpp>
 #include <zima/sketcher/template_image.hpp>
 
 #include <filesystem>
@@ -377,6 +377,7 @@ public:
     std::vector<SketchExternalReference> external_references;
     std::vector<SketchConstraint> constraints;
     std::vector<SketchDimension> dimensions;
+    std::vector<kernel::DimensionLayoutEntry> dimension_layouts;
     std::vector<SketchCornerRadius> corner_radii;
 
     [[nodiscard]] static Sketch create_default();

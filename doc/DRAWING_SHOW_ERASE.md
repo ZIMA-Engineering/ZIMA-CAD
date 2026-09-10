@@ -159,8 +159,13 @@ nikoli pouze souřadnice jednotlivých zdrojových položek.
 ## Doplnění ovládání a exportů (2026-09-10)
 
 Show/Erase má vlastní ikonu oka s kótou. Funguje v obou pořadích: vybrat pohled
-→ Show/Erase nebo Show/Erase → kliknout na pohled. Při čekání na pohled se nabízí
-pouze oblast pohledu; Escape příkaz ukončí. Bez pohledů je nástroj nedostupný.
+→ Show/Erase nebo Show/Erase → kliknout na pohled. Okno se otevře ihned.
+Horní referenční pole zobrazuje cílový pohled; kliknutím se aktivuje zelený
+rámeček a následným výběrem jiného pohledu se cíl nahradí. Krátký prostřední
+klik ukončí zadávání reference, aniž smaže hodnotu nebo potvrdí dialog.
+Tlačítka SHOW a ERASE označují aktivní režim zeleně. OK zapisuje pouze aktuální
+pohled; rozpracovaný výběr předchozího pohledu se při změně cíle zahodí.
+Bez vybraného pohledu je OK neaktivní. Bez pohledů je nástroj nedostupný.
 
 Výkres Partu nabízí jeho původní kóty. Výkres Assembly přebírá osy z vložených
 Partů a kóty vlastněné sestavami, například úhel uložení. Skicové kóty vložených
@@ -215,3 +220,25 @@ Cílený test `zima_cpp_dimension_layout_contract_tests` kontroluje lokální
 rozměry otočeného kvádru, opakované výskyty, zrcadlení, oddělení měření od
 prezentace, uložení Part/Assembly a nezávislé nastavení výkresových pohledů.
 Dále ověřuje skutečné události tažení ve 3D, zrušení a společné vlastnosti.
+
+
+## Opravy rovin, úchopů a velikosti os (2026-09-10)
+
+Poloměr a průměr zachovávají skutečnou rovinu kružnice, včetně skic v otočeném
+Body a náhledu zaoblení. Přepínač kolmých projekčních rovin je určen lineárním
+kótám; radiální kótu nelze vyklopit z roviny její kružnice.
+
+Skicář používá stejné fialové úchopy jako Part/Assembly: na šipkách a uprostřed
+pomocné čáry pod textem. Úchopy se kreslí nad body geometrie, takže nezmizí při
+jejich souběhu. Vzhled se ukládá přímo se skicou. U vloženého návrhu profilu
+patří do stejného návrhu; v samostatně editované skice se uloží se změnami skici.
+Pozdější zrušení nově otevřených vlastností již uložené změny skici nevrací.
+Skica uchovává prezentaci také při serializaci a předává ji výkresu.
+
+Zobrazovací délka osy nezvětšuje existující geometrický kvádr jejího vlastníka.
+Pouze samostatný objekt osy bez geometrické obálky získá meze ze své délky.
+Výkresové osy používají skutečné promítnuté minimum a maximum vlastního
+pomocného kvádru, s přesahem 2 mm na každém konci na papíře. Rozsah se
+nezrcadlí kolem počátku: například kvádr od 0 do 40 mm při měřítku 1:1
+dává rozsah −2 až 42 mm, nikoli −42 až 42 mm. To platí i pro hlavní osy.
+Ve směru osy vzniká kříž přes tyto meze, mimo tento směr úsečka.

@@ -2672,6 +2672,8 @@ int verify_body_sketch_ui(QApplication& application, const std::filesystem::path
         sketch.set_point_fixed(circle.center_point_id,true);
         sketch.apply_dimension(sketch.create_circle_radius_dimension(circle.id));
     }
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_GRIPS_ONLY"))
+        sketch.apply_dimension(sketch.create_segment_dimension(sketch.segments.front().id));
     document.history={container}; document.sketches={sketch};
     auto source_point=PartDocument::create_construction(ConstructionKind::Point);
     source_point.origin={-25,40,15};
@@ -2775,6 +2777,57 @@ int verify_body_sketch_ui(QApplication& application, const std::filesystem::path
         }) && std::ranges::none_of(viewer->mesh().axes,[&](const auto& axis) {
             return axis.reference.owner_id==body_id+":origin";
         }),"Sketcher displays Body Origin instead of its container Origin")) return 1;
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_GRIPS_ONLY")) {
+        for(const auto& source:sketch.dimensions) {
+            QTreeWidgetItem* dimension_row=nullptr;
+            for(QTreeWidgetItemIterator i(tree);*i;++i)
+                if((*i)->data(0,Qt::UserRole).toString().toStdString()==source.id &&
+                   (*i)->data(0,Qt::UserRole+3).toString()=="part-sketch-dimension")dimension_row=*i;
+            if(!verify(dimension_row,"Draft dimension missing from Tree"))return 1;
+            tree->setCurrentItem(dimension_row);dimension_row->setSelected(true);flush();
+            const auto selected=viewer->confirmed_candidate();
+            if(!verify(selected && selected->kind==zima::viewer::CandidateKind::Dimension,"Tree did not select draft dimension"))return 1;
+            const auto packet=viewer->dimension_source(*selected);
+            if(!verify(packet && std::abs(packet->plane_normal.y)>0.999,"Rotated Sketch radius lost drawing plane"))return 1;
+            auto image=viewer->grab().toImage();const auto dpr=image.devicePixelRatio();
+            image.save(QString::fromStdString((directory/"sketch-grips-diagnostic.png").string()));
+            const int count=source.kind==zima::sketcher::DimensionKind::Radius?2:3;
+            for(int i=0;i<count;++i) {
+                const auto point=viewer->dimension_handle_position(*selected,i);
+                if(!verify(point.has_value(),"Draft dimension grip position missing"))return 1;
+                int purple=0;
+                for(int dy=-5;dy<=5;++dy)for(int dx=-5;dx<=5;++dx) {
+                    const QPoint p=((*point+QPointF(dx,dy))*dpr).toPoint();
+                    if(!image.rect().contains(p))continue;
+                    const auto c=image.pixelColor(p);
+                    if(c.red()>150 && c.blue()>180 && c.green()<145)++purple;
+                }
+                if(purple<=2)std::cerr<<"Missing grip="<<i<<" point="<<point->x()<<","<<point->y()<<" image="<<image.width()<<","<<image.height()<<"\n";
+                if(!verify(purple>2,"Draft dimension grip is not painted purple"))return 1;
+            }
+            image.save(QString::fromStdString((directory/("sketch-grips-"+source.id+".png")).string()));
+            const auto point=*viewer->dimension_handle_position(*selected,0);
+            const auto mouse=[&](QEvent::Type type,QPointF p,Qt::MouseButton button,Qt::MouseButtons buttons){QMouseEvent e(type,p,QPointF(viewer->mapToGlobal(p.toPoint())),button,buttons,Qt::NoModifier);QApplication::sendEvent(viewer,&e);flush();};
+            mouse(QEvent::MouseButtonPress,point,Qt::LeftButton,Qt::LeftButton);
+            mouse(QEvent::MouseMove,point+QPointF(35,25),Qt::NoButton,Qt::LeftButton);
+            mouse(QEvent::MouseButtonRelease,point+QPointF(35,25),Qt::LeftButton,Qt::NoButton);
+        }
+        window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+        sketch_dialog=nullptr;
+        for(auto* candidate:window.findChildren<QDialog*>())
+            if(auto* properties=dynamic_cast<zima::app::SketchPropertiesDialog*>(candidate);properties && properties->isVisible())sketch_dialog=properties;
+        if(!verify(sketch_dialog,"Sketch properties did not reopen after Finish"))return 1;
+        const auto draft=sketch_dialog->pending_value().first;
+        if(!verify(draft.dimension_layouts.size()==sketch.dimensions.size(),"Draft did not retain all grip changes"))return 1;
+        if(!verify(zima::sketcher::Sketch::from_serialized(draft.serialized()).dimension_layouts==draft.dimension_layouts,"Sketch lost presentation on round trip"))return 1;
+        sketch_dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        // Standalone Sketch editing commits its changes before opening a new
+        // Properties transaction. Cancelling that new dialog preserves them.
+        if(!verify(PartDocument::load(path).sketches.front().dimension_layouts==draft.dimension_layouts,"Reopening properties lost committed Sketch grips"))return 1;
+        std::cout<<"Actual rotated Sketch grips, plane, persistence and property reopen passed\n";
+        return 0;
+    }
     for (const int quarter : {1,3}) {
         window.findChild<QAction*>("sketchSegmentAction")->trigger();flush();
         for (const auto& curve : {tangent_first,tangent_second}) {

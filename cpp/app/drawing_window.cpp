@@ -2245,19 +2245,22 @@ void DrawingWindow::edit_model_dimension(const std::string& view_id,const std::s
 void DrawingWindow::show_erase(){
     if(view_dialog_){view_dialog_->raise();return;}if(raise_open_properties(window()))return;
     const auto* view=document_.find_view(canvas_->selected_view_id());
-    if(!view){canvas_->choose_view([this](const std::string& id){canvas_->select_view_for_test(id);show_erase();});set_status_message(tr("Show / Erase: vyberte výkresový pohled. Esc zruší příkaz."));return;}
-    const auto id=view->id;
     auto* owner=qobject_cast<QMainWindow*>(window());
-    auto* dialog=new ShowEraseDialog(*view,[this](const auto& pending,const auto& offered){
+    auto* dialog=new ShowEraseDialog(view?*view:drawing::DrawingView{},[this](const auto& pending,const auto& offered){
         std::set<std::string> ids;for(const auto& r:offered)ids.insert(model_annotation_key(r));
         canvas_->set_preview(pending);canvas_->set_model_command(std::move(ids),[this,id=pending.id](const auto& key){
             const auto* view=document_.find_view(id);if(!view)return;
             if(auto* dialog=dynamic_cast<ShowEraseDialog*>(view_dialog_.data()))for(const auto& r:view->model_annotations)if(model_annotation_key(r.source)==key){dialog->toggle(r.source);break;}
         });
-    },[this,id](const auto& pending){auto* target=document_.find_view(id);if(!target)throw std::runtime_error("Pohled již neexistuje");target->model_annotations=pending.model_annotations;sync_workspace_document();if(changed_handler_)changed_handler_();},owner?owner:this);
+    },[this](const auto& pending){auto* target=document_.find_view(pending.id);if(!target)throw std::runtime_error("Pohled již neexistuje");target->model_annotations=pending.model_annotations;sync_workspace_document();if(changed_handler_)changed_handler_();},owner?owner:this);
     view_dialog_=dialog;if(properties_handler_)properties_handler_(dialog);
-    connect(dialog,&QDialog::finished,this,[this,id]{canvas_->set_model_command({},{});canvas_->set_preview({});view_dialog_.clear();if(properties_handler_)properties_handler_(nullptr);refresh();canvas_->select_view_for_test(id);});
-    dialog->setAttribute(Qt::WA_DeleteOnClose);dialog->show();update_action_states();
+    dialog->set_view_picker_cancel([this]{canvas_->start_selection();});
+    dialog->set_view_picker([this,dialog]{
+        canvas_->set_model_command({},{});canvas_->set_preview({});
+        canvas_->choose_view([this,dialog](const auto& id){if(const auto* view=document_.find_view(id)){canvas_->select_view_for_test(id);dialog->set_view(*view);}});
+    });
+    connect(dialog,&QDialog::finished,this,[this,dialog]{const auto id=dialog->view_id();canvas_->start_selection();canvas_->set_model_command({},{});canvas_->set_preview({});view_dialog_.clear();if(properties_handler_)properties_handler_(nullptr);refresh();canvas_->select_view_for_test(id);});
+    dialog->setAttribute(Qt::WA_DeleteOnClose);dialog->show();if(!view)dialog->arm_view();update_action_states();
 }
 
 void DrawingWindow::regenerate_selected_view() {

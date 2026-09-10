@@ -323,6 +323,10 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_workspace_startup_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    add_test(NAME zima_cpp_sketch_grips_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_sketch_grips_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_BODY_SKETCH_ONLY=1;ZIMA_VERIFY_SKETCH_GRIPS_ONLY=1"
+        TIMEOUT 90)
     add_test(NAME zima_cpp_assembly_refresh_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_assembly_refresh_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_ASSEMBLY_REFRESH_ONLY=1"

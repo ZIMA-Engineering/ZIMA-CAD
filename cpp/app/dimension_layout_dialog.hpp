@@ -24,7 +24,8 @@ class DimensionLayoutDialog final : public ui::PropertiesSubWindow {
         plane_->addItems({tr("Původní rovina modelu"), tr("Kolmá rovina (90°)"),
                           tr("Opačná strana (180°)"), tr("Kolmá rovina (270°)")});
         plane_->setCurrentIndex(initial.plane_quarter_turns);
-        plane_->setEnabled(dimension.kind != kernel::ViewerDimensionKind::Angular);
+        plane_->setEnabled(dimension.kind == kernel::ViewerDimensionKind::Linear);
+        if(dimension.kind==kernel::ViewerDimensionKind::Radius || dimension.kind==kernel::ViewerDimensionKind::Diameter)plane_->setCurrentIndex(0);
         form->addRow(tr("Rovina zobrazení"), plane_);
         attach_ = new QCheckBox(tr("Uchytit k obálce modelu"), this);
         attach_->setObjectName("dimensionEnvelopeAttachment");
@@ -51,6 +52,8 @@ class DimensionLayoutDialog final : public ui::PropertiesSubWindow {
         auto *hint = new QLabel(
             dimension.kind == kernel::ViewerDimensionKind::Angular
                 ? tr("Rovinu úhlové kóty určují měřená ramena. Měnit lze odsazení a polohu textu.")
+                : dimension.kind == kernel::ViewerDimensionKind::Radius || dimension.kind == kernel::ViewerDimensionKind::Diameter
+                    ? tr("Rovinu poloměru a průměru určuje měřená kružnice. Text lze přesouvat v této rovině.")
                 : tr("Rovina se otáčí kolem směru měření. Reference a hodnota zůstávají stejné."),
             this);
         hint->setWordWrap(true);
