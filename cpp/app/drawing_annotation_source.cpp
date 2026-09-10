@@ -96,12 +96,18 @@ drawing_annotation_sources(workspace::Workspace *workspace,
           packet = part.place_body_mesh(std::move(packet), body->scope.id);
         append(mesh, std::move(packet));
       }
+      if (!occurrence.occurrence_ids.empty()) mesh.dimensions.clear();
     };
     const auto assembly_mesh = [&](const assembly::AssemblyDocument &assembly) {
       if (assembly.document_id != id)
         throw std::runtime_error(
             "Annotation source document identity mismatch");
       append(mesh, assembly.construction_viewer_mesh());
+      // Only dimensions owned by this Assembly; child Parts contribute axes
+      // and construction references, never their modeling dimensions.
+      for (auto dimension : assembly.build_scene().dimensions)
+        if (dimension.reference.owner_id == id && dimension.reference.instance_path.empty())
+          mesh.dimensions.push_back(std::move(dimension));
       const auto suppressed = assembly.effectively_suppressed_occurrences();
       std::function<void(
           const assembly::PartOccurrence &, assembly::InstancePath,

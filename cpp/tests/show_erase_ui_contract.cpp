@@ -1,3 +1,6 @@
+#include <QTabBar>
+#include <QFile>
+#include <QImage>
 #include "drawing_annotation_layout.hpp"
 #include "drawing_annotation_source.hpp"
 #include "drawing_window.hpp"
@@ -85,9 +88,20 @@ int verify_show_erase_ui() {
     require(repeated.size() == 3 &&
                 repeated[0].instance_path != repeated[1].instance_path,
             "Repeated occurrences collapsed");
-    require(std::abs(repeated[1].dimensions[0].witness_first.x -
-                     repeated[0].dimensions[0].witness_first.x - 70) < 1e-8,
+    require(std::abs(repeated[1].axes[0].point.x -
+                     repeated[0].axes[0].point.x - 70) < 1e-8,
             "Occurrence annotations not transformed");
+    auto measured=assembly;
+    measured.document_id="measured-assembly";
+    measured.components[1].placement.rotation_z=23;
+    assembly::ComponentPlacementReference angle;
+    angle.mate_type=assembly::MateKind::PlaneAngle;angle.offset=23;
+    angle.component_reference={assembly::MateReferenceKind::Face,assembly::InstancePath{}.child("part-1"),part.document_id+":origin","origin:plane:xz"};
+    angle.target_reference={assembly::MateReferenceKind::Face,assembly::InstancePath{}.child("part-0"),part.document_id+":origin","origin:plane:xz"};
+    measured.components[1].placement_references={angle};
+    workspace.add_assembly(measured,"measured.asmz");
+    const auto assembly_annotations=app::drawing_annotation_sources(&workspace,measured.document_id,"measured.asmz");
+    require(assembly_annotations.back().dimensions.size()==1 && assembly_annotations.back().dimensions[0].kind==kernel::ViewerDimensionKind::Angular && std::abs(assembly_annotations.back().dimensions[0].value-23)<1e-8,"Assembly angle missing from Show/Erase sources");
     auto top = assembly::AssemblyDocument::create_default();
     assembly::PartOccurrence nested;
     nested.occurrence_id = "nested";
@@ -102,17 +116,13 @@ int verify_show_erase_ui() {
         &workspace, top.document_id, "top.asmz");
     require(deep.size() == 4 && deep[0].instance_path != deep[1].instance_path,
             "Nested annotation paths collapsed");
-    const auto before = repeated[0].dimensions[0].witness_first,
-               after = deep[0].dimensions[0].witness_first;
+    const auto before = repeated[0].axes[0].point,
+               after = deep[0].axes[0].point;
     require(std::abs(after.x - (100 - before.y)) < 1e-8 &&
                 std::abs(after.y - before.x) < 1e-8,
             "Nested rotation used the wrong owning frame");
-    const auto anchor_before = repeated[0].dimensions[0].label_position;
-    const auto anchor_after = deep[0].dimensions[0].label_position;
-    require(anchor_before && anchor_after &&
-                std::abs(anchor_after->x - (100 - anchor_before->y)) < 1e-8 &&
-                std::abs(anchor_after->y - anchor_before->x) < 1e-8,
-            "Nested text anchor did not follow its source dimension");
+    require(repeated[0].dimensions.empty() && repeated[1].dimensions.empty(),
+            "Assembly drawing must not inherit Part dimensions");
     auto tilted = top;
     tilted.document_id = "tilted-annotation-test";
     tilted.components[0].placement.rotation_y = 90;
@@ -148,11 +158,11 @@ int verify_show_erase_ui() {
         &workspace, derived.document_id, "derived.asmz");
     require(copies.size() == 6,
             "Derived occurrence annotation count is incorrect");
-    require(std::abs(copies[2].dimensions[0].witness_first.x +
-                     copies[0].dimensions[0].witness_first.x) < 1e-8,
+    require(std::abs(copies[2].axes[0].point.x +
+                     copies[0].axes[0].point.x) < 1e-8,
             "Mirror annotation was left at source position");
-    require(std::abs(copies[3].dimensions[0].witness_first.x -
-                     copies[0].dimensions[0].witness_first.x - 40) < 1e-8 &&
+    require(std::abs(copies[3].axes[0].point.x -
+                     copies[0].axes[0].point.x - 40) < 1e-8 &&
                 copies[3].instance_path != copies[4].instance_path,
             "Pattern annotation lost copy transform or identity");
     drawing::DrawingView derived_view;
@@ -162,8 +172,19 @@ int verify_show_erase_ui() {
         drawing::ShowEraseSession(derived_view)
                 .candidates(drawing::ShowEraseMode::Show,
                             {drawing::ModelAnnotationKind::Dimension})
-                .size() == 5,
-        "Derived copies lost face-on dimensions or introduced carrier datums");
+                .empty(),
+        "Derived Parts introduced Part dimensions into Assembly drawing");
+    drawing::DrawingView axis_view;axis_view.scale=1;
+    drawing::ModelAnnotation axial;axial.kind=drawing::ModelAnnotationKind::Axis;
+    axial.curves={{{10,20},{10,20}}};
+    auto cross=app::model_annotation_layout(axis_view,axial,{});
+    require(cross.curves.size()==2 && cross.centers.size()==1 && cross.centers[0]==QPointF(10,20),"End-on hole lost its cross or center");
+    axial.curves={{{30,20},{30,20}}};
+    auto second_cross=app::model_annotation_layout(axis_view,axial,{});
+    require(second_cross.centers[0]!=cross.centers[0],"Separate holes collapsed into one center mark");
+    axial.curves={{{10,20},{10,60}}};
+    auto side_axis=app::model_annotation_layout(axis_view,axial,{});
+    require(side_axis.curves.size()==1 && side_axis.centers[0]==QPointF(10,40) && side_axis.curves[0][0]==QPointF(10,18) && side_axis.curves[0][1]==QPointF(10,62),"Side-on axis must retain cylinder span and midpoint");
     auto drawing = drawing::DrawingDocument::create_default();
     auto view = drawing::DrawingDocument::create_view(
         part.document_id, "source.prtz", body.mesh,
@@ -190,7 +211,17 @@ int verify_show_erase_ui() {
     flush();
     auto *canvas = window.findChild<QWidget *>("drawingCanvas");
     require(canvas, "Missing drawing canvas");
+    auto* command=window.findChild<QAction *>("drawingShowEraseAction");
+    require(command && command->isEnabled() && !command->icon().isNull(),"Show/Erase unavailable before view selection or missing icon");
+    command->trigger();flush();
+    click(canvas,*window.view_rectangle_center_for_test(view.id));
+    auto* picked_dialog=window.findChild<QDialog *>("drawingShowEraseDialog");
+    require(picked_dialog && picked_dialog->isVisible(),"Command-first Show/Erase did not accept picked view");
+    picked_dialog->reject();flush();
     window.select_view_for_test(view.id);
+    window.fit_sheet();flush();
+    const auto paper=window.sheet_rectangle_for_test();
+    require(std::abs(paper.height()-(canvas->height()-48))<1e-8 && (paper.center()-QPointF(canvas->width()/2.0,canvas->height()/2.0)).manhattanLength()<1e-8,"Fit drawing did not center paper and maximize its height");
     auto *action = window.findChild<QAction *>("drawingShowEraseAction");
     require(action && action->isEnabled(),
             "Show/Erase action disabled for view");
@@ -266,6 +297,33 @@ int verify_show_erase_ui() {
             "Dimension text handle did not move");
     const auto handles = found->paper_handles;
     QTemporaryDir dir;
+    const auto jpg=dir.filePath("current-view.jpg");
+    window.export_jpg(jpg.toStdString());
+    const QImage exported_jpg(jpg);
+    require(!exported_jpg.isNull() && exported_jpg.size()==canvas->size()*canvas->devicePixelRatioF(),"JPG did not capture actual drawing viewport");
+    const auto dxf=dir.filePath("current-sheet.dxf");
+    window.export_dxf(dxf.toStdString());
+    QFile dxf_file(dxf);require(dxf_file.open(QIODevice::ReadOnly),"DXF missing");
+    const auto dxf_bytes=dxf_file.readAll();
+    require(dxf_bytes.contains("$INSUNITS\n70\n4") && dxf_bytes.contains("\nLINE\n") && dxf_bytes.contains("\nTEXT\n"),"DXF missing millimetres, outlines or text");
+    if(const auto output=qEnvironmentVariable("ZIMA_TEST_DXF_OUTPUT");!output.isEmpty()) {
+        window.export_dxf(output.toStdString());
+        window.render_sheet_for_test(true).save(output+".png");
+        window.export_jpg((output+".jpg").toStdString());
+    }
+
+    auto multi_sheet=state;
+    auto second_sheet=multi_sheet.sheets[0];second_sheet.id="second-sheet";
+    second_sheet.views.clear();second_sheet.dimensions.clear();
+    multi_sheet.sheets.push_back(second_sheet);
+    workspace.open_drawing(drawing.document_id)->document=multi_sheet;
+    window.edit_workspace_document(drawing.document_id);
+    window.findChild<QTabBar*>("drawingSheetTabs")->setCurrentIndex(1);flush();
+    const auto second_dxf=dir.filePath("second-sheet.dxf");window.export_dxf(second_dxf.toStdString());
+    QFile second_file(second_dxf);require(second_file.open(QIODevice::ReadOnly),"Second sheet DXF missing");
+    require(!second_file.readAll().contains("60 mm"),"DXF included dimensions from another sheet");
+    multi_sheet.sheets.pop_back();workspace.open_drawing(drawing.document_id)->document=multi_sheet;
+    window.edit_workspace_document(drawing.document_id);flush();
     state.save((dir.path() + "/show-erase.drwz").toStdString());
     auto loaded = drawing::DrawingDocument::load(
         (dir.path() + "/show-erase.drwz").toStdString());

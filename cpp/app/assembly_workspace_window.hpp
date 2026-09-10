@@ -67,6 +67,7 @@ public:
     void toggle_parameter_value_lock(const std::string& owner,const std::string& key);
     void edit_dimension_inline(const zima::viewer::ViewerCandidate& candidate);
     bool finish_parameter_dimensions();
+    void update_assembly_dimension_visibility();
     void show_parameter_dimensions(const std::string& owner_id,
         const std::string& component = {});
     // Exposed for regression coverage of nested Assembly occurrence
@@ -79,6 +80,7 @@ public:
     }
 
 private:
+    std::string assembly_dimension_path_;
     void show_section_properties(const std::string& id = {}, bool draw = false);
     void update_section_ui();
     void preview_section();

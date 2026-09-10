@@ -168,6 +168,7 @@ void refresh_model_annotations(DrawingView &view,
       ModelAnnotation item;
       item.source = identity(axis.reference);
       item.kind = ModelAnnotationKind::Axis;
+      item.text_anchor = project(axis.point);
       const double length = std::sqrt(dot(axis.direction, axis.direction));
       if (length <= 1e-12 || !std::isfinite(axis.display_length) ||
           axis.display_length <= 0)

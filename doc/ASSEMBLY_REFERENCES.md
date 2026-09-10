@@ -242,3 +242,10 @@ pokud je tato osa rovnoběžná s osou úhlové kóty. Bez odpovídající souos
 leží střed na průsečnici rovin poblíž vybraných referencí. Ramena oblouku
 sledují směry rovin namísto jejich normál. Jde pouze o prezentaci; reference,
 hodnota úhlu a řešení umístění komponent se nemění.
+
+
+Po potvrzení komponenty ve View nebo ve stromu se nabídnou pouze její kóty
+uložení v právě editované sestavě. Prázdné kliknutí, zrušení výběru nebo společné
+ukončení prostředním tlačítkem je skryje. Přepínač Kóty tuto dočasnou viditelnost
+pouze povoluje; nezobrazuje všechny vazby celé sestavy naráz. Stejný filtr platí
+pro kreslení i kandidáty výběru a nemění uložené reference.

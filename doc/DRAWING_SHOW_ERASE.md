@@ -110,8 +110,10 @@ obdélníkovou oblast View a zobrazí čtyři odstupy. Výchozí první odstup i
 jsou **8 mm**, tedy čáry 8, 16, 24 a 32 mm od obrysu. Text a úchyty se při tažení
 přichytávají k blízkým vodítkům. Pomocné čáry se nekreslí do tisku ani PDF.
 
-Osy jsou při zobrazení oříznuté na oblast pohledu s přesahem 5 mm. Pomocná
-úsečka ani oblouk se neprodlužují na nekonečnou osu. Zobrazení pracuje s uloženou
+Osa při pohledu ve svém směru vytvoří křížek o rozpětí 6 mm s bodem ve středu.
+Každá díra má vlastní značku. Z boku se zachová uložená délka válce s přesahem
+2 mm na obou koncích a bodem uprostřed. Pomocná úsečka ani oblouk se
+neprodlužují na nekonečnou osu. Zobrazení pracuje s uloženou
 projekcí; samotné otevření nástroje, filtry ani přepnutí karty nepřepočítávají model.
 Explicitní regenerace používá otevřené zdroje, nebo uložené soubory, a rozlišuje
 každou úroveň vnořené sestavy i opakované výskyty stejného Partu. Zrcadlené
@@ -141,3 +143,35 @@ Sběr anotací při převodu přes sestavu odděluje skutečné zdrojové polož
 pomocných referencí převodní scény. Nevytváří duplicitní osy a zachovává také
 transformovanou polohu textu kóty. Test zahrnuje úplnou projekci těchto paketů,
 nikoli pouze souřadnice jednotlivých zdrojových položek.
+
+
+## Doplnění ovládání a exportů (2026-09-10)
+
+Show/Erase má vlastní ikonu oka s kótou. Funguje v obou pořadích: vybrat pohled
+→ Show/Erase nebo Show/Erase → kliknout na pohled. Při čekání na pohled se nabízí
+pouze oblast pohledu; Escape příkaz ukončí. Bez pohledů je nástroj nedostupný.
+
+Výkres Partu nabízí jeho původní kóty. Výkres Assembly přebírá osy z vložených
+Partů a kóty vlastněné sestavami, například úhel uložení. Skicové kóty vložených
+Partů se do sestavového výkresu nepřenášejí. Transformace respektuje přesný
+výskyt, vnoření, zrcadlení i pole; sběr neprovádí nový výpočet geometrie.
+
+Fialové úchyty po potvrzeném výběru označují přesouvatelné popisky pohledu/řezu
+a kóty. Pevné položky razítka, osy a pomocná geometrie si ponechávají běžné
+zvýraznění bez fialových úchytů. Bod ve středu osy je tisková značka, nikoli úchyt.
+
+**Obnovit pohled** vystředí papír a přizpůsobí jeho výšku View s okrajem 24 px.
+Při úzkém okně může šířka papíru přesahovat View.
+
+**Soubor → Uložit jako → DXF – aktuální list** uloží právě aktivní list
+v milimetrech, včetně formátu, razítka, textů, geometrie a viditelných anotací.
+Používá společnou tiskovou kreslicí cestu bez výběru, náhledů a pracovních vodítek.
+Text zůstává textem; křivky se převádějí na úsečky, výplně na HATCH/SOLID.
+Vložené obrázky a stínování jsou samostatné barevné výplně, takže DXF nepotřebuje
+vedlejší obrazové soubory. Export nemění dokument ani jeho cestu.
+
+**Soubor → Uložit jako → JPEG – aktuální pohled** uloží aktuální obsah View
+v Partu, Assembly i výkresu. Zachová výřez, natočení, zoom a aktuální zobrazení,
+včetně viditelného výběru. Rozlišení odpovídá framebufferu/plátnu; okolní panely
+aplikace se neukládají. Výkresový JPG zachovává pracovní vzhled obrazovky,
+zatímco DXF/PDF používá tiskové vykreslení. JPEG kvalita je 95.

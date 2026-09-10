@@ -377,6 +377,7 @@ struct MeshView::Impl {
     bool show_planes{true};
     bool show_sketches{true};
     bool show_dimensions{true};
+    std::function<bool(const zima::kernel::ViewerDimension&)> dimension_visibility_filter;
     bool editing_origin_visible{};
     std::optional<EdgeKey> component_origin_handle;
     bool gpu_dirty{true};
@@ -907,6 +908,7 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
         const auto& dimension = index < persisted_dimension_count
             ? impl_->mesh.dimensions[index]
             : impl_->transient_dimensions[index - persisted_dimension_count];
+        if(impl_->dimension_visibility_filter&&!impl_->dimension_visibility_filter(dimension))continue;
         const QPointF witness_first = project(dimension.witness_first);
         const QPointF witness_second = project(dimension.witness_second);
         const QPointF line_first = project(dimension.line_first);
@@ -1036,6 +1038,13 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
                 candidate.semantic_key.starts_with("origin:");
         });
     }
+    if(impl_->dimension_visibility_filter)std::erase_if(candidates,[&](const auto& candidate){
+        if(candidate.kind!=CandidateKind::Dimension)return false;
+        const auto index=candidate.geometry_index;
+        const auto* dimension=index<impl_->mesh.dimensions.size()?&impl_->mesh.dimensions[index]:
+            index-impl_->mesh.dimensions.size()<impl_->transient_dimensions.size()?&impl_->transient_dimensions[index-impl_->mesh.dimensions.size()]:nullptr;
+        return dimension&&!impl_->dimension_visibility_filter(*dimension);
+    });
     if (!impl_->show_dimensions) std::erase_if(candidates, [](const auto& candidate) { return candidate.kind == CandidateKind::Dimension; });
     auto filtered = filter_candidates(candidates,
         impl_->allowed_kinds, impl_->candidate_filter);
@@ -2532,6 +2541,9 @@ void MeshView::set_view_direction(
     animate_orientation_to(target);
 }
 
+void MeshView::set_dimension_visibility_filter(std::function<bool(const zima::kernel::ViewerDimension&)> filter) {
+    impl_->dimension_visibility_filter=std::move(filter);impl_->candidates.clear();update();
+}
 void MeshView::set_reference_visibility(
     ReferenceVisibility reference, bool visible) {
     switch (reference) {
@@ -3993,6 +4005,7 @@ if (impl_->show_origins) {
                     ? impl_->mesh.dimensions[index]
                     : impl_->transient_dimensions[
                         index - persisted_dimension_count];
+                if(impl_->dimension_visibility_filter&&!impl_->dimension_visibility_filter(dimension))continue;
                 const bool selected = highlighted &&
                     highlighted->kind == CandidateKind::Dimension &&
                     highlighted->geometry_index == index;

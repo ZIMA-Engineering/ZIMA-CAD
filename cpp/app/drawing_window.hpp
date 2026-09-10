@@ -5,6 +5,7 @@
 #include <QMainWindow>
 #include <QPointer>
 #include <QPointF>
+#include <QRectF>
 
 #include <filesystem>
 #include <functional>
@@ -30,6 +31,10 @@ public:
         zima::workspace::Workspace* workspace = nullptr,
         bool create_initial_document = true);
     void save_pdf();
+    void fit_sheet();
+    QRectF sheet_rectangle_for_test() const;
+    void export_dxf(const std::filesystem::path& path);
+    void export_jpg(const std::filesystem::path& path);
     void export_pdf(const std::filesystem::path& path);
     void edit_workspace_document(const std::string& document_id);
     void set_formats_directory(const QString& directory);

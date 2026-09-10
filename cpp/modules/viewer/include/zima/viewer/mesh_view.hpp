@@ -105,6 +105,7 @@ public:
     void set_standard_view(StandardView view);
     void set_view_direction(const zima::kernel::Vec3& direction);
     void set_view_direction(const zima::kernel::Vec3& direction, float roll_degrees);
+    void set_dimension_visibility_filter(std::function<bool(const zima::kernel::ViewerDimension&)> filter);
     void set_reference_visibility(ReferenceVisibility reference, bool visible);
     [[nodiscard]] bool reference_visible(ReferenceVisibility reference) const;
     void set_editing_origin_visible(bool visible);

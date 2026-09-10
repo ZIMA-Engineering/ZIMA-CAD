@@ -1,3 +1,5 @@
+#include "resource_icon.hpp"
+#include "drawing_dxf_device.hpp"
 #include "drawing_annotation_source.hpp"
 #include "drawing_annotation_layout.hpp"
 #include "show_erase_dialog.hpp"
@@ -553,6 +555,7 @@ class DrawingCanvas final : public QWidget {
         zima::drawing::Point2 direction{};double offset{},minimum{};
     };
     std::set<std::string> model_offered_;
+    std::function<void(const std::string&)> choose_view_;
     std::function<void(const std::string&)> model_pick_;
     std::optional<AnnotationHandle> dragged_model_;
     QPointF model_drag_start_;bool model_moved_{};
@@ -657,7 +660,14 @@ public:
         insert_action_=insert; edit_action_=edit; projected_action_=projected; remove_action_=remove;
     }
     void start_linear_dimension() { dimension_mode_ = true; first_edge_.reset(); update(); }
-    void start_selection() { dimension_mode_ = false; first_edge_.reset(); update(); }
+    void fit_sheet() { view_zoom_=1;view_pan_={};update(); }
+    QRectF sheet_rectangle()const {
+        if(!sheet_)return {};
+        const auto zoom=canvas_zoom();
+        return {canvas_origin(zoom),QSizeF(sheet_->width_mm()*zoom,sheet_->height_mm()*zoom)};
+    }
+    void choose_view(std::function<void(const std::string&)> pick) { start_selection();choose_view_=std::move(pick);selected_.clear();if(selection_changed_)selection_changed_();update(); }
+    void start_selection() { choose_view_={};dimension_mode_ = false; first_edge_.reset(); update(); }
     [[nodiscard]] bool dimension_mode() const { return dimension_mode_; }
     bool interacting() const { return bool(preview_); }
 protected:
@@ -782,8 +792,7 @@ protected:
     [[nodiscard]] double canvas_zoom() const {
         if (sheet_ == nullptr) return 1.0;
         const double margin = 24.0;
-        const double fit = std::min((width() - 2 * margin) / sheet_->width_mm(),
-                                    (height() - 2 * margin) / sheet_->height_mm());
+        const double fit = (height() - 2 * margin) / sheet_->height_mm();
         return std::max(1.0e-6, fit * view_zoom_);
     }
     [[nodiscard]] QPointF canvas_origin(double zoom) const {
@@ -856,7 +865,7 @@ public:
             if(!printing&&!text.field_id.empty()) {
                 const auto polygon=transform.map(QPolygonF(ink.translated(dx,dy).adjusted(-60,-60,60,60)));
                 field_regions_.push_back({text.field_id,polygon});
-                if(selected||hovered)draw_handle(anchor,selected);
+                // Fixed title-block fields remain ordinary text selection.
             }
         };
         const auto pen_width=[&](zima::drawing::DrawingPen pen){return printing||lineweights_?zoom*zima::drawing::drawing_pen_width_mm(*sheet_,pen):1.0;};
@@ -952,6 +961,7 @@ public:
                 QColor color=annotation_color(key,printing?ink:item.unresolved?QColor("#E05050"):!item.visible?QColor("#777777"):item.kind==drawing::ModelAnnotationKind::Dimension?QColor("#FFD400"):QColor("#E6C85C"),printing);
                 painter.save();QPen pen(color,width(false));if(item.kind!=drawing::ModelAnnotationKind::Dimension)pen.setDashPattern({8*zoom/pen.widthF(),1.5*zoom/pen.widthF(),.5*zoom/pen.widthF(),1.5*zoom/pen.widthF()});painter.setPen(pen);painter.setBrush(Qt::NoBrush);QPainterPath stroke;
                 for(const auto& line:layout.curves){if(line.empty())continue;QPolygonF polygon;for(auto p:line)polygon<<screen(p);painter.drawPolyline(polygon);stroke.moveTo(polygon.front());for(qsizetype i=1;i<polygon.size();++i)stroke.lineTo(polygon[i]);}
+                for(const auto& center:layout.centers){painter.save();painter.setPen(Qt::NoPen);painter.setBrush(color);painter.drawEllipse(screen(center),.35*zoom,.35*zoom);painter.restore();}
                 for(const auto& [tip,direction]:layout.arrows){painter.save();painter.setPen(Qt::NoPen);painter.setBrush(color);painter.drawPolygon(viewer::annotation_arrow(screen(tip),{direction.x(),-direction.y()},2.5*zoom));painter.restore();}
                 const auto text=QString::fromStdString(item.text);const auto text_point=screen(layout.text)+QPointF(zoom,-zoom);painter.drawText(text_point,text);
                 if(!printing){QPainterPathStroker picker;picker.setWidth(10);auto hit=picker.createStroke(stroke);if(!text.isEmpty())hit.addRect(QFontMetricsF(painter.font()).boundingRect(text).translated(text_point));
@@ -1054,7 +1064,9 @@ public:
         }
         if(!printing&&!preview_&&!dimension_mode_)for(const auto& handle:annotation_handles_){
             const bool selected=selected_annotation_&&*selected_annotation_==handle.key,hovered=hovered_annotation_&&*hovered_annotation_==handle.key;
-            if(selected||hovered)draw_handle(handle.point,selected);
+            const bool movable=handle.key.kind==AnnotationKind::Caption||handle.key.kind==AnnotationKind::SectionLabel||handle.key.kind==AnnotationKind::Dimension||
+                (handle.key.kind==AnnotationKind::Model&&std::ranges::any_of(sheet_->views,[&](const auto& view){return view.id==handle.key.view&&std::ranges::any_of(view.model_annotations,[&](const auto& item){return item.kind==drawing::ModelAnnotationKind::Dimension&&model_annotation_key(item.source)==handle.key.id;});}));
+            if(movable&&(selected||hovered))draw_handle(handle.point,selected);
         }
     }
 protected:
@@ -1070,6 +1082,13 @@ protected:
             return;
         }
         if (event->button() != Qt::LeftButton) return;
+        if (choose_view_) {
+            const auto id=view_at(event->position());
+            selected_=id;selected_annotation_.reset();selected_field_.clear();selected_dimension_id_.clear();
+            if(selection_changed_)selection_changed_();
+            if(!id.empty()){auto pick=std::move(choose_view_);choose_view_={};pick(id);}
+            update();event->accept();return;
+        }
         if (placed_) {
             position_preview(event->position());
             const auto value = *preview_;
@@ -1190,6 +1209,10 @@ protected:
     }
     void mouseMoveEvent(QMouseEvent* event) override {
         if (placed_ && !view_panning_) { position_preview(event->position()); return; }
+        if(choose_view_ && !view_panning_) {
+            hovered_annotation_.reset();offered_annotations_.clear();hovered_field_.clear();
+            hovered_=view_at(event->position());update();event->accept();return;
+        }
         if ((!preview_||model_pick_) && !dimension_mode_) {
             const auto field=model_pick_?std::string{}:field_at(event->position());
             const auto previous=hovered_annotation_;if(field.empty())offer_annotations(event->position());else{hovered_annotation_.reset();offered_annotations_.clear();}
@@ -1306,6 +1329,7 @@ protected:
     }
     void keyPressEvent(QKeyEvent* event) override {
         if(event->key()==Qt::Key_Escape) {
+            if (choose_view_) {choose_view_={};update();event->accept();return;}
             if (placed_) { cancel_placement(); event->accept(); return; }
             if(dimension_mode_ && first_edge_) first_edge_.reset();
             else if(dimension_mode_) dimension_mode_=false;
@@ -1437,6 +1461,7 @@ void DrawingWindow::create_actions() {
     edit_view_action_->setObjectName("editDrawingViewAction");
     show_erase_action_=drawing->addAction(tr("Show / Erase…"),this,[this]{show_erase();});
     show_erase_action_->setObjectName("drawingShowEraseAction");
+    show_erase_action_->setIcon(resource_icon("show-erase"));
     regenerate_view_action_ = drawing->addAction(tr("Regenerovat"), this,
         [this] { regenerate_selected_view(); });
     regenerate_view_action_->setObjectName("regenerateDrawingViewAction");
@@ -1662,6 +1687,26 @@ void DrawingWindow::save_pdf() {
     if(path.isEmpty())return;
     try {export_pdf(path.toStdString());set_status_message(tr("PDF uloženo. Tiskněte ve skutečné velikosti (100 %)."));}
     catch(const std::exception& error){set_status_message(QString::fromUtf8(error.what()));}
+}
+QRectF DrawingWindow::sheet_rectangle_for_test()const{return canvas_->sheet_rectangle();}
+void DrawingWindow::export_dxf(const std::filesystem::path& path) {
+    auto* sheet=active_sheet();
+    if(!sheet) throw std::runtime_error("Drawing has no active sheet");
+    DrawingDxfDevice device(sheet->width_mm(),sheet->height_mm());
+    QPainter painter(&device);
+    canvas_->paint_sheet(painter,1,{},true);
+    if(!painter.end())throw std::runtime_error("Cannot finish DXF output");
+    QSaveFile file(QString::fromStdString(path.string()));
+    if(!file.open(QIODevice::WriteOnly))throw std::runtime_error(file.errorString().toStdString());
+    const auto data=device.data();
+    if(file.write(data)!=data.size() || !file.commit())throw std::runtime_error("Cannot write DXF output");
+}
+void DrawingWindow::export_jpg(const std::filesystem::path& path) {
+    const auto image=canvas_->grab().toImage();
+    QSaveFile file(QString::fromStdString(path.string()));
+    if(image.isNull() || !file.open(QIODevice::WriteOnly) ||
+       !image.save(&file,"JPG",95) || !file.commit())
+        throw std::runtime_error("Cannot save current drawing view as JPG");
 }
 void DrawingWindow::export_pdf(const std::filesystem::path& path) {
     if(document_.sheets.empty())throw std::runtime_error("Drawing has no sheets");
@@ -2112,7 +2157,9 @@ QImage DrawingWindow::render_sheet_for_test(bool printing)const{QImage image(840
 std::optional<QPointF> DrawingWindow::model_annotation_handle_for_test(const drawing::ModelAnnotationReference& id,int end,const std::string& view)const{return canvas_->model_handle(model_annotation_key(id),end,view);}
 void DrawingWindow::show_erase(){
     if(view_dialog_){view_dialog_->raise();return;}if(raise_open_properties(window()))return;
-    const auto* view=document_.find_view(canvas_->selected_view_id());if(!view)return;const auto id=view->id;
+    const auto* view=document_.find_view(canvas_->selected_view_id());
+    if(!view){canvas_->choose_view([this](const std::string& id){canvas_->select_view_for_test(id);show_erase();});set_status_message(tr("Show / Erase: vyberte výkresový pohled. Esc zruší příkaz."));return;}
+    const auto id=view->id;
     auto* owner=qobject_cast<QMainWindow*>(window());
     auto* dialog=new ShowEraseDialog(*view,[this](const auto& pending,const auto& offered){
         std::set<std::string> ids;for(const auto& r:offered)ids.insert(model_annotation_key(r));
@@ -2214,6 +2261,7 @@ void DrawingWindow::start_linear_dimension() {
     update_action_states();
     set_status_message(tr("Lineární kóta: vyberte dvě rovnoběžné hrany stejného pohledu."));
 }
+void DrawingWindow::fit_sheet() { canvas_->fit_sheet(); }
 void DrawingWindow::start_selection() {
     canvas_->start_selection();
     update_action_states();
@@ -2239,7 +2287,7 @@ void DrawingWindow::update_action_states() {
     delete_view_action_->setEnabled(selected_view);
     linear_dimension_action_->setEnabled(has_view);
     linear_dimension_action_->setChecked(canvas_->dimension_mode());
-    show_erase_action_->setEnabled(!view_dialog_&&document_.find_view(canvas_->selected_view_id()));
+    show_erase_action_->setEnabled(has_view);
     selection_action_->setEnabled(has_sheet);
     selection_action_->setChecked(!canvas_->dimension_mode());
 }

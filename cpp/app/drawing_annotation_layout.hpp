@@ -17,6 +17,7 @@ struct ModelAnnotationLayout {
   std::map<std::string, QPointF> handles;
   std::vector<std::pair<QPointF, QPointF>> arrows;
   QPointF text;
+  std::vector<QPointF> centers;
 };
 inline ModelAnnotationLayout
 model_annotation_layout(const drawing::DrawingView &view,
@@ -34,24 +35,21 @@ model_annotation_layout(const drawing::DrawingView &view,
   if (item.kind == drawing::ModelAnnotationKind::Axis) {
     if (out.curves.empty() || out.curves[0].size() < 2)
       return out;
+    const auto center=(out.curves[0][0]+out.curves[0][1])*.5;
+    out.centers.push_back(center);
     auto a = out.curves[0][0], d = out.curves[0][1] - a;
-    double low = -1e100, high = 1e100;
-    const auto clip = [&](double x, double v, double min, double max) {
-      if (std::abs(v) < 1e-12)
-        return x >= min && x <= max;
-      double first = (min - x) / v, last = (max - x) / v;
-      if (first > last)
-        std::swap(first, last);
-      low = std::max(low, first);
-      high = std::min(high, last);
-      return low <= high;
-    };
-    if (d.manhattanLength() < 1e-9 ||
-        !clip(a.x(), d.x(), bounds.left(), bounds.right()) ||
-        !clip(a.y(), d.y(), bounds.top(), bounds.bottom()))
-      out.curves.clear();
-    else
-      out.curves = {{a + d * low, a + d * high}};
+    if(d.manhattanLength()<1e-7) {
+      // End-on cylinder/hole: one center mark for this exact source axis.
+      constexpr double half=3.0;
+      out.curves={{{center.x()-half,center.y()},{center.x()+half,center.y()}},
+                  {{center.x(),center.y()-half},{center.x(),center.y()+half}}};
+    } else {
+      // Preserve the persisted axial span instead of extending every hole's
+      // axis across the complete drawing view.
+      const double length=std::hypot(d.x(),d.y());
+      const auto extension=d/length*2.0;
+      out.curves={{a-extension,a+d+extension}};
+    }
     return out;
   }
   if (item.kind != drawing::ModelAnnotationKind::Dimension)

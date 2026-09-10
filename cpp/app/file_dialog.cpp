@@ -1,3 +1,4 @@
+#include <QRegularExpression>
 #include "file_dialog.hpp"
 #include "resource_icon.hpp"
 #include <QFileIconProvider>
@@ -145,6 +146,21 @@ QString choose_file(QWidget* parent, const QString& caption,
     } else {
         dialog.setDirectory(initial.absolutePath());
         dialog.selectFile(initial.fileName());
+    }
+    if (mode == QFileDialog::AcceptSave && filters.size() > 1) {
+        QObject::connect(&dialog, &QFileDialog::filterSelected, &dialog,
+            [&dialog](const QString& filter) {
+                const auto match=QRegularExpression(QStringLiteral("\\*\\.([A-Za-z0-9]+)")).match(filter);
+                if(!match.hasMatch()) return;
+                const auto extension=match.captured(1);
+                const auto files=dialog.selectedFiles();
+                dialog.setDefaultSuffix(extension);
+                if(!files.isEmpty()) {
+                    const QFileInfo file(files.front());
+                    if(!file.fileName().isEmpty())
+                        dialog.selectFile(file.completeBaseName()+QStringLiteral(".")+extension);
+                }
+            });
     }
     if (auto* label = dialog.findChild<QLabel*>("lookInLabel"))
         label->setText(translations.value("file.dialog.look_in", label->text()));

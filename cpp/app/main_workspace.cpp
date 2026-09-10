@@ -2917,6 +2917,39 @@ int verify_assembly_refresh_view(QApplication& application,const std::filesystem
         "Hidden dimensions remain selectable"))return 1;
     dimensions->setChecked(true);application.processEvents();
     if(!verify(!view->selection_candidates_at(*hit).empty(),"Showing dimensions did not restore selection"))return 1;
+    auto* tree=window.findChild<QTreeWidget*>();
+    QTreeWidgetItem* occurrence_item=nullptr;
+    const auto occurrence_path=assembly::InstancePath{}.child(occurrence).encoded();
+    for(QTreeWidgetItemIterator i(tree);*i;++i)
+        if((*i)->data(0,Qt::UserRole+1).toString().toStdString()==occurrence_path && (*i)->data(0,Qt::UserRole).toString().toStdString()==occurrence){occurrence_item=*i;break;}
+    if(!verify(occurrence_item,"Assembly occurrence tree item missing"))return 1;
+    tree->clearSelection();application.processEvents();
+    annotations.dimensions[0].reference={assembly.document_id,"placement-reference:"+occurrence+":0",{}};
+    view->set_mesh(annotations);application.processEvents();
+    if(!verify(view->selection_candidates_at(*hit).empty(),"Unselected Assembly placement dimensions remain offered"))return 1;
+    tree->setCurrentItem(occurrence_item);occurrence_item->setSelected(true);application.processEvents();
+    if(!verify(!view->selection_candidates_at(*hit).empty(),"Selecting component did not show its placement dimension"))return 1;
+    tree->clearSelection();application.processEvents();
+    if(!verify(view->selection_candidates_at(*hit).empty(),"Clearing component selection did not hide placement dimension"))return 1;
+    const auto save_jpg=[&](const char* stem) {
+        const auto path=directory/(std::string(stem)+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())+".jpg");
+        bool jpeg_offered=false;
+        QTimer::singleShot(50,[&] {
+            if(auto* dialog=qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) {
+                for(const auto& filter:dialog->nameFilters())if(filter.contains("*.jpg")){jpeg_offered=true;dialog->selectNameFilter(filter);break;}
+                dialog->selectFile(QString::fromStdString(path.string()));
+                QMetaObject::invokeMethod(dialog,"accept",Qt::DirectConnection);
+            }
+        });
+        const auto previous_camera=view->camera_state();
+        window.findChild<QAction*>("saveDocumentAsAction")->trigger();application.processEvents();
+        const QImage image(QString::fromStdString(path.string()));
+        return jpeg_offered&&!image.isNull()&&image.size()==view->grabFramebuffer().size()&&view->camera_state()==previous_camera;
+    };
+    if(!verify(save_jpg("assembly-view-"),"Assembly Save As JPG failed or changed the camera"))return 1;
+    if(!verify(window.open_document_path(QString::fromStdString(part_path.string())),"Cannot open Part for JPG export"))return 1;
+    application.processEvents();
+    if(!verify(save_jpg("part-view-"),"Part Save As JPG failed or changed the camera"))return 1;
     std::cout<<"Assembly refresh camera and dimension visibility contracts passed\n";
     return 0;
 }

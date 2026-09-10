@@ -184,6 +184,17 @@ add_executable(zima-cad-drawing-harness
     app/main_drawing.cpp app/drawing_window.cpp app/drawing_annotation_source.cpp app/show_erase_dialog.cpp app/file_dialog.cpp app/application_settings.cpp
     tests/drawing_ui_contract.cpp tests/show_erase_ui_contract.cpp
     app/resource_icon.cpp app/zima_resources.qrc)
+if(WIN32 AND TARGET Qt6::QJpegPlugin)
+    foreach(image_target zima-cad-cpp zima-cad-drawing-harness)
+        add_custom_command(TARGET ${image_target} POST_BUILD
+            COMMAND ${CMAKE_COMMAND}
+                "-DPLUGIN=$<TARGET_FILE:Qt6::QJpegPlugin>"
+                "-DPLUGIN_NAME=$<TARGET_FILE_NAME:Qt6::QJpegPlugin>"
+                "-DQT_RUNTIME_DIRECTORY=$<TARGET_FILE_DIR:Qt6::Core>"
+                "-DOUTPUT_DIRECTORY=$<TARGET_FILE_DIR:${image_target}>"
+                -P "${CMAKE_SOURCE_DIR}/../tools/deploy-qt-image-plugin.cmake")
+    endforeach()
+endif()
 target_include_directories(zima-cad-drawing-harness PRIVATE app)
 target_link_libraries(zima-cad-drawing-harness PRIVATE zima_viewer)
 target_link_libraries(zima-cad-drawing-harness PRIVATE

@@ -1,3 +1,4 @@
+#include <QSaveFile>
 #include "appearance_dialog.hpp"
 #include <zima/interchange/model_import.hpp>
 #include <zima/document/feature_sketches.hpp>
@@ -2788,7 +2789,8 @@ void AssemblyWorkspaceWindow::create_actions() {
     fit_view_action_ = make_action(tr("Obnovit pohled"), "view-fit");
     fit_view_action_->setObjectName("fitViewAction");
     connect(fit_view_action_, &QAction::triggered, this, [this] {
-        if (viewer_ != nullptr) viewer_->fit_all();
+        if(workspace_.open_drawing(workspace_.displayed_document_id())) drawing_workspace_->fit_sheet();
+        else if (viewer_ != nullptr) viewer_->fit_all();
     });
     auto* normal_view_action = make_action(tr("Pohled kolmo"), "view-normal");
     normal_view_action->setObjectName("normalViewAction");
@@ -4229,6 +4231,7 @@ void AssemblyWorkspaceWindow::create_layout() {
             !active_sketch_id_.empty() && !sketch_mirror_active_);
     });
     viewer_->set_empty_confirmation_callback([this] {
+        assembly_dimension_path_.clear();update_assembly_dimension_visibility();
         clear_selected_sketch_geometry();
         viewer_->set_feature_selected_edges({});
         tree_->clearSelection();
@@ -5107,6 +5110,7 @@ void AssemblyWorkspaceWindow::create_layout() {
     });
     const auto synchronize_tree_selection = [this] {
             if(auto* item=tree_->currentItem();item&&item->data(0,Qt::UserRole+3).toString().startsWith("document-section")){
+                if(!refreshing_scene_){assembly_dimension_path_.clear();update_assembly_dimension_visibility();}
                 viewer_->clear_selection();return;
             }
             if (workspace_.open_drawing(workspace_.displayed_document_id())) {
@@ -5122,6 +5126,7 @@ void AssemblyWorkspaceWindow::create_layout() {
             if (selected_items.empty()) {
                 if (!refreshing_scene_) {
                     construction_dimension_object_id_.clear();
+                    assembly_dimension_path_.clear();update_assembly_dimension_visibility();
                 }
                 clear_selected_sketch_geometry();
                 viewer_->set_feature_selected_edges({});
@@ -5141,6 +5146,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 viewer_->confirm_reference(active_sketch_id_,"repeat_region:"+id,{},zima::viewer::CandidateKind::TemplateRegion);return;
             }
             if (item->parent() == nullptr && item->data(0, Qt::UserRole + 3).toString() != "part-result-body") {
+                if(!refreshing_scene_){assembly_dimension_path_.clear();update_assembly_dimension_visibility();}
                 viewer_->clear_selection(); return;
             }
             if(accept_derived_copy_tree_reference(item))return;
@@ -5483,6 +5489,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 return;
             } else {
                 const auto path=item->data(0, Qt::UserRole + 1).toString().toStdString();
+                if(!properties_dialog_&&!refreshing_scene_){assembly_dimension_path_=path;update_assembly_dimension_visibility();}
                 viewer_->confirm_occurrence(path);
                 set_selected_component_origin(path);
             }
@@ -8665,10 +8672,24 @@ void AssemblyWorkspaceWindow::toggle_local_origin_visibility(
     refresh_scene();
 }
 
+void AssemblyWorkspaceWindow::update_assembly_dimension_visibility() {
+    if(!viewer_)return;
+    const auto wanted=properties_dialog_?properties_dialog_instance_path_:assembly_dimension_path_;
+    const auto owner=workspace_.active_document_id();
+    viewer_->set_dimension_visibility_filter([wanted,owner](const auto& dimension){
+        const auto& key=dimension.reference.semantic_key;
+        if(!key.starts_with("placement-reference:"))return true;
+        if(wanted.empty()||dimension.reference.owner_id!=owner)return false;
+        const auto end=key.rfind(':');if(end<=20)return false;
+        auto path=dimension.reference.instance_path.empty()?zima::assembly::InstancePath{}:zima::assembly::InstancePath::decode(dimension.reference.instance_path);
+        return path.child(key.substr(20,end-20)).encoded()==wanted;
+    });
+}
 bool AssemblyWorkspaceWindow::finish_parameter_dimensions() {
     if (properties_dialog_ || !active_sketch_id_.empty() ||
-        construction_dimension_object_id_.empty()) return false;
+        (construction_dimension_object_id_.empty()&&assembly_dimension_path_.empty())) return false;
     construction_dimension_object_id_.clear();
+    assembly_dimension_path_.clear();update_assembly_dimension_visibility();
     opening_component_edit_ = {};
     viewer_->clear_selection();
     preserve_view_on_refresh_ = true;
@@ -8945,11 +8966,32 @@ void AssemblyWorkspaceWindow::save_active_document_as() {
     } else {
         return;
     }
+    filter += tr(";;JPEG – aktuální pohled (*.jpg *.jpeg)");
+    if(workspace_.open_drawing(document_id)) filter += tr(";;DXF – aktuální list (*.dxf)");
     const QString initial = QString::fromStdString((working_directory_ /
         fallback_name.toStdString()).string());
     QString selected = save_file(this, caption, initial, filter, suffix,
                                  application_settings_.translations);
     if (selected.isEmpty()) return;
+    const auto export_extension=QFileInfo(selected).suffix().toLower();
+    if(export_extension=="jpg" || export_extension=="jpeg" ||
+       (export_extension=="dxf" && workspace_.open_drawing(document_id))) {
+        try {
+            if(export_extension=="dxf") drawing_workspace_->export_dxf(selected.toStdString());
+            else if(workspace_.open_drawing(document_id)) drawing_workspace_->export_jpg(selected.toStdString());
+            else {
+                const auto image=viewer_->grabFramebuffer();
+                QSaveFile output(selected);
+                if(image.isNull() || !output.open(QIODevice::WriteOnly) ||
+                   !image.save(&output,"JPG",95) || !output.commit())
+                    throw std::runtime_error("Cannot save current view as JPG");
+            }
+            state_->setText(tr("Export uložen: %1").arg(selected));
+        } catch(const std::exception& error) {
+            QMessageBox::warning(this,tr("Export selhal"),error.what());
+        }
+        return;
+    }
     const QString dotted_suffix = QStringLiteral(".") + suffix;
     std::filesystem::path target = selected.toStdString();
     if (QString::fromStdString(target.extension().string()).compare(
@@ -23946,6 +23988,7 @@ std::optional<std::string> AssemblyWorkspaceWindow::selected_occurrence_path() c
 }
 
 void AssemblyWorkspaceWindow::refresh_scene() {
+    update_assembly_dimension_visibility();
     update_viewer_body_colors();
     update_body_color_actions();
     viewer_->set_active_sketch_owner(active_sketch_id_);

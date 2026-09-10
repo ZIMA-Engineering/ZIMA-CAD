@@ -1240,8 +1240,10 @@ Vlastnosti kontejnerů již neobsahují redundantní řádek s typem kontejneru.
 
 ### Show/Erase ve výkresu
 
-Vyberte pohled a otevřete **Show / Erase…** v liště Výkres. Nástroj nabízí
-původní kóty skic a uložených viewer paketů, osy a pomocnou geometrii. Show vybírá
+Vyberte pohled a otevřete **Show / Erase…** v liště Výkres, nebo nejprve
+stiskněte jeho ikonu a potom klikněte na pohled. Nástroj nabízí původní kóty,
+osy a pomocnou geometrii. U sestavy přebírá osy dílů a sestavové kóty;
+skicové kóty vložených dílů nepřenáší. Show vybírá
 ze skrytých položek, Erase ze zobrazených. Kliknutím ve View nebo zaškrtnutím
 v seznamu vybíráte položky k ponechání či odebrání. OK potvrdí změnu jen pro
 vybraný pohled; Zrušit obnoví původní zobrazení. Nové zdrojové položky načte
@@ -1268,3 +1270,23 @@ zachová natočení, přiblížení i posunutí pohledu.
 Tlačítko **Kóty** nad View (také Zobrazení → Kóty) přepíná jejich zobrazení
 a možnost výběru. Úhlová kóta vazby ploch se umisťuje ke společné ose/čepu,
 pokud ji určuje existující souosá vazba; jinak k průsečnici rovin.
+
+
+Po výběru komponenty sestavy se dočasně ukážou její kóty uložení.
+Kliknutí do prázdného View nebo ukončení prostředním tlačítkem je skryje.
+Přepínač **Kóty** zůstává společným povolením jejich zobrazení.
+
+### Středy děr, přizpůsobení listu a obrazový export
+
+Osa viděná ve svém směru se kreslí jako křížek s bodem uprostřed; dvě díry mají
+dva křížky. Z boku má osa délku válce s malým přesahem a středový bod.
+Fialové body po výběru označují přesouvatelné popisky pohledů/řezů a kóty.
+Pevné objekty tyto úchyty nemají.
+
+Ve výkresu **Obnovit pohled** vystředí list a přizpůsobí jeho výšku oknu.
+**Uložit jako → DXF – aktuální list** exportuje aktivní list v milimetrech,
+včetně viditelných os a kót, bez pracovních vodítek.
+**Uložit jako → JPEG – aktuální pohled** funguje v Partu, Assembly i výkresu:
+uloží aktuální výřez View v jeho obrazovém rozlišení, bez panelů aplikace.
+Zachová natočení, přiblížení a právě viditelné zvýraznění. Exporty nemění
+cestu otevřeného modelu ani výkresu.

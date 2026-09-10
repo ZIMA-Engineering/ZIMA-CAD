@@ -4238,6 +4238,17 @@ int main(int argc, char* argv[]) {
             "ZIMA-CAD Part (*.prtz)");
         file_dialog_probe.stop();
         file_dialog_timeout.stop();
+        bool suffix_correct=false;
+        QTimer::singleShot(50,[&] {
+            if(auto* dialog=qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) {
+                dialog->selectNameFilter("JPEG (*.jpg *.jpeg)");
+                QMetaObject::invokeMethod(dialog,"filterSelected",Qt::DirectConnection,Q_ARG(QString,QStringLiteral("JPEG (*.jpg *.jpeg)")));
+                suffix_correct=dialog->defaultSuffix()=="jpg" && QFileInfo(dialog->selectedFiles().front()).fileName()=="view.jpg";
+                dialog->reject();
+            }
+        });
+        zima::app::save_file(&parent,"Save format contract",QString::fromStdString((file_dialog_directory/"view.prtz").string()),"Part (*.prtz);;JPEG (*.jpg *.jpeg);;DXF (*.dxf)","prtz");
+        require(suffix_correct,"Save As format switch did not replace the document extension");
         std::filesystem::remove_all(file_dialog_directory);
         require(selected_file.isEmpty(),
                 "Rejected file dialog unexpectedly returned a selection");
