@@ -6,6 +6,7 @@
 #include <tuple>
 #include <zima/document/dimension_layout_json.hpp>
 #include <zima/drawing/measurement_dimension.hpp>
+#include <zima/drawing/model_annotations.hpp>
 #include <zima/kernel/stable_id.hpp>
 namespace zima::drawing {
 namespace {
@@ -350,6 +351,36 @@ std::vector<ProjectedMeasurementCurve> projected_measurement_curves(const Drawin
         }
         result.push_back(std::move(c));
     }
+    for (const auto &item : view.model_annotations) {
+        if (item.kind != ModelAnnotationKind::Axis || !item.model_axis || item.unresolved)
+            continue;
+        ProjectedMeasurementCurve c;
+        c.source = {item.source.owner_id, item.source.semantic_id, item.source.instance_path};
+        if (!c.source.valid() || find_curve(result, c.source))
+            continue;
+        c.axis = true;
+        c.points = {project((*item.model_axis)[0], view.camera),
+                    project((*item.model_axis)[1], view.camera)};
+        c.parameters = {0, 1};
+        c.center = mul(add(c.points.front(), c.points.back()), .5);
+        c.line = length(sub(c.points.back(), c.points.front())) > 1e-9;
+        result.push_back(std::move(c));
+    }
+    return result;
+}
+std::vector<std::vector<Point2>> measurement_reference_geometry(
+    const DrawingView &view, const kernel::EdgeReference &ref) {
+    std::vector<std::vector<Point2>> result;
+    if (!ref.valid())
+        return result;
+    for (const auto &edge : view.projected_edges)
+        if (edge.source == ref && !edge.hatch && !edge.silhouette && drawing_edge_visible(view, edge))
+            result.push_back(edge.points);
+    for (const auto &item : view.model_annotations)
+        if (item.kind == ModelAnnotationKind::Axis && item.model_axis && item.visible && !item.unresolved &&
+            kernel::EdgeReference{item.source.owner_id, item.source.semantic_id, item.source.instance_path} == ref)
+            for (auto &curve : axis_annotation_geometry(view, item).curves)
+                result.push_back(std::move(curve));
     return result;
 }
 std::vector<std::pair<Point2, double>> dimension_intersections(const ProjectedMeasurementCurve &a,
@@ -537,19 +568,18 @@ std::vector<MeasurementCandidate> measurement_candidates(const DrawingView &view
         if (request.circles_only && (!curve.center || !curve.circular))
             continue;
         double distance = std::numeric_limits<double>::infinity();
-        bool visible = false;
-        for (const auto &edge : view.projected_edges)
-            if (edge.source == curve.source && !edge.hatch && !edge.silhouette &&
-                drawing_edge_visible(view, edge)) {
-                visible = true;
-                for (std::size_t i = 1; i < edge.points.size(); ++i)
-                    distance = std::min(distance, distance_to(cursor, edge.points[i - 1], edge.points[i]));
-            }
-        if (!visible)
+        const auto fragments = measurement_reference_geometry(view, curve.source);
+        for (const auto &fragment : fragments)
+            for (std::size_t i = 1; i < fragment.size(); ++i)
+                distance = std::min(distance, distance_to(cursor, fragment[i - 1], fragment[i]));
+        if (fragments.empty())
             continue;
         DimensionAttachment a;
         a.reference = curve.source;
         a.parameter = parameter_at(curve, cursor);
+        if (curve.axis && !curve.line &&
+            (request.intersection_first.valid() || request.mode == int(DimensionAttachmentKind::Intersection)))
+            continue;
         if (request.intersection_first.valid()) {
             const auto *first = find_curve(curves, request.intersection_first);
             if (!first || first->source == curve.source)
@@ -598,14 +628,24 @@ std::vector<MeasurementCandidate> measurement_candidates(const DrawingView &view
             add_candidate(a, point_at(curve, a.parameter), distance);
             continue;
         }
-        if (mode < 0 || mode == int(DimensionAttachmentKind::Point) ||
-            mode == int(DimensionAttachmentKind::CurvePoint)) {
+        if (curve.axis && (mode < 0 || mode == int(DimensionAttachmentKind::Point))) {
+            a.kind = DimensionAttachmentKind::Center;
+            a.parameter = .5;
+            const double center_distance = length(sub(cursor, *curve.center));
+            add_candidate(a, *curve.center, (curve.line ? center_distance : std::min(distance, center_distance)) * .75);
+            if (mode == int(DimensionAttachmentKind::Point) || !curve.line)
+                continue;
+        }
+        if (!curve.axis && (mode < 0 || mode == int(DimensionAttachmentKind::Point) ||
+            mode == int(DimensionAttachmentKind::CurvePoint))) {
             for (double parameter : {0., .5, 1.}) {
                 a.kind = DimensionAttachmentKind::CurvePoint;
                 a.parameter = parameter;
                 const auto point = point_at(curve, parameter);
                 for (const auto &stored : view.measurement_points)
-                    if (length(sub(point, project(stored.position, view.camera))) < 1e-7) {
+                    if (stored.source.owner_id == curve.source.owner_id &&
+                        stored.source.instance_path == curve.source.instance_path &&
+                        length(sub(point, project(stored.position, view.camera))) < 1e-7) {
                         a.kind = DimensionAttachmentKind::Point;
                         a.reference = stored.source;
                         break;

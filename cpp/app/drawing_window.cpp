@@ -1150,7 +1150,7 @@ public:
         if(!printing&&dimension_command_){
             const auto highlight=[&](const drawing::DrawingView& view,const kernel::EdgeReference& ref,QColor color){
                 painter.save();painter.setPen(QPen(color,2));painter.setBrush(Qt::NoBrush);
-                for(const auto& curve:drawing::projected_measurement_curves(view))if(curve.source==ref){QPolygonF line;for(const auto& p:curve.points)line<<view_screen_point(view,p);painter.drawPolyline(line);}
+                for(const auto& curve:drawing::measurement_reference_geometry(view,ref)){QPolygonF line;for(const auto& p:curve)line<<view_screen_point(view,p);painter.drawPolyline(line);}
                 for(const auto& p:view.measurement_points)if(p.source==ref)painter.drawEllipse(view_screen_point(view,{kernel::dimension_dot(p.position,view.camera.horizontal),kernel::dimension_dot(p.position,view.camera.vertical)}),4,4);
                 painter.restore();
             };
@@ -1201,6 +1201,7 @@ protected:
             return;
         }
         if (event->button() != Qt::LeftButton) return;
+        setFocus();
         if(dimension_command_){
             setFocus();
             if(dimension_command_->entering()){
@@ -1446,13 +1447,25 @@ protected:
             if (selection_changed_) selection_changed_();
             update(); event->accept(); return;
         }
-        if(event->key()==Qt::Key_Delete && sheet_!=nullptr &&
-           !selected_dimension_id_.empty()) {
-            std::erase_if(sheet_->dimensions,[&](const auto& dimension) {
-                return dimension.id==selected_dimension_id_; });
-            selected_dimension_id_.clear(); if(changed_) changed_(); update();
-            if (selection_changed_) selection_changed_();
-            event->accept(); return;
+        if(event->key()==Qt::Key_Delete && sheet_ && !dimension_command_ && !model_pick_ && !preview_ && !placed_ && !choose_view_) {
+            bool removed=false;
+            if(!selected_dimension_id_.empty())
+                removed=std::erase_if(sheet_->dimensions,[&](const auto& dimension) {
+                    return dimension.id==selected_dimension_id_; })>0;
+            else if(selected_annotation_ && selected_annotation_->kind==AnnotationKind::Model)
+                for(auto& view:sheet_->views)if(view.id==selected_annotation_->view)
+                    for(auto& item:view.model_annotations)
+                        if(model_annotation_key(item.source)==selected_annotation_->id &&
+                           item.kind==drawing::ModelAnnotationKind::Dimension && item.visible) {
+                            item.visible=false;removed=true;
+                        }
+            if(removed) {
+                selected_dimension_id_.clear();selected_annotation_.reset();hovered_annotation_.reset();
+                offered_annotations_.clear();selected_.clear();
+                if(changed_)changed_();
+                if(selection_changed_)selection_changed_();
+                update();event->accept();return;
+            }
         }
         QWidget::keyPressEvent(event);
     }
@@ -2289,7 +2302,7 @@ void DrawingWindow::edit_model_dimension(const std::string& view_id,const std::s
         sync_workspace_document();canvas_->update();
     },owner?owner:this);
     view_dialog_=dialog;dialog->setAttribute(Qt::WA_DeleteOnClose);
-    connect(dialog,&QDialog::finished,this,[this]{view_dialog_=nullptr;update_action_states();});
+    connect(dialog,&QDialog::finished,this,[this]{view_dialog_=nullptr;if(properties_handler_)properties_handler_(nullptr);update_action_states();});
     if(properties_handler_)properties_handler_(dialog);dialog->show();update_action_states();
 }
 
@@ -2424,7 +2437,7 @@ void DrawingWindow::show_dimension_properties(const std::string& id,int extend) 
         },owner?owner:this);
     view_dialog_=dialog;canvas_->set_dimension_command(dialog);
     if(extend)dialog->extend(extend<0);
-    connect(dialog,&QDialog::finished,this,[this]{canvas_->set_dimension_command(nullptr);view_dialog_=nullptr;update_action_states();});
+    connect(dialog,&QDialog::finished,this,[this]{canvas_->set_dimension_command(nullptr);view_dialog_=nullptr;if(properties_handler_)properties_handler_(nullptr);update_action_states();});
     if(properties_handler_)properties_handler_(dialog);dialog->show();update_action_states();
     set_status_message(tr("Kóta: vyberte vazby a umístění. OK potvrdí měřenou kótu."));
 }

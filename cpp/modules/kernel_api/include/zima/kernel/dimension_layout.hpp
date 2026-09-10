@@ -5,6 +5,7 @@
 #include <set>
 #include <iomanip>
 #include <sstream>
+#include <locale>
 #include <zima/kernel/geometry_kernel.hpp>
 
 namespace zima::kernel {
@@ -20,13 +21,29 @@ inline DimensionTextStyle dimension_text_style(const ViewerDimension& d) {
     if(d.kind==ViewerDimensionKind::Diameter && style.prefix.starts_with("⌀"))style.prefix.erase(0,std::string("⌀").size());
     return style;
 }
+inline std::string dimension_decimal_text(std::string text) {
+    std::replace(text.begin(), text.end(), '.', ',');
+    return text;
+}
+inline std::string dimension_number(double value, int decimals) {
+    std::ostringstream number;
+    number.imbue(std::locale::classic());
+    number << std::fixed << std::setprecision(std::clamp(decimals, 0, 12)) << value;
+    auto result = number.str();
+    if (result.find('.') != std::string::npos) {
+        while (result.ends_with('0')) result.pop_back();
+        if (result.ends_with('.')) result.pop_back();
+    }
+    if (result == "-0") result = "0";
+    return dimension_decimal_text(std::move(result));
+}
 inline std::string dimension_text(const ViewerDimension& d,const DimensionTextStyle& style) {
     if(!style.text_override.empty())return style.text_override;
     std::ostringstream text;text<<style.prefix<<(d.kind==ViewerDimensionKind::Radius?"R":d.kind==ViewerDimensionKind::Diameter?"⌀":"")
-        <<std::fixed<<std::setprecision(std::clamp(style.decimals,0,12))<<d.value<<dimension_unit_text(style.suffix);
-    if(style.tolerance_mode=="symmetric")text<<" ±"<<style.symmetric_tolerance;
-    if(style.tolerance_mode=="single_deviation")text<<" "<<style.single_tolerance;
-    if(style.tolerance_mode=="deviations")text<<" +"<<style.upper_tolerance<<" /-"<<style.lower_tolerance;
+        <<dimension_number(d.value,style.decimals)<<dimension_unit_text(style.suffix);
+    if(style.tolerance_mode=="symmetric")text<<" ±"<<dimension_decimal_text(style.symmetric_tolerance);
+    if(style.tolerance_mode=="single_deviation")text<<" "<<dimension_decimal_text(style.single_tolerance);
+    if(style.tolerance_mode=="deviations")text<<" +"<<dimension_decimal_text(style.upper_tolerance)<<" /-"<<dimension_decimal_text(style.lower_tolerance);
     return text.str();
 }
 inline ModelEnvelope model_envelope(const ViewerMesh &mesh) {

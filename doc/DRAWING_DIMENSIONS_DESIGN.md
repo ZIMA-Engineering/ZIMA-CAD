@@ -42,6 +42,18 @@ změny existující kóty. Kontextové menu potvrzené kóty nabízí její vlas
 odstranění a u lineární kóty také pokračování řetězce z kteréhokoli konce.
 Nad fialovým bodem se běžné kontextové menu neotevírá.
 
+Klávesa **Delete** odstraní označenou ruční kótu. U kóty převzaté z modelu
+ji skryje pouze v daném pohledu (Erase); zdrojový parametr se zachová.
+Kliknutí na kótu předá výkresovému prostoru také klávesový fokus.
+
+Jmenovité hodnoty kót ve Sketcheru, Partu, sestavě i Drawingu používají
+desetinnou čárku. Přesnost určuje maximální počet desetinných míst; po
+zaokrouhlení se koncové nuly nepíší. Při přesnosti 3 například `10mm`,
+`10,5mm`, `10,526mm` pro původní hodnotu 10,52584. Malá záporná hodnota
+zaokrouhlená na nulu se zobrazí jako `0`. Také číselné tolerance se vykreslí
+s čárkou; jejich zadané nuly zůstanou zachované. Ručně přepsaný celý text
+kóty se nemění.
+
 ## Napojení a výběr
 
 Každý konec má samostatně nastavitelný způsob napojení:
@@ -50,7 +62,7 @@ Každý konec má samostatně nastavitelný způsob napojení:
 - Bod: uložený bod nebo konec/střed navázané křivky.
 - Bod na křivce: uložená křivka a její parametr ve zdrojové geometrii.
 - Úsečka: při automatickém směru první úsečka určuje kolmici kótovací čáry.
-- Střed (C): střed kružnice nebo kruhového oblouku.
+- Střed (C): střed kružnice, kruhového oblouku nebo zobrazené osy.
 - Tečna (T): dotyk ve směru měření; RMB dovolí zvolit druhou stranu.
 - Průsečík (I): dvě samostatně uložené reference a zvolená větev průsečíku.
 
@@ -64,6 +76,14 @@ RMB před potvrzením mění pouze aktivního kandidáta. Zelený rámeček
 označuje jediné aktivní referenční pole; oči samostatně zapínají prohlížení
 již uložených referencí a azurové zvýraznění jejich geometrie.
 Změna kamery nepřesouvá uložený parametr bodu na jinou část zdrojové křivky.
+
+Zobrazená osa patří do stejného seznamu referencí. Při pohledu do osy lze
+vybrat libovolné rameno křížku a navázat jeho skutečný střed; při bočním
+pohledu také přímku osy. Kreslení, nabídka a zvýraznění používají stejné
+čtyři větve nebo úsečku, včetně přesahu 2mm na papíře. Opakované výskyty
+dílu si zachovávají vlastní reference. Skrytá osa se nově nenabízí, ale její
+dříve uložená vazba zůstává platná. Chybějící osa vyvolá opravu reference.
+Pole Bod zachová skutečný typ vybrané vazby (vrchol, bod křivky či střed).
 
 ## Řetězec a oprava vazby
 
@@ -81,13 +101,13 @@ zůstávají zachované. Obnovení stejné geometrie znovu vyřeší původní v
 
 Lineární kóty měří průmět do aktuální roviny pohledu. Kontrolní příklad:
 úsečka 40mm skloněná o 60° od roviny má ve směru svého průmětu hodnotu 20mm.
-R/Ø se zobrazují pouze při kruhovém průmětu. Natočení kružnice do elipsy je
+R/⌀ se zobrazují pouze při kruhovém průmětu. Natočení kružnice do elipsy je
 skryje, aniž by odstranilo vazby či umístění. Návrat do kolmého pohledu je
 obnoví. Otočení v rovině listu není důvodem ke skrytí.
 
 Měřicí geometrie se zachytí s projekcí pohledu z uložených zdrojových
 referencí. Kruhovost se ověřuje proti všem uloženým vzorkům křivky;
-samotná podobnost s kružnicí na obrazovce není podkladem pro R/Ø.
+samotná podobnost s kružnicí na obrazovce není podkladem pro R/⌀.
 Geometrie, reference včetně cesty výskytu, styl a polohy úseků se ukládají
 do aktuálního formátu Drawing. Staré experimentální ruční kóty se nepřevádějí.
 

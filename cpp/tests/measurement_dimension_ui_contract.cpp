@@ -5,6 +5,7 @@
 #include <QContextMenuEvent>
 #include <QDialogButtonBox>
 #include <QMouseEvent>
+#include <QKeyEvent>
 #include <QTabWidget>
 #include <iostream>
 #include <numbers>
@@ -54,6 +55,20 @@ int verify_measurement_dimension_ui() {
         view.y = 100;
         view.scale = 2;
         view.show_caption = false;
+        ModelAnnotation axis;
+        axis.kind=ModelAnnotationKind::Axis;axis.visible=true;
+        axis.source={"source","profile","axis",{}};
+        axis.model_axis=std::array<kernel::Vec3,2>{{{45,10,-5},{45,10,5}}};
+        axis.model_envelope.include({40,5,-5});axis.model_envelope.include({50,15,5});
+        ModelAnnotation parameter;
+        parameter.source={"source","profile","length",{}};
+        parameter.visible=true;
+        kernel::ViewerDimension model_dimension;
+        model_dimension.value=12.5;model_dimension.unit_suffix="mm";
+        model_dimension.witness_first={60,0,0};model_dimension.witness_second={72.5,0,0};
+        model_dimension.line_first={60,8,0};model_dimension.line_second={72.5,8,0};
+        parameter.model_dimension=model_dimension;
+        view.model_annotations={axis,parameter};
         drawing.sheets.front().views = {view};
         workspace.add_drawing(drawing);
         app::DrawingWindow window(&workspace, false);
@@ -256,6 +271,35 @@ int verify_measurement_dimension_ui() {
         require(evaluate_drawing_dimension(*window.document_for_test().find_view(broken_view.id), repaired)
                         .state == MeasurementState::Resolved,
                 "Rebound dimension still unresolved");
+        // Selection hands keyboard focus to the canvas, and Delete removes the
+        // exact manual dimension. Model dimensions are erased only in this view.
+        grip=window.annotation_handle_for_test(repaired.id,0,true);require(grip.has_value(),"Repaired grip missing");
+        pick(canvas,*grip);
+        QKeyEvent remove(QEvent::KeyPress,Qt::Key_Delete,Qt::NoModifier);
+        QApplication::sendEvent(canvas,&remove);flush();
+        require(count()==0,"Delete did not remove selected manual dimension");
+        const auto model_grip=window.model_annotation_handle_for_test(parameter.source,0,broken_view.id);
+        require(model_grip.has_value(),"Model dimension grip missing");
+        pick(canvas,*model_grip);QApplication::sendEvent(canvas,&remove);flush();
+        const auto* after_delete=window.document_for_test().find_view(broken_view.id);
+        require(after_delete&&!after_delete->model_annotations.back().visible&&
+                after_delete->model_annotations.back().model_dimension==parameter.model_dimension,
+                "Delete changed source dimension instead of erasing it");
+        command->trigger();flush();props=dialog();require(props,"Dimension command did not reopen after Delete");
+        mode=props->findChild<QComboBox*>("dimensionAttachmentMode0");
+        mode->setCurrentIndex(mode->findData(int(DimensionAttachmentKind::Point)));flush();
+        pick(canvas,point(49,10));
+        require(props->value().attachments[0].kind==DimensionAttachmentKind::Center&&
+                props->value().attachments[0].reference.semantic_key=="axis",
+                "Axis cross did not retain its centre binding through the Point field");
+        mode=props->findChild<QComboBox*>("dimensionAttachmentMode1");
+        mode->setCurrentIndex(mode->findData(int(DimensionAttachmentKind::Point)));flush();
+        pick(canvas,point(30,0));
+        require(props->value().attachments[1].kind==DimensionAttachmentKind::CurvePoint,
+                "Point field corrupted an endpoint binding");
+        require(evaluate_drawing_dimension(*after_delete,props->value()).state==MeasurementState::Resolved,
+                "Offered point references cannot produce a dimension");
+        props->reject();flush();
         std::cout << "Manual dimension properties, references, preview/Cancel, MMB, measured values and "
                      "radius grips passed\n";
         return 0;

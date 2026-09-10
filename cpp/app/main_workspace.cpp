@@ -3246,6 +3246,18 @@ int verify_property_sketch_dimensions(QApplication& application, const std::file
             const QPointF at(*label),global(view->mapToGlobal(*label));
             QMouseEvent hover(QEvent::MouseMove,at,global,Qt::NoButton,Qt::NoButton,Qt::NoModifier);
             QApplication::sendEvent(view,&hover);
+            const auto matches=[&](const auto& offered){return offered.kind==dimension.kind&&
+                offered.owner_id==dimension.owner_id&&offered.semantic_key==dimension.semantic_key;};
+            for(std::size_t i=0;i<candidates.size();++i){
+                if(const auto offered=view->offered_candidate();offered&&matches(*offered))break;
+                for(const auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}){
+                    QMouseEvent cycle(type,at,global,Qt::RightButton,
+                        type==QEvent::MouseButtonPress?Qt::RightButton:Qt::NoButton,Qt::NoModifier);
+                    QApplication::sendEvent(view,&cycle);
+                }
+            }
+            if(!verify(view->offered_candidate()&&matches(*view->offered_candidate()),
+                "RMB could not offer the intended overlapping Sketch dimension"))return false;
             for(const auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease,
                     QEvent::MouseButtonDblClick,QEvent::MouseButtonRelease}) {
                 QMouseEvent event(type,at,global,Qt::LeftButton,

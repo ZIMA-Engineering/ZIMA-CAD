@@ -236,8 +236,8 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
             active_ = row * 2 + 1;
         } else {
             value_.attachments[row] = candidate.attachment;
-            if (modes_[row] >= 0 && !radial())
-                value_.attachments[row].kind = drawing::DimensionAttachmentKind(modes_[row]);
+            // The picker owns the semantic binding: a requested point may be
+            // a persisted vertex, a curve endpoint or the centre of an axis.
             active_ = -1;
             for (std::size_t i = 0; i < value_.attachments.size(); ++i)
                 if (!value_.attachments[i].reference.valid() ||

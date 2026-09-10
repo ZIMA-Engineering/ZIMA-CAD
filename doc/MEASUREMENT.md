@@ -7,7 +7,9 @@ nevyvolává regeneraci modelu ani jeho závislostí.
 ## Výběr a výsledky
 
 Okno obsahuje dvě reference nad sebou. První výběr rovnou vypíše vlastnosti
-entity a aktivuje druhé pole. Druhá reference je volitelná.
+entity a aktivuje druhé pole. Druhá reference je volitelná. Pod druhým polem
+se zobrazují vlastnosti druhé entity; pod oběma souhrny je společná nejkratší
+vzdálenost. Dvě tělesa tak mají každý vlastní objem, obsah a hmotnost.
 
 | Entita | Informace |
 | --- | --- |
@@ -34,6 +36,8 @@ reference. Křížek referenci odstraní.
 - Dvojklik prostředním, také nad View, provede OK a zavře okno.
 - **OK** ani **Zrušit** neukládají měření do historie.
 - **Uložit** uloží pojmenované měření do stromu zobrazeného dokumentu a zavře okno.
+  Rozbalí jeho nadřazené větve, označí nový záznam a posune strom k němu.
+  Položka je dostupná také při zobrazení stromu Sketcheru.
 
 ## Přesnost a jednotky
 
@@ -49,8 +53,9 @@ zobrazené geometrie. Vzdálenosti mezi body, přímými hranami a rovnými
 polygonálními plochami se počítají přímo.
 
 Výstup používá délkové a hmotnostní jednotky dokumentu; obsah a objem
-používají druhou a třetí mocninu délkové jednotky. Například `12,000mm`,
-`240,000mm²` nebo `0,047kg`.
+používají druhou a třetí mocninu délkové jednotky. Desetinným oddělovačem
+je čárka. Po zaokrouhlení na nastavený počet míst se odstraní koncové nuly:
+například `12mm`, `240mm²` nebo `0,047kg`.
 
 ## Uložené měření
 
@@ -87,6 +92,9 @@ do výstupů používajících společné formátování kót.
   válce, persistence Part/Assembly, Undo a značka průměru.
 - `zima_cpp_measurement_inspector_ui_contract`: skutečný společný picker,
   informace o první a druhé entitě, prostřední tlačítka nad View, Uložit,
-  strom, opětovné otevření a oprava chybějící reference.
+  rozbalení a výběr uloženého záznamu ve stromu, opětovné otevření a oprava
+  chybějící reference. Dvě komponenty s rozdílnou hustotou ověřují oba souhrny
+  a analytickou vzdálenost. Přechod z uzavřených vlastností výkresové kóty
+  zpět do Partu ověřuje uvolnění dialogu a opětovné spuštění Měření bez pádu.
 - `zima_cpp_assembly_refresh_ui_contract`: výběr komponenty, dvojklik,
   dostupnost kóty a její vlastní editor.

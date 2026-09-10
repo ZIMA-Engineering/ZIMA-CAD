@@ -54,6 +54,51 @@ void validate(const std::vector<ModelAnnotation> &items) {
   }
 }
 } // namespace
+AxisAnnotationGeometry axis_annotation_geometry(const DrawingView &view, const ModelAnnotation &item) {
+    AxisAnnotationGeometry out;
+    if (view.scale <= 0)
+        return out;
+    const auto project = [&](kernel::Vec3 p) {
+        return Point2{dot(p, view.camera.horizontal), dot(p, view.camera.vertical)};
+    };
+    Point2 a, b;
+    if (item.model_axis) {
+        a=project((*item.model_axis)[0]);b=project((*item.model_axis)[1]);
+    } else if (!item.curves.empty() && item.curves.front().size()>=2) {
+        a=item.curves.front().front();b=item.curves.front().back();
+    } else return out;
+    out.center = {(a.x + b.x) * .5, (a.y + b.y) * .5};
+    const auto c = out.center;
+    const double dx = b.x - a.x, dy = b.y - a.y, padding = 2 / view.scale;
+    if ((std::abs(dx) + std::abs(dy)) * view.scale < 1e-7) {
+        double left=c.x-3/view.scale, right=c.x+3/view.scale,
+               bottom=c.y-3/view.scale, top=c.y+3/view.scale;
+        if (item.model_envelope.valid) {
+            left=right=c.x;bottom=top=c.y;
+            for (const auto corner : item.model_envelope.corners()) {
+                const auto p=project(corner);
+                left=std::min(left,p.x);right=std::max(right,p.x);
+                bottom=std::min(bottom,p.y);top=std::max(top,p.y);
+            }
+            left-=padding;right+=padding;bottom-=padding;top+=padding;
+        }
+        out.curves={{c,{left,c.y}},{c,{right,c.y}},{c,{c.x,bottom}},{c,{c.x,top}}};
+    } else {
+        const double size=std::hypot(dx,dy), ux=dx/size, uy=dy/size;
+        double low=-size/2, high=size/2;
+        if (item.model_envelope.valid) {
+            low=high=0;
+            for (const auto corner : item.model_envelope.corners()) {
+                const auto p=project(corner);
+                const double t=(p.x-c.x)*ux+(p.y-c.y)*uy;
+                low=std::min(low,t);high=std::max(high,t);
+            }
+        }
+        out.curves={{{c.x+ux*(low-padding),c.y+uy*(low-padding)},
+                     {c.x+ux*(high+padding),c.y+uy*(high+padding)}}};
+    }
+    return out;
+}
 ModelAnnotation project_model_annotation(const DrawingView& view,ModelAnnotation item) {
     if(item.model_axis) {
         const auto project=[&](kernel::Vec3 p){return Point2{dot(p,view.camera.horizontal),dot(p,view.camera.vertical)};};
@@ -71,10 +116,7 @@ ModelAnnotation project_model_annotation(const DrawingView& view,ModelAnnotation
       if (!d.display_text_override.empty())
         item.text = d.display_text_override;
       else {
-        std::ostringstream text;
-        text << d.label_prefix << std::setprecision(12) << d.value
-             << kernel::dimension_unit_text(d.unit_suffix);
-        item.text = text.str();
+        item.text = kernel::dimension_text(d, kernel::dimension_text_style(d));
       }
       if (d.kind == kernel::ViewerDimensionKind::Angular) {
         const auto u = subtract(d.line_first, d.witness_first);

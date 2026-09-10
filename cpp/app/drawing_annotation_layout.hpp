@@ -56,41 +56,14 @@ model_annotation_layout(const drawing::DrawingView &view,
   if (auto i = item.paper_handles.find("text"); i != item.paper_handles.end())
     out.text = {i->second.x, i->second.y};
   if (item.kind == drawing::ModelAnnotationKind::Axis) {
-    if (out.curves.empty() || out.curves[0].size() < 2)
-      return out;
-    const auto center=(out.curves[0][0]+out.curves[0][1])*.5;
-    out.centers.push_back(center);
-    auto a = out.curves[0][0], d = out.curves[0][1] - a;
-    if(d.manhattanLength()<1e-7) {
-      // End-on cylinder/hole: one center mark for this exact source axis.
-      double left=center.x()-3,right=center.x()+3,bottom=center.y()-3,top=center.y()+3;
-      if(item.model_envelope.valid){
-        left=right=center.x();bottom=top=center.y();
-        for(auto corner:item.model_envelope.corners()) {
-          const double x=kernel::dimension_dot(corner,view.camera.horizontal)*view.scale;
-          const double y=kernel::dimension_dot(corner,view.camera.vertical)*view.scale;
-          left=std::min(left,x);right=std::max(right,x);bottom=std::min(bottom,y);top=std::max(top,y);
-        }
-        left-=2;right+=2;bottom-=2;top+=2;
-      }
-      out.curves={{center,{left,center.y()}},{center,{right,center.y()}},{center,{center.x(),bottom}},{center,{center.x(),top}}};
-    } else {
-      // Preserve the persisted axial span instead of extending every hole's
-      // axis across the complete drawing view.
-      const double length=std::hypot(d.x(),d.y());
-      const auto unit=d/length;
-      double low=-length/2,high=length/2;
-      if(item.model_envelope.valid){
-        low=high=0;
-        for(auto corner:item.model_envelope.corners()) {
-          const QPointF p(kernel::dimension_dot(corner,view.camera.horizontal)*view.scale,
-                          kernel::dimension_dot(corner,view.camera.vertical)*view.scale);
-          const double t=viewer::dimension_screen_dot(p-center,unit);
-          low=std::min(low,t);high=std::max(high,t);
-        }
-      }
-      out.curves={{center+unit*(low-2),center+unit*(high+2)}};
+    const auto axis=drawing::axis_annotation_geometry(view,item);
+    out.curves.clear();
+    for(const auto& curve:axis.curves){
+      std::vector<QPointF> points;
+      for(const auto p:curve)points.push_back({p.x*view.scale,p.y*view.scale});
+      out.curves.push_back(std::move(points));
     }
+    if(!axis.curves.empty())out.centers.push_back({axis.center.x*view.scale,axis.center.y*view.scale});
     return out;
   }
   if (item.kind != drawing::ModelAnnotationKind::Dimension)

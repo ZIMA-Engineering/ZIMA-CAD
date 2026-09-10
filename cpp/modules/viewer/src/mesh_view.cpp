@@ -610,7 +610,7 @@ std::optional<QPointF> MeshView::dimension_handle_position(const ViewerCandidate
     if(index==2&&d->kind==kernel::ViewerDimensionKind::Radius)return {};
     const auto mvp=impl_->projection(width(),height())*impl_->view();
     const auto project=[&](kernel::Vec3 p){auto q=mvp*QVector4D(p.x,p.y,p.z,1);if(std::abs(q.w())>1e-9)q/=q.w();return QPointF((q.x()+1)*width()/2.,(1-q.y())*height()/2.);};
-    const auto text=!d->display_text_override.empty()?QString::fromStdString(d->display_text_override):QString::fromStdString(d->label_prefix)+QString::number(d->value,'f',impl_->dimension_decimal_places)+QString::fromStdString(kernel::dimension_unit_text(d->unit_suffix));
+    const auto text=!d->display_text_override.empty()?QString::fromStdString(d->display_text_override):QString::fromStdString(d->label_prefix)+QString::fromStdString(kernel::dimension_number(d->value,impl_->dimension_decimal_places))+QString::fromStdString(kernel::dimension_unit_text(d->unit_suffix));
     const auto layout=dimension_presentation(*d,project,QFontMetricsF(font()).horizontalAdvance(text));
     return layout.valid?std::optional(layout.handles[index]):std::nullopt;
 }
@@ -866,8 +866,7 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
         const QString text = !dimension.display_text_override.empty()
             ? QString::fromStdString(dimension.display_text_override)
             : QString::fromStdString(dimension.label_prefix) +
-                QString::number(dimension.value, 'f',
-                    impl_->dimension_decimal_places) +
+                QString::fromStdString(kernel::dimension_number(dimension.value,impl_->dimension_decimal_places)) +
                 QString::fromStdString(kernel::dimension_unit_text(dimension.unit_suffix));
         const auto layout=dimension_presentation(dimension,project,metrics.horizontalAdvance(text));
         if(!layout.valid) {
@@ -1644,8 +1643,7 @@ std::optional<QPoint> MeshView::candidate_dimension_label_position(
     const QString text = !dimension.display_text_override.empty()
         ? QString::fromStdString(dimension.display_text_override)
         : QString::fromStdString(dimension.label_prefix) +
-            QString::number(dimension.value, 'f',
-                    impl_->dimension_decimal_places) +
+            QString::fromStdString(kernel::dimension_number(dimension.value,impl_->dimension_decimal_places)) +
             QString::fromStdString(kernel::dimension_unit_text(dimension.unit_suffix));
     const QFontMetricsF metrics(font());
     const auto layout=dimension_presentation(dimension,project,metrics.horizontalAdvance(text));
@@ -3928,8 +3926,7 @@ if (impl_->show_origins) {
                 const QString text = !dimension.display_text_override.empty()
                     ? QString::fromStdString(dimension.display_text_override)
                     : QString::fromStdString(dimension.label_prefix) +
-                        QString::number(dimension.value, 'f',
-                            impl_->dimension_decimal_places) +
+                        QString::fromStdString(kernel::dimension_number(dimension.value,impl_->dimension_decimal_places)) +
                         QString::fromStdString(kernel::dimension_unit_text(dimension.unit_suffix));
                 const auto layout=dimension_presentation(dimension,project,painter.fontMetrics().horizontalAdvance(text));
                 if(!layout.valid)continue;
@@ -5282,7 +5279,7 @@ void MeshView::mouseMoveEvent(QMouseEvent* event) {
             const auto i=drag.candidate.geometry_index;
             // Use the original rendered grip, not the source label (automatic
             // outside placement can put these far apart in an oblique view).
-            const auto text=!d.display_text_override.empty()?QString::fromStdString(d.display_text_override):QString::fromStdString(d.label_prefix)+QString::number(d.value,'f',impl_->dimension_decimal_places)+QString::fromStdString(kernel::dimension_unit_text(d.unit_suffix));
+            const auto text=!d.display_text_override.empty()?QString::fromStdString(d.display_text_override):QString::fromStdString(d.label_prefix)+QString::fromStdString(kernel::dimension_number(d.value,impl_->dimension_decimal_places))+QString::fromStdString(kernel::dimension_unit_text(d.unit_suffix));
             const auto initial_grip=dimension_presentation(d,project,QFontMetricsF(font()).horizontalAdvance(text)).handles[0];
             const auto correction=initial_grip-project(label);
             if(const auto offset=dimension_plane_drag(correction,a,b)) {

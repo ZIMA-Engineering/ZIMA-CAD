@@ -15,6 +15,12 @@ struct ModelAnnotationSource {
   std::map<std::pair<std::string,std::string>,kernel::ModelEnvelope> axis_frames;
 };
 ModelAnnotation project_model_annotation(const DrawingView&,ModelAnnotation);
+struct AxisAnnotationGeometry {
+  Point2 center;
+  std::vector<std::vector<Point2>> curves;
+};
+// Displayed axis strokes in view model units, shared by rendering and picking.
+AxisAnnotationGeometry axis_annotation_geometry(const DrawingView &, const ModelAnnotation &);
 void refresh_model_annotations(DrawingView &,
                                std::span<const ModelAnnotationSource>);
 std::string serialize_model_annotations(const std::vector<ModelAnnotation> &);

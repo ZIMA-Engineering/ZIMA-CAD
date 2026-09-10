@@ -1,5 +1,6 @@
 #pragma once
 #include <zima/viewer/measurement.hpp>
+#include <zima/kernel/dimension_layout.hpp>
 #include <zima/ui/properties_subwindow.hpp>
 #include <zima/ui/reference_cell.hpp>
 #include <QApplication>
@@ -106,7 +107,7 @@ protected:
         return PropertiesSubWindow::eventFilter(watched,event);
     }
 private:
-    QString number(double value)const{return QLocale().toString(value,'f',ui::numeric_decimal_places(this));}
+    QString number(double value)const{return QString::fromStdString(kernel::dimension_number(value,ui::numeric_decimal_places(this)));}
     QString format(kernel::MeasurementValue value,int power,double scale,const QString& unit)const{
         return (value.approximate?QStringLiteral("≈ "):QString{})+number(value.value/std::pow(scale,power))+unit+
             (power==2?QStringLiteral("²"):power==3?QStringLiteral("³"):QString{});

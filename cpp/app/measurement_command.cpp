@@ -44,11 +44,12 @@ void AssemblyWorkspaceWindow::show_measurement(const std::string& saved_id){
             const auto cursor=doc.effective_history_cursor();if(cursor>0&&cursor<=doc.history_order.size())initial.after_object_id=doc.history_order[cursor-1].id;
         }
     }
+    const auto saved_record=std::make_shared<std::string>();
     const auto units=part?part->session.document().document_units:assembly->session.document().document_units;
     auto* dialog=new MeasurementDialog(initial,
         [this](const Ref& ref){return resolve_measurement(ref);},
         [this](const Ref& ref){return measurement_label(ref);},
-        [this,id](kernel::SavedMeasurement record){
+        [this,id,saved_record](kernel::SavedMeasurement record){
             const auto update=[&](auto& document){
                 auto it=std::ranges::find(document.measurements,record.id,&kernel::SavedMeasurement::id);
                 if(it==document.measurements.end())document.measurements.push_back(record);else *it=record;
@@ -59,13 +60,14 @@ void AssemblyWorkspaceWindow::show_measurement(const std::string& saved_id){
             }else if(auto* source=workspace_.open_assembly(id)){
                 auto next=source->session.document();update(next);source->session.commit(std::move(next));
             }
+            *saved_record=record.id;
         },document::length_unit_mm(units.at("Length")),QString::fromStdString(units.at("Length")),
         document::mass_unit_kg(units.at("Mass")),QString::fromStdString(units.at("Mass")),this);
     measurement_dialog_=dialog;properties_dialog_=dialog;
     viewer_->clear_selection();tree_->clearSelection();tree_->setProperty("commandSelectionActive",true);
     viewer_->set_dimension_layout_editable(false);
     dialog->set_changed([this]{update_measurement_selection();});
-    connect(dialog,&QDialog::finished,this,[this,dialog]{
+    connect(dialog,&QDialog::finished,this,[this,dialog,saved_record]{
         if(measurement_dialog_!=dialog)return;
         measurement_dialog_=nullptr;if(properties_dialog_==dialog)properties_dialog_=nullptr;
         tree_->setProperty("commandSelectionActive",false);
@@ -73,6 +75,13 @@ void AssemblyWorkspaceWindow::show_measurement(const std::string& saved_id){
         viewer_->set_inspected_faces({});viewer_->set_constraint_reference_highlights({},{});
         viewer_->set_transient_edges({});viewer_->set_transient_points({});viewer_->set_transient_labels({});
         viewer_->clear_selection();preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
+        if(!saved_record->empty())for(QTreeWidgetItemIterator it(tree_);*it;++it){
+            auto* item=*it;
+            if(item->data(0,Qt::UserRole+3)=="document-measurement"&&item->data(0,Qt::UserRole).toString().toStdString()==*saved_record){
+                for(auto* parent=item->parent();parent;parent=parent->parent())parent->setExpanded(true);
+                tree_->setCurrentItem(item);item->setSelected(true);tree_->scrollToItem(item);break;
+            }
+        }
     });
     dialog->show();
 }
@@ -171,7 +180,7 @@ void AssemblyWorkspaceWindow::update_measurement_ui(){
     const auto id=workspace_.displayed_document_id();
     const auto* part=workspace_.open_part(id);const auto* assembly=workspace_.open_assembly(id);
     measure_action_->setEnabled((part||assembly)&&(!properties_dialog_||measurement_dialog_)&&!section_dialog_);
-    if((!part&&!assembly)||!active_sketch_id_.empty())return;
+    if(!part&&!assembly)return;
     const auto& rows=part?part->session.document().measurements:assembly->session.document().measurements;
     auto* root=tree_->topLevelItem(0);if(!root)return;
     using Key=std::tuple<std::string,std::string,std::string>;std::set<Key> available;

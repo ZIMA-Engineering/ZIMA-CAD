@@ -107,7 +107,11 @@ try{
     auto missing=saved;missing.references[0].semantic_key="missing";
     require(!viewer::measure_entity(loaded.mesh,missing.references[0]),"Missing reference silently changed owner");
     kernel::ViewerDimension d;d.kind=kernel::ViewerDimensionKind::Diameter;d.label_prefix="⌀";d.value=12;d.unit_suffix=" mm";
-    require(kernel::dimension_text(d,kernel::dimension_text_style(d))=="⌀12.000mm","Diameter is not U+2300, is duplicated, or unit spacing is wrong");
+    require(kernel::dimension_text(d,kernel::dimension_text_style(d))=="⌀12mm","Diameter is not U+2300, is duplicated, or unit spacing is wrong");
+    require(kernel::dimension_number(10,3)=="10"&&kernel::dimension_number(10.5,3)=="10,5"&&
+            kernel::dimension_number(10.52584,3)=="10,526"&&kernel::dimension_number(-.0001,3)=="0"&&
+            kernel::dimension_number(9.9999,3)=="10"&&kernel::dimension_number(50.5,3)=="50,5",
+            "Nominal dimension formatting lost comma, rounding or zero trimming");
     const viewer::ViewerCandidate external{viewer::CandidateKind::SketchExternalReference,0,0,"sketch","external_point:p",{}};
     require(viewer::measurement_reference(external)->kind==K::Point,"External Sketch point resolved as a curve");
     std::filesystem::remove_all(directory);

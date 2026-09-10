@@ -5092,7 +5092,12 @@ void AssemblyWorkspaceWindow::create_layout() {
     drawing_workspace_ = new DrawingWindow(&workspace_, false);
     drawing_workspace_->set_formats_directory(application_settings_.resolved_paths.value("Formats"));
     drawing_workspace_->set_document_changed_handler([this] { refresh_drawing_tree(); });
-    drawing_workspace_->set_properties_handler([this](QDialog* dialog) { properties_dialog_=dialog; });
+    drawing_workspace_->set_properties_handler([this](QDialog* dialog) {
+        properties_dialog_=dialog;
+        if(dialog)connect(dialog,&QObject::destroyed,this,[this,dialog] {
+            if(properties_dialog_==dialog)properties_dialog_=nullptr;
+        });
+    });
     drawing_workspace_->set_selection_handler([this](const std::string& id) {
         if (!workspace_.open_drawing(workspace_.displayed_document_id())) return;
         const QSignalBlocker blocker(tree_);
@@ -27697,8 +27702,8 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
     const auto identifier = dimension_identifier(candidate.owner_id, candidate.semantic_key);
     edit->setProperty("dimensionIdentifier", identifier);
     edit->setToolTip(identifier);
-    edit->setText(QString::number(
-        *value, 'f', viewer_->dimension_decimal_places()));
+    edit->setText(QString::fromStdString(kernel::dimension_number(
+        *value, viewer_->dimension_decimal_places())));
     edit->setAlignment(Qt::AlignCenter);
     edit->setFixedSize(104, 28);
     edit->setStyleSheet(

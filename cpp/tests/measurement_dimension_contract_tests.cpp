@@ -4,6 +4,9 @@
 #include <stdexcept>
 #include <zima/document/dimension_layout_json.hpp>
 #include <zima/drawing/measurement_dimension.hpp>
+#include <zima/drawing/model_annotations.hpp>
+#include <zima/kernel/occt_kernel.hpp>
+#include <zima/document/part_document.hpp>
 using namespace zima;
 using namespace zima::drawing;
 namespace {
@@ -36,6 +39,57 @@ DrawingView view(kernel::ViewerMesh mesh) {
 } // namespace
 int main() {
     try {
+        {
+            auto part=document::PartDocument::create_default();
+            auto box=document::PartDocument::create_box_container();box.box={30,20,10};
+            auto cut=document::PartDocument::create_box_container();cut.box={5,5,20};cut.combine_mode=document::CombineMode::Subtract;part.history={box,cut};
+            kernel::OcctKernel kernel;auto body=kernel.evaluate_history(part.kernel_operations()).back();
+            auto actual=DrawingDocument::create_view(part.document_id,{},body.mesh,ViewOrientation::Top);
+            MeasurementPickRequest request;request.mode=int(DimensionAttachmentKind::Line);
+            require(!measurement_candidates(actual,{-15,0},.5,request).empty(),
+                "Calculated Part edge has no drawing dimension hover");
+        }
+        {
+            auto axes = view({});
+            ModelAnnotation first;
+            first.kind=ModelAnnotationKind::Axis;first.visible=true;
+            first.source={"part","hole","axis","first"};
+            first.model_axis=std::array<kernel::Vec3,2>{{{10,10,-5},{10,10,5}}};
+            first.model_envelope.include({5,5,-5});first.model_envelope.include({15,15,5});
+            auto second=first;second.source.instance_path="second";
+            second.model_axis=std::array<kernel::Vec3,2>{{{30,10,-5},{30,10,5}}};
+            second.model_envelope={};second.model_envelope.include({25,5,-5});second.model_envelope.include({35,15,5});
+            axes.model_annotations={first,second};
+            MeasurementPickRequest request;
+            auto picked=measurement_candidates(axes,{15,10},.6,request);
+            require(!picked.empty()&&picked[0].attachment.kind==DimensionAttachmentKind::Center&&
+                    picked[0].attachment.reference.instance_path=="first","End-on axis arm did not offer its centre");
+            near(picked[0].position.x,10);
+            request.mode=int(DimensionAttachmentKind::Center);
+            auto other=measurement_candidates(axes,{30,10},.6,request);
+            require(!other.empty()&&other[0].attachment.reference.instance_path=="second","Repeated axes share a reference");
+            auto dimension=make_drawing_dimension(axes.id);
+            dimension.attachments={picked[0].attachment,other[0].attachment};
+            near(evaluate_drawing_dimension(axes,dimension).presentations[0].value,20);
+            axes.model_annotations[0].visible=false;
+            require(measurement_candidates(axes,{10,10},.6,request).empty(),"Erased axis is offered");
+            near(evaluate_drawing_dimension(axes,dimension).presentations[0].value,20);
+            axes.model_annotations=deserialize_model_annotations(serialize_model_annotations(axes.model_annotations));
+            dimension=deserialize_drawing_dimensions(serialize_drawing_dimensions({dimension})).front();
+            near(evaluate_drawing_dimension(axes,dimension).presentations[0].value,20);
+            axes.model_annotations[0].visible=true;
+            axes.camera={{1,0,0},{0,0,1},{0,-1,0}};
+            request={};request.lines_only=true;
+            picked=measurement_candidates(axes,{10,3},.6,request);
+            require(!picked.empty()&&picked[0].attachment.kind==DimensionAttachmentKind::Line,"Side-on axis not offered as a line");
+            require(resolve_dimension_attachment(axes,picked[0].attachment).has_value(),"Picked axis line does not resolve");
+            axes.camera={{1,0,0},{0,1,0},{0,0,1}};
+            require(measurement_candidates(axes,{10,10},.6,request).empty(),"End-on axis offered a nonexistent line");
+            request={};request.circles_only=true;
+            require(measurement_candidates(axes,{10,10},.6,request).empty(),"Axis offered as a measured circle");
+            axes.model_annotations[0].unresolved=true;
+            require(evaluate_drawing_dimension(axes,dimension).state==MeasurementState::Unresolved,"Lost axis silently rebound");
+        }
         kernel::ViewerMesh mesh;
         mesh.edges = {line("bottom", {0, 0, 0}, {40, 0, 0}), line("top", {0, 20, 0}, {40, 20, 0}),
                       line("right", {40, 0, 0}, {40, 20, 0}), circle("hole", 20, 10, 5),
@@ -76,7 +130,7 @@ int main() {
         d.style.tolerance_mode = "symmetric";
         d.style.symmetric_tolerance = "0.2";
         require(drawing_dimension_text(d, evaluate_drawing_dimension(v, d).presentations[0]) ==
-                    "2×40.0mm ±0.2",
+                    "2×40mm ±0,2",
                 "Text/tolerance format diverged");
         place_drawing_dimension(v, d, 0, {20, 30});
         refresh_drawing_dimension(v, d);

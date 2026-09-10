@@ -15,7 +15,7 @@ struct ProjectedMeasurementCurve {
     std::vector<Point2> points;
     std::vector<double> parameters;
     double sweep{};
-    bool line{}, circular{};
+    bool line{}, circular{}, axis{};
     std::optional<Point2> center;
     Point2 cosine_axis, sine_axis;
 };
@@ -35,6 +35,9 @@ std::vector<MeasurementCandidate> measurement_candidates(const DrawingView &, Po
                                                          const MeasurementPickRequest &);
 void capture_measurement_geometry(DrawingView &, const kernel::ViewerMesh &);
 std::vector<ProjectedMeasurementCurve> projected_measurement_curves(const DrawingView &);
+// Exact displayed fragments shared by hover and reference highlighting.
+std::vector<std::vector<Point2>> measurement_reference_geometry(
+    const DrawingView &, const kernel::EdgeReference &);
 std::optional<Point2> resolve_dimension_attachment(const DrawingView &, const DimensionAttachment &,
                                                    Point2 direction = {1, 0});
 std::vector<std::pair<Point2, double>> dimension_intersections(const ProjectedMeasurementCurve &,
