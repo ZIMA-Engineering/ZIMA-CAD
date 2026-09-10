@@ -375,6 +375,16 @@ struct PersistedCurveContact {
     double parameter{};
 };
 
+std::optional<std::string> keypoint_curve_id(const SketchConstraint& constraint) {
+    constexpr std::string_view prefix{"sketch_keypoint:"};
+    if (constraint.kind != ConstraintKind::PointReference ||
+        !constraint.second_point_id.starts_with(prefix)) return std::nullopt;
+    const auto first = constraint.second_point_id.find(':', prefix.size());
+    const auto last = constraint.second_point_id.rfind(':');
+    if (first == std::string::npos || first == last) return std::nullopt;
+    return constraint.second_point_id.substr(first + 1, last - first - 1);
+}
+
 double persisted_contact_parameter(
     const Sketch& sketch, const SampledCurve& curve, const SketchPoint& point) {
     constexpr double turn = 2.0 * 3.14159265358979323846;
@@ -407,14 +417,15 @@ std::vector<PersistedCurveContact> persisted_curve_contacts(
     const Sketch& sketch, const std::vector<SampledCurve>& curves) {
     std::vector<PersistedCurveContact> result;
     for (const auto& constraint : sketch.constraints) {
+        const auto keypoint_owner = keypoint_curve_id(constraint);
         if (constraint.suppressed ||
             (constraint.kind != ConstraintKind::PointOnLine &&
-             constraint.kind != ConstraintKind::PointOnCircle)) {
+             constraint.kind != ConstraintKind::PointOnCircle && !keypoint_owner)) {
             continue;
         }
         const auto curve = std::find_if(curves.begin(), curves.end(),
             [&](const auto& value) {
-                return value.geometry_id == constraint.geometry_id;
+                return value.geometry_id == keypoint_owner.value_or(constraint.geometry_id);
             });
         const auto* point = sketch.find_point(constraint.first_point_id);
         if (curve == curves.end() || point == nullptr) continue;
@@ -990,10 +1001,12 @@ SketchTrimResult apply_sketch_trim(
     // can split both owners of one tangent; restoring per curve loses the
     // first owner's remapping when the second owner is removed.
     for (auto constraint : sketch.constraints) {
+        const auto keypoint_owner = keypoint_curve_id(constraint);
         const bool trimmed = removed_by_id.contains(constraint.geometry_id) ||
             removed_by_id.contains(constraint.second_geometry_id);
         const bool contact = constraint.kind == ConstraintKind::PointOnCircle ||
-            constraint.kind == ConstraintKind::PointOnLine || constraint.kind == ConstraintKind::Tangent;
+            constraint.kind == ConstraintKind::PointOnLine || constraint.kind == ConstraintKind::Tangent ||
+            keypoint_owner.has_value();
         const bool shape_relation = constraint.kind == ConstraintKind::EqualRadius ||
             constraint.kind == ConstraintKind::Concentric || constraint.kind == ConstraintKind::Parallel ||
             constraint.kind == ConstraintKind::Perpendicular;
@@ -1050,6 +1063,18 @@ SketchTrimResult apply_sketch_trim(
         const auto second_owner = constraint.second_geometry_id;
         valid = valid && remap(constraint.geometry_id, second_owner) &&
             remap(constraint.second_geometry_id, first_owner);
+        if (valid && keypoint_owner && removed_by_id.contains(*keypoint_owner)) {
+            auto owner = *keypoint_owner;
+            valid = remap(owner, {});
+            if (valid) {
+                // The source K support is replaced by the retained curve.
+                // Persist C to that survivor; when its endpoint is already
+                // the same native point, the topology below owns C directly.
+                constraint.kind = ConstraintKind::PointOnCircle;
+                constraint.geometry_id = owner;
+                constraint.second_point_id.clear();
+            }
+        }
         std::erase_if(next.constraints, [&](const auto& value) { return value.id==constraint.id; });
         if (valid) next.constraints.push_back(std::move(constraint));
     }

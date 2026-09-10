@@ -635,6 +635,15 @@ a středy si ponechávají svá ID a bodové vazby. Pokud se kontakt ořízne pr
 příslušná tečnost zanikne. Spojení, které nově představuje jeden společný
 koncový bod, zůstává v topologii bez duplicitní rovnice incidence.
 
+Ořez zpracovává také napojení úsečky přes kvadrantový bod **K** kružnice
+nebo elipsy. Na zachovaném oblouku převede toto napojení na **C**, případně
+na jeden společný koncový bod; neukládá odkaz na již odstraněnou kružnici.
+Posun konce oblouku nepřepisuje samostatně bod dalšího oblouku připojeného
+úsečkou. Jeho pohyb dopočítají vazby. U stejných poloměrů řídí při tažení
+změnu uchopený oblouk bez ohledu na pořadí původního výběru pro rovnost.
+Tečnost v existujícím spoji C/K lze přidat i po změně směru úsečky;
+kontakt určuje uložený spoj, nikoli tečný bod k dosavadnímu směru úsečky.
+
 ### Směrové kóty bodů na osách (2026-09-09)
 
 Bod vázaný na přímku zůstává pohyblivý podél jejího směru. Při změně X/Y kóty

@@ -6223,6 +6223,91 @@ int main() {
                 "Trim retained tangent after its actual arc contact disappeared");
         }
 
+        {
+            // Ordinary Segment snapping at K uses PointReference, unlike
+            // the explicit Common tangent command's PointOnCircle contacts.
+            auto bridge = zima::sketcher::Sketch::create_default();
+            const auto left = bridge.add_circle(15, 20, 5);
+            const auto right = bridge.add_circle(45, 20, 5);
+            const auto left_hole = bridge.add_circle(15, 20, 2);
+            const auto right_hole = bridge.add_circle(45, 20, 2);
+            static_cast<void>(bridge.add_equal_radius_constraint(left, right));
+            static_cast<void>(bridge.add_equal_radius_constraint(left_hole, right_hole));
+            for (const int quarter : {1, 3}) {
+                const double y = quarter == 1 ? 25 : 15;
+                static_cast<void>(bridge.add_segment(15, y, 45, y));
+                const auto segment = bridge.segments.back();
+                static_cast<void>(bridge.add_point_reference_constraint(
+                    segment.first_point_id,
+                    "sketch_keypoint:circle:" + left + ":" + std::to_string(quarter)));
+                static_cast<void>(bridge.add_point_reference_constraint(
+                    segment.second_point_id,
+                    "sketch_keypoint:circle:" + right + ":" + std::to_string(quarter)));
+            }
+            for (const auto position : {std::array{20.0, 20.0}, std::array{40.0, 20.0}}) {
+                const auto pieces = zima::sketcher::sketch_trim_topology(bridge, true);
+                const auto piece = zima::sketcher::nearest_sketch_trim_piece(pieces, position, 0.1);
+                require(piece.has_value(), "K bridge does not offer the circle remainder");
+                static_cast<void>(zima::sketcher::apply_sketch_trim(bridge, {*piece}));
+            }
+            require(bridge.arcs.size() == 2 && bridge.circles.size() == 2,
+                "K bridge trim did not leave two arcs");
+            std::set<std::string> endpoints;
+            for (const auto& segment : bridge.segments) {
+                endpoints.insert(segment.first_point_id);
+                endpoints.insert(segment.second_point_id);
+            }
+            for (const auto& arc : bridge.arcs)
+                require(endpoints.contains(arc.start_point_id) && endpoints.contains(arc.end_point_id),
+                    "K bridge lost shared endpoint identity after trim");
+            const auto result = bridge.solve();
+            require(result.status != zima::sketcher::SolveStatus::Invalid &&
+                    result.status != zima::sketcher::SolveStatus::Conflicting,
+                "K bridge retains broken circle references after trim");
+            for (const auto& endpoint : endpoints) for (const bool reverse : {false, true}) {
+                auto loaded = zima::sketcher::Sketch::from_serialized(bridge.serialized());
+                const auto* point = loaded.find_point(endpoint);
+                const double x = point->x - 2, y = point->y + 2;
+                require(loaded.move_point(endpoint, x, y),
+                    ("K bridge cannot move its connected endpoint after trim and reload at " +
+                        std::to_string(x) + "," + std::to_string(y)).c_str());
+                const auto segment = std::ranges::find_if(loaded.segments, [&](const auto& value) {
+                    return value.first_point_id == endpoint || value.second_point_id == endpoint;
+                });
+                const auto arc = std::ranges::find_if(loaded.arcs, [&](const auto& value) {
+                    return value.start_point_id == endpoint || value.end_point_id == endpoint;
+                });
+                const auto segment_id = segment->id, arc_id = arc->id;
+                static_cast<void>(loaded.add_tangent_constraint(
+                    reverse ? segment_id : arc_id, reverse ? arc_id : segment_id));
+                const auto tangent_contact = *loaded.find_point(endpoint);
+                require(loaded.move_point(endpoint, tangent_contact.x + 0.5, tangent_contact.y + 0.5),
+                    "Tangent at the trimmed endpoint blocked the next drag");
+                const auto solved = loaded.solve();
+                require(solved.status != zima::sketcher::SolveStatus::Invalid &&
+                        solved.status != zima::sketcher::SolveStatus::Conflicting &&
+                        solved.maximum_residual < 1.0e-7,
+                    "Trimmed K bridge cannot make the moved arc and segment tangent");
+                require(std::abs(loaded.arcs[0].radius - loaded.arcs[1].radius) < 1.0e-7 &&
+                        std::abs(loaded.circles[0].radius - 2) < 1.0e-7 &&
+                        std::abs(loaded.circles[1].radius - 2) < 1.0e-7,
+                    "Trim/drag lost equal radii or changed unrelated hole radii");
+            }
+        }
+        for (const bool reverse : {false, true}) {
+            auto sketch = zima::sketcher::Sketch::create_default();
+            const auto circle = sketch.add_circle(0, 0, 5);
+            const auto segment = sketch.add_segment(5, 0, 9, 2);
+            static_cast<void>(sketch.add_point_reference_constraint(
+                sketch.segments.front().first_point_id, "sketch_keypoint:circle:" + circle + ":0"));
+            static_cast<void>(sketch.add_tangent_constraint(
+                reverse ? segment : circle, reverse ? circle : segment));
+            const auto* a = sketch.find_point(sketch.segments.front().first_point_id);
+            const auto* b = sketch.find_point(sketch.segments.front().second_point_id);
+            require(std::abs(a->x - b->x) < 1.0e-7 && std::abs(a->x - 5) < 1.0e-7,
+                "Tangent at a circle K endpoint did not rotate the line about its contact");
+        }
+
         auto tangent_bridge_trim = zima::sketcher::Sketch::create_default();
         const auto left_bridge_circle =
             tangent_bridge_trim.add_circle(-15.0, 0.0, 5.0);
