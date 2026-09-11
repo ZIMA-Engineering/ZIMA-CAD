@@ -136,3 +136,38 @@ a chybu zápisu bez modálního okna. Snímek: `Projects/test/command-console.pn
 
 Windows Release sestaven a všech 51 testů úplné sady prošlo (375,68 s).
 Panel byl ověřen i vizuálně na snímku skutečného okna.
+
+## Kompaktní panel a kontext ukazatele (2026-09-11)
+
+Panel lze stáhnout na jeden řádek výstupu a řádek zadávání. Textový `help`
+vypisuje každý příkaz na samostatném řádku s povinnými argumenty v `<…>`
+a nepovinnými v `[…]`; JSON katalog zůstává strukturovaný.
+
+`context` přidává okamžik pořízení `captured_at_unix_ms`, `camera`, `pointer`
+a `hover`. Kamera obsahuje osm hodnot: quaternion (w, x, y, z), měřítko,
+posun v pixelech (x, y) a referenční měřítko. Ukazatel používá logické pixely
+pohledu, jeho rozměry a paprsek (`origin`, `direction`) v modelových souřadnicích.
+Paprsek se získává z existující kamery bez výpočtu tělesa nebo dalšího pickeru.
+
+Hover přebírá přesně kandidáta nabízeného pohledem. Pokud je ukazatel mimo
+pohled, nad překrývajícím oknem nebo ještě neodpovídá poslední zpracované pozici
+pickeru, `hover` je `null`. Potvrzený výběr je nezávislý údaj `selection`.
+Výkresový kontext zatím neposkytuje kameru ani geometrii ukazatele.
+
+Budoucí hlasový adaptér musí zachytit kontext při ukazování/vyslovení pokynu,
+ne až po dokončení přepisu. Tento příkaz sám historii ukazatele ani zvuk
+nezaznamenává. Před provedením změny musí adaptér ověřit dokument a platnost
+referencí; nejednoznačné „tady“ nesmí převést na odhadnutou geometrii.
+
+Projekt zůstává GPL-3.0-or-later. Hlasový a AI adaptér mají používat společné
+příkazové rozhraní. Před distribucí konkrétního přepisovače nebo modelu je nutné
+ověřit jeho licenci a zachovat vyžadovaná oznámení. V této etapě není přidána
+hlasová knihovna, mikrofon ani poskytovatel AI.
+
+Ověření této úpravy: Windows Release sestaven, test parseru a integrační test
+konzole prošly; stabilita testu byla ověřena třemi po sobě jdoucími průchody.
+GUI test kontroluje zmenšení panelu, čas a kameru, paprsek a převzetí hoveru
+podle skutečného překrytí oken. Při automatizaci může být CAD překrytý jinou
+aplikací; tehdy se ověřuje prázdný hover, nikoli vynucený zásah geometrie.
+Kompaktní panel byl také zkontrolován na snímku
+`Projects/test/command-console-compact.png`.

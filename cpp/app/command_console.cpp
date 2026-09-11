@@ -1,5 +1,6 @@
 #include "command_console.hpp"
 #include <QPlainTextEdit>
+#include <QTextDocument>
 #include <QLineEdit>
 #include <QPushButton>
 #include <QLabel>
@@ -40,13 +41,15 @@ private:
 CommandConsole::CommandConsole(Execute execute,QWidget* parent)
     : QWidget(parent),execute_(std::move(execute)) {
     setObjectName("commandConsole");
-    auto* layout=new QVBoxLayout(this);layout->setContentsMargins(6,4,6,4);
+    auto* layout=new QVBoxLayout(this);layout->setContentsMargins(6,4,6,4);layout->setSpacing(3);
     auto* hint=new QLabel(tr("Příkazy CADu: help · documents · context · tree. Historie: ↑ / ↓."),this);
     hint->setWordWrap(true);layout->addWidget(hint);
     output_=new QPlainTextEdit(this);output_->setObjectName("commandConsoleOutput");
     output_->setReadOnly(true);output_->setMaximumBlockCount(1500);
     output_->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
-    output_->setMinimumHeight(90);layout->addWidget(output_);
+    output_->setMinimumHeight(output_->fontMetrics().height()+2*output_->frameWidth()+2*static_cast<int>(output_->document()->documentMargin()));
+    output_->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Ignored);
+    layout->addWidget(output_,1);
     auto* row=new QHBoxLayout;
     input_=new CommandInput(this);input_->setObjectName("commandConsoleInput");
     input_->setPlaceholderText(tr("Zadejte příkaz nebo JSON požadavek…"));
@@ -65,7 +68,18 @@ void CommandConsole::submit() {
     output_->appendPlainText(QStringLiteral("> ")+text);
     const auto result=execute_(text);
     QString report;
-    if(result.ok)report=QString::fromStdString(result.data.dump(2, ' ', false, zima::commands::Json::error_handler_t::replace));
+    if(result.ok && text==QStringLiteral("help") && result.data.is_array()) {
+        QStringList lines;
+        for(const auto& command:result.data) {
+            QString usage=QString::fromStdString(command.at("name").get<std::string>());
+            for(const auto& argument:command.at("arguments")) {
+                const auto name=QString::fromStdString(argument.at("name").get<std::string>());
+                usage+=argument.at("required").get<bool>()?QStringLiteral(" <")+name+">":QStringLiteral(" [")+name+"]";
+            }
+            lines.append(usage+QStringLiteral(" — ")+QString::fromStdString(command.at("description").get<std::string>()));
+        }
+        report=lines.join('\n');
+    } else if(result.ok)report=QString::fromStdString(result.data.dump(2, ' ', false, zima::commands::Json::error_handler_t::replace));
     else report=tr("Chyba [%1]: %2").arg(QString::fromStdString(result.code),QString::fromStdString(result.message));
     constexpr qsizetype limit=24000;
     if(report.size()>limit)report=report.left(limit)+QStringLiteral("\n")+tr("… Výpis byl zkrácen.");

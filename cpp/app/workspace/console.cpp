@@ -1,6 +1,8 @@
 #include "workspace_internal.hpp"
 #include "command_console.hpp"
 #include <QDockWidget>
+#include <QDateTime>
+#include <QCursor>
 #include <QTreeWidgetItemIterator>
 
 namespace zima::app {
@@ -95,11 +97,34 @@ void AssemblyWorkspaceWindow::create_command_console() {
             Json result={{"active_document",workspace_.active_document_id()},
                 {"displayed_document",workspace_.displayed_document_id()},
                 {"active_occurrence",active_occurrence_path_},{"active_sketch",active_sketch_id_},
-                {"working_directory",path_text(working_directory_)},{"selection",nullptr}};
-            if(viewer_ && !workspace_.open_drawing(workspace_.displayed_document_id()))
-                if(const auto& candidate=viewer_->confirmed_candidate())
-                    result["selection"]={{"owner_id",candidate->owner_id},{"semantic_key",candidate->semantic_key},
-                        {"instance_path",candidate->instance_path},{"kind",candidate_kind(candidate->kind)},{"geometry",candidate->geometry==viewer::CandidateGeometry::OriginalReference?"original_reference":"display"}};
+                {"working_directory",path_text(working_directory_)},{"selection",nullptr},
+                {"captured_at_unix_ms",QDateTime::currentMSecsSinceEpoch()},
+                {"hover",nullptr},{"camera",nullptr},{"pointer",{{"inside_view",false}}}};
+            const auto candidate_json=[](const viewer::ViewerCandidate& candidate) -> Json {
+                return {{"owner_id",candidate.owner_id},{"semantic_key",candidate.semantic_key},
+                    {"instance_path",candidate.instance_path},{"kind",candidate_kind(candidate.kind)},
+                    {"geometry",candidate.geometry==viewer::CandidateGeometry::OriginalReference?"original_reference":"display"}};
+            };
+            if(viewer_ && viewer_->isVisible() && !workspace_.open_drawing(workspace_.displayed_document_id())) {
+                if(const auto& candidate=viewer_->confirmed_candidate())result["selection"]=candidate_json(*candidate);
+                result["camera"]=viewer_->camera_state();
+                const auto global=QCursor::pos();const auto position=viewer_->mapFromGlobal(global);
+                // An editor or dialog over the View is not a geometry target.
+                const bool inside=viewer_->rect().contains(position) && QApplication::widgetAt(global)==viewer_;
+                result["pointer"]={{"inside_view",inside},{"coordinate_system","view_logical_pixels"},
+                    {"viewport_width",viewer_->width()},{"viewport_height",viewer_->height()},
+                    {"x",nullptr},{"y",nullptr},{"ray",nullptr}};
+                if(inside) {
+                    result["pointer"]["x"]=position.x();result["pointer"]["y"]=position.y();
+                    if(const auto ray=viewer_->ray_at(position)) {
+                        const auto vector=[](const kernel::Vec3& v){return Json::array({v.x,v.y,v.z});};
+                        result["pointer"]["ray"]={{"origin",vector(ray->first)},{"direction",vector(ray->second)}};
+                    }
+                    // Consume the offered candidate; never run another picker.
+                    if(viewer_->last_pointer_position()==position)
+                        if(const auto& hovered=viewer_->hovered_candidate())result["hover"]=candidate_json(*hovered);
+                }
+            }
             return Result::success(std::move(result));
         });
     command_dispatcher_.add({"tree",tr("Strom zobrazeného dokumentu bez výpočtu geometrie.").toStdString(),{},false},

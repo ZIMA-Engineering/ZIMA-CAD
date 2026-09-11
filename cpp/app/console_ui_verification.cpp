@@ -10,6 +10,10 @@
 #include <QDialogButtonBox>
 #include <QPushButton>
 #include <QKeyEvent>
+#include <QCursor>
+#include <QElapsedTimer>
+#include <QThread>
+#include <zima/viewer/mesh_view.hpp>
 #include <chrono>
 #include <iostream>
 #include <stdexcept>
@@ -29,6 +33,10 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         auto* input=window.findChild<QLineEdit*>("commandConsoleInput");
         auto* output=window.findChild<QPlainTextEdit*>("commandConsoleOutput");
         check(input && output,"Console input/output missing");
+        window.resizeDocks({dock},{1},Qt::Vertical);flush();
+        check(output->height()<90 && input->isVisible(),"Console cannot shrink below its former output minimum");
+        check(window.grab().save(QString::fromStdString((directory/"command-console-compact.png").string())),"Compact screenshot failed");
+        window.resizeDocks({dock},{260},Qt::Vertical);flush();
         input->setText("help");QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(input,&enter);flush();
         check(output->toPlainText().contains("regenerate"),"Enter did not dispatch help");
         QKeyEvent up(QEvent::KeyPress,Qt::Key_Up,Qt::NoModifier);QApplication::sendEvent(input,&up);check(input->text()=="help","Command history failed");
@@ -46,7 +54,34 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible() && dialog->findChild<QDialogButtonBox*>())properties=dialog;
         check(properties,"Box properties did not open");
         properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
-        const auto before=run("documents").data;run("tree");run("context");check(run("documents").data==before,"Read commands changed document state");
+        const auto before=run("documents").data;run("tree");
+        auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QWidget*>("modelWorkspace"));
+        check(view,"Model View missing");
+        struct CursorRestore { QPoint position=QCursor::pos(); ~CursorRestore(){QCursor::setPos(position);} } restore_cursor;
+        const auto move_pointer=[&](QWidget* target) {
+            window.raise();window.activateWindow();flush();
+            const auto destination=target->mapToGlobal(QPoint(target->width()/3,target->height()/3));
+            QCursor::setPos(destination);
+            QElapsedTimer timer;timer.start();
+            do { flush(); if(QCursor::pos()==destination && QApplication::widgetAt(destination)==target)break; QThread::msleep(10); } while(timer.elapsed()<1000);
+            flush();
+        };
+        move_pointer(view);
+        // Desktop automation may leave another native window above this one.
+        // Context must follow the real topmost widget, not merely View bounds.
+        const bool inside=QApplication::widgetAt(QCursor::pos())==view;
+        const auto pointing=run("context").data;
+        check(pointing.at("pointer").at("inside_view")==inside,"Context ignored actual desktop hit target");
+        check(pointing.at("captured_at_unix_ms").is_number_integer() && pointing.at("camera").is_array(),"Context timestamp/camera missing");
+        check(view->ray_at(QPoint(view->width()/3,view->height()/3)).has_value(),"View camera ray missing");
+        check(pointing.at("pointer").at("ray").is_null()!=inside,"Context ray visibility mismatch");
+        const auto offered=inside && view->last_pointer_position()==view->mapFromGlobal(QCursor::pos())?view->hovered_candidate():std::nullopt;
+        check(offered?pointing.at("hover").at("owner_id")==offered->owner_id:pointing.at("hover").is_null(),"Context recomputed a different hover candidate");
+        std::cout<<"Pointer context verified with View exposed="<<inside<<'\n';
+        move_pointer(input);
+        const auto typing=run("context").data;
+        check(typing.at("pointer").at("inside_view")==false && typing.at("hover").is_null(),"Stale View hover leaked into console context");
+        check(run("documents").data==before,"Read commands changed document state");
         run("save");
         const auto path=directory/(stem+".prtz");
         auto loaded=document::PartDocument::load(path);check(loaded.history.size()==1,"Console did not save the GUI feature");
