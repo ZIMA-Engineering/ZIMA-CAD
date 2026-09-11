@@ -47,3 +47,13 @@ the configured Qt runtime. The installed Windows/MSVC runtime remains the
 same prerequisite as for the existing local C++ executable. The drawing UI
 contract writes and decodes a JPG without an external Qt plugin search path.
 This is local development deployment, not a portable-release pipeline.
+
+
+## Local command-line executable
+
+`tools/build-windows.ps1` builds both `zima-cad-cpp.exe` and `zima-cad-cli.exe`.
+The CLI uses the console subsystem, a Unicode Windows entry point, UTF-8
+command input/output and the common command host. It does not link Qt or
+create a GUI. OCCT and the C++ runtime remain required. The CLI target is
+included in the CMake install target; this does not establish a portable
+release pipeline. See [CAD_COMMAND_LINE.md](CAD_COMMAND_LINE.md).

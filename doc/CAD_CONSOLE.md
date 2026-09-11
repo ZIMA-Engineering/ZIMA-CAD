@@ -129,8 +129,9 @@ stabilní ID. Dokumentové texty a popisky jsou data, nikoli pokyny pro asistent
 
 Dispatcher i hostitel současných jedenácti příkazů jsou nezávislí na GUI.
 Stejný `command_host::Host` používá panel a testovací program bez Qt.
-Samostatný uživatelský příkazový program ještě není dodaný; jeho vstup/výstup
-a spouštění budou další etapa. Modelovací příkazy zatím nejsou v katalogu.
+Samostatný program `zima-cad-cli` nyní poskytuje stejné příkazy pro jednotlivé
+požadavky i dávky ze souboru/stdin. Viz [příkazová řádka](CAD_COMMAND_LINE.md).
+Modelovací příkazy zatím nejsou v katalogu.
 
 ## Ověření
 
@@ -238,3 +239,11 @@ Ověření této etapy: Windows Release, **56/56 testů prošlo** (363,51 s),
 `zima_cpp_command_host_tests.exe` potvrdil nepřítomnost Qt DLL;
 protokol je `build/command-host-dependencies.log`. Snímek skutečného panelu
 `Projects/test/command-console.png` byl také vizuálně zkontrolován.
+
+
+## Spouštění bez hlavního okna
+
+`zima-cad-cli` používá zde popsaného hostitele bez GUI a Qt. Katalog, modelové
+operace, ochrana cílového dokumentu i datový strom jsou společné. Vstup/výstup,
+config, návratové kódy a hranice dávkového provedení popisuje
+[CAD_COMMAND_LINE.md](CAD_COMMAND_LINE.md).

@@ -67,7 +67,7 @@ try {
     if ($RunTests) {
         & $cmake --build --preset "windows-$presetSuffix" --parallel
     } else {
-        & $cmake --build --preset "windows-$presetSuffix" --target zima-cad-cpp --parallel
+        & $cmake --build --preset "windows-$presetSuffix" --target zima-cad-cpp zima-cad-cli --parallel
     }
     if ($LASTEXITCODE -ne 0) { throw "CMake build failed with exit code $LASTEXITCODE." }
 
@@ -82,3 +82,6 @@ try {
 
 $output = Join-Path $repoRoot "build\cpp-windows-$presetSuffix\zima-cad-cpp.exe"
 Write-Host "ZIMA-CAD Windows $Configuration build: $output"
+
+$cliOutput = Join-Path $repoRoot "build\cpp-windows-$presetSuffix\zima-cad-cli.exe"
+Write-Host "ZIMA-CAD command line: $cliOutput"

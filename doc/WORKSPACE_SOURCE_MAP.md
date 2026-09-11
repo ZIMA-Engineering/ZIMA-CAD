@@ -132,5 +132,7 @@ Katalog a vykonávání příkazů nyní sídlí v `modules/command_host/src/hos
 `model_tree.cpp` čte datovou hierarchii bez widgetů a bez výpočtu geometrie.
 `workspace/console.cpp` zajišťuje panel, snímek interakce a obnovu zobrazení;
 `documents.cpp::finish_document_switch` sdílí obnovu po GUI/konzolovém Open/New.
-Host a jeho testovací program nelinkují Qt. Samostatný uživatelský CLI program
-ani nové modelovací příkazy nejsou součástí této etapy.
+Host a jeho testovací program nelinkují Qt. Následující etapa přidává samostatný
+`zima-cad-cli`: `cli/main.cpp`, `cli/runner.cpp`, `cli/settings.cpp`; viz
+[CAD_COMMAND_LINE.md](CAD_COMMAND_LINE.md). Nové modelovací příkazy zatím nejsou
+v katalogu.

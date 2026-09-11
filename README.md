@@ -39,6 +39,21 @@ archive with its complete runtime, resources, directory layout and portable
 settings. The distribution contract is documented in
 [`doc/PORTABLE_RELEASE.md`](doc/PORTABLE_RELEASE.md).
 
+## Command line
+
+The `zima-cad-cli` executable runs the shared CAD commands without Qt or a GUI.
+The Windows build script builds it alongside the desktop application:
+
+```powershell
+./tools/build-windows.ps1 -Configuration Release
+& ./build/cpp-windows-release/zima-cad-cli.exe --help
+& ./build/cpp-windows-release/zima-cad-cli.exe --working-directory ./Projects --command "documents"
+```
+
+Use repeated `--command`, a UTF-8 `--script`, or `--stdin`. Each command returns
+one JSON object on stdout; diagnostics use stderr. Batches stop on the first
+error by default and never save implicitly. See [CLI usage and configuration](doc/CAD_COMMAND_LINE.md).
+
 ## Frozen Python reference
 
 The former Python implementation is frozen in [`archive/python/`](archive/python/).
