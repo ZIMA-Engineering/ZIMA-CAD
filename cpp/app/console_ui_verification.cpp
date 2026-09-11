@@ -1,4 +1,8 @@
 #include "console_ui_verification.hpp"
+#include "history_tree_widget.hpp"
+#include <QMenu>
+#include <QTimer>
+#include <QMessageBox>
 #include "assembly_workspace_window.hpp"
 #include <zima/document/part_document.hpp>
 #include <QApplication>
@@ -242,6 +246,46 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         run("save");std::vector<kernel::BodyResult> body_cache;
         const auto body_document=document::PartDocument::load(directory/(stem+"-bodies.prtz"),&body_cache);
         check(body_document.body_history.find_boolean(boolean) && !body_cache.empty() && std::abs(body_cache.back().volume-64)<1e-6,"GUI Boolean edit saved the wrong volume");
+        run(QString::fromStdString("new part "+stem+"-history"));
+        const auto history_first=run("box.create 10 10 10").data.at("container").get<std::string>();
+        const auto history_second=run("box.create 4 4 4").data.at("container").get<std::string>();flush();
+        auto* history_tree=dynamic_cast<HistoryTreeWidget*>(model_tree);check(history_tree,"History widget missing");
+        const auto history_row=[&](const std::string& object) {
+            for(QTreeWidgetItemIterator it(model_tree);*it;++it)
+                if((*it)->data(0,Qt::UserRole).toString().toStdString()==object && (*it)->data(0,Qt::UserRole+3).toString()=="part-container")return *it;
+            return static_cast<QTreeWidgetItem*>(nullptr);
+        };
+        auto* moving=history_row(history_second);check(moving && history_tree->reorder_enabled(moving),"History drag not enabled");
+        const auto history_revision=run("history.list").data.at("revision");
+        check(history_tree->reorder_requested(moving,QString::fromStdString(history_first),false),"GUI drag dependency check failed");
+        check(run("history.list").data.at("revision")==history_revision,"GUI drag preview committed history");
+        check(history_tree->reorder_requested(moving,QString::fromStdString(history_first),true),"GUI history move failed");flush();
+        check(run("history.list").data.at("items")[0].at("object")==history_second,"GUI history move diverged from command model");
+        history_tree->history_cursor_moved(0);flush();check(run("history.list").data.at("cursor")==0,"GUI history cursor diverged");
+        history_tree->history_cursor_moved(2);flush();
+        const auto history_menu=[&](const std::string& object,const char* action_name,bool confirm) {
+            auto* row=history_row(object);check(row,"History menu target missing");
+            for(auto* parent=row->parent();parent;parent=parent->parent())model_tree->expandItem(parent);
+            model_tree->scrollToItem(row);model_tree->clearSelection();model_tree->setCurrentItem(row);row->setSelected(true);
+            bool invoked=false;
+            QTimer::singleShot(0,&window,[&] {
+                auto* menu=window.findChild<QMenu*>("partHistoryMenu");if(!menu)return;
+                auto* action=menu->findChild<QAction*>(action_name);if(!action){menu->close();return;}
+                if(confirm)QTimer::singleShot(0,&window,[&]{
+                    if(auto* question=qobject_cast<QMessageBox*>(QApplication::activeModalWidget()))question->button(QMessageBox::Yes)->click();
+                });
+                invoked=true;menu->setActiveAction(action);QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(menu,&enter);
+            });
+            model_tree->customContextMenuRequested(model_tree->visualItemRect(row).center());flush();check(invoked,"History context action missing");
+        };
+        history_menu(history_first,"suppressHistoryObject",false);
+        check(run("history.list").data.at("items")[1].at("suppressed")==true,"GUI suppression diverged from commands");
+        run("save");std::vector<kernel::BodyResult> history_cache;
+        static_cast<void>(document::PartDocument::load(directory/(stem+"-history.prtz"),&history_cache));
+        check(!history_cache.empty() && std::abs(history_cache.back().volume-64)<1e-6,"GUI suppression calculated wrong volume");
+        run("undo");history_menu(history_second,"deleteHistoryObject",true);
+        check(run("history.list").data.at("items").size()==1 && run("history.list").data.at("items")[0].at("object")==history_first,"GUI deletion diverged from commands");
+        run("undo");check(run("history.list").data.at("items").size()==2,"GUI history deletion lost shared Undo");
         run(QString::fromStdString(activate.dump()));flush();
         input->setText("context");QApplication::sendEvent(input,&enter);flush();
         check(window.grab().save(QString::fromStdString((directory/"command-console.png").string())),"Console screenshot failed");

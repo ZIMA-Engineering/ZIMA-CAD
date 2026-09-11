@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-namespace zima::app {
+namespace zima::workspace {
 using HistoryDependencies=std::set<std::pair<std::string,std::string>>; // source, consumer
 struct HistoryDependencyCollector {
     std::map<std::string,std::string> owners;

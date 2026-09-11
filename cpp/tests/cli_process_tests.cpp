@@ -190,6 +190,12 @@ int main(int argc,char** argv){
         const auto bodies=document::PartDocument::load(project/"commanded-bodies.prtz",&reloaded);
         require(bodies.body_history.booleans().size()==1 && bodies.body_history.booleans().front().target_id==first_body &&
             bodies.body_history.booleans().front().tool_id==tool_body && std::abs(reloaded.back().volume-936)<1e-6,"CLI Boolean saved wrong ownership or volume");
+        const auto boolean_id=bodies.body_history.booleans().front().id;
+        const auto history_script="open commanded-bodies.prtz\nhistory.delete "+boolean_id+"\nhistory.move "+tool_body+" "+first_body+"\nhistory.list\nsave\n";
+        result=launch(executable,root,common+QStringList{"--stdin"},QByteArray::fromStdString(history_script));
+        const auto history_result=document::PartDocument::load(project/"commanded-bodies.prtz",&reloaded);
+        require(result.exit_code==0 && result.results().size()==5 && history_result.body_history.booleans().empty() &&
+            history_result.body_history.order().front()==tool_body && !reloaded.empty(),"CLI history did not persist deleted Boolean/reordered Bodies");
         std::cout<<"CLI processes: native files, Unicode/config, scripts/stdin, errors, streaming and explicit geometry calculation passed\n";
         return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}

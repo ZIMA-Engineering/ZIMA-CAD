@@ -479,7 +479,7 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
     const auto construction_path = active_occurrence_path_.empty()
         ? zima::assembly::InstancePath{}
         : zima::assembly::InstancePath::decode(active_occurrence_path_);
-    TreeReferenceIndex references;
+    zima::workspace::ReferenceIndex references;
     if (const auto* part=workspace_.open_part(document.document_id)) {
         const auto& boundaries=part->session.calculated_boundaries();
         if (!boundaries.empty()) references.add_geometry(boundaries.back().mesh.original_references);
@@ -852,7 +852,7 @@ void AssemblyWorkspaceWindow::add_snapshot_tree_children(
     const zima::assembly::InstancePath& parent_path,
     bool ancestor_suppressed) {
     const auto* owner=workspace_.open_assembly(owner_assembly_document_id);
-    const auto references=owner ? assembly_reference_index(owner->session.document()) : TreeReferenceIndex{};
+    const auto references=owner ? assembly_reference_index(owner->session.document()) : zima::workspace::ReferenceIndex{};
     for (const auto& component : snapshots) {
         const bool suppressed = ancestor_suppressed ||
             component.manually_suppressed || component.dependency_suppressed;

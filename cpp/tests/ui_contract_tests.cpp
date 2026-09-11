@@ -23,7 +23,7 @@
 #include <zima/ui/container_placement_section.hpp>
 #include "tree_reference_state.hpp"
 #include "history_tree_widget.hpp"
-#include "history_reorder_policy.hpp"
+#include <zima/workspace/history_policy.hpp>
 #include "resource_icon.hpp"
 
 #include <zima/viewer/mesh_view.hpp>
@@ -368,6 +368,7 @@ int main(int argc, char* argv[]) {
         {
             using namespace zima::app;
             auto document=zima::document::PartDocument::create_default();
+            using namespace zima::workspace;
             auto source=zima::document::PartDocument::create_box_container();
             auto consumer=zima::document::PartDocument::create_box_container();
             auto independent=zima::document::PartDocument::create_box_container();
@@ -482,7 +483,7 @@ int main(int argc, char* argv[]) {
 
         {
             using namespace zima::app;
-            TreeReferenceIndex references;
+            zima::workspace::ReferenceIndex references;
             zima::document::ConstructionReference ref;
             ref.owner_id="source"; ref.semantic_key="plane:top";
             references.add(ref);

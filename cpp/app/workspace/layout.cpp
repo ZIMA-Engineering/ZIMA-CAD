@@ -70,11 +70,7 @@ void AssemblyWorkspaceWindow::create_layout() {
     history_tree->history_cursor_moved = [this](std::size_t cursor) {
         auto* part = workspace_.open_part(workspace_.active_document_id());
         if (part == nullptr || !part_history_insertion_allowed()) return;
-        auto next = part->session.document();
-        if (next.effective_history_cursor() ==
-            std::min(cursor, next.history_order.size())) return;
-        next.set_history_cursor(cursor);
-        part->session.commit(std::move(next), part->session.calculated_boundaries());
+        if (!workspace::set_part_history_cursor(*part,cursor)) return;
         preserve_view_on_refresh_ = true;
         refresh_tabs();
         refresh_scene();
@@ -2376,6 +2372,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                     ? nullptr : part->session.document().find_container(id);
                 if (container == nullptr) return;
                 QMenu menu(this);
+                menu.setObjectName("partHistoryMenu");
                 auto* edit = menu.addAction(tr("Upravit"));
                 auto* properties = menu.addAction(tr("Vlastnosti…"));
                 QAction* transform_extrusion{};
@@ -2391,9 +2388,11 @@ void AssemblyWorkspaceWindow::create_layout() {
                 }
                 auto* suppress = menu.addAction(container->suppressed
                     ? tr("Obnovit") : tr("Potlačit"));
+                suppress->setObjectName("suppressHistoryObject");
                 auto* move_up = menu.addAction(tr("Posunout výše"));
                 auto* move_down = menu.addAction(tr("Posunout níže"));
                 auto* remove = menu.addAction(tr("Odstranit"));
+                remove->setObjectName("deleteHistoryObject");
                 const auto* selected = menu.exec(
                     tree_->viewport()->mapToGlobal(position));
                 if (selected == edit) {

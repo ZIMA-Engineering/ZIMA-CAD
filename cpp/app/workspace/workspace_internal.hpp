@@ -23,7 +23,8 @@
 #include "body_properties_dialog.hpp"
 #include "shaft_thread_preview.hpp"
 #include "sketch_constraints_dialog.hpp"
-#include "history_reorder_policy.hpp"
+#include <zima/workspace/history_policy.hpp>
+#include <zima/workspace/history_operations.hpp>
 #include "history_tree_widget.hpp"
 #include "reference_tree_policy.hpp"
 #include "edge_treatment_tree_policy.hpp"
@@ -468,16 +469,6 @@ zima::kernel::Vec3 edge_preview_offset(const zima::kernel::Vec3& point,
 
 bool edge_preview_same_point(
     const zima::kernel::Vec3& first, const zima::kernel::Vec3& second);
-
-bool viewer_edges_same_geometry(
-    const zima::kernel::ViewerEdge& first,
-    const zima::kernel::ViewerEdge& second);
-
-std::size_t restore_surviving_edge_references_after_history_delete(
-    zima::document::PartDocument& document,
-    const std::string& deleted_owner,
-    const zima::kernel::BodyResult& input_before_deleted,
-    const std::vector<zima::kernel::BodyResult>& old_boundaries);
 
 struct EdgeTreatmentPreviewPath {
     std::vector<zima::kernel::ViewerEdge> edges;

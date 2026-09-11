@@ -160,7 +160,7 @@ void AssemblyWorkspaceWindow::update_section_ui(){
         return item;
     };
     row(tr("Bez řezu"),{},"document-section-normal",std::ranges::none_of(sections,[](const auto& s){return s.show_cut;}));
-    TreeReferenceIndex references;
+    zima::workspace::ReferenceIndex references;
     if (const auto* part=workspace_.open_part(id)) {
         // An unfinished Part can have history but no calculated body yet.
         // Tree validation consumes only persisted geometry and must not

@@ -1,35 +1,17 @@
 #pragma once
+#include <zima/workspace/reference_index.hpp>
 #include <zima/assembly/assembly_document.hpp>
 #include <algorithm>
 #include <set>
 #include <tuple>
 
 namespace zima::app {
-struct TreeReferenceIndex {
-    std::set<std::tuple<std::string,std::string,std::string>> keys;
-    template<class Ref> void add(const Ref& ref) {
-        keys.emplace(ref.instance_path,ref.owner_id,ref.semantic_key);
-    }
-    template<class Geometry> void add_geometry(const Geometry& mesh) {
-        for (const auto& ref : mesh.triangle_references) add(ref);
-        for (const auto& edge : mesh.edges) add(edge.reference);
-        for (const auto& point : mesh.points) add(point.reference);
-        for (const auto& axis : mesh.axes) add(axis.reference);
-    }
-    bool contains(const std::string& owner,const std::string& semantic,const std::string& path={}) const {
-        return keys.contains({path,owner,semantic});
-    }
-    template<class Ref> std::string missing(const Ref& ref) const {
-        if (contains(ref.owner_id,ref.semantic_key,ref.instance_path)) return {};
-        return "["+ref.instance_path+"|"+ref.owner_id+"|"+ref.semantic_key+"]";
-    }
-};
-inline std::string placement_reference_issue(const document::Placement& placement,const TreeReferenceIndex& index) {
+inline std::string placement_reference_issue(const document::Placement& placement,const zima::workspace::ReferenceIndex& index) {
     std::string issue=placement.reference_valid ? "" : "placement";
     for (const auto& ref : placement.references) issue+=index.missing(ref);
     return issue;
 }
-inline std::string construction_reference_issue(const document::ConstructionObject& object,const TreeReferenceIndex& index) {
+inline std::string construction_reference_issue(const document::ConstructionObject& object,const zima::workspace::ReferenceIndex& index) {
     std::string issue=object.reference_valid ? "" : "construction";
     for (const auto& ref : object.references) issue+=index.missing(ref);
     for (const auto& point : object.curve_points) issue+=construction_reference_issue(point,index);
@@ -48,7 +30,7 @@ template<class Document> std::string sketch_reference_issue(const sketcher::Sket
     return issue;
 }
 template<class Document> std::string feature_reference_issue(const document::HistoryContainer& feature,
-        const Document& document,const TreeReferenceIndex& index,const kernel::ViewerMesh* input=nullptr) {
+        const Document& document,const zima::workspace::ReferenceIndex& index,const kernel::ViewerMesh* input=nullptr) {
     std::string issue=placement_reference_issue(feature.placement,index);
     const auto profile=[&](const std::string& id) {
         const auto found=std::ranges::find_if(document.sketches,[&](const auto& s){return s.id==id;});
@@ -112,7 +94,7 @@ template<class Document> std::string feature_reference_issue(const document::His
         break;
     case FeatureKind::Fillet: case FeatureKind::Chamfer:
         if (input) {
-            TreeReferenceIndex operational;
+            zima::workspace::ReferenceIndex operational;
             for (const auto& edge : input->edges) operational.add(edge.reference);
             for (const auto& edge : feature.edge_treatment.flattened_edges()) issue+=operational.missing(edge);
         }
@@ -129,12 +111,12 @@ template<class Document> std::string feature_reference_issue(const document::His
         if (sketch.owner_container_id==feature.id) issue+=sketch_reference_issue(sketch,document);
     return issue;
 }
-inline TreeReferenceIndex assembly_reference_index(const assembly::AssemblyDocument& document) {
-    TreeReferenceIndex index;
+inline zima::workspace::ReferenceIndex assembly_reference_index(const assembly::AssemblyDocument& document) {
+    zima::workspace::ReferenceIndex index;
     index.add_geometry(document.build_scene().original_references);
     return index;
 }
-inline std::string occurrence_reference_issue(const assembly::PartOccurrence& component,const TreeReferenceIndex& index) {
+inline std::string occurrence_reference_issue(const assembly::PartOccurrence& component,const zima::workspace::ReferenceIndex& index) {
     std::string issue;
     for (const auto& row : component.placement_references) {
         for (const auto* ref : {&row.component_reference,&row.target_reference})

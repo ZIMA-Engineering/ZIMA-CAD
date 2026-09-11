@@ -2,6 +2,13 @@
 
 namespace zima::app {
 using namespace workspace_detail;
+using workspace::reordered_history;
+using workspace::history_order_preserves_dependencies;
+using workspace::assembly_component_dependencies;
+using workspace::sort_history_records;
+using workspace::HistoryDependencies;
+using workspace::part_history_dependencies;
+using workspace::part_history_dependency_graph;
 
 
 void AssemblyWorkspaceWindow::toggle_part_container_suppressed(
@@ -9,29 +16,12 @@ void AssemblyWorkspaceWindow::toggle_part_container_suppressed(
     auto* part = workspace_.open_part(workspace_.active_document_id());
     if (part == nullptr || properties_dialog_ != nullptr) return;
     try {
-        auto next = part->session.document();
-        auto* container = next.find_container(container_id);
-        if (container != nullptr) {
-            container->suppressed = !container->suppressed;
-        } else if (auto* construction = next.find_construction(container_id)) {
-            construction->suppressed = !construction->suppressed;
-        } else {
-            const auto sketch = std::find_if(next.sketches.begin(), next.sketches.end(),
-                [&](const auto& value) { return value.id == container_id; });
-            if (sketch == next.sketches.end()) return;
-            sketch->suppressed = !sketch->suppressed;
-        }
-        const auto& previous = part->session.calculated_boundaries();
-        auto calculated = calculate_part(next, &previous);
-        next.resolve_constructions(calculated.empty()
-            ? zima::kernel::ViewerReferenceGeometry{}
-            : calculated.back().mesh.original_references);
-        static_cast<void>(refresh_sketch_external_references(next, calculated));
-        part->session.commit(std::move(next), std::move(calculated));
+        if (!workspace::set_part_history_suppressed(*part, kernel_, container_id,
+                !workspace::part_history_suppressed(part->session.document(), container_id))) return;
         refresh_tabs();
         refresh_scene();
     } catch (const std::exception& error) {
-        QMessageBox::warning(this, tr("Potlačení nelze změnit"), error.what());
+        QMessageBox::warning(this, tr("Potlačení nelze změnit"), tr(error.what()));
     }
 }
 
@@ -88,98 +78,15 @@ bool AssemblyWorkspaceWindow::tree_item_reorder_enabled(QTreeWidgetItem* item) c
 bool AssemblyWorkspaceWindow::reorder_part_history(const std::string& id,const std::string& before,bool commit) {
     auto* part=workspace_.open_part(workspace_.active_document_id());
     if (!part || properties_dialog_ || !active_sketch_id_.empty()) return false;
-    const auto& original=part->session.document();
-    const bool body_step = original.body_history.find(id) || original.body_history.find_boolean(id);
-    const auto* owner = original.body_history.owner(id);
-    std::vector<std::string> order;
-    if (body_step) order=original.body_history.order();
-    else if (owner) {
-        if (!before.empty() && original.body_history.owner(before)!=owner) return false;
-        for (const auto& entry : owner->entries) order.push_back(entry.id);
-    } else for (const auto& entry : original.history_order) order.push_back(entry.id);
-    if (std::ranges::find(order,id)==order.end() || (!before.empty() && std::ranges::find(order,before)==order.end())) return false;
-    const auto reordered=reordered_history(order,id,before);
     try {
-    if (!history_order_preserves_dependencies(order,reordered,
-            body_step ? part_body_dependencies(original) : part_history_dependencies(original))) {
-        if (commit) state_->setText(tr("Přesun není možný: porušil by závislost nebo referenci skici."));
-        return false;
-    }
-        std::optional<zima::document::BodyHistoryGraph> changed_graph;
-        if (body_step) {
-            auto graph=original.body_history;
-            graph.move_step(id,static_cast<std::size_t>(std::distance(reordered.begin(),std::ranges::find(reordered,id))));
-            changed_graph=std::move(graph);
-        } else if (owner) {
-            auto graph=original.body_history;
-            auto body=*owner;
-            sort_history_records(body.entries,reordered,[](const auto& entry){return entry.id;});
-            for (const auto& entry : body.entries) {
-                const auto* feature=entry.kind==zima::document::PartHistoryKind::Feature ? original.find_container(entry.id) : nullptr;
-                if (!feature || feature->suppressed || feature->feature_kind==zima::document::FeatureKind::Sketch) continue;
-                if (feature->combine_mode==zima::document::CombineMode::Subtract)
-                    throw std::invalid_argument("První prvek tělesa nemůže být odečet.");
-                break;
-            }
-            graph.update_body(std::move(body));changed_graph=std::move(graph);
-        }
-        if (!commit || order==reordered) return true;
-        auto next=original;
-        if (changed_graph) next.set_body_history(std::move(*changed_graph));
-        std::vector<std::string> storage_order;
-        if (body_step || owner) for (const auto& entry : next.history_order) storage_order.push_back(entry.id);
-        else storage_order=reordered;
-        sort_history_records(next.history_order,storage_order,[](const auto& entry){return entry.id;});
-        sort_history_records(next.history,storage_order,[](const auto& entry){return entry.id;});
-        sort_history_records(next.constructions,storage_order,[](const auto& entry){return entry.id;});
-        sort_history_records(next.sketches,storage_order,[](const auto& entry){return entry.owner_container_id.empty() ? entry.id : entry.owner_container_id;});
-        auto calculated=calculate_part_with_resolved_references(next,&part->session.calculated_boundaries());
-        // Persist the calculation for the exact resolved parameters. Placement
-        // equality treats signed zero as equal, whereas persisted fingerprints
-        // retain the floating-point bits. Do not change placement solving here.
-        const auto resolved_operations=next.kernel_operations();
-        bool exact_calculation=calculated.size()==resolved_operations.size();
-        for (std::size_t i=0;i<calculated.size() && exact_calculation;++i)
-            exact_calculation=calculated[i].source_fingerprint==kernel::history_fingerprint(resolved_operations,i+1);
-        if (!exact_calculation) calculated=calculate_part(next);
-
-        const auto old_graph=part_history_dependency_graph(original);
-        const auto new_graph=part_history_dependency_graph(next);
-        if (!std::includes(new_graph.references.begin(),new_graph.references.end(),
-                old_graph.references.begin(),old_graph.references.end()))
-            throw std::runtime_error("Přesun by odstranil uloženou referenci.");
-        TreeReferenceIndex old_refs,new_refs;
-        const auto& previous=part->session.calculated_boundaries();
-        if (!previous.empty()) old_refs.add_geometry(previous.back().mesh.original_references);
-        if (!calculated.empty()) new_refs.add_geometry(calculated.back().mesh.original_references);
-        if (!std::includes(new_refs.keys.begin(),new_refs.keys.end(),old_refs.keys.begin(),old_refs.keys.end()))
-            throw std::runtime_error("Přesun by odstranil původní geometrii používanou pro reference.");
-        for (const auto& object : original.constructions) {
-            const auto* changed=next.find_construction(object.id);
-            if (changed && object.reference_valid && !changed->reference_valid)
-                throw std::runtime_error("Přesun by poškodil referenci konstrukčního prvku.");
-        }
-        for (const auto& feature : original.history) {
-            const auto* changed=next.find_container(feature.id);
-            if (changed && feature.placement.reference_valid && !changed->placement.reference_valid)
-                throw std::runtime_error("Přesun by poškodil referenci kontejneru.");
-        }
-        for (const auto& sketch : next.sketches) {
-            const auto old=std::ranges::find_if(original.sketches,[&](const auto& s){return s.id==sketch.id;});
-            if (old==original.sketches.end()) continue;
-            for (const auto& ref : sketch.external_references) {
-                const auto old_ref=std::ranges::find_if(old->external_references,[&](const auto& r){return r.id==ref.id;});
-                if (ref.broken && old_ref!=old->external_references.end() && !old_ref->broken)
-                    throw std::runtime_error("Přesun by poškodil externí referenci skici.");
-            }
-        }
-        part->session.commit(std::move(next),std::move(calculated));
+        const bool changed=workspace::move_part_history(*part,kernel_,id,before,commit);
+        if (!commit || !changed) return true;
         preserve_view_on_refresh_=true;
         refresh_tabs();refresh_scene();
         state_->setText(tr("Pořadí historie změněno. Operaci lze vrátit přes Zpět."));
         return true;
     } catch (const std::exception& error) {
-        if (commit) state_->setText(tr("Pořadí nebylo změněno: %1").arg(QString::fromUtf8(error.what())));
+        if (commit) state_->setText(tr("Pořadí nebylo změněno: %1").arg(tr(error.what())));
         return false;
     }
 }
@@ -249,7 +156,7 @@ bool AssemblyWorkspaceWindow::reorder_tree_item(QTreeWidgetItem* item,const QStr
         state_->setText(tr("Pořadí změněno. Operaci lze vrátit přes Zpět."));
         return true;
     } catch (const std::exception& error) {
-        state_->setText(tr("Pořadí nebylo změněno: %1").arg(QString::fromUtf8(error.what())));
+        state_->setText(tr("Pořadí nebylo změněno: %1").arg(tr(error.what())));
         return false;
     }
 }
@@ -352,18 +259,10 @@ void AssemblyWorkspaceWindow::delete_part_object(
         } else {
             auto* part = workspace_.open_part(workspace_.active_document_id());
             if (part == nullptr) return;
-            auto next = part->session.document();
-            const auto rollback = part->session.rollback_boundary(object_id);
-            next.erase_history_object(object_id);
-            if (rollback && rollback->input_body) {
-                static_cast<void>(restore_surviving_edge_references_after_history_delete(
-                    next, object_id, *rollback->input_body,
-                    part->session.calculated_boundaries()));
-            }
-            auto calculated = calculate_part_with_resolved_references(next);
+            workspace::delete_part_history(*part,kernel_,object_id);
+            const auto& calculated=part->session.calculated_boundaries();
             if (!calculated.empty() && !calculated.back().calculation_errors.empty())
                 calculation_issue = tr("Platná předcházející geometrie zůstala zachována. Chyby jsou označeny ve stromu.");
-            part->session.commit(std::move(next), std::move(calculated));
             if (active_sketch_id_ == object_id) active_sketch_id_.clear();
             if (selected_sketch_id_ == object_id) selected_sketch_id_.clear();
         }
@@ -373,7 +272,7 @@ void AssemblyWorkspaceWindow::delete_part_object(
         if (!calculation_issue.isEmpty())
             state_->setText(tr("Objekt odstraněn. Navazující geometrii nelze vypočítat: %1").arg(calculation_issue));
     } catch (const std::exception& error) {
-        QMessageBox::warning(this, tr("Objekt nelze odstranit"), error.what());
+        QMessageBox::warning(this, tr("Objekt nelze odstranit"), tr(error.what()));
     }
 }
 

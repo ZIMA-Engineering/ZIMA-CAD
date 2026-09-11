@@ -84,6 +84,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/document_copy.cpp
     modules/workspace/src/document_operations.cpp
     modules/workspace/src/body_operations.cpp
+    modules/workspace/src/history_operations.cpp
     modules/workspace/src/native_documents.cpp
     modules/workspace/src/part_references.cpp
     modules/workspace/src/model_calculation.cpp
@@ -94,7 +95,7 @@ target_link_libraries(zima_workspace PUBLIC
     PRIVATE nlohmann_json::nlohmann_json)
 
 add_library(zima_command_host modules/command_host/src/host.cpp modules/command_host/src/model_tree.cpp
-    modules/command_host/src/primitive_commands.cpp modules/command_host/src/document_commands.cpp modules/command_host/src/body_commands.cpp)
+    modules/command_host/src/primitive_commands.cpp modules/command_host/src/document_commands.cpp modules/command_host/src/body_commands.cpp modules/command_host/src/history_commands.cpp)
 target_include_directories(zima_command_host PUBLIC modules/command_host/include)
 target_link_libraries(zima_command_host PUBLIC zima_commands zima_workspace)
 # Commands carry UTF-8 paths and localized text even without Qt's build flags.
@@ -353,7 +354,7 @@ if(ZIMA_BUILD_TESTS)
     target_sources(zima_cpp_ui_contract_tests PRIVATE app/sketch_text_properties_dialog.cpp)
     target_include_directories(zima_cpp_ui_contract_tests PRIVATE app)
     target_link_libraries(zima_cpp_ui_contract_tests PRIVATE
-        zima_document_core zima_assembly zima_ui zima_viewer
+        zima_workspace zima_document_core zima_assembly zima_ui zima_viewer
         Qt6::Widgets Qt6::Svg nlohmann_json::nlohmann_json)
     set_target_properties(zima_cpp_ui_contract_tests PROPERTIES AUTORCC ON)
     add_test(NAME zima_cpp_ui_contract_tests COMMAND zima_cpp_ui_contract_tests)
@@ -411,6 +412,10 @@ if(ZIMA_BUILD_TESTS)
     add_dependencies(zima_cpp_cli_process_tests zima-cad-cli)
     add_test(NAME zima_cpp_cli_process_tests COMMAND zima_cpp_cli_process_tests "$<TARGET_FILE:zima-cad-cli>")
     set_tests_properties(zima_cpp_cli_process_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
+    add_executable(zima_cpp_history_command_tests tests/history_command_tests.cpp)
+    target_link_libraries(zima_cpp_history_command_tests PRIVATE zima_command_host)
+    add_test(NAME zima_cpp_history_command_tests COMMAND zima_cpp_history_command_tests)
+    set_tests_properties(zima_cpp_history_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_executable(zima_cpp_body_command_tests tests/body_command_tests.cpp)
     target_link_libraries(zima_cpp_body_command_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_body_command_tests COMMAND zima_cpp_body_command_tests)

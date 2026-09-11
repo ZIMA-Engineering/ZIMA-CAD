@@ -59,6 +59,7 @@ private:
     void register_primitive_commands();
     void register_document_commands();
     void register_body_commands();
+    void register_history_commands();
     [[nodiscard]] Interaction interaction() const;
     [[nodiscard]] std::string tr(const char*) const;
     [[nodiscard]] Result target(const Json&) const;

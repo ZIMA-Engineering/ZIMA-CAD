@@ -404,3 +404,10 @@ Katalog nyní obsahuje také `body.list`, `body.get`, `body.create`, `body.set`,
 `body.activate`, `body.cursor` a `body.boolean.create/get/set`. Vlastnosti těles
 a Booleanů používají tutéž transakci jako GUI. Aktivace a kurzory nepočítají OCCT.
 Syntax, datové typy a ověřované objemy jsou v [BODY_COMMANDS.md](BODY_COMMANDS.md).
+
+## Historie Partu
+
+`history.list`, `history.suppress`, `history.delete`, `history.move`,
+`history.can_move` a `history.cursor` sdílejí operace se stromem GUI.
+Argumenty, rozsahy těles, chybové výsledky a příklady popisuje
+[HISTORY_COMMANDS.md](HISTORY_COMMANDS.md).
