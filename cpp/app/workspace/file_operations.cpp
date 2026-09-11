@@ -1,4 +1,5 @@
 #include "workspace_internal.hpp"
+#include <zima/workspace/document_operations.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -151,17 +152,12 @@ void AssemblyWorkspaceWindow::save_active_assembly() {
     try {
         update_status_operation(
             tr("Zapisuji komponenty, vazby a uloženou geometrii…"), -1, 0);
-        const auto saved_revision = assembly->session.revision();
-        auto snapshot = assembly->session.document();
-        run_background_task(
-            [snapshot = std::move(snapshot), target = path.toStdString()] {
-                snapshot.save(target);
-            });
-        assembly->path = path.toStdString();
-        working_directory_ = assembly->path.parent_path();
-        if (assembly->session.revision() == saved_revision) {
-            assembly->session.mark_saved();
-        }
+        const auto id = assembly->session.document().document_id;
+        auto job = workspace::prepare_document_save(workspace_, id, path.toStdString());
+        const auto saved = run_background_task([job = std::move(job)] { return job.write(); });
+        if (!workspace::complete_document_save(workspace_, saved))
+            throw std::runtime_error(tr("Uložený dokument byl mezitím zavřen nebo změnil cestu.").toStdString());
+        working_directory_ = workspace_.open_assembly(id)->path.parent_path();
         update_status_operation(tr("Aktualizuji stav dokumentu…"));
         refresh_tabs();
         finish_status_operation(tr("Sestava uložena: %1").arg(
@@ -195,14 +191,13 @@ void AssemblyWorkspaceWindow::save_active_document() {
         try {
             update_status_operation(
                 tr("Zapisuji listy, pohledy a popisové pole…"), -1, 0);
-            auto snapshot = drawing->document;
-            run_background_task(
-                [snapshot = std::move(snapshot), target = path.toStdString()] {
-                    snapshot.save(target);
-                });
-            drawing->path=path.toStdString();
-            working_directory_ = drawing->path.parent_path();
-            drawing_workspace_->edit_workspace_document(drawing->document.document_id);
+            const auto id = drawing->document.document_id;
+            auto job = workspace::prepare_document_save(workspace_, id, path.toStdString());
+            const auto saved = run_background_task([job = std::move(job)] { return job.write(); });
+            if (!workspace::complete_document_save(workspace_, saved))
+                throw std::runtime_error(tr("Uložený dokument byl mezitím zavřen nebo změnil cestu.").toStdString());
+            working_directory_ = workspace_.open_drawing(id)->path.parent_path();
+            drawing_workspace_->edit_workspace_document(id);
             update_status_operation(tr("Aktualizuji stav dokumentu…"));
             refresh_tabs();
             finish_status_operation(tr("Výkres uložen: %1").arg(
@@ -239,22 +234,14 @@ void AssemblyWorkspaceWindow::save_active_document() {
     try {
         update_status_operation(
             tr("Připravuji neměnný snímek dokumentu…"));
-        const auto saved_revision = part->session.revision();
-        auto document_snapshot = part->session.document();
-        auto boundary_snapshot = part->session.calculated_boundaries();
+        const auto id = part->session.document().document_id;
+        auto job = workspace::prepare_document_save(workspace_, id, path.toStdString());
         update_status_operation(
             tr("Zapisuji parametry, B-Rep a data pro View…"), -1, 0);
-        run_background_task([
-                document = std::move(document_snapshot),
-                boundaries = std::move(boundary_snapshot),
-                target = path.toStdString()] {
-            document.save(target, boundaries);
-        });
-        part->path = path.toStdString();
-        working_directory_ = part->path.parent_path();
-        if (part->session.revision() == saved_revision) {
-            part->session.mark_saved();
-        }
+        const auto saved = run_background_task([job = std::move(job)] { return job.write(); });
+        if (!workspace::complete_document_save(workspace_, saved))
+            throw std::runtime_error(tr("Uložený dokument byl mezitím zavřen nebo změnil cestu.").toStdString());
+        working_directory_ = workspace_.open_part(id)->path.parent_path();
         update_status_operation(tr("Aktualizuji stav dokumentu…"));
         refresh_tabs();
         // Saving changes persistence state and the tab's dirty marker only.

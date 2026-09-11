@@ -6,6 +6,7 @@
 #include <zima/drawing/drawing_document.hpp>
 
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <string>
 #include <variant>
@@ -18,16 +19,20 @@ struct PartState {
     std::filesystem::path path;
     mutable std::optional<zima::kernel::BodySnapshot> source_geometry;
     mutable std::uint64_t source_generation{};
+    // Runtime identity distinguishes closing/reopening the same native document.
+    std::shared_ptr<const int> runtime_identity=std::make_shared<const int>(0);
 };
 
 struct AssemblyState {
     zima::assembly::AssemblySession session;
     std::filesystem::path path;
+    std::shared_ptr<const int> runtime_identity=std::make_shared<const int>(0);
 };
 
 struct DrawingState {
     zima::drawing::DrawingDocument document;
     std::filesystem::path path;
+    std::shared_ptr<const int> runtime_identity=std::make_shared<const int>(0);
 };
 
 using DocumentState = std::variant<PartState, AssemblyState, DrawingState>;

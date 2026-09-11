@@ -112,3 +112,6 @@ těchto dvou testovacích podmínek neopakovalo.
 Další etapa může oddělovat konkrétní operace od oken a připravovat společné
 příkazy pro GUI, konzoli a AI. Tato mapa není autorizací k implementaci celé
 budoucí architektury ani k plošnému auditu Undo/Redo.
+
+První oddělené operace jsou popsány v [DOCUMENT_OPERATIONS.md](DOCUMENT_OPERATIONS.md):
+nativní ukládání a dokumentové Undo/Redo nyní sídlí v modulu workspace bez Qt.

@@ -1,4 +1,5 @@
 #include "workspace_internal.hpp"
+#include <zima/workspace/document_operations.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -229,14 +230,8 @@ void AssemblyWorkspaceWindow::undo() {
     if (properties_dialog_ != nullptr) return;
     if(section_sketch_history(false))return;
     cancel_sketch_segment();
-    if (auto* part = workspace_.open_part(workspace_.active_document_id())) {
-        if (part->session.undo()) {
-            workspace_.synchronize_external_sketch_dependencies();
-            refresh_scene();
-        }
-    } else if (auto* assembly = workspace_.open_assembly(workspace_.active_document_id())) {
-        if (assembly->session.undo()) refresh_scene();
-    }
+    if (workspace::step_document_history(workspace_, workspace_.active_document_id(),
+            workspace::HistoryDirection::Undo)) refresh_scene();
     refresh_tabs();
 }
 
@@ -244,14 +239,8 @@ void AssemblyWorkspaceWindow::redo() {
     if (properties_dialog_ != nullptr) return;
     if(section_sketch_history(true))return;
     cancel_sketch_segment();
-    if (auto* part = workspace_.open_part(workspace_.active_document_id())) {
-        if (part->session.redo()) {
-            workspace_.synchronize_external_sketch_dependencies();
-            refresh_scene();
-        }
-    } else if (auto* assembly = workspace_.open_assembly(workspace_.active_document_id())) {
-        if (assembly->session.redo()) refresh_scene();
-    }
+    if (workspace::step_document_history(workspace_, workspace_.active_document_id(),
+            workspace::HistoryDirection::Redo)) refresh_scene();
     refresh_tabs();
 }
 

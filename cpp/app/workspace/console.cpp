@@ -1,4 +1,5 @@
 #include "workspace_internal.hpp"
+#include <zima/workspace/document_operations.hpp>
 #include "command_console.hpp"
 #include <QDockWidget>
 #include <QDateTime>
@@ -189,9 +190,8 @@ void AssemblyWorkspaceWindow::create_command_console() {
         {redo_command?"redo":"undo",redo_command?tr("Znovu provést změnu.").toStdString():tr("Vrátit změnu.").toStdString(),{{"document",false}},true},
         [this,target,redo_command](const Json& args) {
             auto check=target(args);if(!check.ok)return check;
-            bool available=false;
-            if(const auto* part=workspace_.open_part(workspace_.active_document_id()))available=redo_command?part->session.can_redo():part->session.can_undo();
-            if(const auto* assembly=workspace_.open_assembly(workspace_.active_document_id()))available=redo_command?assembly->session.can_redo():assembly->session.can_undo();
+            const bool available=workspace::can_step_document_history(workspace_,workspace_.active_document_id(),
+                redo_command?workspace::HistoryDirection::Redo:workspace::HistoryDirection::Undo);
             if(!available)return Result::failure("nothing_to_undo_redo",tr("Žádná změna není k dispozici.").toStdString());
             if(redo_command)redo();else undo();
             return Result::success(document_list(workspace_));

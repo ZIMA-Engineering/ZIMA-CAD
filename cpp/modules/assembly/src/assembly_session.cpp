@@ -22,6 +22,7 @@ bool AssemblySession::can_undo() const { return !undo_.empty(); }
 bool AssemblySession::can_redo() const { return !redo_.empty(); }
 
 void AssemblySession::replace(AssemblyDocument document) {
+    ++data_generation_;
     current_ = {std::move(document), 0, false};
     undo_.clear();
     redo_.clear();
@@ -33,6 +34,7 @@ void AssemblySession::replace(AssemblyDocument document) {
 }
 
 void AssemblySession::commit(AssemblyDocument document) {
+    ++data_generation_;
     zima::document::refresh_physical_relations(document,physical_values(document));
     document.dimension_identifiers.retain(current_.document.dimension_identifiers);
     document.synchronize_dimension_identifiers();
@@ -42,6 +44,7 @@ void AssemblySession::commit(AssemblyDocument document) {
 }
 
 void AssemblySession::update_dependency_snapshots(AssemblyDocument document) {
+    ++data_generation_;
     zima::document::refresh_physical_relations(document,physical_values(document));
     document.dimension_identifiers.retain(current_.document.dimension_identifiers);
     document.synchronize_dimension_identifiers();
@@ -50,11 +53,13 @@ void AssemblySession::update_dependency_snapshots(AssemblyDocument document) {
 }
 
 void AssemblySession::update_source_geometry(AssemblyDocument document) {
+    ++data_generation_;
     current_.document = std::move(document);
 }
 
 bool AssemblySession::undo() {
     if (undo_.empty()) return false;
+    ++data_generation_;
     redo_.push_back(std::move(current_));
     current_ = std::move(undo_.back());
     undo_.pop_back();
@@ -64,6 +69,7 @@ bool AssemblySession::undo() {
 
 bool AssemblySession::redo() {
     if (redo_.empty()) return false;
+    ++data_generation_;
     undo_.push_back(std::move(current_));
     current_ = std::move(redo_.back());
     redo_.pop_back();

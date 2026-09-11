@@ -81,7 +81,8 @@ target_link_libraries(zima_drawing
     PRIVATE nlohmann_json::nlohmann_json)
 
 add_library(zima_workspace modules/workspace/src/workspace.cpp
-    modules/workspace/src/document_copy.cpp)
+    modules/workspace/src/document_copy.cpp
+    modules/workspace/src/document_operations.cpp)
 target_include_directories(zima_workspace PUBLIC modules/workspace/include)
 target_link_libraries(zima_workspace PUBLIC
     zima_document_core zima_assembly zima_drawing zima_kernel_occt
@@ -372,6 +373,9 @@ if(ZIMA_BUILD_TESTS)
     add_executable(zima_cpp_interchange_contract_tests tests/interchange_contract_tests.cpp)
     target_link_libraries(zima_cpp_interchange_contract_tests PRIVATE zima_interchange)
     add_test(NAME zima_cpp_interchange_contract_tests COMMAND zima_cpp_interchange_contract_tests)
+    add_executable(zima_cpp_document_operations_tests tests/document_operations_tests.cpp)
+    target_link_libraries(zima_cpp_document_operations_tests PRIVATE zima_workspace)
+    add_test(NAME zima_cpp_document_operations_tests COMMAND zima_cpp_document_operations_tests)
     add_executable(zima_cpp_command_dispatcher_tests tests/command_dispatcher_tests.cpp)
     target_link_libraries(zima_cpp_command_dispatcher_tests PRIVATE zima_commands)
     add_test(NAME zima_cpp_command_dispatcher_tests COMMAND zima_cpp_command_dispatcher_tests)
