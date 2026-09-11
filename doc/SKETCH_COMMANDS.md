@@ -96,3 +96,75 @@ Kompletní Windows Release sada prošla **63/63** (388,03 s), včetně všech
 modelových, GUI, procesových, referenčních a spline regresí. Log:
 `build/sketch-full-tests.log`. Vizuálně byl zkontrolován také snímek konzole.
 Katalog nyní obsahuje **72 příkazů**.
+
+## Offsety, ořezávání a další křivky
+
+Druhá etapa přidává příkazy nad stejnými metodami skicáře, které používají
+kreslicí nástroje a vlastnosti offsetu. Všechny mění jen skicu, mají společnou
+transakci Undo/Redo a přijímají `sketch`, případně `document` jako výše.
+
+| Příkaz | Argumenty a výsledek |
+| --- | --- |
+| `sketch.offset.create` | `source`, kladné `distance_mm`, `flipped=false`; vrací ID křivky i společné operace |
+| `sketch.offset.get` | `geometry`; zdroj, vzdálenost, směr, tolerance, viditelný interval, kotvy průsečíků, `broken` |
+| `sketch.offset.set` | `geometry`; volitelně `source`, `distance_mm`, `flipped`; upraví celou operaci včetně jejích oříznutých částí |
+| `sketch.offset.free` | `geometry`; odpojí offset, zachová jeho aktuální křivku a ID |
+| `sketch.curve.get` | `geometry`, `limit=4096` (1–100000); úplná podkladová spline a viditelný interval |
+| `sketch.curve.retain` | `geometry`, `intervals` jako pole `[start,end]`; ponechá zadané úseky, zachová původní podklad |
+| `sketch.trim.pieces` | volitelné `geometry`, `include_axes=true`, `offset=0`, `limit=500` (1–5000); aktuální části mezi průsečíky |
+| `sketch.trim` | `pieces`, `include_axes=true`, `snap_mm=0.0000001`; odstraní přesně určené aktuální části |
+| `sketch.mirror` | `entities` (pole ID), `axis`, `snap_mm`; vrací nová ID bodů a křivek |
+| `sketch.oriented_rectangle.create` | `first`, `guide`, `axis`, `snap_mm`; obdélník podle osy symetrie |
+| `sketch.tangent_arc.create` | `start_point`, `end`, `tangent`, volitelné `reverse`, `construction`, `snap_mm` |
+| `sketch.common_tangent.create` | `first`, `second` (křivky), `first_hint`, `second_hint` (body určující požadovanou větev tečny) |
+| `sketch.corner_fillet.create` | `first`, `second` (úsečky), `radius_mm`, `snap_mm`; nativní nedestruktivní zaoblení rohu |
+
+Offset vzniká z **naší křivky skici**. Externí referenci nelze vydávat za nativní
+zdroj. Oříznutí zdroje zachová celou původní podkladovou geometrii; existující
+offset se tím nezkrátí. Nový offset vytvořený až z oříznutého zdroje převezme
+jeho aktuální interval. Části jednoho oříznutého offsetu sdílejí `operation`;
+změna jeho vzdálenosti, směru nebo zdroje aktualizuje všechny tyto části.
+Cyklické závislosti se odmítají. Uvolnění zachová geometrii i návazné intervaly
+podle společných pravidel skicáře.
+
+`sketch.curve.retain` přijímá 1–1024 nepřekrývajících se intervalů. Parametry
+0 až 1 označují právě viditelnou křivku. Pořadí intervalů se zachovává, takže
+lze zachovat i úseky přes šev uzavřené křivky, například `[[0.75,1],[0,0.25]]`.
+První ponechaná část má původní ID, ostatní dostanou nová. Interval `[0,1]`
+je no-op. Úplný podklad je dostupný přes `sketch.curve.get`; `start/end` v jeho
+výsledku jsou rozsah viditelné části v tomto úplném podkladu.
+
+U dotazu na křivku se `limit` vztahuje na součet počtů pólů, vah a uzlů spline.
+Příliš velký podklad se nezkrátí na neplatnou spline: odpověď uvede
+`geometry_omitted_by_limit=true`, stupeň a počty, ale `support` vynechá.
+Počítá se pouze matematika křivek skici, nikdy těleso OCCT.
+
+Pro trim nejprve načtěte `sketch.trim.pieces` a předejte z každého vybraného
+řádku pouze `geometry`, `start` a `end`:
+
+```json
+{"command":"sketch.trim","arguments":{"sketch":"SKETCH_ID","include_axes":false,"pieces":[{"geometry":"CURVE_ID","start":0,"end":0.5}]}}
+```
+
+Před odstraněním se části znovu ověří proti aktuálním průsečíkům. Pokud
+požadovaný interval již neexistuje, přijde `stale_geometry` bez změny dokumentu.
+Příkaz nepřijímá pořadové číslo části ani libovolné vzorkované body. Limit je
+2048 částí na požadavek; opakování stejné části se odmítne. Dotaz vrací také
+krajní body pro orientaci. `include_axes` musí odpovídat zamýšlenému rozdělení.
+
+Kotvy konců oříznutých křivek sledují menší změny průsečíku. Pokud průsečík
+zmizí nebo přejde na jinou větev, zachová se nativní stav opravy (`broken`),
+nevymýšlí se jiná reference. Příkaz `offset.get` tento stav výslovně vrací.
+
+Zrcadlení přijímá rovněž stabilní základní osy `sketch_axis:x` a
+`sketch_axis:y`. Zaoblení rohu vrací identitu uloženého záznamu zaoblení;
+nevrací dočasná ID vyhodnocených tečných bodů. Původní úsečky zůstávají
+zachované. Volání pro stejný pár úseček také upraví existující poloměr.
+
+Integrační sada prošla **9/9** (27,80 s),
+`build/sketch-curve-integration-tests.log`; odpovídající GUI i CLI jsou
+přeložené v `build/sketch-curve-integration-build.log`. Modelové testy měří
+odchylku spline offsetu v 1025 bodech (méně než 0,00001 mm), přesnost trimu,
+navazující průsečíky, stale odmítnutí, větve tečen, symetrii a nativní
+uložení. Předchozí kompletní etapa prošla **63/63**. Katalog má nyní
+**85 příkazů**.

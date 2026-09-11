@@ -211,6 +211,13 @@ int main(int argc,char** argv){
         const auto sketch_document=document::PartDocument::load(project/"cli-sketch.prtz");
         require(sketch_document.sketches.back().id==sketch_id && sketch_document.sketches.back().bsplines.size()==1 &&
             sketch_document.sketches.back().bsplines.front().degree==3,"CLI B-spline lost exact degree or owning Sketch");
+        const auto spline_id=sketch_document.sketches.back().bsplines.front().id;
+        const auto offset_request=command({{"command","sketch.offset.create"},{"arguments",{{"sketch",sketch_id},{"source",spline_id},{"distance_mm",.1}}}});
+        result=launch(executable,root,common+QStringList{"--command","open cli-sketch.prtz","--command",offset_request,"--command","save"});
+        require(result.exit_code==0,"CLI failed to calculate/persist a native spline offset");
+        const auto offset_document=document::PartDocument::load(project/"cli-sketch.prtz");
+        require(offset_document.sketches.back().offsets.size()==1 && offset_document.sketches.back().offsets.front().source_id==spline_id &&
+            std::abs(offset_document.sketches.back().offsets.front().distance-.1)<1e-12,"CLI offset lost source identity or distance");
         std::cout<<"CLI processes: native files, Unicode/config, scripts/stdin, errors, streaming and explicit geometry calculation passed\n";
         return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}

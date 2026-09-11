@@ -38,7 +38,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Umístění a původní reference | Čtení původních referencí hotovo | Part/Assembly, přesné výskyty a geometrická data; zbývá zadání do existujícího společného řešení umístění |
 | Konstrukční geometrie | Zbývá | Body, osy, roviny, 3D křivky |
 | Skicář: geometrie | Základ hotov | 21 příkazů: samostatné a vložené skici, body, úsečky, kružnice, oblouky, elipsy, B-spline, obdélníky, mnohoúhelníky, posun a pomocná geometrie; zbývají další varianty, text a parametrické editace |
-| Skicář: vazby a operace | Zbývá | Kóty, vazby, trim, extend, offset, mirror, uvolnění referencí |
+| Skicář: vazby a operace | Offset/trim/mirror hotovy | Offset create/get/set/free, úplný podklad a zachování intervalů, trim podle průsečíků, mirror, orientovaný obdélník, tečny a zaoblení rohu; zbývají kóty, vazby a uvolnění externích referencí |
 | Externí reference skici | Zbývá | Původní geometrie, projekce, aktualizace a zachování trimu |
 | Vytažení a rotace | Zbývá | Vlastněný profil, thin, zakončení, více směrů |
 | Tažení | Zbývá | Sweep 2D/3D, loft a helical včetně profilů a drah |
@@ -93,3 +93,10 @@ bez implicitního výpočtu tělesa; seznam skic nekopíruje všechny jejich kř
 Nativní posun nyní přijímá také jediný střed kružnice a respektuje jeho vazby.
 Podrobnosti: [SKETCH_COMMANDS.md](SKETCH_COMMANDS.md). Další etapa: operace
 offset, trim a mirror, následně vazby/kóty a externí reference skic.
+
+Etapa operací nad křivkami přidala **13 příkazů**, celkem **85**.
+Integrační sada prošla **9/9** (27,80 s), včetně reálného CLI, konzole GUI,
+skicáře, offsetů a přesných spline. Log: `build/sketch-curve-integration-tests.log`.
+Nativní jádro operací zůstalo společné s GUI. Samostatný Extend se v současném
+skicáři nevyskytuje; jeho případné nové chování je další modelovací úkol.
+Další etapa: vazby a kóty skici, poté externí reference.

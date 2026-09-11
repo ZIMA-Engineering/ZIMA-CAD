@@ -304,6 +304,11 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         run(QString::fromStdString(circle_command.dump()));flush();
         check(run(QString::fromStdString("sketch.get "+command_sketch)).data.at("counts").at("circles")==1,"Console Sketch geometry did not reach GUI document");
         run("undo");check(run(QString::fromStdString("sketch.get "+command_sketch)).data.at("counts").at("circles")==0,"GUI console Sketch Undo failed");run("redo");
+        const auto sketch_geometry=run(QString::fromStdString("sketch.entities "+command_sketch)).data.at("items");std::string circle_id;
+        for(const auto& item:sketch_geometry)if(item.at("kind")=="circle")circle_id=item.at("id").get<std::string>();
+        commands::Json offset_command={{"command","sketch.offset.create"},{"arguments",{{"sketch",command_sketch},{"source",circle_id},{"distance_mm",1}}}};
+        const auto offset_id=run(QString::fromStdString(offset_command.dump())).data.at("geometry").get<std::string>();flush();
+        check(run(QString::fromStdString("sketch.offset.get "+command_sketch+" "+offset_id)).data.at("source")==circle_id,"GUI console offset lost native source");
         run("save");const auto saved_sketch=document::PartDocument::load(directory/(stem+"-sketch.prtz"));
         check(saved_sketch.sketches.back().id==command_sketch && saved_sketch.sketches.back().circles.front().radius==8,"GUI console did not persist native Sketch");
         run(QString::fromStdString(activate.dump()));flush();
