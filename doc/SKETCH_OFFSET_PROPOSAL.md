@@ -1,14 +1,14 @@
 # Sketch offset — design note
 
-Status: staged implementation agreed 2026-09-11. First preserve exact projected
-source curves, then associative trimming, then offsets. The offset command
-itself is not implemented by the exact-projection change.
+Status: single-curve Offset and retained supporting-curve trimming implemented
+2026-09-11; see [current behavior](SKETCH_OFFSET.md). The design notes below
+also describe future chain/branch work, which is not part of this command.
 
 ## Purpose
 
 The main value is not offsetting a single line, which is easy to construct
 manually, but offsetting geometry that is difficult to reproduce by hand:
-B-splines, ellipses, arcs, closed curves and connected curve chains. Both
+B-splines, ellipses, arcs, closed curves and connected curve chains. Only
 native Sketch geometry is the offset source. External geometry must first
 create a native projected curve with a separate external dependency.
 

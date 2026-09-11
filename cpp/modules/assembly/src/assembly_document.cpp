@@ -1718,7 +1718,7 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene_with_part_override(
 
 AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
     const auto ini = read_ini(path);
-    if (ini_value(ini, "Document", "format_version") != "15" ||
+    if (ini_value(ini, "Document", "format_version") != "16" ||
         ini_value(ini, "Document", "type") != "assembly") {
         throw std::runtime_error("Unsupported ZIMA-CAD Assembly document format");
     }
@@ -2104,7 +2104,7 @@ void AssemblyDocument::save(const std::filesystem::path& path,
             {"input_component_bodies", std::move(input_bodies)}});
     }
     nlohmann::json root = {
-        {"format", "zima-cad-cpp"}, {"format_version", 24},
+        {"format", "zima-cad-cpp"}, {"format_version", 25},
         {"type", "assembly"}, {"document_id", document_id}, {"name", name},
         {"user_parameters", user_parameters},
         {"user_parameter_order", user_parameter_order},
@@ -2133,7 +2133,7 @@ void AssemblyDocument::save(const std::filesystem::path& path,
     const auto saved_name = root.at("name").get<std::string>();
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "15"},
+        {"format_version", "16"},
         {"type", "assembly"},
         {"document_id", saved_id},
         {"name", saved_name},

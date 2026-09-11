@@ -477,7 +477,7 @@ void DrawingDocument::save(const std::filesystem::path& path,
     if (document_id.empty() || name.empty() || sheets.empty()) {
         throw std::runtime_error("Drawing identity, name and sheets are required");
     }
-    nlohmann::json root{{"format", "zima-cad-drawing"}, {"version", 6},
+    nlohmann::json root{{"format", "zima-cad-drawing"}, {"version", 7},
                         {"document_id", document_id}, {"name", name},
                         {"source_document_id", source_document_id},
                         {"source_path", source_path.generic_string()},
@@ -617,7 +617,7 @@ void DrawingDocument::save(const std::filesystem::path& path,
     // C++ drawing model has no Python entity fields, so its complete payload
     // lives in the ordinary param.* namespace.
     stream << "[Document]\n"
-           << "format_version=14\n"
+           << "format_version=15\n"
            << "type=drawing\n"
            << "document_id=" << root.at("document_id").get<std::string>() << "\n"
            << "name=" << root.at("name").get<std::string>() << "\n"
@@ -631,7 +631,7 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
     const auto document_section = ini.find("Document");
     if (document_section == ini.end() ||
         document_section->second.find("format_version") == document_section->second.end() ||
-        document_section->second.at("format_version") != "14" ||
+        document_section->second.at("format_version") != "15" ||
         document_section->second.find("type") == document_section->second.end() ||
         document_section->second.at("type") != "drawing")
         throw std::runtime_error("Unsupported Drawing document format");
@@ -645,7 +645,7 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
         throw std::runtime_error(
             std::string("Invalid C++ Drawing payload: ") + error.what());
     }
-    if (root.value("format", "") != "zima-cad-drawing" || root.value("version", 0) != 6)
+    if (root.value("format", "") != "zima-cad-drawing" || root.value("version", 0) != 7)
         throw std::runtime_error("Unsupported C++ Drawing payload");
     std::map<std::string,std::shared_ptr<const MeasurementGeometry>> measurement_sources;
     for(const auto& [id,geometry]:root.at("measurement_sources").items()) {

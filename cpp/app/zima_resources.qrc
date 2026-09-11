@@ -44,6 +44,7 @@
     <file alias="icons/sketch-rectangle.svg">../../resources/icons/sketch-rectangle.svg</file>
     <file alias="icons/sketch-hexagon.svg">../../resources/icons/sketch-hexagon.svg</file>
     <file alias="icons/sketch-trim.svg">../../resources/icons/sketch-trim.svg</file>
+    <file alias="icons/sketch-offset.svg">../../resources/icons/sketch-offset.svg</file>
     <file alias="icons/sketch-mirror.svg">../../resources/icons/sketch-mirror.svg</file>
     <file alias="icons/pattern.svg">../../resources/icons/pattern.svg</file>
     <file alias="icons/sketch-circle.svg">../../resources/icons/sketch-circle.svg</file>

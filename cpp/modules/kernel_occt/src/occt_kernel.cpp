@@ -1026,12 +1026,14 @@ void validate_extrusion(const ExtrusionRequest& request, bool allow_open_profile
                         "Extrusion Ellipse must have finite axes and positive ordered radii");
                 }
             } else {
-                const bool single_periodic_spline = profile.curves.size() == 1 &&
-                    std::holds_alternative<ExtrusionRequest::BSplineCurve>(
-                        profile.curves.front()) &&
-                    std::get<ExtrusionRequest::BSplineCurve>(
-                        profile.curves.front()).periodic;
-                if (profile.curves.empty() || (profile.curves.size() < 2 && !single_periodic_spline && !allow_open_profile)) {
+                const bool single_closed_spline = profile.curves.size() == 1 &&
+                    std::holds_alternative<ExtrusionRequest::BSplineCurve>(profile.curves.front()) &&
+                    [&] {
+                        const auto& curve=std::get<ExtrusionRequest::BSplineCurve>(profile.curves.front());
+                        return curve.periodic || (!curve.knots.empty() &&
+                            curve.start.x==curve.end.x && curve.start.y==curve.end.y && curve.start.z==curve.end.z);
+                    }();
+                if (profile.curves.empty() || (profile.curves.size() < 2 && !single_closed_spline && !allow_open_profile)) {
                     throw std::invalid_argument(
                         "Curved Extrusion profile requires at least two curves");
                 }
@@ -4353,12 +4355,17 @@ BodyResult make_result(
     for (TopExp_Explorer face(shape, TopAbs_FACE); face.More(); face.Next()) {
         BRepAdaptor_Surface surface(TopoDS::Face(face.Current()));
         if (surface.GetType() == GeomAbs_BSplineSurface ||
-            surface.GetType() == GeomAbs_BezierSurface) {
+            surface.GetType() == GeomAbs_BezierSurface ||
+            surface.GetType() == GeomAbs_SurfaceOfExtrusion ||
+            surface.GetType() == GeomAbs_SurfaceOfRevolution) {
             rational_surface = true;
             break;
         }
     }
-    if (rational_surface) BRepGProp::VolumeProperties(shape, volume_properties, 1e-12);
+    if (rational_surface) {
+        const double error=BRepGProp::VolumePropertiesGK(shape,volume_properties,1e-12,false,true);
+        if(error<0)throw std::runtime_error("OCCT rational volume integration failed");
+    }
     else BRepGProp::VolumeProperties(shape, volume_properties);
     BRepGProp::SurfaceProperties(shape, surface_properties);
     result.volume = volume_properties.Mass();

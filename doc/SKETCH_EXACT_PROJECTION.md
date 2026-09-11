@@ -44,8 +44,8 @@ rekonstruuje tvar ze vzorků. Asociativní ořez je další samostatný krok,
 po něm následuje offset našich křivek. Spojnice budou ruční.
 
 Ukládání zůstává v `.prtz`, `.asmz`, `.drwz`; nevzniká povinný doprovodný
-soubor. Interní verze jsou Part 18 / JSON 42, Assembly 15 / JSON 24,
-Drawing 14 / JSON 6 a Sketch 32. Startovací šablony a testovací dokumenty
+soubor. Interní verze jsou Part 19 / JSON 43, Assembly 16 / JSON 25,
+Drawing 15 / JSON 7 a Sketch 33. Startovací šablony a testovací dokumenty
 se aktualizují zároveň. Staré formáty se nepřevádějí při běžném načítání.
 
 ## Ověření
@@ -70,3 +70,5 @@ Předchozí převod používal až 16 bodů zobrazovacího lomeného obrysu jako
 0,281186 mm při zobrazovací odchylce 0,1 mm a 0,0650588 mm při 0,01 mm.
 
 Finální Windows Release sestavení prošlo všemi 46 CTest testy (385,29 s).
+
+Na tento základ navazuje [Offset a zachování podkladu při ořezu](SKETCH_OFFSET.md).

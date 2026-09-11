@@ -57,6 +57,7 @@ class DrawingWindow;
 class SketchTextPropertiesDialog;
 class SectionPropertiesDialog;
 class MeasurementDialog;
+class SketchOffsetDialog;
 
 class AssemblyWorkspaceWindow final : public QMainWindow {
 public:
@@ -87,6 +88,10 @@ public:
 private:
     QPointer<MeasurementDialog> measurement_dialog_;
     QAction* measure_action_{};
+    QAction* sketch_offset_action_{};
+    QPointer<SketchOffsetDialog> sketch_offset_dialog_;
+    void show_sketch_offset_properties(const std::string& id = {});
+    void update_sketch_offset_preview();
     void show_measurement(const std::string& id = {});
     bool accept_measurement(const zima::viewer::ViewerCandidate&);
     std::optional<zima::viewer::MeasurementGeometry> resolve_measurement(const zima::kernel::MeasurementReference&) const;

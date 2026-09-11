@@ -1,4 +1,5 @@
 #include <zima/sketcher/sketch_trim.hpp>
+#include <zima/sketcher/curve_geometry.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -40,7 +41,7 @@ std::vector<SampledCurve> sample_curves(const Sketch& sketch) {
     const auto is_imported = [&](const std::string& geometry_id) {
         return std::any_of(sketch.import_blocks.begin(), sketch.import_blocks.end(),
             [&](const auto& block) {
-                return std::find(block.geometry_ids.begin(), block.geometry_ids.end(),
+                return !block.source_path.starts_with("external-reference:") && std::find(block.geometry_ids.begin(), block.geometry_ids.end(),
                                  geometry_id) != block.geometry_ids.end();
             });
     };
@@ -167,9 +168,9 @@ std::vector<SampledCurve> sample_curves(const Sketch& sketch) {
             });
         if (edge == viewer.edges.end() || edge->points.size() < 2) continue;
         SampledCurve curve{spline.id, SampledKind::BSpline};
-        curve.closed = spline.closed;
+        curve.closed = spline.closed || (!spline.knots.empty() && std::hypot(edge->points.front().x-edge->points.back().x,edge->points.front().y-edge->points.back().y)<1e-10 && std::abs(edge->points.front().z-edge->points.back().z)<1e-10);
         // Exact associative spline trimming is implemented separately from sampled reconstruction.
-        curve.trimmable = spline.knots.empty() && !spline.construction && !is_imported(spline.id);
+        curve.trimmable = !spline.construction && !is_imported(spline.id);
         curve.points.reserve(edge->points.size());
         curve.parameters.reserve(edge->points.size());
         for (std::size_t index = 0; index < edge->points.size(); ++index) {
@@ -178,6 +179,12 @@ std::vector<SampledCurve> sample_curves(const Sketch& sketch) {
                 static_cast<double>(edge->points.size() - 1));
         }
         result.push_back(std::move(curve));
+    }
+    for(auto& curve:result)if(curve.kind!=SampledKind::BSpline &&
+        (sketch.find_offset(curve.geometry_id) || std::ranges::any_of(sketch.offsets,[&](const auto& c){return c.source_id==curve.geometry_id;}) ||
+         std::ranges::any_of(sketch.import_blocks,[&](const auto& b){return b.source_path.starts_with("external-reference:")&&std::ranges::find(b.geometry_ids,curve.geometry_id)!=b.geometry_ids.end();}))) {
+        const auto exact=sketch_curve_geometry(sketch,curve.geometry_id);curve.kind=SampledKind::BSpline;curve.points.clear();curve.parameters.clear();
+        for(unsigned i=0;i<=256;++i){const double t=i/256.;const auto p=kernel::bspline_value(exact,t);curve.points.push_back({p.x,p.y});curve.parameters.push_back(t);}
     }
     return result;
 }
@@ -508,6 +515,10 @@ Point2 exact_geometry_point(
             center->y + local_x * std::sin(arc->rotation) +
                 orientation * local_y * std::cos(arc->rotation)};
     }
+    if(sampled.kind==SampledKind::BSpline) {
+        const auto p=kernel::bspline_value(sketch_curve_geometry(sketch,sampled.geometry_id),parameter);
+        return {p.x,p.y};
+    }
     return curve_point(sampled, parameter);
 }
 
@@ -732,7 +743,7 @@ SketchTrimResult apply_sketch_trim(
         }
         if (std::any_of(sketch.import_blocks.begin(), sketch.import_blocks.end(),
                 [&](const auto& block) {
-                    return std::find(block.geometry_ids.begin(), block.geometry_ids.end(),
+                    return !block.source_path.starts_with("external-reference:") && std::find(block.geometry_ids.begin(), block.geometry_ids.end(),
                                      piece.geometry_id) != block.geometry_ids.end();
                 })) {
             throw std::invalid_argument(
@@ -782,6 +793,18 @@ SketchTrimResult apply_sketch_trim(
             domains.insert(domains.begin(), wrapped);
         }
 
+        const bool dependent=next.find_offset(geometry_id) ||
+            std::ranges::any_of(next.curve_trims,[&](const auto& c){return c.id==geometry_id;}) ||
+            std::ranges::any_of(next.offsets,[&](const auto& c){return c.source_id==geometry_id;}) ||
+            curve.kind==SampledKind::BSpline ||
+            std::ranges::any_of(next.import_blocks,[&](const auto& b){return b.source_path.starts_with("external-reference:")&&std::ranges::find(b.geometry_ids,geometry_id)!=b.geometry_ids.end();});
+        if(dependent) {
+            std::vector<std::array<double,2>> normalized;
+            for(const auto& d:domains)if(d[1]>1){normalized.push_back({d[0],1});normalized.push_back({0,d[1]-1});}else normalized.push_back(d);
+            result.geometry_mapping.emplace(geometry_id,next.retain_curve_intervals(geometry_id,normalized));
+            survivor_domains.emplace(geometry_id,normalized);
+            continue;
+        }
         std::vector<ConstraintKind> reusable_segment_constraints;
         if (curve.kind == SampledKind::Segment) {
             for (const auto& constraint : next.constraints) {

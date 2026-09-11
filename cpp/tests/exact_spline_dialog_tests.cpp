@@ -1,3 +1,4 @@
+#include "../app/sketch_offset_dialog.hpp"
 #include "../app/import_options_dialog.hpp"
 #include <QTemporaryDir>
 #include <QFile>
@@ -29,6 +30,21 @@ int main(int argc,char** argv){QApplication app(argc,argv);try{
   dialog->buttons()->button(QDialogButtonBox::Ok)->click();
   if(!committed)throw std::runtime_error("Exact spline dialog did not confirm unchanged curve");
  }
+ bool offset_committed=false;
+ auto* offset=new zima::app::SketchOffsetDialog({},[&](auto value,bool free){
+  if(value.source_id!="own-curve"||value.distance!=2.5||!value.flipped||free)throw std::runtime_error("Wrong offset parameters");offset_committed=true;
+ },&owner);
+ offset->set_source("own-curve");offset->findChild<QDoubleSpinBox*>("sketchOffsetDistance")->setValue(2.5);
+ offset->findChild<QPushButton*>("sketchOffsetFlip")->click();
+ owner.show();offset->show();app.processEvents();
+ if(!(offset->windowFlags()&Qt::SubWindow))throw std::runtime_error("Offset must stay an internal properties window");
+ if(!offset->grab().save("sketch-offset-dialog.png"))throw std::runtime_error("Cannot capture offset dialog");
+ offset->buttons()->button(QDialogButtonBox::Ok)->click();
+ if(!offset_committed)throw std::runtime_error("Offset OK did not commit");
+ bool offset_cancel_commit=false;
+ auto* canceled_offset=new zima::app::SketchOffsetDialog({},[&](auto,bool){offset_cancel_commit=true;},&owner);
+ canceled_offset->buttons()->button(QDialogButtonBox::Cancel)->click();
+ if(offset_cancel_commit)throw std::runtime_error("Offset Cancel committed");
  QTemporaryDir temp;
  QFile source(temp.path()+"/sample.stp");
  if(!source.open(QIODevice::WriteOnly))throw std::runtime_error("Cannot create metadata fixture");

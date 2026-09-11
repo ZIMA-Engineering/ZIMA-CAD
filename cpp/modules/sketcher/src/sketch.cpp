@@ -409,6 +409,10 @@ std::set<std::string> externally_linked_point_ids(const Sketch& sketch) {
         if (!block.source_path.starts_with("external-reference:")) continue;
         result.insert(block.point_ids.begin(), block.point_ids.end());
     }
+    for(const auto& spline:sketch.bsplines) {
+        if(sketch.find_offset(spline.id) || std::ranges::any_of(sketch.curve_trims,[&](const auto& trim){return trim.id==spline.id;}))
+            result.insert(spline.control_point_ids.begin(),spline.control_point_ids.end());
+    }
     return result;
 }
 
@@ -2092,6 +2096,7 @@ const SketchPoint* Sketch::find_point(const std::string& point_id) const {
 }
 
 void Sketch::validate() const {
+    validate_curve_dependencies();
     for(const auto& entry:dimension_layouts)kernel::validate_dimension_layout(entry.layout);
     const bool owns_point_lookup = !point_lookup_active_;
     if (owns_point_lookup) {
@@ -2295,7 +2300,7 @@ void Sketch::validate() const {
             throw std::runtime_error("Sketch B-spline is invalid");
         }
         if (!spline.knots.empty() || !spline.weights.empty()) {
-            if (spline.interpolating || spline.closed) throw std::runtime_error("Invalid exact spline mode");
+            if (spline.interpolating) throw std::runtime_error("Invalid exact spline mode");
             zima::kernel::BSplineGeometry curve{spline.degree, {}, spline.knots, spline.weights};
             for (const auto& id : spline.control_point_ids) {
                 const auto* p=find_point(id);
@@ -5127,6 +5132,8 @@ void Sketch::remove_dimension(const std::string& dimension_id) {
 void Sketch::remove_geometry(const std::string& geometry_id) {
     if (geometry_id.empty()) throw std::invalid_argument("Geometry ID is required");
     auto next = *this;
+    std::erase_if(next.offsets,[&](const auto& c){return c.id==geometry_id;});
+    std::erase_if(next.curve_trims,[&](const auto& c){return c.id==geometry_id;});
     if (std::any_of(next.external_references.begin(), next.external_references.end(),
             [&](const auto& value) { return value.id == geometry_id; })) {
         const std::string source_path = "external-reference:" + geometry_id;
@@ -6685,6 +6692,8 @@ std::string Sketch::add_external_profile_geometry(
         SketchBSpline spline;
         spline.id=make_id(); spline.degree=reference->exact_spline->degree;
         spline.knots=reference->exact_spline->knots; spline.weights=reference->exact_spline->weights;
+        const auto& a=reference->exact_spline->poles.front();const auto& b=reference->exact_spline->poles.back();
+        spline.closed=std::hypot(a.x-b.x,a.y-b.y)<1e-12;
         for (const auto& p : reference->exact_spline->poles) {
             auto point=create_point(p.x,p.y);
             spline.control_point_ids.push_back(point.id);
@@ -7370,11 +7379,17 @@ bool Sketch::refresh_external_references(
             [&](const auto& value) { return value.id == block.geometry_ids.front(); });
         if (spline == next.bsplines.end() ||
             spline->control_point_ids != block.point_ids) continue;
+        if(std::ranges::any_of(next.curve_trims,[&](const auto& trim){return trim.id==spline->id;})) {
+            if(!reference->exact_spline)reference->broken=true;
+            continue;
+        }
         if (!spline->knots.empty()) {
             if (!reference->exact_spline || reference->exact_spline->poles.size()!=block.point_ids.size()) {
                 reference->broken=true;
                 continue;
             }
+            const auto& a=reference->exact_spline->poles.front();const auto& b=reference->exact_spline->poles.back();
+            spline->closed=std::hypot(a.x-b.x,a.y-b.y)<1e-12;
             spline->degree=reference->exact_spline->degree;
             spline->knots=reference->exact_spline->knots;
             spline->weights=reference->exact_spline->weights;
@@ -8200,7 +8215,9 @@ void Sketch::apply_dimension(SketchDimension dimension) {
 }
 
 SolveResult Sketch::solve(std::size_t maximum_iterations) {
-    return solve_impl(maximum_iterations, true);
+    auto result=solve_impl(maximum_iterations, true);
+    if(result.status != SolveStatus::Invalid && result.status != SolveStatus::Conflicting)refresh_curve_dependencies();
+    return result;
 }
 
 SolveResult Sketch::solve_impl(
@@ -11398,7 +11415,12 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
     result.points.reserve(points.size() + segments.size() + 1);
     result.points.push_back(
         {origin, {id, "external_point:sketch_origin", {}}, {}, true});
+    std::set<std::string> hidden_derived_poles;
+    for(const auto& spline:bsplines)if(find_offset(spline.id) || std::ranges::any_of(curve_trims,[&](const auto& c){return c.id==spline.id;})) {
+        if(spline.control_point_ids.size()>2)hidden_derived_poles.insert(spline.control_point_ids.begin()+1,spline.control_point_ids.end()-1);
+    }
     for (const auto& point : points) {
+        if(hidden_derived_poles.contains(point.id))continue;
         result.points.push_back(
             {project(point), {id, "point:" + point.id, {}}, {}, true,
              point.construction});
@@ -11574,6 +11596,8 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
     for (const auto& spline : bsplines) {
         zima::kernel::ViewerEdge edge;
         edge.reference = {id, "bspline:" + spline.id, {}};
+        if(const auto* offset=find_offset(spline.id);offset && offset->broken)edge.color="#FF5555";
+        if(std::ranges::any_of(curve_trims,[&](const auto& c){return c.id==spline.id && c.broken;}))edge.color="#FF5555";
         edge.construction = spline.construction;
         edge.dash_dot = spline.construction;
         edge.overlay = true;
@@ -12902,7 +12926,7 @@ std::string Sketch::serialized() const {
         value["locked"] = dimension.locked;
         dimension_values.push_back(std::move(value));
     }
-    nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 32},
+    nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 33},
         {"id", id}, {"owner_container_id", owner_container_id},
         {"name", name}, {"suppressed", suppressed},
         {"plane", plane_name(plane)},
@@ -12925,6 +12949,15 @@ std::string Sketch::serialized() const {
         {"external_references", std::move(external_reference_values)},
         {"constraints", std::move(constraint_values)},
         {"dimensions", std::move(dimension_values)}};
+    const auto anchor_json=[](const std::optional<SketchTrimAnchor>& a)->nlohmann::json {
+        return a?nlohmann::json{{"curve",a->curve_id},{"parameter",a->parameter}}:nlohmann::json(nullptr);
+    };
+    root["curve_supports"]=nlohmann::json::array();
+    for(const auto& c:curve_supports)root["curve_supports"].push_back({{"id",c.id},{"geometry",kernel::spline_json(c.geometry)}});
+    root["curve_trims"]=nlohmann::json::array();
+    for(const auto& c:curve_trims)root["curve_trims"].push_back({{"id",c.id},{"support",c.support_id},{"start",c.start},{"end",c.end},{"start_anchor",anchor_json(c.start_anchor)},{"end_anchor",anchor_json(c.end_anchor)},{"broken",c.broken}});
+    root["offsets"]=nlohmann::json::array();
+    for(const auto& c:offsets)root["offsets"].push_back({{"id",c.id},{"source",c.source_id},{"operation",c.operation_id},{"distance",c.distance},{"flipped",c.flipped},{"tolerance",c.tolerance},{"start",c.start},{"end",c.end},{"broken",c.broken},{"start_anchor",anchor_json(c.start_anchor)},{"end_anchor",anchor_json(c.end_anchor)}});
     root["dimension_layouts"]=nlohmann::json::array();
     for(const auto& entry:dimension_layouts) {
         const auto& v=entry.layout;
@@ -12947,7 +12980,7 @@ std::string Sketch::serialized() const {
 
 Sketch Sketch::from_serialized(const std::string& value) {
     const auto root = nlohmann::json::parse(value);
-    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 32) {
+    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 33) {
         throw std::runtime_error("Unsupported sketch format");
     }
     Sketch sketch;
@@ -13031,6 +13064,15 @@ Sketch Sketch::from_serialized(const std::string& value) {
             value.at("construction").get<bool>(),
             value.at("reversed").get<bool>()});
     }
+    const auto anchor_from_json=[](const nlohmann::json& v)->std::optional<SketchTrimAnchor> {
+        if(v.is_null())return {};return SketchTrimAnchor{v.at("curve").get<std::string>(),v.at("parameter").get<double>()};
+    };
+    for(const auto& v:root.at("curve_supports")) {
+        auto geometry=kernel::spline_from_json(v.at("geometry"));if(!geometry)throw std::invalid_argument("Missing curve support geometry");
+        sketch.curve_supports.push_back({v.at("id").get<std::string>(),*geometry});
+    }
+    for(const auto& v:root.at("curve_trims"))sketch.curve_trims.push_back({v.at("id").get<std::string>(),v.at("support").get<std::string>(),v.at("start").get<double>(),v.at("end").get<double>(),anchor_from_json(v.at("start_anchor")),anchor_from_json(v.at("end_anchor")),v.at("broken").get<bool>()});
+    for(const auto& v:root.at("offsets"))sketch.offsets.push_back({v.at("id").get<std::string>(),v.at("source").get<std::string>(),v.at("distance").get<double>(),v.at("flipped").get<bool>(),v.at("tolerance").get<double>(),v.at("start").get<double>(),v.at("end").get<double>(),v.at("broken").get<bool>(),anchor_from_json(v.at("start_anchor")),anchor_from_json(v.at("end_anchor")),v.at("operation").get<std::string>()});
     for (const auto& value : root.at("bsplines")) sketch.bsplines.push_back({
         value.at("id").get<std::string>(),
         value.at("control_points").get<std::vector<std::string>>(),

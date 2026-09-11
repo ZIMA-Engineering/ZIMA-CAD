@@ -1,3 +1,4 @@
+#include "sketch_offset_dialog.hpp"
 #include <zima/drawing/drawing_template.hpp>
 #include "sketch_text_properties_dialog.hpp"
 #include <nlohmann/json.hpp>
@@ -2934,6 +2935,55 @@ int verify_body_sketch_ui(QApplication& application, const std::filesystem::path
     return 0;
 }
 
+
+int verify_sketch_offset_ui(QApplication& application,const std::filesystem::path& directory) {
+    using namespace zima::document;
+    auto document=PartDocument::create_default();auto feature=PartDocument::create_sketch_container();
+    auto sketch=zima::sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;
+    const auto source=sketch.add_segment(2,5,20,5);document.history={feature};document.sketches={sketch};
+    BodyHistoryGraph graph;const auto body=graph.create_body("Offset test");graph.insert({PartHistoryKind::Feature,feature.id});document.set_body_history(graph);document.resolve_constructions();
+    const auto path=directory/"sketch-offset.prtz";document.save(path);
+    zima::app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1200,900);window.show();
+    const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+    if(!verify(window.open_document_path(QString::fromStdString(path.string())),"Offset fixture open failed"))return 1;
+    flush();if(!verify(activate_test_body(application,window,body),"Offset body activation failed"))return 1;
+    auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* row{};
+    for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==sketch.id&&(*i)->data(0,Qt::UserRole+3).toString()=="part-sketch"){row=*i;break;}
+    if(!verify(row,"Offset Sketch row missing"))return 1;window.show_tree_item_properties(row);flush();
+    window.findChild<QPushButton*>("sketchOpenButton")->click();flush();QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();
+    auto* view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
+    const auto mouse=[&](QPointF p,QEvent::Type type,Qt::MouseButton button){QMouseEvent e(type,p,QPointF(view->mapToGlobal(p.toPoint())),type==QEvent::MouseMove?Qt::NoButton:button,type==QEvent::MouseButtonPress?button:Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&e);flush();};
+    const auto find=[&](const std::string& key)->std::optional<QPointF>{
+        for(int y=20;y<view->height()-20;y+=3)for(int x=20;x<view->width()-20;x+=3){const auto c=view->selection_candidates_at(QPointF(x,y));if(!c.empty()&&c.front().owner_id==sketch.id&&c.front().semantic_key==key)return QPointF(x,y);}return {};
+    };
+    auto* action=window.findChild<QAction*>("sketchOffsetAction");if(!verify(action&&action->isEnabled(),"Offset command unavailable"))return 1;
+    action->trigger();flush();auto* dialog=dynamic_cast<zima::app::SketchOffsetDialog*>(window.findChild<QDialog*>("sketchOffsetDialog"));
+    if(!verify(dialog&&dialog->entering_reference(),"Offset did not arm its curve field"))return 1;
+    const auto hit=find("segment:"+source);if(!verify(hit.has_value(),"Source absent from common candidate list"))return 1;
+    mouse(*hit,QEvent::MouseMove,Qt::NoButton);mouse(*hit,QEvent::MouseButtonPress,Qt::LeftButton);mouse(*hit,QEvent::MouseButtonRelease,Qt::LeftButton);
+    if(!verify(dialog->values().source_id==source&&!dialog->entering_reference(),"LMB did not assign offset source"))return 1;
+    dialog->findChild<QDoubleSpinBox*>("sketchOffsetDistance")->setValue(2.5);dialog->findChild<QPushButton*>("sketchOffsetFlip")->click();flush();
+    if(!verify(window.grab().save("sketch-offset-view.png"),"Offset View screenshot failed"))return 1;
+    mouse(*hit,QEvent::MouseButtonPress,Qt::MiddleButton);mouse(*hit,QEvent::MouseButtonRelease,Qt::MiddleButton);
+    if(!verify(dynamic_cast<zima::app::SketchOffsetDialog*>(window.findChild<QDialog*>("sketchOffsetDialog"))!=nullptr,"Short MMB committed offset"))return 1;
+    mouse(*hit,QEvent::MouseButtonDblClick,Qt::MiddleButton);mouse(*hit,QEvent::MouseButtonRelease,Qt::MiddleButton);
+    if(!verify(dynamic_cast<zima::app::SketchOffsetDialog*>(window.findChild<QDialog*>("sketchOffsetDialog"))==nullptr,"View MMB double-click did not confirm offset"))return 1;
+    std::string key;for(const auto& edge:view->mesh().edges)if(edge.reference.owner_id==sketch.id&&edge.reference.semantic_key.starts_with("bspline:"))key=edge.reference.semantic_key;
+    if(!verify(!key.empty(),"Offset curve was not committed to View"))return 1;
+    const auto offset_hit=find(key);if(!verify(offset_hit.has_value(),"Offset curve not offered"))return 1;
+    mouse(*offset_hit,QEvent::MouseMove,Qt::NoButton);mouse(*offset_hit,QEvent::MouseButtonDblClick,Qt::LeftButton);mouse(*offset_hit,QEvent::MouseButtonRelease,Qt::LeftButton);
+    dialog=dynamic_cast<zima::app::SketchOffsetDialog*>(window.findChild<QDialog*>("sketchOffsetDialog"));if(!verify(dialog&&dialog->values().distance==2.5&&dialog->values().flipped,"Double-click did not reopen offset properties"))return 1;
+    dialog->findChild<QDoubleSpinBox*>("sketchOffsetDistance")->setValue(3);dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+    for(const auto& edge:view->mesh().edges)if(edge.reference.semantic_key==key)if(!verify(std::abs(edge.points.front().y-2)<1e-8,"Offset edit did not move the result"))return 1;
+    action->trigger();flush();dialog=dynamic_cast<zima::app::SketchOffsetDialog*>(window.findChild<QDialog*>("sketchOffsetDialog"));dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+    window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+    for(auto* candidate:window.findChildren<QDialog*>())if(auto* parent=dynamic_cast<zima::app::ConstructionPropertiesDialog*>(candidate);parent&&parent->isVisible())parent->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+    window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+    const auto saved=PartDocument::load(path);
+    if(!verify(saved.sketches.front().offsets.size()==1&&saved.sketches.front().offsets.front().distance==3,"Offset edit/Cancel/persistence transaction failed"))return 1;
+    std::cout<<"Sketch Offset View selection, preview, short/double MMB, properties, Cancel and persistence passed\n";return 0;
+}
+
 int verify_standalone_trim_preview(QApplication& application, const std::filesystem::path& directory) {
     using namespace zima::document;
     auto document=PartDocument::create_default();
@@ -4616,6 +4666,8 @@ int verify_startup_contract(
     }
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_BODY_CURVE_REFERENCE_ONLY"))
         return verify_body_curve_references(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_OFFSET_ONLY"))
+        return verify_sketch_offset_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_TRIM_ONLY"))
         return verify_standalone_trim_preview(application, test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PROPERTY_SKETCH_ONLY"))

@@ -35,7 +35,9 @@ add_library(zima_sketcher
     modules/sketcher/src/sketch.cpp
     modules/sketcher/src/template_image.cpp
     modules/sketcher/src/rectilinear_template_solver.cpp
-    modules/sketcher/src/sketch_trim.cpp)
+    modules/sketcher/src/sketch_trim.cpp
+    modules/sketcher/src/curve_geometry.cpp
+    modules/sketcher/src/sketch_offset.cpp)
 target_include_directories(zima_sketcher PUBLIC modules/sketcher/include)
 target_link_libraries(zima_sketcher
     PUBLIC zima_kernel_api
@@ -414,6 +416,14 @@ if(ZIMA_BUILD_TESTS)
         tests/cross_language_persistence_emitter.cpp)
     target_link_libraries(zima_cpp_cross_language_persistence_emitter PRIVATE
         zima_document_core zima_assembly zima_drawing)
+    add_test(NAME zima_cpp_sketch_offset_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_sketch_offset_ui_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_OFFSET_ONLY=1"
+        TIMEOUT 120)
+    add_executable(zima_cpp_sketch_offset_geometry_tests tests/sketch_offset_geometry_tests.cpp)
+    target_link_libraries(zima_cpp_sketch_offset_geometry_tests PRIVATE zima_sketcher)
+    add_test(NAME zima_cpp_sketch_offset_geometry_tests COMMAND zima_cpp_sketch_offset_geometry_tests)
     add_executable(zima_cpp_exact_spline_contract_tests tests/exact_spline_contract_tests.cpp)
     target_link_libraries(zima_cpp_exact_spline_contract_tests PRIVATE zima_document_core zima_kernel_occt TKBRep TKG3d TKTopAlgo nlohmann_json::nlohmann_json)
     add_test(NAME zima_cpp_exact_spline_contract_tests COMMAND zima_cpp_exact_spline_contract_tests)

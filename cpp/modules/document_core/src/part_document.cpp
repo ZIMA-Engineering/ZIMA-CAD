@@ -517,12 +517,12 @@ void add_json_parameters(
 
 nlohmann::json read_part_ini(const std::filesystem::path& path) {
     const auto ini = read_ini(path);
-    if (ini_value(ini, "Document", "format_version") != "18") {
+    if (ini_value(ini, "Document", "format_version") != "19") {
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 42},
+        {"format_version", 43},
         {"document_id", ini_required(ini, "Document", "document_id")},
         {"type", ini_value(ini, "Document", "type", "part")},
         {"name", ini_value(ini, "Document", "name", "Nový díl")},
@@ -674,7 +674,7 @@ void write_part_ini(
     const nlohmann::json& root, const std::filesystem::path& path) {
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "18"},
+        {"format_version", "19"},
         {"type", "part"},
         {"document_id", root.at("document_id").get<std::string>()},
         {"name", root.at("name").get<std::string>()},
@@ -1065,7 +1065,10 @@ ProfilePolygon sampled_profile_loop(
                                         curve.minor_radius * std::sin(signed_parameter)});
                         }
                     } else {
-                        for (const auto& point : curve.control_points) append(local(point));
+                        if(!curve.knots.empty()) {
+                            const zima::kernel::BSplineGeometry exact{curve.degree,curve.control_points,curve.knots,curve.weights};
+                            for(unsigned i=0;i<=256;++i)append(local(zima::kernel::bspline_value(exact,i/256.)));
+                        } else for (const auto& point : curve.control_points) append(local(point));
                     }
                 }, curve_variant);
             }
@@ -1120,6 +1123,8 @@ void assign_regions(zima::kernel::ExtrusionRequest& request,
 zima::kernel::ExtrusionRequest extrusion_request(
     const zima::sketcher::Sketch& sketch, double height,
     ExtrusionDirection direction_mode) {
+    if(std::ranges::any_of(sketch.offsets,[](const auto& c){return c.broken;}) || std::ranges::any_of(sketch.curve_trims,[](const auto& c){return c.broken;}))
+        throw std::runtime_error("Sketch contains an unresolved offset or trim intersection");
     require_positive(height, "extrusion height");
     validate_extrusion_direction(direction_mode);
     if (std::any_of(sketch.corner_radii.begin(), sketch.corner_radii.end(),
@@ -1234,7 +1239,7 @@ zima::kernel::ExtrusionRequest extrusion_request(
         curve.knots = spline.knots; curve.weights = spline.weights;
         curve.degree = spline.degree;
         curve.interpolating = spline.interpolating;
-        curve.periodic = spline.closed;
+        curve.periodic = spline.closed && spline.knots.empty();
         for (const auto& point_id : spline.control_point_ids) {
             const auto* point = sketch.find_point(point_id);
             curve.control_points.push_back(sketch.world_point(point->x, point->y));
@@ -1595,30 +1600,76 @@ zima::kernel::ExtrusionRequest extrusion_request(
     const auto closed_spline = std::find_if(profile_splines.begin(), profile_splines.end(),
         [](const auto* spline) { return spline->closed; });
     if (closed_spline != profile_splines.end()) {
-        if (std::count_if(profile_splines.begin(), profile_splines.end(),
-                [](const auto* spline) { return spline->closed; }) != 1 ||
-            profile_splines.size() != 1 || !profile_segments.empty() ||
-            !profile_arcs.empty() || !profile_ellipses.empty() ||
-            !profile_elliptical_arcs.empty()) {
-            throw std::runtime_error(
-                "Closed B-spline profile must be one standalone outer loop");
+        if(std::ranges::any_of(profile_splines,[](const auto* c){return !c->closed;}) ||
+           !profile_segments.empty() || !profile_arcs.empty() || !profile_elliptical_arcs.empty())
+            throw std::runtime_error("Closed spline profiles cannot share an open boundary");
+        struct Boundary {std::string id;ProfileLoop loop;ProfilePolygon sample;double area{};int parent{-1};};
+        std::vector<Boundary> boundaries;
+        for(const auto* spline:profile_splines) {
+            auto exact=exact_spline(*spline);
+            zima::kernel::ExtrusionRequest::CurvedProfile curved;curved.curves.push_back(exact);
+            ProfileLoop loop=curved;
+            // Keep a complete rational quadratic circle analytic. Comparing
+            // differently sampled circular polygons invents crossings at small offsets.
+            if(exact.degree==2 && !exact.knots.empty() && exact.control_points.size()<=9) {
+                const zima::kernel::BSplineGeometry geometry{exact.degree,exact.control_points,exact.knots,exact.weights};
+                const auto at=[&](double t){const auto p=zima::kernel::bspline_value(geometry,t);return sketch.local_point(p);};
+                const auto a=at(0),b=at(.25),c=at(.5);
+                const double bx=b[0]-a[0],by=b[1]-a[1],cx=c[0]-a[0],cy=c[1]-a[1],det=2*(bx*cy-by*cx);
+                if(std::abs(det)>1e-14) {
+                    const double b2=bx*bx+by*by,c2=cx*cx+cy*cy;
+                    const std::array center{a[0]+(b2*cy-c2*by)/det,a[1]+(bx*c2-cx*b2)/det};
+                    const double radius=std::hypot(a[0]-center[0],a[1]-center[1]);bool circular=true;
+                    const double first=exact.knots.front(),range=exact.knots.back()-first;
+                    for(std::size_t k=1;k<exact.knots.size()&&circular;++k)if(exact.knots[k]>exact.knots[k-1])
+                        for(unsigned j=0;j<=8;++j){const double t=(exact.knots[k-1]+(exact.knots[k]-exact.knots[k-1])*j/8.-first)/range;const auto p=at(t);
+                            if(std::abs(std::hypot(p[0]-center[0],p[1]-center[1])-radius)>1e-10){circular=false;break;}}
+                    if(circular)loop=zima::kernel::ExtrusionRequest::CircleProfile{sketch.world_point(center[0],center[1]),radius};
+                }
+            }
+            boundaries.push_back({spline->id,std::move(loop)});
         }
-        zima::kernel::ExtrusionRequest::CurvedProfile outer;
-        outer.curves.push_back(exact_spline(**closed_spline));
-        request.outer_profile = std::move(outer);
-        request.outer_boundary_id = (**closed_spline).id;
-        request.outer_edge_source_ids = {(**closed_spline).id};
-        request.profile_region_id = "profile-region:" + request.outer_boundary_id;
-        for (const auto* circle : profile_circles) {
-            const auto* center = sketch.find_point(circle->center_point_id);
-            request.inner_profiles.push_back(
-                zima::kernel::ExtrusionRequest::CircleProfile{
-                    sketch.world_point(center->x, center->y), circle->radius});
-            request.inner_boundary_ids.push_back(circle->id);
-            request.inner_edge_source_ids.push_back({circle->id});
-            request.inner_vertex_source_ids.push_back({});
+        for(const auto* circle:profile_circles){const auto* p=sketch.find_point(circle->center_point_id);boundaries.push_back({circle->id,zima::kernel::ExtrusionRequest::CircleProfile{sketch.world_point(p->x,p->y),circle->radius}});}
+        for(const auto* ellipse:profile_ellipses) {
+            const auto* p=sketch.find_point(ellipse->center_point_id);
+            const bool swap=ellipse->major_radius<ellipse->minor_radius;
+            const double angle=ellipse->rotation+(swap?std::numbers::pi/2:0);
+            const auto a=sketch.world_point(p->x+std::cos(angle),p->y+std::sin(angle)),o=sketch.world_point(p->x,p->y);
+            boundaries.push_back({ellipse->id,zima::kernel::ExtrusionRequest::EllipseProfile{o,{a.x-o.x,a.y-o.y,a.z-o.z},std::max(ellipse->major_radius,ellipse->minor_radius),std::min(ellipse->major_radius,ellipse->minor_radius)}});
         }
-        return finalize(std::move(request));
+        const auto contains=[](const ProfilePolygon& polygon,const std::array<double,2>& p){bool inside=false;for(std::size_t i=0,j=polygon.size()-1;i<polygon.size();j=i++){
+            const auto a=polygon[i],b=polygon[j];if((a[1]>p[1])!=(b[1]>p[1])&&p[0]<(b[0]-a[0])*(p[1]-a[1])/(b[1]-a[1])+a[0])inside=!inside;}return inside;};
+        const auto cross=[](const auto& a,const auto& b,const auto& c){return (b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]);};
+        const auto intersects=[&](const auto& a,const auto& b,const auto& c,const auto& d){
+            const double ab_c=cross(a,b,c),ab_d=cross(a,b,d),cd_a=cross(c,d,a),cd_b=cross(c,d,b);
+            if(ab_c*ab_d<0&&cd_a*cd_b<0)return true;
+            const auto on=[&](const auto& p,const auto& a,const auto& b){return std::abs(cross(a,b,p))<1e-10&&p[0]>=std::min(a[0],b[0])-1e-10&&p[0]<=std::max(a[0],b[0])+1e-10&&p[1]>=std::min(a[1],b[1])-1e-10&&p[1]<=std::max(a[1],b[1])+1e-10;};
+            return on(a,c,d)||on(b,c,d)||on(c,a,b)||on(d,a,b);
+        };
+        for(auto& b:boundaries){b.sample=sampled_profile_loop(b.loop,sketch);if(b.sample.size()<3)throw std::runtime_error("Degenerate closed profile");
+            for(std::size_t i=0;i<b.sample.size();++i){const auto a=b.sample[i],c=b.sample[(i+1)%b.sample.size()];b.area+=a[0]*c[1]-a[1]*c[0];}
+            // Circle/Ellipse wires follow the requested profile normal. Give
+            // exact closed spline wires that same orientation before adding holes.
+            if(b.area*(direction_mode==ExtrusionDirection::Reverse?-1:1)<0)
+                if(auto* loop=std::get_if<zima::kernel::ExtrusionRequest::CurvedProfile>(&b.loop)) {
+                    std::reverse(loop->curves.begin(),loop->curves.end());
+                    for(auto& variant:loop->curves)if(auto* curve=std::get_if<zima::kernel::ExtrusionRequest::BSplineCurve>(&variant)) {
+                        std::swap(curve->start,curve->end);std::reverse(curve->control_points.begin(),curve->control_points.end());
+                        zima::kernel::reverse_bspline_parameters(curve->knots,curve->weights);
+                    }
+                }
+            b.area=std::abs(b.area)/2;
+        }
+        for(std::size_t i=0;i<boundaries.size();++i)for(std::size_t j=i+1;j<boundaries.size();++j)
+            for(std::size_t a=0;a<boundaries[i].sample.size();++a)for(std::size_t b=0;b<boundaries[j].sample.size();++b)
+                if(intersects(boundaries[i].sample[a],boundaries[i].sample[(a+1)%boundaries[i].sample.size()],boundaries[j].sample[b],boundaries[j].sample[(b+1)%boundaries[j].sample.size()]))throw std::runtime_error("Closed profile boundaries overlap or touch");
+        for(std::size_t i=0;i<boundaries.size();++i){double area=std::numeric_limits<double>::infinity();for(std::size_t j=0;j<boundaries.size();++j)
+            if(boundaries[j].area>boundaries[i].area&&boundaries[j].area<area&&contains(boundaries[j].sample,boundaries[i].sample.front())){boundaries[i].parent=static_cast<int>(j);area=boundaries[j].area;}}
+        std::vector<ProfileRegion> regions;
+        for(std::size_t i=0;i<boundaries.size();++i){unsigned depth=0;for(int p=boundaries[i].parent;p>=0;p=boundaries[p].parent)if(++depth>boundaries.size())throw std::runtime_error("Cyclic profile nesting");if(depth%2)continue;
+            ProfileRegion region;region.region_id="profile-region:"+boundaries[i].id;region.outer_boundary_id=boundaries[i].id;region.outer_edge_source_ids={boundaries[i].id};region.outer_profile=boundaries[i].loop;
+            for(const auto& inner:boundaries)if(inner.parent==static_cast<int>(i)){region.inner_boundary_ids.push_back(inner.id);region.inner_edge_source_ids.push_back({inner.id});region.inner_vertex_source_ids.push_back({});region.inner_profiles.push_back(inner.loop);}regions.push_back(std::move(region));}
+        assign_regions(request,std::move(regions));return finalize(std::move(request));
     }
     if (!profile_ellipses.empty()) {
         if (profile_ellipses.size() != 1 || !profile_segments.empty() ||
@@ -11045,7 +11096,7 @@ void PartDocument::save(
     }
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 42},
+        {"format_version", 43},
         {"document_id", document_id},
         {"type", "part"},
         {"name", name},

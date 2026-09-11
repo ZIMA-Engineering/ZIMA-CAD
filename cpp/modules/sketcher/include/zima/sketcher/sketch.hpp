@@ -146,6 +146,38 @@ struct SketchBSpline {
     bool operator==(const SketchBSpline&) const = default;
 };
 
+// Supporting geometry survives trimming; visible pieces retain their own IDs.
+struct SketchCurveSupport {
+    std::string id;
+    kernel::BSplineGeometry geometry;
+    bool operator==(const SketchCurveSupport&) const = default;
+};
+struct SketchTrimAnchor {
+    std::string curve_id;
+    double parameter{};
+    bool operator==(const SketchTrimAnchor&) const = default;
+};
+struct SketchCurveTrim {
+    std::string id;
+    std::string support_id;
+    double start{}, end{1.0};
+    std::optional<SketchTrimAnchor> start_anchor, end_anchor;
+    bool broken{};
+    bool operator==(const SketchCurveTrim&) const = default;
+};
+struct SketchOffset {
+    std::string id;
+    std::string source_id;
+    double distance{1.0};
+    bool flipped{};
+    double tolerance{1.0e-5};
+    double start{}, end{1.0};
+    bool broken{};
+    std::optional<SketchTrimAnchor> start_anchor, end_anchor;
+    std::string operation_id; // All retained pieces share the same offset parameters.
+    bool operator==(const SketchOffset&) const = default;
+};
+
 struct SketchImportBlock {
     std::string id;
     std::string name;
@@ -376,6 +408,19 @@ public:
     std::vector<SketchEllipticalArc> elliptical_arcs;
     std::vector<SketchBSpline> bsplines;
     std::vector<SketchImportBlock> import_blocks;
+    std::vector<SketchCurveSupport> curve_supports;
+    std::vector<SketchCurveTrim> curve_trims;
+    std::vector<SketchOffset> offsets;
+    [[nodiscard]] kernel::BSplineGeometry supporting_curve(const std::string& geometry_id) const;
+    [[nodiscard]] const SketchOffset* find_offset(const std::string& geometry_id) const;
+    [[nodiscard]] std::string add_offset(const std::string& source_id, double distance, bool flipped);
+    void update_offset(const std::string& geometry_id, double distance, bool flipped);
+    void free_offset(const std::string& geometry_id);
+    void refresh_curve_dependencies();
+    void validate_curve_dependencies() const;
+    [[nodiscard]] std::vector<std::string> retain_curve_intervals(
+        const std::string& geometry_id, const std::vector<std::array<double,2>>& intervals);
+
     std::vector<SketchText> texts;
     std::vector<SketchExternalReference> external_references;
     std::vector<SketchConstraint> constraints;

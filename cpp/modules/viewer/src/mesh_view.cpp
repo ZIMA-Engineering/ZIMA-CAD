@@ -3999,7 +3999,7 @@ if (impl_->show_origins) {
                 const bool inference_reference =
                     edge.reference.semantic_key == "inference:reference";
                 painter.setPen(QPen(inference_reference
-                        ? QColor(255, 140, 12) : QColor(0, 209, 255),
+                        ? QColor(255, 140, 12) : !edge.color.empty()?QColor(QString::fromStdString(edge.color)):QColor(0, 209, 255),
                     2.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
                 for (std::size_t index = 1; index < edge.points.size(); ++index) {
                     painter.drawLine(project(edge.points[index - 1]), project(edge.points[index]));

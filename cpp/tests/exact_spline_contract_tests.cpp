@@ -1,3 +1,4 @@
+#include <zima/sketcher/curve_geometry.hpp>
 #include <zima/kernel/occt_curve_data.hpp>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <TColgp_Array1OfPnt.hxx>
@@ -116,6 +117,45 @@ int main(){try{
     auto& profile=std::get<kernel::ExtrusionRequest::CurvedProfile>(request.outer_profile);
     for(auto& c:profile.curves)if(auto* s=std::get_if<kernel::ExtrusionRequest::BSplineCurve>(&c))s->weights[1]+=0.01;
     require(before!=kernel::history_fingerprint(operations,operations.size()),"Curve weights omitted from cache fingerprint");
+    auto projected=sketcher::Sketch::create_default();projected.add_external_reference(ref);
+    const auto own=projected.add_external_profile_geometry(ref.id);
+    const auto offset_id=projected.add_offset(own,.1,true);
+    static_cast<void>(projected.retain_curve_intervals(own,{{.1,.9}}));
+    require(projected.refresh_external_references("source",updated),"Trimmed projection failed to refresh");
+    const auto followed=projected.supporting_curve(offset_id);
+    const auto expected=sketcher::offset_curve_geometry(*updated.edges.front().exact_spline,-.1);
+    for(int i=0;i<=100;++i){const auto a=kernel::bspline_value(followed,i/100.),b=kernel::bspline_value(expected,i/100.);require(std::hypot(a.x-b.x,a.y-b.y)<1e-8,"Offset lost trimmed projected source");}
+    require(!projected.external_references.front().broken,"Trim broke source projection");
+    auto ring=sketcher::Sketch::create_default();const auto circle_id=ring.add_circle(0,0,10);
+    static_cast<void>(ring.add_offset(circle_id,2,false));
+    auto ring_doc=document::PartDocument::create_default();ring_doc.sketches.push_back(ring);
+    ring_doc.history.push_back(document::PartDocument::create_extrusion_container(ring.id));
+    auto ring_ops=ring_doc.kernel_operations();std::get<kernel::ExtrusionRequest>(ring_ops.front().primitive).direction={0,0,10};
+    const auto ring_bodies=kernel.evaluate_history(ring_ops);
+    require(std::abs(ring_bodies.back().volume-360*std::numbers::pi)<1e-6,"Offset circle extrusion is not exact");
+    for(bool swap:{false,true})for(bool reverse:{false,true})for(bool flip:{false,true}) {
+        auto ellipse_sketch=sketcher::Sketch::create_default();
+        const auto ellipse_id=ellipse_sketch.add_ellipse(0,0,swap?5:10,0,0,swap?10:5);
+        if(reverse){auto& ellipse=ellipse_sketch.ellipses.front();ellipse.reversed=true;ellipse_sketch.find_point(ellipse.minor_point_id)->y*=-1;}
+        ellipse_sketch.validate();static_cast<void>(ellipse_sketch.add_offset(ellipse_id,1,flip));
+        auto ellipse_doc=document::PartDocument::create_default();ellipse_doc.sketches.push_back(ellipse_sketch);
+        ellipse_doc.history.push_back(document::PartDocument::create_extrusion_container(ellipse_sketch.id));
+        auto ellipse_ops=ellipse_doc.kernel_operations();std::get<kernel::ExtrusionRequest>(ellipse_ops.front().primitive).direction={0,0,10};
+        const auto ellipse_bodies=kernel.evaluate_history(ellipse_ops);
+        const double perimeter=40*std::comp_ellint_2(std::sqrt(.75));
+        const double expected=(perimeter+((reverse!=flip)?1:-1)*std::numbers::pi)*10;
+        require(std::abs(ellipse_bodies.back().volume-expected)<.01,"Ellipse offset profile orientation/axis order is wrong");
+    }
+    for(double distance:{.001,.0001}) {
+        auto narrow=sketcher::Sketch::create_default();const auto circle=narrow.add_circle(0,0,10);
+        static_cast<void>(narrow.add_offset(circle,distance,false));
+        auto part=document::PartDocument::create_default();part.sketches.push_back(narrow);
+        part.history.push_back(document::PartDocument::create_extrusion_container(narrow.id));
+        auto operations=part.kernel_operations();std::get<kernel::ExtrusionRequest>(operations.front().primitive).direction={0,0,10};
+        const auto result=kernel.evaluate_history(operations);
+        const double expected=std::numbers::pi*(20*distance-distance*distance)*10;
+        require(std::abs(result.back().volume-expected)<1e-6,"Small circular offset was merged or misclassified");
+    }
     std::cout<<"Exact spline projection, persistence, refresh, detach and extrusion passed\n";
     return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

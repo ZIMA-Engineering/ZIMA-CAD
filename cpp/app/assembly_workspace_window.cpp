@@ -1,3 +1,5 @@
+#include "sketch_offset_dialog.hpp"
+#include <zima/sketcher/curve_geometry.hpp>
 #include "import_options_dialog.hpp"
 #include <zima/document/object_annotation_frames.hpp>
 #include "dimension_properties_fields.hpp"
@@ -3165,6 +3167,9 @@ void AssemblyWorkspaceWindow::create_actions() {
     sketch_corner_fillet_action_->setObjectName("sketchCornerFilletAction");
     sketch_corner_fillet_action_->setEnabled(false);
     sketch_corner_fillet_action_->setVisible(false);
+    sketch_offset_action_ = make_action(tr("Offset"), "sketch-offset");
+    sketch_offset_action_->setObjectName("sketchOffsetAction");
+    connect(sketch_offset_action_, &QAction::triggered, this, [this]{show_sketch_offset_properties();});
     sketch_mirror_action_ = make_action(tr("Zrcadlit"), "sketch-mirror");
     sketch_mirror_action_->setObjectName("sketchMirrorAction");
     sketch_mirror_action_->setEnabled(false);
@@ -3889,6 +3894,13 @@ void AssemblyWorkspaceWindow::create_layout() {
             accept_sketch_line_pair_dimension(candidate);
             return;
         }
+        if (sketch_offset_dialog_) {
+            if(candidate.owner_id==active_sketch_id_ && sketch_offset_dialog_->entering_reference()) {
+                for(const std::string prefix:{"segment:","circle:","arc:","ellipse:","elliptical_arc:","bspline:"})
+                    if(candidate.semantic_key.starts_with(prefix)) {sketch_offset_dialog_->set_source(candidate.semantic_key.substr(prefix.size()));break;}
+            }
+            return;
+        }
         if (sketch_mirror_active_) {
             if (sketch_mirror_selecting_sources_) {
                 accept_sketch_mirror_source(candidate);
@@ -4255,6 +4267,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         sketch_trim_action_->setEnabled(!active_sketch_id_.empty());
         sketch_mirror_action_->setEnabled(
             !active_sketch_id_.empty() && !sketch_mirror_active_);
+        sketch_offset_action_->setEnabled(!active_sketch_id_.empty() && !properties_dialog_);
     });
     viewer_->set_empty_confirmation_callback([this] {
         if(measurement_dialog_){tree_->clearSelection();return;}
@@ -4329,7 +4342,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 drill_point_face_selection_active_ ||
                 extrusion_target_dialog_ != nullptr ||
                 sketch_external_reference_active_ || sketch_trim_active_ ||
-                sketch_mirror_active_ || sketch_coincident_active_ ||
+                sketch_offset_dialog_ || sketch_mirror_active_ || sketch_coincident_active_ ||
                 sketch_midpoint_active_ || sketch_symmetric_active_ ||
                 sketch_concentric_active_ || sketch_tangent_active_ ||
                 sketch_common_tangent_active_ ||
@@ -4416,12 +4429,15 @@ void AssemblyWorkspaceWindow::create_layout() {
                 inspect(sketch->elliptical_arcs); inspect(sketch->bsplines);
                 if (!construction) return;
                 QMenu menu(this);
+                auto* properties=candidate.semantic_key.starts_with("bspline:")?menu.addAction(tr("Vlastnosti…")):nullptr;
                 auto* role = menu.addAction(*construction
                     ? tr("Převést na obrys profilu")
                     : tr("Převést na pomocnou geometrii"));
                 auto* remove = menu.addAction(tr("Odstranit"));
                 const auto* chosen = menu.exec(global_position);
-                if (chosen == role) {
+                if(properties && chosen==properties) {
+                    show_sketch_bspline_properties(active_sketch_id_,geometry_id);
+                } else if (chosen == role) {
                     set_active_sketch_geometry_construction(
                         geometry_id, !*construction);
                 } else if (chosen == remove) {
@@ -4932,6 +4948,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         },
         [this] { end_sketch_trim_gesture(); });
     viewer_->set_short_middle_click_callback([this] {
+        if(sketch_offset_dialog_){sketch_offset_dialog_->end_entry();return true;}
         if(measurement_dialog_){measurement_dialog_->end_entry();return true;}
         if(auto* dialog=dynamic_cast<AppearanceDialog*>(properties_dialog_)){dialog->end_entry();viewer_->clear_selection();return true;}
         if(template_region_picking_){cancel_sketch_segment();preserve_view_on_refresh_=true;refresh_scene();return true;}
@@ -5627,7 +5644,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 edge_treatment_selection_ || shell_face_selection_active_ ||
                 drill_point_face_selection_active_ ||
                 sketch_external_reference_active_ || sketch_trim_active_ ||
-                sketch_mirror_active_ || sketch_coincident_active_ ||
+                sketch_offset_dialog_ || sketch_mirror_active_ || sketch_coincident_active_ ||
                 sketch_midpoint_active_ || sketch_symmetric_active_ ||
                 sketch_concentric_active_ || sketch_tangent_active_ ||
                 sketch_common_tangent_active_ ||
@@ -6595,6 +6612,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         tools_toolbar_->addSeparator();
         add_command(sketch_trim_action_);
         add_command(sketch_mirror_action_);
+        add_command(sketch_offset_action_);
         add_green_separator();
         for (auto* action : {sketch_point_action_, sketch_construction_action_,
                              sketch_segment_action_, sketch_common_tangent_action_,
@@ -6735,7 +6753,7 @@ void AssemblyWorkspaceWindow::sync_sketch_tool_action_checks() {
         sketch_circle_active_ || sketch_arc_active_ || sketch_ellipse_active_ ||
         sketch_elliptical_arc_active_ || sketch_bspline_active_ ||
         sketch_external_reference_active_ || sketch_trim_active_ ||
-        sketch_corner_fillet_active_ || sketch_mirror_active_ ||
+        sketch_corner_fillet_active_ || sketch_offset_dialog_ || sketch_mirror_active_ ||
         sketch_coincident_active_ || sketch_midpoint_active_ ||
         sketch_symmetric_active_ || sketch_concentric_active_ ||
         sketch_tangent_active_ || sketch_common_tangent_active_ ||
@@ -14803,6 +14821,7 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
 void AssemblyWorkspaceWindow::show_sketch_bspline_properties(
     const std::string& sketch_id, const std::string& bspline_id) {
     if (properties_dialog_ != nullptr || sketch_bspline_active_) return;
+    if(const auto* sketch=active_sketch();sketch && sketch->find_offset(bspline_id)){show_sketch_offset_properties(bspline_id);return;}
     const auto* sketch = active_sketch();
     if (sketch == nullptr) return;
     const auto spline = std::find_if(sketch->bsplines.begin(), sketch->bsplines.end(),
@@ -14847,7 +14866,7 @@ void AssemblyWorkspaceWindow::show_sketch_bspline_properties(
                 return block.source_path.starts_with("external-reference:") &&
                     std::ranges::find(block.geometry_ids,bspline_id)!=block.geometry_ids.end();
             });
-        dialog->set_exact_geometry(linked);
+        dialog->set_exact_geometry(linked || std::ranges::any_of(sketch->curve_trims,[&](const auto& c){return c.id==bspline_id;}));
     }
     properties_dialog_ = dialog;
     connect(dialog, &QObject::destroyed, this, [this] {
@@ -15464,6 +15483,7 @@ bool AssemblyWorkspaceWindow::mutate_active_sketch(
         std::set<std::string> old;
         for(const auto& d:pending.dimensions)old.insert(d.id);
         mutation(pending);
+        pending.refresh_curve_dependencies();
         if(sketch_universal_dimension_active_ || pending_sketch_dimension_ ||
            !pending_corner_radius_dimension_id_.empty() || sketch_point_dimension_active_) {
             for(const auto& d:pending.dimensions)if(!old.contains(d.id))
@@ -15863,7 +15883,7 @@ bool AssemblyWorkspaceWindow::finish_current_sketch_tool() {
     const bool active = sketch_point_active_ || sketch_segment_active_ ||
         sketch_external_reference_active_ ||
         sketch_rectangle_active_ || sketch_polygon_active_ || sketch_trim_active_ ||
-        sketch_circle_active_ || sketch_mirror_active_ || sketch_arc_active_ ||
+        sketch_circle_active_ || sketch_offset_dialog_ || sketch_mirror_active_ || sketch_arc_active_ ||
         sketch_ellipse_active_ || sketch_elliptical_arc_active_ ||
         sketch_bspline_active_ || sketch_coincident_active_ ||
         sketch_midpoint_active_ || sketch_symmetric_active_ ||
@@ -16524,7 +16544,7 @@ void AssemblyWorkspaceWindow::cancel_sketch_mirror() {
 
 void AssemblyWorkspaceWindow::accept_sketch_mirror_source(
     const zima::viewer::ViewerCandidate& candidate) {
-    if (!sketch_mirror_active_ || !sketch_mirror_selecting_sources_ ||
+    if (!sketch_offset_dialog_ || sketch_mirror_active_ || !sketch_mirror_selecting_sources_ ||
         candidate.owner_id != active_sketch_id_) return;
     std::string source_id;
     if (candidate.kind == zima::viewer::CandidateKind::SketchSegment &&
@@ -16561,7 +16581,7 @@ void AssemblyWorkspaceWindow::accept_sketch_mirror_source(
 
 void AssemblyWorkspaceWindow::accept_sketch_mirror_axis(
     const zima::viewer::ViewerCandidate& candidate) {
-    if (!sketch_mirror_active_ || pending_mirror_geometry_ids_.empty() ||
+    if (!sketch_offset_dialog_ || sketch_mirror_active_ || pending_mirror_geometry_ids_.empty() ||
         candidate.owner_id != active_sketch_id_) return;
     std::string axis_id;
     if (candidate.kind == zima::viewer::CandidateKind::SketchSegment &&
@@ -18347,7 +18367,7 @@ void AssemblyWorkspaceWindow::clear_sketch_confirmed_selection() {
 void AssemblyWorkspaceWindow::constrain_selected_segment(
     zima::sketcher::ConstraintKind kind) {
     if (sketch_segment_active_ || sketch_rectangle_active_ || sketch_polygon_active_ ||
-        sketch_mirror_active_ || sketch_circle_active_ || sketch_arc_active_ ||
+        sketch_offset_dialog_ || sketch_mirror_active_ || sketch_circle_active_ || sketch_arc_active_ ||
         sketch_ellipse_active_ || sketch_elliptical_arc_active_ ||
         sketch_bspline_active_ || sketch_coincident_active_ || sketch_midpoint_active_ ||
         sketch_symmetric_active_ || sketch_concentric_active_ ||
@@ -19320,7 +19340,7 @@ void AssemblyWorkspaceWindow::toggle_selected_sketch_point_fixed() {
         sketch_midpoint_active_ || sketch_symmetric_active_ ||
         sketch_concentric_active_ || sketch_tangent_active_ ||
         sketch_common_tangent_active_ ||
-        sketch_segment_pair_active_ || sketch_mirror_active_ ||
+        sketch_segment_pair_active_ || sketch_offset_dialog_ || sketch_mirror_active_ ||
         selected_sketch_point_id_.empty() || active_sketch_id_.empty()) return;
     try {
         const auto* sketch = active_sketch();
@@ -19359,7 +19379,7 @@ bool AssemblyWorkspaceWindow::begin_sketch_point_drag(
     }
     if (properties_dialog_ != nullptr || sketch_segment_active_ ||
         sketch_rectangle_active_ || sketch_polygon_active_ ||
-        sketch_mirror_active_ || sketch_circle_active_ || sketch_arc_active_ ||
+        sketch_offset_dialog_ || sketch_mirror_active_ || sketch_circle_active_ || sketch_arc_active_ ||
         sketch_ellipse_active_ || sketch_elliptical_arc_active_ ||
         sketch_bspline_active_ ||
         sketch_coincident_active_ || sketch_midpoint_active_ ||
@@ -20092,7 +20112,7 @@ bool AssemblyWorkspaceWindow::delete_selected_sketch_geometry() {
     if(!selected_template_region_.empty()){const auto id=selected_template_region_;remove_template_region(id);return true;}
     if (properties_dialog_ != nullptr || active_sketch_id_.empty() ||
         sketch_point_active_ || sketch_segment_active_ ||
-        sketch_rectangle_active_ || sketch_polygon_active_ || sketch_mirror_active_ ||
+        sketch_rectangle_active_ || sketch_polygon_active_ || sketch_offset_dialog_ || sketch_mirror_active_ ||
         sketch_circle_active_ ||
         sketch_arc_active_ || sketch_ellipse_active_ ||
         sketch_elliptical_arc_active_ || sketch_bspline_active_ ||
@@ -21893,7 +21913,7 @@ void AssemblyWorkspaceWindow::show_sketch_dimension_properties(
     std::optional<std::array<double, 2>> placement) {
     if (properties_dialog_ != nullptr || sketch_segment_active_ ||
         sketch_rectangle_active_ || sketch_polygon_active_ ||
-        sketch_mirror_active_ || sketch_circle_active_ || sketch_arc_active_ ||
+        sketch_offset_dialog_ || sketch_mirror_active_ || sketch_circle_active_ || sketch_arc_active_ ||
         sketch_ellipse_active_ || sketch_elliptical_arc_active_ ||
         sketch_bspline_active_ ||
         sketch_coincident_active_ || sketch_midpoint_active_ ||
@@ -23897,7 +23917,7 @@ void AssemblyWorkspaceWindow::keyPressEvent(QKeyEvent* event) {
          sketch_segment_active_ ||
          sketch_rectangle_active_ || sketch_polygon_active_ || sketch_trim_active_ ||
          sketch_circle_active_ ||
-         sketch_mirror_active_ || sketch_arc_active_ || sketch_ellipse_active_ ||
+         sketch_offset_dialog_ || sketch_mirror_active_ || sketch_arc_active_ || sketch_ellipse_active_ ||
          sketch_elliptical_arc_active_ ||
          sketch_bspline_active_ ||
          sketch_coincident_active_ || sketch_midpoint_active_ ||
@@ -25296,7 +25316,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                              sketch_polyline_action_,
                              sketch_rectangle_action_, sketch_polygon_action_,
                              sketch_trim_action_,
-                             sketch_mirror_action_,
+                             sketch_mirror_action_, sketch_offset_action_,
                              sketch_circle_action_,
                              sketch_arc_action_, sketch_ellipse_action_,
                              sketch_elliptical_arc_action_,
@@ -26117,6 +26137,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         sketch_trim_action_->setEnabled(!active_sketch_id_.empty());
         sketch_mirror_action_->setEnabled(
             !active_sketch_id_.empty() && !sketch_mirror_active_);
+        sketch_offset_action_->setEnabled(!active_sketch_id_.empty() && !properties_dialog_);
         sketch_circle_action_->setEnabled(!active_sketch_id_.empty());
         sketch_arc_action_->setEnabled(!active_sketch_id_.empty());
         sketch_ellipse_action_->setEnabled(!active_sketch_id_.empty());
@@ -26561,6 +26582,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     sketch_trim_action_->setEnabled(has_active_part_sketch);
     sketch_mirror_action_->setEnabled(
         has_active_part_sketch && !sketch_mirror_active_);
+    sketch_offset_action_->setEnabled(has_active_part_sketch && !properties_dialog_);
     sketch_circle_action_->setEnabled(has_active_part_sketch);
     sketch_arc_action_->setEnabled(has_active_part_sketch);
     sketch_ellipse_action_->setEnabled(has_active_part_sketch);
@@ -26654,7 +26676,7 @@ void AssemblyWorkspaceWindow::configure_sketch_box_selection(
         sketch_polygon_active_ || sketch_trim_active_ ||
         sketch_text_active_ ||
         sketch_external_reference_active_ || sketch_circle_active_ ||
-        sketch_mirror_active_ || sketch_arc_active_ || sketch_ellipse_active_ ||
+        sketch_offset_dialog_ || sketch_mirror_active_ || sketch_arc_active_ || sketch_ellipse_active_ ||
         sketch_elliptical_arc_active_ || sketch_bspline_active_ ||
         sketch_coincident_active_ || sketch_midpoint_active_ ||
         sketch_symmetric_active_ || sketch_concentric_active_ ||
@@ -26911,7 +26933,7 @@ void AssemblyWorkspaceWindow::populate_sketch_tree(
             ->setSelected(arc.id == selected_sketch_elliptical_arc_id_);
     int spline_index = 0;
     for (const auto& spline : sketch.bsplines) geometry_item(spline.id,
-        indexed_geometry_label(spline.interpolating
+        indexed_geometry_label(sketch.find_offset(spline.id) ? (sketch.find_offset(spline.id)->broken?tr("Offset — neplatný"):tr("Offset")) : spline.interpolating
                 ? tr("Interpolační spline") : tr("B-spline"), ++spline_index,
             spline.construction), "sketch")
             ->setSelected(spline.id == selected_sketch_bspline_id_);
@@ -28924,6 +28946,79 @@ void AssemblyWorkspaceWindow::show_component_context_menu(
     assembly->session.commit(std::move(next));
     refresh_tabs();
     refresh_scene();
+}
+
+
+void AssemblyWorkspaceWindow::show_sketch_offset_properties(const std::string& id) {
+    const auto* sketch=active_sketch();if(!sketch||properties_dialog_)return;
+    zima::sketcher::SketchOffset initial;
+    if(!id.empty()){const auto* offset=sketch->find_offset(id);if(!offset)return;initial=*offset;}
+    else {
+        for(const auto& selected:{selected_sketch_segment_id_,selected_sketch_circle_id_,selected_sketch_arc_id_,selected_sketch_ellipse_id_,selected_sketch_elliptical_arc_id_,selected_sketch_bspline_id_})
+            if(!selected.empty()){initial.source_id=selected;break;}
+    }
+    cancel_sketch_segment();const auto sketch_id=active_sketch_id_;
+    auto* dialog=new SketchOffsetDialog(initial,[this,sketch_id](auto value,bool free) {
+        if(active_sketch_id_!=sketch_id)throw std::runtime_error("Sketch is no longer active");
+        if(!mutate_active_sketch([&](auto& target) {
+            if(free)target.free_offset(value.id);
+            else if(value.id.empty())static_cast<void>(target.add_offset(value.source_id,value.distance,value.flipped));
+            else {
+                for(auto& offset:target.offsets)if(offset.id==value.id)offset.source_id=value.source_id;
+                target.update_offset(value.id,value.distance,value.flipped);
+            }
+        }))throw std::runtime_error("Sketch no longer exists");
+    },this);
+    properties_dialog_=dialog;sketch_offset_dialog_=dialog;
+    dialog->changed=[this]{update_sketch_offset_preview();};
+    connect(dialog,&QObject::destroyed,this,[this,dialog] {
+        if(properties_dialog_==dialog)properties_dialog_=nullptr;
+        sketch_offset_dialog_=nullptr;viewer_->set_transient_edges({});viewer_->set_feature_selected_edges({});
+        tree_->setProperty("commandSelectionActive",false);
+        clear_selected_sketch_geometry();viewer_->clear_selection();preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
+    });
+    tree_->setProperty("commandSelectionActive",true);viewer_->clear_selection();
+    dialog->show();update_sketch_offset_preview();
+}
+
+void AssemblyWorkspaceWindow::update_sketch_offset_preview() {
+    auto* dialog=sketch_offset_dialog_.data();const auto* sketch=active_sketch();if(!dialog||!sketch)return;
+    const auto pending=dialog->values();
+    const auto label=[&](const auto& curves,const QString& type){int index=0;for(const auto& curve:curves){++index;if(curve.id==pending.source_id)dialog->set_source_label(type+QString::number(index));}};
+    label(sketch->segments,tr("Úsečka "));label(sketch->circles,tr("Kružnice "));label(sketch->arcs,tr("Oblouk "));
+    label(sketch->ellipses,tr("Elipsa "));label(sketch->elliptical_arcs,tr("Eliptický oblouk "));label(sketch->bsplines,tr("Spline "));
+    viewer_->set_selection_contract(dialog->entering_reference()
+        ?std::vector{zima::viewer::CandidateKind::SketchSegment,zima::viewer::CandidateKind::SketchCurve}
+        :std::vector<zima::viewer::CandidateKind>{});
+    std::vector<zima::kernel::ViewerEdge> edges;
+    if(pending.source_id.empty()){viewer_->set_transient_edges({});dialog->set_error(tr("Vyberte zdrojovou křivku."));return;}
+    try {
+        auto preview=*sketch;std::string id=pending.id;
+        if(!dialog->freeing()) {
+            if(id.empty())id=preview.add_offset(pending.source_id,pending.distance,pending.flipped);
+            else {for(auto& offset:preview.offsets)if(offset.id==id)offset.source_id=pending.source_id;preview.update_offset(id,pending.distance,pending.flipped);}
+        }
+        for(auto edge:preview.viewer_mesh().edges)if(edge.reference.semantic_key=="bspline:"+id){edge.color="#CA76FF";edges.push_back(std::move(edge));}
+        if(!dialog->freeing()) {
+            const auto curve=sketch->supporting_curve(pending.source_id);
+            double start=0;if(const auto* offset=preview.find_offset(id))start=offset->start;
+            const auto a=zima::kernel::bspline_value(curve,start);
+            const auto normal=zima::sketcher::curve_offset_point(curve,start,pending.flipped?-1.0:1.0);
+            const double nx=normal.x-a.x,ny=normal.y-a.y,n=std::hypot(nx,ny);
+            const double arrow_length=std::max(pending.distance,viewer_->world_tolerance_for_pixels(24));
+            const zima::kernel::Vec3 b{a.x+nx/n*arrow_length,a.y+ny/n*arrow_length,0};
+            const double dx=b.x-a.x,dy=b.y-a.y,l=std::hypot(dx,dy),head=std::min(l*.35,viewer_->world_tolerance_for_pixels(10));
+            zima::kernel::ViewerEdge arrow;arrow.overlay=true;arrow.color="#CA76FF";
+            arrow.points={sketch->world_point(a.x,a.y),sketch->world_point(b.x,b.y)};edges.push_back(arrow);
+            arrow.points={sketch->world_point(b.x-dx/l*head-dy/l*head*.45,b.y-dy/l*head+dx/l*head*.45),sketch->world_point(b.x,b.y),sketch->world_point(b.x-dx/l*head+dy/l*head*.45,b.y-dy/l*head-dx/l*head*.45)};edges.push_back(std::move(arrow));
+        }
+        if(dialog->inspecting())for(auto edge:sketch->viewer_mesh().edges) {
+            const auto colon=edge.reference.semantic_key.find(':');
+            if(colon!=std::string::npos&&edge.reference.semantic_key.substr(colon+1)==pending.source_id){edge.color="#00D1FF";edges.push_back(std::move(edge));}
+        }
+        dialog->set_error({});
+    }catch(const std::exception& e){edges.clear();dialog->set_error(QString::fromUtf8(e.what()));}
+    viewer_->set_transient_edges(std::move(edges));
 }
 
 }  // namespace zima::app
