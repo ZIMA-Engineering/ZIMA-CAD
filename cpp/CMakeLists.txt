@@ -91,6 +91,12 @@ target_link_libraries(zima_workspace PUBLIC
     zima_document_core zima_assembly zima_drawing zima_kernel_occt
     PRIVATE nlohmann_json::nlohmann_json)
 
+add_library(zima_command_host modules/command_host/src/host.cpp modules/command_host/src/model_tree.cpp)
+target_include_directories(zima_command_host PUBLIC modules/command_host/include)
+target_link_libraries(zima_command_host PUBLIC zima_commands zima_workspace)
+# Commands carry UTF-8 paths and localized text even without Qt's build flags.
+target_compile_options(zima_command_host PUBLIC $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+
 add_library(zima_kernel_occt
     modules/kernel_occt/src/occt_kernel.cpp)
 target_include_directories(zima_kernel_occt PUBLIC
@@ -159,7 +165,7 @@ target_include_directories(zima-cad-cpp PRIVATE app)
 target_compile_definitions(zima-cad-cpp PRIVATE
     ZIMA_RELEASE_DATE="${ZIMA_RELEASE_DATE}")
 target_link_libraries(zima-cad-cpp PRIVATE
-    zima_commands zima_workspace zima_assembly zima_document_core zima_drawing zima_kernel_occt zima_viewer zima_ui
+    zima_command_host zima_commands zima_workspace zima_assembly zima_document_core zima_drawing zima_kernel_occt zima_viewer zima_ui
     zima_interchange nlohmann_json::nlohmann_json
     Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg)
 set_target_properties(zima-cad-cpp PROPERTIES AUTORCC ON)
@@ -391,6 +397,10 @@ if(ZIMA_BUILD_TESTS)
     add_executable(zima_cpp_document_operations_tests tests/document_operations_tests.cpp)
     target_link_libraries(zima_cpp_document_operations_tests PRIVATE zima_workspace)
     add_test(NAME zima_cpp_document_operations_tests COMMAND zima_cpp_document_operations_tests)
+    add_executable(zima_cpp_command_host_tests tests/command_host_tests.cpp)
+    target_link_libraries(zima_cpp_command_host_tests PRIVATE zima_command_host)
+    add_test(NAME zima_cpp_command_host_tests COMMAND zima_cpp_command_host_tests)
+    set_tests_properties(zima_cpp_command_host_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_executable(zima_cpp_command_dispatcher_tests tests/command_dispatcher_tests.cpp)
     target_link_libraries(zima_cpp_command_dispatcher_tests PRIVATE zima_commands)
     add_test(NAME zima_cpp_command_dispatcher_tests COMMAND zima_cpp_command_dispatcher_tests)

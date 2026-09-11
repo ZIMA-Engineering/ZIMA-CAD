@@ -47,6 +47,8 @@ class QSplitter;
 
 namespace zima::viewer { class MeshView; struct ViewerCandidate; }
 
+namespace zima::command_host { class Host; struct Change; }
+
 namespace zima::app {
 
 class CommandConsole;
@@ -153,7 +155,10 @@ private:
 
     void create_command_console();
     void report_operation_error(const QString& title, const QString& message);
-    zima::commands::Dispatcher command_dispatcher_;
+    std::unique_ptr<zima::command_host::Host> command_host_;
+    void apply_console_change(const zima::command_host::Change& change);
+    void finish_document_switch(bool opening);
+    bool console_status_operation_{};
     QDockWidget* console_dock_{};
     CommandConsole* console_{};
     bool console_executing_{};

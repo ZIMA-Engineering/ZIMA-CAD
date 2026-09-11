@@ -13,6 +13,7 @@
 #include <QCursor>
 #include <QElapsedTimer>
 #include <QThread>
+#include <QTreeWidget>
 #include <zima/viewer/mesh_view.hpp>
 #include <chrono>
 #include <iostream>
@@ -54,7 +55,13 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible() && dialog->findChild<QDialogButtonBox*>())properties=dialog;
         check(properties,"Box properties did not open");
         properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
-        const auto before=run("documents").data;run("tree");
+        const auto before=run("documents").data;
+        auto* model_tree=window.findChild<QTreeWidget*>("documentTree");
+        check(model_tree,"Model tree widget missing");
+        auto* decoration=new QTreeWidgetItem(model_tree,QStringList{"UI-only-test-decoration"});
+        const auto model_snapshot=run("tree").data;
+        check(model_snapshot.at("projection")=="model" && model_snapshot.dump().find("UI-only-test-decoration")==std::string::npos,"Command enumerates widget decorations instead of model data");
+        delete decoration;
         auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QWidget*>("modelWorkspace"));
         check(view,"Model View missing");
         struct CursorRestore { QPoint position=QCursor::pos(); ~CursorRestore(){QCursor::setPos(position);} } restore_cursor;
@@ -85,6 +92,7 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         run("save");
         const auto path=directory/(stem+".prtz");
         auto loaded=document::PartDocument::load(path);check(loaded.history.size()==1,"Console did not save the GUI feature");
+        check(std::any_of(model_snapshot.at("items").begin(),model_snapshot.at("items").end(),[&](const auto& item){return item.at("id")==loaded.history.front().id && item.at("type")=="history-container";}),"Model query omitted GUI-created feature");
         run("undo");run("save");loaded=document::PartDocument::load(path);check(loaded.history.empty(),"Console Undo did not use GUI history");
         run("redo");run("regenerate");run("save");loaded=document::PartDocument::load(path);check(loaded.history.size()==1,"Console Redo/regenerate lost feature");
         const auto missing=(directory/(stem+"-missing.prtz")).generic_string();
@@ -92,6 +100,9 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         check(!window.execute_console_command(QString::fromStdString(open.dump())).ok,"Missing file reported success");
         check(QApplication::activeModalWidget()==nullptr,"Command error opened a modal message box");
         run(QString::fromStdString("new part "+stem+"-io-error"));
+        const auto other_id=run("context").data.at("active_document");
+        run(QString::fromStdString("tree "+id));
+        check(run("context").data.at("active_document")==other_id,"Reading inactive model switched GUI context");
         const auto blocked=directory/(stem+"-io-error.prtz");std::filesystem::create_directory(blocked);
         const auto failed_save=window.execute_console_command("save");std::filesystem::remove(blocked);
         check(!failed_save.ok && QApplication::activeModalWidget()==nullptr,"I/O error reported success or blocked on a dialog");

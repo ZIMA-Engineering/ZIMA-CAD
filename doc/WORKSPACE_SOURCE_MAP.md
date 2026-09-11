@@ -21,7 +21,7 @@ Všechny soubory následující tabulky jsou v
 
 | Oblast | Soubory |
 | --- | --- |
-| Konzole a společné příkazy | `console.cpp`; viz [Konzole CADu](CAD_CONSOLE.md) |
+| Konzole a společné příkazy | GUI adaptér `console.cpp`; provádění a datový strom v `modules/command_host`; viz [Konzole CADu](CAD_CONSOLE.md) |
 | Akce, nabídky a propojení událostí | `actions.cpp`, `layout.cpp`, `toolbars.cpp` |
 | Dokumenty, taby, přepínání druhu dokumentu | `documents.cpp` |
 | Parametry, materiál, relace, rodinná tabulka a nastavení | `document_commands.cpp` |
@@ -126,3 +126,11 @@ Výslovná regenerace nyní sídlí v `modules/workspace/model_calculation` a
 `view_events.cpp` a `assembly_commands.cpp` zajišťují uživatelskou interakci
 před/po zavolání společné operace. Podrobnosti a ověření jsou v
 [DOCUMENT_OPERATIONS.md](DOCUMENT_OPERATIONS.md).
+
+
+Katalog a vykonávání příkazů nyní sídlí v `modules/command_host/src/host.cpp`.
+`model_tree.cpp` čte datovou hierarchii bez widgetů a bez výpočtu geometrie.
+`workspace/console.cpp` zajišťuje panel, snímek interakce a obnovu zobrazení;
+`documents.cpp::finish_document_switch` sdílí obnovu po GUI/konzolovém Open/New.
+Host a jeho testovací program nelinkují Qt. Samostatný uživatelský CLI program
+ani nové modelovací příkazy nejsou součástí této etapy.

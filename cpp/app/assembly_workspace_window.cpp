@@ -1,3 +1,4 @@
+#include <zima/command_host/host.hpp>
 #include "workspace/workspace_internal.hpp"
 
 namespace zima::app {

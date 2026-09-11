@@ -158,20 +158,7 @@ QString AssemblyWorkspaceWindow::create_document(
     }
     workspace_.activate(id);
     workspace_.display_top_level(id);
-    active_occurrence_path_.clear();
-    active_sketch_id_.clear();
-    selected_sketch_id_.clear();
-    selected_sketch_segment_id_.clear();
-    selected_sketch_point_id_.clear();
-    selected_sketch_circle_id_.clear();
-    selected_sketch_arc_id_.clear();
-    selected_sketch_ellipse_id_.clear();
-    selected_sketch_elliptical_arc_id_.clear();
-    selected_sketch_bspline_id_.clear();
-    selected_sketch_text_id_.clear();
-    cancel_sketch_segment();
-    refresh_tabs();
-    refresh_scene();
+    finish_document_switch(false);
     return {};
 }
 
@@ -309,6 +296,14 @@ bool AssemblyWorkspaceWindow::open_document_path(const QString& path) {
     if (!opened_path.parent_path().empty()) {
         working_directory_ = opened_path.parent_path();
     }
+    update_status_operation(tr("Připravuji strom a View…"));
+    finish_document_switch(true);
+    finish_status_operation(tr("Otevřeno: %1").arg(
+        QString::fromStdString(opened_path.filename().string())));
+    return true;
+}
+
+void AssemblyWorkspaceWindow::finish_document_switch(bool opening) {
     active_occurrence_path_.clear();
     active_sketch_id_.clear();
     selected_sketch_id_.clear();
@@ -321,13 +316,8 @@ bool AssemblyWorkspaceWindow::open_document_path(const QString& path) {
     selected_sketch_bspline_id_.clear();
     selected_sketch_text_id_.clear();
     cancel_sketch_segment();
-    update_status_operation(tr("Připravuji strom a View…"));
-    activate_first_part_body();
-    refresh_tabs();
-    refresh_scene();
-    finish_status_operation(tr("Otevřeno: %1").arg(
-        QString::fromStdString(opened_path.filename().string())));
-    return true;
+    if(opening)activate_first_part_body();
+    refresh_tabs();refresh_scene();
 }
 
 void AssemblyWorkspaceWindow::refresh_tabs() {

@@ -67,8 +67,8 @@ uložení a Undo/Redo proti skutečnému souboru. Celá regresní sada se spouš
 přes `tools/build-windows.ps1 -Configuration Release -RunTests`.
 
 Otevírání a vytváření podle config šablon jsou popsány v další etapě níže.
-Regenerace je oddělena ve třetí etapě popsané níže. Samostatný hostitel příkazů
-bez GUI ještě není dodaný; samotný přenos textu/JSON již GUI nevyžaduje.
+Regenerace je oddělena ve třetí etapě popsané níže. Společný hostitel příkazů
+bez GUI je nyní v `modules/command_host`; viz [CAD_CONSOLE.md](CAD_CONSOLE.md).
 Formát souborů se nemění; stávající přípony a config šablony zůstávají platné.
 
 ## Výsledek ověření
@@ -198,3 +198,17 @@ zachytil jediný problém s kompaktností Vlastností osy; oprava rezervy tlač�
 je popsána v [NUMERIC_VALUE_LOCKS.md](NUMERIC_VALUE_LOCKS.md). Následný úplný
 běh již neměl chybu. Kontrola `dumpbin /dependents` potvrdila, že nový test
 modelových výpočtů neobsahuje Qt DLL (`build/model-calculation-dependencies.txt`).
+
+
+## Čtvrtá etapa: společné provádění příkazů
+
+`modules/command_host` přímo propojuje katalog textových/JSON příkazů se zde
+popsanými operacemi. Main Window již neregistruje vlastní implementace příkazů.
+Poskytuje pouze nastavení, lokalizaci, stav interakce, pracovní I/O a akci Fit;
+po provedení obdrží popis změny pro obnovu zobrazení. Sdílená pomocná funkce
+`finish_document_switch` zachovává stejné vyčištění dočasného výběru a obnovu
+stromu/View při Open/New z GUI i konzole.
+
+Modelový strom a seznam dokumentů lze číst bez Qt, bez otevření zdrojových
+souborů závislostí a bez OCCT. Kontrakt, datová pole a hranice příkazového
+programu jsou v [CAD_CONSOLE.md](CAD_CONSOLE.md).

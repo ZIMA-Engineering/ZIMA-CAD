@@ -35,8 +35,8 @@ lze vložit znak uvozovky pomocí `\"`. Nejde o shell ani interpret Pythonu.
 | `help` | žádné | Katalog příkazů, popisy, argumenty a příznak změny stavu |
 | `documents` | žádné | Otevřené dokumenty, ID, cesty, aktivní/zobrazený stav; u modelů dirty a revision |
 | `context` | žádné | Aktivní a zobrazený dokument, aktivní výskyt/skica a potvrzený výběr |
-| `tree` | žádné | Strom zobrazeného dokumentu; nejvýše 2000 položek a příznak truncated |
-| `new` | `type name` | Nový Part/Assembly/Drawing podle současné logiky GUI a start šablon |
+| `tree` | volitelné `document` | Datový strom zadaného nebo zobrazeného dokumentu; nejvýše 2000 položek a příznak truncated |
+| `new` | `type name` | Nový Part/Assembly/Drawing ze společné továrny a start šablon |
 | `open` | `path` | Otevře `.prtz`, `.asmz` nebo `.drwz`; již otevřený dokument aktivuje |
 | `save` | volitelné `document` | Uloží aktivní dokument do jeho existující cesty |
 | `regenerate` | volitelné `document` | Výslovná regenerace Partu nebo Assembly |
@@ -59,7 +59,7 @@ Stejný dispatcher přijímá JSON. Žádná druhá implementace operací pro AI
 {"command":"context","arguments":{}}
 ```
 
-Volitelný argument `document` chrání volajícího před použitím příkazu v jiném
+U změnových příkazů volitelný argument `document` chrání volajícího před použitím příkazu v jiném
 dokumentu po přepnutí tabu. ID získá z `documents` nebo `context`:
 
 ```json
@@ -109,13 +109,16 @@ platné zachované výsledky zůstávají podle stávajícího kontraktu CADu.
 
 - `cpp/modules/commands`: dispatcher, validace, katalog a výsledky. Nemá Qt,
   okna ani závislost na OCCT; linkuje pouze nlohmann JSON.
+- `cpp/modules/command_host`: registrace a provádění příkazů nad Workspace,
+  ochrany stavu a čtení datového stromu; nemá Qt ani hlavní okno.
 - `cpp/modules/workspace/document_operations`: ukládání a historie bez GUI.
 - `cpp/modules/workspace/native_documents`: načítání, tvorba a start šablony bez GUI.
 - `cpp/modules/workspace/model_calculation`, `part_references`: explicitní regenerace
   a obnova uložených referencí bez GUI.
 - `cpp/app/command_console.*`: panel, textový vstup, historie a výpis.
 - `cpp/app/workspace/console.cpp`: propojení příkazů s aktuálním CAD workspace,
-  kontextem a existujícími operacemi GUI.
+  kontextem ukazatele, stavovým panelem a obnovou zobrazení. Dokumentové
+  operace provádí společný `command_host::Host`.
 - `cpp/app/console_ui_verification.*`: izolovaný integrační scénář panelu.
 
 Tato etapa zavádí základ pro AI adaptéry. Neobsahuje přihlášení ke Codexu,
@@ -124,9 +127,10 @@ Připojení konkrétního poskytovatele je další krok podle volby uživatele.
 Budoucí adaptér má volat společný dispatcher, kontrolovat `ok`/`code` a používat
 stabilní ID. Dokumentové texty a popisky jsou data, nikoli pokyny pro asistenta.
 
-Samotný dispatcher je nezávislý na GUI, současný CAD host jeho operací stále
-používá hlavní okno. Plný provoz CADu bez GUI vyžaduje další oddělení operací;
-není dodán pouhým přidáním konzole.
+Dispatcher i hostitel současných jedenácti příkazů jsou nezávislí na GUI.
+Stejný `command_host::Host` používá panel a testovací program bez Qt.
+Samostatný uživatelský příkazový program ještě není dodaný; jeho vstup/výstup
+a spouštění budou další etapa. Modelovací příkazy zatím nejsou v katalogu.
 
 ## Ověření
 
@@ -177,3 +181,60 @@ podle skutečného překrytí oken. Při automatizaci může být CAD překrytý
 aplikací; tehdy se ověřuje prázdný hover, nikoli vynucený zásah geometrie.
 Kompaktní panel byl také zkontrolován na snímku
 `Projects/test/command-console-compact.png`.
+
+
+## Společný hostitel a strom modelu (2026-09-11)
+
+Vstupem `command_host::Host` je Workspace, kernel, pracovní adresář a volitelné
+adaptéry nastavení, překladu a interakce. Text i JSON procházejí stejným katalogem,
+validací a ochranami. Host přímo volá společné dokumentové operace; nepředává
+jejich provedení zpět hlavnímu oknu.
+
+Výsledek je stále `Result` s protokolem `zima-cad.commands/1`. Poslední změnu
+navíc popisuje `Change` (Open, New, Save, Regenerate, History a ID dokumentu).
+GUI podle ní obnoví taby/pohled. Nové provedení předchozí změnu smaže; odmítnutý
+opakovaný vstup během operace vrací `busy` bez přepsání probíhajícího stavu.
+Regenerace vrací změnu i při částečném selhání, aby pohled ukázal platný výsledek
+a chyby po skutečně provedeném výpočtu.
+
+Host se volá na vlákně vlastnícím Workspace. Adaptér `run_io` smí přesunout
+čtení nebo zápis odděleného snímku na pracovní vlákno, ale musí před návratem
+počkat na dokončení a předat chybu. Samotná pracovní úloha nemá přístup do
+živého Workspace. GUI při čekání zachovává dosavadní obsluhu událostí bez
+uživatelského vstupu. Nový modul explicitně požaduje UTF-8 i při MSVC sestavení
+bez Qt, aby cesty a překlady nezávisely na systémové znakové stránce.
+
+`tree [document]` vrací `projection: "model"`. Čte skutečnou datovou hierarchii,
+nikoli řádky QTreeWidgetu. Nezahrnuje dočasné řádky otevřené editace, ikony ani
+lokalizované dekorace. Part zahrnuje tělesa v pořadí historie, kontejnery,
+konstrukce, jejich skici a uloženou geometrii skic/referenční identity, počátky
+a řezy. Assembly zahrnuje vlastní objekty a uloženou hierarchii výskytů.
+Drawing zahrnuje listy, pohledy a výkresové kóty.
+
+Řádek obsahuje `id`, `parent_id`, `document_id` (vlastník), `instance_path`,
+`parent_instance_path`, `depth`, `type`, `label` a `semantic_key`; podle typu
+přidává např. zdrojový dokument, potlačení a viditelnost. Identita výskytu je
+cesta, ne název ani samotné ID zdrojového dílu. Dva stejné šrouby proto mají
+odlišné cesty i při shodném zdroji. Sestavový strom čte poslední uložený/vypočtený
+snímek, neotevírá závislosti ani do něj nevnáší novější obsah zdrojového tabu.
+Konkrétní otevřený zdroj lze číst jeho `document` ID bez aktivace a regenerace.
+Názvy geometrických typů jsou stabilní identifikátory; nejsou překladem UI.
+
+Bez adaptéru interakce zůstávají `selection`, `hover` a `camera` prázdné a
+ukazatel je mimo View. Příkaz `fit` bez adaptéru pohledu vrátí `view_unavailable`.
+Formáty dokumentů a config šablony se touto etapou nemění.
+
+`zima_cpp_command_host_tests` provádí bez Qt skutečné New/Open/Save všech tří
+nativních typů, Undo/Redo a regeneraci kvádru s nezávislou kontrolou objemu.
+Ověřuje UTF-8, shodu textu/JSON, pracovní I/O, zákaz opakovaného vstupu,
+zachování neuloženého dokumentu, chyby bez změny stavu a datový strom včetně
+vlastnictví skic, opakovaných výskytů, výkresů a limitu počtu položek.
+Test panelu navíc ověřuje, že dekorace přidaná pouze do widgetu stromu není
+ve výsledku `tree`, zatímco skutečný prvek vytvořený přes GUI tam je.
+
+
+Ověření této etapy: Windows Release, **56/56 testů prošlo** (363,51 s),
+`build/command-host-full-tests.log`. `dumpbin /dependents` nad
+`zima_cpp_command_host_tests.exe` potvrdil nepřítomnost Qt DLL;
+protokol je `build/command-host-dependencies.log`. Snímek skutečného panelu
+`Projects/test/command-console.png` byl také vizuálně zkontrolován.
