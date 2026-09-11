@@ -138,9 +138,9 @@ Nevznikají žádné povinné externí soubory geometrie, revizí nebo cache.
 ## Rozsah a ověření
 
 Katalog je společný s konzolí: dokumenty, context/tree, new/open/save,
-regenerate, undo/redo, fit a box.create/get/set. Bez View vrací `fit` chybu. `context` nevymýšlí
-výběr, hover ani kameru. Prvním modelovacím příkazem je kvádr; jeho rozměry jsou
-výslovně v mm a používá stejnou transakci jako GUI. Přenos do běžícího GUI,
+regenerate, undo/redo, fit a příkazy create/get/set všech šesti základních primitiv. Bez View vrací `fit` chybu. `context` nevymýšlí
+výběr, hover ani kameru. Kvádr, válec, koule, kužel, jehlan a klín mají rozměry
+výslovně v mm a používají stejné transakce jako GUI. Přenos do běžícího GUI,
 AI poskytovatel a hlas nejsou součástí tohoto kroku.
 
 `zima_cpp_cli_process_tests` spouští skutečné CLI procesy. Ověřuje config uložený
@@ -178,3 +178,8 @@ příkazem `save`. CLI si historii Undo nepřenáší mezi procesy.
 
 Přesná syntaxe, jednotky, zámky a pravidla transakce jsou v
 [popisu příkazů kvádru](CAD_CONSOLE.md#společná-operace-kvádru-2026-09-11).
+
+Stejné ovládání mají `cylinder`, `sphere`, `cone`, `pyramid` a `wedge`.
+Například `cylinder.create 3 6` vytvoří válec s poloměrem 3 mm a výškou 6 mm;
+`cone.create 4 0 6` ostrý kužel. Úplné pořadí parametrů je v
+[katalogu základních primitiv](CAD_CONSOLE.md#všechna-základní-primitiva).

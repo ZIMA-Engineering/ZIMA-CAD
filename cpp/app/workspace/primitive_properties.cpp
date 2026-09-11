@@ -1,5 +1,5 @@
 #include "workspace_internal.hpp"
-#include <zima/workspace/box_operations.hpp>
+#include <zima/workspace/primitive_operations.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -368,12 +368,12 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 }
                 return;
             }
-            if (committed.feature_kind == zima::document::FeatureKind::Box) {
+            if (zima::workspace::primitive_definition(committed.feature_kind)) {
                 try {
-                    static_cast<void>(zima::workspace::commit_box(workspace_, kernel_, owner_id,
-                        std::move(committed), edit_mode ? zima::workspace::BoxEditMode::Replace
-                                                        : zima::workspace::BoxEditMode::Create));
-                } catch (const zima::workspace::BoxOperationError& error) {
+                    static_cast<void>(zima::workspace::commit_primitive(workspace_, kernel_, owner_id,
+                        std::move(committed), edit_mode ? zima::workspace::PrimitiveEditMode::Replace
+                                                        : zima::workspace::PrimitiveEditMode::Create));
+                } catch (const zima::workspace::PrimitiveOperationError& error) {
                     throw std::runtime_error(tr(error.what()).toStdString());
                 }
                 return;

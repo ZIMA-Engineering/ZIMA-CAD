@@ -1,5 +1,5 @@
 #include <zima/command_host/host.hpp>
-#include <zima/workspace/box_operations.hpp>
+#include <zima/workspace/primitive_operations.hpp>
 #include <cmath>
 #include <iostream>
 #include <limits>
@@ -74,14 +74,14 @@ void verify_commands(const kernel::OcctKernel& kernel, fs::path directory) {
     near(loaded_bodies.back().volume,12000);
     // A lock is shared with GUI. Explicit unlocking and editing in one OK is valid.
     auto locked=expected;locked.value_locks.insert("width");
-    require(workspace::commit_box(live,kernel,document_id,locked,workspace::BoxEditMode::Replace),"Lock transaction ignored");
+    require(workspace::commit_primitive(live,kernel,document_id,locked,workspace::PrimitiveEditMode::Replace),"Lock transaction ignored");
     const auto locked_revision=state->session.revision();
     require(host.execute({{"command","box.set"},{"arguments",{{"container",id},{"length_mm","15"},{"width_mm","50"}}}}).code=="value_locked","CLI bypassed lock");
     require(state->session.revision()==locked_revision && *state->session.document().find_container(id)==locked,"Rejected patch partly committed");
     locked.value_locks.clear();locked.box.width=50;
-    require(workspace::commit_box(live,kernel,document_id,locked,workspace::BoxEditMode::Replace),"Explicit unlock+edit rejected");
+    require(workspace::commit_primitive(live,kernel,document_id,locked,workspace::PrimitiveEditMode::Replace),"Explicit unlock+edit rejected");
     auto forged=locked;forged.feature_id="replacement-identity";
-    bool rejected=false;try{static_cast<void>(workspace::commit_box(live,kernel,document_id,forged,workspace::BoxEditMode::Replace));}catch(const workspace::BoxOperationError& error){rejected=std::string(error.code)=="identity_changed";}
+    bool rejected=false;try{static_cast<void>(workspace::commit_primitive(live,kernel,document_id,forged,workspace::PrimitiveEditMode::Replace));}catch(const workspace::PrimitiveOperationError& error){rejected=std::string(error.code)=="identity_changed";}
     require(rejected && state->session.document().find_container(id)->feature_id==original.feature_id,"Edit replaced topology identity");
     // New features follow the active Body cursor; editing another Body never activates it.
     auto branched=state->session.document();const auto second_body=branched.body_history.create_body("second");
@@ -118,11 +118,11 @@ void verify_calculation_transaction(const kernel::OcctKernel& kernel) {
     require(!state->session.calculated_boundaries().back().calculation_errors.empty(),"Broken downstream fixture did not fail calculation");
     const auto revision=state->session.revision();const auto* cache=state->session.calculated_boundaries().data();
     bool failed=false;
-    try{static_cast<void>(workspace::commit_box(live,kernel,part.document_id,document::PartDocument::create_box_container(),workspace::BoxEditMode::Create));}catch(const std::exception&){failed=true;}
+    try{static_cast<void>(workspace::commit_primitive(live,kernel,part.document_id,document::PartDocument::create_box_container(),workspace::PrimitiveEditMode::Create));}catch(const std::exception&){failed=true;}
     require(failed,"Create did not reject the known calculation failure");
     require(state->session.revision()==revision && state->session.document().history==part.history && state->session.calculated_boundaries().data()==cache,"Failed calculation partly committed");
     first.box.length=15;
-    require(workspace::commit_box(live,kernel,part.document_id,first,workspace::BoxEditMode::Replace),"Edit could not repair its own boundary with an existing downstream failure");
+    require(workspace::commit_primitive(live,kernel,part.document_id,first,workspace::PrimitiveEditMode::Replace),"Edit could not repair its own boundary with an existing downstream failure");
     require(state->session.document().find_container(first.id)->box.length==15 && !state->session.calculated_boundaries().back().calculation_errors.empty(),"Edit lost downstream error reporting");
 }
 }

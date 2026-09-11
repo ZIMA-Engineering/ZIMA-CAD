@@ -56,7 +56,7 @@ private:
     bool executing_{};
     std::optional<Change> change_;
     void register_commands();
-    void register_box_commands();
+    void register_primitive_commands();
     [[nodiscard]] Interaction interaction() const;
     [[nodiscard]] std::string tr(const char*) const;
     [[nodiscard]] Result target(const Json&) const;

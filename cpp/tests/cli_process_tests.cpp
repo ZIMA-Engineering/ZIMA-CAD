@@ -163,6 +163,14 @@ int main(int argc,char** argv){
         require(result.exit_code==0 && edits.size()==7 && edits[2].at("data").at("length_mm")==15 && edits[4].at("data").at("length_mm")==10,"CLI Box patch/query/Undo/Redo failed");
         const auto resized=document::PartDocument::load(project/"commanded-box.prtz",&reloaded);
         require(resized.find_container(box_id)->feature_id==new_box.find_container(box_id)->feature_id && std::abs(reloaded.back().volume-9000)<1e-6,"CLI Box resize replaced identity or saved wrong geometry");
+        for(const auto* primitive:{"cylinder.create 3 6","sphere.create 3","cone.create 4 1 6","pyramid.create 10 8 6","wedge.create 10 8 6 2"}) {
+            const auto text=std::string(primitive);const auto kind=text.substr(0,text.find('.'));
+            const auto script="new part cli-"+kind+"\n"+text+"\nsave\n";
+            result=launch(executable,root,common+QStringList{"--stdin"},QByteArray::fromStdString(script));
+            require(result.exit_code==0 && result.results().size()==3,"CLI primitive creation failed");
+            const auto loaded=document::PartDocument::load(project/("cli-"+kind+".prtz"),&reloaded);
+            require(loaded.history.size()==1 && !reloaded.empty() && reloaded.back().volume>0,"CLI primitive did not persist calculated geometry");
+        }
         std::cout<<"CLI processes: native files, Unicode/config, scripts/stdin, errors, streaming and explicit geometry calculation passed\n";
         return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}

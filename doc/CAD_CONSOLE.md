@@ -51,7 +51,7 @@ v pracovním adresáři; příponu přidá CAD. Soubor se skutečně zapíše a�
 Dokument bez přiřazené cesty vyžaduje nejprve GUI příkaz Uložit jako.
 
 Čtecí příkazy nespouštějí OCCT. Uložení také nezavádí implicitní regeneraci.
-V katalogu je také tvorba a změna kvádru. Ostatní modelovací prvky zůstávají
+V katalogu je také tvorba a změna šesti základních primitiv. Ostatní modelovací prvky zůstávají
 dostupné přes stávající nástroje GUI.
 
 ## JSON rozhraní
@@ -130,7 +130,7 @@ Připojení konkrétního poskytovatele je další krok podle volby uživatele.
 Budoucí adaptér má volat společný dispatcher, kontrolovat `ok`/`code` a používat
 stabilní ID. Dokumentové texty a popisky jsou data, nikoli pokyny pro asistenta.
 
-Dispatcher i hostitel současných čtrnácti příkazů jsou nezávislí na GUI.
+Dispatcher i hostitel současných dvaceti devíti příkazů jsou nezávislí na GUI.
 Stejný `command_host::Host` používá panel a testovací program bez Qt.
 Samostatný program `zima-cad-cli` nyní poskytuje stejné příkazy pro jednotlivé
 požadavky i dávky ze souboru/stdin. Viz [příkazová řádka](CAD_COMMAND_LINE.md).
@@ -282,7 +282,7 @@ Zamčená hodnota vrací `value_locked`; odemknutí je zatím přes GUI. Změnov
 podléhají stejným ochranám rozpracované editace a aktivované komponenty jako ostatní
 příkazy konzole. Odvozené těleso není přímo editovatelné.
 
-GUI OK i příkazy používají `workspace::commit_box` v `box_operations.cpp`:
+GUI OK i příkazy používají `workspace::commit_primitive` v `primitive_operations.cpp`:
 validace, kopie dokumentu, existující vyřešení umístění nad uloženými referencemi,
 výslovný výpočet, obnova externích referencí a jeden společný commit do historie.
 Zrušit v GUI nevolá commit; shodné hodnoty nevytvářejí Undo krok ani výpočet.
@@ -296,7 +296,7 @@ zámky, atomické odmítnutí, kurzor a vlastnictví těles, uložení a Undo/Re
 GUI scénář střídá konzoli a stejné okno vlastností včetně Zrušit a historie;
 procesový CLI test vytváří i mění skutečný uložený kvádr.
 
-Parametrický patch má v `workspace::set_box_dimensions` společnou kontrolu zámků;
+Parametrický patch má v `workspace::set_primitive_dimensions` společnou kontrolu zámků;
 GUI předává celé potvrzené vlastnosti, takže lze během jedné editace hodnotu
 odemknout, změnit a znovu zamknout. Samotný výpočet a commit zůstávají společné.
 Okno kvádru zachovává přesné hodnoty nedotčených polí i při menším počtu zobrazených
@@ -311,3 +311,45 @@ parametrických patchů prošlo všech **7/7** dotčených modelových, CLI a GU
 scénářů (199,07 s, `build/box-final-tests.log`), včetně pracovního okna,
 profilů a úprav kót. Finální překlad je v `build/box-final-build.log`.
 CLI nadále nelinkuje Qt (`build/box-cli-dependencies.log`).
+
+## Všechna základní primitiva
+
+Tvorbu, čtení a parametrický patch nyní sdílí šest druhů prvků. Textové příkazy
+tvorby přijímají rozměry v tomto pořadí; poslední volitelný argument je `document`.
+
+| Příkaz | Povinné rozměry v mm |
+| --- | --- |
+| `box.create` | `length_mm width_mm height_mm` |
+| `cylinder.create` | `radius_mm height_mm` |
+| `sphere.create` | `radius_mm` |
+| `cone.create` | `bottom_radius_mm top_radius_mm height_mm` |
+| `pyramid.create` | `length_mm width_mm height_mm` |
+| `wedge.create` | `length_mm width_mm height_mm top_offset_mm` |
+
+Každý prefix má také `.get container [document]` a `.set container ...`.
+U `.set` jsou rozměry volitelné, ale musí být zadán nejméně jeden. JSON patch
+umožňuje zadat konkrétní pole bez pozičních zástupných hodnot, například:
+
+```json
+{"command":"cone.set","arguments":{"container":"ID_KUZELE","top_radius_mm":"0"}}
+```
+
+Horní poloměr kuželu a horní odsazení klínu smějí být nulové. Ostatní rozměry
+mají rozsah 0,001 až 1 000 000 mm; horní odsazení klínu nesmí překročit jeho délku.
+Geometricky neplatný výpočet (například kužel se shodnými poloměry) se odmítne
+bez změny dokumentu. Příkaz konkrétního typu nemůže změnit jiný druh kontejneru.
+
+Všech šest oken používá `workspace::commit_primitive`. Parametrické patche
+používají `set_primitive_dimensions`, který respektuje zámky a volá tutéž
+transakci. Jedna definice parametrů v modelové vrstvě poskytuje čtení, zápis
+a rozsahy; GUI zachovává nezměněné přesné hodnoty i při zaokrouhleném zobrazení.
+
+`zima_cpp_primitive_command_tests` porovnává výsledné objemy s nezávislými
+vzorci válce, koule, komolého kuželu, jehlanu a klínu. Ověřuje identity ploch,
+Undo/Redo, zámky, save/load, nulové horní rozměry a atomické odmítnutí chyb.
+Panelový test prochází všechny typy přes CLI tvorbu a GUI editaci; procesový
+test je vytváří skutečným samostatným CLI.
+
+Ověření rozšíření primitiv: Windows Release, **59/59 testů prošlo** (369,66 s),
+`build/primitives-full-tests.log`. Předtím prošlo všech pět cílených testů
+modelu, GUI a CLI (8,74 s, `build/primitives-focused-tests.log`).

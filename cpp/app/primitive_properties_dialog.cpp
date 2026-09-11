@@ -215,7 +215,6 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         length_ = dimension(initial.box.length, "boxLength");
         width_ = dimension(initial.box.width, "boxWidth");
         height_ = dimension(initial.box.height, "boxHeight");
-        displayed_box_initial_ = {length_->value(), width_->value(), height_->value()};
         form->addRow(tr("Délka"), length_);
         form->addRow(tr("Šířka"), width_);
         form->addRow(tr("Výška"), height_);
@@ -1235,6 +1234,19 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
     // normalize equivalent values while loading (for example a placement or
     // extent combo). Pressing OK without a user-visible change must therefore
     // remain a no-op and must not create an Undo revision.
+    const auto remember = [this](QDoubleSpinBox* field, double persisted) {
+        primitive_initial_values_.emplace(field,std::pair{field->value(),persisted});
+    };
+    using Kind = zima::document::FeatureKind;
+    switch(initial_.feature_kind) {
+    case Kind::Box: remember(length_,initial_.box.length);remember(width_,initial_.box.width);remember(height_,initial_.box.height);break;
+    case Kind::Cylinder: remember(radius_,initial_.cylinder.radius);remember(height_,initial_.cylinder.height);break;
+    case Kind::Sphere: remember(radius_,initial_.sphere.radius);break;
+    case Kind::Cone: remember(radius_,initial_.cone.bottom_radius);remember(top_radius_,initial_.cone.top_radius);remember(height_,initial_.cone.height);break;
+    case Kind::Pyramid: remember(length_,initial_.pyramid.length);remember(width_,initial_.pyramid.width);remember(height_,initial_.pyramid.height);break;
+    case Kind::Wedge: remember(length_,initial_.wedge.length);remember(width_,initial_.wedge.width);remember(height_,initial_.wedge.height);remember(top_offset_,initial_.wedge.top_offset);break;
+    default: break;
+    }
     setProperty("zimaValueLockOwner",QString::fromStdString(initial_.id));
     const auto lock=[this](QDoubleSpinBox* field,const std::string& key){zima::ui::bind_numeric_value_lock(field,key,initial_.value_locks,[this]{notify_preview();});};
     lock(length_,"length");
@@ -1267,6 +1279,12 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
 }
 
 zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
+    // A display's decimal precision never rewrites an untouched model value.
+    const auto primitive_value = [this](QDoubleSpinBox* field) {
+        const auto saved = primitive_initial_values_.find(field);
+        return saved != primitive_initial_values_.end() && field->value() == saved->second.first
+            ? saved->second.second : field->value();
+    };
     const QString name = name_->text().trimmed();
     auto result = initial_;
     result.name = name.toStdString();
@@ -1276,17 +1294,9 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
             : zima::document::CombineMode::Add;
     }
     if (result.feature_kind == zima::document::FeatureKind::Box) {
-        // Display precision must not rewrite an untouched persisted dimension,
-        // especially a locked value received from a command or imported model.
-        const auto value = [](QDoubleSpinBox* field, double displayed, double persisted) {
-            return field->value() == displayed ? persisted : field->value();
-        };
-        result.box = {
-            value(length_, displayed_box_initial_.length, initial_.box.length),
-            value(width_, displayed_box_initial_.width, initial_.box.width),
-            value(height_, displayed_box_initial_.height, initial_.box.height)};
+        result.box = {primitive_value(length_), primitive_value(width_), primitive_value(height_)};
     } else if (result.feature_kind == zima::document::FeatureKind::Cylinder) {
-        result.cylinder = {radius_->value(), height_->value()};
+        result.cylinder = {primitive_value(radius_), primitive_value(height_)};
     } else if (result.feature_kind == zima::document::FeatureKind::Thread) {
         result.thread.nominal_diameter = hole_thread_nominal_diameter_->value();
         result.thread.pitch = thread_size_->currentIndex() >= 0
@@ -1418,14 +1428,14 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
         result.drill_point.included_angle_degrees =
             drill_point_angle_->value();
     } else if (result.feature_kind == zima::document::FeatureKind::Sphere) {
-        result.sphere = {radius_->value()};
+        result.sphere = {primitive_value(radius_)};
     } else if (result.feature_kind == zima::document::FeatureKind::Cone) {
-        result.cone = {radius_->value(), top_radius_->value(), height_->value()};
+        result.cone = {primitive_value(radius_), primitive_value(top_radius_), primitive_value(height_)};
     } else if (result.feature_kind == zima::document::FeatureKind::Pyramid) {
-        result.pyramid = {length_->value(), width_->value(), height_->value()};
+        result.pyramid = {primitive_value(length_), primitive_value(width_), primitive_value(height_)};
     } else if (result.feature_kind == zima::document::FeatureKind::Wedge) {
-        result.wedge = {length_->value(), width_->value(), height_->value(),
-                        top_offset_->value()};
+        result.wedge = {primitive_value(length_), primitive_value(width_), primitive_value(height_),
+                        primitive_value(top_offset_)};
     } else if (result.feature_kind == zima::document::FeatureKind::Extrusion) {
         result.extrusion.profile_plane_offset = profile_plane_offset_->value();
         result.extrusion.profile_source =

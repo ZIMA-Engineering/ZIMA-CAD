@@ -30,7 +30,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Katalog, kontext, datový strom | Hotovo pro současné příkazy | Doplňovat popisy a dotazy podle domén |
 | New/Open/Save, Regenerate, Undo/Redo | Základ hotov | Save As, zavírání/aktivace dokumentu a další dokumentové operace |
 | Kvádr | Hotovo | Společná tvorba, čtení a rozměrový patch; včetně zámků a přesnosti |
-| Válec, koule, kužel, jehlan, klín | Následující krok | Společné transakce a příkazy všech základních primitiv |
+| Válec, koule, kužel, jehlan, klín | Hotovo | Společné create/get/set, zámky, přesnost, GUI/CLI a 59/59 regresí |
 | Historie Partu | Zbývá | Přesun, potlačení, odstranění, kurzor |
 | Tělesa a Boolean | Zbývá | Tvorba, aktivace, vlastnosti a operace mezi tělesy |
 | Umístění a původní reference | Zbývá | Dotazy a zadání do existujícího společného řešení umístění |

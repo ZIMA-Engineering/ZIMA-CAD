@@ -145,6 +145,33 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             "Command bypassed GUI-restored lock");
         run("undo");check(parameters().at("width_mm")==80.123456789,"Undo lost precise locked width");
         run("redo");run("save");
+        struct PrimitiveCase {const char* command;const char* field;const char* parameter;};
+        for(const auto& sample:std::vector<PrimitiveCase>{
+            {"cylinder.create 3 6","cylinderHeight","height_mm"},
+            {"sphere.create 3","sphereRadius","radius_mm"},
+            {"cone.create 4 1 6","coneHeight","height_mm"},
+            {"pyramid.create 10 8 6","pyramidHeight","height_mm"},
+            {"wedge.create 10 8 6 2","wedgeHeight","height_mm"}}) {
+            const auto command=std::string(sample.command);const auto kind=command.substr(0,command.find('.'));
+            run(QString::fromStdString("new part "+stem+"-"+kind));
+            const auto result=run(QString::fromStdString(command)).data;flush();
+            const auto primitive_id=result.at("container").get<std::string>();
+            QTreeWidgetItem* item=nullptr;
+            for(QTreeWidgetItemIterator it(model_tree);*it;++it)
+                if((*it)->data(0,Qt::UserRole).toString().toStdString()==primitive_id &&
+                   (*it)->data(0,Qt::UserRole+3).toString()=="part-container") {item=*it;break;}
+            check(item,"CLI-created primitive missing from GUI tree");window.show_tree_item_properties(item);flush();
+            QDialog* properties=nullptr;
+            for(auto* dialog:window.findChildren<QDialog*>()) if(dialog->isVisible() && dialog->findChild<QDoubleSpinBox*>(sample.field))properties=dialog;
+            check(properties,"Primitive properties not shared with CLI");
+            properties->findChild<QDoubleSpinBox*>(sample.field)->setValue(9);
+            properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            check(run(QString::fromStdString(kind+".get "+primitive_id)).data.at(sample.parameter)==9,"GUI primitive edit did not reach command model");
+            run("undo");check(run(QString::fromStdString(kind+".get "+primitive_id)).data.at(sample.parameter)==result.at(sample.parameter),"Primitive Undo lost original command value");
+            run("redo");run("save");
+        }
+        commands::Json restore_box={{"command","open"},{"arguments",{{"path",path.generic_string()}}}};
+        run(QString::fromStdString(restore_box.dump()));flush();
         const auto missing=(directory/(stem+"-missing.prtz")).generic_string();
         commands::Json open={{"command","open"},{"arguments",{{"path",missing}}}};
         check(!window.execute_console_command(QString::fromStdString(open.dump())).ok,"Missing file reported success");

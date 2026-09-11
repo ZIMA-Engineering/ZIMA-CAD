@@ -137,8 +137,8 @@ Host a jeho testovací program nelinkují Qt. Následující etapa přidává sa
 [CAD_COMMAND_LINE.md](CAD_COMMAND_LINE.md).
 
 První modelovací transakci sdílí okno kvádru a příkazy `box.create/get/set`.
-`modules/workspace/box_operations` validuje a atomicky vypočítá/uloží kvádr;
-`modules/command_host/src/box_commands.cpp` převádí argumenty a výsledek.
+`modules/workspace/primitive_operations` validuje a atomicky vypočítá/uloží kvádr;
+`modules/command_host/src/primitive_commands.cpp` převádí argumenty a výsledek.
 V `primitive_properties.cpp` zůstává dialog, rollback a náhled; OK pro kvádr
-volá společnou operaci. Ostatní druhy primitivů zatím používají dosavadní cestu.
+volá společnou operaci. Stejnou operaci používají také válec, koule, kužel, jehlan a klín.
 Solver a smlouva umístění nejsou změněny. Podrobnosti: [CAD_CONSOLE.md](CAD_CONSOLE.md).
