@@ -7,6 +7,7 @@ set(ZIMA_WORKSPACE_SOURCES
     app/workspace/body_properties.cpp
     app/workspace/calculation.cpp
     app/workspace/construction_properties.cpp
+    app/workspace/console.cpp
     app/workspace/context_menu.cpp
     app/workspace/dimension_display.cpp
     app/workspace/dimension_edit.cpp

@@ -1,3 +1,4 @@
+#include "console_ui_verification.hpp"
 #include "sketch_offset_dialog.hpp"
 #include <zima/drawing/drawing_template.hpp>
 #include "sketch_text_properties_dialog.hpp"
@@ -4659,6 +4660,7 @@ int verify_startup_contract(
     QApplication& application, zima::app::AssemblyWorkspaceWindow& window,
     const std::filesystem::path& test_directory,
     const QString& part_capture_path = {}, const QString& drawing_capture_path = {}) {
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_CONSOLE_ONLY")) return zima::app::verify_command_console(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_OFFSET_PLANE_ONLY")) return verify_profile_offset_dimension_plane(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_BODY_REFERENCE_DIMENSION_ONLY")) return verify_body_reference_dimension_edit(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_DIMENSION_EDITS_ONLY")) return verify_inline_primitive_dimensions(application,test_directory);

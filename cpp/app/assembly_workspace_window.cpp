@@ -25,6 +25,7 @@ AssemblyWorkspaceWindow::AssemblyWorkspaceWindow(const QString& working_director
     resize(1200, 800);
     create_actions();
     create_layout();
+    create_command_console();
     refresh_tabs();
     refresh_scene();
 }

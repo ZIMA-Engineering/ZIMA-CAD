@@ -21,6 +21,7 @@ Všechny soubory následující tabulky jsou v
 
 | Oblast | Soubory |
 | --- | --- |
+| Konzole a společné příkazy | `console.cpp`; viz [Konzole CADu](CAD_CONSOLE.md) |
 | Akce, nabídky a propojení událostí | `actions.cpp`, `layout.cpp`, `toolbars.cpp` |
 | Dokumenty, taby, přepínání druhu dokumentu | `documents.cpp` |
 | Parametry, materiál, relace, rodinná tabulka a nastavení | `document_commands.cpp` |

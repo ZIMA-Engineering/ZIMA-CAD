@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QPointer>
+#include <zima/commands/dispatcher.hpp>
 #include "sketch_inference_policy.hpp"
 
 #include <zima/workspace/workspace.hpp>
@@ -23,6 +24,7 @@
 #include <vector>
 #include <set>
 
+class QDockWidget;
 class QAction;
 class QActionGroup;
 class QComboBox;
@@ -47,6 +49,7 @@ namespace zima::viewer { class MeshView; struct ViewerCandidate; }
 
 namespace zima::app {
 
+class CommandConsole;
 class PrimitivePropertiesDialog;
 class ShaftThreadDialog;
 class PlacementReferenceDialog;
@@ -64,6 +67,7 @@ public:
     explicit AssemblyWorkspaceWindow(
         const QString& working_directory = {});
     ~AssemblyWorkspaceWindow() override;
+    [[nodiscard]] zima::commands::Result execute_console_command(const QString& text);
     [[nodiscard]] bool open_document_path(const QString& path);
     void show_tree_item_properties(QTreeWidgetItem* item);
     [[nodiscard]] QString dimension_identifier(const std::string& owner, const std::string& key) const;
@@ -146,6 +150,14 @@ private:
         Piping,
         Drawing,
     };
+
+    void create_command_console();
+    void report_operation_error(const QString& title, const QString& message);
+    zima::commands::Dispatcher command_dispatcher_;
+    QDockWidget* console_dock_{};
+    CommandConsole* console_{};
+    bool console_executing_{};
+    QString console_operation_error_;
 
     zima::workspace::Workspace workspace_;
     ApplicationInstance instance_;

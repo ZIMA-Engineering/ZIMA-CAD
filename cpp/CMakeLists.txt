@@ -27,6 +27,10 @@ if(ZIMA_OCCT_VERSION VERSION_LESS 7.9)
 endif()
 find_package(nlohmann_json 3.11 REQUIRED)
 
+add_library(zima_commands modules/commands/src/dispatcher.cpp)
+target_include_directories(zima_commands PUBLIC modules/commands/include)
+target_link_libraries(zima_commands PUBLIC nlohmann_json::nlohmann_json)
+
 add_library(zima_kernel_api INTERFACE)
 target_include_directories(zima_kernel_api INTERFACE
     modules/kernel_api/include)
@@ -133,6 +137,7 @@ include(app/workspace/sources.cmake)
 
 add_executable(zima-cad-cpp
     ${ZIMA_WORKSPACE_SOURCES}
+    app/command_console.cpp app/console_ui_verification.cpp
     app/main_workspace.cpp app/appearance_dialog.cpp app/appearance_command.cpp app/section_command.cpp app/section_ui_verification.cpp app/assembly_workspace_window.cpp app/template_command.cpp app/numeric_value_lock_command.cpp app/shaft_thread_command.cpp app/derived_copy_command.cpp
     app/application_settings.cpp app/global_settings_dialog.cpp app/measurement_command.cpp app/measurement_ui_verification.cpp
     app/document_tools_dialogs.cpp
@@ -150,7 +155,7 @@ target_include_directories(zima-cad-cpp PRIVATE app)
 target_compile_definitions(zima-cad-cpp PRIVATE
     ZIMA_RELEASE_DATE="${ZIMA_RELEASE_DATE}")
 target_link_libraries(zima-cad-cpp PRIVATE
-    zima_workspace zima_assembly zima_document_core zima_drawing zima_kernel_occt zima_viewer zima_ui
+    zima_commands zima_workspace zima_assembly zima_document_core zima_drawing zima_kernel_occt zima_viewer zima_ui
     zima_interchange nlohmann_json::nlohmann_json
     Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg)
 set_target_properties(zima-cad-cpp PROPERTIES AUTORCC ON)
@@ -367,6 +372,13 @@ if(ZIMA_BUILD_TESTS)
     add_executable(zima_cpp_interchange_contract_tests tests/interchange_contract_tests.cpp)
     target_link_libraries(zima_cpp_interchange_contract_tests PRIVATE zima_interchange)
     add_test(NAME zima_cpp_interchange_contract_tests COMMAND zima_cpp_interchange_contract_tests)
+    add_executable(zima_cpp_command_dispatcher_tests tests/command_dispatcher_tests.cpp)
+    target_link_libraries(zima_cpp_command_dispatcher_tests PRIVATE zima_commands)
+    add_test(NAME zima_cpp_command_dispatcher_tests COMMAND zima_cpp_command_dispatcher_tests)
+    add_test(NAME zima_cpp_console_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_console_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
     add_test(NAME zima_cpp_workspace_startup_contract
         COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_workspace_startup_contract PROPERTIES

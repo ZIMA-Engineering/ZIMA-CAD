@@ -4,6 +4,12 @@ This directory contains the active ZIMA-CAD implementation. The former Python
 application is frozen under `archive/python/` and is retained only as a
 runnable behavioural and visual reference.
 
+## CAD command console
+
+The application includes a docked text/JSON command console. See
+[CAD console and shared commands](../doc/CAD_CONSOLE.md) for usage, supported
+operations, protocol and the boundary between the dispatcher and GUI host.
+
 ## Workspace source navigation
 
 The integrated window implementation is split by responsibility under

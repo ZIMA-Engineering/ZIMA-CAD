@@ -328,7 +328,7 @@ bool AssemblyWorkspaceWindow::open_document_path(const QString& path) {
         workspace_.display_top_level(id);
     } catch (const std::exception& error) {
         finish_status_operation(tr("Otevření dokumentu selhalo"), false);
-        QMessageBox::critical(this, tr("Otevření dokumentu selhalo"), error.what());
+        report_operation_error(tr("Otevření dokumentu selhalo"), error.what());
         return false;
     }
     if (!opened_path.parent_path().empty()) {

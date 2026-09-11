@@ -206,7 +206,7 @@ void AssemblyWorkspaceWindow::regenerate_assembly() {
         preserve_view_on_refresh_ = true;
         refresh_scene();
     } catch (const std::exception& error) {
-        QMessageBox::critical(this, tr("Regenerace selhala"), error.what());
+        report_operation_error(tr("Regenerace selhala"), error.what());
     }
 }
 

@@ -279,6 +279,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     show_sketches_action_->setObjectName("showSketchesAction");
 
     auto* view = menuBar()->addMenu(t("menu.view", "Zobrazení"));
+    view->setObjectName("viewMenu");
     view->addAction(fit_view_action_);
     auto* dimension_frame=view->addAction(tr("Prostorový rám kót"));
     dimension_frame->setObjectName("showDimensionFrameAction");dimension_frame->setCheckable(true);

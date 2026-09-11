@@ -221,7 +221,7 @@ void AssemblyWorkspaceWindow::regenerate_active_part() {
                 ? tr("Part byl regenerován a externí reference skic byly obnoveny.")
                 : tr("Part byl regenerován."));
     } catch (const std::exception& error) {
-        QMessageBox::critical(this, tr("Regenerace Partu selhala"), error.what());
+        report_operation_error(tr("Regenerace Partu selhala"), error.what());
     }
 }
 

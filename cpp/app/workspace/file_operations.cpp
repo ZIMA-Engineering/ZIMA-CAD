@@ -168,7 +168,7 @@ void AssemblyWorkspaceWindow::save_active_assembly() {
             QFileInfo(path).fileName()));
     } catch (const std::exception& error) {
         finish_status_operation(tr("Uložení sestavy selhalo"), false);
-        QMessageBox::critical(this,
+        report_operation_error(
             application_settings_.text("message.save_failed", tr("Uložení se nezdařilo")),
             error.what());
     }
@@ -210,7 +210,7 @@ void AssemblyWorkspaceWindow::save_active_document() {
         }
         catch(const std::exception& error) {
             finish_status_operation(tr("Uložení výkresu selhalo"), false);
-            QMessageBox::critical(this,
+            report_operation_error(
                 application_settings_.text("message.save_failed", tr("Uložení se nezdařilo")),
                 error.what()); }
         return;
@@ -264,7 +264,7 @@ void AssemblyWorkspaceWindow::save_active_document() {
             QFileInfo(path).fileName()));
     } catch (const std::exception& error) {
         finish_status_operation(tr("Uložení Partu selhalo"), false);
-        QMessageBox::critical(this,
+        report_operation_error(
             application_settings_.text("message.save_failed", tr("Uložení se nezdařilo")),
             error.what());
     }
