@@ -48,7 +48,7 @@ std::map<std::string, std::string> face_colors(const Appearance &a) {
 }
 } // namespace
 void AssemblyWorkspaceWindow::show_body_color_dialog() {
-  if (properties_dialog_ || tree_edit_dialog_ || section_dialog_)
+  if (properties_dialog_ || tree_edit_dialog_ || !section_dialog_.isNull())
     return;
   const auto active = workspace_.active_document_id(),
              displayed = workspace_.displayed_document_id();

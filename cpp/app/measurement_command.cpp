@@ -25,7 +25,7 @@ const std::vector<viewer::CandidateKind> measurement_kinds{
 }
 void AssemblyWorkspaceWindow::show_measurement(const std::string& saved_id){
     if(measurement_dialog_){measurement_dialog_->raise();return;}
-    if(properties_dialog_||tree_edit_dialog_||section_dialog_)return;
+    if(properties_dialog_||tree_edit_dialog_||!section_dialog_.isNull())return;
     const auto id=workspace_.displayed_document_id();
     const auto* part=workspace_.open_part(id);const auto* assembly=workspace_.open_assembly(id);
     if(!part&&!assembly)return;
@@ -179,7 +179,7 @@ void AssemblyWorkspaceWindow::update_measurement_ui(){
     if(!measure_action_)return;
     const auto id=workspace_.displayed_document_id();
     const auto* part=workspace_.open_part(id);const auto* assembly=workspace_.open_assembly(id);
-    measure_action_->setEnabled((part||assembly)&&(!properties_dialog_||measurement_dialog_)&&!section_dialog_);
+    measure_action_->setEnabled((part||assembly)&&(!properties_dialog_||measurement_dialog_)&&section_dialog_.isNull());
     if(!part&&!assembly)return;
     const auto& rows=part?part->session.document().measurements:assembly->session.document().measurements;
     auto* root=tree_->topLevelItem(0);if(!root)return;

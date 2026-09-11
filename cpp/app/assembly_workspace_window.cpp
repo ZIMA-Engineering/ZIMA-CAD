@@ -1629,6 +1629,7 @@ zima::kernel::ViewerReferenceGeometry part_construction_dimension_geometry(
         construction_reference_source_geometry(calculated_boundaries);
     append_reference_geometry(
         geometry, document.origin_viewer_mesh().original_references);
+    append_reference_geometry(geometry, document.body_origin_reference_geometry());
     append_reference_geometry(
         geometry, document.construction_viewer_mesh().original_references);
     return geometry;
@@ -24428,15 +24429,24 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                     if(!body_id.empty())display=document.place_body_mesh(std::move(display),body_id);
                     mesh.dimensions.insert(mesh.dimensions.end(),display.dimensions.begin(),display.dimensions.end());
                 });
-                const auto& placement_reference_geometry =
+                const auto placement_reference_geometry =
                     parameter_dimension_preview_ &&
                             parameter_dimension_preview_->id == container->id
                         ? primitive_reference_geometry_
-                        : reference_geometry;
+                        : document.construction_reference_geometry_for(
+                              container->id, reference_geometry);
                 auto placement_dimensions =
                     zima::document::container_placement_dimensions(
                         container->id, container->placement,
                         placement_reference_geometry);
+                if (!parameter_dimension_preview_) {
+                    if (const auto* body = document.body_owner_for_object(container->id)) {
+                        zima::kernel::ViewerMesh display;
+                        display.dimensions = std::move(placement_dimensions);
+                        placement_dimensions = document.place_body_mesh(
+                            std::move(display), body->scope.id).dimensions;
+                    }
+                }
                 append_nonzero_parameter_dimensions(
                     mesh.dimensions, std::move(placement_dimensions));
                 const auto origin = zima::kernel::Vec3{
@@ -24709,13 +24719,14 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                                 "Délka 2 = ", start,
                                 along(-*length), {-8,-8,0}, *length);
                         }
-                        const auto base = origin;
                         if (extrusion_profile_offset_dimension_value(
-                                container->extrusion) &&
-                            !primitive_origin_preview_mesh_) {
-                            linear("profile_offset", "Odsazení = ", base, start,
-                                {5,5,0},
-                                container->extrusion.profile_plane_offset);
+                                container->extrusion) && !primitive_origin_preview_mesh_) {
+                            const zima::kernel::Vec3 front = sketch->plane ==
+                                    zima::sketcher::SketchPlane::YZ
+                                ? zima::kernel::Vec3{0,8,0}
+                                : zima::kernel::Vec3{8,0,0};
+                            linear("profile_offset", "Odsazení = ", origin, start,
+                                front, container->extrusion.profile_plane_offset);
                         }
                     }
                 } else if (container->feature_kind == FeatureKind::Revolution) {
@@ -24791,23 +24802,17 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                                     "parameter:angle");
                             }
                         }
-                        const auto start = sketch->resolved_origin;
-                        const auto base = zima::kernel::Vec3{
-                            start.x - sketch->resolved_normal.x *
-                                container->revolution.profile_plane_offset,
-                            start.y - sketch->resolved_normal.y *
-                                container->revolution.profile_plane_offset,
-                            start.z - sketch->resolved_normal.z *
-                                container->revolution.profile_plane_offset};
-                        if (std::abs(
-                                container->revolution.profile_plane_offset) >
+                        if (std::abs(container->revolution.profile_plane_offset) >
                                 1.0e-12 && !primitive_origin_preview_mesh_) {
+                            const auto start = sketch->resolved_origin;
+                            const auto normal = sketch->resolved_normal;
+                            const auto offset = container->revolution.profile_plane_offset;
+                            const zima::kernel::Vec3 base{
+                                start.x-normal.x*offset, start.y-normal.y*offset,
+                                start.z-normal.z*offset};
                             const auto front = sketch->resolved_x_axis;
-                            linear("profile_offset", "Odsazení = ", base,
-                                start,
-                                {front.x * 8.0, front.y * 8.0,
-                                 front.z * 8.0},
-                                container->revolution.profile_plane_offset);
+                            append_dimension(container->id, "profile_offset", "Odsazení = ",
+                                base, start, {front.x*8,front.y*8,front.z*8}, offset);
                         }
                     }
                 } else if (container->feature_kind == FeatureKind::Shell) {
@@ -25113,11 +25118,21 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                 // primitive_origin_preview_mesh_. Drawing both produced the
                 // two identical 5 mm dimensions seen after returning from
                 // Sketcher.
+                const bool offset_already_shown = std::ranges::any_of(
+                    mesh.dimensions, [&](const auto& dimension) {
+                        return dimension.reference.owner_id == sketch->owner_container_id &&
+                            dimension.reference.semantic_key == "parameter:profile_offset";
+                    });
                 if (std::abs(sketch->plane_offset) > 1.0e-12 &&
-                    !primitive_origin_preview_mesh_) {
+                    !primitive_origin_preview_mesh_ && !offset_already_shown) {
+                    // One offset annotation for the owned profile. Its witness
+                    // follows the persisted Sketch X axis, so the dimension
+                    // lies in the profile's X/normal plane even after rotation.
+                    const auto front = sketch->resolved_x_axis;
                     append_dimension(sketch->owner_container_id,
                         "profile_offset", "Odsazení = ", base,
-                        sketch->resolved_origin, {5,5,0},
+                        sketch->resolved_origin,
+                        {front.x * 8.0, front.y * 8.0, front.z * 8.0},
                         sketch->plane_offset);
                 }
             }
@@ -28144,8 +28159,11 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                 if (key.starts_with("placement:")) {
                     const auto placement_key = std::string_view(key).substr(
                         std::string_view{"placement:"}.size());
-                    const auto geometry = construction_reference_source_geometry(
-                        part->session.calculated_boundaries());
+                    // Use the same persisted reference universe as the displayed
+                    // dimensions, including Body Origins in the owner's frame.
+                    const auto geometry = next.construction_reference_geometry_for(
+                        container->id, part_construction_dimension_geometry(
+                            next, part->session.calculated_boundaries()));
                     const auto constraint = zima::document::point_constraint_state(
                         container->placement.references, geometry);
                     if (placement_key == "x" && !constraint.constrained_axes[0]) {

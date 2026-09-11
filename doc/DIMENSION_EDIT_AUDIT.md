@@ -1,5 +1,43 @@
 # Audit editace kót (2026-09-10)
 
+## Doplnění 2026-09-11: odsazení od počátku tělesa a rovina kóty
+
+Na uživatelském modelu se změna kóty 16 mm po Enteru vracela. View nabízelo
+odvozenou souřadnici X, protože podklady kót neobsahovaly počátek tělesa.
+Editor přepsal X, ale uložená reference k rovině YZ stále požadovala odsazení
+16 mm; řešení umístění proto souřadnici správně obnovilo.
+
+Zobrazení a přímá editace nyní používají uložené reference v souřadnicích
+vlastníka včetně počátků těles. Kóta adresuje odsazení příslušné reference.
+Zobrazené kóty umístění se převádějí do polohy vlastnícího tělesa. Sdílený
+výpočet umístění ani jeho pravidla se nemění.
+
+Kóta odsazení roviny profilu má vynášecí čáry podél lokální osy X profilu;
+měření probíhá podél jeho normály. Leží tak v rovině vlastního originu,
+nikoli v rovině odvozené od globálního diagonálního vektoru `{5,5,0}`.
+Tatáž kóta se nevkládá znovu přes vlastněnou skicu. U Rotace se již vyřešený
+směr profilu nepřevádí podruhé rotací kontejneru.
+
+Ověření tohoto doplnění:
+
+- `ZIMA_VERIFY_BODY_REFERENCE_DIMENSION_ONLY=1`: editace 16 → 17 mm,
+  uložení/načtení a shoda otisku vypočteného tělesa; také posunuté a otočené
+  vlastnící těleso a prostorová poloha jeho kóty.
+- `ZIMA_VERIFY_PROFILE_OFFSET_PLANE_ONLY=1`: natočené profily XY/XZ/YZ,
+  zakončení na délku i Až k, směr měření a vynášecích čar, normála roviny
+  kóty a právě jeden výskyt odsazení. Kontrola zobrazení nevyžaduje výpočet
+  tělesa ani zvolený cíl rozpracovaného Až k.
+- Obě kontroly jsou součástí `ZIMA_VERIFY_DIMENSION_EDITS_ONLY=1`.
+  Prošla celá matice editace, Properties, Cancel, OK a persistence.
+- Na načteném uživatelském modelu prošla změna reference 16 → 17 mm
+  a geometrická kontrola roviny kóty odsazení profilu 20 mm.
+
+Cílené běhy používaly `QT_QPA_PLATFORM=offscreen` a `--verify-startup`.
+Ověřují události editoru a geometrická data kót; offscreen zde neposkytuje
+OpenGL kontext, takže nejde o obrazovou kontrolu vykreslených pixelů.
+
+## Původní rozsah auditu
+
 Vstup je změna číselné hodnoty existující kóty. Výstupem musí být odpovídající
 geometrie a uložený stav, případně odmítnutí změny bez zápisu. Samotné přepsání
 popisku nebo hlášení úspěchu není důkazem přepočtu.

@@ -3098,7 +3098,144 @@ int verify_assembly_refresh_view(QApplication& application,const std::filesystem
     return 0;
 }
 
+int verify_profile_offset_dimension_plane(QApplication& application, const std::filesystem::path& directory) {
+    using namespace zima;
+    const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
+    const auto dot=[](const kernel::Vec3& a,const kernel::Vec3& b){return a.x*b.x+a.y*b.y+a.z*b.z;};
+    const auto subtract=[](const kernel::Vec3& a,const kernel::Vec3& b){return kernel::Vec3{a.x-b.x,a.y-b.y,a.z-b.z};};
+    try {
+        for (const bool up_to : {false,true})
+        for (const auto plane : {sketcher::SketchPlane::XY,sketcher::SketchPlane::XZ,sketcher::SketchPlane::YZ}) {
+            auto part=document::PartDocument::create_default();
+            auto sketch=sketcher::Sketch::create_default();
+            sketch.plane=plane;sketch.plane_offset=20;
+            static_cast<void>(sketch.add_circle(0,0,4));
+            auto feature=document::PartDocument::create_extrusion_container(sketch.id);
+            sketch.owner_container_id=feature.id;
+            feature.extrusion.profile_plane_offset=20;
+            feature.extrusion.end_condition_forward=up_to ? document::EndCondition::UpTo : document::EndCondition::Length;
+            feature.placement.rotation_x=feature.placement.absolute_rotation_x=30;
+            feature.placement.rotation_y=feature.placement.absolute_rotation_y=20;
+            feature.placement.rotation_z=feature.placement.absolute_rotation_z=15;
+            part.history={feature};part.sketches={sketch};
+            document::BodyHistoryGraph graph;const auto body=graph.create_body("Profile dimension");
+            graph.insert({document::PartHistoryKind::Feature,feature.id});part.set_body_history(graph);
+            part.resolve_constructions();
+            // Inspection needs only persisted frames, including for an Up-to
+            // definition whose target has not yet been chosen.
+            const auto path=directory/"profile-offset-plane.prtz";
+            part.save(path);
+            const auto& resolved=part.sketches.front();
+            app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));
+            window.resize(1200,850);window.show();
+            check(window.open_document_path(QString::fromStdString(path.string())),"Cannot open profile dimension fixture");
+            application.processEvents();
+            check(activate_test_body(application,window,body),"Cannot activate profile dimension Body");
+            window.show_parameter_dimensions(feature.id);application.processEvents();
+            auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
+            std::size_t count=0;
+            for (const auto& dimension:view->mesh().dimensions) {
+                if (dimension.reference.owner_id!=feature.id || dimension.reference.semantic_key!="parameter:profile_offset") continue;
+                ++count;
+                const auto measured=subtract(dimension.witness_second,dimension.witness_first);
+                const auto witness=subtract(dimension.line_first,dimension.witness_first);
+                check(std::abs(dimension.value-20)<1e-7 && std::abs(dot(measured,resolved.resolved_normal)-20)<1e-7,
+                    "Profile offset does not measure along its normal");
+                check(std::abs(dot(witness,resolved.resolved_x_axis)-8)<1e-7 &&
+                    std::abs(dot(witness,resolved.resolved_y_axis))<1e-7 &&
+                    std::abs(dot(witness,resolved.resolved_normal))<1e-7 &&
+                    std::abs(std::abs(dot(dimension.plane_normal,resolved.resolved_y_axis))-1)<1e-7,
+                    "Profile offset dimension left its own Origin plane");
+            }
+            check(count==1,"Profile offset must have exactly one dimension");
+        }
+        std::cout<<"Rotated profile offset planes and unique annotations passed\n";return 0;
+    }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
+}
+
+int verify_body_reference_dimension_edit(QApplication& application, const std::filesystem::path& directory) {
+    using namespace zima;
+    const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
+    const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+    try {
+        for (const bool moved : {false, true}) {
+            auto part=document::PartDocument::create_default();
+            document::BodyHistoryGraph graph;
+            const auto body_id=graph.create_body("Reference dimension");
+            if (moved) {
+                auto body=*graph.find(body_id);
+                body.scope.placement={80,40,25};
+                body.scope.placement.absolute_rotation_y=90;
+                body.scope.placement.rotation_y=90;
+                graph.update_body(body);
+            }
+            auto feature=document::PartDocument::create_box_container();
+            for (const std::string plane : {"xy", "xz", "yz"}) {
+                document::ConstructionReference reference;
+                reference.owner_id=body_id+":origin";
+                reference.semantic_key="origin:plane:"+plane;
+                reference.supports_offset=true;
+                reference.offset=plane=="yz" ? 16 : 0;
+                feature.placement.references.push_back(reference);
+            }
+            part.history={feature};
+            graph.insert({document::PartHistoryKind::Feature,feature.id});
+            part.set_body_history(graph);part.resolve_constructions();
+            kernel::OcctKernel kernel;
+            const auto path=directory/"body-reference-dimension.prtz";
+            part.save(path,kernel.evaluate_history(part.kernel_operations()));
+            app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));
+            window.resize(1200,850);window.show();
+            check(window.open_document_path(QString::fromStdString(path.string())),"Cannot open reference dimension fixture");
+            flush();check(activate_test_body(application,window,body_id),"Cannot activate reference dimension Body");
+            auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
+            window.show_parameter_dimensions(feature.id);flush();
+            viewer::ViewerCandidate candidate;
+            candidate.kind=viewer::CandidateKind::Dimension;
+            candidate.owner_id=feature.id;
+            candidate.semantic_key="parameter:placement:reference_offset:2";
+            bool found=false;
+            for (std::size_t i=0;i<view->mesh().dimensions.size();++i) {
+                const auto& dimension=view->mesh().dimensions[i];
+                if (dimension.reference.owner_id!=feature.id) continue;
+                check(dimension.reference.semantic_key!="parameter:placement:x",
+                    "Reference-driven X is offered as an independent dimension");
+                if (dimension.reference.semantic_key==candidate.semantic_key) {
+                    candidate.geometry_index=i;found=true;
+                    check(std::abs(dimension.value-16)<1e-7,"Reference offset has the wrong value");
+                    const auto point=dimension.witness_second;
+                    check(std::abs(point.x-(moved?80:16))<1e-7 &&
+                          std::abs(point.y-(moved?40:0))<1e-7 &&
+                          std::abs(point.z-(moved?9:0))<1e-7,
+                        "Reference dimension is not in the owning Body's displayed frame");
+                }
+            }
+            check(found,"Body Origin offset dimension is missing");
+            window.edit_dimension_inline(candidate);flush();
+            auto* editor=view->findChild<QLineEdit*>("inlineDimensionValueEdit");
+            check(editor&&editor->isVisible(),"Reference offset editor did not open");
+            editor->setText("17");
+            QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);
+            QApplication::sendEvent(editor,&enter);flush();
+            window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+            std::vector<kernel::BodyResult> results;
+            const auto saved=document::PartDocument::load(path,&results);
+            const auto* edited=saved.find_container(feature.id);
+            check(edited && std::abs(edited->placement.references[2].offset-17)<1e-7 &&
+                std::abs(edited->placement.x-17)<1e-7,"Reference offset edit reverted after calculation or save");
+            const auto operations=saved.kernel_operations();
+            check(!results.empty() && results.back().source_fingerprint==
+                kernel::history_fingerprint(operations,operations.size()),
+                "Reference offset and calculated body disagree");
+        }
+        std::cout<<"Body reference dimension edit and persistence passed\n";
+        return 0;
+    } catch(const std::exception& error) {std::cerr<<error.what()<<'\n';return 1;}
+}
+
 int verify_inline_primitive_dimensions(QApplication& application, const std::filesystem::path& directory) {
+    if (verify_profile_offset_dimension_plane(application,directory)!=0) return 1;
+    if (verify_body_reference_dimension_edit(application,directory)!=0) return 1;
     using namespace zima;
     const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
@@ -4302,6 +4439,8 @@ int verify_startup_contract(
     QApplication& application, zima::app::AssemblyWorkspaceWindow& window,
     const std::filesystem::path& test_directory,
     const QString& part_capture_path = {}, const QString& drawing_capture_path = {}) {
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_OFFSET_PLANE_ONLY")) return verify_profile_offset_dimension_plane(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_BODY_REFERENCE_DIMENSION_ONLY")) return verify_body_reference_dimension_edit(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_DIMENSION_EDITS_ONLY")) return verify_inline_primitive_dimensions(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_FRAMES_ONLY")) return verify_owned_profile_frames(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_MEASUREMENT_INSPECTOR_ONLY")) return zima::app::verify_measurement_inspector(application,window,test_directory);

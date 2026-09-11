@@ -5,6 +5,18 @@ solid-model calculations. The active implementation lives in [`cpp/`](cpp/).
 
 ## Build and run
 
+The C++ build requires CMake 3.24+, a C++20 compiler, Qt 6.5+ (Core, Gui,
+Widgets, OpenGL, OpenGLWidgets and Svg), OpenCASCADE 7.9+, and nlohmann_json
+3.11+. The runtime preset below uses the repository runtime. When building
+against system packages, check their versions first; lowering the OCCT check
+does not establish support for OCCT 7.8.
+
+Existence checks on forward-declared dialog types use `QPointer::isNull()`.
+This avoids an incomplete-type compilation error in Qt versions whose
+implicit pointer conversion requires the complete dialog definition. The
+Measurement and Appearance command sources were checked with system Qt 6.8.2;
+this check does not certify a complete Debian build or an older OCCT kernel.
+
 ```bash
 cmake --preset linux-runtime-debug -S cpp
 cmake --build build/cpp-debug --target zima-cad-cpp
