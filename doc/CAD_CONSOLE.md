@@ -397,3 +397,10 @@ Stejná ochrana rozpracované editace platí i pro typované požadavky.
 Ověření: přeloženo GUI i CLI; **6/6** cílených testů dispatcheru, hostitele,
 primitiv, skutečných CLI procesů a panelu prošlo (8,49 s),
 `build/typed-arguments-tests.log`. Překlad: `build/typed-arguments-build.log`.
+
+## Tělesa a operace mezi nimi
+
+Katalog nyní obsahuje také `body.list`, `body.get`, `body.create`, `body.set`,
+`body.activate`, `body.cursor` a `body.boolean.create/get/set`. Vlastnosti těles
+a Booleanů používají tutéž transakci jako GUI. Aktivace a kurzory nepočítají OCCT.
+Syntax, datové typy a ověřované objemy jsou v [BODY_COMMANDS.md](BODY_COMMANDS.md).

@@ -179,6 +179,17 @@ int main(int argc,char** argv){
         result=launch(executable,root,common+QStringList{"--stdin","--keep-going"},"new drawing unsaved\nclose\n{\"command\":\"close\",\"arguments\":{\"discard\":true}}\ndocuments\n");
         const auto closed=result.results();
         require(result.exit_code==1 && closed.size()==4 && closed[1].at("code")=="unsaved_changes" && closed.back().at("data").empty(),"CLI failed to protect or explicitly discard an unsaved drawing");
+
+        result=launch(executable,root,common+QStringList{"--stdin"},"new part commanded-bodies\nbox.create 10 10 10\nbody.create Tool\nbox.create 4 4 4\nsave\n");
+        require(result.exit_code==0 && result.results().size()==5,"CLI could not create two independent Bodies");
+        const auto first_body=result.results()[1].at("data").at("body").get<std::string>();
+        const auto tool_body=result.results()[2].at("data").at("body").get<std::string>();
+        const auto boolean_script="open commanded-bodies.prtz\nbody.boolean.create subtract "+first_body+" "+tool_body+"\nsave\n";
+        result=launch(executable,root,common+QStringList{"--stdin"},QByteArray::fromStdString(boolean_script));
+        require(result.exit_code==0 && result.results().size()==3,"CLI could not calculate a Body Boolean");
+        const auto bodies=document::PartDocument::load(project/"commanded-bodies.prtz",&reloaded);
+        require(bodies.body_history.booleans().size()==1 && bodies.body_history.booleans().front().target_id==first_body &&
+            bodies.body_history.booleans().front().tool_id==tool_body && std::abs(reloaded.back().volume-936)<1e-6,"CLI Boolean saved wrong ownership or volume");
         std::cout<<"CLI processes: native files, Unicode/config, scripts/stdin, errors, streaming and explicit geometry calculation passed\n";
         return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}

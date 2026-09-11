@@ -70,6 +70,7 @@ Result AssemblyWorkspaceWindow::execute_console_command(const QString& text) {
 }
 void AssemblyWorkspaceWindow::apply_console_change(const command_host::Change& change){
     using Kind=command_host::ChangeKind;
+    if(change.clear_selection && viewer_)viewer_->clear_selection();
     if(change.kind==Kind::Directory) {refresh_delete_file_actions();return;}
     if(change.kind==Kind::Copy) {refresh_delete_file_actions();return;}
     if(change.kind==Kind::Open||change.kind==Kind::New||change.kind==Kind::Activate||change.kind==Kind::Close){

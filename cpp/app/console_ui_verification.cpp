@@ -16,6 +16,8 @@
 #include <QTreeWidget>
 #include <QTreeWidgetItemIterator>
 #include <QDoubleSpinBox>
+#include <QComboBox>
+#include <cmath>
 #include <zima/viewer/mesh_view.hpp>
 #include <chrono>
 #include <iostream>
@@ -203,6 +205,43 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         check(run("documents").data.back().at("dirty")==true,"GUI sheet edit was not tracked by command host");
         check(window.execute_console_command("close").code=="unsaved_changes","GUI drawing edit was discarded");
         run("save");run("close");flush();
+        run(QString::fromStdString(activate.dump()));flush();
+        run(QString::fromStdString("new part "+stem+"-bodies"));
+        const auto base_body=run("box.create 10 10 10").data.at("body").get<std::string>();
+        const auto tool_body=run("body.create Tool").data.at("body").get<std::string>();
+        const auto tool_feature=run("box.create 4 4 4").data.at("container").get<std::string>();flush();
+        view->confirm_container(tool_feature);check(view->confirmed_candidate().has_value(),"Body activation fixture has no confirmed selection");
+        run(QString::fromStdString("body.activate "+base_body));flush();
+        check(!view->confirmed_candidate() && run("context").data.at("selection").is_null(),"Body command activation kept a stale confirmed selection");
+        run(QString::fromStdString("body.activate "+tool_body));flush();
+        const auto edit_object=[&](const std::string& object_id,const char* kind) {
+            QTreeWidgetItem* row=nullptr;
+            for(QTreeWidgetItemIterator it(model_tree);*it;++it)
+                if((*it)->data(0,Qt::UserRole).toString().toStdString()==object_id && (*it)->data(0,Qt::UserRole+3).toString()==kind){row=*it;break;}
+            check(row,"Body command result missing from GUI tree");window.show_tree_item_properties(row);flush();
+        };
+        const auto visible_properties=[&](const char* field) {
+            for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible() && dialog->findChild<QWidget*>(field))return dialog;
+            return static_cast<QDialog*>(nullptr);
+        };
+        edit_object(tool_body,"part-body");properties=visible_properties("bodyName");check(properties,"Body Properties missing");
+        properties->findChild<QLineEdit*>("bodyName")->setText("Pending tool");
+        check(window.execute_console_command("body.create forbidden").code=="editing_in_progress","Body command overwrote pending Properties");
+        properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+        check(run(QString::fromStdString("body.get "+tool_body)).data.at("name")=="Tool","Body Cancel committed pending name");
+        edit_object(tool_body,"part-body");properties=visible_properties("bodyName");properties->findChild<QLineEdit*>("bodyName")->setText("GUI tool");
+        properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+        check(run(QString::fromStdString("body.get "+tool_body)).data.at("name")=="GUI tool","GUI Body properties did not reach command model");
+        run("undo");check(run(QString::fromStdString("body.get "+tool_body)).data.at("name")=="Tool","Body edit lost shared Undo");run("redo");
+        const auto boolean=run(QString::fromStdString("body.boolean.create subtract "+base_body+" "+tool_body)).data.at("boolean").get<std::string>();flush();
+        edit_object(boolean,"part-body-boolean");properties=visible_properties("bodyBooleanOperation");check(properties,"Body Boolean Properties missing");
+        auto* boolean_mode=properties->findChild<QComboBox*>("bodyBooleanOperation");
+        boolean_mode->setCurrentIndex(boolean_mode->findData(static_cast<int>(kernel::BodyCombination::Intersect)));
+        properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+        check(run(QString::fromStdString("body.boolean.get "+boolean)).data.at("operation")=="intersect","GUI Boolean properties did not reach command model");
+        run("save");std::vector<kernel::BodyResult> body_cache;
+        const auto body_document=document::PartDocument::load(directory/(stem+"-bodies.prtz"),&body_cache);
+        check(body_document.body_history.find_boolean(boolean) && !body_cache.empty() && std::abs(body_cache.back().volume-64)<1e-6,"GUI Boolean edit saved the wrong volume");
         run(QString::fromStdString(activate.dump()));flush();
         input->setText("context");QApplication::sendEvent(input,&enter);flush();
         check(window.grab().save(QString::fromStdString((directory/"command-console.png").string())),"Console screenshot failed");

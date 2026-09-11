@@ -20,7 +20,7 @@ struct Interaction {
     Json pointer={{"inside_view",false}};
 };
 enum class ChangeKind { Open, New, Save, Regenerate, History, Model, Activate, Close, Copy, Directory };
-struct Change { ChangeKind kind; std::string document_id; };
+struct Change { ChangeKind kind; std::string document_id; bool clear_selection{}; };
 enum class Activity { Read, Write };
 struct Options {
     std::function<Settings()> settings;
@@ -58,6 +58,7 @@ private:
     void register_commands();
     void register_primitive_commands();
     void register_document_commands();
+    void register_body_commands();
     [[nodiscard]] Interaction interaction() const;
     [[nodiscard]] std::string tr(const char*) const;
     [[nodiscard]] Result target(const Json&) const;

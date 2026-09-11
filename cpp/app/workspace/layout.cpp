@@ -1,4 +1,5 @@
 #include "workspace_internal.hpp"
+#include <zima/workspace/body_operations.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -59,16 +60,11 @@ void AssemblyWorkspaceWindow::create_layout() {
     history_tree->body_cursor_moved = [this](const QString& owner, std::size_t cursor) {
         auto* part = workspace_.open_part(workspace_.active_document_id());
         if (!part || !part_history_insertion_allowed()) return;
-        auto next = part->session.document();
-        if (owner.isEmpty()) {
-            if (next.body_history.insertion_cursor() == cursor) return;
-            next.body_history.set_insertion_cursor(cursor);
-        } else {
-            const auto* body = next.body_history.find(owner.toStdString());
-            if (!body || body->scope.id != next.body_history.active_body_id() || body->cursor == cursor) return;
-            next.body_history.set_history_cursor(body->scope.id,cursor);
+        if(!owner.isEmpty()) {
+            const auto* body=part->session.document().body_history.find(owner.toStdString());
+            if(!body || body->scope.id!=part->session.document().body_history.active_body_id())return;
         }
-        part->session.commit(std::move(next),part->session.calculated_boundaries());
+        if(!workspace::set_body_history_cursor(workspace_,workspace_.active_document_id(),cursor,owner.toStdString()))return;
         preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
     };
     history_tree->history_cursor_moved = [this](std::size_t cursor) {

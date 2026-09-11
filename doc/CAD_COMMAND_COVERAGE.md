@@ -34,7 +34,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Kvádr | Hotovo | Společná tvorba, čtení a rozměrový patch; včetně zámků a přesnosti |
 | Válec, koule, kužel, jehlan, klín | Hotovo | Společné create/get/set, zámky, přesnost, GUI/CLI a 59/59 regresí |
 | Historie Partu | Zbývá | Přesun, potlačení, odstranění, kurzor |
-| Tělesa a Boolean | Zbývá | Tvorba, aktivace, vlastnosti a operace mezi tělesy |
+| Tělesa a Boolean | Základ hotov | Tvorba, čtení, aktivace, název/viditelnost, kurzory a Boolean create/get/set; zbývá příkazové umístění, pořadí/mazání a odvozené kopie |
 | Umístění a původní reference | Zbývá | Dotazy a zadání do existujícího společného řešení umístění |
 | Konstrukční geometrie | Zbývá | Body, osy, roviny, 3D křivky |
 | Skicář: geometrie | Zbývá | Tvorba a úprava všech podporovaných křivek a textu |
@@ -56,8 +56,13 @@ chybějící operaci nevalidovanou změnou serializovaného dokumentu ani volán
 widgetů ze samostatného CLI. Plošný audit Undo/Redo zůstává samostatným úkolem;
 regrese historie potřebné pro právě převáděnou operaci jsou součástí etapy.
 
-Etapa správy dokumentů: katalog má **34 příkazů**. Kompletní Windows Release
+Etapa správy dokumentů: katalog měl **34 příkazů**. Kompletní Windows Release
 sada ověřila 58/59 testů; nová regrese odhalila chybějící přesměrování vlastního
 řádku kusovníku v kopii výkresu. Po opravě prošlo všech **9/9 dotčených testů**
 (16,71 s), včetně původně selhávající regrese. Podrobnosti a logy jsou v
 [DOCUMENT_OPERATIONS.md](DOCUMENT_OPERATIONS.md).
+
+Etapa těles přidala devět příkazů; katalog má nyní **43 příkazů**. Sdílené
+vlastnosti těles a Booleanů, aktivace a kurzory prošly kompletní sadou **60/60**
+(383,35 s) a závěrečnou sadou **6/6** po sjednocení výběru (12,28 s).
+Podrobnosti jsou v [BODY_COMMANDS.md](BODY_COMMANDS.md).

@@ -81,6 +81,7 @@ public:
     [[nodiscard]] std::string serialized() const;
     [[nodiscard]] static BodyHistoryGraph from_serialized(std::string_view source);
     void validate() const;
+    bool operator==(const BodyHistoryGraph&) const = default;
 private:
     std::vector<BodyHistory> bodies_;
     std::vector<BodyBoolean> booleans_;

@@ -1,4 +1,5 @@
 #include "workspace_internal.hpp"
+#include <zima/workspace/body_operations.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -35,9 +36,7 @@ void AssemblyWorkspaceWindow::activate_body(const std::string& id) {
     if (properties_dialog_) return;
     auto* part = workspace_.open_part(workspace_.active_document_id());
     if (!part) return;
-    auto next = part->session.document();
-    next.body_history.activate(id);
-    part->session.commit(std::move(next), part->session.calculated_boundaries());
+    if(!workspace::activate_part_body(workspace_,workspace_.active_document_id(),id))return;
     viewer_->clear_selection();
     preserve_view_on_refresh_ = true; refresh_tabs(); refresh_scene();
 }
@@ -48,13 +47,11 @@ void AssemblyWorkspaceWindow::show_body_properties(const std::string& id) {
     auto* part = workspace_.open_part(document_id);
     if (!part || document_id != workspace_.displayed_document_id()) return;
     auto pending = part->session.document();
-    auto graph = pending.body_history;
-    std::string edited = id;
-    if (edited.empty()) {
-        const bool first = graph.bodies().empty();
-        edited = zima::document::create_origin_bound_body(graph, pending.document_id, tr("Těleso %1").arg(graph.bodies().size()+1).toStdString());
-        if (first) for (const auto& entry : pending.history_order) graph.insert(entry);
-    }
+    if(!id.empty() && !pending.body_history.find(id))return;
+    const auto edit=workspace::prepare_body_edit(pending,id,
+        tr("Těleso %1").arg(pending.body_history.bodies().size()+1).toStdString());
+    auto graph=edit.pending;
+    const auto edited=edit.object_id;
     const auto* source = graph.find(edited);
     if (!source) return;
     pending.set_body_history(graph);
@@ -63,21 +60,9 @@ void AssemblyWorkspaceWindow::show_body_properties(const std::string& id) {
     const auto position = static_cast<std::size_t>(std::distance(graph.order().begin(), std::ranges::find(graph.order(), edited)));
     body_dialog_context_ = graph.available_before(position);
     auto* dialog = new BodyPropertiesDialog(*source, graph.active_body_id() == edited,
-        [this, document_id, graph, edited](zima::document::BodyHistory value, bool active) mutable {
-            auto* current = workspace_.open_part(document_id);
-            if (!current) throw std::runtime_error("Dokument již není otevřený.");
-            auto next = current->session.document();
-            auto updated = graph;
-            updated.update_body(std::move(value));
-            if (active) updated.activate(edited);
-            else if (updated.active_body_id() == edited) updated.activate({});
-            next.set_body_history(std::move(updated));
-            auto calculated = calculate_part_with_resolved_references(next, &current->session.calculated_boundaries());
-            // Reference resolution may normalize signed zero after the last
-            // geometry pass. OK must retain the exact final inputs so a later
-            // metadata-only edit and Save can reuse this calculation safely.
-            calculated = calculate_part(next, &calculated);
-            current->session.commit(std::move(next), std::move(calculated));
+        [this, edit](zima::document::BodyHistory value, bool active) {
+            try {static_cast<void>(workspace::commit_body_edit(workspace_,kernel_,edit,std::move(value),active));}
+            catch(const workspace::BodyOperationError& error) {throw std::runtime_error(tr(error.what()).toStdString());}
         }, this, document_decimal_places(part->session.document()));
     primitive_reference_geometry_ = part->session.calculated_boundaries().empty()
         ? zima::kernel::ViewerReferenceGeometry{} : part->session.calculated_boundaries().back().mesh.original_references;
@@ -146,9 +131,11 @@ void AssemblyWorkspaceWindow::show_body_boolean_properties(const std::string& id
         std::distance(graph.order().begin(), std::ranges::find(graph.order(), id)));
     auto available = graph.available_before(boundary);
     if (available.size() < 2) { state_->setText(tr("Boolean potřebuje dva dostupné výsledky těles.")); return; }
-    auto edited = id;
-    if (edited.empty()) edited = graph.create_boolean("Boolean", zima::kernel::BodyCombination::Subtract,
-        available[0], available[1]);
+    if(!id.empty() && !pending.body_history.find_boolean(id))return;
+    const auto edit=workspace::prepare_body_boolean_edit(pending,id,"Boolean",zima::kernel::BodyCombination::Subtract,
+        available[0],available[1]);
+    graph=edit.pending;
+    const auto edited=edit.object_id;
     const auto* initial = graph.find_boolean(edited);
     if (!initial) return;
     std::vector<std::pair<std::string,std::string>> inputs;
@@ -157,14 +144,9 @@ void AssemblyWorkspaceWindow::show_body_boolean_properties(const std::string& id
     pending.set_body_history(graph);
     body_dialog_preview_ = pending; body_dialog_step_id_ = edited; body_dialog_context_ = available;
     auto* dialog = new BodyBooleanPropertiesDialog(*initial, inputs,
-        [this, document_id, graph](zima::document::BodyBoolean value) mutable {
-            auto* current = workspace_.open_part(document_id);
-            if (!current) throw std::runtime_error("Dokument již není otevřený.");
-            auto next = current->session.document();
-            auto updated = graph; updated.update_boolean(std::move(value)); updated.activate({});
-            next.set_body_history(std::move(updated));
-            auto calculated = calculate_part_with_resolved_references(next, &current->session.calculated_boundaries());
-            current->session.commit(std::move(next), std::move(calculated));
+        [this, edit](zima::document::BodyBoolean value) {
+            try {static_cast<void>(workspace::commit_body_boolean_edit(workspace_,kernel_,edit,std::move(value)));}
+            catch(const workspace::BodyOperationError& error) {throw std::runtime_error(tr(error.what()).toStdString());}
         }, this);
     finish_body_dialog(dialog);
 }
