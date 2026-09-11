@@ -78,3 +78,31 @@ Výběr jazyka v Parameters nabízí `ru`; společné hodnoty se nepřekládají
 U již existujících dokumentů lze ruské popisky a hodnoty doplnit v Parameters.
 Jazyk rozhraní nemění klíče parametrů ani uživatelský obsah dokumentu.
 Jazyk hodnot razítka se volí samostatně ve vlastnostech listu.
+
+## Kontrola českého rozhraní (2026-09-11)
+
+Doplněny jsou překlady standardních tlačítek Qt, souborových dialogů a
+editačních nabídek včetně variant s klávesovými zkratkami (`&`). Potvrzení
+při zavření rozpracovaného dokumentu používá **Uložit / Neukládat / Zrušit**.
+Samotný překlad položky nabídky „Uložit jako…“ nestačí: standardní tlačítka
+`QMessageBox` a `QFileDialog` vyhledávají vlastní zdrojové texty Qt.
+
+České názvy novějších příkazů a vlastností zahrnují **Odsazení**, **Obrátit**,
+**Skica**, **Tenkostěnný**, **Skořepina**, **Booleovská operace** a **Meze vazby**.
+Dialog zobrazení/skrytí nyní překládá obě tlačítka přes `tr()` místo pevně
+zadaných textů SHOW/ERASE. Nové katalogové klíče jsou doplněny ve všech pěti
+jazycích. Kontrola českého rozhraní není potvrzením úplného překladu všech
+starších českých zdrojových hlášek do ostatních jazyků ani diagnostiky jádra.
+
+Test `zima_cpp_translations_contract` navíc vytváří skutečný `QMessageBox`
+s neuloženým dokumentem a nenativní ukládací `QFileDialog` v každém z pěti
+jazyků. Ověřuje texty jejich tlačítek i názvy vlastností odsazení a změny
+strany. Český potvrzovací dialog ukládá do `unsaved-document-cs.png`
+v pracovním adresáři testu.
+
+Červené zavírací tlačítko dokumentového tabu používá sdílený
+`TabCloseButton`: bílý křížek kreslí dvěma úsečkami kolem geometrického středu,
+nezávisle na metrice fontu. Zachovává odsazení 10 px od pravého okraje slotu.
+Snímek skutečného tlačítka pořizuje existující test odsazení do
+`build/tab-close-centered.png`. Ověřeno sestavením Windows Release,
+testy překladů, odsazení a zobrazení/skrytí i vizuální kontrolou snímků.

@@ -1,3 +1,4 @@
+#include "tab_close_button.hpp"
 #include <zima/document/body_origin_attachment.hpp>
 #include "sketch_offset_dialog.hpp"
 #include <zima/sketcher/curve_geometry.hpp>
@@ -24155,7 +24156,7 @@ void AssemblyWorkspaceWindow::refresh_tabs() {
         auto* close_layout = new QHBoxLayout(close_slot);
         close_layout->setContentsMargins(0, 0, 10, 0);
         close_layout->setSpacing(0);
-        auto* close = new QPushButton(QStringLiteral("\u00d7"), close_slot);
+        auto* close = new TabCloseButton(close_slot);
         close_layout->addWidget(close);
         close->setObjectName("documentTabCloseButton");
         close->setFixedSize(26, 22);

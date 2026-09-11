@@ -9,6 +9,9 @@
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QTranslator>
+#include <QMessageBox>
+#include <QFileDialog>
+#include <QAbstractButton>
 #include <filesystem>
 #include <iostream>
 #include <stdexcept>
@@ -58,6 +61,22 @@ int verify_translations(QApplication& application, QWidget& parent) {
             check(!translated.isEmpty() && translated == settings.qt_translations.value(it.key()),
                 "Qt did not consume the configured translation");
             check(tokens(it.key()) == tokens(translated), "Translation changed a placeholder, BOM token or file extension");
+        }
+        {
+            QMessageBox prompt(QMessageBox::Warning,QObject::tr("Neuložené změny"),
+                QObject::tr("Dokument obsahuje neuložené změny. Chcete je uložit?"),
+                QMessageBox::Save|QMessageBox::Discard|QMessageBox::Cancel,&parent);
+            prompt.setDefaultButton(QMessageBox::Save);
+            const auto clean=[](QString text){return text.remove('&');};
+            check(clean(prompt.button(QMessageBox::Save)->text())==settings.qt_translations.value("Save"),"Unsaved-document Save button is untranslated");
+            check(clean(prompt.button(QMessageBox::Discard)->text())==settings.qt_translations.value("Discard"),"Unsaved-document Discard button is untranslated");
+            check(clean(prompt.button(QMessageBox::Cancel)->text())==settings.qt_translations.value("Cancel"),"Unsaved-document Cancel button is untranslated");
+            prompt.show();application.processEvents();
+            if(language==0)prompt.grab().save("unsaved-document-cs.png");
+            prompt.hide();
+            QFileDialog file(&parent);file.setOption(QFileDialog::DontUseNativeDialog);file.setAcceptMode(QFileDialog::AcceptSave);
+            check(clean(file.findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Save)->text())==settings.qt_translations.value("Save"),"Save-file button is untranslated");
+            check(QObject::tr("Vlastnosti offsetu")==settings.qt_translations.value("Vlastnosti offsetu")&&QObject::tr("Flip")==settings.qt_translations.value("Flip"),"Offset properties are untranslated");
         }
         check(QObject::tr("unregistered source") == "unregistered source", "Missing translation did not fall back to source");
         check(QObject::tr("Šablona uložena: %1").arg("logo.tblz").contains("logo.tblz"), "File-name placeholder is broken");

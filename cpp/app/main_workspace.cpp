@@ -3047,6 +3047,7 @@ int verify_sketch_offset_ui(QApplication& application,const std::filesystem::pat
     if(!verify(dialog->values().source_id==source&&!dialog->entering_reference(),"LMB did not assign offset source"))return 1;
     dialog->findChild<QDoubleSpinBox*>("sketchOffsetDistance")->setValue(2.5);dialog->findChild<QPushButton*>("sketchOffsetFlip")->click();flush();
     if(!verify(window.grab().save("sketch-offset-view.png"),"Offset View screenshot failed"))return 1;
+    if(auto* close=window.findChild<QPushButton*>("documentTabCloseButton"))close->grab().save("build/tab-close-centered.png");
     mouse(*hit,QEvent::MouseButtonPress,Qt::MiddleButton);mouse(*hit,QEvent::MouseButtonRelease,Qt::MiddleButton);
     if(!verify(dynamic_cast<zima::app::SketchOffsetDialog*>(window.findChild<QDialog*>("sketchOffsetDialog"))!=nullptr,"Short MMB committed offset"))return 1;
     mouse(*hit,QEvent::MouseButtonDblClick,Qt::MiddleButton);mouse(*hit,QEvent::MouseButtonRelease,Qt::MiddleButton);

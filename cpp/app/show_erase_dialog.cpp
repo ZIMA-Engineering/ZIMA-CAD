@@ -35,7 +35,7 @@ ShowEraseDialog::ShowEraseDialog(
   form->addRow(tr("Pohled"),view_field_);
   connect(view_field_,&QTableWidget::cellClicked,this,[this](int,int){arm_view();});
   auto* modes=new QHBoxLayout;
-  show_=new QPushButton("SHOW",this);erase_=new QPushButton("ERASE",this);
+  show_=new QPushButton(tr("Zobrazit"),this);erase_=new QPushButton(tr("Skrýt"),this);
   show_->setObjectName("showEraseShow");erase_->setObjectName("showEraseErase");
   for(auto* button:{show_,erase_}){button->setCheckable(true);button->setStyleSheet("QPushButton:checked { background: #398414; color: white; }");modes->addWidget(button);}
   form->addRow(modes);
