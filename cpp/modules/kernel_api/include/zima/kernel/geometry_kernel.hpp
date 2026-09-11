@@ -93,6 +93,74 @@ struct AxisReference {
     bool operator==(const AxisReference&) const = default;
 };
 
+// Non-periodic clamped rational B-spline, captured during body calculation.
+// Knots include multiplicities. End poles are the actual trimmed endpoints.
+struct BSplineGeometry {
+    unsigned degree{3};
+    std::vector<Vec3> poles;
+    std::vector<double> knots;
+    std::vector<double> weights;
+    bool operator==(const BSplineGeometry&) const = default;
+    void validate() const {
+        const auto n = poles.size();
+        if (degree < 1 || n <= degree || knots.size() != n + degree + 1 ||
+            weights.size() != n || !std::is_sorted(knots.begin(), knots.end()))
+            throw std::runtime_error("Invalid rational spline arrays");
+        for (const auto& p : poles)
+            if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z))
+                throw std::runtime_error("Invalid rational spline pole");
+        for (double w : weights) if (!std::isfinite(w) || w <= 0)
+            throw std::runtime_error("Invalid rational spline weight");
+        for (double k : knots) if (!std::isfinite(k))
+            throw std::runtime_error("Invalid rational spline knot");
+        for (std::size_t i=degree+1; i<n; ) {
+            auto end=i+1;
+            while(end<n && knots[end]==knots[i]) ++end;
+            if (end-i>degree || knots[i]<=knots.front() || knots[i]>=knots.back())
+                throw std::runtime_error("Invalid interior spline multiplicity");
+            i=end;
+        }
+        if (!(knots[degree] < knots[n]))
+            throw std::runtime_error("Empty rational spline domain");
+        for (unsigned i = 0; i <= degree; ++i)
+            if (knots[i] != knots.front() || knots[n+i] != knots.back())
+                throw std::runtime_error("Rational spline must be clamped");
+    }
+};
+
+inline Vec3 bspline_value(const BSplineGeometry& curve, double fraction) {
+    const auto n = curve.poles.size();
+    const auto degree = curve.degree;
+    const double u = curve.knots[degree] + std::clamp(fraction, 0.0, 1.0) *
+        (curve.knots[n] - curve.knots[degree]);
+    const auto span = fraction >= 1.0 ? n - 1 : static_cast<std::size_t>(
+        std::upper_bound(curve.knots.begin() + degree, curve.knots.begin() + n + 1, u)
+        - curve.knots.begin() - 1);
+    std::vector<std::array<double, 4>> d(degree + 1);
+    for (unsigned j = 0; j <= degree; ++j) {
+        const auto i = span - degree + j;
+        const auto& p = curve.poles[i]; const double w = curve.weights[i];
+        d[j] = {p.x*w, p.y*w, p.z*w, w};
+    }
+    for (unsigned r = 1; r <= degree; ++r)
+        for (unsigned j = degree; j >= r; --j) {
+            const auto i = span - degree + j;
+            const double den = curve.knots[i+degree-r+1] - curve.knots[i];
+            const double a = den > 0 ? (u-curve.knots[i])/den : 0;
+            for (unsigned c = 0; c < 4; ++c) d[j][c] = (1-a)*d[j-1][c] + a*d[j][c];
+        }
+    return {d[degree][0]/d[degree][3], d[degree][1]/d[degree][3], d[degree][2]/d[degree][3]};
+}
+
+inline void reverse_bspline_parameters(std::vector<double>& knots, std::vector<double>& weights) {
+    if (!knots.empty()) {
+        const double sum = knots.front() + knots.back();
+        std::reverse(knots.begin(), knots.end());
+        for (auto& k : knots) k = sum - k;
+    }
+    std::reverse(weights.begin(), weights.end());
+}
+
 struct ViewerEdge {
     std::vector<Vec3> points;
     EdgeReference reference;
@@ -134,6 +202,7 @@ struct ViewerEdge {
     std::string color; // Optional presentation colour for template Sketch wires.
     bool filled_text{};
     std::optional<double> measured_length; // Exact source curve length in mm.
+    std::optional<BSplineGeometry> exact_spline;
 };
 
 struct ViewerPoint {
@@ -414,6 +483,8 @@ struct ExtrusionRequest {
         unsigned degree{3};
         bool interpolating{};
         bool periodic{};
+        std::vector<double> knots;
+        std::vector<double> weights;
     };
     struct CurvedProfile {
         std::vector<std::variant<
@@ -946,7 +1017,12 @@ struct PlacedBody {
                                     if constexpr (std::is_same_v<
                                                       std::decay_t<decltype(exact_curve)>,
                                                       ExtrusionRequest::BSplineCurve>) {
+                                        u64(exact_curve.knots.size());
+                                        for (double v : exact_curve.knots) u64(std::bit_cast<std::uint64_t>(v));
+                                        u64(exact_curve.weights.size());
+                                        for (double v : exact_curve.weights) u64(std::bit_cast<std::uint64_t>(v));
                                         u64(exact_curve.degree);
+                                        byte(exact_curve.interpolating);
                                         byte(exact_curve.periodic);
                                         u64(exact_curve.control_points.size());
                                         for (const auto& point : exact_curve.control_points) {
@@ -1118,7 +1194,12 @@ struct PlacedBody {
                                     if constexpr (std::is_same_v<
                                                       std::decay_t<decltype(exact_curve)>,
                                                       ExtrusionRequest::BSplineCurve>) {
+                                        u64(exact_curve.knots.size());
+                                        for (double v : exact_curve.knots) u64(std::bit_cast<std::uint64_t>(v));
+                                        u64(exact_curve.weights.size());
+                                        for (double v : exact_curve.weights) u64(std::bit_cast<std::uint64_t>(v));
                                         u64(exact_curve.degree);
+                                        byte(exact_curve.interpolating);
                                         byte(exact_curve.periodic);
                                         u64(exact_curve.control_points.size());
                                         for (const auto& control : exact_curve.control_points) {
@@ -1253,6 +1334,10 @@ struct PlacedBody {
                                     if constexpr (std::is_same_v<
                                             std::decay_t<decltype(exact_curve)>,
                                             ExtrusionRequest::BSplineCurve>) {
+                                        u64(exact_curve.knots.size());
+                                        for (double v : exact_curve.knots) u64(std::bit_cast<std::uint64_t>(v));
+                                        u64(exact_curve.weights.size());
+                                        for (double v : exact_curve.weights) u64(std::bit_cast<std::uint64_t>(v));
                                         u64(exact_curve.degree);
                                         byte(exact_curve.interpolating);
                                         byte(exact_curve.periodic);

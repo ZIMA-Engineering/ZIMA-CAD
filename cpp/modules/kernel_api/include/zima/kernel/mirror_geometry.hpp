@@ -53,7 +53,7 @@ inline ViewerMesh mirrored_viewer_mesh(ViewerMesh mesh,MirrorPlane plane,const s
         for(auto& p:value.vertices)point(p);
         for(std::size_t i=0;i+2<value.triangles.size();i+=3)std::swap(value.triangles[i+1],value.triangles[i+2]);
         for(auto& ref:value.triangle_references)face(ref);
-        for(auto& edge:value.edges){for(auto& p:edge.points)point(p);reference(edge.reference);
+        for(auto& edge:value.edges){for(auto& p:edge.points)point(p);if(edge.exact_spline)for(auto& p:edge.exact_spline->poles)point(p);reference(edge.reference);
             if(!owner.empty()){edge.display_owner_id=owner;edge.edge_treatment_owner_ids.clear();}
             for(auto& row:edge.edge_treatment_side_directions)for(auto& v:row)vector(v);
             for(auto& ref:edge.edge_treatment_side_references)face(ref);

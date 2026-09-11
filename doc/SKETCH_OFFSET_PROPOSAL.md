@@ -1,25 +1,26 @@
 # Sketch offset — design note
 
-Status: idea for later design. Do not implement without resolving the open
-geometry and interaction contracts below.
+Status: staged implementation agreed 2026-09-11. First preserve exact projected
+source curves, then associative trimming, then offsets. The offset command
+itself is not implemented by the exact-projection change.
 
 ## Purpose
 
 The main value is not offsetting a single line, which is easy to construct
 manually, but offsetting geometry that is difficult to reproduce by hand:
 B-splines, ellipses, arcs, closed curves and connected curve chains. Both
-native Sketch geometry and read-only external geometry should be usable as
-sources.
+native Sketch geometry is the offset source. External geometry must first
+create a native projected curve with a separate external dependency.
 
 ## Inputs → means → outputs
 
 - Inputs: one curve or an ordered connected chain, signed distance/side,
-  join policy and approximation tolerance.
+  retained interval and approximation tolerance.
 - Means: a deterministic ZIMA 2D offset calculation in the resolved Sketch
   plane. Ordinary UI, hover, picking and reopening must not invoke OCCT.
 - Output: native geometry owned by the active Sketch, with a persisted,
-  one-way dependency on stable source IDs. External sources remain read-only
-  and never transfer ownership.
+  one-way dependency on stable native source IDs. External references belong
+  to the projected input curve, not directly to the offset.
 
 ## Preferred data model
 
@@ -29,7 +30,7 @@ immediately baked collection of unrelated control points. Persist at least:
 - stable source curve/chain IDs and their order;
 - distance and selected side;
 - open/closed state;
-- join policy (sharp/miter, round or bevel);
+- retained source interval and stable endpoint relations;
 - approximation tolerance;
 - stable identity of every retained result branch.
 
@@ -58,7 +59,7 @@ polygon, so copying or simply displacing its control points is not valid.
 - High curvature can create local loops and self-intersections.
 - A closed profile can split into several disconnected branches or vanish
   locally when offset inward.
-- Connected curves need a defined join policy and miter limit.
+- Connecting segments are drawn manually in the agreed first scope.
 - Tangency and curvature continuity at joins must be evaluated rather than
   assumed from visual proximity.
 - Periodic/closed splines, reversed curves, very short spans and degenerate
@@ -70,8 +71,8 @@ polygon, so copying or simply displacing its control points is not valid.
 ## Dependency rules
 
 - A native source creates an internal one-way dependency.
-- An external source creates a read-only external-reference dependency owned
-  by the active Sketch.
+- An external source first creates a native projected curve. Delete on its
+  external reference detaches that dependency and retains the native curve.
 - Reject direct and indirect dependency cycles.
 - Regeneration uses currently open authoritative documents according to the
   repository's explicit dependency-regeneration contract.
@@ -80,7 +81,7 @@ polygon, so copying or simply displacing its control points is not valid.
 
 1. One open B-spline with one unambiguous result branch.
 2. One closed curve, including explicit inside/outside selection.
-3. Connected mixed chains with join policies.
+3. Connected mixed chains; connecting segments are created manually.
 4. Multiple branches, self-intersection handling and stable branch identity.
 5. External-source regeneration and editing coverage.
 
@@ -88,3 +89,13 @@ Each stage needs deterministic geometry, tolerance and persistence tests plus
 interactive tests for preview, side selection, branch selection, OK/Cancel,
 reopening and regeneration. During exploration unusual branches may be useful;
 before acceptance every retained branch must pass rigorous geometry checks.
+
+## Projection and trim prerequisite (2026-09-11)
+
+The exact spline implementation is documented in [exact projections](SKETCH_EXACT_PROJECTION.md).
+Trim must preserve the complete supporting curve and a separate retained
+interval. Intersection-based endpoints must follow small source changes;
+missing or ambiguous intersections require repair rather than silently
+jumping to another branch. Offset trimming follows the same contract.
+Geometrically distinct endpoints must not be merged merely because they
+occupy the same display pixel. Connecting segments remain manual.

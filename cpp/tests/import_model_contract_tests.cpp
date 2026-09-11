@@ -105,7 +105,8 @@ int main() {
     require(std::abs(cube.calculated.back().volume-1000)<1e-4,"Online 10mm cube scale");
     IGESControl_Writer writer("MM",1);writer.AddShape(BRepPrimAPI_MakeBox(10,20,30).Shape());
     require(writer.Write((temp/"box.igs").string().c_str()),"IGES fixture write");
-    auto solid=interchange::import_iges_part(document::PartDocument::create_default(),{},temp/"box.igs");
+    auto solid=interchange::import_iges_part(document::PartDocument::create_default(),{},temp/"box.igs",1.5);
+    require(solid.document.kernel_operations().front().mesh_deflection==1.5,"IGES selected mesh deflection lost");
     require(std::abs(solid.calculated.back().volume-6000)<1e-5,"IGES solid volume");
     const auto identities=solid.document.history.front().imported_step.topology;
     require(identities.size()==26,"IGES box needs six faces, twelve edges and eight vertices");
@@ -113,6 +114,7 @@ int main() {
     solid.document.save(temp/"box.prtz",solid.calculated);std::filesystem::remove(temp/"box.igs");
     std::vector<kernel::BodyResult> snapshots;auto saved=document::PartDocument::load(temp/"box.prtz",&snapshots);
     require(saved.history.front().imported_step.topology==identities,"IGES topology persistence");
+    require(saved.kernel_operations().front().mesh_deflection==1.5,"IGES mesh setting did not survive persistence");
     auto regenerated=kernel.evaluate_history(saved.kernel_operations());
     require(std::abs(regenerated.back().volume-6000)<1e-5,"Frozen IGES regeneration");
     require(!regenerated.back().mesh.original_references.edges.empty(),"IGES references lost on regeneration");

@@ -168,7 +168,8 @@ std::vector<SampledCurve> sample_curves(const Sketch& sketch) {
         if (edge == viewer.edges.end() || edge->points.size() < 2) continue;
         SampledCurve curve{spline.id, SampledKind::BSpline};
         curve.closed = spline.closed;
-        curve.trimmable = !spline.construction && !is_imported(spline.id);
+        // Exact associative spline trimming is implemented separately from sampled reconstruction.
+        curve.trimmable = spline.knots.empty() && !spline.construction && !is_imported(spline.id);
         curve.points.reserve(edge->points.size());
         curve.parameters.reserve(edge->points.size());
         for (std::size_t index = 0; index < edge->points.size(); ++index) {

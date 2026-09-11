@@ -98,6 +98,27 @@ int main() {
         std::vector<V> expected;
         for(const auto& group:{sub,sub2})for(const auto& leaf:group.children)for(auto p:leaf.body.mesh.vertices)expected.push_back(placed(placed(p,leaf),group));
         for(auto p:b.body.mesh.vertices)expected.push_back(placed(p,b));
+        auto selected=interchange::import_step_part(document::PartDocument::create_default(),{},source,1.5);
+        require(selected.document.document_precision.at("mesh_deflection")=="0.1","Import changed document defaults");
+        for(const auto& op:selected.document.kernel_operations())require(op.mesh_deflection==1.5,"Selected import mesh deflection lost in body history");
+        selected.document.save(directory/"selected.prtz",selected.calculated);
+        auto selected_loaded=document::PartDocument::load(directory/"selected.prtz");
+        for(const auto& op:selected_loaded.kernel_operations())require(op.mesh_deflection==1.5,"Import mesh setting did not survive save/load");
+        auto selected_package=interchange::import_step_assembly(source,directory,selected.document.document_precision,2.0);
+        for(const auto& part:selected_package.parts)for(const auto& op:part.document.kernel_operations())
+            require(op.mesh_deflection==2.0,"Assembly import did not apply selected mesh deflection to its Parts");
+        const auto cylinder_path=directory/"large-cylinder.step";
+        STEPControl_Writer cylinder_writer;
+        cylinder_writer.Transfer(BRepPrimAPI_MakeCylinder(100,200).Shape(),STEPControl_AsIs);
+        require(cylinder_writer.Write(cylinder_path.string().c_str())==IFSelect_RetDone,"Cylinder STEP write failed");
+        auto fine=interchange::import_step_part(document::PartDocument::create_default(),{},cylinder_path,0.1);
+        auto coarse=interchange::import_step_part(document::PartDocument::create_default(),{},cylinder_path,1.0);
+        auto rough=interchange::import_step_part(document::PartDocument::create_default(),{},cylinder_path,5.0);
+        require(coarse.calculated.back().mesh.triangles.size()<fine.calculated.back().mesh.triangles.size(),"Coarser import did not reduce cylinder triangles");
+        require(std::abs(fine.calculated.back().volume-coarse.calculated.back().volume)<1e-5,"Mesh choice changed exact cylinder volume");
+        std::cout<<"Cylinder triangles: 0.1mm="<<fine.calculated.back().mesh.triangles.size()/3
+            <<" 1mm="<<coarse.calculated.back().mesh.triangles.size()/3
+            <<" 5mm="<<rough.calculated.back().mesh.triangles.size()/3<<"\n";
         auto imported=interchange::import_step_part(document::PartDocument::create_default(),{},source);
         require(imported.document.body_history.bodies().size()==5,"Part import did not create one Body per STEP Part occurrence");
         require(imported.calculated.back().body_outputs.size()==5,"STEP Bodies were merged in calculation");

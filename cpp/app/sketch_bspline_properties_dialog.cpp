@@ -14,7 +14,7 @@ SketchBSplinePropertiesDialog::SketchBSplinePropertiesDialog(
     std::vector<std::array<double, 2>> control_points,
     CommitCallback commit, QWidget* parent)
     : PropertiesSubWindow(tr("B-spline"), parent),
-      commit_(std::move(commit)) {
+      commit_(std::move(commit)), original_points_(control_points) {
     setAttribute(Qt::WA_DeleteOnClose, true);
     setMinimumWidth(390);
     auto* form = new QFormLayout;
@@ -43,6 +43,7 @@ SketchBSplinePropertiesDialog::SketchBSplinePropertiesDialog(
         }
         x->setValue(control_points[index][0]);
         y->setValue(control_points[index][1]);
+        displayed_points_.push_back({x->value(),y->value()});
         x_.push_back(x);
         y_.push_back(y);
         points->addWidget(new QLabel(tr("P%1").arg(index + 1), this), index + 1, 0);
@@ -55,12 +56,22 @@ SketchBSplinePropertiesDialog::SketchBSplinePropertiesDialog(
     content_layout()->addWidget(error_);
 }
 
+void SketchBSplinePropertiesDialog::set_exact_geometry(bool source_linked) {
+    exact_geometry_=true;
+    degree_->setEnabled(false);
+    closed_->setEnabled(false);
+    for (auto* value : x_) value->setReadOnly(source_linked);
+    for (auto* value : y_) value->setReadOnly(source_linked);
+}
+
 bool SketchBSplinePropertiesDialog::submit() {
     std::vector<std::array<double, 2>> points;
     points.reserve(x_.size());
     for (std::size_t index = 0; index < x_.size(); ++index) {
-        points.push_back({x_[index]->value(), y_[index]->value()});
-        if (index > 0 && points[index] == points[index - 1]) {
+        points.push_back({
+            x_[index]->value()==displayed_points_[index][0] ? original_points_[index][0] : x_[index]->value(),
+            y_[index]->value()==displayed_points_[index][1] ? original_points_[index][1] : y_[index]->value()});
+        if (!exact_geometry_ && index > 0 && points[index] == points[index - 1]) {
             error_->setText(tr("Sousední řídicí body musí být odlišné."));
             return false;
         }

@@ -31,12 +31,15 @@ DxfPartImport import_dxf_part(document::PartDocument doc,
     return {{std::move(doc), previous, {}}, std::move(report), sketch_id};
 }
 StepImportedPart import_iges_part(document::PartDocument doc,
-        const std::vector<kernel::BodyResult>& previous, const std::filesystem::path& source) {
+        const std::vector<kernel::BodyResult>& previous, const std::filesystem::path& source, std::optional<double> mesh_deflection) {
+    if (mesh_deflection && (!std::isfinite(*mesh_deflection) || *mesh_deflection<=0))
+        throw std::invalid_argument("Import mesh deflection must be positive");
     const auto absolute = std::filesystem::absolute(source);
     auto container = document::PartDocument::create_imported_step_container(absolute, {}, source.stem().string());
+    container.imported_step.mesh_deflection=mesh_deflection;
     kernel::OcctKernel kernel;
     auto frozen = kernel.import_iges(absolute.string(), container.id,
-        document::precision_value(doc.document_precision, "mesh_deflection", 0.1));
+        mesh_deflection.value_or(document::precision_value(doc.document_precision, "mesh_deflection", 0.1)));
     container.imported_step.frozen_brep = std::make_shared<const std::string>(std::move(frozen.kernel_shape));
     container.imported_step.topology = std::move(frozen.imported_step_topology);
     auto graph = doc.body_history;

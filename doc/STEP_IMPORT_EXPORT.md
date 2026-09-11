@@ -2,6 +2,34 @@
 
 Další podporované importy: [IGES a DXF do Partu a sestav](IGES_DXF_IMPORT.md).
 
+Převod spline hran do skici: [přesná geometrie a oddělená reference](SKETCH_EXACT_PROJECTION.md).
+
+## Nastavení před importem STEP / IGES
+
+Po výběru souboru se v Partu i sestavě otevře společné interní okno
+Nastavení importu. Ukazuje název, velikost a formát souboru; u STEP také
+schéma, pokud je dostupné v úvodní hlavičce. Získání těchto informací
+nepřevádí geometrii a čte nanejvýš prvních 64 KiB souboru.
+
+Jemnost zobrazení (odchylka v mm) se předvyplní z odpovídající startovací
+šablony nastavené v configu, nikoli z případně změněné přesnosti otevřeného
+dokumentu. Aktuální šablony používají 0,1 mm. Lze zvolit 1 mm i vyšší
+hodnotu. Menší hodnota znamená jemnější síť; přesná geometrie a rozměry
+se nezmění. Počet trojúhelníků omezuje také úhlové kritérium OCCT.
+
+OK spustí import se zvolenou hodnotou, Cancel nezahájí výpočet ani zápis
+souborů. Volba se uloží do importovaných kontejnerů v nativním Partu a
+platí i při regeneraci. Nemění config, přesnost cílového dokumentu ani
+předchozí importy. U STEP sestavy ji dostanou všechny nově importované
+Party. DXF používá svůj dosavadní importní postup.
+
+### Kontrolní měření jemnosti
+
+Na válci Ø200 × 200 mm importovaném ze STEP vytvořila odchylka 0,1 mm
+396 zobrazovacích trojúhelníků, 1 mm 124 a 5 mm 100. Výpočet přesného
+objemu se nezměnil. Jde o kontrolu vlivu nastavení na jednoduchý model,
+nikoli měření doby importu velké sestavy.
+
 ## Import do Partu
 
 **Soubor → Importovat → STEP** vloží každý koncový díl / výskyt ze STEP do

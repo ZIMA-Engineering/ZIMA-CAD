@@ -86,7 +86,7 @@ inline ViewerMesh pattern_copy_mesh(ViewerMesh mesh,PatternRequest p,unsigned in
     const auto face=[&](FaceReference& r){ref(r);if(!r.surface)return;auto surface=std::make_shared<SurfaceGeometry>(*r.surface);
         surface->origin=pattern_point(surface->origin,p,index);surface->axis=pattern_vector(surface->axis,p,index);surface->radial=pattern_vector(surface->radial,p,index);r.surface=std::move(surface);};
     const auto geometry=[&](auto& g){for(auto& v:g.vertices)v=pattern_point(v,p,index);for(auto& r:g.triangle_references)face(r);
-        for(auto& e:g.edges){for(auto& v:e.points)v=pattern_point(v,p,index);ref(e.reference);
+        for(auto& e:g.edges){for(auto& v:e.points)v=pattern_point(v,p,index);if(e.exact_spline)for(auto& v:e.exact_spline->poles)v=pattern_point(v,p,index);ref(e.reference);
             if(!owner.empty()&&!occurrence){e.display_owner_id=owner;e.edge_treatment_owner_ids.clear();}
             for(auto& side:e.edge_treatment_side_directions)for(auto& v:side)v=pattern_vector(v,p,index);
             for(auto& r:e.edge_treatment_side_references)face(r);for(auto& r:e.edge_treatment_endpoint_references)ref(r);}

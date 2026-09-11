@@ -638,9 +638,9 @@ int main() {
         removed_linked_reference.remove_geometry(external_direction_id);
         require(removed_linked_reference.external_references.empty() &&
                     removed_linked_reference.import_blocks.empty() &&
-                    removed_linked_reference.segments.empty() &&
-                    removed_linked_reference.points.empty(),
-                "Deleting an external reference left linked profile geometry behind");
+                    removed_linked_reference.segments == external_direction_sketch.segments &&
+                    removed_linked_reference.points == external_direction_sketch.points,
+                "Deleting an external reference removed or changed its own profile geometry");
         const auto perpendicular_segment = external_direction_sketch.add_segment(
             0.0, 0.0, 2.0, 5.0);
         static_cast<void>(external_direction_sketch.add_segment_pair_constraint(

@@ -12,5 +12,5 @@ DxfPartImport import_dxf_part(document::PartDocument document,
     const std::vector<kernel::BodyResult>& previous, const std::filesystem::path& source,
     const std::string& active_sketch_id = {});
 StepImportedPart import_iges_part(document::PartDocument document,
-    const std::vector<kernel::BodyResult>& previous, const std::filesystem::path& source);
+    const std::vector<kernel::BodyResult>& previous, const std::filesystem::path& source, std::optional<double> mesh_deflection = {});
 }

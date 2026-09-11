@@ -517,12 +517,12 @@ void add_json_parameters(
 
 nlohmann::json read_part_ini(const std::filesystem::path& path) {
     const auto ini = read_ini(path);
-    if (ini_value(ini, "Document", "format_version") != "17") {
+    if (ini_value(ini, "Document", "format_version") != "18") {
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 41},
+        {"format_version", 42},
         {"document_id", ini_required(ini, "Document", "document_id")},
         {"type", ini_value(ini, "Document", "type", "part")},
         {"name", ini_value(ini, "Document", "name", "Nový díl")},
@@ -674,7 +674,7 @@ void write_part_ini(
     const nlohmann::json& root, const std::filesystem::path& path) {
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "17"},
+        {"format_version", "18"},
         {"type", "part"},
         {"document_id", root.at("document_id").get<std::string>()},
         {"name", root.at("name").get<std::string>()},
@@ -1231,6 +1231,7 @@ zima::kernel::ExtrusionRequest extrusion_request(
     }
     const auto exact_spline = [&](const auto& spline) {
         zima::kernel::ExtrusionRequest::BSplineCurve curve;
+        curve.knots = spline.knots; curve.weights = spline.weights;
         curve.degree = spline.degree;
         curve.interpolating = spline.interpolating;
         curve.periodic = spline.closed;
@@ -1770,6 +1771,7 @@ zima::kernel::ExtrusionRequest extrusion_request(
                                       zima::kernel::ExtrusionRequest::BSplineCurve>) {
                         std::reverse(curve.control_points.begin(),
                                      curve.control_points.end());
+                        zima::kernel::reverse_bspline_parameters(curve.knots, curve.weights);
                     }
                 },
                            exact_curve);
@@ -2557,6 +2559,7 @@ zima::kernel::ViewerReferenceGeometry transform_reference_geometry(
     for (auto& edge : geometry.edges) {
         for (auto& reference : edge.edge_treatment_side_references) face(reference);
         for (auto& value : edge.points) value = point(value);
+        if (edge.exact_spline) for (auto& value : edge.exact_spline->poles) value = point(value);
         for (auto& side : edge.edge_treatment_side_directions) {
             for (auto& value : side) value = direction(value);
         }
@@ -7084,9 +7087,9 @@ zima::kernel::ExtrusionRequest open_sweep_profile(const zima::sketcher::Sketch& 
         if(std::ranges::any_of(s.segments,[&](const auto& l){return l.id==curve.id;}))profile.curves.push_back(E::LineCurve{world(curve.start),world(curve.end)});
         else if(std::ranges::any_of(s.arcs,[&](const auto& l){return l.id==curve.id;}))profile.curves.push_back(E::ArcCurve{world(curve.start),world(curve.at(.5)),world(curve.end)});
         else if(auto it=std::ranges::find_if(s.bsplines,[&](const auto& l){return l.id==curve.id;});it!=s.bsplines.end()){
-            E::BSplineCurve spline;spline.start=world(curve.start);spline.end=world(curve.end);spline.degree=it->degree;spline.interpolating=it->interpolating;
+            E::BSplineCurve spline;spline.start=world(curve.start);spline.end=world(curve.end);spline.degree=it->degree;spline.interpolating=it->interpolating;spline.knots=it->knots;spline.weights=it->weights;
             for(const auto& id:it->control_point_ids)spline.control_points.push_back(world(point(s,id)));
-            if(!forward)std::reverse(spline.control_points.begin(),spline.control_points.end());profile.curves.push_back(std::move(spline));
+            if(!forward){std::reverse(spline.control_points.begin(),spline.control_points.end());zima::kernel::reverse_bspline_parameters(spline.knots,spline.weights);}profile.curves.push_back(std::move(spline));
         }else{
             const auto ellipse=std::ranges::find_if(s.elliptical_arcs,[&](const auto& l){return l.id==curve.id;});if(ellipse==s.elliptical_arcs.end())throw std::runtime_error("Neznámá křivka Thin profilu");
             E::EllipticalArcCurve arc;arc.start=world(curve.start);arc.end=world(curve.end);arc.center=world(point(s,ellipse->center_point_id));arc.major_axis_direction=add(mul(s.resolved_x_axis,std::cos(ellipse->rotation)),mul(s.resolved_y_axis,std::sin(ellipse->rotation)));arc.major_radius=ellipse->major_radius;arc.minor_radius=ellipse->minor_radius;arc.start_parameter=ellipse->start_parameter;arc.end_parameter=ellipse->end_parameter;arc.reversed=ellipse->reversed;profile.curves.push_back(arc);
@@ -8606,6 +8609,10 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
         } else {
             throw std::logic_error("Unsupported Part history feature");
         }
+        const double feature_mesh_deflection = container.feature_kind == FeatureKind::ImportedStep
+            ? container.imported_step.mesh_deflection.value_or(mesh_deflection) : mesh_deflection;
+        if (!std::isfinite(feature_mesh_deflection) || feature_mesh_deflection <= 0)
+            throw std::runtime_error("Import mesh deflection must be positive");
         operations.push_back({
             container.id,
             std::move(primitive),
@@ -8614,7 +8621,7 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 : zima::kernel::BooleanOperation::Add,
             container.suppressed,
             boolean_tolerance,
-            mesh_deflection,
+            feature_mesh_deflection,
         });
         } catch (const std::exception& error) {
             if (!recover_errors) throw;
@@ -8638,7 +8645,7 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
         });
         for (auto& operation : compiled) {
             operation.boolean_tolerance = boolean_tolerance;
-            operation.mesh_deflection = mesh_deflection;
+            if (!local.contains(operation.owner_id)) operation.mesh_deflection = mesh_deflection;
         }
         return compiled;
     }
@@ -9838,6 +9845,11 @@ PartDocument PartDocument::load(
                     "Sweep/Loft requires at least one profile Sketch");
             }
         } else if (container.feature_kind == FeatureKind::ImportedStep) {
+            if (!source.at("import_mesh_deflection").is_null()) {
+                const double value=source.at("import_mesh_deflection").get<double>();
+                if (!std::isfinite(value) || value<=0) throw std::runtime_error("Invalid import mesh deflection");
+                container.imported_step.mesh_deflection=value;
+            }
             container.imported_step.source_path = source.at("source_path").get<std::string>();
             container.imported_step.component_path =
                 source.at("component_path").get<std::string>();
@@ -10875,6 +10887,8 @@ void PartDocument::save(
                     {"sketch_serialized", profile.sketch_serialized}});
             }
         } else if (container.feature_kind == FeatureKind::ImportedStep) {
+            serialized["import_mesh_deflection"] = container.imported_step.mesh_deflection
+                ? nlohmann::json(*container.imported_step.mesh_deflection) : nlohmann::json(nullptr);
             serialized["source_path"] = container.imported_step.source_path;
             serialized["component_path"] = container.imported_step.component_path;
             if (!container.imported_step.frozen_brep ||
@@ -11031,7 +11045,7 @@ void PartDocument::save(
     }
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 41},
+        {"format_version", 42},
         {"document_id", document_id},
         {"type", "part"},
         {"name", name},

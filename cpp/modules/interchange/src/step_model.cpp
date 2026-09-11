@@ -66,19 +66,22 @@ std::optional<kernel::StepProduct> snapshot_product(const assembly::OccurrenceSn
 }
 }
 StepImportedPart import_step_part(document::PartDocument doc,
-        const std::vector<kernel::BodyResult>& previous,const std::filesystem::path& source) {
+        const std::vector<kernel::BodyResult>& previous,const std::filesystem::path& source, std::optional<double> mesh_deflection) {
+    if (mesh_deflection && (!std::isfinite(*mesh_deflection) || *mesh_deflection<=0))
+        throw std::invalid_argument("Import mesh deflection must be positive");
     const auto absolute=std::filesystem::absolute(source);
     const auto nodes=inspect_step_parts(absolute);
     std::vector<document::HistoryContainer> containers;
     std::vector<kernel::StepRequest> requests;
     for(const auto& node:nodes)if(!node.assembly) {
         auto container=document::PartDocument::create_imported_step_container(absolute,node.definition_id,node.name);
+        container.imported_step.mesh_deflection=mesh_deflection;
         requests.push_back({absolute.string(),node.definition_id,{},{},container.id});
         containers.push_back(std::move(container));
     }
     if(requests.empty())throw std::runtime_error("STEP neobsahuje žádné díly");
     kernel::OcctKernel kernel;
-    auto frozen=kernel.import_step_components(requests,document::precision_value(doc.document_precision,"mesh_deflection",0.1));
+    auto frozen=kernel.import_step_components(requests,mesh_deflection.value_or(document::precision_value(doc.document_precision,"mesh_deflection",0.1)));
     std::size_t index=0;
     for(const auto& node:nodes)if(!node.assembly) {
         auto container=std::move(containers.at(index));
@@ -90,7 +93,9 @@ StepImportedPart import_step_part(document::PartDocument doc,
     return {std::move(doc),std::move(calculated),{}};
 }
 StepAssemblyImport import_step_assembly(const std::filesystem::path& source,
-        const std::filesystem::path& directory,const std::map<std::string,std::string>& precision) {
+        const std::filesystem::path& directory,const std::map<std::string,std::string>& precision, std::optional<double> mesh_deflection) {
+    if (mesh_deflection && (!std::isfinite(*mesh_deflection) || *mesh_deflection<=0))
+        throw std::invalid_argument("Import mesh deflection must be positive");
     const auto absolute=std::filesystem::absolute(source);
     const auto nodes=inspect_step_parts(absolute);
     if(nodes.empty())throw std::runtime_error("STEP neobsahuje produktovou strukturu");
@@ -102,10 +107,11 @@ StepAssemblyImport import_step_assembly(const std::filesystem::path& source,
     for(const auto& node:nodes)if(!node.assembly&&!parts.contains(node.definition_id)) {
         parts[node.definition_id]=unique_parts.size();unique_parts.push_back(&node);
         auto container=document::PartDocument::create_imported_step_container(absolute,node.definition_id,node.name);
+        container.imported_step.mesh_deflection=mesh_deflection;
         requests.push_back({absolute.string(),node.definition_id,{},{},container.id});containers.push_back(std::move(container));
     }
     kernel::OcctKernel kernel;
-    auto frozen=kernel.import_step_components(requests,document::precision_value(precision,"mesh_deflection",0.1));
+    auto frozen=kernel.import_step_components(requests,mesh_deflection.value_or(document::precision_value(precision,"mesh_deflection",0.1)));
     for(std::size_t i=0;i<unique_parts.size();++i) {
         auto doc=document::PartDocument::create_default();doc.name=unique_parts[i]->definition_name;doc.document_precision=precision;
         auto container=std::move(containers[i]);

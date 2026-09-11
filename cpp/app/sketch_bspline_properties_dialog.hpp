@@ -23,11 +23,16 @@ public:
         std::vector<std::array<double, 2>> control_points,
         CommitCallback commit, QWidget* parent);
 
+    void set_exact_geometry(bool source_linked);
+
 protected:
     bool submit() override;
 
 private:
+    bool exact_geometry_{};
     CommitCallback commit_;
+    std::vector<std::array<double, 2>> original_points_;
+    std::vector<std::array<double, 2>> displayed_points_;
     QSpinBox* degree_{};
     QCheckBox* closed_{};
     std::vector<QDoubleSpinBox*> x_;

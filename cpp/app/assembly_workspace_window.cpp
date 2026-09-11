@@ -1,3 +1,4 @@
+#include "import_options_dialog.hpp"
 #include <zima/document/object_annotation_frames.hpp>
 #include "dimension_properties_fields.hpp"
 #include <QSaveFile>
@@ -1744,6 +1745,7 @@ void populate_external_reference_cache(
         if (edge == source.edges.end()) {
             throw std::runtime_error("Persisted source edge geometry is unavailable");
         }
+        reference.exact_spline=sketch.project_external_spline(*edge);
         for (const auto& point : edge->points) {
             const auto local = sketch.local_point(point);
             if (reference.cached_points.empty() || std::hypot(
@@ -3666,7 +3668,7 @@ void AssemblyWorkspaceWindow::create_layout() {
     layout->setSpacing(0);
     tabs_ = new QTabBar(central);
     tabs_->setObjectName("documentTabs");
-    tabs_->setTabsClosable(true);
+    tabs_->setTabsClosable(false); // Explicit styled buttons below, independent of native tab-close painting.
     tabs_->setMovable(false);
     tabs_->setExpanding(false);
     tabs_->setUsesScrollButtons(true);
@@ -9795,6 +9797,7 @@ void AssemblyWorkspaceWindow::show_about() {
 }
 
 void AssemblyWorkspaceWindow::import_file() {
+    if (properties_dialog_) { properties_dialog_->raise(); return; }
     const QString path = open_file(this,
         application_settings_.text("menu.file.import", tr("Importovat")),
         QString::fromStdString(working_directory_.string()),
@@ -9803,6 +9806,10 @@ void AssemblyWorkspaceWindow::import_file() {
                "STEP (*.step *.stp);;IGES (*.igs *.iges);;DXF (*.dxf)")),
         application_settings_.translations);
     if (path.isEmpty()) return;
+    import_selected_file(path);
+}
+
+void AssemblyWorkspaceWindow::import_selected_file(const QString& path, std::optional<double> mesh_deflection) {
     const auto context = !active_sketch_id_.empty()
         ? zima::interchange::Context::Sketch
         : workspace_.open_part(workspace_.active_document_id()) != nullptr
@@ -9813,6 +9820,34 @@ void AssemblyWorkspaceWindow::import_file() {
         QMessageBox::warning(this, tr("Import nelze provést"), QString::fromStdString(
             zima::interchange::unsupported_reason(
                 format, zima::interchange::Direction::Import, context)));
+        return;
+    }
+    if (!mesh_deflection && (format == zima::interchange::Format::Step || format == zima::interchange::Format::Iges)) {
+        try {
+            const auto precision=context==zima::interchange::Context::Part
+                ? new_part_from_template(application_settings_).document_precision
+                : new_assembly_from_template(application_settings_).document_precision;
+            auto* dialog=new ImportOptionsDialog(path,
+                zima::document::precision_value(precision,"mesh_deflection",0.1),this);
+            properties_dialog_=dialog;
+            const auto target_id=workspace_.active_document_id();
+            connect(dialog,&QDialog::accepted,this,[this,dialog,path,target_id] {
+                const double selected=dialog->mesh_deflection();
+                QTimer::singleShot(0,this,[this,path,target_id,selected] {
+                    if(workspace_.active_document_id()!=target_id || !active_sketch_id_.empty()) {
+                        QMessageBox::warning(this,tr("Import nelze provést"),tr("Cílový dokument se během nastavení importu změnil."));
+                        return;
+                    }
+                    import_selected_file(path,selected);
+                });
+            });
+            connect(dialog,&QObject::destroyed,this,[this,dialog] {
+                if(properties_dialog_==dialog)properties_dialog_=nullptr;
+            });
+            dialog->show();
+        } catch(const std::exception& error) {
+            QMessageBox::warning(this,tr("Nastavení importu"),QString::fromUtf8(error.what()));
+        }
         return;
     }
     if (format == zima::interchange::Format::Dxf || format == zima::interchange::Format::Iges) {
@@ -9833,8 +9868,8 @@ void AssemblyWorkspaceWindow::import_file() {
             auto previous = part ? part->session.calculated_boundaries() : std::vector<zima::kernel::BodyResult>{};
             zima::interchange::DxfImportResult report;
             auto imported = run_background_task([document=std::move(document),previous=std::move(previous),
-                    source=std::filesystem::path(path.toStdString()),sketch_id=active_sketch_id_,dxf,&report]() mutable {
-                if (!dxf) return zima::interchange::import_iges_part(std::move(document),previous,source);
+                    source=std::filesystem::path(path.toStdString()),sketch_id=active_sketch_id_,dxf,mesh_deflection,&report]() mutable {
+                if (!dxf) return zima::interchange::import_iges_part(std::move(document),previous,source,mesh_deflection);
                 auto result = zima::interchange::import_dxf_part(std::move(document),previous,source,sketch_id);
                 report = std::move(result.report); return std::move(result.part);
             });
@@ -9874,7 +9909,7 @@ void AssemblyWorkspaceWindow::import_file() {
             if (workspace_.open_assembly(workspace_.active_document_id()) != nullptr) {
                 begin_status_operation(tr("Importuji STEP sestavu %1…").arg(
                     QFileInfo(path).fileName()));
-                try { import_step_into_assembly(path.toStdString()); }
+                try { import_step_into_assembly(path.toStdString(),mesh_deflection); }
                 catch (const std::exception& error) {
                     finish_status_operation(tr("Import STEP sestavy selhal"), false);
                     QMessageBox::warning(this, tr("Import STEP selhal"), error.what());
@@ -9888,8 +9923,8 @@ void AssemblyWorkspaceWindow::import_file() {
             const auto source=std::filesystem::absolute(path.toStdString());
             update_status_operation(tr("OCCT čte STEP, převádí topologii a vytváří síť…"),-1,0);
             auto imported=run_background_task([document=part->session.document(),
-                    previous=part->session.calculated_boundaries(),source] {
-                return zima::interchange::import_step_part(document,previous,source);
+                    previous=part->session.calculated_boundaries(),source,mesh_deflection] {
+                return zima::interchange::import_step_part(document,previous,source,mesh_deflection);
             });
             const auto count=imported.document.body_history.bodies().size()-part->session.document().body_history.bodies().size();
             part->session.commit(std::move(imported.document),std::move(imported.calculated));
@@ -9904,7 +9939,7 @@ void AssemblyWorkspaceWindow::import_file() {
     state_->setText(tr("Importní soubor připraven: %1").arg(path));
 }
 
-void AssemblyWorkspaceWindow::import_step_into_assembly(const std::filesystem::path& source) {
+void AssemblyWorkspaceWindow::import_step_into_assembly(const std::filesystem::path& source, std::optional<double> mesh_deflection) {
     const auto target_id=workspace_.active_document_id();
     const auto displayed_id=workspace_.displayed_document_id();
     const auto* target=workspace_.open_assembly(target_id);
@@ -9917,8 +9952,8 @@ void AssemblyWorkspaceWindow::import_step_into_assembly(const std::filesystem::p
         if(std::filesystem::create_directory(directory))break;
     }
     update_status_operation(tr("Čtu produktovou strukturu STEP sestavy…"),-1,0);
-    auto imported=run_background_task([source,directory,precision=target->session.document().document_precision] {
-        return zima::interchange::import_step_assembly(source,directory,precision);
+    auto imported=run_background_task([source,directory,precision=target->session.document().document_precision,mesh_deflection] {
+        return zima::interchange::import_step_assembly(source,directory,precision,mesh_deflection);
     });
     update_status_operation(tr("Ukládám STEP díly a podsestavy…"),-1,0);
     run_background_task([&imported] {
@@ -14806,6 +14841,14 @@ void AssemblyWorkspaceWindow::show_sketch_bspline_properties(
                     }
                 })) throw std::runtime_error("Sketch no longer exists");
         }, this);
+    if (!spline->knots.empty()) {
+        const bool linked=std::any_of(sketch->import_blocks.begin(),sketch->import_blocks.end(),
+            [&](const auto& block) {
+                return block.source_path.starts_with("external-reference:") &&
+                    std::ranges::find(block.geometry_ids,bspline_id)!=block.geometry_ids.end();
+            });
+        dialog->set_exact_geometry(linked);
+    }
     properties_dialog_ = dialog;
     connect(dialog, &QObject::destroyed, this, [this] {
         properties_dialog_ = nullptr;
@@ -24076,6 +24119,31 @@ void AssemblyWorkspaceWindow::refresh_tabs() {
                 }
             }
         }, state);
+    }
+    for (int index = 0; index < tabs_->count(); ++index) {
+        auto* close = new QPushButton(QStringLiteral("\u00d7"), tabs_);
+        close->setObjectName("documentTabCloseButton");
+        close->setFixedSize(26, 22);
+        close->setFocusPolicy(Qt::NoFocus);
+        close->setToolTip(tr("Zavřít dokument"));
+        close->setAccessibleName(tr("Zavřít dokument"));
+        // Match the reference-row remove button. An actual styled widget
+        // avoids the platform-specific QTabBar close subcontrol/icon.
+        close->setStyleSheet(
+            "QPushButton{color:#ffffff;background:#8b2424;"
+            "border:1px solid #b94a4a;border-radius:4px;"
+            "font-size:16px;font-weight:700;padding:0}"
+            "QPushButton:hover{background:#b83232;border-color:#ed7777}"
+            "QPushButton:pressed{background:#6f1d1d}");
+        const auto document_id = tabs_->tabData(index);
+        connect(close, &QPushButton::clicked, this, [this, document_id] {
+            for (int current = 0; current < tabs_->count(); ++current) {
+                if (tabs_->tabData(current) != document_id) continue;
+                emit tabs_->tabCloseRequested(current);
+                return;
+            }
+        });
+        tabs_->setTabButton(index, QTabBar::RightSide, close);
     }
     tabs_->setCurrentIndex(displayed_index);
     tabs_->blockSignals(false);

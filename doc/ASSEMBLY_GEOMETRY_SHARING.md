@@ -1,5 +1,9 @@
 # Assembly and Drawing geometry sharing
 
+Current native versions after [exact spline projections](SKETCH_EXACT_PROJECTION.md)
+are Part 18, Assembly 15 and Drawing 14. The version numbers in the
+implementation history below identify the earlier sharing changes.
+
 ## Verified baseline, 2026-09-11
 
 The current Windows Release passes all 44 CTest contracts. Completed changes:

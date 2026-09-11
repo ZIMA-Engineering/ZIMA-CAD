@@ -1,3 +1,4 @@
+#include <zima/kernel/occt_curve_data.hpp>
 #include <zima/kernel/pattern_geometry.hpp>
 #include <zima/kernel/mirror_geometry.hpp>
 #include <BRepOffsetAPI_MakeOffset.hxx>
@@ -1385,6 +1386,28 @@ TopoDS_Wire make_profile_wire(
                             const auto& point = exact_curve.control_points[
                                 static_cast<std::size_t>(index - 1)];
                             poles.SetValue(index, gp_Pnt(point.x, point.y, point.z));
+                        }
+                        if (!exact_curve.knots.empty()) {
+                            BSplineGeometry data{exact_curve.degree, exact_curve.control_points,
+                                exact_curve.knots, exact_curve.weights};
+                            data.validate();
+                            std::vector<double> unique; std::vector<int> counts;
+                            for (double k : data.knots) {
+                                if (unique.empty() || unique.back()!=k) { unique.push_back(k); counts.push_back(1); }
+                                else ++counts.back();
+                            }
+                            TColStd_Array1OfReal knots(1, static_cast<int>(unique.size()));
+                            TColStd_Array1OfInteger mults(1, static_cast<int>(unique.size()));
+                            TColStd_Array1OfReal weights(1, pole_count);
+                            for (int i=1; i<=pole_count; ++i) weights.SetValue(i, data.weights[i-1]);
+                            for (int i=1; i<=static_cast<int>(unique.size()); ++i) {
+                                knots.SetValue(i,unique[i-1]); mults.SetValue(i,counts[i-1]);
+                            }
+                            Handle(Geom_BSplineCurve) exact = new Geom_BSplineCurve(
+                                poles,weights,knots,mults,static_cast<int>(data.degree),false);
+                            BRepBuilderAPI_MakeEdge edge(exact);
+                            if (!edge.IsDone()) throw std::runtime_error("Exact rational profile failed");
+                            return edge.Edge();
                         }
                         const Standard_Integer knot_count = exact_curve.periodic
                             ? pole_count + 1 : pole_count -
@@ -4427,6 +4450,8 @@ BodyResult make_result(
         viewer_edge.reference = original_reference_geometry
             ? reference : EdgeReference{};
         viewer_edge.display_owner_id = reference.owner_id;
+        if (original_reference_geometry)
+            viewer_edge.exact_spline = capture_bspline_geometry(curve);
         GProp_GProps measured_edge;
         BRepGProp::LinearProperties(edge, measured_edge);
         viewer_edge.measured_length = std::abs(measured_edge.Mass());
@@ -5060,6 +5085,7 @@ void place_body_result(BodyResult& result, const gp_Trsf& placement) {
         for (auto& reference : value.triangle_references) face(reference);
         for (auto& edge : value.edges) {
             for (auto& vertex : edge.points) point(vertex);
+            if (edge.exact_spline) for (auto& p : edge.exact_spline->poles) point(p);
             for (auto& row : edge.edge_treatment_side_directions)
                 for (auto& vector : row) direction(vector);
             for (auto& reference : edge.edge_treatment_side_references) face(reference);

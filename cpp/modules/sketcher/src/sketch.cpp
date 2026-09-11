@@ -1,3 +1,4 @@
+#include <zima/kernel/bspline_json.hpp>
 #include "rectilinear_template_solver.hpp"
 #include <zima/sketcher/template_image_json.hpp>
 #include <zima/sketcher/sketch.hpp>
@@ -1246,6 +1247,20 @@ std::vector<std::array<double, 2>> sampled_bspline_points(
     std::vector<std::array<double, 2>> result;
     if (count < degree + 1 || samples < 2) return result;
     result.reserve(samples + 1);
+    if (!spline.knots.empty()) {
+        zima::kernel::BSplineGeometry curve{spline.degree, {}, spline.knots, spline.weights};
+        for (const auto& id : spline.control_point_ids) {
+            const auto* p = sketch.find_point(id);
+            if (!p) return {};
+            curve.poles.push_back({p->x,p->y,0});
+        }
+        curve.validate();
+        for (std::size_t i=0; i<=samples; ++i) {
+            const auto p=zima::kernel::bspline_value(curve, static_cast<double>(i)/samples);
+            result.push_back({p.x,p.y});
+        }
+        return result;
+    }
     if (spline.interpolating) {
         std::vector<std::array<double, 2>> points;
         points.reserve(count);
@@ -2279,6 +2294,16 @@ void Sketch::validate() const {
                 static_cast<std::size_t>(spline.degree) + 1) {
             throw std::runtime_error("Sketch B-spline is invalid");
         }
+        if (!spline.knots.empty() || !spline.weights.empty()) {
+            if (spline.interpolating || spline.closed) throw std::runtime_error("Invalid exact spline mode");
+            zima::kernel::BSplineGeometry curve{spline.degree, {}, spline.knots, spline.weights};
+            for (const auto& id : spline.control_point_ids) {
+                const auto* p=find_point(id);
+                if (!p) throw std::runtime_error("Missing spline pole");
+                curve.poles.push_back({p->x,p->y,0});
+            }
+            curve.validate();
+        }
         for (std::size_t index = 0; index < spline.control_point_ids.size(); ++index) {
             if (find_point(spline.control_point_ids[index]) == nullptr ||
                 (index > 0 && spline.control_point_ids[index] ==
@@ -2323,6 +2348,7 @@ void Sketch::validate() const {
                            std::string, std::string, std::string, std::string>>
         external_sources;
     for (const auto& reference : external_references) {
+        if (reference.exact_spline) reference.exact_spline->validate();
         static_cast<void>(external_reference_kind_name(reference.kind));
         if (reference.id.empty() || !ids.insert(reference.id).second ||
             reference.source_document_id.empty() ||
@@ -5109,11 +5135,8 @@ void Sketch::remove_geometry(const std::string& geometry_id) {
                 return value.source_path == source_path;
             });
         if (block != next.import_blocks.end()) {
-            const auto linked_geometry_ids = block->geometry_ids;
+            // Detach the dependency, retaining the owned geometry and its IDs.
             next.import_blocks.erase(block);
-            for (const auto& linked_geometry_id : linked_geometry_ids) {
-                next.remove_geometry(linked_geometry_id);
-            }
             next.remove_geometry(geometry_id);
             *this = std::move(next);
             return;
@@ -5797,6 +5820,8 @@ MirroredGeometryResult Sketch::mirror_geometry(
                 [&](const auto& value) { return value.id == entity_id; });
             SketchBSpline mirrored;
             mirrored.id = make_id();
+            mirrored.knots = spline_source->knots; mirrored.weights = spline_source->weights;
+            mirrored.interpolating = spline_source->interpolating;
             mirrored.degree = spline_source->degree;
             mirrored.closed = spline_source->closed;
             mirrored.construction = spline_source->construction;
@@ -6654,6 +6679,24 @@ std::string Sketch::add_external_profile_geometry(
         throw std::invalid_argument(
             "External edge already owns profile geometry");
     }
+    if (reference->exact_spline) {
+        reference->exact_spline->validate();
+        auto next = *this;
+        SketchBSpline spline;
+        spline.id=make_id(); spline.degree=reference->exact_spline->degree;
+        spline.knots=reference->exact_spline->knots; spline.weights=reference->exact_spline->weights;
+        for (const auto& p : reference->exact_spline->poles) {
+            auto point=create_point(p.x,p.y);
+            spline.control_point_ids.push_back(point.id);
+            next.points.push_back(std::move(point));
+        }
+        const auto id=spline.id;
+        const auto point_ids=spline.control_point_ids;
+        next.bsplines.push_back(std::move(spline));
+        static_cast<void>(next.add_import_block("Externí profil", link, {id}, point_ids));
+        next.validate();
+        *this=std::move(next); return id;
+    }
     const auto& source = reference->cached_points;
     const auto& first = source.front();
     const auto& last = source.back();
@@ -7164,6 +7207,18 @@ Sketch::project_external_face(
     return paths;
 }
 
+std::optional<zima::kernel::BSplineGeometry> Sketch::project_external_spline(
+    const zima::kernel::ViewerEdge& edge) const {
+    auto exact=edge.exact_spline;
+    if (exact) {
+        exact->validate();
+        for (auto& p : exact->poles) {
+            const auto local=local_point(p);p={local[0],local[1],0};
+        }
+    }
+    return exact;
+}
+
 bool Sketch::refresh_external_references(
     const std::string& source_document_id,
     const zima::kernel::ViewerReferenceGeometry& source_geometry) {
@@ -7201,7 +7256,13 @@ bool Sketch::refresh_external_references(
                         points.push_back(local);
                     }
                 }
-                if (points.size() >= 2) resolved = std::move(points);
+                if (points.size() >= 2) {
+                    auto exact=next.project_external_spline(*match);
+                    if (exact != reference.exact_spline) {
+                        reference.exact_spline=std::move(exact); changed=true;
+                    }
+                    resolved = std::move(points);
+                }
             }
         } else if (reference.kind == ExternalReferenceKind::Point) {
             const zima::kernel::ViewerPoint* match = nullptr;
@@ -7309,6 +7370,21 @@ bool Sketch::refresh_external_references(
             [&](const auto& value) { return value.id == block.geometry_ids.front(); });
         if (spline == next.bsplines.end() ||
             spline->control_point_ids != block.point_ids) continue;
+        if (!spline->knots.empty()) {
+            if (!reference->exact_spline || reference->exact_spline->poles.size()!=block.point_ids.size()) {
+                reference->broken=true;
+                continue;
+            }
+            spline->degree=reference->exact_spline->degree;
+            spline->knots=reference->exact_spline->knots;
+            spline->weights=reference->exact_spline->weights;
+            for (std::size_t i=0; i<block.point_ids.size(); ++i) {
+                auto* p=next.find_point(block.point_ids[i]);
+                const auto& source=reference->exact_spline->poles[i];
+                p->x=source.x; p->y=source.y;
+            }
+            continue;
+        }
         for (std::size_t index = 0; index < block.point_ids.size(); ++index) {
             auto* point = next.find_point(block.point_ids[index]);
             if (point == nullptr) continue;
@@ -11501,6 +11577,13 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         edge.construction = spline.construction;
         edge.dash_dot = spline.construction;
         edge.overlay = true;
+        if (!spline.knots.empty()) {
+            zima::kernel::BSplineGeometry exact{spline.degree, {}, spline.knots, spline.weights};
+            for (const auto& id : spline.control_point_ids) {
+                const auto* p=find_point(id); exact.poles.push_back(world_point(p->x,p->y));
+            }
+            edge.exact_spline=std::move(exact);
+        }
         for (const auto& point : sampled_bspline_points(*this, spline, 128)) {
             edge.points.push_back(world_point(point[0], point[1]));
         }
@@ -12727,6 +12810,7 @@ std::string Sketch::serialized() const {
     nlohmann::json spline_values = nlohmann::json::array();
     for (const auto& spline : bsplines) spline_values.push_back({
         {"id", spline.id}, {"control_points", spline.control_point_ids},
+        {"knots", spline.knots}, {"weights", spline.weights},
         {"degree", spline.degree}, {"interpolating", spline.interpolating},
         {"closed", spline.closed},
         {"construction", spline.construction}});
@@ -12781,6 +12865,7 @@ std::string Sketch::serialized() const {
             {"context_instance_path", reference.context_instance_path},
             {"cached_points", std::move(points)},
             {"cached_paths", std::move(paths)},
+            {"exact_spline", zima::kernel::spline_json(reference.exact_spline)},
             {"infinite", reference.infinite},
             {"broken", reference.broken}});
     }
@@ -12817,7 +12902,7 @@ std::string Sketch::serialized() const {
         value["locked"] = dimension.locked;
         dimension_values.push_back(std::move(value));
     }
-    nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 31},
+    nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 32},
         {"id", id}, {"owner_container_id", owner_container_id},
         {"name", name}, {"suppressed", suppressed},
         {"plane", plane_name(plane)},
@@ -12862,7 +12947,7 @@ std::string Sketch::serialized() const {
 
 Sketch Sketch::from_serialized(const std::string& value) {
     const auto root = nlohmann::json::parse(value);
-    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 31) {
+    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 32) {
         throw std::runtime_error("Unsupported sketch format");
     }
     Sketch sketch;
@@ -12951,7 +13036,9 @@ Sketch Sketch::from_serialized(const std::string& value) {
         value.at("control_points").get<std::vector<std::string>>(),
         value.at("degree").get<unsigned>(),
         value.at("interpolating").get<bool>(), value.at("closed").get<bool>(),
-        value.at("construction").get<bool>()});
+        value.at("construction").get<bool>(),
+        value.at("knots").get<std::vector<double>>(),
+        value.at("weights").get<std::vector<double>>()});
     for (const auto& value : root.at("import_blocks")) sketch.import_blocks.push_back({
         value.at("id").get<std::string>(), value.at("name").get<std::string>(),
         value.at("source_path").get<std::string>(),
@@ -13015,6 +13102,7 @@ Sketch Sketch::from_serialized(const std::string& value) {
             }
             reference.cached_paths.push_back(std::move(path));
         }
+        reference.exact_spline = zima::kernel::spline_from_json(value.at("exact_spline"));
         reference.infinite = value.value("infinite", false);
         reference.broken = value.at("broken").get<bool>();
         sketch.external_references.push_back(std::move(reference));

@@ -20,9 +20,9 @@ struct StepAssemblyImport {
 };
 // Explicit import transactions. No files or open documents are mutated here.
 StepImportedPart import_step_part(document::PartDocument document,
-    const std::vector<kernel::BodyResult>& previous, const std::filesystem::path& source);
+    const std::vector<kernel::BodyResult>& previous, const std::filesystem::path& source, std::optional<double> mesh_deflection = {});
 StepAssemblyImport import_step_assembly(const std::filesystem::path& source,
-    const std::filesystem::path& directory, const std::map<std::string,std::string>& precision);
+    const std::filesystem::path& directory, const std::map<std::string,std::string>& precision, std::optional<double> mesh_deflection = {});
 kernel::StepProduct step_product(const document::PartDocument& document,
     const std::vector<kernel::BodyResult>& calculated);
 kernel::StepProduct step_product(const assembly::AssemblyDocument& document);

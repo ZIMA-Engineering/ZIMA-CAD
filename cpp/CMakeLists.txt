@@ -137,6 +137,7 @@ add_executable(zima-cad-cpp
     app/construction_properties_dialog.cpp
     app/orientation_dialog.cpp
     app/sketch_properties_dialog.cpp
+    app/import_options_dialog.cpp
     app/sketch_bspline_properties_dialog.cpp
     app/sketch_text_properties_dialog.cpp
     app/sketch_dimension_properties_dialog.cpp)
@@ -413,4 +414,11 @@ if(ZIMA_BUILD_TESTS)
         tests/cross_language_persistence_emitter.cpp)
     target_link_libraries(zima_cpp_cross_language_persistence_emitter PRIVATE
         zima_document_core zima_assembly zima_drawing)
+    add_executable(zima_cpp_exact_spline_contract_tests tests/exact_spline_contract_tests.cpp)
+    target_link_libraries(zima_cpp_exact_spline_contract_tests PRIVATE zima_document_core zima_kernel_occt TKBRep TKG3d TKTopAlgo nlohmann_json::nlohmann_json)
+    add_test(NAME zima_cpp_exact_spline_contract_tests COMMAND zima_cpp_exact_spline_contract_tests)
+    add_executable(zima_cpp_exact_spline_dialog_tests tests/exact_spline_dialog_tests.cpp app/sketch_bspline_properties_dialog.cpp app/import_options_dialog.cpp)
+    target_link_libraries(zima_cpp_exact_spline_dialog_tests PRIVATE zima_ui zima_sketcher Qt6::Widgets)
+    add_test(NAME zima_cpp_exact_spline_dialog_tests COMMAND zima_cpp_exact_spline_dialog_tests)
+    set_tests_properties(zima_cpp_exact_spline_dialog_tests PROPERTIES ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}")
 endif()

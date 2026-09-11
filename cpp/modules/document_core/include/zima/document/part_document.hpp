@@ -425,10 +425,11 @@ struct ImportedStepParameters {
     std::string component_path;
     std::shared_ptr<const std::string> frozen_brep;
     std::vector<zima::kernel::StepRequest::TopologyIdentity> topology;
+    std::optional<double> mesh_deflection; // Import-local display mesh choice.
     bool operator==(const ImportedStepParameters& other) const {
         if (source_path != other.source_path ||
             component_path != other.component_path ||
-            topology != other.topology) return false;
+            topology != other.topology || mesh_deflection != other.mesh_deflection) return false;
         if (frozen_brep == other.frozen_brep) return true;
         return frozen_brep && other.frozen_brep &&
             *frozen_brep == *other.frozen_brep;

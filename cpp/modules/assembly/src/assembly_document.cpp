@@ -1430,6 +1430,8 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
             }
             for (auto edge : source_mesh.edges) {
                 assign_instance(edge.reference, path);
+                if (edge.exact_spline) for (auto& point : edge.exact_spline->poles)
+                    point = transform_point(point, component.placement);
                 for (auto& point : edge.points) {
                     point = transform_point(point, component.placement);
                 }
@@ -1482,6 +1484,8 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
             }
             for (auto edge : source_references.edges) {
                 assign_instance(edge.reference, path);
+                if (edge.exact_spline) for (auto& point : edge.exact_spline->poles)
+                    point = transform_point(point, component.placement);
                 for (auto& point : edge.points) {
                     point = transform_point(point, component.placement);
                 }
@@ -1714,7 +1718,7 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene_with_part_override(
 
 AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
     const auto ini = read_ini(path);
-    if (ini_value(ini, "Document", "format_version") != "14" ||
+    if (ini_value(ini, "Document", "format_version") != "15" ||
         ini_value(ini, "Document", "type") != "assembly") {
         throw std::runtime_error("Unsupported ZIMA-CAD Assembly document format");
     }
@@ -2100,7 +2104,7 @@ void AssemblyDocument::save(const std::filesystem::path& path,
             {"input_component_bodies", std::move(input_bodies)}});
     }
     nlohmann::json root = {
-        {"format", "zima-cad-cpp"}, {"format_version", 23},
+        {"format", "zima-cad-cpp"}, {"format_version", 24},
         {"type", "assembly"}, {"document_id", document_id}, {"name", name},
         {"user_parameters", user_parameters},
         {"user_parameter_order", user_parameter_order},
@@ -2129,7 +2133,7 @@ void AssemblyDocument::save(const std::filesystem::path& path,
     const auto saved_name = root.at("name").get<std::string>();
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "14"},
+        {"format_version", "15"},
         {"type", "assembly"},
         {"document_id", saved_id},
         {"name", saved_name},

@@ -1,3 +1,4 @@
+#include <zima/kernel/bspline_json.hpp>
 #include <zima/document/dimension_layout_json.hpp>
 #include <zima/document/viewer_packet_json.hpp>
 
@@ -249,7 +250,9 @@ nlohmann::json serialize_reference_geometry(
     std::vector<std::uint32_t> edge_offsets{0};
     std::vector<std::uint32_t> edge_references;
     nlohmann::json edge_lengths = nlohmann::json::array();
+    nlohmann::json edge_splines = nlohmann::json::array();
     for (const auto& edge : geometry.edges) {
+        edge_splines.push_back(zima::kernel::spline_json(edge.exact_spline));
         edge_lengths.push_back(edge.measured_length ? nlohmann::json(*edge.measured_length) : nlohmann::json(nullptr));
         if (edge.points.size() < 2 ||
             edge_points.size() + edge.points.size() >
@@ -284,6 +287,7 @@ nlohmann::json serialize_reference_geometry(
         {"edge_points_binary", pack_vertices(edge_points)},
         {"edge_offsets_binary", pack_indices(edge_offsets)},
         {"edge_lengths", std::move(edge_lengths)},
+        {"edge_splines", std::move(edge_splines)},
         {"edge_references_binary", pack_indices(edge_references)},
         {"point_positions_binary", pack_vertices(point_positions)},
         {"point_references_binary", pack_indices(point_references)},
@@ -385,6 +389,9 @@ zima::kernel::ViewerReferenceGeometry load_reference_geometry(
                 if (*edge.measured_length < 0) throw std::runtime_error("Negative measured length");
             }
         }
+        if (source.at("edge_splines").size() != edge_references.size())
+            throw std::runtime_error("Invalid exact reference curves");
+        edge.exact_spline = zima::kernel::spline_from_json(source.at("edge_splines").at(index));
         restore_reference_curve_style(edge);
         result.edges.push_back(std::move(edge));
     }
@@ -477,6 +484,7 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result, boo
             {"edge_treatment_endpoint_references",
                 std::move(endpoint_references)},
             {"points", std::move(points)},
+            {"exact_spline", zima::kernel::spline_json(edge.exact_spline)},
             {"measured_length", edge.measured_length ? nlohmann::json(*edge.measured_length) : nlohmann::json(nullptr)},
         });
     }
@@ -645,6 +653,7 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source) {
         loaded.display_owner_id =
             edge.at("display_owner").get<std::string>();
         loaded.color=edge.value("color",std::string{});
+        loaded.exact_spline = zima::kernel::spline_from_json(edge.at("exact_spline"));
         if (edge.contains("measured_length") && !edge.at("measured_length").is_null()) {
             loaded.measured_length = edge.at("measured_length").get<double>();
             require_finite(*loaded.measured_length, "measured length");

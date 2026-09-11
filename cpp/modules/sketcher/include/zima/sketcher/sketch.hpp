@@ -141,6 +141,8 @@ struct SketchBSpline {
     bool interpolating{};
     bool closed{};
     bool construction{};
+    std::vector<double> knots;
+    std::vector<double> weights;
     bool operator==(const SketchBSpline&) const = default;
 };
 
@@ -196,6 +198,7 @@ struct SketchExternalReference {
     std::vector<std::vector<std::array<double, 2>>> cached_paths;
     bool infinite{};
     bool broken{};
+    std::optional<zima::kernel::BSplineGeometry> exact_spline; // Sketch coordinates, z=0.
     bool operator==(const SketchExternalReference&) const = default;
 };
 
@@ -538,6 +541,8 @@ public:
     void add_external_reference(SketchExternalReference reference);
     [[nodiscard]] std::string add_external_profile_geometry(
         const std::string& reference_id);
+    [[nodiscard]] std::optional<zima::kernel::BSplineGeometry> project_external_spline(
+        const zima::kernel::ViewerEdge& edge) const;
     [[nodiscard]] bool refresh_external_references(
         const std::string& source_document_id,
         const zima::kernel::ViewerReferenceGeometry& source_geometry);

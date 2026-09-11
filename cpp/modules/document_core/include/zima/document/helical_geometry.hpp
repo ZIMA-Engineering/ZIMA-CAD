@@ -70,7 +70,14 @@ inline std::vector<Curve> guide_curves(const sketcher::Sketch& source,P start,bo
     for(const auto& b:s.bsplines) if(!b.construction) {
         if(b.closed)throw std::runtime_error("Vodicí křivka musí být otevřená");
         std::vector<P> pts;for(const auto& id:b.control_point_ids)pts.push_back(point(s,id));
-        const auto at=[pts,b](double u){return spline_at(pts,b.degree,b.interpolating,u);};
+        const auto at=[pts,b](double u){
+            if (!b.knots.empty()) {
+                zima::kernel::BSplineGeometry curve{b.degree,{},b.knots,b.weights};
+                for (const auto& p:pts) curve.poles.push_back({p[0],p[1],0});
+                const auto p=zima::kernel::bspline_value(curve,u);return P{p.x,p.y};
+            }
+            return spline_at(pts,b.degree,b.interpolating,u);
+        };
         unordered.push_back({b.id,at(0),at(1),at,b.control_point_ids.front(),b.control_point_ids.back()});
     }
     if(std::ranges::any_of(s.circles,[](auto& c){return !c.construction;})||
