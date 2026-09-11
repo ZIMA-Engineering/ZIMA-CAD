@@ -4,7 +4,7 @@
 #include <zima/commands/dispatcher.hpp>
 #include "sketch_inference_policy.hpp"
 
-#include <zima/workspace/workspace.hpp>
+#include <zima/workspace/model_calculation.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/sketcher/sketch_trim.hpp>
 #include <zima/viewer/picking.hpp>
@@ -1053,6 +1053,7 @@ private:
     void regenerate_active_part();
     void undo();
     void redo();
+    [[nodiscard]] zima::workspace::PartCalculationPolicy part_calculation_policy() const;
     [[nodiscard]] std::vector<zima::kernel::BodyResult> calculate_part(
         const zima::document::PartDocument& document,
         const std::vector<zima::kernel::BodyResult>* previous = nullptr) const;

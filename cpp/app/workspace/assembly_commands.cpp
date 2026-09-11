@@ -130,78 +130,7 @@ void AssemblyWorkspaceWindow::insert_component(
 void AssemblyWorkspaceWindow::regenerate_assembly() {
     const std::string id = workspace_.displayed_document_id();
     try {
-        std::set<std::string> regenerated_parts;
-        std::set<std::string> visiting_parts;
-        const std::function<void(const std::string&)> regenerate_part_dependencies =
-            [&](const std::string& part_id) {
-                if (regenerated_parts.contains(part_id)) return;
-                if (!visiting_parts.insert(part_id).second) {
-                    throw std::runtime_error(
-                        "External Sketch document dependency cycle detected");
-                }
-                auto* part = workspace_.open_part(part_id);
-                if (part == nullptr) {
-                    visiting_parts.erase(part_id);
-                    return;
-                }
-                for (const auto& sketch : part->session.document().sketches) {
-                    for (const auto& reference : sketch.external_references) {
-                        if (reference.context_assembly_document_id == id &&
-                            reference.source_document_id != part_id) {
-                            regenerate_part_dependencies(
-                                reference.source_document_id);
-                        }
-                    }
-                }
-                auto next = part->session.document();
-                const bool has_context = std::any_of(
-                    next.sketches.begin(), next.sketches.end(), [&](const auto& sketch) {
-                        return std::any_of(sketch.external_references.begin(),
-                            sketch.external_references.end(), [&](const auto& reference) {
-                                return reference.context_assembly_document_id == id;
-                            });
-                    });
-                if (has_context) {
-                    const auto& previous = part->session.calculated_boundaries();
-                    auto calculated = calculate_part(next, &previous);
-                    const auto previous_constructions = next.constructions;
-                    next.resolve_constructions(calculated.empty()
-                        ? zima::kernel::ViewerReferenceGeometry{}
-                        : calculated.back().mesh.original_references);
-                    const bool references_changed =
-                        refresh_sketch_external_references(next, calculated) |
-                        workspace_.refresh_context_external_references(next);
-                    if (references_changed) {
-                        calculated = calculate_part(next, &calculated);
-                    }
-                    if (references_changed ||
-                        next.constructions != previous_constructions) {
-                        part->session.commit(std::move(next), std::move(calculated));
-                    } else {
-                        part->session.update_calculated_boundaries(
-                            std::move(calculated));
-                    }
-                }
-                visiting_parts.erase(part_id);
-                regenerated_parts.insert(part_id);
-            };
-        for (const auto& state : workspace_.documents()) {
-            const auto* part = std::get_if<zima::workspace::PartState>(&state);
-            if (part != nullptr) {
-                regenerate_part_dependencies(
-                    part->session.document().document_id);
-            }
-        }
-        workspace_.regenerate_assembly_from_open_dependencies(id);
-        if (auto* regenerated = workspace_.open_assembly(id)) {
-            auto next = regenerated->session.document();
-            const bool references_changed =
-                refresh_assembly_sketch_external_references(next);
-            calculate_assembly_cuts(next);
-            if (references_changed || !next.cuts.empty()) {
-                regenerated->session.commit(std::move(next));
-            }
-        }
+        workspace::regenerate_assembly(workspace_, kernel_, id, part_calculation_policy());
         refresh_tabs();
         preserve_view_on_refresh_ = true;
         refresh_scene();

@@ -67,8 +67,8 @@ uložení a Undo/Redo proti skutečnému souboru. Celá regresní sada se spouš
 přes `tools/build-windows.ps1 -Configuration Release -RunTests`.
 
 Otevírání a vytváření podle config šablon jsou popsány v další etapě níže.
-Regenerace zatím zůstává v aplikační vrstvě. Samostatný hostitel příkazů bez
-GUI ještě není dodaný; samotný přenos textu/JSON již GUI nevyžaduje.
+Regenerace je oddělena ve třetí etapě popsané níže. Samostatný hostitel příkazů
+bez GUI ještě není dodaný; samotný přenos textu/JSON již GUI nevyžaduje.
 Formát souborů se nemění; stávající přípony a config šablony zůstávají platné.
 
 ## Výsledek ověření
@@ -127,23 +127,74 @@ tří typů, data pro View, přesné identity původních ploch, UTF-8 cestu, co
 kolize cest, obsazení cesty během přípravy, již otevřený změněný dokument,
 duplicitní ID, chybějící/poškozený soubor a odmítnutí staré přípony `.prt`.
 
-## Připravený rozsah následujícího přesunu regenerace
+## Ověření druhé etapy
 
-Další kandidát pro přesun je `calculate_part_with_resolved_references` z
-`cpp/app/workspace/calculation.cpp` spolu s čistými pomocnými funkcemi pro
-obnovu externích skic a dostupných bodů vrtání. Nad nimi by v modulu workspace
-leželo řízení explicitní regenerace Partu a Assembly. GUI by ponechalo
-rozpracované editace, zobrazení výsledku a chybové zprávy.
+Windows Release sestaven, **53/53 testů prošlo** (354,86 s), protokol
+`build/native-documents-full-tests.log`. Test nových nativních operací navíc
+prošel samostatně a kontrola `dumpbin /dependents` potvrdila nepřítomnost Qt DLL.
+Config šablony test porovnává před a po tvorbě bajt po bajtu.
 
-Tato smyčka opakovaně řeší reference a umístění pro všechny history kontejnery;
-používá ji i jejich tvorba a editace. Přesun proto spadá pod chráněnou oblast
-Container placement protection v AGENTS.md. Návrh je strukturální: zachovat
-pořadí průchodů, limit `history.size() + 2`, pravidla konvergence, práci s
-původní geometrií, transakce a uložení referencí. Před úpravou této sdílené
-smyčky je vyžadován výslovný souhlas uživatele. V této etapě není upravena.
+## Třetí etapa: výslovná regenerace a reference
 
-Ověření druhé etapy: Windows Release sestaven, **53/53 testů prošlo**
-(354,86 s), protokol `build/native-documents-full-tests.log`. Test nových
-nativních operací navíc prošel samostatně a kontrola `dumpbin /dependents`
-potvrdila nepřítomnost Qt DLL. Config šablony test porovnává před a po tvorbě
-bajt po bajtu. Přesun chráněné regenerační smyčky čeká na odpověď uživatele.
+Uživatel 2026-09-11 výslovně povolil úpravu chráněného umístění kontejnerů.
+Schválený přesun je strukturální: výpočty a reference přecházejí z hlavního
+okna do modulu workspace. Řešič umístění, pořadí průchodů, limit
+`history.size() + 2`, konvergence i transakce zůstávají stejné.
+
+`model_calculation.hpp/.cpp` poskytují bez Qt:
+
+- `calculate_part`: výpočet se zachováním platné geometrie při chybě;
+- `calculate_part_with_resolved_references`: výpočet do ustálení umístění,
+  konstrukcí, externích skic a bodů vrtání, včetně polohy řezů;
+- `calculate_resolved_assembly_cuts`: výpočet sestavových odečtů s jejich
+  uloženými referencemi, skutečným vstupem pro rollback a odvozenými kopiemi;
+- `regenerate_part` a `regenerate_assembly`: výslovná regenerace konkrétního
+  otevřeného dokumentu včetně stávajících pravidel historie a závislostí.
+
+`part_references.cpp` obsahuje původní čisté pomocné funkce pro výběr vlastníků,
+obnovu externích referencí a skládání uložené referenční geometrie. GUI
+používá tytéž funkce přes deklarace v privátním workspace headeru. Žádná z
+nich nezískává identitu geometrie novým procházením OCCT topologie.
+
+`PartCalculationPolicy` je pouze kontext explicitního výpočtu: zda zamítnout
+chyby a ke kterému dokumentu/hraničnímu indexu patří editace. Při rollbacku
+se posuzuje chyba právě editovaného prvku; chyby pozdější historie zůstávají
+u svých vlastníků. GUI převádí svůj stav dialogu a rollbacku na tuto datovou
+strukturu. Nový modul nepotřebuje okno, viewer ani QApplication.
+
+Regenerace běží synchronně na vlákně vlastnícím Workspace. Nemění aktivní
+dokument ani zobrazenou sestavu. GUI nadále řídí rozpracovanou editaci,
+obnovu View, výběr a hlášení výsledku. Obnova Partu bez změny definice
+aktualizuje vypočtené hranice bez nového Undo kroku. Změněné umístění či
+reference se potvrzují stejnou transakcí jako před přesunem.
+
+Explicitní regenerace Assembly dál používá otevřené neuložené zdroje.
+Běžné zobrazení ani přepnutí tabu novou regeneraci nevyvolává. Stávající
+`Workspace::calculate_assembly_cuts` v obnově závislostí zůstává beze změny:
+pracuje s již uloženými definicemi odečtů. Přesunutá aplikační fáze navíc řeší
+reference sestavového odečtu a jeho vlastněnou skicu. Sloučení těchto dvou
+odlišných fází není součástí tohoto strukturálního přesunu.
+
+Přípony, serializace, config i start šablony zůstávají stejné. Nevznikají
+revizní adresáře ani povinné soubory mimo `.prtz`, `.asmz` a `.drwz`.
+
+Nezávislé porovnání proti předchozímu commitu ověřilo totožnost všech osmi
+přesunutých pomocných funkcí; u výpočtů a obou regeneračních transakcí
+ověřilo totožnost po nahrazení přístupů ke členům okna explicitními parametry.
+Lokální protokol: `build/model-calculation-extraction-audit.txt`.
+
+`zima_cpp_model_calculation_tests` běží bez Qt a kontroluje řetězec tří
+navázaných kontejnerů, navázaný řez, změnu zdrojového rozměru, zachování ID
+původních ploch, Undo/Redo, opakovaný nezměněný výpočet, chyby při editaci a
+regeneraci, neuložený Part v Assembly, identitu výskytu a sestavový odečet.
+Objem odečtu je ověřen nezávisle jako 2000 − 2 × 10 × 10 = 1800 mm³.
+
+## Ověření třetí etapy
+
+Finální Windows Release prošel **55/55 testy** (365,35 s), včetně kompletních
+GUI, konzolových, souborových, sestavových, skicářských a geometrických regresí.
+Protokol je v `build/model-calculation-final-tests.log`. První úplný běh
+zachytil jediný problém s kompaktností Vlastností osy; oprava rezervy tlačítka
+je popsána v [NUMERIC_VALUE_LOCKS.md](NUMERIC_VALUE_LOCKS.md). Následný úplný
+běh již neměl chybu. Kontrola `dumpbin /dependents` potvrdila, že nový test
+modelových výpočtů neobsahuje Qt DLL (`build/model-calculation-dependencies.txt`).

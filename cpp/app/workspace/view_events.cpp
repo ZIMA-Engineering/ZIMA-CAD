@@ -188,30 +188,9 @@ void AssemblyWorkspaceWindow::regenerate_active_part() {
     auto* part = workspace_.open_part(workspace_.active_document_id());
     if (part == nullptr || properties_dialog_ != nullptr) return;
     try {
-        const auto& previous = part->session.document();
-        auto next = previous;
-        // Explicit Regenerate recalculates geometry even when parameters match
-        // the persisted cache (for example after a kernel calculation fix).
-        auto calculated = calculate_part_with_resolved_references(next);
-        next.resolve_constructions(calculated.empty()
-            ? zima::kernel::ViewerReferenceGeometry{}
-            : calculated.back().mesh.original_references);
-        const bool references_changed =
-            refresh_sketch_external_references(next, calculated) |
-            workspace_.refresh_context_external_references(next) |
-            prune_missing_drill_point_references(next, calculated);
-        if (references_changed) calculated = calculate_part(next, &calculated);
-        const bool sketches_changed = next.sketches.size() != previous.sketches.size() ||
-            !std::equal(next.sketches.begin(), next.sketches.end(), previous.sketches.begin(),
-                [](const auto& left, const auto& right) { return left.serialized() == right.serialized(); });
-        if (references_changed || sketches_changed ||
-            zima::document::serialize_sections(next.sections)!=zima::document::serialize_sections(previous.sections) || next.history != previous.history ||
-            next.constructions != previous.constructions ||
-            next.body_history.bodies() != previous.body_history.bodies()) {
-            part->session.commit(std::move(next), std::move(calculated));
-        } else {
-            part->session.update_calculated_boundaries(std::move(calculated));
-        }
+        const bool references_changed = workspace::regenerate_part(
+            workspace_, kernel_, workspace_.active_document_id(),
+            part_calculation_policy()).references_changed;
         refresh_tabs();
         preserve_view_on_refresh_ = true;
         refresh_scene();

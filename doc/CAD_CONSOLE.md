@@ -96,8 +96,7 @@ výběru reference ani při aktivaci vnořené komponenty. Nejprve je nutné uko
 příslušný režim. Opakovaný vstup během probíhajícího příkazu vrací `busy`.
 Čtecí příkazy lze použít i během editace.
 
-Regenerace používá stejné metody jako GUI. Otevření a tvorba nativních dokumentů,
-ukládání a dokumentové
+Regenerace, otevření a tvorba nativních dokumentů, ukládání a dokumentové
 Undo/Redo nyní používají [společné operace bez Qt](DOCUMENT_OPERATIONS.md);
 aplikační obal zachovává obsluhu interakce a obnovu zobrazení.
 `report_operation_error` zachovává běžné chybové okno při interaktivním volání;
@@ -112,6 +111,8 @@ platné zachované výsledky zůstávají podle stávajícího kontraktu CADu.
   okna ani závislost na OCCT; linkuje pouze nlohmann JSON.
 - `cpp/modules/workspace/document_operations`: ukládání a historie bez GUI.
 - `cpp/modules/workspace/native_documents`: načítání, tvorba a start šablony bez GUI.
+- `cpp/modules/workspace/model_calculation`, `part_references`: explicitní regenerace
+  a obnova uložených referencí bez GUI.
 - `cpp/app/command_console.*`: panel, textový vstup, historie a výpis.
 - `cpp/app/workspace/console.cpp`: propojení příkazů s aktuálním CAD workspace,
   kontextem a existujícími operacemi GUI.

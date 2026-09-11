@@ -290,22 +290,6 @@ zima::assembly::AssemblyDocument new_assembly_from_template(const ApplicationSet
     return zima::workspace::assembly_from_template(native_template_settings(settings));
 }
 
-void append_reference_geometry(
-    zima::kernel::ViewerReferenceGeometry& target,
-    zima::kernel::ViewerReferenceGeometry source) {
-    const auto vertex_offset = static_cast<std::uint32_t>(target.vertices.size());
-    target.vertices.insert(
-        target.vertices.end(), source.vertices.begin(), source.vertices.end());
-    for (const auto index : source.triangles) {
-        target.triangles.push_back(index + vertex_offset);
-    }
-    target.triangle_references.insert(target.triangle_references.end(),
-        source.triangle_references.begin(), source.triangle_references.end());
-    target.edges.insert(target.edges.end(), source.edges.begin(), source.edges.end());
-    target.points.insert(target.points.end(), source.points.begin(), source.points.end());
-    target.axes.insert(target.axes.end(), source.axes.begin(), source.axes.end());
-}
-
 void append_mesh(zima::kernel::ViewerMesh& target, zima::kernel::ViewerMesh source) {
     target.images.insert(target.images.end(),std::make_move_iterator(source.images.begin()),std::make_move_iterator(source.images.end()));
     const auto vertex_offset = static_cast<std::uint32_t>(target.vertices.size());

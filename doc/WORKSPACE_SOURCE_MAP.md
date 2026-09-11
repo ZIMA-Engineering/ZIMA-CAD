@@ -27,7 +27,7 @@ Všechny soubory následující tabulky jsou v
 | Parametry, materiál, relace, rodinná tabulka a nastavení | `document_commands.cpp` |
 | Ukládání, přejmenování, verze souborů, stav operace a nastavení aplikace | `file_operations.cpp` |
 | Import a export | `interchange.cpp` |
-| Výslovné výpočty Partu a operací sestavy | `calculation.cpp` |
+| Adaptéry výslovného výpočtu a kontext editace | `calculation.cpp`; výpočty v `modules/workspace/model_calculation` |
 | Vložení komponent a regenerace sestavy | `assembly_commands.cpp` |
 | Vlastnosti a výběr komponent | `assembly_properties.cpp` |
 | Tažení komponent | `assembly_drag.cpp` |
@@ -119,3 +119,10 @@ nativní ukládání a dokumentové Undo/Redo nyní sídlí v modulu workspace b
 Načítání `.prtz`/`.asmz`/`.drwz` a tvorba podle config šablon nyní používají
 `modules/workspace/native_documents`. V `documents.cpp` zůstává interakce a
 aktivace; v `geometry_helpers.cpp` pouze převod aplikačních settings pro továrny.
+
+Výslovná regenerace nyní sídlí v `modules/workspace/model_calculation` a
+čisté pomocné funkce uložených referencí v `modules/workspace/part_references`.
+`calculation.cpp` převádí stav editace na datovou politiku výpočtu;
+`view_events.cpp` a `assembly_commands.cpp` zajišťují uživatelskou interakci
+před/po zavolání společné operace. Podrobnosti a ověření jsou v
+[DOCUMENT_OPERATIONS.md](DOCUMENT_OPERATIONS.md).

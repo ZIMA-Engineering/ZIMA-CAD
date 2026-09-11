@@ -83,7 +83,9 @@ target_link_libraries(zima_drawing
 add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/document_copy.cpp
     modules/workspace/src/document_operations.cpp
-    modules/workspace/src/native_documents.cpp)
+    modules/workspace/src/native_documents.cpp
+    modules/workspace/src/part_references.cpp
+    modules/workspace/src/model_calculation.cpp)
 target_include_directories(zima_workspace PUBLIC modules/workspace/include)
 target_link_libraries(zima_workspace PUBLIC
     zima_document_core zima_assembly zima_drawing zima_kernel_occt
@@ -374,6 +376,14 @@ if(ZIMA_BUILD_TESTS)
     add_executable(zima_cpp_interchange_contract_tests tests/interchange_contract_tests.cpp)
     target_link_libraries(zima_cpp_interchange_contract_tests PRIVATE zima_interchange)
     add_test(NAME zima_cpp_interchange_contract_tests COMMAND zima_cpp_interchange_contract_tests)
+    add_executable(zima_cpp_model_calculation_tests tests/model_calculation_tests.cpp)
+    target_link_libraries(zima_cpp_model_calculation_tests PRIVATE zima_workspace)
+    add_test(NAME zima_cpp_model_calculation_tests COMMAND zima_cpp_model_calculation_tests)
+    if(WIN32)
+        add_test(NAME zima_cpp_numeric_value_locks_windows_contract COMMAND zima_cpp_ui_contract_tests)
+        set_tests_properties(zima_cpp_numeric_value_locks_windows_contract PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=windows;QT_STYLE_OVERRIDE=windows;ZIMA_VERIFY_VALUE_LOCKS_ONLY=1")
+    endif()
     add_executable(zima_cpp_native_documents_tests tests/native_documents_tests.cpp)
     target_link_libraries(zima_cpp_native_documents_tests PRIVATE zima_workspace)
     add_test(NAME zima_cpp_native_documents_tests COMMAND zima_cpp_native_documents_tests)

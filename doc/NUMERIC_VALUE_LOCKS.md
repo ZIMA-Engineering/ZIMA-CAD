@@ -4,7 +4,12 @@ Za délkou nebo úhlem ve vlastnostech je ikona zámku. Zamčené pole nelze
 přepsat ani měnit kolečkem; přímá editace téhož rozměru ve View zámek také
 respektuje. Rozměr lze ve View zamknout či odemknout kontextovým menu.
 Zamčená hodnota je černá; hover a výběr si ponechávají oranžovou a azurovou.
-Šířka číselného pole počítá s ikonou, jednotkou a přesností dokumentu.
+Zámeček je samostatné tlačítko za rámečkem číselného pole a za jeho šipkami,
+nikoli akce vložená do textového editoru. Sdílený styl rezervuje koncovou
+oblast pro tlačítko; rámeček, editor i šipky končí před ním. Pole zůstává
+běžným QDoubleSpinBox, včetně buněk tabulky referencí. Měření šířky započítává
+tuto oblast jednou, takže přepnutí zámku neroztahuje dialog a nepřekrývá číslo.
+Jednotka a přesnost dokumentu jsou zahrnuté ve výpočtu šířky editoru.
 
 ## Zadání reference
 
@@ -56,6 +61,11 @@ bod či osu. Sestavové testy ověřují zámky při volném i šikmém posuvu,
 měření úhlů a ukládání. Integrační test vlastností tělesa kontroluje
 propojení zámku úhlové korekce s View, Undo/Redo a uložení zámku mimo dialog.
 Test číselných polí používá 3, 4, 6, 9 a 12 desetinných míst a větší písmo.
+Test zámků navíc kontroluje nepřekrývání s editorem a rámečkem, skutečné
+kliknutí myší, jedinou změnu stavu na klik a stálou šířku dialogu po dvaceti
+přepnutích. Ve Windows běží také `zima_cpp_numeric_value_locks_windows_contract`
+s nativním stylem Windows; základní běh používá Fusion. Výsledný dialog byl
+zkontrolován také na snímku `build/cpp-windows-release/Projects/test/numeric-lock-layout.png`.
 
 Převzetí odsazení sestavové roviny vychází z její podepsané vzdálenosti od
 počátku komponenty. Nezávisí na zvoleném vrcholu triangulace a zachová
@@ -68,3 +78,11 @@ při výběru reference a následné odemčení. Po jeho zapnutí nabízí zruš
 převzetí. Vyplněný řádek používá **Zamknout hodnotu / Odemknout hodnotu**.
 Tyto texty, chybová hlášení i akce ve View jsou dostupné ve čtyřech jazycích
 aplikace; podrobnosti jsou v [dokumentaci překladů](LOCALIZATION.md).
+
+Původní kompletní běh zachytil rozšíření Vlastností osy na 363 px.
+Rezerva zámečku nyní odpovídá 22px tlačítku a 2px mezeře; zachovává původní
+limit kompaktního dialogu 360 px. Po opravě prošel obecný test dialogů,
+test čitelnosti všech přesností i oba styly zámečků (4/4, 10,35 s).
+
+Konečný Windows Release po této opravě prošel celou sadou **55/55 testů**,
+365,35 s (`build/model-calculation-final-tests.log`).

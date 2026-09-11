@@ -1,4 +1,5 @@
 #pragma once
+#include <zima/workspace/model_calculation.hpp>
 
 // Private implementation support for the split workspace sources.
 // Do not include this header from public APIs or model/kernel modules.
@@ -331,9 +332,7 @@ zima::document::PartDocument new_part_from_template(
 zima::assembly::AssemblyDocument new_assembly_from_template(
     const ApplicationSettings& settings);
 
-void append_reference_geometry(
-    zima::kernel::ViewerReferenceGeometry& target,
-    zima::kernel::ViewerReferenceGeometry source);
+using zima::workspace::append_reference_geometry;
 
 void append_mesh(zima::kernel::ViewerMesh& target, zima::kernel::ViewerMesh source);
 
@@ -420,31 +419,13 @@ std::vector<zima::kernel::ViewerEdge> sketch_text_preview_edges(
     const zima::sketcher::Sketch& sketch,
     const zima::sketcher::SketchText& text);
 
-std::set<std::string> sketch_external_reference_source_owners(
-    const zima::document::PartDocument& document,
-    const std::string& sketch_id);
-
-zima::kernel::ViewerReferenceGeometry sketch_external_reference_source_geometry(
-    const zima::document::PartDocument& document,
-    const std::vector<zima::kernel::BodyResult>& calculated_boundaries);
-
-zima::kernel::ViewerReferenceGeometry construction_reference_source_geometry(
-    const std::vector<zima::kernel::BodyResult>& calculated_boundaries);
-
-zima::kernel::ViewerReferenceGeometry part_construction_dimension_geometry(
-    const zima::document::PartDocument& document,
-    const std::vector<zima::kernel::BodyResult>& calculated_boundaries);
-
-bool refresh_sketch_external_references(
-    zima::document::PartDocument& document,
-    const std::vector<zima::kernel::BodyResult>& calculated_boundaries);
-
-bool prune_missing_drill_point_references(
-    zima::document::PartDocument& document,
-    const std::vector<zima::kernel::BodyResult>& boundaries);
-
-bool refresh_assembly_sketch_external_references(
-    zima::assembly::AssemblyDocument& document);
+using zima::workspace::sketch_external_reference_source_owners;
+using zima::workspace::sketch_external_reference_source_geometry;
+using zima::workspace::construction_reference_source_geometry;
+using zima::workspace::part_construction_dimension_geometry;
+using zima::workspace::refresh_sketch_external_references;
+using zima::workspace::prune_missing_drill_point_references;
+using zima::workspace::refresh_assembly_sketch_external_references;
 
 void populate_external_reference_cache(
     const zima::sketcher::Sketch& sketch,

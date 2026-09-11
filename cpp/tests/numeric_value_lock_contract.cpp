@@ -6,6 +6,8 @@
 #include <QApplication>
 #include <QDialogButtonBox>
 #include <QKeyEvent>
+#include <QMouseEvent>
+#include <QStyleOptionSpinBox>
 #include <QPushButton>
 #include <QTableWidget>
 #include <QVBoxLayout>
@@ -15,6 +17,26 @@
 namespace {
 void check(bool condition,const char* message){if(!condition)throw std::runtime_error(message);}
 QAction* action(QDoubleSpinBox* field){return field->findChild<QAction*>("valueLock:"+field->property("zimaValueLockKey").toString());}
+void check_lock_layout(QDoubleSpinBox* field) {
+    auto* button=field->findChild<QToolButton*>("numericValueLockButton");
+    auto* editor=field->findChild<QLineEdit*>();
+    check(button&&editor,"Numeric lock has no separate button/editor");
+    QStyleOptionSpinBox option;option.initFrom(field);option.frame=true;
+    option.buttonSymbols=field->buttonSymbols();
+    const auto frame=field->style()->subControlRect(QStyle::CC_SpinBox,&option,QStyle::SC_SpinBoxFrame,field);
+    check(frame.right()<button->geometry().left(),"Lock overlaps the numeric frame");
+    check(editor->geometry().right()<button->geometry().left(),"Lock overlaps the numeric editor");
+    check(field->rect().contains(button->geometry()),"Lock escapes the field allocation");
+    check(editor->actions().empty(),"Lock still participates in editor action layout");
+}
+void click_lock(QDoubleSpinBox* field) {
+    auto* button=field->findChild<QToolButton*>("numericValueLockButton");
+    const auto local=QPointF(button->rect().center());
+    const auto global=QPointF(button->mapToGlobal(local.toPoint()));
+    QMouseEvent press(QEvent::MouseButtonPress,local,global,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+    QMouseEvent release(QEvent::MouseButtonRelease,local,global,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+    QApplication::sendEvent(button,&press);QApplication::sendEvent(button,&release);
+}
 void try_type(QDoubleSpinBox* field) {
     field->setFocus();field->selectAll();QKeyEvent event(QEvent::KeyPress,Qt::Key_9,Qt::NoModifier,"9");QApplication::sendEvent(field,&event);
 }
@@ -29,6 +51,20 @@ int verify_numeric_value_locks(QApplication& application,QWidget& parent) {
     QDoubleSpinBox* length=nullptr;
     for(auto* field:dialog->findChildren<QDoubleSpinBox*>())if(field->property("zimaValueLockKey")=="length")length=field;
     check(length&&length->isReadOnly()&&action(length)->isChecked(),"A saved length lock did not reopen");
+    for(int i=0;i<12;++i)application.processEvents();
+    for(auto* field:dialog->findChildren<QDoubleSpinBox*>())
+        if(field->isVisible()&&action(field))check_lock_layout(field);
+    const auto stable_size=dialog->size();
+    for(int i=0;i<20;++i){
+        click_lock(length);application.processEvents();
+        check(length->isReadOnly()==(i%2==1),"Mouse click did not toggle the lock exactly once");
+        check(length->value()==30,"Lock click changed the numeric value");
+        check(dialog->size()==stable_size,"Lock toggling changed the dialog width");
+        check_lock_layout(length);
+    }
+    const auto screenshot=std::filesystem::current_path()/"Projects/test/numeric-lock-layout.png";
+    std::filesystem::create_directories(screenshot.parent_path());
+    check(dialog->grab().save(QString::fromStdString(screenshot.string())),"Cannot save numeric lock layout screenshot");
     try_type(length);check(length->value()==30,"Typing changed a locked length");
     check(!dialog->set_inline_parameter_value("length",91),"Inline edit bypassed a length lock");
     check(!dialog->set_inline_parameter_value("placement:x",91),"Inline edit bypassed a placement lock");
