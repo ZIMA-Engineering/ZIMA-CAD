@@ -15076,10 +15076,10 @@ void AssemblyWorkspaceWindow::accept_sketch_external_reference(
     if (part == nullptr) return;
     try {
         auto next = part->session.document();
-        const auto sketch = std::find_if(
-            next.sketches.begin(), next.sketches.end(),
-            [&](const auto& value) { return value.id == active_sketch_id_; });
-        if (sketch == next.sketches.end()) return;
+        const auto* active = active_sketch();
+        if (active == nullptr) return;
+        auto pending_sketch = *active;
+        auto* sketch = &pending_sketch;
         auto reference = zima::sketcher::Sketch::create_external_reference(
             candidate.kind == zima::viewer::CandidateKind::Edge
                 ? zima::sketcher::ExternalReferenceKind::Edge
@@ -15171,8 +15171,11 @@ void AssemblyWorkspaceWindow::accept_sketch_external_reference(
                 assembly->session.document().document_id,
                 *dependent_path, *source_path);
         }
-        part->session.commit(
-            std::move(next), part->session.calculated_boundaries());
+        // Owned feature profiles live in a transient Sketch until the parent
+        // dialog accepts. Use the same mutation route as native Sketch tools.
+        if (!mutate_active_sketch([&](auto& target) {
+                target = std::move(pending_sketch);
+            })) return;
         workspace_.synchronize_external_sketch_dependencies();
         preserve_view_on_refresh_ = true;
         refresh_tabs();
@@ -24141,7 +24144,15 @@ void AssemblyWorkspaceWindow::refresh_tabs() {
         }, state);
     }
     for (int index = 0; index < tabs_->count(); ++index) {
-        auto* close = new QPushButton(QStringLiteral("\u00d7"), tabs_);
+        // Reserve an explicit right inset inside the tab button slot. Native
+        // styles can otherwise place the red button against/outside the tab edge.
+        auto* close_slot = new QWidget(tabs_);
+        close_slot->setFixedSize(36, 22);
+        auto* close_layout = new QHBoxLayout(close_slot);
+        close_layout->setContentsMargins(0, 0, 10, 0);
+        close_layout->setSpacing(0);
+        auto* close = new QPushButton(QStringLiteral("\u00d7"), close_slot);
+        close_layout->addWidget(close);
         close->setObjectName("documentTabCloseButton");
         close->setFixedSize(26, 22);
         close->setFocusPolicy(Qt::NoFocus);
@@ -24163,7 +24174,7 @@ void AssemblyWorkspaceWindow::refresh_tabs() {
                 return;
             }
         });
-        tabs_->setTabButton(index, QTabBar::RightSide, close);
+        tabs_->setTabButton(index, QTabBar::RightSide, close_slot);
     }
     tabs_->setCurrentIndex(displayed_index);
     tabs_->blockSignals(false);

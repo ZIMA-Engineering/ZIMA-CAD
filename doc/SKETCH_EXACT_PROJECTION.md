@@ -72,3 +72,23 @@ Předchozí převod používal až 16 bodů zobrazovacího lomeného obrysu jako
 Finální Windows Release sestavení prošlo všemi 46 CTest testy (385,29 s).
 
 Na tento základ navazuje [Offset a zachování podkladu při ořezu](SKETCH_OFFSET.md).
+
+## Externí reference v rozepsaném profilu (2026-09-11)
+
+Při editaci vlastního profilu Vytažení se změny provádějí v pracovní skici
+rodičovského dialogu. Přidání externí hrany i příkaz Reference → obrys musí
+použít stejnou aktivní skicu a stejnou cestu změn jako běžné nástroje skicáře.
+Původní zápis přímo do dokumentu nechával View zobrazovat nezměněnou pracovní
+kopii a návrat z profilu mohl právě přidanou referenci přepsat.
+
+Oprava zachovává geometrii v pracovní kopii do OK rodiče. Cancel původní skicu
+nemění. Regresní test `zima_cpp_owned_profile_reference_ui_contract` vybírá
+hranu prvního tělesa skutečným kliknutím ve View při editaci Vytažení druhého
+tělesa a ověřuje referenci, projekci, Cancel i uložení přes OK. Výběr ani
+projekce nevyvolávají OCCT a nemění společné umísťování kontejnerů.
+
+Ověření opravy: Windows Release, nový integrační test prošel za 8,08 s;
+stejná kontrola referencí, obrysu, Cancel a OK prošla také na pracovních
+kopiích `Projects/part.prtz` s importem q63113-0H030-A. Pro tento velký
+model byl test spuštěn samostatně, protože překročil běžný limit 120 s.
+Navazující kontroly úchopů skici a vlastností offsetu rovněž prošly.

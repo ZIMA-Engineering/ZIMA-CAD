@@ -2936,6 +2936,75 @@ int verify_body_sketch_ui(QApplication& application, const std::filesystem::path
 }
 
 
+int verify_owned_profile_external_reference(QApplication& application,const std::filesystem::path& directory) {
+    using namespace zima::document;
+    PartDocument document;std::vector<zima::kernel::BodyResult> calculated;
+    const auto supplied=qEnvironmentVariable("ZIMA_VERIFY_PROFILE_REFERENCE_DOCUMENT");
+    if(!supplied.isEmpty()) {
+        document=PartDocument::load(supplied.toStdString(),&calculated);
+    } else {
+        document=PartDocument::create_default();
+        auto source=PartDocument::create_box_container();source.box={20,20,10};
+        auto sketch=zima::sketcher::Sketch::create_default();
+        static_cast<void>(sketch.add_segment(30,0,40,0));static_cast<void>(sketch.add_segment(40,0,40,10));
+        static_cast<void>(sketch.add_segment(40,10,30,10));static_cast<void>(sketch.add_segment(30,10,30,0));
+        auto feature=PartDocument::create_extrusion_container(sketch.id);sketch.owner_container_id=feature.id;
+        document.history={source,feature};document.sketches={sketch};
+        BodyHistoryGraph graph;static_cast<void>(graph.create_body("Source"));graph.insert({PartHistoryKind::Feature,source.id});
+        static_cast<void>(graph.create_body("Profile"));graph.insert({PartHistoryKind::Feature,feature.id});document.set_body_history(graph);document.resolve_constructions();
+        zima::kernel::OcctKernel kernel;calculated=kernel.evaluate_history(document.kernel_operations());
+    }
+    const auto& feature=document.history.back();const auto& original=document.sketches.front();
+    const auto* owner=document.body_history.owner(feature.id);
+    if(!verify(owner!=nullptr,"Owned reference fixture has no Body"))return 1;
+    for(int scenario=0;scenario<3;++scenario) {
+        const bool project=scenario==1,accept=scenario==2;
+        const auto path=directory/("owned-profile-reference-"+std::to_string(scenario)+".prtz");document.save(path,calculated);
+        zima::app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1200,900);window.show();
+        const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+        if(!verify(window.open_document_path(QString::fromStdString(path.string())),"Owned reference fixture failed to open"))return 1;
+        flush();if(!verify(activate_test_body(application,window,owner->scope.id),"Target Body activation failed"))return 1;
+        auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* row{};
+        for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==feature.id&&(*i)->data(0,Qt::UserRole+3).toString()=="part-container"){row=*i;break;}
+        if(!verify(row,"Protrusion tree row missing"))return 1;window.show_tree_item_properties(row);flush();
+        auto* open=window.findChild<QPushButton*>("primitiveOwnSketchButton");if(!verify(open,"Protrusion Sketch button missing"))return 1;open->click();flush();
+        QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();
+        auto* view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
+        auto* action=window.findChild<QAction*>(project?"sketchExternalProfileAction":"sketchExternalReferenceAction");
+        if(!verify(action&&action->isEnabled(),"External reference command unavailable"))return 1;action->trigger();flush();
+        std::optional<QPointF> hit;zima::viewer::ViewerCandidate chosen;
+        for(int y=20;y<view->height()-20&&!hit;y+=3)for(int x=20;x<view->width()-20&&!hit;x+=3){
+            const auto candidates=view->selection_candidates_at(QPointF(x,y));
+            if(!candidates.empty()&&candidates.front().kind==zima::viewer::CandidateKind::Edge&&candidates.front().owner_id==document.history.front().id){
+                const auto& candidate=candidates.front();const auto edge=std::ranges::find_if(view->mesh().original_references.edges,[&](const auto& e){return e.reference.owner_id==candidate.owner_id&&e.reference.semantic_key==candidate.semantic_key;});
+                if(edge==view->mesh().original_references.edges.end()||edge->points.size()<2)continue;
+                const auto a=original.local_point(edge->points.front()),b=original.local_point(edge->points.back());
+                if(std::hypot(a[0]-b[0],a[1]-b[1])<1e-5)continue;
+                hit=QPointF(x,y);chosen=candidate;}}
+        if(!verify(hit.has_value(),"Source edge not offered to owned profile"))return 1;
+        for(const auto type:{QEvent::MouseMove,QEvent::MouseButtonPress,QEvent::MouseButtonRelease}){
+            QMouseEvent e(type,*hit,QPointF(view->mapToGlobal(hit->toPoint())),type==QEvent::MouseMove?Qt::NoButton:Qt::LeftButton,type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&e);flush();}
+        const auto visible=std::ranges::any_of(view->mesh().edges,[&](const auto& edge){return edge.reference.owner_id==original.id&&edge.reference.semantic_key.starts_with("external_");});
+        if(!visible){std::cerr<<"Scenario "<<scenario<<" state: "<<window.findChild<QLabel*>("workspaceState")->text().toStdString()<<"\n";window.grab().save("build/owned-reference-failure.png");}
+        if(!verify(visible,"Confirmed source edge was not added to the active draft Sketch"))return 1;
+        if(project) {
+            const auto count=std::ranges::count_if(view->mesh().edges,[&](const auto& edge){return edge.reference.owner_id==original.id&&(edge.reference.semantic_key.starts_with("segment:")||edge.reference.semantic_key.starts_with("bspline:"));});
+            if(!verify(count>original.segments.size()+original.bsplines.size(),"Projected geometry was not added to draft"))return 1;
+        }
+        window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+        zima::app::PrimitivePropertiesDialog* parent{};
+        for(auto* d:window.findChildren<QDialog*>())if(auto* value=dynamic_cast<zima::app::PrimitivePropertiesDialog*>(d);value&&value->isVisible()){parent=value;break;}
+        if(!verify(parent,"Parent protrusion did not reopen"))return 1;
+        parent->findChild<QDialogButtonBox*>()->button(accept?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        const auto saved=PartDocument::load(path);const auto& result=saved.sketches.front();
+        if(!verify(result.external_references.size()==original.external_references.size()+(accept?1:0),"Parent OK/Cancel lost or leaked external reference"))return 1;
+        if(!accept&&!verify(result.serialized()==original.serialized(),"Cancel changed original profile"))return 1;
+        if(accept&&!verify(result.external_references.back().source_owner_id==chosen.owner_id&&result.external_references.back().source_semantic_key==chosen.semantic_key,"Confirmed edge identity changed"))return 1;
+    }
+    std::cout<<"Owned profile external reference, projection, Cancel and OK persistence passed\n";return 0;
+}
+
 int verify_sketch_offset_ui(QApplication& application,const std::filesystem::path& directory) {
     using namespace zima::document;
     auto document=PartDocument::create_default();auto feature=PartDocument::create_sketch_container();
@@ -4666,6 +4735,8 @@ int verify_startup_contract(
     }
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_BODY_CURVE_REFERENCE_ONLY"))
         return verify_body_curve_references(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_OWNED_PROFILE_REFERENCE_ONLY"))
+        return verify_owned_profile_external_reference(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_OFFSET_ONLY"))
         return verify_sketch_offset_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_TRIM_ONLY"))

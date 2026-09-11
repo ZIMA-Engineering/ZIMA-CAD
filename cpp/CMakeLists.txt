@@ -416,6 +416,11 @@ if(ZIMA_BUILD_TESTS)
         tests/cross_language_persistence_emitter.cpp)
     target_link_libraries(zima_cpp_cross_language_persistence_emitter PRIVATE
         zima_document_core zima_assembly zima_drawing)
+    add_test(NAME zima_cpp_owned_profile_reference_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_owned_profile_reference_ui_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_OWNED_PROFILE_REFERENCE_ONLY=1"
+        TIMEOUT 120)
     add_test(NAME zima_cpp_sketch_offset_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_sketch_offset_ui_contract PROPERTIES
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
