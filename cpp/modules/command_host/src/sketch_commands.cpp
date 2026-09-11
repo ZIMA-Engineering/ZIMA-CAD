@@ -19,6 +19,7 @@ void Host::add_sketch_command(commands::Command command,std::function<Json(Sketc
             if(changed)change_=Change{ChangeKind::Model,doc,true};
             return Result::success(std::move(result));
         } catch(const workspace::SketchOperationError& error){return Result::failure(error.code,tr(error.what()));}
+          catch(const sketcher::RedundantConstraint& error){return Result::failure("redundant_constraint",tr(error.what()));}
           catch(const std::exception& error){return Result::failure("sketch_rejected",tr(error.what()));}
     });
 }

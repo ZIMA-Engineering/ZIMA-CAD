@@ -33,7 +33,7 @@ inline std::size_t integer(const Json& args,const char* key,std::size_t fallback
 inline Json metadata(const Sketch& sketch) {
     return {{"sketch",sketch.id},{"owner",sketch.owner_container_id},{"name",sketch.name},
         {"plane",sketch.plane==sketcher::SketchPlane::XY?"XY":sketch.plane==sketcher::SketchPlane::XZ?"XZ":"YZ"},
-        {"suppressed",sketch.suppressed},{"coordinates","sketch"},{"length_unit","mm"},{"curve_angle_unit","radians"},{"dimension_angle_unit","degrees"},
+        {"suppressed",sketch.suppressed},{"origin_point","sketch_origin"},{"axes",{"sketch_axis:x","sketch_axis:y"}},{"coordinates","sketch"},{"length_unit","mm"},{"curve_angle_unit","radians"},{"dimension_angle_unit","degrees"},
         {"counts",{{"points",sketch.points.size()},{"segments",sketch.segments.size()},
             {"circles",sketch.circles.size()},{"arcs",sketch.arcs.size()},{"ellipses",sketch.ellipses.size()},
             {"elliptical_arcs",sketch.elliptical_arcs.size()},{"bsplines",sketch.bsplines.size()},

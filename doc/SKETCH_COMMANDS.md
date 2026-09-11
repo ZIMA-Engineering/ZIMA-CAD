@@ -168,3 +168,60 @@ odchylku spline offsetu v 1025 bodech (méně než 0,00001 mm), přesnost trimu,
 navazující průsečíky, stale odmítnutí, větve tečen, symetrii a nativní
 uložení. Předchozí kompletní etapa prošla **63/63**. Katalog má nyní
 **85 příkazů**.
+
+## Vazby a solver skici
+
+`sketch.constraint.create` přijímá `kind` a výslovně uspořádaná pole ID
+`points` a `geometry`. Nepotřebné pole vynechte nebo předejte prázdné.
+Výsledek běžné vazby obsahuje `constraint`; shodnost bodů vrací přeživší
+`point`, protože jde o sloučení topologie, nikoli další rovnici.
+
+| `kind` | `points` v pořadí | `geometry` v pořadí |
+| --- | --- | --- |
+| `horizontal`, `vertical` | dva body | prázdné; alternativně žádné body a jedna úsečka |
+| `coincident` | přeživší, pohlcený bod | prázdné |
+| `point_reference` | nativní bod, referenční bod | prázdné |
+| `parallel`, `perpendicular`, `equal_length` | prázdné | referenční, řízená úsečka |
+| `equal_radius`, `concentric` | prázdné | referenční, řízená kruhová geometrie |
+| `point_on_circle` | bod | křivka podporovaná nativní vazbou |
+| `point_on_line` | bod | úsečka nebo osa |
+| `midpoint` | bod | úsečka |
+| `midpoint_on_line` | prázdné | úsečka, přímková reference pro její střed |
+| `symmetric` | zdrojový, zrcadlený bod | osa |
+| `tangent` | volitelný bod dotyku | dvě křivky |
+
+Například ukotvení existujícího nativního bodu na počátek skici:
+
+```json
+{"command":"sketch.constraint.create","arguments":{"sketch":"SKETCH_ID","kind":"point_reference","points":["POINT_ID","sketch_origin"]}}
+```
+
+`sketch.get` nyní vrací i stabilní jména základního počátku a os:
+`sketch_origin`, `sketch_axis:x`, `sketch_axis:y`. Pro jiné reference se použijí
+jejich skutečná uložená ID. Pořadí vstupů nenahrazujeme odhadem z jejich polohy.
+U tečnosti nativní solver kontroluje platný kontakt a doménu křivek. Kontakt
+konce úsečky s kružnicí lze nejprve zajistit vazbou `point_on_circle` a potom
+na stejném bodě vytvořit tečnost. Pouhá číselná shoda polohy nevytváří vztah.
+
+`coincident` přepojí závislosti na přeživší bod a pohlcený bod odstraní. Nelze
+jím vyrobit neplatnou či zkolabovanou závislou geometrii. `undo` obnoví původní
+body i jejich vztahy. Číselné vyhodnocení konfliktní nebo neplatné vazby se
+nepublikuje. Nativní hlášení nadbytečnosti se vrací jako `redundant_constraint`.
+
+`sketch.constraint.delete` přijímá `constraint`, odstraní vazbu a ověří zbývající
+rovnice. Geometrická poloha může zůstat stejná, ale změní se počet volností.
+
+`sketch.solve` výslovně vyřeší geometrii skici a uloží její případnou změnu.
+Nespouští výpočet tělesa. `sketch.solve_status` provede stejné vyhodnocení na
+dočasné kopii a skutečný dokument, jeho revizi ani cache nezmění. Oba příkazy
+přijímají `iterations=100` (1–10000) a vracejí `status`,
+`remaining_degrees_of_freedom`, `maximum_residual`. Stav `under_constrained`
+je platný výsledek; `conflicting` a `invalid` jsou u mutujícího příkazu chyba
+`constraint_conflict` bez commitu. Dotaz může tyto stavy vrátit jako informaci.
+Výchozí obecný zákaz přepsání rozpracované GUI editace platí i pro `solve`.
+
+Integrační sada prošla **7/7** (11,69 s),
+`build/sketch-relation-integration-tests.log`; GUI i CLI byly přeloženy
+z téhož zdroje. Test ověřuje všech patnáct druhů vztahů a obě formy H/V,
+nezávislé geometrické rovnice, volnosti, sloučení topologie, odmítnutí chybných
+vstupů, Undo a nativní uložení. Katalog má nyní **89 příkazů**.

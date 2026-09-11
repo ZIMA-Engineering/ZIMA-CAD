@@ -309,6 +309,11 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         commands::Json offset_command={{"command","sketch.offset.create"},{"arguments",{{"sketch",command_sketch},{"source",circle_id},{"distance_mm",1}}}};
         const auto offset_id=run(QString::fromStdString(offset_command.dump())).data.at("geometry").get<std::string>();flush();
         check(run(QString::fromStdString("sketch.offset.get "+command_sketch+" "+offset_id)).data.at("source")==circle_id,"GUI console offset lost native source");
+        commands::Json relation_line_command={{"command","sketch.segment.create"},{"arguments",{{"sketch",command_sketch},{"first",{30,40}},{"second",{40,42}}}}};
+        const auto relation_line=run(QString::fromStdString(relation_line_command.dump())).data.at("geometry").get<std::string>();
+        commands::Json relation_command={{"command","sketch.constraint.create"},{"arguments",{{"sketch",command_sketch},{"kind","horizontal"},{"geometry",{relation_line}}}}};
+        run(QString::fromStdString(relation_command.dump()));flush();
+        check(run(QString::fromStdString("sketch.solve_status "+command_sketch)).data.at("maximum_residual").get<double>()<1e-6,"GUI console relation did not solve");
         run("save");const auto saved_sketch=document::PartDocument::load(directory/(stem+"-sketch.prtz"));
         check(saved_sketch.sketches.back().id==command_sketch && saved_sketch.sketches.back().circles.front().radius==8,"GUI console did not persist native Sketch");
         run(QString::fromStdString(activate.dump()));flush();

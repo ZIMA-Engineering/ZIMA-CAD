@@ -218,6 +218,16 @@ int main(int argc,char** argv){
         const auto offset_document=document::PartDocument::load(project/"cli-sketch.prtz");
         require(offset_document.sketches.back().offsets.size()==1 && offset_document.sketches.back().offsets.front().source_id==spline_id &&
             std::abs(offset_document.sketches.back().offsets.front().distance-.1)<1e-12,"CLI offset lost source identity or distance");
+        result=launch(executable,root,common+QStringList{"--stdin"},"new part cli-relations\nsketch.create Relations XY\nsave\n");
+        require(result.exit_code==0,"CLI relation fixture creation failed");const auto relation_sketch=result.results()[1].at("data").at("sketch").get<std::string>();
+        const auto line_request=command({{"command","sketch.segment.create"},{"arguments",{{"sketch",relation_sketch},{"first",{0,0}},{"second",{10,4}}}}});
+        result=launch(executable,root,common+QStringList{"--command","open cli-relations.prtz","--command",line_request,"--command","save"});
+        require(result.exit_code==0,"CLI relation fixture segment failed");const auto relation_line=result.results()[1].at("data").at("geometry").get<std::string>();
+        const auto relation_request=command({{"command","sketch.constraint.create"},{"arguments",{{"sketch",relation_sketch},{"kind","horizontal"},{"geometry",{relation_line}}}}});
+        result=launch(executable,root,common+QStringList{"--command","open cli-relations.prtz","--command",relation_request,"--command","save"});
+        require(result.exit_code==0,"CLI relation command failed");const auto relations=document::PartDocument::load(project/"cli-relations.prtz");const auto& rs=relations.sketches.back();
+        require(rs.constraints.size()==1 && rs.constraints.front().kind==sketcher::ConstraintKind::Horizontal &&
+            std::abs(rs.find_point(rs.segments[0].first_point_id)->y-rs.find_point(rs.segments[0].second_point_id)->y)<1e-7,"CLI did not save the solved horizontal relation");
         std::cout<<"CLI processes: native files, Unicode/config, scripts/stdin, errors, streaming and explicit geometry calculation passed\n";
         return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
