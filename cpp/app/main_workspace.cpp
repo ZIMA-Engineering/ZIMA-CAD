@@ -3206,6 +3206,7 @@ int verify_assembly_refresh_view(QApplication& application,const std::filesystem
     const auto save_jpg=[&](const char* stem) {
         const auto path=directory/(std::string(stem)+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())+".jpg");
         bool jpeg_offered=false;
+        QSize exported_view_size;
         QTimer accept_dialog;
         accept_dialog.setInterval(20);
         QObject::connect(&accept_dialog,&QTimer::timeout,[&] {
@@ -3213,6 +3214,9 @@ int verify_assembly_refresh_view(QApplication& application,const std::filesystem
                 accept_dialog.stop();
                 for(const auto& filter:dialog->nameFilters())if(filter.contains("*.jpg")){jpeg_offered=true;dialog->selectNameFilter(filter);break;}
                 dialog->selectFile(QString::fromStdString(path.string()));
+                // Capture the export-time viewport. The success message can
+                // resize the status bar/main window after the image is saved.
+                exported_view_size=view->grabFramebuffer().size();
                 QMetaObject::invokeMethod(dialog,"accept",Qt::DirectConnection);
             }
         });
@@ -3220,7 +3224,7 @@ int verify_assembly_refresh_view(QApplication& application,const std::filesystem
         const auto previous_camera=view->camera_state();
         window.findChild<QAction*>("saveDocumentAsAction")->trigger();application.processEvents();
         const QImage image(QString::fromStdString(path.string()));
-        const auto actual_size=view->grabFramebuffer().size();const bool camera_unchanged=view->camera_state()==previous_camera;
+        const auto actual_size=exported_view_size;const bool camera_unchanged=view->camera_state()==previous_camera;
         if(!jpeg_offered||image.isNull()||image.size()!=actual_size||!camera_unchanged)std::cerr<<"JPG diagnostic "<<stem<<": offered="<<jpeg_offered<<" image="<<image.width()<<"x"<<image.height()<<" viewport="<<actual_size.width()<<"x"<<actual_size.height()<<" camera="<<camera_unchanged<<std::endl;
         return jpeg_offered&&!image.isNull()&&image.size()==actual_size&&camera_unchanged;
     };
@@ -5587,8 +5591,10 @@ int verify_startup_contract(
             document_origin->childCount() < 2
         ? nullptr : document_origin->child(1);
     if (!verify(document_x_axis != nullptr &&
-                    document_origin->child(0)->text(0) == QStringLiteral("Point"),
-                "Part Origin tree does not use the Python Point/axis structure")) {
+                    document_origin->child(0)->text(0) == QObject::tr("Point") &&
+                    document_origin->child(0)->data(0, Qt::UserRole + 5).toString() ==
+                        QStringLiteral("origin:point"),
+                "Part Origin tree does not expose the translated Point/axis structure")) {
         return 1;
     }
     tree->expandItem(document_origin);
