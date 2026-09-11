@@ -28,6 +28,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | --- | --- | --- |
 | Proces CLI, UTF-8, skripty, stdin, config | Hotovo | Rozšiřovat testy nových příkazů |
 | Katalog, kontext, datový strom | Hotovo pro současné příkazy | Doplňovat popisy a dotazy podle domén |
+| Typované argumenty | Hotovo | Řetězce, čísla, celá čísla, boolean, objekty a pole; validace před mutací |
 | New/Open/Save, Regenerate, Undo/Redo | Základ hotov | Save As, zavírání/aktivace dokumentu a další dokumentové operace |
 | Kvádr | Hotovo | Společná tvorba, čtení a rozměrový patch; včetně zámků a přesnosti |
 | Válec, koule, kužel, jehlan, klín | Hotovo | Společné create/get/set, zámky, přesnost, GUI/CLI a 59/59 regresí |

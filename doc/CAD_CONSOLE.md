@@ -81,7 +81,7 @@ Výsledek na rozhraní `Result::json()`:
 }
 ```
 
-Přijímají se pouze známé příkazy, deklarované argumenty typu string a přesná
+Přijímají se pouze známé příkazy, argumenty odpovídající deklarovaným typům a přesná
 pole `command`/`arguments`. Chyba validace nikdy nespustí operaci. Textový vstup
 má limit 64 KiB. Výpis panelu je omezený; strojový výsledek nepřichází o data
 kvůli zkrácení textu v panelu. Strom sám má explicitní limit 2000 položek.
@@ -269,7 +269,7 @@ otevřený Part bez jeho aktivace. Výsledek neobsahuje přechodné hodnoty rozp
 {"command":"box.set","arguments":{"container":"ID_Z_ODPOVEDI","width_mm":"40"}}
 ```
 
-Argumenty protokolu jsou řetězce. Rozměry jsou výslovně v **mm**, nezávisle na
+Argumenty uvedených rozměrových příkazů jsou řetězce. Rozměry jsou výslovně v **mm**, nezávisle na
 zobrazovaných jednotkách dokumentu; používají desetinnou tečku. Přípustný rozsah
 je stejný jako v okně kvádru: **0,001 až 1 000 000 mm**. `box.set` vyžaduje alespoň
 jeden rozměr. U textového příkazu jsou hodnoty poziční; pro změnu samotné šířky
@@ -353,3 +353,26 @@ test je vytváří skutečným samostatným CLI.
 Ověření rozšíření primitiv: Windows Release, **59/59 testů prošlo** (369,66 s),
 `build/primitives-full-tests.log`. Předtím prošlo všech pět cílených testů
 modelu, GUI a CLI (8,74 s, `build/primitives-focused-tests.log`).
+
+## Typy argumentů
+
+Každý argument má v katalogu `help` deklaraci `type`. Dispatcher podporuje
+`string`, konečné `number`, `integer`, `boolean`, `object` a `array`.
+Dosavadní příkazy včetně rozměrů primitiv nadále deklarují řetězce; samotné
+rozšíření dispatcheru jejich syntax měnit nesmí. Nová rozhraní mohou deklarovat
+přesné datové typy pro seznamy bodů, parametry a reference.
+
+JSON požadavek předává hodnoty ve skutečném deklarovaném typu. Řetězec `"true"`
+nenahrazuje boolean a řetězec s JSON nenahrazuje objekt. Textový vstup převádí
+pouze argumenty deklarované jako jiné než `string` pomocí JSON parseru;
+řetězce, Windows cesty a jejich escapování zůstávají stejné. Pro složité objekty
+a seznamy používejte celý JSON požadavek. Prázdný objekt nebo seznam se považuje
+za přítomný argument; jeho obsah dále validuje konkrétní modelová operace.
+
+Nesprávný typ, chybějící povinná hodnota, neznámé pole nebo neplatné číslo
+selže před mutací. Deklarace nesmí obsahovat duplicitní názvy argumentů.
+Stejná ochrana rozpracované editace platí i pro typované požadavky.
+
+Ověření: přeloženo GUI i CLI; **6/6** cílených testů dispatcheru, hostitele,
+primitiv, skutečných CLI procesů a panelu prošlo (8,49 s),
+`build/typed-arguments-tests.log`. Překlad: `build/typed-arguments-build.log`.

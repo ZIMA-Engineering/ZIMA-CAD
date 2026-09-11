@@ -8,9 +8,11 @@
 
 namespace zima::commands {
 using Json = nlohmann::json;
+enum class ArgumentType { String, Number, Integer, Boolean, Object, Array };
 struct Argument {
     std::string name;
     bool required{true};
+    ArgumentType type{ArgumentType::String};
 };
 struct Command {
     std::string name;
