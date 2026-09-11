@@ -4,6 +4,13 @@ This directory contains the active ZIMA-CAD implementation. The former Python
 application is frozen under `archive/python/` and is retained only as a
 runnable behavioural and visual reference.
 
+## Workspace source navigation
+
+The integrated window implementation is split by responsibility under
+`app/workspace/`. See [the workspace source map](../doc/WORKSPACE_SOURCE_MAP.md)
+for file ownership, build registration and the limits of this first refactoring
+stage. `app/assembly_workspace_window.cpp` owns only construction/destruction.
+
 The first vertical slice exercises:
 
 ```text

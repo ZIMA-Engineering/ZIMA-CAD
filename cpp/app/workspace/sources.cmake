@@ -1,0 +1,42 @@
+# Explicit source list: no globbing and no unity includes.
+set(ZIMA_WORKSPACE_SOURCES
+    app/workspace/actions.cpp
+    app/workspace/assembly_commands.cpp
+    app/workspace/assembly_drag.cpp
+    app/workspace/assembly_properties.cpp
+    app/workspace/body_properties.cpp
+    app/workspace/calculation.cpp
+    app/workspace/construction_properties.cpp
+    app/workspace/context_menu.cpp
+    app/workspace/dimension_display.cpp
+    app/workspace/dimension_edit.cpp
+    app/workspace/document_commands.cpp
+    app/workspace/documents.cpp
+    app/workspace/edge_preview_helpers.cpp
+    app/workspace/edge_treatment.cpp
+    app/workspace/file_operations.cpp
+    app/workspace/geometry_helpers.cpp
+    app/workspace/interchange.cpp
+    app/workspace/layout.cpp
+    app/workspace/orientation.cpp
+    app/workspace/part_history.cpp
+    app/workspace/primitive_properties.cpp
+    app/workspace/reference_selection.cpp
+    app/workspace/scene.cpp
+    app/workspace/sketch_constraints.cpp
+    app/workspace/sketch_dimensions.cpp
+    app/workspace/sketch_document.cpp
+    app/workspace/sketch_drag.cpp
+    app/workspace/sketch_edit.cpp
+    app/workspace/sketch_helpers.cpp
+    app/workspace/sketch_offset.cpp
+    app/workspace/sketch_preview.cpp
+    app/workspace/sketch_properties.cpp
+    app/workspace/sketch_snapping.cpp
+    app/workspace/sketch_tools.cpp
+    app/workspace/sweep_properties.cpp
+    app/workspace/toolbars.cpp
+    app/workspace/tree.cpp
+    app/workspace/tree_helpers.cpp
+    app/workspace/view_events.cpp
+)

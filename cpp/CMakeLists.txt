@@ -129,7 +129,10 @@ target_link_libraries(zima-cad-part-harness PRIVATE
     Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg)
 set_target_properties(zima-cad-part-harness PROPERTIES AUTORCC ON)
 
+include(app/workspace/sources.cmake)
+
 add_executable(zima-cad-cpp
+    ${ZIMA_WORKSPACE_SOURCES}
     app/main_workspace.cpp app/appearance_dialog.cpp app/appearance_command.cpp app/section_command.cpp app/section_ui_verification.cpp app/assembly_workspace_window.cpp app/template_command.cpp app/numeric_value_lock_command.cpp app/shaft_thread_command.cpp app/derived_copy_command.cpp
     app/application_settings.cpp app/global_settings_dialog.cpp app/measurement_command.cpp app/measurement_ui_verification.cpp
     app/document_tools_dialogs.cpp
@@ -152,9 +155,7 @@ target_link_libraries(zima-cad-cpp PRIVATE
     Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg)
 set_target_properties(zima-cad-cpp PROPERTIES AUTORCC ON)
 if(MSVC)
-    # assembly_workspace_window.cpp intentionally owns the integrated UI
-    # contracts. Background file-operation lambdas push its section count
-    # past COFF's legacy limit in optimized Windows builds.
+    # Retain the large-object budget for lambda-heavy UI translation units.
     target_compile_options(zima-cad-cpp PRIVATE /bigobj)
 endif()
 if(WIN32)

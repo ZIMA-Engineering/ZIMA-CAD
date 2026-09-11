@@ -899,7 +899,7 @@ bool ConstructionPropertiesDialog::set_reference(std::size_t index,
     QString error;
     // A new Plane's position rows keep the same automatically assigned
     // front/top flags every other container kind gets (see
-    // assign_automatic_orientation_role() in assembly_workspace_window.cpp):
+    // assign_automatic_orientation_role() in workspace/geometry_helpers.cpp):
     // row 0 is FRONT -- the plane the new Plane is offset from -- and row 1
     // is TOP; row 2 never drives orientation. PartDocument::resolve_construction()
     // reads row 0's role to inherit that reference's own full plane frame
