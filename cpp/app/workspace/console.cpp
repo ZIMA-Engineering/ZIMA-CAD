@@ -80,7 +80,7 @@ void AssemblyWorkspaceWindow::apply_console_change(const command_host::Change& c
         refresh_tabs();
     }else{
         if(change.kind==Kind::History)cancel_sketch_segment();
-        if(change.kind==Kind::Regenerate)preserve_view_on_refresh_=true;
+        if(change.kind==Kind::Regenerate||change.kind==Kind::Model)preserve_view_on_refresh_=true;
         refresh_scene();refresh_tabs();
     }
 }

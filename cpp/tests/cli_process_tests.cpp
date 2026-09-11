@@ -152,6 +152,17 @@ int main(int argc,char** argv){
         const auto& new_refs=reloaded.back().mesh.original_references.triangle_references;
         require(!old_refs.empty()&&old_refs.size()==new_refs.size(),"CLI save lost source reference geometry");
         for(std::size_t i=0;i<old_refs.size();++i)require(old_refs[i].owner_id==new_refs[i].owner_id&&old_refs[i].semantic_key==new_refs[i].semantic_key&&old_refs[i].instance_path==new_refs[i].instance_path,"CLI changed stable face identity");
+        result=launch(executable,root,common+QStringList{"--stdin"},"new part commanded-box\nbox.create 10 20 30\nsave\n");
+        require(result.exit_code==0 && result.results().size()==3,"CLI could not calculate a new Box");
+        const auto box_id=result.results()[1].at("data").at("container").get<std::string>();
+        const auto new_box=document::PartDocument::load(project/"commanded-box.prtz",&reloaded);
+        require(new_box.find_container(box_id) && std::abs(reloaded.back().volume-6000)<1e-6,"CLI Box creation did not persist real geometry");
+        const auto batch="open commanded-box.prtz\nbox.set "+box_id+" 15\nbox.get "+box_id+"\nundo\nbox.get "+box_id+"\nredo\nsave\n";
+        result=launch(executable,root,common+QStringList{"--stdin"},QByteArray::fromStdString(batch));
+        const auto edits=result.results();
+        require(result.exit_code==0 && edits.size()==7 && edits[2].at("data").at("length_mm")==15 && edits[4].at("data").at("length_mm")==10,"CLI Box patch/query/Undo/Redo failed");
+        const auto resized=document::PartDocument::load(project/"commanded-box.prtz",&reloaded);
+        require(resized.find_container(box_id)->feature_id==new_box.find_container(box_id)->feature_id && std::abs(reloaded.back().volume-9000)<1e-6,"CLI Box resize replaced identity or saved wrong geometry");
         std::cout<<"CLI processes: native files, Unicode/config, scripts/stdin, errors, streaming and explicit geometry calculation passed\n";
         return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}

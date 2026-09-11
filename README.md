@@ -52,7 +52,10 @@ The Windows build script builds it alongside the desktop application:
 
 Use repeated `--command`, a UTF-8 `--script`, or `--stdin`. Each command returns
 one JSON object on stdout; diagnostics use stderr. Batches stop on the first
-error by default and never save implicitly. See [CLI usage and configuration](doc/CAD_COMMAND_LINE.md).
+error by default and never save implicitly. `box.create`, `box.get` and `box.set`
+create, inspect and resize a Box through the same model transaction as its GUI
+properties, including locks and Undo/Redo. Command dimensions are explicitly in mm.
+See [CLI usage and configuration](doc/CAD_COMMAND_LINE.md).
 
 ## Frozen Python reference
 

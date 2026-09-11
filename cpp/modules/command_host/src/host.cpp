@@ -54,6 +54,7 @@ Result Host::run(const std::function<Result()>& execute){
 Result Host::execute_text(std::string_view text){return run([&]{return dispatcher_.execute_text(text);});}
 Result Host::execute(const Json& request){return run([&]{return dispatcher_.execute(request);});}
 void Host::register_commands(){
+    register_box_commands();
     dispatcher_.set_guard([this](const commands::Command& command){
         if(!command.changes_state)return Result::success();
         const auto state=interaction();

@@ -134,5 +134,11 @@ Katalog a vykonávání příkazů nyní sídlí v `modules/command_host/src/hos
 `documents.cpp::finish_document_switch` sdílí obnovu po GUI/konzolovém Open/New.
 Host a jeho testovací program nelinkují Qt. Následující etapa přidává samostatný
 `zima-cad-cli`: `cli/main.cpp`, `cli/runner.cpp`, `cli/settings.cpp`; viz
-[CAD_COMMAND_LINE.md](CAD_COMMAND_LINE.md). Nové modelovací příkazy zatím nejsou
-v katalogu.
+[CAD_COMMAND_LINE.md](CAD_COMMAND_LINE.md).
+
+První modelovací transakci sdílí okno kvádru a příkazy `box.create/get/set`.
+`modules/workspace/box_operations` validuje a atomicky vypočítá/uloží kvádr;
+`modules/command_host/src/box_commands.cpp` převádí argumenty a výsledek.
+V `primitive_properties.cpp` zůstává dialog, rollback a náhled; OK pro kvádr
+volá společnou operaci. Ostatní druhy primitivů zatím používají dosavadní cestu.
+Solver a smlouva umístění nejsou změněny. Podrobnosti: [CAD_CONSOLE.md](CAD_CONSOLE.md).

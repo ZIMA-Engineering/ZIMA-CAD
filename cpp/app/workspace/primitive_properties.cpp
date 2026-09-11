@@ -1,4 +1,5 @@
 #include "workspace_internal.hpp"
+#include <zima/workspace/box_operations.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -364,6 +365,16 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 if (pending_profile_feature_ &&
                     pending_profile_feature_->id == committed_cut_id) {
                     pending_profile_feature_.reset();
+                }
+                return;
+            }
+            if (committed.feature_kind == zima::document::FeatureKind::Box) {
+                try {
+                    static_cast<void>(zima::workspace::commit_box(workspace_, kernel_, owner_id,
+                        std::move(committed), edit_mode ? zima::workspace::BoxEditMode::Replace
+                                                        : zima::workspace::BoxEditMode::Create));
+                } catch (const zima::workspace::BoxOperationError& error) {
+                    throw std::runtime_error(tr(error.what()).toStdString());
                 }
                 return;
             }

@@ -138,9 +138,10 @@ Nevznikají žádné povinné externí soubory geometrie, revizí nebo cache.
 ## Rozsah a ověření
 
 Katalog je společný s konzolí: dokumenty, context/tree, new/open/save,
-regenerate, undo/redo a fit. Bez View vrací `fit` chybu. `context` nevymýšlí
-výběr, hover ani kameru. Nové modelovací prvky přes příkazy, přenos do běžícího
-GUI, AI poskytovatel a hlas nejsou součástí tohoto kroku.
+regenerate, undo/redo, fit a box.create/get/set. Bez View vrací `fit` chybu. `context` nevymýšlí
+výběr, hover ani kameru. Prvním modelovacím příkazem je kvádr; jeho rozměry jsou
+výslovně v mm a používá stejnou transakci jako GUI. Přenos do běžícího GUI,
+AI poskytovatel a hlas nejsou součástí tohoto kroku.
 
 `zima_cpp_cli_process_tests` spouští skutečné CLI procesy. Ověřuje config uložený
 přes QSettings, projektovou vrstvu, šablony/jednotky, české cesty, všechny tři
@@ -161,3 +162,19 @@ ověření zpětných lomítek v configu byl znovu sestaven CLI cíl a celý jeh
 procesový test prošel samostatně (`build/cli-final-focused-tests.log`).
 `dumpbin /dependents` potvrdil nepřítomnost Qt DLL v CLI; protokol je
 `build/cli-dependencies.log`.
+
+### Modelování kvádru
+
+```powershell
+.\build\cpp-windows-release\zima-cad-cli.exe --working-directory C:/CAD/pokus `
+  --command "new part kvadr" --command "box.create 10 20 30" --command "save"
+```
+
+Vznikne skutečný kvádr 10 × 20 × 30 mm (objem 6000 mm³) v `kvadr.prtz`.
+Výsledek `box.create` vrací stabilní ID kontejneru. Při pozdějším spuštění
+otevřete Part příkazem `open` a použijte `box.get ID` nebo `box.set ID 15`.
+Stejný proces může změnu vrátit pomocí `undo`, opakovat pomocí `redo` a uložit
+příkazem `save`. CLI si historii Undo nepřenáší mezi procesy.
+
+Přesná syntaxe, jednotky, zámky a pravidla transakce jsou v
+[popisu příkazů kvádru](CAD_CONSOLE.md#společná-operace-kvádru-2026-09-11).

@@ -14,6 +14,8 @@
 #include <QElapsedTimer>
 #include <QThread>
 #include <QTreeWidget>
+#include <QTreeWidgetItemIterator>
+#include <QDoubleSpinBox>
 #include <zima/viewer/mesh_view.hpp>
 #include <chrono>
 #include <iostream>
@@ -95,6 +97,54 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         check(std::any_of(model_snapshot.at("items").begin(),model_snapshot.at("items").end(),[&](const auto& item){return item.at("id")==loaded.history.front().id && item.at("type")=="history-container";}),"Model query omitted GUI-created feature");
         run("undo");run("save");loaded=document::PartDocument::load(path);check(loaded.history.empty(),"Console Undo did not use GUI history");
         run("redo");run("regenerate");run("save");loaded=document::PartDocument::load(path);check(loaded.history.size()==1,"Console Redo/regenerate lost feature");
+        const auto feature_id=loaded.history.front().id;
+        const auto parameters=[&]{return run(QString::fromStdString("box.get "+feature_id)).data;};
+        check(parameters().at("length_mm")==loaded.history.front().box.length,"Console cannot read GUI Box");
+        run(QString::fromStdString("box.set "+feature_id+" 150"));flush();
+        const auto edit_box=[&]() -> QDialog* {
+            QTreeWidgetItem* item=nullptr;
+            for(QTreeWidgetItemIterator it(model_tree);*it;++it)
+                if((*it)->data(0,Qt::UserRole).toString().toStdString()==feature_id &&
+                   (*it)->data(0,Qt::UserRole+3).toString()=="part-container") {item=*it;break;}
+            check(item,"Updated Box not present in GUI tree");window.show_tree_item_properties(item);flush();
+            for(auto* dialog:window.findChildren<QDialog*>())
+                if(dialog->isVisible() && dialog->findChild<QDoubleSpinBox*>("boxLength"))return dialog;
+            throw std::runtime_error("Edited Box properties did not open");
+        };
+        auto* edit=edit_box();auto* length=edit->findChild<QDoubleSpinBox*>("boxLength");
+        check(length->value()==150,"GUI did not read command-edited dimensions");length->setValue(125);
+        check(window.execute_console_command(QString::fromStdString("box.set "+feature_id+" 140")).code=="editing_in_progress","Box patch ignored pending GUI edit");
+        edit->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+        check(parameters().at("length_mm")==150,"Cancel committed pending Box dimensions");
+        edit=edit_box();edit->findChild<QDoubleSpinBox*>("boxLength")->setValue(125);
+        edit->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+        check(parameters().at("length_mm")==125,"GUI edit did not use shared Box transaction");
+        run("undo");check(parameters().at("length_mm")==150,"Undo did not restore the command change");
+        run("redo");check(parameters().at("length_mm")==125,"Redo lost GUI edit");run("save");
+        commands::Json precise_patch={{"command","box.set"},{"arguments",{{"container",feature_id},
+            {"width_mm","80.123456789"},{"height_mm","50.987654321"}}}};
+        run(QString::fromStdString(precise_patch.dump()));
+        window.toggle_parameter_value_lock(feature_id,"parameter:width");flush();
+        edit=edit_box();auto* width=edit->findChild<QDoubleSpinBox*>("boxWidth");
+        check(width && width->isReadOnly(),"Persisted width lock did not reach GUI");
+        edit->findChild<QDoubleSpinBox*>("boxLength")->setValue(130);
+        edit->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+        check(parameters().at("width_mm")==80.123456789 && parameters().at("height_mm")==50.987654321,
+            "GUI rounded an untouched locked or unlocked command dimension");
+        const auto precise_revision=parameters().at("revision");
+        edit=edit_box();edit->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+        check(parameters().at("revision")==precise_revision,"Unchanged precise Box created an Undo step");
+        edit=edit_box();width=edit->findChild<QDoubleSpinBox*>("boxWidth");
+        auto* width_lock=width->findChild<QAction*>("valueLock:width");check(width_lock,"Width lock action missing");
+        width_lock->trigger();check(!width->isReadOnly(),"Width did not unlock");width->setValue(81.5);width_lock->trigger();
+        edit->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+        check(parameters().at("width_mm")==81.5 && window.parameter_value_locked(feature_id,"parameter:width").value_or(false),
+            "Unlock, edit and relock in one GUI OK failed");
+        precise_patch["arguments"].erase("height_mm");precise_patch["arguments"]["width_mm"]="82";
+        check(window.execute_console_command(QString::fromStdString(precise_patch.dump())).code=="value_locked",
+            "Command bypassed GUI-restored lock");
+        run("undo");check(parameters().at("width_mm")==80.123456789,"Undo lost precise locked width");
+        run("redo");run("save");
         const auto missing=(directory/(stem+"-missing.prtz")).generic_string();
         commands::Json open={{"command","open"},{"arguments",{{"path",missing}}}};
         check(!window.execute_console_command(QString::fromStdString(open.dump())).ok,"Missing file reported success");

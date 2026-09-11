@@ -42,14 +42,17 @@ lze vložit znak uvozovky pomocí `\"`. Nejde o shell ani interpret Pythonu.
 | `regenerate` | volitelné `document` | Výslovná regenerace Partu nebo Assembly |
 | `undo`, `redo` | volitelné `document` | Společná historie změn s GUI |
 | `fit` | žádné | Přizpůsobení modelu pohledu |
+| `box.create` | `length_mm width_mm height_mm`, volitelné `document` | Vytvořit a vypočítat kvádr v aktivním tělese |
+| `box.get` | `container`, volitelné `document` | Přečíst uložené rozměry, zámky a identitu kvádru |
+| `box.set` | `container`, volitelné `length_mm width_mm height_mm document` | Změnit zadané rozměry a vypočítat Part |
 
 `new` přijímá typy `part`, `assembly`, `drawing`. Název je základ jména souboru
 v pracovním adresáři; příponu přidá CAD. Soubor se skutečně zapíše až při `save`.
 Dokument bez přiřazené cesty vyžaduje nejprve GUI příkaz Uložit jako.
 
 Čtecí příkazy nespouštějí OCCT. Uložení také nezavádí implicitní regeneraci.
-Vytváření jednotlivých modelovacích prvků a změny jejich parametrů zatím nejsou
-v katalogu; zůstávají dostupné přes stávající nástroje GUI.
+V katalogu je také tvorba a změna kvádru. Ostatní modelovací prvky zůstávají
+dostupné přes stávající nástroje GUI.
 
 ## JSON rozhraní
 
@@ -127,11 +130,11 @@ Připojení konkrétního poskytovatele je další krok podle volby uživatele.
 Budoucí adaptér má volat společný dispatcher, kontrolovat `ok`/`code` a používat
 stabilní ID. Dokumentové texty a popisky jsou data, nikoli pokyny pro asistenta.
 
-Dispatcher i hostitel současných jedenácti příkazů jsou nezávislí na GUI.
+Dispatcher i hostitel současných čtrnácti příkazů jsou nezávislí na GUI.
 Stejný `command_host::Host` používá panel a testovací program bez Qt.
 Samostatný program `zima-cad-cli` nyní poskytuje stejné příkazy pro jednotlivé
 požadavky i dávky ze souboru/stdin. Viz [příkazová řádka](CAD_COMMAND_LINE.md).
-Modelovací příkazy zatím nejsou v katalogu.
+Kvádry používají společnou transakci popsanou níže.
 
 ## Ověření
 
@@ -247,3 +250,64 @@ protokol je `build/command-host-dependencies.log`. Snímek skutečného panelu
 operace, ochrana cílového dokumentu i datový strom jsou společné. Vstup/výstup,
 config, návratové kódy a hranice dávkového provedení popisuje
 [CAD_COMMAND_LINE.md](CAD_COMMAND_LINE.md).
+
+## Společná operace kvádru (2026-09-11)
+
+```text
+new part prvni_kvadr
+box.create 10 20 30
+save
+```
+
+Výsledek tvorby obsahuje `document`, `container`, `feature`, `body`, `name`,
+`length_mm`, `width_mm`, `height_mm`, `value_locks`, `revision` a `changed`.
+Pro další změny použijte skutečné ID `container` z odpovědi nebo ze stromu.
+`box.get ID` čte jen uložené parametry; volitelné `document` umožňuje číst jiný
+otevřený Part bez jeho aktivace. Výsledek neobsahuje přechodné hodnoty rozpracovaného dialogu.
+
+```json
+{"command":"box.set","arguments":{"container":"ID_Z_ODPOVEDI","width_mm":"40"}}
+```
+
+Argumenty protokolu jsou řetězce. Rozměry jsou výslovně v **mm**, nezávisle na
+zobrazovaných jednotkách dokumentu; používají desetinnou tečku. Přípustný rozsah
+je stejný jako v okně kvádru: **0,001 až 1 000 000 mm**. `box.set` vyžaduje alespoň
+jeden rozměr. U textového příkazu jsou hodnoty poziční; pro změnu samotné šířky
+nebo výšky použijte JSON. Nezadané rozměry zůstanou zachované.
+
+`box.create` vkládá prvek na aktuální kurzor aktivního tělesa. `box.set` mění
+existující kvádr podle ID a nepřesouvá jej do aktivního tělesa. Zachovává jméno,
+umístění, reference, režim kombinace, potlačení, zámky a identity původních ploch.
+Zamčená hodnota vrací `value_locked`; odemknutí je zatím přes GUI. Změnové příkazy
+podléhají stejným ochranám rozpracované editace a aktivované komponenty jako ostatní
+příkazy konzole. Odvozené těleso není přímo editovatelné.
+
+GUI OK i příkazy používají `workspace::commit_box` v `box_operations.cpp`:
+validace, kopie dokumentu, existující vyřešení umístění nad uloženými referencemi,
+výslovný výpočet, obnova externích referencí a jeden společný commit do historie.
+Zrušit v GUI nevolá commit; shodné hodnoty nevytvářejí Undo krok ani výpočet.
+Při chybě validace nebo výpočtu zůstává dokument i jeho cache beze změny.
+Editace kontroluje chybu u upravovaného prvku a zachovává dosavadní pravidlo,
+že již chybné následující prvky lze opravit samostatně. Nadřazené sestavy se
+automaticky neregenerují. Formáty a start šablony se nemění.
+
+`zima_cpp_box_command_tests` ověřuje objemy, identity ploch při změně rozměrů,
+zámky, atomické odmítnutí, kurzor a vlastnictví těles, uložení a Undo/Redo.
+GUI scénář střídá konzoli a stejné okno vlastností včetně Zrušit a historie;
+procesový CLI test vytváří i mění skutečný uložený kvádr.
+
+Parametrický patch má v `workspace::set_box_dimensions` společnou kontrolu zámků;
+GUI předává celé potvrzené vlastnosti, takže lze během jedné editace hodnotu
+odemknout, změnit a znovu zamknout. Samotný výpočet a commit zůstávají společné.
+Okno kvádru zachovává přesné hodnoty nedotčených polí i při menším počtu zobrazených
+desetinných míst. Zaokrouhlení pro zobrazení nemění model ani nezablokuje změnu
+jiného rozměru. Tyto případy včetně Undo ověřuje test konzolového GUI.
+
+Aktuální rozsah a zbývající práce: [mapa pokrytí CAD příkazů](CAD_COMMAND_COVERAGE.md).
+
+Ověření kvádru: Windows Release, úplná sada **58/58** prošla (382,07 s,
+`build/box-full-tests.log`). Po doplnění zachování přesných hodnot a kontroly
+parametrických patchů prošlo všech **7/7** dotčených modelových, CLI a GUI
+scénářů (199,07 s, `build/box-final-tests.log`), včetně pracovního okna,
+profilů a úprav kót. Finální překlad je v `build/box-final-build.log`.
+CLI nadále nelinkuje Qt (`build/box-cli-dependencies.log`).

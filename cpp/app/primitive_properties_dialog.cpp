@@ -215,6 +215,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         length_ = dimension(initial.box.length, "boxLength");
         width_ = dimension(initial.box.width, "boxWidth");
         height_ = dimension(initial.box.height, "boxHeight");
+        displayed_box_initial_ = {length_->value(), width_->value(), height_->value()};
         form->addRow(tr("Délka"), length_);
         form->addRow(tr("Šířka"), width_);
         form->addRow(tr("Výška"), height_);
@@ -1275,7 +1276,15 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
             : zima::document::CombineMode::Add;
     }
     if (result.feature_kind == zima::document::FeatureKind::Box) {
-        result.box = {length_->value(), width_->value(), height_->value()};
+        // Display precision must not rewrite an untouched persisted dimension,
+        // especially a locked value received from a command or imported model.
+        const auto value = [](QDoubleSpinBox* field, double displayed, double persisted) {
+            return field->value() == displayed ? persisted : field->value();
+        };
+        result.box = {
+            value(length_, displayed_box_initial_.length, initial_.box.length),
+            value(width_, displayed_box_initial_.width, initial_.box.width),
+            value(height_, displayed_box_initial_.height, initial_.box.height)};
     } else if (result.feature_kind == zima::document::FeatureKind::Cylinder) {
         result.cylinder = {radius_->value(), height_->value()};
     } else if (result.feature_kind == zima::document::FeatureKind::Thread) {

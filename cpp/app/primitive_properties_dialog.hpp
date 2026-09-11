@@ -167,6 +167,7 @@ private:
     void show_thread_catalog_after_release();
     bool thread_catalog_pending_{};
     zima::document::HistoryContainer initial_;
+    zima::document::BoxParameters displayed_box_initial_;
     bool edit_mode_{};
     bool commit_required_{};
     std::optional<zima::document::HistoryContainer> accepted_baseline_;
