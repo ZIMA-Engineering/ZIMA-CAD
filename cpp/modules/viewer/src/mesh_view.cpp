@@ -431,6 +431,11 @@ struct MeshView::Impl {
 
     std::function<bool(const zima::kernel::ViewerDimension&)> dimension_visibility_filter;
     bool editing_origin_visible{};
+    std::function<bool(const EdgeKey&)> origin_visibility_filter;
+    bool origin_visible(const EdgeKey& key) const {
+        return (key.semantic_key != "origin" && !key.semantic_key.starts_with("origin:")) ||
+            !origin_visibility_filter || origin_visibility_filter(key);
+    }
     std::optional<EdgeKey> component_origin_handle;
     bool gpu_dirty{true};
     std::size_t base_mesh_revision{};
@@ -1077,6 +1082,9 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
                 candidate.owner_id != impl_->active_sketch_owner_id;
         });
     }
+    std::erase_if(candidates, [&](const auto& candidate) {
+        return !impl_->origin_visible({candidate.owner_id,candidate.semantic_key,candidate.instance_path});
+    });
     const bool origin_geometry_requested = impl_->component_origin_handle || impl_->editing_origin_visible ||
         std::ranges::any_of(impl_->allowed_kinds, [](CandidateKind kind) {
             return kind == CandidateKind::Vertex ||
@@ -2199,6 +2207,7 @@ void MeshView::fit_all() {
         bounds.insert(bounds.end(), edge.points.begin(), edge.points.end());
     }
     for (const auto& point : impl_->mesh.points) {
+                if (!impl_->origin_visible({point.reference.owner_id,point.reference.semantic_key,point.reference.instance_path})) continue;
         const bool preview_helper =
             point.reference.semantic_key == "preview:plane-offset-point" ||
             impl_->feature_preview_owner_ids.contains(point.reference.owner_id);
@@ -2210,6 +2219,7 @@ void MeshView::fit_all() {
         }
     }
     for (const auto& axis : impl_->mesh.axes) {
+                if (!impl_->origin_visible({axis.reference.owner_id,axis.reference.semantic_key,axis.reference.instance_path})) continue;
         const bool origin = axis.reference.semantic_key.starts_with("origin:axis:");
         if (axis.reference.semantic_key.starts_with("sketch_axis:")) {
             reference_centers.push_back(axis.point);
@@ -2604,6 +2614,12 @@ void MeshView::set_component_origin_handle(std::optional<EdgeKey> reference) {
     update();
 }
 
+void MeshView::set_origin_visibility_filter(std::function<bool(const EdgeKey&)> filter) {
+    impl_->origin_visibility_filter = std::move(filter);
+    impl_->candidates.clear();
+    update();
+}
+
 void MeshView::set_editing_origin_visible(bool visible) {
     if (impl_->editing_origin_visible == visible) return;
     impl_->editing_origin_visible = visible;
@@ -2815,6 +2831,7 @@ void MeshView::paintGL() {
     // their cyan outline while leaving only the label visibly highlighted.
     std::vector<const zima::kernel::ViewerEdge*> plane_edges;
     for (const auto& edge : impl_->mesh.edges) {
+        if (!impl_->origin_visible({edge.reference.owner_id,edge.reference.semantic_key,edge.reference.instance_path})) continue;
         if (edge.reference.semantic_key == "border" ||
             edge.reference.semantic_key.starts_with("origin:plane:"))
             plane_edges.push_back(&edge);
@@ -2962,6 +2979,7 @@ if (impl_->show_origins) {
         }
         if (impl_->show_origins) {
             for (const auto& axis : impl_->mesh.axes) {
+                if (!impl_->origin_visible({axis.reference.owner_id,axis.reference.semantic_key,axis.reference.instance_path})) continue;
                 if (!axis.reference.semantic_key.starts_with("origin:axis:")) continue;
                 const QColor color = axis.reference.semantic_key == "origin:axis:x"
                     ? QColor(232, 76, 61)
@@ -2995,6 +3013,7 @@ if (impl_->show_origins) {
                 painter.setPen(QPen(QColor(0, 0, 0), 1.0));
                 painter.setBrush(QColor(0, 0, 0));
             for (const auto& point : impl_->mesh.points) {
+                if (!impl_->origin_visible({point.reference.owner_id,point.reference.semantic_key,point.reference.instance_path})) continue;
                 if (point.reference.semantic_key != "origin:point") continue;
                 const QPointF center = project(point.position);
                 draw_circular_marker(painter, center, QColor(0, 0, 0));
@@ -4055,6 +4074,7 @@ if (impl_->show_origins) {
             // Coincident document and Body axes must not cover the offered axis.
             for (const bool highlight_pass : {false, true}) {
                 for (const auto& axis : impl_->mesh.axes) {
+                if (!impl_->origin_visible({axis.reference.owner_id,axis.reference.semantic_key,axis.reference.instance_path})) continue;
                     const bool origin = axis.reference.semantic_key.starts_with(
                         "origin:axis:");
                     if ((origin && !impl_->show_origins && !axes_selectable &&
@@ -4234,6 +4254,7 @@ if (impl_->show_origins) {
         // even later, right below) is never hidden either.
         if (points_visible) {
             for (const auto& point : impl_->mesh.points) {
+                if (!impl_->origin_visible({point.reference.owner_id,point.reference.semantic_key,point.reference.instance_path})) continue;
                 // In an inactive Sketch this point is deliberately visible
                 // only together with the whole-container hover/selection
                 // overlay below.  Construction/profile points retain their
@@ -4376,6 +4397,7 @@ if (impl_->show_origins) {
         if (impl_->show_origins || points_selectable ||
             impl_->editing_origin_visible) {
             for (const auto& point : impl_->mesh.points) {
+                if (!impl_->origin_visible({point.reference.owner_id,point.reference.semantic_key,point.reference.instance_path})) continue;
                 if (point.reference.semantic_key != "origin:point") continue;
                 const QPointF center = project(point.position);
                 // Match ONLY the precise per-entity key -- see the identical
@@ -4550,6 +4572,7 @@ if (impl_->show_origins) {
                     }
                 }
                 for (const auto& point : impl_->mesh.points) {
+                if (!impl_->origin_visible({point.reference.owner_id,point.reference.semantic_key,point.reference.instance_path})) continue;
                     if (point.reference.owner_id == highlighted->owner_id &&
                         point.reference.instance_path ==
                             highlighted->instance_path &&
@@ -4581,6 +4604,7 @@ if (impl_->show_origins) {
             }
             if (highlighted->kind == CandidateKind::Container) {
                 for (const auto& point : impl_->mesh.points) {
+                if (!impl_->origin_visible({point.reference.owner_id,point.reference.semantic_key,point.reference.instance_path})) continue;
                     if (point.reference.semantic_key !=
                             "container:origin-marker" ||
                         point.reference.owner_id != highlighted->owner_id ||
@@ -4790,6 +4814,7 @@ if (impl_->show_origins) {
         if (impl_->show_origins || points_selectable ||
             impl_->editing_origin_visible) {
             for (const auto& point : impl_->mesh.points) {
+                if (!impl_->origin_visible({point.reference.owner_id,point.reference.semantic_key,point.reference.instance_path})) continue;
                 if (point.reference.semantic_key != "origin:point") continue;
                 QColor marker_color(0, 0, 0);
                 bool exact_highlight = highlighted &&
@@ -4828,6 +4853,7 @@ if (impl_->show_origins) {
         if (impl_->component_origin_handle) {
             const auto& key = *impl_->component_origin_handle;
             for (const auto& point : impl_->mesh.points) {
+                if (!impl_->origin_visible({point.reference.owner_id,point.reference.semantic_key,point.reference.instance_path})) continue;
                 if (point.reference.owner_id != key.owner_id ||
                     point.reference.semantic_key != key.semantic_key ||
                     point.reference.instance_path != key.instance_path) continue;

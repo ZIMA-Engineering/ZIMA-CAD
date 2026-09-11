@@ -74,7 +74,9 @@ z uložených ZIMA dat; Regenerate z uloženého B-Rep, bez původního IGES.
 Nový `.prtz` vznikne vedle cílové sestavy, u neuložené sestavy v pracovním
 adresáři. Při kolizi názvu dostane číselnou příponu. Import nezmění zobrazenou
 vrcholovou sestavu. Skicové Party se zobrazují i ve vnořených sestavách.
-Změna jejich zdroje se do rodiče převezme až explicitním **Regenerate**.
+Aktuální vypočtená geometrie zdrojového Partu se při obnovení zobrazení převezme
+bez OCCT. Vazby a vlastní operace sestavy se počítají až explicitním
+**Regenerate**; přepnutí záložky je nespouští.
 
 ## Ověření
 
@@ -94,3 +96,109 @@ uloženy v [cpp/tests/fixtures/import](../cpp/tests/fixtures/import/README.md).
 Ověření Windows Release: celá sada 27/27 testů; po závěrečné úpravě
 nezávislosti bloků a IGES zvýraznění znovu prošly všechny tři dotčené sady
 (import model, interchange, viewer). Aplikace byla znovu sestavena.
+
+
+## Porovnání dodaného STEP a IGES (2026-09-11)
+
+Zkoumané soubory v `Projects/import`: `ze0026-0000-0000.stp`
+(9 092 072 B) a `ze0026-0000-0000.igs` (37 994 290 B).
+Jde o rozbor dodaného exportu, nikoli obecnou vlastnost všech IGES souborů.
+
+Čtení zdrojových IGES entit a nezávislý rozbor directory záznamů potvrdily:
+
+- 501 solidů (typ 186), 13 506 zdrojových ploch (510) a 738 shellů (514).
+- 511 pojmenovaných skupin (402): 10 obsahuje další skupiny, 501 je koncových.
+- Soubor neobsahuje subfigure definition/instance entity 308/408.
+- Čtyři skupiny šroubu `ZE0026-0101-9001` (včetně variant `_1`, `_2`, `_3`)
+  mají každá jeden solid, 28 zdrojových ploch a dva shelly. Obsahují také
+  pomocné křivky a seznamy hran/vrcholů. Počet shellů sám o sobě neurčuje
+  počet samostatných plošných těles: shell je také součástí solidu.
+
+Současný `import_iges_part` vždy vytvoří jeden Part s jedním importním
+kontejnerem za celý soubor. Pojmenované skupiny nepřevádí na hierarchii
+sestavy. STEP oproti tomu v tomto modelu rozpoznává 85 unikátních Partů
+s opakovanými výskyty. Shodný model tedy není v obou výměnných formátech
+organizován stejně; shodný název či odstranění číselné přípony nestačí
+jako důkaz totožnosti zdrojového dílu.
+
+Doporučený další krok pro IGES:
+
+1. Převzít významové pravidlo STEP: jeden zdrojový díl/skupina obsahuje
+   solid i jeho pomocné plochy, například závit šroubu.
+2. Skutečné vztahy nadřazených skupin převést na sestavy. Nevyrábět
+   podsestavu pouze proto, že díl obsahuje více geometrických objektů.
+3. Ve skupině vybrat vlastněné solidy a zbylé samostatné plochy/dráty.
+   Nevkládat znovu jednotlivé plochy a pomocné entity již obsažené v solidu.
+4. Použít společnou nativní persistenci, sdílení geometrie a viewer reference.
+   Zachovat zdrojové IGES identity; opakování sdílet jen při prokázaném
+   společném zdroji, nikoli odhadem podle názvu.
+
+Toto rozdělování IGES zatím není implementováno. Již společná cesta zmrazeného
+importu používá opravené archivní vazby topologie popsané v
+[sdílení geometrie](ASSEMBLY_GEOMETRY_SHARING.md).
+
+
+### Skutečný převod přes současný importér
+
+Lokální diagnostika volala produkční `OcctKernel::import_iges` s odchylkou
+sítě 0,1 mm; zdrojový soubor ani uživatelské dokumenty neměnila.
+
+- Import před opravou vyhledávání při archivaci referencí: 887,58 s
+  (přibližně 14,8 min).
+- Výsledek: 501 solidů, 738 shellů, 27 012 ploch, 132 690 hran a
+  168 358 vrcholů (unikátní OCCT objekty podle druhu).
+- Zobrazovací síť: 2 271 821 trojúhelníků; B-Rep: 73 347 359 B.
+- Nabízené původní reference: 209 767 identit ploch, hran a vrcholů dohromady.
+- Po importu proces vykázal 1 416,36 MiB working set a 1 521,44 MiB private;
+  dosavadní maximum working set bylo 1 825,23 MiB. Nejde o paměť celé GUI sestavy.
+
+Oddělená diagnostika samotného OCCT přečetla soubor za 0,81 s,
+`TransferRoots` skončil v čase 37,35 s a ověření platnosti v čase 46,21 s.
+Převod vrátil šest kořenů a platnou geometrii. Dlouhá celková doba tedy
+není vysvětlena pouhým čtením a převodem IGES. Naše následné zachycení
+referencí, síťování, měření a příprava viewer dat potřebují samostatné
+profilování. V kódu se geometrický locator opakovaně počítá i pro děti
+nadřazených zdrojových skupin; jeho přesný časový podíl zatím není změřen.
+Během plného importu běžely krátké samostatné diagnostiky na stejném počítači,
+takže tyto časy nejsou izolovaným rychlostním benchmarkem STEP proti IGES.
+
+U stejného šroubu se po převodu přímo ověřilo: solid obsahuje 26 ploch,
+shelly dohromady 28, z toho právě dvě nejsou součástí solidu. Všech 28
+samostatných zdrojových face entit už patří do těchto shellů. Celá převedená
+skupina přesto obsahuje 56 ploch. Nelze proto prostě zobrazit všechny
+geometrické členy skupiny jako obsah dílu.
+
+
+Navazující audit původních entit typu 120/122/128 potvrdil zdroj těchto
+28 přebytečných ploch: jsou to podpůrné povrchy. Všech 28 je součástí
+převedené skupiny, ale žádný není totožný s plochou výsledných shellů.
+Správný import šroubu má ponechat solid s 26 plochami a dvě samostatné
+pomocné plochy; podpůrné povrchy nemají vytvořit dalších 28 zobrazovaných
+ploch. Oprava vyžaduje respektovat vlastnictví a závislosti IGES entit,
+ne obecné mazání podobných nebo souhlasných ploch podle geometrického hashe.
+
+
+Při rozboru bylo v novém `persist_imported_topology` nalezeno kvadratické
+prohledávání: pro každou vlastněnou plochu/hranu/vrchol se celá tabulka
+identit znovu procházela pomocí `find_if`. Nahrazuje je jednorázový index
+sémantických klíčů pro každý druh topologie. Nemění zdrojové identity,
+archivní formát ani pravidla IGES seskupování. Výše uvedených 887,58 s
+pochází z běhu před touto opravou.
+
+
+Kontrola zmrazeného B-Rep ve stejném běhu obnovila všech 209 767 nabízených
+sémantických identit beze změny (`references_equal=1`). Celý diagnostický běh
+včetně opětovného výpočtu viewer dat trval 2 106,35 s; maximum working set
+bylo 3 769,64 MiB. To dokládá zachování již zachycených referencí, nikoli
+správnost seskupování IGES ani úplnost referencí ke každé přebytečné ploše.
+
+
+Opakovaný import po zavedení indexu archivních identit trval 1 061,30 s a
+vrátil stejný počet solidů, ploch, hran, vrcholů, trojúhelníků i nabízených
+referencí; B-Rep měl opět 73 347 359 B. Working set po importu byl
+1 423,56 MiB, private 1 541,23 MiB. Opakovaná následná obnova byla diagnosticky
+ukončena; úplný roundtrip je doložen prvním během výše a malými regresními testy.
+Vzhledem k souběžným testům a diagnostikám nejde o izolovaný rychlostní
+benchmark; toto opakování nepotvrzuje zrychlení celého importu. Index odstranil
+konkrétní kvadratický postup, dominantní náklady celého převodu je však stále
+potřeba změřit po jednotlivých fázích.

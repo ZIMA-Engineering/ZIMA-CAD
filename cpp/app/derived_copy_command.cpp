@@ -246,7 +246,7 @@ void AssemblyWorkspaceWindow::show_derived_copy_properties(const std::string& id
         primitive_reference_dialog_=nullptr;primitive_reference_geometry_={};primitive_origin_preview_mesh_.reset();
         properties_dialog_=nullptr;properties_dialog_instance_path_.clear();primitive_parameter_owner_id_.clear();
         body_dialog_preview_.reset();body_dialog_context_.reset();body_dialog_step_id_.clear();derived_copy_assembly_preview_.reset();
-        local_origin_selection_dialog_=nullptr;local_origin_selection_active_=false;visible_local_origin_ids_.clear();selectable_local_origin_container_ids_.clear();
+        local_origin_selection_dialog_=nullptr;local_origin_selection_active_=false;visible_local_origin_ids_.clear();visible_occurrence_origin_paths_.clear();selectable_local_origin_container_ids_.clear();
         viewer_->set_transient_edges({});viewer_->set_constraint_reference_highlights({},{});viewer_->set_candidate_filter({});viewer_->set_selection_contract({});viewer_->clear_selection();
         tree_->setProperty("commandSelectionActive",false);preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
     });

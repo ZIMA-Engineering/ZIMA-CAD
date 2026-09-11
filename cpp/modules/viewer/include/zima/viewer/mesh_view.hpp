@@ -119,6 +119,8 @@ public:
     void set_reference_visibility(ReferenceVisibility reference, bool visible);
     [[nodiscard]] bool reference_visible(ReferenceVisibility reference) const;
     void set_editing_origin_visible(bool visible);
+    // One visibility policy for origin drawing and the common candidate list.
+    void set_origin_visibility_filter(std::function<bool(const EdgeKey&)> filter);
     // Exact persisted origin, offered through the common candidate list and
     // painted with the same 6 px purple marker as Part manipulators.
     void set_component_origin_handle(std::optional<EdgeKey> reference);

@@ -3739,6 +3739,14 @@ void AssemblyWorkspaceWindow::create_layout() {
         " color:#fff; } QTreeWidget::item:hover { background-color:transparent; }");
     viewer_ = new zima::viewer::MeshView;
     viewer_->setObjectName("modelViewer");
+    viewer_->set_origin_visibility_filter([this](const auto& reference) {
+        if (!properties_dialog_ || !properties_dialog_->property("originSelectionBound").toBool() ||
+            !workspace_.open_assembly(workspace_.displayed_document_id())) return true;
+        return reference.instance_path.empty() ||
+            visible_occurrence_origin_paths_.contains(reference.instance_path) ||
+            (reference.instance_path == active_occurrence_path_ &&
+             visible_local_origin_ids_.contains(reference.owner_id));
+    });
     viewer_->set_selection_contract({zima::viewer::CandidateKind::Dimension,
                                      zima::viewer::CandidateKind::Occurrence});
     viewer_->set_confirmation_callback([this](const auto& candidate) {
@@ -5594,6 +5602,11 @@ void AssemblyWorkspaceWindow::create_layout() {
                 if (id.ends_with(":origin")) id.resize(id.size() - 7);
                 zima::viewer::ViewerCandidate candidate;
                 candidate.owner_id = id;
+                candidate.instance_path = item->data(0, Qt::UserRole + 1).toString().toStdString();
+                const auto kind = item->data(0, Qt::UserRole + 3).toString();
+                if (!candidate.instance_path.empty() && (kind.endsWith("-occurrence") ||
+                    (kind == "document-origin" && !selectable_local_origin_container_ids_.contains(id))))
+                    candidate.kind = zima::viewer::CandidateKind::Occurrence;
                 toggle_local_origin_visibility(candidate);
                 return;
             }
@@ -8665,7 +8678,7 @@ void AssemblyWorkspaceWindow::bind_local_origin_selection(QDialog* dialog) {
         local_origin_selection_button_.clear();
         local_origin_selection_owner_ = nullptr;
         local_origin_selection_dialog_ = nullptr;
-        visible_local_origin_ids_.clear();
+        visible_local_origin_ids_.clear();visible_occurrence_origin_paths_.clear();
         selectable_local_origin_container_ids_.clear();
         origin_suspended_candidate_filter_ = {};
         origin_suspended_selection_contract_.clear();
@@ -8678,7 +8691,7 @@ void AssemblyWorkspaceWindow::bind_local_origin_selection(QDialog* dialog) {
         local_origin_selection_owner_ = nullptr;
         local_origin_selection_dialog_ = nullptr;
         local_origin_selection_button_.clear();
-        visible_local_origin_ids_.clear();
+        visible_local_origin_ids_.clear();visible_occurrence_origin_paths_.clear();
         selectable_local_origin_container_ids_.clear();
         suspended_primitive_reference_index_.reset();
         suspended_construction_reference_index_.reset();
@@ -8719,11 +8732,18 @@ void AssemblyWorkspaceWindow::set_local_origin_selection_mode(bool active) {
                 selectable_local_origin_container_ids_.insert(body.scope.id);
         }
         tree_->setProperty("commandSelectionActive", true);
-        viewer_->set_selection_contract({zima::viewer::CandidateKind::Container});
+        std::vector kinds{zima::viewer::CandidateKind::Container};
+        const auto* assembly = workspace_.open_assembly(workspace_.displayed_document_id());
+        if (assembly && !assembly->session.document().components.empty())
+            kinds.push_back(zima::viewer::CandidateKind::Occurrence);
+        viewer_->set_selection_contract(std::move(kinds));
         viewer_->set_candidate_filter([this](const auto& candidate) {
-            return selectable_local_origin_container_ids_.contains(candidate.owner_id);
+            return (candidate.kind == zima::viewer::CandidateKind::Occurrence &&
+                    !candidate.instance_path.empty()) ||
+                (candidate.instance_path == active_occurrence_path_ &&
+                 selectable_local_origin_container_ids_.contains(candidate.owner_id));
         });
-        state_->setText(tr("POČÁTEK: kliknutím zobrazte nebo skryjte lokální Počátek kontejneru."));
+        state_->setText(tr("POČÁTEK: kliknutím zobrazte nebo skryjte počátek dílu, podsestavy či kontejneru."));
         return;
     }
     tree_->setProperty("commandSelectionActive", false);
@@ -8747,8 +8767,19 @@ void AssemblyWorkspaceWindow::set_local_origin_selection_mode(bool active) {
 
 void AssemblyWorkspaceWindow::toggle_local_origin_visibility(
         const zima::viewer::ViewerCandidate& candidate) {
-    if (!local_origin_selection_active_ ||
-        !selectable_local_origin_container_ids_.contains(candidate.owner_id)) return;
+    if (!local_origin_selection_active_) return;
+    if (candidate.kind == zima::viewer::CandidateKind::Occurrence &&
+        !candidate.instance_path.empty()) {
+        const auto address = workspace_.resolve_occurrence(workspace_.displayed_document_id(),
+            zima::assembly::InstancePath::decode(candidate.instance_path));
+        if (!address) return;
+        if (!visible_occurrence_origin_paths_.erase(candidate.instance_path))
+            visible_occurrence_origin_paths_.insert(candidate.instance_path);
+        preserve_view_on_refresh_ = true;
+        refresh_scene();
+        return;
+    }
+    if (!selectable_local_origin_container_ids_.contains(candidate.owner_id)) return;
     const auto* part = workspace_.open_part(workspace_.active_document_id());
     if (part == nullptr) return;
     const auto& document = part->session.document();
@@ -12181,7 +12212,7 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
     };
     connect(dialog,&QDialog::finished,this,[this]{
         feature_reference_pick_={};feature_reference_end_={};pending_primitive_reference_index_.reset();primitive_reference_auto_advance_=false;
-        local_origin_selection_dialog_=nullptr;local_origin_selection_active_=false;visible_local_origin_ids_.clear();selectable_local_origin_container_ids_.clear();suspended_primitive_reference_index_.reset();suspended_construction_reference_index_.reset();
+        local_origin_selection_dialog_=nullptr;local_origin_selection_active_=false;visible_local_origin_ids_.clear();visible_occurrence_origin_paths_.clear();selectable_local_origin_container_ids_.clear();suspended_primitive_reference_index_.reset();suspended_construction_reference_index_.reset();
         primitive_reference_dialog_=nullptr;primitive_reference_geometry_={};primitive_origin_preview_mesh_.reset();parameter_dimension_preview_.reset();construction_dimension_object_id_.clear();
         viewer_->set_constraint_reference_highlights({},{});viewer_->set_feature_preview_owners({});
         properties_dialog_=nullptr;properties_dialog_instance_path_.clear();primitive_parameter_owner_id_.clear();

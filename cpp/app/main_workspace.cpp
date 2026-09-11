@@ -4411,6 +4411,43 @@ int verify_component_references(QApplication& application, const std::filesystem
             window.open_component_source(nested_path),"Cannot open the exact nested Part source"))return 1;flush();
     if(!verify(tree->topLevelItem(0)->data(0,Qt::UserRole).toString().toStdString()==part.document_id,
             "Opening a nested Part displayed a different source"))return 1;
+    if(!verify(window.open_document_path(QString::fromStdString(top_path.string())),
+        "Cannot reopen Assembly for feature-origin visibility"))return 1;
+    window.deactivate_active_occurrence_for_test();flush();
+    for(const char* action_name:{"extrusionAction","mirrorAction"}) {
+        auto* action=window.findChild<QAction*>(action_name);
+        if(!verify(action && action->isEnabled(),"Feature origin fixture action is disabled"))return 1;
+        action->trigger();flush();
+        QDialog* feature=nullptr;
+        for(auto* candidate:window.findChildren<QDialog*>())
+            if(candidate->isVisible() && candidate->property("originSelectionBound").toBool())feature=candidate;
+        if(!verify(feature,"Feature did not use shared Origin selection"))return 1;
+        const auto offered_origins=[&] {
+            kernel::ViewerMesh packet;
+            for(const auto& path:{std::string{},outer_path,nested_path,passive_path})
+                packet.points.push_back({{0,0,0},{path.empty()?top_id+":origin":origin,"origin:point",path}});
+            view->set_mesh(std::move(packet));
+            view->set_selection_contract({viewer::CandidateKind::Vertex});view->set_candidate_filter({});
+            std::set<std::string> paths;
+            for(const auto& candidate:view->selection_candidates_at(QPointF(view->width()/2.0,view->height()/2.0)))
+                if(candidate.semantic_key=="origin:point")paths.insert(candidate.instance_path);
+            return paths;
+        };
+        if(!verify(offered_origins()==std::set<std::string>{""},
+            "Feature automatically exposed component and subassembly origins"))return 1;
+        auto* origins_button=feature->findChild<QPushButton*>("containerOriginSelectionButton");
+        if(!verify(origins_button,"Feature Origin button is missing"))return 1;
+        origins_button->click();flush();
+        auto* occurrence_row=find(outer,outer_path);
+        if(!verify(occurrence_row,"Origin selection lost subassembly Tree row"))return 1;
+        tree->itemClicked(occurrence_row,0);flush();
+        origins_button->click();flush();
+        if(!verify(offered_origins()==std::set<std::string>{"",outer_path},
+            "Origin button did not reveal exactly the requested subassembly"))return 1;
+        feature->reject();flush();
+        if(!verify(offered_origins()==std::set<std::string>{"",outer_path,nested_path,passive_path},
+            "Cancel did not restore ordinary component origin visibility"))return 1;
+    }
     std::cout<<"Component origin, axis, freedom and source opening UI contracts passed\n";return 0;
 }
 

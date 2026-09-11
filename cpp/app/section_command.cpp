@@ -67,7 +67,7 @@ void AssemblyWorkspaceWindow::show_section_properties(const std::string& id,bool
             section_dialog_.clear();if(properties_dialog_==dialog)properties_dialog_=nullptr;
             section_component_picking_=false;section_document_id_.clear();section_preview_source_={};section_sketch_undo_.clear();section_sketch_redo_.clear();
             feature_reference_pick_={};feature_reference_end_={};pending_primitive_reference_index_.reset();primitive_reference_auto_advance_=false;
-            local_origin_selection_dialog_=nullptr;local_origin_selection_active_=false;visible_local_origin_ids_.clear();selectable_local_origin_container_ids_.clear();suspended_primitive_reference_index_.reset();suspended_construction_reference_index_.reset();
+            local_origin_selection_dialog_=nullptr;local_origin_selection_active_=false;visible_local_origin_ids_.clear();visible_occurrence_origin_paths_.clear();selectable_local_origin_container_ids_.clear();suspended_primitive_reference_index_.reset();suspended_construction_reference_index_.reset();
             primitive_reference_dialog_=nullptr;primitive_reference_geometry_={};primitive_origin_preview_mesh_.reset();parameter_dimension_preview_.reset();construction_dimension_object_id_.clear();primitive_parameter_owner_id_.clear();
             viewer_->set_constraint_reference_highlights({},{});viewer_->set_feature_preview_owners({});viewer_->set_transient_edges({});viewer_->set_transient_labels({});viewer_->set_transient_points({});viewer_->set_operation_direction_indicator({});
             viewer_->set_camera_state(section_camera_);preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();

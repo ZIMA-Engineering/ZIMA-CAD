@@ -2628,16 +2628,22 @@ void persist_imported_topology(const PrimitiveData& data, BodyResult& result) {
     add(data.faces); add(data.edges); add(data.vertices);
     result.imported_step_topology = data.imported_step_topology;
     const auto bind = [&](const auto& owned, StepRequest::TopologyIdentity::Kind kind) {
+        // Index once: scanning all identities for every owned shape becomes
+        // quadratic on whole-model imports with hundreds of thousands of IDs.
+        std::unordered_map<std::string_view, StepRequest::TopologyIdentity*> identities;
+        identities.reserve(owned.size());
+        for (auto& identity : result.imported_step_topology) {
+            if (identity.kind == kind &&
+                !identities.emplace(identity.semantic_key, &identity).second)
+                throw std::runtime_error("Imported topology identity is duplicated");
+        }
         for (const auto& item : owned) {
-            const auto identity = std::find_if(result.imported_step_topology.begin(),
-                result.imported_step_topology.end(), [&](const auto& value) {
-                    return value.kind == kind && value.semantic_key == item.reference.semantic_key;
-                });
-            if (identity == result.imported_step_topology.end())
+            const auto identity = identities.find(item.reference.semantic_key);
+            if (identity == identities.end())
                 throw std::runtime_error("Imported topology identity is missing");
             std::ostringstream address;
             archive.Write(item.shape, address);
-            identity->shape_locator = "brep-ref-v1:" + address.str();
+            identity->second->shape_locator = "brep-ref-v1:" + address.str();
         }
     };
     using Kind = StepRequest::TopologyIdentity::Kind;

@@ -411,6 +411,7 @@ private:
     bool origin_suspended_advance_on_hover_{true};
     bool origin_suspended_tree_command_{};
     std::set<std::string> visible_local_origin_ids_;
+    std::set<std::string> visible_occurrence_origin_paths_;
     std::set<std::string> selectable_local_origin_container_ids_;
     std::optional<std::size_t> suspended_primitive_reference_index_;
     bool suspended_primitive_reference_auto_advance_{};

@@ -157,6 +157,14 @@
 
 ## Viewer selection contracts
 
+- Feature dialogs using the shared Origin action must not automatically expose
+  every Part/subassembly Origin in the displayed Assembly. Offer the top-level
+  Assembly Origin by default; reveal other Origins only when explicitly
+  requested through Origin selection. This display state belongs to the exact
+  occurrence path, never all instances of a source document. Hidden Origins
+  must be absent from the common picker as well as from painting. Closing the
+  dialog retires this temporary visibility policy without changing references.
+
 - Ordinary LMB selection follows one general rule in every workspace: clicking
   a valid offered candidate confirms exactly that candidate and synchronizes
   the Tree; clicking empty View space clears the confirmed View and Tree

@@ -119,3 +119,35 @@ Final Windows verification: `tools/build-windows.ps1 -Configuration Release
 current open/saved Part geometry through a closed repeated subassembly, unchanged
 placement/history, reuse on repeated refresh, native source-table sharing,
 transient compound calculation, and DRWZ measuring-data sharing after reload.
+
+
+The supplied IGES was also examined through a real OCCT import. Its groups
+contain both the final B-Rep and support surfaces, so blindly transferring all
+group members adds unwanted display geometry. See the measured
+[IGES comparison](IGES_DXF_IMPORT.md#porovnání-dodaného-step-a-iges-2026-09-11).
+The audit also exposed quadratic semantic-key lookup in archive binding;
+`persist_imported_topology` now builds a lookup index once per topology kind.
+This leaves the persisted identities and archive contract unchanged.
+
+
+## Supplied STEP sharing measurement
+
+The diagnostic imported `Projects/import/ze0026-0000-0000.stp` at 0.1 mm
+mesh deflection: 85 unique Part documents and 11 Assembly documents in
+256.92 s. Traversing component source packets and nested body outputs across
+all generated Assembly documents counted 2,436 uses and 180 distinct immutable
+snapshots. The selected geometry buffers (B-Rep strings, display vertices and
+triangle indices, original-reference vertices and triangle indices) totalled
+305,948,204 B when counted per use, versus 82,451,254 B counted once per snapshot
+(73.05% less). This does not include every mesh field, Part history, allocator
+cost or the entire application; it is not a before/after process RAM benchmark.
+
+The import-package process reported 2,326.4 MiB working set and 2,445.72 MiB
+private memory, with 3,113.49 MiB peak working set. Other local diagnostics/tests
+were running during this measurement. No GUI interaction or saving benchmark
+was performed in this run.
+
+After the archive lookup index and feature-origin visibility changes, all 44
+Windows CTest contracts passed again (425.67 s). The origin regression verifies
+that hiding/requesting one occurrence does not expose another occurrence of
+the same Part. Additional dialog-level coverage exercises Protrusion and Mirror.

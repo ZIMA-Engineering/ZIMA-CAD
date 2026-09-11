@@ -929,6 +929,38 @@ int main(int argc, char* argv[]) {
                 "Plane/Axis visibility switches");
         view.set_reference_visibility(
             zima::viewer::ReferenceVisibility::Origins, true);
+        {
+            zima::viewer::MeshView origins(&parent);
+            origins.setGeometry(0,0,500,360);
+            zima::kernel::ViewerMesh packet;
+            for (const std::string path : {std::string{},std::string{"first"},std::string{"second"}})
+                packet.points.push_back({{0,0,0},{"shared-part:origin","origin:point",path}});
+            origins.set_mesh(packet);
+            origins.set_selection_contract({zima::viewer::CandidateKind::Vertex});
+            origins.show();application.processEvents();
+            const auto paths = [&] {
+                std::set<std::string> found;
+                for(const auto& candidate:origins.selection_candidates_at(QPointF(250,180)))
+                    if(candidate.semantic_key=="origin:point")found.insert(candidate.instance_path);
+                return found;
+            };
+            require(paths()==std::set<std::string>{"","first","second"},
+                "Repeated origin fixture is missing candidates");
+            std::set<std::string> requested;
+            origins.set_origin_visibility_filter([&](const auto& key) {
+                return key.instance_path.empty()||requested.contains(key.instance_path);
+            });
+            require(paths()==std::set<std::string>{""},
+                "Feature command offered unrequested component origins");
+            requested.insert("first");
+            require(paths()==std::set<std::string>{"","first"},
+                "Requesting one origin exposed another occurrence of the same Part");
+            requested.clear();
+            require(paths()==std::set<std::string>{""},"Origin toggle did not hide its candidates");
+            origins.set_origin_visibility_filter({});
+            require(paths()==std::set<std::string>{"","first","second"},
+                "Closing command failed to restore ordinary origin visibility");
+        }
         view_middle_dialog->show();
         application.processEvents();
         QMouseEvent view_middle_double_click(

@@ -249,3 +249,28 @@ uložení v právě editované sestavě. Prázdné kliknutí, zrušení výběru
 ukončení prostředním tlačítkem je skryje. Přepínač Kóty tuto dočasnou viditelnost
 pouze povoluje; nezobrazuje všechny vazby celé sestavy naráz. Stejný filtr platí
 pro kreslení i kandidáty výběru a nemění uložené reference.
+
+
+## Počátky během tvorby prvků (2026-09-11)
+
+Dialogy prvků se společnou funkcí **Počátek** (například Vytažení, Rotace,
+Zrcadlo a konstrukční prvky) při práci nad sestavou automaticky nenabízejí
+počátky všech jejích komponent. Ve výchozím stavu zůstává hlavní počátek
+zobrazené sestavy. Ostatní počátky lze vyžádat tlačítkem **Počátek** a
+kliknutím na konkrétní díl či podsestavu ve View nebo ve stromu. Další
+kliknutí její počátek skryje. Vnořenou podsestavu lze zvolit přímo ve stromu.
+
+Viditelnost patří přesné cestě výskytu; nezapíná současně další kopie
+stejného zdrojového dokumentu. Dosavadní volba lokálních počátků kontejnerů
+v aktivním Partu používá stejnou funkci. Skrytý počátek není nabízen ani na
+hover či při potvrzení: kreslení i společný seznam kandidátů používají
+stejný filtr. Zavření dialogu ukončí dočasný režim. Pravidla umístění,
+vlastnictví a ukládání referencí se tím nemění.
+
+
+Ověření: všech 44 Windows CTest testů prošlo (425,67 s). Po doplnění
+integračního scénáře do `verify_component_references` byl program znovu
+sestaven a cílený CTest `zima_cpp_workspace_startup_contract` s
+`ZIMA_VERIFY_COMPONENT_REFERENCE_ONLY=1` prošel (8,10 s). Scénář otevírá
+Protrusion a Mirror nad vnořenou sestavou, vyžádá počátek podsestavy přes
+skutečné tlačítko a strom a ověří izolaci výskytu i návrat po Cancel.
