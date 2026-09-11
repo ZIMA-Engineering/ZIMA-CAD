@@ -332,7 +332,7 @@ int main() {
         const std::string assembly_text(
             std::istreambuf_iterator<char>(assembly_file), {});
         require(assembly_text.find("[Document]\n") != std::string::npos &&
-                    assembly_text.find("format_version=12\n") != std::string::npos &&
+                    assembly_text.find("format_version=13\n") != std::string::npos &&
                     assembly_text.find("[DocumentUnits]\n") != std::string::npos &&
                     assembly_text.find("[DocumentPrecision]\n") != std::string::npos &&
                     assembly_text.find("[Material]\n") != std::string::npos &&
@@ -356,6 +356,11 @@ int main() {
                 "Assembly save did not produce Python-compatible INI sections");
         const auto loaded = zima::assembly::AssemblyDocument::load(assembly_path);
         assembly_file.close();
+        const auto occurrence_section = assembly_text.find("[Container." + first_id + "]");
+        require(occurrence_section != std::string::npos,"Occurrence metadata missing");
+        const auto occurrence_end = assembly_text.find("\n[",occurrence_section+1);
+        require(assembly_text.substr(occurrence_section,occurrence_end-occurrence_section).find("param.cpp_data=")==std::string::npos,
+                "Occurrence stores a second complete geometry packet");
         std::filesystem::remove(assembly_path);
         require(loaded.document_id == assembly.document_id &&
                     loaded.components.size() == 2 &&

@@ -3,10 +3,12 @@
 ## Kompatibilita dokumentů
 
 Každý nativní typ dokumentu má vlastní verzi: C++ Part `.prtz` nyní používá
-`format_version` 14, Assembly `.asmz` verzi 12 a Drawing `.drwz` verzi 12.
+`format_version` 16, Assembly `.asmz` verzi 13 a Drawing `.drwz` verzi 12.
 ZIMA-CAD během vývoje nepoužívá tiché fallbacky pro starší experimentální
 formáty: nepodporovanou verzi odmítne. Budoucí nekompatibilní změna formátu
-musí zvýšit příslušnou verzi a případně nabídnout samostatnou řízenou migraci.
+musí zvýšit příslušnou verzi. Zpětná kompatibilita starších Partů a sestav
+není zajišťována. Sdílení totožných cache bez komprese popisuje
+[CACHE_STORAGE.md](CACHE_STORAGE.md).
 
 ## Dialogy Otevřít a Uložit
 

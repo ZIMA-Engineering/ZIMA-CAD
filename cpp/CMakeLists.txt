@@ -50,7 +50,8 @@ add_library(zima_document_core
     modules/document_core/src/relations.cpp
     modules/document_core/src/document_session.cpp
     modules/document_core/src/dimension_identifiers.cpp
-    modules/document_core/src/viewer_packet_json.cpp)
+    modules/document_core/src/viewer_packet_json.cpp
+    modules/document_core/src/cache_storage.cpp)
 target_include_directories(zima_document_core PUBLIC
     modules/document_core/include)
 target_link_libraries(zima_document_core
@@ -232,6 +233,10 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_section_contract_tests PRIVATE zima_document_core zima_assembly zima_drawing zima_kernel_occt)
     add_test(NAME zima_cpp_section_contract_tests COMMAND zima_cpp_section_contract_tests)
     enable_testing()
+    add_executable(zima_cpp_cache_storage_contract_tests tests/cache_storage_contract_tests.cpp)
+    target_link_libraries(zima_cpp_cache_storage_contract_tests PRIVATE zima_document_core nlohmann_json::nlohmann_json)
+    add_test(NAME zima_cpp_cache_storage_contract_tests COMMAND zima_cpp_cache_storage_contract_tests)
+
     if(WIN32)
         set(ZIMA_GUI_TEST_ENVIRONMENT
             "QT_QPA_PLATFORM=windows;QT_STYLE_OVERRIDE=Fusion")

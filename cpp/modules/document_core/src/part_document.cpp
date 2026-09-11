@@ -1,3 +1,4 @@
+#include <zima/document/cache_storage.hpp>
 #include <zima/document/dimension_layout_json.hpp>
 #include <zima/document/appearance.hpp>
 #include <zima/document/document_copy_json.hpp>
@@ -516,7 +517,7 @@ void add_json_parameters(
 
 nlohmann::json read_part_ini(const std::filesystem::path& path) {
     const auto ini = read_ini(path);
-    if (ini_value(ini, "Document", "format_version") != "15") {
+    if (ini_value(ini, "Document", "format_version") != "16") {
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
     nlohmann::json root = {
@@ -662,9 +663,9 @@ nlohmann::json read_part_ini(const std::filesystem::path& path) {
     }
     if (const auto found = ini.find("CachedBodies"); found != ini.end() &&
         ini_value(ini, "CachedBodies", "encoding") ==
-            "zima-cpp-body-results-json") {
+            "zima-shared-body-results-v1") {
         const auto data = ini_value(ini, "CachedBodies", "data");
-        if (!data.empty()) root["calculated_boundaries"] = nlohmann::json::parse(data);
+        if (!data.empty()) root["calculated_boundaries"] = unpack_cache_storage(nlohmann::json::parse(data));
     }
     return root;
 }
@@ -673,7 +674,7 @@ void write_part_ini(
     const nlohmann::json& root, const std::filesystem::path& path) {
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "15"},
+        {"format_version", "16"},
         {"type", "part"},
         {"document_id", root.at("document_id").get<std::string>()},
         {"name", root.at("name").get<std::string>()},
@@ -877,8 +878,8 @@ void write_part_ini(
     ini["Sketches"]["items"] = sketch_items;
     if (!root.at("calculated_boundaries").empty()) {
         ini["CachedBodies"] = {
-            {"encoding", "zima-cpp-body-results-json"},
-            {"data", root.at("calculated_boundaries").dump()},
+            {"encoding", "zima-shared-body-results-v1"},
+            {"data", pack_cache_storage(root.at("calculated_boundaries")).dump()},
         };
     }
     const auto temporary = path.string() + ".tmp";

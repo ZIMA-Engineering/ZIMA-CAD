@@ -1,3 +1,4 @@
+#include <zima/document/cache_storage.hpp>
 #include <zima/document/object_annotation_frames.hpp>
 #include <zima/document/dimension_layout_json.hpp>
 #include <zima/document/appearance.hpp>
@@ -1678,7 +1679,7 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene_with_part_override(
 
 AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
     const auto ini = read_ini(path);
-    if (ini_value(ini, "Document", "format_version") != "12" ||
+    if (ini_value(ini, "Document", "format_version") != "13" ||
         ini_value(ini, "Document", "type") != "assembly") {
         throw std::runtime_error("Unsupported ZIMA-CAD Assembly document format");
     }
@@ -1690,7 +1691,7 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
     }
     nlohmann::json root;
     try {
-        root = nlohmann::json::parse(assembly_json);
+        root = zima::document::unpack_cache_storage(nlohmann::json::parse(assembly_json));
     } catch (const nlohmann::json::exception&) {
         throw std::runtime_error("Assembly INI contains invalid Container data");
     }
@@ -2065,7 +2066,7 @@ void AssemblyDocument::save(const std::filesystem::path& path,
     const auto saved_name = root.at("name").get<std::string>();
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "12"},
+        {"format_version", "13"},
         {"type", "assembly"},
         {"document_id", saved_id},
         {"name", saved_name},
@@ -2121,14 +2122,14 @@ void AssemblyDocument::save(const std::filesystem::path& path,
             section["kind"] = "container";
             section["TYPE"] = kind;
             section["param.cpp_kind"] = kind;
-            section["param.cpp_data"] = data.dump();
+            if (kind != "OCCURRENCE") section["param.cpp_data"] = data.dump();
         }
     };
     auto& root_container = ini["Container." + saved_id];
     root_container = {
         {"id", saved_id}, {"name", saved_name}, {"kind", "container"},
         {"TYPE", "ASSEMBLY"}, {"param.cpp_kind", "assembly"},
-        {"param.cpp_assembly", root.dump()},
+        {"param.cpp_assembly", zima::document::pack_cache_storage(root).dump()},
     };
     for (const auto& component : components) {
         const auto component_json = std::find_if(
