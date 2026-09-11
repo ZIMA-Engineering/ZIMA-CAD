@@ -41,12 +41,15 @@ double length(const Vec3& value) {
 std::vector<PickCandidate> ordered_ray_candidates(
     const zima::kernel::ViewerMesh& mesh,
     const Vec3& ray_origin,
-    const Vec3& ray_direction) {
+    const Vec3& ray_direction,
+    bool include_occurrence_surfaces) {
     constexpr double epsilon = 1.0e-9;
     std::vector<PickCandidate> candidates;
     for (std::size_t triangle = 0; triangle * 3 + 2 < mesh.triangles.size(); ++triangle) {
         if (triangle >= mesh.triangle_references.size() ||
-            !mesh.triangle_references[triangle].valid()) continue;
+            (!mesh.triangle_references[triangle].valid() &&
+             !(include_occurrence_surfaces &&
+               !mesh.triangle_references[triangle].instance_path.empty()))) continue;
         const auto first = mesh.triangles[triangle * 3];
         const auto second = mesh.triangles[triangle * 3 + 1];
         const auto third = mesh.triangles[triangle * 3 + 2];
@@ -100,7 +103,7 @@ bool candidate_recolors_wire_edge(
         return !edge.construction && !edge.overlay &&
             (!edge.reference.valid() || !edge.display_owner_id.empty()) &&
             (candidate.instance_path.empty() ||
-             candidate.instance_path == edge.reference.instance_path);
+             edge.reference.instance_path.starts_with(candidate.instance_path));
     }
     if (candidate.kind == CandidateKind::Container &&
         candidate.semantic_key.empty()) {
@@ -477,7 +480,8 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
                 }
             }
         }
-        const auto faces = ordered_ray_candidates(source, ray_origin, ray_direction);
+        const auto faces = ordered_ray_candidates(source, ray_origin, ray_direction,
+            geometry == CandidateGeometry::Display);
         for (const auto& face : faces) {
             // In a Part, valid display-face identities are the persisted
             // source identities carried by the actually visible Body
@@ -505,7 +509,6 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
                             face.reference.instance_path;
                     });
             if (!origin_reference && !face.reference.instance_path.empty() &&
-                !persisted_occurrence &&
                 std::none_of(result.begin(), result.end(), [&](const ViewerCandidate& item) {
                     return item.kind == CandidateKind::Occurrence &&
                         item.instance_path == face.reference.instance_path;
@@ -513,6 +516,9 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
                 result.push_back({CandidateKind::Occurrence, face.distance, face.triangle,
                                   {}, {}, face.reference.instance_path, geometry});
             }
+            // A display triangle owns an occurrence even without a persisted
+            // face identity. It must never become a topology/placement reference.
+            if (!face.reference.valid()) continue;
             if ((!persisted_occurrence || offer_result_faces) && face.reference.semantic_key != "container:display") {
                 result.push_back({CandidateKind::Face, face.distance, face.triangle,
                                   face.reference.owner_id, face.reference.semantic_key,
@@ -845,7 +851,8 @@ std::optional<ViewerCandidate> occurrence_candidate(
         const auto triangle = std::find_if(
         references.begin(), references.end(),
         [&](const zima::kernel::FaceReference& reference) {
-            return reference.valid() && reference.instance_path == instance_path;
+            return reference.instance_path.starts_with(instance_path) &&
+                (geometry == CandidateGeometry::Display || reference.valid());
         });
         if (triangle == references.end()) return std::nullopt;
         return ViewerCandidate{
@@ -853,10 +860,10 @@ std::optional<ViewerCandidate> occurrence_candidate(
             static_cast<std::size_t>(std::distance(references.begin(), triangle)),
             {}, {}, instance_path, geometry};
     };
-    if (auto original = find_in(
-            mesh.original_references.triangle_references,
-            CandidateGeometry::OriginalReference)) return original;
-    return find_in(mesh.triangle_references, CandidateGeometry::Display);
+    if (auto displayed = find_in(mesh.triangle_references,
+            CandidateGeometry::Display)) return displayed;
+    return find_in(mesh.original_references.triangle_references,
+        CandidateGeometry::OriginalReference);
 }
 
 std::vector<ViewerCandidate> filter_candidates(

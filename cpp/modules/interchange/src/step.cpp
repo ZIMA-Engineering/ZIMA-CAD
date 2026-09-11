@@ -6,6 +6,12 @@
 #include <GeomAbs_SurfaceType.hxx>
 #include <STEPControl_Reader.hxx>
 #include <STEPCAFControl_Reader.hxx>
+#include <StepBasic_ProductDefinition.hxx>
+#include <StepRepr_AssemblyComponentUsage.hxx>
+#include <TransferBRep.hxx>
+#include <XSControl_WorkSession.hxx>
+#include <XSControl_TransferReader.hxx>
+#include <set>
 #include <TDataStd_Name.hxx>
 #include <TDocStd_Document.hxx>
 #include <XCAFApp_Application.hxx>
@@ -93,10 +99,42 @@ std::vector<StepPart> inspect_step_parts(
         throw std::runtime_error("STEP produktovou strukturu nelze načíst");
     reader.ChangeReader().SetSystemLengthUnit(1.0);
     if(!reader.Transfer(document))throw std::runtime_error("STEP produktovou strukturu nelze načíst");
+    // XCAF may expand a single product's compound representation into an
+    // artificial assembly (e.g. a screw solid plus its thread sheet). Only
+    // STEP product-usage relationships establish real assembly ownership.
+    std::set<std::string> product_labels, assembly_labels;
+    const auto model = reader.Reader().Model();
+    const auto transfer = reader.Reader().WS()->TransferReader()->TransientProcess();
+    const auto product_label = [&](const Handle(StepBasic_ProductDefinition)& product) {
+        if (product.IsNull()) return std::string{};
+        const auto shape = TransferBRep::ShapeResult(transfer, product);
+        const auto& labels = reader.GetShapeLabelMap();
+        if (shape.IsNull() || !labels.IsBound(shape)) return std::string{};
+        TCollection_AsciiString entry;
+        TDF_Tool::Entry(labels.Find(shape), entry);
+        return std::string(entry.ToCString());
+    };
+    for (int i = 1; i <= model->NbEntities(); ++i) {
+        const auto entity = model->Value(i);
+        if (const auto product = Handle(StepBasic_ProductDefinition)::DownCast(entity);
+            !product.IsNull()) {
+            const auto label = product_label(product);
+            if (!label.empty()) product_labels.insert(label);
+        }
+        if (const auto usage = Handle(StepRepr_AssemblyComponentUsage)::DownCast(entity);
+            !usage.IsNull()) {
+            const auto label = product_label(usage->RelatingProductDefinition());
+            if (!label.empty()) assembly_labels.insert(label);
+        }
+    }
+    int collapsed_depth = -1;
     std::vector<StepPart> result;
     XCAFPrs_DocumentExplorer explorer(
         document, XCAFPrs_DocumentExplorerFlags_NoStyle);
     for (; explorer.More(); explorer.Next()) {
+        const auto current_depth = explorer.CurrentDepth();
+        if (collapsed_depth >= 0 && current_depth > collapsed_depth) continue;
+        collapsed_depth = -1;
         if (result.size() == maximum_parts) {
             throw std::runtime_error("STEP obsahuje příliš mnoho dílů");
         }
@@ -137,8 +175,12 @@ std::vector<StepPart> inspect_step_parts(
         global_transform.GetRotation().GetEulerAngles(
             gp_Extrinsic_XYZ, global_rx, global_ry, global_rz);
         const auto global_translation = global_transform.TranslationPart();
+        const bool representation_group = node.IsAssembly &&
+            product_labels.contains(definition.ToCString()) &&
+            !assembly_labels.contains(definition.ToCString());
+        if (representation_group) collapsed_depth = current_depth;
         result.push_back({node.Id.ToCString(), std::move(parent_path),
-            definition.ToCString(), std::move(name), node.IsAssembly,
+            definition.ToCString(), std::move(name), node.IsAssembly && !representation_group,
             translation.X(), translation.Y(), translation.Z(),
             rotation_x * degrees, rotation_y * degrees, rotation_z * degrees,
             global_translation.X(), global_translation.Y(), global_translation.Z(),

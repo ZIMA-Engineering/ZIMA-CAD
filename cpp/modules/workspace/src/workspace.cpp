@@ -349,6 +349,37 @@ std::optional<OccurrenceAddress> Workspace::resolve_occurrence(
         occurrence.source_document_id, occurrence.source_kind, instance_path};
 }
 
+std::optional<std::filesystem::path> Workspace::occurrence_source_file(
+    const std::string& top_id, const zima::assembly::InstancePath& requested) const {
+    const auto* top = open_assembly(top_id);
+    if (!top || requested.occurrence_ids.empty()) return std::nullopt;
+    const auto path = derived_source_path(top_id, requested);
+    const auto* document = &top->session.document();
+    auto owner_file = top->path;
+    std::optional<zima::assembly::AssemblyDocument> loaded;
+    for (std::size_t i = 0; i < path.occurrence_ids.size(); ++i) {
+        const auto* occurrence = document->find_occurrence(path.occurrence_ids[i]);
+        if (!occurrence || occurrence->source_path.empty()) return std::nullopt;
+        auto source_file = occurrence->source_path;
+        const auto source_id = occurrence->source_document_id;
+        if (source_file.is_relative()) source_file = owner_file.parent_path() / source_file;
+        source_file = source_file.lexically_normal();
+        if (i + 1 == path.occurrence_ids.size()) return source_file;
+        if (occurrence->source_kind != zima::assembly::ComponentSourceKind::Assembly)
+            return std::nullopt;
+        if (const auto* open = open_assembly(source_id)) {
+            document = &open->session.document();
+            owner_file = open->path.empty() ? source_file : open->path;
+        } else {
+            loaded = zima::assembly::AssemblyDocument::load(source_file);
+            if (loaded->document_id != source_id) return std::nullopt;
+            document = &*loaded;
+            owner_file = source_file;
+        }
+    }
+    return std::nullopt;
+}
+
 zima::assembly::InstancePath Workspace::derived_source_path(
     const std::string& top_id,const zima::assembly::InstancePath& path) const {
     const auto* top=open_assembly(top_id);if(!top)return path;

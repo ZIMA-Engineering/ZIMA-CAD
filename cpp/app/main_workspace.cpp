@@ -4012,11 +4012,56 @@ bool verify_mates_in_view(const zima::kernel::ViewerMesh& scene,
     return true;
 }
 
-bool verify_plane_angle_dialog(QApplication& application,zima::app::ComponentPropertiesDialog* dialog,zima::viewer::MeshView* view) {
+bool verify_plane_angle_dialog(QApplication& application,zima::app::ComponentPropertiesDialog* dialog,zima::viewer::MeshView* view,bool inline_only=false) {
     using namespace zima;
     const auto flush=[&] {application.processEvents();};
     const auto rows=dialog->placement_references();
     auto* table=dialog->findChild<QTableWidget*>("componentPlacementTable");
+    const auto edit_view_angle=[&](double angle) {
+        const auto key="placement-reference:"+dialog->occurrence_id()+":2";
+        const auto found=std::find_if(view->mesh().dimensions.begin(),view->mesh().dimensions.end(),
+            [&](const auto& d){return d.reference.semantic_key==key;});
+        if(!verify(found!=view->mesh().dimensions.end(),"Angle preview dimension missing"))return false;
+        const auto reference=found->reference;
+        view->confirm_reference(reference.owner_id,reference.semantic_key,reference.instance_path,viewer::CandidateKind::Dimension);
+        const auto candidate=view->confirmed_candidate();
+        const auto label=candidate?view->candidate_dimension_label_position(*candidate):std::nullopt;
+        if(!verify(label.has_value(),"Angle preview dimension has no label"))return false;
+        const auto camera=view->camera_state();
+        QPointF at(*label);
+        if(inline_only) {
+            std::optional<QPointF> hit;
+            for(int y=0;y<view->height()&&!hit;y+=2)for(int x=0;x<view->width()&&!hit;x+=2) {
+                const auto candidates=view->selection_candidates_at({double(x),double(y)});
+                if(!candidates.empty()&&candidates.front().semantic_key==key)hit=QPointF(x,y);
+            }
+            if(!verify(hit.has_value(),"Open properties does not offer its angle through the common picker"))return false;
+            at=*hit;
+            for(auto type:{QEvent::MouseButtonPress,QEvent::MouseMove,QEvent::MouseButtonRelease}) {
+                const auto point=at+(type==QEvent::MouseMove?QPointF(1,1):QPointF{});
+                QMouseEvent event(type,point,QPointF(view->mapToGlobal(point.toPoint())),
+                    type==QEvent::MouseMove?Qt::NoButton:Qt::LeftButton,
+                    type==QEvent::MouseButtonRelease?Qt::NoButton:Qt::LeftButton,Qt::NoModifier);
+                QApplication::sendEvent(view,&event);
+            }
+        }
+        const QPointF global(view->mapToGlobal(at.toPoint()));
+        QMouseEvent dbl(QEvent::MouseButtonDblClick,at,global,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+        QApplication::sendEvent(view,&dbl);
+        QMouseEvent release(QEvent::MouseButtonRelease,at,global,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(view,&release);flush();
+        QPointer<QLineEdit> edit=view->findChild<QLineEdit*>("inlineDimensionValueEdit");
+        if(!verify(edit&&edit->isVisible(),"Angle editor did not open with Component Properties"))return false;
+        edit->setText(QString::number(angle));
+        QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(edit,&enter);flush();
+        const bool accepted=std::abs(dialog->pending_value().placement_references[2].offset-angle)<1e-9 && (!edit || !edit->isVisible());
+        QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+        return verify(accepted && view->camera_state()==camera && verify_mates_in_view(view->mesh(),dialog->placement_references()),
+            "Inline angle did not update pending properties/preview without moving the camera");
+    };
+    qobject_cast<QDoubleSpinBox*>(table->cellWidget(2,4))->setValue(25.0);flush();
+    if(!edit_view_angle(37.0)||!edit_view_angle(rows[2].offset))return false;
+    if(inline_only)return true;
     for(double angle:{-180.0,-135.0,-90.0,-45.0,-15.0,15.0,45.0,90.0,135.0,180.0,0.0}) {
         qobject_cast<QDoubleSpinBox*>(table->cellWidget(2,4))->setValue(angle);flush();
         if(!verify(dialog->findChild<QLabel*>("componentDegreesOfFreedom")->text().endsWith("0") &&
@@ -4066,7 +4111,7 @@ int verify_component_reference_document(QApplication& application, const std::fi
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_COMPONENT_ANGLE") && dialog->placement_references().size()==3 &&
                 dialog->placement_references()[2].mate_type==assembly::MateKind::PlaneAngle) {
             auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
-            if(!verify_plane_angle_dialog(application,dialog,view))return 1;
+            if(!verify_plane_angle_dialog(application,dialog,view,qEnvironmentVariableIsSet("ZIMA_VERIFY_COMPONENT_INLINE_ONLY")))return 1;
             window.grab().save(QString::fromStdString((directory/"component-plane-angle.png").string()));
         }
         dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();

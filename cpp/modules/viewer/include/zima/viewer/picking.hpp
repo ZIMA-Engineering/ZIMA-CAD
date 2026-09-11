@@ -122,7 +122,8 @@ struct EdgeKey {
 [[nodiscard]] std::vector<PickCandidate> ordered_ray_candidates(
     const zima::kernel::ViewerMesh& mesh,
     const zima::kernel::Vec3& ray_origin,
-    const zima::kernel::Vec3& ray_direction);
+    const zima::kernel::Vec3& ray_direction,
+    bool include_occurrence_surfaces = false);
 
 [[nodiscard]] std::size_t next_candidate_index(
     std::size_t current, std::size_t candidate_count);

@@ -1147,6 +1147,55 @@ int main(int argc, char* argv[]) {
         }
         rounded_route_view.hide();
 
+        {
+        // Camera redraws reuse display data; replacing inputs must invalidate it.
+        zima::kernel::ViewerMesh cache_mesh;
+        cache_mesh.vertices={{-1,-1,0},{1,-1,0},{1,1,0},{-1,1,0}};
+        cache_mesh.triangles={0,1,2,0,2,3};
+        cache_mesh.triangle_references={{"body","surface","part"},{"body","surface","part"}};
+        zima::viewer::MeshView cache_view(&parent);
+        cache_view.setGeometry(0,0,500,360);
+        cache_view.set_mesh(cache_mesh);
+        cache_view.set_view_direction({0,0,1});
+        cache_view.set_display_mode(zima::viewer::DisplayMode::Shaded);
+        cache_view.show();
+        const auto render_cache=[&]{application.processEvents();return cache_view.grabFramebuffer();};
+        const auto center_color=[&]{const auto f=render_cache();return f.pixelColor(f.width()/2,f.height()/2);};
+        const zima::kernel::SurfaceStyle red{"#FF0000",.5,0}, green{"#00FF00",.5,0}, blue{"#0000FF",.5,0};
+        const auto owner_key=std::string("part")+'\x1f'+"body";
+        const auto face_key=owner_key+'\x1f'+"surface";
+        cache_view.set_body_surface_styles(red,{}, {},{});
+        auto c=center_color();require(c.red()>c.green()+30,"Base material missing");
+        cache_view.set_body_surface_styles(red,{{"part",green}}, {},{});
+        c=center_color();require(c.green()>c.red()+30,"Instance material cache stale");
+        cache_view.set_body_surface_styles(red,{{"part",green}}, {{owner_key,blue}},{});
+        c=center_color();require(c.blue()>c.green()+30,"Owner material cache stale");
+        cache_view.set_body_surface_styles(red,{{"part",green}}, {{owner_key,blue}},{{face_key,green}});
+        c=center_color();require(c.green()>c.blue()+30,"Face material cache stale");
+        cache_view.set_body_surface_colors(QColor("#FF0000"),{},{});
+        c=center_color();require(c.red()>c.green()+30,"Colour setter retained old batches");
+        const auto cyan_pixels=[&]{
+            const auto f=render_cache();int count=0;
+            for(int y=0;y<f.height();++y)for(int x=0;x<f.width();++x){
+                const auto p=f.pixelColor(x,y);if(p.red()<40&&p.green()>160&&p.blue()>210)++count;
+            }return count;
+        };
+        cache_view.set_constraint_reference_highlights({},{{"body","surface","part"}});
+        require(cyan_pixels()>30,"Face boundary missing");
+        auto camera=cache_view.camera_state();camera[5]+=12;cache_view.set_camera_state(camera);
+        require(cyan_pixels()>30,"Camera change lost face boundary");
+        cache_view.set_constraint_reference_highlights({},{});
+        require(cyan_pixels()==0,"Cleared reference retained boundary");
+        cache_view.set_constraint_reference_highlights({},{{"body","surface","part"}});
+        require(cyan_pixels()>30,"Rearmed reference did not rebuild boundary");
+        cache_view.set_body_surface_styles(red,{{"part",green}}, {},{});
+        cache_mesh.triangle_references={{"other","other","other"},{"other","other","other"}};
+        cache_view.set_mesh(cache_mesh,false);
+        require(cyan_pixels()==0,"Replacement mesh retained old boundary");
+        c=center_color();require(c.red()>c.green()+30,"Replacement mesh retained old material");
+        cache_view.hide();
+        }
+
         // The later coincident plane must not paint over the inspected frame.
         zima::kernel::ViewerMesh plane_inspection_mesh;
         plane_inspection_mesh.vertices = {{-2,-2,-1},{2,2,1}};
@@ -1253,6 +1302,46 @@ int main(int argc, char* argv[]) {
                     first_face->owner_id != second_face->owner_id &&
                     second_face->owner_id == face_candidates[1].owner_id,
                 "RMB did not advance hover to the face behind the front face");
+
+        {
+            zima::kernel::ViewerMesh imported;
+            imported.vertices={{-2,-2,5},{2,-2,5},{0,2,5}, {-2,-2,2},{2,-2,2},{0,2,2}};
+            imported.triangles={0,1,2,3,4,5};
+            imported.triangle_references={{"","","front"},{"","","rear"}};
+            zima::viewer::MeshView view(&parent);
+            view.setGeometry(0,0,500,360);view.set_mesh(imported);
+            auto camera=view.camera_state();camera[0]=1;camera[1]=camera[2]=camera[3]=0;
+            view.set_camera_state(camera);
+            view.set_selection_contract({zima::viewer::CandidateKind::Occurrence});
+            view.show();application.processEvents();
+            const QPointF pointer(250,180);
+            const auto send=[&](QEvent::Type type,Qt::MouseButton button,Qt::MouseButtons buttons){
+                QMouseEvent event(type,pointer,pointer,pointer,button,buttons,Qt::NoModifier);
+                QApplication::sendEvent(&view,&event);
+            };
+            send(QEvent::MouseMove,Qt::NoButton,Qt::NoButton);
+            require(view.hovered_candidate()&&view.hovered_candidate()->instance_path=="front",
+                "Assembly hover skipped front imported planar surface");
+            send(QEvent::MouseButtonPress,Qt::RightButton,Qt::RightButton);
+            send(QEvent::MouseButtonRelease,Qt::RightButton,Qt::NoButton);
+            require(view.hovered_candidate()&&view.hovered_candidate()->instance_path=="rear",
+                "RMB did not cycle imported occurrences");
+            send(QEvent::MouseMove,Qt::NoButton,Qt::NoButton);
+            require(view.hovered_candidate()&&view.hovered_candidate()->instance_path=="rear",
+                "Stationary hover reset RMB choice");
+            send(QEvent::MouseButtonPress,Qt::LeftButton,Qt::LeftButton);
+            send(QEvent::MouseButtonRelease,Qt::LeftButton,Qt::NoButton);
+            require(view.confirmed_candidate()&&view.confirmed_candidate()->instance_path=="rear",
+                "LMB did not confirm the cycled occurrence");
+            int menus=0;
+            view.set_context_menu_callback([&](const auto& c,const auto&){
+                require(c.instance_path=="rear","Context menu targets a different occurrence");++menus;
+            });
+            send(QEvent::MouseButtonPress,Qt::RightButton,Qt::RightButton);
+            send(QEvent::MouseButtonRelease,Qt::RightButton,Qt::NoButton);
+            require(menus==1,"RMB did not request confirmed occurrence menu");
+            view.hide();
+        }
 
         zima::kernel::ViewerMesh tangent_route_mesh;
         tangent_route_mesh.edges = {
@@ -1486,6 +1575,39 @@ int main(int argc, char* argv[]) {
                 "View double click opened the first overlapping object instead "
                 "of the exact confirmed candidate");
 
+        // A double-click with normal pointer jitter must not start a modeling
+        // drag (whose end callback may rebuild/reframe the Assembly scene).
+        int dimension_begins=0, dimension_updates=0, dimension_ends=0;
+        overlapping_dimension_view.set_candidate_drag_callbacks(
+            [&](const auto&,const auto&,const auto&){++dimension_begins;return true;},
+            [&](const auto&,const auto&){++dimension_updates;},
+            [&]{++dimension_ends;});
+        const auto dimension_mouse=[&](QEvent::Type type,QPointF at,Qt::MouseButton button,Qt::MouseButtons buttons){
+            QMouseEvent event(type,at,at,at,button,buttons,Qt::NoModifier);
+            QApplication::sendEvent(&overlapping_dimension_view,&event);
+        };
+        overlapping_dimension_view.set_selection_contract({zima::viewer::CandidateKind::Dimension});
+        QPointF dimension_press(*back_label);
+        bool dimension_hit=false;
+        for(int y=0;y<overlapping_dimension_view.height()&&!dimension_hit;++y)
+            for(int x=0;x<overlapping_dimension_view.width()&&!dimension_hit;++x)
+                if(!overlapping_dimension_view.selection_candidates_at({double(x),double(y)}).empty()) {
+                    dimension_press={double(x),double(y)};dimension_hit=true;
+                }
+        require(dimension_hit,"Dimension gesture test has no pickable annotation");
+        dimension_mouse(QEvent::MouseButtonPress,dimension_press,Qt::LeftButton,Qt::LeftButton);
+        dimension_mouse(QEvent::MouseMove,dimension_press+QPointF(1,1),Qt::NoButton,Qt::LeftButton);
+        dimension_mouse(QEvent::MouseButtonRelease,dimension_press+QPointF(1,1),Qt::LeftButton,Qt::NoButton);
+        dimension_mouse(QEvent::MouseButtonDblClick,dimension_press,Qt::LeftButton,Qt::LeftButton);
+        dimension_mouse(QEvent::MouseMove,dimension_press+QPointF(30,0),Qt::NoButton,Qt::LeftButton);
+        dimension_mouse(QEvent::MouseButtonRelease,dimension_press,Qt::LeftButton,Qt::NoButton);
+        require(dimension_begins==0 && dimension_updates==0 && dimension_ends==0,
+                "Dimension double-click/jitter started a modeling drag");
+        dimension_mouse(QEvent::MouseButtonPress,dimension_press,Qt::LeftButton,Qt::LeftButton);
+        dimension_mouse(QEvent::MouseMove,dimension_press+QPointF(QApplication::startDragDistance()+2,0),Qt::NoButton,Qt::LeftButton);
+        dimension_mouse(QEvent::MouseButtonRelease,dimension_press,Qt::LeftButton,Qt::NoButton);
+        require(dimension_begins==1 && dimension_updates==1 && dimension_ends==1,
+                "Intentional dimension drag did not run exactly one gesture");
         zero_dimension_view.clear_selection();
         zero_dimension_view.set_selection_contract({
             zima::viewer::CandidateKind::SketchPoint,

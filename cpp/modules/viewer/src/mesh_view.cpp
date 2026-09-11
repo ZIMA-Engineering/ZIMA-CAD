@@ -179,6 +179,8 @@ struct MeshView::Impl {
         drag_update_callback;
     std::function<void()> drag_end_callback;
     bool drag_active{};
+    std::optional<ViewerCandidate> pending_dimension_drag;
+    QPointF dimension_drag_press_position;
     std::function<void(const ViewerCandidate&, const QPoint&)> context_menu_callback;
     std::function<bool(const zima::kernel::Vec3&, const zima::kernel::Vec3&)>
         world_click_callback;
@@ -250,6 +252,138 @@ struct MeshView::Impl {
     std::map<std::string, QColor> body_surface_instance_colors;
     zima::kernel::SurfaceStyle surface_style;
     std::map<std::string,zima::kernel::SurfaceStyle> instance_styles, owner_styles, face_styles;
+    // Camera changes only project these segments; geometry/reference changes invalidate them.
+    bool reference_boundaries_dirty{true};
+    std::vector<std::pair<zima::kernel::Vec3, zima::kernel::Vec3>> reference_boundaries;
+    void prepare_reference_boundaries() {
+        if (!reference_boundaries_dirty) return;
+        reference_boundaries.clear();
+        if (!constraint_reference_edges.empty()) {
+            using RoundedPoint = std::array<long long, 3>;
+            struct FaceBoundarySegment {
+                zima::kernel::Vec3 first;
+                zima::kernel::Vec3 second;
+                std::size_t uses{};
+            };
+            std::map<std::pair<RoundedPoint, RoundedPoint>, FaceBoundarySegment>
+                boundary;
+            const auto rounded = [](const zima::kernel::Vec3& point) {
+                constexpr double scale = 1.0e7;
+                return RoundedPoint{std::llround(point.x * scale),
+                    std::llround(point.y * scale),
+                    std::llround(point.z * scale)};
+            };
+            std::set<EdgeKey> displayed_references;
+            for (const auto& reference :
+                 mesh.triangle_references) {
+                const EdgeKey key{reference.owner_id,
+                    reference.semantic_key, reference.instance_path};
+                if (constraint_reference_edges.contains(key) &&
+                    reference.semantic_key != "plane" &&
+                    !reference.semantic_key.starts_with(
+                        "origin:plane:")) {
+                    displayed_references.insert(std::move(key));
+                }
+            }
+            const auto append_boundaries =
+                [&](const auto& source, bool original_fallback) {
+                    for (std::size_t triangle = 0;
+                         triangle <
+                            source.triangle_references.size();
+                         ++triangle) {
+                        const auto& reference =
+                            source.triangle_references[triangle];
+                        const EdgeKey key{reference.owner_id,
+                            reference.semantic_key,
+                            reference.instance_path};
+                        if (!constraint_reference_edges.contains(
+                                key) ||
+                            (original_fallback &&
+                             displayed_references.contains(key)) ||
+                            reference.semantic_key == "plane" ||
+                            reference.semantic_key.starts_with(
+                                "origin:plane:") ||
+                            triangle * 3 + 2 >=
+                                source.triangles.size()) {
+                            continue;
+                        }
+                        const std::array<std::uint32_t, 3> indices{
+                            source.triangles[triangle * 3],
+                            source.triangles[triangle * 3 + 1],
+                            source.triangles[triangle * 3 + 2]};
+                        if (std::ranges::any_of(indices,
+                                [&](const auto index) {
+                                    return index >=
+                                        source.vertices.size();
+                                })) {
+                            continue;
+                        }
+                        for (std::size_t side = 0; side < 3; ++side) {
+                            const auto& first =
+                                source.vertices[indices[side]];
+                            const auto& second = source.vertices[
+                                indices[(side + 1) % 3]];
+                            auto first_key = rounded(first);
+                            auto second_key = rounded(second);
+                            if (second_key < first_key) {
+                                std::swap(first_key, second_key);
+                            }
+                            auto& segment =
+                                boundary[{first_key, second_key}];
+                            if (segment.uses++ == 0) {
+                                segment.first = first;
+                                segment.second = second;
+                            }
+                        }
+                    }
+                };
+            append_boundaries(mesh, false);
+            append_boundaries(
+                mesh.original_references, true);
+            for (const auto& [key, segment] : boundary) {
+                if (segment.uses == 1)
+                    reference_boundaries.emplace_back(segment.first, segment.second);
+            }
+        }
+        reference_boundaries_dirty = false;
+    }
+    struct SurfaceBatch {
+        std::size_t first, count;
+        zima::kernel::SurfaceStyle style;
+        QColor color;
+        bool technological_thread;
+    };
+    bool surface_batches_dirty{true};
+    std::vector<SurfaceBatch> surface_batches;
+    void prepare_surface_batches() {
+        if (!surface_batches_dirty) return;
+        surface_batches.clear();
+        const std::size_t triangle_count = mesh.triangles.size() / 3;
+        const auto triangle_style = [&](std::size_t triangle) {
+            auto style=surface_style;
+            if(triangle>=mesh.triangle_references.size())return style;
+            const auto& r=mesh.triangle_references[triangle];
+            if(const auto it=instance_styles.find(r.instance_path);it!=instance_styles.end())style=it->second;
+            const auto owner=r.instance_path+"\x1f"+r.owner_id;
+            if(const auto it=owner_styles.find(owner);it!=owner_styles.end())style=it->second;
+            if(const auto it=face_styles.find(owner+"\x1f"+r.semantic_key);it!=face_styles.end())style=it->second;
+            if(r.semantic_key.starts_with("thread:surface:"))style={"#8F969D",.5,.65};
+            return style;
+        };
+        for (std::size_t triangle = 0; triangle < triangle_count; ++triangle) {
+            const auto style = triangle_style(triangle);
+            const bool thread = triangle < mesh.triangle_references.size() &&
+                mesh.triangle_references[triangle].semantic_key.starts_with("thread:surface:");
+            if (!surface_batches.empty() && surface_batches.back().style == style &&
+                surface_batches.back().technological_thread == thread) {
+                ++surface_batches.back().count;
+            } else {
+                surface_batches.push_back({triangle, 1, style,
+                    QColor(QString::fromStdString(style.color)), thread});
+            }
+        }
+        surface_batches_dirty = false;
+    }
     std::vector<ViewerCandidate> inspected_faces;
     std::map<std::string, QColor> body_surface_face_colors;
     QPoint last_pointer;
@@ -569,6 +703,8 @@ void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
     if(impl_->dimension_layout_resolver)for(auto& d:mesh.dimensions)
         if(auto layout=impl_->dimension_layout_resolver(d.reference))d=kernel::layout_dimension(d,impl_->object_bounds.contains({d.reference.owner_id,d.reference.instance_path})&&impl_->object_bounds.at({d.reference.owner_id,d.reference.instance_path}).valid?impl_->object_bounds.at({d.reference.owner_id,d.reference.instance_path}):impl_->dimension_bounds,*layout);
     impl_->mesh = std::move(mesh);
+    impl_->surface_batches_dirty = true;
+    impl_->reference_boundaries_dirty = true;
     std::erase_if(impl_->mesh.edges, [](const auto& edge) {
         return edge.parameter_seam;
     });
@@ -1935,7 +2071,10 @@ void MeshView::set_sketch_relation_highlights(std::set<EdgeKey> references) {
 void MeshView::set_constraint_reference_highlights(
     std::set<std::string> owner_ids, std::set<EdgeKey> edges) {
     impl_->constraint_reference_owner_ids = std::move(owner_ids);
-    impl_->constraint_reference_edges = std::move(edges);
+    if (impl_->constraint_reference_edges != edges) {
+        impl_->constraint_reference_edges = std::move(edges);
+        impl_->reference_boundaries_dirty = true;
+    }
     update();
 }
 
@@ -1966,6 +2105,7 @@ void MeshView::set_body_surface_styles(zima::kernel::SurfaceStyle base,
         std::map<std::string,zima::kernel::SurfaceStyle> instances,
         std::map<std::string,zima::kernel::SurfaceStyle> owners,
         std::map<std::string,zima::kernel::SurfaceStyle> faces) {
+    impl_->surface_batches_dirty = true;
     impl_->surface_style=std::move(base);impl_->instance_styles=std::move(instances);
     impl_->owner_styles=std::move(owners);impl_->face_styles=std::move(faces);update();
 }
@@ -1976,6 +2116,7 @@ void MeshView::set_inspected_faces(std::vector<ViewerCandidate> faces){impl_->in
 void MeshView::set_body_surface_colors(
     QColor default_color, std::map<std::string, QColor> instance_colors,
     std::map<std::string, QColor> face_colors) {
+    impl_->surface_batches_dirty = true;
     impl_->body_surface_color = default_color.isValid()
         ? default_color : QColor("#B9C2CC");
     impl_->body_surface_instance_colors = instance_colors;
@@ -2912,36 +3053,11 @@ if (impl_->show_origins) {
                 static_cast<float>(color.blueF()),
                 static_cast<float>(color.alphaF()));
         };
-        const std::size_t triangle_count = impl_->mesh.triangles.size() / 3;
-        const auto triangle_style = [&](std::size_t triangle) {
-            auto style=impl_->surface_style;
-            if(triangle>=impl_->mesh.triangle_references.size())return style;
-            const auto& r=impl_->mesh.triangle_references[triangle];
-            if(const auto it=impl_->instance_styles.find(r.instance_path);it!=impl_->instance_styles.end())style=it->second;
-            const auto owner=r.instance_path+"\x1f"+r.owner_id;
-            if(const auto it=impl_->owner_styles.find(owner);it!=impl_->owner_styles.end())style=it->second;
-            if(const auto it=impl_->face_styles.find(owner+"\x1f"+r.semantic_key);it!=impl_->face_styles.end())style=it->second;
-            if(r.semantic_key.starts_with("thread:surface:"))style={"#8F969D",.5,.65};
-            return style;
-        };
-        std::size_t first{};
-        while (first < triangle_count) {
-            const auto style = triangle_style(first);
-            QColor color(QString::fromStdString(style.color));
-            const bool technological_thread = first <
-                    impl_->mesh.triangle_references.size() &&
-                impl_->mesh.triangle_references[first].semantic_key.starts_with(
-                    "thread:surface:");
-            std::size_t end = first + 1;
-            while (end < triangle_count) {
-                const auto next = triangle_style(end);
-                const bool next_thread = end <
-                        impl_->mesh.triangle_references.size() &&
-                    impl_->mesh.triangle_references[end].semantic_key.starts_with(
-                        "thread:surface:");
-                if (next != style || next_thread != technological_thread) break;
-                ++end;
-            }
+        impl_->prepare_surface_batches();
+        for (const auto& batch : impl_->surface_batches) {
+            const auto& style = batch.style;
+            const auto& color = batch.color;
+            const bool technological_thread = batch.technological_thread;
             // The solid is pushed slightly back for edge readability. A
             // coincident technological sheet needs the unshifted depth so
             // its grey face remains visible on an outside cylinder, while
@@ -2955,10 +3071,9 @@ if (impl_->show_origins) {
             impl_->program.setUniformValue("roughness",static_cast<float>(style.roughness));
             impl_->program.setUniformValue("metallic",static_cast<float>(style.metallic));
             impl_->program.setUniformValue("color", color_vector(color));
-            glDrawArrays(GL_TRIANGLES, static_cast<GLint>(first * 3),
-                static_cast<GLsizei>((end - first) * 3));
+            glDrawArrays(GL_TRIANGLES, static_cast<GLint>(batch.first * 3),
+                static_cast<GLsizei>(batch.count * 3));
             if (color.alpha() < 255) glDisable(GL_BLEND);
-            first = end;
         }
         glPolygonOffset(1.0F, 1.0F);
         glDisable(GL_POLYGON_OFFSET_FILL);
@@ -4289,95 +4404,9 @@ if (impl_->show_origins) {
         // visible-fragment -> stable-source contract used by picking.
         // Internal tessellation diagonals occur twice and are removed; no
         // whole-body tint or OCCT topology lookup is involved.
-        {
-            using RoundedPoint = std::array<long long, 3>;
-            struct FaceBoundarySegment {
-                zima::kernel::Vec3 first;
-                zima::kernel::Vec3 second;
-                std::size_t uses{};
-            };
-            std::map<std::pair<RoundedPoint, RoundedPoint>, FaceBoundarySegment>
-                boundary;
-            const auto rounded = [](const zima::kernel::Vec3& point) {
-                constexpr double scale = 1.0e7;
-                return RoundedPoint{std::llround(point.x * scale),
-                    std::llround(point.y * scale),
-                    std::llround(point.z * scale)};
-            };
-            std::set<EdgeKey> displayed_references;
-            for (const auto& reference :
-                 impl_->mesh.triangle_references) {
-                const EdgeKey key{reference.owner_id,
-                    reference.semantic_key, reference.instance_path};
-                if (impl_->constraint_reference_edges.contains(key) &&
-                    reference.semantic_key != "plane" &&
-                    !reference.semantic_key.starts_with(
-                        "origin:plane:")) {
-                    displayed_references.insert(std::move(key));
-                }
-            }
-            const auto append_boundaries =
-                [&](const auto& source, bool original_fallback) {
-                    for (std::size_t triangle = 0;
-                         triangle <
-                            source.triangle_references.size();
-                         ++triangle) {
-                        const auto& reference =
-                            source.triangle_references[triangle];
-                        const EdgeKey key{reference.owner_id,
-                            reference.semantic_key,
-                            reference.instance_path};
-                        if (!impl_->constraint_reference_edges.contains(
-                                key) ||
-                            (original_fallback &&
-                             displayed_references.contains(key)) ||
-                            reference.semantic_key == "plane" ||
-                            reference.semantic_key.starts_with(
-                                "origin:plane:") ||
-                            triangle * 3 + 2 >=
-                                source.triangles.size()) {
-                            continue;
-                        }
-                        const std::array<std::uint32_t, 3> indices{
-                            source.triangles[triangle * 3],
-                            source.triangles[triangle * 3 + 1],
-                            source.triangles[triangle * 3 + 2]};
-                        if (std::ranges::any_of(indices,
-                                [&](const auto index) {
-                                    return index >=
-                                        source.vertices.size();
-                                })) {
-                            continue;
-                        }
-                        for (std::size_t side = 0; side < 3; ++side) {
-                            const auto& first =
-                                source.vertices[indices[side]];
-                            const auto& second = source.vertices[
-                                indices[(side + 1) % 3]];
-                            auto first_key = rounded(first);
-                            auto second_key = rounded(second);
-                            if (second_key < first_key) {
-                                std::swap(first_key, second_key);
-                            }
-                            auto& segment =
-                                boundary[{first_key, second_key}];
-                            if (segment.uses++ == 0) {
-                                segment.first = first;
-                                segment.second = second;
-                            }
-                        }
-                    }
-                };
-            append_boundaries(impl_->mesh, false);
-            append_boundaries(
-                impl_->mesh.original_references, true);
-            for (const auto& [key, segment] : boundary) {
-                static_cast<void>(key);
-                if (segment.uses != 1) continue;
-                draw_reference_segment(project(segment.first),
-                    project(segment.second), QColor(0, 209, 255), 1.5);
-            }
-        }
+        impl_->prepare_reference_boundaries();
+        for (const auto& [first, second] : impl_->reference_boundaries)
+            draw_reference_segment(project(first), project(second), QColor(0, 209, 255), 1.5);
         // Relation participants come directly from the persisted Sketch marker.
         auto relation_keys=impl_->sketch_relation_highlights;
         QColor relation_color(255,140,12);
@@ -4613,7 +4642,7 @@ if (impl_->show_origins) {
                         continue;
                     }
                     const bool matches = highlighted->kind == CandidateKind::Occurrence
-                        ? reference.instance_path == highlighted->instance_path
+                        ? reference.instance_path.starts_with(highlighted->instance_path)
                         : highlighted->kind == CandidateKind::Container
                             ? reference.owner_id == highlighted->owner_id ||
                                 ((highlighted->semantic_key == "plane" ||
@@ -4622,7 +4651,8 @@ if (impl_->show_origins) {
                                     highlighted->owner_id + ":entity")
                             : reference.owner_id == highlighted->owner_id &&
                               reference.semantic_key == highlighted->semantic_key;
-                    if (!matches || reference.instance_path != highlighted->instance_path ||
+                    if (!matches || (highlighted->kind != CandidateKind::Occurrence &&
+                        reference.instance_path != highlighted->instance_path) ||
                         triangle * 3 + 2 >= triangles.size()) continue;
                     const auto first = triangles[triangle * 3];
                     const auto second = triangles[triangle * 3 + 1];
@@ -5151,7 +5181,14 @@ void MeshView::mousePressEvent(QMouseEvent* event) {
         // rebuild the tree or scene, but that must not invalidate a gesture
         // that was already unambiguously requested by this press.
         const auto drag_ray = ray_at(event->position());
-        const bool drag_started = impl_->drag_begin_callback && drag_ray
+        // A dimension click also opens its value editor on double click.
+        // Defer the modeling gesture until the pointer crosses the drag
+        // threshold, so click jitter cannot change a value or rebuild the scene.
+        const bool defer_dimension_drag = pressed_candidate.kind == CandidateKind::Dimension;
+        impl_->pending_dimension_drag = defer_dimension_drag
+            ? std::optional{pressed_candidate} : std::nullopt;
+        impl_->dimension_drag_press_position = event->position();
+        const bool drag_started = !defer_dimension_drag && impl_->drag_begin_callback && drag_ray
             ? impl_->drag_begin_callback(
                   pressed_candidate, drag_ray->first, drag_ray->second)
             : false;
@@ -5230,6 +5267,7 @@ void MeshView::mousePressEvent(QMouseEvent* event) {
 }
 
 void MeshView::mouseDoubleClickEvent(QMouseEvent* event) {
+    impl_->pending_dimension_drag.reset();
     impl_->layout_drag.reset();
     impl_->last_pointer = event->position().toPoint();
     if (event->button() == Qt::MiddleButton) {
@@ -5340,6 +5378,18 @@ void MeshView::mouseMoveEvent(QMouseEvent* event) {
         }
         return;
     }
+    if ((event->buttons() & Qt::LeftButton) && impl_->pending_dimension_drag) {
+        if ((event->position() - impl_->dimension_drag_press_position).manhattanLength()
+            < QApplication::startDragDistance()) {
+            event->accept();
+            return;
+        }
+        const auto candidate = *impl_->pending_dimension_drag;
+        impl_->pending_dimension_drag.reset();
+        const auto ray = ray_at(impl_->dimension_drag_press_position);
+        impl_->drag_active = impl_->drag_begin_callback && ray &&
+            impl_->drag_begin_callback(candidate, ray->first, ray->second);
+    }
     if ((event->buttons() & Qt::LeftButton) && impl_->drag_active) {
         if (impl_->drag_update_callback) {
             const auto ray = ray_at(event->position());
@@ -5447,6 +5497,7 @@ void MeshView::mouseMoveEvent(QMouseEvent* event) {
 }
 
 void MeshView::mouseReleaseEvent(QMouseEvent* event) {
+    if (event->button() == Qt::LeftButton) impl_->pending_dimension_drag.reset();
     if(impl_->layout_drag&&event->button()==Qt::RightButton){event->accept();return;}
     if(event->button()==Qt::LeftButton&&impl_->layout_drag){auto drag=*impl_->layout_drag;impl_->layout_drag.reset();if(drag.moved&&impl_->dimension_layout_commit)impl_->dimension_layout_commit(drag.source.reference,drag.current);event->accept();return;}
     if (event->button() == Qt::LeftButton && impl_->sketch_box_start) {

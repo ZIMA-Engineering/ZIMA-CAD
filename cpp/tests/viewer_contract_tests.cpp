@@ -15,6 +15,20 @@ void require(bool condition, const char* message) {
 int main() {
     try {
         {
+            zima::kernel::ViewerMesh imported;
+            imported.vertices={{-2,-2,2},{2,-2,2},{0,2,2}, {-2,-2,5},{2,-2,5},{0,2,5}};
+            imported.triangles={0,1,2,3,4,5};
+            imported.triangle_references={{"","","front"},{"rear-body","rear-face","rear"}};
+            const auto all=zima::viewer::ordered_viewer_candidates(imported,{0,0,0},{0,0,1},.001);
+            const auto occurrences=zima::viewer::filter_candidates(all,{zima::viewer::CandidateKind::Occurrence});
+            require(occurrences.size()==2&&occurrences[0].instance_path=="front"&&occurrences[1].instance_path=="rear",
+                "Unreferenced front surface disappeared or offered the rear occurrence first");
+            for(const auto& c:all)require(c.instance_path!="front"||c.kind==zima::viewer::CandidateKind::Occurrence,
+                "Unreferenced display geometry became a persistent topology candidate");
+            require(zima::viewer::occurrence_candidate(imported,"front").has_value(),
+                "Tree confirmation cannot resolve an occurrence without topology references");
+        }
+        {
             zima::kernel::ViewerMesh copy;copy.vertices={{-1,-1,5},{1,-1,5},{0,1,5}};copy.triangles={0,1,2};
             copy.triangle_references={{"copy","container:display",{}}};
             const auto candidates=zima::viewer::ordered_viewer_candidates(copy,{0,0,0},{0,0,1},0.01);
@@ -139,6 +153,20 @@ int main() {
                     zima::viewer::candidate_recolors_wire_edge(
                         local_part_body, second_occurrence_wire),
                 "Part Body Tree selection did not recolour its existing full wire");
+        {
+            auto child=first_occurrence_wire;child.reference.instance_path="5:first3:sub4:part";
+            auto sibling=child;sibling.reference.instance_path="6:second3:sub4:part";
+            require(zima::viewer::candidate_recolors_wire_edge(first_occurrence,child)&&
+                !zima::viewer::candidate_recolors_wire_edge(first_occurrence,sibling),
+                "Parent selection did not highlight exactly its descendant occurrence wires");
+            zima::kernel::ViewerMesh nested;
+            nested.triangle_references={{"","","5:first3:sub4:part"}};
+            for(const auto& path:{"5:first3:sub4:part","5:first3:sub","5:first"}) {
+                const auto selected=zima::viewer::occurrence_candidate(nested,path);
+                require(selected&&selected->instance_path==path,
+                    "Repeated parent selection cannot resolve descendants of a subassembly");
+            }
+        }
         const zima::kernel::ViewerEdge sketch_wire{
             {{-1.0, 0.0, 7.0}, {1.0, 0.0, 7.0}},
             {"sketch", "segment:profile", {}}};
@@ -591,12 +619,12 @@ int main() {
             separated_candidates, {zima::viewer::CandidateKind::Container});
         require(separated_occurrences.size() == 1 &&
                     separated_occurrences.front().geometry ==
-                        zima::viewer::CandidateGeometry::OriginalReference &&
+                        zima::viewer::CandidateGeometry::Display &&
                     separated_containers.size() == 1 &&
                     separated_containers.front().owner_id == "original-box" &&
                     separated_containers.front().geometry ==
                         zima::viewer::CandidateGeometry::OriginalReference,
-                "Leaf selection preferred transient result-body topology");
+                "Occurrence picking lost visible depth or container topology ownership");
         auto local_part = separated;
         local_part.triangle_references.front().instance_path.clear();
         local_part.original_references.triangle_references.front()

@@ -20,6 +20,29 @@ void require(bool condition, const char* message) {
 int main() {
     try {
         {
+            namespace fs=std::filesystem;
+            auto part=zima::document::PartDocument::create_default();
+            const auto directory=fs::temp_directory_path()/("zima-nested-open-"+part.document_id);
+            fs::create_directories(directory/"nested");
+            auto sub=zima::assembly::AssemblyDocument::create_default();
+            auto leaf=zima::assembly::AssemblyDocument::create_part_occurrence("leaf",part.document_id,"leaf.prtz",{});
+            sub.components.push_back(leaf);sub.save(directory/"nested/sub.asmz");
+            auto top=zima::assembly::AssemblyDocument::create_default();
+            auto group=zima::assembly::AssemblyDocument::create_assembly_occurrence("group",sub.document_id,"nested/sub.asmz",sub);
+            top.components.push_back(group);
+            zima::workspace::Workspace workspace;
+            workspace.add_assembly(top,directory/"top.asmz");
+            const zima::assembly::InstancePath path{{group.occurrence_id,leaf.occurrence_id}};
+            require(workspace.occurrence_source_file(top.document_id,path)==directory/"nested/leaf.prtz",
+                "Cannot resolve nested Part source through an unopened relative Assembly");
+            require(workspace.documents().size()==1,"Source lookup opened or activated a dependency");
+            sub.components.front().source_path="edited.prtz";
+            workspace.add_assembly(sub,directory/"nested/sub.asmz");
+            require(workspace.occurrence_source_file(top.document_id,path)==directory/"nested/edited.prtz",
+                "Source lookup ignored the open owning document");
+            fs::remove_all(directory);
+        }
+        {
             using namespace zima;
             auto part=document::PartDocument::create_default();
             part.physical_parameters["MASS_DENSITY"]="7850";part.physical_parameter_units["MASS_DENSITY"]="kg/m^3";

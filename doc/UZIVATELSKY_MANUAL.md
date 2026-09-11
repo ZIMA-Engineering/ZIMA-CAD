@@ -279,9 +279,12 @@ její hodnotu. Vlastnosti kóty jsou v jejím kontextovém menu.
 Po potvrzení již pravé tlačítko necykluje, ale otevře kontextové menu vybraného
 objektu. U vnořené komponenty obsahuje příkaz **Vybrat rodiče**. Každé jeho
 použití posune výběr právě o jednu úroveň výše; opakováním lze projít od Partu
-přes všechny vnořené sestavy až k nejvyšší vložené komponentě. Strom a pohled
+přes všechny vnořené sestavy až ke kořeni zobrazené sestavy. Vybraná podsestava
+se zvýrazní včetně svých dílů, ostatní výskyty zůstanou neoznačené. Strom a pohled
 zůstávají synchronizované a každé opakované vložení stejného zdrojového souboru
-se rozlišuje vlastní cestou instance.
+se rozlišuje vlastní cestou instance. Příkaz **Otevřít** je dostupný také u
+vnořeného dílu, jehož nadřazená podsestava není otevřená; zdrojový soubor se
+dohledá přes uloženou hierarchii bez regenerace sestavy.
 
 Při aktivním výběrovém příkazu platí jeho užší filtr. Pravé tlačítko nadále
 cykluje kandidáty tohoto příkazu a běžné kontextové menu se otevře až po jeho

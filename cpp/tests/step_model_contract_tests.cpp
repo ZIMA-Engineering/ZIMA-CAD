@@ -2,6 +2,13 @@
 #include <zima/interchange/step.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 #include <BRepPrimAPI_MakeBox.hxx>
+#include <BRepBuilderAPI_MakeFace.hxx>
+#include <BRep_Builder.hxx>
+#include <BRepTools.hxx>
+#include <TopoDS_Compound.hxx>
+#include <TopExp_Explorer.hxx>
+#include <gp_Pln.hxx>
+#include <sstream>
 #include <STEPCAFControl_Writer.hxx>
 #include <DESTEP_Parameters.hxx>
 #include <TDocStd_Document.hxx>
@@ -93,6 +100,37 @@ int main() {
         const auto bodies=interchange::import_step_part(document::PartDocument::create_default(),{},directory/"bodies.step");
         require(bodies.document.body_history.bodies().size()==5,"Part export merged separate Bodies");
         same_bounds(expected,bodies.calculated.back().mesh.vertices);
+        // One product with a solid and a sheet is a Part, even when XCAF
+        // expands its compound representation. Repeated uses share that Part.
+        Handle(TDocStd_Document) mixed_doc;
+        const auto mixed_app=XCAFApp_Application::GetApplication();
+        mixed_app->NewDocument("BinXCAF",mixed_doc);
+        const auto mixed_shapes=XCAFDoc_DocumentTool::ShapeTool(mixed_doc->Main());
+        BRep_Builder mixed_builder;TopoDS_Compound mixed_shape, mixed_root;
+        mixed_builder.MakeCompound(mixed_shape);mixed_builder.MakeCompound(mixed_root);
+        mixed_builder.Add(mixed_shape,BRepPrimAPI_MakeBox(10,20,30).Shape());
+        mixed_builder.Add(mixed_shape,BRepBuilderAPI_MakeFace(gp_Pln(gp_Pnt(0,0,35),gp_Dir(0,0,1)),0,10,0,20).Shape());
+        const auto screw_label=mixed_shapes->AddShape(mixed_shape,false);
+        TDataStd_Name::Set(screw_label,"Solid with thread sheet");
+        const auto mixed_root_label=mixed_shapes->AddShape(mixed_root,true);
+        mixed_shapes->AddComponent(mixed_root_label,screw_label,TopLoc_Location());
+        gp_Trsf second_screw;second_screw.SetTranslation(gp_Vec(40,0,0));
+        mixed_shapes->AddComponent(mixed_root_label,screw_label,TopLoc_Location(second_screw));
+        mixed_shapes->UpdateAssemblies();
+        STEPCAFControl_Writer mixed_writer;
+        const auto mixed_path=directory/"solid-and-sheet.step";
+        require(mixed_writer.Transfer(mixed_doc)&&mixed_writer.Write(mixed_path.string().c_str())==IFSelect_RetDone,"Cannot write solid/sheet fixture");
+        mixed_app->Close(mixed_doc);
+        const auto mixed=interchange::import_step_assembly(mixed_path,directory,{});
+        require(mixed.parts.size()==1&&mixed.assemblies.size()==1,"Solid and sheet became separate Parts or a fake subassembly");
+        require(mixed.assemblies.front().document.components.size()==2,"Repeated mixed product occurrences were lost");
+        TopoDS_Shape restored_mixed;
+        std::istringstream mixed_brep(mixed.parts.front().calculated.back().kernel_shape);
+        BRepTools::Read(restored_mixed,mixed_brep,mixed_builder);
+        int solid_count=0,face_count=0;
+        for(TopExp_Explorer e(restored_mixed,TopAbs_SOLID);e.More();e.Next())++solid_count;
+        for(TopExp_Explorer e(restored_mixed,TopAbs_FACE);e.More();e.Next())++face_count;
+        require(solid_count==1&&face_count==7,"Single Part lost its solid or auxiliary sheet");
         // An independently written inch STEP must become exactly 25.4 x 50.8 x 76.2 mm.
         Handle(TDocStd_Document) inch_doc;const auto app=XCAFApp_Application::GetApplication();app->NewDocument("BinXCAF",inch_doc);
         XCAFDoc_DocumentTool::SetLengthUnit(inch_doc,0.001);

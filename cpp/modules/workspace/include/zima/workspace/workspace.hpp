@@ -80,6 +80,11 @@ public:
     [[nodiscard]] std::optional<OccurrenceAddress> resolve_occurrence(
         const std::string& top_assembly_document_id,
         const zima::assembly::InstancePath& instance_path) const;
+    // Explicit Open only: resolves relative paths through unopened source assemblies.
+    // Reads saved documents without activating them or regenerating dependencies.
+    [[nodiscard]] std::optional<std::filesystem::path> occurrence_source_file(
+        const std::string& top_assembly_document_id,
+        const zima::assembly::InstancePath& instance_path) const;
     // Resolve read-only derived occurrences to their editable source using
     // persisted snapshots, including copies inside nested assemblies.
     [[nodiscard]] zima::assembly::InstancePath derived_source_path(

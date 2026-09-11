@@ -31,6 +31,13 @@ adresář s číselným příponovým označením a nepřepíše předchozí imp
 Soubor bez původní hierarchie vytvoří plochou sestavu. Samostatný STEP Part
 se také vloží přes kořenovou STEP sestavu.
 
+Jeden zdrojový STEP produkt zůstává jedním Partem i tehdy, když obsahuje
+solid a samostatné plochy (například pomocné plochy závitu šroubu).
+Geometrické položky jednoho produktu nevytvářejí falešnou podsestavu.
+Skutečné podsestavy se rozlišují podle produktových vazeb v původním STEP,
+nikoli podle počtu těles nebo ploch. Toto seskupení platí také pro import do Partu.
+Změna se projeví při novém importu; již uložené sestavy automaticky nepřestavuje.
+
 ## Export
 
 **Soubor → Exportovat → STEP** používá aktuální vypočtený stav dokumentu.

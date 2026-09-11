@@ -27781,7 +27781,7 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
         try {
             if(parameter_value_locked(candidate.owner_id,candidate.semantic_key).value_or(false))throw std::runtime_error(tr("Hodnota je zamčená.").toStdString());
             if(candidate.semantic_key.starts_with("placement-reference:")){
-                if(candidate.owner_id!=workspace_.active_document_id()||properties_dialog_)
+                if(candidate.owner_id!=workspace_.active_document_id()||(properties_dialog_ && !component_placement_dialog_))
                     throw std::runtime_error("Kóta nepatří aktivní sestavě.");
                 auto* source=workspace_.open_assembly(candidate.owner_id);
                 if(!source)throw std::runtime_error("Sestava již není dostupná.");
@@ -27790,6 +27790,23 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                 auto next=source->session.document();
                 auto* occurrence=next.find_occurrence(candidate.semantic_key.substr(20,separator-20));
                 const auto index=std::stoul(candidate.semantic_key.substr(separator+1));
+                if (component_placement_dialog_) {
+                    if (component_placement_assembly_document_id_ != candidate.owner_id ||
+                        component_placement_dialog_->occurrence_id() != candidate.semantic_key.substr(20,separator-20))
+                        throw std::runtime_error("Kóta nepatří upravované komponentě.");
+                    auto references = component_placement_dialog_->pending_value().placement_references;
+                    if (index >= references.size()) throw std::runtime_error("Reference kóty již neexistuje.");
+                    auto& pending = references[index];
+                    if (pending.offset_locked) throw std::runtime_error("Hodnota je zamčená.");
+                    if ((pending.lower_limit && next_value < *pending.lower_limit) ||
+                        (pending.upper_limit && next_value > *pending.upper_limit))
+                        throw std::runtime_error("Hodnota je mimo povolené meze.");
+                    pending.offset = next_value;
+                    guarded->hide();
+                    component_placement_dialog_->set_placement_references(std::move(references));
+                    guarded->deleteLater();
+                    return;
+                }
                 if(!occurrence||index>=occurrence->placement_references.size())
                     throw std::runtime_error("Reference kóty již neexistuje.");
                 auto& row=occurrence->placement_references[index];
@@ -28611,12 +28628,8 @@ bool AssemblyWorkspaceWindow::open_component_source(const std::string& instance_
             refresh_scene();
             return true;
         }
-        const auto* owner=workspace_.open_assembly(address->owner_assembly_document_id);
-        const auto* occurrence=owner ? owner->session.document().find_occurrence(address->occurrence_id) : nullptr;
-        if (!occurrence || occurrence->source_path.empty()) return false;
-        auto path=occurrence->source_path;
-        if(path.is_relative())path=owner->path.parent_path()/path;
-        return open_document_path(QString::fromStdString(path.string()));
+        const auto file = workspace_.occurrence_source_file(top, source);
+        return file && open_document_path(QString::fromStdString(file->string()));
     } catch(const std::exception& error) {
         state_->setText(QString::fromUtf8(error.what()));
         return false;
@@ -28637,17 +28650,31 @@ void AssemblyWorkspaceWindow::show_component_context_menu(
     auto* assembly = workspace_.open_assembly(address->owner_assembly_document_id);
     if(properties_dialog_!=nullptr)return;
     const auto selected_path=zima::assembly::InstancePath::decode(instance_path);
+    const auto select_parent_occurrence = [this, selected_path] {
+        auto parent = selected_path;
+        if (parent.occurrence_ids.empty()) return;
+        parent.occurrence_ids.pop_back();
+        select_occurrence(parent.encoded());
+        if (parent.occurrence_ids.empty()) viewer_->confirm_result_body();
+        else viewer_->confirm_occurrence(parent.encoded());
+    };
     const auto selected_parent=selected_path.parent();
     const bool copied_context=selected_parent&&workspace_.derived_source_path(workspace_.displayed_document_id(),*selected_parent)!=*selected_parent;
     if(assembly==nullptr||copied_context) {
         const auto path=selected_path;
         const auto source=workspace_.derived_source_path(workspace_.displayed_document_id(),path);
-        if(source==path)return;
-        QMenu menu(this);auto* open=menu.addAction(resource_icon("open"),tr("Otevřít"));open->setObjectName("openComponentSourceAction");auto* properties=menu.addAction(tr("Vlastnosti zdroje"));auto* parent=menu.addAction(tr("Vybrat rodiče"));
+        // A persisted nested occurrence is still openable when its owning
+        // subassembly has not been opened as an editing document.
+        QMenu menu(this);
+        auto* open=menu.addAction(resource_icon("open"),tr("Otevřít"));
+        open->setObjectName("openComponentSourceAction");
+        auto* properties=source!=path?menu.addAction(tr("Vlastnosti zdroje")):nullptr;
+        auto* parent=menu.addAction(tr("Vybrat rodiče"));
+        parent->setObjectName("selectParentOccurrenceAction");
         const auto* selected=menu.exec(global_position);
         if(selected==open)static_cast<void>(open_component_source(instance_path));
-        else if(selected==properties)show_component_properties(source.encoded());
-        else if(selected==parent&&path.parent()){viewer_->confirm_occurrence(path.parent()->encoded());select_occurrence(path.parent()->encoded());}
+        else if(properties&&selected==properties)show_component_properties(source.encoded());
+        else if(selected==parent)select_parent_occurrence();
         return;
     }
     const auto* occurrence = assembly->session.document().find_occurrence(
@@ -28661,10 +28688,8 @@ void AssemblyWorkspaceWindow::show_component_context_menu(
     QMenu menu(this);
     auto* open = menu.addAction(resource_icon("open"),tr("Otevřít"));
     open->setObjectName("openComponentSourceAction");
-    const auto parent_path =
-        zima::assembly::InstancePath::decode(instance_path).parent();
-    auto* select_parent = parent_path
-        ? menu.addAction(tr("Vybrat rodiče")) : nullptr;
+    auto* select_parent = menu.addAction(tr("Vybrat rodiče"));
+    select_parent->setObjectName("selectParentOccurrenceAction");
     auto* activate_or_deactivate = is_active_occurrence
         ? menu.addAction(tr("Zpět do sestavy"))
         : menu.addAction(tr("Aktivní"));
@@ -28686,10 +28711,8 @@ void AssemblyWorkspaceWindow::show_component_context_menu(
         if(!open_component_source(instance_path)) state_->setText(tr("Zdrojový dokument komponenty nelze otevřít."));
         return;
     }
-    if (selected == select_parent && parent_path) {
-        const std::string encoded = parent_path->encoded();
-        viewer_->confirm_occurrence(encoded);
-        select_occurrence(encoded);
+    if (selected == select_parent) {
+        select_parent_occurrence();
         return;
     }
     if (selected == activate_or_deactivate) {
